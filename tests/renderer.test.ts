@@ -5,6 +5,7 @@ const mock = vi.hoisted(() => {
   const options: ITerminalOptions = {};
   return {
     options,
+    dark: true,
     osc: vi.fn<(code: number, callback: (data: string) => boolean) => void>(),
     change: vi.fn<(event: string, callback: () => void) => void>(),
     removeChange: vi.fn(),
@@ -23,6 +24,8 @@ const mock = vi.hoisted(() => {
     onExit: vi.fn<(callback: (id: string, code: number) => void) => () => void>(),
     create: vi.fn<(cols: number, rows: number) => Promise<{ id: string; title: string }>>(),
     attach: vi.fn(),
+    detach: vi.fn(),
+    key: vi.fn<(handler: (event: KeyboardEvent) => boolean) => void>(),
     kill: vi.fn(),
     input: vi.fn(),
     resize: vi.fn(),
@@ -49,6 +52,7 @@ vi.mock("@xterm/xterm", () => ({
     focus = mock.focus;
     dispose = mock.dispose;
     onData = mock.onInput;
+    attachCustomKeyEventHandler = mock.key;
     parser = {
       registerCsiHandler: vi.fn(),
       registerOscHandler: mock.osc,
@@ -65,7 +69,7 @@ beforeEach(() => {
   vi.resetModules();
   vi.clearAllMocks();
   document.body.innerHTML =
-    '<main id="terminal"></main><span id="status"></span><button id="restart"></button>';
+    '<main id="terminal"></main><span id="status"></span><button id="restart"></button><button id="toggle-terminal"></button>';
   Object.defineProperty(window, "desktop", { configurable: true, value: mock });
   vi.stubGlobal(
     "ResizeObserver",
@@ -78,11 +82,20 @@ beforeEach(() => {
     },
   );
   vi.stubGlobal("matchMedia", () => ({
+    get matches() {
+      return mock.dark;
+    },
     addEventListener: mock.change,
     removeEventListener: mock.removeChange,
   }));
   Object.defineProperty(document, "fonts", { configurable: true, value: { load: mock.fonts } });
+  mock.dark = true;
   mock.fonts.mockResolvedValue([]);
+  mock.attach.mockResolvedValue(undefined);
+  mock.detach.mockResolvedValue(undefined);
+  mock.write.mockImplementation((_data, done) => {
+    done();
+  });
   document.documentElement.style.setProperty("--bg", "#05040A");
   document.documentElement.style.setProperty("--ink", "#F4EFFF");
   mock.create.mockResolvedValue({ id: "one", title: "bash — /project" });
@@ -98,6 +111,8 @@ test("starts at fitted dimensions, routes input/output, resizes and disposes", a
   expect(document.querySelector("#status")?.textContent).toBe("bash — /project");
   mock.onInput.mock.calls[0]?.[0]("\u0003");
   expect(mock.input).toHaveBeenCalledWith("one", "\u0003");
+  mock.write.mockClear();
+  mock.write.mockImplementation(() => {});
   mock.onData.mock.calls[0]?.[0]("one", "view", "hello");
   expect(mock.acknowledge).not.toHaveBeenCalled();
   mock.write.mock.calls[0]?.[1]();
@@ -138,10 +153,13 @@ test.each([new Error("broken"), "broken"])(
     expect(document.querySelector<HTMLButtonElement>("#restart")?.disabled).toBe(false);
   },
 );
-test.each(["terminal", "status", "restart"])("requires the %s element", async (id) => {
-  document.getElementById(id)?.remove();
-  await expect(import("../src/renderer/renderer")).rejects.toThrow("Missing terminal elements");
-});
+test.each(["terminal", "status", "restart", "toggle-terminal"])(
+  "requires the %s element",
+  async (id) => {
+    document.getElementById(id)?.remove();
+    await expect(import("../src/renderer/renderer")).rejects.toThrow("Missing terminal elements");
+  },
+);
 
 test("ignores other sessions and preserves the ID in delayed draw acknowledgements", async () => {
   await import("../src/renderer/renderer");
@@ -152,16 +170,20 @@ test("ignores other sessions and preserves the ID in delayed draw acknowledgemen
   });
   mock.onData.mock.calls[0]?.[0]("foreign", "old", "ignored");
   mock.onExit.mock.calls[0]?.[0]("foreign", 9);
-  expect(mock.write).not.toHaveBeenCalled();
+  expect(mock.write).not.toHaveBeenCalledWith("ignored", expect.any(Function));
   expect(document.querySelector("#status")?.textContent).toBe("bash — /project");
 });
 
 test("derives terminal colors from CSS and follows system theme changes", async () => {
   await import("../src/renderer/renderer");
   expect(mock.options.fontFamily).toBe('"Geist Mono", monospace');
-  expect(mock.options.theme).toMatchObject({ background: "#05040A", foreground: "#F4EFFF" });
+  await vi.waitFor(() => {
+    expect(mock.focus).toHaveBeenCalled();
+  });
+  expect(mock.options.theme).toMatchObject({ background: "#05040a", foreground: "#f4efff" });
   document.documentElement.style.setProperty("--bg", "#F3F0FA");
   document.documentElement.style.setProperty("--ink", "#14101F");
+  mock.dark = false;
   mock.change.mock.calls[0]?.[1]();
   expect(mock.options.theme).toMatchObject({ background: "#f3f0fa", foreground: "#14101f" });
 });
@@ -202,4 +224,114 @@ test("applies mixed color sets and suppresses protocol replies at the parser wit
   expect(mock.input).not.toHaveBeenCalled();
   mock.onInput.mock.calls[0]?.[0]("pasted text");
   expect(mock.input).toHaveBeenCalledWith("one", "pasted text");
+});
+
+test("repeated hide/open cycles retain one subscription and gate hidden input and resizing", async () => {
+  await import("../src/renderer/renderer");
+  await vi.waitFor(() => {
+    expect(mock.focus).toHaveBeenCalled();
+  });
+  const button = document.querySelector<HTMLButtonElement>("#toggle-terminal");
+  for (let cycle = 0; cycle < 5; cycle++) {
+    button?.click();
+    await vi.waitFor(() => {
+      expect(button?.disabled).toBe(false);
+    });
+    expect(document.querySelector<HTMLElement>("#terminal")?.hidden).toBe(true);
+    expect(button?.getAttribute("aria-expanded")).toBe("false");
+    expect(document.activeElement).toBe(button);
+    mock.write.mockClear();
+    mock.input.mockClear();
+    mock.resize.mockClear();
+    mock.onData.mock.calls[0]?.[0]("one", "old", "hidden output");
+    mock.onInput.mock.calls[0]?.[0]("hidden input");
+    mock.resizeCallback.mock.calls[0]?.[0]();
+    expect(mock.write).not.toHaveBeenCalled();
+    expect(mock.input).not.toHaveBeenCalled();
+    expect(mock.resize).not.toHaveBeenCalled();
+    button?.click();
+    await vi.waitFor(() => {
+      expect(button?.disabled).toBe(false);
+    });
+    expect(document.querySelector<HTMLElement>("#terminal")?.hidden).toBe(false);
+    expect(button?.getAttribute("aria-expanded")).toBe("true");
+    expect(mock.resize).toHaveBeenCalledWith("one", 80, 24);
+  }
+  expect(mock.create).toHaveBeenCalledOnce();
+  expect(mock.attach).toHaveBeenCalledTimes(6);
+  expect(mock.detach).toHaveBeenCalledTimes(5);
+  expect(mock.onData).toHaveBeenCalledOnce();
+  expect(mock.onExit).toHaveBeenCalledOnce();
+  expect(mock.onInput).toHaveBeenCalledOnce();
+});
+
+test("Escape hides without reaching the PTY; repeated keys cannot overlap transitions", async () => {
+  await import("../src/renderer/renderer");
+  await vi.waitFor(() => {
+    expect(mock.focus).toHaveBeenCalled();
+  });
+  const key = mock.key.mock.calls[0]?.[0];
+  expect(key?.(new KeyboardEvent("keydown", { key: "a" }))).toBe(true);
+  expect(key?.(new KeyboardEvent("keydown", { key: "Escape" }))).toBe(false);
+  key?.(new KeyboardEvent("keydown", { key: "Escape" }));
+  expect(key?.(new KeyboardEvent("keyup", { key: "Escape" }))).toBe(false);
+  expect(mock.detach).toHaveBeenCalledOnce();
+  expect(mock.input).not.toHaveBeenCalled();
+  await vi.waitFor(() => {
+    expect(document.querySelector<HTMLButtonElement>("#toggle-terminal")?.disabled).toBe(false);
+  });
+});
+
+test.each([new Error("unavailable"), "unavailable"])(
+  "failed view transitions allow retry: %s",
+  async (error) => {
+    await import("../src/renderer/renderer");
+    await vi.waitFor(() => {
+      expect(mock.focus).toHaveBeenCalled();
+    });
+    mock.detach.mockRejectedValueOnce(error);
+    const button = document.querySelector<HTMLButtonElement>("#toggle-terminal");
+    button?.click();
+    await vi.waitFor(() => {
+      expect(button?.disabled).toBe(false);
+    });
+    expect(document.querySelector("#status")?.textContent).toBe(
+      "Unable to change terminal view: unavailable",
+    );
+    mock.attach.mockRejectedValueOnce(error);
+    button?.click();
+    await vi.waitFor(() => {
+      expect(button?.disabled).toBe(false);
+    });
+    expect(button?.textContent).toBe("Open terminal");
+    button?.click();
+    await vi.waitFor(() => {
+      expect(button?.disabled).toBe(false);
+    });
+    expect(button?.textContent).toBe("Hide terminal");
+  },
+);
+
+test("drains pending writes before resetting and attaching a fresh snapshot", async () => {
+  await import("../src/renderer/renderer");
+  await vi.waitFor(() => {
+    expect(mock.focus).toHaveBeenCalled();
+  });
+  const button = document.querySelector<HTMLButtonElement>("#toggle-terminal");
+  button?.click();
+  await vi.waitFor(() => {
+    expect(button?.disabled).toBe(false);
+  });
+  mock.write.mockImplementation(() => {});
+  mock.reset.mockClear();
+  button?.click();
+  expect(button?.disabled).toBe(true);
+  expect(mock.reset).not.toHaveBeenCalled();
+  expect(mock.attach).toHaveBeenCalledOnce();
+  mock.write.mock.calls.at(-1)?.[1]();
+  await vi.waitFor(() => {
+    expect(button?.disabled).toBe(false);
+  });
+  expect(mock.reset).toHaveBeenCalledOnce();
+  expect(mock.attach).toHaveBeenLastCalledWith("one");
 });
