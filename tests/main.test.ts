@@ -1,18 +1,30 @@
-import type { BrowserWindowConstructorOptions } from "electron";
+import type { BrowserWindowConstructorOptions, Input } from "electron";
 import { beforeEach, expect, test, vi } from "vitest";
 
 vi.mock("../src/terminal", () => ({ attachTerminal: vi.fn() }));
 
+type ShortcutInput = Pick<Input, "type" | "key" | "control" | "shift" | "alt" | "meta">;
+
 const mock = vi.hoisted(() => {
   const appEvents = new Map<string, () => void>();
-  const windowEvents = new Map<string, (event: { preventDefault(): void }) => void>();
+  const windowEvents = new Map<
+    string,
+    (event: { preventDefault(): void }, input?: ShortcutInput) => void
+  >();
   const readyEvents = new Map<string, () => void>();
   const window = {
     webContents: {
+      copy: vi.fn(),
+      paste: vi.fn(),
       setWindowOpenHandler: vi.fn<(handler: () => { action: "deny" }) => void>(),
-      on: vi.fn((name: string, handler: (event: { preventDefault(): void }) => void) => {
-        windowEvents.set(name, handler);
-      }),
+      on: vi.fn(
+        (
+          name: string,
+          handler: (event: { preventDefault(): void }, input?: ShortcutInput) => void,
+        ) => {
+          windowEvents.set(name, handler);
+        },
+      ),
     },
     once: vi.fn((name: string, handler: () => void) => {
       readyEvents.set(name, handler);
@@ -193,4 +205,44 @@ test("quits with a diagnostic if startup fails", async () => {
   await start();
   expect(log).toHaveBeenCalledWith("Unable to start the application:", error);
   expect(mock.quit).toHaveBeenCalledOnce();
+});
+
+test.each(["c", "C", "v", "V"])("handles Ctrl+Shift+%s without a menu", async (key) => {
+  await start();
+  const event = { preventDefault: vi.fn() };
+  mock.windowEvents.get("before-input-event")?.(event, {
+    type: "keyDown",
+    key,
+    control: true,
+    shift: true,
+    alt: false,
+    meta: false,
+  });
+  expect(event.preventDefault).toHaveBeenCalledOnce();
+  expect(mock.window.webContents.copy).toHaveBeenCalledTimes(key.toLowerCase() === "c" ? 1 : 0);
+  expect(mock.window.webContents.paste).toHaveBeenCalledTimes(key.toLowerCase() === "v" ? 1 : 0);
+});
+
+test.each<Partial<ShortcutInput>>([
+  { type: "keyUp" },
+  { control: false },
+  { shift: false },
+  { alt: true },
+  { meta: true },
+  { key: "w" },
+])("leaves other keys to the terminal (%j)", async (overrides) => {
+  await start();
+  const event = { preventDefault: vi.fn() };
+  mock.windowEvents.get("before-input-event")?.(event, {
+    type: "keyDown",
+    key: "c",
+    control: true,
+    shift: true,
+    alt: false,
+    meta: false,
+    ...overrides,
+  });
+  expect(event.preventDefault).not.toHaveBeenCalled();
+  expect(mock.window.webContents.copy).not.toHaveBeenCalled();
+  expect(mock.window.webContents.paste).not.toHaveBeenCalled();
 });
