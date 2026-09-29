@@ -13,6 +13,8 @@ npm start
 
 The window opens a real interactive shell in the project directory (`$SHELL` on Linux/macOS, PowerShell on Windows). Try `vim`, `top`, or your usual CLI tools; those programs must be installed on your machine. Resizing the window resizes the PTY. Ctrl+C interrupts commands, and full-screen programs use the alternate screen buffer. Type `exit` to end the shell, then use **Restart shell** for a fresh session. Closing the window terminates its PTY. Packaged builds start in your home directory.
 
+On Linux and Windows, select terminal text with the mouse and press **Ctrl+Shift+C** to copy. Press **Ctrl+Shift+V** to paste clipboard text into the terminal. These shortcuts work without an application menu; **Ctrl+C** still interrupts the running command.
+
 This first version has one terminal with 10,000 lines of scrollback. It does not yet create worktrees or restore sessions. Restart `npm start` after editing source files.
 
 `node-pty` is a native dependency. The build corrects executable permissions on its macOS prebuilt spawn helper to work around [node-pty #850](https://github.com/microsoft/node-pty/issues/850). If a prebuilt binary is unavailable, installation/rebuild requires Python and a C++ toolchain (Xcode command line tools on macOS, build-essential on Linux, Visual Studio C++ build tools on Windows).
@@ -52,7 +54,7 @@ Biome owns formatting, and ESLint owns lint rules. Strict TypeScript includes ch
 
 `tests/` contains TypeScript unit tests for the main process, preload, renderer, and coverage-reporting tools. Tests exercise IPC trust boundaries, asset restrictions, permissions, startup failures, UI pending/error states, and bridge response validation. Electron is mocked in unit tests; jsdom provides the UI environment.
 
-`test/app.test.js` is a separate real Electron smoke test for real shell I/O, exit/restart, the isolated bridge, sandbox settings, asset restrictions, and popup blocking. On Linux/macOS it also checks TTY support, Ctrl+C, vim, and top; these tools must be installed. On Linux, use a graphical session or `xvfb-run -a npm run test:electron` with Electron's system libraries installed. Keep Chromium's sandbox enabled.
+`test/app.test.js` is a separate real Electron smoke test for real shell I/O, exit/restart, the isolated bridge, sandbox settings, asset restrictions, and popup blocking. On Linux and Windows it verifies mouse selection and Ctrl+Shift+C / Ctrl+Shift+V against the native clipboard and a real shell. On Linux/macOS it also checks TTY support, Ctrl+C, vim, and top; these tools must be installed. On Linux, use a graphical session or `xvfb-run -a npm run test:electron` with Electron's system libraries installed. Keep Chromium's sandbox enabled.
 
 Coverage includes every executable TypeScript file under `src/`, including files no test imports. Only `.d.ts` declarations are excluded. Each file must reach **90% lines, statements, and functions, and 85% branches**. Open `coverage/index.html` after running coverage. This is unit-test coverage; it does not imply the real Electron process was instrumented.
 
