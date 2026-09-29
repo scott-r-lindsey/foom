@@ -31,6 +31,8 @@ export class TerminalHostClient {
   private readonly pending = new Map<number, Pending>();
   private sequence = 0;
   private disposed = false;
+  private shuttingDown = false;
+  private stopping: Promise<void> | undefined;
   private closing: Promise<void> | undefined;
 
   constructor(private readonly onExit: (id: string, code: number) => void) {}
@@ -92,9 +94,12 @@ export class TerminalHostClient {
     if (!hostRequest(message)) throw new Error("Invalid terminal host request");
     const child = this.start();
     return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => {
-        this.fail(child);
-      }, 10000);
+      const timer = setTimeout(
+        () => {
+          this.fail(child);
+        },
+        command.type === "shutdown" ? 15000 : 10000,
+      );
       this.pending.set(request, { id: command.id, resolve, reject, timer });
       try {
         child.postMessage(message);
@@ -105,6 +110,7 @@ export class TerminalHostClient {
   }
 
   async create(spec: TerminalSpec): Promise<string> {
+    if (this.shuttingDown) throw new Error("Terminals are shutting down");
     const id = randomUUID();
     this.sessions.set(id, { alive: true, available: true });
     try {
@@ -154,6 +160,28 @@ export class TerminalHostClient {
     if (this.child && this.sessions.get(id)?.available) await this.request({ type: "kill", id });
     this.sessions.delete(id);
   }
+  get runningCount(): number {
+    return [...this.sessions.values()].filter((session) => session.alive).length;
+  }
+  get hasPendingExits(): boolean {
+    return this.child !== undefined;
+  }
+  waitForExit(): Promise<void> {
+    return this.dispose();
+  }
+  shutdown(): Promise<void> {
+    if (this.stopping) return this.stopping;
+    this.shuttingDown = true;
+    this.stopping = (async () => {
+      if (this.child) await this.request({ type: "shutdown", id: "host" });
+      this.sessions.clear();
+    })().catch((error: unknown) => {
+      this.shuttingDown = false;
+      this.stopping = undefined;
+      throw error;
+    });
+    return this.stopping;
+  }
   dispose(): Promise<void> {
     if (this.closing) return this.closing;
     this.disposed = true;
@@ -166,7 +194,7 @@ export class TerminalHostClient {
       const timer = setTimeout(() => {
         this.fail(child);
         resolve();
-      }, 3000);
+      }, 12000);
       child.once("exit", () => {
         clearTimeout(timer);
         resolve();

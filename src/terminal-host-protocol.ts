@@ -30,12 +30,22 @@ export function hostRequest(value: unknown): value is HostRequest {
         spec["args"].every(
           (arg: unknown) => typeof arg === "string" && arg.length <= 65536 && !arg.includes("\0"),
         ) &&
+        (spec["env"] === undefined ||
+          (record(spec["env"]) &&
+            !Array.isArray(spec["env"]) &&
+            Object.entries(spec["env"]).every(
+              ([key, value]) =>
+                /^[A-Za-z_][A-Za-z0-9_]*$/.test(key) &&
+                typeof value === "string" &&
+                !value.includes("\0"),
+            ))) &&
         integer(spec["cols"], 2, 500) &&
         integer(spec["rows"], 2, 300)
       );
     }
     case "attach":
       return text(value["view"]);
+    case "shutdown":
     case "detach":
     case "kill":
       return true;

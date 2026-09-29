@@ -64,15 +64,21 @@ PR checks additionally require **90% changed executable line coverage**, and fai
 
 `.github/workflows/ci.yml` runs on pushes and pull requests:
 
-1. Independent formatting, lint, typecheck, full dependency audit, and unit-coverage jobs.
-2. Electron launch tests and Forge ZIP packaging on Ubuntu, Windows, and macOS, after the fast checks pass.
-3. A stable **Quality gate** status that requires all jobs to succeed.
+1. One Linux job for formatting, lint, typecheck, full dependency audit, CI policy tests, and change detection, alongside a separate unit-coverage job.
+2. Electron launch tests and Forge ZIP packaging on Ubuntu, Windows, and macOS, after the fast checks pass and when desktop validation is required.
+3. A stable **Quality gate** status that requires both Linux jobs to succeed and desktop validation to pass, or to be explicitly classified as unnecessary and skipped. Failed detection never permits a skip.
 
 CI runs for pull requests and pushes to `main`, avoiding duplicate branch-push runs for PRs. Electron test steps have a three-minute outer deadline; packaging keeps its separate job budget.
 
-CI uploads HTML/LCOV coverage and unsigned platform ZIPs for 14 days. PRs get changed-line annotations and a job summary; same-repository PRs also get one updated coverage comment. Comment permission failures do not bypass the coverage gate. GitHub Actions are pinned to commit SHAs, dependencies use `npm ci`, and Node comes from `.nvmrc`.
+Desktop validation is skipped only when every changed path is `README.md`, `AGENTS.md`, `LICENSE`, `NOTICE`, Markdown under `docs/`, or reference material under `inspiration/`. Reference files are classified by path only; CI never tests or packages their contents. Unknown paths, empty diffs, and manual runs require desktop validation. PR detection uses the merge-base diff against the base branch; pushes compare the previous commit with the new commit. Renames include both old and new paths. Missing comparison history fails the checks job.
+
+CI retains HTML/LCOV coverage for three days. Platform ZIPs are still built and validated on every required desktop run, but are uploaded only when **Actions → CI → Run workflow → upload_packages** is selected. These manually requested ZIPs are retained for three days. PRs get changed-line annotations and a job summary; same-repository PRs also get one updated coverage comment. Comment permission failures do not bypass the coverage gate. GitHub Actions are pinned to commit SHAs, dependencies use `npm ci`, and Node comes from `.nvmrc`.
 
 `main` requires a pull request, an up-to-date branch, and a passing **Quality gate**, including for administrators. No second-person approval is required. Force pushes and deletion are blocked. Linux CI permits unprivileged user namespaces on its ephemeral runner so Chromium can keep its sandbox enabled.
+
+Before pushing, run the required local checks and batch related fixes into one push; avoid repeatedly pushing partial agent work or rerunning an unchanged failed run. Keep cancellation of superseded runs enabled.
+
+Account owners should configure an Actions budget with **Stop usage when budget limit is reached** enabled in GitHub billing settings, plus usage alerts. Budget alerts alone do not stop spending. Review and delete obsolete development artifacts in Actions after preserving any needed downloads; reducing workflow retention affects new uploads, and deleting old artifacts prevents future storage accrual without reversing existing charges. Billing settings and existing artifact cleanup are account operations, not changes this workflow applies. See [GitHub budgets](https://docs.github.com/en/billing/how-tos/set-up-budgets) and [Actions billing](https://docs.github.com/en/billing/concepts/product-billing/github-actions).
 
 Local `package` output goes to `out/`; `make` ZIPs go to `out/make/`. Build on each target OS. These are unsigned development artifacts. Public releases still need your app identifier, icons, installers, signing, and macOS notarization. No automatic public release or deployment is configured.
 

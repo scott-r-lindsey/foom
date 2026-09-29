@@ -165,7 +165,7 @@ test.each(["exit", "timeout", "send failure"])("bounded idempotent shutdown (%s)
   expect(client.dispose()).toBe(closing);
   client.write(id, "ignored");
   if (mode === "exit") child.emit("exit", 0);
-  if (mode === "timeout") await vi.advanceTimersByTimeAsync(3000);
+  if (mode === "timeout") await vi.advanceTimersByTimeAsync(12000);
   await closing;
   expect(exited).not.toHaveBeenCalled();
   expect(vi.getTimerCount()).toBe(0);
@@ -181,4 +181,32 @@ test("a killed session's outstanding barrier response still resolves", async () 
   await attaching;
   child.data(id, "stale");
   expect(vi.getTimerCount()).toBe(0);
+});
+
+test("confirmed shutdown blocks new terminals, waits for the host and permits retry after failure", async () => {
+  const id = await create();
+  expect(client.runningCount).toBe(1);
+  expect(client.hasPendingExits).toBe(true);
+  const shutdown = client.shutdown();
+  expect(client.shutdown()).toBe(shutdown);
+  await expect(client.create(spec)).rejects.toThrow("shutting down");
+  child.reply(undefined, { type: "error" });
+  await expect(shutdown).rejects.toThrow("operation failed");
+  expect(client.runningCount).toBe(1);
+  client.write(id, "still running");
+  child.reply();
+  const retry = client.shutdown();
+  child.reply();
+  await retry;
+  expect(client.runningCount).toBe(0);
+  const exited = client.waitForExit();
+  child.emit("exit", 0);
+  await exited;
+  expect(client.hasPendingExits).toBe(false);
+});
+test("shutdown without a host prevents subsequent creation", async () => {
+  await client.shutdown();
+  expect(client.runningCount).toBe(0);
+  expect(client.hasPendingExits).toBe(false);
+  await expect(client.create(spec)).rejects.toThrow("shutting down");
 });

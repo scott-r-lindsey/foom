@@ -70,3 +70,12 @@ test("rejects malformed host replies and events before main uses them", () => {
   expect(hostResponse({ ...base, type: "exit", code: 0 })).toBe(true);
   expect(hostResponse({ ...base, type: "exit", code: NaN })).toBe(false);
 });
+
+test("validates optional agent environment additions", () => {
+  for (const env of [undefined, {}, { PATH: "/bin", FOOM_TOKEN: "token" }]) {
+    expect(hostRequest({ ...base, type: "create", spec: { ...spec, env } })).toBe(true);
+  }
+  for (const env of [null, [], { PATH: 3 }, { "A=B": "bad" }, { PATH: "a\0b" }]) {
+    expect(hostRequest({ ...base, type: "create", spec: { ...spec, env } })).toBe(false);
+  }
+});

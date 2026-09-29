@@ -4,7 +4,9 @@ import { homedir } from "node:os";
 import { TerminalHostClient } from "./terminal-host-client";
 
 /** The app window owns capabilities for multiple independent main-owned sessions. */
-export function attachTerminal(window: BrowserWindow): void {
+export function attachTerminal(
+  window: BrowserWindow,
+): Pick<TerminalHostClient, "runningCount" | "shutdown"> {
   // Capture before BrowserWindow is destroyed; its getter throws during closed.
   const contents = window.webContents;
   const owned = new Set<string>();
@@ -90,25 +92,49 @@ export function attachTerminal(window: BrowserWindow): void {
   ipcMain.on("terminal:resize", resize);
   ipcMain.on("terminal:ack", acknowledge);
   let quitting = false;
-  const beforeQuit = (event: Event) => {
-    if (quitting) return;
+  const willQuit = (event: Event) => {
+    if (!manager.hasPendingExits) return;
     event.preventDefault();
-    void manager.dispose().then(() => {
-      quitting = true;
-      app.removeListener("before-quit", beforeQuit);
-      app.quit();
-    });
+    if (quitting) return;
+    quitting = true;
+    void manager.dispose();
+    void manager
+      .waitForExit()
+      .then(() => {
+        app.removeListener("will-quit", willQuit);
+        app.quit();
+      })
+      .catch((error: unknown) => {
+        quitting = false;
+        console.error("Unable to finish terminal shutdown:", error);
+      });
   };
-  app.on("before-quit", beforeQuit);
+  app.on("will-quit", willQuit);
   window.once("closed", () => {
     contents.removeListener("render-process-gone", detachViews);
     contents.removeListener("did-start-navigation", navigating);
-    void manager.dispose().then(() => {
-      app.removeListener("before-quit", beforeQuit);
-    });
+    void manager.dispose();
+    void manager
+      .waitForExit()
+      .then(() => {
+        app.removeListener("will-quit", willQuit);
+      })
+      .catch((error: unknown) => {
+        console.error("Unable to finish terminal shutdown:", error);
+      });
     for (const channel of handlers.keys()) ipcMain.removeHandler(channel);
     ipcMain.removeListener("terminal:input", input);
     ipcMain.removeListener("terminal:resize", resize);
     ipcMain.removeListener("terminal:ack", acknowledge);
   });
+  return {
+    get runningCount() {
+      return manager.runningCount;
+    },
+    async shutdown() {
+      await manager.shutdown();
+      // Drop capabilities before queued renderer IPC or teardown callbacks run.
+      owned.clear();
+    },
+  };
 }

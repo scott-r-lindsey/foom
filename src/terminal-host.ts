@@ -13,14 +13,24 @@ const owned = new Set<string>();
 port.on("message", (event: { data: unknown }) => {
   const message = event.data;
   if (message === "shutdown") {
-    manager.dispose();
-    process.exit(0);
+    void manager
+      .shutdown()
+      .then(() => {
+        process.exit(0);
+      })
+      .catch(() => {
+        process.exit(1);
+      });
+    return;
   }
   if (!hostRequest(message)) return;
   const { id, request } = message;
   void (async () => {
     let lines: string[] = [];
-    if (message.type === "create") {
+    if (message.type === "shutdown") {
+      await manager.shutdown();
+      owned.clear();
+    } else if (message.type === "create") {
       if (owned.has(id)) throw new Error("Duplicate terminal");
       manager.create(message.spec, id);
       owned.add(id);

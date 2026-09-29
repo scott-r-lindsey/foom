@@ -1,7 +1,10 @@
-import { app, BrowserWindow, net, protocol, session } from "electron";
+import { app, BrowserWindow, dialog, nativeTheme, net, protocol, session } from "electron";
+import { WorktreeService } from "./worktrees";
 import { attachTerminal } from "./terminal";
 import * as path from "node:path";
 import { pathToFileURL } from "node:url";
+
+export let worktrees: WorktreeService;
 
 const APP_URL = "app://bundle/index.html";
 const rendererDirectory = path.join(__dirname, "renderer");
@@ -28,7 +31,7 @@ function createWindow() {
     minWidth: 480,
     minHeight: 420,
     title: "Foom",
-    backgroundColor: "#05040A",
+    backgroundColor: nativeTheme.shouldUseDarkColors ? "#05040A" : "#F3F0FA",
     show: false,
     autoHideMenuBar: true,
     webPreferences: {
@@ -40,20 +43,86 @@ function createWindow() {
     },
   });
 
+  const updateBackground = () => {
+    window.setBackgroundColor(nativeTheme.shouldUseDarkColors ? "#05040A" : "#F3F0FA");
+  };
+  nativeTheme.on("updated", updateBackground);
+  window.once("closed", () => {
+    nativeTheme.removeListener("updated", updateBackground);
+  });
+
   // Terminal control keys (for example Ctrl+W in vim) must reach the PTY.
   window.removeMenu();
   window.webContents.on("before-input-event", (event, input) => {
+    const key = input.key.toLowerCase();
+    const quitShortcut =
+      process.platform === "darwin"
+        ? input.meta && !input.control && !input.alt && (key === "w" || key === "q")
+        : !input.meta &&
+          ((input.control && !input.alt && key === "q") ||
+            (input.alt && !input.control && key === "f4"));
+    if (input.type === "keyDown" && !input.shift && quitShortcut) {
+      event.preventDefault();
+      app.quit();
+      return;
+    }
     if (input.type !== "keyDown" || !input.control || !input.shift || input.alt || input.meta) {
       return;
     }
-    const key = input.key.toLowerCase();
     if (key === "c" || key === "v") {
       event.preventDefault();
       if (key === "c") window.webContents.copy();
       else window.webContents.paste();
     }
   });
-  attachTerminal(window);
+  const terminals = attachTerminal(window);
+  let quitting = false;
+  let quitPending = false;
+  const requestQuit = async () => {
+    if (quitPending) return;
+    quitPending = true;
+    try {
+      const count = terminals.runningCount;
+      if (count > 0) {
+        const { response } = await dialog.showMessageBox(window, {
+          type: "question",
+          title: "Quit Foom?",
+          message: `${String(count)} ${count === 1 ? "agent is" : "agents are"} still working. Quit anyway?`,
+          detail: "Quitting stops all terminals, including shells and servers.",
+          buttons: ["Cancel", "Quit"],
+          defaultId: 0,
+          cancelId: 0,
+          noLink: true,
+        });
+        if (response !== 1) return;
+      }
+      await terminals.shutdown();
+      quitting = true;
+      // A resolved shutdown can resume inside a native close callback's microtask
+      // checkpoint. Let that cancelled close unwind before asking Electron to quit.
+      setImmediate(() => {
+        app.quit();
+      });
+    } catch (error) {
+      console.error("Unable to quit the application:", error);
+      dialog.showErrorBox("Unable to quit Foom", "Could not stop all terminals. Please try again.");
+    } finally {
+      quitPending = false;
+    }
+  };
+  // Keep the window and PTYs alive while the native confirmation is pending.
+  window.on("close", (event) => {
+    if (!quitting) {
+      event.preventDefault();
+      void requestQuit();
+    }
+  });
+  app.on("before-quit", (event) => {
+    if (!quitting) {
+      event.preventDefault();
+      void requestQuit();
+    }
+  });
   window.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
   window.webContents.on("will-navigate", (event) => {
     event.preventDefault();
@@ -72,7 +141,8 @@ function createWindow() {
 
 app
   .whenReady()
-  .then(() => {
+  .then(async () => {
+    worktrees = await WorktreeService.open(app.getPath("userData"));
     // Serve only known local assets; arbitrary filesystem access is never exposed.
     protocol.handle("app", (request) => {
       const url = new URL(request.url);
@@ -89,9 +159,6 @@ app
     session.defaultSession.setPermissionCheckHandler(() => false);
 
     createWindow();
-    app.on("activate", () => {
-      if (BrowserWindow.getAllWindows().length === 0) createWindow();
-    });
   })
   .catch((error: unknown) => {
     console.error("Unable to start the application:", error);
@@ -99,5 +166,5 @@ app
   });
 
 app.on("window-all-closed", () => {
-  if (process.platform !== "darwin") app.quit();
+  app.quit();
 });

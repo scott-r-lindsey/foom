@@ -50,6 +50,18 @@ vi.mock("../src/terminal-host-client", async () => {
       kill(id: string) {
         this.manager.kill(id);
       }
+      get runningCount() {
+        return this.manager.runningCount;
+      }
+      get hasPendingExits() {
+        return this.manager.hasPendingExits;
+      }
+      shutdown() {
+        return this.manager.shutdown();
+      }
+      waitForExit() {
+        return this.manager.waitForExit();
+      }
       dispose() {
         this.manager.dispose();
         return Promise.resolve();
@@ -60,18 +72,30 @@ vi.mock("../src/terminal-host-client", async () => {
 import { attachTerminal } from "../src/terminal";
 import { TerminalManager } from "../src/terminal-manager";
 function fakePty() {
+  const exits = new Set<(event: { exitCode: number }) => void>();
+  const emitExit = () => {
+    for (const listener of exits) listener({ exitCode: 0 });
+  };
   return {
+    emitExit,
     write: vi.fn(),
     resize: vi.fn(),
     pause: vi.fn(),
     resume: vi.fn(),
-    kill: vi.fn(),
+    kill: vi.fn(emitExit),
     onData: vi
-      .fn<(callback: (data: string) => void) => { dispose(): void }>()
+      .fn<(callback: (data: string) => void) => { dispose: () => void }>()
       .mockReturnValue({ dispose: vi.fn() }),
     onExit: vi
-      .fn<(callback: (event: { exitCode: number }) => void) => { dispose(): void }>()
-      .mockReturnValue({ dispose: vi.fn() }),
+      .fn<(callback: (event: { exitCode: number }) => void) => { dispose: () => void }>()
+      .mockImplementation((callback) => {
+        exits.add(callback);
+        return {
+          dispose: vi.fn(() => {
+            exits.delete(callback);
+          }),
+        };
+      }),
   };
 }
 let ptys: ReturnType<typeof fakePty>[];
@@ -116,6 +140,7 @@ function output(data: string, index = 0) {
 }
 const spec = { command: "/bin/bash", args: ["-l"], cwd: "/tmp", cols: 80, rows: 24 };
 let manager: TerminalManager;
+let terminalControl: ReturnType<typeof attachTerminal>;
 const exited = vi.fn();
 beforeEach(() => {
   vi.clearAllMocks();
@@ -126,13 +151,31 @@ beforeEach(() => {
     ptys.push(next);
     return next;
   });
-  attachTerminal(window as unknown as BrowserWindow);
+  terminalControl = attachTerminal(window as unknown as BrowserWindow);
   manager = new TerminalManager(exited);
 });
-afterEach(() => {
+afterEach(async () => {
+  for (const terminal of ptys) terminal.emitExit();
   manager.dispose();
   window.once.mock.calls[0]?.[1]();
+  await manager.waitForExit();
   vi.unstubAllEnvs();
+});
+
+test("passes main-owned launch environment additions to the PTY", () => {
+  manager.create({
+    ...spec,
+    env: { PATH: "/login/bin", FOOM_SESSION: "launch", FOOM_TOKEN: "token" },
+  });
+  const options: unknown = mock.spawn.mock.calls[0]?.[2];
+  if (typeof options !== "object" || !options || !("env" in options))
+    throw new Error("Missing environment");
+  expect(options.env).toMatchObject({
+    PATH: "/login/bin",
+    FOOM_SESSION: "launch",
+    FOOM_TOKEN: "token",
+    TERM_PROGRAM: "Foom",
+  });
 });
 
 test("detached output continuously updates real headless screen and scrollback", async () => {
@@ -435,16 +478,229 @@ test("detaching cannot bypass parser backpressure, and a drained parser cannot b
   expect(pty().resume).toHaveBeenCalledTimes(2);
 });
 
-test("quitting waits for host shutdown before reissuing app quit", async () => {
+test("tracks killed PTYs until their exit callbacks and bounds stalled shutdown", async () => {
+  vi.useFakeTimers();
+  try {
+    const id = manager.create(spec);
+    pty().kill.mockImplementation(() => {});
+    manager.kill(id);
+    expect(manager.hasPendingExits).toBe(true);
+    const pending = manager.waitForExit();
+    const rejected = expect(pending).rejects.toThrow("Terminal shutdown timed out");
+    await vi.advanceTimersByTimeAsync(5000);
+    await rejected;
+    expect(manager.hasPendingExits).toBe(true);
+    pty().emitExit();
+    await manager.waitForExit();
+    expect(manager.hasPendingExits).toBe(false);
+    expect(vi.getTimerCount()).toBe(0);
+    expect(exited).not.toHaveBeenCalled();
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test("quit waits for native exits, including previously removed terminals, and deduplicates requests", async () => {
+  const id = await create();
   await create();
-  const beforeQuit = mock.app.on.mock.calls.find(([name]) => name === "before-quit")?.[1];
-  if (typeof beforeQuit !== "function") throw new Error("Missing quit handler");
+  for (const terminal of ptys) terminal.kill.mockImplementation(() => {});
+  await invoke("kill", [id]);
+  const willQuit = mock.app.on.mock.calls.find(([name]) => name === "will-quit")?.[1];
+  if (!willQuit) throw new Error("Missing quit barrier");
   const event = { preventDefault: vi.fn() };
-  Reflect.apply(beforeQuit, undefined, [event]);
-  expect(event.preventDefault).toHaveBeenCalledOnce();
+  willQuit(event);
+  willQuit(event);
+  expect(event.preventDefault).toHaveBeenCalledTimes(2);
+  expect(mock.app.quit).not.toHaveBeenCalled();
+  for (const terminal of ptys) expect(terminal.kill).toHaveBeenCalledOnce();
+  pty().emitExit();
   await Promise.resolve();
-  expect(mock.app.quit).toHaveBeenCalledOnce();
-  expect(mock.app.removeListener).toHaveBeenCalledWith("before-quit", beforeQuit);
-  Reflect.apply(beforeQuit, undefined, [event]);
-  expect(event.preventDefault).toHaveBeenCalledOnce();
+  expect(mock.app.quit).not.toHaveBeenCalled();
+  pty(1).emitExit();
+  await vi.waitFor(() => {
+    expect(mock.app.quit).toHaveBeenCalledOnce();
+  });
+  expect(mock.app.removeListener).toHaveBeenCalledWith("will-quit", willQuit);
+  willQuit(event);
+  expect(event.preventDefault).toHaveBeenCalledTimes(2);
+});
+
+test("failed quit reports the timeout and allows a later request to retry", async () => {
+  vi.useFakeTimers();
+  const diagnostic = vi.spyOn(console, "error").mockImplementation(() => {});
+  try {
+    await create();
+    pty().kill.mockImplementation(() => {});
+    const willQuit = mock.app.on.mock.calls.find(([name]) => name === "will-quit")?.[1];
+    if (!willQuit) throw new Error("Missing quit barrier");
+    const event = { preventDefault: vi.fn() };
+    willQuit(event);
+    // The closed-window cleanup must also preserve the quit barrier on failure.
+    window.once.mock.calls[0]?.[1]();
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(diagnostic).toHaveBeenCalledWith(
+      "Unable to finish terminal shutdown:",
+      expect.any(Error),
+    );
+    expect(mock.app.quit).not.toHaveBeenCalled();
+    expect(mock.app.removeListener).not.toHaveBeenCalled();
+    willQuit(event);
+    pty().emitExit();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(mock.app.quit).toHaveBeenCalledOnce();
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+function exitPty(index = 0) {
+  pty(index).emitExit();
+}
+
+test("shutdown counts only live PTYs and waits for all exits before disposal", async () => {
+  const first = manager.create(spec);
+  manager.create(spec);
+  manager.create(spec);
+  expect(manager.runningCount).toBe(3);
+  exitPty(2);
+  expect(manager.runningCount).toBe(2);
+  await manager.attach(first, vi.fn());
+  output("x".repeat(270000));
+  await manager.tail(first, 1);
+  for (const terminal of ptys) terminal.kill.mockImplementation(() => {});
+  const stopped = vi.fn();
+  const shutdown = manager.shutdown().then(stopped);
+  expect(() => manager.create(spec)).toThrow("shutting down");
+  expect(pty().resume).toHaveBeenCalledOnce();
+  expect(pty().kill).toHaveBeenCalledOnce();
+  expect(pty(1).kill).toHaveBeenCalledOnce();
+  expect(pty(2).kill).not.toHaveBeenCalled();
+  output("x".repeat(270000));
+  await manager.tail(first, 1);
+  expect(pty().pause).toHaveBeenCalledOnce();
+  exitPty();
+  await Promise.resolve();
+  expect(stopped).not.toHaveBeenCalled();
+  exitPty(1);
+  await shutdown;
+  expect(manager.runningCount).toBe(0);
+  expect(() => {
+    manager.write(first, "stale");
+  }).toThrow("Unknown terminal ID");
+});
+
+test.each(["linux", "win32"] as const)(
+  "shutdown escalation respects %s signal support",
+  async (platform) => {
+    vi.spyOn(process, "platform", "get").mockReturnValue(platform);
+    vi.useFakeTimers();
+    try {
+      manager.create(spec);
+      pty().kill.mockImplementation(() => {});
+      const shutdown = manager.shutdown();
+      await vi.advanceTimersByTimeAsync(1000);
+      if (platform === "win32") expect(pty().kill).toHaveBeenCalledExactlyOnceWith();
+      else expect(pty().kill).toHaveBeenLastCalledWith("SIGKILL");
+      exitPty();
+      await shutdown;
+      const subscription = pty().onExit.mock.results[1];
+      if (subscription?.type !== "return") throw new Error("Missing exit subscription");
+      expect(subscription.value.dispose).toHaveBeenCalledOnce();
+    } finally {
+      vi.useRealTimers();
+    }
+  },
+);
+
+test.each(["graceful", "force", "timeout"])(
+  "shutdown reports %s failure and can be retried",
+  async (failure) => {
+    vi.useFakeTimers();
+    try {
+      const id = manager.create(spec);
+      pty().kill.mockImplementation(() => {});
+      const error = new Error("kill failed");
+      if (failure === "graceful")
+        pty().kill.mockImplementationOnce(() => {
+          throw error;
+        });
+      if (failure === "force")
+        pty()
+          .kill.mockImplementationOnce(() => {})
+          .mockImplementationOnce(() => {
+            throw error;
+          });
+      const shutdown = manager.shutdown();
+      const rejected = expect(shutdown).rejects.toThrow(
+        failure === "timeout" ? "did not exit" : "Unable to stop terminal",
+      );
+      await vi.advanceTimersByTimeAsync(5000);
+      await rejected;
+      const subscription = pty().onExit.mock.results[1];
+      if (subscription?.type !== "return") throw new Error("Missing exit subscription");
+      expect(subscription.value.dispose).toHaveBeenCalledOnce();
+      expect(manager.runningCount).toBe(1);
+      manager.write(id, "still usable");
+      expect(pty().write).toHaveBeenCalledWith("still usable");
+      manager.create(spec);
+      const retry = manager.shutdown();
+      exitPty();
+      exitPty(1);
+      await retry;
+      expect(manager.runningCount).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  },
+);
+
+test("confirmed shutdown waits for a previously removed PTY before completing", async () => {
+  const removed = manager.create(spec);
+  pty().kill.mockImplementation(() => {});
+  manager.kill(removed);
+  expect(manager.runningCount).toBe(0);
+  const stopped = vi.fn();
+  const shutdown = manager.shutdown().then(stopped);
+  await Promise.resolve();
+  expect(stopped).not.toHaveBeenCalled();
+  expect(manager.hasPendingExits).toBe(true);
+  pty().emitExit();
+  await shutdown;
+  expect(stopped).toHaveBeenCalledOnce();
+  expect(manager.hasPendingExits).toBe(false);
+});
+
+test("confirmed shutdown can retry when a removed PTY's exit times out", async () => {
+  vi.useFakeTimers();
+  try {
+    const removed = manager.create(spec);
+    pty().kill.mockImplementation(() => {});
+    manager.kill(removed);
+    const shutdown = manager.shutdown();
+    const rejected = expect(shutdown).rejects.toThrow("Terminal shutdown timed out");
+    await vi.advanceTimersByTimeAsync(5000);
+    await rejected;
+    pty().emitExit();
+    await manager.shutdown();
+    expect(manager.hasPendingExits).toBe(false);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test("shutdown revokes terminal IPC capabilities before late renderer events", async () => {
+  const id = await create();
+  expect(terminalControl.runningCount).toBe(1);
+  await invoke("attach", [id]);
+  await terminalControl.shutdown();
+  expect(terminalControl.runningCount).toBe(0);
+  expect(() => {
+    send("ack", [id, "old-attachment", 1]);
+    send("input", [id, "late input"]);
+    send("resize", [id, 80, 24]);
+    contents.on.mock.calls.find(([name]) => name === "render-process-gone")?.[1]();
+  }).not.toThrow();
+  for (const operation of ["attach", "detach", "kill"]) {
+    await expect(invoke(operation, [id])).rejects.toThrow("Unknown or foreign terminal ID");
+  }
 });

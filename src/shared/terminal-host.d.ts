@@ -5,7 +5,7 @@ export type HostRequest = RequestBase &
   (
     | { type: "create"; spec: TerminalSpec }
     | { type: "attach"; view: string }
-    | { type: "detach" | "kill" }
+    | { type: "detach" | "kill" | "shutdown" }
     | { type: "write"; data: string }
     | { type: "resize"; cols: number; rows: number }
     | { type: "acknowledge"; token: string; count: number }

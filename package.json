@@ -21,10 +21,11 @@
     "format:check": "biome format .",
     "lint:fix": "eslint . --fix --max-warnings=0",
     "test:packaged": "node --test test/packaged-smoke.js",
+    "test:ci": "node --test scripts/ci-changes.test.mjs",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "test:electron": "npm run build && node --test test/*.test.js",
-    "check": "npm run format:check && npm run lint && npm run typecheck && npm test",
+    "check": "npm run format:check && npm run lint && npm run typecheck && npm test && npm run test:ci",
     "prepare": "husky",
     "audit": "npm audit --audit-level=low"
   },

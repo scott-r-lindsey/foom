@@ -10,6 +10,7 @@ const mock = vi.hoisted(() => ({
   acknowledge: vi.fn(),
   tail: vi.fn(),
   dispose: vi.fn(),
+  shutdown: vi.fn<() => Promise<void>>(),
   onExit: vi.fn<(id: string, code: number) => void>(),
 }));
 vi.mock("../src/terminal-manager", () => ({
@@ -23,6 +24,7 @@ vi.mock("../src/terminal-manager", () => ({
     acknowledge = mock.acknowledge;
     tail = mock.tail;
     dispose = mock.dispose;
+    shutdown = mock.shutdown;
     constructor(onExit: (id: string, code: number) => void) {
       mock.onExit.mockImplementation(onExit);
     }
@@ -36,6 +38,7 @@ const original = Object.getOwnPropertyDescriptor(process, "parentPort");
 let exitListener: ((code: number) => void) | undefined;
 beforeEach(async () => {
   vi.clearAllMocks();
+  mock.shutdown.mockResolvedValue();
   vi.resetModules();
   port = new Port();
   Object.defineProperty(process, "parentPort", { configurable: true, value: port });
@@ -108,12 +111,47 @@ test("rejects invalid, foreign and duplicate requests; a spawn failure can retry
   expect(mock.create).toHaveBeenCalledTimes(2);
   expect(port.postMessage).toHaveBeenLastCalledWith({ type: "error", id: "one", request: 4 });
 });
-test("shutdown and process exit dispose PTYs", () => {
-  vi.spyOn(process, "exit").mockImplementation(() => {
-    throw new Error("exit");
+test("shutdown waits for PTY exits and reports failure so quitting can retry", async () => {
+  await message({ type: "shutdown", id: "host", request: 1 });
+  expect(mock.shutdown).toHaveBeenCalledOnce();
+  expect(port.postMessage).toHaveBeenLastCalledWith({
+    type: "result",
+    id: "host",
+    request: 1,
+    lines: [],
   });
-  expect(() => port.emit("message", { data: "shutdown" })).toThrow("exit");
-  expect(mock.dispose).toHaveBeenCalledOnce();
-  exitListener?.(0);
-  expect(mock.dispose).toHaveBeenCalledTimes(2);
+  mock.shutdown.mockRejectedValueOnce(new Error("native exit timed out"));
+  await message({ type: "shutdown", id: "host", request: 2 });
+  await Promise.resolve();
+  expect(port.postMessage).toHaveBeenLastCalledWith({ type: "error", id: "host", request: 2 });
 });
+test.each([false, true])(
+  "dispose exits only after native shutdown settles (failure=%s)",
+  async (failure) => {
+    const descriptor = Object.getOwnPropertyDescriptor(process, "exit");
+    const exit = vi.fn();
+    Object.defineProperty(process, "exit", { configurable: true, value: exit });
+    try {
+      let done: () => void = () => {};
+      mock.shutdown.mockImplementationOnce(
+        () =>
+          new Promise<void>((resolve, reject) => {
+            done = () => {
+              if (failure) reject(new Error("timeout"));
+              else resolve();
+            };
+          }),
+      );
+      await message("shutdown");
+      expect(exit).not.toHaveBeenCalled();
+      done();
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(exit).toHaveBeenCalledWith(failure ? 1 : 0);
+      exitListener?.(0);
+      expect(mock.dispose).toHaveBeenCalledOnce();
+    } finally {
+      if (descriptor) Object.defineProperty(process, "exit", descriptor);
+    }
+  },
+);
