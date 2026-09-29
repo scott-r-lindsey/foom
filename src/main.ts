@@ -42,6 +42,17 @@ function createWindow() {
 
   // Terminal control keys (for example Ctrl+W in vim) must reach the PTY.
   window.removeMenu();
+  window.webContents.on("before-input-event", (event, input) => {
+    if (input.type !== "keyDown" || !input.control || !input.shift || input.alt || input.meta) {
+      return;
+    }
+    const key = input.key.toLowerCase();
+    if (key === "c" || key === "v") {
+      event.preventDefault();
+      if (key === "c") window.webContents.copy();
+      else window.webContents.paste();
+    }
+  });
   attachTerminal(window);
   window.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
   window.webContents.on("will-navigate", (event) => {

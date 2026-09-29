@@ -62,3 +62,31 @@ test("strips event objects, validates events, and removes listeners", async () =
   expect(mock.removeListener).toHaveBeenCalledWith("terminal:data", dataHandler);
   expect(mock.removeListener).toHaveBeenCalledWith("terminal:exit", exitHandler);
 });
+
+test.each([
+  ["emoji across the boundary", "x".repeat(65535) + "😀tail", ["x".repeat(65535), "😀tail"]],
+  [
+    "emoji ending at the boundary",
+    "x".repeat(65534) + "😀tail",
+    ["x".repeat(65534) + "😀", "tail"],
+  ],
+  ["emoji after the boundary", "x".repeat(65536) + "😀", ["x".repeat(65536), "😀"]],
+  [
+    "successive boundaries",
+    "x".repeat(65535) + "😀" + "y".repeat(65533) + "😀",
+    ["x".repeat(65535), "😀" + "y".repeat(65533), "😀"],
+  ],
+  ["lone high surrogate", "x".repeat(65535) + "\ud800z", ["x".repeat(65535) + "\ud800", "z"]],
+  [
+    "high surrogate followed by BMP text",
+    "x".repeat(65535) + "\ud800\ue000",
+    ["x".repeat(65535) + "\ud800", "\ue000"],
+  ],
+  ["empty input", "", []],
+])("preserves input with %s", async (_label, input, chunks) => {
+  const api = await bridge();
+  api.input(input);
+  expect(mock.send.mock.calls).toEqual(chunks.map((chunk) => ["terminal:input", chunk]));
+  expect(chunks.join("")).toBe(input);
+  expect(chunks.every((chunk) => chunk.length <= 65536)).toBe(true);
+});
