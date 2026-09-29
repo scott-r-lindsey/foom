@@ -1,7 +1,7 @@
 const { test } = require("node:test");
 const assert = require("node:assert/strict");
 const path = require("node:path");
-const { _electron: electron } = require("@playwright/test");
+const { _electron: electron, expect } = require("@playwright/test");
 
 test("terminal runs an interactive shell behind an isolated bridge", {
   timeout: 60_000,
@@ -47,6 +47,45 @@ test("terminal runs an interactive shell behind an isolated bridge", {
     await page.keyboard.press("Enter");
     await page.waitForFunction(() => window.terminalOutput.includes("FOOM_SHELL_OK"));
     console.info("Shell command returned");
+    if (process.platform === "linux" || process.platform === "win32") {
+      // Select real xterm output with the mouse, then use the native clipboard shortcuts.
+      const marker = page
+        .locator(".xterm-rows > div")
+        .filter({ hasText: /^FOOM_SHELL_OK$/ })
+        .last();
+      await marker.waitFor();
+      const box = await marker.boundingBox();
+      assert.ok(box);
+      await page.mouse.dblclick(box.x + 10, box.y + box.height / 2);
+      await app.evaluate(({ clipboard }) => clipboard.writeText("clipboard sentinel"));
+      // Playwright's CDP keyboard path bypasses Electron's before-input-event.
+      const shortcut = (keyCode) =>
+        app.evaluate(({ BrowserWindow }, key) => {
+          const window = BrowserWindow.getAllWindows()[0];
+          window.focus();
+          for (const type of ["keyDown", "keyUp"]) {
+            window.webContents.sendInputEvent({
+              type,
+              keyCode: key,
+              modifiers: ["control", "shift"],
+            });
+          }
+        }, keyCode);
+      await shortcut("C");
+      await expect
+        .poll(() => app.evaluate(({ clipboard }) => clipboard.readText()))
+        .toBe("FOOM_SHELL_OK");
+      const pasteCommand =
+        process.platform === "win32"
+          ? 'Write-Output ("FOOM_" + "PASTE_OK")'
+          : "printf 'FOOM_%s\\n' PASTE_OK";
+      await app.evaluate(({ clipboard }, text) => clipboard.writeText(text), pasteCommand);
+      await input.focus();
+      await shortcut("V");
+      await page.keyboard.press("Enter");
+      await page.waitForFunction(() => window.terminalOutput.includes("FOOM_PASTE_OK"));
+      console.info(`Copy/paste shortcuts passed on ${process.platform}`);
+    }
     if (process.platform !== "win32") {
       const readSize = async (label) => {
         await page.keyboard.type(`printf 'SIZE_%s:' ${label}; stty size`);
@@ -77,11 +116,17 @@ test("terminal runs an interactive shell behind an isolated bridge", {
       const after = await readSize("AFTER");
       assert.ok(after[0] > before[0], `PTY rows grow with the window: ${before} -> ${after}`);
       assert.ok(after[1] > before[1], `PTY columns grow with the window: ${before} -> ${after}`);
-      await page.keyboard.type("test -t 0 && test -t 1 && printf 'FOOM_%s\\n' TTY_OK; stty size");
+      // Print the marker last so the next command isn't typed while this one is still running.
+      await page.keyboard.type(
+        "test -t 0 && test -t 1 && stty size >/dev/null && printf 'FOOM_%s\\n' TTY_OK",
+      );
       await page.keyboard.press("Enter");
       await page.waitForFunction(() => window.terminalOutput.includes("FOOM_TTY_OK"));
-      await page.keyboard.type("sleep 30");
+      // exec keeps one process, so once the marker prints, sleep is the foreground job that
+      // receives Ctrl+C. Pressing it earlier can signal the shell before sleep starts.
+      await page.keyboard.type("sh -c 'printf \"FOOM_%s\\n\" SLEEPING; exec sleep 30'");
       await page.keyboard.press("Enter");
+      await page.waitForFunction(() => window.terminalOutput.includes("FOOM_SLEEPING"));
       await page.keyboard.press("Control+c");
       await page.keyboard.type("printf 'FOOM_%s\\n' INTERRUPTED");
       await page.keyboard.press("Enter");
