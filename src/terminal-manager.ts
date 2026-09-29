@@ -256,7 +256,8 @@ export class TerminalManager {
             });
             const force = setTimeout(() => {
               try {
-                session.pty.kill("SIGKILL");
+                // ConPTY kill already terminates the process tree and rejects signals.
+                if (process.platform !== "win32") session.pty.kill("SIGKILL");
               } catch (error) {
                 finish(new Error("Unable to stop terminal", { cause: error }));
               }

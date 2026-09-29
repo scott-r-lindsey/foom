@@ -3,6 +3,25 @@ const assert = require("node:assert/strict");
 const path = require("node:path");
 const { _electron: electron, expect } = require("@playwright/test");
 
+// Keep the Node debugger available until PTY cleanup finishes. Pausing the final
+// quit lets Playwright detach its own connection through app.close(); calling
+// inspector.close() inside Electron can block while that connection is active.
+async function quitAndWait(app, requestQuit) {
+  await app.evaluate(({ app }) => {
+    globalThis.readyToQuit = false;
+    const ready = (event) => {
+      if (event.defaultPrevented) return;
+      event.preventDefault();
+      app.removeListener("will-quit", ready);
+      globalThis.readyToQuit = true;
+    };
+    app.on("will-quit", ready);
+  });
+  await requestQuit();
+  await expect.poll(() => app.evaluate(() => globalThis.readyToQuit), { timeout: 8000 }).toBe(true);
+  await app.close();
+}
+
 // A test timeout does not cancel Playwright promises or dispose native processes.
 // Keep a final worker deadline so even broken cleanup cannot occupy a CI runner.
 async function launchApp(context) {
@@ -35,12 +54,17 @@ async function launchApp(context) {
         clearTimeout(watchdog);
         return;
       }
-      // Cleanup uses the public quit path too; tests must not leave a confirmation open.
-      await app.evaluate(({ dialog }) => {
-        dialog.showMessageBox = async () => ({ response: 1, checkboxChecked: false });
-      });
       await Promise.race([
-        app.close(),
+        (async () => {
+          // Cleanup uses the public quit path too, with a deterministic response.
+          await app.evaluate(({ dialog }) => {
+            dialog.showMessageBox = async () => ({ response: 1, checkboxChecked: false });
+            dialog.showErrorBox = (title, content) => {
+              console.error(title, content);
+            };
+          });
+          await quitAndWait(app, () => app.evaluate(({ app }) => app.quit()));
+        })(),
         new Promise((_, reject) => {
           timer = setTimeout(
             () => reject(new Error("Electron shutdown exceeded 10 seconds")),
@@ -502,14 +526,10 @@ for (const action of ["close", "quit", "shortcut"]) {
     await page.keyboard.type(alive);
     await page.keyboard.press("Enter");
     await page.waitForFunction(() => window.quitOutput.includes("CANCEL_ALIVE"));
-    await app.evaluate(({ app }) => {
+    await app.evaluate(() => {
       globalThis.quitResponse = 1;
-      // Self-quit must detach Playwright's Node debugger or Electron can wait for it.
-      app.once("will-quit", () => process.getBuiltinModule("node:inspector").close());
     });
-    const closed = app.waitForEvent("close");
-    await requestQuit();
-    await closed;
+    await quitAndWait(app, requestQuit);
     for (const pid of [firstPid, secondPid]) {
       await expect
         .poll(() => {
@@ -543,15 +563,12 @@ test("closing with an exited terminal quits without confirmation", {
   await page.keyboard.type("exit");
   await page.keyboard.press("Enter");
   await page.getByRole("status").filter({ hasText: "Shell exited" }).waitFor();
-  await app.evaluate(({ app, dialog }) => {
+  await app.evaluate(({ dialog }) => {
     dialog.showMessageBox = () => {
       throw new Error("Unexpected quit confirmation");
     };
-    app.once("will-quit", () => process.getBuiltinModule("node:inspector").close());
   });
-  const closed = app.waitForEvent("close");
-  await app.evaluate(({ BrowserWindow }) => {
-    setTimeout(() => BrowserWindow.getAllWindows()[0].close(), 50);
-  });
-  await closed;
+  await quitAndWait(app, () =>
+    app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].close()),
+  );
 });

@@ -516,23 +516,28 @@ test("shutdown counts only live PTYs and waits for all exits before disposal", a
   }).toThrow("Unknown terminal ID");
 });
 
-test("shutdown force-kills a PTY that ignores graceful termination", async () => {
-  vi.useFakeTimers();
-  try {
-    manager.create(spec);
-    pty().kill.mockImplementation(() => {});
-    const shutdown = manager.shutdown();
-    await vi.advanceTimersByTimeAsync(1000);
-    expect(pty().kill).toHaveBeenLastCalledWith("SIGKILL");
-    exitPty();
-    await shutdown;
-    const subscription = pty().onExit.mock.results[1];
-    if (subscription?.type !== "return") throw new Error("Missing exit subscription");
-    expect(subscription.value.dispose).toHaveBeenCalledOnce();
-  } finally {
-    vi.useRealTimers();
-  }
-});
+test.each(["linux", "win32"] as const)(
+  "shutdown escalation respects %s signal support",
+  async (platform) => {
+    vi.spyOn(process, "platform", "get").mockReturnValue(platform);
+    vi.useFakeTimers();
+    try {
+      manager.create(spec);
+      pty().kill.mockImplementation(() => {});
+      const shutdown = manager.shutdown();
+      await vi.advanceTimersByTimeAsync(1000);
+      if (platform === "win32") expect(pty().kill).toHaveBeenCalledExactlyOnceWith();
+      else expect(pty().kill).toHaveBeenLastCalledWith("SIGKILL");
+      exitPty();
+      await shutdown;
+      const subscription = pty().onExit.mock.results[1];
+      if (subscription?.type !== "return") throw new Error("Missing exit subscription");
+      expect(subscription.value.dispose).toHaveBeenCalledOnce();
+    } finally {
+      vi.useRealTimers();
+    }
+  },
+);
 
 test.each(["graceful", "force", "timeout"])(
   "shutdown reports %s failure and can be retried",
