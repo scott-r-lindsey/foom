@@ -15,7 +15,7 @@ The window opens a real interactive shell in the project directory (`$SHELL` on 
 
 This first version has one terminal with 10,000 lines of scrollback. It does not yet create worktrees or restore sessions. Restart `npm start` after editing source files.
 
-`node-pty` is a native dependency. If a prebuilt binary is unavailable, installation/rebuild requires Python and a C++ toolchain (Xcode command line tools on macOS, build-essential on Linux, Visual Studio C++ build tools on Windows).
+`node-pty` is a native dependency. The build corrects executable permissions on its macOS prebuilt spawn helper to work around [node-pty #850](https://github.com/microsoft/node-pty/issues/850). If a prebuilt binary is unavailable, installation/rebuild requires Python and a C++ toolchain (Xcode command line tools on macOS, build-essential on Linux, Visual Studio C++ build tools on Windows).
 
 `npm ci` installs the Husky pre-commit hook. Every commit checks formatting, lint, types, and fast unit tests. It does not launch a desktop window or silently rewrite files.
 
