@@ -18,7 +18,7 @@ This describes the target design. Where the code differs today, the section says
 - Main forwards headless xterm protocol responses to the PTY while it is alive, independent of attachment. Views suppress the corresponding device-attribute, status, mode, and status-string query handlers so each query has exactly one response owner. Keyboard, paste, and mouse input remain renderer input; attachment changes never transfer query ownership.
 - Opening a terminal sends a serialized snapshot (`@xterm/addon-serialize`) through the data channel, then streams live output. A headless parser barrier keeps the snapshot and live stream contiguous. Each attachment has a fresh token; acknowledgements must carry that token, so delayed callbacks cannot acknowledge a new view.
 - Throttling (pause at a high-water mark, resume after the renderer confirms it drew the output) applies only while a view is attached.
-- The activity meter and last-lines buffer read from the same stream.
+- The activity meter and last-lines buffer read from the same stream. Terminal tails use the active screen and its scrollback, including populated rows below the cursor. They omit trailing whitespace-only rows before applying the requested line limit, preserve interior blank rows, and return an empty list for a blank buffer.
 
 Target launch interface sketch (worktree and agent launch support is future roadmap work):
 
