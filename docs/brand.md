@@ -50,4 +50,4 @@ Calm, a little ominous, amused. Short reasons, no exclamation points.
 - "Takeoff was faster than expected."
 - "3 agents past the knee."
 
-Mockups: https://claude.ai/artifact/48wSfwgwgkDyWyYaiUoq1q (private; ask the owner for access).
+Mockup: [docs/mockups/brand.html](mockups/brand.html). Only the Eclipse variant was picked.

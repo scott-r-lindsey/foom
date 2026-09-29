@@ -1,0 +1,417 @@
+<title>Event Horizon in Daylight</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo+Black&family=Courier+Prime:wght@400;700&family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: neutral page frame. Each variant plate shows every element twice, dark beside light, painted in its own palette on purpose. */
+:root {
+  --bg: #f1f0f5;
+  --panel: #ffffff;
+  --ink: #16141f;
+  --muted: #5e5b6e;
+  --line: #dad8e3;
+  --accent: #5b2bd9;
+  --accent-ink: #ffffff;
+  --display: "Archivo Black", "Arial Black", sans-serif;
+  --voice: "Courier Prime", "Courier New", monospace;
+  --sans: "Geist", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: "Geist Mono", ui-monospace, Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) { --bg: #0c0b12; --panel: #15131e; --ink: #ecebf3; --muted: #9c98ae; --line: #2a2738; --accent: #9b6bff; --accent-ink: #0c0b12; color-scheme: dark; }
+}
+:root[data-theme="dark"] { --bg: #0c0b12; --panel: #15131e; --ink: #ecebf3; --muted: #9c98ae; --line: #2a2738; --accent: #9b6bff; --accent-ink: #0c0b12; color-scheme: dark; }
+
+* { box-sizing: border-box; }
+body { background: var(--bg); color: var(--ink); font-family: var(--sans); font-size: 15px; line-height: 1.55; }
+h1, h2, h3 { margin: 0; text-wrap: balance; }
+p { margin: 0; }
+button { font: inherit; color: inherit; cursor: pointer; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.wrap { max-width: 1120px; margin: 0 auto; padding-inline: 20px; padding-block: 40px 64px; display: grid; gap: 44px; }
+
+.intro { display: grid; gap: 14px; max-width: 72ch; }
+.intro h1 { font-family: var(--display); font-size: clamp(28px, 5vw, 44px); line-height: 1.05; letter-spacing: -.01em; text-transform: uppercase; }
+.intro p { color: var(--muted); }
+.intro .rule { color: var(--ink); border-left: 3px solid var(--ink); padding-left: 12px; font-weight: 500; }
+.intro code { font-family: var(--mono); font-size: .9em; }
+
+.variant { display: grid; gap: 18px; }
+.v-head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: 8px 24px; }
+.v-head h2 { font-family: var(--display); font-size: 28px; text-transform: uppercase; letter-spacing: -.01em; line-height: 1.05; }
+.v-head .tag { font-family: var(--mono); font-size: 12px; color: var(--muted); letter-spacing: .08em; text-transform: uppercase; }
+.v-head p { color: var(--muted); max-width: 60ch; }
+.v-head .how { color: var(--ink); }
+
+.pair { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.pane { background: var(--p-bg); color: var(--p-ink); border-radius: 12px; padding: 14px; display: grid; gap: 12px; min-width: 0; border: 1px solid var(--p-line); }
+.pane-label { font-family: var(--mono); font-size: 11px; letter-spacing: .12em; text-transform: uppercase; color: var(--p-muted); display: flex; justify-content: space-between; }
+.pane canvas.art { display: block; width: 100%; aspect-ratio: 4 / 3; max-width: 100%; border-radius: 8px; }
+
+.bar { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; }
+.btn { padding: 7px 14px; border-radius: 8px; border: 1px solid var(--line); background: var(--panel); font-weight: 500; font-size: 14px; }
+.btn:hover { border-color: var(--muted); }
+.btn[aria-pressed="true"] { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+.btn.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+
+.details { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1.2fr); gap: 12px; }
+.block { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 14px; display: grid; gap: 12px; align-content: start; min-width: 0; }
+.block-h { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+.block-h h3 { font-family: var(--mono); font-size: 11px; font-weight: 500; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); }
+.block-h .btn { padding: 3px 10px; font-size: 12px; }
+.minis { display: grid; gap: 8px; }
+.mini { background: var(--p-bg); color: var(--p-ink); border: 1px solid var(--p-line); border-radius: 10px; padding: 12px; display: grid; gap: 10px; min-width: 0; }
+
+.icons { display: flex; align-items: flex-end; gap: 14px; flex-wrap: wrap; }
+.icons canvas { display: block; }
+.wm { font-family: var(--display); font-size: 38px; line-height: 1; letter-spacing: -.01em; color: var(--p-ink); overflow-wrap: anywhere; }
+.hole { display: inline-block; width: .52em; height: .52em; border-radius: 50%; background: #06050b; margin: 0 .04em; vertical-align: 0; box-shadow: var(--hole-shadow); }
+
+.prod { display: grid; gap: 2px; font-family: var(--mono); font-size: 12px; }
+.prow { display: grid; grid-template-columns: 16px minmax(0, 1fr) auto; gap: 8px; align-items: center; padding: 6px 8px; border-radius: 6px; }
+.prow:nth-child(odd) { background: var(--p-surface); }
+.prow .br { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.prow .st { color: var(--p-muted); white-space: nowrap; }
+.dot { width: 9px; height: 9px; border-radius: 50%; justify-self: center; background: var(--c); box-shadow: 0 0 var(--glow, 7px) 1px color-mix(in srgb, var(--c) 55%, transparent); }
+.dot.amber { outline: 2px solid color-mix(in srgb, var(--c) 45%, transparent); outline-offset: 2px; }
+.dot.sq { border-radius: 2px; }
+
+.tokens { width: 100%; border-collapse: collapse; font-size: 12px; }
+.tokens th { text-align: left; font-family: var(--mono); font-weight: 500; font-size: 11px; color: var(--muted); letter-spacing: .08em; text-transform: uppercase; padding: 0 6px 6px 0; }
+.tokens td { padding: 5px 6px 5px 0; border-top: 1px solid var(--line); vertical-align: middle; }
+.tokens td:first-child { color: var(--muted); }
+.sw { display: inline-flex; align-items: center; gap: 6px; font-family: var(--mono); font-size: 11px; }
+.sw i { width: 16px; height: 16px; border-radius: 4px; border: 1px solid var(--line); flex: none; }
+.tokens-wrap { overflow-x: auto; }
+
+/* Type */
+.type { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 20px; display: grid; gap: 18px; }
+.type h2 { font-family: var(--display); font-size: 22px; text-transform: uppercase; }
+.type-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+.spec { display: grid; gap: 8px; align-content: start; min-width: 0; }
+.spec .role { font-family: var(--mono); font-size: 11px; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); }
+.spec .s1 { font-family: var(--display); font-size: 30px; line-height: 1.05; text-transform: uppercase; }
+.spec .s2 { font-family: var(--voice); font-size: 18px; }
+.spec .s3 { font-family: var(--mono); font-size: 13px; line-height: 1.7; }
+.spec small { color: var(--muted); font-size: 12px; }
+.type .note { color: var(--muted); max-width: 70ch; }
+.type .choose { display: flex; gap: 8px; flex-wrap: wrap; }
+.s4 { font-family: var(--voice); font-size: 13px; line-height: 1.7; }
+
+.picks { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 22px; display: grid; gap: 12px; }
+.picks h2 { font-size: 20px; font-weight: 600; }
+.picks p { color: var(--muted); }
+.picks pre { margin: 0; font-family: var(--mono); font-size: 13px; background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.picks .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.copied { color: var(--muted); font-size: 13px; }
+
+@media (max-width: 900px) {
+  .details { grid-template-columns: minmax(0, 1fr); }
+  .type-grid { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 620px) {
+  .pair { grid-template-columns: minmax(0, 1fr); }
+}
+</style>
+
+<div class="wrap">
+  <header class="intro">
+    <h1>Event Horizon in daylight</h1>
+    <p>You kept Event Horizon's artwork, palette, app look and voice, plus the type from Number Go Up. Light mode is the hard part, because Event Horizon is built on a black void. Here are three ways to carry it into daylight. Every piece is shown in dark and light side by side.</p>
+    <p class="rule">One rule holds in all three: the black hole stays black in both modes. The sky changes around it.</p>
+    <p>Press <b>Keep</b> on what you like, then copy your picks at the bottom. <b>Another variation</b> redraws the art with a new layout.</p>
+  </header>
+
+  <div id="variants"></div>
+
+  <section class="type" aria-labelledby="typeH">
+    <h2 id="typeH">Type, from your picks</h2>
+    <div class="type-grid">
+      <div class="spec"><span class="role">Display · wordmark, headlines</span><div class="s1">Past the knee</div><small>Archivo Black</small></div>
+      <div class="spec"><span class="role">Voice · taglines, empty states</span><div class="s2">Nothing needs you. Yet.</div><small>Courier Prime</small></div>
+      <div class="spec"><span class="role">Interface · terminals, rows, data</span>
+        <div class="s3">feat/worktree-create · needs you<br>fix/pty-resize · failed · exit 2<br>chore/upgrade-stripe · 61 passed</div><small>Geist Mono (suggested)</small></div>
+    </div>
+    <p class="note">Archivo Black and Courier Prime work well with Event Horizon. For the app's dense rows and terminals, though, I'd use a cleaner mono. Courier Prime is wide and thin, so ten branch names in a column get hard to scan. Here is the same list set in Courier Prime:</p>
+    <div class="s4">feat/worktree-create · needs you<br>fix/pty-resize · failed · exit 2<br>chore/upgrade-stripe · 61 passed</div>
+    <div class="choose">
+      <button class="btn" type="button" data-pick="Type · Geist Mono for the app UI" aria-pressed="false">Keep: Geist Mono in the app</button>
+      <button class="btn" type="button" data-pick="Type · Courier Prime everywhere" aria-pressed="false">Keep: Courier Prime everywhere</button>
+    </div>
+  </section>
+
+  <section class="picks" aria-labelledby="picksH">
+    <h2 id="picksH">Your picks</h2>
+    <p>Copy this and paste it back to me.</p>
+    <pre id="pickOut"></pre>
+    <div class="row"><button class="btn primary" id="copyBtn" type="button">Copy picks</button><button class="btn" id="clearBtn" type="button">Clear</button><span class="copied" id="copied" aria-live="polite"></span></div>
+  </section>
+</div>
+
+<script>
+(() => {
+  const TAU = Math.PI * 2;
+  const DARK = { mode: "dark", bg: "#05040A", surface: "#0d0a17", line: "#251d3f", ink: "#F4EFFF", muted: "#9d93bd", accent: "#9B6BFF", deep: "#7A3CFF",
+    amber: "#FFB23E", green: "#6FE0A3", red: "#FF2E88", glow: "7px" };
+  const V = [
+    { id: "eclipse", name: "Eclipse", tag: "Variant 1",
+      idea: "The same glowing black hole in both modes. In light mode the sky turns pale lilac and the glow becomes deep violet ink, like a photo printed on paper.",
+      how: "Closest to what you picked. The art carries the brand, so it needs the most care to keep light mode from looking washed out.",
+      light: { mode: "light", bg: "#F3F0FA", surface: "#E9E4F5", line: "#DDD6EE", ink: "#14101F", muted: "#625A7A", accent: "#5B2BD9", deep: "#3B1A99", amber: "#D98200", green: "#13804A", red: "#D6166E", glow: "3px" } },
+    { id: "figure", name: "Figure 1", tag: "Variant 2",
+      idea: "Event Horizon drawn as a physics-paper figure. Thin contour lines around the singularity, and open dots along the curve at equal time steps. The dots spread apart as it accelerates.",
+      how: "Line art flips between modes cleanly, so both look equally deliberate. It is calmer and more nerdy, less cosmic.",
+      light: { mode: "light", bg: "#FAFAFC", surface: "#F0EFF5", line: "#E2E1EA", ink: "#111018", muted: "#5E5C6B", accent: "#5B2BD9", deep: "#3B1A99", amber: "#D98200", green: "#13804A", red: "#D6166E", glow: "3px" } },
+    { id: "well", name: "Gravity Well", tag: "Variant 3",
+      idea: "A spacetime grid pulled into the black hole, and the curve bends with it. It reads as a funnel of agents falling toward one point, which is you.",
+      how: "The grid is a pattern, so it also works as a texture behind app screens and the website. It is the most graphic of the three.",
+      light: { mode: "light", bg: "#EDEAF5", surface: "#E2DDEF", line: "#D3CCE6", ink: "#16122A", muted: "#5F5878", accent: "#6A35F0", deep: "#3B1A99", amber: "#D98200", green: "#13804A", red: "#D6166E", glow: "3px" } },
+  ];
+  const seeds = { eclipse: 11, figure: 5, well: 3 };
+
+  // ---------- helpers ----------
+  function rng(seed) {
+    let a = seed >>> 0;
+    return () => { a = (a + 0x6D2B79F5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+  }
+  function setup(c, w, h) {
+    const dpr = Math.min(devicePixelRatio || 1, 2);
+    w = w ?? c.clientWidth; h = h ?? c.clientHeight;
+    c.width = Math.max(1, Math.round(w * dpr)); c.height = Math.max(1, Math.round(h * dpr));
+    const ctx = c.getContext("2d"); ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    return { ctx, w, h };
+  }
+  const rgb = (hex) => { const n = parseInt(hex.slice(1), 16); return [(n >> 16) & 255, (n >> 8) & 255, n & 255]; };
+  const rgba = (hex, a) => { const [r, g, b] = rgb(hex); return `rgba(${r},${g},${b},${a})`; };
+  const mix = (h1, h2, t, a = 1) => { const x = rgb(h1), y = rgb(h2); return `rgba(${x.map((v, i) => Math.round(v + (y[i] - v) * t)).join(",")},${a})`; };
+  function curvePts(k, x0, y0, x1, y1, n = 220) {
+    const pts = [];
+    for (let i = 0; i <= n; i++) { const t = i / n, f = (Math.exp(k * t) - 1) / (Math.exp(k) - 1); pts.push([x0 + (x1 - x0) * t, y0 - (y0 - y1) * f]); }
+    return pts;
+  }
+  const tipAngle = (p) => { const a = p[p.length - 4], b = p[p.length - 1]; return Math.atan2(b[1] - a[1], b[0] - a[0]) + Math.PI / 2; };
+  function stroke(ctx, pts) { ctx.beginPath(); pts.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y))); ctx.stroke(); }
+  function rocket(ctx, x, y, rot, s, o) {
+    ctx.save(); ctx.translate(x, y); ctx.rotate(rot); ctx.scale(s, s);
+    const g = ctx.createRadialGradient(0, .7, 0, 0, .95, .6);
+    g.addColorStop(0, o.core); g.addColorStop(.35, o.flame); g.addColorStop(1, rgba(o.flame, 0));
+    ctx.fillStyle = g; ctx.beginPath(); ctx.ellipse(0, 1.05, .24, .55, 0, 0, TAU); ctx.fill();
+    ctx.fillStyle = o.fin; ctx.beginPath();
+    ctx.moveTo(-.32, .18); ctx.lineTo(-.66, .86); ctx.lineTo(-.27, .68); ctx.closePath();
+    ctx.moveTo(.32, .18); ctx.lineTo(.66, .86); ctx.lineTo(.27, .68); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = o.body; ctx.beginPath(); ctx.moveTo(0, -1); ctx.bezierCurveTo(.44, -.6, .42, .2, .3, .62); ctx.lineTo(-.3, .62); ctx.bezierCurveTo(-.42, .2, -.44, -.6, 0, -1); ctx.fill();
+    ctx.fillStyle = o.win; ctx.beginPath(); ctx.arc(0, -.36, .13, 0, TAU); ctx.fill();
+    ctx.restore();
+  }
+  const HOLE = "#06050b";
+  function tipRocket(ctx, pts, s, P) {
+    const [tx, ty] = pts[pts.length - 1], rot = tipAngle(pts);
+    const dark = P.mode === "dark";
+    rocket(ctx, tx + Math.sin(rot) * s * .3, ty - Math.cos(rot) * s * .3, rot, s,
+      { body: P.ink, fin: P.accent, win: P.bg, flame: P.accent, core: dark ? "#F4EFFF" : P.accent });
+  }
+
+  // ---------- Variant 1: Eclipse ----------
+  function eclipse(ctx, w, h, P, r, icon) {
+    const dark = P.mode === "dark";
+    ctx.fillStyle = P.bg; ctx.fillRect(0, 0, w, h);
+    if (!icon) for (let i = 0; i < (dark ? 180 : 90); i++) { ctx.globalAlpha = dark ? .15 + r() * .6 : .06 + r() * .12; ctx.fillStyle = P.ink; const z = r() < .1 ? 1.6 : .9; ctx.fillRect(r() * w, r() * h, z, z); }
+    ctx.globalAlpha = 1;
+    const cx = icon ? w * .44 : w * (.52 + r() * .1), cy = icon ? h * .56 : h * (.44 + r() * .06), R = Math.min(w, h) * (icon ? .18 : .15), tilt = -.14 + r() * .1;
+    let g = ctx.createRadialGradient(cx, cy, R * .8, cx, cy, R * 4);
+    g.addColorStop(0, rgba(P.deep, dark ? .42 : .2)); g.addColorStop(1, rgba(P.deep, 0));
+    ctx.fillStyle = g; ctx.fillRect(0, 0, w, h);
+    const hot = dark ? "#F4EFFF" : P.deep, cool = dark ? P.deep : "#B8A6F0";
+    const disk = (a0, a1) => {
+      if (icon) return;
+      for (let i = 0; i < 18; i++) {
+        const t = i / 17; ctx.strokeStyle = mix(hot, cool, t, .8 - t * .6); ctx.lineWidth = R * .03;
+        ctx.beginPath(); ctx.ellipse(cx, cy, R * (1.5 + t * 1.5), R * (.2 + t * .22), tilt, a0, a1); ctx.stroke();
+      }
+    };
+    disk(Math.PI, TAU);
+    g = ctx.createRadialGradient(cx, cy, R, cx, cy, R * 1.5);
+    g.addColorStop(0, dark ? "rgba(244,239,255,.95)" : rgba(P.deep, .95)); g.addColorStop(.2, rgba(P.accent, .85)); g.addColorStop(1, rgba(P.accent, 0));
+    ctx.fillStyle = g; ctx.beginPath(); ctx.arc(cx, cy, R * 1.5, 0, TAU); ctx.fill();
+    ctx.fillStyle = HOLE; ctx.beginPath(); ctx.arc(cx, cy, R, 0, TAU); ctx.fill();
+    ctx.strokeStyle = dark ? "rgba(244,239,255,.95)" : P.accent; ctx.lineWidth = icon ? Math.max(1, w / 48) : 1.4;
+    ctx.beginPath(); ctx.arc(cx, cy, R * 1.02, 0, TAU); ctx.stroke();
+    disk(0, Math.PI);
+    if (!icon) for (let i = 0; i < 16; i++) {
+      const a = 2.2 + i * .42, d = R * (2.4 - i * .08);
+      ctx.globalAlpha = .9 - i * .05; ctx.fillStyle = P.red;
+      ctx.beginPath(); ctx.arc(cx + Math.cos(a) * d, cy + Math.sin(a) * d * .45, Math.max(.6, 2.2 - i * .1), 0, TAU); ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+    const x1 = icon ? w * .82 : Math.min(w - 30, cx + R * 2.1), pts = curvePts(icon ? 5 : 5 + r() * 2, w * .06, h * (icon ? .86 : .84), x1, h * (icon ? .14 : .13));
+    const lg = ctx.createLinearGradient(w * .05, 0, x1, 0);
+    lg.addColorStop(0, rgba(P.accent, .15)); lg.addColorStop(.7, rgba(P.accent, .9)); lg.addColorStop(1, dark ? "#F4EFFF" : P.deep);
+    ctx.lineCap = "round"; ctx.strokeStyle = icon ? (dark ? "#F4EFFF" : P.deep) : lg; ctx.lineWidth = icon ? Math.max(1.5, w / 30) : 2.4;
+    if (dark && !icon) { ctx.shadowColor = P.deep; ctx.shadowBlur = 14; }
+    stroke(ctx, pts); ctx.shadowBlur = 0;
+    if (!icon) {
+      tipRocket(ctx, pts, Math.min(w, h) * .055, P);
+      ctx.fillStyle = P.muted; ctx.font = `11px "Geist Mono", monospace`; ctx.fillText("t → ∞", w * .06, h * .84 + 20);
+    }
+  }
+
+  // ---------- Variant 2: Figure 1 ----------
+  function figure(ctx, w, h, P, r, icon) {
+    const dark = P.mode === "dark";
+    ctx.fillStyle = P.bg; ctx.fillRect(0, 0, w, h);
+    const cx = icon ? w * .42 : w * (.5 + r() * .12), cy = icon ? h * .56 : h * (.42 + r() * .08), R = Math.min(w, h) * (icon ? .13 : .085), tilt = -.2 + r() * .15;
+    const n = icon ? (w < 24 ? 2 : 4) : 13;
+    for (let i = 0; i < n; i++) {
+      const rx = R * (1.35 + .38 * Math.pow(i, 1.25) * (icon ? 1.6 : 1)), t = i / Math.max(1, n - 1);
+      ctx.strokeStyle = t < .35 ? rgba(P.accent, .9 - t) : rgba(P.ink, dark ? .32 - t * .2 : .28 - t * .18);
+      ctx.lineWidth = icon ? Math.max(1, w / 64) : 1;
+      ctx.beginPath(); ctx.ellipse(cx, cy, rx, rx * .64, tilt, 0, TAU); ctx.stroke();
+    }
+    ctx.fillStyle = HOLE; ctx.beginPath(); ctx.arc(cx, cy, R, 0, TAU); ctx.fill();
+    if (dark) { ctx.strokeStyle = rgba(P.ink, .9); ctx.lineWidth = 1; ctx.beginPath(); ctx.arc(cx, cy, R + 1, 0, TAU); ctx.stroke(); }
+
+    const L = icon ? w * .12 : 44, B = icon ? h * .86 : h - 40, T = icon ? h * .14 : h * .12, x1 = icon ? w * .82 : w * (.8 + r() * .06);
+    if (!icon) {
+      ctx.strokeStyle = rgba(P.ink, .7); ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(L, T - 6); ctx.lineTo(L, B); ctx.lineTo(w - 18, B); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(L - 4, T); ctx.lineTo(L, T - 7); ctx.lineTo(L + 4, T); ctx.moveTo(w - 25, B - 4); ctx.lineTo(w - 18, B); ctx.lineTo(w - 25, B + 4); ctx.stroke();
+      ctx.fillStyle = P.muted; ctx.font = `11px "Geist Mono", monospace`;
+      ctx.fillText("output", L + 8, T + 4); ctx.fillText("t", w - 30, B - 8);
+      ctx.fillText("rₛ", cx + R + 8, cy - R * .4);
+    }
+    const k = icon ? 5.5 : 5.5 + r() * 2.5, pts = curvePts(k, L + 2, B - (icon ? 0 : 4), x1, T + (icon ? 0 : 16));
+    ctx.strokeStyle = P.ink; ctx.lineWidth = icon ? Math.max(1.5, w / 28) : 2; ctx.lineCap = "round"; stroke(ctx, pts);
+    // Equal time steps: the gaps widen as it accelerates.
+    const marks = icon ? (w < 40 ? 0 : 5) : 16;
+    for (let i = 1; i < marks; i++) {
+      const p = pts[Math.round((i / marks) * (pts.length - 1))];
+      ctx.fillStyle = P.bg; ctx.strokeStyle = P.ink; ctx.lineWidth = icon ? 1 : 1.4;
+      ctx.beginPath(); ctx.arc(p[0], p[1], icon ? w / 30 : 3.2, 0, TAU); ctx.fill(); ctx.stroke();
+    }
+    if (!icon) {
+      tipRocket(ctx, pts, Math.min(w, h) * .05, P);
+      ctx.fillStyle = P.muted; ctx.font = `11px "Geist Mono", monospace`;
+      ctx.fillText("Fig. 1  Agent throughput near the singularity.", L, h - 12);
+      const fp = pts[Math.round(.55 * (pts.length - 1))];
+      ctx.fillStyle = P.red; ctx.beginPath(); ctx.arc(fp[0] + 26, fp[1] - 30, 3, 0, TAU); ctx.fill();
+      ctx.fillText("1 failed", fp[0] + 34, fp[1] - 26);
+    }
+  }
+
+  // ---------- Variant 3: Gravity Well ----------
+  function well(ctx, w, h, P, r, icon) {
+    const dark = P.mode === "dark";
+    ctx.fillStyle = P.bg; ctx.fillRect(0, 0, w, h);
+    const cx = icon ? w * .46 : w * (.5 + r() * .12), cy = icon ? h * .54 : h * (.46 + r() * .08), R = Math.min(w, h) * (icon ? .22 : .16);
+    const warp = (x, y, A) => { const dx = x - cx, dy = y - cy, d2 = dx * dx + dy * dy, f = A * R * R / (d2 + R * R * .7); return [cx + dx * (1 - f), cy + dy * (1 - f)]; };
+    const N = icon ? (w < 24 ? 5 : 8) : 26, seg = icon ? 24 : 80, pad = .15;
+    ctx.lineWidth = icon ? Math.max(.8, w / 70) : 1;
+    for (let dir = 0; dir < 2; dir++) for (let i = 0; i <= N; i++) {
+      const u = -pad + (1 + 2 * pad) * i / N;
+      let prev = null;
+      for (let j = 0; j <= seg; j++) {
+        const v = -pad + (1 + 2 * pad) * j / seg;
+        const [x, y] = dir ? warp(u * w, v * h, .9) : warp(v * w, u * h, .9);
+        if (prev) {
+          const d = Math.hypot((x + prev[0]) / 2 - cx, (y + prev[1]) / 2 - cy), near = Math.exp(-d / (R * 1.6));
+          ctx.strokeStyle = rgba(P.accent, (dark ? .22 : .2) + near * .7);
+          ctx.beginPath(); ctx.moveTo(prev[0], prev[1]); ctx.lineTo(x, y); ctx.stroke();
+        }
+        prev = [x, y];
+      }
+    }
+    ctx.fillStyle = HOLE; ctx.beginPath(); ctx.arc(cx, cy, R * .5, 0, TAU); ctx.fill();
+    ctx.strokeStyle = dark ? rgba(P.ink, .9) : P.accent; ctx.lineWidth = icon ? Math.max(1, w / 48) : 1.3;
+    ctx.beginPath(); ctx.arc(cx, cy, R * .5 + 1, 0, TAU); ctx.stroke();
+    const x1 = icon ? w * .84 : Math.min(w - 26, cx + R * 2.2);
+    const raw = curvePts(icon ? 5 : 5 + r() * 2, w * .05, h * (icon ? .88 : .86), x1, h * (icon ? .12 : .12));
+    const pts = raw.map(([x, y]) => warp(x, y, .35));
+    ctx.lineCap = "round"; ctx.strokeStyle = dark ? "#F4EFFF" : P.ink; ctx.lineWidth = icon ? Math.max(1.5, w / 26) : 2.6;
+    if (dark && !icon) { ctx.shadowColor = P.deep; ctx.shadowBlur = 12; }
+    stroke(ctx, pts); ctx.shadowBlur = 0;
+    if (!icon) {
+      tipRocket(ctx, pts, Math.min(w, h) * .055, P);
+      ctx.fillStyle = P.muted; ctx.font = `11px "Geist Mono", monospace`; ctx.fillText("10 agents · 1 human", 14, h - 12);
+    }
+  }
+
+  const ART = { eclipse, figure, well };
+  function roundClip(ctx, s) { const rr = s * .22; ctx.beginPath(); ctx.moveTo(rr, 0); ctx.arcTo(s, 0, s, s, rr); ctx.arcTo(s, s, 0, s, rr); ctx.arcTo(0, s, 0, 0, rr); ctx.arcTo(0, 0, s, 0, rr); ctx.closePath(); ctx.clip(); }
+
+  // ---------- build DOM ----------
+  const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+  const paneVars = (P) => `--p-bg:${P.bg};--p-ink:${P.ink};--p-muted:${P.muted};--p-line:${P.line};--p-surface:${P.surface}`;
+  const holeShadow = (P) => P.mode === "dark" ? `0 0 0 .055em #F4EFFF, 0 0 .18em .07em ${P.deep}, 0 0 .5em .1em ${rgba(P.deep, .5)}` : `0 0 0 .055em ${P.accent}, 0 0 .22em .04em ${rgba(P.accent, .35)}`;
+  function prod(P) {
+    const row = (c, br, st, cls = "") => `<div class="prow"><span class="dot ${cls}" style="--c:${c};--glow:${P.glow}"></span><span class="br">${br}</span><span class="st">${st}</span></div>`;
+    return `<div class="prod">${row(P.accent, "feat/indicator-light", "working")}${row(P.amber, "feat/worktree-create", "needs you", "amber")}${row(P.green, "fix/broken-links", "done")}${row(P.red, "fix/pty-resize", "failed", "sq")}</div>`;
+  }
+  function tokenTable(v) {
+    const rows = [["Background", "bg"], ["Surface", "surface"], ["Text", "ink"], ["Muted", "muted"], ["Brand", "accent"], ["Needs you", "amber"], ["Done", "green"], ["Failed", "red"]];
+    const cell = (hex) => `<span class="sw"><i style="background:${hex}"></i>${hex.toUpperCase()}</span>`;
+    return `<div class="tokens-wrap"><table class="tokens"><thead><tr><th>Token</th><th>Dark</th><th>Light</th></tr></thead><tbody>${rows.map(([n, k]) => `<tr><td>${n}</td><td>${cell(DARK[k])}</td><td>${cell(v.light[k])}</td></tr>`).join("")}</tbody></table></div>`;
+  }
+  const keep = (label) => `<button class="btn" type="button" data-pick="${esc(label)}" aria-pressed="false">Keep</button>`;
+
+  const host = document.getElementById("variants");
+  host.innerHTML = V.map((v) => {
+    const modes = [["Dark", DARK], ["Light", v.light]];
+    return `<section class="variant" aria-labelledby="h-${v.id}">
+      <div class="v-head"><div><div class="tag">${v.tag}</div><h2 id="h-${v.id}">${v.name}</h2></div>
+        <div style="display:grid;gap:6px;max-width:60ch"><p>${v.idea}</p><p class="how">${v.how}</p></div></div>
+      <div class="pair">${modes.map(([label, P]) => `<div class="pane" style="${paneVars(P)}"><div class="pane-label"><span>${label}</span></div>
+        <canvas class="art" data-art="${v.id}" data-mode="${P.mode}" aria-label="${v.name} artwork, ${label.toLowerCase()} mode"></canvas></div>`).join("")}</div>
+      <div class="bar"><button class="btn" type="button" data-redraw="${v.id}">Another variation</button>${keep(v.name + " · artwork").replace(">Keep<", ">Keep artwork<")}</div>
+      <div class="details">
+        <div class="block"><div class="block-h"><h3>Icon and wordmark</h3>${keep(v.name + " · icon and wordmark")}</div>
+          <div class="minis">${modes.map(([, P]) => `<div class="mini" style="${paneVars(P)}"><div class="icons">${[64, 32, 16].map((s) => `<canvas data-icon="${v.id}" data-mode="${P.mode}" data-size="${s}" aria-hidden="true"></canvas>`).join("")}</div>
+            <div class="wm">fo<span class="hole" style="--hole-shadow:${holeShadow(P)}" aria-hidden="true"></span>m</div></div>`).join("")}</div></div>
+        <div class="block"><div class="block-h"><h3>In the app</h3>${keep(v.name + " · app look")}</div>
+          <div class="minis">${modes.map(([, P]) => `<div class="mini" style="${paneVars(P)}">${prod(P)}</div>`).join("")}</div></div>
+        <div class="block"><div class="block-h"><h3>Colors</h3>${keep(v.name + " · light palette")}</div>${tokenTable(v)}</div>
+      </div>
+    </section>`;
+  }).join("");
+
+  const pal = (id, mode) => (mode === "dark" ? DARK : V.find((v) => v.id === id).light);
+  function drawArt(c) { const { ctx, w, h } = setup(c); ART[c.dataset.art](ctx, w, h, pal(c.dataset.art, c.dataset.mode), rng(seeds[c.dataset.art]), false); }
+  function drawIcon(c) {
+    const s = Number(c.dataset.size); c.style.width = s + "px"; c.style.height = s + "px";
+    const { ctx } = setup(c, s, s); roundClip(ctx, s);
+    ART[c.dataset.icon](ctx, s, s, pal(c.dataset.icon, c.dataset.mode), rng(1), true);
+  }
+  function drawAll() { document.querySelectorAll("canvas.art").forEach(drawArt); document.querySelectorAll("[data-icon]").forEach(drawIcon); }
+  drawAll();
+  if (document.fonts) document.fonts.load('11px "Geist Mono"').then(drawAll, () => {});
+  let rt; new ResizeObserver(() => { clearTimeout(rt); rt = setTimeout(drawAll, 120); }).observe(document.querySelector(".wrap"));
+  document.addEventListener("click", (e) => {
+    const b = e.target.closest("[data-redraw]");
+    if (!b) return;
+    seeds[b.dataset.redraw] = Math.floor(Math.random() * 1e9);
+    document.querySelectorAll(`canvas.art[data-art="${b.dataset.redraw}"]`).forEach(drawArt);
+  });
+
+  // ---------- picks ----------
+  const KEY = "foom-eh-picks", out = document.getElementById("pickOut");
+  let picks = new Set();
+  try { picks = new Set(JSON.parse(localStorage.getItem(KEY) || "[]")); } catch { /* storage unavailable */ }
+  function sync() {
+    document.querySelectorAll("[data-pick]").forEach((b) => b.setAttribute("aria-pressed", String(picks.has(b.dataset.pick))));
+    const list = [...picks].sort();
+    out.textContent = list.length ? "Foom brand picks, round 2:\n" + list.map((p) => "- " + p.replace(" · ", ": ")).join("\n") : "Nothing kept yet. Press Keep on anything you like above.";
+    try { localStorage.setItem(KEY, JSON.stringify(list)); } catch { /* ignore */ }
+  }
+  document.addEventListener("click", (e) => {
+    const b = e.target.closest("[data-pick]");
+    if (!b) return;
+    const p = b.dataset.pick; picks.has(p) ? picks.delete(p) : picks.add(p); sync();
+  });
+  document.getElementById("clearBtn").addEventListener("click", () => { picks.clear(); sync(); });
+  document.getElementById("copyBtn").addEventListener("click", () => {
+    const msg = document.getElementById("copied");
+    const fallback = () => { const range = document.createRange(); range.selectNodeContents(out); const sel = getSelection(); sel.removeAllRanges(); sel.addRange(range); msg.textContent = "Selected. Press Ctrl+C or ⌘C to copy."; };
+    if (navigator.clipboard?.writeText) navigator.clipboard.writeText(out.textContent).then(() => { msg.textContent = "Copied"; }, fallback); else fallback();
+  });
+  sync();
+})();
+</script>

@@ -85,8 +85,4 @@ Quitting stops every PTY before the app exits. Terminals live exactly as long as
 
 ## Mockups
 
-These links are private to the owner. Ask for access if they don't open for you.
-
-- Board and attention model: https://claude.ai/artifact/D56TZnzqZejFXXNqRcjMxM
-- First-run preflight: https://claude.ai/artifact/8fznyQMNPQ1UqsFFmnpZgK
-- Brand, light and dark: https://claude.ai/artifact/48wSfwgwgkDyWyYaiUoq1q
+Clickable mockups live in [`docs/mockups/`](mockups/README.md): the [board](mockups/board.html), [first run](mockups/first-run.html), and [brand](mockups/brand.html). The board and first-run mockups predate the brand; take their layout and behavior, and take color and type from [brand.md](brand.md). The mockups README lists what else they get wrong.
