@@ -99,3 +99,7 @@ These cross upstream version ranges. Keep validating clean installs and packagin
 Vitest and its V8 coverage provider are updated together to 5.0.2. Some dependencies intentionally remain below their newest major: TypeScript 6 matches typescript-eslint's supported range; Node types match Node 24; fuses 1.8 matches Forge's plugin peer requirement. Use Node 24 LTS (`nvm use`); Vitest 5 does not support Node 25.
 
 Sources: [Electron's maintained ZIP extractor](https://github.com/electron/extract-zip), [original extractor advisory](https://github.com/advisories/GHSA-jmr9-qjv8-65gv), and the installed packages' peer/engine requirements.
+
+## License
+
+Foom is licensed under the [Apache License 2.0](LICENSE). See [NOTICE](NOTICE) for project attribution. Third-party dependencies and bundled fonts retain their respective licenses and notices.
