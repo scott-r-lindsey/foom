@@ -48,6 +48,7 @@ vi.mock("@xterm/xterm", () => ({
     focus = mock.focus;
     dispose = mock.dispose;
     onData = mock.onInput;
+    parser = { registerCsiHandler: vi.fn(), registerDcsHandler: vi.fn() };
   },
 }));
 vi.mock("@xterm/addon-fit", () => ({
