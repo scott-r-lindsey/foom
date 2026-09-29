@@ -59,6 +59,10 @@ export class TerminalManager {
     };
     this.sessions.set(id, session);
     session.subscriptions = [
+      // Main is the response owner, whether or not a renderer is attached.
+      screen.onData((data) => {
+        if (!session.exited) pty.write(data);
+      }),
       pty.onData((data) => {
         screen.write(data, () => {
           if (this.sessions.has(id)) this.deliver(session, data);

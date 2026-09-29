@@ -352,3 +352,20 @@ test("tails trim blank suffixes while preserving interior blank rows and scrollb
   output("\x1b[2J");
   expect((await manager.tail(id, 1))[0]).toMatch(/^line /);
 });
+
+test("main answers protocol queries through attachment transitions and ignores replies after exit", async () => {
+  const id = manager.create(spec);
+  for (const attached of [false, true, false, true]) {
+    if (attached) await manager.attach(id, vi.fn());
+    else manager.detach(id);
+    pty().write.mockClear();
+    output("\x1b[3;7H\x1b[6n");
+    await manager.tail(id, 1);
+    expect(pty().write.mock.calls).toEqual([["\x1b[3;7R"]]);
+  }
+  pty().onExit.mock.calls[0]?.[0]({ exitCode: 0 });
+  pty().write.mockClear();
+  output("\x1b[6n");
+  await manager.tail(id, 1);
+  expect(pty().write).not.toHaveBeenCalled();
+});

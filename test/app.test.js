@@ -198,6 +198,13 @@ test("terminal runs an interactive shell behind an isolated bridge", {
         ],
       },
     );
+    // The real renderer must not duplicate main's protocol response.
+    // PowerShell needs the call operator to execute a quoted executable path.
+    const probeCommand = `${process.platform === "win32" ? "& " : ""}"${process.execPath}" "${path.join(__dirname, "protocol-probe.js")}"`;
+    await page.keyboard.type(probeCommand);
+    await page.keyboard.press("Enter");
+    await page.waitForFunction(() => window.terminalOutput.includes("PROTOCOL_OK"));
+    assert.ok(!(await page.evaluate(() => window.terminalOutput.includes("PROTOCOL_FAIL"))));
     // A second PTY stays detached while emitting well beyond the view high-water mark.
     // Reattachment must restore the final marker from main-owned headless state.
     const detached = await page.evaluate(async () => {
@@ -273,7 +280,7 @@ test("terminal runs an interactive shell behind an isolated bridge", {
         "Terminal failure state:",
         await pages[0].evaluate(() => ({
           status: document.querySelector("#status")?.textContent,
-          output: window.terminalOutput,
+          output: window.terminalOutput?.slice(-8000),
         })),
       );
     throw error;
