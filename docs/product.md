@@ -76,6 +76,13 @@ Setup is a preflight countdown:
 
 Launch opens an empty board with **New worktree**.
 
+## Quitting
+
+Closing the window quits Foom on every platform, including macOS. The close button,
+⌘W and ⌘Q on macOS, and Alt+F4 and Ctrl+Q elsewhere use the same quit path.
+If any terminal is running, Foom asks for confirmation; Cancel keeps everything running.
+Quitting stops every PTY before the app exits. Terminals live exactly as long as the app.
+
 ## Mockups
 
 These links are private to the owner. Ask for access if they don't open for you.

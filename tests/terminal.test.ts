@@ -25,11 +25,11 @@ function fakePty() {
     resume: vi.fn(),
     kill: vi.fn(),
     onData: vi
-      .fn<(callback: (data: string) => void) => { dispose(): void }>()
-      .mockReturnValue({ dispose: vi.fn() }),
+      .fn<(callback: (data: string) => void) => { dispose: () => void }>()
+      .mockImplementation(() => ({ dispose: vi.fn() })),
     onExit: vi
-      .fn<(callback: (event: { exitCode: number }) => void) => { dispose(): void }>()
-      .mockReturnValue({ dispose: vi.fn() }),
+      .fn<(callback: (event: { exitCode: number }) => void) => { dispose: () => void }>()
+      .mockImplementation(() => ({ dispose: vi.fn() })),
   };
 }
 let ptys: ReturnType<typeof fakePty>[];
@@ -369,3 +369,96 @@ test("main answers protocol queries through attachment transitions and ignores r
   await manager.tail(id, 1);
   expect(pty().write).not.toHaveBeenCalled();
 });
+
+function exitPty(index = 0) {
+  for (const [callback] of pty(index).onExit.mock.calls) callback({ exitCode: 0 });
+}
+
+test("shutdown counts only live PTYs and waits for all exits before disposal", async () => {
+  const first = manager.create(spec);
+  manager.create(spec);
+  manager.create(spec);
+  expect(manager.runningCount).toBe(3);
+  exitPty(2);
+  expect(manager.runningCount).toBe(2);
+  await manager.attach(first, vi.fn());
+  output("x".repeat(270000));
+  await manager.tail(first, 1);
+  const stopped = vi.fn();
+  const shutdown = manager.shutdown().then(stopped);
+  expect(() => manager.create(spec)).toThrow("shutting down");
+  expect(pty().resume).toHaveBeenCalledOnce();
+  expect(pty().kill).toHaveBeenCalledOnce();
+  expect(pty(1).kill).toHaveBeenCalledOnce();
+  expect(pty(2).kill).not.toHaveBeenCalled();
+  output("x".repeat(270000));
+  await manager.tail(first, 1);
+  expect(pty().pause).toHaveBeenCalledOnce();
+  exitPty();
+  await Promise.resolve();
+  expect(stopped).not.toHaveBeenCalled();
+  exitPty(1);
+  await shutdown;
+  expect(manager.runningCount).toBe(0);
+  expect(() => {
+    manager.write(first, "stale");
+  }).toThrow("Unknown terminal ID");
+});
+
+test("shutdown force-kills a PTY that ignores graceful termination", async () => {
+  vi.useFakeTimers();
+  try {
+    manager.create(spec);
+    const shutdown = manager.shutdown();
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(pty().kill).toHaveBeenLastCalledWith("SIGKILL");
+    exitPty();
+    await shutdown;
+    const subscription = pty().onExit.mock.results[1];
+    if (subscription?.type !== "return") throw new Error("Missing exit subscription");
+    expect(subscription.value.dispose).toHaveBeenCalledOnce();
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test.each(["graceful", "force", "timeout"])(
+  "shutdown reports %s failure and can be retried",
+  async (failure) => {
+    vi.useFakeTimers();
+    try {
+      const id = manager.create(spec);
+      const error = new Error("kill failed");
+      if (failure === "graceful")
+        pty().kill.mockImplementationOnce(() => {
+          throw error;
+        });
+      if (failure === "force")
+        pty()
+          .kill.mockImplementationOnce(() => {})
+          .mockImplementationOnce(() => {
+            throw error;
+          });
+      const shutdown = manager.shutdown();
+      const rejected = expect(shutdown).rejects.toThrow(
+        failure === "timeout" ? "did not exit" : "Unable to stop terminal",
+      );
+      await vi.advanceTimersByTimeAsync(5000);
+      await rejected;
+      const subscription = pty().onExit.mock.results[1];
+      if (subscription?.type !== "return") throw new Error("Missing exit subscription");
+      expect(subscription.value.dispose).toHaveBeenCalledOnce();
+      expect(manager.runningCount).toBe(1);
+      manager.write(id, "still usable");
+      expect(pty().write).toHaveBeenCalledWith("still usable");
+      manager.create(spec);
+      const retry = manager.shutdown();
+      exitPty();
+      exitPty(1);
+      await retry;
+      expect(manager.runningCount).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  },
+);

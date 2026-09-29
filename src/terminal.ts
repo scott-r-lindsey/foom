@@ -4,7 +4,7 @@ import { homedir } from "node:os";
 import { TerminalManager } from "./terminal-manager";
 
 /** The app window owns capabilities for multiple independent main-owned sessions. */
-export function attachTerminal(window: BrowserWindow): void {
+export function attachTerminal(window: BrowserWindow): TerminalManager {
   // Capture before BrowserWindow is destroyed; its getter throws during closed.
   const contents = window.webContents;
   const owned = new Set<string>();
@@ -98,4 +98,5 @@ export function attachTerminal(window: BrowserWindow): void {
     ipcMain.removeListener("terminal:resize", resize);
     ipcMain.removeListener("terminal:ack", acknowledge);
   });
+  return manager;
 }

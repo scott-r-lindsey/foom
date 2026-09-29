@@ -21,10 +21,12 @@ type Session = {
 /** Main-owned state; no renderer is needed to consume PTY output. */
 export class TerminalManager {
   private readonly sessions = new Map<string, Session>();
+  private shuttingDown = false;
 
   constructor(private readonly onExit: (id: string, code: number) => void) {}
 
   create(spec: TerminalSpec): string {
+    if (this.shuttingDown) throw new Error("Terminals are shutting down");
     const env: Record<string, string> = {};
     for (const [key, value] of Object.entries(process.env)) {
       if (value !== undefined && !/^(npm_|ELECTRON_)/i.test(key)) env[key] = value;
@@ -88,7 +90,7 @@ export class TerminalManager {
   private deliver(session: Session, data: string): void {
     if (!session.view) return;
     session.pending += data.length;
-    if (session.pending > 262144 && !session.paused && !session.exited) {
+    if (session.pending > 262144 && !session.paused && !session.exited && !this.shuttingDown) {
       session.paused = true;
       session.pty.pause();
     }
@@ -186,5 +188,58 @@ export class TerminalManager {
 
   dispose(): void {
     for (const id of this.sessions.keys()) this.kill(id);
+  }
+
+  get runningCount(): number {
+    return [...this.sessions.values()].filter((session) => !session.exited).length;
+  }
+
+  /** Keep exit listeners alive until every PTY has actually stopped. */
+  async shutdown(): Promise<void> {
+    this.shuttingDown = true;
+    try {
+      const results = await Promise.allSettled(
+        [...this.sessions.values()].map(async (session) => {
+          if (session.exited) return;
+          if (session.paused) {
+            session.pty.resume();
+            session.paused = false;
+          }
+          await new Promise<void>((resolve, reject) => {
+            const finish = (error?: Error) => {
+              clearTimeout(force);
+              clearTimeout(deadline);
+              subscription.dispose();
+              if (error) reject(error);
+              else resolve();
+            };
+            const subscription = session.pty.onExit(() => {
+              finish();
+            });
+            const force = setTimeout(() => {
+              try {
+                session.pty.kill("SIGKILL");
+              } catch (error) {
+                finish(new Error("Unable to stop terminal", { cause: error }));
+              }
+            }, 1000);
+            const deadline = setTimeout(() => {
+              finish(new Error("A terminal did not exit; try quitting again."));
+            }, 5000);
+            try {
+              session.pty.kill();
+            } catch (error) {
+              finish(new Error("Unable to stop terminal", { cause: error }));
+            }
+          });
+        }),
+      );
+      const failure = results.find((result) => result.status === "rejected");
+      if (failure) throw failure.reason;
+      this.dispose();
+    } catch (error) {
+      this.shuttingDown = false;
+      throw error;
+    }
   }
 }

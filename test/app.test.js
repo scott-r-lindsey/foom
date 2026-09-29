@@ -30,6 +30,15 @@ async function launchApp(context) {
     console.info("Closing app");
     let timer;
     try {
+      if (child.exitCode !== null || child.signalCode !== null) {
+        assert.equal(child.exitCode, 0, "Electron must exit normally");
+        clearTimeout(watchdog);
+        return;
+      }
+      // Cleanup uses the public quit path too; tests must not leave a confirmation open.
+      await app.evaluate(({ dialog }) => {
+        dialog.showMessageBox = async () => ({ response: 1, checkboxChecked: false });
+      });
       await Promise.race([
         app.close(),
         new Promise((_, reject) => {
@@ -392,4 +401,147 @@ test("bundled brand fonts and both system themes render in Electron", {
     ),
     404,
   );
+});
+
+// Exercise the real app/PTY lifecycle; control only the native dialog response so
+// these checks run on all three desktop platforms without OS-specific UI drivers.
+for (const action of ["close", "quit", "shortcut"]) {
+  test(`quit via ${action} confirms, cancel preserves PTYs, and confirm reaps shells`, {
+    timeout: 45_000,
+  }, async (context) => {
+    const app = await launchApp(context);
+    const page = await app.firstWindow();
+    await page.waitForFunction(
+      () => !/Starting|Unable/.test(document.querySelector("#status").textContent),
+    );
+    await page.evaluate(() => {
+      window.quitOutput = "";
+      window.desktop.onData((_id, _token, data) => {
+        window.quitOutput += data;
+      });
+    });
+    const command =
+      process.platform === "win32"
+        ? 'Write-Output ("QUIT_PID:" + $PID)'
+        : "printf 'QUIT_%s:%s\\n' PID $$";
+    await page.locator(".xterm-helper-textarea").focus();
+    await page.keyboard.type(command);
+    await page.keyboard.press("Enter");
+    await page.waitForFunction(() => /QUIT_PID:\d+/.test(window.quitOutput));
+    const firstPid = await page.evaluate(() =>
+      Number(window.quitOutput.match(/QUIT_PID:(\d+)/)[1]),
+    );
+    const second = await page.evaluate(async () => {
+      const { id } = await window.desktop.create(80, 24);
+      window.secondOutput = "";
+      window.desktop.onData((terminal, token, data) => {
+        if (terminal === id) {
+          window.secondOutput += data;
+          window.desktop.acknowledge(id, token, data.length);
+        }
+      });
+      await window.desktop.attach(id);
+      return id;
+    });
+    await page.evaluate(({ id, command }) => window.desktop.input(id, command + "\r"), {
+      id: second,
+      command,
+    });
+    await page.waitForFunction(() => /QUIT_PID:\d+/.test(window.secondOutput));
+    const secondPid = await page.evaluate(() =>
+      Number(window.secondOutput.match(/QUIT_PID:(\d+)/)[1]),
+    );
+    await page.evaluate((id) => window.desktop.detach(id), second);
+    await app.evaluate(({ dialog }) => {
+      globalThis.quitPrompts = [];
+      globalThis.quitResponse = 0;
+      dialog.showMessageBox = async (_window, options) => {
+        globalThis.quitPrompts.push(options);
+        return { response: globalThis.quitResponse, checkboxChecked: false };
+      };
+    });
+    const requestQuit = () =>
+      app.evaluate(({ app, BrowserWindow }, method) => {
+        const window = BrowserWindow.getAllWindows()[0];
+        setTimeout(() => {
+          if (method === "close") window.close();
+          else if (method === "quit") app.quit();
+          else {
+            window.focus();
+            window.webContents.sendInputEvent({
+              type: "keyDown",
+              keyCode: "Q",
+              modifiers: [process.platform === "darwin" ? "meta" : "control"],
+            });
+          }
+        }, 50);
+      }, action);
+    await requestQuit();
+    await expect.poll(() => app.evaluate(() => globalThis.quitPrompts.length)).toBe(1);
+    assert.equal(
+      await app.evaluate(() => globalThis.quitPrompts[0].message),
+      "2 agents are still working. Quit anyway?",
+    );
+    assert.equal(await app.evaluate(() => globalThis.quitPrompts[0].cancelId), 0);
+    for (const pid of [firstPid, secondPid]) process.kill(pid, 0);
+    const alive =
+      process.platform === "win32"
+        ? 'Write-Output ("CANCEL_" + "ALIVE")'
+        : "printf 'CANCEL_%s\\n' ALIVE";
+    await page.locator(".xterm-helper-textarea").focus();
+    await page.keyboard.type(alive);
+    await page.keyboard.press("Enter");
+    await page.waitForFunction(() => window.quitOutput.includes("CANCEL_ALIVE"));
+    await app.evaluate(({ app }) => {
+      globalThis.quitResponse = 1;
+      // Self-quit must detach Playwright's Node debugger or Electron can wait for it.
+      app.once("will-quit", () => process.getBuiltinModule("node:inspector").close());
+    });
+    const closed = app.waitForEvent("close");
+    await requestQuit();
+    await closed;
+    for (const pid of [firstPid, secondPid]) {
+      await expect
+        .poll(() => {
+          try {
+            process.kill(pid, 0);
+            return false;
+          } catch (error) {
+            if (error.code === "ESRCH") return true;
+            throw error;
+          }
+        })
+        .toBe(true);
+    }
+  });
+}
+
+test("closing with an exited terminal quits without confirmation", {
+  timeout: 45_000,
+}, async (context) => {
+  const app = await launchApp(context);
+  const page = await app.firstWindow();
+  await page.waitForFunction(
+    () => !/Starting|Unable/.test(document.querySelector("#status").textContent),
+  );
+  const background = await app.evaluate(({ BrowserWindow, nativeTheme }) => ({
+    actual: BrowserWindow.getAllWindows()[0].getBackgroundColor().toUpperCase(),
+    expected: nativeTheme.shouldUseDarkColors ? "#05040A" : "#F3F0FA",
+  }));
+  assert.equal(background.actual, background.expected);
+  await page.locator(".xterm-helper-textarea").focus();
+  await page.keyboard.type("exit");
+  await page.keyboard.press("Enter");
+  await page.getByRole("status").filter({ hasText: "Shell exited" }).waitFor();
+  await app.evaluate(({ app, dialog }) => {
+    dialog.showMessageBox = () => {
+      throw new Error("Unexpected quit confirmation");
+    };
+    app.once("will-quit", () => process.getBuiltinModule("node:inspector").close());
+  });
+  const closed = app.waitForEvent("close");
+  await app.evaluate(({ BrowserWindow }) => {
+    setTimeout(() => BrowserWindow.getAllWindows()[0].close(), 50);
+  });
+  await closed;
 });
