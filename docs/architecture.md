@@ -20,7 +20,7 @@ This describes the target design. Where the code differs today, the section says
 - Throttling (pause at a high-water mark, resume after the renderer confirms it drew the output) applies only while a view is attached.
 - The activity meter and last-lines buffer read from the same stream. Terminal tails use the active screen and its scrollback, including populated rows below the cursor. They omit trailing whitespace-only rows before applying the requested line limit, preserve interior blank rows, and return an empty list for a blank buffer.
 
-Target launch interface sketch (worktree and agent launch support is future roadmap work):
+Target launch interface sketch (the current main-only `AgentService` uses `TerminalSpec.cwd` and optional environment additions):
 
 ```ts
 type TerminalId = string;
@@ -74,6 +74,16 @@ Git runs in main through `execFile` with argument arrays, never through a shell.
 
 At startup, main opens the service with `WorktreeService.open(app.getPath("userData"))`. Repository registration and ownership are stored in versioned `worktrees.json` using a private temporary file and atomic rename; writes are serialized within the service. Startup validates the untrusted state, rechecks repository paths, allowed roots, Git membership, and filesystem identity, and drops stale or redirected entries. Corrupt or unsupported state grants no ownership and does not block startup. Registration, creation, removal, and ownership invalidation await persistence; write failures are reported to the caller. The synchronous constructor remains available for an explicitly in-memory service. UI/IPC integration remains future work. State assumes a single application service writer; it is not a security boundary against a local process able to forge the entire state file. Worktrees are never adopted just because they appear under the configured root. Repositories sharing a basename share a destination namespace; a collision fails without overwriting the existing directory.
 
+## Agent discovery and launch
+
+**Today:** `src/agents.ts` provides a main-only `AgentService`, following the worktree service's integration boundary. `scan()` resolves PATH with the account's login shell (`-ilc`, a fixed printf program with NUL delimiters), then probes each resolved executable with bounded `--version` and `--help` calls. It retains full version strings. Shell failures report a warning and use inherited PATH; Windows uses inherited PATH and native executables. Relative and empty PATH components are ignored. Windows batch/PowerShell wrappers are not executed through a command shell; installations exposing only those wrappers currently need a native executable on PATH.
+
+Only the exact researched Claude Code and Codex version strings plus their required help flags enable hooks. Unknown versions, failed probes, Antigravity, disabled hooks, and an unavailable receiver use output evaluation. Calling `scan()` again replaces discovery results. Launch uses a resolved executable and argument array through `TerminalManager`, with the resolved PATH added to its scrubbed environment. The selected worktree must still be owned by `WorktreeService`; one agent launch at a time may occupy each worktree.
+
+`setHooksEnabled(false)` disables hook attachment for subsequent launches. A main-process integration supplies a fresh `AgentHooks` binding per launch, with a Claude stdin adapter command, a Codex argv adapter command, session credentials, and a cleanup callback. Claude settings are inline JSON in `--settings`; Codex receives `-c notify=[...]`. No settings files are created in the user's HOME or workspace. Codex attachment requires `acknowledgeCodexNotifierReplacement` after the UI discloses that the user's notifier is replaced for this invocation. `release(terminalId)` must be called on exit/kill to revoke credentials and free the worktree; `dispose()` releases all bindings during shutdown after terminals are stopped. Spawn failures clean up immediately.
+
+The receiver and adapters from #13 are available as independent services; connecting them to the launcher, persisted settings/setup (#17), board/IPC integration (#9), and actual output evaluation (#14/#15) remain integration work. Until integrated, the existing renderer continues launching its shell, and `attention: "evaluator"` describes the required fallback rather than an already-running evaluator.
+
 ## Agent signals
 
 Foom attaches its hooks per launch and never edits the user's own config:
@@ -84,7 +94,7 @@ Foom attaches its hooks per launch and never edits the user's own config:
 
 See [agent research](agents.md) for versions, payloads, local probes, sources, and remaining verification. Completion events trigger classification; they do not unconditionally set Done. Echo-off alone is not a password signal: all three tested CLIs disabled echo at startup.
 
-**Today:** `src/hook-receiver.ts` provides an independently usable main-process service. `HookReceiver.listen(onSignal)` binds only `127.0.0.1` on an OS-assigned port. `register(terminalId, agent)` returns fresh `FOOM_SESSION`, `FOOM_TOKEN`, and `FOOM_HOOK_URL` environment additions and an idempotent `revoke()` capability. The launcher must revoke on launch failure, terminal exit, or removal; application shutdown must call `close()`. The launcher (#12), evaluator, terminal state IPC, and UI integration remain separate roadmap work. The shell-only app does not start an unused listener.
+**Today:** `src/hook-receiver.ts` provides an independently usable main-process service. `HookReceiver.listen(onSignal)` binds only `127.0.0.1` on an OS-assigned port. `register(terminalId, agent)` returns fresh `FOOM_SESSION`, `FOOM_TOKEN`, and `FOOM_HOOK_URL` environment additions and an idempotent `revoke()` capability. The launcher must revoke on launch failure, terminal exit, or removal; application shutdown must call `close()`. The agent launcher is available as an independent service; connecting it to the receiver, evaluator, terminal state IPC, and UI remains integration work. The shell-only app does not start an unused listener.
 
 Requests POST JSON to `/hooks`, with `X-Foom-Session` and `Authorization` containing the launch session and raw token. Tokens contain 256 random bits; comparison uses constant-time equality of fixed-length SHA-256 digests, including for unknown sessions. The listener rejects browser origins and nonliteral Host headers, limits headers to 8 KiB and bodies to 64 KiB (including chunked requests), caps connections, and times out stalled requests. It checks revocation again before delivery. Unknown/revoked sessions and incorrect tokens all receive 401. Unsupported events are acknowledged without changing state; malformed events receive 400.
 

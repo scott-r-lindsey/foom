@@ -111,6 +111,22 @@ afterEach(async () => {
   vi.unstubAllEnvs();
 });
 
+test("passes main-owned launch environment additions to the PTY", () => {
+  manager.create({
+    ...spec,
+    env: { PATH: "/login/bin", FOOM_SESSION: "launch", FOOM_TOKEN: "token" },
+  });
+  const options: unknown = mock.spawn.mock.calls[0]?.[2];
+  if (typeof options !== "object" || !options || !("env" in options))
+    throw new Error("Missing environment");
+  expect(options.env).toMatchObject({
+    PATH: "/login/bin",
+    FOOM_SESSION: "launch",
+    FOOM_TOKEN: "token",
+    TERM_PROGRAM: "Foom",
+  });
+});
+
 test("detached output continuously updates real headless screen and scrollback", async () => {
   const id = manager.create(spec);
   for (let i = 0; i < 5000; i++) output(`line ${String(i)} ${"x".repeat(60)}\r\n`);

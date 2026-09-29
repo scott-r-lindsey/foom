@@ -10,6 +10,7 @@
     "src/main.ts",
     "src/preload.ts",
     "src/worktrees.ts",
+    "src/agents.ts",
     "src/hook-receiver.ts",
     "src/hook-adapters.ts",
     "src/shared/**/*.ts"

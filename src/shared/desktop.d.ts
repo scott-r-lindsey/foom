@@ -4,6 +4,7 @@ export interface TerminalSpec {
   cwd: string;
   cols: number;
   rows: number;
+  env?: Readonly<Record<string, string>>;
 }
 export interface DesktopApi {
   create(cols: number, rows: number): Promise<{ id: string; title: string }>;
