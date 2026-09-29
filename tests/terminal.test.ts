@@ -726,3 +726,40 @@ test("theme updates reset host overrides, synchronize snapshots, and ignore remo
     manager.setTheme(id, false);
   }).toThrow("Unknown terminal");
 });
+
+test("removed ConPTYs are drained without closing their native handle twice", async () => {
+  vi.spyOn(process, "platform", "get").mockReturnValue("win32");
+  vi.useFakeTimers();
+  try {
+    const id = manager.create(spec);
+    pty().kill.mockImplementation(() => {});
+    manager.kill(id);
+    const shutdown = manager.shutdown();
+    const rejected = expect(shutdown).rejects.toThrow("did not exit");
+    await vi.advanceTimersByTimeAsync(5000);
+    await rejected;
+    expect(pty().kill).toHaveBeenCalledExactlyOnceWith();
+    const retry = manager.shutdown();
+    expect(pty().kill).toHaveBeenCalledExactlyOnceWith();
+    pty().emitExit();
+    await retry;
+    expect(manager.hasPendingExits).toBe(false);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test("a failed ConPTY termination request stays retryable after removal", async () => {
+  vi.spyOn(process, "platform", "get").mockReturnValue("win32");
+  const id = manager.create(spec);
+  pty().kill.mockImplementationOnce(() => {
+    throw new Error("close failed");
+  });
+  expect(() => {
+    manager.kill(id);
+  }).toThrow("close failed");
+  expect(manager.hasPendingExits).toBe(true);
+  await manager.shutdown();
+  expect(pty().kill).toHaveBeenCalledTimes(2);
+  expect(manager.hasPendingExits).toBe(false);
+});

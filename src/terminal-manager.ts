@@ -20,6 +20,7 @@ type Session = {
   parserBlocked: boolean;
   viewBlocked: boolean;
   exited: boolean;
+  terminationRequested: boolean;
   generation: number;
 };
 
@@ -75,6 +76,7 @@ export class TerminalManager {
       parserBlocked: false,
       viewBlocked: false,
       exited: false,
+      terminationRequested: false,
       generation: 0,
     };
     this.sessions.set(id, session);
@@ -223,15 +225,26 @@ export class TerminalManager {
     });
   }
 
+  private terminate(session: Session): void {
+    // ConPTY closes a native handle: repeating a successful request can crash the host.
+    // A throwing request remains retryable; Unix can safely resend graceful signals.
+    if (process.platform === "win32" && session.terminationRequested) return;
+    session.pty.kill();
+    session.terminationRequested = true;
+  }
+
   kill(id: string): void {
     const session = this.get(id);
     this.detach(id);
     this.sessions.delete(id);
     for (const subscription of session.subscriptions) subscription.dispose();
-    if (!session.exited) session.pty.kill();
-    session.screen.write("", () => {
-      session.screen.dispose();
-    });
+    try {
+      if (!session.exited) this.terminate(session);
+    } finally {
+      session.screen.write("", () => {
+        session.screen.dispose();
+      });
+    }
   }
 
   get hasPendingExits(): boolean {
@@ -296,7 +309,7 @@ export class TerminalManager {
               finish(new Error("A terminal did not exit; try quitting again."));
             }, 5000);
             try {
-              session.pty.kill();
+              this.terminate(session);
             } catch (error) {
               finish(new Error("Unable to stop terminal", { cause: error }));
             }
