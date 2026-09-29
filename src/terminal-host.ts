@@ -32,11 +32,14 @@ port.on("message", (event: { data: unknown }) => {
       owned.clear();
     } else if (message.type === "create") {
       if (owned.has(id)) throw new Error("Duplicate terminal");
-      manager.create(message.spec, id);
+      manager.create(message.spec, id, message.dark);
       owned.add(id);
     } else {
       if (!owned.has(id)) throw new Error("Unknown terminal");
       switch (message.type) {
+        case "theme":
+          manager.setTheme(id, message.dark);
+          break;
         case "attach":
           await manager.attach(id, (token, data) => {
             send({ type: "data", id, view: message.view, token, data });

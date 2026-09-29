@@ -7,6 +7,7 @@ const mock = vi.hoisted(() => ({
   kill: vi.fn(),
   write: vi.fn(),
   resize: vi.fn(),
+  setTheme: vi.fn(),
   acknowledge: vi.fn(),
   tail: vi.fn(),
   dispose: vi.fn(),
@@ -21,6 +22,7 @@ vi.mock("../src/terminal-manager", () => ({
     kill = mock.kill;
     write = mock.write;
     resize = mock.resize;
+    setTheme = mock.setTheme;
     acknowledge = mock.acknowledge;
     tail = mock.tail;
     dispose = mock.dispose;
@@ -59,7 +61,7 @@ async function message(data: unknown) {
 }
 test("dispatches validated terminal operations and reports events with IDs", async () => {
   await message({ type: "create", id: "one", request: 1, spec });
-  expect(mock.create).toHaveBeenCalledWith(spec, "one");
+  expect(mock.create).toHaveBeenCalledWith(spec, "one", undefined);
   mock.attach.mockImplementation((_id: string, send: (token: string, data: string) => void) => {
     send("view", "snapshot");
   });
@@ -67,6 +69,7 @@ test("dispatches validated terminal operations and reports events with IDs", asy
   for (const operation of [
     { type: "attach", view: "view" },
     { type: "detach" },
+    { type: "theme", dark: true },
     { type: "write", data: "input" },
     { type: "resize", cols: 90, rows: 25 },
     { type: "acknowledge", token: "view", count: 8 },
@@ -74,6 +77,7 @@ test("dispatches validated terminal operations and reports events with IDs", asy
   ])
     await message({ ...operation, id: "one", request: 2 });
   expect(mock.write).toHaveBeenCalledWith("one", "input");
+  expect(mock.setTheme).toHaveBeenCalledWith("one", true);
   expect(mock.resize).toHaveBeenCalledWith("one", 90, 25);
   expect(mock.acknowledge).toHaveBeenCalledWith("one", "view", 8);
   expect(port.postMessage).toHaveBeenCalledWith({

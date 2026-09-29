@@ -1,6 +1,8 @@
 const { test } = require("node:test");
 const assert = require("node:assert/strict");
 const path = require("node:path");
+const { mkdtemp, readFile, rm } = require("node:fs/promises");
+const { tmpdir } = require("node:os");
 const { _electron: electron, expect } = require("@playwright/test");
 
 // Keep the Node debugger available until PTY cleanup finishes. Pausing the final
@@ -684,4 +686,68 @@ test("a crashed utility host reports failure and the renderer can restart", {
     .filter({ hasText: /^HOST_RESTART_OK$/ })
     .last()
     .waitFor();
+});
+
+test("host answers color queries once through real view transitions and system themes", {
+  timeout: 45000,
+}, async (context) => {
+  const directory = await mkdtemp(path.join(tmpdir(), "foom-color-probe-"));
+  context.after(() => rm(directory, { recursive: true, force: true }));
+  const app = await launchApp(context);
+  const page = await app.firstWindow();
+  await page.waitForFunction(
+    () => !document.querySelector("#status").textContent.includes("Starting"),
+  );
+  await page.evaluate(() => {
+    window.probeOutput = "";
+    window.desktop.onData((id, _token, data) => {
+      window.probeId = id;
+      window.probeOutput += data;
+    });
+  });
+  await page.locator(".xterm-helper-textarea").focus();
+  await page.keyboard.press("Enter");
+  await page.waitForFunction(() => window.probeId);
+  for (const theme of ["light", "dark"]) {
+    await app.evaluate(({ nativeTheme }, value) => {
+      nativeTheme.themeSource = value;
+    }, theme);
+    await page.waitForFunction(
+      (dark) => matchMedia("(prefers-color-scheme: dark)").matches === dark,
+      theme === "dark",
+    );
+    for (const mode of ["attached", "detached", "reattach"]) {
+      const label = `_${theme}_${mode}`;
+      const resultFile = path.join(directory, label);
+      const command = `${process.platform === "win32" ? "& " : ""}"${process.execPath}" "${path.join(__dirname, "protocol-probe.js")}" colors ${theme} ${label} "${resultFile}"`;
+      await page.evaluate(
+        async ({ command, mode }) => {
+          if (mode !== "attached") await window.desktop.detach(window.probeId);
+          window.desktop.input(window.probeId, command + "\r");
+          if (mode === "reattach") await window.desktop.attach(window.probeId);
+        },
+        { command, mode },
+      );
+      if (mode === "detached") {
+        // Wait for the probe to finish with no renderer attached, even on slow machines.
+        await expect.poll(() => readFile(resultFile, "utf8").catch(() => "pending")).toBe("OK");
+        await page.evaluate(() => window.desktop.attach(window.probeId));
+      }
+      await page.waitForFunction(
+        (label) =>
+          window.probeOutput.includes(`PROTOCOL_OK${label}`) ||
+          window.probeOutput.includes(`PROTOCOL_FAIL${label}`),
+        label,
+      );
+      assert.ok(
+        await page.evaluate((label) => window.probeOutput.includes(`PROTOCOL_OK${label}`), label),
+      );
+      assert.ok(
+        !(await page.evaluate(
+          (label) => window.probeOutput.includes(`PROTOCOL_FAIL${label}`),
+          label,
+        )),
+      );
+    }
+  }
 });

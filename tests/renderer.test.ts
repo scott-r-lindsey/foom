@@ -5,6 +5,7 @@ const mock = vi.hoisted(() => {
   const options: ITerminalOptions = {};
   return {
     options,
+    osc: vi.fn<(code: number, callback: (data: string) => boolean) => void>(),
     change: vi.fn<(event: string, callback: () => void) => void>(),
     removeChange: vi.fn(),
     fonts: vi.fn<() => Promise<FontFace[]>>(),
@@ -48,7 +49,11 @@ vi.mock("@xterm/xterm", () => ({
     focus = mock.focus;
     dispose = mock.dispose;
     onData = mock.onInput;
-    parser = { registerCsiHandler: vi.fn(), registerDcsHandler: vi.fn() };
+    parser = {
+      registerCsiHandler: vi.fn(),
+      registerOscHandler: mock.osc,
+      registerDcsHandler: vi.fn(),
+    };
   },
 }));
 vi.mock("@xterm/addon-fit", () => ({
@@ -158,7 +163,7 @@ test("derives terminal colors from CSS and follows system theme changes", async 
   document.documentElement.style.setProperty("--bg", "#F3F0FA");
   document.documentElement.style.setProperty("--ink", "#14101F");
   mock.change.mock.calls[0]?.[1]();
-  expect(mock.options.theme).toMatchObject({ background: "#F3F0FA", foreground: "#14101F" });
+  expect(mock.options.theme).toMatchObject({ background: "#f3f0fa", foreground: "#14101f" });
 });
 
 test("waits for the terminal font before starting and fitting the shell", async () => {
@@ -183,4 +188,18 @@ test("still starts with the fallback face if a bundled font cannot load", async 
   await vi.waitFor(() => {
     expect(mock.create).toHaveBeenCalledOnce();
   });
+});
+
+test("applies mixed color sets and suppresses protocol replies at the parser without filtering input", async () => {
+  await import("../src/renderer/renderer");
+  await vi.waitFor(() => {
+    expect(mock.focus).toHaveBeenCalled();
+  });
+  const handler = mock.osc.mock.calls.find(([code]) => code === 11)?.[1];
+  expect(handler?.("#123456")).toBe(true);
+  expect(mock.options.theme?.background).toBe("#123456");
+  expect(handler?.("?")).toBe(true);
+  expect(mock.input).not.toHaveBeenCalled();
+  mock.onInput.mock.calls[0]?.[0]("pasted text");
+  expect(mock.input).toHaveBeenCalledWith("one", "pasted text");
 });

@@ -3,7 +3,8 @@ import type { TerminalSpec } from "./desktop";
 type RequestBase = { request: number; id: string };
 export type HostRequest = RequestBase &
   (
-    | { type: "create"; spec: TerminalSpec }
+    | { type: "create"; spec: TerminalSpec; dark?: boolean }
+    | { type: "theme"; dark: boolean }
     | { type: "attach"; view: string }
     | { type: "detach" | "kill" | "shutdown" }
     | { type: "write"; data: string }

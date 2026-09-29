@@ -677,7 +677,7 @@ test("confirmed shutdown can retry when a removed PTY's exit times out", async (
     pty().kill.mockImplementation(() => {});
     manager.kill(removed);
     const shutdown = manager.shutdown();
-    const rejected = expect(shutdown).rejects.toThrow("Terminal shutdown timed out");
+    const rejected = expect(shutdown).rejects.toThrow("did not exit");
     await vi.advanceTimersByTimeAsync(5000);
     await rejected;
     pty().emitExit();
@@ -703,4 +703,26 @@ test("shutdown revokes terminal IPC capabilities before late renderer events", a
   for (const operation of ["attach", "detach", "kill"]) {
     await expect(invoke(operation, [id])).rejects.toThrow("Unknown or foreign terminal ID");
   }
+});
+
+test("theme updates reset host overrides, synchronize snapshots, and ignore removed sessions", async () => {
+  const id = manager.create(spec);
+  output("\x1b]11;#123456\x07");
+  await manager.tail(id, 1);
+  manager.setTheme(id, true);
+  output("\x1b]11;?\x07");
+  await manager.tail(id, 1);
+  expect(pty().write).toHaveBeenLastCalledWith("\x1b]11;rgb:0505/0404/0a0a\x1b\\");
+  const data = vi.fn();
+  await manager.attach(id, data);
+  expect(data.mock.calls[0]?.[1]).toContain("#f4efff;#05040a;#9b6bff");
+  manager.setTheme(id, false);
+  await manager.tail(id, 1);
+  expect(data.mock.calls.at(-1)?.[1]).toContain("#14101f;#f3f0fa;#5b2bd9");
+  manager.setTheme(id, true);
+  manager.kill(id);
+  await new Promise<void>((resolve) => setTimeout(resolve, 10));
+  expect(() => {
+    manager.setTheme(id, false);
+  }).toThrow("Unknown terminal");
 });
