@@ -54,4 +54,6 @@ npm run make
 git diff --check
 ```
 
-CI repeats these checks and runs Electron and packaging on Linux, Windows, and macOS. Report what ran locally versus what passed remotely. Packages are unsigned development artifacts; release signing/notarization is a separate configuration task.
+Batch related fixes and finish local validation before pushing; avoid CI runs for partial agent work.
+
+CI repeats these checks and runs Electron and packaging on Linux, Windows, and macOS for code, configuration, and unknown-path changes. Explicitly allowlisted documentation/reference-only changes skip desktop jobs; manual runs always validate all platforms. Development ZIP uploads are manual opt-in and retained for three days. Report what ran locally versus what passed remotely. Packages are unsigned development artifacts; release signing/notarization is a separate configuration task.
