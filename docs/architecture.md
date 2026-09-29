@@ -12,16 +12,14 @@ This describes the target design. Where the code differs today, the section says
 
 ## Terminals
 
-**Today:** `src/terminal.ts` attaches one PTY per window. It pauses the PTY when the renderer falls more than 256 KB behind.
-
-**Target:** the main process owns every terminal. A terminal is not paused just because nothing is displaying it.
+**Today:** `src/terminal-manager.ts` owns independent PTYs and headless screens by ID. `src/terminal.ts` grants the app window access only to the terminals it created. The renderer currently displays one shell; the manager supports multiple concurrent sessions. Closing the owning window disposes its sessions. Detached sessions continue running; navigation or a renderer crash automatically detaches views.
 
 - Each terminal has an ID, a PTY, and a headless xterm instance (`@xterm/headless`) that always consumes output. It holds the screen and scrollback, so a hidden agent never stalls.
-- Opening a terminal sends a serialized snapshot (`@xterm/addon-serialize`), then streams live output.
+- Opening a terminal sends a serialized snapshot (`@xterm/addon-serialize`) through the data channel, then streams live output. A headless parser barrier keeps the snapshot and live stream contiguous. Each attachment has a fresh token; acknowledgements must carry that token, so delayed callbacks cannot acknowledge a new view.
 - Throttling (pause at a high-water mark, resume after the renderer confirms it drew the output) applies only while a view is attached.
 - The activity meter and last-lines buffer read from the same stream.
 
-Interface sketch, not final:
+Target launch interface sketch (worktree and agent launch support is future roadmap work):
 
 ```ts
 type TerminalId = string;
@@ -52,16 +50,18 @@ The base environment removes `npm_*` and `ELECTRON_*` variables. When launching 
 
 ## IPC contract
 
-Every channel checks the sender (the owning window, the main frame, `app://bundle/index.html`) and validates every payload at runtime. Every message carries a terminal ID.
+Every channel checks the sender (the owning window, the main frame, `app://bundle/index.html`) and validates every payload at runtime. Every terminal-scoped message carries a terminal ID. Creation returns the new ID; it accepts only dimensions, with shell and working directory selected in main. The future worktree launch specification above remains a main-only capability.
 
 | Channel | Direction | Payload |
 |---|---|---|
-| `terminal:create` | renderer → main (invoke) | spec fields the renderer may choose → `id` |
-| `terminal:attach` / `terminal:detach` | renderer → main | `id` → snapshot on attach |
+| `terminal:create` | renderer → main (invoke) | `cols`, `rows` → `{ id, title }` |
+| `terminal:attach` / `terminal:detach` | renderer → main | `id` → snapshot via `terminal:data` on attach |
+| `terminal:kill` | renderer → main (invoke) | `id` |
 | `terminal:input` | renderer → main | `id`, `data` (≤ 64 KB; chunked on code-point boundaries) |
 | `terminal:resize` | renderer → main | `id`, `cols`, `rows` |
-| `terminal:ack` | renderer → main | `id`, `count` (attached terminals only) |
-| `terminal:data` | main → renderer | `id`, `data` (attached terminals only) |
+| `terminal:ack` | renderer → main | `id`, attachment token, `count` (attached terminals only) |
+| `terminal:data` | main → renderer | `id`, attachment token, `data` (attached terminals only) |
+| `terminal:exit` | main → renderer | `id`, exit code (final screen retained until killed) |
 | `terminal:activity` | main → renderer | batched `[{ id, rate }]`, about 10 per second at most |
 | `terminal:state` | main → renderer | `id`, state, reason, signal, timestamp |
 

@@ -4,7 +4,7 @@ const mock = vi.hoisted(() => ({
   expose: vi.fn<(name: string, api: DesktopApi) => void>(),
   invoke: vi.fn<(...args: unknown[]) => Promise<unknown>>(),
   send: vi.fn(),
-  on: vi.fn<(channel: string, callback: (event: unknown, value: unknown) => void) => void>(),
+  on: vi.fn<(channel: string, callback: (event: unknown, ...values: unknown[]) => void) => void>(),
   removeListener: vi.fn(),
 }));
 vi.mock("electron", () => ({
@@ -23,25 +23,25 @@ async function bridge() {
 }
 test("starts through the dedicated channel and validates the response", async () => {
   const api = await bridge();
-  mock.invoke.mockResolvedValue("bash");
-  await expect(api.start(80, 24)).resolves.toBe("bash");
-  expect(mock.invoke).toHaveBeenCalledWith("terminal:start", 80, 24);
+  mock.invoke.mockResolvedValue({ id: "one", title: "bash" });
+  await expect(api.create(80, 24)).resolves.toEqual({ id: "one", title: "bash" });
+  expect(mock.invoke).toHaveBeenCalledWith("terminal:create", 80, 24);
   mock.invoke.mockResolvedValue({});
-  await expect(api.start(80, 24)).rejects.toThrow("Invalid terminal response");
+  await expect(api.create(80, 24)).rejects.toThrow("Invalid terminal response");
   mock.invoke.mockRejectedValue(new Error("spawn failed"));
-  await expect(api.start(80, 24)).rejects.toThrow("spawn failed");
+  await expect(api.create(80, 24)).rejects.toThrow("spawn failed");
 });
 test("chunks large pastes and forwards resize and flow control", async () => {
   const api = await bridge();
-  api.input("x".repeat(65537));
+  api.input("one", "x".repeat(65537));
   expect(mock.send.mock.calls).toEqual([
-    ["terminal:input", "x".repeat(65536)],
-    ["terminal:input", "x"],
+    ["terminal:input", "one", "x".repeat(65536)],
+    ["terminal:input", "one", "x"],
   ]);
-  api.resize(100, 30);
-  api.acknowledge(99);
-  expect(mock.send).toHaveBeenCalledWith("terminal:resize", 100, 30);
-  expect(mock.send).toHaveBeenCalledWith("terminal:ack", 99);
+  api.resize("one", 100, 30);
+  api.acknowledge("one", "view", 99);
+  expect(mock.send).toHaveBeenCalledWith("terminal:resize", "one", 100, 30);
+  expect(mock.send).toHaveBeenCalledWith("terminal:ack", "one", "view", 99);
 });
 test("strips event objects, validates events, and removes listeners", async () => {
   const api = await bridge();
@@ -51,16 +51,34 @@ test("strips event objects, validates events, and removes listeners", async () =
   const offExit = api.onExit(exit);
   const dataHandler = mock.on.mock.calls[0]?.[1];
   const exitHandler = mock.on.mock.calls[1]?.[1];
-  dataHandler?.({}, "hello");
+  dataHandler?.({}, "one", "view", "hello");
   dataHandler?.({}, null);
-  exitHandler?.({}, 0);
+  exitHandler?.({}, "one", 0);
   exitHandler?.({}, "bad");
-  expect(data.mock.calls).toEqual([["hello"]]);
-  expect(exit.mock.calls).toEqual([[0]]);
+  expect(data.mock.calls).toEqual([["one", "view", "hello"]]);
+  expect(exit.mock.calls).toEqual([["one", 0]]);
   offData();
   offExit();
   expect(mock.removeListener).toHaveBeenCalledWith("terminal:data", dataHandler);
   expect(mock.removeListener).toHaveBeenCalledWith("terminal:exit", exitHandler);
+});
+
+test("lifecycle requests and code-point-safe paste chunks", async () => {
+  const api = await bridge();
+  mock.invoke.mockResolvedValue(undefined);
+  await api.attach("one");
+  await api.detach("one");
+  await api.kill("one");
+  expect(mock.invoke.mock.calls).toEqual([
+    ["terminal:attach", "one"],
+    ["terminal:detach", "one"],
+    ["terminal:kill", "one"],
+  ]);
+  api.input("one", "x".repeat(65535) + "😀z");
+  expect(mock.send.mock.calls).toEqual([
+    ["terminal:input", "one", "x".repeat(65535)],
+    ["terminal:input", "one", "😀z"],
+  ]);
 });
 
 test.each([
@@ -85,8 +103,8 @@ test.each([
   ["empty input", "", []],
 ])("preserves input with %s", async (_label, input, chunks) => {
   const api = await bridge();
-  api.input(input);
-  expect(mock.send.mock.calls).toEqual(chunks.map((chunk) => ["terminal:input", chunk]));
+  api.input("one", input);
+  expect(mock.send.mock.calls).toEqual(chunks.map((chunk) => ["terminal:input", "one", chunk]));
   expect(chunks.join("")).toBe(input);
   expect(chunks.every((chunk) => chunk.length <= 65536)).toBe(true);
 });

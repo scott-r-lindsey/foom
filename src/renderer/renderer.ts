@@ -32,21 +32,24 @@ colors.addEventListener("change", updateTheme);
 const fit = new FitAddon();
 terminal.loadAddon(fit);
 terminal.open(container);
-const offData = window.desktop.onData((data) => {
+let activeId: string | undefined;
+const offData = window.desktop.onData((id, token, data) => {
+  if (id !== activeId) return;
   terminal.write(data, () => {
-    window.desktop.acknowledge(data.length);
+    window.desktop.acknowledge(id, token, data.length);
   });
 });
-const offExit = window.desktop.onExit((code) => {
+const offExit = window.desktop.onExit((id, code) => {
+  if (id !== activeId) return;
   status.textContent = `Shell exited (${String(code)})`;
   restart.disabled = false;
 });
 terminal.onData((data) => {
-  window.desktop.input(data);
+  if (activeId) window.desktop.input(activeId, data);
 });
 const resize = () => {
   fit.fit();
-  window.desktop.resize(terminal.cols, terminal.rows);
+  if (activeId) window.desktop.resize(activeId, terminal.cols, terminal.rows);
 };
 const observer = new ResizeObserver(resize);
 observer.observe(container);
@@ -56,7 +59,15 @@ const start = async () => {
   fit.fit();
   status.textContent = "Starting shell…";
   try {
-    status.textContent = await window.desktop.start(terminal.cols, terminal.rows);
+    if (activeId) {
+      const previous = activeId;
+      activeId = undefined;
+      await window.desktop.kill(previous);
+    }
+    const created = await window.desktop.create(terminal.cols, terminal.rows);
+    activeId = created.id;
+    status.textContent = created.title;
+    await window.desktop.attach(created.id);
     terminal.focus();
   } catch (error: unknown) {
     status.textContent = `Unable to start shell: ${error instanceof Error ? error.message : String(error)}`;

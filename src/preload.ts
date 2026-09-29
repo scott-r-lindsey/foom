@@ -3,12 +3,29 @@ import type { IpcRendererEvent } from "electron";
 import type { DesktopApi } from "./shared/desktop";
 
 const desktop: DesktopApi = {
-  async start(cols, rows) {
-    const reply: unknown = await ipcRenderer.invoke("terminal:start", cols, rows);
-    if (typeof reply !== "string") throw new Error("Invalid terminal response");
-    return reply;
+  async create(cols, rows) {
+    const reply: unknown = await ipcRenderer.invoke("terminal:create", cols, rows);
+    if (
+      typeof reply !== "object" ||
+      reply === null ||
+      !("id" in reply) ||
+      typeof reply.id !== "string" ||
+      !("title" in reply) ||
+      typeof reply.title !== "string"
+    )
+      throw new Error("Invalid terminal response");
+    return { id: reply.id, title: reply.title };
   },
-  input(data) {
+  async attach(id) {
+    await ipcRenderer.invoke("terminal:attach", id);
+  },
+  async detach(id) {
+    await ipcRenderer.invoke("terminal:detach", id);
+  },
+  async kill(id) {
+    await ipcRenderer.invoke("terminal:kill", id);
+  },
+  input(id, data) {
     for (let offset = 0; offset < data.length; ) {
       let end = Math.min(offset + 65536, data.length);
       // IPC limits use UTF-16 code units. Keep a surrogate pair in the same write.
@@ -17,19 +34,20 @@ const desktop: DesktopApi = {
       if (before >= 0xd800 && before <= 0xdbff && after >= 0xdc00 && after <= 0xdfff) {
         end -= 1;
       }
-      ipcRenderer.send("terminal:input", data.slice(offset, end));
+      ipcRenderer.send("terminal:input", id, data.slice(offset, end));
       offset = end;
     }
   },
-  resize: (cols, rows) => {
-    ipcRenderer.send("terminal:resize", cols, rows);
+  resize: (id, cols, rows) => {
+    ipcRenderer.send("terminal:resize", id, cols, rows);
   },
-  acknowledge: (count) => {
-    ipcRenderer.send("terminal:ack", count);
+  acknowledge: (id, token, count) => {
+    ipcRenderer.send("terminal:ack", id, token, count);
   },
   onData(callback) {
-    const listener = (_event: IpcRendererEvent, data: unknown) => {
-      if (typeof data === "string") callback(data);
+    const listener = (_event: IpcRendererEvent, id: unknown, token: unknown, data: unknown) => {
+      if (typeof id === "string" && typeof token === "string" && typeof data === "string")
+        callback(id, token, data);
     };
     ipcRenderer.on("terminal:data", listener);
     return () => {
@@ -37,8 +55,9 @@ const desktop: DesktopApi = {
     };
   },
   onExit(callback) {
-    const listener = (_event: IpcRendererEvent, code: unknown) => {
-      if (typeof code === "number") callback(code);
+    const listener = (_event: IpcRendererEvent, id: unknown, code: unknown) => {
+      if (typeof id === "string" && typeof code === "number" && Number.isInteger(code))
+        callback(id, code);
     };
     ipcRenderer.on("terminal:exit", listener);
     return () => {
