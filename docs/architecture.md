@@ -67,19 +67,23 @@ Every channel checks the sender (the owning window, the main frame, `app://bundl
 
 ## Worktrees
 
-Git runs in main through `execFile` with argument arrays, never through a shell. Branch names are validated with `git check-ref-format --branch` and may not start with `-`. Foom only creates, lists and removes worktrees under the configured root (default `~/.foom/worktrees/<repo>/<branch>`) or next to repos the user added.
+Git runs in main through `execFile` with argument arrays, never through a shell. Branch names are validated with `git check-ref-format --branch` and may not start with `-`. Foom creates worktrees under the configured root (default `~/.foom/worktrees/<repo>/<branch>`) or next to repos the user added. Listing includes all Git worktrees, including external ones; removal is restricted to worktrees the service created.
+
+**Today:** `src/worktrees.ts` provides the main-process `WorktreeService`, independently of the UI and IPC. Add a repository before listing or modifying its worktrees. It canonicalizes repository paths, lists NUL-delimited Git records, checks out existing branches or creates new ones, and delegates dirty/locked removal checks to Git. Force allows dirty removal but does not override ownership or locks. Adjacent trees use `<repo>-<branch>` (branch slashes create subdirectories). Creation checks resolved parent directories against the allowed root and rejects existing destinations. Removal rejects redirected paths. These checks do not provide isolation against another local process concurrently replacing filesystem entries.
+
+Repository registration and ownership are held in the service instance. A fresh instance can list prior trees but cannot remove them; persisted application state and UI/IPC integration remain future work. Worktrees are never adopted just because they appear under the configured root. Repositories sharing a basename share a destination namespace; a collision fails without overwriting the existing directory.
 
 ## Agent signals
 
 Foom attaches its hooks per launch and never edits the user's own config:
 
-- Claude Code: `claude --settings <foom-settings.json>` with Stop and Notification hooks.
-- Codex: `codex -c notify=[...]`.
-- Antigravity: output evaluator only, until research finds a supported signal.
+- Claude Code: `claude --settings <foom-settings.json>` with Stop and Notification hooks; JSON arrives on stdin. Permission notifications may be delayed, and Stop means a response ended, not necessarily task success.
+- Codex: `codex -c notify=[...]`; JSON arrives as an argument. The external callback reports turn completion, not approval requests, and replaces the effective notify command for that launch.
+- Antigravity: output evaluator only for now. Hooks and headless mode exist, but an invocation-scoped hook attachment was not verified.
 
-These mechanisms must be verified against current CLI docs before we build on them.
+See [agent research](agents.md) for versions, payloads, local probes, sources, and remaining verification. Completion events trigger classification; they do not unconditionally set Done. Echo-off alone is not a password signal: all three tested CLIs disabled echo at startup.
 
-The hook command can't run Node from the packaged app, because the RunAsNode fuse is disabled. The receiver design therefore needs a transport that plain OS tools can reach. The current proposal: an HTTP listener bound to `127.0.0.1` on a random port, called with `curl`. Each launch gets its own `FOOM_SESSION` and `FOOM_TOKEN` environment variables, and requests without a valid token are rejected. Payloads are untrusted data.
+The hook command can't run Node from the packaged app, because the RunAsNode fuse is disabled. The receiver design therefore needs a transport that plain OS tools can reach. The current proposal: an HTTP listener bound to `127.0.0.1` on a random port, called with `curl`. Each launch gets its own `FOOM_SESSION` and `FOOM_TOKEN` environment variables, and requests without a valid token are rejected. Payloads are untrusted data. Claude stdin and Codex argv need separate adapters; a single `curl --data-binary @-` command cannot handle both. Validate and reduce events locally; never forward transcript files or Codex `input-messages` to the evaluator.
 
 ## Evaluator pipeline
 
@@ -87,7 +91,7 @@ The hook command can't run Node from the packaged app, because the RunAsNode fus
 
 States: `needs_input`, `done`, `failed`, `quiet_ok`, `working`.
 
-Model calls get the last 40 lines, redacted, with a timeout. A failure falls back to rules-only and never blocks the light.
+Model calls get the last 40 lines, redacted, with a timeout. One-shot agent evaluators must not load repository instructions or use file, command, MCP, or other external tools to expand that input; a read-only sandbox alone does not enforce this boundary. Use another inference source or rules only when isolation cannot be enforced. A failure falls back to rules-only and never blocks the light.
 
 ## Secrets
 

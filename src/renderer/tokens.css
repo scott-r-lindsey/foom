@@ -1,0 +1,63 @@
+@font-face {
+  font-family: "Archivo Black";
+  src: url("./fonts/archivo-black.ttf") format("truetype");
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Courier Prime";
+  src: url("./fonts/courier-prime.ttf") format("truetype");
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Geist";
+  src: url("./fonts/geist.ttf") format("truetype");
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Geist Mono";
+  src: url("./fonts/geist-mono.ttf") format("truetype");
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+}
+
+:root {
+  color-scheme: dark light;
+  --bg: #f3f0fa;
+  --surface: #e9e4f5;
+  --line: #ddd6ee;
+  --ink: #14101f;
+  --muted: #625a7a;
+  --accent: #5b2bd9;
+  --accent-deep: #3b1a99;
+  --attention: #d98200;
+  --done: #13804a;
+  --failed: #d6166e;
+  --hole: #06050b;
+  --font-display: "Archivo Black", sans-serif;
+  --font-voice: "Courier Prime", monospace;
+  --font-interface: "Geist", sans-serif;
+  --font-mono: "Geist Mono", monospace;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #05040a;
+    --surface: #0d0a17;
+    --line: #251d3f;
+    --ink: #f4efff;
+    --muted: #9d93bd;
+    --accent: #9b6bff;
+    --accent-deep: #7a3cff;
+    --attention: #ffb23e;
+    --done: #6fe0a3;
+    --failed: #ff2e88;
+    --hole: #06050b;
+  }
+}

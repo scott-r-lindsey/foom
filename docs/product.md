@@ -45,8 +45,8 @@ The light carries two separate signals.
 
 Checks run from cheapest and most certain to least:
 
-1. **Agent signals**: Claude Code hooks and Codex `notify`, attached per launch. These are facts, not guesses.
-2. **Process facts**: exit code, the shell prompt returning, echo turned off (a password prompt; this may not be detectable on Windows).
+1. **Agent signals**: Claude Code hooks and Codex `notify`, attached per launch. These report specific events, not necessarily task completion; a finished response can still ask a question. See [agent research](agents.md).
+2. **Process facts**: exit code, the shell prompt returning, echo changes only with corroborating prompt context (agent TUIs also disable echo during ordinary operation; this may not be detectable on Windows).
 3. **Text patterns** in the tail: `(y/n)`, `Password:`, `Press Enter`.
 4. **A model** for what's still ambiguous, such as a question asked in plain prose.
 

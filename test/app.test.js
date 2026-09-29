@@ -10,6 +10,7 @@ test("terminal runs an interactive shell behind an isolated bridge", {
   delete env.ELECTRON_RUN_AS_NODE;
   const app = await electron.launch({
     chromiumSandbox: true,
+    colorScheme: null,
     args: [path.join(__dirname, "..")],
     env,
   });
@@ -136,7 +137,9 @@ test("terminal runs an interactive shell behind an isolated bridge", {
       await page.evaluate(() => {
         window.terminalOutput = "";
       });
-      await page.keyboard.type("vim -Nu NONE -n -i NONE");
+      // Screen restoration can precede process exit. Wait for a marker emitted by
+      // the parent shell before sending input intended for that shell.
+      await page.keyboard.type("vim -Nu NONE -n -i NONE; printf 'FOOM_%s\\n' VIM_EXITED");
       await page.keyboard.press("Enter");
       await page.waitForFunction(() => window.terminalOutput.includes("[?1049h"));
       await page.keyboard.type("ihello terminal");
@@ -145,13 +148,15 @@ test("terminal runs an interactive shell behind an isolated bridge", {
       await page.keyboard.type(":q!");
       await page.keyboard.press("Enter");
       await page.waitForFunction(() => window.terminalOutput.includes("[?1049l"));
+      await page.waitForFunction(() => window.terminalOutput.includes("FOOM_VIM_EXITED"));
       await page.evaluate(() => {
         window.terminalOutput = "";
       });
-      await page.keyboard.type("top");
+      await page.keyboard.type("top; printf 'FOOM_%s\\n' TOP_EXITED");
       await page.keyboard.press("Enter");
       await page.waitForFunction(() => /Tasks:|Processes:/.test(window.terminalOutput));
       await page.keyboard.type("q");
+      await page.waitForFunction(() => window.terminalOutput.includes("FOOM_TOP_EXITED"));
       await page.keyboard.type("printf 'FOOM_%s\\n' FULLSCREEN_OK");
       await page.keyboard.press("Enter");
       await page.waitForFunction(() => window.terminalOutput.includes("FOOM_FULLSCREEN_OK"));
@@ -262,5 +267,123 @@ test("terminal runs an interactive shell behind an isolated bridge", {
     await app.close();
     console.info("App closed");
     context.signal.removeEventListener("abort", abort);
+  }
+});
+
+test("bundled brand fonts and both system themes render in Electron", {
+  timeout: 60_000,
+}, async () => {
+  const env = { ...process.env };
+  delete env.ELECTRON_RUN_AS_NODE;
+  const app = await electron.launch({
+    chromiumSandbox: true,
+    colorScheme: null,
+    args: [path.join(__dirname, "..")],
+    env,
+  });
+  try {
+    const page = await app.firstWindow();
+    await page.waitForLoadState("domcontentloaded");
+    const palettes = {
+      dark: [
+        "#05040A",
+        "#0D0A17",
+        "#251D3F",
+        "#F4EFFF",
+        "#9D93BD",
+        "#9B6BFF",
+        "#7A3CFF",
+        "#FFB23E",
+        "#6FE0A3",
+        "#FF2E88",
+        "#06050B",
+      ],
+      light: [
+        "#F3F0FA",
+        "#E9E4F5",
+        "#DDD6EE",
+        "#14101F",
+        "#625A7A",
+        "#5B2BD9",
+        "#3B1A99",
+        "#D98200",
+        "#13804A",
+        "#D6166E",
+        "#06050B",
+      ],
+    };
+    for (const mode of ["dark", "light", "dark"]) {
+      await app.evaluate(({ nativeTheme }, theme) => {
+        nativeTheme.themeSource = theme;
+      }, mode);
+      await page.waitForFunction(
+        (dark) => matchMedia("(prefers-color-scheme: dark)").matches === dark,
+        mode === "dark",
+      );
+      const background = mode === "dark" ? "rgb(5, 4, 10)" : "rgb(243, 240, 250)";
+      await page.waitForFunction(
+        (expected) =>
+          getComputedStyle(document.querySelector(".xterm-scrollable-element")).backgroundColor ===
+          expected,
+        background,
+      );
+      const rendered = await page.evaluate(async () => {
+        const style = getComputedStyle(document.documentElement);
+        const families = ["Archivo Black", "Courier Prime", "Geist", "Geist Mono"];
+        const fonts = await Promise.all(
+          families.map(async (family) => {
+            const faces = await document.fonts.load(`14px "${family}"`);
+            return faces.length > 0 && faces.every((face) => face.status === "loaded");
+          }),
+        );
+        return {
+          tokens: [
+            "bg",
+            "surface",
+            "line",
+            "ink",
+            "muted",
+            "accent",
+            "accent-deep",
+            "attention",
+            "done",
+            "failed",
+            "hole",
+          ].map((name) => style.getPropertyValue(`--${name}`).trim().toUpperCase()),
+          fonts,
+          bodyFont: getComputedStyle(document.body).fontFamily,
+          displayFont: getComputedStyle(document.querySelector("strong")).fontFamily,
+          terminalFont: getComputedStyle(document.querySelector(".xterm-rows")).fontFamily,
+          background: style.backgroundColor,
+          csp: document.querySelector('meta[http-equiv="Content-Security-Policy"]').content,
+        };
+      });
+      assert.deepEqual(rendered.tokens, palettes[mode]);
+      assert.deepEqual(rendered.fonts, [true, true, true, true]);
+      assert.match(rendered.bodyFont, /Geist/);
+      assert.match(rendered.displayFont, /Archivo Black/);
+      assert.match(rendered.terminalFont, /Geist Mono/);
+      assert.equal(rendered.background, background);
+      assert.match(rendered.csp, /font-src 'self';/);
+      assert.match(rendered.csp, /default-src 'none';/);
+      await page.screenshot({ path: path.join(__dirname, "..", "out", `brand-${mode}.png`) });
+    }
+    for (const asset of ["archivo-black", "courier-prime", "geist", "geist-mono"]) {
+      assert.equal(
+        await app.evaluate(
+          async ({ net }, name) => (await net.fetch(`app://bundle/fonts/${name}.ttf`)).status,
+          asset,
+        ),
+        200,
+      );
+    }
+    assert.equal(
+      await app.evaluate(
+        async ({ net }) => (await net.fetch("app://bundle/fonts/unknown.ttf")).status,
+      ),
+      404,
+    );
+  } finally {
+    await app.close();
   }
 });
