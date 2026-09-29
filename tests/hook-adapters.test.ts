@@ -9,7 +9,12 @@ import type { HookSignal } from "../src/shared/hooks";
 
 function run(file: string, args: string[], env: Record<string, string>, stdin: string) {
   return new Promise<{ code: number | null; output: string }>((resolve, reject) => {
-    const child = spawn(file, args, { env: { ...process.env, ...env }, stdio: "pipe" });
+    // PowerShell cold startup is additional to the adapter's three-second HTTP timeout.
+    const child = spawn(file, args, {
+      env: { ...process.env, ...env },
+      stdio: "pipe",
+      timeout: 8000,
+    });
     let output = "";
     child.stdout.on("data", (data: Buffer) => {
       output += data.toString();
@@ -100,5 +105,7 @@ describe("OS hook adapters", () => {
         await rm(directory, { recursive: true, force: true });
       }
     },
+    // Each scenario launches three bounded native processes, including cold PowerShell.
+    30000,
   );
 });
