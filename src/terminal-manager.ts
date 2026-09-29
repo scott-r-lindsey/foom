@@ -21,6 +21,7 @@ type Session = {
 /** Main-owned state; no renderer is needed to consume PTY output. */
 export class TerminalManager {
   private readonly sessions = new Map<string, Session>();
+  private readonly pendingExits = new Set<Promise<void>>();
 
   constructor(private readonly onExit: (id: string, code: number) => void) {}
 
@@ -68,14 +69,24 @@ export class TerminalManager {
           if (this.sessions.has(id)) this.deliver(session, data);
         });
       }),
-      pty.onExit(({ exitCode }) => {
-        session.exited = true;
-        // Preserve the final screen, and report exit after queued output has parsed.
-        screen.write("", () => {
-          if (this.sessions.has(id)) this.onExit(id, exitCode);
-        });
-      }),
     ];
+    let resolveExit: () => void;
+    const exited = new Promise<void>((resolve) => {
+      resolveExit = resolve;
+    });
+    this.pendingExits.add(exited);
+    // Keep this subscription after kill: killing a PTY only requests termination.
+    const exitSubscription = pty.onExit(({ exitCode }) => {
+      session.exited = true;
+      this.pendingExits.delete(exited);
+      exitSubscription.dispose();
+      resolveExit();
+      if (!this.sessions.has(id)) return;
+      // Preserve the final screen, and report exit after queued output has parsed.
+      screen.write("", () => {
+        if (this.sessions.has(id)) this.onExit(id, exitCode);
+      });
+    });
     return id;
   }
 
@@ -182,6 +193,27 @@ export class TerminalManager {
     session.screen.write("", () => {
       session.screen.dispose();
     });
+  }
+
+  get hasPendingExits(): boolean {
+    return this.pendingExits.size > 0;
+  }
+
+  /** The process must stay alive until native PTY exit callbacks have drained. */
+  async waitForExit(): Promise<void> {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      await Promise.race([
+        Promise.all(this.pendingExits),
+        new Promise<never>((_resolve, reject) => {
+          timer = setTimeout(() => {
+            reject(new Error("Terminal shutdown timed out"));
+          }, 5000);
+        }),
+      ]);
+    } finally {
+      clearTimeout(timer);
+    }
   }
 
   dispose(): void {
