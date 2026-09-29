@@ -119,6 +119,34 @@ The hook command cannot run Node from the packaged app because the RunAsNode fus
 
 States: `needs_input`, `done`, `failed`, `quiet_ok`, `working`.
 
+**Today:** `src/evaluator.ts` supplies the pure main-process `evaluateRules` classifier,
+and `src/verdict-log.ts` supplies `VerdictLog`. Application wiring, terminal state IPC,
+and feedback controls belong to #50 and the board integration; these services do not
+start an evaluator in the running app yet. The model tier remains #15.
+
+A known exit is final, including when an older permission hook arrives afterward.
+For a live terminal, a matching permission hook takes precedence over an observed
+shell-prompt return and text patterns. Completion hooks only request classification.
+Prompt return must be supplied as a process fact, never inferred from `$` or `>` in
+output. Echo-off is not an independent input. Text rules inspect only the last
+nonblank line of the last 40 host-provided plain-text lines, recognize explicit
+confirmation/password/Enter prompts, test-runner failure summaries, and listening
+server URLs. Other quiet tails remain `working` with low confidence. Historical
+prompts followed by more output do not request attention.
+
+`VerdictLog.evaluate` appends a timestamped verdict with a unique ID and terminal ID
+to `verdicts.jsonl` in the supplied user-data directory. `recordAction` records the
+next explicit `replied`, `dismissed`, or `ignored` action against that verdict ID;
+dismissal includes `not_attention` feedback. Opening a view is not an action.
+Writes are serialized and synced before resolving, and new files have mode 0600.
+Failures reject and can be retried. The log contains fixed rule reasons and metadata,
+never tails, agent payloads, or keystrokes. The integration must handle write errors
+without blocking terminal operation. One service instance owns the file; feedback
+can address only verdicts issued by that instance, and historical records remain
+available on disk across restart. No automatic inference of ignored actions or log
+retention policy is implemented yet. The reusable fixture suite in
+`tests/fixtures/evaluator.ts` contains sanitized, representative terminal tails.
+
 Model calls get the last 40 lines, redacted, with a timeout. One-shot agent evaluators must not load repository instructions or use file, command, MCP, or other external tools to expand that input; a read-only sandbox alone does not enforce this boundary. Use another inference source or rules only when isolation cannot be enforced. A failure falls back to rules-only and never blocks the light.
 
 ## Secrets
