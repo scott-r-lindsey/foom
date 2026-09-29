@@ -2,7 +2,7 @@
   "name": "foom",
   "productName": "Foom",
   "version": "0.1.0",
-  "description": "A minimal, secure Electron hello world.",
+  "description": "A minimal Electron terminal.",
   "private": true,
   "license": "UNLICENSED",
   "main": "build/main.js",
@@ -39,6 +39,7 @@
     "@types/node": "24.19.0",
     "@vitest/coverage-v8": "5.0.2",
     "electron": "44.4.5",
+    "esbuild": "0.28.2",
     "eslint": "10.11.0",
     "globals": "17.12.0",
     "husky": "9.1.7",
@@ -55,5 +56,10 @@
     "external-editor": {
       "tmp": "0.2.7"
     }
+  },
+  "dependencies": {
+    "@xterm/addon-fit": "0.11.0",
+    "@xterm/xterm": "6.0.0",
+    "node-pty": "1.1.0"
   }
 }

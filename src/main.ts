@@ -1,5 +1,5 @@
-import { app, BrowserWindow, ipcMain, net, protocol, session } from "electron";
-import type { DesktopApi } from "./shared/desktop";
+import { app, BrowserWindow, net, protocol, session } from "electron";
+import { attachTerminal } from "./terminal";
 import * as path from "node:path";
 import { pathToFileURL } from "node:url";
 
@@ -9,6 +9,7 @@ const assets = new Map([
   ["/index.html", "index.html"],
   ["/styles.css", "styles.css"],
   ["/renderer.js", "renderer.js"],
+  ["/renderer.css", "renderer.css"],
 ]);
 
 protocol.registerSchemesAsPrivileged([
@@ -22,7 +23,7 @@ function createWindow() {
     minWidth: 480,
     minHeight: 420,
     title: "Foom",
-    backgroundColor: "#f6f7fb",
+    backgroundColor: "#0c0d12",
     show: false,
     autoHideMenuBar: true,
     webPreferences: {
@@ -34,6 +35,9 @@ function createWindow() {
     },
   });
 
+  // Terminal control keys (for example Ctrl+W in vim) must reach the PTY.
+  window.removeMenu();
+  attachTerminal(window);
   window.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
   window.webContents.on("will-navigate", (event) => {
     event.preventDefault();
@@ -67,15 +71,6 @@ app
       callback(false);
     });
     session.defaultSession.setPermissionCheckHandler(() => false);
-
-    ipcMain.handle("app:hello", (event): Awaited<ReturnType<DesktopApi["sayHello"]>> => {
-      // Trust only our top-level document, never child frames or navigated pages.
-      const frame = event.senderFrame;
-      if (!frame || frame !== event.sender.mainFrame || frame.url !== APP_URL) {
-        throw new Error("Untrusted IPC sender");
-      }
-      return "Hello from the main process!";
-    });
 
     createWindow();
     app.on("activate", () => {

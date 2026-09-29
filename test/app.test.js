@@ -3,23 +3,115 @@ const assert = require("node:assert/strict");
 const path = require("node:path");
 const { _electron: electron } = require("@playwright/test");
 
-test("hello world launches with a working, isolated bridge", { timeout: 30_000 }, async () => {
+test("terminal runs an interactive shell behind an isolated bridge", {
+  timeout: 60_000,
+}, async () => {
   const env = { ...process.env };
   delete env.ELECTRON_RUN_AS_NODE;
-  const app = await electron.launch({ args: [path.join(__dirname, "..")], env });
+  const app = await electron.launch({
+    chromiumSandbox: true,
+    args: [path.join(__dirname, "..")],
+    env,
+  });
   try {
     const page = await app.firstWindow();
     await page.waitForLoadState("domcontentloaded");
     assert.equal(await page.title(), "Foom");
-    await page.getByRole("button", { name: "Say hello" }).click();
-    await page.getByRole("status").filter({ hasText: "Hello from the main process!" }).waitFor();
+    await page.waitForFunction(
+      () => !document.querySelector("#status").textContent.includes("Starting"),
+    );
+    assert.doesNotMatch(await page.locator("#status").innerText(), /Unable/);
+    await page.evaluate(() => {
+      window.terminalOutput = "";
+      window.desktop.onData((data) => {
+        window.terminalOutput += data;
+      });
+    });
+    const input = page.locator(".xterm-helper-textarea");
+    await input.focus();
+    // The output marker is not present in the echoed command itself.
+    const command =
+      process.platform === "win32"
+        ? 'Write-Output ("FOOM_" + "SHELL_OK")'
+        : "printf 'FOOM_%s\\n' SHELL_OK";
+    await page.keyboard.type(command);
+    await page.keyboard.press("Enter");
+    await page.waitForFunction(() => window.terminalOutput.includes("FOOM_SHELL_OK"));
+    if (process.platform !== "win32") {
+      const readSize = async (label) => {
+        await page.keyboard.type(`printf 'SIZE_%s:' ${label}; stty size`);
+        await page.keyboard.press("Enter");
+        await page.waitForFunction(
+          (name) => new RegExp(`SIZE_${name}:\\d+ \\d+`).test(window.terminalOutput),
+          label,
+        );
+        return page.evaluate(
+          (name) =>
+            window.terminalOutput
+              .match(new RegExp(`SIZE_${name}:(\\d+) (\\d+)`))
+              .slice(1)
+              .map(Number),
+          label,
+        );
+      };
+      const before = await readSize("BEFORE");
+      const screen = await page.locator(".xterm-screen").boundingBox();
+      assert.ok(screen);
+      await app.evaluate(({ BrowserWindow }) =>
+        BrowserWindow.getAllWindows()[0].setSize(1100, 750),
+      );
+      await page.waitForFunction((previous) => {
+        const current = document.querySelector(".xterm-screen").getBoundingClientRect();
+        return current.width > previous.width && current.height > previous.height;
+      }, screen);
+      const after = await readSize("AFTER");
+      assert.ok(after[0] > before[0], `PTY rows grow with the window: ${before} -> ${after}`);
+      assert.ok(after[1] > before[1], `PTY columns grow with the window: ${before} -> ${after}`);
+      await page.keyboard.type("test -t 0 && test -t 1 && printf 'FOOM_%s\\n' TTY_OK; stty size");
+      await page.keyboard.press("Enter");
+      await page.waitForFunction(() => window.terminalOutput.includes("FOOM_TTY_OK"));
+      await page.keyboard.type("sleep 30");
+      await page.keyboard.press("Enter");
+      await page.keyboard.press("Control+c");
+      await page.keyboard.type("printf 'FOOM_%s\\n' INTERRUPTED");
+      await page.keyboard.press("Enter");
+      await page.waitForFunction(() => window.terminalOutput.includes("FOOM_INTERRUPTED"));
+    }
+    if (process.platform !== "win32") {
+      await page.evaluate(() => {
+        window.terminalOutput = "";
+      });
+      await page.keyboard.type("vim -Nu NONE -n -i NONE");
+      await page.keyboard.press("Enter");
+      await page.waitForFunction(() => window.terminalOutput.includes("[?1049h"));
+      await page.keyboard.type("ihello terminal");
+      await page.keyboard.press("Control+w");
+      await page.keyboard.press("Escape");
+      await page.keyboard.type(":q!");
+      await page.keyboard.press("Enter");
+      await page.waitForFunction(() => window.terminalOutput.includes("[?1049l"));
+      await page.evaluate(() => {
+        window.terminalOutput = "";
+      });
+      await page.keyboard.type("top");
+      await page.keyboard.press("Enter");
+      await page.waitForFunction(() => /Tasks:|Processes:/.test(window.terminalOutput));
+      await page.keyboard.type("q");
+      await page.keyboard.type("printf 'FOOM_%s\\n' FULLSCREEN_OK");
+      await page.keyboard.press("Enter");
+      await page.waitForFunction(() => window.terminalOutput.includes("FOOM_FULLSCREEN_OK"));
+    }
     assert.deepEqual(
       await page.evaluate(() => ({
         node: typeof window.require,
         process: typeof window.process,
         capabilities: Object.keys(window.desktop),
       })),
-      { node: "undefined", process: "undefined", capabilities: ["sayHello"] },
+      {
+        node: "undefined",
+        process: "undefined",
+        capabilities: ["start", "input", "resize", "acknowledge", "onData", "onExit"],
+      },
     );
     const preferences = await app.evaluate(({ BrowserWindow }) => {
       const { sandbox, contextIsolation, nodeIntegration } =
@@ -39,6 +131,14 @@ test("hello world launches with a working, isolated bridge", { timeout: 30_000 }
     assert.equal(
       await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().length),
       1,
+    );
+    await input.focus();
+    await page.keyboard.type("exit");
+    await page.keyboard.press("Enter");
+    await page.getByRole("status").filter({ hasText: "Shell exited" }).waitFor();
+    await page.getByRole("button", { name: "Restart shell" }).click();
+    await page.waitForFunction(
+      () => !/Starting|exited|Unable/.test(document.querySelector("#status").textContent),
     );
   } finally {
     await app.close();

@@ -1,3 +1,4 @@
+import { build } from "esbuild";
 import { execFileSync } from "node:child_process";
 import { copyFile, mkdir, rm } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
@@ -15,3 +16,11 @@ for (const asset of ["index.html", "styles.css"]) {
     new URL(`../build/renderer/${asset}`, import.meta.url),
   );
 }
+
+await build({
+  entryPoints: [fileURLToPath(new URL("../src/renderer/renderer.ts", import.meta.url))],
+  bundle: true,
+  platform: "browser",
+  format: "esm",
+  outfile: fileURLToPath(new URL("../build/renderer/renderer.js", import.meta.url)),
+});

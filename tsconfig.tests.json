@@ -9,5 +9,5 @@
     "types": ["node"],
     "allowJs": true
   },
-  "include": ["tests/**/*.ts", "vitest.config.mts", "src/renderer/global.d.ts", "scripts/*.mjs"]
+  "include": ["tests/**/*.ts", "vitest.config.mts", "src/renderer/*.d.ts", "scripts/*.mjs"]
 }

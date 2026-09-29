@@ -1,5 +1,7 @@
-import type { BrowserWindowConstructorOptions, IpcMainInvokeEvent } from "electron";
+import type { BrowserWindowConstructorOptions } from "electron";
 import { beforeEach, expect, test, vi } from "vitest";
+
+vi.mock("../src/terminal", () => ({ attachTerminal: vi.fn() }));
 
 const mock = vi.hoisted(() => {
   const appEvents = new Map<string, () => void>();
@@ -15,6 +17,7 @@ const mock = vi.hoisted(() => {
     once: vi.fn((name: string, handler: () => void) => {
       readyEvents.set(name, handler);
     }),
+    removeMenu: vi.fn(),
     show: vi.fn(),
     loadURL: vi.fn<(url: string) => Promise<void>>(),
   };
@@ -23,6 +26,7 @@ const mock = vi.hoisted(() => {
   class BrowserWindow {
     webContents = window.webContents;
     once = window.once;
+    removeMenu = window.removeMenu;
     show = window.show;
     loadURL = window.loadURL;
     constructor(options: BrowserWindowConstructorOptions) {
@@ -59,7 +63,6 @@ const mock = vi.hoisted(() => {
         ) => void
       >(),
     permissionCheck: vi.fn<(handler: () => boolean) => void>(),
-    ipcHandle: vi.fn<(channel: string, handler: (event: IpcMainInvokeEvent) => string) => void>(),
   };
 });
 vi.mock("electron", () => ({
@@ -82,7 +85,6 @@ vi.mock("electron", () => ({
       setPermissionCheckHandler: mock.permissionCheck,
     },
   },
-  ipcMain: { handle: mock.ipcHandle },
 }));
 
 beforeEach(() => {
@@ -99,15 +101,6 @@ beforeEach(() => {
 
 async function start() {
   await import("../src/main");
-}
-
-function ipcEvent(url: string, isMainFrame = true, detached = false): IpcMainInvokeEvent {
-  const frame = { url };
-  // A deliberately minimal Electron event fixture; runtime guards are what we exercise.
-  return {
-    senderFrame: detached ? null : frame,
-    sender: { mainFrame: isMainFrame ? frame : {} },
-  } as unknown as IpcMainInvokeEvent;
 }
 
 test("creates a sandboxed window, loads our document, and only shows it when ready", async () => {
@@ -138,7 +131,7 @@ test("serves allowlisted local assets and rejects other hosts, paths, and method
   await start();
   const handler = mock.protocolHandle.mock.calls[0]?.[1];
   if (!handler) throw new Error("Missing protocol handler");
-  for (const asset of ["index.html", "styles.css", "renderer.js"]) {
+  for (const asset of ["index.html", "styles.css", "renderer.js", "renderer.css"]) {
     expect((await handler(new Request(`app://bundle/${asset}`))).status).toBe(200);
     expect(mock.fetch).toHaveBeenLastCalledWith(
       expect.stringMatching(new RegExp(`/renderer/${asset.replace(".", "\\.")}$$`)),
@@ -154,21 +147,7 @@ test("serves allowlisted local assets and rejects other hosts, paths, and method
   expect((await handler(new Request("app://bundle/index.html", { method: "POST" }))).status).toBe(
     404,
   );
-  expect(mock.fetch).toHaveBeenCalledTimes(3);
-});
-
-test("accepts only the trusted top-level frame for IPC", async () => {
-  await start();
-  const handler = mock.ipcHandle.mock.calls[0]?.[1];
-  if (!handler) throw new Error("Missing IPC handler");
-  expect(handler(ipcEvent("app://bundle/index.html"))).toBe("Hello from the main process!");
-  for (const event of [
-    ipcEvent("https://evil.example"),
-    ipcEvent("app://bundle/index.html", false),
-    ipcEvent("app://bundle/index.html", true, true),
-  ]) {
-    expect(() => handler(event)).toThrow("Untrusted IPC sender");
-  }
+  expect(mock.fetch).toHaveBeenCalledTimes(4);
 });
 
 test("denies requested and checked permissions", async () => {
