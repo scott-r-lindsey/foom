@@ -43,7 +43,7 @@ async function quitAndWait(app, requestQuit) {
 
 // A test timeout does not cancel Playwright promises or dispose native processes.
 // Keep a final worker deadline so even broken cleanup cannot occupy a CI runner.
-async function launchApp(context) {
+async function launchApp(context, openShell = true) {
   const watchdog = setTimeout(() => {
     console.error("Electron test exceeded its 60-second hard deadline; terminating worker");
     // Playwright's exit handler kills the process groups it launched.
@@ -112,7 +112,13 @@ async function launchApp(context) {
     }
   });
   // The shell markup now arrives with React’s first commit.
-  await (await app.firstWindow()).locator("#status").waitFor();
+  const page = await app.firstWindow();
+  await page.locator(".board-row[data-kind='shell']").waitFor();
+  await page.waitForFunction(() => !document.querySelector("#toggle-terminal").disabled);
+  if (openShell) {
+    await page.locator(".board-row[data-kind='shell']").click();
+    await expect(page.getByRole("button", { name: "Hide terminal", exact: true })).toBeEnabled();
+  }
   return app;
 }
 
@@ -442,7 +448,7 @@ test("bundled brand fonts and both system themes render in Electron", {
         ].map((name) => style.getPropertyValue(`--${name}`).trim().toUpperCase()),
         fonts,
         bodyFont: getComputedStyle(document.body).fontFamily,
-        displayFont: getComputedStyle(document.querySelector("strong")).fontFamily,
+        displayFont: getComputedStyle(document.querySelector(".wordmark")).fontFamily,
         terminalFont: getComputedStyle(document.querySelector(".xterm-rows")).fontFamily,
         background: style.backgroundColor,
         csp: document.querySelector('meta[http-equiv="Content-Security-Policy"]').content,
@@ -797,7 +803,7 @@ test("Hide and Open restore hidden fullscreen output across repeated view transi
   const app = await launchApp(context);
   const page = await app.firstWindow();
   const hide = page.getByRole("button", { name: "Hide terminal", exact: true });
-  const open = page.getByRole("button", { name: "Open terminal", exact: true });
+  const open = page.locator(".board-row[data-kind='shell']");
   await expect(hide).toBeEnabled();
   await page.evaluate(() => {
     window.viewChunks = 0;
@@ -883,38 +889,29 @@ test("Hide and Open restore hidden fullscreen output across repeated view transi
   await page.keyboard.type("q");
 });
 
-test("sample board supports keyboard attention routing without changing the live shell", async (context) => {
-  const app = await launchApp(context);
+test("board is home, routes attention with the keyboard and respects reduced motion", async (context) => {
+  const app = await launchApp(context, false);
   const page = await app.firstWindow();
-  await expect(page.getByRole("button", { name: "Hide terminal", exact: true })).toBeEnabled();
-  await assertAccessible(page);
-  await page.getByRole("button", { name: "Sample board", exact: true }).click();
-  const board = page.getByRole("dialog", { name: "Sample board" });
-  await expect(board).toBeVisible();
+  const board = page.getByRole("main", { name: "Board" });
   const rows = board.locator(".board-row");
-  await expect(rows).toHaveCount(7);
-  await assertAccessible(page);
+  await expect(rows).toHaveCount(11);
+  await expect(page.locator("#terminal")).toBeHidden();
   await expect(rows.first()).toBeFocused();
+  await assertAccessible(page);
   await page.keyboard.press("ArrowDown");
-  await expect(rows.nth(1)).toBeFocused();
   await page.keyboard.press("p");
   await expect(board.getByRole("complementary", { name: "Terminal peek" })).toBeVisible();
   await expect(rows.nth(1)).toBeFocused();
   await page.keyboard.press("Escape");
-  await expect(board).toBeVisible();
   await page.keyboard.press("n");
   await expect(board.locator(".board-terminal")).toBeFocused();
-  await expect(rows.first()).toContainText("Needs you");
+  await expect(board.locator(".sample-terminal")).toContainText("Run npm test?");
+  await expect(rows.nth(1)).toContainText("Needs you");
+  await assertAccessible(page);
+  await page.keyboard.press("Tab");
+  await expect(board.getByRole("button", { name: "Back to board · Esc" })).toBeFocused();
   await page.keyboard.press("Escape");
-  await expect(rows.first()).toBeFocused();
-  await page.keyboard.press("Enter");
-  await expect(board.locator(".board-terminal")).toBeFocused();
-  await board.getByRole("button", { name: "Not attention" }).focus();
-  await page.keyboard.press("Enter");
-  await page.keyboard.press("n");
-  await expect(board.locator(".board-terminal h2")).toContainText("feat/export");
-  await page.keyboard.press("Escape");
-  await expect(board).toBeVisible();
+  await expect(rows.nth(1)).toBeFocused();
   await page.emulateMedia({ reducedMotion: "reduce" });
   assert.equal(
     await board
@@ -922,52 +919,71 @@ test("sample board supports keyboard attention routing without changing the live
       .evaluate((element) => getComputedStyle(element).animationName),
     "none",
   );
-  await page.screenshot({ path: path.join(tmpdir(), "foom-issue-9-board.png") });
+  assert.equal(
+    await board
+      .locator('[data-state="working"] .board-light')
+      .first()
+      .evaluate((element) => getComputedStyle(element).opacity),
+    "1",
+  );
+  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(1200, 1100));
+  for (const colorScheme of ["light", "dark"]) {
+    await page.emulateMedia({ colorScheme });
+    await page.screenshot({
+      path: path.join(__dirname, `../out/56-board-${colorScheme}.png`),
+    });
+  }
+  await page.keyboard.press("ArrowUp");
+  await page.keyboard.press("Enter");
+  await expect(page.locator(".xterm-helper-textarea")).toBeFocused();
+  for (const colorScheme of ["light", "dark"]) {
+    await page.emulateMedia({ colorScheme });
+    await page.screenshot({ path: path.join(__dirname, `../out/56-open-${colorScheme}.png`) });
+  }
+  await page.keyboard.type("exit");
+  await page.keyboard.press("Enter");
+  const restart = page.getByRole("button", { name: "Restart shell" });
+  await expect(restart).toBeEnabled();
+  await restart.focus();
+  await page.keyboard.press("Enter");
+  await expect(page.locator(".xterm-helper-textarea")).toBeFocused();
   await page.keyboard.press("Escape");
-  await expect(board).not.toBeVisible();
-  await expect(page.getByRole("button", { name: "Sample board", exact: true })).toBeFocused();
-  await expect(page.getByRole("button", { name: "Hide terminal", exact: true })).toBeEnabled();
+  await expect(rows.first()).toBeFocused();
 });
 
-test("open sample terminal excludes covered rows from the keyboard cycle", async (context) => {
-  const app = await launchApp(context);
+test("ten sample rows receive 10 Hz activity without React commits", async (context) => {
+  const app = await launchApp(context, false);
   const page = await app.firstWindow();
-  await page.getByRole("button", { name: "Sample board", exact: true }).click();
-  const board = page.getByRole("dialog", { name: "Sample board" });
-  const rows = board.locator(".board-row");
-  const panel = board.locator(".board-terminal");
-  const close = board.getByRole("button", { name: "Return to shell" });
-  const hide = board.getByRole("button", { name: "Hide terminal" });
-  const reply = board.getByRole("button", { name: "Simulate reply" });
-  const dismiss = board.getByRole("button", { name: "Not attention" });
-  await expect(rows.first()).toBeFocused();
-  await page.keyboard.press("Enter");
-  await expect(panel).toBeFocused();
-  await page.keyboard.press("Shift+Tab");
-  await expect(close).toBeFocused();
-  // Chromium includes the modal dialog itself when wrapping the tab cycle.
-  for (const target of [hide, reply, dismiss, board, close]) {
-    await page.keyboard.press("Tab");
-    await expect(target).toBeFocused();
-  }
-  for (const target of [board, dismiss, reply, hide, close]) {
-    await page.keyboard.press("Shift+Tab");
-    await expect(target).toBeFocused();
-  }
-  await page.keyboard.press("Escape");
-  await expect(panel).not.toBeVisible();
-  await expect(rows.first()).toBeFocused();
-  await page.keyboard.press("ArrowDown");
-  await expect(rows.nth(1)).toBeFocused();
-  await page.keyboard.press("Enter");
-  await expect(panel).toBeFocused();
-  await page.keyboard.press("Tab");
-  await expect(hide).toBeFocused();
-  await page.keyboard.press("Enter");
-  await expect(panel).not.toBeVisible();
-  await expect(rows.nth(1)).toBeFocused();
-  await page.keyboard.press("ArrowDown");
-  await expect(rows.nth(2)).toBeFocused();
+  await page.addInitScript(() => {
+    window.boardCommits = 0;
+    window.__REACT_DEVTOOLS_GLOBAL_HOOK__ = {
+      supportsFiber: true,
+      inject: () => 1,
+      onCommitFiberRoot: () => {
+        window.boardCommits++;
+      },
+      onCommitFiberUnmount: () => {},
+    };
+  });
+  await page.reload();
+  await page.waitForFunction(() => !document.querySelector("#toggle-terminal")?.disabled);
+  await expect(page.locator('.board-row[data-kind="sample"]')).toHaveCount(10);
+  const before = await page.evaluate(() => {
+    window.activityMutations = 0;
+    window.activityObserver = new MutationObserver((records) => {
+      window.activityMutations += records.length;
+    });
+    for (const light of document.querySelectorAll('.board-row[data-kind="sample"] .board-light')) {
+      window.activityObserver.observe(light, { attributes: true, attributeFilter: ["style"] });
+    }
+    return window.boardCommits;
+  });
+  assert.ok(before > 0, "React commit hook is active");
+  await expect
+    .poll(() => page.evaluate(() => window.activityMutations))
+    .toBeGreaterThanOrEqual(100);
+  assert.equal(await page.evaluate(() => window.boardCommits), before);
+  await page.evaluate(() => window.activityObserver.disconnect());
 });
 
 test("renderer bundle contains production React without a Node process dependency", async () => {

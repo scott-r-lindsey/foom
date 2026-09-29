@@ -67,6 +67,13 @@ test("packaged utility host runs native PTYs with RunAsNode disabled", {
         !document.querySelector("#status").textContent.includes("Starting"),
     );
     assert.doesNotMatch(await page.locator("#status").innerText(), /Unable/);
+    await page.waitForFunction(() => !document.querySelector("#toggle-terminal").disabled);
+    await page.locator('.board-row[data-kind="shell"]').click();
+    await page.waitForFunction(
+      () =>
+        document.querySelector("#toggle-terminal").textContent === "Hide terminal" &&
+        !document.querySelector("#toggle-terminal").disabled,
+    );
     const command =
       process.platform === "win32"
         ? 'Write-Output ("PACKAGED_" + "PTY_OK")'

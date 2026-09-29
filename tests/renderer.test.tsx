@@ -1,7 +1,54 @@
 // @vitest-environment jsdom
 import type { ITerminalOptions } from "@xterm/xterm";
 import { act, cleanup, render, waitFor } from "@testing-library/react";
-import { Shell } from "../src/renderer/shell";
+import { createShell } from "../src/renderer/shell-controller";
+import type { ShellView } from "../src/renderer/shell.d";
+import { useCallback, useLayoutEffect, useRef, useState } from "react";
+function Shell() {
+  const controllerRef = useRef<ReturnType<typeof createShell>>(null);
+  const toggleRef = useRef<HTMLButtonElement>(null);
+  const [view, setView] = useState<ShellView>({
+    status: "Starting shell…",
+    state: "quiet_ok",
+    toggleLabel: "Open terminal",
+    visible: false,
+    toggleDisabled: true,
+    restartDisabled: true,
+  });
+  const mount = useCallback((element: HTMLElement | null) => {
+    if (element) controllerRef.current = createShell(element, setView);
+    else controllerRef.current?.dispose();
+  }, []);
+  useLayoutEffect(() => {
+    if (!view.visible && !view.toggleDisabled) toggleRef.current?.focus();
+  }, [view.visible, view.toggleDisabled]);
+  return (
+    <>
+      <span id="status">{view.status}</span>
+      <button
+        id="toggle-terminal"
+        ref={toggleRef}
+        disabled={view.toggleDisabled}
+        aria-expanded={view.visible}
+        onClick={() => {
+          void controllerRef.current?.toggle();
+        }}
+      >
+        {view.toggleLabel}
+      </button>
+      <button
+        id="restart"
+        disabled={view.restartDisabled}
+        onClick={() => {
+          void controllerRef.current?.restart();
+        }}
+      >
+        Restart shell
+      </button>
+      <div id="terminal" ref={mount} />
+    </>
+  );
+}
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 async function settle(action: () => void) {
   await act(async () => {
@@ -447,25 +494,6 @@ test.each(["startup", "reopen", "hide"])(
   },
 );
 
-test("opens the sample board without creating another terminal or sending sample IDs to IPC", async () => {
-  HTMLDialogElement.prototype.showModal = function () {
-    this.open = true;
-  };
-  await settle(() => {
-    render(<Shell />);
-  });
-  await waitFor(() => {
-    expect(mock.focus).toHaveBeenCalledOnce();
-  });
-  await settle(() => {
-    document.querySelectorAll<HTMLButtonElement>("header button")[1]?.click();
-  });
-  expect(document.querySelector("dialog")?.open).toBe(true);
-  expect(document.activeElement).toBe(document.querySelector(".board-row"));
-  expect(mock.create).toHaveBeenCalledOnce();
-  expect(mock.input).not.toHaveBeenCalled();
-});
-
 test("unmount before fonts load does not create a terminal session", async () => {
   let loaded: ((faces: FontFace[]) => void) | undefined;
   mock.fonts.mockReturnValue(
@@ -560,4 +588,76 @@ test("unmount during restart does not launch a replacement after kill completes"
     killed?.();
   });
   expect(mock.create).toHaveBeenCalledOnce();
+});
+
+test("hidden startup exposes a tail without attaching and delegates Escape to the board", async () => {
+  const tail = vi.fn().mockResolvedValue(["hidden output"]);
+  Object.assign(window.desktop, { tail });
+  const hide = vi.fn();
+  const controller = createShell(document.createElement("div"), vi.fn(), false, hide);
+  await expect(controller.tail()).resolves.toEqual([]);
+  await waitFor(() => {
+    expect(mock.create).toHaveBeenCalledOnce();
+  });
+  expect(mock.attach).not.toHaveBeenCalled();
+  expect(controller.owns("one")).toBe(true);
+  expect(controller.owns("sample")).toBe(false);
+  await expect(controller.tail()).resolves.toEqual(["hidden output"]);
+  expect(tail).toHaveBeenCalledWith("one", 40);
+  mock.key.mock.calls[0]?.[0](new KeyboardEvent("keydown", { key: "Escape" }));
+  expect(hide).toHaveBeenCalledOnce();
+  await controller.hide();
+  await controller.open();
+  await controller.open();
+  await controller.hide();
+  expect(mock.detach).toHaveBeenCalledOnce();
+  controller.dispose();
+});
+
+test.each(["drain", "attach"])(
+  "hiding during %s cancels focus and attachment safely",
+  async (stage) => {
+    const controller = createShell(document.createElement("div"), vi.fn(), false);
+    await waitFor(() => {
+      expect(mock.create).toHaveBeenCalledOnce();
+    });
+    let complete: (() => void) | undefined;
+    if (stage === "drain")
+      mock.write.mockImplementationOnce((_data, done) => {
+        complete = done;
+      });
+    else
+      mock.attach.mockImplementationOnce(
+        () =>
+          new Promise<void>((resolve) => {
+            complete = resolve;
+          }),
+      );
+    const opening = controller.toggle();
+    await Promise.resolve();
+    await controller.hide();
+    complete?.();
+    await opening;
+    expect(mock.focus).not.toHaveBeenCalled();
+    expect(mock.attach).toHaveBeenCalledTimes(stage === "drain" ? 0 : 1);
+    expect(mock.detach).toHaveBeenCalledTimes(stage === "drain" ? 0 : 1);
+    controller.dispose();
+  },
+);
+
+test("opening the board row before creation finishes attaches as soon as the shell is ready", async () => {
+  let created: ((value: { id: string; title: string }) => void) | undefined;
+  mock.create.mockReturnValueOnce(
+    new Promise((resolve) => {
+      created = resolve;
+    }),
+  );
+  const controller = createShell(document.createElement("div"), vi.fn(), false);
+  await Promise.resolve();
+  await controller.open();
+  created?.({ id: "one", title: "bash" });
+  await waitFor(() => {
+    expect(mock.attach).toHaveBeenCalledWith("one");
+  });
+  controller.dispose();
 });

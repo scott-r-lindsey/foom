@@ -1,11 +1,12 @@
 import { sampleRows } from "./board";
 import type { BoardRow } from "./board.d";
+import type { TerminalActivity } from "../shared/desktop";
 import type { BoardSource } from "./board-source.d";
 
 export function createSampleSource(initial: readonly BoardRow[] = sampleRows(Date.now())) {
   let rows = initial;
   const listeners = new Set<() => void>();
-  const activityListeners = new Set<(id: string, rate: number) => void>();
+  const activityListeners = new Set<(batch: readonly TerminalActivity[]) => void>();
   const update = (id: string, change: Partial<BoardRow>) => {
     rows = rows.map((row) => (row.id === id ? { ...row, ...change } : row));
     for (const listener of listeners) listener();
@@ -24,6 +25,7 @@ export function createSampleSource(initial: readonly BoardRow[] = sampleRows(Dat
         activityListeners.delete(listener);
       };
     },
+    tail: (id) => Promise.resolve(rows.find((row) => row.id === id)?.tail ?? []),
     markSeen: (id) => {
       update(id, { seen: true });
     },
@@ -34,8 +36,9 @@ export function createSampleSource(initial: readonly BoardRow[] = sampleRows(Dat
   };
   return {
     ...source,
+    update,
     setActivity: (id: string, rate: number) => {
-      for (const listener of activityListeners) listener(id, rate);
+      for (const listener of activityListeners) listener([{ id, rate }]);
     },
   };
 }

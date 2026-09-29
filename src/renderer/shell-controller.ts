@@ -5,9 +5,15 @@ import { FitAddon } from "@xterm/addon-fit";
 import type { ShellView } from "./shell.d";
 
 /** Imperative terminal lifecycle; output never enters React state. */
-export function createShell(container: HTMLElement, update: (view: ShellView) => void) {
+export function createShell(
+  container: HTMLElement,
+  update: (view: ShellView) => void,
+  initiallyOpen = true,
+  onEscape?: () => void,
+) {
   const view: ShellView = {
     status: "Starting shell…",
+    state: "quiet_ok",
     toggleLabel: "Open terminal",
     visible: false,
     toggleDisabled: true,
@@ -56,6 +62,8 @@ export function createShell(container: HTMLElement, update: (view: ShellView) =>
   const isDisposed = () => disposed;
   let activeId: string | undefined;
   let attached = false;
+  let visibleRequested = initiallyOpen;
+  const wantsVisible = () => visibleRequested;
   let busy = false;
   let exited = false;
   let hostFailed = false;
@@ -92,6 +100,7 @@ export function createShell(container: HTMLElement, update: (view: ShellView) =>
       ? "Terminal host failed. Restart the shell to continue."
       : `Shell exited (${String(code)})`;
     view.status = terminalStatus;
+    view.state = code === 0 ? "done" : "failed";
     exited = true;
     controls();
   });
@@ -110,17 +119,21 @@ export function createShell(container: HTMLElement, update: (view: ShellView) =>
     await new Promise<void>((resolve) => {
       terminal.write("", resolve);
     });
-    if (isDisposed()) return;
+    if (isDisposed() || !wantsVisible()) return;
     terminal.reset();
     updateTheme();
     visibility(true);
     fit.fit();
     window.desktop.resize(id, terminal.cols, terminal.rows);
     await window.desktop.attach(id);
-    if (!isDisposed()) terminal.focus();
+    if (!wantsVisible()) {
+      visibility(false);
+      await window.desktop.detach(id);
+    } else if (!isDisposed()) terminal.focus();
   };
   const toggleView = async () => {
     if (busy || !activeId) return;
+    visibleRequested = !attached;
     busy = true;
     controls();
     try {
@@ -141,13 +154,17 @@ export function createShell(container: HTMLElement, update: (view: ShellView) =>
   };
   terminal.attachCustomKeyEventHandler((event) => {
     if (event.key !== "Escape") return true;
-    if (event.type === "keydown") void toggleView();
+    if (event.type === "keydown") {
+      if (onEscape) onEscape();
+      else void toggleView();
+    }
     return false;
   });
   const start = async () => {
     if (isDisposed() || busy) return;
     busy = true;
     hostFailed = false;
+    view.state = "quiet_ok";
     view.status = "Starting shell…";
     controls();
     visibility(false);
@@ -170,9 +187,11 @@ export function createShell(container: HTMLElement, update: (view: ShellView) =>
       exited = false;
       terminalStatus = created.title;
       view.status = terminalStatus;
-      await openView(created.id);
+      if (wantsVisible()) await openView(created.id);
+      else visibility(false);
     } catch (error: unknown) {
       visibility(false);
+      view.state = "failed";
       showOperationError("Unable to start shell", error);
       exited = true;
     } finally {
@@ -191,5 +210,24 @@ export function createShell(container: HTMLElement, update: (view: ShellView) =>
   // Measure the first grid only after the bundled terminal face is available.
   void document.fonts.load('14px "Geist Mono"').then(start, start);
 
-  return { terminal, toggle: toggleView, restart: start, dispose };
+  return {
+    terminal,
+    open: async () => {
+      visibleRequested = true;
+      if (!attached) await toggleView();
+    },
+    hide: async () => {
+      visibleRequested = false;
+      if (busy) visibility(false);
+      else if (attached) await toggleView();
+    },
+    toggle: toggleView,
+    restart: () => {
+      visibleRequested = true;
+      return start();
+    },
+    dispose,
+    tail: () => (activeId ? window.desktop.tail(activeId, 40) : Promise.resolve([])),
+    owns: (id: string) => id === activeId,
+  };
 }
