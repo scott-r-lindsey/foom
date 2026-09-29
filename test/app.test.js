@@ -768,3 +768,57 @@ test("host answers color queries once through real view transitions and system t
     }
   }
 });
+
+test("Hide and Open restore hidden fullscreen output across repeated view transitions", {
+  timeout: 45000,
+}, async (context) => {
+  const directory = await mkdtemp(path.join(tmpdir(), "foom-view-probe-"));
+  context.after(() => rm(directory, { recursive: true, force: true }));
+  const marker = path.join(directory, "stage");
+  const app = await launchApp(context);
+  const page = await app.firstWindow();
+  const hide = page.getByRole("button", { name: "Hide terminal", exact: true });
+  const open = page.getByRole("button", { name: "Open terminal", exact: true });
+  await expect(hide).toBeEnabled();
+  await page.evaluate(() => {
+    window.viewChunks = 0;
+    window.desktop.onData((id) => {
+      window.viewId = id;
+      window.viewChunks++;
+    });
+  });
+  const command = `${process.platform === "win32" ? "& " : ""}"${process.execPath}" "${path.join(__dirname, "view-probe.js")}" "${marker}"`;
+  await page.locator(".xterm-helper-textarea").focus();
+  await page.keyboard.type(command);
+  await page.keyboard.press("Enter");
+  const rows = page.locator(".xterm-rows");
+  await expect(rows).toContainText("NORMAL_VIEW_READY");
+  await page.keyboard.press("Escape");
+  await expect(open).toBeEnabled();
+  await expect(open).toBeFocused();
+  await expect(page.locator("#terminal")).toBeHidden();
+  await page.evaluate(() => {
+    window.viewChunks = 0;
+    window.desktop.input(window.viewId, "a");
+  });
+  await expect.poll(() => readFile(marker, "utf8").catch(() => "pending")).toBe("alternate");
+  assert.equal(await page.evaluate(() => window.viewChunks), 0);
+  for (let cycle = 0; cycle < 4; cycle++) {
+    await open.click();
+    await expect(hide).toBeEnabled();
+    await expect(rows).toContainText("ALTERNATE_HIDDEN_OUTPUT");
+    await expect(rows).not.toContainText("NORMAL_VIEW_READY");
+    await expect(page.locator(".xterm-helper-textarea")).toBeFocused();
+    await hide.click();
+    await expect(open).toBeEnabled();
+  }
+  await page.evaluate(() => window.desktop.input(window.viewId, "n"));
+  await expect.poll(() => readFile(marker, "utf8")).toBe("normal");
+  await open.click();
+  await expect(hide).toBeEnabled();
+  await expect(rows).toContainText("NORMAL_VIEW_READY");
+  await expect(rows).toContainText("NORMAL_HIDDEN_OUTPUT");
+  await expect(rows).not.toContainText("ALTERNATE_HIDDEN_OUTPUT");
+  // Reopening restores interactive input as well as the screen.
+  await page.keyboard.type("q");
+});

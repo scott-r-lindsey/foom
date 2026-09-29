@@ -6,8 +6,9 @@ import "@xterm/xterm/css/xterm.css";
 
 const container = document.querySelector<HTMLElement>("#terminal");
 const status = document.querySelector<HTMLElement>("#status");
+const toggle = document.querySelector<HTMLButtonElement>("#toggle-terminal");
 const restart = document.querySelector<HTMLButtonElement>("#restart");
-if (!container || !status || !restart) throw new Error("Missing terminal elements");
+if (!container || !status || !restart || !toggle) throw new Error("Missing terminal elements");
 const colors = matchMedia("(prefers-color-scheme: dark)");
 const theme = () => {
   const style = getComputedStyle(document.documentElement);
@@ -45,33 +46,101 @@ const fit = new FitAddon();
 terminal.loadAddon(fit);
 terminal.open(container);
 let activeId: string | undefined;
+let attached = false;
+let busy = false;
+let exited = false;
+let hostFailed = false;
+let terminalStatus = "Starting shell…";
+const showOperationError = (prefix: string, error: unknown) => {
+  // Host exit can arrive before a pending IPC operation rejects.
+  status.textContent = hostFailed
+    ? terminalStatus
+    : `${prefix}: ${error instanceof Error ? error.message : String(error)}`;
+};
+const visibility = (visible: boolean) => {
+  attached = visible;
+  container.hidden = !visible;
+  toggle.textContent = visible ? "Hide terminal" : "Open terminal";
+  toggle.setAttribute("aria-expanded", String(visible));
+};
+const controls = () => {
+  toggle.disabled = busy || !activeId;
+  restart.disabled = busy || !exited;
+};
 const offData = window.desktop.onData((id, token, data) => {
-  if (id !== activeId) return;
+  if (id !== activeId || !attached) return;
   terminal.write(data, () => {
     window.desktop.acknowledge(id, token, data.length);
   });
 });
 const offExit = window.desktop.onExit((id, code) => {
   if (id !== activeId) return;
-  status.textContent =
-    code === -1
-      ? "Terminal host failed. Restart the shell to continue."
-      : `Shell exited (${String(code)})`;
-  restart.disabled = false;
+  hostFailed = code === -1;
+  terminalStatus = hostFailed
+    ? "Terminal host failed. Restart the shell to continue."
+    : `Shell exited (${String(code)})`;
+  status.textContent = terminalStatus;
+  exited = true;
+  controls();
 });
 terminal.onData((data) => {
-  if (activeId) window.desktop.input(activeId, data);
+  if (activeId && attached && !busy) window.desktop.input(activeId, data);
 });
 const resize = () => {
+  if (!attached || busy) return;
   fit.fit();
   if (activeId) window.desktop.resize(activeId, terminal.cols, terminal.rows);
 };
 const observer = new ResizeObserver(resize);
 observer.observe(container);
-const start = async () => {
-  restart.disabled = true;
+const openView = async (id: string) => {
+  // Drain writes from the old attachment before resetting, including delayed ACKs.
+  await new Promise<void>((resolve) => {
+    terminal.write("", resolve);
+  });
   terminal.reset();
+  updateTheme();
+  visibility(true);
   fit.fit();
+  window.desktop.resize(id, terminal.cols, terminal.rows);
+  await window.desktop.attach(id);
+  terminal.focus();
+};
+const toggleView = async () => {
+  if (busy || !activeId) return;
+  busy = true;
+  controls();
+  try {
+    if (attached) {
+      visibility(false);
+      await window.desktop.detach(activeId);
+    } else {
+      await openView(activeId);
+    }
+    status.textContent = terminalStatus;
+  } catch (error: unknown) {
+    visibility(false);
+    showOperationError("Unable to change terminal view", error);
+  } finally {
+    busy = false;
+    controls();
+    if (!attached) toggle.focus();
+  }
+};
+toggle.addEventListener("click", () => {
+  void toggleView();
+});
+terminal.attachCustomKeyEventHandler((event) => {
+  if (event.key !== "Escape") return true;
+  if (event.type === "keydown") void toggleView();
+  return false;
+});
+const start = async () => {
+  if (busy) return;
+  busy = true;
+  controls();
+  visibility(false);
+  hostFailed = false;
   status.textContent = "Starting shell…";
   try {
     if (activeId) {
@@ -79,14 +148,22 @@ const start = async () => {
       activeId = undefined;
       await window.desktop.kill(previous);
     }
+    // The view must be visible to measure the initial grid.
+    container.hidden = false;
+    fit.fit();
     const created = await window.desktop.create(terminal.cols, terminal.rows);
     activeId = created.id;
-    status.textContent = created.title;
-    await window.desktop.attach(created.id);
-    terminal.focus();
+    exited = false;
+    terminalStatus = created.title;
+    status.textContent = terminalStatus;
+    await openView(created.id);
   } catch (error: unknown) {
-    status.textContent = `Unable to start shell: ${error instanceof Error ? error.message : String(error)}`;
-    restart.disabled = false;
+    visibility(false);
+    showOperationError("Unable to start shell", error);
+    exited = true;
+  } finally {
+    busy = false;
+    controls();
   }
 };
 restart.addEventListener("click", () => {
