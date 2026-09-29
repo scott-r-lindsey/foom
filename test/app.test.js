@@ -199,7 +199,8 @@ test("terminal runs an interactive shell behind an isolated bridge", {
       },
     );
     // The real renderer must not duplicate main's protocol response.
-    const probeCommand = `"${process.execPath}" "${path.join(__dirname, "protocol-probe.js")}"`;
+    // PowerShell needs the call operator to execute a quoted executable path.
+    const probeCommand = `${process.platform === "win32" ? "& " : ""}"${process.execPath}" "${path.join(__dirname, "protocol-probe.js")}"`;
     await page.keyboard.type(probeCommand);
     await page.keyboard.press("Enter");
     await page.waitForFunction(() => window.terminalOutput.includes("PROTOCOL_OK"));
@@ -279,7 +280,7 @@ test("terminal runs an interactive shell behind an isolated bridge", {
         "Terminal failure state:",
         await pages[0].evaluate(() => ({
           status: document.querySelector("#status")?.textContent,
-          output: window.terminalOutput,
+          output: window.terminalOutput?.slice(-8000),
         })),
       );
     throw error;

@@ -271,3 +271,41 @@ describe("safe removal", () => {
     await service.removeWorktree(repo, path);
   });
 });
+
+it.each([false, true])(
+  "rejects external replacements before removal (list first: %s)",
+  async (listFirst) => {
+    const path = await service.createWorktree(repo, "owned");
+    await git("worktree", "remove", path);
+    await git("worktree", "add", "-b", "external", path);
+    await writeFile(join(path, "valuable"), "keep me");
+    if (listFirst) {
+      expect(await service.listWorktrees(repo)).toContainEqual(
+        expect.objectContaining({ path, managed: false }),
+      );
+    }
+    for (const force of [false, true]) {
+      await expect(service.removeWorktree(repo, path, force)).rejects.toThrow("not managed");
+      expect(await readFile(join(path, "valuable"), "utf8")).toBe("keep me");
+    }
+  },
+);
+
+it("invalidates ownership when metadata disappears", async () => {
+  const path = await service.createWorktree(repo, "missing");
+  await rm(join(path, ".git"));
+  expect(await service.listWorktrees(repo)).toContainEqual(
+    expect.objectContaining({ path, managed: false }),
+  );
+  await expect(service.removeWorktree(repo, path, true)).rejects.toThrow("not managed");
+});
+
+it("preserves ownership across ordinary branch and file changes", async () => {
+  const path = await service.createWorktree(repo, "owned");
+  await execute("git", ["checkout", "-b", "renamed"], { cwd: path });
+  await writeFile(join(path, "new-file"), "content");
+  expect(await service.listWorktrees(repo)).toContainEqual(
+    expect.objectContaining({ path, branch: "renamed", managed: true }),
+  );
+  await service.removeWorktree(repo, path, true);
+});
