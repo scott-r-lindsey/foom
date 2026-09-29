@@ -1,3 +1,4 @@
+import { mountBoard, sampleRows } from "./board";
 import { TerminalColors } from "../terminal-colors";
 import { Terminal } from "@xterm/xterm";
 import { suppressTerminalReplies } from "./terminal-replies";
@@ -178,3 +179,10 @@ window.addEventListener("beforeunload", () => {
 });
 // Measure the first grid only after the bundled terminal face is available.
 void document.fonts.load('14px "Geist Mono"').then(start, start);
+
+const board = mountBoard(document.body, sampleRows(Date.now()));
+const boardButton = document.createElement("button");
+boardButton.textContent = "Sample board";
+boardButton.addEventListener("click", board.show);
+toggle.after(boardButton);
+window.addEventListener("beforeunload", board.dispose);

@@ -863,3 +863,47 @@ test("Hide and Open restore hidden fullscreen output across repeated view transi
   // Reopening restores interactive input as well as the screen.
   await page.keyboard.type("q");
 });
+
+test("sample board supports keyboard attention routing without changing the live shell", async (context) => {
+  const app = await launchApp(context);
+  const page = await app.firstWindow();
+  await expect(page.getByRole("button", { name: "Hide terminal", exact: true })).toBeEnabled();
+  await page.getByRole("button", { name: "Sample board", exact: true }).click();
+  const board = page.getByRole("dialog", { name: "Sample board" });
+  await expect(board).toBeVisible();
+  const rows = board.locator(".board-row");
+  await expect(rows).toHaveCount(7);
+  await expect(rows.first()).toBeFocused();
+  await page.keyboard.press("ArrowDown");
+  await expect(rows.nth(1)).toBeFocused();
+  await page.keyboard.press("p");
+  await expect(board.getByRole("complementary", { name: "Terminal peek" })).toBeVisible();
+  await expect(rows.nth(1)).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(board).toBeVisible();
+  await page.keyboard.press("n");
+  await expect(board.locator(".board-terminal")).toBeFocused();
+  await expect(rows.first()).toContainText("Needs you");
+  await page.keyboard.press("Escape");
+  await expect(rows.first()).toBeFocused();
+  await page.keyboard.press("Enter");
+  await expect(board.locator(".board-terminal")).toBeFocused();
+  await board.getByRole("button", { name: "Not attention" }).focus();
+  await page.keyboard.press("Enter");
+  await page.keyboard.press("n");
+  await expect(board.locator(".board-terminal h2")).toContainText("feat/export");
+  await page.keyboard.press("Escape");
+  await expect(board).toBeVisible();
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  assert.equal(
+    await board
+      .locator('[data-state="checking"] .board-light')
+      .evaluate((element) => getComputedStyle(element).animationName),
+    "none",
+  );
+  await page.screenshot({ path: path.join(tmpdir(), "foom-issue-9-board.png") });
+  await page.keyboard.press("Escape");
+  await expect(board).not.toBeVisible();
+  await expect(page.getByRole("button", { name: "Sample board", exact: true })).toBeFocused();
+  await expect(page.getByRole("button", { name: "Hide terminal", exact: true })).toBeEnabled();
+});
