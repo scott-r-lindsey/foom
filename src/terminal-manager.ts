@@ -1,4 +1,5 @@
 import { TerminalActivityMeter } from "./terminal-activity";
+import { terminalSnapshot } from "./terminal-snapshot";
 import { TerminalColors } from "./terminal-colors";
 import { randomUUID } from "node:crypto";
 import { spawn } from "node-pty";
@@ -175,12 +176,19 @@ export class TerminalManager {
     this.detach(id);
     const session = this.get(id);
     const generation = session.generation;
-    await new Promise<void>((resolve) => {
+    await new Promise<void>((resolve, reject) => {
       // A parser barrier makes the snapshot and subsequent live stream contiguous.
       session.screen.write("", () => {
         if (this.sessions.has(id) && generation === session.generation) {
-          session.view = { token: randomUUID(), send };
-          this.deliver(session, session.colors.snapshot() + session.serialize.serialize());
+          try {
+            const snapshot =
+              session.colors.snapshot() + terminalSnapshot(session.screen, session.serialize);
+            session.view = { token: randomUUID(), send };
+            this.deliver(session, snapshot);
+          } catch (error) {
+            reject(new Error("Unable to snapshot terminal", { cause: error }));
+            return;
+          }
         }
         resolve();
       });

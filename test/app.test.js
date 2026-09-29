@@ -819,6 +819,47 @@ test("Hide and Open restore hidden fullscreen output across repeated view transi
   await expect(rows).toContainText("NORMAL_VIEW_READY");
   await expect(rows).toContainText("NORMAL_HIDDEN_OUTPUT");
   await expect(rows).not.toContainText("ALTERNATE_HIDDEN_OUTPUT");
+  // Continue scrolling after restoration, including origin-relative positioning,
+  // repeated attachments, and transitions between both buffers.
+  for (const mode of ["a", "n", "a", "n"]) {
+    await hide.click();
+    await expect(open).toBeEnabled();
+    await page.evaluate((key) => window.desktop.input(window.viewId, key), mode);
+    await expect.poll(() => readFile(marker, "utf8")).toBe(mode === "a" ? "alternate" : "normal");
+    for (const setup of ["s", "o"]) {
+      await page.evaluate((key) => window.desktop.input(window.viewId, key), setup);
+      await expect.poll(() => readFile(marker, "utf8")).toBe(setup);
+      for (let cycle = 0; cycle < 3; cycle++) {
+        await open.click();
+        await expect(hide).toBeEnabled();
+        await expect(rows).toContainText("FOOTER");
+        await page.keyboard.type("j");
+        const expected = [
+          "HEADER",
+          ...Array(3 - Math.min(cycle, 3)).fill(""),
+          ...Array(Math.min(cycle, 3)).fill("NEXT"),
+          "NEXT",
+          "FOOTER",
+        ];
+        if (cycle < 3) expected[3 - cycle] = "bottom";
+        await expect
+          .poll(() =>
+            rows
+              .locator(":scope > div")
+              .evaluateAll((elements) =>
+                elements.slice(0, 6).map((element) => element.textContent.trimEnd()),
+              ),
+          )
+          .toEqual(expected);
+        const tail = await page.evaluate(() => window.desktop.tail(window.viewId, 10000));
+        assert.deepEqual(tail.slice(-6), expected);
+        await hide.click();
+        await expect(open).toBeEnabled();
+      }
+    }
+    await open.click();
+    await expect(hide).toBeEnabled();
+  }
   // Reopening restores interactive input as well as the screen.
   await page.keyboard.type("q");
 });

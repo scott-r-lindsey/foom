@@ -14,6 +14,16 @@ process.stdin.on("data", (data) => {
     process.stdout.write("\x1b[?1049lNORMAL_HIDDEN_OUTPUT\r\n", () => {
       writeFileSync(marker, "normal");
     });
+  } else if (key === "s" || key === "o") {
+    process.stdout.write(
+      "\x1b[?6l\x1b[2J\x1b[HHEADER\x1b[6;1HFOOTER\x1b[2;5r\x1b[5;1Hbottom" +
+        (key === "o" ? "\x1b[?6h\x1b[4;7H" : ""),
+      () => {
+        writeFileSync(marker, key);
+      },
+    );
+  } else if (key === "j") {
+    process.stdout.write("\r\nNEXT");
   } else if (key === "q") {
     process.exit(0);
   }
