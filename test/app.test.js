@@ -77,11 +77,17 @@ test("terminal runs an interactive shell behind an isolated bridge", {
       const after = await readSize("AFTER");
       assert.ok(after[0] > before[0], `PTY rows grow with the window: ${before} -> ${after}`);
       assert.ok(after[1] > before[1], `PTY columns grow with the window: ${before} -> ${after}`);
-      await page.keyboard.type("test -t 0 && test -t 1 && printf 'FOOM_%s\\n' TTY_OK; stty size");
+      // Print the marker last so the next command isn't typed while this one is still running.
+      await page.keyboard.type(
+        "test -t 0 && test -t 1 && stty size >/dev/null && printf 'FOOM_%s\\n' TTY_OK",
+      );
       await page.keyboard.press("Enter");
       await page.waitForFunction(() => window.terminalOutput.includes("FOOM_TTY_OK"));
-      await page.keyboard.type("sleep 30");
+      // exec keeps one process, so once the marker prints, sleep is the foreground job that
+      // receives Ctrl+C. Pressing it earlier can signal the shell before sleep starts.
+      await page.keyboard.type("sh -c 'printf \"FOOM_%s\\n\" SLEEPING; exec sleep 30'");
       await page.keyboard.press("Enter");
+      await page.waitForFunction(() => window.terminalOutput.includes("FOOM_SLEEPING"));
       await page.keyboard.press("Control+c");
       await page.keyboard.type("printf 'FOOM_%s\\n' INTERRUPTED");
       await page.keyboard.press("Enter");
