@@ -328,6 +328,31 @@ test("alternate-screen snapshots restore fullscreen state and preserve the norma
   expect(await manager.tail(id, 1)).toEqual(["normal screen"]);
 });
 
+test.each(["", "\x1b[?1049h"])(
+  "tails include lower populated rows after cursor home (%j)",
+  async (screen) => {
+    const id = manager.create(spec);
+    output(`${screen}\x1b[Hheader\x1b[20;1HProceed? (y/n)\x1b[H`);
+    const tail = await manager.tail(id, 40);
+    expect(tail).toHaveLength(20);
+    expect(tail[0]).toBe("header");
+    expect(tail[19]).toBe("Proceed? (y/n)");
+    expect(await manager.tail(id, 1)).toEqual(["Proceed? (y/n)"]);
+    expect(await manager.tail(id, 2)).toEqual(["", "Proceed? (y/n)"]);
+  },
+);
+
+test("tails trim blank suffixes while preserving interior blank rows and scrollback", async () => {
+  const id = manager.create(spec);
+  expect(await manager.tail(id, 40)).toEqual([]);
+  for (let i = 0; i < 50; i++) output(`line ${String(i)}\r\n`);
+  output("\r\nlast\r\n   \r\n\x1b[H");
+  expect(await manager.tail(id, 3)).toEqual(["line 49", "", "last"]);
+  expect(await manager.tail(id, 100)).toHaveLength(52);
+  output("\x1b[2J");
+  expect((await manager.tail(id, 1))[0]).toMatch(/^line /);
+});
+
 test("main answers protocol queries through attachment transitions and ignores replies after exit", async () => {
   const id = manager.create(spec);
   for (const attached of [false, true, false, true]) {
