@@ -2,6 +2,7 @@ const { FusesPlugin } = require("@electron-forge/plugin-fuses");
 const { FuseV1Options, FuseVersion } = require("@electron/fuses");
 
 module.exports = {
+  hooks: { packageAfterPrune: require("./scripts/package-conpty.cjs") },
   packagerConfig: {
     asar: { unpackDir: "**/node_modules/node-pty/**" },
     executableName: "foom",

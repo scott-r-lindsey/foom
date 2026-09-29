@@ -572,3 +572,116 @@ test("closing with an exited terminal quits without confirmation", {
     app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].close()),
   );
 });
+
+test("utility host survives output floods without losing rows or delaying another PTY", {
+  timeout: 45_000,
+}, async (context) => {
+  const app = await launchApp(context);
+  await app.firstWindow();
+  const measured = await app.evaluate(
+    async ({ app }, { node, probe }) => {
+      const load = process
+        .getBuiltinModule("node:module")
+        .createRequire(app.getAppPath() + "/package.json");
+      const { TerminalHostClient } = load("./build/terminal-host-client.js");
+      const exited = new Map();
+      const host = new TerminalHostClient((id, code) => exited.set(id, code));
+      const wait = async (condition) => {
+        const deadline = Date.now() + 15000;
+        while (!(await condition())) {
+          if (Date.now() > deadline) throw new Error("Host probe timeout");
+          await new Promise((resolve) => setTimeout(resolve, 5));
+        }
+      };
+      try {
+        const spec = { command: node, cwd: app.getPath("temp"), cols: 500, rows: 24 };
+        const flood = await host.create({ ...spec, args: [probe, "flood"] });
+        const echo = await host.create({ ...spec, args: [probe, "echo"] });
+        let output = "";
+        await host.attach(echo, (token, data) => {
+          output += data;
+          host.acknowledge(echo, token, data.length);
+        });
+        await wait(
+          async () => output.includes("READY") && (await host.tail(flood, 1)).includes("READY"),
+        );
+        const samples = [];
+        let duringFlood = 0;
+        host.write(flood, "g");
+        for (let index = 0; index < 30; index++) {
+          const marker = `ECHO_${index}_OK`;
+          const start = performance.now();
+          const busy = !exited.has(flood);
+          host.write(echo, marker);
+          await wait(() => output.includes(marker));
+          samples.push(performance.now() - start);
+          if (busy) duringFlood++;
+          await new Promise((resolve) => setTimeout(resolve, 5));
+        }
+        await wait(() => exited.has(flood));
+        const lines = await host.tail(flood, 10000);
+        const rows = lines.filter((line) => line.startsWith("ROW_"));
+        const intact =
+          rows.length === 8000 &&
+          rows.every(
+            (line, index) => line === `ROW_${String(index).padStart(5, "0")}:${"x".repeat(440)}`,
+          );
+        return {
+          samples,
+          duringFlood,
+          intact,
+          exit: exited.get(flood),
+          last: lines.at(-1),
+          hosts: app.getAppMetrics().filter((metric) => metric.name === "Foom terminal host")
+            .length,
+        };
+      } finally {
+        await host.dispose();
+      }
+    },
+    { node: process.execPath, probe: path.join(__dirname, "host-probe.js") },
+  );
+  assert.equal(measured.exit, 0);
+  assert.equal(measured.intact, true, "all 8,000 headless rows retain their index and content");
+  assert.equal(measured.last, "FLOOD_END");
+  assert.ok(measured.duringFlood > 0, "echo probes overlap the flood");
+  assert.ok(measured.hosts >= 1, "PTYs run in named utility processes");
+  const sorted = measured.samples.toSorted((a, b) => a - b);
+  console.info(
+    `Flood echo latency: median=${sorted[15].toFixed(1)}ms p95=${sorted[28].toFixed(1)}ms max=${sorted[29].toFixed(1)}ms; ${measured.duringFlood}/30 probes during flood; 8000/8000 rows intact`,
+  );
+  assert.ok(sorted[29] < 1000, "echo remains responsive during a flood (CI ceiling: 1s)");
+});
+
+test("a crashed utility host reports failure and the renderer can restart", {
+  timeout: 45_000,
+}, async (context) => {
+  const app = await launchApp(context);
+  const page = await app.firstWindow();
+  await page.waitForFunction(
+    () => !/Starting|exited|Unable/.test(document.querySelector("#status").textContent),
+  );
+  const hostPid = await app.evaluate(({ app }) => {
+    const metric = app.getAppMetrics().find((metric) => metric.name === "Foom terminal host");
+    if (!metric) throw new Error("Missing utility host");
+    process.kill(metric.pid, "SIGKILL");
+    return metric.pid;
+  });
+  await page.getByRole("status").filter({ hasText: "Terminal host failed" }).waitFor();
+  await page.getByRole("button", { name: "Restart shell" }).click();
+  await page.waitForFunction(
+    () => !/Starting|failed|Unable/.test(document.querySelector("#status").textContent),
+  );
+  const replacementPid = await app.evaluate(
+    ({ app }) => app.getAppMetrics().find((metric) => metric.name === "Foom terminal host")?.pid,
+  );
+  assert.ok(replacementPid && replacementPid !== hostPid);
+  await page.locator(".xterm-helper-textarea").focus();
+  await page.keyboard.type("echo HOST_RESTART_OK");
+  await page.keyboard.press("Enter");
+  await page
+    .locator(".xterm-rows > div")
+    .filter({ hasText: /^HOST_RESTART_OK$/ })
+    .last()
+    .waitFor();
+});

@@ -11,7 +11,7 @@ import type {
   AgentLaunch,
   AgentScan,
 } from "./shared/agents";
-import type { TerminalManager } from "./terminal-manager";
+import type { TerminalSpec } from "./shared/desktop";
 import type { WorktreeService } from "./worktrees";
 
 const execute = promisify(execFile);
@@ -103,9 +103,13 @@ export class AgentService {
 
   constructor(
     private readonly worktrees: Pick<WorktreeService, "listWorktrees">,
-    private readonly terminals: Pick<TerminalManager, "create">,
+    private readonly terminals: { create(spec: TerminalSpec): string | Promise<string> },
     private readonly prepareHooks?: (agent: AgentId) => Promise<AgentHooks>,
   ) {}
+
+  private ensureOpen(): void {
+    if (this.closed) throw new Error("Agent service is disposed");
+  }
 
   setHooksEnabled(enabled: boolean): void {
     this.hooksEnabled = enabled;
@@ -123,7 +127,7 @@ export class AgentService {
   }
 
   async launch(request: AgentLaunch): Promise<{ id: string; attention: "hooks" | "evaluator" }> {
-    if (this.closed) throw new Error("Agent service is disposed");
+    this.ensureOpen();
     if (!ids.includes(request.agent)) throw new Error("Unknown agent");
     if (
       ![request.cols, request.rows].every(
@@ -165,7 +169,7 @@ export class AgentService {
       );
     const binding = attach ? await attach(agent.id) : undefined;
     try {
-      if (this.closed) throw new Error("Agent service is disposed");
+      this.ensureOpen();
       const args: string[] = [];
       if (binding) {
         if (agent.id === "claude") {
@@ -175,7 +179,7 @@ export class AgentService {
           args.push("-c", `notify=${JSON.stringify(binding.codexCommand)}`);
         }
       }
-      const id = this.terminals.create({
+      const id = await this.terminals.create({
         command: agent.path,
         args,
         cwd: request.worktree,
@@ -183,6 +187,7 @@ export class AgentService {
         rows: request.rows,
         env: { ...binding?.env, PATH: scan.path },
       });
+      this.ensureOpen();
       this.launched.set(id, request.worktree);
       if (binding) this.bindings.set(id, binding);
       return { id, attention: binding ? "hooks" : "evaluator" };

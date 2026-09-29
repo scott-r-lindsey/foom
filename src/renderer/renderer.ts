@@ -43,7 +43,10 @@ const offData = window.desktop.onData((id, token, data) => {
 });
 const offExit = window.desktop.onExit((id, code) => {
   if (id !== activeId) return;
-  status.textContent = `Shell exited (${String(code)})`;
+  status.textContent =
+    code === -1
+      ? "Terminal host failed. Restart the shell to continue."
+      : `Shell exited (${String(code)})`;
   restart.disabled = false;
 });
 terminal.onData((data) => {

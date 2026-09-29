@@ -248,6 +248,23 @@ describe("launch", () => {
     await expect(service.launch(request)).rejects.toThrow("spawn failed");
     expect(cleanup).toHaveBeenCalledOnce();
   });
+  it("awaits asynchronous terminal creation and cleans up rejected or cancelled launches", async () => {
+    const asyncCreate = vi.fn<(_spec: TerminalSpec) => Promise<string>>();
+    service = new AgentService({ listWorktrees }, { create: asyncCreate }, prepare);
+    asyncCreate.mockRejectedValueOnce(new Error("host stopped"));
+    await expect(service.launch(request)).rejects.toThrow("host stopped");
+    expect(cleanup).toHaveBeenCalledOnce();
+    asyncCreate.mockResolvedValueOnce("host-terminal");
+    await expect(service.launch(request)).resolves.toHaveProperty("id", "host-terminal");
+    service.release("host-terminal");
+    expect(cleanup).toHaveBeenCalledTimes(2);
+    asyncCreate.mockImplementationOnce(() => {
+      service.dispose();
+      return Promise.resolve("late-terminal");
+    });
+    await expect(service.launch(request)).rejects.toThrow("disposed");
+    expect(cleanup).toHaveBeenCalledTimes(3);
+  });
   it("does not spawn if hook preparation fails", async () => {
     prepare.mockRejectedValueOnce(new Error("receiver failed"));
     await expect(service.launch(request)).rejects.toThrow("receiver failed");

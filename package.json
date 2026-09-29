@@ -20,6 +20,7 @@
     "format": "biome format --write .",
     "format:check": "biome format .",
     "lint:fix": "eslint . --fix --max-warnings=0",
+    "test:packaged": "node --test test/packaged-smoke.js",
     "test:ci": "node --test scripts/ci-changes.test.mjs",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",

@@ -13,7 +13,7 @@
 
 Read `docs/product.md` and `docs/architecture.md` before changing terminal, evaluator, or agent code. These rules are decided; changing one needs its own PR that also updates the docs.
 
-- The main process owns terminal state: a PTY plus a headless xterm per terminal, identified by ID. The renderer only displays terminals. Never pause a terminal because no view is attached; throttle only attached views.
+- Main owns terminal capabilities and brokers IPC; the utility-process host owns a PTY plus a headless xterm per terminal, identified by ID. The renderer only displays terminals. Never pause a terminal because no view is attached. Parser backpressure is independent of attached-view throttling.
 - Every IPC message about a terminal carries its ID and is validated like any other untrusted payload.
 - Run git and agent processes with `execFile`-style argument arrays, never a shell string. Validate branch names and paths before use.
 - Attach agent hooks per launch (`--settings`, `-c`). Never edit a user's global Claude, Codex, or Antigravity configuration.

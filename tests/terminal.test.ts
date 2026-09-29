@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
+import type { TerminalSpec } from "../src/shared/desktop";
 import type { BrowserWindow, IpcMainEvent, IpcMainInvokeEvent } from "electron";
 const mock = vi.hoisted(() => ({
   handle:
@@ -20,6 +21,54 @@ const mock = vi.hoisted(() => ({
 }));
 vi.mock("electron", () => ({ app: mock.app, ipcMain: mock }));
 vi.mock("node-pty", () => ({ spawn: mock.spawn }));
+vi.mock("../src/terminal-host-client", async () => {
+  const { TerminalManager } = await import("../src/terminal-manager");
+  return {
+    TerminalHostClient: class {
+      private manager: TerminalManager;
+      constructor(onExit: (id: string, code: number) => void) {
+        this.manager = new TerminalManager(onExit);
+      }
+      create(spec: TerminalSpec) {
+        return this.manager.create(spec);
+      }
+      attach(id: string, send: (token: string, data: string) => void) {
+        return this.manager.attach(id, send);
+      }
+      detach(id: string) {
+        this.manager.detach(id);
+      }
+      write(id: string, data: string) {
+        this.manager.write(id, data);
+      }
+      resize(id: string, cols: number, rows: number) {
+        this.manager.resize(id, cols, rows);
+      }
+      acknowledge(id: string, token: string, count: number) {
+        this.manager.acknowledge(id, token, count);
+      }
+      kill(id: string) {
+        this.manager.kill(id);
+      }
+      get runningCount() {
+        return this.manager.runningCount;
+      }
+      get hasPendingExits() {
+        return this.manager.hasPendingExits;
+      }
+      shutdown() {
+        return this.manager.shutdown();
+      }
+      waitForExit() {
+        return this.manager.waitForExit();
+      }
+      dispose() {
+        this.manager.dispose();
+        return Promise.resolve();
+      }
+    },
+  };
+});
 import { attachTerminal } from "../src/terminal";
 import { TerminalManager } from "../src/terminal-manager";
 function fakePty() {
@@ -52,6 +101,7 @@ function fakePty() {
 let ptys: ReturnType<typeof fakePty>[];
 const frame = { url: "app://bundle/index.html" };
 const contents = {
+  isDestroyed: () => false,
   mainFrame: frame,
   send: vi.fn(),
   on: vi.fn<(name: string, callback: (...args: never[]) => void) => void>(),
@@ -74,8 +124,8 @@ function invoke(channel: string, args: unknown[] = [], sender = event) {
 function send(channel: string, args: unknown[], sender = event) {
   mock.on.mock.calls.find(([name]) => name === `terminal:${channel}`)?.[1](sender, ...args);
 }
-function create() {
-  const result = invoke("create", [80, 24]);
+async function create() {
+  const result = await invoke("create", [80, 24]);
   if (typeof result !== "object" || !result || !("id" in result) || typeof result.id !== "string")
     throw new Error("Missing ID");
   return result.id;
@@ -132,7 +182,8 @@ test("detached output continuously updates real headless screen and scrollback",
   const id = manager.create(spec);
   for (let i = 0; i < 5000; i++) output(`line ${String(i)} ${"x".repeat(60)}\r\n`);
   expect((await manager.tail(id, 3)).join("\n")).toContain("line 4999");
-  expect(pty().pause).not.toHaveBeenCalled();
+  expect(pty().pause).toHaveBeenCalledOnce();
+  expect(pty().resume).toHaveBeenCalledOnce();
   const data = vi.fn();
   await manager.attach(id, data);
   expect(data.mock.calls[0]?.[1]).toContain("line 4999");
@@ -219,8 +270,8 @@ test("cancels in-flight attachments and safely drains callbacks on kill", async 
 });
 
 test("IPC isolates IDs, validates input and cleans up", async () => {
-  const id = create();
-  const second = create();
+  const id = await create();
+  const second = await create();
   expect(id).not.toBe(second);
   await invoke("attach", [id]);
   output("hello");
@@ -256,7 +307,7 @@ test("IPC isolates IDs, validates input and cleans up", async () => {
 });
 
 test("rejects malformed dimensions and untrusted frames on every channel", async () => {
-  const id = create();
+  const id = await create();
   for (const pair of [
     [null, 24],
     [80, "24"],
@@ -267,7 +318,7 @@ test("rejects malformed dimensions and untrusted frames on every channel", async
     [80.5, 24],
     [80, 24.5],
   ]) {
-    expect(() => invoke("create", pair)).toThrow("Invalid terminal size");
+    await expect(invoke("create", pair)).rejects.toThrow("Invalid terminal size");
     send("resize", [id, ...pair]);
   }
   for (const sender of [
@@ -276,7 +327,7 @@ test("rejects malformed dimensions and untrusted frames on every channel", async
     { sender: contents, senderFrame: { url: frame.url } },
   ]) {
     const invalid = sender as unknown as typeof event;
-    expect(() => invoke("create", [80, 24], invalid)).toThrow("Untrusted IPC sender");
+    await expect(invoke("create", [80, 24], invalid)).rejects.toThrow("Untrusted IPC sender");
     for (const op of ["attach", "detach", "kill"])
       await expect(invoke(op, [id], invalid)).rejects.toThrow("Untrusted IPC sender");
     send("input", [id, "bad"], invalid);
@@ -284,7 +335,7 @@ test("rejects malformed dimensions and untrusted frames on every channel", async
     send("ack", [id, "view", 1], invalid);
   }
   frame.url = "https://evil.example";
-  expect(() => create()).toThrow("Untrusted IPC sender");
+  await expect(create()).rejects.toThrow("Untrusted IPC sender");
   frame.url = "app://bundle/index.html";
   expect(pty().write).not.toHaveBeenCalled();
   expect(pty().resize).not.toHaveBeenCalled();
@@ -292,7 +343,7 @@ test("rejects malformed dimensions and untrusted frames on every channel", async
 
 test.each(["win32", "linux"])(
   "selects the %s shell, scrubs environment and retries spawn failure",
-  (platform) => {
+  async (platform) => {
     vi.spyOn(process, "platform", "get").mockReturnValue(platform as NodeJS.Platform);
     vi.stubEnv("SHELL", "");
     vi.stubEnv("npm_secret", "secret");
@@ -302,8 +353,8 @@ test.each(["win32", "linux"])(
     mock.spawn.mockImplementationOnce(() => {
       throw new Error("missing shell");
     });
-    expect(() => create()).toThrow("missing shell");
-    create();
+    await expect(create()).rejects.toThrow("missing shell");
+    await create();
     expect(mock.spawn).toHaveBeenLastCalledWith(
       platform === "win32" ? "powershell.exe" : "/bin/bash",
       expect.any(Array),
@@ -321,14 +372,16 @@ test.each(["win32", "linux"])(
 );
 
 test("renderer loss detaches paused views without terminating the PTY", async () => {
-  const id = create();
+  const id = await create();
   await invoke("attach", [id]);
   output("x".repeat(270000));
   await vi.waitFor(() => {
     expect(pty().pause).toHaveBeenCalledOnce();
   });
   contents.on.mock.calls.find(([name]) => name === "render-process-gone")?.[1]();
-  expect(pty().resume).toHaveBeenCalledOnce();
+  await vi.waitFor(() => {
+    expect(pty().resume).toHaveBeenCalledOnce();
+  });
   expect(pty().kill).not.toHaveBeenCalled();
   await invoke("attach", [id]);
   const navigation = contents.on.mock.calls.find(([name]) => name === "did-start-navigation")?.[1];
@@ -340,8 +393,8 @@ test("renderer loss detaches paused views without terminating the PTY", async ()
   await expect(invoke("attach", [foreign])).rejects.toThrow("Unknown or foreign");
 });
 
-test("window shutdown disposes sessions without accessing the destroyed window", () => {
-  create();
+test("window shutdown disposes sessions without accessing the destroyed window", async () => {
+  await create();
   vi.spyOn(window, "webContents", "get").mockImplementation(() => {
     throw new Error("Object has been destroyed");
   });
@@ -406,6 +459,25 @@ test("main answers protocol queries through attachment transitions and ignores r
   expect(pty().write).not.toHaveBeenCalled();
 });
 
+test("detaching cannot bypass parser backpressure, and a drained parser cannot bypass view backpressure", async () => {
+  const id = manager.create(spec);
+  await manager.attach(id, vi.fn());
+  output("x".repeat(270000));
+  manager.detach(id);
+  expect(pty().pause).toHaveBeenCalledOnce();
+  expect(pty().resume).not.toHaveBeenCalled();
+  await manager.tail(id, 1);
+  expect(pty().resume).toHaveBeenCalledOnce();
+  const send = vi.fn();
+  await manager.attach(id, send);
+  output("y".repeat(270000));
+  await manager.tail(id, 1);
+  expect(pty().pause).toHaveBeenCalledTimes(2);
+  expect(pty().resume).toHaveBeenCalledOnce();
+  manager.detach(id);
+  expect(pty().resume).toHaveBeenCalledTimes(2);
+});
+
 test("tracks killed PTYs until their exit callbacks and bounds stalled shutdown", async () => {
   vi.useFakeTimers();
   try {
@@ -429,8 +501,8 @@ test("tracks killed PTYs until their exit callbacks and bounds stalled shutdown"
 });
 
 test("quit waits for native exits, including previously removed terminals, and deduplicates requests", async () => {
-  const id = create();
-  create();
+  const id = await create();
+  await create();
   for (const terminal of ptys) terminal.kill.mockImplementation(() => {});
   await invoke("kill", [id]);
   const willQuit = mock.app.on.mock.calls.find(([name]) => name === "will-quit")?.[1];
@@ -457,7 +529,7 @@ test("failed quit reports the timeout and allows a later request to retry", asyn
   vi.useFakeTimers();
   const diagnostic = vi.spyOn(console, "error").mockImplementation(() => {});
   try {
-    create();
+    await create();
     pty().kill.mockImplementation(() => {});
     const willQuit = mock.app.on.mock.calls.find(([name]) => name === "will-quit")?.[1];
     if (!willQuit) throw new Error("Missing quit barrier");
@@ -617,7 +689,7 @@ test("confirmed shutdown can retry when a removed PTY's exit times out", async (
 });
 
 test("shutdown revokes terminal IPC capabilities before late renderer events", async () => {
-  const id = create();
+  const id = await create();
   expect(terminalControl.runningCount).toBe(1);
   await invoke("attach", [id]);
   await terminalControl.shutdown();

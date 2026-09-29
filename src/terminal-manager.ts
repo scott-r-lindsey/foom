@@ -14,11 +14,14 @@ type Session = {
   view?: View;
   pending: number;
   paused: boolean;
+  parserPending: number;
+  parserBlocked: boolean;
+  viewBlocked: boolean;
   exited: boolean;
   generation: number;
 };
 
-/** Main-owned state; no renderer is needed to consume PTY output. */
+/** Utility-process state; no renderer is needed to consume PTY output. */
 export class TerminalManager {
   private readonly sessions = new Map<string, Session>();
   private shuttingDown = false;
@@ -26,7 +29,7 @@ export class TerminalManager {
 
   constructor(private readonly onExit: (id: string, code: number) => void) {}
 
-  create(spec: TerminalSpec): string {
+  create(spec: TerminalSpec, id: string = randomUUID()): string {
     if (this.shuttingDown) throw new Error("Terminals are shutting down");
     const env: Record<string, string> = {};
     for (const [key, value] of Object.entries(process.env)) {
@@ -55,7 +58,6 @@ export class TerminalManager {
     });
     const serialize = new SerializeAddon();
     screen.loadAddon(serialize);
-    const id = randomUUID();
     const session: Session = {
       pty,
       screen,
@@ -63,18 +65,28 @@ export class TerminalManager {
       subscriptions: [],
       pending: 0,
       paused: false,
+      parserPending: 0,
+      parserBlocked: false,
+      viewBlocked: false,
       exited: false,
       generation: 0,
     };
     this.sessions.set(id, session);
     session.subscriptions = [
-      // Main is the response owner, whether or not a renderer is attached.
+      // The host is the response owner, whether or not a renderer is attached.
       screen.onData((data) => {
         if (!session.exited) pty.write(data);
       }),
       pty.onData((data) => {
+        session.parserPending += data.length;
+        if (session.parserPending > 262144) session.parserBlocked = true;
+        this.updateFlow(session);
         screen.write(data, () => {
-          if (this.sessions.has(id)) this.deliver(session, data);
+          if (!this.sessions.has(id)) return;
+          session.parserPending -= data.length;
+          if (session.parserPending < 65536) session.parserBlocked = false;
+          this.deliver(session, data);
+          this.updateFlow(session);
         });
       }),
     ];
@@ -107,11 +119,17 @@ export class TerminalManager {
   private deliver(session: Session, data: string): void {
     if (!session.view) return;
     session.pending += data.length;
-    if (session.pending > 262144 && !session.paused && !session.exited && !this.shuttingDown) {
-      session.paused = true;
-      session.pty.pause();
-    }
+    if (session.pending > 262144) session.viewBlocked = true;
+    this.updateFlow(session);
     session.view.send(session.view.token, data);
+  }
+
+  private updateFlow(session: Session): void {
+    const blocked = !this.shuttingDown && (session.parserBlocked || session.viewBlocked);
+    if (session.exited || session.paused === blocked) return;
+    session.paused = blocked;
+    if (blocked) session.pty.pause();
+    else session.pty.resume();
   }
 
   write(id: string, data: string): void {
@@ -146,8 +164,8 @@ export class TerminalManager {
     delete session.view;
     session.generation++;
     session.pending = 0;
-    if (session.paused && !session.exited) session.pty.resume();
-    session.paused = false;
+    session.viewBlocked = false;
+    this.updateFlow(session);
   }
 
   acknowledge(id: string, token: string, count: number): void {
@@ -160,10 +178,8 @@ export class TerminalManager {
     )
       return;
     session.pending -= count;
-    if (session.paused && session.pending < 65536) {
-      session.paused = false;
-      if (!session.exited) session.pty.resume();
-    }
+    if (session.pending < 65536) session.viewBlocked = false;
+    this.updateFlow(session);
   }
 
   async tail(id: string, lines: number): Promise<string[]> {

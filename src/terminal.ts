@@ -1,12 +1,12 @@
 import { app, ipcMain } from "electron";
 import type { BrowserWindow, IpcMainEvent, IpcMainInvokeEvent, Event } from "electron";
 import { homedir } from "node:os";
-import { TerminalManager } from "./terminal-manager";
+import { TerminalHostClient } from "./terminal-host-client";
 
 /** The app window owns capabilities for multiple independent main-owned sessions. */
 export function attachTerminal(
   window: BrowserWindow,
-): Pick<TerminalManager, "runningCount" | "shutdown"> {
+): Pick<TerminalHostClient, "runningCount" | "shutdown"> {
   // Capture before BrowserWindow is destroyed; its getter throws during closed.
   const contents = window.webContents;
   const owned = new Set<string>();
@@ -15,8 +15,8 @@ export function attachTerminal(
     event.senderFrame !== null &&
     event.senderFrame === event.sender.mainFrame &&
     event.senderFrame.url === "app://bundle/index.html";
-  const manager = new TerminalManager((id, code) => {
-    contents.send("terminal:exit", id, code);
+  const manager = new TerminalHostClient((id, code) => {
+    if (!contents.isDestroyed()) contents.send("terminal:exit", id, code);
   });
   const validId = (id: unknown): id is string => typeof id === "string" && owned.has(id);
   const size = (cols: unknown, rows: unknown): boolean =>
@@ -29,14 +29,14 @@ export function attachTerminal(
     rows >= 2 &&
     rows <= 300;
   const handlers = new Map<string, (event: IpcMainInvokeEvent, ...args: unknown[]) => unknown>();
-  handlers.set("terminal:create", (event, cols, rows) => {
+  handlers.set("terminal:create", async (event, cols, rows) => {
     if (!trusted(event)) throw new Error("Untrusted IPC sender");
     if (!size(cols, rows) || typeof cols !== "number" || typeof rows !== "number")
       throw new Error("Invalid terminal size");
     const command =
       process.platform === "win32" ? "powershell.exe" : process.env["SHELL"] || "/bin/bash";
     const cwd = app.isPackaged ? homedir() : process.cwd();
-    const id = manager.create({
+    const id = await manager.create({
       command,
       args: process.platform === "win32" ? ["-NoLogo"] : ["-l"],
       cwd,
@@ -56,7 +56,7 @@ export function attachTerminal(
         });
       else if (operation === "detach") manager.detach(id);
       else {
-        manager.kill(id);
+        await manager.kill(id);
         owned.delete(id);
       }
     });
@@ -97,7 +97,7 @@ export function attachTerminal(
     event.preventDefault();
     if (quitting) return;
     quitting = true;
-    manager.dispose();
+    void manager.dispose();
     void manager
       .waitForExit()
       .then(() => {
@@ -113,7 +113,7 @@ export function attachTerminal(
   window.once("closed", () => {
     contents.removeListener("render-process-gone", detachViews);
     contents.removeListener("did-start-navigation", navigating);
-    manager.dispose();
+    void manager.dispose();
     void manager
       .waitForExit()
       .then(() => {
