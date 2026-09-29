@@ -150,7 +150,16 @@ export class TerminalManager {
     return new Promise((resolve) => {
       session.screen.write("", () => {
         const buffer = session.screen.buffer.active;
-        const end = buffer.baseY + buffer.cursorY + 1;
+        // Cursor movement does not erase content. Trim only the unused blank suffix.
+        let end = buffer.length;
+        while (
+          end > 0 &&
+          !buffer
+            .getLine(end - 1)
+            ?.translateToString(true)
+            .trim()
+        )
+          end--;
         const result: string[] = [];
         for (let index = Math.max(0, end - lines); index < end; index++) {
           result.push(buffer.getLine(index)?.translateToString(true) ?? "");
