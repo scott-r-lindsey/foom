@@ -36,7 +36,13 @@ export class TerminalManager {
       cols: spec.cols,
       rows: spec.rows,
       cwd: spec.cwd,
-      env: { ...env, TERM: "xterm-256color", COLORTERM: "truecolor", TERM_PROGRAM: "Foom" },
+      env: {
+        ...env,
+        ...spec.env,
+        TERM: "xterm-256color",
+        COLORTERM: "truecolor",
+        TERM_PROGRAM: "Foom",
+      },
     });
     const screen = new Terminal({
       cols: spec.cols,

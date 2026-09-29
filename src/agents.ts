@@ -1,0 +1,209 @@
+import { execFile } from "node:child_process";
+import { constants } from "node:fs";
+import { access, stat } from "node:fs/promises";
+import { homedir, userInfo } from "node:os";
+import { delimiter, isAbsolute, join } from "node:path";
+import { promisify } from "node:util";
+import type {
+  AgentHooks,
+  AgentId,
+  AgentInstallation,
+  AgentLaunch,
+  AgentScan,
+} from "./shared/agents";
+import type { TerminalManager } from "./terminal-manager";
+import type { WorktreeService } from "./worktrees";
+
+const execute = promisify(execFile);
+const ids: readonly AgentId[] = ["claude", "codex", "agy"];
+const probeOptions = { encoding: "utf8", timeout: 5000, maxBuffer: 256 * 1024 } as const;
+
+/** Fixed shell program only: no executable paths, arguments, or agent output interpolated. */
+export async function loginPath(): Promise<{ path: string; warning: string | null }> {
+  const inherited = process.env["PATH"] ?? "";
+  if (process.platform === "win32") return { path: inherited, warning: null };
+  try {
+    const shell = userInfo().shell;
+    if (!shell || !isAbsolute(shell)) throw new Error("No login shell");
+    const { stdout } = await execute(
+      shell,
+      ["-ilc", 'printf "\\000FOOM_PATH\\000%s\\000" "$PATH"'],
+      {
+        ...probeOptions,
+        cwd: homedir(),
+      },
+    );
+    const path = stdout.split("\0FOOM_PATH\0")[1]?.split("\0")[0];
+    if (!path) throw new Error("Empty login PATH");
+    return { path, warning: null };
+  } catch {
+    return { path: inherited, warning: "Login shell PATH unavailable; using the inherited PATH." };
+  }
+}
+
+async function findExecutable(id: AgentId, path: string): Promise<string | null> {
+  const suffixes = process.platform === "win32" ? [".exe", ".com", ""] : [""];
+  for (const directory of path.split(delimiter)) {
+    // Never discover an executable in an implicit current/worktree directory.
+    if (!isAbsolute(directory)) continue;
+    for (const suffix of suffixes) {
+      const candidate = join(directory, id + suffix);
+      try {
+        await access(candidate, constants.X_OK);
+        if ((await stat(candidate)).isFile()) return candidate;
+      } catch {
+        // Keep looking past missing or non-executable PATH entries.
+      }
+    }
+  }
+  return null;
+}
+
+async function detect(id: AgentId, path: string): Promise<AgentInstallation> {
+  const executable = await findExecutable(id, path);
+  if (!executable)
+    return { id, path: null, version: null, hooks: false, reason: "Not found on PATH." };
+  let version: string | null = null;
+  try {
+    const options = { ...probeOptions, cwd: homedir(), env: { ...process.env, PATH: path } };
+    version = (await execute(executable, ["--version"], options)).stdout.trim();
+    if (!version) throw new Error("Empty version");
+    const help = (await execute(executable, ["--help"], options)).stdout;
+    const hooks =
+      (id === "claude" && version === "2.1.284 (Claude Code)" && /--settings\b/u.test(help)) ||
+      (id === "codex" && version === "codex-cli 0.155.1" && /(?:^|\s)-c(?:[ ,]|$)/mu.test(help));
+    return {
+      id,
+      path: executable,
+      version,
+      hooks,
+      reason: hooks
+        ? "Per-launch hooks supported."
+        : "Unverified hook support; using output evaluation.",
+    };
+  } catch {
+    return {
+      id,
+      path: executable,
+      version,
+      hooks: false,
+      reason: "Version/help probe failed; using output evaluation.",
+    };
+  }
+}
+
+/** Main-only service, like WorktreeService. No agent config files are written. */
+export class AgentService {
+  private scanResult: AgentScan | undefined;
+  private hooksEnabled = true;
+  private closed = false;
+  private readonly occupied = new Set<string>();
+  private readonly launched = new Map<string, string>();
+  private readonly bindings = new Map<string, AgentHooks>();
+
+  constructor(
+    private readonly worktrees: Pick<WorktreeService, "listWorktrees">,
+    private readonly terminals: Pick<TerminalManager, "create">,
+    private readonly prepareHooks?: (agent: AgentId) => Promise<AgentHooks>,
+  ) {}
+
+  setHooksEnabled(enabled: boolean): void {
+    this.hooksEnabled = enabled;
+  }
+
+  async scan(): Promise<AgentScan> {
+    const resolved = await loginPath();
+    const agents = await Promise.all(ids.map((id) => detect(id, resolved.path)));
+    const result = Object.freeze({
+      ...resolved,
+      agents: Object.freeze(agents.map((agent) => Object.freeze(agent))),
+    });
+    this.scanResult = result;
+    return result;
+  }
+
+  async launch(request: AgentLaunch): Promise<{ id: string; attention: "hooks" | "evaluator" }> {
+    if (this.closed) throw new Error("Agent service is disposed");
+    if (!ids.includes(request.agent)) throw new Error("Unknown agent");
+    if (
+      ![request.cols, request.rows].every(
+        (value) => Number.isInteger(value) && value >= 2 && value <= 500,
+      )
+    )
+      throw new Error("Invalid terminal dimensions");
+    if (!isAbsolute(request.worktree) || request.worktree.includes("\0"))
+      throw new Error("Invalid worktree path");
+    if (this.occupied.has(request.worktree))
+      throw new Error("An agent is already running in this worktree");
+    this.occupied.add(request.worktree);
+    try {
+      return await this.start(request);
+    } catch (error) {
+      this.occupied.delete(request.worktree);
+      throw error;
+    }
+  }
+
+  private async start(
+    request: AgentLaunch,
+  ): Promise<{ id: string; attention: "hooks" | "evaluator" }> {
+    const trees = await this.worktrees.listWorktrees(request.repository);
+    if (
+      !trees.some(
+        (tree) => tree.path === request.worktree && tree.managed && !tree.bare && !tree.prunable,
+      )
+    )
+      throw new Error("Worktree is not managed by Foom");
+    const scan = this.scanResult ?? (await this.scan());
+    const agent = scan.agents.find((entry) => entry.id === request.agent);
+    if (!agent?.path)
+      throw new Error(`${request.agent} is not installed. Rescan after installing it.`);
+    const attach = this.hooksEnabled && agent.hooks && this.prepareHooks;
+    if (attach && agent.id === "codex" && !request.acknowledgeCodexNotifierReplacement)
+      throw new Error(
+        "Foom replaces your Codex notifier for this launch. Acknowledge this or disable hooks.",
+      );
+    const binding = attach ? await attach(agent.id) : undefined;
+    try {
+      if (this.closed) throw new Error("Agent service is disposed");
+      const args: string[] = [];
+      if (binding) {
+        if (agent.id === "claude") {
+          const hook = [{ hooks: [{ type: "command", command: binding.claudeCommand }] }];
+          args.push("--settings", JSON.stringify({ hooks: { Stop: hook, Notification: hook } }));
+        } else {
+          args.push("-c", `notify=${JSON.stringify(binding.codexCommand)}`);
+        }
+      }
+      const id = this.terminals.create({
+        command: agent.path,
+        args,
+        cwd: request.worktree,
+        cols: request.cols,
+        rows: request.rows,
+        env: { ...binding?.env, PATH: scan.path },
+      });
+      this.launched.set(id, request.worktree);
+      if (binding) this.bindings.set(id, binding);
+      return { id, attention: binding ? "hooks" : "evaluator" };
+    } catch (error) {
+      binding?.dispose();
+      throw error;
+    }
+  }
+
+  /** Call on terminal exit/kill. Revokes this launch's receiver credentials. */
+  release(id: string): void {
+    const worktree = this.launched.get(id);
+    if (worktree) this.occupied.delete(worktree);
+    this.launched.delete(id);
+    const binding = this.bindings.get(id);
+    this.bindings.delete(id);
+    binding?.dispose();
+  }
+
+  dispose(): void {
+    this.closed = true;
+    for (const id of this.launched.keys()) this.release(id);
+  }
+}

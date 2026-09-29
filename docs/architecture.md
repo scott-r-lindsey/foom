@@ -20,7 +20,7 @@ This describes the target design. Where the code differs today, the section says
 - Throttling (pause at a high-water mark, resume after the renderer confirms it drew the output) applies only while a view is attached.
 - The activity meter and last-lines buffer read from the same stream. Terminal tails use the active screen and its scrollback, including populated rows below the cursor. They omit trailing whitespace-only rows before applying the requested line limit, preserve interior blank rows, and return an empty list for a blank buffer.
 
-Target launch interface sketch (worktree and agent launch support is future roadmap work):
+Target launch interface sketch (the current main-only `AgentService` uses `TerminalSpec.cwd` and optional environment additions):
 
 ```ts
 type TerminalId = string;
@@ -73,6 +73,16 @@ Git runs in main through `execFile` with argument arrays, never through a shell.
 **Today:** `src/worktrees.ts` provides the main-process `WorktreeService`, independently of the UI and IPC. Add a repository before listing or modifying its worktrees. It canonicalizes repository paths, lists NUL-delimited Git records, checks out existing branches or creates new ones, and delegates dirty/locked removal checks to Git. Force allows dirty removal but does not override ownership or locks. Adjacent trees use `<repo>-<branch>` (branch slashes create subdirectories). Creation checks resolved parent directories against the allowed root and rejects existing destinations. Ownership records the device, inode, and birth time of the worktree directory, its `.git` file, and its resolved Git metadata directory. Listing and removal revalidate that identity; missing or replaced entries permanently invalidate ownership, including for forced removal. Removal rejects redirected paths. These checks do not provide isolation against another local process concurrently replacing filesystem entries.
 
 Repository registration and ownership are held in the service instance. A fresh instance can list prior trees but cannot remove them; persisted application state and UI/IPC integration remain future work. Worktrees are never adopted just because they appear under the configured root. Repositories sharing a basename share a destination namespace; a collision fails without overwriting the existing directory.
+
+## Agent discovery and launch
+
+**Today:** `src/agents.ts` provides a main-only `AgentService`, following the worktree service's integration boundary. `scan()` resolves PATH with the account's login shell (`-ilc`, a fixed printf program with NUL delimiters), then probes each resolved executable with bounded `--version` and `--help` calls. It retains full version strings. Shell failures report a warning and use inherited PATH; Windows uses inherited PATH and native executables. Relative and empty PATH components are ignored. Windows batch/PowerShell wrappers are not executed through a command shell; installations exposing only those wrappers currently need a native executable on PATH.
+
+Only the exact researched Claude Code and Codex version strings plus their required help flags enable hooks. Unknown versions, failed probes, Antigravity, disabled hooks, and an unavailable receiver use output evaluation. Calling `scan()` again replaces discovery results. Launch uses a resolved executable and argument array through `TerminalManager`, with the resolved PATH added to its scrubbed environment. The selected worktree must still be owned by `WorktreeService`; one agent launch at a time may occupy each worktree.
+
+`setHooksEnabled(false)` disables hook attachment for subsequent launches. The #13 receiver supplies a fresh `AgentHooks` binding per launch, with a Claude stdin adapter command, a Codex argv adapter command, session credentials, and a cleanup callback. Claude settings are inline JSON in `--settings`; Codex receives `-c notify=[...]`. No settings files are created in the user's HOME or workspace. Codex attachment requires `acknowledgeCodexNotifierReplacement` after the UI discloses that the user's notifier is replaced for this invocation. `release(terminalId)` must be called on exit/kill to revoke credentials and free the worktree; `dispose()` releases all bindings during shutdown after terminals are stopped. Spawn failures clean up immediately.
+
+The receiver (#13), persisted settings/setup (#17), board/IPC integration (#9), and actual output evaluation (#14/#15) remain separate roadmap work. Until integrated, the existing renderer continues launching its shell, and `attention: "evaluator"` describes the required fallback rather than an already-running evaluator.
 
 ## Agent signals
 
