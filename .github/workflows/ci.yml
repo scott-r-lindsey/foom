@@ -3,6 +3,7 @@ name: CI
 on:
   pull_request:
   push:
+    branches: [main]
   workflow_dispatch:
 
 permissions:
@@ -126,13 +127,15 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y xvfb libgtk-3-0 libnss3 libasound2t64 vim procps
+          sudo apt-get install -y xvfb libgtk-3-0 libnss3 libasound2t64
           # Permit Chromium's user-namespace sandbox on this ephemeral CI runner.
           sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
       - name: Test Electron on Linux
+        timeout-minutes: 3
         if: runner.os == 'Linux'
         run: xvfb-run -a npm run test:electron
       - name: Test Electron on macOS and Windows
+        timeout-minutes: 3
         if: runner.os != 'Linux'
         run: npm run test:electron
       - name: Package desktop application

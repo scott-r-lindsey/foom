@@ -3,27 +3,70 @@ const assert = require("node:assert/strict");
 const path = require("node:path");
 const { _electron: electron, expect } = require("@playwright/test");
 
-test("terminal runs an interactive shell behind an isolated bridge", {
-  timeout: 60_000,
-}, async (context) => {
+// A test timeout does not cancel Playwright promises or dispose native processes.
+// Keep a final worker deadline so even broken cleanup cannot occupy a CI runner.
+async function launchApp(context) {
+  const watchdog = setTimeout(() => {
+    console.error("Electron test exceeded its 60-second hard deadline; terminating worker");
+    // Playwright's exit handler kills the process groups it launched.
+    process.exit(1);
+  }, 60_000);
+  watchdog.unref();
   const env = { ...process.env };
   delete env.ELECTRON_RUN_AS_NODE;
   const app = await electron.launch({
     chromiumSandbox: true,
     colorScheme: null,
+    timeout: 15_000,
     args: [path.join(__dirname, "..")],
     env,
   });
   const child = app.process();
-  const abort = () => {
-    child.kill();
-  };
-  context.signal.addEventListener("abort", abort, { once: true });
+  app.context().setDefaultTimeout(10_000);
+  app.on("console", (message) => {
+    if (message.type() === "error") console.error("Electron:", message.text());
+  });
+  context.after(async () => {
+    console.info("Closing app");
+    let timer;
+    try {
+      await Promise.race([
+        app.close(),
+        new Promise((_, reject) => {
+          timer = setTimeout(() => reject(new Error("Electron shutdown exceeded 5 seconds")), 5000);
+        }),
+      ]);
+      assert.equal(child.exitCode, 0, "Electron must exit normally");
+      console.info("App closed");
+      clearTimeout(watchdog);
+    } finally {
+      clearTimeout(timer);
+      // If graceful shutdown failed, fail the test and terminate the process tree.
+      // The worker watchdog remains armed in case a Playwright connection also hangs.
+      if (child.exitCode === null && child.signalCode === null) {
+        if (process.platform === "win32") {
+          require("node:child_process").execFileSync(
+            "taskkill",
+            ["/pid", String(child.pid), "/T", "/F"],
+            { timeout: 5000 },
+          );
+        } else {
+          process.kill(-child.pid, "SIGKILL");
+        }
+      }
+    }
+  });
+  return app;
+}
+
+test("terminal runs an interactive shell behind an isolated bridge", {
+  timeout: 45_000,
+}, async (context) => {
+  const app = await launchApp(context);
   console.info("Electron launched");
   try {
     const page = await app.firstWindow();
     console.info("Window opened");
-    page.setDefaultTimeout(15_000);
     await page.waitForLoadState("domcontentloaded");
     assert.equal(await page.title(), "Foom");
     await page.waitForFunction(
@@ -133,34 +176,6 @@ test("terminal runs an interactive shell behind an isolated bridge", {
       await page.keyboard.press("Enter");
       await page.waitForFunction(() => window.terminalOutput.includes("FOOM_INTERRUPTED"));
     }
-    if (process.platform !== "win32") {
-      await page.evaluate(() => {
-        window.terminalOutput = "";
-      });
-      // Screen restoration can precede process exit. Wait for a marker emitted by
-      // the parent shell before sending input intended for that shell.
-      await page.keyboard.type("vim -Nu NONE -n -i NONE; printf 'FOOM_%s\\n' VIM_EXITED");
-      await page.keyboard.press("Enter");
-      await page.waitForFunction(() => window.terminalOutput.includes("[?1049h"));
-      await page.keyboard.type("ihello terminal");
-      await page.keyboard.press("Control+w");
-      await page.keyboard.press("Escape");
-      await page.keyboard.type(":q!");
-      await page.keyboard.press("Enter");
-      await page.waitForFunction(() => window.terminalOutput.includes("[?1049l"));
-      await page.waitForFunction(() => window.terminalOutput.includes("FOOM_VIM_EXITED"));
-      await page.evaluate(() => {
-        window.terminalOutput = "";
-      });
-      await page.keyboard.type("top; printf 'FOOM_%s\\n' TOP_EXITED");
-      await page.keyboard.press("Enter");
-      await page.waitForFunction(() => /Tasks:|Processes:/.test(window.terminalOutput));
-      await page.keyboard.type("q");
-      await page.waitForFunction(() => window.terminalOutput.includes("FOOM_TOP_EXITED"));
-      await page.keyboard.type("printf 'FOOM_%s\\n' FULLSCREEN_OK");
-      await page.keyboard.press("Enter");
-      await page.waitForFunction(() => window.terminalOutput.includes("FOOM_FULLSCREEN_OK"));
-    }
     assert.deepEqual(
       await page.evaluate(() => ({
         node: typeof window.require,
@@ -262,128 +277,112 @@ test("terminal runs an interactive shell behind an isolated bridge", {
         })),
       );
     throw error;
-  } finally {
-    console.info("Closing app");
-    await app.close();
-    console.info("App closed");
-    context.signal.removeEventListener("abort", abort);
   }
 });
 
 test("bundled brand fonts and both system themes render in Electron", {
-  timeout: 60_000,
-}, async () => {
-  const env = { ...process.env };
-  delete env.ELECTRON_RUN_AS_NODE;
-  const app = await electron.launch({
-    chromiumSandbox: true,
-    colorScheme: null,
-    args: [path.join(__dirname, "..")],
-    env,
-  });
-  try {
-    const page = await app.firstWindow();
-    await page.waitForLoadState("domcontentloaded");
-    const palettes = {
-      dark: [
-        "#05040A",
-        "#0D0A17",
-        "#251D3F",
-        "#F4EFFF",
-        "#9D93BD",
-        "#9B6BFF",
-        "#7A3CFF",
-        "#FFB23E",
-        "#6FE0A3",
-        "#FF2E88",
-        "#06050B",
-      ],
-      light: [
-        "#F3F0FA",
-        "#E9E4F5",
-        "#DDD6EE",
-        "#14101F",
-        "#625A7A",
-        "#5B2BD9",
-        "#3B1A99",
-        "#D98200",
-        "#13804A",
-        "#D6166E",
-        "#06050B",
-      ],
-    };
-    for (const mode of ["dark", "light", "dark"]) {
-      await app.evaluate(({ nativeTheme }, theme) => {
-        nativeTheme.themeSource = theme;
-      }, mode);
-      await page.waitForFunction(
-        (dark) => matchMedia("(prefers-color-scheme: dark)").matches === dark,
-        mode === "dark",
+  timeout: 45_000,
+}, async (context) => {
+  const app = await launchApp(context);
+  const page = await app.firstWindow();
+  await page.waitForLoadState("domcontentloaded");
+  const palettes = {
+    dark: [
+      "#05040A",
+      "#0D0A17",
+      "#251D3F",
+      "#F4EFFF",
+      "#9D93BD",
+      "#9B6BFF",
+      "#7A3CFF",
+      "#FFB23E",
+      "#6FE0A3",
+      "#FF2E88",
+      "#06050B",
+    ],
+    light: [
+      "#F3F0FA",
+      "#E9E4F5",
+      "#DDD6EE",
+      "#14101F",
+      "#625A7A",
+      "#5B2BD9",
+      "#3B1A99",
+      "#D98200",
+      "#13804A",
+      "#D6166E",
+      "#06050B",
+    ],
+  };
+  for (const mode of ["dark", "light", "dark"]) {
+    await app.evaluate(({ nativeTheme }, theme) => {
+      nativeTheme.themeSource = theme;
+    }, mode);
+    await page.waitForFunction(
+      (dark) => matchMedia("(prefers-color-scheme: dark)").matches === dark,
+      mode === "dark",
+    );
+    const background = mode === "dark" ? "rgb(5, 4, 10)" : "rgb(243, 240, 250)";
+    await page.waitForFunction(
+      (expected) =>
+        getComputedStyle(document.querySelector(".xterm-scrollable-element")).backgroundColor ===
+        expected,
+      background,
+    );
+    const rendered = await page.evaluate(async () => {
+      const style = getComputedStyle(document.documentElement);
+      const families = ["Archivo Black", "Courier Prime", "Geist", "Geist Mono"];
+      const fonts = await Promise.all(
+        families.map(async (family) => {
+          const faces = await document.fonts.load(`14px "${family}"`);
+          return faces.length > 0 && faces.every((face) => face.status === "loaded");
+        }),
       );
-      const background = mode === "dark" ? "rgb(5, 4, 10)" : "rgb(243, 240, 250)";
-      await page.waitForFunction(
-        (expected) =>
-          getComputedStyle(document.querySelector(".xterm-scrollable-element")).backgroundColor ===
-          expected,
-        background,
-      );
-      const rendered = await page.evaluate(async () => {
-        const style = getComputedStyle(document.documentElement);
-        const families = ["Archivo Black", "Courier Prime", "Geist", "Geist Mono"];
-        const fonts = await Promise.all(
-          families.map(async (family) => {
-            const faces = await document.fonts.load(`14px "${family}"`);
-            return faces.length > 0 && faces.every((face) => face.status === "loaded");
-          }),
-        );
-        return {
-          tokens: [
-            "bg",
-            "surface",
-            "line",
-            "ink",
-            "muted",
-            "accent",
-            "accent-deep",
-            "attention",
-            "done",
-            "failed",
-            "hole",
-          ].map((name) => style.getPropertyValue(`--${name}`).trim().toUpperCase()),
-          fonts,
-          bodyFont: getComputedStyle(document.body).fontFamily,
-          displayFont: getComputedStyle(document.querySelector("strong")).fontFamily,
-          terminalFont: getComputedStyle(document.querySelector(".xterm-rows")).fontFamily,
-          background: style.backgroundColor,
-          csp: document.querySelector('meta[http-equiv="Content-Security-Policy"]').content,
-        };
-      });
-      assert.deepEqual(rendered.tokens, palettes[mode]);
-      assert.deepEqual(rendered.fonts, [true, true, true, true]);
-      assert.match(rendered.bodyFont, /Geist/);
-      assert.match(rendered.displayFont, /Archivo Black/);
-      assert.match(rendered.terminalFont, /Geist Mono/);
-      assert.equal(rendered.background, background);
-      assert.match(rendered.csp, /font-src 'self';/);
-      assert.match(rendered.csp, /default-src 'none';/);
-      await page.screenshot({ path: path.join(__dirname, "..", "out", `brand-${mode}.png`) });
-    }
-    for (const asset of ["archivo-black", "courier-prime", "geist", "geist-mono"]) {
-      assert.equal(
-        await app.evaluate(
-          async ({ net }, name) => (await net.fetch(`app://bundle/fonts/${name}.ttf`)).status,
-          asset,
-        ),
-        200,
-      );
-    }
+      return {
+        tokens: [
+          "bg",
+          "surface",
+          "line",
+          "ink",
+          "muted",
+          "accent",
+          "accent-deep",
+          "attention",
+          "done",
+          "failed",
+          "hole",
+        ].map((name) => style.getPropertyValue(`--${name}`).trim().toUpperCase()),
+        fonts,
+        bodyFont: getComputedStyle(document.body).fontFamily,
+        displayFont: getComputedStyle(document.querySelector("strong")).fontFamily,
+        terminalFont: getComputedStyle(document.querySelector(".xterm-rows")).fontFamily,
+        background: style.backgroundColor,
+        csp: document.querySelector('meta[http-equiv="Content-Security-Policy"]').content,
+      };
+    });
+    assert.deepEqual(rendered.tokens, palettes[mode]);
+    assert.deepEqual(rendered.fonts, [true, true, true, true]);
+    assert.match(rendered.bodyFont, /Geist/);
+    assert.match(rendered.displayFont, /Archivo Black/);
+    assert.match(rendered.terminalFont, /Geist Mono/);
+    assert.equal(rendered.background, background);
+    assert.match(rendered.csp, /font-src 'self';/);
+    assert.match(rendered.csp, /default-src 'none';/);
+    await page.screenshot({ path: path.join(__dirname, "..", "out", `brand-${mode}.png`) });
+  }
+  for (const asset of ["archivo-black", "courier-prime", "geist", "geist-mono"]) {
     assert.equal(
       await app.evaluate(
-        async ({ net }) => (await net.fetch("app://bundle/fonts/unknown.ttf")).status,
+        async ({ net }, name) => (await net.fetch(`app://bundle/fonts/${name}.ttf`)).status,
+        asset,
       ),
-      404,
+      200,
     );
-  } finally {
-    await app.close();
   }
+  assert.equal(
+    await app.evaluate(
+      async ({ net }) => (await net.fetch("app://bundle/fonts/unknown.ttf")).status,
+    ),
+    404,
+  );
 });

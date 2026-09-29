@@ -54,7 +54,7 @@ Biome owns formatting, and ESLint owns lint rules. Strict TypeScript includes ch
 
 `tests/` contains TypeScript unit tests for the main process, preload, renderer, and coverage-reporting tools. Tests exercise IPC trust boundaries, asset restrictions, permissions, startup failures, UI pending/error states, and bridge response validation. Electron is mocked in unit tests; jsdom provides the UI environment.
 
-`test/app.test.js` is a separate real Electron smoke test for real shell I/O, exit/restart, the isolated bridge, sandbox settings, asset restrictions, and popup blocking. On Linux and Windows it verifies mouse selection and Ctrl+Shift+C / Ctrl+Shift+V against the native clipboard and a real shell. On Linux/macOS it also checks TTY support, Ctrl+C, vim, and top; these tools must be installed. On Linux, use a graphical session or `xvfb-run -a npm run test:electron` with Electron's system libraries installed. Keep Chromium's sandbox enabled.
+`test/app.test.js` is a separate real Electron smoke test for real shell I/O, exit/restart, the isolated bridge, sandbox settings, asset restrictions, and popup blocking. On Linux and Windows it verifies mouse selection and Ctrl+Shift+C / Ctrl+Shift+V against the native clipboard and a real shell. On Linux/macOS it also checks TTY support and Ctrl+C. Detached output, snapshot restoration, and clean application shutdown are required on every platform. Alternate-screen behavior uses deterministic escape sequences in unit tests; Vim and top remain optional manual smoke tests. A second Electron test checks bundled fonts and system themes. Both Electron tests have bounded shutdown cleanup and a hard worker deadline. On Linux, use a graphical session or `xvfb-run -a npm run test:electron` with Electron's system libraries installed. Keep Chromium's sandbox enabled.
 
 Coverage includes every executable TypeScript file under `src/`, including files no test imports. Only `.d.ts` declarations are excluded. Each file must reach **90% lines, statements, and functions, and 85% branches**. Open `coverage/index.html` after running coverage. This is unit-test coverage; it does not imply the real Electron process was instrumented.
 
@@ -67,6 +67,8 @@ PR checks additionally require **90% changed executable line coverage**, and fai
 1. Independent formatting, lint, typecheck, full dependency audit, and unit-coverage jobs.
 2. Electron launch tests and Forge ZIP packaging on Ubuntu, Windows, and macOS, after the fast checks pass.
 3. A stable **Quality gate** status that requires all jobs to succeed.
+
+CI runs for pull requests and pushes to `main`, avoiding duplicate branch-push runs for PRs. Electron test steps have a three-minute outer deadline; packaging keeps its separate job budget.
 
 CI uploads HTML/LCOV coverage and unsigned platform ZIPs for 14 days. PRs get changed-line annotations and a job summary; same-repository PRs also get one updated coverage comment. Comment permission failures do not bypass the coverage gate. GitHub Actions are pinned to commit SHAs, dependencies use `npm ci`, and Node comes from `.nvmrc`.
 

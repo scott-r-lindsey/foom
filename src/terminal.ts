@@ -5,14 +5,16 @@ import { TerminalManager } from "./terminal-manager";
 
 /** The app window owns capabilities for multiple independent main-owned sessions. */
 export function attachTerminal(window: BrowserWindow): void {
+  // Capture before BrowserWindow is destroyed; its getter throws during closed.
+  const contents = window.webContents;
   const owned = new Set<string>();
   const trusted = (event: IpcMainEvent | IpcMainInvokeEvent) =>
-    event.sender === window.webContents &&
+    event.sender === contents &&
     event.senderFrame !== null &&
     event.senderFrame === event.sender.mainFrame &&
     event.senderFrame.url === "app://bundle/index.html";
   const manager = new TerminalManager((id, code) => {
-    window.webContents.send("terminal:exit", id, code);
+    contents.send("terminal:exit", id, code);
   });
   const validId = (id: unknown): id is string => typeof id === "string" && owned.has(id);
   const size = (cols: unknown, rows: unknown): boolean =>
@@ -48,7 +50,7 @@ export function attachTerminal(window: BrowserWindow): void {
       if (!validId(id)) throw new Error("Unknown or foreign terminal ID");
       if (operation === "attach")
         await manager.attach(id, (token, data) => {
-          window.webContents.send("terminal:data", id, token, data);
+          contents.send("terminal:data", id, token, data);
         });
       else if (operation === "detach") manager.detach(id);
       else {
@@ -82,14 +84,14 @@ export function attachTerminal(window: BrowserWindow): void {
   const navigating = (_event: Event, _url: string, _inPlace: boolean, isMainFrame: boolean) => {
     if (isMainFrame) detachViews();
   };
-  window.webContents.on("render-process-gone", detachViews);
-  window.webContents.on("did-start-navigation", navigating);
+  contents.on("render-process-gone", detachViews);
+  contents.on("did-start-navigation", navigating);
   ipcMain.on("terminal:input", input);
   ipcMain.on("terminal:resize", resize);
   ipcMain.on("terminal:ack", acknowledge);
   window.once("closed", () => {
-    window.webContents.removeListener("render-process-gone", detachViews);
-    window.webContents.removeListener("did-start-navigation", navigating);
+    contents.removeListener("render-process-gone", detachViews);
+    contents.removeListener("did-start-navigation", navigating);
     manager.dispose();
     for (const channel of handlers.keys()) ipcMain.removeHandler(channel);
     ipcMain.removeListener("terminal:input", input);

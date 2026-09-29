@@ -41,7 +41,9 @@ const contents = {
   removeListener: vi.fn(),
 };
 const window = {
-  webContents: contents,
+  get webContents() {
+    return contents;
+  },
   once: vi.fn<(name: string, callback: () => void) => void>(),
 };
 // Minimal platform fixtures exercise identity checks without a display.
@@ -300,4 +302,28 @@ test("renderer loss detaches paused views without terminating the PTY", async ()
   Reflect.apply(navigation, undefined, [{}, "app://bundle/index.html", false, true]);
   const foreign = manager.create(spec);
   await expect(invoke("attach", [foreign])).rejects.toThrow("Unknown or foreign");
+});
+
+test("window shutdown disposes sessions without accessing the destroyed window", () => {
+  create();
+  vi.spyOn(window, "webContents", "get").mockImplementation(() => {
+    throw new Error("Object has been destroyed");
+  });
+  expect(() => window.once.mock.calls[0]?.[1]()).not.toThrow();
+  expect(pty().kill).toHaveBeenCalledOnce();
+  expect(contents.removeListener).toHaveBeenCalledWith("render-process-gone", expect.any(Function));
+  expect(mock.removeHandler).toHaveBeenCalledWith("terminal:create");
+});
+
+test("alternate-screen snapshots restore fullscreen state and preserve the normal screen", async () => {
+  const id = manager.create(spec);
+  output("normal screen");
+  output("\x1b[?1049h\x1b[Hfullscreen marker");
+  expect(await manager.tail(id, 1)).toEqual(["fullscreen marker"]);
+  const data = vi.fn();
+  await manager.attach(id, data);
+  expect(data.mock.calls[0]?.[1]).toContain("\x1b[?1049h");
+  expect(data.mock.calls[0]?.[1]).toContain("fullscreen marker");
+  output("\x1b[?1049l");
+  expect(await manager.tail(id, 1)).toEqual(["normal screen"]);
 });
