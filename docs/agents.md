@@ -112,3 +112,9 @@ Run from an empty scratch directory. The shared synthetic prompt was: `Classify 
 These are observations, not latency guarantees or account billing quotes. Claude reported list-price cost; subscription usage need not be a per-call charge. Defaults, hidden system context, caching, model choice, and account limits affect both cost and latency. Benchmark the user's selected model at setup. Apply a hard timeout, bounded concurrency, and fallback to rules; do not run a model call for every output chunk.
 
 Before implementing detection, repeat real approval/idle/interrupt tests on each supported OS, confirm hook coexistence and disabled-hook policies, and validate evaluator isolation. Keep uncertain events neutral rather than interpreting missing callbacks as success.
+
+## Receiver implementation (#13)
+
+The receiver now accepts `PermissionRequest` as immediate needs-input evidence, alongside delayed `permission_prompt` notifications. The [official hook contract](https://code.claude.com/docs/en/hooks#permissionrequest) says it runs when a tool needs a permission decision; Foom's adapter returns no decision and does not change permissions. This is a documented mapping, not a new end-to-end measurement of real approval timing. Real interactive approval and disabled-hook behavior still need the launch-time probes described above.
+
+See [architecture](architecture.md#agent-signals) for the transport API, lifecycle, limits, and reduced signal contract. Synthetic transport tests execute the native OS adapter against the real listener; they do not call a model or read transcript files.

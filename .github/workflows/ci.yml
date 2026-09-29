@@ -123,6 +123,8 @@ jobs:
           node-version-file: .nvmrc
           cache: npm
       - run: npm ci
+      - name: Test hook transport with native OS tools
+        run: npx vitest run tests/hook-receiver.test.ts tests/hook-adapters.test.ts
       - name: Prepare Linux display and sandbox
         if: runner.os == 'Linux'
         run: |
