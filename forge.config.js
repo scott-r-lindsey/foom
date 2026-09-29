@@ -3,11 +3,12 @@ const { FuseV1Options, FuseVersion } = require("@electron/fuses");
 
 module.exports = {
   packagerConfig: {
-    asar: true,
+    asar: { unpackDir: "**/node_modules/node-pty/**" },
     executableName: "foom",
     appBundleId: "com.foom.desktop",
-    // Ship only compiled application files and package metadata.
-    ignore: (file) => file !== "" && file !== "/package.json" && !/^\/build(?:\/|$)/.test(file),
+    // Include production dependencies; native PTY binaries and helpers must live outside ASAR.
+    ignore: (file) =>
+      file !== "" && file !== "/package.json" && !/^\/(?:build|node_modules)(?:\/|$)/.test(file),
   },
   makers: [{ name: "@electron-forge/maker-zip", platforms: ["darwin", "linux", "win32"] }],
   plugins: [

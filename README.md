@@ -1,6 +1,6 @@
 # Foom
 
-A small Electron hello world using strict TypeScript and Electron Forge. No UI framework or application bundler is needed yet.
+A minimal Electron terminal using strict TypeScript, xterm.js, node-pty, and Electron Forge.
 
 ## Develop
 
@@ -11,7 +11,11 @@ npm ci
 npm start
 ```
 
-Click **Say hello** to send a request through the preload bridge to the main process. Restart `npm start` after editing source files. Open Developer Tools using Ctrl+Shift+I (Command+Option+I on macOS).
+The window opens a real interactive shell in the project directory (`$SHELL` on Linux/macOS, PowerShell on Windows). Try `vim`, `top`, or your usual CLI tools; those programs must be installed on your machine. Resizing the window resizes the PTY. Ctrl+C interrupts commands, and full-screen programs use the alternate screen buffer. Type `exit` to end the shell, then use **Restart shell** for a fresh session. Closing the window terminates its PTY. Packaged builds start in your home directory.
+
+This first version has one terminal with 10,000 lines of scrollback. It does not yet create worktrees or restore sessions. Restart `npm start` after editing source files.
+
+`node-pty` is a native dependency. The build corrects executable permissions on its macOS prebuilt spawn helper to work around [node-pty #850](https://github.com/microsoft/node-pty/issues/850). If a prebuilt binary is unavailable, installation/rebuild requires Python and a C++ toolchain (Xcode command line tools on macOS, build-essential on Linux, Visual Studio C++ build tools on Windows).
 
 `npm ci` installs the Husky pre-commit hook. Every commit checks formatting, lint, types, and fast unit tests. It does not launch a desktop window or silently rewrite files.
 
@@ -24,7 +28,7 @@ Electron runs JavaScript compiled from your TypeScript. `npm start`, `npm run te
 - **Preload** (`src/preload.ts`): exposes the explicitly allowed `window.desktop` bridge.
 - **Shared contract** (`src/shared/desktop.d.ts`): types for that bridge. Runtime validation remains necessary because TypeScript types disappear after compilation.
 
-Main and preload compile to CommonJS for Electron's sandboxed preload. Renderer code compiles as browser modules. Their compiler environments remain separate. TypeScript 6 is pinned for compatibility with the installed TypeScript ESLint tooling.
+Main and preload compile to CommonJS for Electron's sandboxed preload. esbuild bundles the renderer and xterm CSS for the browser. The main process owns the PTY; the preload exposes only start, input, resize, output, exit, and output acknowledgements. Acknowledgements apply backpressure so fast output does not overwhelm the renderer. Their compiler environments remain separate. TypeScript 6 is pinned for compatibility with the installed TypeScript ESLint tooling.
 
 ## Everyday commands
 
@@ -39,7 +43,7 @@ Main and preload compile to CommonJS for Electron's sandboxed preload. Renderer 
 | `npm test` / `npm run test:watch` | Run Vitest once / in watch mode, without a desktop display |
 | `npm run test:coverage` | Enforce per-file coverage and write HTML, LCOV, JSON, and terminal reports |
 | `npm run test:electron` | Build and launch the real Electron integration test |
-| `npm run build` | Compile application code and copy HTML/CSS |
+| `npm run build` | Compile application code, bundle xterm, and copy assets |
 | `npm run package` / `npm run make` | Create an executable application / a distributable ZIP |
 
 Biome owns formatting, and ESLint owns lint rules. Strict TypeScript includes checked indexed access, exact optional properties, explicit overrides, and unused-code checks. ESLint uses type information to catch unsafe values and mishandled promises. No generated output or `inspiration/` content is checked or packaged.
@@ -48,7 +52,7 @@ Biome owns formatting, and ESLint owns lint rules. Strict TypeScript includes ch
 
 `tests/` contains TypeScript unit tests for the main process, preload, renderer, and coverage-reporting tools. Tests exercise IPC trust boundaries, asset restrictions, permissions, startup failures, UI pending/error states, and bridge response validation. Electron is mocked in unit tests; jsdom provides the UI environment.
 
-`test/app.test.js` is a separate real Electron smoke test for the greeting, isolated bridge, sandbox settings, asset restrictions, and popup blocking. On Linux, use a graphical session or `xvfb-run -a npm run test:electron` with Electron's system libraries installed. Keep Chromium's sandbox enabled.
+`test/app.test.js` is a separate real Electron smoke test for real shell I/O, exit/restart, the isolated bridge, sandbox settings, asset restrictions, and popup blocking. On Linux/macOS it also checks TTY support, Ctrl+C, vim, and top; these tools must be installed. On Linux, use a graphical session or `xvfb-run -a npm run test:electron` with Electron's system libraries installed. Keep Chromium's sandbox enabled.
 
 Coverage includes every executable TypeScript file under `src/`, including files no test imports. Only `.d.ts` declarations are excluded. Each file must reach **90% lines, statements, and functions, and 85% branches**. Open `coverage/index.html` after running coverage. This is unit-test coverage; it does not imply the real Electron process was instrumented.
 
@@ -70,7 +74,7 @@ Local `package` output goes to `out/`; `make` ZIPs go to `out/make/`. Build on e
 
 ## Security defaults
 
-The renderer uses sandboxing, context isolation, and no Node integration. A strict Content Security Policy allows only local scripts and styles. The `app://` protocol serves an explicit asset allowlist. Navigation, new windows, webviews, and permission requests are blocked. IPC checks the sender's URL and main frame. Production packages use ASAR and hardened Electron fuses, and include only compiled application files and package metadata.
+The renderer uses sandboxing, context isolation, and no Node integration. The Content Security Policy allows only local scripts. Styles allow inline declarations because xterm generates positioning and color styles at runtime; script policy remains restrictive. The `app://` protocol serves an explicit asset allowlist. Navigation, new windows, webviews, and permission requests are blocked. IPC checks the owning window, sender URL, main frame, and message payloads. Production packages use ASAR and hardened Electron fuses, and include compiled application files, package metadata, and production dependencies. Native node-pty binaries and spawn helpers are unpacked from ASAR. Windows uses node-pty’s bundled ConPTY DLL so shutdown does not depend on a Node subprocess (the RunAsNode fuse is disabled).
 
 Keep Electron updated and review the [Electron security checklist](https://www.electronjs.org/docs/latest/tutorial/security) when adding capabilities. Contributor instructions are in [AGENTS.md](AGENTS.md).
 
@@ -86,7 +90,7 @@ Forge 7.11.2 is the latest stable Forge release at the time of this update, but 
 | `@electron/packager` → `extract-zip` alias to `@electron-internal/extract-zip@1.0.5` | The original `extract-zip` has no patched release. Electron's maintained extractor provides the API used by Packager and protects extraction paths. |
 | `external-editor` → `tmp@0.2.7` | Fixes temporary-file path handling while retaining the API used by Forge's prompt dependency. |
 
-These cross upstream version ranges. Keep validating clean installs and packaging on all three operating systems when changing them, and remove the overrides when a stable Forge release incorporates the fixes. Native addon compilation will need its own tests if we add native dependencies; this app currently has none.
+These cross upstream version ranges. Keep validating clean installs and packaging on all three operating systems when changing them, and remove the overrides when a stable Forge release incorporates the fixes. The real Electron tests exercise the native node-pty addon, and Forge rebuilds it for the target Electron version during startup and packaging.
 
 Vitest and its V8 coverage provider are updated together to 5.0.2. Some dependencies intentionally remain below their newest major: TypeScript 6 matches typescript-eslint's supported range; Node types match Node 24; fuses 1.8 matches Forge's plugin peer requirement. Use Node 24 LTS (`nvm use`); Vitest 5 does not support Node 25.
 

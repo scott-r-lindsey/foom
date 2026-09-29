@@ -1,47 +1,64 @@
 import { beforeEach, expect, test, vi } from "vitest";
 import type { DesktopApi } from "../src/shared/desktop";
-
-const bridge = vi.hoisted(() => ({
-  exposeInMainWorld: vi.fn<(name: string, api: DesktopApi) => void>(),
-  invoke: vi.fn<(channel: string) => Promise<unknown>>(),
+const mock = vi.hoisted(() => ({
+  expose: vi.fn<(name: string, api: DesktopApi) => void>(),
+  invoke: vi.fn<(...args: unknown[]) => Promise<unknown>>(),
+  send: vi.fn(),
+  on: vi.fn<(channel: string, callback: (event: unknown, value: unknown) => void) => void>(),
+  removeListener: vi.fn(),
 }));
 vi.mock("electron", () => ({
-  contextBridge: { exposeInMainWorld: bridge.exposeInMainWorld },
-  ipcRenderer: { invoke: bridge.invoke },
+  contextBridge: { exposeInMainWorld: mock.expose },
+  ipcRenderer: mock,
 }));
-
 beforeEach(() => {
   vi.resetModules();
   vi.clearAllMocks();
 });
-
-async function loadBridge() {
+async function bridge() {
   await import("../src/preload");
-  const call = bridge.exposeInMainWorld.mock.calls[0];
-  if (!call) throw new Error("Preload did not expose its API");
-  expect(call[0]).toBe("desktop");
-  return call[1];
+  const api = mock.expose.mock.calls[0]?.[1];
+  if (!api) throw new Error("Missing bridge");
+  return api;
 }
-
-test("exposes only the greeting capability and uses the dedicated IPC channel", async () => {
-  bridge.invoke.mockResolvedValue("Hello!");
-  const api = await loadBridge();
-  expect(Object.keys(api)).toEqual(["sayHello"]);
-  await expect(api.sayHello()).resolves.toBe("Hello!");
-  expect(bridge.invoke).toHaveBeenCalledExactlyOnceWith("app:hello");
+test("starts through the dedicated channel and validates the response", async () => {
+  const api = await bridge();
+  mock.invoke.mockResolvedValue("bash");
+  await expect(api.start(80, 24)).resolves.toBe("bash");
+  expect(mock.invoke).toHaveBeenCalledWith("terminal:start", 80, 24);
+  mock.invoke.mockResolvedValue({});
+  await expect(api.start(80, 24)).rejects.toThrow("Invalid terminal response");
+  mock.invoke.mockRejectedValue(new Error("spawn failed"));
+  await expect(api.start(80, 24)).rejects.toThrow("spawn failed");
 });
-
-test.each([null, 42, {}, ["hello"]])(
-  "rejects malformed main-process replies: %j",
-  async (reply) => {
-    bridge.invoke.mockResolvedValue(reply);
-    const api = await loadBridge();
-    await expect(api.sayHello()).rejects.toThrow("Invalid hello response");
-  },
-);
-
-test("propagates IPC failures to the UI", async () => {
-  bridge.invoke.mockRejectedValue(new Error("Disconnected"));
-  const api = await loadBridge();
-  await expect(api.sayHello()).rejects.toThrow("Disconnected");
+test("chunks large pastes and forwards resize and flow control", async () => {
+  const api = await bridge();
+  api.input("x".repeat(65537));
+  expect(mock.send.mock.calls).toEqual([
+    ["terminal:input", "x".repeat(65536)],
+    ["terminal:input", "x"],
+  ]);
+  api.resize(100, 30);
+  api.acknowledge(99);
+  expect(mock.send).toHaveBeenCalledWith("terminal:resize", 100, 30);
+  expect(mock.send).toHaveBeenCalledWith("terminal:ack", 99);
+});
+test("strips event objects, validates events, and removes listeners", async () => {
+  const api = await bridge();
+  const data = vi.fn();
+  const exit = vi.fn();
+  const offData = api.onData(data);
+  const offExit = api.onExit(exit);
+  const dataHandler = mock.on.mock.calls[0]?.[1];
+  const exitHandler = mock.on.mock.calls[1]?.[1];
+  dataHandler?.({}, "hello");
+  dataHandler?.({}, null);
+  exitHandler?.({}, 0);
+  exitHandler?.({}, "bad");
+  expect(data.mock.calls).toEqual([["hello"]]);
+  expect(exit.mock.calls).toEqual([[0]]);
+  offData();
+  offExit();
+  expect(mock.removeListener).toHaveBeenCalledWith("terminal:data", dataHandler);
+  expect(mock.removeListener).toHaveBeenCalledWith("terminal:exit", exitHandler);
 });
