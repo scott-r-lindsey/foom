@@ -15,6 +15,7 @@ test("terminal runs an interactive shell behind an isolated bridge", {
   });
   try {
     const page = await app.firstWindow();
+    page.setDefaultTimeout(15_000);
     await page.waitForLoadState("domcontentloaded");
     assert.equal(await page.title(), "Foom");
     await page.waitForFunction(
@@ -140,6 +141,17 @@ test("terminal runs an interactive shell behind an isolated bridge", {
     await page.waitForFunction(
       () => !/Starting|exited|Unable/.test(document.querySelector("#status").textContent),
     );
+  } catch (error) {
+    const pages = app.windows();
+    if (pages[0])
+      console.error(
+        "Terminal failure state:",
+        await pages[0].evaluate(() => ({
+          status: document.querySelector("#status")?.textContent,
+          output: window.terminalOutput,
+        })),
+      );
+    throw error;
   } finally {
     await app.close();
   }
