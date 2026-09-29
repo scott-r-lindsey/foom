@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
+import { SerializeAddon } from "@xterm/addon-serialize";
 import type { TerminalTelemetry, TerminalSpec } from "../src/shared/desktop";
 import type { BrowserWindow, IpcMainEvent, IpcMainInvokeEvent } from "electron";
 const mock = vi.hoisted(() => ({
@@ -405,6 +406,21 @@ test("window shutdown disposes sessions without accessing the destroyed window",
   expect(pty().kill).toHaveBeenCalledOnce();
   expect(contents.removeListener).toHaveBeenCalledWith("render-process-gone", expect.any(Function));
   expect(mock.removeHandler).toHaveBeenCalledWith("terminal:create");
+});
+
+test("snapshot failure rejects attachment without leaving a partial live view", async () => {
+  const id = manager.create(spec);
+  const data = vi.fn();
+  const serialize = vi.spyOn(SerializeAddon.prototype, "serialize").mockImplementationOnce(() => {
+    throw new Error("Incompatible snapshot");
+  });
+  await expect(manager.attach(id, data)).rejects.toThrow("Unable to snapshot terminal");
+  output("still running");
+  expect(await manager.tail(id, 1)).toEqual(["still running"]);
+  expect(data).not.toHaveBeenCalled();
+  serialize.mockRestore();
+  await manager.attach(id, data);
+  expect(data).toHaveBeenCalledOnce();
 });
 
 test("alternate-screen snapshots restore fullscreen state and preserve the normal screen", async () => {

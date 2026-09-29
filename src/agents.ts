@@ -59,6 +59,20 @@ async function findExecutable(id: AgentId, path: string): Promise<string | null>
   return null;
 }
 
+/** Accept stable numeric releases, retaining the full probe string for display. */
+function meetsMinimum(version: string, pattern: RegExp, minimum: readonly number[]): boolean {
+  const match = pattern.exec(version);
+  if (!match) return false;
+  const parts = match.slice(1).map(Number);
+  if (!parts.every(Number.isSafeInteger)) return false;
+  for (const [index, floor] of minimum.entries()) {
+    const part = parts[index];
+    if (part === undefined) throw new Error("Incomplete version pattern");
+    if (part !== floor) return part > floor;
+  }
+  return true;
+}
+
 async function detect(id: AgentId, path: string): Promise<AgentInstallation> {
   const executable = await findExecutable(id, path);
   if (!executable)
@@ -70,8 +84,20 @@ async function detect(id: AgentId, path: string): Promise<AgentInstallation> {
     if (!version) throw new Error("Empty version");
     const help = (await execute(executable, ["--help"], options)).stdout;
     const hooks =
-      (id === "claude" && version === "2.1.284 (Claude Code)" && /--settings\b/u.test(help)) ||
-      (id === "codex" && version === "codex-cli 0.155.1" && /(?:^|\s)-c(?:[ ,]|$)/mu.test(help));
+      (id === "claude" &&
+        meetsMinimum(
+          version,
+          /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?: \(Claude Code\))?$/u,
+          [2, 1, 284],
+        ) &&
+        /(?:^|\s)--settings(?:[ =,]|$)/mu.test(help)) ||
+      (id === "codex" &&
+        meetsMinimum(
+          version,
+          /^codex-cli (0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/u,
+          [0, 155, 1],
+        ) &&
+        /(?:^|\s)-c(?:[ ,]|$)/mu.test(help));
     return {
       id,
       path: executable,

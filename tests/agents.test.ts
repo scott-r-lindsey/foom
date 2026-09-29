@@ -103,6 +103,43 @@ describe("detection", () => {
       expect.any(Function),
     );
   });
+  it.each([
+    ["2.1.284 (Claude Code)", "codex-cli 0.155.1", true],
+    ["2.1.285 (Claude Code)", "codex-cli 0.155.2", true],
+    ["2.2.0 (Claude Code)", "codex-cli 0.156.0", true],
+    ["3.0.0 (Claude Code)", "codex-cli 1.0.0", true],
+    ["2.1.284", "codex-cli 99.0.0", true],
+    ["2.1.283 (Claude Code)", "codex-cli 0.155.0", false],
+    ["2.0.999 (Claude Code)", "codex-cli 0.154.999", false],
+    ["1.99.999 (Claude Code)", "codex-cli 0.1.999", false],
+    ["2.1.284-beta.1 (Claude Code)", "codex-cli 0.155.1-rc.1", false],
+    ["3.0.0+custom (Claude Code)", "codex-cli 1.0.0+custom", false],
+    ["garbage", "codex-cli unknown", false],
+    ["02.1.284 (Claude Code)", "codex-cli 00.155.1", false],
+    ["999999999999999999.0.0", "codex-cli 999999999999999999.0.0", false],
+  ])("gates stable releases %s / %s", async (claude, codex, hooks) => {
+    const previous = { ...versions };
+    try {
+      versions.claude = claude;
+      versions.codex = codex;
+      const scan = await service.scan();
+      expect(scan.agents.slice(0, 2).map((agent) => agent.hooks)).toEqual([hooks, hooks]);
+      expect(scan.agents[0]?.version).toBe(claude);
+      await expect(service.launch(request)).resolves.toHaveProperty(
+        "attention",
+        hooks ? "hooks" : "evaluator",
+      );
+    } finally {
+      Object.assign(versions, previous);
+    }
+  });
+  it.each(["--other", "--settings-file -config", "prefix--settings prefix-c"])(
+    "requires complete help flags (%s)",
+    async (text) => {
+      help = text;
+      expect((await service.scan()).agents.every((agent) => !agent.hooks)).toBe(true);
+    },
+  );
   it("reports missing executables and rescans without retaining stale results", async () => {
     vi.mocked(access).mockRejectedValue(new Error("missing"));
     expect((await service.scan()).agents.every((agent) => agent.path === null)).toBe(true);
@@ -138,7 +175,7 @@ describe("detection", () => {
   });
   it("keeps unknown versions on evaluator fallback", async () => {
     const previous = versions.codex;
-    versions.codex = "codex-cli 99.0.0";
+    versions.codex = "codex-cli unknown";
     expect((await service.scan()).agents[1]?.hooks).toBe(false);
     versions.codex = previous;
     await service.launch({ ...request, agent: "codex" });

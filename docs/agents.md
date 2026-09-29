@@ -1,6 +1,6 @@
 # Agent attention signals
 
-Research for #11, checked 2026-09-28 on Linux. This is a capability baseline, not a claim that every installed version behaves identically. Detect each resolved executable with `--version`, retain its full version string, and probe its `--help` before choosing flags. Unknown versions keep the output-evaluator fallback.
+Research for #11, checked 2026-09-28 on Linux. This is a capability baseline, not a claim that every installed version behaves identically. Detect each resolved executable with `--version`, retain its full version string, and probe its `--help` before choosing flags. Hook discovery accepts stable numeric Claude Code versions >= 2.1.284 (` (Claude Code)` is an optional product label) and `codex-cli` versions >= 0.155.1, with no upper bound. Help must still advertise the complete `--settings` or `-c` flag. Older, unparseable, prerelease, and custom-suffixed versions use the output-evaluator fallback. Missing or failed help probes also fall back.
 
 ## Recommendation
 
@@ -9,6 +9,8 @@ Research for #11, checked 2026-09-28 on Linux. This is a capability baseline, no
 | Claude Code | `2.1.284` | Per-launch Stop + Notification hooks; completion still needs classification | `claude -p`, with tools and external integrations disabled |
 | Codex | `codex-cli 0.155.1` | Per-launch `notify` for turn completion only; use the evaluator for approvals/questions | `codex exec`, conditional on enforcing the tail-only input boundary |
 | Antigravity | `agy 1.1.13` | Output evaluator for now: hooks exist, but no per-launch attachment was verified | Headless mode exists; not recommended as a Foom inference source yet |
+
+Discovery regression tests cover the baseline, Claude 2.1.285 / 2.2.0 / 3.0.0 and Codex 0.155.2 / 0.156.0 / 1.0.0, older releases, malformed strings, suffixes, and missing flags. These are synthetic discovery/launch tests, not additional real hook measurements. Runtime verification of missing hooks after a completed turn remains part of service/evaluator integration (#50/#14); accepting a version does not prove hooks fired.
 
 Only help/version, two synthetic model calls, and startup PTY behavior were tested locally. Notification timing, actual approval dialogs during tool use, password prompts, Windows, and macOS were not exercised. No global configuration was edited; normal CLI runtime state is separate from configuration. No repository content or real terminal tail was supplied to the model probes.
 
