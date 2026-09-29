@@ -1,10 +1,11 @@
+import { TerminalActivityMeter } from "./terminal-activity";
 import { TerminalColors } from "./terminal-colors";
 import { randomUUID } from "node:crypto";
 import { spawn } from "node-pty";
 import type { IPty, IDisposable } from "node-pty";
 import { Terminal } from "@xterm/headless";
 import { SerializeAddon } from "@xterm/addon-serialize";
-import type { TerminalSpec } from "./shared/desktop";
+import type { TerminalTelemetry, TerminalSpec } from "./shared/desktop";
 
 type View = { token: string; send: (token: string, data: string) => void };
 type Session = {
@@ -30,7 +31,13 @@ export class TerminalManager {
   private shuttingDown = false;
   private readonly pendingExits = new Map<Session, Promise<void>>();
 
-  constructor(private readonly onExit: (id: string, code: number) => void) {}
+  private readonly activity: TerminalActivityMeter;
+  constructor(
+    private readonly onExit: (id: string, code: number) => void,
+    events: TerminalTelemetry = {},
+  ) {
+    this.activity = new TerminalActivityMeter(events);
+  }
 
   create(spec: TerminalSpec, id: string = randomUUID(), dark = false): string {
     if (this.shuttingDown) throw new Error("Terminals are shutting down");
@@ -80,17 +87,20 @@ export class TerminalManager {
       generation: 0,
     };
     this.sessions.set(id, session);
+    this.activity.start(id);
     session.subscriptions = [
       // The host is the response owner, whether or not a renderer is attached.
       screen.onData((data) => {
         if (!session.exited) pty.write(data);
       }),
       pty.onData((data) => {
+        if (data && !session.exited) this.activity.output(id, data);
         session.parserPending += data.length;
         if (session.parserPending > 262144) session.parserBlocked = true;
         this.updateFlow(session);
         screen.write(data, () => {
           if (!this.sessions.has(id)) return;
+          if (data) this.activity.parsed(id, this.readTail(session, 1).at(-1) ?? "");
           session.parserPending -= data.length;
           if (session.parserPending < 65536) session.parserBlocked = false;
           this.deliver(session, data);
@@ -106,6 +116,7 @@ export class TerminalManager {
     // Keep this subscription after kill: killing a PTY only requests termination.
     const exitSubscription = pty.onExit(({ exitCode }) => {
       session.exited = true;
+      this.activity.remove(id);
       this.pendingExits.delete(session);
       exitSubscription.dispose();
       resolveExit();
@@ -205,24 +216,28 @@ export class TerminalManager {
     const session = this.get(id);
     return new Promise((resolve) => {
       session.screen.write("", () => {
-        const buffer = session.screen.buffer.active;
-        // Cursor movement does not erase content. Trim only the unused blank suffix.
-        let end = buffer.length;
-        while (
-          end > 0 &&
-          !buffer
-            .getLine(end - 1)
-            ?.translateToString(true)
-            .trim()
-        )
-          end--;
-        const result: string[] = [];
-        for (let index = Math.max(0, end - lines); index < end; index++) {
-          result.push(buffer.getLine(index)?.translateToString(true) ?? "");
-        }
-        resolve(result);
+        resolve(this.readTail(session, lines));
       });
     });
+  }
+
+  private readTail(session: Session, lines: number): string[] {
+    const buffer = session.screen.buffer.active;
+    // Cursor movement does not erase content. Trim only the unused blank suffix.
+    let end = buffer.length;
+    while (
+      end > 0 &&
+      !buffer
+        .getLine(end - 1)
+        ?.translateToString(true)
+        .trim()
+    )
+      end--;
+    const result: string[] = [];
+    for (let index = Math.max(0, end - lines); index < end; index++) {
+      result.push(buffer.getLine(index)?.translateToString(true) ?? "");
+    }
+    return result;
   }
 
   private terminate(session: Session): void {
@@ -237,6 +252,7 @@ export class TerminalManager {
     const session = this.get(id);
     this.detach(id);
     this.sessions.delete(id);
+    this.activity.remove(id);
     for (const subscription of session.subscriptions) subscription.dispose();
     try {
       if (!session.exited) this.terminate(session);

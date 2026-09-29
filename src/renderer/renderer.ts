@@ -49,7 +49,14 @@ let activeId: string | undefined;
 let attached = false;
 let busy = false;
 let exited = false;
+let hostFailed = false;
 let terminalStatus = "Starting shell…";
+const showOperationError = (prefix: string, error: unknown) => {
+  // Host exit can arrive before a pending IPC operation rejects.
+  status.textContent = hostFailed
+    ? terminalStatus
+    : `${prefix}: ${error instanceof Error ? error.message : String(error)}`;
+};
 const visibility = (visible: boolean) => {
   attached = visible;
   container.hidden = !visible;
@@ -68,10 +75,10 @@ const offData = window.desktop.onData((id, token, data) => {
 });
 const offExit = window.desktop.onExit((id, code) => {
   if (id !== activeId) return;
-  terminalStatus =
-    code === -1
-      ? "Terminal host failed. Restart the shell to continue."
-      : `Shell exited (${String(code)})`;
+  hostFailed = code === -1;
+  terminalStatus = hostFailed
+    ? "Terminal host failed. Restart the shell to continue."
+    : `Shell exited (${String(code)})`;
   status.textContent = terminalStatus;
   exited = true;
   controls();
@@ -113,7 +120,7 @@ const toggleView = async () => {
     status.textContent = terminalStatus;
   } catch (error: unknown) {
     visibility(false);
-    status.textContent = `Unable to change terminal view: ${error instanceof Error ? error.message : String(error)}`;
+    showOperationError("Unable to change terminal view", error);
   } finally {
     busy = false;
     controls();
@@ -133,6 +140,7 @@ const start = async () => {
   busy = true;
   controls();
   visibility(false);
+  hostFailed = false;
   status.textContent = "Starting shell…";
   try {
     if (activeId) {
@@ -151,7 +159,7 @@ const start = async () => {
     await openView(created.id);
   } catch (error: unknown) {
     visibility(false);
-    status.textContent = `Unable to start shell: ${error instanceof Error ? error.message : String(error)}`;
+    showOperationError("Unable to start shell", error);
     exited = true;
   } finally {
     busy = false;

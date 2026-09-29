@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
-import type { TerminalSpec } from "../src/shared/desktop";
+import type { TerminalTelemetry, TerminalSpec } from "../src/shared/desktop";
 import type { BrowserWindow, IpcMainEvent, IpcMainInvokeEvent } from "electron";
 const mock = vi.hoisted(() => ({
   handle:
@@ -26,14 +26,17 @@ vi.mock("../src/terminal-host-client", async () => {
   return {
     TerminalHostClient: class {
       private manager: TerminalManager;
-      constructor(onExit: (id: string, code: number) => void) {
-        this.manager = new TerminalManager(onExit);
+      constructor(onExit: (id: string, code: number) => void, events: TerminalTelemetry) {
+        this.manager = new TerminalManager(onExit, events);
       }
       create(spec: TerminalSpec) {
         return this.manager.create(spec);
       }
       attach(id: string, send: (token: string, data: string) => void) {
         return this.manager.attach(id, send);
+      }
+      tail(id: string, lines: number) {
+        return this.manager.tail(id, lines);
       }
       detach(id: string) {
         this.manager.detach(id);
@@ -762,4 +765,65 @@ test("a failed ConPTY termination request stays retryable after removal", async 
   await manager.shutdown();
   expect(pty().kill).toHaveBeenCalledTimes(2);
   expect(manager.hasPendingExits).toBe(false);
+});
+
+test("tail IPC checks ownership, sender and bounds before returning parsed plain text", async () => {
+  const id = await create();
+  output("\x1b[31mhello\x1b[0m\r\nContinue?");
+  await expect(invoke("tail", [id, 2])).resolves.toEqual(["hello", "Continue?"]);
+  await expect(invoke("tail", ["foreign", 1])).rejects.toThrow("foreign");
+  await expect(invoke("tail", [id, 1], { ...event, senderFrame: null })).rejects.toThrow(
+    "Untrusted",
+  );
+  for (const lines of [null, 0, 10001, 1.5])
+    await expect(invoke("tail", [id, lines])).rejects.toThrow("tail length");
+});
+
+test("detached terminals emit activity, but navigation, foreign IDs and destroyed contents cannot receive it", async () => {
+  vi.useFakeTimers({ toFake: ["setInterval", "clearInterval", "performance"] });
+  const destroyed = vi.spyOn(contents, "isDestroyed");
+  try {
+    const id = await create();
+    output("Continue?");
+    await invoke("tail", [id, 1]);
+    vi.advanceTimersByTime(100);
+    expect(contents.send).toHaveBeenCalledWith("terminal:activity", [
+      expect.objectContaining({ id }),
+    ]);
+    contents.send.mockClear();
+    frame.url = "https://example.com";
+    vi.advanceTimersByTime(100);
+    expect(contents.send).not.toHaveBeenCalled();
+    frame.url = "app://bundle/index.html";
+    destroyed.mockReturnValue(true);
+    vi.advanceTimersByTime(100);
+    expect(contents.send).not.toHaveBeenCalled();
+  } finally {
+    frame.url = "app://bundle/index.html";
+    destroyed.mockRestore();
+    for (const terminal of ptys) terminal.emitExit();
+    vi.useRealTimers();
+  }
+});
+
+test("quiet detection reads parsed headless tails and stops on exit without an attached view", async () => {
+  vi.useFakeTimers({ toFake: ["setInterval", "clearInterval", "performance"] });
+  const quiet = vi.fn();
+  manager.dispose();
+  manager = new TerminalManager(exited, { onQuiet: quiet });
+  try {
+    const id = manager.create(spec);
+    output("\x1b[31mContinue?\x1b[0m");
+    await manager.tail(id, 1);
+    vi.advanceTimersByTime(500);
+    expect(quiet).toHaveBeenCalledWith(id);
+    output("again?");
+    pty().emitExit();
+    await manager.tail(id, 1);
+    vi.advanceTimersByTime(3000);
+    expect(quiet).toHaveBeenCalledTimes(1);
+  } finally {
+    manager.dispose();
+    vi.useRealTimers();
+  }
 });

@@ -1,6 +1,6 @@
 import { contextBridge, ipcRenderer } from "electron";
 import type { IpcRendererEvent } from "electron";
-import type { DesktopApi } from "./shared/desktop";
+import type { DesktopApi, TerminalActivity } from "./shared/desktop";
 
 const desktop: DesktopApi = {
   async create(cols, rows) {
@@ -43,6 +43,41 @@ const desktop: DesktopApi = {
   },
   acknowledge: (id, token, count) => {
     ipcRenderer.send("terminal:ack", id, token, count);
+  },
+  async tail(id, lines) {
+    const reply: unknown = await ipcRenderer.invoke("terminal:tail", id, lines);
+    if (
+      !Array.isArray(reply) ||
+      reply.length > 10000 ||
+      !reply.every((line: unknown) => typeof line === "string")
+    )
+      throw new Error("Invalid terminal tail");
+    return reply;
+  },
+  onActivity(callback) {
+    const listener = (_event: IpcRendererEvent, batch: unknown) => {
+      if (!Array.isArray(batch)) return;
+      const entries: TerminalActivity[] = [];
+      const values: unknown[] = batch;
+      for (const entry of values) {
+        if (
+          typeof entry !== "object" ||
+          entry === null ||
+          !("id" in entry) ||
+          typeof entry.id !== "string" ||
+          !entry.id ||
+          !("rate" in entry) ||
+          typeof entry.rate !== "number" ||
+          !Number.isFinite(entry.rate) ||
+          entry.rate < 0
+        )
+          return;
+        entries.push({ id: entry.id, rate: entry.rate });
+      }
+      callback(entries);
+    };
+    ipcRenderer.on("terminal:activity", listener);
+    return () => ipcRenderer.removeListener("terminal:activity", listener);
   },
   onData(callback) {
     const listener = (_event: IpcRendererEvent, id: unknown, token: unknown, data: unknown) => {

@@ -236,3 +236,32 @@ test("sends initial system colors and validated theme changes for live and hidde
   await closing;
   expect(mock.theme.removeListener).toHaveBeenCalledWith("updated", update);
 });
+
+test("delivers telemetry only for live owned sessions", async () => {
+  await client.dispose();
+  const onActivity = vi.fn();
+  const onQuiet = vi.fn();
+  client = new TerminalHostClient(exited, { onActivity, onQuiet });
+  const id = await create();
+  child.emit("message", {
+    type: "activity",
+    entries: [
+      { id, rate: 4 },
+      { id: "foreign", rate: 9 },
+    ],
+  });
+  child.emit("message", { type: "quiet", id });
+  expect(onActivity).toHaveBeenCalledWith([{ id, rate: 4 }]);
+  expect(onQuiet).toHaveBeenCalledWith(id);
+  child.emit("message", { type: "exit", id, code: 0 });
+  child.emit("message", { type: "activity", entries: [{ id, rate: 4 }] });
+  child.emit("message", { type: "quiet", id });
+  child.emit("message", { type: "quiet", id: "foreign" });
+  expect(onActivity).toHaveBeenCalledTimes(1);
+  expect(onQuiet).toHaveBeenCalledTimes(1);
+});
+test("telemetry requires no subscriber", async () => {
+  const id = await create();
+  child.emit("message", { type: "activity", entries: [{ id, rate: 4 }] });
+  child.emit("message", { type: "quiet", id });
+});

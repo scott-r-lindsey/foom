@@ -108,3 +108,36 @@ test.each([
   expect(chunks.join("")).toBe(input);
   expect(chunks.every((chunk) => chunk.length <= 65536)).toBe(true);
 });
+
+test("validates tail replies and activity batches and removes subscriptions", async () => {
+  const api = await bridge();
+  mock.invoke.mockResolvedValue(["plain text"]);
+  await expect(api.tail("one", 40)).resolves.toEqual(["plain text"]);
+  expect(mock.invoke).toHaveBeenCalledWith("terminal:tail", "one", 40);
+  for (const reply of [null, [3], Array.from({ length: 10001 }, () => "")]) {
+    mock.invoke.mockResolvedValue(reply);
+    await expect(api.tail("one", 40)).rejects.toThrow("Invalid terminal tail");
+  }
+  const callback = vi.fn();
+  const off = api.onActivity(callback);
+  const listener = mock.on.mock.calls.find(([channel]) => channel === "terminal:activity")?.[1];
+  if (!listener) throw new Error("Missing listener");
+  for (const batch of [
+    null,
+    [null],
+    [1],
+    [{}],
+    [{ id: 1 }],
+    [{ id: "" }],
+    [{ id: "one" }],
+    [{ id: "one", rate: "1" }],
+    [{ id: "one", rate: NaN }],
+    [{ id: "one", rate: -1 }],
+  ])
+    listener({}, batch);
+  expect(callback).not.toHaveBeenCalled();
+  listener({}, [{ id: "one", rate: 3 }]);
+  expect(callback).toHaveBeenCalledWith([{ id: "one", rate: 3 }]);
+  off();
+  expect(mock.removeListener).toHaveBeenCalledWith("terminal:activity", listener);
+});

@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 import { utilityProcess, nativeTheme } from "electron";
 import type { UtilityProcess } from "electron";
-import type { TerminalSpec } from "./shared/desktop";
+import type { TerminalTelemetry, TerminalSpec } from "./shared/desktop";
 import type { HostRequest } from "./shared/terminal-host";
 import { hostRequest, hostResponse } from "./terminal-host-protocol";
 
@@ -40,7 +40,10 @@ export class TerminalHostClient {
       this.notify({ type: "theme", id, dark: nativeTheme.shouldUseDarkColors });
   };
 
-  constructor(private readonly onExit: (id: string, code: number) => void) {
+  constructor(
+    private readonly onExit: (id: string, code: number) => void,
+    private readonly events: TerminalTelemetry = {},
+  ) {
     nativeTheme.on("updated", this.updateTheme);
   }
 
@@ -54,8 +57,15 @@ export class TerminalHostClient {
     this.child = child;
     child.on("message", (message: unknown) => {
       if (this.child !== child || !hostResponse(message)) return;
+      if (message.type === "activity") {
+        const entries = message.entries.filter((entry) => this.sessions.get(entry.id)?.alive);
+        if (entries.length) this.events.onActivity?.(entries);
+        return;
+      }
       const session = this.sessions.get(message.id);
-      if (message.type === "data") {
+      if (message.type === "quiet") {
+        if (session?.alive) this.events.onQuiet?.(message.id);
+      } else if (message.type === "data") {
         if (session?.view === message.view) session.send?.(message.token, message.data);
       } else if (message.type === "exit") {
         if (!session?.alive) return;

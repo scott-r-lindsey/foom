@@ -335,3 +335,53 @@ test("drains pending writes before resetting and attaching a fresh snapshot", as
   expect(mock.reset).toHaveBeenCalledOnce();
   expect(mock.attach).toHaveBeenLastCalledWith("one");
 });
+
+test.each(["startup", "reopen", "hide"])(
+  "host failure survives a pending %s operation and permits a clean restart",
+  async (operation) => {
+    const crash = () => {
+      mock.onExit.mock.calls[0]?.[0]("one", -1);
+      return Promise.reject(new Error("Terminal host stopped"));
+    };
+    if (operation === "startup") mock.attach.mockImplementationOnce(crash);
+    await import("../src/renderer/renderer");
+    const toggle = document.querySelector<HTMLButtonElement>("#toggle-terminal");
+    const restart = document.querySelector<HTMLButtonElement>("#restart");
+    if (operation !== "startup") {
+      await vi.waitFor(() => {
+        expect(toggle?.disabled).toBe(false);
+      });
+      if (operation === "reopen") {
+        toggle?.click();
+        await vi.waitFor(() => {
+          expect(toggle?.disabled).toBe(false);
+        });
+        mock.attach.mockImplementationOnce(crash);
+      } else mock.detach.mockImplementationOnce(crash);
+      toggle?.click();
+    }
+    await vi.waitFor(() => {
+      expect(restart?.disabled).toBe(false);
+    });
+    expect(document.querySelector("#status")?.textContent).toBe(
+      "Terminal host failed. Restart the shell to continue.",
+    );
+    mock.create.mockResolvedValueOnce({ id: "replacement", title: "replacement shell" });
+    restart?.click();
+    await vi.waitFor(() => {
+      expect(toggle?.disabled).toBe(false);
+    });
+    expect(document.querySelector("#status")?.textContent).toBe("replacement shell");
+    expect(restart?.disabled).toBe(true);
+    // A later unrelated startup error must not reuse the old host failure.
+    mock.onExit.mock.calls[0]?.[0]("replacement", 0);
+    mock.create.mockRejectedValueOnce(new Error("spawn failed"));
+    restart?.click();
+    await vi.waitFor(() => {
+      expect(restart?.disabled).toBe(false);
+    });
+    expect(document.querySelector("#status")?.textContent).toBe(
+      "Unable to start shell: spawn failed",
+    );
+  },
+);

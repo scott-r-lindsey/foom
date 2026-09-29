@@ -231,17 +231,31 @@ test("terminal runs an interactive shell behind an isolated bridge", {
           "input",
           "resize",
           "acknowledge",
+          "tail",
+          "onActivity",
           "onData",
           "onExit",
         ],
       },
     );
+    await page.evaluate(() => {
+      window.activityBatches = [];
+      window.stopActivity = window.desktop.onActivity((batch) =>
+        window.activityBatches.push(batch),
+      );
+    });
     // The real renderer must not duplicate main's protocol response.
     // PowerShell needs the call operator to execute a quoted executable path.
     const probeCommand = `${process.platform === "win32" ? "& " : ""}"${process.execPath}" "${path.join(__dirname, "protocol-probe.js")}"`;
     await page.keyboard.type(probeCommand);
     await page.keyboard.press("Enter");
     await page.waitForFunction(() => window.terminalOutput.includes("PROTOCOL_OK"));
+    await page.waitForFunction(() =>
+      window.activityBatches.some((batch) =>
+        batch.some(({ id, rate }) => typeof id === "string" && rate > 0),
+      ),
+    );
+    await page.evaluate(() => window.stopActivity());
     assert.ok(!(await page.evaluate(() => window.terminalOutput.includes("PROTOCOL_FAIL"))));
     // A second PTY stays detached while emitting well beyond the view high-water mark.
     // Reattachment must restore the final marker from main-owned headless state.
@@ -274,6 +288,9 @@ test("terminal runs an interactive shell behind an isolated bridge", {
     });
     await page.waitForFunction(() => window.detachedExited);
     assert.equal(await page.evaluate(() => window.detachedChunks), 0);
+    const tail = await page.evaluate((id) => window.desktop.tail(id, 5), detached);
+    assert.ok(tail.some((line) => line.includes("DETACHED_COMPLETE")));
+    assert.ok(tail.every((line) => !line.includes("\x1b")));
     await page.evaluate(async (id) => {
       window.detachedOutput = "";
       await window.desktop.attach(id);
