@@ -1,19 +1,24 @@
+import type { TerminalTelemetry } from "../src/shared/desktop";
 import { EventEmitter } from "node:events";
 import { beforeEach, afterEach, expect, test, vi } from "vitest";
-const mock = vi.hoisted(() => ({
-  create: vi.fn(),
-  attach: vi.fn(),
-  detach: vi.fn(),
-  kill: vi.fn(),
-  write: vi.fn(),
-  resize: vi.fn(),
-  setTheme: vi.fn(),
-  acknowledge: vi.fn(),
-  tail: vi.fn(),
-  dispose: vi.fn(),
-  shutdown: vi.fn<() => Promise<void>>(),
-  onExit: vi.fn<(id: string, code: number) => void>(),
-}));
+const mock = vi.hoisted(() => {
+  const events: TerminalTelemetry = {};
+  return {
+    events,
+    create: vi.fn(),
+    attach: vi.fn(),
+    detach: vi.fn(),
+    kill: vi.fn(),
+    write: vi.fn(),
+    resize: vi.fn(),
+    setTheme: vi.fn(),
+    acknowledge: vi.fn(),
+    tail: vi.fn(),
+    dispose: vi.fn(),
+    shutdown: vi.fn<() => Promise<void>>(),
+    onExit: vi.fn<(id: string, code: number) => void>(),
+  };
+});
 vi.mock("../src/terminal-manager", () => ({
   TerminalManager: class {
     create = mock.create;
@@ -27,7 +32,8 @@ vi.mock("../src/terminal-manager", () => ({
     tail = mock.tail;
     dispose = mock.dispose;
     shutdown = mock.shutdown;
-    constructor(onExit: (id: string, code: number) => void) {
+    constructor(onExit: (id: string, code: number) => void, events: TerminalTelemetry) {
+      mock.events = events;
       mock.onExit.mockImplementation(onExit);
     }
   },
@@ -159,3 +165,13 @@ test.each([false, true])(
     }
   },
 );
+
+test("forwards activity batches and quiet IDs from the host meter", () => {
+  mock.events.onActivity?.([{ id: "one", rate: 42 }]);
+  mock.events.onQuiet?.("one");
+  expect(port.postMessage).toHaveBeenCalledWith({
+    type: "activity",
+    entries: [{ id: "one", rate: 42 }],
+  });
+  expect(port.postMessage).toHaveBeenCalledWith({ type: "quiet", id: "one" });
+});

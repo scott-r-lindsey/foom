@@ -6,9 +6,19 @@ const port = process.parentPort;
 const send = (message: HostResponse) => {
   port.postMessage(message);
 };
-const manager = new TerminalManager((id, code) => {
-  send({ type: "exit", id, code });
-});
+const manager = new TerminalManager(
+  (id, code) => {
+    send({ type: "exit", id, code });
+  },
+  {
+    onActivity: (entries) => {
+      send({ type: "activity", entries });
+    },
+    onQuiet: (id) => {
+      send({ type: "quiet", id });
+    },
+  },
+);
 const owned = new Set<string>();
 port.on("message", (event: { data: unknown }) => {
   const message = event.data;

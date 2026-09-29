@@ -65,8 +65,23 @@ export function hostRequest(value: unknown): value is HostRequest {
   }
 }
 export function hostResponse(value: unknown): value is HostResponse {
-  if (!record(value) || !text(value["id"])) return false;
+  if (!record(value)) return false;
+  if (value["type"] === "activity")
+    return (
+      Array.isArray(value["entries"]) &&
+      value["entries"].every(
+        (entry: unknown) =>
+          record(entry) &&
+          text(entry["id"]) &&
+          typeof entry["rate"] === "number" &&
+          Number.isFinite(entry["rate"]) &&
+          entry["rate"] >= 0,
+      )
+    );
+  if (!text(value["id"])) return false;
   switch (value["type"]) {
+    case "quiet":
+      return true;
     case "result":
       return (
         integer(value["request"], 1, Number.MAX_SAFE_INTEGER) &&

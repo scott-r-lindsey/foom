@@ -15,9 +15,18 @@ export function attachTerminal(
     event.senderFrame !== null &&
     event.senderFrame === event.sender.mainFrame &&
     event.senderFrame.url === "app://bundle/index.html";
-  const manager = new TerminalHostClient((id, code) => {
-    if (!contents.isDestroyed()) contents.send("terminal:exit", id, code);
-  });
+  const manager = new TerminalHostClient(
+    (id, code) => {
+      if (!contents.isDestroyed()) contents.send("terminal:exit", id, code);
+    },
+    {
+      onActivity: (batch) => {
+        if (contents.isDestroyed() || contents.mainFrame.url !== "app://bundle/index.html") return;
+        const entries = batch.filter(({ id }) => owned.has(id));
+        if (entries.length) contents.send("terminal:activity", entries);
+      },
+    },
+  );
   const validId = (id: unknown): id is string => typeof id === "string" && owned.has(id);
   const size = (cols: unknown, rows: unknown): boolean =>
     typeof cols === "number" &&
@@ -61,6 +70,13 @@ export function attachTerminal(
       }
     });
   }
+  handlers.set("terminal:tail", async (event, id, lines) => {
+    if (!trusted(event)) throw new Error("Untrusted IPC sender");
+    if (!validId(id)) throw new Error("Unknown or foreign terminal ID");
+    if (typeof lines !== "number" || !Number.isSafeInteger(lines) || lines < 1 || lines > 10000)
+      throw new Error("Invalid tail length");
+    return manager.tail(id, lines);
+  });
   for (const [channel, handler] of handlers) ipcMain.handle(channel, handler);
   const input = (event: IpcMainEvent, id: unknown, data: unknown) => {
     if (trusted(event) && validId(id) && typeof data === "string" && data.length <= 65536)

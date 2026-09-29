@@ -91,3 +91,20 @@ test("validates main-owned theme updates and initial colors", () => {
   }
   expect(hostRequest({ ...base, type: "theme" })).toBe(false);
 });
+
+test("validates every member of activity batches and quiet IDs", () => {
+  expect(hostResponse({ type: "activity", entries: [{ id: "one", rate: 0 }] })).toBe(true);
+  expect(hostResponse({ type: "quiet", id: "one" })).toBe(true);
+  expect(hostResponse({ type: "quiet", id: "" })).toBe(false);
+  for (const entries of [
+    null,
+    [null],
+    [{}],
+    [{ id: "", rate: 0 }],
+    [{ id: "a", rate: "1" }],
+    [{ id: "a", rate: NaN }],
+    [{ id: "a", rate: Infinity }],
+    [{ id: "a", rate: -1 }],
+  ])
+    expect(hostResponse({ type: "activity", entries })).toBe(false);
+});

@@ -1,4 +1,4 @@
-import type { TerminalSpec } from "./desktop";
+import type { TerminalActivity, TerminalSpec } from "./desktop";
 
 type RequestBase = { request: number; id: string };
 export type HostRequest = RequestBase &
@@ -13,6 +13,8 @@ export type HostRequest = RequestBase &
     | { type: "tail"; lines: number }
   );
 export type HostResponse =
+  | { type: "activity"; entries: TerminalActivity[] }
+  | { type: "quiet"; id: string }
   | { type: "result"; request: number; id: string; lines: string[] }
   | { type: "error"; request: number; id: string }
   | { type: "data"; id: string; view: string; token: string; data: string }
