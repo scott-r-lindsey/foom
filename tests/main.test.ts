@@ -1,6 +1,8 @@
 import type { BrowserWindowConstructorOptions, Input } from "electron";
 import { beforeEach, expect, test, vi } from "vitest";
 
+vi.mock("../src/worktrees", () => ({ WorktreeService: { open: mock.openWorktrees } }));
+
 vi.mock("../src/terminal", () => ({ attachTerminal: vi.fn() }));
 
 type ShortcutInput = Pick<Input, "type" | "key" | "control" | "shift" | "alt" | "meta">;
@@ -49,6 +51,7 @@ const mock = vi.hoisted(() => {
     }
   }
   return {
+    openWorktrees: vi.fn<() => Promise<unknown>>(),
     BrowserWindow,
     construct,
     window,
@@ -81,6 +84,7 @@ vi.mock("electron", () => ({
   BrowserWindow: mock.BrowserWindow,
   app: {
     whenReady: mock.ready,
+    getPath: () => "/test/user-data",
     quit: mock.quit,
     on: (name: string, handler: () => void) => {
       mock.appEvents.set(name, handler);
@@ -107,6 +111,7 @@ beforeEach(() => {
   mock.readyEvents.clear();
   mock.state.windows = [mock.window];
   mock.ready.mockResolvedValue();
+  mock.openWorktrees.mockResolvedValue({});
   mock.window.loadURL.mockResolvedValue();
   mock.fetch.mockResolvedValue(new Response("asset"));
 });
@@ -114,6 +119,37 @@ beforeEach(() => {
 async function start() {
   await import("../src/main");
 }
+
+test("loads worktree state from userData before creating a window", async () => {
+  let finish: (() => void) | undefined;
+  mock.openWorktrees.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        finish = () => {
+          resolve({});
+        };
+      }),
+  );
+  await start();
+  expect(mock.openWorktrees).toHaveBeenCalledWith("/test/user-data");
+  expect(mock.construct).not.toHaveBeenCalled();
+  finish?.();
+  await vi.waitFor(() => {
+    expect(mock.construct).toHaveBeenCalledOnce();
+  });
+});
+
+test("reports persistence startup failures", async () => {
+  const error = new Error("Cannot write state");
+  const log = vi.spyOn(console, "error").mockImplementation(() => {});
+  mock.openWorktrees.mockRejectedValueOnce(error);
+  await start();
+  await vi.waitFor(() => {
+    expect(mock.quit).toHaveBeenCalledOnce();
+  });
+  expect(mock.construct).not.toHaveBeenCalled();
+  expect(log).toHaveBeenCalledWith("Unable to start the application:", error);
+});
 
 test("creates a sandboxed window, loads our document, and only shows it when ready", async () => {
   await start();

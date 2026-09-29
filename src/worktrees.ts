@@ -1,5 +1,6 @@
+import { randomUUID } from "node:crypto";
 import { execFile } from "node:child_process";
-import { lstat, mkdir, realpath, rmdir } from "node:fs/promises";
+import { lstat, mkdir, readFile, realpath, rename, rm, rmdir, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { promisify } from "node:util";
@@ -63,7 +64,20 @@ async function worktreeIdentity(path: string): Promise<string> {
   return JSON.stringify([gitDirectory, entries]);
 }
 
-/** Main-process service. Ownership lasts for this service instance; listing never adopts trees. */
+function record(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function absolutePath(value: unknown): value is string {
+  return (
+    typeof value === "string" &&
+    !value.includes("\0") &&
+    isAbsolute(value) &&
+    resolve(value) === value
+  );
+}
+
+/** Main-process service. Use open() for persisted ownership; listing never adopts trees. */
 export class WorktreeService {
   private readonly repositories = new Map<string, Repository>();
   private readonly managed = new Map<
@@ -71,6 +85,97 @@ export class WorktreeService {
     { repository: string; root: string; identity: string }
   >();
   private readonly root: string;
+
+  private stateFile: string | undefined;
+  private pendingSave: Promise<void> = Promise.resolve();
+
+  /** Call after app.whenReady(), passing app.getPath("userData"). */
+  static async open(userData: string, root?: string): Promise<WorktreeService> {
+    validatePath(userData);
+    const service = new WorktreeService(root);
+    const stateFile = join(resolve(userData), "worktrees.json");
+    await service.load(stateFile);
+    service.stateFile = stateFile;
+    return service;
+  }
+
+  private async load(stateFile: string): Promise<void> {
+    let state: unknown;
+    try {
+      state = JSON.parse(await readFile(stateFile, "utf8"));
+    } catch {
+      // Missing, unreadable or corrupt state never grants ownership or blocks startup.
+      return;
+    }
+    if (
+      !record(state) ||
+      state["version"] !== 1 ||
+      !Array.isArray(state["repositories"]) ||
+      !Array.isArray(state["managed"])
+    )
+      return;
+    for (const path of state["repositories"]) {
+      if (!absolutePath(path)) continue;
+      try {
+        if ((await realpath(path)) !== path) continue;
+        await this.addRepository(path);
+      } catch {
+        // Removed or invalid repositories are omitted.
+      }
+    }
+    for (const entry of state["managed"]) {
+      if (
+        !record(entry) ||
+        !absolutePath(entry["path"]) ||
+        !absolutePath(entry["repository"]) ||
+        !absolutePath(entry["root"]) ||
+        typeof entry["identity"] !== "string"
+      )
+        continue;
+      const { path, repository, root, identity } = entry;
+      if (!this.repositories.has(repository)) continue;
+      try {
+        const configured = await realpath(this.root).catch(() => undefined);
+        if (root !== configured && root !== dirname(repository)) continue;
+        assertInside(root, path);
+        if ((await realpath(path)) !== path) continue;
+        if (
+          !(await this.listWorktrees(repository)).some((tree) => tree.path === path && !tree.bare)
+        )
+          continue;
+        if ((await worktreeIdentity(path)) !== identity) continue;
+        this.managed.set(path, { repository, root, identity });
+      } catch {
+        // A stored record is only a claim: stale or redirected paths lose ownership.
+      }
+    }
+    this.stateFile = stateFile;
+    await this.save();
+  }
+
+  private async save(): Promise<void> {
+    const stateFile = this.stateFile;
+    if (!stateFile) return;
+    const save = this.pendingSave
+      .catch(() => undefined)
+      .then(async () => {
+        const contents = JSON.stringify({
+          version: 1,
+          repositories: [...this.repositories.keys()],
+          managed: [...this.managed].map(([path, ownership]) => ({ path, ...ownership })),
+        });
+        await mkdir(dirname(stateFile), { recursive: true });
+        const temporary = `${stateFile}.${randomUUID()}.tmp`;
+        try {
+          await writeFile(temporary, contents, { flag: "wx", mode: 0o600 });
+          await rename(temporary, stateFile);
+        } finally {
+          await rm(temporary, { force: true });
+        }
+      });
+    this.pendingSave = save;
+    await save;
+  }
 
   constructor(root = join(homedir(), ".foom", "worktrees")) {
     validatePath(root);
@@ -86,6 +191,7 @@ export class WorktreeService {
     const top = await realpath((await git(cwd, ["rev-parse", "--show-toplevel"])).slice(0, -1));
     const repository = Object.freeze({ path: top, name: basename(top) });
     this.repositories.set(top, repository);
+    await this.save();
     return repository;
   }
 
@@ -136,6 +242,7 @@ export class WorktreeService {
       // Missing or unreadable metadata cannot establish ownership.
     }
     this.managed.delete(path);
+    await this.save();
     return false;
   }
 
@@ -188,6 +295,7 @@ export class WorktreeService {
       root,
       identity: await worktreeIdentity(path),
     });
+    await this.save();
     return path;
   }
 
@@ -212,5 +320,6 @@ export class WorktreeService {
       resolved,
     ]);
     this.managed.delete(resolved);
+    await this.save();
   }
 }

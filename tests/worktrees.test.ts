@@ -309,3 +309,180 @@ it("preserves ownership across ordinary branch and file changes", async () => {
   );
   await service.removeWorktree(repo, path, true);
 });
+
+describe("persistent ownership", () => {
+  const statePath = () => join(temporary, "user-data", "worktrees.json");
+  const restart = () => WorktreeService.open(join(temporary, "user-data"), root);
+  async function saved(): Promise<{
+    version: number;
+    repositories: unknown[];
+    managed: Record<string, unknown>[];
+  }> {
+    const value: unknown = JSON.parse(await readFile(statePath(), "utf8"));
+    if (
+      typeof value !== "object" ||
+      value === null ||
+      !("version" in value) ||
+      typeof value.version !== "number" ||
+      !("repositories" in value) ||
+      !Array.isArray(value.repositories) ||
+      !("managed" in value) ||
+      !Array.isArray(value.managed)
+    )
+      throw new Error("Invalid saved state");
+    const managed: Record<string, unknown>[] = value.managed.filter(
+      (entry: unknown): entry is Record<string, unknown> =>
+        typeof entry === "object" && entry !== null,
+    );
+    return { version: value.version, repositories: value.repositories, managed };
+  }
+  async function store(value: unknown) {
+    await mkdir(dirname(statePath()), { recursive: true });
+    await writeFile(statePath(), JSON.stringify(value));
+  }
+  it.each(["root", "adjacent"] as const)(
+    "restores repositories and %s ownership, then persists removal",
+    async (location) => {
+      service = await restart();
+      await service.addRepository(repo);
+      const path = await service.createWorktree(repo, "persist/nested", { location });
+      service = await restart();
+      expect(service.listRepositories()).toEqual([{ path: repo, name: "repo with spaces" }]);
+      expect(await service.listWorktrees(repo)).toContainEqual(
+        expect.objectContaining({ path, managed: true }),
+      );
+      await service.removeWorktree(repo, path);
+      expect((await saved()).managed).toEqual([]);
+      expect(await (await restart()).listWorktrees(repo)).toHaveLength(1);
+    },
+  );
+  it("serializes concurrent writes without losing repositories or ownership", async () => {
+    service = await restart();
+    await service.addRepository(repo);
+    const paths = await Promise.all(
+      ["one", "two"].map((branch) => service.createWorktree(repo, branch)),
+    );
+    service = await restart();
+    for (const path of paths) await service.removeWorktree(repo, path);
+    expect((await saved()).managed).toEqual([]);
+  });
+  it.each(["replace", "move", "redirect", "metadata"])(
+    "drops ownership after %s across restart",
+    async (kind) => {
+      service = await restart();
+      await service.addRepository(repo);
+      const path = await service.createWorktree(repo, "persist");
+      if (kind === "replace") {
+        await git("worktree", "remove", path);
+        await git("worktree", "add", "-b", "replacement", path);
+      } else if (kind === "metadata") {
+        await rm(join(path, ".git"));
+      } else {
+        const moved = join(temporary, "moved");
+        await rename(path, moved);
+        if (kind === "redirect") await symlink(moved, path, "junction");
+      }
+      service = await restart();
+      await expect(service.removeWorktree(repo, path, true)).rejects.toThrow("not managed");
+      expect((await saved()).managed).toEqual([]);
+    },
+  );
+  it("persists invalidation from listing even if the original tree returns later", async () => {
+    service = await restart();
+    await service.addRepository(repo);
+    const path = await service.createWorktree(repo, "persist");
+    const metadata = await readFile(join(path, ".git"));
+    await rm(join(path, ".git"));
+    await service.listWorktrees(repo);
+    expect((await saved()).managed).toEqual([]);
+    await writeFile(join(path, ".git"), metadata);
+    await expect((await restart()).removeWorktree(repo, path, true)).rejects.toThrow("not managed");
+  });
+  it.each([
+    null,
+    [],
+    {},
+    { version: 2, repositories: [], managed: [] },
+    { version: 1, repositories: {}, managed: [] },
+    { version: 1, repositories: [], managed: {} },
+  ])("rejects invalid state %j", async (value) => {
+    await store(value);
+    expect((await restart()).listRepositories()).toEqual([]);
+  });
+  it("ignores malformed JSON and can subsequently save valid state", async () => {
+    await store(null);
+    await writeFile(statePath(), "{broken");
+    service = await restart();
+    expect(service.listRepositories()).toEqual([]);
+    await service.addRepository(repo);
+    expect((await restart()).listRepositories()).toHaveLength(1);
+    await expect(WorktreeService.open("\0")).rejects.toThrow("Invalid path");
+  });
+  it("rejects hostile records and derives roots from configuration rather than stored claims", async () => {
+    service = await restart();
+    await service.addRepository(repo);
+    const path = await service.createWorktree(repo, "persist");
+    const state = await saved();
+    const entry = state.managed[0];
+    if (!entry) throw new Error("Missing record");
+    const alias = join(temporary, "alias");
+    await symlink(repo, alias, "junction");
+    await store({
+      version: 1,
+      repositories: [repo, alias, temporary, join(temporary, "missing"), 1, "relative", "\0"],
+      managed: [
+        null,
+        {},
+        { ...entry, path: "relative" },
+        { ...entry, repository: 1 },
+        { ...entry, root: false },
+        { ...entry, identity: {} },
+        { ...entry, repository: join(temporary, "unknown") },
+        { ...entry, root: dirname(temporary) },
+        { ...entry, path: temporary, root: temporary },
+        { ...entry, path: join(temporary, "not-a-tree"), root: temporary },
+        { ...entry, path: repo, root: temporary },
+      ],
+    });
+    service = await restart();
+    expect(service.listRepositories()).toEqual([{ path: repo, name: "repo with spaces" }]);
+    await expect(service.removeWorktree(repo, path, true)).rejects.toThrow("not managed");
+    expect((await saved()).managed).toEqual([]);
+  });
+  it("does not restore ownership under a previously configured root", async () => {
+    service = await restart();
+    await service.addRepository(repo);
+    const path = await service.createWorktree(repo, "persist");
+    service = await WorktreeService.open(join(temporary, "user-data"), join(temporary, "new-root"));
+    await expect(service.removeWorktree(repo, path, true)).rejects.toThrow("not managed");
+  });
+  it("does not accept a worktree belonging to a different repository", async () => {
+    service = await restart();
+    await service.addRepository(repo);
+    await service.createWorktree(repo, "persist");
+    const other = join(temporary, "other");
+    await mkdir(other);
+    await execute("git", ["init"], { cwd: other });
+    await service.addRepository(other);
+    const state = await saved();
+    await store({
+      ...state,
+      managed: state.managed.map((entry) => ({ ...entry, repository: other })),
+    });
+    expect((await restart()).listRepositories()).toHaveLength(2);
+    expect((await saved()).managed).toEqual([]);
+  });
+  it("reports failed writes, preserves the previous snapshot and can retry", async () => {
+    service = await restart();
+    await service.addRepository(repo);
+    const original = await readFile(statePath(), "utf8");
+    const backup = `${statePath()}.backup`;
+    await rename(statePath(), backup);
+    await mkdir(statePath());
+    await expect(service.addRepository(repo)).rejects.toThrow();
+    expect(await readFile(backup, "utf8")).toBe(original);
+    await rm(statePath(), { recursive: true });
+    await service.addRepository(repo);
+    expect((await restart()).listRepositories()).toHaveLength(1);
+  });
+});
