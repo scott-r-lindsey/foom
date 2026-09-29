@@ -21,12 +21,13 @@ The direction is **Event Horizon: Eclipse**. It's a black hole with a glowing ri
 | `muted` | `#9D93BD` | `#625A7A` | Secondary text |
 | `accent` | `#9B6BFF` | `#5B2BD9` | Brand, working light |
 | `accent-deep` | `#7A3CFF` | `#3B1A99` | Glow, art |
-| `attention` | `#FFB23E` | `#D98200` | Needs you only |
+| `attention` | `#FFB23E` | `#D98200` | Needs you lights only |
+| `attention-ink` | `#FFB23E` | `#8C5000` | Needs you text; readable on the row surface |
 | `done` | `#6FE0A3` | `#13804A` | Done |
 | `failed` | `#FF2E88` | `#D6166E` | Failed only |
 | `hole` | `#06050B` | `#06050B` | The black hole, both modes |
 
-Light mode uses a darker amber so "needs you" still wins against a pale background.
+Light mode uses a darker amber so "needs you" still wins against a pale background. The separate text token meets small-text contrast requirements without dimming the attention light.
 
 ## Type
 

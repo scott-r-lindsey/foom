@@ -143,7 +143,7 @@ button:focus-visible {
   box-shadow: 0 0 0 4px color-mix(in srgb, var(--attention) 22%, transparent);
 }
 .board-row[data-state="needs_input"] .board-state {
-  color: var(--attention);
+  color: var(--attention-ink);
 }
 .board-row[data-state="done"] .board-light {
   background: var(--done);

@@ -8,11 +8,18 @@ const { _electron: electron, expect } = require("@playwright/test");
 
 async function assertAccessible(page) {
   // Electron does not support Target.createTarget. This app has no cross-origin frames.
-  const results = await new AxeBuilder({ page }).setLegacyMode().analyze();
-  assert.deepEqual(
-    results.violations.filter(({ impact }) => impact === "serious" || impact === "critical"),
-    [],
-  );
+  for (const colorScheme of ["light", "dark"]) {
+    await page.emulateMedia({ colorScheme });
+    // PTY output has arbitrary user/agent-selected ANSI colors. Keep the app chrome
+    // and xterm input in scope, but do not audit external programs' rendered text.
+    const results = await new AxeBuilder({ page }).setLegacyMode().exclude(".xterm-rows").analyze();
+    assert.deepEqual(
+      results.violations.filter(({ impact }) => impact === "serious" || impact === "critical"),
+      [],
+      `Serious or critical accessibility violations in ${colorScheme} mode`,
+    );
+  }
+  await page.emulateMedia({ colorScheme: null });
 }
 
 // Keep the Node debugger available until PTY cleanup finishes. Pausing the final
