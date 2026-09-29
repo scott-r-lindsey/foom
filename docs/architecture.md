@@ -6,19 +6,24 @@ This describes the target design. Where the code differs today, the section says
 
 | Process | Owns | Must not |
 |---|---|---|
-| Main | PTYs, terminal state, git and worktrees, agent launch, the hook receiver, the evaluator, secrets | Trust anything from the renderer or from agents without validation |
+| Main | Terminal capabilities and IPC broker, git and worktrees, agent launch, the hook receiver, the evaluator, secrets | Trust anything from the renderer or from agents without validation |
+| Terminal host (`utilityProcess`) | PTYs, headless screens and parser/view backpressure | Trust messages without validation or depend on an attached view to consume output |
 | Preload (sandboxed) | A small typed bridge (`window.desktop`) | Import runtime modules beyond what the sandboxed loader allows |
 | Renderer | Drawing: the board, lights, the open terminal view | Import Electron or Node APIs |
 
 ## Terminals
 
-**Today:** `src/terminal-manager.ts` owns independent PTYs and headless screens by ID. `src/terminal.ts` grants the app window access only to the terminals it created. The renderer currently displays one shell; the manager supports multiple concurrent sessions. Closing the owning window disposes its sessions. Detached sessions continue running; navigation or a renderer crash automatically detaches views.
+**Today:** `src/terminal-host.ts` runs `TerminalManager` in an Electron utility process, owning independent PTYs and headless screens by ID. `src/terminal-host-client.ts` brokers asynchronous operations in main over the parent port; it never imports node-pty or headless xterm. `src/terminal.ts` grants the app window access only to the terminals it created. The renderer currently displays one shell; the manager supports multiple concurrent sessions. Closing the owning window disposes its sessions. App quit waits for host shutdown, with a bounded fallback if the host stops responding. Detached sessions continue running; navigation or a renderer crash automatically detaches views.
 
 - Each terminal has an ID, a PTY, and a headless xterm instance (`@xterm/headless`) that always consumes output. It holds the screen and scrollback, so a hidden agent never stalls.
-- Main forwards headless xterm protocol responses to the PTY while it is alive, independent of attachment. Views suppress the corresponding device-attribute, status, mode, and status-string query handlers so each query has exactly one response owner. Keyboard, paste, and mouse input remain renderer input; attachment changes never transfer query ownership.
+- The host forwards headless xterm protocol responses to the PTY while it is alive, independent of attachment. Views suppress the corresponding device-attribute, status, mode, and status-string query handlers so each query has exactly one response owner. Keyboard, paste, and mouse input remain renderer input; attachment changes never transfer query ownership.
 - Opening a terminal sends a serialized snapshot (`@xterm/addon-serialize`) through the data channel, then streams live output. A headless parser barrier keeps the snapshot and live stream contiguous. Each attachment has a fresh token; acknowledgements must carry that token, so delayed callbacks cannot acknowledge a new view.
-- Throttling (pause at a high-water mark, resume after the renderer confirms it drew the output) applies only while a view is attached.
-- The activity meter and last-lines buffer read from the same stream. Terminal tails use the active screen and its scrollback, including populated rows below the cursor. They omit trailing whitespace-only rows before applying the requested line limit, preserve interior blank rows, and return an empty list for a blank buffer.
+- Parser backpressure pauses a PTY above 262,144 queued UTF-16 code units and releases it below 65,536, regardless of attachment. This prevents the headless write buffer from overflowing. Separately, view backpressure uses the same watermarks for unacknowledged output while a view is attached. Both conditions must clear to resume; detaching only clears the view condition. No PTY pauses merely because it has no view.
+- The future activity meter and existing last-lines buffer read from the same stream in the host. Terminal tails use the active screen and its scrollback, including populated rows below the cursor. They omit trailing whitespace-only rows before applying the requested line limit, preserve interior blank rows, and return an empty list for a blank buffer.
+
+The host uses Electron's `utilityProcess.fork`, not a Node child-process fork, so RunAsNode stays disabled. The native node-pty module remains unpacked from ASAR; Windows continues using the ConPTY DLL to avoid its Node helper path. The three-platform CI matrix runs the packaged executable and tests its PTYs and detached snapshots with the disabled fuse verified.
+
+Host requests and responses are validated at runtime and carry terminal IDs; request/reply pairs also carry a monotonic request number. Each attach has a main-generated view generation so late output from a previous view is ignored. Creation IDs are allocated in main. Unknown and duplicate IDs are rejected by the host. Renderer payloads cannot choose executables or working directories. A host exit or 10-second request timeout rejects pending operations, marks live terminals failed (`terminal:exit` code -1), and removes views. Exited terminals are not reclassified. A later create starts a fresh host; old IDs cannot address new sessions. The current single-shell UI displays the failure and offers Restart shell. A normal close sends shutdown and waits up to three seconds before terminating an unresponsive host.
 
 Target launch interface sketch (worktree and agent launch support is future roadmap work):
 

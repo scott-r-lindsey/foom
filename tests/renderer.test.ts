@@ -113,6 +113,8 @@ test("shows exit status and lets the user restart", async () => {
   });
   mock.onExit.mock.calls[0]?.[0]("one", 4);
   expect(document.querySelector("#status")?.textContent).toBe("Shell exited (4)");
+  mock.onExit.mock.calls[0]?.[0]("one", -1);
+  expect(document.querySelector("#status")?.textContent).toContain("Terminal host failed");
   const button = document.querySelector<HTMLButtonElement>("#restart");
   expect(button?.disabled).toBe(false);
   button?.click();

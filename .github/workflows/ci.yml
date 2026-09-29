@@ -140,6 +140,12 @@ jobs:
         run: npm run test:electron
       - name: Package desktop application
         run: npm run make
+      - name: Test packaged terminal host on Linux
+        if: runner.os == 'Linux'
+        run: xvfb-run -a npm run test:packaged
+      - name: Test packaged terminal host on macOS and Windows
+        if: runner.os != 'Linux'
+        run: npm run test:packaged
       - name: Upload unsigned development package
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:

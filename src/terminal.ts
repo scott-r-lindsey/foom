@@ -1,7 +1,7 @@
 import { app, ipcMain } from "electron";
 import type { BrowserWindow, IpcMainEvent, IpcMainInvokeEvent, Event } from "electron";
 import { homedir } from "node:os";
-import { TerminalManager } from "./terminal-manager";
+import { TerminalHostClient } from "./terminal-host-client";
 
 /** The app window owns capabilities for multiple independent main-owned sessions. */
 export function attachTerminal(window: BrowserWindow): void {
@@ -13,8 +13,8 @@ export function attachTerminal(window: BrowserWindow): void {
     event.senderFrame !== null &&
     event.senderFrame === event.sender.mainFrame &&
     event.senderFrame.url === "app://bundle/index.html";
-  const manager = new TerminalManager((id, code) => {
-    contents.send("terminal:exit", id, code);
+  const manager = new TerminalHostClient((id, code) => {
+    if (!contents.isDestroyed()) contents.send("terminal:exit", id, code);
   });
   const validId = (id: unknown): id is string => typeof id === "string" && owned.has(id);
   const size = (cols: unknown, rows: unknown): boolean =>
@@ -27,14 +27,14 @@ export function attachTerminal(window: BrowserWindow): void {
     rows >= 2 &&
     rows <= 300;
   const handlers = new Map<string, (event: IpcMainInvokeEvent, ...args: unknown[]) => unknown>();
-  handlers.set("terminal:create", (event, cols, rows) => {
+  handlers.set("terminal:create", async (event, cols, rows) => {
     if (!trusted(event)) throw new Error("Untrusted IPC sender");
     if (!size(cols, rows) || typeof cols !== "number" || typeof rows !== "number")
       throw new Error("Invalid terminal size");
     const command =
       process.platform === "win32" ? "powershell.exe" : process.env["SHELL"] || "/bin/bash";
     const cwd = app.isPackaged ? homedir() : process.cwd();
-    const id = manager.create({
+    const id = await manager.create({
       command,
       args: process.platform === "win32" ? ["-NoLogo"] : ["-l"],
       cwd,
@@ -54,7 +54,7 @@ export function attachTerminal(window: BrowserWindow): void {
         });
       else if (operation === "detach") manager.detach(id);
       else {
-        manager.kill(id);
+        await manager.kill(id);
         owned.delete(id);
       }
     });
@@ -89,10 +89,23 @@ export function attachTerminal(window: BrowserWindow): void {
   ipcMain.on("terminal:input", input);
   ipcMain.on("terminal:resize", resize);
   ipcMain.on("terminal:ack", acknowledge);
+  let quitting = false;
+  const beforeQuit = (event: Event) => {
+    if (quitting) return;
+    event.preventDefault();
+    void manager.dispose().then(() => {
+      quitting = true;
+      app.removeListener("before-quit", beforeQuit);
+      app.quit();
+    });
+  };
+  app.on("before-quit", beforeQuit);
   window.once("closed", () => {
     contents.removeListener("render-process-gone", detachViews);
     contents.removeListener("did-start-navigation", navigating);
-    manager.dispose();
+    void manager.dispose().then(() => {
+      app.removeListener("before-quit", beforeQuit);
+    });
     for (const channel of handlers.keys()) ipcMain.removeHandler(channel);
     ipcMain.removeListener("terminal:input", input);
     ipcMain.removeListener("terminal:resize", resize);
