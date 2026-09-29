@@ -36,7 +36,7 @@ Light mode uses a darker amber so "needs you" still wins against a pale backgrou
 | Voice | Courier Prime | Taglines, empty states, marketing |
 | Interface | Geist, Geist Mono | App UI text; Geist Mono for terminals, rows, data |
 
-All three are under the SIL Open Font License. Bundle them with the app. Don't load them from a CDN: the renderer CSP blocks remote fonts, and the app must work offline.
+All four are under the SIL Open Font License. Bundle them with the app. Don't load them from a CDN: the renderer CSP blocks remote fonts, and the app must work offline.
 
 ## Mark
 

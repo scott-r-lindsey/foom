@@ -6,13 +6,29 @@ const container = document.querySelector<HTMLElement>("#terminal");
 const status = document.querySelector<HTMLElement>("#status");
 const restart = document.querySelector<HTMLButtonElement>("#restart");
 if (!container || !status || !restart) throw new Error("Missing terminal elements");
+const colors = matchMedia("(prefers-color-scheme: dark)");
+const theme = () => {
+  const style = getComputedStyle(document.documentElement);
+  const token = (name: string) => style.getPropertyValue(`--${name}`).trim();
+  return {
+    background: token("bg"),
+    foreground: token("ink"),
+    cursor: token("accent"),
+    cursorAccent: token("bg"),
+    selectionBackground: token("line"),
+  };
+};
 const terminal = new Terminal({
   cursorBlink: true,
   fontSize: 14,
-  fontFamily: '"DejaVu Sans Mono", Consolas, monospace',
+  fontFamily: '"Geist Mono", monospace',
   scrollback: 10000,
-  theme: { background: "#0c0d12", foreground: "#e1e3ee", cursor: "#a99aff" },
+  theme: theme(),
 });
+const updateTheme = () => {
+  terminal.options.theme = theme();
+};
+colors.addEventListener("change", updateTheme);
 const fit = new FitAddon();
 terminal.loadAddon(fit);
 terminal.open(container);
@@ -51,9 +67,11 @@ restart.addEventListener("click", () => {
   void start();
 });
 window.addEventListener("beforeunload", () => {
+  colors.removeEventListener("change", updateTheme);
   observer.disconnect();
   offData();
   offExit();
   terminal.dispose();
 });
-void start();
+// Measure the first grid only after the bundled terminal face is available.
+void document.fonts.load('14px "Geist Mono"').then(start, start);

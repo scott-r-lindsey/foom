@@ -1,6 +1,6 @@
 import { build } from "esbuild";
 import { execFileSync } from "node:child_process";
-import { chmod, copyFile, glob, mkdir, rm } from "node:fs/promises";
+import { chmod, copyFile, cp, glob, mkdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -21,7 +21,7 @@ for (const config of ["tsconfig.main.json", "tsconfig.renderer.json"]) {
   execFileSync(process.execPath, [compiler, "-p", config], { cwd: root, stdio: "inherit" });
 }
 await mkdir(new URL("../build/renderer/", import.meta.url), { recursive: true });
-for (const asset of ["index.html", "styles.css"]) {
+for (const asset of ["index.html", "styles.css", "tokens.css"]) {
   await copyFile(
     new URL(`../src/renderer/${asset}`, import.meta.url),
     new URL(`../build/renderer/${asset}`, import.meta.url),
@@ -35,3 +35,9 @@ await build({
   format: "esm",
   outfile: fileURLToPath(new URL("../build/renderer/renderer.js", import.meta.url)),
 });
+
+await cp(
+  new URL("../src/renderer/fonts/", import.meta.url),
+  new URL("../build/renderer/fonts/", import.meta.url),
+  { recursive: true },
+);
