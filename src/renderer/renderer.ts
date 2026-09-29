@@ -1,4 +1,5 @@
 import { Terminal } from "@xterm/xterm";
+import { suppressTerminalReplies } from "./terminal-replies";
 import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
 
@@ -25,6 +26,7 @@ const terminal = new Terminal({
   scrollback: 10000,
   theme: theme(),
 });
+suppressTerminalReplies(terminal);
 const updateTheme = () => {
   terminal.options.theme = theme();
 };
