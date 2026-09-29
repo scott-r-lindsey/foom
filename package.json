@@ -7,7 +7,7 @@
   "license": "UNLICENSED",
   "main": "build/main.js",
   "engines": {
-    "node": ">=24.0.0"
+    "node": "^24.0.0 || >=26.0.0"
   },
   "scripts": {
     "build": "node scripts/build.mjs",
@@ -24,7 +24,8 @@
     "test:coverage": "vitest run --coverage",
     "test:electron": "npm run build && node --test test/*.test.js",
     "check": "npm run format:check && npm run lint && npm run typecheck && npm test",
-    "prepare": "husky"
+    "prepare": "husky",
+    "audit": "npm audit --audit-level=low"
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.14",
@@ -36,7 +37,7 @@
     "@playwright/test": "1.63.0",
     "@types/jsdom": "30.0.0",
     "@types/node": "24.19.0",
-    "@vitest/coverage-v8": "4.1.11",
+    "@vitest/coverage-v8": "5.0.2",
     "electron": "44.4.5",
     "eslint": "10.11.0",
     "globals": "17.12.0",
@@ -44,6 +45,15 @@
     "jsdom": "29.1.1",
     "typescript": "6.0.3",
     "typescript-eslint": "8.71.0",
-    "vitest": "4.1.11"
+    "vitest": "5.0.2"
+  },
+  "overrides": {
+    "@electron/rebuild": "4.2.0",
+    "@electron/packager": {
+      "extract-zip": "npm:@electron-internal/extract-zip@1.0.5"
+    },
+    "external-editor": {
+      "tmp": "0.2.7"
+    }
   }
 }

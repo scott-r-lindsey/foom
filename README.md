@@ -34,6 +34,7 @@ Main and preload compile to CommonJS for Electron's sandboxed preload. Renderer 
 | `npm run format` | Apply Biome formatting |
 | `npm run format:check` | Check formatting without changing files |
 | `npm run lint` / `npm run lint:fix` | Type-aware ESLint checks / safe autofixes |
+| `npm run audit` | Scan the full dependency tree, including development tools; fail on any reported vulnerability |
 | `npm run typecheck` | Check application, tests, and Vitest configuration without emitting files |
 | `npm test` / `npm run test:watch` | Run Vitest once / in watch mode, without a desktop display |
 | `npm run test:coverage` | Enforce per-file coverage and write HTML, LCOV, JSON, and terminal reports |
@@ -57,13 +58,13 @@ PR checks additionally require **90% changed executable line coverage**, and fai
 
 `.github/workflows/ci.yml` runs on pushes and pull requests:
 
-1. Independent formatting, lint, typecheck, and unit-coverage jobs.
+1. Independent formatting, lint, typecheck, full dependency audit, and unit-coverage jobs.
 2. Electron launch tests and Forge ZIP packaging on Ubuntu, Windows, and macOS, after the fast checks pass.
 3. A stable **Quality gate** status that requires all jobs to succeed.
 
 CI uploads HTML/LCOV coverage and unsigned platform ZIPs for 14 days. PRs get changed-line annotations and a job summary; same-repository PRs also get one updated coverage comment. Comment permission failures do not bypass the coverage gate. GitHub Actions are pinned to commit SHAs, dependencies use `npm ci`, and Node comes from `.nvmrc`.
 
-To enforce checks before merging, configure the repository's branch rules to require **Quality gate**. The workflow alone does not configure branch protection. Linux CI permits unprivileged user namespaces on its ephemeral runner so Chromium can keep its sandbox enabled.
+`main` requires a pull request, an up-to-date branch, and a passing **Quality gate**, including for administrators. No second-person approval is required. Force pushes and deletion are blocked. Linux CI permits unprivileged user namespaces on its ephemeral runner so Chromium can keep its sandbox enabled.
 
 Local `package` output goes to `out/`; `make` ZIPs go to `out/make/`. Build on each target OS. These are unsigned development artifacts. Public releases still need your app identifier, icons, installers, signing, and macOS notarization. No automatic public release or deployment is configured.
 
@@ -73,6 +74,20 @@ The renderer uses sandboxing, context isolation, and no Node integration. A stri
 
 Keep Electron updated and review the [Electron security checklist](https://www.electronjs.org/docs/latest/tutorial/security) when adding capabilities. Contributor instructions are in [AGENTS.md](AGENTS.md).
 
-### Known dependency audit findings
+### Dependency maintenance
 
-The current dependency tree reports 25 development-tooling advisories (3 low, 21 high, 1 critical), including archive extraction and temporary-file packages under Forge. Compatible `npm audit fix` does not resolve them; its forced alternative proposes a Forge downgrade. These remain outstanding. Recheck upstream updates before release and use trusted build inputs. `npm audit --omit=dev` reports zero advisories; this does not audit Electron's bundled Chromium or Node.js runtime.
+The full `npm run audit` scan currently reports **zero vulnerabilities**, including development dependencies. It runs as a required CI job before packaging. A registry failure also fails that job; advisories are not suppressed. This scan does not replace monitoring Electron's Chromium and Node.js security updates.
+
+Forge 7.11.2 is the latest stable Forge release at the time of this update, but still requests older transitive dependencies. Three pinned npm overrides remove the previous 25 findings:
+
+| Override | Reason |
+| --- | --- |
+| `@electron/rebuild` → `4.2.0` | Replaces the old Electron node-gyp fork and vulnerable `tar` 6 dependency chain with maintained node-gyp and patched `tar` 7.5.22. |
+| `@electron/packager` → `extract-zip` alias to `@electron-internal/extract-zip@1.0.5` | The original `extract-zip` has no patched release. Electron's maintained extractor provides the API used by Packager and protects extraction paths. |
+| `external-editor` → `tmp@0.2.7` | Fixes temporary-file path handling while retaining the API used by Forge's prompt dependency. |
+
+These cross upstream version ranges. Keep validating clean installs and packaging on all three operating systems when changing them, and remove the overrides when a stable Forge release incorporates the fixes. Native addon compilation will need its own tests if we add native dependencies; this app currently has none.
+
+Vitest and its V8 coverage provider are updated together to 5.0.2. Some dependencies intentionally remain below their newest major: TypeScript 6 matches typescript-eslint's supported range; Node types match Node 24; fuses 1.8 matches Forge's plugin peer requirement. Use Node 24 LTS (`nvm use`); Vitest 5 does not support Node 25.
+
+Sources: [Electron's maintained ZIP extractor](https://github.com/electron/extract-zip), [original extractor advisory](https://github.com/advisories/GHSA-jmr9-qjv8-65gv), and the installed packages' peer/engine requirements.
