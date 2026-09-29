@@ -1,0 +1,195 @@
+import { TerminalColors } from "../terminal-colors";
+import { Terminal } from "@xterm/xterm";
+import { suppressTerminalReplies } from "./terminal-replies";
+import { FitAddon } from "@xterm/addon-fit";
+import type { ShellView } from "./shell.d";
+
+/** Imperative terminal lifecycle; output never enters React state. */
+export function createShell(container: HTMLElement, update: (view: ShellView) => void) {
+  const view: ShellView = {
+    status: "Starting shell…",
+    toggleLabel: "Open terminal",
+    visible: false,
+    toggleDisabled: true,
+    restartDisabled: true,
+  };
+  const publish = () => {
+    if (!isDisposed()) update({ ...view });
+  };
+  const colors = matchMedia("(prefers-color-scheme: dark)");
+  const theme = () => {
+    const style = getComputedStyle(document.documentElement);
+    const token = (name: string) => style.getPropertyValue(`--${name}`).trim();
+    return {
+      background: token("bg"),
+      foreground: token("ink"),
+      cursor: token("accent"),
+      cursorAccent: token("bg"),
+      selectionBackground: token("line"),
+    };
+  };
+  const terminal = new Terminal({
+    cursorBlink: true,
+    fontSize: 14,
+    fontFamily: '"Geist Mono", monospace',
+    scrollback: 10000,
+    theme: theme(),
+  });
+  suppressTerminalReplies(terminal);
+  const terminalColors = new TerminalColors(
+    terminal.parser,
+    colors.matches,
+    () => {},
+    () => {
+      terminal.options.theme = { ...theme(), ...terminalColors.theme() };
+    },
+  );
+  const updateTheme = () => {
+    terminalColors.reset(colors.matches);
+    terminal.options.theme = { ...theme(), ...terminalColors.theme() };
+  };
+  colors.addEventListener("change", updateTheme);
+  const fit = new FitAddon();
+  terminal.loadAddon(fit);
+  terminal.open(container);
+  let disposed = false;
+  const isDisposed = () => disposed;
+  let activeId: string | undefined;
+  let attached = false;
+  let busy = false;
+  let exited = false;
+  let hostFailed = false;
+  let terminalStatus = "Starting shell…";
+  const showOperationError = (prefix: string, error: unknown) => {
+    // Host exit can arrive before a pending IPC operation rejects.
+    view.status = hostFailed
+      ? terminalStatus
+      : `${prefix}: ${error instanceof Error ? error.message : String(error)}`;
+    publish();
+  };
+  const visibility = (visible: boolean) => {
+    attached = visible;
+    container.hidden = !visible;
+    view.toggleLabel = visible ? "Hide terminal" : "Open terminal";
+    view.visible = visible;
+    publish();
+  };
+  const controls = () => {
+    view.toggleDisabled = busy || !activeId;
+    view.restartDisabled = busy || !exited;
+    publish();
+  };
+  const offData = window.desktop.onData((id, token, data) => {
+    if (id !== activeId || !attached) return;
+    terminal.write(data, () => {
+      window.desktop.acknowledge(id, token, data.length);
+    });
+  });
+  const offExit = window.desktop.onExit((id, code) => {
+    if (id !== activeId) return;
+    hostFailed = code === -1;
+    terminalStatus = hostFailed
+      ? "Terminal host failed. Restart the shell to continue."
+      : `Shell exited (${String(code)})`;
+    view.status = terminalStatus;
+    exited = true;
+    controls();
+  });
+  terminal.onData((data) => {
+    if (activeId && attached && !busy) window.desktop.input(activeId, data);
+  });
+  const resize = () => {
+    if (!attached || busy) return;
+    fit.fit();
+    if (activeId) window.desktop.resize(activeId, terminal.cols, terminal.rows);
+  };
+  const observer = new ResizeObserver(resize);
+  observer.observe(container);
+  const openView = async (id: string) => {
+    // Drain writes from the old attachment before resetting, including delayed ACKs.
+    await new Promise<void>((resolve) => {
+      terminal.write("", resolve);
+    });
+    if (isDisposed()) return;
+    terminal.reset();
+    updateTheme();
+    visibility(true);
+    fit.fit();
+    window.desktop.resize(id, terminal.cols, terminal.rows);
+    await window.desktop.attach(id);
+    if (!isDisposed()) terminal.focus();
+  };
+  const toggleView = async () => {
+    if (busy || !activeId) return;
+    busy = true;
+    controls();
+    try {
+      if (attached) {
+        visibility(false);
+        await window.desktop.detach(activeId);
+      } else {
+        await openView(activeId);
+      }
+      view.status = terminalStatus;
+    } catch (error: unknown) {
+      visibility(false);
+      showOperationError("Unable to change terminal view", error);
+    } finally {
+      busy = false;
+      controls();
+    }
+  };
+  terminal.attachCustomKeyEventHandler((event) => {
+    if (event.key !== "Escape") return true;
+    if (event.type === "keydown") void toggleView();
+    return false;
+  });
+  const start = async () => {
+    if (isDisposed() || busy) return;
+    busy = true;
+    hostFailed = false;
+    view.status = "Starting shell…";
+    controls();
+    visibility(false);
+    try {
+      if (activeId) {
+        const previous = activeId;
+        activeId = undefined;
+        await window.desktop.kill(previous);
+        if (isDisposed()) return;
+      }
+      // The view must be visible to measure the initial grid.
+      container.hidden = false;
+      fit.fit();
+      const created = await window.desktop.create(terminal.cols, terminal.rows);
+      if (isDisposed()) {
+        await window.desktop.kill(created.id);
+        return;
+      }
+      activeId = created.id;
+      exited = false;
+      terminalStatus = created.title;
+      view.status = terminalStatus;
+      await openView(created.id);
+    } catch (error: unknown) {
+      visibility(false);
+      showOperationError("Unable to start shell", error);
+      exited = true;
+    } finally {
+      busy = false;
+      controls();
+    }
+  };
+  const dispose = () => {
+    disposed = true;
+    colors.removeEventListener("change", updateTheme);
+    observer.disconnect();
+    offData();
+    offExit();
+    terminal.dispose();
+  };
+  // Measure the first grid only after the bundled terminal face is available.
+  void document.fonts.load('14px "Geist Mono"').then(start, start);
+
+  return { terminal, toggle: toggleView, restart: start, dispose };
+}

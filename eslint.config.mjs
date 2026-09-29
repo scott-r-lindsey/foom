@@ -1,3 +1,5 @@
+import reactHooks from "eslint-plugin-react-hooks";
+import react from "@eslint-react/eslint-plugin";
 import js from "@eslint/js";
 import { builtinModules } from "node:module";
 import globals from "globals";
@@ -21,7 +23,7 @@ export default tseslint.config(
     rules: { "no-unused-vars": ["error", { argsIgnorePattern: "^_" }] },
   },
   {
-    files: ["**/*.{ts,mts}"],
+    files: ["**/*.{ts,tsx,mts}"],
     extends: [...tseslint.configs.strictTypeChecked],
     languageOptions: {
       parserOptions: {
@@ -35,7 +37,7 @@ export default tseslint.config(
     },
   },
   {
-    files: ["src/renderer/**/*.ts"],
+    files: ["src/renderer/**/*.{ts,tsx}"],
     rules: {
       "no-restricted-imports": [
         "error",
@@ -50,6 +52,10 @@ export default tseslint.config(
         },
       ],
     },
+  },
+  {
+    files: ["**/*.tsx"],
+    extends: [reactHooks.configs.flat.recommended, react.configs["recommended-typescript"]],
   },
   { files: ["test/*.js"], languageOptions: { globals: globals.browser } },
 );
