@@ -1,14 +1,15 @@
-const { FusesPlugin } = require('@electron-forge/plugin-fuses');
-const { FuseV1Options, FuseVersion } = require('@electron/fuses');
+const { FusesPlugin } = require("@electron-forge/plugin-fuses");
+const { FuseV1Options, FuseVersion } = require("@electron/fuses");
 
 module.exports = {
   packagerConfig: {
     asar: true,
-    executableName: 'foom',
-    appBundleId: 'com.foom.desktop',
-    ignore: [/^\/src(?:\/|$)/, /^\/scripts(?:\/|$)/, /^\/tsconfig.*\.json$/, /^\/test(?:\/|$)/, /^\/eslint\.config\.mjs$/, /^\/README\.md$/],
+    executableName: "foom",
+    appBundleId: "com.foom.desktop",
+    // Ship only compiled application files and package metadata.
+    ignore: (file) => file !== "" && file !== "/package.json" && !/^\/build(?:\/|$)/.test(file),
   },
-  makers: [{ name: '@electron-forge/maker-zip', platforms: ['darwin', 'linux', 'win32'] }],
+  makers: [{ name: "@electron-forge/maker-zip", platforms: ["darwin", "linux", "win32"] }],
   plugins: [
     new FusesPlugin({
       version: FuseVersion.V1,
