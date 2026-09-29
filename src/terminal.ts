@@ -89,10 +89,37 @@ export function attachTerminal(window: BrowserWindow): TerminalManager {
   ipcMain.on("terminal:input", input);
   ipcMain.on("terminal:resize", resize);
   ipcMain.on("terminal:ack", acknowledge);
+  let quitting = false;
+  const willQuit = (event: Event) => {
+    if (!manager.hasPendingExits) return;
+    event.preventDefault();
+    if (quitting) return;
+    quitting = true;
+    manager.dispose();
+    void manager
+      .waitForExit()
+      .then(() => {
+        app.removeListener("will-quit", willQuit);
+        app.quit();
+      })
+      .catch((error: unknown) => {
+        quitting = false;
+        console.error("Unable to finish terminal shutdown:", error);
+      });
+  };
+  app.on("will-quit", willQuit);
   window.once("closed", () => {
     contents.removeListener("render-process-gone", detachViews);
     contents.removeListener("did-start-navigation", navigating);
     manager.dispose();
+    void manager
+      .waitForExit()
+      .then(() => {
+        app.removeListener("will-quit", willQuit);
+      })
+      .catch((error: unknown) => {
+        console.error("Unable to finish terminal shutdown:", error);
+      });
     for (const channel of handlers.keys()) ipcMain.removeHandler(channel);
     ipcMain.removeListener("terminal:input", input);
     ipcMain.removeListener("terminal:resize", resize);

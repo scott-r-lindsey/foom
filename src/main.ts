@@ -1,7 +1,10 @@
 import { app, BrowserWindow, dialog, nativeTheme, net, protocol, session } from "electron";
+import { WorktreeService } from "./worktrees";
 import { attachTerminal } from "./terminal";
 import * as path from "node:path";
 import { pathToFileURL } from "node:url";
+
+export let worktrees: WorktreeService;
 
 const APP_URL = "app://bundle/index.html";
 const rendererDirectory = path.join(__dirname, "renderer");
@@ -134,7 +137,8 @@ function createWindow() {
 
 app
   .whenReady()
-  .then(() => {
+  .then(async () => {
+    worktrees = await WorktreeService.open(app.getPath("userData"));
     // Serve only known local assets; arbitrary filesystem access is never exposed.
     protocol.handle("app", (request) => {
       const url = new URL(request.url);

@@ -42,7 +42,10 @@ async function launchApp(context) {
       await Promise.race([
         app.close(),
         new Promise((_, reject) => {
-          timer = setTimeout(() => reject(new Error("Electron shutdown exceeded 5 seconds")), 5000);
+          timer = setTimeout(
+            () => reject(new Error("Electron shutdown exceeded 10 seconds")),
+            10000,
+          );
         }),
       ]);
       assert.equal(child.exitCode, 0, "Electron must exit normally");
@@ -282,6 +285,13 @@ test("terminal runs an interactive shell behind an isolated bridge", {
       () => !/Starting|exited|Unable/.test(document.querySelector("#status").textContent),
     );
     console.info("Shell restarted");
+    // Quit with fresh, detached PTYs as well as the restarted visible shell. Native
+    // exit callbacks must finish before Electron tears down its Node environment.
+    await page.evaluate(async () => {
+      const removed = await window.desktop.create(80, 24);
+      await window.desktop.kill(removed.id);
+      await window.desktop.create(80, 24);
+    });
   } catch (error) {
     const pages = app.windows();
     if (pages[0])

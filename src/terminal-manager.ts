@@ -22,6 +22,7 @@ type Session = {
 export class TerminalManager {
   private readonly sessions = new Map<string, Session>();
   private shuttingDown = false;
+  private readonly pendingExits = new Set<Promise<void>>();
 
   constructor(private readonly onExit: (id: string, code: number) => void) {}
 
@@ -38,7 +39,13 @@ export class TerminalManager {
       cols: spec.cols,
       rows: spec.rows,
       cwd: spec.cwd,
-      env: { ...env, TERM: "xterm-256color", COLORTERM: "truecolor", TERM_PROGRAM: "Foom" },
+      env: {
+        ...env,
+        ...spec.env,
+        TERM: "xterm-256color",
+        COLORTERM: "truecolor",
+        TERM_PROGRAM: "Foom",
+      },
     });
     const screen = new Terminal({
       cols: spec.cols,
@@ -70,14 +77,24 @@ export class TerminalManager {
           if (this.sessions.has(id)) this.deliver(session, data);
         });
       }),
-      pty.onExit(({ exitCode }) => {
-        session.exited = true;
-        // Preserve the final screen, and report exit after queued output has parsed.
-        screen.write("", () => {
-          if (this.sessions.has(id)) this.onExit(id, exitCode);
-        });
-      }),
     ];
+    let resolveExit: () => void;
+    const exited = new Promise<void>((resolve) => {
+      resolveExit = resolve;
+    });
+    this.pendingExits.add(exited);
+    // Keep this subscription after kill: killing a PTY only requests termination.
+    const exitSubscription = pty.onExit(({ exitCode }) => {
+      session.exited = true;
+      this.pendingExits.delete(exited);
+      exitSubscription.dispose();
+      resolveExit();
+      if (!this.sessions.has(id)) return;
+      // Preserve the final screen, and report exit after queued output has parsed.
+      screen.write("", () => {
+        if (this.sessions.has(id)) this.onExit(id, exitCode);
+      });
+    });
     return id;
   }
 
@@ -186,6 +203,27 @@ export class TerminalManager {
     });
   }
 
+  get hasPendingExits(): boolean {
+    return this.pendingExits.size > 0;
+  }
+
+  /** The process must stay alive until native PTY exit callbacks have drained. */
+  async waitForExit(): Promise<void> {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      await Promise.race([
+        Promise.all(this.pendingExits),
+        new Promise<never>((_resolve, reject) => {
+          timer = setTimeout(() => {
+            reject(new Error("Terminal shutdown timed out"));
+          }, 5000);
+        }),
+      ]);
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
   dispose(): void {
     for (const id of this.sessions.keys()) this.kill(id);
   }
@@ -236,6 +274,8 @@ export class TerminalManager {
       );
       const failure = results.find((result) => result.status === "rejected");
       if (failure) throw failure.reason;
+      // Removed terminals may still have native exit callbacks in flight.
+      await this.waitForExit();
       this.dispose();
     } catch (error) {
       this.shuttingDown = false;
