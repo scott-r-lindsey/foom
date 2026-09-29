@@ -137,7 +137,9 @@ test("terminal runs an interactive shell behind an isolated bridge", {
       await page.evaluate(() => {
         window.terminalOutput = "";
       });
-      await page.keyboard.type("vim -Nu NONE -n -i NONE");
+      // Screen restoration can precede process exit. Wait for a marker emitted by
+      // the parent shell before sending input intended for that shell.
+      await page.keyboard.type("vim -Nu NONE -n -i NONE; printf 'FOOM_%s\\n' VIM_EXITED");
       await page.keyboard.press("Enter");
       await page.waitForFunction(() => window.terminalOutput.includes("[?1049h"));
       await page.keyboard.type("ihello terminal");
@@ -146,13 +148,15 @@ test("terminal runs an interactive shell behind an isolated bridge", {
       await page.keyboard.type(":q!");
       await page.keyboard.press("Enter");
       await page.waitForFunction(() => window.terminalOutput.includes("[?1049l"));
+      await page.waitForFunction(() => window.terminalOutput.includes("FOOM_VIM_EXITED"));
       await page.evaluate(() => {
         window.terminalOutput = "";
       });
-      await page.keyboard.type("top");
+      await page.keyboard.type("top; printf 'FOOM_%s\\n' TOP_EXITED");
       await page.keyboard.press("Enter");
       await page.waitForFunction(() => /Tasks:|Processes:/.test(window.terminalOutput));
       await page.keyboard.type("q");
+      await page.waitForFunction(() => window.terminalOutput.includes("FOOM_TOP_EXITED"));
       await page.keyboard.type("printf 'FOOM_%s\\n' FULLSCREEN_OK");
       await page.keyboard.press("Enter");
       await page.waitForFunction(() => window.terminalOutput.includes("FOOM_FULLSCREEN_OK"));

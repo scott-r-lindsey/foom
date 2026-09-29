@@ -77,13 +77,13 @@ Repository registration and ownership are held in the service instance. A fresh 
 
 Foom attaches its hooks per launch and never edits the user's own config:
 
-- Claude Code: `claude --settings <foom-settings.json>` with Stop and Notification hooks.
-- Codex: `codex -c notify=[...]`.
-- Antigravity: output evaluator only, until research finds a supported signal.
+- Claude Code: `claude --settings <foom-settings.json>` with Stop and Notification hooks; JSON arrives on stdin. Permission notifications may be delayed, and Stop means a response ended, not necessarily task success.
+- Codex: `codex -c notify=[...]`; JSON arrives as an argument. The external callback reports turn completion, not approval requests, and replaces the effective notify command for that launch.
+- Antigravity: output evaluator only for now. Hooks and headless mode exist, but an invocation-scoped hook attachment was not verified.
 
-These mechanisms must be verified against current CLI docs before we build on them.
+See [agent research](agents.md) for versions, payloads, local probes, sources, and remaining verification. Completion events trigger classification; they do not unconditionally set Done. Echo-off alone is not a password signal: all three tested CLIs disabled echo at startup.
 
-The hook command can't run Node from the packaged app, because the RunAsNode fuse is disabled. The receiver design therefore needs a transport that plain OS tools can reach. The current proposal: an HTTP listener bound to `127.0.0.1` on a random port, called with `curl`. Each launch gets its own `FOOM_SESSION` and `FOOM_TOKEN` environment variables, and requests without a valid token are rejected. Payloads are untrusted data.
+The hook command can't run Node from the packaged app, because the RunAsNode fuse is disabled. The receiver design therefore needs a transport that plain OS tools can reach. The current proposal: an HTTP listener bound to `127.0.0.1` on a random port, called with `curl`. Each launch gets its own `FOOM_SESSION` and `FOOM_TOKEN` environment variables, and requests without a valid token are rejected. Payloads are untrusted data. Claude stdin and Codex argv need separate adapters; a single `curl --data-binary @-` command cannot handle both. Validate and reduce events locally; never forward transcript files or Codex `input-messages` to the evaluator.
 
 ## Evaluator pipeline
 
@@ -91,7 +91,7 @@ The hook command can't run Node from the packaged app, because the RunAsNode fus
 
 States: `needs_input`, `done`, `failed`, `quiet_ok`, `working`.
 
-Model calls get the last 40 lines, redacted, with a timeout. A failure falls back to rules-only and never blocks the light.
+Model calls get the last 40 lines, redacted, with a timeout. One-shot agent evaluators must not load repository instructions or use file, command, MCP, or other external tools to expand that input; a read-only sandbox alone does not enforce this boundary. Use another inference source or rules only when isolation cannot be enforced. A failure falls back to rules-only and never blocks the light.
 
 ## Secrets
 
