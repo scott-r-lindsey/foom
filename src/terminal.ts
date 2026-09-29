@@ -38,6 +38,9 @@ export function attachTerminal(window: BrowserWindow): void {
     const cwd = app.isPackaged ? homedir() : process.cwd();
     const pty = spawn(shell, process.platform === "win32" ? ["-NoLogo"] : ["-l"], {
       name: "xterm-256color",
+      // Use the bundled ConPTY implementation. The OS-backed cleanup path forks a
+      // Node helper, which is incompatible with our disabled RunAsNode fuse.
+      useConptyDll: true,
       cols,
       rows,
       cwd,

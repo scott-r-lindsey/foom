@@ -131,7 +131,7 @@ test.each(["win32", "linux"])(
     expect(mock.spawn).toHaveBeenCalledWith(
       platform === "win32" ? "powershell.exe" : "/bin/bash",
       expect.any(Array),
-      expect.objectContaining({ cols: 80, rows: 24, name: "xterm-256color" }),
+      expect.objectContaining({ cols: 80, rows: 24, name: "xterm-256color", useConptyDll: true }),
     );
     vi.unstubAllEnvs();
   },
