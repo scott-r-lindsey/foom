@@ -1,8 +1,7 @@
 :root {
-  color-scheme: dark;
-  font-family: system-ui, sans-serif;
-  background: #0c0d12;
-  color: #e1e3ee;
+  font-family: var(--font-interface);
+  background: var(--bg);
+  color: var(--ink);
 }
 * {
   box-sizing: border-box;
@@ -19,25 +18,30 @@ header {
   gap: 20px;
   align-items: center;
   padding: 10px 16px;
-  background: #191a23;
-  border-bottom: 1px solid #30313d;
+  background: var(--surface);
+  border-bottom: 1px solid var(--line);
   font-size: 12px;
 }
 strong {
-  color: #b8aaff;
+  font-family: var(--font-display);
+  font-weight: 400;
+  color: var(--accent);
   font-size: 16px;
 }
 #status {
+  color: var(--muted);
+  font-family: var(--font-mono);
   flex: 1;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 button {
+  font: inherit;
   padding: 5px 10px;
   color: inherit;
-  background: #292a38;
-  border: 1px solid #454659;
+  background: var(--bg);
+  border: 1px solid var(--line);
   border-radius: 5px;
   cursor: pointer;
 }
@@ -46,7 +50,7 @@ button:disabled {
   cursor: default;
 }
 button:focus-visible {
-  outline: 2px solid #b8aaff;
+  outline: 2px solid var(--accent);
 }
 #terminal {
   flex: 1;
