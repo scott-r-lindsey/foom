@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { mkdir, realpath, rmdir } from "node:fs/promises";
+import { lstat, mkdir, realpath, rmdir } from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { promisify } from "node:util";
@@ -48,10 +48,28 @@ async function prepareParent(root: string, path: string): Promise<void> {
   await mkdir(path);
 }
 
+// Bind ownership to both the filesystem entries and Git's per-worktree metadata.
+// Birth time distinguishes recreated entries even when the filesystem reuses an inode.
+async function worktreeIdentity(path: string): Promise<string> {
+  const gitDirectory = await realpath(
+    (await git(path, ["rev-parse", "--absolute-git-dir"])).slice(0, -1),
+  );
+  const entries = await Promise.all(
+    [path, join(path, ".git"), gitDirectory].map(async (entry) => {
+      const stat = await lstat(entry, { bigint: true });
+      return [stat.dev, stat.ino, stat.birthtimeNs].map(String);
+    }),
+  );
+  return JSON.stringify([gitDirectory, entries]);
+}
+
 /** Main-process service. Ownership lasts for this service instance; listing never adopts trees. */
 export class WorktreeService {
   private readonly repositories = new Map<string, Repository>();
-  private readonly managed = new Map<string, { repository: string; root: string }>();
+  private readonly managed = new Map<
+    string,
+    { repository: string; root: string; identity: string }
+  >();
   private readonly root: string;
 
   constructor(root = join(homedir(), ".foom", "worktrees")) {
@@ -84,27 +102,41 @@ export class WorktreeService {
   async listWorktrees(repositoryPath: string): Promise<readonly Worktree[]> {
     const repository = this.repository(repositoryPath);
     const output = await git(repository.path, ["worktree", "list", "--porcelain", "-z"]);
-    return output
-      .split("\0\0")
-      .filter(Boolean)
-      .map((record) => {
-        const fields = record.split("\0");
-        const field = (name: string): string | undefined =>
-          fields.find((value) => value.startsWith(`${name} `))?.slice(name.length + 1);
-        const path = field("worktree");
-        const head = field("HEAD");
-        const bare = fields.includes("bare");
-        if (!path || (!head && !bare)) throw new Error("Invalid Git worktree record");
-        return {
-          path: resolve(path),
-          head: head ?? null,
-          bare,
-          branch: field("branch")?.replace(/^refs\/heads\//u, "") ?? null,
-          locked: fields.some((value) => value === "locked" || value.startsWith("locked ")),
-          prunable: fields.some((value) => value === "prunable" || value.startsWith("prunable ")),
-          managed: this.managed.get(resolve(path))?.repository === repository.path,
-        };
-      });
+    return Promise.all(
+      output
+        .split("\0\0")
+        .filter(Boolean)
+        .map(async (record) => {
+          const fields = record.split("\0");
+          const field = (name: string): string | undefined =>
+            fields.find((value) => value.startsWith(`${name} `))?.slice(name.length + 1);
+          const path = field("worktree");
+          const head = field("HEAD");
+          const bare = fields.includes("bare");
+          if (!path || (!head && !bare)) throw new Error("Invalid Git worktree record");
+          return {
+            path: resolve(path),
+            head: head ?? null,
+            bare,
+            branch: field("branch")?.replace(/^refs\/heads\//u, "") ?? null,
+            locked: fields.some((value) => value === "locked" || value.startsWith("locked ")),
+            prunable: fields.some((value) => value === "prunable" || value.startsWith("prunable ")),
+            managed: await this.isManaged(repository.path, resolve(path)),
+          };
+        }),
+    );
+  }
+
+  private async isManaged(repository: string, path: string): Promise<boolean> {
+    const ownership = this.managed.get(path);
+    if (ownership?.repository !== repository) return false;
+    try {
+      if ((await worktreeIdentity(path)) === ownership.identity) return true;
+    } catch {
+      // Missing or unreadable metadata cannot establish ownership.
+    }
+    this.managed.delete(path);
+    return false;
   }
 
   async createWorktree(
@@ -151,7 +183,11 @@ export class WorktreeService {
       await rmdir(path).catch(() => undefined);
       throw error;
     }
-    this.managed.set(path, { repository: repository.path, root });
+    this.managed.set(path, {
+      repository: repository.path,
+      root,
+      identity: await worktreeIdentity(path),
+    });
     return path;
   }
 
@@ -165,6 +201,8 @@ export class WorktreeService {
     assertInside(ownership.root, resolved);
     if ((await realpath(resolved)) !== resolved)
       throw new Error("Worktree path has been redirected");
+    if (!(await this.isManaged(repository.path, resolved)))
+      throw new Error("Worktree is not managed by Foom");
     // Git performs its own dirty/locked checks before removing the tree.
     await git(repository.path, [
       "worktree",
