@@ -13,6 +13,7 @@
 
 - Preserve strict compiler flags. Use `unknown` and narrowing at untrusted boundaries; do not add `any`, unchecked assertions, or blanket lint suppressions to bypass checks.
 - Biome owns formatting; ESLint owns linting, including type-aware TypeScript rules. Run `npm run format` and `npm run lint:fix` for safe fixes.
+- Run `npm run audit` for dependency changes; it includes development tools and is required in CI. Do not suppress advisories or remove the audit from the Quality gate. Document and validate transitive overrides.
 - Keep compiler and lint dependencies compatible; update the lockfile when dependencies change. Use Node 24 and `npm ci` for reproducible installs.
 - Tests and Vitest configuration are type-checked. Production builds exclude test files and development tooling.
 
