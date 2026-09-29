@@ -929,6 +929,47 @@ test("sample board supports keyboard attention routing without changing the live
   await expect(page.getByRole("button", { name: "Hide terminal", exact: true })).toBeEnabled();
 });
 
+test("open sample terminal excludes covered rows from the keyboard cycle", async (context) => {
+  const app = await launchApp(context);
+  const page = await app.firstWindow();
+  await page.getByRole("button", { name: "Sample board", exact: true }).click();
+  const board = page.getByRole("dialog", { name: "Sample board" });
+  const rows = board.locator(".board-row");
+  const panel = board.locator(".board-terminal");
+  const close = board.getByRole("button", { name: "Return to shell" });
+  const hide = board.getByRole("button", { name: "Hide terminal" });
+  const reply = board.getByRole("button", { name: "Simulate reply" });
+  const dismiss = board.getByRole("button", { name: "Not attention" });
+  await expect(rows.first()).toBeFocused();
+  await page.keyboard.press("Enter");
+  await expect(panel).toBeFocused();
+  await page.keyboard.press("Shift+Tab");
+  await expect(close).toBeFocused();
+  // Chromium includes the modal dialog itself when wrapping the tab cycle.
+  for (const target of [hide, reply, dismiss, board, close]) {
+    await page.keyboard.press("Tab");
+    await expect(target).toBeFocused();
+  }
+  for (const target of [board, dismiss, reply, hide, close]) {
+    await page.keyboard.press("Shift+Tab");
+    await expect(target).toBeFocused();
+  }
+  await page.keyboard.press("Escape");
+  await expect(panel).not.toBeVisible();
+  await expect(rows.first()).toBeFocused();
+  await page.keyboard.press("ArrowDown");
+  await expect(rows.nth(1)).toBeFocused();
+  await page.keyboard.press("Enter");
+  await expect(panel).toBeFocused();
+  await page.keyboard.press("Tab");
+  await expect(hide).toBeFocused();
+  await page.keyboard.press("Enter");
+  await expect(panel).not.toBeVisible();
+  await expect(rows.nth(1)).toBeFocused();
+  await page.keyboard.press("ArrowDown");
+  await expect(rows.nth(2)).toBeFocused();
+});
+
 test("renderer bundle contains production React without a Node process dependency", async () => {
   const bundle = await readFile(path.join(__dirname, "../build/renderer/renderer.js"), "utf8");
   const ts = require("typescript");

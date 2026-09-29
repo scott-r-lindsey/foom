@@ -22,6 +22,7 @@ export function Board({
   const [now, setNow] = useState(Date.now);
   const buttonsRef = useRef(new Map<string, HTMLButtonElement>());
   const terminalRef = useRef<HTMLElement>(null);
+  const restoreRowFocusRef = useRef(false);
   const openRow = rows.find((row) => row.id === opened?.id);
   const peekRow = rows.find((row) => row.id === peek);
   const waiting = rows.filter((row) => row.state === "needs_input").length;
@@ -52,11 +53,15 @@ export function Board({
   );
   useLayoutEffect(() => {
     if (opened) terminalRef.current?.focus();
-  }, [opened]);
+    else if (restoreRowFocusRef.current) {
+      restoreRowFocusRef.current = false;
+      if (selected) buttonsRef.current.get(selected)?.focus();
+    }
+  }, [opened, selected, peek]);
   const hide = () => {
+    restoreRowFocusRef.current = true;
     setOpened(undefined);
     setPeek(undefined);
-    if (selected) buttonsRef.current.get(selected)?.focus();
   };
   const open = (row: BoardRow) => {
     setSelected(row.id);
@@ -119,7 +124,7 @@ export function Board({
         </button>
       </div>
       <p className="board-help">↑ ↓ select · P peek · Enter open · Esc hide · N next waiting</p>
-      <div className="board-list">
+      <div className="board-list" inert={Boolean(openRow)}>
         {Array.from(groups, ([repository, group]) => (
           <section key={repository}>
             <h2>{repository}</h2>
