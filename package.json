@@ -12,24 +12,38 @@
   "scripts": {
     "build": "node scripts/build.mjs",
     "start": "npm run build && electron-forge start",
-    "typecheck": "tsc -p tsconfig.main.json --noEmit && tsc -p tsconfig.renderer.json --noEmit",
-    "lint": "eslint .",
-    "test": "npm run build && node --test test/*.test.js",
+    "typecheck": "tsc -p tsconfig.main.json --noEmit && tsc -p tsconfig.renderer.json --noEmit && tsc -p tsconfig.tests.json",
+    "lint": "eslint . --max-warnings=0",
+    "test": "vitest run",
     "package": "npm run build && electron-forge package",
-    "make": "npm run build && electron-forge make"
+    "make": "npm run build && electron-forge make",
+    "format": "biome format --write .",
+    "format:check": "biome format .",
+    "lint:fix": "eslint . --fix --max-warnings=0",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "test:electron": "npm run build && node --test test/*.test.js",
+    "check": "npm run format:check && npm run lint && npm run typecheck && npm test",
+    "prepare": "husky"
   },
   "devDependencies": {
+    "@biomejs/biome": "2.5.14",
     "@electron-forge/cli": "7.11.2",
     "@electron-forge/maker-zip": "7.11.2",
     "@electron-forge/plugin-fuses": "7.11.2",
     "@electron/fuses": "1.8.0",
     "@eslint/js": "10.0.1",
     "@playwright/test": "1.63.0",
+    "@types/jsdom": "30.0.0",
     "@types/node": "24.19.0",
+    "@vitest/coverage-v8": "4.1.11",
     "electron": "44.4.5",
     "eslint": "10.11.0",
     "globals": "17.12.0",
+    "husky": "9.1.7",
+    "jsdom": "29.1.1",
     "typescript": "6.0.3",
-    "typescript-eslint": "8.71.0"
+    "typescript-eslint": "8.71.0",
+    "vitest": "4.1.11"
   }
 }

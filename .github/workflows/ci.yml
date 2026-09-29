@@ -1,0 +1,160 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  HUSKY: '0'
+
+jobs:
+  checks:
+    name: ${{ matrix.check }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        check: [format:check, lint, typecheck]
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - run: npm run ${{ matrix.check }}
+      - name: Check committed whitespace
+        run: git show --format= --check HEAD
+
+  unit:
+    name: Unit tests and coverage
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - run: npm run test:coverage
+      - name: Enforce changed-line coverage
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          git -c core.quotePath=false diff --unified=0 --diff-filter=ACMR "$BASE_SHA...$HEAD_SHA" > coverage/changed-lines.diff
+          node scripts/report-changed-coverage.mjs coverage/lcov.info coverage/changed-lines.diff coverage/changed-lines.md
+      - name: Write coverage summary
+        if: ${{ !cancelled() && hashFiles('coverage/coverage-summary.json') != '' }}
+        run: |
+          node scripts/format-coverage-summary.mjs coverage/coverage-summary.json coverage/summary.md
+          if [ -f coverage/changed-lines.md ]; then
+            printf '\n' >> coverage/summary.md
+            cat coverage/changed-lines.md >> coverage/summary.md
+          fi
+          cat coverage/summary.md >> "$GITHUB_STEP_SUMMARY"
+      - name: Update PR coverage comment
+        if: >-
+          !cancelled() && github.event_name == 'pull_request' &&
+          github.event.pull_request.head.repo.full_name == github.repository &&
+          hashFiles('coverage/summary.md') != ''
+        continue-on-error: true
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+        with:
+          script: |
+            const fs = require('node:fs');
+            const marker = '<!-- foom-coverage -->';
+            const body = fs.readFileSync('coverage/summary.md', 'utf8');
+            const issue_number = context.issue.number;
+            const comments = await github.paginate(github.rest.issues.listComments, {
+              ...context.repo, issue_number, per_page: 100,
+            });
+            const existing = comments.find(comment =>
+              comment.user?.login === 'github-actions[bot]' && comment.body?.includes(marker));
+            if (existing) {
+              await github.rest.issues.updateComment({ ...context.repo, comment_id: existing.id, body });
+            } else {
+              await github.rest.issues.createComment({ ...context.repo, issue_number, body });
+            }
+      - name: Upload coverage report
+        if: ${{ !cancelled() && hashFiles('coverage/coverage-summary.json') != '' }}
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: coverage-report
+          path: coverage/
+          if-no-files-found: error
+          retention-days: 14
+
+  desktop:
+    name: Electron (${{ matrix.os }})
+    needs: [checks, unit]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2025, macos-15]
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - name: Prepare Linux display and sandbox
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y xvfb libgtk-3-0 libnss3 libasound2t64
+          # Permit Chromium's user-namespace sandbox on this ephemeral CI runner.
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+      - name: Test Electron on Linux
+        if: runner.os == 'Linux'
+        run: xvfb-run -a npm run test:electron
+      - name: Test Electron on macOS and Windows
+        if: runner.os != 'Linux'
+        run: npm run test:electron
+      - name: Package desktop application
+        run: npm run make
+      - name: Upload unsigned development package
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: foom-${{ matrix.os }}
+          path: out/make/**/*.zip
+          if-no-files-found: error
+          retention-days: 14
+
+  quality:
+    name: Quality gate
+    if: always()
+    needs: [checks, unit, desktop]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Require every check to pass
+        env:
+          CHECKS: ${{ needs.checks.result }}
+          UNIT: ${{ needs.unit.result }}
+          DESKTOP: ${{ needs.desktop.result }}
+        run: test "$CHECKS" = success && test "$UNIT" = success && test "$DESKTOP" = success
