@@ -677,7 +677,7 @@ test("confirmed shutdown can retry when a removed PTY's exit times out", async (
     pty().kill.mockImplementation(() => {});
     manager.kill(removed);
     const shutdown = manager.shutdown();
-    const rejected = expect(shutdown).rejects.toThrow("Terminal shutdown timed out");
+    const rejected = expect(shutdown).rejects.toThrow("did not exit");
     await vi.advanceTimersByTimeAsync(5000);
     await rejected;
     pty().emitExit();
@@ -703,4 +703,63 @@ test("shutdown revokes terminal IPC capabilities before late renderer events", a
   for (const operation of ["attach", "detach", "kill"]) {
     await expect(invoke(operation, [id])).rejects.toThrow("Unknown or foreign terminal ID");
   }
+});
+
+test("theme updates reset host overrides, synchronize snapshots, and ignore removed sessions", async () => {
+  const id = manager.create(spec);
+  output("\x1b]11;#123456\x07");
+  await manager.tail(id, 1);
+  manager.setTheme(id, true);
+  output("\x1b]11;?\x07");
+  await manager.tail(id, 1);
+  expect(pty().write).toHaveBeenLastCalledWith("\x1b]11;rgb:0505/0404/0a0a\x1b\\");
+  const data = vi.fn();
+  await manager.attach(id, data);
+  expect(data.mock.calls[0]?.[1]).toContain("#f4efff;#05040a;#9b6bff");
+  manager.setTheme(id, false);
+  await manager.tail(id, 1);
+  expect(data.mock.calls.at(-1)?.[1]).toContain("#14101f;#f3f0fa;#5b2bd9");
+  manager.setTheme(id, true);
+  manager.kill(id);
+  await new Promise<void>((resolve) => setTimeout(resolve, 10));
+  expect(() => {
+    manager.setTheme(id, false);
+  }).toThrow("Unknown terminal");
+});
+
+test("removed ConPTYs are drained without closing their native handle twice", async () => {
+  vi.spyOn(process, "platform", "get").mockReturnValue("win32");
+  vi.useFakeTimers();
+  try {
+    const id = manager.create(spec);
+    pty().kill.mockImplementation(() => {});
+    manager.kill(id);
+    const shutdown = manager.shutdown();
+    const rejected = expect(shutdown).rejects.toThrow("did not exit");
+    await vi.advanceTimersByTimeAsync(5000);
+    await rejected;
+    expect(pty().kill).toHaveBeenCalledExactlyOnceWith();
+    const retry = manager.shutdown();
+    expect(pty().kill).toHaveBeenCalledExactlyOnceWith();
+    pty().emitExit();
+    await retry;
+    expect(manager.hasPendingExits).toBe(false);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test("a failed ConPTY termination request stays retryable after removal", async () => {
+  vi.spyOn(process, "platform", "get").mockReturnValue("win32");
+  const id = manager.create(spec);
+  pty().kill.mockImplementationOnce(() => {
+    throw new Error("close failed");
+  });
+  expect(() => {
+    manager.kill(id);
+  }).toThrow("close failed");
+  expect(manager.hasPendingExits).toBe(true);
+  await manager.shutdown();
+  expect(pty().kill).toHaveBeenCalledTimes(2);
+  expect(manager.hasPendingExits).toBe(false);
 });

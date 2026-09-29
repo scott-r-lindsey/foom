@@ -174,7 +174,10 @@ export class AgentService {
       if (binding) {
         if (agent.id === "claude") {
           const hook = [{ hooks: [{ type: "command", command: binding.claudeCommand }] }];
-          args.push("--settings", JSON.stringify({ hooks: { Stop: hook, Notification: hook } }));
+          args.push(
+            "--settings",
+            JSON.stringify({ hooks: { Stop: hook, PermissionRequest: hook, Notification: hook } }),
+          );
         } else {
           args.push("-c", `notify=${JSON.stringify(binding.codexCommand)}`);
         }

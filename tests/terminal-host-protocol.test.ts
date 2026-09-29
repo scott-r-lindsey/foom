@@ -79,3 +79,15 @@ test("validates optional agent environment additions", () => {
     expect(hostRequest({ ...base, type: "create", spec: { ...spec, env } })).toBe(false);
   }
 });
+
+test("validates main-owned theme updates and initial colors", () => {
+  for (const dark of [true, false]) {
+    expect(hostRequest({ ...base, type: "theme", dark })).toBe(true);
+    expect(hostRequest({ ...base, type: "create", spec, dark })).toBe(true);
+  }
+  for (const dark of [null, "dark", 1]) {
+    expect(hostRequest({ ...base, type: "theme", dark })).toBe(false);
+    expect(hostRequest({ ...base, type: "create", spec, dark })).toBe(false);
+  }
+  expect(hostRequest({ ...base, type: "theme" })).toBe(false);
+});

@@ -22,6 +22,7 @@ export function hostRequest(value: unknown): value is HostRequest {
     case "create": {
       const spec = value["spec"];
       return (
+        (value["dark"] === undefined || typeof value["dark"] === "boolean") &&
         record(spec) &&
         text(spec["command"]) &&
         text(spec["cwd"]) &&
@@ -43,6 +44,8 @@ export function hostRequest(value: unknown): value is HostRequest {
         integer(spec["rows"], 2, 300)
       );
     }
+    case "theme":
+      return typeof value["dark"] === "boolean";
     case "attach":
       return text(value["view"]);
     case "shutdown":

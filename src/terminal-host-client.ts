@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
-import { utilityProcess } from "electron";
+import { utilityProcess, nativeTheme } from "electron";
 import type { UtilityProcess } from "electron";
 import type { TerminalSpec } from "./shared/desktop";
 import type { HostRequest } from "./shared/terminal-host";
@@ -35,7 +35,14 @@ export class TerminalHostClient {
   private stopping: Promise<void> | undefined;
   private closing: Promise<void> | undefined;
 
-  constructor(private readonly onExit: (id: string, code: number) => void) {}
+  private readonly updateTheme = () => {
+    for (const id of this.sessions.keys())
+      this.notify({ type: "theme", id, dark: nativeTheme.shouldUseDarkColors });
+  };
+
+  constructor(private readonly onExit: (id: string, code: number) => void) {
+    nativeTheme.on("updated", this.updateTheme);
+  }
 
   private start(): UtilityProcess {
     if (this.disposed) throw new Error("Terminal host disposed");
@@ -114,7 +121,7 @@ export class TerminalHostClient {
     const id = randomUUID();
     this.sessions.set(id, { alive: true, available: true });
     try {
-      await this.request({ type: "create", id, spec });
+      await this.request({ type: "create", id, spec, dark: nativeTheme.shouldUseDarkColors });
     } catch (error) {
       this.sessions.delete(id);
       throw error;
@@ -185,6 +192,7 @@ export class TerminalHostClient {
   dispose(): Promise<void> {
     if (this.closing) return this.closing;
     this.disposed = true;
+    nativeTheme.removeListener("updated", this.updateTheme);
     const child = this.child;
     this.closing = new Promise((resolve) => {
       if (!child) {

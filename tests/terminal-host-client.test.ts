@@ -1,8 +1,15 @@
 import { EventEmitter } from "node:events";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import type { HostRequest } from "../src/shared/terminal-host";
-const mock = vi.hoisted(() => ({ fork: vi.fn() }));
-vi.mock("electron", () => ({ utilityProcess: mock }));
+const mock = vi.hoisted(() => ({
+  fork: vi.fn(),
+  theme: {
+    shouldUseDarkColors: false,
+    on: vi.fn<(event: string, callback: () => void) => void>(),
+    removeListener: vi.fn(),
+  },
+}));
+vi.mock("electron", () => ({ utilityProcess: mock, nativeTheme: mock.theme }));
 import { TerminalHostClient } from "../src/terminal-host-client";
 class Child extends EventEmitter {
   postMessage = vi.fn<(message: HostRequest | "shutdown") => void>();
@@ -209,4 +216,23 @@ test("shutdown without a host prevents subsequent creation", async () => {
   expect(client.runningCount).toBe(0);
   expect(client.hasPendingExits).toBe(false);
   await expect(client.create(spec)).rejects.toThrow("shutting down");
+});
+
+test("sends initial system colors and validated theme changes for live and hidden sessions", async () => {
+  mock.theme.shouldUseDarkColors = true;
+  const id = await create();
+  expect(child.postMessage).toHaveBeenLastCalledWith(
+    expect.objectContaining({ type: "create", id, dark: true }),
+  );
+  mock.theme.shouldUseDarkColors = false;
+  const update = mock.theme.on.mock.calls[0]?.[1];
+  update?.();
+  expect(child.postMessage).toHaveBeenLastCalledWith(
+    expect.objectContaining({ type: "theme", id, dark: false }),
+  );
+  child.reply();
+  const closing = client.dispose();
+  child.emit("exit", 0);
+  await closing;
+  expect(mock.theme.removeListener).toHaveBeenCalledWith("updated", update);
 });

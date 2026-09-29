@@ -1,3 +1,4 @@
+import { TerminalColors } from "../terminal-colors";
 import { Terminal } from "@xterm/xterm";
 import { suppressTerminalReplies } from "./terminal-replies";
 import { FitAddon } from "@xterm/addon-fit";
@@ -27,8 +28,17 @@ const terminal = new Terminal({
   theme: theme(),
 });
 suppressTerminalReplies(terminal);
+const terminalColors = new TerminalColors(
+  terminal.parser,
+  colors.matches,
+  () => {},
+  () => {
+    terminal.options.theme = { ...theme(), ...terminalColors.theme() };
+  },
+);
 const updateTheme = () => {
-  terminal.options.theme = theme();
+  terminalColors.reset(colors.matches);
+  terminal.options.theme = { ...theme(), ...terminalColors.theme() };
 };
 colors.addEventListener("change", updateTheme);
 const fit = new FitAddon();

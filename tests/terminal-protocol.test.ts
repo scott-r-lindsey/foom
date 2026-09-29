@@ -1,19 +1,21 @@
 import { join } from "node:path";
 import { Terminal } from "@xterm/headless";
 import { expect, test, vi } from "vitest";
+import { TerminalColors } from "../src/terminal-colors";
 import { TerminalManager } from "../src/terminal-manager";
 import { suppressTerminalReplies } from "../src/renderer/terminal-replies";
 
 test.each(["detached", "attached", "detach", "reattach"])(
-  "real PTY receives exactly one cursor reply (%s)",
+  "real PTY receives exactly one cursor and color reply (%s)",
   async (mode) => {
     const exited = vi.fn();
     const manager = new TerminalManager(exited);
     const view = new Terminal({ cols: 80, rows: 24, allowProposedApi: true });
     suppressTerminalReplies(view);
+    new TerminalColors(view.parser, false, () => {});
     const id = manager.create({
       command: process.execPath,
-      args: [join(import.meta.dirname, "../test/protocol-probe.js")],
+      args: [join(import.meta.dirname, "../test/protocol-probe.js"), "colors"],
       cwd: process.cwd(),
       cols: 80,
       rows: 24,
@@ -67,3 +69,43 @@ test("views suppress headless protocol replies while preserving display and user
     view.dispose();
   }
 });
+
+test.skipIf(process.platform === "win32")(
+  "shutdown force-stops an already removed SIGHUP-ignoring PTY",
+  async () => {
+    const manager = new TerminalManager(() => {});
+    const id = manager.create({
+      command: process.execPath,
+      args: [
+        "-e",
+        'process.on("SIGHUP", () => {}); console.log("READY", process.pid); setInterval(() => {}, 1000)',
+      ],
+      cwd: process.cwd(),
+      cols: 80,
+      rows: 24,
+    });
+    let pid: number | undefined;
+    try {
+      await vi.waitFor(async () => {
+        const tail = (await manager.tail(id, 5)).join("\n");
+        expect(tail).toContain("READY");
+        pid = Number(/READY (\d+)/.exec(tail)?.[1]);
+        expect(pid).toBeGreaterThan(0);
+      });
+      manager.kill(id);
+      expect(manager.runningCount).toBe(0);
+      expect(manager.hasPendingExits).toBe(true);
+      expect(() => {
+        manager.write(id, "stale");
+      }).toThrow("Unknown terminal");
+      await manager.shutdown();
+      expect(manager.hasPendingExits).toBe(false);
+      expect(() => process.kill(pid ?? 0, 0)).toThrow();
+    } finally {
+      // Failure-only cleanup; successful shutdown must prove exit before this point.
+      if (manager.hasPendingExits && pid) process.kill(pid, "SIGKILL");
+      await manager.waitForExit();
+      manager.dispose();
+    }
+  },
+);

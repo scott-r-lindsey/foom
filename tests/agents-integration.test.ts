@@ -1,8 +1,12 @@
+import { spawn } from "node:child_process";
+import { HookReceiver } from "../src/hook-receiver";
+import { hookAdapter } from "../src/hook-adapters";
+import type { HookSignal } from "../src/shared/hooks";
 import { chmod, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type * as Os from "node:os";
 import { tmpdir, userInfo } from "node:os";
-import { afterEach, expect, it, vi } from "vitest";
+import { afterEach, expect, it, onTestFinished, vi } from "vitest";
 import { AgentService } from "../src/agents";
 import type { TerminalSpec } from "../src/shared/desktop";
 
@@ -40,6 +44,13 @@ it.skipIf(process.platform === "win32")(
       '#!/bin/sh\ncase "$1" in\n--version) echo "2.1.284 (Claude Code)";;\n--help) echo "--settings <file-or-json>";;\n*) exit 1;;\nesac\n',
       { mode: 0o700 },
     );
+    const signals: HookSignal[] = [];
+    const receiver = await HookReceiver.listen((signal) => signals.push(signal));
+    onTestFinished(() => receiver.close());
+    const launch = receiver.register("real-probe-terminal", "claude");
+    const adapter = join(directory, "observer.sh");
+    await writeFile(adapter, hookAdapter("claude", "posix").source, { mode: 0o600 });
+    const claudeCommand = `sh '${adapter}'`;
     const create = vi.fn((_spec: TerminalSpec) => "real-probe-terminal");
     const service = new AgentService(
       {
@@ -59,10 +70,12 @@ it.skipIf(process.platform === "win32")(
       { create },
       () =>
         Promise.resolve({
-          claudeCommand: "foom-hook",
+          claudeCommand,
           codexCommand: ["foom-notify"],
-          env: {},
-          dispose() {},
+          env: launch.env,
+          dispose: () => {
+            launch.revoke();
+          },
         }),
     );
     const scan = await service.scan();
@@ -82,6 +95,52 @@ it.skipIf(process.platform === "win32")(
     expect(create).toHaveBeenCalledWith(
       expect.objectContaining({ command: executable, cwd: directory }),
     );
+    try {
+      const spec = create.mock.calls[0]?.[0];
+      const settings: unknown = JSON.parse(spec?.args[1] ?? "null");
+      const hook = [{ hooks: [{ type: "command", command: claudeCommand }] }];
+      expect(settings).toEqual({
+        hooks: { Stop: hook, PermissionRequest: hook, Notification: hook },
+      });
+      const result = await new Promise<{ code: number | null; output: string }>(
+        (resolve, reject) => {
+          const child = spawn("sh", [adapter], {
+            env: { ...process.env, ...launch.env },
+            stdio: "pipe",
+            timeout: 8000,
+          });
+          let output = "";
+          child.stdout.on("data", (data: Buffer) => {
+            output += data.toString();
+          });
+          child.stderr.on("data", (data: Buffer) => {
+            output += data.toString();
+          });
+          child.on("error", reject);
+          child.on("close", (code) => {
+            resolve({ code, output });
+          });
+          child.stdin.end(
+            JSON.stringify({
+              session_id: "synthetic-session",
+              hook_event_name: "PermissionRequest",
+              tool_input: { command: "untrusted data" },
+            }),
+          );
+        },
+      );
+      expect(result).toEqual({ code: 0, output: "" });
+      expect(signals).toEqual([
+        {
+          terminalId: "real-probe-terminal",
+          action: "needs_input",
+          signal: "claude:PermissionRequest",
+        },
+      ]);
+    } finally {
+      service.dispose();
+      await receiver.close();
+    }
     for (const name of [".claude", ".codex", ".agents"]) {
       expect(await readdir(join(home, name))).toEqual(["settings.json"]);
       expect(await readFile(join(home, name, "settings.json"), "utf8")).toBe(

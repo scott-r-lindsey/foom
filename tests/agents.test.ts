@@ -203,6 +203,7 @@ describe("launch", () => {
           JSON.stringify({
             hooks: {
               Stop: [{ hooks: [{ type: "command", command: binding.claudeCommand }] }],
+              PermissionRequest: [{ hooks: [{ type: "command", command: binding.claudeCommand }] }],
               Notification: [{ hooks: [{ type: "command", command: binding.claudeCommand }] }],
             },
           }),

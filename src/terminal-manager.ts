@@ -1,3 +1,4 @@
+import { TerminalColors } from "./terminal-colors";
 import { randomUUID } from "node:crypto";
 import { spawn } from "node-pty";
 import type { IPty, IDisposable } from "node-pty";
@@ -10,6 +11,7 @@ type Session = {
   pty: IPty;
   screen: Terminal;
   serialize: SerializeAddon;
+  colors: TerminalColors;
   subscriptions: IDisposable[];
   view?: View;
   pending: number;
@@ -18,6 +20,7 @@ type Session = {
   parserBlocked: boolean;
   viewBlocked: boolean;
   exited: boolean;
+  terminationRequested: boolean;
   generation: number;
 };
 
@@ -25,11 +28,11 @@ type Session = {
 export class TerminalManager {
   private readonly sessions = new Map<string, Session>();
   private shuttingDown = false;
-  private readonly pendingExits = new Set<Promise<void>>();
+  private readonly pendingExits = new Map<Session, Promise<void>>();
 
   constructor(private readonly onExit: (id: string, code: number) => void) {}
 
-  create(spec: TerminalSpec, id: string = randomUUID()): string {
+  create(spec: TerminalSpec, id: string = randomUUID(), dark = false): string {
     if (this.shuttingDown) throw new Error("Terminals are shutting down");
     const env: Record<string, string> = {};
     for (const [key, value] of Object.entries(process.env)) {
@@ -58,7 +61,11 @@ export class TerminalManager {
     });
     const serialize = new SerializeAddon();
     screen.loadAddon(serialize);
+    const colors = new TerminalColors(screen.parser, dark, (data) => {
+      if (!session.exited) pty.write(data);
+    });
     const session: Session = {
+      colors,
       pty,
       screen,
       serialize,
@@ -69,6 +76,7 @@ export class TerminalManager {
       parserBlocked: false,
       viewBlocked: false,
       exited: false,
+      terminationRequested: false,
       generation: 0,
     };
     this.sessions.set(id, session);
@@ -94,11 +102,11 @@ export class TerminalManager {
     const exited = new Promise<void>((resolve) => {
       resolveExit = resolve;
     });
-    this.pendingExits.add(exited);
+    this.pendingExits.set(session, exited);
     // Keep this subscription after kill: killing a PTY only requests termination.
     const exitSubscription = pty.onExit(({ exitCode }) => {
       session.exited = true;
-      this.pendingExits.delete(exited);
+      this.pendingExits.delete(session);
       exitSubscription.dispose();
       resolveExit();
       if (!this.sessions.has(id)) return;
@@ -137,6 +145,15 @@ export class TerminalManager {
     if (!session.exited) session.pty.write(data);
   }
 
+  setTheme(id: string, dark: boolean): void {
+    const session = this.get(id);
+    session.screen.write("", () => {
+      if (!this.sessions.has(id)) return;
+      session.colors.reset(dark);
+      this.deliver(session, session.colors.snapshot());
+    });
+  }
+
   resize(id: string, cols: number, rows: number): void {
     const session = this.get(id);
     session.screen.resize(cols, rows);
@@ -152,7 +169,7 @@ export class TerminalManager {
       session.screen.write("", () => {
         if (this.sessions.has(id) && generation === session.generation) {
           session.view = { token: randomUUID(), send };
-          this.deliver(session, session.serialize.serialize());
+          this.deliver(session, session.colors.snapshot() + session.serialize.serialize());
         }
         resolve();
       });
@@ -208,15 +225,26 @@ export class TerminalManager {
     });
   }
 
+  private terminate(session: Session): void {
+    // ConPTY closes a native handle: repeating a successful request can crash the host.
+    // A throwing request remains retryable; Unix can safely resend graceful signals.
+    if (process.platform === "win32" && session.terminationRequested) return;
+    session.pty.kill();
+    session.terminationRequested = true;
+  }
+
   kill(id: string): void {
     const session = this.get(id);
     this.detach(id);
     this.sessions.delete(id);
     for (const subscription of session.subscriptions) subscription.dispose();
-    if (!session.exited) session.pty.kill();
-    session.screen.write("", () => {
-      session.screen.dispose();
-    });
+    try {
+      if (!session.exited) this.terminate(session);
+    } finally {
+      session.screen.write("", () => {
+        session.screen.dispose();
+      });
+    }
   }
 
   get hasPendingExits(): boolean {
@@ -228,7 +256,7 @@ export class TerminalManager {
     let timer: ReturnType<typeof setTimeout> | undefined;
     try {
       await Promise.race([
-        Promise.all(this.pendingExits),
+        Promise.all(this.pendingExits.values()),
         new Promise<never>((_resolve, reject) => {
           timer = setTimeout(() => {
             reject(new Error("Terminal shutdown timed out"));
@@ -253,8 +281,7 @@ export class TerminalManager {
     this.shuttingDown = true;
     try {
       const results = await Promise.allSettled(
-        [...this.sessions.values()].map(async (session) => {
-          if (session.exited) return;
+        [...this.pendingExits.keys()].map(async (session) => {
           if (session.paused) {
             session.pty.resume();
             session.paused = false;
@@ -282,7 +309,7 @@ export class TerminalManager {
               finish(new Error("A terminal did not exit; try quitting again."));
             }, 5000);
             try {
-              session.pty.kill();
+              this.terminate(session);
             } catch (error) {
               finish(new Error("Unable to stop terminal", { cause: error }));
             }
