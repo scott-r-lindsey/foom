@@ -35,10 +35,10 @@ function fakePty() {
     resume: vi.fn(),
     kill: vi.fn(emitExit),
     onData: vi
-      .fn<(callback: (data: string) => void) => { dispose(): void }>()
+      .fn<(callback: (data: string) => void) => { dispose: () => void }>()
       .mockReturnValue({ dispose: vi.fn() }),
     onExit: vi
-      .fn<(callback: (event: { exitCode: number }) => void) => { dispose(): void }>()
+      .fn<(callback: (event: { exitCode: number }) => void) => { dispose: () => void }>()
       .mockImplementation((callback) => {
         exits.add(callback);
         return {
@@ -90,6 +90,7 @@ function output(data: string, index = 0) {
 }
 const spec = { command: "/bin/bash", args: ["-l"], cwd: "/tmp", cols: 80, rows: 24 };
 let manager: TerminalManager;
+let terminalControl: ReturnType<typeof attachTerminal>;
 const exited = vi.fn();
 beforeEach(() => {
   vi.clearAllMocks();
@@ -100,7 +101,7 @@ beforeEach(() => {
     ptys.push(next);
     return next;
   });
-  attachTerminal(window as unknown as BrowserWindow);
+  terminalControl = attachTerminal(window as unknown as BrowserWindow);
   manager = new TerminalManager(exited);
 });
 afterEach(async () => {
@@ -477,5 +478,157 @@ test("failed quit reports the timeout and allows a later request to retry", asyn
     expect(mock.app.quit).toHaveBeenCalledOnce();
   } finally {
     vi.useRealTimers();
+  }
+});
+
+function exitPty(index = 0) {
+  pty(index).emitExit();
+}
+
+test("shutdown counts only live PTYs and waits for all exits before disposal", async () => {
+  const first = manager.create(spec);
+  manager.create(spec);
+  manager.create(spec);
+  expect(manager.runningCount).toBe(3);
+  exitPty(2);
+  expect(manager.runningCount).toBe(2);
+  await manager.attach(first, vi.fn());
+  output("x".repeat(270000));
+  await manager.tail(first, 1);
+  for (const terminal of ptys) terminal.kill.mockImplementation(() => {});
+  const stopped = vi.fn();
+  const shutdown = manager.shutdown().then(stopped);
+  expect(() => manager.create(spec)).toThrow("shutting down");
+  expect(pty().resume).toHaveBeenCalledOnce();
+  expect(pty().kill).toHaveBeenCalledOnce();
+  expect(pty(1).kill).toHaveBeenCalledOnce();
+  expect(pty(2).kill).not.toHaveBeenCalled();
+  output("x".repeat(270000));
+  await manager.tail(first, 1);
+  expect(pty().pause).toHaveBeenCalledOnce();
+  exitPty();
+  await Promise.resolve();
+  expect(stopped).not.toHaveBeenCalled();
+  exitPty(1);
+  await shutdown;
+  expect(manager.runningCount).toBe(0);
+  expect(() => {
+    manager.write(first, "stale");
+  }).toThrow("Unknown terminal ID");
+});
+
+test.each(["linux", "win32"] as const)(
+  "shutdown escalation respects %s signal support",
+  async (platform) => {
+    vi.spyOn(process, "platform", "get").mockReturnValue(platform);
+    vi.useFakeTimers();
+    try {
+      manager.create(spec);
+      pty().kill.mockImplementation(() => {});
+      const shutdown = manager.shutdown();
+      await vi.advanceTimersByTimeAsync(1000);
+      if (platform === "win32") expect(pty().kill).toHaveBeenCalledExactlyOnceWith();
+      else expect(pty().kill).toHaveBeenLastCalledWith("SIGKILL");
+      exitPty();
+      await shutdown;
+      const subscription = pty().onExit.mock.results[1];
+      if (subscription?.type !== "return") throw new Error("Missing exit subscription");
+      expect(subscription.value.dispose).toHaveBeenCalledOnce();
+    } finally {
+      vi.useRealTimers();
+    }
+  },
+);
+
+test.each(["graceful", "force", "timeout"])(
+  "shutdown reports %s failure and can be retried",
+  async (failure) => {
+    vi.useFakeTimers();
+    try {
+      const id = manager.create(spec);
+      pty().kill.mockImplementation(() => {});
+      const error = new Error("kill failed");
+      if (failure === "graceful")
+        pty().kill.mockImplementationOnce(() => {
+          throw error;
+        });
+      if (failure === "force")
+        pty()
+          .kill.mockImplementationOnce(() => {})
+          .mockImplementationOnce(() => {
+            throw error;
+          });
+      const shutdown = manager.shutdown();
+      const rejected = expect(shutdown).rejects.toThrow(
+        failure === "timeout" ? "did not exit" : "Unable to stop terminal",
+      );
+      await vi.advanceTimersByTimeAsync(5000);
+      await rejected;
+      const subscription = pty().onExit.mock.results[1];
+      if (subscription?.type !== "return") throw new Error("Missing exit subscription");
+      expect(subscription.value.dispose).toHaveBeenCalledOnce();
+      expect(manager.runningCount).toBe(1);
+      manager.write(id, "still usable");
+      expect(pty().write).toHaveBeenCalledWith("still usable");
+      manager.create(spec);
+      const retry = manager.shutdown();
+      exitPty();
+      exitPty(1);
+      await retry;
+      expect(manager.runningCount).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  },
+);
+
+test("confirmed shutdown waits for a previously removed PTY before completing", async () => {
+  const removed = manager.create(spec);
+  pty().kill.mockImplementation(() => {});
+  manager.kill(removed);
+  expect(manager.runningCount).toBe(0);
+  const stopped = vi.fn();
+  const shutdown = manager.shutdown().then(stopped);
+  await Promise.resolve();
+  expect(stopped).not.toHaveBeenCalled();
+  expect(manager.hasPendingExits).toBe(true);
+  pty().emitExit();
+  await shutdown;
+  expect(stopped).toHaveBeenCalledOnce();
+  expect(manager.hasPendingExits).toBe(false);
+});
+
+test("confirmed shutdown can retry when a removed PTY's exit times out", async () => {
+  vi.useFakeTimers();
+  try {
+    const removed = manager.create(spec);
+    pty().kill.mockImplementation(() => {});
+    manager.kill(removed);
+    const shutdown = manager.shutdown();
+    const rejected = expect(shutdown).rejects.toThrow("Terminal shutdown timed out");
+    await vi.advanceTimersByTimeAsync(5000);
+    await rejected;
+    pty().emitExit();
+    await manager.shutdown();
+    expect(manager.hasPendingExits).toBe(false);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test("shutdown revokes terminal IPC capabilities before late renderer events", async () => {
+  const id = create();
+  expect(terminalControl.runningCount).toBe(1);
+  await invoke("attach", [id]);
+  await terminalControl.shutdown();
+  expect(terminalControl.runningCount).toBe(0);
+  expect(() => {
+    send("ack", [id, "old-attachment", 1]);
+    send("input", [id, "late input"]);
+    send("resize", [id, 80, 24]);
+    contents.on.mock.calls.find(([name]) => name === "render-process-gone")?.[1]();
+  }).not.toThrow();
+  for (const operation of ["attach", "detach", "kill"]) {
+    await expect(invoke(operation, [id])).rejects.toThrow("Unknown or foreign terminal ID");
   }
 });
