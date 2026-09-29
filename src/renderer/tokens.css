@@ -37,6 +37,7 @@
   --accent: #5b2bd9;
   --accent-deep: #3b1a99;
   --attention: #d98200;
+  --attention-ink: #8c5000;
   --done: #13804a;
   --failed: #d6166e;
   --hole: #06050b;
@@ -56,6 +57,7 @@
     --accent: #9b6bff;
     --accent-deep: #7a3cff;
     --attention: #ffb23e;
+    --attention-ink: #ffb23e;
     --done: #6fe0a3;
     --failed: #ff2e88;
     --hole: #06050b;

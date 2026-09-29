@@ -1,9 +1,26 @@
+const { AxeBuilder } = require("@axe-core/playwright");
 const { test } = require("node:test");
 const assert = require("node:assert/strict");
 const path = require("node:path");
 const { mkdtemp, readFile, rm } = require("node:fs/promises");
 const { tmpdir } = require("node:os");
 const { _electron: electron, expect } = require("@playwright/test");
+
+async function assertAccessible(page) {
+  // Electron does not support Target.createTarget. This app has no cross-origin frames.
+  for (const colorScheme of ["light", "dark"]) {
+    await page.emulateMedia({ colorScheme });
+    // PTY output has arbitrary user/agent-selected ANSI colors. Keep the app chrome
+    // and xterm input in scope, but do not audit external programs' rendered text.
+    const results = await new AxeBuilder({ page }).setLegacyMode().exclude(".xterm-rows").analyze();
+    assert.deepEqual(
+      results.violations.filter(({ impact }) => impact === "serious" || impact === "critical"),
+      [],
+      `Serious or critical accessibility violations in ${colorScheme} mode`,
+    );
+  }
+  await page.emulateMedia({ colorScheme: null });
+}
 
 // Keep the Node debugger available until PTY cleanup finishes. Pausing the final
 // quit lets Playwright detach its own connection through app.close(); calling
@@ -94,6 +111,8 @@ async function launchApp(context) {
       }
     }
   });
+  // The shell markup now arrives with React’s first commit.
+  await (await app.firstWindow()).locator("#status").waitFor();
   return app;
 }
 
@@ -868,11 +887,13 @@ test("sample board supports keyboard attention routing without changing the live
   const app = await launchApp(context);
   const page = await app.firstWindow();
   await expect(page.getByRole("button", { name: "Hide terminal", exact: true })).toBeEnabled();
+  await assertAccessible(page);
   await page.getByRole("button", { name: "Sample board", exact: true }).click();
   const board = page.getByRole("dialog", { name: "Sample board" });
   await expect(board).toBeVisible();
   const rows = board.locator(".board-row");
   await expect(rows).toHaveCount(7);
+  await assertAccessible(page);
   await expect(rows.first()).toBeFocused();
   await page.keyboard.press("ArrowDown");
   await expect(rows.nth(1)).toBeFocused();
@@ -906,4 +927,27 @@ test("sample board supports keyboard attention routing without changing the live
   await expect(board).not.toBeVisible();
   await expect(page.getByRole("button", { name: "Sample board", exact: true })).toBeFocused();
   await expect(page.getByRole("button", { name: "Hide terminal", exact: true })).toBeEnabled();
+});
+
+test("renderer bundle contains production React without a Node process dependency", async () => {
+  const bundle = await readFile(path.join(__dirname, "../build/renderer/renderer.js"), "utf8");
+  const ts = require("typescript");
+  const source = ts.createSourceFile("renderer.js", bundle, ts.ScriptTarget.Latest, true);
+  const processReferences = [];
+  const visit = (node) => {
+    if (
+      ts.isIdentifier(node) &&
+      node.text === "process" &&
+      !(ts.isPropertyAccessExpression(node.parent) && node.parent.name === node)
+    ) {
+      processReferences.push(node.pos);
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(source);
+  assert.deepEqual(processReferences, [], "browser bundle has no Node process references");
+  assert.doesNotMatch(
+    bundle,
+    /react(?:-dom-client)?\.development|Download the React DevTools|not wrapped in act/,
+  );
 });

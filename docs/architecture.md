@@ -17,7 +17,7 @@ This describes the target design. Where the code differs today, the section says
 
 ## Renderer
 
-Target design; the move to React is #55. Until then the renderer is plain TypeScript.
+**Today:** The shell and sample board use React 19 with TSX. `Shell` owns one imperative terminal controller through a ref; it disposes xterm and subscriptions on unmount. Terminal visibility and measurement remain in the controller to preserve attachment ordering; React draws status and controls. The sample board reads a typed source through `useSyncExternalStore`, with an independent activity subscription writing brightness directly to the DOM. Live board data remains #57.
 
 - **React 19 with TSX**, bundled by esbuild as a production build (`process.env.NODE_ENV` defined). No other UI framework, component kit, or CSS-in-JS. Styles are plain CSS using the tokens in `tokens.css`.
 - **The renderer holds view state only.** Terminal, verdict, and worktree truth lives in main and arrives through `window.desktop`. Components don't call the bridge directly; they read from one board data-source interface shaped like the IPC contract. A sample source serves development and tests, and a live source (#57) replaces it in the app.

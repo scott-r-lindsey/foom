@@ -29,8 +29,12 @@ for (const asset of ["index.html", "styles.css", "tokens.css"]) {
 }
 
 await build({
-  entryPoints: [fileURLToPath(new URL("../src/renderer/renderer.ts", import.meta.url))],
+  entryPoints: [fileURLToPath(new URL("../src/renderer/renderer.tsx", import.meta.url))],
   bundle: true,
+  tsconfig: fileURLToPath(new URL("../tsconfig.renderer.json", import.meta.url)),
+  // React and xterm contain guarded Node fallbacks; the sandbox is browser-only.
+  define: { "process.env.NODE_ENV": '"production"', process: "undefined" },
+  minify: true,
   platform: "browser",
   format: "esm",
   outfile: fileURLToPath(new URL("../build/renderer/renderer.js", import.meta.url)),

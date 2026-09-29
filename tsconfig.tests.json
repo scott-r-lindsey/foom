@@ -7,7 +7,14 @@
     "moduleResolution": "Bundler",
     "lib": ["ES2024", "DOM", "DOM.Iterable"],
     "types": ["node"],
-    "allowJs": true
+    "allowJs": true,
+    "jsx": "react-jsx"
   },
-  "include": ["tests/**/*.ts", "vitest.config.mts", "src/renderer/*.d.ts", "scripts/*.mjs"]
+  "include": [
+    "tests/**/*.ts",
+    "vitest.config.mts",
+    "src/renderer/*.d.ts",
+    "scripts/*.mjs",
+    "tests/**/*.tsx"
+  ]
 }
