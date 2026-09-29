@@ -327,7 +327,10 @@ test("window close requests the same quit path without destroying the window", a
   const event = { preventDefault: vi.fn() };
   mock.windowEvents.get("close")?.(event);
   expect(event.preventDefault).toHaveBeenCalledOnce();
-  expect(mock.quit).toHaveBeenCalledOnce();
+  expect(mock.quit).not.toHaveBeenCalled();
+  await vi.waitFor(() => {
+    expect(mock.quit).toHaveBeenCalledOnce();
+  });
 });
 
 test.each([1, 3])(
@@ -453,4 +456,16 @@ test("keeps the native background in sync with theme updates and removes its lis
   }
   mock.readyEvents.get("closed")?.();
   expect(mock.theme.removeListener).toHaveBeenCalledWith("updated", update);
+});
+
+test("defers an already-idle quit until the native close callback has unwound", async () => {
+  await start();
+  const event = { preventDefault: vi.fn() };
+  mock.windowEvents.get("close")?.(event);
+  await Promise.resolve();
+  expect(mock.terminals.shutdown).toHaveBeenCalledOnce();
+  expect(mock.quit).not.toHaveBeenCalled();
+  await vi.waitFor(() => {
+    expect(mock.quit).toHaveBeenCalledOnce();
+  });
 });

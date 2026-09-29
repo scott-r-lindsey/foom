@@ -90,6 +90,7 @@ function output(data: string, index = 0) {
 }
 const spec = { command: "/bin/bash", args: ["-l"], cwd: "/tmp", cols: 80, rows: 24 };
 let manager: TerminalManager;
+let terminalControl: ReturnType<typeof attachTerminal>;
 const exited = vi.fn();
 beforeEach(() => {
   vi.clearAllMocks();
@@ -100,7 +101,7 @@ beforeEach(() => {
     ptys.push(next);
     return next;
   });
-  attachTerminal(window as unknown as BrowserWindow);
+  terminalControl = attachTerminal(window as unknown as BrowserWindow);
   manager = new TerminalManager(exited);
 });
 afterEach(async () => {
@@ -612,5 +613,22 @@ test("confirmed shutdown can retry when a removed PTY's exit times out", async (
     expect(manager.hasPendingExits).toBe(false);
   } finally {
     vi.useRealTimers();
+  }
+});
+
+test("shutdown revokes terminal IPC capabilities before late renderer events", async () => {
+  const id = create();
+  expect(terminalControl.runningCount).toBe(1);
+  await invoke("attach", [id]);
+  await terminalControl.shutdown();
+  expect(terminalControl.runningCount).toBe(0);
+  expect(() => {
+    send("ack", [id, "old-attachment", 1]);
+    send("input", [id, "late input"]);
+    send("resize", [id, 80, 24]);
+    contents.on.mock.calls.find(([name]) => name === "render-process-gone")?.[1]();
+  }).not.toThrow();
+  for (const operation of ["attach", "detach", "kill"]) {
+    await expect(invoke(operation, [id])).rejects.toThrow("Unknown or foreign terminal ID");
   }
 });

@@ -98,7 +98,11 @@ function createWindow() {
       }
       await terminals.shutdown();
       quitting = true;
-      app.quit();
+      // A resolved shutdown can resume inside a native close callback's microtask
+      // checkpoint. Let that cancelled close unwind before asking Electron to quit.
+      setImmediate(() => {
+        app.quit();
+      });
     } catch (error) {
       console.error("Unable to quit the application:", error);
       dialog.showErrorBox("Unable to quit Foom", "Could not stop all terminals. Please try again.");
@@ -110,7 +114,7 @@ function createWindow() {
   window.on("close", (event) => {
     if (!quitting) {
       event.preventDefault();
-      app.quit();
+      void requestQuit();
     }
   });
   app.on("before-quit", (event) => {
