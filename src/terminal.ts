@@ -1,26 +1,21 @@
 import { app, ipcMain } from "electron";
-import type { BrowserWindow, IpcMainEvent, IpcMainInvokeEvent } from "electron";
+import type { BrowserWindow, IpcMainEvent, IpcMainInvokeEvent, Event } from "electron";
 import { homedir } from "node:os";
-import { spawn } from "node-pty";
-import type { IPty, IDisposable } from "node-pty";
+import { TerminalManager } from "./terminal-manager";
 
+/** The app window owns capabilities for multiple independent main-owned sessions. */
 export function attachTerminal(window: BrowserWindow): void {
-  let terminal: IPty | undefined;
-  let subscriptions: IDisposable[] = [];
-  let pending = 0;
+  const owned = new Set<string>();
   const trusted = (event: IpcMainEvent | IpcMainInvokeEvent) =>
     event.sender === window.webContents &&
     event.senderFrame !== null &&
     event.senderFrame === event.sender.mainFrame &&
     event.senderFrame.url === "app://bundle/index.html";
-  const stop = () => {
-    for (const subscription of subscriptions) subscription.dispose();
-    subscriptions = [];
-    terminal?.kill();
-    terminal = undefined;
-    pending = 0;
-  };
-  const size = (cols: unknown, rows: unknown): cols is number =>
+  const manager = new TerminalManager((id, code) => {
+    window.webContents.send("terminal:exit", id, code);
+  });
+  const validId = (id: unknown): id is string => typeof id === "string" && owned.has(id);
+  const size = (cols: unknown, rows: unknown): boolean =>
     typeof cols === "number" &&
     typeof rows === "number" &&
     Number.isInteger(cols) &&
@@ -29,62 +24,74 @@ export function attachTerminal(window: BrowserWindow): void {
     cols <= 500 &&
     rows >= 2 &&
     rows <= 300;
-  ipcMain.handle("terminal:start", (event, cols: unknown, rows: unknown) => {
+  const handlers = new Map<string, (event: IpcMainInvokeEvent, ...args: unknown[]) => unknown>();
+  handlers.set("terminal:create", (event, cols, rows) => {
     if (!trusted(event)) throw new Error("Untrusted IPC sender");
-    if (!size(cols, rows) || typeof rows !== "number") throw new Error("Invalid terminal size");
-    stop();
-    const shell =
+    if (!size(cols, rows) || typeof cols !== "number" || typeof rows !== "number")
+      throw new Error("Invalid terminal size");
+    const command =
       process.platform === "win32" ? "powershell.exe" : process.env["SHELL"] || "/bin/bash";
     const cwd = app.isPackaged ? homedir() : process.cwd();
-    const pty = spawn(shell, process.platform === "win32" ? ["-NoLogo"] : ["-l"], {
-      name: "xterm-256color",
-      // Use the bundled ConPTY implementation. The OS-backed cleanup path forks a
-      // Node helper, which is incompatible with our disabled RunAsNode fuse.
-      useConptyDll: true,
+    const id = manager.create({
+      command,
+      args: process.platform === "win32" ? ["-NoLogo"] : ["-l"],
+      cwd,
       cols,
       rows,
-      cwd,
-      env: { ...process.env, TERM: "xterm-256color", COLORTERM: "truecolor", TERM_PROGRAM: "Foom" },
     });
-    terminal = pty;
-    subscriptions = [
-      pty.onData((data) => {
-        pending += data.length;
-        if (pending > 262144) pty.pause();
-        window.webContents.send("terminal:data", data);
-      }),
-      pty.onExit(({ exitCode }) => {
-        terminal = undefined;
-        window.webContents.send("terminal:exit", exitCode);
-      }),
-    ];
-    return `${shell} — ${cwd}`;
+    owned.add(id);
+    return { id, title: `${command} — ${cwd}` };
   });
-  const input = (event: IpcMainEvent, data: unknown) => {
-    if (trusted(event) && typeof data === "string" && data.length <= 65536) terminal?.write(data);
+  for (const operation of ["attach", "detach", "kill"] as const) {
+    handlers.set(`terminal:${operation}`, async (event, id) => {
+      if (!trusted(event)) throw new Error("Untrusted IPC sender");
+      if (!validId(id)) throw new Error("Unknown or foreign terminal ID");
+      if (operation === "attach")
+        await manager.attach(id, (token, data) => {
+          window.webContents.send("terminal:data", id, token, data);
+        });
+      else if (operation === "detach") manager.detach(id);
+      else {
+        manager.kill(id);
+        owned.delete(id);
+      }
+    });
+  }
+  for (const [channel, handler] of handlers) ipcMain.handle(channel, handler);
+  const input = (event: IpcMainEvent, id: unknown, data: unknown) => {
+    if (trusted(event) && validId(id) && typeof data === "string" && data.length <= 65536)
+      manager.write(id, data);
   };
-  const resize = (event: IpcMainEvent, cols: unknown, rows: unknown) => {
-    if (trusted(event) && size(cols, rows) && typeof rows === "number")
-      terminal?.resize(cols, rows);
-  };
-  const acknowledge = (event: IpcMainEvent, count: unknown) => {
+  const resize = (event: IpcMainEvent, id: unknown, cols: unknown, rows: unknown) => {
     if (
-      !trusted(event) ||
-      typeof count !== "number" ||
-      !Number.isSafeInteger(count) ||
-      count <= 0 ||
-      count > pending
+      trusted(event) &&
+      validId(id) &&
+      size(cols, rows) &&
+      typeof cols === "number" &&
+      typeof rows === "number"
     )
-      return;
-    pending -= count;
-    if (pending < 65536) terminal?.resume();
+      manager.resize(id, cols, rows);
   };
+  const acknowledge = (event: IpcMainEvent, id: unknown, token: unknown, count: unknown) => {
+    if (trusted(event) && validId(id) && typeof token === "string" && typeof count === "number")
+      manager.acknowledge(id, token, count);
+  };
+  const detachViews = () => {
+    for (const id of owned) manager.detach(id);
+  };
+  const navigating = (_event: Event, _url: string, _inPlace: boolean, isMainFrame: boolean) => {
+    if (isMainFrame) detachViews();
+  };
+  window.webContents.on("render-process-gone", detachViews);
+  window.webContents.on("did-start-navigation", navigating);
   ipcMain.on("terminal:input", input);
   ipcMain.on("terminal:resize", resize);
   ipcMain.on("terminal:ack", acknowledge);
   window.once("closed", () => {
-    stop();
-    ipcMain.removeHandler("terminal:start");
+    window.webContents.removeListener("render-process-gone", detachViews);
+    window.webContents.removeListener("did-start-navigation", navigating);
+    manager.dispose();
+    for (const channel of handlers.keys()) ipcMain.removeHandler(channel);
     ipcMain.removeListener("terminal:input", input);
     ipcMain.removeListener("terminal:resize", resize);
     ipcMain.removeListener("terminal:ack", acknowledge);

@@ -32,7 +32,7 @@ test("terminal runs an interactive shell behind an isolated bridge", {
     assert.doesNotMatch(await page.locator("#status").innerText(), /Unable/);
     await page.evaluate(() => {
       window.terminalOutput = "";
-      window.desktop.onData((data) => {
+      window.desktop.onData((_id, _token, data) => {
         window.terminalOutput += data;
       });
     });
@@ -120,9 +120,56 @@ test("terminal runs an interactive shell behind an isolated bridge", {
       {
         node: "undefined",
         process: "undefined",
-        capabilities: ["start", "input", "resize", "acknowledge", "onData", "onExit"],
+        capabilities: [
+          "create",
+          "attach",
+          "detach",
+          "kill",
+          "input",
+          "resize",
+          "acknowledge",
+          "onData",
+          "onExit",
+        ],
       },
     );
+    // A second PTY stays detached while emitting well beyond the view high-water mark.
+    // Reattachment must restore the final marker from main-owned headless state.
+    const detached = await page.evaluate(async () => {
+      const terminal = await window.desktop.create(80, 24);
+      window.detachedOutput = "";
+      window.detachedChunks = 0;
+      window.detachedExited = false;
+      window.desktop.onExit((id, code) => {
+        if (id === terminal.id && code === 0) window.detachedExited = true;
+      });
+      window.desktop.onData((id, token, data) => {
+        if (id !== terminal.id) return;
+        window.detachedOutput += data;
+        window.detachedChunks++;
+        window.desktop.acknowledge(id, token, data.length);
+      });
+      await window.desktop.attach(terminal.id);
+      await window.desktop.detach(terminal.id);
+      window.detachedChunks = 0;
+      return terminal.id;
+    });
+    const flood =
+      process.platform === "win32"
+        ? '1..6000 | ForEach-Object { "x" * 70 }; Write-Output ("DETACHED_" + "COMPLETE")'
+        : "i=0; while [ $i -lt 6000 ]; do printf '%070d\\n' $i; i=$((i+1)); done; printf 'DETACHED_%s\\n' COMPLETE";
+    await page.evaluate(({ id, command }) => window.desktop.input(id, command + "; exit\r"), {
+      id: detached,
+      command: flood,
+    });
+    await page.waitForFunction(() => window.detachedExited);
+    assert.equal(await page.evaluate(() => window.detachedChunks), 0);
+    await page.evaluate(async (id) => {
+      window.detachedOutput = "";
+      await window.desktop.attach(id);
+    }, detached);
+    await page.waitForFunction(() => window.detachedOutput.includes("DETACHED_COMPLETE"));
+    await page.evaluate((id) => window.desktop.kill(id), detached);
     console.info("Renderer isolated");
     const preferences = await app.evaluate(({ BrowserWindow }) => {
       const { sandbox, contextIsolation, nodeIntegration } =

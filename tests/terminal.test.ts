@@ -1,4 +1,4 @@
-import { beforeEach, expect, test, vi } from "vitest";
+import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import type { BrowserWindow, IpcMainEvent, IpcMainInvokeEvent } from "electron";
 const mock = vi.hoisted(() => ({
   handle:
@@ -11,67 +11,214 @@ const mock = vi.hoisted(() => ({
   removeHandler: vi.fn(),
   removeListener: vi.fn(),
   app: { isPackaged: false },
-  pty: {
+  spawn: vi.fn(),
+}));
+vi.mock("electron", () => ({ app: mock.app, ipcMain: mock }));
+vi.mock("node-pty", () => ({ spawn: mock.spawn }));
+import { attachTerminal } from "../src/terminal";
+import { TerminalManager } from "../src/terminal-manager";
+function fakePty() {
+  return {
     write: vi.fn(),
     resize: vi.fn(),
     pause: vi.fn(),
     resume: vi.fn(),
     kill: vi.fn(),
-    onData: vi.fn<(callback: (data: string) => void) => { dispose(): void }>(),
-    onExit: vi.fn<(callback: (event: { exitCode: number }) => void) => { dispose(): void }>(),
-  },
-  spawn: vi.fn(),
-  dispose: vi.fn(),
-}));
-vi.mock("electron", () => ({ app: mock.app, ipcMain: mock }));
-vi.mock("node-pty", () => ({ spawn: mock.spawn }));
-import { attachTerminal } from "../src/terminal";
+    onData: vi
+      .fn<(callback: (data: string) => void) => { dispose(): void }>()
+      .mockReturnValue({ dispose: vi.fn() }),
+    onExit: vi
+      .fn<(callback: (event: { exitCode: number }) => void) => { dispose(): void }>()
+      .mockReturnValue({ dispose: vi.fn() }),
+  };
+}
+let ptys: ReturnType<typeof fakePty>[];
 const frame = { url: "app://bundle/index.html" };
-const contents = { mainFrame: frame, send: vi.fn() };
+const contents = {
+  mainFrame: frame,
+  send: vi.fn(),
+  on: vi.fn<(name: string, callback: (...args: never[]) => void) => void>(),
+  removeListener: vi.fn(),
+};
 const window = {
   webContents: contents,
   once: vi.fn<(name: string, callback: () => void) => void>(),
 };
-// Minimal Electron fixtures let us exercise sender identity and detached/subframe checks.
+// Minimal platform fixtures exercise identity checks without a display.
 const event = { sender: contents, senderFrame: frame } as unknown as IpcMainInvokeEvent &
   IpcMainEvent;
-function start(cols: unknown = 80, rows: unknown = 24, sender = event) {
-  const handler = mock.handle.mock.calls[0]?.[1];
-  if (!handler) throw new Error("Missing start handler");
-  return handler(sender, cols, rows);
+function invoke(channel: string, args: unknown[] = [], sender = event) {
+  const handler = mock.handle.mock.calls.find(([name]) => name === `terminal:${channel}`)?.[1];
+  if (!handler) throw new Error("Missing handler");
+  return handler(sender, ...args);
 }
 function send(channel: string, args: unknown[], sender = event) {
   mock.on.mock.calls.find(([name]) => name === `terminal:${channel}`)?.[1](sender, ...args);
 }
+function create() {
+  const result = invoke("create", [80, 24]);
+  if (typeof result !== "object" || !result || !("id" in result) || typeof result.id !== "string")
+    throw new Error("Missing ID");
+  return result.id;
+}
+function pty(index = 0) {
+  const value = ptys[index];
+  if (!value) throw new Error("Missing PTY");
+  return value;
+}
+function output(data: string, index = 0) {
+  pty(index).onData.mock.calls[0]?.[0](data);
+}
+const spec = { command: "/bin/bash", args: ["-l"], cwd: "/tmp", cols: 80, rows: 24 };
+let manager: TerminalManager;
+const exited = vi.fn();
 beforeEach(() => {
   vi.clearAllMocks();
+  ptys = [];
   mock.app.isPackaged = false;
-  mock.spawn.mockReturnValue(mock.pty);
-  mock.pty.onData.mockReturnValue({ dispose: mock.dispose });
-  mock.pty.onExit.mockReturnValue({ dispose: mock.dispose });
+  mock.spawn.mockImplementation(() => {
+    const next = fakePty();
+    ptys.push(next);
+    return next;
+  });
   attachTerminal(window as unknown as BrowserWindow);
+  manager = new TerminalManager(exited);
 });
-test("starts a shell, delivers output, applies backpressure and reports exit", () => {
-  expect(start()).toEqual(expect.any(String));
-  const output = mock.pty.onData.mock.calls[0]?.[0];
-  output?.("x".repeat(262145));
-  expect(mock.pty.pause).toHaveBeenCalledOnce();
-  expect(contents.send).toHaveBeenCalledWith("terminal:data", "x".repeat(262145));
-  send("ack", [1]);
-  expect(mock.pty.resume).not.toHaveBeenCalled();
-  send("ack", [262144]);
-  expect(mock.pty.resume).toHaveBeenCalledOnce();
-  send("input", ["ls\r"]);
-  send("resize", [100, 30]);
-  expect(mock.pty.write).toHaveBeenCalledWith("ls\r");
-  expect(mock.pty.resize).toHaveBeenCalledWith(100, 30);
-  mock.pty.onExit.mock.calls[0]?.[0]({ exitCode: 3 });
-  expect(contents.send).toHaveBeenCalledWith("terminal:exit", 3);
-  send("input", ["ignored"]);
-  send("resize", [80, 24]);
-  expect(mock.pty.write).toHaveBeenCalledOnce();
+afterEach(() => {
+  manager.dispose();
+  window.once.mock.calls[0]?.[1]();
+  vi.unstubAllEnvs();
 });
-test("validates dimensions, input and acknowledgements", () => {
+
+test("detached output continuously updates real headless screen and scrollback", async () => {
+  const id = manager.create(spec);
+  for (let i = 0; i < 5000; i++) output(`line ${String(i)} ${"x".repeat(60)}\r\n`);
+  expect((await manager.tail(id, 3)).join("\n")).toContain("line 4999");
+  expect(pty().pause).not.toHaveBeenCalled();
+  const data = vi.fn();
+  await manager.attach(id, data);
+  expect(data.mock.calls[0]?.[1]).toContain("line 4999");
+  output("live");
+  await manager.tail(id, 1);
+  expect(data).toHaveBeenLastCalledWith(expect.any(String), "live");
+  manager.resize(id, 100, 30);
+  manager.write(id, "hello");
+  expect(pty().resize).toHaveBeenCalledWith(100, 30);
+  expect(pty().write).toHaveBeenCalledWith("hello");
+});
+
+test("backpressure only affects attached views and old view acknowledgements are ignored", async () => {
+  const id = manager.create(spec);
+  const data = vi.fn();
+  await manager.attach(id, data);
+  const token: unknown = data.mock.calls[0]?.[0];
+  if (typeof token !== "string") throw new Error("Missing token");
+  output("x".repeat(270000));
+  await manager.tail(id, 1);
+  expect(pty().pause).toHaveBeenCalledOnce();
+  for (const count of [0, -1, 1.2, Infinity, 999999]) manager.acknowledge(id, token, count);
+  manager.acknowledge(id, "foreign", 270000);
+  expect(pty().resume).not.toHaveBeenCalled();
+  manager.acknowledge(id, token, 1);
+  expect(pty().resume).not.toHaveBeenCalled();
+  manager.acknowledge(id, token, 269999);
+  expect(pty().resume).toHaveBeenCalledOnce();
+  output("y".repeat(270000));
+  await manager.tail(id, 1);
+  manager.detach(id);
+  expect(pty().resume).toHaveBeenCalledTimes(2);
+  manager.acknowledge(id, token, 1);
+  const next = vi.fn();
+  await manager.attach(id, next);
+  const nextToken: unknown = next.mock.calls[0]?.[0];
+  expect(nextToken).not.toBe(token);
+  manager.acknowledge(id, token, 270000);
+  expect(pty().resume).toHaveBeenCalledTimes(2);
+});
+
+test("independent terminals retain final output and exit state until killed", async () => {
+  const first = manager.create(spec);
+  const second = manager.create(spec);
+  output("first");
+  output("second", 1);
+  expect(await manager.tail(first, 1)).toEqual(["first"]);
+  expect(await manager.tail(second, 1)).toEqual(["second"]);
+  manager.write(second, "input");
+  expect(pty().write).not.toHaveBeenCalled();
+  pty().onExit.mock.calls[0]?.[0]({ exitCode: 3 });
+  await manager.tail(first, 1);
+  expect(exited).toHaveBeenCalledWith(first, 3);
+  manager.write(first, "ignored");
+  manager.resize(first, 90, 25);
+  expect(pty().write).not.toHaveBeenCalled();
+  expect(pty().resize).not.toHaveBeenCalled();
+  await manager.attach(first, vi.fn());
+  manager.kill(first);
+  expect(pty().kill).not.toHaveBeenCalled();
+  expect(() => {
+    manager.write(first, "stale");
+  }).toThrow("Unknown terminal ID");
+  expect(await manager.tail(second, 1)).toEqual(["second"]);
+});
+
+test("cancels in-flight attachments and safely drains callbacks on kill", async () => {
+  const id = manager.create(spec);
+  const data = vi.fn();
+  output("queued");
+  const attaching = manager.attach(id, data);
+  manager.detach(id);
+  await attaching;
+  expect(data).not.toHaveBeenCalled();
+  output("last");
+  pty().onExit.mock.calls[0]?.[0]({ exitCode: 0 });
+  const pending = manager.attach(id, data);
+  manager.kill(id);
+  await pending;
+  expect(exited).not.toHaveBeenCalled();
+  expect(data).not.toHaveBeenCalled();
+  for (const lines of [0, -1, 10001, 1.2])
+    await expect(manager.tail(id, lines)).rejects.toThrow("Invalid tail length");
+});
+
+test("IPC isolates IDs, validates input and cleans up", async () => {
+  const id = create();
+  const second = create();
+  expect(id).not.toBe(second);
+  await invoke("attach", [id]);
+  output("hello");
+  await vi.waitFor(() => {
+    expect(contents.send).toHaveBeenCalledWith("terminal:data", id, expect.any(String), "hello");
+  });
+  send("input", [id, "ls\r"]);
+  send("resize", [id, 100, 30]);
+  expect(pty().write).toHaveBeenCalledWith("ls\r");
+  expect(pty().resize).toHaveBeenCalledWith(100, 30);
+  const token: unknown = contents.send.mock.calls[0]?.[2];
+  send("ack", [id, token, 5]);
+  send("ack", [id, null, 5]);
+  send("ack", [id, token, null]);
+  send("input", [id, null]);
+  send("input", [id, "x".repeat(65537)]);
+  for (const invalid of [null, "unknown", second + "foreign"]) {
+    for (const op of ["attach", "detach", "kill"])
+      await expect(invoke(op, [invalid])).rejects.toThrow("Unknown or foreign");
+    send("input", [invalid, "bad"]);
+    send("resize", [invalid, 80, 24]);
+    send("ack", [invalid, "view", 1]);
+  }
+  expect(pty().write).toHaveBeenCalledOnce();
+  await invoke("detach", [id]);
+  await invoke("kill", [id]);
+  send("input", [id, "stale"]);
+  expect(pty().kill).toHaveBeenCalledOnce();
+  pty(1).onExit.mock.calls[0]?.[0]({ exitCode: 2 });
+  await vi.waitFor(() => {
+    expect(contents.send).toHaveBeenCalledWith("terminal:exit", second, 2);
+  });
+});
+
+test("rejects malformed dimensions and untrusted frames on every channel", async () => {
+  const id = create();
   for (const pair of [
     [null, 24],
     [80, "24"],
@@ -82,64 +229,75 @@ test("validates dimensions, input and acknowledgements", () => {
     [80.5, 24],
     [80, 24.5],
   ]) {
-    expect(() => start(pair[0], pair[1])).toThrow("Invalid terminal size");
-    send("resize", pair);
+    expect(() => invoke("create", pair)).toThrow("Invalid terminal size");
+    send("resize", [id, ...pair]);
   }
-  start();
-  send("input", [null]);
-  send("input", ["x".repeat(65537)]);
-  for (const count of [null, -1, 0, 1.2, Infinity, 99]) send("ack", [count]);
-  expect(mock.pty.write).not.toHaveBeenCalled();
-  expect(mock.pty.resize).not.toHaveBeenCalled();
-  expect(mock.pty.resume).not.toHaveBeenCalled();
-});
-test("rejects foreign senders, navigated pages, subframes and detached frames", () => {
   for (const sender of [
     { sender: {}, senderFrame: frame },
     { sender: contents, senderFrame: null },
     { sender: contents, senderFrame: { url: frame.url } },
-    { sender: { mainFrame: frame }, senderFrame: frame },
   ]) {
     const invalid = sender as unknown as typeof event;
-    expect(() => start(80, 24, invalid)).toThrow("Untrusted IPC sender");
-    send("input", ["bad"], invalid);
-    send("resize", [80, 24], invalid);
-    send("ack", [1], invalid);
+    expect(() => invoke("create", [80, 24], invalid)).toThrow("Untrusted IPC sender");
+    for (const op of ["attach", "detach", "kill"])
+      await expect(invoke(op, [id], invalid)).rejects.toThrow("Untrusted IPC sender");
+    send("input", [id, "bad"], invalid);
+    send("resize", [id, 80, 24], invalid);
+    send("ack", [id, "view", 1], invalid);
   }
   frame.url = "https://evil.example";
-  expect(() => start()).toThrow("Untrusted IPC sender");
+  expect(() => create()).toThrow("Untrusted IPC sender");
   frame.url = "app://bundle/index.html";
-  expect(mock.spawn).not.toHaveBeenCalled();
+  expect(pty().write).not.toHaveBeenCalled();
+  expect(pty().resize).not.toHaveBeenCalled();
 });
-test("cleans up on restart and close, including listeners", () => {
-  start();
-  start();
-  expect(mock.pty.kill).toHaveBeenCalledOnce();
-  window.once.mock.calls[0]?.[1]();
-  expect(mock.pty.kill).toHaveBeenCalledTimes(2);
-  expect(mock.dispose).toHaveBeenCalledTimes(4);
-  expect(mock.removeHandler).toHaveBeenCalledWith("terminal:start");
-  expect(mock.removeListener).toHaveBeenCalledTimes(3);
-});
+
 test.each(["win32", "linux"])(
-  "selects a platform shell on %s and uses home for packaged app",
+  "selects the %s shell, scrubs environment and retries spawn failure",
   (platform) => {
     vi.spyOn(process, "platform", "get").mockReturnValue(platform as NodeJS.Platform);
     vi.stubEnv("SHELL", "");
+    vi.stubEnv("npm_secret", "secret");
+    vi.stubEnv("ELECTRON_RUN_AS_NODE", "1");
+    vi.stubEnv("FOOM_KEEP", "yes");
     mock.app.isPackaged = true;
-    start();
-    expect(mock.spawn).toHaveBeenCalledWith(
+    mock.spawn.mockImplementationOnce(() => {
+      throw new Error("missing shell");
+    });
+    expect(() => create()).toThrow("missing shell");
+    create();
+    expect(mock.spawn).toHaveBeenLastCalledWith(
       platform === "win32" ? "powershell.exe" : "/bin/bash",
       expect.any(Array),
-      expect.objectContaining({ cols: 80, rows: 24, name: "xterm-256color", useConptyDll: true }),
+      expect.objectContaining({
+        useConptyDll: true,
+      }),
     );
-    vi.unstubAllEnvs();
+    const options: unknown = mock.spawn.mock.calls[1]?.[2];
+    if (typeof options !== "object" || !options || !("env" in options))
+      throw new Error("Missing environment");
+    expect(options.env).toMatchObject({ FOOM_KEEP: "yes" });
+    expect(options.env).not.toHaveProperty("npm_secret");
+    expect(options.env).not.toHaveProperty("ELECTRON_RUN_AS_NODE");
   },
 );
-test("propagates spawn failures and can retry", () => {
-  mock.spawn.mockImplementationOnce(() => {
-    throw new Error("missing shell");
+
+test("renderer loss detaches paused views without terminating the PTY", async () => {
+  const id = create();
+  await invoke("attach", [id]);
+  output("x".repeat(270000));
+  await vi.waitFor(() => {
+    expect(pty().pause).toHaveBeenCalledOnce();
   });
-  expect(() => start()).toThrow("missing shell");
-  expect(() => start()).not.toThrow();
+  contents.on.mock.calls.find(([name]) => name === "render-process-gone")?.[1]();
+  expect(pty().resume).toHaveBeenCalledOnce();
+  expect(pty().kill).not.toHaveBeenCalled();
+  await invoke("attach", [id]);
+  const navigation = contents.on.mock.calls.find(([name]) => name === "did-start-navigation")?.[1];
+  // Use Reflect to simulate Electron's native event signature on the minimal fixture.
+  if (!navigation) throw new Error("Missing navigation listener");
+  Reflect.apply(navigation, undefined, [{}, "app://bundle/index.html", false, false]);
+  Reflect.apply(navigation, undefined, [{}, "app://bundle/index.html", false, true]);
+  const foreign = manager.create(spec);
+  await expect(invoke("attach", [foreign])).rejects.toThrow("Unknown or foreign");
 });
