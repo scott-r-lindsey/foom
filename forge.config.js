@@ -8,7 +8,8 @@ module.exports = {
     appBundleId: "com.foom.desktop",
     // Include production dependencies; native PTY binaries and helpers must live outside ASAR.
     ignore: (file) =>
-      file !== "" && file !== "/package.json" && !/^\/(?:build|node_modules)(?:\/|$)/.test(file),
+      !["", "/package.json", "/LICENSE", "/NOTICE"].includes(file) &&
+      !/^\/(?:build|node_modules)(?:\/|$)/.test(file),
   },
   makers: [{ name: "@electron-forge/maker-zip", platforms: ["darwin", "linux", "win32"] }],
   plugins: [
