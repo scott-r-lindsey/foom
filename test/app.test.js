@@ -5,7 +5,7 @@ const { _electron: electron } = require("@playwright/test");
 
 test("terminal runs an interactive shell behind an isolated bridge", {
   timeout: 60_000,
-}, async () => {
+}, async (context) => {
   const env = { ...process.env };
   delete env.ELECTRON_RUN_AS_NODE;
   const app = await electron.launch({
@@ -13,14 +13,22 @@ test("terminal runs an interactive shell behind an isolated bridge", {
     args: [path.join(__dirname, "..")],
     env,
   });
+  const child = app.process();
+  const abort = () => {
+    child.kill();
+  };
+  context.signal.addEventListener("abort", abort, { once: true });
+  console.info("Electron launched");
   try {
     const page = await app.firstWindow();
+    console.info("Window opened");
     page.setDefaultTimeout(15_000);
     await page.waitForLoadState("domcontentloaded");
     assert.equal(await page.title(), "Foom");
     await page.waitForFunction(
       () => !document.querySelector("#status").textContent.includes("Starting"),
     );
+    console.info("Shell started");
     assert.doesNotMatch(await page.locator("#status").innerText(), /Unable/);
     await page.evaluate(() => {
       window.terminalOutput = "";
@@ -38,6 +46,7 @@ test("terminal runs an interactive shell behind an isolated bridge", {
     await page.keyboard.type(command);
     await page.keyboard.press("Enter");
     await page.waitForFunction(() => window.terminalOutput.includes("FOOM_SHELL_OK"));
+    console.info("Shell command returned");
     if (process.platform !== "win32") {
       const readSize = async (label) => {
         await page.keyboard.type(`printf 'SIZE_%s:' ${label}; stty size`);
@@ -114,6 +123,7 @@ test("terminal runs an interactive shell behind an isolated bridge", {
         capabilities: ["start", "input", "resize", "acknowledge", "onData", "onExit"],
       },
     );
+    console.info("Renderer isolated");
     const preferences = await app.evaluate(({ BrowserWindow }) => {
       const { sandbox, contextIsolation, nodeIntegration } =
         BrowserWindow.getAllWindows()[0].webContents.getLastWebPreferences();
@@ -133,14 +143,17 @@ test("terminal runs an interactive shell behind an isolated bridge", {
       await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().length),
       1,
     );
+    console.info("Security checks passed");
     await input.focus();
     await page.keyboard.type("exit");
     await page.keyboard.press("Enter");
     await page.getByRole("status").filter({ hasText: "Shell exited" }).waitFor();
+    console.info("Shell exited");
     await page.getByRole("button", { name: "Restart shell" }).click();
     await page.waitForFunction(
       () => !/Starting|exited|Unable/.test(document.querySelector("#status").textContent),
     );
+    console.info("Shell restarted");
   } catch (error) {
     const pages = app.windows();
     if (pages[0])
@@ -153,6 +166,9 @@ test("terminal runs an interactive shell behind an isolated bridge", {
       );
     throw error;
   } finally {
+    console.info("Closing app");
     await app.close();
+    console.info("App closed");
+    context.signal.removeEventListener("abort", abort);
   }
 });
