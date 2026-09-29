@@ -1,6 +1,7 @@
 const { test } = require("node:test");
 const assert = require("node:assert/strict");
 const path = require("node:path");
+const { existsSync } = require("node:fs");
 const { spawn, execFileSync } = require("node:child_process");
 const { chromium } = require("@playwright/test");
 const { getCurrentFuseWire, FuseV1Options } = require("@electron/fuses");
@@ -13,6 +14,19 @@ test("packaged utility host runs native PTYs with RunAsNode disabled", {
     process.platform === "darwin"
       ? path.join(root, "Foom.app", "Contents", "MacOS", "foom")
       : path.join(root, process.platform === "win32" ? "foom.exe" : "foom");
+  if (process.platform === "win32") {
+    const pty = path.join(root, "resources", "app.asar.unpacked", "node_modules", "node-pty");
+    const directory = ["build/Release", "build/Debug", `prebuilds/win32-${process.arch}`]
+      .map((directory) => path.join(pty, directory))
+      .find((directory) => existsSync(path.join(directory, "conpty.node")));
+    assert.ok(directory, "packaged ConPTY native addon is present outside ASAR");
+    for (const file of ["conpty.dll", "OpenConsole.exe"]) {
+      assert.ok(
+        existsSync(path.join(directory, "conpty", file)),
+        `missing ${file} beside ${directory}`,
+      );
+    }
+  }
   const wire = await getCurrentFuseWire(executable);
   assert.equal(wire[FuseV1Options.RunAsNode], 48, "RunAsNode fuse is disabled");
   const env = { ...process.env };
