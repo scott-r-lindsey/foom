@@ -1,0 +1,669 @@
+<title>Foom Switchboard</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: one-screen app. Left = switchboard of agent terminals grouped by repo, right = the one terminal you opened. */
+:root {
+  --bg: #eceef3;
+  --panel: #ffffff;
+  --raise: #f5f6f9;
+  --ink: #1a1c28;
+  --muted: #5f6377;
+  --faint: #8d91a4;
+  --line: #d8dbe4;
+  --accent: #5845d6;
+  --accent-ink: #ffffff;
+  --amber-ink: #8f5500;
+  --green-ink: #17784a;
+  --red-ink: #b3261e;
+  --led-work: #5b6cff;
+  --led-amber: #f09a12;
+  --led-green: #1faa5c;
+  --led-red: #e0463c;
+  --led-idle: #a9adbd;
+  --term-bg: #161822;
+  --term-fg: #d7d9e4;
+  --term-dim: #7e8296;
+  --term-ok: #5fd99a;
+  --term-err: #ff7b72;
+  --term-ask: #ffc46b;
+  --term-cmd: #a9b8ff;
+  --term-you: #c7bfff;
+  --shadow: 0 10px 30px rgba(20, 22, 40, .14), 0 2px 6px rgba(20, 22, 40, .08);
+  --sans: "Geist", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: "Geist Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #101118; --panel: #171922; --raise: #1d202b; --ink: #e7e8f0; --muted: #9a9db2; --faint: #6c7086; --line: #2a2d3b;
+    --accent: #8f82ff; --accent-ink: #12121a; --amber-ink: #ffc46b; --green-ink: #6fe0a3; --red-ink: #ff8a80;
+    --led-work: #a9b8ff; --led-amber: #ffb23e; --led-green: #3fd986; --led-red: #ff6257; --led-idle: #4b4f62;
+    --term-bg: #0c0d12; --shadow: 0 10px 30px rgba(0, 0, 0, .5), 0 2px 6px rgba(0, 0, 0, .4);
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #101118; --panel: #171922; --raise: #1d202b; --ink: #e7e8f0; --muted: #9a9db2; --faint: #6c7086; --line: #2a2d3b;
+  --accent: #8f82ff; --accent-ink: #12121a; --amber-ink: #ffc46b; --green-ink: #6fe0a3; --red-ink: #ff8a80;
+  --led-work: #a9b8ff; --led-amber: #ffb23e; --led-green: #3fd986; --led-red: #ff6257; --led-idle: #4b4f62;
+  --term-bg: #0c0d12; --shadow: 0 10px 30px rgba(0, 0, 0, .5), 0 2px 6px rgba(0, 0, 0, .4);
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+html, body { height: 100%; }
+body { background: var(--bg); color: var(--ink); font-family: var(--sans); font-size: 14px; line-height: 1.4; }
+button, input, select { font: inherit; color: inherit; }
+button { cursor: pointer; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.app { height: 100%; display: grid; grid-template-rows: auto auto 1fr; }
+
+/* Top bar */
+.top { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 20px; padding: 12px 16px; border-bottom: 1px solid var(--line); background: var(--panel); }
+.brand { font-weight: 600; font-size: 17px; letter-spacing: -.02em; display: flex; align-items: center; gap: 8px; }
+.brand .dots { display: inline-flex; gap: 3px; }
+.brand .dots i { width: 5px; height: 5px; border-radius: 50%; background: var(--accent); opacity: .35; }
+.brand .dots i:nth-child(2) { opacity: .65; }
+.brand .dots i:nth-child(3) { opacity: 1; }
+.counts { display: flex; gap: 14px; color: var(--muted); font-variant-numeric: tabular-nums; flex-wrap: wrap; }
+.counts b { color: var(--ink); font-weight: 600; }
+.next { display: inline-flex; align-items: center; gap: 10px; padding: 7px 10px 7px 12px; border-radius: 8px; border: 1px solid color-mix(in srgb, var(--led-amber) 55%, var(--line)); background: color-mix(in srgb, var(--led-amber) 12%, var(--panel)); font-weight: 500; min-width: 0; }
+.next:disabled { cursor: default; border-color: var(--line); background: var(--raise); color: var(--muted); }
+.next .nx-label { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 34ch; }
+kbd { font-family: var(--mono); font-size: 11px; padding: 1px 5px; border-radius: 4px; border: 1px solid var(--line); background: var(--raise); color: var(--muted); }
+.spacer { flex: 1; }
+.btn { padding: 7px 12px; border-radius: 8px; border: 1px solid var(--line); background: var(--panel); font-weight: 500; }
+.btn:hover { background: var(--raise); }
+.btn.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+.btn.primary:hover { filter: brightness(1.08); }
+.btn.quiet { border-color: transparent; background: transparent; color: var(--muted); }
+.btn.quiet:hover { color: var(--ink); background: var(--raise); }
+.sim { display: flex; gap: 4px; align-items: center; padding-left: 12px; border-left: 1px solid var(--line); }
+.sim span { font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: var(--faint); margin-right: 4px; }
+
+/* Legend */
+.legend { display: flex; flex-wrap: wrap; gap: 6px 18px; padding: 8px 16px; font-size: 12px; color: var(--muted); border-bottom: 1px solid var(--line); }
+.legend span { display: inline-flex; align-items: center; gap: 7px; }
+
+/* LED */
+.led { --c: var(--led-idle); --i: .5; width: 10px; height: 10px; border-radius: 50%; flex: none; background: var(--c);
+  opacity: calc(.28 + var(--i) * .72);
+  box-shadow: 0 0 calc(1px + var(--i) * 9px) calc(var(--i) * 1.5px) color-mix(in srgb, var(--c) 65%, transparent);
+  transition: opacity 90ms linear, box-shadow 90ms linear; }
+.led[data-state="working"] { --c: var(--led-work); --i: .2; }
+.led[data-state="checking"] { --c: var(--led-work); --i: .35; animation: breathe 1.6s ease-in-out infinite; }
+.led[data-state="waiting"] { --c: var(--led-amber); --i: 1; outline: 2px solid color-mix(in srgb, var(--c) 40%, transparent); outline-offset: 3px; }
+.led[data-state="done"] { --c: var(--led-green); --i: .9; }
+.led[data-state="done"].seen { --i: .3; }
+.led[data-state="failed"] { --c: var(--led-red); --i: 1; border-radius: 2px; }
+.led[data-state="failed"].seen { --i: .45; }
+.led[data-state="idle"] { --c: var(--led-idle); --i: .6; }
+@keyframes breathe { 50% { opacity: .9; } }
+
+/* Main split */
+.main { display: grid; grid-template-columns: minmax(0, 560px) minmax(0, 1fr); min-height: 0; }
+.board { overflow-y: auto; padding: 10px 16px 24px; border-right: 1px solid var(--line); }
+.repo { padding-top: 14px; }
+.repo-head { display: flex; align-items: center; gap: 10px; padding: 0 10px 6px; font-size: 12px; color: var(--muted); }
+.repo-head .rname { font-family: var(--mono); font-weight: 500; color: var(--ink); }
+.repo-head .rsum { margin-left: auto; font-variant-numeric: tabular-nums; }
+.rows { display: grid; gap: 2px; }
+.cell { position: relative; }
+.row { width: 100%; display: grid; grid-template-columns: 22px minmax(0, 1fr) auto; align-items: center; gap: 4px 10px; padding: 9px 10px; border: 1px solid transparent; border-radius: 8px; background: transparent; text-align: left; }
+.row:hover { background: var(--panel); border-color: var(--line); }
+.row.open { background: var(--panel); border-color: var(--accent); }
+.row .led { justify-self: center; }
+.r-top { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+.branch { font-family: var(--mono); font-size: 13px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.kind { font-size: 11px; color: var(--faint); white-space: nowrap; }
+.diff { font-family: var(--mono); font-size: 11px; color: var(--faint); white-space: nowrap; margin-left: auto; }
+.r-reason { grid-column: 2 / 4; display: flex; gap: 8px; min-width: 0; color: var(--muted); font-size: 13px; }
+.r-reason .why { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.status { flex: none; font-weight: 600; font-size: 12px; color: var(--muted); }
+[data-state="waiting"] .status { color: var(--amber-ink); }
+[data-state="failed"] .status { color: var(--red-ink); }
+[data-state="done"] .status { color: var(--green-ink); }
+[data-state="waiting"] .why { color: var(--ink); }
+.age { font-size: 12px; color: var(--faint); font-variant-numeric: tabular-nums; white-space: nowrap; }
+[data-state="waiting"] .age { color: var(--amber-ink); font-weight: 500; }
+
+.peek { position: absolute; z-index: 5; left: 36px; right: 8px; top: calc(100% - 4px); background: var(--term-bg); color: var(--term-fg); border-radius: 8px; box-shadow: var(--shadow); padding: 10px 12px; font-family: var(--mono); font-size: 12px; line-height: 1.5; pointer-events: none; }
+.peek .pk-h { color: var(--term-dim); font-family: var(--sans); font-size: 11px; text-transform: uppercase; letter-spacing: .08em; margin-bottom: 4px; }
+
+/* Terminal panel */
+.panel { display: grid; grid-template-rows: auto 1fr auto; min-height: 0; background: var(--panel); }
+.p-head { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 4px 12px; align-items: center; padding: 14px 16px; border-bottom: 1px solid var(--line); }
+.p-title { display: flex; align-items: baseline; gap: 10px; min-width: 0; flex-wrap: wrap; }
+.p-title .branch { font-size: 15px; }
+.p-title .repo-n { color: var(--muted); font-family: var(--mono); font-size: 12px; }
+.p-actions { display: flex; gap: 6px; }
+.p-verdict { grid-column: 2 / 4; display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; font-size: 13px; color: var(--muted); }
+.p-verdict .why { color: var(--ink); }
+.via { font-family: var(--mono); font-size: 11px; padding: 1px 6px; border-radius: 4px; background: var(--raise); border: 1px solid var(--line); color: var(--muted); white-space: nowrap; }
+.term { overflow-y: auto; background: var(--term-bg); color: var(--term-fg); font-family: var(--mono); font-size: 13px; line-height: 1.55; padding: 14px 16px; min-height: 0; }
+.term div, .peek div { white-space: pre-wrap; word-break: break-word; }
+.t-cmd { color: var(--term-cmd); }
+.t-dim { color: var(--term-dim); }
+.t-ok { color: var(--term-ok); }
+.t-err { color: var(--term-err); }
+.t-ask { color: var(--term-ask); }
+.t-you { color: var(--term-you); }
+.t-agent { color: var(--term-fg); font-weight: 500; }
+.cursor { display: inline-block; width: .6em; height: 1.1em; vertical-align: -2px; background: var(--term-fg); opacity: .7; }
+.reply { display: flex; flex-wrap: wrap; gap: 8px; padding: 12px 16px; border-top: 1px solid var(--line); align-items: center; }
+.chip { padding: 6px 12px; border-radius: 999px; border: 1px solid color-mix(in srgb, var(--led-amber) 60%, var(--line)); background: color-mix(in srgb, var(--led-amber) 10%, var(--panel)); font-weight: 500; }
+.chip:hover { background: color-mix(in srgb, var(--led-amber) 20%, var(--panel)); }
+.reply input { flex: 1 1 220px; min-width: 0; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--line); background: var(--raise); font-family: var(--mono); font-size: 13px; }
+.reply input:disabled { opacity: .6; }
+.empty { display: grid; place-content: center; gap: 10px; text-align: center; color: var(--muted); padding: 32px 16px; background: var(--panel); }
+.empty h2 { margin: 0; font-size: 18px; font-weight: 600; color: var(--ink); letter-spacing: -.01em; text-wrap: balance; }
+.empty p { margin: 0; max-width: 42ch; }
+
+/* New worktree sheet */
+.scrim { position: fixed; inset: 0; background: rgba(10, 11, 20, .45); display: grid; place-items: center; padding: 16px; z-index: 20; }
+.sheet { width: min(440px, 100%); background: var(--panel); border: 1px solid var(--line); border-radius: 12px; box-shadow: var(--shadow); padding: 20px; display: grid; gap: 14px; }
+.sheet h2 { margin: 0; font-size: 17px; font-weight: 600; }
+.sheet label { display: grid; gap: 6px; font-size: 12px; color: var(--muted); font-weight: 500; }
+.sheet input, .sheet select { padding: 8px 10px; border-radius: 8px; border: 1px solid var(--line); background: var(--raise); font-size: 14px; color: var(--ink); }
+.sheet .mono { font-family: var(--mono); }
+.sheet .hint { font-size: 12px; color: var(--faint); font-family: var(--mono); overflow-wrap: anywhere; }
+.sheet .acts { display: flex; justify-content: flex-end; gap: 8px; }
+
+@media (max-width: 900px) {
+  .main { grid-template-columns: minmax(0, 1fr); }
+  .board { border-right: 0; }
+  .panel { position: fixed; inset: 0; z-index: 15; padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area-inset-bottom, 0px); }
+  .empty { display: none; }
+  .sim { border-left: 0; padding-left: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .led { transition: none; }
+  .led[data-state="checking"] { animation: none; }
+}
+</style>
+
+<div class="app">
+  <header class="top">
+    <div class="brand"><span class="dots"><i></i><i></i><i></i></span>foom</div>
+    <button class="next" id="next" type="button" title="Open the terminal that has waited longest">
+      <span class="led" data-state="waiting"></span><span class="nx-label" id="nextLabel">Nothing needs you</span><kbd>N</kbd>
+    </button>
+    <div class="counts" id="counts"></div>
+    <div class="spacer"></div>
+    <button class="btn primary" id="newBtn" type="button">New worktree</button>
+    <div class="sim"><span>Mockup</span>
+      <button class="btn quiet" id="pauseBtn" type="button">Pause</button>
+      <button class="btn quiet" id="restartBtn" type="button">Restart</button>
+    </div>
+  </header>
+  <div class="legend" aria-label="Light legend">
+    <span><i class="led" data-state="working" style="--i:.8"></i>Working, flickers with output</span>
+    <span><i class="led" data-state="checking"></i>Output stopped, checking</span>
+    <span><i class="led" data-state="waiting"></i>Needs you</span>
+    <span><i class="led" data-state="done"></i>Done</span>
+    <span><i class="led" data-state="failed"></i>Failed</span>
+    <span><i class="led" data-state="idle"></i>Quiet, no action</span>
+    <span>Dimmed once you've looked</span>
+  </div>
+  <div class="main">
+    <nav class="board" id="board" aria-label="Terminals"></nav>
+    <section class="empty" id="empty">
+      <h2>All terminals stay hidden until one needs you</h2>
+      <p>Hover a row to peek at its last lines. Click to open it. Press <kbd>N</kbd> to jump to whatever has waited longest.</p>
+    </section>
+    <section class="panel" id="panel" hidden>
+      <div class="p-head">
+        <span class="led" id="pLed"></span>
+        <div class="p-title"><span class="branch" id="pBranch"></span><span class="repo-n" id="pRepo"></span></div>
+        <div class="p-actions">
+          <button class="btn" id="dismissBtn" type="button" title="Tell the evaluator this was a false alarm">Not attention</button>
+          <button class="btn quiet" id="closeBtn" type="button" title="Hide terminal (Esc)">Hide</button>
+        </div>
+        <div class="p-verdict"><span class="status" id="pStatus"></span><span class="why" id="pWhy"></span><span class="via" id="pVia"></span></div>
+      </div>
+      <div class="term" id="term" role="log" aria-live="polite"></div>
+      <form class="reply" id="replyForm" autocomplete="off">
+        <span id="chips" style="display:contents"></span>
+        <input id="replyInput" type="text" placeholder="Reply to the agent" aria-label="Reply to the agent">
+        <button class="btn" type="submit">Send</button>
+      </form>
+    </section>
+  </div>
+</div>
+
+<div class="scrim" id="scrim" hidden>
+  <form class="sheet" id="newForm" autocomplete="off">
+    <h2>New worktree</h2>
+    <label for="nwRepo">Repository
+      <select id="nwRepo"></select>
+    </label>
+    <label for="nwBranch">Branch
+      <input id="nwBranch" class="mono" type="text" value="feat/session-restore" required>
+    </label>
+    <label for="nwTask">Task for the agent
+      <input id="nwTask" type="text" value="Restore open terminals when Foom relaunches" required>
+    </label>
+    <div class="hint" id="nwHint"></div>
+    <div class="acts">
+      <button class="btn quiet" type="button" id="nwCancel">Cancel</button>
+      <button class="btn primary" type="submit">Create and start agent</button>
+    </div>
+  </form>
+</div>
+
+<script>
+(() => {
+  const REPOS = ["foom", "billing-api", "docs-site", "mobile-app"];
+
+  const DEFS = [
+    { id: "t1", repo: "foom", branch: "feat/worktree-create", kind: "Claude Code", diff: "+38 −2", seedAgo: 130000, segs: [
+      { lines: ['$ claude "Add a New Worktree command that runs git worktree add"', "● Reading src/main.ts", "● Reading src/preload.ts",
+        "● I'll add a worktree:create IPC handler in main and expose it through the preload bridge.", "● Update(src/main.ts)",
+        "  ⎿ +38 lines  ipcMain.handle('worktree:create', …)", "  Allow edit to src/main.ts? (y/n)"],
+        end: { state: "waiting", reason: "Wants to edit src/main.ts", via: "pattern: (y/n)", replies: ["y", "n"] } },
+      { lines: ["● Edited src/main.ts", "● Update(src/preload.ts)", "  ⎿ +9 lines  createWorktree(repo, branch)", "~700", "$ npm test",
+        "  ✓ tests/main.test.ts (19)", "  ✓ tests/preload.test.ts (7)", "  Tests 26 passed", "● Done. New Worktree runs git worktree add and opens a terminal in it."],
+        end: { state: "done", reason: "Added worktree:create; 26 tests pass", via: "prompt returned, exit 0" } } ] },
+
+    { id: "t2", repo: "foom", branch: "feat/indicator-light", kind: "Claude Code", diff: "+61 −4", start: 400, segs: [
+      { lines: ['$ claude "Drive the indicator light from pty output rate"', "● Reading src/renderer/renderer.ts",
+        "● I'll keep a decaying bytes-per-second meter per terminal and map it to brightness.", "● Write(src/renderer/activity.ts)",
+        "  ⎿ +54 lines", "● Update(src/renderer/renderer.ts)", "  ⎿ +7 −4", "~1200", "$ npm test", " RUN  v3.2.4 /foom",
+        "  ✓ tests/activity.test.ts (9)", "  ✓ tests/renderer.test.ts (14)", "  ✓ tests/main.test.ts (19)", "~500",
+        " Test Files  3 passed (3)", "      Tests  42 passed (42)", "● Brightness now follows output rate with a 300 ms decay."],
+        end: { state: "done", reason: "Activity meter added; 42 tests pass", via: "prompt returned, exit 0" } } ] },
+
+    { id: "t3", repo: "foom", branch: "fix/pty-resize", kind: "Claude Code", diff: "+12 −9", start: 2200, segs: [
+      { lines: ['$ claude "Fix terminal size drifting after window resize"', "● Reading src/pty.ts", "● The resize handler reads cols before layout settles.",
+        "● Update(src/pty.ts)", "  ⎿ +12 −9", "~800", "$ npm run typecheck", "~900",
+        "src/pty.ts:41:18 - error TS2345: Argument of type 'number | undefined' is not assignable to parameter of type 'number'.",
+        "Found 1 error in src/pty.ts:41", "✗ claude exited: reached the turn limit"],
+        end: { state: "failed", reason: "Typecheck failed: TS2345 in src/pty.ts", via: "exit code 2" } } ] },
+
+    { id: "t4", repo: "billing-api", branch: "feat/invoice-pdf", kind: "Claude Code", diff: "+140 −22", start: 1200, segs: [
+      { lines: ['$ claude "Render invoices as PDF with the new header"', "● Reading src/invoices/render.ts", "● Reading src/invoices/number.ts",
+        "● Write(src/invoices/pdf.ts)", "  ⎿ +118 lines", "~900", "● Invoice numbers are global today (INV-004213).",
+        "● Before I change the header: should invoice numbers reset each year (INV-2026-0001), or keep counting?"],
+        end: { state: "waiting", reason: "Asking whether invoice numbers reset yearly", via: "model: ends with a question", replies: ["Reset yearly", "Keep counting"] } },
+      { lines: ["● Understood.", "● Update(src/invoices/number.ts)", "  ⎿ +22 −6", "~600", "$ npm test", "  ✓ 61 passed", "● The PDF header uses the new numbers. Sample written to tmp/INV-sample.pdf."],
+        end: { state: "done", reason: "Invoice PDFs render; 61 tests pass", via: "prompt returned, exit 0" } } ] },
+
+    { id: "t5", repo: "billing-api", branch: "feat/invoice-pdf", kind: "dev server", diff: "", start: 300, segs: [
+      { lines: ["$ npm run dev", "> billing-api@2.4.0 dev", "> tsx watch src/server.ts", "[db] connected postgres://localhost:5432/billing", "[http] listening on http://localhost:4000"],
+        end: { state: "idle", reason: "Listening on :4000", via: "long-running, not reading input", auto: 22000 } },
+      { lines: ["[watch] src/invoices/pdf.ts changed, restarting", "[http] listening on http://localhost:4000", "[http] GET /invoices/4213/pdf 200 184ms"],
+        end: { state: "idle", reason: "Listening on :4000", via: "long-running, not reading input" } } ] },
+
+    { id: "t6", repo: "billing-api", branch: "chore/upgrade-stripe", kind: "Claude Code", diff: "+31 −31", start: 800, segs: [
+      { lines: ['$ claude "Upgrade stripe to v18 and fix call sites"', "● Update(package.json)", "  ⎿ stripe ^14.25.0 → ^18.1.0", "$ npm install"],
+        end: { state: "idle", reason: "npm install is quiet but still running", via: "process busy, not reading input", auto: 5500 } },
+      { lines: ["added 3 packages, changed 1 package in 14s", "$ npm run typecheck",
+        "src/webhooks.ts:12:3 - error TS2339: Property 'constructEvent' does not exist on type 'Webhooks'.",
+        "● v18 moved the webhook helper. Fixing 4 call sites.", "● Update(src/webhooks.ts)", "  ⎿ +7 −7", "~900", "$ npm run typecheck", "  ✓ no errors", "$ npm test", "~700", "  ✓ 61 passed"],
+        end: { state: "done", reason: "Stripe 18.1 upgrade done; 61 tests pass", via: "prompt returned, exit 0" } } ] },
+
+    { id: "t7", repo: "docs-site", branch: "fix/broken-links", kind: "Claude Code", diff: "+7 −7", seedAgo: 310000, segs: [
+      { lines: ['$ claude "Fix the broken links lychee reports"', "$ npx lychee docs/", "  ✗ 7 broken links", "● 5 point at /v1/ pages that moved to /reference/.",
+        "● Update(docs/…)  7 files", "$ npx lychee docs/", "  ✓ 0 broken links"],
+        end: { state: "done", reason: "Fixed 7 broken links in 7 files", via: "prompt returned, exit 0" } } ] },
+
+    { id: "t8", repo: "docs-site", branch: "feat/search", kind: "Claude Code", diff: "+88 −3", seedAgo: 41000, segs: [
+      { lines: ['$ claude "Add Algolia search to the docs"', "● Install(@docsearch/react)", "● Update(src/theme/SearchBar.tsx)", "  ⎿ +64 lines", "$ npm run build",
+        "Error: Missing ALGOLIA_API_KEY in environment", "● I need a search-only Algolia API key. Paste it, or tell me to use the demo index."],
+        end: { state: "waiting", reason: "Needs ALGOLIA_API_KEY to finish the build", via: "model: asks for a value", replies: ["Use demo index"] } },
+      { lines: ["● Using the demo index for now.", "$ npm run build", "~800", "  ✓ built in 11.4s", "● Search works against the demo index. Swap the key in .env before deploying."],
+        end: { state: "done", reason: "Search added with the demo index", via: "prompt returned, exit 0" } } ] },
+
+    { id: "t9", repo: "mobile-app", branch: "feat/offline-sync", kind: "Claude Code", diff: "+412 −57", start: 0, segs: [
+      { lines: ['$ claude "Queue writes while offline and sync on reconnect"', "● Reading src/store/index.ts", "● Reading src/api/client.ts", "● Reading src/screens/Notes.tsx",
+        "● Plan: a persisted outbox, a reconnect listener, and last-write-wins by updatedAt.", "● Write(src/sync/outbox.ts)", "  ⎿ +146 lines", "~600",
+        "● Write(src/sync/reconnect.ts)", "  ⎿ +58 lines", "● Update(src/api/client.ts)", "  ⎿ +40 −12", "~1500", "$ npm test -- sync",
+        "  ✓ outbox persists across restarts", "  ✓ replays in order", "  ✗ conflict keeps newer server copy", "~900",
+        "● The comparison uses local time. Switching to server timestamps.", "● Update(src/sync/outbox.ts)", "  ⎿ +9 −4", "$ npm test -- sync",
+        "  ✓ outbox persists across restarts", "  ✓ replays in order", "  ✓ conflict keeps newer server copy", "~1100",
+        "● Update(src/screens/Notes.tsx)", "  ⎿ +31 −6  pending badge", "~800", "$ npm test", "  ✓ 214 passed", "● Offline edits queue, persist, and replay on reconnect."],
+        end: { state: "done", reason: "Offline sync works; 214 tests pass", via: "prompt returned, exit 0" } } ] },
+
+    { id: "t10", repo: "mobile-app", branch: "fix/login-crash", kind: "Claude Code", diff: "+6 −2", start: 5200, segs: [
+      { lines: ['$ claude "Fix the crash when login returns 401"', "● Reading src/auth/session.ts", "● token.expiresAt is read before the null check.",
+        "● Update(src/auth/session.ts)", "  ⎿ +6 −2", "$ npm test -- auth", "  ✓ 12 passed", "$ git push -u origin fix/login-crash",
+        "Username for 'https://github.com': dev", "Password for 'https://dev@github.com':"],
+        end: { state: "waiting", reason: "Waiting for a password", via: "tty echo off: password prompt", replies: [], secret: true } },
+      { lines: ["Enumerating objects: 9, done.", "Writing objects: 100% (5/5), 612 bytes, done.", " * [new branch]      fix/login-crash -> fix/login-crash"],
+        end: { state: "done", reason: "Pushed fix/login-crash", via: "prompt returned, exit 0" } } ] },
+  ];
+
+  const followUp = () => ({ lines: ["● On it.", "● Reading the files involved", "~900", "● Update(…)", "  ⎿ +12 −3", "$ npm test", "~600", "  ✓ all tests pass", "● Done. Ready for review."],
+    end: { state: "done", reason: "Follow-up finished; tests pass", via: "prompt returned, exit 0" } });
+
+  const STATUS = { working: "Working", checking: "Checking", waiting: "Needs you", done: "Done", failed: "Failed", idle: "Quiet" };
+  const RANK = { waiting: 0, failed: 1, checking: 2, working: 3, done: 4, idle: 5 };
+  const $ = (id) => document.getElementById(id);
+  const reduce = matchMedia("(prefers-reduced-motion: reduce)");
+
+  let terms = [], sim = 0, paused = false, openId = null, peekId = null, nextNew = 1;
+
+  function make(def) {
+    return { ...def, segs: def.segs.map((s) => ({ ...s, lines: [...s.lines] })), buf: [], seg: 0, line: 0, phase: "start",
+      nextAt: def.start ?? 0, state: "idle", reason: "Starting", via: "", since: 0, energy: 0, seen: true, replies: [], secret: false };
+  }
+
+  function reset() {
+    sim = 0; openId = null; peekId = null;
+    terms = DEFS.map(make);
+    for (const t of terms) if (t.seedAgo) {
+      for (const l of t.segs[0].lines) if (!l.startsWith("~")) t.buf.push(l);
+      verdict(t, t.segs[0].end, -t.seedAgo);
+    }
+    buildBoard(); closePanel(); refreshTop();
+  }
+
+  // ---------- simulation ----------
+  function startSeg(t) {
+    t.line = 0; t.phase = "emit"; t.nextAt = sim; t.replies = []; t.secret = false;
+    setState(t, "working", t.kind === "dev server" ? "Starting up" : "Working", "");
+  }
+  function setState(t, state, reason, via) {
+    t.state = state; t.reason = reason; t.via = via; updateRow(t); refreshTop();
+    if (openId === t.id) renderPanelHead();
+  }
+  function verdict(t, end, at = sim) {
+    t.since = at; t.replies = end.replies || []; t.secret = !!end.secret;
+    t.seen = !["waiting", "done", "failed"].includes(end.state) || openId === t.id;
+    if (end.auto) { t.phase = "resume"; t.nextAt = sim + end.auto; } else { t.phase = "hold"; t.nextAt = Infinity; }
+    setState(t, end.state, end.reason, end.via);
+    if (openId === t.id) renderReply();
+  }
+  function gap(l) {
+    if (l.startsWith("$")) return 380;
+    if (l.startsWith("●")) return 260 + Math.random() * 380;
+    return 50 + Math.random() * 150;
+  }
+  function emit(t, l) {
+    t.buf.push(l);
+    t.energy = Math.min(1.5, t.energy + .35 + l.length / 70);
+    if (openId === t.id) appendLine($("term"), l, true);
+    if (peekId === t.id) renderPeek(t);
+  }
+  function step(t) {
+    const seg = t.segs[t.seg];
+    switch (t.phase) {
+      case "start": startSeg(t); break;
+      case "emit":
+        if (t.line >= seg.lines.length) { t.phase = "quiet"; t.nextAt = sim + 1300; break; }
+        { const l = seg.lines[t.line++];
+          if (l.startsWith("~")) { t.nextAt = sim + Number(l.slice(1)); break; }
+          emit(t, l); t.nextAt = sim + gap(l); }
+        break;
+      case "quiet": t.phase = "eval"; t.nextAt = sim + 950; setState(t, "checking", "Output stopped, checking", "evaluator"); break;
+      case "eval": verdict(t, seg.end); break;
+      case "resume": if (t.seg + 1 < t.segs.length) { t.seg++; startSeg(t); } else { t.phase = "hold"; t.nextAt = Infinity; } break;
+    }
+  }
+
+  function reply(t, text) {
+    if (t.phase !== "hold" || !text) return;
+    t.buf.push("› " + (t.secret ? "••••••••" : text));
+    if (openId === t.id) appendLine($("term"), t.buf[t.buf.length - 1], true);
+    if (t.seg + 1 >= t.segs.length) t.segs.push(followUp());
+    t.seg++; startSeg(t); renderReply();
+  }
+
+  let last = performance.now();
+  function frame(now) {
+    const dt = Math.min(now - last, 250); last = now;
+    if (!paused) {
+      sim += dt;
+      for (const t of terms) while (t.nextAt <= sim) step(t);
+      for (const t of terms) t.energy *= Math.exp(-dt / 320);
+    }
+    paintLeds();
+    requestAnimationFrame(frame);
+  }
+
+  // LED brightness follows output rate. Jitter is small and throttled so many lights read as texture, not strobe.
+  let lastPaint = 0;
+  function paintLeds() {
+    const now = performance.now();
+    if (now - lastPaint < 90) return;
+    lastPaint = now;
+    for (const t of terms) {
+      const els = document.querySelectorAll(`[data-led="${t.id}"]`);
+      for (const el of els) {
+        if (t.state === "working") {
+          const e = Math.min(1, t.energy);
+          const i = reduce.matches || paused ? (e > .08 ? .8 : .18) : Math.max(.12, e * (.72 + .28 * Math.random()));
+          el.style.setProperty("--i", i.toFixed(2));
+        } else el.style.removeProperty("--i");
+      }
+    }
+  }
+
+  // ---------- rendering ----------
+  function cls(l) {
+    if (l.startsWith("›")) return "t-you";
+    if (l.startsWith("$")) return "t-cmd";
+    if (/✗|error|Error/.test(l)) return "t-err";
+    if (/✓|passed|\[new branch\]/.test(l)) return "t-ok";
+    if (/\(y\/n\)|\?$|Password for|Paste it/.test(l)) return "t-ask";
+    if (l.startsWith("●")) return "t-agent";
+    return "t-dim";
+  }
+  function appendLine(box, l, scroll) {
+    const d = document.createElement("div");
+    d.className = cls(l); d.textContent = l;
+    box.appendChild(d);
+    if (scroll) box.scrollTop = box.scrollHeight;
+  }
+  function fmt(ms) {
+    const s = Math.max(0, Math.floor(ms / 1000));
+    return s < 60 ? `${s}s` : `${Math.floor(s / 60)}m ${String(s % 60).padStart(2, "0")}s`;
+  }
+  function ageText(t) {
+    if (t.state === "waiting") return fmt(sim - t.since);
+    if (t.state === "done" || t.state === "failed") return fmt(sim - t.since) + " ago";
+    return "";
+  }
+
+  function buildBoard() {
+    const board = $("board");
+    board.textContent = "";
+    for (const repo of REPOS) {
+      const list = terms.filter((t) => t.repo === repo);
+      if (!list.length) continue;
+      const sec = document.createElement("section");
+      sec.className = "repo";
+      sec.innerHTML = `<div class="repo-head"><span class="led" data-roll="${repo}"></span><span class="rname"></span><span class="rsum" data-sum="${repo}"></span></div><div class="rows"></div>`;
+      sec.querySelector(".rname").textContent = repo;
+      const rows = sec.querySelector(".rows");
+      for (const t of list) {
+        const cell = document.createElement("div");
+        cell.className = "cell";
+        cell.innerHTML = `<button class="row" type="button" data-id="${t.id}">
+          <span class="led" data-led="${t.id}"></span>
+          <span class="r-top"><span class="branch"></span><span class="kind"></span><span class="diff"></span></span>
+          <span class="age"></span>
+          <span class="r-reason"><span class="status"></span><span class="why"></span></span>
+        </button><div class="peek" hidden></div>`;
+        cell.querySelector(".branch").textContent = t.branch;
+        cell.querySelector(".kind").textContent = t.kind;
+        cell.querySelector(".diff").textContent = t.diff;
+        const btn = cell.querySelector(".row");
+        btn.addEventListener("click", () => openTerm(t.id));
+        let timer;
+        cell.addEventListener("mouseenter", () => { timer = setTimeout(() => showPeek(t.id), 350); });
+        cell.addEventListener("mouseleave", () => { clearTimeout(timer); hidePeek(); });
+        rows.appendChild(cell);
+        t.el = cell;
+        updateRow(t);
+      }
+      board.appendChild(sec);
+    }
+    refreshTop();
+  }
+
+  function updateRow(t) {
+    if (!t.el) return;
+    const row = t.el.querySelector(".row");
+    row.dataset.state = t.state;
+    row.classList.toggle("open", openId === t.id);
+    const led = row.querySelector(".led");
+    led.dataset.state = t.state; led.classList.toggle("seen", t.seen);
+    row.querySelector(".status").textContent = STATUS[t.state];
+    row.querySelector(".why").textContent = t.reason;
+    row.querySelector(".age").textContent = ageText(t);
+    row.setAttribute("aria-label", `${t.repo} ${t.branch}, ${STATUS[t.state]}: ${t.reason}`);
+  }
+
+  function refreshTop() {
+    const c = { waiting: 0, working: 0, done: 0, failed: 0 };
+    for (const t of terms) {
+      if (t.state === "checking") c.working++; else if (t.state in c) c[t.state]++;
+    }
+    $("counts").innerHTML = `<span><b>${c.working}</b> working</span><span><b>${c.done}</b> done</span>` + (c.failed ? `<span><b>${c.failed}</b> failed</span>` : "");
+    const q = queue(), nb = $("next");
+    nb.disabled = !q.length;
+    $("nextLabel").textContent = q.length ? `${q.length} need${q.length === 1 ? "s" : ""} you · ${q[0].branch} · ${fmt(sim - q[0].since)}` : "Nothing needs you";
+    nb.querySelector(".led").dataset.state = q.length ? "waiting" : "idle";
+    for (const repo of REPOS) {
+      const list = terms.filter((t) => t.repo === repo);
+      const roll = document.querySelector(`[data-roll="${repo}"]`);
+      if (!roll || !list.length) continue;
+      const top = [...list].sort((a, b) => RANK[a.state] - RANK[b.state])[0];
+      roll.dataset.state = top.state === "checking" ? "working" : top.state;
+      roll.classList.toggle("seen", list.every((t) => t.seen));
+      const w = list.filter((t) => t.state === "waiting").length;
+      document.querySelector(`[data-sum="${repo}"]`).textContent = `${list.length} terminal${list.length > 1 ? "s" : ""}` + (w ? ` · ${w} waiting` : "");
+    }
+  }
+  const queue = () => terms.filter((t) => t.state === "waiting").sort((a, b) => a.since - b.since);
+
+  function showPeek(id) {
+    const t = terms.find((x) => x.id === id);
+    if (!t || openId === id) return;
+    peekId = id; renderPeek(t);
+  }
+  function hidePeek() {
+    const t = terms.find((x) => x.id === peekId);
+    if (t) t.el.querySelector(".peek").hidden = true;
+    peekId = null;
+  }
+  function renderPeek(t) {
+    const p = t.el.querySelector(".peek");
+    p.textContent = "";
+    const h = document.createElement("div"); h.className = "pk-h"; h.textContent = "Last lines";
+    p.appendChild(h);
+    for (const l of t.buf.slice(-6)) appendLine(p, l, false);
+    if (!t.buf.length) appendLine(p, "(no output yet)", false);
+    p.hidden = false;
+  }
+
+  function openTerm(id) {
+    hidePeek();
+    const prev = openId; openId = id;
+    const t = terms.find((x) => x.id === id);
+    t.seen = true;
+    if (prev) updateRow(terms.find((x) => x.id === prev));
+    updateRow(t); refreshTop();
+    $("empty").hidden = true; $("panel").hidden = false;
+    const term = $("term"); term.textContent = "";
+    for (const l of t.buf) appendLine(term, l, false);
+    term.scrollTop = term.scrollHeight;
+    renderPanelHead(); renderReply();
+    if (t.state === "waiting") $("replyInput").focus();
+  }
+  function closePanel() {
+    const prev = openId; openId = null;
+    if (prev) { const t = terms.find((x) => x.id === prev); if (t) updateRow(t); }
+    $("panel").hidden = true; $("empty").hidden = false;
+  }
+  function renderPanelHead() {
+    const t = terms.find((x) => x.id === openId);
+    if (!t) return;
+    const led = $("pLed"); led.dataset.state = t.state; led.dataset.led = t.id; led.classList.remove("seen");
+    $("pBranch").textContent = t.branch;
+    $("pRepo").textContent = `${t.repo} · ${t.kind}`;
+    $("pStatus").textContent = STATUS[t.state];
+    $("pStatus").parentElement.dataset.state = t.state;
+    $("pWhy").textContent = t.reason;
+    $("pVia").textContent = t.via ? `via ${t.via}` : "";
+    $("pVia").hidden = !t.via;
+    $("dismissBtn").hidden = t.state !== "waiting";
+  }
+  function renderReply() {
+    const t = terms.find((x) => x.id === openId);
+    if (!t) return;
+    const chips = $("chips"); chips.textContent = "";
+    const live = t.phase === "hold";
+    if (t.state === "waiting") for (const r of t.replies) {
+      const b = document.createElement("button");
+      b.type = "button"; b.className = "chip"; b.textContent = r;
+      b.addEventListener("click", () => reply(t, r));
+      chips.appendChild(b);
+    }
+    const inp = $("replyInput");
+    inp.type = t.secret ? "password" : "text";
+    inp.disabled = !live;
+    inp.placeholder = !live ? "Agent is working" : t.secret ? "Password (sent to the terminal, not shown)" : t.state === "waiting" ? "Reply to the agent" : "Ask for a follow-up";
+  }
+
+  // ---------- controls ----------
+  $("replyForm").addEventListener("submit", (e) => {
+    e.preventDefault();
+    const t = terms.find((x) => x.id === openId), inp = $("replyInput");
+    if (t) { reply(t, inp.value.trim()); inp.value = ""; }
+  });
+  $("closeBtn").addEventListener("click", closePanel);
+  $("dismissBtn").addEventListener("click", () => {
+    const t = terms.find((x) => x.id === openId);
+    if (t) { setState(t, "idle", "You marked this as a false alarm", "feedback sent to evaluator"); renderReply(); }
+  });
+  $("next").addEventListener("click", jumpNext);
+  function jumpNext() {
+    const q = queue().filter((t) => t.id !== openId);
+    if (q.length) openTerm(q[0].id);
+  }
+  $("pauseBtn").addEventListener("click", () => { paused = !paused; $("pauseBtn").textContent = paused ? "Resume" : "Pause"; });
+  $("restartBtn").addEventListener("click", reset);
+
+  const sel = $("nwRepo");
+  for (const r of REPOS) { const o = document.createElement("option"); o.value = r; o.textContent = r; sel.appendChild(o); }
+  const hint = () => { $("nwHint").textContent = `git worktree add ../${sel.value}-${$("nwBranch").value.replace(/\//g, "-")} -b ${$("nwBranch").value}`; };
+  sel.addEventListener("change", hint); $("nwBranch").addEventListener("input", hint); hint();
+  $("newBtn").addEventListener("click", () => { $("scrim").hidden = false; $("nwBranch").focus(); $("nwBranch").select(); });
+  $("nwCancel").addEventListener("click", () => { $("scrim").hidden = true; });
+  $("scrim").addEventListener("click", (e) => { if (e.target === $("scrim")) $("scrim").hidden = true; });
+  $("newForm").addEventListener("submit", (e) => {
+    e.preventDefault();
+    const repo = sel.value, branch = $("nwBranch").value.trim(), task = $("nwTask").value.trim();
+    if (!branch || !task) return;
+    const dir = `../${repo}-${branch.replace(/\//g, "-")}`;
+    const t = make({ id: `n${nextNew++}`, repo, branch, kind: "Claude Code", diff: "new", start: sim + 200, segs: [
+      { lines: [`$ git worktree add ${dir} -b ${branch}`, `Preparing worktree (new branch '${branch}')`, `$ cd ${dir} && claude "${task}"`,
+        "● Reading the codebase", "~900", "● This worktree has no node_modules yet.", "  Run npm ci? (y/n)"],
+        end: { state: "waiting", reason: "Wants to run npm ci", via: "pattern: (y/n)", replies: ["y", "n"] } },
+      { lines: ["$ npm ci", "~1500", "added 412 packages in 9s", "● Working on it.", "~1200", "● Write(…)", "  ⎿ +73 lines", "$ npm test", "~700", "  ✓ all tests pass", "● First pass is done. Ready for review."],
+        end: { state: "done", reason: "First pass done; tests pass", via: "prompt returned, exit 0" } } ] });
+    terms.push(t);
+    $("scrim").hidden = true;
+    buildBoard();
+  });
+
+  document.addEventListener("keydown", (e) => {
+    const typing = e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement;
+    if (e.key === "Escape") { if (!$("scrim").hidden) $("scrim").hidden = true; else closePanel(); return; }
+    if (typing || e.metaKey || e.ctrlKey || e.altKey) return;
+    if (e.key === "n" || e.key === "N") { e.preventDefault(); jumpNext(); }
+  });
+
+  setInterval(() => {
+    for (const t of terms) if (t.el) t.el.querySelector(".age").textContent = ageText(t);
+    refreshTop();
+  }, 1000);
+
+  reset();
+  requestAnimationFrame(frame);
+})();
+</script>

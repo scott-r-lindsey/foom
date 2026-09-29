@@ -12,6 +12,7 @@ export function requiresDesktop(paths) {
         !(
           documentationFiles.has(path) ||
           /^docs\/[^\r\n]+\.md$/.test(path) ||
+          /^docs\/mockups\/[^/\r\n]+\.html$/.test(path) ||
           path.startsWith("inspiration/")
         ),
     )
