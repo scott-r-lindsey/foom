@@ -10,7 +10,12 @@ const mock = vi.hoisted(() => ({
   >(),
   removeHandler: vi.fn(),
   removeListener: vi.fn(),
-  app: { isPackaged: false },
+  app: {
+    isPackaged: false,
+    on: vi.fn<(name: string, callback: (event: { preventDefault(): void }) => void) => void>(),
+    removeListener: vi.fn(),
+    quit: vi.fn(),
+  },
   spawn: vi.fn(),
 }));
 vi.mock("electron", () => ({ app: mock.app, ipcMain: mock }));
@@ -18,18 +23,30 @@ vi.mock("node-pty", () => ({ spawn: mock.spawn }));
 import { attachTerminal } from "../src/terminal";
 import { TerminalManager } from "../src/terminal-manager";
 function fakePty() {
+  const exits = new Set<(event: { exitCode: number }) => void>();
+  const emitExit = () => {
+    for (const listener of exits) listener({ exitCode: 0 });
+  };
   return {
+    emitExit,
     write: vi.fn(),
     resize: vi.fn(),
     pause: vi.fn(),
     resume: vi.fn(),
-    kill: vi.fn(),
+    kill: vi.fn(emitExit),
     onData: vi
       .fn<(callback: (data: string) => void) => { dispose(): void }>()
       .mockReturnValue({ dispose: vi.fn() }),
     onExit: vi
       .fn<(callback: (event: { exitCode: number }) => void) => { dispose(): void }>()
-      .mockReturnValue({ dispose: vi.fn() }),
+      .mockImplementation((callback) => {
+        exits.add(callback);
+        return {
+          dispose: vi.fn(() => {
+            exits.delete(callback);
+          }),
+        };
+      }),
   };
 }
 let ptys: ReturnType<typeof fakePty>[];
@@ -86,9 +103,11 @@ beforeEach(() => {
   attachTerminal(window as unknown as BrowserWindow);
   manager = new TerminalManager(exited);
 });
-afterEach(() => {
+afterEach(async () => {
+  for (const terminal of ptys) terminal.emitExit();
   manager.dispose();
   window.once.mock.calls[0]?.[1]();
+  await manager.waitForExit();
   vi.unstubAllEnvs();
 });
 
@@ -384,4 +403,79 @@ test("main answers protocol queries through attachment transitions and ignores r
   output("\x1b[6n");
   await manager.tail(id, 1);
   expect(pty().write).not.toHaveBeenCalled();
+});
+
+test("tracks killed PTYs until their exit callbacks and bounds stalled shutdown", async () => {
+  vi.useFakeTimers();
+  try {
+    const id = manager.create(spec);
+    pty().kill.mockImplementation(() => {});
+    manager.kill(id);
+    expect(manager.hasPendingExits).toBe(true);
+    const pending = manager.waitForExit();
+    const rejected = expect(pending).rejects.toThrow("Terminal shutdown timed out");
+    await vi.advanceTimersByTimeAsync(5000);
+    await rejected;
+    expect(manager.hasPendingExits).toBe(true);
+    pty().emitExit();
+    await manager.waitForExit();
+    expect(manager.hasPendingExits).toBe(false);
+    expect(vi.getTimerCount()).toBe(0);
+    expect(exited).not.toHaveBeenCalled();
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test("quit waits for native exits, including previously removed terminals, and deduplicates requests", async () => {
+  const id = create();
+  create();
+  for (const terminal of ptys) terminal.kill.mockImplementation(() => {});
+  await invoke("kill", [id]);
+  const willQuit = mock.app.on.mock.calls.find(([name]) => name === "will-quit")?.[1];
+  if (!willQuit) throw new Error("Missing quit barrier");
+  const event = { preventDefault: vi.fn() };
+  willQuit(event);
+  willQuit(event);
+  expect(event.preventDefault).toHaveBeenCalledTimes(2);
+  expect(mock.app.quit).not.toHaveBeenCalled();
+  for (const terminal of ptys) expect(terminal.kill).toHaveBeenCalledOnce();
+  pty().emitExit();
+  await Promise.resolve();
+  expect(mock.app.quit).not.toHaveBeenCalled();
+  pty(1).emitExit();
+  await vi.waitFor(() => {
+    expect(mock.app.quit).toHaveBeenCalledOnce();
+  });
+  expect(mock.app.removeListener).toHaveBeenCalledWith("will-quit", willQuit);
+  willQuit(event);
+  expect(event.preventDefault).toHaveBeenCalledTimes(2);
+});
+
+test("failed quit reports the timeout and allows a later request to retry", async () => {
+  vi.useFakeTimers();
+  const diagnostic = vi.spyOn(console, "error").mockImplementation(() => {});
+  try {
+    create();
+    pty().kill.mockImplementation(() => {});
+    const willQuit = mock.app.on.mock.calls.find(([name]) => name === "will-quit")?.[1];
+    if (!willQuit) throw new Error("Missing quit barrier");
+    const event = { preventDefault: vi.fn() };
+    willQuit(event);
+    // The closed-window cleanup must also preserve the quit barrier on failure.
+    window.once.mock.calls[0]?.[1]();
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(diagnostic).toHaveBeenCalledWith(
+      "Unable to finish terminal shutdown:",
+      expect.any(Error),
+    );
+    expect(mock.app.quit).not.toHaveBeenCalled();
+    expect(mock.app.removeListener).not.toHaveBeenCalled();
+    willQuit(event);
+    pty().emitExit();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(mock.app.quit).toHaveBeenCalledOnce();
+  } finally {
+    vi.useRealTimers();
+  }
 });
