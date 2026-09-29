@@ -1,0 +1,32 @@
+:root {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  color: #222438;
+  background: #f6f7fb;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+}
+* { box-sizing: border-box; }
+body { margin: 0; min-height: 100vh; display: grid; place-items: center; }
+main { width: min(100%, 720px); padding: 48px 28px; text-align: center; }
+.mark {
+  display: grid; place-items: center; width: 60px; height: 60px;
+  margin: 0 auto 32px; border-radius: 18px; color: white;
+  background: #5845d6; font-size: 36px; font-weight: 700;
+}
+.eyebrow { font-size: 11px; letter-spacing: 2px; font-weight: 700; color: #6b6980; }
+h1 { margin: 16px 0; font-size: clamp(40px, 8vw, 64px); letter-spacing: -3px; line-height: 1.1; }
+.intro { color: #656678; font-size: 17px; line-height: 1.5; }
+button {
+  margin-top: 20px; padding: 13px 24px; border: 0; border-radius: 10px;
+  background: #5845d6; color: white; font: inherit; font-weight: 600; cursor: pointer;
+}
+button:hover { background: #4634bc; }
+button:focus-visible { outline: 3px solid #a398f0; outline-offset: 4px; }
+button:disabled { opacity: .6; cursor: wait; }
+#message { min-height: 24px; margin-top: 20px; color: #656678; font-size: 14px; }
+footer { margin-top: 48px; font-size: 12px; color: #727385; }
+footer span { padding: 0 8px; }
+@media (prefers-color-scheme: dark) {
+  :root { color: #f0eff8; background: #191923; color-scheme: dark; }
+  .eyebrow, .intro, #message, footer { color: #aaa8bf; }
+}
