@@ -8,6 +8,11 @@ const rendererDirectory = path.join(__dirname, "renderer");
 const assets = new Map([
   ["/index.html", "index.html"],
   ["/styles.css", "styles.css"],
+  ["/tokens.css", "tokens.css"],
+  ["/fonts/archivo-black.ttf", "fonts/archivo-black.ttf"],
+  ["/fonts/courier-prime.ttf", "fonts/courier-prime.ttf"],
+  ["/fonts/geist.ttf", "fonts/geist.ttf"],
+  ["/fonts/geist-mono.ttf", "fonts/geist-mono.ttf"],
   ["/renderer.js", "renderer.js"],
   ["/renderer.css", "renderer.css"],
 ]);
@@ -23,7 +28,7 @@ function createWindow() {
     minWidth: 480,
     minHeight: 420,
     title: "Foom",
-    backgroundColor: "#0c0d12",
+    backgroundColor: "#05040A",
     show: false,
     autoHideMenuBar: true,
     webPreferences: {

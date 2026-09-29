@@ -131,7 +131,17 @@ test("serves allowlisted local assets and rejects other hosts, paths, and method
   await start();
   const handler = mock.protocolHandle.mock.calls[0]?.[1];
   if (!handler) throw new Error("Missing protocol handler");
-  for (const asset of ["index.html", "styles.css", "renderer.js", "renderer.css"]) {
+  for (const asset of [
+    "index.html",
+    "styles.css",
+    "renderer.js",
+    "renderer.css",
+    "tokens.css",
+    "fonts/archivo-black.ttf",
+    "fonts/courier-prime.ttf",
+    "fonts/geist.ttf",
+    "fonts/geist-mono.ttf",
+  ]) {
     expect((await handler(new Request(`app://bundle/${asset}`))).status).toBe(200);
     expect(mock.fetch).toHaveBeenLastCalledWith(
       expect.stringMatching(new RegExp(`/renderer/${asset.replace(".", "\\.")}$$`)),
@@ -140,6 +150,8 @@ test("serves allowlisted local assets and rejects other hosts, paths, and method
   for (const url of [
     "app://other/index.html",
     "app://bundle/main.js",
+    "app://bundle/fonts/unknown.ttf",
+    "app://bundle/fonts/geist-OFL.txt",
     "app://bundle/../preload.js",
   ]) {
     expect((await handler(new Request(url))).status).toBe(404);
@@ -147,7 +159,7 @@ test("serves allowlisted local assets and rejects other hosts, paths, and method
   expect((await handler(new Request("app://bundle/index.html", { method: "POST" }))).status).toBe(
     404,
   );
-  expect(mock.fetch).toHaveBeenCalledTimes(4);
+  expect(mock.fetch).toHaveBeenCalledTimes(9);
 });
 
 test("denies requested and checked permissions", async () => {
