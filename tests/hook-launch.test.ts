@@ -22,6 +22,7 @@ beforeEach(async () => {
   vi.clearAllMocks();
 });
 afterEach(async () => {
+  vi.unstubAllEnvs();
   await rm(scratch, { recursive: true, force: true });
 });
 
@@ -56,7 +57,8 @@ test("writes a private POSIX adapter and quotes its path for the hook shell", as
 });
 
 test("uses PowerShell on Windows", async () => {
-  const hooks = await prepareHookLaunch(receiver, "codex", vi.fn(), "win32", scratch);
+  const execute = vi.fn().mockResolvedValue({ stdout: "", stderr: "" });
+  const hooks = await prepareHookLaunch(receiver, "codex", vi.fn(), "win32", scratch, execute);
   const [directory] = await readdir(scratch);
   if (!directory) throw new Error("Missing launch directory");
   const script = join(scratch, directory, "codex.ps1");
@@ -64,12 +66,34 @@ test("uses PowerShell on Windows", async () => {
     "powershell.exe",
     "-NoProfile",
     "-NonInteractive",
+    "-ExecutionPolicy",
+    "Bypass",
     "-File",
     script,
   ]);
-  expect(hooks.claudeCommand).toBe(`powershell.exe -NoProfile -NonInteractive -File "${script}"`);
+  expect(hooks.claudeCommand).toBe(
+    `powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "${script}"`,
+  );
+  expect(execute).toHaveBeenCalledExactlyOnceWith(
+    "powershell.exe",
+    [...hooks.codexCommand.slice(1), "--foom-probe"],
+    { timeout: 8000, maxBuffer: 65536 },
+  );
+  expect(await readFile(script, "utf8")).toContain("--foom-probe");
   hooks.dispose();
 });
+
+test.each(["interpreter missing", "enforced policy rejects script", "probe timed out"])(
+  "rejects hook preparation and cleans up when %s",
+  async (reason) => {
+    const execute = vi.fn().mockRejectedValue(new Error(reason));
+    await expect(
+      prepareHookLaunch(receiver, "claude", vi.fn(), "win32", scratch, execute),
+    ).rejects.toThrow("PowerShell hook script could not run");
+    expect(receiver.register).not.toHaveBeenCalled();
+    expect(await readdir(scratch)).toEqual([]);
+  },
+);
 
 test("removes the directory and revokes credentials if registration fails", async () => {
   receiver.register.mockImplementationOnce(() => {
@@ -114,4 +138,70 @@ test.skipIf(process.platform === "win32")(
       await real.close();
     }
   },
+);
+
+function runCommand(file: string, args: readonly string[], env: NodeJS.ProcessEnv, input = "") {
+  return new Promise<string>((resolve, reject) => {
+    const child = execFile(
+      file,
+      [...args],
+      { env, timeout: 8000, windowsVerbatimArguments: file === "cmd.exe" },
+      (error, stdout, stderr) => {
+        if (error) reject(new Error("Hook invocation failed", { cause: error }));
+        else if (stderr) reject(new Error(stderr));
+        else resolve(stdout);
+      },
+    );
+    child.stdin?.end(input);
+  });
+}
+
+test.skipIf(process.platform !== "win32").each(["claude", "codex"] as const)(
+  "generated %s invocation delivers under an inherited Restricted process policy",
+  async (agent) => {
+    vi.stubEnv("PSExecutionPolicyPreference", "Restricted");
+    expect(
+      (
+        await runCommand(
+          "powershell.exe",
+          ["-NoProfile", "-NonInteractive", "-Command", "Get-ExecutionPolicy -Scope Process"],
+          process.env,
+        )
+      ).trim(),
+    ).toBe("Restricted");
+    const signals: HookSignal[] = [];
+    const real = await HookReceiver.listen((signal) => signals.push(signal));
+    try {
+      const hooks = await prepareHookLaunch(real, agent, vi.fn(), "win32", scratch);
+      try {
+        expect(signals).toEqual([]); // Startup probe must not send an event.
+        const payload = JSON.stringify(
+          agent === "claude"
+            ? { session_id: "abc", hook_event_name: "PermissionRequest" }
+            : { type: "agent-turn-complete", "thread-id": "abc", "turn-id": "turn" },
+        );
+        const env = { ...process.env, ...hooks.env };
+        if (agent === "claude") {
+          expect(
+            await runCommand("cmd.exe", ["/d", "/s", "/c", hooks.claudeCommand], env, payload),
+          ).toBe("");
+        } else {
+          const [file, ...args] = hooks.codexCommand;
+          if (!file) throw new Error("Missing hook executable");
+          expect(await runCommand(file, [...args, payload], env)).toBe("");
+        }
+        expect(signals).toEqual([
+          expect.objectContaining({
+            action: agent === "claude" ? "needs_input" : "classify",
+            signal: agent === "claude" ? "claude:PermissionRequest" : "codex:agent-turn-complete",
+          }),
+        ]);
+      } finally {
+        hooks.dispose();
+      }
+    } finally {
+      await real.close();
+    }
+  },
+  30000,
 );
