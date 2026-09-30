@@ -2,14 +2,19 @@ import { randomUUID } from "node:crypto";
 import { mkdir, open } from "node:fs/promises";
 import path from "node:path";
 import { evaluateRules } from "./evaluator";
-import type { EvaluationInput, VerdictAction, VerdictRecord } from "./shared/evaluator";
+import type { EvaluationInput, Verdict, VerdictAction, VerdictRecord } from "./shared/evaluator";
 
 /** One main-process writer; append-only metadata, never tails, prompts, or keystrokes. */
 export class VerdictLog {
   private writes: Promise<void> = Promise.resolve();
   private readonly pending = new Map<string, string>();
 
-  constructor(private readonly userData: string) {}
+  constructor(
+    private readonly userData: string,
+    private readonly classify: (
+      input: EvaluationInput,
+    ) => Verdict | Promise<Verdict> = evaluateRules,
+  ) {}
 
   private append(record: unknown): Promise<void> {
     const json = `${JSON.stringify(record)}\n`;
@@ -35,7 +40,7 @@ export class VerdictLog {
       id: randomUUID(),
       terminalId: input.terminalId,
       timestamp: new Date().toISOString(),
-      verdict: evaluateRules(input),
+      verdict: await this.classify(input),
     };
     await this.append({ type: "verdict", ...record });
     this.pending.set(record.id, record.terminalId);
