@@ -158,15 +158,18 @@ export function Preflight({
           something.
         </p>
         <div className="preflight-cta">
-          <button
-            type="button"
-            className="primary"
-            onClick={() => {
-              go(1);
-            }}
-          >
-            Start preflight
-          </button>
+          {/* The accretion ring: light orbiting the button, like the logo's black hole. */}
+          <span className="ignite">
+            <button
+              type="button"
+              className="primary"
+              onClick={() => {
+                go(1);
+              }}
+            >
+              Start preflight
+            </button>
+          </span>
           <span>Four checks, about a minute</span>
         </div>
         <dl className="preflight-facts">

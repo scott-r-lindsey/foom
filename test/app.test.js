@@ -1360,6 +1360,19 @@ test("a fresh profile opens preflight, and it passes accessibility checks", asyn
   const page = await app.firstWindow();
   await page.getByRole("button", { name: "Start preflight" }).waitFor();
   assert.equal(await page.locator(".board-home").count(), 0);
+  // The accretion ring orbits, pauses while you're on it, and holds still for reduced motion.
+  const ring = () =>
+    page.getByRole("button", { name: "Start preflight" }).evaluate((button) => {
+      const style = getComputedStyle(button);
+      return `${style.animationName} ${style.animationPlayState}`;
+    });
+  assert.equal(await ring(), "ignite-orbit running");
+  await page.getByRole("button", { name: "Start preflight" }).hover();
+  assert.equal(await ring(), "ignite-orbit paused");
+  await page.mouse.move(0, 0);
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  assert.equal(await ring(), "none running");
+  await page.emulateMedia({ reducedMotion: null });
   await assertAccessible(page);
   await page.getByRole("button", { name: "Start preflight" }).click();
   await page.getByText("Which agents do you run?").waitFor();
