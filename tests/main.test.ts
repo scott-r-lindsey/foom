@@ -37,7 +37,8 @@ vi.mock("../src/setup", () => ({
 vi.mock("../src/setup-ipc", () => ({ attachSetup: mock.attachSetup }));
 vi.mock("../src/worktrees", () => ({ WorktreeService: { open: mock.openWorktrees } }));
 
-type ShortcutInput = Pick<Input, "type" | "key" | "control" | "shift" | "alt" | "meta">;
+type ShortcutInput = Pick<Input, "type" | "key" | "control" | "shift" | "alt" | "meta"> &
+  Partial<Pick<Input, "code">>;
 
 const mock = vi.hoisted(() => {
   const appEvents = new Map<string, (event: { preventDefault(): void }) => void>();
@@ -50,6 +51,7 @@ const mock = vi.hoisted(() => {
     webContents: {
       copy: vi.fn(),
       paste: vi.fn(),
+      setZoomFactor: vi.fn(),
       setWindowOpenHandler: vi.fn<(handler: () => { action: "deny" }) => void>(),
       on: vi.fn(
         (
@@ -121,12 +123,14 @@ const mock = vi.hoisted(() => {
     ipc,
     attachWorkspace: vi.fn<(...args: unknown[]) => typeof ipc>(() => ipc),
     setup,
-    disposeSetup: vi.fn(),
-    attachSetup: vi.fn<(...args: unknown[]) => () => void>(),
+    setupIpc: { dispose: vi.fn(), zoom: vi.fn<(direction: string) => Promise<void>>() },
+    attachSetup: vi.fn<(...args: unknown[]) => unknown>(),
     openSettings: vi.fn<() => Promise<unknown>>(),
+    settingsStore: { get: () => ({ colorMode: "dark", interfaceScale: 120 }) },
     VerdictLog: vi.fn<(userData: string, classify: (input: unknown) => unknown) => void>(),
     listen: vi.fn(),
     theme: {
+      themeSource: "system",
       shouldUseDarkColors: false,
       on: vi.fn<(name: string, handler: () => void) => void>(),
       removeListener: vi.fn(),
@@ -202,8 +206,10 @@ beforeEach(() => {
   mock.state.windows = [mock.window];
   mock.ready.mockResolvedValue();
   mock.openWorktrees.mockResolvedValue({ worktreeRoot: "/home/.foom/worktrees" });
-  mock.openSettings.mockResolvedValue("settings");
-  mock.attachSetup.mockImplementation(() => mock.disposeSetup);
+  mock.openSettings.mockResolvedValue(mock.settingsStore);
+  mock.attachSetup.mockImplementation(() => mock.setupIpc);
+  mock.setupIpc.zoom.mockResolvedValue();
+  mock.theme.themeSource = "system";
   mock.window.loadURL.mockResolvedValue();
   mock.fetch.mockResolvedValue(new Response("asset"));
 });
@@ -594,7 +600,7 @@ test("routes terminal events, hook signals and state through the workspace", asy
   mock.readyEvents.get("closed")?.();
   expect(mock.ipc.dispose).toHaveBeenCalledOnce();
   expect(mock.workspace.dispose).toHaveBeenCalledOnce();
-  expect(mock.disposeSetup).toHaveBeenCalledOnce();
+  expect(mock.setupIpc.dispose).toHaveBeenCalledOnce();
 });
 
 test("setup owns the settings, applies them to the workspace, and classifies verdicts", async () => {
@@ -605,10 +611,16 @@ test("setup owns the settings, applies them to the workspace, and classifies ver
     worktreeRoot: string;
     apply(settings: unknown): void;
   };
-  expect(deps.store).toBe("settings");
+  expect(deps.store).toBe(mock.settingsStore);
   expect(deps.worktreeRoot).toBe("/home/.foom/worktrees");
-  deps.apply({ hooks: false });
-  expect(mock.workspace.configure).toHaveBeenCalledWith({ hooks: false });
+  // The saved mode and scale apply before the window exists.
+  expect(mock.construct.mock.calls[0]?.[0].webPreferences?.zoomFactor).toBe(1.2);
+  expect(mock.theme.themeSource).toBe("dark");
+  const next = { hooks: false, colorMode: "light", interfaceScale: 90 };
+  deps.apply(next);
+  expect(mock.workspace.configure).toHaveBeenCalledWith(next);
+  expect(mock.theme.themeSource).toBe("light");
+  expect(mock.window.webContents.setZoomFactor).toHaveBeenCalledWith(0.9);
   expect(mock.attachSetup.mock.calls[0]?.[1]).toBeInstanceOf(Object);
   const classify = mock.VerdictLog.mock.calls[0]?.[1];
   classify?.({ terminalId: "a" });
@@ -631,4 +643,36 @@ test("confirmed quit disposes the workspace only after terminals stop", async ()
     expect(mock.quit).toHaveBeenCalledOnce();
   });
   expect(order).toEqual(["terminals", "workspace"]);
+});
+
+test("zoom shortcuts change the interface size instead of reaching the terminal", async () => {
+  await start();
+  const input = mock.windowEvents.get("before-input-event");
+  const key = (overrides: Partial<ShortcutInput>) => {
+    const event = { preventDefault: vi.fn() };
+    const shortcut: ShortcutInput = {
+      type: "keyDown",
+      key: "+",
+      code: "Equal",
+      control: process.platform !== "darwin",
+      meta: process.platform === "darwin",
+      shift: true,
+      alt: false,
+      ...overrides,
+    };
+    input?.(event, shortcut);
+    return event.preventDefault;
+  };
+  expect(key({})).toHaveBeenCalledOnce();
+  expect(mock.setupIpc.zoom).toHaveBeenCalledWith("in");
+  // Plain Ctrl+- stays with the terminal (readline undo) on Linux and Windows.
+  if (process.platform !== "darwin") {
+    expect(key({ code: "Minus", key: "-", shift: false })).not.toHaveBeenCalled();
+  }
+  const log = vi.spyOn(console, "error").mockImplementation(() => {});
+  mock.setupIpc.zoom.mockRejectedValueOnce(new Error("disk full"));
+  key({ code: "Digit0", key: "0", shift: false });
+  await vi.waitFor(() => {
+    expect(log).toHaveBeenCalledWith("Unable to change the interface size:", expect.any(Error));
+  });
 });

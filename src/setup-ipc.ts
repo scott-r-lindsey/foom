@@ -1,5 +1,7 @@
 import { ipcMain } from "electron";
 import type { BrowserWindow, IpcMainInvokeEvent } from "electron";
+import { nextScale } from "./appearance";
+import type { ZoomDirection } from "./appearance";
 import type { Setup } from "./setup";
 
 const APP_URL = "app://bundle/index.html";
@@ -8,7 +10,10 @@ const APP_URL = "app://bundle/index.html";
  * Renderer access to setup. `Setup` validates every payload; keys can be written or
  * removed here but never read back.
  */
-export function attachSetup(window: BrowserWindow, setup: Setup): () => void {
+export function attachSetup(
+  window: BrowserWindow,
+  setup: Setup,
+): { dispose(): void; zoom(direction: ZoomDirection): Promise<void> } {
   const contents = window.webContents;
   const trusted = (event: IpcMainInvokeEvent) =>
     event.sender === contents &&
@@ -45,7 +50,18 @@ export function attachSetup(window: BrowserWindow, setup: Setup): () => void {
       if (!trusted(event)) throw new Error("Untrusted IPC sender");
       return handler(...args);
     });
-  return () => {
-    for (const channel of handlers.keys()) ipcMain.removeHandler(channel);
+  return {
+    dispose() {
+      for (const channel of handlers.keys()) ipcMain.removeHandler(channel);
+    },
+    /** A zoom shortcut: save the next scale and tell the renderer what changed. */
+    async zoom(direction) {
+      const { settings } = await setup.state();
+      const scale = nextScale(settings.interfaceScale, direction);
+      if (scale === settings.interfaceScale) return;
+      const state = await setup.save({ interfaceScale: scale });
+      if (!contents.isDestroyed() && contents.mainFrame.url === APP_URL)
+        contents.send("setup:changed", state);
+    },
   };
 }

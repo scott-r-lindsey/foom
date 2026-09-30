@@ -12,6 +12,7 @@ test("preflight reaches main only through the setup bridge", async () => {
     checkInference: vi.fn(() => Promise.resolve("checked")),
     cancelInferenceCheck: vi.fn(() => Promise.resolve()),
     localModels: vi.fn(() => Promise.resolve("models")),
+    onSetupChange: vi.fn(() => "off"),
     scanAgents: vi.fn(() => Promise.resolve("scan")),
     workspace: vi.fn(() => Promise.resolve({ repositories: [repository], terminals: [] })),
     addRepository: vi.fn(() => Promise.resolve(repository)),
@@ -27,6 +28,9 @@ test("preflight reaches main only through the setup bridge", async () => {
   await source.cancel("c1");
   await expect(source.models("http://127.0.0.1:1/v1")).resolves.toBe("models");
   expect(desktop.cancelInferenceCheck).toHaveBeenCalledWith("c1");
+  const listener = vi.fn();
+  expect(source.subscribe(listener)).toBe("off");
+  expect(desktop.onSetupChange).toHaveBeenCalledWith(listener);
   expect(desktop.localModels).toHaveBeenCalledWith("http://127.0.0.1:1/v1");
   await expect(source.scanAgents(true)).resolves.toBe("scan");
   await expect(source.repositories()).resolves.toEqual([repository]);

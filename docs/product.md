@@ -74,7 +74,7 @@ Setup is a preflight countdown:
 3. **Evaluator** (T-1): pick an inference source and test it on a sample.
 4. **Go / no-go** (T-0): each item shows GO or NO-GO with a link back to its step. Launch needs every item GO: at least one agent ready and one repository added.
 
-A model source is used only after it passes Run check. Launch opens an empty board with **New worktree**. **Preflight** on the board runs setup again with the saved choices; Esc returns to the board.
+The rail also holds **Appearance**: System, Light or Dark, and the interface size (80–150%, also ⌘ +/−/0 on macOS or Ctrl+Shift+=/− and Ctrl+0 elsewhere). Terminal font size is a separate setting to come. A model source is used only after it passes Run check. Launch opens an empty board with **New worktree**. **Preflight** on the board runs setup again with the saved choices; Esc returns to the board.
 
 ## Quitting
 

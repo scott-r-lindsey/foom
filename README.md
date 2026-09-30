@@ -22,6 +22,8 @@ A fresh profile starts with no settings, repositories or keys. Your real profile
 
 The board opens a real interactive shell in the project directory (`$SHELL` on Linux/macOS, PowerShell on Windows). Try `vim`, `top`, or your usual CLI tools; those programs must be installed on your machine. Resizing the window resizes the PTY. Ctrl+C interrupts commands, and full-screen programs use the alternate screen buffer. Type `exit` to end the shell, then use **Restart shell** for a fresh session. Closing the window terminates its PTY. Packaged builds start in your home directory.
 
+Change the interface size with **⌘ +/−/0** on macOS, or **Ctrl+Shift+=/−** and **Ctrl+0** on Linux and Windows (plain Ctrl+− stays with the terminal, where it's readline's undo). Light or dark is under **Appearance** in preflight.
+
 On Linux and Windows, select terminal text with the mouse and press **Ctrl+Shift+C** to copy. Press **Ctrl+Shift+V** to paste clipboard text into the terminal. These shortcuts work without an application menu; **Ctrl+C** still interrupts the running command.
 
 This first version has one terminal with 10,000 lines of scrollback. It does not yet create worktrees or restore sessions. Restart `npm start` after editing source files.

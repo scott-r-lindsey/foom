@@ -2,6 +2,7 @@ import { contextBridge, ipcRenderer } from "electron";
 import type { IpcRendererEvent } from "electron";
 import type { DesktopApi, TerminalActivity } from "./shared/desktop";
 import type { ProbeUpdate } from "./shared/inference";
+import type { SetupState } from "./shared/setup";
 import type { TerminalState } from "./shared/workspace";
 
 const states = ["needs_input", "done", "failed", "quiet_ok", "working"];
@@ -37,6 +38,16 @@ function probeUpdate(value: unknown): value is ProbeUpdate {
     typeof event["label"] === "string" &&
     typeof event["atMs"] === "number" &&
     (event["durationMs"] === undefined || typeof event["durationMs"] === "number")
+  );
+}
+
+function setupState(value: unknown): value is SetupState {
+  return (
+    object(value) &&
+    object(value["settings"]) &&
+    object(value["keys"]) &&
+    typeof value["secureStorage"] === "boolean" &&
+    typeof value["worktreeRoot"] === "string"
   );
 }
 
@@ -141,6 +152,15 @@ const desktop: DesktopApi = {
     await ipcRenderer.invoke("setup:check-cancel", id);
   },
   localModels: (endpoint) => ipcRenderer.invoke("setup:models", endpoint),
+  onSetupChange(callback) {
+    const listener = (_event: IpcRendererEvent, state: unknown) => {
+      if (setupState(state)) callback(state);
+    };
+    ipcRenderer.on("setup:changed", listener);
+    return () => {
+      ipcRenderer.removeListener("setup:changed", listener);
+    };
+  },
   async feedback(id, verdictId, action) {
     await ipcRenderer.invoke("terminal:feedback", id, verdictId, action);
   },

@@ -38,6 +38,7 @@ const failed = (failure: ProbeFailure, message: string): ProbeResult => ({
   message,
 });
 
+let changed: ((state: SetupState) => void) | undefined;
 function fake(initial: SetupState, scan: AgentReport = all) {
   let state = initial;
   const repositories: Repository[] = [];
@@ -71,6 +72,12 @@ function fake(initial: SetupState, scan: AgentReport = all) {
     ),
     scanAgents: vi.fn((_refresh: boolean) => Promise.resolve(scan)),
     repositories: vi.fn(() => Promise.resolve([...repositories])),
+    subscribe: vi.fn((listener: (next: SetupState) => void) => {
+      changed = listener;
+      return () => {
+        changed = undefined;
+      };
+    }),
     addRepository: vi.fn(() => {
       const repository = { path: "/code/app", name: "app" };
       repositories.push(repository);
@@ -116,9 +123,10 @@ test("first run walks every step, saves each choice, and launches", async () => 
   });
   await screen.findByText("2 agents ready");
   fireEvent.click(screen.getByRole("checkbox", { name: /Attach Foom's hooks/ }));
-  await waitFor(() => {
-    expect(screen.getAllByText("Evaluator")).toHaveLength(2);
-  });
+  // With hooks off, every found agent falls back to the evaluator, immediately.
+  expect(Array.from(document.querySelectorAll(".preflight-tag"), (tag) => tag.textContent)).toEqual(
+    ["Evaluator", "Evaluator", "Evaluator"],
+  );
   fireEvent.click(button("Scan again"));
   expect(source.scanAgents).toHaveBeenLastCalledWith(true);
   await screen.findByText("Scan again");
@@ -425,4 +433,61 @@ test("the endpoint's model list reports failures in Foom's words", async () => {
   fireEvent.change(screen.getByRole("combobox", { name: "Model" }), { target: { value: "a" } });
   fireEvent.click(button("Run check"));
   await screen.findByText("boom");
+});
+
+test("appearance applies at once, follows shortcuts from main, and stays within its steps", async () => {
+  const source = fake(setupState({ interfaceScale: 140 }));
+  render(
+    <Preflight
+      source={source}
+      initial={setupState({ interfaceScale: 140 })}
+      onLaunched={vi.fn()}
+    />,
+  );
+  fireEvent.click(screen.getByRole("radio", { name: "Dark" }));
+  expect(screen.getByRole("radio", { name: "Dark" })).toHaveProperty("checked", true);
+  expect(source.save).toHaveBeenCalledWith({ colorMode: "dark" });
+  fireEvent.click(button("Larger"));
+  expect(source.save).toHaveBeenLastCalledWith({ interfaceScale: 150 });
+  expect(screen.getByText("150%")).toBeTruthy();
+  expect(button("Larger")).toHaveProperty("disabled", true);
+  fireEvent.click(button("Reset"));
+  expect(screen.getByText("100%")).toBeTruthy();
+  expect(screen.queryByRole("button", { name: "Reset" })).toBeNull();
+  // A shortcut handled in main arrives as a settings change.
+  await act(async () => {
+    await Promise.resolve();
+  });
+  await act(async () => {
+    changed?.(setupState({ interfaceScale: 80 }));
+    await Promise.resolve();
+  });
+  expect(screen.getByText("80%")).toBeTruthy();
+  expect(button("Smaller")).toHaveProperty("disabled", true);
+  expect(screen.getByText("Ctrl+Shift+= / − · Ctrl+0")).toBeTruthy();
+  // If main refuses a change, its own settings come back.
+  source.save.mockRejectedValueOnce(new Error("Disk full"));
+  fireEvent.click(button("Larger"));
+  expect(screen.getByText("90%")).toBeTruthy();
+  await screen.findByText("Disk full");
+  // The fake's own saved scale is 100, so that is what comes back.
+  await waitFor(() => {
+    expect(screen.getByText("100%")).toBeTruthy();
+  });
+});
+
+test("the size control steps down, and shows macOS shortcuts on a Mac", () => {
+  const platform = vi.spyOn(navigator, "platform", "get").mockReturnValue("MacIntel");
+  const source = fake(setupState({ interfaceScale: 120 }));
+  render(
+    <Preflight
+      source={source}
+      initial={setupState({ interfaceScale: 120 })}
+      onLaunched={vi.fn()}
+    />,
+  );
+  fireEvent.click(button("Smaller"));
+  expect(source.save).toHaveBeenCalledWith({ interfaceScale: 110 });
+  expect(screen.getByText("⌘ + / − / 0")).toBeTruthy();
+  platform.mockRestore();
 });

@@ -326,6 +326,7 @@ test("terminal runs an interactive shell behind an isolated bridge", {
           "checkInference",
           "cancelInferenceCheck",
           "localModels",
+          "onSetupChange",
           "feedback",
           "onState",
           "onData",
@@ -1452,6 +1453,8 @@ test("first run goes from no agents to go, launches by keyboard, and can be repl
     worktreeLocation: "root",
     inference: { kind: "rules" },
     inferenceTimeoutMs: 5000,
+    colorMode: "system",
+    interfaceScale: 100,
   });
 
   // Preflight can run again over the board; Escape returns to the same row.
@@ -1524,4 +1527,47 @@ test("Run check streams live progress from a local model server, then saves the 
     .getByRole("status")
     .filter({ hasText: "Connection refused: nothing is listening on 127.0.0.1:59999" })
     .waitFor();
+});
+
+test("appearance switches light and dark, and zoom shortcuts resize the interface", async (context) => {
+  const app = await launchApp(context, false, { firstRun: true });
+  const page = await app.firstWindow();
+  await page.getByRole("button", { name: "Start preflight" }).waitFor();
+  const dark = () => page.evaluate(() => matchMedia("(prefers-color-scheme: dark)").matches);
+  const background = () =>
+    page.evaluate(() => getComputedStyle(document.documentElement).backgroundColor);
+
+  await page.getByRole("radio", { name: "Dark" }).check();
+  await expect.poll(dark).toBe(true);
+  assert.equal(await app.evaluate(({ nativeTheme }) => nativeTheme.themeSource), "dark");
+  await expect.poll(background).toBe("rgb(5, 4, 10)");
+  await assertAccessible(page);
+  await page.getByRole("radio", { name: "Light" }).check();
+  await expect.poll(dark).toBe(false);
+  await expect.poll(background).toBe("rgb(243, 240, 250)");
+
+  const zoom = () =>
+    app.evaluate(({ BrowserWindow }) =>
+      BrowserWindow.getAllWindows()[0].webContents.getZoomFactor(),
+    );
+  const press = (keyCode, shift) =>
+    app.evaluate(
+      ({ BrowserWindow }, { keyCode, shift, mac }) => {
+        const window = BrowserWindow.getAllWindows()[0];
+        window.focus();
+        const modifiers = mac ? ["meta"] : ["control", ...(shift ? ["shift"] : [])];
+        for (const type of ["keyDown", "keyUp"])
+          window.webContents.sendInputEvent({ type, keyCode, modifiers });
+      },
+      { keyCode, shift, mac: process.platform === "darwin" },
+    );
+  await press("=", true);
+  await expect.poll(zoom).toBeCloseTo(1.1);
+  await page.getByText("110%").waitFor();
+  await page.getByRole("button", { name: "Larger" }).click();
+  await expect.poll(zoom).toBeCloseTo(1.2);
+  await press("0", false);
+  await expect.poll(zoom).toBeCloseTo(1);
+  await page.getByText("100%").waitFor();
+  await assertAccessible(page);
 });

@@ -27,4 +27,6 @@ export interface SetupSource {
   repositories(): Promise<readonly Repository[]>;
   /** Main shows the folder picker; null when the user cancels. */
   addRepository(): Promise<Repository | null>;
+  /** Settings changed in main, for example by a zoom shortcut. */
+  subscribe(listener: (state: SetupState) => void): () => void;
 }

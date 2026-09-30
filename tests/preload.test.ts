@@ -225,6 +225,26 @@ test("check progress is filtered by ID, validated, and unsubscribed when the che
   await expect(pending).resolves.toBe("result");
   expect(mock.removeListener).toHaveBeenCalledWith("setup:check-progress", listener);
 });
+test("setup changes from main are validated and can be unsubscribed", async () => {
+  const api = await bridge();
+  const callback = vi.fn();
+  const off = api.onSetupChange(callback);
+  const listener = mock.on.mock.calls.find(([name]) => name === "setup:changed")?.[1];
+  if (!listener) throw new Error("Missing listener");
+  const state = { settings: {}, keys: {}, secureStorage: true, worktreeRoot: "/w" };
+  for (const value of [
+    state,
+    null,
+    { ...state, settings: null },
+    { ...state, keys: [] },
+    { ...state, secureStorage: "yes" },
+    { ...state, worktreeRoot: 1 },
+  ])
+    listener({}, value);
+  expect(callback).toHaveBeenCalledExactlyOnceWith(state);
+  off();
+  expect(mock.removeListener).toHaveBeenCalledWith("setup:changed", listener);
+});
 test("terminal state events are validated and can be unsubscribed", async () => {
   const api = await bridge();
   const callback = vi.fn();

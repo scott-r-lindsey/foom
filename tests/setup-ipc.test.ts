@@ -30,11 +30,11 @@ const setup = {
   cancel: vi.fn(),
   models: vi.fn(() => "models"),
 };
-let dispose: () => void;
+let attached: ReturnType<typeof attachSetup>;
 
 beforeEach(() => {
   vi.clearAllMocks();
-  dispose = attachSetup(window, setup as unknown as Setup);
+  attached = attachSetup(window, setup as unknown as Setup);
 });
 
 function invoke(channel: string, args: unknown[] = [], event: unknown = trusted) {
@@ -97,8 +97,26 @@ test("passes payloads to Setup, which validates them, and never offers a key rea
   expect(mock.handle.mock.calls.some(([name]) => /get-key|read-key/.test(name))).toBe(false);
 });
 
+test("a zoom shortcut saves the next size and tells the renderer", async () => {
+  const state = (interfaceScale: number) => ({ settings: { interfaceScale } });
+  setup.state.mockReturnValue(state(100) as never);
+  setup.save.mockReturnValue(state(110) as never);
+  await attached.zoom("in");
+  expect(setup.save).toHaveBeenCalledWith({ interfaceScale: 110 });
+  expect(contents.send).toHaveBeenCalledWith("setup:changed", state(110));
+  // At a limit nothing is saved; a destroyed window gets no message.
+  setup.state.mockReturnValue(state(150) as never);
+  await attached.zoom("in");
+  expect(setup.save).toHaveBeenCalledOnce();
+  setup.state.mockReturnValue(state(110) as never);
+  contents.isDestroyed.mockReturnValueOnce(true);
+  await attached.zoom("reset");
+  expect(setup.save).toHaveBeenLastCalledWith({ interfaceScale: 100 });
+  expect(contents.send).toHaveBeenCalledOnce();
+});
+
 test("dispose removes every handler", () => {
-  dispose();
+  attached.dispose();
   expect(mock.removeHandler.mock.calls.map(([name]: unknown[]) => name)).toEqual(
     mock.handle.mock.calls.map(([name]) => name),
   );

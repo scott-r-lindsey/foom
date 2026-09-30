@@ -9,6 +9,7 @@ import { InferenceKeys } from "./inference-keys";
 import { SettingsStore } from "./settings";
 import { Setup } from "./setup";
 import { attachSetup } from "./setup-ipc";
+import { zoomShortcut } from "./appearance";
 import * as path from "node:path";
 import { pathToFileURL } from "node:url";
 
@@ -44,6 +45,8 @@ function createWindow() {
     show: false,
     autoHideMenuBar: true,
     webPreferences: {
+      // Saved interface scale, so the first paint is already the right size.
+      zoomFactor: settings.get().interfaceScale / 100,
       preload: path.join(__dirname, "preload.js"),
       contextIsolation: true,
       nodeIntegration: false,
@@ -73,6 +76,14 @@ function createWindow() {
     if (input.type === "keyDown" && !input.shift && quitShortcut) {
       event.preventDefault();
       app.quit();
+      return;
+    }
+    const zoom = zoomShortcut(input, process.platform);
+    if (zoom) {
+      event.preventDefault();
+      setupIpc.zoom(zoom).catch((error: unknown) => {
+        console.error("Unable to change the interface size:", error);
+      });
       return;
     }
     if (input.type !== "keyDown" || !input.control || !input.shift || input.alt || input.meta) {
@@ -112,11 +123,13 @@ function createWindow() {
     worktreeRoot: worktrees.worktreeRoot,
     apply: (next) => {
       workspace.configure(next);
+      nativeTheme.themeSource = next.colorMode;
+      window.webContents.setZoomFactor(next.interfaceScale / 100);
     },
   });
-  const disposeSetup = attachSetup(window, setup);
+  const setupIpc = attachSetup(window, setup);
   window.once("closed", () => {
-    disposeSetup();
+    setupIpc.dispose();
     workspaceIpc.dispose();
     void workspace.dispose();
   });
@@ -199,6 +212,8 @@ app
   .then(async () => {
     worktrees = await WorktreeService.open(app.getPath("userData"));
     settings = await SettingsStore.open(app.getPath("userData"));
+    // Before the window exists, so its background already matches the saved mode.
+    nativeTheme.themeSource = settings.get().colorMode;
     // Serve only known local assets; arbitrary filesystem access is never exposed.
     protocol.handle("app", (request) => {
       const url = new URL(request.url);

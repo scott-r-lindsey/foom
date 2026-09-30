@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { SetupState } from "../shared/setup";
 import type { AgentReport } from "../shared/workspace";
 import type { Repository } from "../shared/worktrees";
+import { AppearanceControls } from "./appearance-controls";
 import { LaunchSequence } from "./launch-sequence";
 import { EvaluatorStep, message } from "./preflight-evaluator";
 import { AGENTS, examplePath, found, pollRows, readyAgents, signal, STEPS } from "./preflight";
@@ -74,6 +75,8 @@ export function Preflight({
       live = false;
     };
   }, [source]);
+  // A zoom shortcut changes settings in main; keep the controls in step.
+  useEffect(() => source.subscribe(setState), [source]);
   useEffect(() => {
     // Each step starts at its heading, including the first, so keys reach preflight.
     headingRef.current?.focus();
@@ -84,9 +87,12 @@ export function Preflight({
     setReached((current) => Math.max(current, next));
     setError(undefined);
   };
+  /** Shows the change at once; if main refuses it, shows main's settings again. */
   const save = (patch: Parameters<SetupSource["save"]>[0]) => {
+    setState((current) => ({ ...current, settings: { ...current.settings, ...patch } }));
     source.save(patch).then(setState, (caught: unknown) => {
       setError(message(caught));
+      source.state().then(setState, () => undefined);
     });
   };
   const addRepository = async () => {
@@ -452,11 +458,14 @@ export function Preflight({
             </li>
           ))}
         </ol>
-        {onClose && (
-          <button type="button" className="preflight-close" onClick={onClose}>
-            Back to board · Esc
-          </button>
-        )}
+        <div className="preflight-rail-foot">
+          <AppearanceControls settings={state.settings} onChange={save} />
+          {onClose && (
+            <button type="button" className="preflight-close" onClick={onClose}>
+              Back to board · Esc
+            </button>
+          )}
+        </div>
       </nav>
       <main className="preflight-stage" aria-label="Preflight">
         <div className="preflight-inner">

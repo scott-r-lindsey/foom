@@ -23,8 +23,12 @@ test("patches copy only known, well-formed fields", () => {
       agents: { claude: true, codex: false, agy: true },
       inference: { kind: "anthropic", model: "claude-haiku-4-5" },
       inferenceTimeoutMs: 15_000,
+      colorMode: "dark",
+      interfaceScale: 120,
     }),
   ).toEqual({
+    colorMode: "dark",
+    interfaceScale: 120,
     inferenceTimeoutMs: 15_000,
     setupComplete: true,
     hooks: false,
@@ -49,6 +53,10 @@ test("patches copy only known, well-formed fields", () => {
     { inferenceTimeoutMs: 30_001 },
     { inferenceTimeoutMs: 5000.5 },
     { inferenceTimeoutMs: "5000" },
+    { colorMode: "sepia" },
+    { interfaceScale: 105 },
+    { interfaceScale: 200 },
+    { interfaceScale: "100" },
   ])
     expect(() => parseSettingsPatch(bad), JSON.stringify(bad)).toThrow("Invalid settings");
   expect(() => parseSettingsPatch({ inference: { kind: "claude" } })).toThrow(

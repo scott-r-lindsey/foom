@@ -19,6 +19,13 @@ export interface Settings {
   inference: InferenceConfig;
   /** How long a model gets per classification, 1–30 seconds. */
   inferenceTimeoutMs: number;
+  /**
+   * Which variant applies: the system's, or always light or dark. Themes will add a
+   * palette per variant (for example `lightTheme`, `darkTheme`); Eclipse is the default.
+   */
+  colorMode: "system" | "light" | "dark";
+  /** Interface zoom in percent, 80–150 in steps of 10. Terminal font size is separate. */
+  interfaceScale: number;
 }
 
 export type SettingsPatch = Partial<Settings>;
@@ -50,4 +57,6 @@ export interface SetupApi {
   cancelInferenceCheck(id: string): Promise<void>;
   /** Models a local endpoint offers. */
   localModels(endpoint: string): Promise<ModelList>;
+  /** Settings changed outside the renderer, for example by a zoom shortcut. */
+  onSetupChange(callback: (state: SetupState) => void): () => void;
 }

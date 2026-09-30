@@ -14,6 +14,8 @@ export function setupState(
       worktreeLocation: "root",
       inference: { kind: "rules" },
       inferenceTimeoutMs: 5000,
+      colorMode: "system",
+      interfaceScale: 100,
       ...settings,
     },
     keys: { anthropic: false, openai: false, google: false },

@@ -14,5 +14,6 @@ export function createSetupSource(): SetupSource {
     scanAgents: (refresh) => desktop.scanAgents(refresh),
     repositories: async () => (await desktop.workspace()).repositories,
     addRepository: () => desktop.addRepository(),
+    subscribe: (listener) => desktop.onSetupChange(listener),
   };
 }

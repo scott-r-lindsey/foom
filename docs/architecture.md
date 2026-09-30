@@ -103,6 +103,7 @@ Every channel checks the sender (the owning window, the main frame, `app://bundl
 | `setup:check-progress` | main → renderer | check ID, `{ kind: "step", event }` or `{ kind: "stream", thinking, reply }`; the preload validates the shape |
 | `setup:check-cancel` | renderer → main (invoke) | check ID |
 | `setup:models` | renderer → main (invoke) | local endpoint → `{ ok, models, server }` or `{ ok: false, failure, message }` |
+| `setup:changed` | main → renderer | setup state after a change made in main (a zoom shortcut) |
 
 The renderer names repositories and worktrees only by paths main returned, and agents by ID. Main copies the known launch fields, checks the repository is registered and the worktree is still owned, and resolves the executable itself. A launched terminal belongs to the window like one it created.
 
@@ -129,6 +130,10 @@ Stable Claude Code releases at or above 2.1.284 and Codex releases at or above 0
 **Today:** First run is the preflight countdown from [product](product.md#first-run). `src/settings.ts` stores versioned `settings.json` in user data: whether setup is complete, the hooks setting, which agents are turned on, the default worktree location, and the inference source. Writes are atomic (private temporary file, then rename) and serialized; a failed write leaves the settings unchanged. Missing, corrupt or unsupported files start from defaults, so preflight runs again. Every patch, from IPC or disk, is validated field by field and unknown fields are rejected.
 
 `src/setup.ts` applies the settings to the running app at startup and on each save, owns the key store and the app's model evaluator, and runs Run check. A model source can be saved only if it is already saved or passed a check in this session; storing or removing a provider's key invalidates that provider's checks. A cloud check without a stored key fails at its first step. The Evaluator step asks a local endpoint for its models as the URL is typed, offers them as suggestions for the model field, and says when the named model isn't among them.
+
+Appearance lives in the preflight rail and applies at once. `colorMode` (system, light or dark) sets `nativeTheme.themeSource` in main, before the window is created at startup, so the CSS (`prefers-color-scheme`), the window background and the terminal host's colors all follow it; as with a system theme change, switching resets colors a program set in the terminal. `interfaceScale` (80–150% in steps of 10) is Chromium zoom: the window starts with it as `zoomFactor` and later changes use `setZoomFactor`. Main handles the zoom keys before the terminal sees them: ⌘ =, − and 0 on macOS, and Ctrl+Shift+= / Ctrl+Shift+− and Ctrl+0 elsewhere, because plain Ctrl+− is readline's undo. A shortcut saves the new scale and sends `setup:changed` so preflight's controls follow. Terminal font size will be a separate setting.
+
+Themes are not implemented, but the model allows them: `colorMode` chooses the variant, and a theme will supply a palette per variant (for example `lightTheme` and `darkTheme`, both "Eclipse" by default). A theme's palette must also reach the terminal host, which today takes its colors from the brand tokens.
 
 The renderer shows preflight until setup is complete, and again when the board's **Preflight** button is used; the board stays mounted underneath, so its shell keeps running. The default worktree location is stored for #58's New worktree flow. Repositories are added one at a time with the native picker; removing a repository isn't supported yet. `npm run start:fresh` runs the app with a throwaway profile to test first run.
 
