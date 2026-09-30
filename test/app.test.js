@@ -1208,3 +1208,55 @@ test("launches an agent in a managed worktree and routes its attention signals",
   assert.match(log, /"action":"replied"/);
   assert.doesNotMatch(log, /FOOM_AGENT_READY|npm test/);
 });
+
+test("inference keys stay in main and require real OS encryption", async (context) => {
+  const instance = await launchApp(context, false);
+  const page = await instance.firstWindow();
+  const result = await instance.evaluate(async ({ app, safeStorage }) => {
+    const load = process
+      .getBuiltinModule("node:module")
+      .createRequire(app.getAppPath() + "/package.json");
+    const fs = load("node:fs/promises");
+    const path = load("node:path");
+    const { InferenceKeys } = load("./build/inference-keys.js");
+    const dir = await fs.mkdtemp(path.join(app.getPath("temp"), "foom-inference-"));
+    const keys = new InferenceKeys(dir);
+    const secure =
+      safeStorage.isEncryptionAvailable() &&
+      (process.platform !== "linux" || safeStorage.getSelectedStorageBackend() !== "basic_text");
+    try {
+      if (!secure) {
+        let rejected = false;
+        try {
+          await keys.set("openai", "synthetic-key-not-a-real-credential");
+        } catch {
+          rejected = true;
+        }
+        return { rejected, files: await fs.readdir(dir) };
+      }
+      await keys.set("openai", "synthetic-key-not-a-real-credential");
+      const bytes = await fs.readFile(path.join(dir, "inference-openai.key"));
+      const roundTrip = (await keys.get("openai")) === "synthetic-key-not-a-real-credential";
+      await keys.remove("openai");
+      return {
+        roundTrip,
+        encrypted: bytes.length > 0 && !bytes.includes("synthetic-key-not-a-real-credential"),
+        files: await fs.readdir(dir),
+      };
+    } finally {
+      await fs.rm(dir, { recursive: true, force: true });
+    }
+  });
+  if ("rejected" in result) assert.equal(result.rejected, true);
+  else {
+    assert.equal(result.roundTrip, true);
+    assert.equal(result.encrypted, true);
+  }
+  assert.deepEqual(result.files, []);
+  assert.equal(
+    await page.evaluate(() =>
+      Object.keys(window.desktop).some((key) => /key|secret|inference/i.test(key)),
+    ),
+    false,
+  );
+});

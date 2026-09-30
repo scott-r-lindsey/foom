@@ -146,7 +146,9 @@ and `src/verdict-log.ts` supplies `VerdictLog`. `Workspace` runs them for every 
 the window owns, including the shell: on quiet, on a hook signal, and on exit. Each
 evaluation reads the last 40 host lines and runs in order per terminal, so a slow one
 can't overwrite a newer verdict; a failure is logged and the next one still runs. The
-result goes out on `terminal:state` and into the verdict log. The model tier remains #15.
+result goes out on `terminal:state` and into the verdict log. `src/model-evaluator.ts`
+adds the model tier for ambiguous rule results, but `Workspace` doesn't call it yet;
+setup controls remain #17. See [inference service usage and benchmarking](inference.md).
 
 A permission hook (`needs_input`) stays in force across later quiet evaluations, because
 agent dialogs rarely match a text rule. It clears when the user types into the terminal
@@ -179,8 +181,34 @@ retention policy is implemented yet. The reusable fixture suite in
 
 Model calls get the last 40 lines, redacted, with a timeout. One-shot agent evaluators must not load repository instructions or use file, command, MCP, or other external tools to expand that input; a read-only sandbox alone does not enforce this boundary. Use another inference source or rules only when isolation cannot be enforced. A failure falls back to rules-only and never blocks the light.
 
+The model service has a five-second deadline and two concurrent calls by default
+(hard maximums: 30 seconds and four). Saturated calls use rules immediately; there
+is no waiting queue or retry. A timed-out transport keeps its slot until it settles
+so even a transport that ignores cancellation cannot exceed the limit. Run check
+uses the same limits and reports status and elapsed time without provider errors.
+Model JSON must contain exactly a known state and finite confidence in [0, 1].
+Reasons and signal names are generated locally, never copied from model output.
+HTTP responses are bounded to 64 KiB and truncated/tool/refusal responses fail closed.
+
+Cloud transports use fixed Anthropic, OpenAI, and Google HTTPS origins. Local
+OpenAI-compatible endpoints require a loopback IP literal (127.0.0.1 or [::1]);
+redirects, URL credentials, queries, and fragments are rejected. No transport
+supplies tools, file attachments, terminal IDs, hooks, or process metadata.
+CLI inference is currently unavailable: neither tested CLI has a verified complete
+no-files/no-instructions/no-integrations isolation profile. This intentionally
+follows the fail-closed decision above; interactive agent launch is unaffected.
+
 ## Secrets
 
 - API keys go through Electron `safeStorage` and are never written in plain text.
 - Keys never cross into the renderer after they're entered.
 - The redaction pass runs before any text leaves the machine.
+
+`InferenceKeys` is a main-only key store using Electron `safeStorage`. It rejects
+unavailable encryption and Linux `basic_text`, writes only ciphertext to private
+0600 files through atomic replacement, and supports removal. There is no renderer
+key-read API. Source/model selection is supplied by main; setup persistence and
+sender-validated entry controls belong to #17/#50. Redaction removes likely labelled
+credentials, bearer/API tokens, JWTs, URL credentials, and private-key blocks before
+selecting the last 40 physical lines. Oversized input fails back to rules. Redaction
+is heuristic and cannot identify every unlabelled secret.

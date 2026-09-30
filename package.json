@@ -27,7 +27,8 @@
     "test:electron": "npm run build && node --test test/*.test.js",
     "check": "npm run format:check && npm run lint && npm run typecheck && npm test && npm run test:ci",
     "prepare": "husky",
-    "audit": "npm audit --audit-level=low"
+    "audit": "npm audit --audit-level=low",
+    "test:inference:live": "vitest run tests/inference-live.test.ts"
   },
   "devDependencies": {
     "@axe-core/playwright": "4.13.0",
