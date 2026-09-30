@@ -68,13 +68,13 @@ export function Board({ source }: { source: BoardSource }) {
   const rows = useSyncExternalStore(source.subscribe, source.getSnapshot);
   const [selected, setSelected] = useState(rows[0]?.id);
   const [opened, setOpened] = useState<{ id: string }>();
-  const [peek, setPeek] = useState<string>();
+  const [peek, setPeek] = useState<{ id: string; keyboard: boolean }>();
   const [tail, setTail] = useState<readonly string[]>([]);
   const buttonsRef = useRef(new Map<string, HTMLButtonElement>());
   const terminalRef = useRef<HTMLElement>(null);
   const restoreRowFocusRef = useRef(false);
   const openRow = rows.find((row) => row.id === opened?.id);
-  const peekRow = rows.find((row) => row.id === peek);
+  const peekRow = rows.find((row) => row.id === peek?.id);
   const waiting = rows.filter((row) => row.state === "needs_input").length;
   const groups = groupRows(rows);
   const hide = useCallback(() => {
@@ -108,7 +108,7 @@ export function Board({ source }: { source: BoardSource }) {
       }),
     [source],
   );
-  const tailId = peek ?? (openRow?.kind === "sample" ? openRow.id : undefined);
+  const tailId = peek?.id ?? (openRow?.kind === "sample" ? openRow.id : undefined);
   useEffect(() => {
     let current = true;
     if (tailId) {
@@ -124,7 +124,7 @@ export function Board({ source }: { source: BoardSource }) {
     return () => {
       current = false;
     };
-  }, [source, tailId, opened]);
+  }, [source, tailId, opened, peek]);
   useLayoutEffect(() => {
     if (opened) {
       terminalRef.current?.focus();
@@ -177,7 +177,9 @@ export function Board({ source }: { source: BoardSource }) {
           } else if (event.key.toLowerCase() === "p") {
             event.preventDefault();
             setTail([]);
-            setPeek(peek ? undefined : selected);
+            setPeek(
+              peek?.keyboard && peek.id === selected ? undefined : { id: selected, keyboard: true },
+            );
           }
         }
       }}
@@ -232,13 +234,13 @@ export function Board({ source }: { source: BoardSource }) {
                     open(row);
                   }}
                   onMouseEnter={() => {
-                    if (!opened) {
+                    if (!opened && !peek?.keyboard) {
                       setTail([]);
-                      setPeek(row.id);
+                      setPeek({ id: row.id, keyboard: false });
                     }
                   }}
                   onMouseLeave={() => {
-                    setPeek(undefined);
+                    if (!peek?.keyboard) setPeek(undefined);
                   }}
                 >
                   <span className="board-light" style={lightStyle(row)} aria-hidden="true" />

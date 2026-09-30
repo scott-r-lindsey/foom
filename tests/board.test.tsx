@@ -311,3 +311,43 @@ test("opening the same waiting row again keeps its output visible", async () => 
   });
   expect(dialog.querySelector(".sample-terminal pre")?.textContent).toContain("Run npm test?");
 });
+
+test("keyboard peek replaces hover, stays pinned across mouse movement, and toggles off with P", async () => {
+  const { buttons, key, dialog } = setup();
+  fireEvent.mouseOver(buttons[1] ?? document.body);
+  await act(async () => {
+    await Promise.resolve();
+  });
+  expect(dialog.querySelector(".board-peek h2")?.textContent).toContain("feat/terminal-tabs");
+  key("p");
+  await act(async () => {
+    await Promise.resolve();
+  });
+  expect(dialog.querySelector(".board-peek h2")?.textContent).toContain("fix/session-restore");
+  expect(dialog.querySelector(".board-peek pre")?.textContent).toContain("Run npm test?");
+  fireEvent.mouseOut(buttons[1] ?? document.body);
+  fireEvent.mouseOver(buttons[2] ?? document.body);
+  expect(dialog.querySelector(".board-peek h2")?.textContent).toContain("fix/session-restore");
+  expect(document.activeElement).toBe(buttons[0]);
+  key("ArrowDown");
+  key("p");
+  await act(async () => {
+    await Promise.resolve();
+  });
+  expect(dialog.querySelector(".board-peek h2")?.textContent).toContain("feat/terminal-tabs");
+  key("p");
+  expect(dialog.querySelector<HTMLElement>(".board-peek")?.hidden).toBe(true);
+});
+
+test("pinning the currently hovered row retains its tail", async () => {
+  const { buttons, key, dialog } = setup();
+  fireEvent.mouseOver(buttons[0] ?? document.body);
+  await act(async () => {
+    await Promise.resolve();
+  });
+  key("p");
+  await act(async () => {
+    await Promise.resolve();
+  });
+  expect(dialog.querySelector(".board-peek pre")?.textContent).toContain("Run npm test?");
+});

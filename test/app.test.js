@@ -114,7 +114,12 @@ async function launchApp(context, openShell = true) {
   // The shell markup now arrives with React’s first commit.
   const page = await app.firstWindow();
   await page.locator(".board-row[data-kind='shell']").waitFor();
-  await page.waitForFunction(() => !document.querySelector("#toggle-terminal").disabled);
+  // Report startup errors directly instead of timing out on a permanently disabled control.
+  await expect
+    .poll(() => page.locator("#status").textContent(), { timeout: 10000 })
+    .not.toBe("Starting shell…");
+  assert.doesNotMatch(await page.locator("#status").textContent(), /Unable|failed/);
+  await expect(page.locator("#toggle-terminal")).toBeEnabled();
   if (openShell) {
     await page.locator(".board-row[data-kind='shell']").click();
     await expect(page.getByRole("button", { name: "Hide terminal", exact: true })).toBeEnabled();
@@ -898,6 +903,8 @@ test("board is home, routes attention with the keyboard and respects reduced mot
   await expect(page.locator("#terminal")).toBeHidden();
   await expect(rows.first()).toBeFocused();
   await assertAccessible(page);
+  // An existing hover must not make the first keyboard peek toggle off.
+  await rows.nth(2).hover();
   await page.keyboard.press("ArrowDown");
   await page.keyboard.press("p");
   await expect(board.getByRole("complementary", { name: "Terminal peek" })).toBeVisible();
