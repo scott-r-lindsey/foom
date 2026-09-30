@@ -874,6 +874,10 @@ test("reports quiet, input, exit and removal for owned terminals and grants main
       { timeout: 3000 },
     );
 
+    // Focus reports reach the PTY but aren't a reply.
+    latestSend("input")?.(event, id, "\x1b[O");
+    expect(pty(index).write).toHaveBeenCalledWith("\x1b[O");
+    expect(events.onInput).not.toHaveBeenCalled();
     latestSend("input")?.(event, id, "y");
     latestSend("input")?.(event, "foreign", "y");
     expect(events.onInput).toHaveBeenCalledExactlyOnceWith(id);

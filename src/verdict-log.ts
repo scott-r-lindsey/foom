@@ -11,7 +11,7 @@ export class VerdictLog {
 
   constructor(
     private readonly userData: string,
-    private readonly classify: (
+    private readonly classifier: (
       input: EvaluationInput,
     ) => Verdict | Promise<Verdict> = evaluateRules,
   ) {}
@@ -32,18 +32,28 @@ export class VerdictLog {
     return write;
   }
 
-  async evaluate(input: EvaluationInput): Promise<VerdictRecord> {
+  /** Classifies without writing, so a storage failure can't hide the verdict. */
+  async classify(input: EvaluationInput): Promise<VerdictRecord> {
     if (!/^[a-zA-Z0-9_-]{1,128}$/.test(input.terminalId)) {
       throw new Error("Invalid terminal ID");
     }
-    const record: VerdictRecord = {
+    return {
       id: randomUUID(),
       terminalId: input.terminalId,
       timestamp: new Date().toISOString(),
-      verdict: await this.classify(input),
+      verdict: await this.classifier(input),
     };
+  }
+
+  /** Writes a classified verdict; only committed verdicts accept feedback. */
+  async commit(record: VerdictRecord): Promise<void> {
     await this.append({ type: "verdict", ...record });
     this.pending.set(record.id, record.terminalId);
+  }
+
+  async evaluate(input: EvaluationInput): Promise<VerdictRecord> {
+    const record = await this.classify(input);
+    await this.commit(record);
     return record;
   }
 

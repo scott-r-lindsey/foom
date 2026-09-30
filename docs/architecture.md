@@ -88,8 +88,8 @@ Every channel checks the sender (the owning window, the main frame, `app://bundl
 | `terminal:exit` | main → renderer | `id`, exit code (final screen retained until killed) |
 | `terminal:tail` | renderer → main (invoke) | `id`, line count (1–10000) → plain text lines from the headless screen |
 | `terminal:activity` | main → renderer | batched `[{ id, rate }]`, about 10 per second at most |
-| `terminal:state` | main → renderer | `{ id, verdictId, state, reason, signal, confidence, timestamp }`; `verdictId` is null for user actions |
-| `terminal:feedback` | renderer → main (invoke) | `id`, `verdictId`, `replied` / `dismissed` / `ignored` |
+| `terminal:state` | main → renderer | `{ id, verdictId, state, reason, signal, confidence, timestamp }`; `verdictId` is null for user actions and unstored verdicts |
+| `terminal:feedback` | renderer → main (invoke) | `id`, `verdictId` (null only for the current unstored verdict), `replied` / `dismissed` / `ignored` |
 | `workspace:snapshot` | renderer → main (invoke) | → `{ repositories, terminals }`, each launched terminal with its agent, repository, worktree, branch, and latest state |
 | `workspace:add-repository` | renderer → main (invoke) | none; main shows the directory picker → repository or null |
 | `workspace:worktrees` | renderer → main (invoke) | added repository path → worktrees |
@@ -156,6 +156,17 @@ agent dialogs rarely match a text rule. It clears when the user types into the t
 `dismissed` feedback (`quiet_ok`, `user:dismissed`). Completion hooks only trigger an
 evaluation. Opening a terminal is not a reply. Board controls for this feedback are #57.
 
+Only input the user produced counts as typing. xterm also sends focus reports, answers
+to terminal queries (cursor position, device attributes, colors), and mouse releases,
+motion and wheel events through the input channel. Those still reach the PTY but are
+not replies; `src/terminal-reports.ts` separates them. A reply or dismissal also
+invalidates evaluations and hook signals that were already in flight, so older
+evidence can't restore attention the user just cleared. Exit verdicts are exempt.
+
+A verdict is published even if the log can't store it. It then has a null
+`verdictId`: a reply still clears it without recording anything, and
+`terminal:feedback` accepts null only for the terminal's current unstored verdict.
+
 A known exit is final, including when an older permission hook arrives afterward.
 For a live terminal, a matching permission hook takes precedence over an observed
 shell-prompt return and text patterns. Completion hooks only request classification.
@@ -166,7 +177,7 @@ confirmation/password/Enter prompts, test-runner failure summaries, and listenin
 server URLs. Other quiet tails remain `working` with low confidence. Historical
 prompts followed by more output do not request attention.
 
-`VerdictLog.evaluate` appends a timestamped verdict with a unique ID and terminal ID
+`VerdictLog.evaluate` (or `classify` then `commit`) appends a timestamped verdict with a unique ID and terminal ID
 to `verdicts.jsonl` in the supplied user-data directory. `recordAction` records the
 next explicit `replied`, `dismissed`, or `ignored` action against that verdict ID;
 dismissal includes `not_attention` feedback. Opening a view is not an action.

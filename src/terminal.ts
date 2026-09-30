@@ -2,6 +2,7 @@ import { app, ipcMain } from "electron";
 import type { BrowserWindow, IpcMainEvent, IpcMainInvokeEvent, Event } from "electron";
 import { homedir } from "node:os";
 import { TerminalHostClient } from "./terminal-host-client";
+import { isReply } from "./terminal-reports";
 import type { TerminalSpec } from "./shared/desktop";
 
 /** Lifecycle hooks for owned terminals; the workspace evaluates and releases from these. */
@@ -103,7 +104,7 @@ export function attachTerminal(
   const input = (event: IpcMainEvent, id: unknown, data: unknown) => {
     if (trusted(event) && validId(id) && typeof data === "string" && data.length <= 65536) {
       manager.write(id, data);
-      events.onInput?.(id);
+      if (isReply(data)) events.onInput?.(id);
     }
   };
   const resize = (event: IpcMainEvent, id: unknown, cols: unknown, rows: unknown) => {

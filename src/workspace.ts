@@ -16,7 +16,13 @@ import type {
 import type { WorktreeService } from "./worktrees";
 
 type Agents = Pick<AgentService, "scan" | "launch" | "release" | "dispose">;
-type Terminal = { exitCode?: number; hook?: HookSignal; state: TerminalState | null };
+type Terminal = {
+  exitCode?: number;
+  hook?: HookSignal;
+  state: TerminalState | null;
+  /** Bumped by replies and dismissals; evaluations that began earlier are discarded. */
+  generation: number;
+};
 
 export interface WorkspaceDependencies {
   worktrees: Pick<
@@ -28,7 +34,8 @@ export interface WorkspaceDependencies {
     tail(id: string, lines: number): Promise<string[]>;
   };
   verdicts: {
-    evaluate(input: EvaluationInput): Promise<VerdictRecord>;
+    classify(input: EvaluationInput): Promise<VerdictRecord>;
+    commit(record: VerdictRecord): Promise<void>;
     recordAction(terminalId: string, verdictId: string, action: VerdictAction): Promise<void>;
   };
   /** Started on the first launch that attaches hooks, then reused. */
@@ -127,10 +134,11 @@ export class Workspace {
     this.known(request.repository);
     // Scan once so launches don't each probe the login shell.
     await this.scanAgents(false);
-    const result = await this.agents.launch(request);
+    // Look up the branch before spawning, so nothing can fail between spawn and tracking.
     const tree = (await this.deps.worktrees.listWorktrees(request.repository)).find(
       (entry) => entry.path === request.worktree,
     );
+    const result = await this.agents.launch(request);
     this.launched.set(result.id, {
       id: result.id,
       kind: "agent",
@@ -148,7 +156,7 @@ export class Workspace {
   private track(id: string): Terminal {
     let terminal = this.terminals.get(id);
     if (!terminal) {
-      terminal = { state: null };
+      terminal = { state: null, generation: 0 };
       this.terminals.set(id, terminal);
     }
     return terminal;
@@ -177,27 +185,39 @@ export class Workspace {
     this.deps.onState(terminal.state);
   }
 
-  private async evaluate(id: string, terminal: Terminal): Promise<void> {
+  private async evaluate(id: string, terminal: Terminal, generation?: number): Promise<void> {
     let tail: string[] = [];
     try {
       tail = await this.deps.terminals.tail(id, 40);
     } catch {
       // A failed host has no screen. Exit codes and hooks still decide.
     }
-    const record = await this.deps.verdicts.evaluate({
+    const record = await this.deps.verdicts.classify({
       terminalId: id,
       tail,
       ...(terminal.hook ? { hook: terminal.hook } : {}),
       ...(terminal.exitCode !== undefined ? { exitCode: terminal.exitCode } : {}),
     });
-    this.publish(id, terminal, { verdictId: record.id, ...record.verdict });
+    // A reply or dismissal since this evaluation began makes its evidence stale.
+    const stale = () => generation !== undefined && generation !== terminal.generation;
+    if (stale()) return;
+    let verdictId: string | null = record.id;
+    try {
+      await this.deps.verdicts.commit(record);
+    } catch (error) {
+      // The state still goes out; an unstored verdict just has no feedback target.
+      console.error("Unable to record verdict:", error);
+      verdictId = null;
+    }
+    if (stale()) return;
+    this.publish(id, terminal, { verdictId, ...record.verdict });
   }
 
   /** Output went quiet. Live terminals only; an exit verdict is final. */
   quiet(id: string): Promise<void> {
-    this.track(id);
+    const { generation } = this.track(id);
     return this.enqueue(id, async (terminal) => {
-      if (terminal.exitCode === undefined) await this.evaluate(id, terminal);
+      if (terminal.exitCode === undefined) await this.evaluate(id, terminal, generation);
     });
   }
 
@@ -205,15 +225,19 @@ export class Workspace {
   hook(signal: HookSignal): Promise<void> {
     const id = this.hookKeys.get(signal.terminalId);
     if (!id) return Promise.resolve();
+    // A bound key means the terminal exists, even if launch() hasn't returned yet.
+    const { generation } = this.track(id);
     return this.enqueue(id, async (terminal) => {
-      if (terminal.exitCode !== undefined) return;
+      // A reply since the hook fired already answered it.
+      if (terminal.exitCode !== undefined || terminal.generation !== generation) return;
       // A permission request stays in force until the user replies or dismisses it;
       // completion hooks only request classification.
       if (signal.action === "needs_input") terminal.hook = { ...signal, terminalId: id };
-      await this.evaluate(id, terminal);
+      await this.evaluate(id, terminal, generation);
     });
   }
 
+  /** Exit verdicts ignore replies: the process is gone, so its exit always stands. */
   exited(id: string, code: number): Promise<void> {
     this.agents.release(id);
     this.track(id);
@@ -232,31 +256,43 @@ export class Workspace {
     this.terminals.delete(id);
   }
 
-  /** The first keystroke after a request for input counts as the reply. */
+  /**
+   * The user typed into the terminal (terminal-generated reports are filtered out
+   * before this). Pending evaluations and permission hooks are now out of date, and
+   * the first keystroke after a request for input counts as the reply.
+   */
   input(id: string): void {
     const terminal = this.terminals.get(id);
-    const state = terminal?.state;
-    if (!terminal || state?.state !== "needs_input" || !state.verdictId) return;
-    const verdictId = state.verdictId;
+    if (!terminal) return;
+    terminal.generation += 1;
     delete terminal.hook;
-    this.publish(id, terminal, {
-      verdictId: null,
-      state: "working",
-      reason: "You replied",
-      signal: "user:reply",
-      confidence: 1,
-    });
-    void this.deps.verdicts.recordAction(id, verdictId, "replied").catch((error: unknown) => {
-      console.error("Unable to record reply:", error);
-    });
+    const state = terminal.state;
+    if (state?.state !== "needs_input") return;
+    this.clear(id, terminal, "replied");
+    if (state.verdictId)
+      void this.deps.verdicts
+        .recordAction(id, state.verdictId, "replied")
+        .catch((error: unknown) => {
+          console.error("Unable to record reply:", error);
+        });
   }
 
-  async feedback(id: string, verdictId: string, action: VerdictAction): Promise<void> {
+  /** A null `verdictId` refers to a current verdict that couldn't be stored. */
+  async feedback(id: string, verdictId: string | null, action: VerdictAction): Promise<void> {
     const terminal = this.terminals.get(id);
     if (!terminal) throw new Error("Unknown terminal");
-    await this.deps.verdicts.recordAction(id, verdictId, action);
-    if (action === "ignored" || terminal.state?.verdictId !== verdictId) return;
+    const current = () => terminal.state !== null && terminal.state.verdictId === verdictId;
+    if (verdictId !== null) await this.deps.verdicts.recordAction(id, verdictId, action);
+    else if (!current() || terminal.state?.signal.startsWith("user:"))
+      throw new Error("Invalid verdict feedback");
+    // A newer verdict may have arrived while the action was being recorded.
+    if (action === "ignored" || !current()) return;
+    terminal.generation += 1;
     delete terminal.hook;
+    this.clear(id, terminal, action);
+  }
+
+  private clear(id: string, terminal: Terminal, action: "replied" | "dismissed"): void {
     this.publish(id, terminal, {
       verdictId: null,
       state: action === "replied" ? "working" : "quiet_ok",

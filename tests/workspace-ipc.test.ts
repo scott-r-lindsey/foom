@@ -143,7 +143,11 @@ test("launch requests are validated and copied field by field", async () => {
 test("feedback only applies to owned terminals and known actions", async () => {
   await invoke("terminal:feedback", ["t1", "v1", "dismissed"]);
   expect(workspace.feedback).toHaveBeenCalledWith("t1", "v1", "dismissed");
+  // Null names the current verdict when it couldn't be stored.
+  await invoke("terminal:feedback", ["t1", null, "dismissed"]);
+  expect(workspace.feedback).toHaveBeenLastCalledWith("t1", null, "dismissed");
   for (const args of [
+    ["t1", undefined, "dismissed"],
     ["t2", "v1", "dismissed"],
     ["t1", "", "dismissed"],
     ["t1", "v".repeat(129), "replied"],
