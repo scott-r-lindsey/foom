@@ -169,6 +169,23 @@ test("workspace requests use their own channels", async () => {
     ["terminal:feedback", "t1", "v1", "dismissed"],
   ]);
 });
+test("setup requests use their own channels and never read a key back", async () => {
+  const api = await bridge();
+  mock.invoke.mockResolvedValue("reply");
+  await expect(api.setupState()).resolves.toBe("reply");
+  await api.saveSetup({ hooks: false });
+  await api.setInferenceKey("openai", "sk-test");
+  await api.removeInferenceKey("openai");
+  await api.checkInference({ kind: "rules" });
+  expect(mock.invoke.mock.calls).toEqual([
+    ["setup:state"],
+    ["setup:save", { hooks: false }],
+    ["setup:set-key", "openai", "sk-test"],
+    ["setup:remove-key", "openai"],
+    ["setup:check", { kind: "rules" }],
+  ]);
+  expect(Object.keys(api).some((key) => /get.*key|read.*key/i.test(key))).toBe(false);
+});
 test("terminal state events are validated and can be unsubscribed", async () => {
   const api = await bridge();
   const callback = vi.fn();

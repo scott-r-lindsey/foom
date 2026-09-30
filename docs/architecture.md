@@ -96,6 +96,10 @@ Every channel checks the sender (the owning window, the main frame, `app://bundl
 | `workspace:create-worktree` | renderer → main (invoke) | repository path, branch, `root` / `adjacent` → worktree |
 | `agents:scan` | renderer → main (invoke) | `refresh` → `{ warning, agents }` (no PATH) |
 | `agents:launch` | renderer → main (invoke) | `{ agent, repository, worktree, cols, rows, acknowledgeCodexNotifierReplacement? }` → `{ id, attention }` |
+| `setup:state` | renderer → main (invoke) | → `{ settings, keys, secureStorage, worktreeRoot }`; `keys` says only which providers have a stored key |
+| `setup:save` | renderer → main (invoke) | settings patch (known fields only) → state; a model source must have passed `setup:check` |
+| `setup:set-key` / `setup:remove-key` | renderer → main (invoke) | provider, key / provider → state; keys are never returned |
+| `setup:check` | renderer → main (invoke) | inference source → `{ verdict, status, elapsedMs }` for the sample |
 
 The renderer names repositories and worktrees only by paths main returned, and agents by ID. Main copies the known launch fields, checks the repository is registered and the worktree is still owned, and resolves the executable itself. A launched terminal belongs to the window like one it created.
 
@@ -115,7 +119,15 @@ Stable Claude Code releases at or above 2.1.284 and Codex releases at or above 0
 
 `setHooksEnabled(false)` disables hook attachment for subsequent launches. A main-process integration supplies a fresh `AgentHooks` binding per launch, with a Claude stdin adapter command, a Codex argv adapter command, session credentials, and a cleanup callback. Claude settings attach Stop, PermissionRequest, and Notification observer hooks as inline JSON in `--settings`; Codex receives `-c notify=[...]`. No settings files are created in the user's HOME or workspace. Codex attachment requires `acknowledgeCodexNotifierReplacement` after the UI discloses that the user's notifier is replaced for this invocation. `release(terminalId)` must be called on exit/kill to revoke credentials and free the worktree; `dispose()` releases all bindings during shutdown after terminals are stopped. Spawn failures clean up immediately.
 
-`src/workspace.ts` connects these services in main. It scans once and reuses the result until a refresh, starts the hook receiver on the first launch that attaches hooks, and closes it after terminals stop on quit. `src/hook-launch.ts` writes each launch's adapter script to its own `mkdtemp` directory (mode 0700), registers receiver credentials under a random key, and maps that key to the terminal ID once it exists (`AgentHooks.bind`). Exit, kill, and shutdown release the launch: credentials are revoked, the directory is deleted, and the worktree is free again. Antigravity launches without hooks. Persisted hook and setup settings remain #17; board rows for launched agents remain #57 and #58.
+`src/workspace.ts` connects these services in main. It scans once and reuses the result until a refresh, starts the hook receiver on the first launch that attaches hooks, and closes it after terminals stop on quit. `src/hook-launch.ts` writes each launch's adapter script to its own `mkdtemp` directory (mode 0700), registers receiver credentials under a random key, and maps that key to the terminal ID once it exists (`AgentHooks.bind`). Exit, kill, and shutdown release the launch: credentials are revoked, the directory is deleted, and the worktree is free again. Antigravity launches without hooks. Preflight's settings reach the workspace through `configure`: the hooks setting calls `setHooksEnabled`, and launching an agent that preflight turned off is refused. Board rows for launched agents remain #57 and #58.
+
+## Preflight
+
+**Today:** First run is the preflight countdown from [product](product.md#first-run). `src/settings.ts` stores versioned `settings.json` in user data: whether setup is complete, the hooks setting, which agents are turned on, the default worktree location, and the inference source. Writes are atomic (private temporary file, then rename) and serialized; a failed write leaves the settings unchanged. Missing, corrupt or unsupported files start from defaults, so preflight runs again. Every patch, from IPC or disk, is validated field by field and unknown fields are rejected.
+
+`src/setup.ts` applies the settings to the running app at startup and on each save, owns the key store and the app's model evaluator, and runs Run check. A model source can be saved only if it is already saved or passed a check in this session; storing or removing a provider's key invalidates that provider's checks. Cloud checks require a stored key.
+
+The renderer shows preflight until setup is complete, and again when the board's **Preflight** button is used; the board stays mounted underneath, so its shell keeps running. The default worktree location is stored for #58's New worktree flow. Repositories are added one at a time with the native picker; removing a repository isn't supported yet. `npm run start:fresh` runs the app with a throwaway profile to test first run.
 
 ## Agent signals
 
@@ -146,9 +158,11 @@ and `src/verdict-log.ts` supplies `VerdictLog`. `Workspace` runs them for every 
 the window owns, including the shell: on quiet, on a hook signal, and on exit. Each
 evaluation reads the last 40 host lines and runs in order per terminal, so a slow one
 can't overwrite a newer verdict; a failure is logged and the next one still runs. The
-result goes out on `terminal:state` and into the verdict log. `src/model-evaluator.ts`
-adds the model tier for ambiguous rule results, but `Workspace` doesn't call it yet;
-setup controls remain #17. See [inference service usage and benchmarking](inference.md).
+result goes out on `terminal:state` and into the verdict log. The verdict log classifies
+through `Setup`, which holds the app's one `ModelEvaluator` for the saved source (rules
+only by default) and replaces it when preflight saves a new source. Results from a
+replaced evaluator still in flight are published, not discarded. See
+[inference service usage and benchmarking](inference.md).
 
 A permission hook (`needs_input`) stays in force across later quiet evaluations, because
 agent dialogs rarely match a text rule. It clears when the user types into the terminal
@@ -218,8 +232,8 @@ follows the fail-closed decision above; interactive agent launch is unaffected.
 `InferenceKeys` is a main-only key store using Electron `safeStorage`. It rejects
 unavailable encryption and Linux `basic_text`, writes only ciphertext to private
 0600 files through atomic replacement, and supports removal. There is no renderer
-key-read API. Source/model selection is supplied by main; setup persistence and
-sender-validated entry controls belong to #17/#50. Redaction removes likely labelled
+key-read API; preflight can save, replace or remove a key through `setup:set-key` and
+`setup:remove-key`, and learns only whether one is stored. Redaction removes likely labelled
 credentials, bearer/API tokens, JWTs, URL credentials, and private-key blocks before
 selecting the last 40 physical lines. Already-truncated host tails with an unmatched private-key END marker lose the entire preceding fragment; leading PEM-sized base64 lines are also redacted when both markers are absent. Line boundaries are preserved. Oversized input fails back to rules. Redaction
 is heuristic and cannot identify every unlabelled secret.

@@ -24,10 +24,12 @@ The direction is **Event Horizon: Eclipse**. It's a black hole with a glowing ri
 | `attention` | `#FFB23E` | `#D98200` | Needs you lights only |
 | `attention-ink` | `#FFB23E` | `#8C5000` | Needs you text; readable on the row surface |
 | `done` | `#6FE0A3` | `#13804A` | Done |
+| `done-ink` | `#6FE0A3` | `#0E6B3C` | Done and GO text; readable on the row surface |
 | `failed` | `#FF2E88` | `#D6166E` | Failed only |
+| `failed-ink` | `#FF2E88` | `#B0105A` | Failure and NO-GO text; readable on the row surface |
 | `hole` | `#06050B` | `#06050B` | The black hole, both modes |
 
-Light mode uses a darker amber so "needs you" still wins against a pale background. The separate text token meets small-text contrast requirements without dimming the attention light.
+Light mode uses a darker amber so "needs you" still wins against a pale background. The separate text token meets small-text contrast requirements without dimming the attention light. `done-ink` and `failed-ink` do the same for green and magenta text.
 
 ## Type
 

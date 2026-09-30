@@ -15,6 +15,7 @@ vi.mock("../src/workspace", () => ({
     removed = mock.workspace.removed;
     hook = mock.workspace.hook;
     dispose = mock.workspace.dispose;
+    configure = mock.workspace.configure;
     constructor(deps: unknown) {
       mock.workspace.deps = deps;
     }
@@ -22,7 +23,18 @@ vi.mock("../src/workspace", () => ({
 }));
 vi.mock("../src/workspace-ipc", () => ({ attachWorkspace: mock.attachWorkspace }));
 vi.mock("../src/hook-receiver", () => ({ HookReceiver: { listen: mock.listen } }));
-vi.mock("../src/verdict-log", () => ({ VerdictLog: vi.fn() }));
+vi.mock("../src/verdict-log", () => ({ VerdictLog: mock.VerdictLog }));
+vi.mock("../src/inference-keys", () => ({ InferenceKeys: vi.fn() }));
+vi.mock("../src/settings", () => ({ SettingsStore: { open: mock.openSettings } }));
+vi.mock("../src/setup", () => ({
+  Setup: class {
+    classify = mock.setup.classify;
+    constructor(deps: unknown) {
+      mock.setup.deps = deps;
+    }
+  },
+}));
+vi.mock("../src/setup-ipc", () => ({ attachSetup: mock.attachSetup }));
 vi.mock("../src/worktrees", () => ({ WorktreeService: { open: mock.openWorktrees } }));
 
 type ShortcutInput = Pick<Input, "type" | "key" | "control" | "shift" | "alt" | "meta">;
@@ -94,8 +106,10 @@ const mock = vi.hoisted(() => {
     removed: vi.fn(),
     hook: vi.fn(),
     dispose: vi.fn<() => Promise<void>>(),
+    configure: vi.fn(),
   };
   const ipc = { sendState: vi.fn(), dispose: vi.fn() };
+  const setup = { deps: undefined as unknown, classify: vi.fn() };
   return {
     terminals: {
       runningCount: 0,
@@ -106,6 +120,11 @@ const mock = vi.hoisted(() => {
     workspace,
     ipc,
     attachWorkspace: vi.fn<(...args: unknown[]) => typeof ipc>(() => ipc),
+    setup,
+    disposeSetup: vi.fn(),
+    attachSetup: vi.fn<(...args: unknown[]) => () => void>(),
+    openSettings: vi.fn<() => Promise<unknown>>(),
+    VerdictLog: vi.fn<(userData: string, classify: (input: unknown) => unknown) => void>(),
     listen: vi.fn(),
     theme: {
       shouldUseDarkColors: false,
@@ -182,7 +201,9 @@ beforeEach(() => {
   mock.readyEvents.clear();
   mock.state.windows = [mock.window];
   mock.ready.mockResolvedValue();
-  mock.openWorktrees.mockResolvedValue({});
+  mock.openWorktrees.mockResolvedValue({ worktreeRoot: "/home/.foom/worktrees" });
+  mock.openSettings.mockResolvedValue("settings");
+  mock.attachSetup.mockImplementation(() => mock.disposeSetup);
   mock.window.loadURL.mockResolvedValue();
   mock.fetch.mockResolvedValue(new Response("asset"));
 });
@@ -573,6 +594,25 @@ test("routes terminal events, hook signals and state through the workspace", asy
   mock.readyEvents.get("closed")?.();
   expect(mock.ipc.dispose).toHaveBeenCalledOnce();
   expect(mock.workspace.dispose).toHaveBeenCalledOnce();
+  expect(mock.disposeSetup).toHaveBeenCalledOnce();
+});
+
+test("setup owns the settings, applies them to the workspace, and classifies verdicts", async () => {
+  await start();
+  expect(mock.openSettings).toHaveBeenCalledWith("/test/user-data");
+  const deps = mock.setup.deps as {
+    store: unknown;
+    worktreeRoot: string;
+    apply(settings: unknown): void;
+  };
+  expect(deps.store).toBe("settings");
+  expect(deps.worktreeRoot).toBe("/home/.foom/worktrees");
+  deps.apply({ hooks: false });
+  expect(mock.workspace.configure).toHaveBeenCalledWith({ hooks: false });
+  expect(mock.attachSetup.mock.calls[0]?.[1]).toBeInstanceOf(Object);
+  const classify = mock.VerdictLog.mock.calls[0]?.[1];
+  classify?.({ terminalId: "a" });
+  expect(mock.setup.classify).toHaveBeenCalledWith({ terminalId: "a" });
 });
 
 test("confirmed quit disposes the workspace only after terminals stop", async () => {

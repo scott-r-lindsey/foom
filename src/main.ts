@@ -5,10 +5,15 @@ import { HookReceiver } from "./hook-receiver";
 import { VerdictLog } from "./verdict-log";
 import { Workspace } from "./workspace";
 import { attachWorkspace } from "./workspace-ipc";
+import { InferenceKeys } from "./inference-keys";
+import { SettingsStore } from "./settings";
+import { Setup } from "./setup";
+import { attachSetup } from "./setup-ipc";
 import * as path from "node:path";
 import { pathToFileURL } from "node:url";
 
 export let worktrees: WorktreeService;
+let settings: SettingsStore;
 
 const APP_URL = "app://bundle/index.html";
 const rendererDirectory = path.join(__dirname, "renderer");
@@ -93,14 +98,25 @@ function createWindow() {
   const workspace: Workspace = new Workspace({
     worktrees,
     terminals,
-    verdicts: new VerdictLog(app.getPath("userData")),
+    // Rules first, then whatever model tier setup has configured.
+    verdicts: new VerdictLog(app.getPath("userData"), (input) => setup.classify(input)),
     receiver: () => HookReceiver.listen((signal) => void workspace.hook(signal)),
     onState: (state) => {
       workspaceIpc.sendState(state);
     },
   });
   const workspaceIpc = attachWorkspace(window, workspace, (id) => terminals.owns(id));
+  const setup = new Setup({
+    store: settings,
+    keys: new InferenceKeys(app.getPath("userData")),
+    worktreeRoot: worktrees.worktreeRoot,
+    apply: (next) => {
+      workspace.configure(next);
+    },
+  });
+  const disposeSetup = attachSetup(window, setup);
   window.once("closed", () => {
+    disposeSetup();
     workspaceIpc.dispose();
     void workspace.dispose();
   });
@@ -182,6 +198,7 @@ app
   .whenReady()
   .then(async () => {
     worktrees = await WorktreeService.open(app.getPath("userData"));
+    settings = await SettingsStore.open(app.getPath("userData"));
     // Serve only known local assets; arbitrary filesystem access is never exposed.
     protocol.handle("app", (request) => {
       const url = new URL(request.url);

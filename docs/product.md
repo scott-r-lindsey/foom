@@ -58,7 +58,7 @@ Every verdict and the user's next action (replied, dismissed, ignored) go into a
 
 The model tier uses one of these sources:
 
-- **An agent the user already has** (recommended): a one-shot headless call through `claude -p` or `codex exec`, using the user's existing login. No key is stored.
+- **An agent the user already has**: a one-shot headless call through `claude -p` or `codex exec`, using the user's existing login. No key is stored. Not available yet: Foom can't yet enforce that such a call sees only the terminal tail (see [architecture](architecture.md#evaluator-pipeline)). Preflight shows it as unavailable.
 - **An API key**: Anthropic, OpenAI, or Google. The key is stored with Electron `safeStorage`.
 - **A local model**: any OpenAI-compatible endpoint, such as Ollama.
 - **Rules only**: no model. Ambiguous terminals stay neutral.
@@ -72,9 +72,9 @@ Setup is a preflight countdown:
 1. **Agents** (T-3): detect the supported CLIs on PATH and show each one's attention signal. One setting controls whether Foom attaches hooks per launch.
 2. **Repositories** (T-2): pick repos and where new worktrees live. The default is `~/.foom/worktrees`.
 3. **Evaluator** (T-1): pick an inference source and test it on a sample.
-4. **Go / no-go** (T-0): each item shows GO or NO-GO with a link back to its step.
+4. **Go / no-go** (T-0): each item shows GO or NO-GO with a link back to its step. Launch needs every item GO: at least one agent ready and one repository added.
 
-Launch opens an empty board with **New worktree**.
+A model source is used only after it passes Run check. Launch opens an empty board with **New worktree**. **Preflight** on the board runs setup again with the saved choices; Esc returns to the board.
 
 ## Quitting
 

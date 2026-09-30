@@ -195,6 +195,11 @@ export class WorktreeService {
     return repository;
   }
 
+  /** Where worktrees go when they don't sit next to their repository. */
+  get worktreeRoot(): string {
+    return this.root;
+  }
+
   listRepositories(): readonly Repository[] {
     return [...this.repositories.values()];
   }

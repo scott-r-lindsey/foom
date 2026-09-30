@@ -1,0 +1,32 @@
+// @vitest-environment jsdom
+import { expect, test, vi } from "vitest";
+import { createSetupSource } from "../src/renderer/setup-source";
+
+test("preflight reaches main only through the setup bridge", async () => {
+  const repository = { path: "/code/app", name: "app" };
+  const desktop = {
+    setupState: vi.fn(() => Promise.resolve("state")),
+    saveSetup: vi.fn(() => Promise.resolve("saved")),
+    setInferenceKey: vi.fn(() => Promise.resolve("set")),
+    removeInferenceKey: vi.fn(() => Promise.resolve("removed")),
+    checkInference: vi.fn(() => Promise.resolve("checked")),
+    scanAgents: vi.fn(() => Promise.resolve("scan")),
+    workspace: vi.fn(() => Promise.resolve({ repositories: [repository], terminals: [] })),
+    addRepository: vi.fn(() => Promise.resolve(repository)),
+  };
+  Object.defineProperty(window, "desktop", { configurable: true, value: desktop });
+  const source = createSetupSource();
+  await expect(source.state()).resolves.toBe("state");
+  await expect(source.save({ hooks: false })).resolves.toBe("saved");
+  await expect(source.setKey("openai", "sk")).resolves.toBe("set");
+  await expect(source.removeKey("openai")).resolves.toBe("removed");
+  await expect(source.check({ kind: "rules" })).resolves.toBe("checked");
+  await expect(source.scanAgents(true)).resolves.toBe("scan");
+  await expect(source.repositories()).resolves.toEqual([repository]);
+  await expect(source.addRepository()).resolves.toBe(repository);
+  expect(desktop.saveSetup).toHaveBeenCalledWith({ hooks: false });
+  expect(desktop.setInferenceKey).toHaveBeenCalledWith("openai", "sk");
+  expect(desktop.removeInferenceKey).toHaveBeenCalledWith("openai");
+  expect(desktop.checkInference).toHaveBeenCalledWith({ kind: "rules" });
+  expect(desktop.scanAgents).toHaveBeenCalledWith(true);
+});

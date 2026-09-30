@@ -105,6 +105,11 @@ const desktop: DesktopApi = {
     ipcRenderer.invoke("workspace:create-worktree", repository, branch, location),
   scanAgents: (refresh) => ipcRenderer.invoke("agents:scan", refresh),
   launchAgent: (request) => ipcRenderer.invoke("agents:launch", request),
+  setupState: () => ipcRenderer.invoke("setup:state"),
+  saveSetup: (patch) => ipcRenderer.invoke("setup:save", patch),
+  setInferenceKey: (provider, key) => ipcRenderer.invoke("setup:set-key", provider, key),
+  removeInferenceKey: (provider) => ipcRenderer.invoke("setup:remove-key", provider),
+  checkInference: (config) => ipcRenderer.invoke("setup:check", config),
   async feedback(id, verdictId, action) {
     await ipcRenderer.invoke("terminal:feedback", id, verdictId, action);
   },

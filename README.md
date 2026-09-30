@@ -11,7 +11,16 @@ npm ci
 npm start
 ```
 
-The window opens a real interactive shell in the project directory (`$SHELL` on Linux/macOS, PowerShell on Windows). Try `vim`, `top`, or your usual CLI tools; those programs must be installed on your machine. Resizing the window resizes the PTY. Ctrl+C interrupts commands, and full-screen programs use the alternate screen buffer. Type `exit` to end the shell, then use **Restart shell** for a fresh session. Closing the window terminates its PTY. Packaged builds start in your home directory.
+The first launch opens **preflight**, the setup countdown: agents, repositories, the evaluator, then go / no-go. To see it again, click **Preflight** on the board; your choices are prefilled. To see it exactly as a new user would, run:
+
+```sh
+npm run start:fresh          # a throwaway profile, deleted when Foom quits
+npm run start:fresh -- --keep  # keep the profile to reopen it later
+```
+
+A fresh profile starts with no settings, repositories or keys. Your real profile isn't touched.
+
+The board opens a real interactive shell in the project directory (`$SHELL` on Linux/macOS, PowerShell on Windows). Try `vim`, `top`, or your usual CLI tools; those programs must be installed on your machine. Resizing the window resizes the PTY. Ctrl+C interrupts commands, and full-screen programs use the alternate screen buffer. Type `exit` to end the shell, then use **Restart shell** for a fresh session. Closing the window terminates its PTY. Packaged builds start in your home directory.
 
 On Linux and Windows, select terminal text with the mouse and press **Ctrl+Shift+C** to copy. Press **Ctrl+Shift+V** to paste clipboard text into the terminal. These shortcuts work without an application menu; **Ctrl+C** still interrupts the running command.
 

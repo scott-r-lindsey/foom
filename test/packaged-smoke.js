@@ -1,7 +1,8 @@
 const { test } = require("node:test");
 const assert = require("node:assert/strict");
 const path = require("node:path");
-const { existsSync } = require("node:fs");
+const { existsSync, mkdtempSync, rmSync, writeFileSync } = require("node:fs");
+const { tmpdir } = require("node:os");
 const { spawn, execFileSync } = require("node:child_process");
 const { chromium } = require("@playwright/test");
 const { getCurrentFuseWire, FuseV1Options } = require("@electron/fuses");
@@ -33,7 +34,13 @@ test("packaged utility host runs native PTYs with RunAsNode disabled", {
   delete env.ELECTRON_RUN_AS_NODE;
   // Main's inspector is disabled in the package. CDP reaches only the renderer;
   // the probe exercises the same restricted bridge as the shipped application.
-  const child = spawn(executable, ["--remote-debugging-port=0"], {
+  // A private profile with preflight already complete, so the package opens on the board.
+  const profile = mkdtempSync(path.join(tmpdir(), "foom-packaged-"));
+  writeFileSync(
+    path.join(profile, "settings.json"),
+    JSON.stringify({ version: 1, settings: { setupComplete: true } }),
+  );
+  const child = spawn(executable, ["--remote-debugging-port=0", `--user-data-dir=${profile}`], {
     env,
     stdio: ["ignore", "ignore", "pipe"],
   });
@@ -126,6 +133,7 @@ test("packaged utility host runs native PTYs with RunAsNode disabled", {
       else child.kill("SIGTERM");
       await exited;
     }
+    rmSync(profile, { recursive: true, force: true, maxRetries: 5 });
     clearTimeout(watchdog);
   }
 });

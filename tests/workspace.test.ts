@@ -33,6 +33,7 @@ let agents: {
   launch: ReturnType<typeof vi.fn<(request: AgentLaunch) => Promise<Launched>>>;
   release: ReturnType<typeof vi.fn<(id: string) => void>>;
   dispose: ReturnType<typeof vi.fn<() => void>>;
+  setHooksEnabled: ReturnType<typeof vi.fn<(enabled: boolean) => void>>;
 };
 let deps: WorkspaceDependencies;
 let receiver: {
@@ -81,6 +82,7 @@ beforeEach(() => {
       .mockResolvedValue({ id: "t1", attention: "hooks" }),
     release: vi.fn<(id: string) => void>(),
     dispose: vi.fn<() => void>(),
+    setHooksEnabled: vi.fn<(enabled: boolean) => void>(),
   };
   deps = {
     worktrees: {
@@ -583,4 +585,29 @@ test("a hook that arrives before launch returns is kept", async () => {
   expect(states.at(-1)).toMatchObject({ state: "needs_input", signal: "claude:PermissionRequest" });
   await workspace.quiet("t1");
   expect(workspace.snapshot().terminals[0]?.state).toMatchObject({ state: "needs_input" });
+});
+
+test("preflight settings control hooks and which agents may launch", async () => {
+  const workspace = new Workspace(deps);
+  workspace.configure({ hooks: false, agents: { claude: false, codex: true, agy: true } });
+  expect(agents.setHooksEnabled).toHaveBeenCalledWith(false);
+  await expect(
+    workspace.launch({
+      agent: "claude",
+      repository: repo.path,
+      worktree: tree.path,
+      cols: 80,
+      rows: 24,
+    }),
+  ).rejects.toThrow("turned off in preflight");
+  expect(agents.launch).not.toHaveBeenCalled();
+  workspace.configure({ hooks: true, agents: { claude: true, codex: true, agy: true } });
+  await workspace.launch({
+    agent: "claude",
+    repository: repo.path,
+    worktree: tree.path,
+    cols: 80,
+    rows: 24,
+  });
+  expect(agents.launch).toHaveBeenCalledOnce();
 });

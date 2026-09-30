@@ -2,7 +2,7 @@ const { AxeBuilder } = require("@axe-core/playwright");
 const { test } = require("node:test");
 const assert = require("node:assert/strict");
 const path = require("node:path");
-const { mkdtemp, readFile, rm } = require("node:fs/promises");
+const { mkdir, mkdtemp, readFile, rm, writeFile } = require("node:fs/promises");
 const { tmpdir } = require("node:os");
 const { _electron: electron, expect } = require("@playwright/test");
 
@@ -43,7 +43,31 @@ async function quitAndWait(app, requestQuit) {
 
 // A test timeout does not cancel Playwright promises or dispose native processes.
 // Keep a final worker deadline so even broken cleanup cannot occupy a CI runner.
+// Every launch gets its own profile. Unless a test is about first run, preflight is
+// already complete so the app opens on the board.
+async function prepareProfile(options) {
+  const given = options.args?.find((arg) => arg.startsWith("--user-data-dir="));
+  const owned = given ? undefined : await mkdtemp(path.join(tmpdir(), "foom-profile-"));
+  const profile = given ? given.slice("--user-data-dir=".length) : owned;
+  if (!options.firstRun) {
+    await mkdir(profile, { recursive: true });
+    await writeFile(
+      path.join(profile, "settings.json"),
+      JSON.stringify({ version: 1, settings: { setupComplete: true } }),
+      { flag: "wx" },
+    ).catch((error) => {
+      if (error.code !== "EEXIST") throw error;
+    });
+  }
+  return {
+    args: [...(options.args ?? []), ...(owned ? [`--user-data-dir=${owned}`] : [])],
+    cleanup: () =>
+      owned ? rm(owned, { recursive: true, force: true, maxRetries: 5 }) : Promise.resolve(),
+  };
+}
+
 async function launchApp(context, openShell = true, options = {}) {
+  const profile = await prepareProfile(options);
   const watchdog = setTimeout(() => {
     console.error("Electron test exceeded its 60-second hard deadline; terminating worker");
     // Playwright's exit handler kills the process groups it launched.
@@ -56,7 +80,7 @@ async function launchApp(context, openShell = true, options = {}) {
     chromiumSandbox: true,
     colorScheme: null,
     timeout: 15_000,
-    args: [path.join(__dirname, ".."), ...(options.args ?? [])],
+    args: [path.join(__dirname, ".."), ...profile.args],
     env,
   });
   const child = app.process();
@@ -96,6 +120,7 @@ async function launchApp(context, openShell = true, options = {}) {
       clearTimeout(watchdog);
     } finally {
       clearTimeout(timer);
+      await profile.cleanup().catch(() => {});
       // If graceful shutdown failed, fail the test and terminate the process tree.
       // The worker watchdog remains armed in case a Playwright connection also hangs.
       if (child.exitCode === null && child.signalCode === null) {
@@ -118,6 +143,7 @@ async function launchApp(context, openShell = true, options = {}) {
       timeout: 10000,
     })
     .toBe(true);
+  if (options.firstRun) return app;
   await page.locator(".board-row[data-kind='shell']").waitFor();
   // Report startup errors directly instead of timing out on a permanently disabled control.
   await expect
@@ -293,6 +319,11 @@ test("terminal runs an interactive shell behind an isolated bridge", {
           "createWorktree",
           "scanAgents",
           "launchAgent",
+          "setupState",
+          "saveSetup",
+          "setInferenceKey",
+          "removeInferenceKey",
+          "checkInference",
           "feedback",
           "onState",
           "onData",
@@ -1253,12 +1284,15 @@ test("inference keys stay in main and require real OS encryption", async (contex
     assert.equal(result.encrypted, true);
   }
   assert.deepEqual(result.files, []);
-  assert.equal(
+  // Preflight can store, remove and test a key; nothing in the bridge reads one back.
+  assert.deepEqual(
     await page.evaluate(() =>
-      Object.keys(window.desktop).some((key) => /key|secret|inference/i.test(key)),
+      Object.keys(window.desktop).filter((key) => /key|secret|inference/i.test(key)),
     ),
-    false,
+    ["setInferenceKey", "removeInferenceKey", "checkInference"],
   );
+  const state = await page.evaluate(() => window.desktop.setupState());
+  assert.deepEqual(state.keys, { anthropic: false, openai: false, google: false });
 });
 
 test("focus reports reach the shell without counting as a reply", {
@@ -1307,4 +1341,122 @@ test("focus reports reach the shell without counting as a reply", {
     ).length,
     1,
   );
+});
+
+async function tabTo(page, name) {
+  for (let step = 0; step < 40; step++) {
+    await page.keyboard.press("Tab");
+    const label = await page.evaluate(() => document.activeElement?.textContent?.trim());
+    if (label === name) return;
+  }
+  throw new Error(`Could not reach "${name}" with Tab`);
+}
+
+test("a fresh profile opens preflight, and it passes accessibility checks", async (context) => {
+  const app = await launchApp(context, false, { firstRun: true });
+  const page = await app.firstWindow();
+  await page.getByRole("button", { name: "Start preflight" }).waitFor();
+  assert.equal(await page.locator(".board-home").count(), 0);
+  await assertAccessible(page);
+  await page.getByRole("button", { name: "Start preflight" }).click();
+  await page.getByText("Which agents do you run?").waitFor();
+  await expect(page.getByText("Looking…")).toHaveCount(0, { timeout: 20000 });
+  await assertAccessible(page);
+});
+
+test("first run goes from no agents to go, launches by keyboard, and can be replayed", {
+  timeout: 60_000,
+  skip: process.platform === "win32" && "The fake agents are POSIX scripts",
+}, async (context) => {
+  const { execFileSync } = require("node:child_process");
+  const { chmod, symlink } = require("node:fs/promises");
+  const root = await mkdtemp(path.join(tmpdir(), "foom-first-run-"));
+  context.after(() => rm(root, { recursive: true, force: true, maxRetries: 5 }));
+  const bin = path.join(root, "bin");
+  const repo = path.join(root, "app");
+  const userData = path.join(root, "user-data");
+  await mkdir(bin);
+  await mkdir(repo);
+  await mkdir(path.join(root, "home"));
+  execFileSync("git", ["init", "-q", repo]);
+  // Node gets its own folder: agents installed beside it must stay hidden.
+  const nodeBin = path.join(root, "node-bin");
+  await mkdir(nodeBin);
+  await symlink(process.execPath, path.join(nodeBin, "node"));
+
+  const app = await launchApp(context, false, {
+    firstRun: true,
+    args: [`--user-data-dir=${userData}`],
+    // A private HOME and PATH hide any agents installed on this machine.
+    env: {
+      HOME: path.join(root, "home"),
+      PATH: [bin, nodeBin, "/usr/bin", "/bin"].join(path.delimiter),
+    },
+  });
+  const page = await app.firstWindow();
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await app.evaluate(({ dialog }, directory) => {
+    dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [directory] });
+  }, repo);
+
+  await tabTo(page, "Start preflight");
+  await page.keyboard.press("Enter");
+  await expect(page.getByText("Not found")).toHaveCount(3, { timeout: 20000 });
+  await tabTo(page, "Continue");
+  await page.keyboard.press("Enter");
+  await page.getByRole("button", { name: "Add repository…" }).click();
+  await page.getByText(repo).waitFor();
+  await tabTo(page, "Continue");
+  await page.keyboard.press("Enter");
+  await tabTo(page, "Continue");
+  await page.keyboard.press("Enter");
+  await page.getByText("Hold. Something needs fixing.").waitFor();
+  await expect(page.getByRole("button", { name: "Launch" })).toBeDisabled();
+  await page.getByRole("button", { name: "Fix" }).click();
+
+  // Install all three, then scan again.
+  const script = (body) => `#!/usr/bin/env node\nconst a = process.argv[2];\n${body}\n`;
+  const agents = {
+    claude: script(
+      'if (a === "--version") console.log("2.1.300 (Claude Code)"); else console.log("  --settings <file-or-json>");',
+    ),
+    codex: script(
+      'if (a === "--version") console.log("codex-cli 0.155.1"); else console.log("  -c, --config <key=value>");',
+    ),
+    agy: script('if (a === "--version") console.log("1.2.13");'),
+  };
+  for (const [name, source] of Object.entries(agents)) {
+    await writeFile(path.join(bin, name), source);
+    await chmod(path.join(bin, name), 0o755);
+  }
+  await page.getByRole("button", { name: "Scan again" }).click();
+  await expect(page.getByText("Found", { exact: true })).toHaveCount(3, { timeout: 20000 });
+  await expect(page.locator(".preflight-tag")).toHaveText(["Hooks", "Notify", "Evaluator"]);
+  await page.getByRole("button", { name: /Go \/ no-go/ }).click();
+  await page.getByText("All stations go.").waitFor();
+  await assertAccessible(page);
+  await tabTo(page, "Launch");
+  await page.keyboard.press("Enter");
+
+  // Reduced motion shows a still frame, then the board.
+  await page.getByText("Takeoff was faster than expected.").waitFor();
+  const shellRow = page.locator(".board-row[data-kind='shell']");
+  await shellRow.waitFor({ timeout: 10000 });
+  const saved = JSON.parse(await readFile(path.join(userData, "settings.json"), "utf8"));
+  assert.deepEqual(saved.settings, {
+    setupComplete: true,
+    hooks: true,
+    agents: { claude: true, codex: true, agy: true },
+    worktreeLocation: "root",
+    inference: { kind: "rules" },
+  });
+
+  // Preflight can run again over the board; Escape returns to the same row.
+  await shellRow.focus();
+  await page.getByRole("button", { name: "Preflight" }).click();
+  await page.getByRole("button", { name: "Start preflight" }).waitFor();
+  await expect(page.locator(".board-home")).toBeHidden();
+  await page.keyboard.press("Escape");
+  await expect(page.locator(".board-home")).toBeVisible();
+  assert.equal(await shellRow.evaluate((row) => row === document.activeElement), true);
 });

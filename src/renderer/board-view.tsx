@@ -64,7 +64,16 @@ function ShellPanel({
   );
 }
 
-export function Board({ source }: { source: BoardSource }) {
+export function Board({
+  source,
+  inactive = false,
+  onPreflight,
+}: {
+  source: BoardSource;
+  /** Preflight is covering the board; it stays mounted so terminals keep running. */
+  inactive?: boolean;
+  onPreflight?: () => void;
+}) {
   const rows = useSyncExternalStore(source.subscribe, source.getSnapshot);
   const [selected, setSelected] = useState(rows[0]?.id);
   const [opened, setOpened] = useState<{ id: string }>();
@@ -141,6 +150,12 @@ export function Board({ source }: { source: BoardSource }) {
   useLayoutEffect(() => {
     buttonsRef.current.values().next().value?.focus();
   }, []);
+  const wasInactiveRef = useRef(inactive);
+  useLayoutEffect(() => {
+    // Coming back from preflight: return focus to the row the user left.
+    if (wasInactiveRef.current && !inactive && selected) buttonsRef.current.get(selected)?.focus();
+    wasInactiveRef.current = inactive;
+  }, [inactive, selected]);
   const open = (row: BoardRow) => {
     setSelected(row.id);
     setOpened({ id: row.id });
@@ -152,6 +167,8 @@ export function Board({ source }: { source: BoardSource }) {
     <main
       className="board-home"
       aria-label="Board"
+      hidden={inactive}
+      inert={inactive}
       onKeyDown={(event) => {
         if (event.altKey || event.ctrlKey || event.metaKey) return;
         if (event.key === "Escape" && (opened || peek)) {
@@ -200,6 +217,19 @@ export function Board({ source }: { source: BoardSource }) {
           {rows.some((row) => row.kind === "sample") && "Sample sessions"}
           {source.shell && " · one live shell"}
         </span>
+        {onPreflight && (
+          <button
+            type="button"
+            className="board-preflight"
+            onClick={() => {
+              // Hide an open terminal first so its view isn't measured while covered.
+              if (opened) hide();
+              onPreflight();
+            }}
+          >
+            Preflight
+          </button>
+        )}
       </header>
       <p className="board-help">↑ ↓ select · P peek · Enter open · Esc hide · N next waiting</p>
       <div className="board-workspace" data-open={Boolean(openRow)}>

@@ -1,9 +1,9 @@
 # Model evaluator
 
 Issue #15 supplies main-process services, like the rules evaluator in #14. It does
-not start background inference or expose a new renderer capability. Application
-wiring is #50; first-run source selection, key entry, and the Run check button are
-#17. Main should own one `ModelEvaluator` so its concurrency limit covers all
+not start background inference or expose a new renderer capability. Preflight
+(#17) owns source selection, key entry and Run check, and `Setup` builds the app's
+evaluator from the saved source. Main should own one `ModelEvaluator` so its concurrency limit covers all
 terminals, and discard stale results when output resumes, a terminal exits, or the
 source changes.
 

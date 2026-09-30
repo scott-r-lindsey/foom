@@ -5,6 +5,8 @@ import type { ShellView } from "../src/renderer/shell.d";
 import type { TerminalActivity } from "../src/shared/desktop";
 import { createAppSource } from "../src/renderer/app-source";
 import { Shell } from "../src/renderer/shell";
+import { installation, report, setupState } from "./fixtures/setup";
+import type { SetupState } from "../src/shared/setup";
 const mock = vi.hoisted(() => ({
   update: undefined as ((view: ShellView) => void) | undefined,
   escape: undefined as (() => void) | undefined,
@@ -17,6 +19,7 @@ const mock = vi.hoisted(() => ({
   tail: vi.fn<() => Promise<string[]>>(),
   owns: vi.fn<(id: string) => boolean>(),
   off: vi.fn(),
+  setupState: vi.fn<() => Promise<SetupState>>(),
 }));
 vi.mock("../src/renderer/shell-controller", () => ({
   createShell: (
@@ -44,6 +47,13 @@ beforeEach(() => {
   Object.defineProperty(window, "desktop", {
     configurable: true,
     value: {
+      setupState: mock.setupState,
+      saveSetup: (patch: Partial<SetupState["settings"]>) =>
+        Promise.resolve(setupState({ ...patch, setupComplete: true })),
+      scanAgents: () =>
+        Promise.resolve(report(installation("claude"), installation("codex"), installation("agy"))),
+      workspace: () =>
+        Promise.resolve({ repositories: [{ path: "/code/app", name: "app" }], terminals: [] }),
       onActivity: (listener: (batch: TerminalActivity[]) => void) => {
         mock.activity = listener;
         return mock.off;
@@ -51,6 +61,12 @@ beforeEach(() => {
     },
   });
   mock.tail.mockResolvedValue(["real output"]);
+  mock.update = undefined;
+  mock.setupState.mockResolvedValue(setupState({ setupComplete: true }));
+  Object.defineProperty(window, "matchMedia", {
+    configurable: true,
+    value: () => ({ matches: true }),
+  });
   mock.owns.mockImplementation((id) => id === "real-id");
   mock.toggle.mockImplementation(async () => {
     await Promise.resolve();
@@ -114,6 +130,10 @@ test("shell source routes only its live ID and disposes telemetry and simulation
 
 test("board starts hidden, opens the shell, preserves printable keys and returns focus on Escape", async () => {
   const screen = render(<Shell />);
+  // Setup already ran, so the board appears once main's settings arrive.
+  await act(async () => {
+    await Promise.resolve();
+  });
   act(() => {
     mock.update?.(view);
   });
@@ -160,4 +180,82 @@ test("board starts hidden, opens the shell, preserves printable keys and returns
     await Promise.resolve();
   });
   expect(mock.toggle).toHaveBeenCalledTimes(4);
+});
+
+async function settle() {
+  await act(async () => {
+    await vi.runOnlyPendingTimersAsync();
+  });
+}
+
+test("first run shows preflight, then launches into the board", async () => {
+  mock.setupState.mockResolvedValue(setupState());
+  const screen = render(<Shell />);
+  await settle();
+  expect(screen.container.querySelector(".board-home")).toBeNull();
+  // The shell doesn't start until the board mounts.
+  expect(mock.update).toBeUndefined();
+  screen.getByRole("button", { name: "Start preflight" }).click();
+  await settle();
+  for (let step = 0; step < 3; step++) {
+    act(() => {
+      screen.getByRole("button", { name: "Continue" }).click();
+    });
+  }
+  await settle();
+  expect(screen.getByText("All stations go.")).toBeTruthy();
+  act(() => {
+    screen.getByRole("button", { name: "Launch" }).click();
+  });
+  await settle();
+  // Reduced motion: the still launch frame ends on its own.
+  await settle();
+  expect(screen.container.querySelector(".preflight")).toBeNull();
+  expect(screen.container.querySelector('[data-kind="shell"]')).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Preflight" })).toBeTruthy();
+});
+
+test("Preflight reopens over the board and Escape returns to the same row", async () => {
+  const screen = render(<Shell />);
+  await settle();
+  act(() => {
+    mock.update?.(view);
+  });
+  const row = screen.container.querySelector<HTMLButtonElement>('[data-kind="shell"]');
+  await act(async () => {
+    row?.click();
+    await Promise.resolve();
+  });
+  await act(async () => {
+    screen.getByRole("button", { name: "Preflight" }).click();
+    await Promise.resolve();
+  });
+  // An open terminal is hidden first; the board stays mounted underneath.
+  expect(mock.hide).toHaveBeenCalledOnce();
+  expect(mock.dispose).not.toHaveBeenCalled();
+  expect(screen.container.querySelector<HTMLElement>(".board-home")?.hidden).toBe(true);
+  expect(screen.getByRole("button", { name: /Go \/ no-go/ })).toHaveProperty("disabled", false);
+  fireEvent.keyDown(screen.container.querySelector(".preflight") as Element, { key: "Escape" });
+  expect(screen.container.querySelector(".preflight")).toBeNull();
+  expect(screen.container.querySelector<HTMLElement>(".board-home")?.hidden).toBe(false);
+  expect(document.activeElement).toBe(row);
+
+  // Preflight that can't load its state stays closed.
+  const error = vi.spyOn(console, "error").mockImplementation(() => {});
+  mock.setupState.mockRejectedValueOnce(new Error("gone"));
+  await act(async () => {
+    screen.getByRole("button", { name: "Preflight" }).click();
+    await Promise.resolve();
+  });
+  expect(screen.container.querySelector(".preflight")).toBeNull();
+  expect(error).toHaveBeenCalledWith("Unable to load setup:", expect.any(Error));
+});
+
+test("unreadable settings fall back to the board", async () => {
+  const error = vi.spyOn(console, "error").mockImplementation(() => {});
+  mock.setupState.mockRejectedValue(new Error("gone"));
+  const screen = render(<Shell />);
+  await settle();
+  expect(screen.container.querySelector('[data-kind="shell"]')).toBeTruthy();
+  expect(error).toHaveBeenCalledWith("Unable to load setup:", expect.any(Error));
 });

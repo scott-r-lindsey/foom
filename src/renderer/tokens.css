@@ -39,8 +39,12 @@
   --attention: #d98200;
   --attention-ink: #8c5000;
   --done: #13804a;
+  --done-ink: #0e6b3c;
   --failed: #d6166e;
+  --failed-ink: #b0105a;
   --hole: #06050b;
+  /* Stars and text drawn on the black hole, in both modes. */
+  --space-ink: #f4efff;
   --font-display: "Archivo Black", sans-serif;
   --font-voice: "Courier Prime", monospace;
   --font-interface: "Geist", sans-serif;
@@ -59,7 +63,9 @@
     --attention: #ffb23e;
     --attention-ink: #ffb23e;
     --done: #6fe0a3;
+    --done-ink: #6fe0a3;
     --failed: #ff2e88;
+    --failed-ink: #ff2e88;
     --hole: #06050b;
   }
 }

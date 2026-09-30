@@ -77,3 +77,18 @@ it("cleans the temporary ciphertext if replacement fails", async () => {
   await expect(new InferenceKeys(dir).set("openai", "key")).rejects.toThrow();
   expect(await readdir(dir)).toEqual(["inference-openai.key"]);
 });
+it("reports availability and stored keys without decrypting them", async () => {
+  const keys = new InferenceKeys(await directory());
+  expect(keys.available()).toBe(true);
+  storage.isEncryptionAvailable.mockReturnValueOnce(false);
+  expect(keys.available()).toBe(false);
+  if (process.platform === "linux") {
+    storage.getSelectedStorageBackend.mockReturnValueOnce("basic_text");
+    expect(keys.available()).toBe(false);
+  }
+  expect(await keys.has("anthropic")).toBe(false);
+  await keys.set("anthropic", "private-key");
+  storage.decryptString.mockClear();
+  expect(await keys.has("anthropic")).toBe(true);
+  expect(storage.decryptString).not.toHaveBeenCalled();
+});
