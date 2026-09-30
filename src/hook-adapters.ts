@@ -15,6 +15,8 @@ export function hookAdapter(
     return {
       extension: ".ps1",
       source: `# Foom observer: never return an approval decision or agent output.
+# Startup probe verifies interpreter and script policy without sending an event.
+if ($args.Count -eq 1 -and $args[0] -eq '--foom-probe') { exit 0 }
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 try {

@@ -1,7 +1,9 @@
+import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { promisify } from "node:util";
 import { hookAdapter } from "./hook-adapters";
 import type { AgentHooks } from "./shared/agents";
 import type { HookAgent, HookLaunch } from "./shared/hooks";
@@ -26,6 +28,7 @@ export async function prepareHookLaunch(
   bind: (key: string, terminalId: string | undefined) => void,
   platform: NodeJS.Platform = process.platform,
   scratch = tmpdir(),
+  execute = promisify(execFile),
 ): Promise<AgentHooks> {
   const windows = platform === "win32";
   const adapter = hookAdapter(agent, windows ? "win32" : "posix");
@@ -35,18 +38,30 @@ export async function prepareHookLaunch(
   let launch: HookLaunch | undefined;
   try {
     await writeFile(script, adapter.source, { mode: 0o700, flag: "wx" });
+    const command = windows ? "powershell.exe" : "sh";
+    const args = windows
+      ? ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", script]
+      : [script];
+    if (windows) {
+      try {
+        // Exercise this generated file before promising hooks. Group Policy can
+        // override the process-only policy; never change persistent user settings.
+        await execute(command, [...args, "--foom-probe"], { timeout: 8000, maxBuffer: 65536 });
+      } catch {
+        throw new Error(
+          "PowerShell hook script could not run. Check enforced script policy or disable hooks.",
+        );
+      }
+    }
     const key = randomUUID();
     launch = receiver.register(key, agent);
-    const argv = windows
-      ? ["powershell.exe", "-NoProfile", "-NonInteractive", "-File", script]
-      : ["sh", script];
     let disposed = false;
     return {
       // Claude runs hook commands through a shell; Codex receives an argument array.
       claudeCommand: windows
-        ? `powershell.exe -NoProfile -NonInteractive -File "${script}"`
+        ? `powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "${script}"`
         : `sh ${quote(script)}`,
-      codexCommand: argv,
+      codexCommand: [command, ...args],
       env: launch.env,
       bind: (terminalId) => {
         if (!disposed) bind(key, terminalId);

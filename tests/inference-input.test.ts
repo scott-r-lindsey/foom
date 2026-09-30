@@ -1,3 +1,4 @@
+import { generateKeyPairSync } from "node:crypto";
 import { expect, it } from "vitest";
 import { classifierPrompt, parseModelVerdict, prepareTail } from "../src/inference-input";
 
@@ -96,4 +97,64 @@ it("preserves original line boundaries when redacting multiline secrets", () => 
     "Password: \nEnter login password:",
   );
   expect(prepareTail(["API_KEY=\u0000private-value"])).not.toContain("private-value");
+});
+
+it("redacts a generated private key after the host has already selected its last 40 lines", () => {
+  const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 4096 });
+  const pem = privateKey.export({ type: "pkcs8", format: "pem" }).toString().trimEnd().split("\n");
+  expect(pem.length).toBeGreaterThan(40);
+  const tail = [...pem, "Continue?"].slice(-40);
+  expect(tail.join("\n")).not.toContain("BEGIN");
+  const redacted = prepareTail(tail);
+  expect(redacted.split("\n")).toHaveLength(40);
+  expect(redacted).toContain("[REDACTED PRIVATE KEY]");
+  expect(redacted.endsWith("Continue?")).toBe(true);
+  for (const line of tail.slice(0, -2)) {
+    expect(redacted).not.toContain(line);
+    expect(classifierPrompt(tail)).not.toContain(line);
+  }
+});
+
+it.each([
+  "PRIVATE KEY",
+  "RSA PRIVATE KEY",
+  "EC PRIVATE KEY",
+  "OPENSSH PRIVATE KEY",
+  "ENCRYPTED PRIVATE KEY",
+])("redacts headerless %s fragments through END while retaining later output", (label) => {
+  const tail = ["partial body", "nonstandard body", `-----END ${label}-----`, "Working..."];
+  expect(prepareTail(tail).split("\n")).toEqual([
+    "[REDACTED PRIVATE KEY]",
+    "[REDACTED PRIVATE KEY]",
+    "[REDACTED PRIVATE KEY]",
+    "Working...",
+  ]);
+});
+
+it("redacts markerless leading PEM body lines and a short padded final line", () => {
+  const body = "Ab9+/Z".repeat(10) + "abcd";
+  for (const ending of [[], ["YWJjZA=="], ["YWJjZA==", "Continue?"]]) {
+    const tail = [...Array<string>(40).fill(body), ...ending].slice(-40);
+    const result = prepareTail(tail);
+    expect(result.split("\n")).toHaveLength(40);
+    expect(result).not.toContain(body);
+    expect(result).not.toContain("YWJjZA==");
+  }
+  expect(prepareTail([body, "", "Continue?"])).toBe("[REDACTED PRIVATE KEY]\n\nContinue?");
+});
+
+it("handles multiple complete and headerless blocks without leaking earlier material", () => {
+  expect(
+    prepareTail([
+      "orphan body",
+      "-----END PRIVATE KEY-----",
+      "between blocks",
+      "-----BEGIN RSA PRIVATE KEY-----",
+      "body",
+      "-----END RSA PRIVATE KEY-----",
+      "another orphan",
+      "-----END EC PRIVATE KEY-----",
+      "Continue?",
+    ]).split("\n"),
+  ).toEqual([...Array<string>(8).fill("[REDACTED PRIVATE KEY]"), "Continue?"]);
 });
