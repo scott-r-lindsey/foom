@@ -1561,13 +1561,25 @@ test("appearance switches light and dark, and zoom shortcuts resize the interfac
       },
       { keyCode, shift, mac: process.platform === "darwin" },
     );
+  const size = () =>
+    app.evaluate(({ BrowserWindow }) => {
+      const { width, height } = BrowserWindow.getAllWindows()[0].getBounds();
+      return { width, height };
+    });
+  const start = await size();
   await press("=", true);
   await expect.poll(zoom).toBeCloseTo(1.1);
   await page.getByText("110%").waitFor();
+  // The window grows with the interface while the screen has room.
+  await expect
+    .poll(size)
+    .toEqual({ width: Math.round(start.width * 1.1), height: Math.round(start.height * 1.1) });
   await page.getByRole("button", { name: "Larger" }).click();
   await expect.poll(zoom).toBeCloseTo(1.2);
   await press("0", false);
   await expect.poll(zoom).toBeCloseTo(1);
   await page.getByText("100%").waitFor();
+  // And returns to exactly its starting size.
+  await expect.poll(size).toEqual(start);
   await assertAccessible(page);
 });

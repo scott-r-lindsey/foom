@@ -35,3 +35,43 @@ export function zoomShortcut(
   if (input.meta || !input.control) return undefined;
   return direction === "reset" || input.shift ? direction : undefined;
 }
+
+export interface Size {
+  width: number;
+  height: number;
+}
+export interface Rect extends Size {
+  x: number;
+  y: number;
+}
+
+/** The window's size at 100%, and its smallest usable size. */
+export const BASE_SIZE: Size = { width: 900, height: 640 };
+export const MINIMUM_SIZE: Size = { width: 480, height: 420 };
+
+const clamp = (value: number, low: number, high: number) => Math.min(Math.max(value, low), high);
+
+/** A size at this scale, never larger than the screen's usable area. */
+export function scaledSize(size: Size, scale: number, area: Size): Size {
+  return {
+    width: Math.min(Math.round((size.width * scale) / 100), area.width),
+    height: Math.min(Math.round((size.height * scale) / 100), area.height),
+  };
+}
+
+/**
+ * The window at a new scale: its size at 100% times the scale, kept on the screen's
+ * usable area. The top-left corner stays put unless that would push it off screen.
+ */
+export function scaledBounds(bounds: Rect, base: Size, scale: number, area: Rect): Rect {
+  const minimum = scaledSize(MINIMUM_SIZE, scale, area);
+  const target = scaledSize(base, scale, area);
+  const width = Math.max(target.width, minimum.width);
+  const height = Math.max(target.height, minimum.height);
+  return {
+    x: clamp(bounds.x, area.x, area.x + area.width - width),
+    y: clamp(bounds.y, area.y, area.y + area.height - height),
+    width,
+    height,
+  };
+}

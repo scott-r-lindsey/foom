@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, nativeTheme, net, protocol, session } from "electron";
+import { app, BrowserWindow, dialog, nativeTheme, net, protocol, screen, session } from "electron";
 import { WorktreeService } from "./worktrees";
 import { attachTerminal } from "./terminal";
 import { HookReceiver } from "./hook-receiver";
@@ -9,7 +9,8 @@ import { InferenceKeys } from "./inference-keys";
 import { SettingsStore } from "./settings";
 import { Setup } from "./setup";
 import { attachSetup } from "./setup-ipc";
-import { zoomShortcut } from "./appearance";
+import { BASE_SIZE, MINIMUM_SIZE, scaledSize, zoomShortcut } from "./appearance";
+import { attachWindowScale } from "./window-scale";
 import * as path from "node:path";
 import { pathToFileURL } from "node:url";
 
@@ -35,18 +36,23 @@ protocol.registerSchemesAsPrivileged([
 ]);
 
 function createWindow() {
+  // The window opens at the saved interface scale, sized to match and to fit.
+  const scale = settings.get().interfaceScale;
+  const area = screen.getPrimaryDisplay().workArea;
+  const size = scaledSize(BASE_SIZE, scale, area);
+  const minimum = scaledSize(MINIMUM_SIZE, scale, area);
   const window = new BrowserWindow({
-    width: 900,
-    height: 640,
-    minWidth: 480,
-    minHeight: 420,
+    width: size.width,
+    height: size.height,
+    minWidth: minimum.width,
+    minHeight: minimum.height,
     title: "Foom",
     backgroundColor: nativeTheme.shouldUseDarkColors ? "#05040A" : "#F3F0FA",
     show: false,
     autoHideMenuBar: true,
     webPreferences: {
       // Saved interface scale, so the first paint is already the right size.
-      zoomFactor: settings.get().interfaceScale / 100,
+      zoomFactor: scale / 100,
       preload: path.join(__dirname, "preload.js"),
       contextIsolation: true,
       nodeIntegration: false,
@@ -117,6 +123,11 @@ function createWindow() {
     },
   });
   const workspaceIpc = attachWorkspace(window, workspace, (id) => terminals.owns(id));
+  const resizeForScale = attachWindowScale(
+    window,
+    (bounds) => screen.getDisplayMatching(bounds).workArea,
+    scale,
+  );
   const setup = new Setup({
     store: settings,
     keys: new InferenceKeys(app.getPath("userData")),
@@ -125,6 +136,7 @@ function createWindow() {
       workspace.configure(next);
       nativeTheme.themeSource = next.colorMode;
       window.webContents.setZoomFactor(next.interfaceScale / 100);
+      resizeForScale(next.interfaceScale);
     },
   });
   const setupIpc = attachSetup(window, setup);

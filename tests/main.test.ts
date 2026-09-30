@@ -79,6 +79,11 @@ const mock = vi.hoisted(() => {
       windowEvents.set(name, handler);
     }),
     removeMenu: vi.fn(),
+    getBounds: vi.fn(() => ({ x: 0, y: 0, width: 1080, height: 768 })),
+    setBounds: vi.fn(),
+    setMinimumSize: vi.fn(),
+    isMaximized: vi.fn(() => false),
+    isFullScreen: vi.fn(() => false),
     show: vi.fn(),
     setBackgroundColor: vi.fn(),
     loadURL: vi.fn<(url: string) => Promise<void>>(),
@@ -90,6 +95,11 @@ const mock = vi.hoisted(() => {
     once = window.once;
     on = window.on;
     removeMenu = window.removeMenu;
+    getBounds = window.getBounds;
+    setBounds = window.setBounds;
+    setMinimumSize = window.setMinimumSize;
+    isMaximized = window.isMaximized;
+    isFullScreen = window.isFullScreen;
     show = window.show;
     setBackgroundColor = window.setBackgroundColor;
     loadURL = window.loadURL;
@@ -183,6 +193,10 @@ vi.mock("electron", () => ({
     handle: mock.protocolHandle,
   },
   net: { fetch: mock.fetch },
+  screen: {
+    getPrimaryDisplay: () => ({ workArea: { x: 0, y: 0, width: 1920, height: 1080 } }),
+    getDisplayMatching: () => ({ workArea: { x: 0, y: 0, width: 1920, height: 1080 } }),
+  },
   session: {
     defaultSession: {
       setPermissionRequestHandler: mock.permissionRequest,
@@ -621,6 +635,14 @@ test("setup owns the settings, applies them to the workspace, and classifies ver
   expect(mock.workspace.configure).toHaveBeenCalledWith(next);
   expect(mock.theme.themeSource).toBe("light");
   expect(mock.window.webContents.setZoomFactor).toHaveBeenCalledWith(0.9);
+  // The window opened at 120% and shrinks with the interface.
+  expect(mock.construct.mock.calls[0]?.[0]).toMatchObject({
+    width: 1080,
+    height: 768,
+    minWidth: 576,
+    minHeight: 504,
+  });
+  expect(mock.window.setBounds).toHaveBeenCalledWith({ x: 0, y: 0, width: 810, height: 576 });
   expect(mock.attachSetup.mock.calls[0]?.[1]).toBeInstanceOf(Object);
   const classify = mock.VerdictLog.mock.calls[0]?.[1];
   classify?.({ terminalId: "a" });
