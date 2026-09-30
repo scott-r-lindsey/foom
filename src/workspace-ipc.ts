@@ -109,7 +109,12 @@ export function attachWorkspace(
     [
       "terminal:feedback",
       async (id, verdictId, next) => {
-        if (!text(id) || !owns(id) || !text(verdictId, 128) || !action(next))
+        if (
+          !text(id) ||
+          !owns(id) ||
+          !(verdictId === null || text(verdictId, 128)) ||
+          !action(next)
+        )
           throw new Error("Invalid feedback");
         await workspace.feedback(id, verdictId, next);
       },

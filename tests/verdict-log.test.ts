@@ -99,3 +99,19 @@ it("logs model verdicts through the injected classifier without model prose or t
   expect(text).not.toContain("private terminal prose");
   expect(text).toContain("not_attention");
 });
+
+it("classifies without writing, and only committed verdicts accept feedback", async () => {
+  const dir = await directory();
+  const log = new VerdictLog(dir);
+  const record = await log.classify({ terminalId: "t1", tail: ["Continue? (y/n)"] });
+  expect(record.verdict.state).toBe("needs_input");
+  await expect(readFile(path.join(dir, "verdicts.jsonl"), "utf8")).rejects.toThrow();
+  await expect(log.recordAction("t1", record.id, "dismissed")).rejects.toThrow(
+    "Invalid verdict feedback",
+  );
+  await expect(log.classify({ terminalId: "bad id", tail: [] })).rejects.toThrow(
+    "Invalid terminal ID",
+  );
+  await log.commit(record);
+  await log.recordAction("t1", record.id, "dismissed");
+});

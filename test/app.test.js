@@ -1260,3 +1260,51 @@ test("inference keys stay in main and require real OS encryption", async (contex
     false,
   );
 });
+
+test("focus reports reach the shell without counting as a reply", {
+  timeout: 45_000,
+  skip: process.platform === "win32" && "The prompt script is POSIX shell",
+}, async (context) => {
+  const app = await launchApp(context);
+  const page = await app.firstWindow();
+  await page.evaluate(() => {
+    window.foomStates = [];
+    window.focusOutput = "";
+    window.desktop.onState((state) => window.foomStates.push(state));
+    window.desktop.onData((_id, _token, data) => {
+      window.focusOutput += data;
+    });
+  });
+  const latest = () => page.evaluate(() => window.foomStates.at(-1));
+  const input = page.locator(".xterm-helper-textarea");
+  await input.focus();
+  // Enable focus reporting (DECSET 1004), then wait silently at a password prompt.
+  await page.keyboard.type(
+    "printf '\\033[?1004h\\nPass''word: '; read -rs reply; printf '\\033[?1004l\\nGOT:%q\\n' \"$reply\"",
+  );
+  await page.keyboard.press("Enter");
+  await expect
+    .poll(async () => (await latest())?.signal, { timeout: 10000 })
+    .toBe("pattern:password");
+
+  // Moving focus to the board control makes xterm report focus-out to the program.
+  await page.locator("#toggle-terminal").focus();
+  await page.waitForTimeout(1500);
+  assert.equal((await latest()).state, "needs_input");
+
+  await input.focus();
+  await page.keyboard.type("y");
+  await page.keyboard.press("Enter");
+  await expect.poll(async () => (await latest())?.signal, { timeout: 10000 }).toBe("user:reply");
+  // The program received the focus reports along with the real reply.
+  // xterm also reports focus-in as soon as reporting is enabled.
+  await page.waitForFunction(() =>
+    /GOT:\$'(?:\\E\[[IO])*\\E\[O(?:\\E\[[IO])*y'/.test(window.focusOutput),
+  );
+  assert.equal(
+    (await page.evaluate(() => window.foomStates.map((state) => state.signal))).filter(
+      (signal) => signal === "user:reply",
+    ).length,
+    1,
+  );
+});

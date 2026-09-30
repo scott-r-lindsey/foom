@@ -2,7 +2,10 @@ import type { AgentId, AgentInstallation } from "./agents";
 import type { VerdictAction, VerdictState } from "./evaluator";
 import type { Repository, Worktree } from "./worktrees";
 
-/** Main's latest view of a terminal's attention state. `verdictId` is null for user actions. */
+/**
+ * Main's latest view of a terminal's attention state. `verdictId` is null for user
+ * actions and for verdicts that couldn't be stored.
+ */
 export interface TerminalState {
   id: string;
   verdictId: string | null;
@@ -57,6 +60,7 @@ export interface WorkspaceApi {
   ): Promise<Worktree>;
   scanAgents(refresh: boolean): Promise<AgentReport>;
   launchAgent(request: LaunchRequest): Promise<{ id: string; attention: "hooks" | "evaluator" }>;
-  feedback(id: string, verdictId: string, action: VerdictAction): Promise<void>;
+  /** Pass null only for the current verdict when it couldn't be stored. */
+  feedback(id: string, verdictId: string | null, action: VerdictAction): Promise<void>;
   onState(callback: (state: TerminalState) => void): () => void;
 }

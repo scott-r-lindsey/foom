@@ -45,7 +45,7 @@ const terminalTail = vi.fn((id: string) => {
   const tail = tails.get(id);
   return tail ? Promise.resolve(tail) : Promise.reject(new Error("gone"));
 });
-const evaluate = vi.fn((input: EvaluationInput): Promise<VerdictRecord> => {
+const classify = vi.fn((input: EvaluationInput): Promise<VerdictRecord> => {
   evaluated.push(input);
   return Promise.resolve({
     id: `v${String(++verdictCount)}`,
@@ -54,6 +54,7 @@ const evaluate = vi.fn((input: EvaluationInput): Promise<VerdictRecord> => {
     verdict: evaluateRules(input),
   });
 });
+const commit = vi.fn<(record: VerdictRecord) => Promise<void>>();
 const startReceiver = vi.fn(() => Promise.resolve(receiver));
 
 beforeEach(() => {
@@ -63,7 +64,8 @@ beforeEach(() => {
   tails = new Map([["t1", ["Continue? (y/n)"]]]);
   recordAction.mockReset().mockResolvedValue();
   terminalTail.mockClear();
-  evaluate.mockClear();
+  classify.mockClear();
+  commit.mockReset().mockResolvedValue();
   startReceiver.mockClear();
   receiver = {
     register: vi.fn<(key: string, agent: HookAgent) => HookLaunch>(() => ({
@@ -92,7 +94,8 @@ beforeEach(() => {
       tail: terminalTail,
     },
     verdicts: {
-      evaluate,
+      classify,
+      commit,
       recordAction,
     },
     receiver: startReceiver,
@@ -320,7 +323,7 @@ test("evaluations for one terminal run in order and failures don't block the que
   expect(evaluated.map((input) => input.tail)).toEqual([["slow"], ["fast"]]);
   expect(states.at(-1)?.state).toBe("done");
 
-  evaluate.mockRejectedValueOnce(new Error("disk full"));
+  classify.mockRejectedValueOnce(new Error("classifier"));
   await workspace.quiet("t8");
   expect(error).toHaveBeenCalledWith("Unable to evaluate terminal:", expect.any(Error));
   tails.set("t8", ["Continue? (y/n)"]);
@@ -413,4 +416,171 @@ test("dispose tolerates a receiver that fails while starting", async () => {
   fail(new Error("port"));
   await expect(attempt).rejects.toThrow("port");
   await expect(disposing).resolves.toBeUndefined();
+});
+
+/** Returns a promise and its resolver, for holding a dependency mid-evaluation. */
+function held<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
+  let resolve: (value: T) => void = () => {};
+  const promise = new Promise<T>((done) => {
+    resolve = done;
+  });
+  return { promise, resolve };
+}
+
+/** Prepares and binds a Claude launch to t1, returning its hook key. */
+async function bound(): Promise<string> {
+  const hooks = await prepare?.("claude");
+  hooks?.bind?.("t1");
+  return receiver.register.mock.calls.at(-1)?.[0] ?? "";
+}
+
+test("an evaluation that was in flight during a reply can't restore attention", async () => {
+  const workspace = await launched();
+  await workspace.quiet("t1");
+  expect(states.at(-1)).toMatchObject({ state: "needs_input", verdictId: "v1" });
+  // The second evaluation classifies, then waits on its log write.
+  const write = held<undefined>();
+  commit.mockReturnValueOnce(write.promise);
+  const pending = workspace.quiet("t1");
+  await vi.waitFor(() => {
+    expect(commit).toHaveBeenCalledTimes(2);
+  });
+  workspace.input("t1");
+  write.resolve(undefined);
+  await pending;
+  expect(states.map((state) => state.signal)).toEqual(["pattern:confirmation", "user:reply"]);
+  expect(recordAction).toHaveBeenCalledExactlyOnceWith("t1", "v1", "replied");
+
+  // A dismissal also invalidates an evaluation still reading the screen.
+  await workspace.quiet("t1");
+  const screen = held<string[]>();
+  terminalTail.mockReturnValueOnce(screen.promise);
+  const reading = workspace.quiet("t1");
+  await vi.waitFor(() => {
+    expect(terminalTail).toHaveBeenCalledTimes(3);
+  });
+  await workspace.feedback("t1", "v3", "dismissed");
+  screen.resolve(["Continue? (y/n)"]);
+  await reading;
+  expect(states.at(-1)).toMatchObject({ signal: "user:dismissed" });
+  expect(commit).toHaveBeenCalledTimes(3);
+});
+
+test("a reply before the first permission verdict answers the hook", async () => {
+  const workspace = await launched();
+  const key = await bound();
+  tails.set("t1", ["╭ Allow Bash(npm test)? ╮"]);
+  const screen = held<string[]>();
+  terminalTail.mockReturnValueOnce(screen.promise);
+  const signal: HookSignal = {
+    terminalId: key,
+    action: "needs_input",
+    signal: "claude:PermissionRequest",
+  };
+  const first = workspace.hook(signal);
+  await vi.waitFor(() => {
+    expect(terminalTail).toHaveBeenCalledOnce();
+  });
+  // A second hook queued behind the first also predates the reply.
+  const second = workspace.hook(signal);
+  workspace.input("t1");
+  screen.resolve(["╭ Allow Bash(npm test)? ╮"]);
+  await Promise.all([first, second]);
+  expect(states).toEqual([]);
+  expect(recordAction).not.toHaveBeenCalled();
+  await workspace.quiet("t1");
+  expect(evaluated.at(-1)?.hook).toBeUndefined();
+  expect(states.at(-1)?.state).toBe("working");
+});
+
+test("a verdict that can't be stored is still reported, with no feedback target", async () => {
+  const error = vi.spyOn(console, "error").mockImplementation(() => {});
+  const workspace = await launched();
+  commit.mockRejectedValue(new Error("disk full"));
+  await workspace.quiet("t1");
+  expect(error).toHaveBeenCalledWith("Unable to record verdict:", expect.any(Error));
+  expect(states.at(-1)).toMatchObject({ state: "needs_input", verdictId: null });
+  // A reply still clears it, with nothing to record.
+  workspace.input("t1");
+  expect(states.at(-1)).toMatchObject({ signal: "user:reply" });
+  expect(recordAction).not.toHaveBeenCalled();
+  // Null feedback applies only to the current, unstored verdict.
+  await expect(workspace.feedback("t1", null, "dismissed")).rejects.toThrow(
+    "Invalid verdict feedback",
+  );
+  await workspace.quiet("t1");
+  await workspace.feedback("t1", null, "ignored");
+  expect(states.at(-1)?.state).toBe("needs_input");
+  await workspace.feedback("t1", null, "dismissed");
+  expect(states.at(-1)).toMatchObject({ state: "quiet_ok", signal: "user:dismissed" });
+  expect(recordAction).not.toHaveBeenCalled();
+  await expect(workspace.feedback("t9", null, "dismissed")).rejects.toThrow("Unknown terminal");
+  await expect(new Workspace(deps).feedback("t1", null, "dismissed")).rejects.toThrow(
+    "Unknown terminal",
+  );
+});
+
+test("an exit is reported even when storage fails, and stays final after recovery", async () => {
+  vi.spyOn(console, "error").mockImplementation(() => {});
+  const workspace = new Workspace(deps);
+  commit.mockRejectedValueOnce(new Error("disk full"));
+  await workspace.exited("t2", 1);
+  expect(states).toEqual([expect.objectContaining({ id: "t2", state: "failed", verdictId: null })]);
+  await workspace.exited("t2", 1);
+  await workspace.quiet("t2");
+  expect(states).toHaveLength(1);
+  // A reply after exit can't discard the exit verdict.
+  const next = new Workspace(deps);
+  const screen = held<string[]>();
+  terminalTail.mockReturnValueOnce(screen.promise);
+  const exiting = next.exited("t3", 0);
+  await vi.waitFor(() => {
+    expect(terminalTail).toHaveBeenCalledTimes(2);
+  });
+  next.input("t3");
+  screen.resolve([]);
+  await exiting;
+  expect(states.at(-1)).toMatchObject({ id: "t3", state: "done" });
+});
+
+test("the branch is looked up before spawning, so a failed lookup launches nothing", async () => {
+  vi.mocked(deps.worktrees.listWorktrees).mockRejectedValueOnce(new Error("git"));
+  const workspace = new Workspace(deps);
+  await expect(
+    workspace.launch({
+      agent: "claude",
+      repository: repo.path,
+      worktree: tree.path,
+      cols: 80,
+      rows: 24,
+    }),
+  ).rejects.toThrow("git");
+  expect(agents.launch).not.toHaveBeenCalled();
+  expect(workspace.snapshot().terminals).toEqual([]);
+});
+
+test("a hook that arrives before launch returns is kept", async () => {
+  const workspace = new Workspace(deps);
+  tails.set("t1", ["╭ Allow Bash(npm test)? ╮"]);
+  let early: Promise<void> = Promise.resolve();
+  agents.launch.mockImplementationOnce(async () => {
+    const key = await bound();
+    early = workspace.hook({
+      terminalId: key,
+      action: "needs_input",
+      signal: "claude:PermissionRequest",
+    });
+    await early;
+    return { id: "t1", attention: "hooks" };
+  });
+  await workspace.launch({
+    agent: "claude",
+    repository: repo.path,
+    worktree: tree.path,
+    cols: 80,
+    rows: 24,
+  });
+  expect(states.at(-1)).toMatchObject({ state: "needs_input", signal: "claude:PermissionRequest" });
+  await workspace.quiet("t1");
+  expect(workspace.snapshot().terminals[0]?.state).toMatchObject({ state: "needs_input" });
 });
