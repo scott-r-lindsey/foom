@@ -176,15 +176,54 @@ test("setup requests use their own channels and never read a key back", async ()
   await api.saveSetup({ hooks: false });
   await api.setInferenceKey("openai", "sk-test");
   await api.removeInferenceKey("openai");
-  await api.checkInference({ kind: "rules" });
+  await api.cancelInferenceCheck("c1");
+  await api.localModels("http://127.0.0.1:11434/v1");
   expect(mock.invoke.mock.calls).toEqual([
     ["setup:state"],
     ["setup:save", { hooks: false }],
     ["setup:set-key", "openai", "sk-test"],
     ["setup:remove-key", "openai"],
-    ["setup:check", { kind: "rules" }],
+    ["setup:check-cancel", "c1"],
+    ["setup:models", "http://127.0.0.1:11434/v1"],
   ]);
   expect(Object.keys(api).some((key) => /get.*key|read.*key/i.test(key))).toBe(false);
+});
+test("check progress is filtered by ID, validated, and unsubscribed when the check ends", async () => {
+  const api = await bridge();
+  const updates: unknown[] = [];
+  let finish: (value: unknown) => void = () => {};
+  mock.invoke.mockReturnValueOnce(
+    new Promise((resolve) => {
+      finish = resolve;
+    }),
+  );
+  const pending = api.checkInference("c1", { kind: "rules" }, 5000, (update) => {
+    updates.push(update);
+  });
+  expect(mock.invoke).toHaveBeenLastCalledWith("setup:check", "c1", { kind: "rules" }, 5000);
+  const listener = mock.on.mock.calls.find(([name]) => name === "setup:check-progress")?.[1];
+  if (!listener) throw new Error("Missing listener");
+  const step = { step: "connect", status: "ok", label: "Connected", atMs: 1, durationMs: 1 };
+  for (const [id, update] of [
+    ["c1", { kind: "step", event: step }],
+    ["c1", { kind: "step", event: { ...step, durationMs: undefined } }],
+    ["c1", { kind: "stream", thinking: 2, reply: "{" }],
+    ["other", { kind: "stream", thinking: 2, reply: "{" }],
+    ["c1", null],
+    ["c1", { kind: "stream", thinking: "2", reply: "{" }],
+    ["c1", { kind: "step", event: { ...step, step: "exfiltrate" } }],
+    ["c1", { kind: "step", event: { ...step, status: "maybe" } }],
+    ["c1", { kind: "step", event: { ...step, label: 1 } }],
+    ["c1", { kind: "step", event: { ...step, atMs: "1" } }],
+    ["c1", { kind: "step", event: { ...step, durationMs: "1" } }],
+    ["c1", { kind: "step", event: null }],
+    ["c1", { kind: "other" }],
+  ] as const)
+    listener({}, id, update);
+  expect(updates).toHaveLength(3);
+  finish("result");
+  await expect(pending).resolves.toBe("result");
+  expect(mock.removeListener).toHaveBeenCalledWith("setup:check-progress", listener);
 });
 test("terminal state events are validated and can be unsubscribed", async () => {
   const api = await bridge();

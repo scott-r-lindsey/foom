@@ -22,8 +22,10 @@ test("patches copy only known, well-formed fields", () => {
       worktreeLocation: "adjacent",
       agents: { claude: true, codex: false, agy: true },
       inference: { kind: "anthropic", model: "claude-haiku-4-5" },
+      inferenceTimeoutMs: 15_000,
     }),
   ).toEqual({
+    inferenceTimeoutMs: 15_000,
     setupComplete: true,
     hooks: false,
     worktreeLocation: "adjacent",
@@ -43,6 +45,10 @@ test("patches copy only known, well-formed fields", () => {
     { agents: { claude: true, codex: true, agy: true, other: true } },
     { agents: [] },
     { extra: true },
+    { inferenceTimeoutMs: 999 },
+    { inferenceTimeoutMs: 30_001 },
+    { inferenceTimeoutMs: 5000.5 },
+    { inferenceTimeoutMs: "5000" },
   ])
     expect(() => parseSettingsPatch(bad), JSON.stringify(bad)).toThrow("Invalid settings");
   expect(() => parseSettingsPatch({ inference: { kind: "claude" } })).toThrow(

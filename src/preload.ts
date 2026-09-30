@@ -1,6 +1,7 @@
 import { contextBridge, ipcRenderer } from "electron";
 import type { IpcRendererEvent } from "electron";
 import type { DesktopApi, TerminalActivity } from "./shared/desktop";
+import type { ProbeUpdate } from "./shared/inference";
 import type { TerminalState } from "./shared/workspace";
 
 const states = ["needs_input", "done", "failed", "quiet_ok", "working"];
@@ -18,6 +19,24 @@ function terminalState(value: unknown): value is TerminalState {
     typeof value["signal"] === "string" &&
     typeof value["confidence"] === "number" &&
     typeof value["timestamp"] === "number"
+  );
+}
+
+const steps = ["key", "connect", "server", "model", "load", "request", "reply", "parse"];
+const statuses = ["running", "ok", "failed", "skipped"];
+function probeUpdate(value: unknown): value is ProbeUpdate {
+  if (!object(value)) return false;
+  if (value["kind"] === "stream")
+    return typeof value["thinking"] === "number" && typeof value["reply"] === "string";
+  const event = value["event"];
+  return (
+    value["kind"] === "step" &&
+    object(event) &&
+    steps.includes(String(event["step"])) &&
+    statuses.includes(String(event["status"])) &&
+    typeof event["label"] === "string" &&
+    typeof event["atMs"] === "number" &&
+    (event["durationMs"] === undefined || typeof event["durationMs"] === "number")
   );
 }
 
@@ -109,7 +128,19 @@ const desktop: DesktopApi = {
   saveSetup: (patch) => ipcRenderer.invoke("setup:save", patch),
   setInferenceKey: (provider, key) => ipcRenderer.invoke("setup:set-key", provider, key),
   removeInferenceKey: (provider) => ipcRenderer.invoke("setup:remove-key", provider),
-  checkInference: (config) => ipcRenderer.invoke("setup:check", config),
+  checkInference(id, config, timeoutMs, onUpdate) {
+    const listener = (_event: IpcRendererEvent, check: unknown, update: unknown) => {
+      if (check === id && probeUpdate(update)) onUpdate(update);
+    };
+    ipcRenderer.on("setup:check-progress", listener);
+    return ipcRenderer.invoke("setup:check", id, config, timeoutMs).finally(() => {
+      ipcRenderer.removeListener("setup:check-progress", listener);
+    });
+  },
+  async cancelInferenceCheck(id) {
+    await ipcRenderer.invoke("setup:check-cancel", id);
+  },
+  localModels: (endpoint) => ipcRenderer.invoke("setup:models", endpoint),
   async feedback(id, verdictId, action) {
     await ipcRenderer.invoke("terminal:feedback", id, verdictId, action);
   },

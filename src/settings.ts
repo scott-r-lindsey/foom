@@ -13,6 +13,7 @@ export const DEFAULT_SETTINGS: Settings = Object.freeze({
   agents: Object.freeze({ claude: true, codex: true, agy: true }),
   worktreeLocation: "root",
   inference: Object.freeze({ kind: "rules" }),
+  inferenceTimeoutMs: 5000,
 });
 
 function record(value: unknown): value is Record<string, unknown> {
@@ -43,6 +44,14 @@ export function parseSettingsPatch(value: unknown): SettingsPatch {
         agy: entry["agy"] === true,
       };
     else if (key === "inference") patch.inference = parseInferenceConfig(entry);
+    else if (
+      key === "inferenceTimeoutMs" &&
+      Number.isInteger(entry) &&
+      typeof entry === "number" &&
+      entry >= 1000 &&
+      entry <= 30_000
+    )
+      patch.inferenceTimeoutMs = entry;
     else throw new Error("Invalid settings");
   }
   return patch;

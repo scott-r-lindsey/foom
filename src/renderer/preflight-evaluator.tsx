@@ -1,38 +1,18 @@
-import { useState } from "react";
-import type { ApiProvider, InferenceConfig, ModelCheck } from "../shared/inference";
+import { useEffect, useRef, useState } from "react";
+import type { ApiProvider, InferenceConfig, ModelList } from "../shared/inference";
 import type { SetupState } from "../shared/setup";
+import { applyUpdate, CheckPanel, startRun } from "./inference-check";
+import type { CheckRun } from "./inference-check";
 import { inferenceSummary, PROVIDERS, SAMPLE_TAIL } from "./preflight";
 import type { SetupSource } from "./setup-source.d";
 
 type Kind = "api" | "local" | "rules";
-type Result =
-  | { kind: "running" }
-  | { kind: "error"; message: string }
-  | { kind: "check"; check: ModelCheck };
+const LIMITS = [5000, 10_000, 15_000, 30_000];
 
 /** IPC rejections arrive wrapped; show only main's own message. */
 export function message(error: unknown): string {
   const text = error instanceof Error ? error.message : String(error);
   return text.replace(/^Error invoking remote method '[^']+': (?:Error: )?/, "");
-}
-
-function outcome(result: Result): { tone: "ok" | "error" | "running"; text: string } {
-  if (result.kind === "running") return { tone: "running", text: "Checking…" };
-  if (result.kind === "error") return { tone: "error", text: result.message };
-  const { check } = result;
-  const seconds = `${(check.elapsedMs / 1000).toFixed(1)}s`;
-  if (check.status === "model")
-    return {
-      tone: "ok",
-      text: `${check.verdict.state} · confidence ${check.verdict.confidence.toFixed(2)} · ${seconds}. Foom will use this source.`,
-    };
-  if (check.status === "timeout") return { tone: "error", text: "No answer within 5 seconds." };
-  if (check.status === "busy")
-    return { tone: "error", text: "Checks are already running. Try again in a moment." };
-  return {
-    tone: "error",
-    text: "That didn't work. Check the model name and key, or that the server is running.",
-  };
 }
 
 export function EvaluatorStep({
@@ -45,6 +25,7 @@ export function EvaluatorStep({
   onState: (state: SetupState) => void;
 }) {
   const saved = state.settings.inference;
+  const limit = state.settings.inferenceTimeoutMs;
   const [kind, setKind] = useState<Kind>(
     saved.kind === "rules" ? "rules" : saved.kind === "local" ? "local" : "api",
   );
@@ -64,9 +45,12 @@ export function EvaluatorStep({
     saved.kind === "local" ? saved.endpoint : "http://127.0.0.1:11434/v1",
   );
   const [localModel, setLocalModel] = useState(saved.kind === "local" ? saved.model : "");
+  const [available, setAvailable] = useState<ModelList>();
   const [key, setKey] = useState("");
   const [replacing, setReplacing] = useState(false);
-  const [result, setResult] = useState<Result>();
+  const [check, setCheck] = useState<CheckRun>();
+  const [error, setError] = useState<string>();
+  const checkRef = useRef<CheckRun>(undefined);
   const hasKey = state.keys[provider];
   const draft: InferenceConfig | undefined =
     kind === "rules"
@@ -79,24 +63,66 @@ export function EvaluatorStep({
           ? { kind: provider, model: models[provider].trim() }
           : undefined;
   const inUse = draft !== undefined && JSON.stringify(draft) === JSON.stringify(saved);
+  const running = check !== undefined && !check.result && !check.error;
 
-  const fail = (error: unknown) => {
-    setResult({ kind: "error", message: message(error) });
+  // Ask the endpoint what it offers as the user types, so a missing model shows early.
+  useEffect(() => {
+    if (kind !== "local") return;
+    let live = true;
+    const timer = window.setTimeout(() => {
+      source.models(endpoint.trim()).then(
+        (list) => {
+          if (live) setAvailable(list);
+        },
+        (caught: unknown) => {
+          if (live) setAvailable({ ok: false, failure: "failed", message: message(caught) });
+        },
+      );
+    }, 400);
+    return () => {
+      live = false;
+      window.clearTimeout(timer);
+    };
+  }, [kind, endpoint, source]);
+
+  /** Any edit makes a finished check stale and stops one in progress. */
+  const reset = () => {
+    const current = checkRef.current;
+    if (current && !current.result && !current.error) void source.cancel(current.id);
+    checkRef.current = undefined;
+    setCheck(undefined);
+    setError(undefined);
+  };
+  const fail = (caught: unknown) => {
+    setError(message(caught));
   };
   const choose = (next: Kind) => {
+    reset();
     setKind(next);
-    setResult(undefined);
     if (next === "rules") source.save({ inference: { kind: "rules" } }).then(onState, fail);
+  };
+  const isCurrent = (id: string) => checkRef.current?.id === id;
+  const update = (id: string, change: (run: CheckRun) => CheckRun) => {
+    const current = checkRef.current;
+    if (current?.id !== id) return;
+    checkRef.current = change(current);
+    setCheck(checkRef.current);
   };
   const run = async () => {
     if (!draft) return;
-    setResult({ kind: "running" });
+    reset();
+    const id = crypto.randomUUID();
+    checkRef.current = startRun(id, limit, performance.now());
+    setCheck(checkRef.current);
     try {
-      const check = await source.check(draft);
-      setResult({ kind: "check", check });
-      if (check.status === "model") onState(await source.save({ inference: draft }));
-    } catch (error) {
-      fail(error);
+      const result = await source.check(id, draft, limit, (next) => {
+        update(id, (current) => applyUpdate(current, next));
+      });
+      update(id, (current) => ({ ...current, result }));
+      // Only a check that's still the current one may save its source.
+      if (result.ok && isCurrent(id)) onState(await source.save({ inference: draft }));
+    } catch (caught) {
+      update(id, (current) => ({ ...current, error: message(caught) }));
     }
   };
   const saveKey = async () => {
@@ -104,20 +130,37 @@ export function EvaluatorStep({
       onState(await source.setKey(provider, key));
       setKey("");
       setReplacing(false);
-      setResult(undefined);
-    } catch (error) {
-      fail(error);
+      reset();
+    } catch (caught) {
+      fail(caught);
     }
   };
   const removeKey = async () => {
     try {
       onState(await source.removeKey(provider));
-      setResult(undefined);
-    } catch (error) {
-      fail(error);
+      reset();
+    } catch (caught) {
+      fail(caught);
     }
   };
-  const shown = result && outcome(result);
+  const limitField = (
+    <label>
+      Time limit
+      <select
+        value={limit}
+        onChange={(event) => {
+          reset();
+          source.save({ inferenceTimeoutMs: Number(event.target.value) }).then(onState, fail);
+        }}
+      >
+        {LIMITS.map((value) => (
+          <option key={value} value={value}>
+            {value / 1000} seconds
+          </option>
+        ))}
+      </select>
+    </label>
+  );
 
   return (
     <>
@@ -161,7 +204,7 @@ export function EvaluatorStep({
                   onChange={(event) => {
                     const next = PROVIDERS.find((entry) => entry.id === event.target.value);
                     if (next) setProvider(next.id);
-                    setResult(undefined);
+                    reset();
                     setReplacing(false);
                   }}
                 >
@@ -180,10 +223,11 @@ export function EvaluatorStep({
                   spellCheck={false}
                   onChange={(event) => {
                     setModels({ ...models, [provider]: event.target.value });
-                    setResult(undefined);
+                    reset();
                   }}
                 />
               </label>
+              {limitField}
             </div>
             {hasKey && !replacing ? (
               <p className="preflight-key">
@@ -256,7 +300,7 @@ export function EvaluatorStep({
                   spellCheck={false}
                   onChange={(event) => {
                     setEndpoint(event.target.value);
-                    setResult(undefined);
+                    reset();
                   }}
                 />
               </label>
@@ -267,13 +311,30 @@ export function EvaluatorStep({
                   value={localModel}
                   placeholder="qwen3:8b"
                   spellCheck={false}
+                  list="local-models"
                   onChange={(event) => {
                     setLocalModel(event.target.value);
-                    setResult(undefined);
+                    reset();
                   }}
                 />
+                <datalist id="local-models">
+                  {available?.ok &&
+                    available.models.map((model) => <option key={model} value={model} />)}
+                </datalist>
               </label>
+              {limitField}
             </div>
+            {available && (
+              <p className="preflight-server" data-tone={available.ok ? "ok" : "error"}>
+                {available.ok
+                  ? `${available.server ?? "OpenAI-compatible server"} · ${String(available.models.length)} ${available.models.length === 1 ? "model" : "models"}${
+                      localModel.trim() && !available.models.includes(localModel.trim())
+                        ? ` · ${localModel.trim()} isn't one of them`
+                        : ""
+                    }`
+                  : available.message}
+              </p>
+            )}
             <p className="preflight-note">
               Use a loopback address (127.0.0.1 or [::1]) with the API path, as with Ollama, LM
               Studio or vLLM.
@@ -302,26 +363,34 @@ export function EvaluatorStep({
             <h3>Try it on a sample</h3>
             <button
               type="button"
-              disabled={!draft || result?.kind === "running" || (kind === "api" && !hasKey)}
+              disabled={!draft || running || (kind === "api" && !hasKey)}
               onClick={() => void run()}
             >
               Run check
             </button>
           </div>
           <pre className="preflight-tail">{SAMPLE_TAIL}</pre>
-          <p className="preflight-result" data-tone={shown?.tone} role="status">
-            {shown?.text ??
-              (kind === "api" && !hasKey
+          {check ? (
+            <CheckPanel
+              run={check}
+              onCancel={() => {
+                void source.cancel(check.id);
+              }}
+            />
+          ) : (
+            <p className="preflight-result" role="status">
+              {kind === "api" && !hasKey
                 ? "Save a key, then run the check."
                 : inUse
                   ? "In use. Run the check again any time."
-                  : "Not run yet. Foom uses a source only after it passes.")}
-          </p>
+                  : "Not run yet. Foom uses a source only after it passes."}
+            </p>
+          )}
         </section>
       )}
-      {kind === "rules" && result?.kind === "error" && (
+      {error && (
         <p className="preflight-result" data-tone="error" role="alert">
-          {result.message}
+          {error}
         </p>
       )}
       <p className="preflight-in-use">

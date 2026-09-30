@@ -13,6 +13,7 @@ export function setupState(
       agents: { claude: true, codex: true, agy: true },
       worktreeLocation: "root",
       inference: { kind: "rules" },
+      inferenceTimeoutMs: 5000,
       ...settings,
     },
     keys: { anthropic: false, openai: false, google: false },

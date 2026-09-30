@@ -10,6 +10,8 @@ test("preflight reaches main only through the setup bridge", async () => {
     setInferenceKey: vi.fn(() => Promise.resolve("set")),
     removeInferenceKey: vi.fn(() => Promise.resolve("removed")),
     checkInference: vi.fn(() => Promise.resolve("checked")),
+    cancelInferenceCheck: vi.fn(() => Promise.resolve()),
+    localModels: vi.fn(() => Promise.resolve("models")),
     scanAgents: vi.fn(() => Promise.resolve("scan")),
     workspace: vi.fn(() => Promise.resolve({ repositories: [repository], terminals: [] })),
     addRepository: vi.fn(() => Promise.resolve(repository)),
@@ -20,13 +22,18 @@ test("preflight reaches main only through the setup bridge", async () => {
   await expect(source.save({ hooks: false })).resolves.toBe("saved");
   await expect(source.setKey("openai", "sk")).resolves.toBe("set");
   await expect(source.removeKey("openai")).resolves.toBe("removed");
-  await expect(source.check({ kind: "rules" })).resolves.toBe("checked");
+  const onUpdate = vi.fn();
+  await expect(source.check("c1", { kind: "rules" }, 5000, onUpdate)).resolves.toBe("checked");
+  await source.cancel("c1");
+  await expect(source.models("http://127.0.0.1:1/v1")).resolves.toBe("models");
+  expect(desktop.cancelInferenceCheck).toHaveBeenCalledWith("c1");
+  expect(desktop.localModels).toHaveBeenCalledWith("http://127.0.0.1:1/v1");
   await expect(source.scanAgents(true)).resolves.toBe("scan");
   await expect(source.repositories()).resolves.toEqual([repository]);
   await expect(source.addRepository()).resolves.toBe(repository);
   expect(desktop.saveSetup).toHaveBeenCalledWith({ hooks: false });
   expect(desktop.setInferenceKey).toHaveBeenCalledWith("openai", "sk");
   expect(desktop.removeInferenceKey).toHaveBeenCalledWith("openai");
-  expect(desktop.checkInference).toHaveBeenCalledWith({ kind: "rules" });
+  expect(desktop.checkInference).toHaveBeenCalledWith("c1", { kind: "rules" }, 5000, onUpdate);
   expect(desktop.scanAgents).toHaveBeenCalledWith(true);
 });

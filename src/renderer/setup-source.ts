@@ -7,7 +7,10 @@ export function createSetupSource(): SetupSource {
     save: (patch) => desktop.saveSetup(patch),
     setKey: (provider, key) => desktop.setInferenceKey(provider, key),
     removeKey: (provider) => desktop.removeInferenceKey(provider),
-    check: (config) => desktop.checkInference(config),
+    check: (id, config, timeoutMs, onUpdate) =>
+      desktop.checkInference(id, config, timeoutMs, onUpdate),
+    cancel: (id) => desktop.cancelInferenceCheck(id),
+    models: (endpoint) => desktop.localModels(endpoint),
     scanAgents: (refresh) => desktop.scanAgents(refresh),
     repositories: async () => (await desktop.workspace()).repositories,
     addRepository: () => desktop.addRepository(),

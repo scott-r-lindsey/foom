@@ -99,7 +99,10 @@ Every channel checks the sender (the owning window, the main frame, `app://bundl
 | `setup:state` | renderer → main (invoke) | → `{ settings, keys, secureStorage, worktreeRoot }`; `keys` says only which providers have a stored key |
 | `setup:save` | renderer → main (invoke) | settings patch (known fields only) → state; a model source must have passed `setup:check` |
 | `setup:set-key` / `setup:remove-key` | renderer → main (invoke) | provider, key / provider → state; keys are never returned |
-| `setup:check` | renderer → main (invoke) | inference source → `{ verdict, status, elapsedMs }` for the sample |
+| `setup:check` | renderer → main (invoke) | check ID, inference source, time limit → `{ ok, failure?, message, verdict?, timings, request, reply, thinking }` |
+| `setup:check-progress` | main → renderer | check ID, `{ kind: "step", event }` or `{ kind: "stream", thinking, reply }`; the preload validates the shape |
+| `setup:check-cancel` | renderer → main (invoke) | check ID |
+| `setup:models` | renderer → main (invoke) | local endpoint → `{ ok, models, server }` or `{ ok: false, failure, message }` |
 
 The renderer names repositories and worktrees only by paths main returned, and agents by ID. Main copies the known launch fields, checks the repository is registered and the worktree is still owned, and resolves the executable itself. A launched terminal belongs to the window like one it created.
 
@@ -125,7 +128,7 @@ Stable Claude Code releases at or above 2.1.284 and Codex releases at or above 0
 
 **Today:** First run is the preflight countdown from [product](product.md#first-run). `src/settings.ts` stores versioned `settings.json` in user data: whether setup is complete, the hooks setting, which agents are turned on, the default worktree location, and the inference source. Writes are atomic (private temporary file, then rename) and serialized; a failed write leaves the settings unchanged. Missing, corrupt or unsupported files start from defaults, so preflight runs again. Every patch, from IPC or disk, is validated field by field and unknown fields are rejected.
 
-`src/setup.ts` applies the settings to the running app at startup and on each save, owns the key store and the app's model evaluator, and runs Run check. A model source can be saved only if it is already saved or passed a check in this session; storing or removing a provider's key invalidates that provider's checks. Cloud checks require a stored key.
+`src/setup.ts` applies the settings to the running app at startup and on each save, owns the key store and the app's model evaluator, and runs Run check. A model source can be saved only if it is already saved or passed a check in this session; storing or removing a provider's key invalidates that provider's checks. A cloud check without a stored key fails at its first step. The Evaluator step asks a local endpoint for its models as the URL is typed, offers them as suggestions for the model field, and says when the named model isn't among them.
 
 The renderer shows preflight until setup is complete, and again when the board's **Preflight** button is used; the board stays mounted underneath, so its shell keeps running. The default worktree location is stored for #58's New worktree flow. Repositories are added one at a time with the native picker; removing a repository isn't supported yet. `npm run start:fresh` runs the app with a throwaway profile to test first run.
 
@@ -206,11 +209,30 @@ retention policy is implemented yet. The reusable fixture suite in
 
 Model calls get the last 40 lines, redacted, with a timeout. One-shot agent evaluators must not load repository instructions or use file, command, MCP, or other external tools to expand that input; a read-only sandbox alone does not enforce this boundary. Use another inference source or rules only when isolation cannot be enforced. A failure falls back to rules-only and never blocks the light.
 
-The model service has a five-second deadline and two concurrent calls by default
-(hard maximums: 30 seconds and four). Saturated calls use rules immediately; there
-is no waiting queue or retry. A timed-out transport keeps its slot until it settles
-so even a transport that ignores cancellation cannot exceed the limit. Run check
-uses the same limits and reports status and elapsed time without provider errors.
+The model service has a time limit set in preflight (1–30 seconds, five by default)
+and two concurrent calls by default (hard maximum four). Saturated calls use rules
+immediately; there is no waiting queue or retry. A timed-out transport keeps its slot
+until it settles so even a transport that ignores cancellation cannot exceed the limit.
+
+Run check (`src/inference-probe.ts`) is separate from classification and shows its
+work. It runs one stage at a time and reports each stage to the renderer as it starts
+and ends: reading the key (cloud), a TCP connection to the endpoint, then for local
+endpoints identifying the server (`/api/version` for Ollama), finding the model in
+`/models`, and whether Ollama already has it in memory (`/api/ps`). It then sends the
+fixed sample with streaming on, reports thinking chunks and reply text as they arrive
+(at most ten updates a second), and parses the verdict. It has the same time limit,
+and a timeout names the stage that was running. Starting a new check or editing the
+source cancels the one in progress.
+
+Failures are reported in Foom's own words from a fixed set: connection refused,
+unreachable, DNS, TLS, connect timeout, missing key, rejected key (401/403), model not
+found (404, or absent from the model list, with `ollama pull` for Ollama), rate limit
+(429), server error (5xx), other HTTP status, timeout, truncated or refused reply, and
+a reply that isn't the requested JSON. Node error codes and HTTP status numbers may be
+shown; provider error bodies are never read or shown. Because the check sends only
+the fixed sample, its Details may show the exact request (URL, parameters and prompt,
+never credentials) and the model's raw reply as inert text, capped at 4,096
+characters. Classification of real terminals shows neither.
 Model JSON must contain exactly a known state and finite confidence in [0, 1].
 Reasons and signal names are generated locally, never copied from model output.
 HTTP responses are bounded to 64 KiB and truncated/tool/refusal responses fail closed.

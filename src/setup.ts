@@ -1,9 +1,16 @@
-import { createInferenceSource, parseInferenceConfig } from "./inference-source";
+import { listLocalModels, probeInference } from "./inference-probe";
+import { createInferenceSource } from "./inference-source";
 import { ModelEvaluator } from "./model-evaluator";
 import { parseSettingsPatch } from "./settings";
 import type { SettingsStore } from "./settings";
 import type { EvaluationInput, Verdict } from "./shared/evaluator";
-import type { ApiProvider, InferenceConfig, ModelCheck } from "./shared/inference";
+import type {
+  ApiProvider,
+  InferenceConfig,
+  ModelList,
+  ProbeResult,
+  ProbeUpdate,
+} from "./shared/inference";
 import type { Settings, SetupState } from "./shared/setup";
 
 const PROVIDERS: readonly ApiProvider[] = ["anthropic", "openai", "google"];
@@ -20,7 +27,14 @@ export interface SetupDependencies {
   worktreeRoot: string;
   /** Pushes hook and agent settings into the running services. */
   apply(settings: Settings): void;
-  evaluator?: (config: InferenceConfig) => Pick<ModelEvaluator, "evaluate" | "runCheck">;
+  evaluator?: (config: InferenceConfig, timeoutMs: number) => Pick<ModelEvaluator, "evaluate">;
+  probe?: (
+    config: unknown,
+    timeoutMs: number,
+    onUpdate: (update: ProbeUpdate) => void,
+    signal: AbortSignal,
+  ) => Promise<ProbeResult>;
+  models?: (endpoint: unknown) => Promise<ModelList>;
 }
 
 function provider(value: unknown): ApiProvider {
@@ -36,16 +50,32 @@ const same = (a: InferenceConfig, b: InferenceConfig) => JSON.stringify(a) === J
  */
 export class Setup {
   private readonly verified: InferenceConfig[] = [];
-  private evaluator: Pick<ModelEvaluator, "evaluate" | "runCheck">;
+  private evaluator: Pick<ModelEvaluator, "evaluate">;
   private readonly build: NonNullable<SetupDependencies["evaluator"]>;
+  private readonly probe: NonNullable<SetupDependencies["probe"]>;
+  private readonly checks = new Map<string, AbortController>();
 
   constructor(private readonly deps: SetupDependencies) {
     this.build =
       deps.evaluator ??
-      ((config) =>
-        new ModelEvaluator(createInferenceSource(config, (name) => deps.keys.get(name))));
-    this.evaluator = this.build(deps.store.get().inference);
-    deps.apply(deps.store.get());
+      ((config, timeoutMs) =>
+        new ModelEvaluator(
+          createInferenceSource(config, (name) => deps.keys.get(name)),
+          timeoutMs,
+        ));
+    this.probe =
+      deps.probe ??
+      ((config, timeoutMs, onUpdate, signal) =>
+        probeInference(
+          config,
+          timeoutMs,
+          { readKey: (name) => deps.keys.get(name) },
+          onUpdate,
+          signal,
+        ));
+    const settings = deps.store.get();
+    this.evaluator = this.build(settings.inference, settings.inferenceTimeoutMs);
+    deps.apply(settings);
   }
 
   /** The verdict log's classifier: rules first, then the configured model tier. */
@@ -66,16 +96,20 @@ export class Setup {
   async save(value: unknown): Promise<SetupState> {
     const patch = parseSettingsPatch(value);
     const { inference } = patch;
-    const current = this.deps.store.get().inference;
+    const before = this.deps.store.get();
     if (
       inference &&
       inference.kind !== "rules" &&
-      !same(inference, current) &&
+      !same(inference, before.inference) &&
       !this.verified.some((entry) => same(entry, inference))
     )
       throw new Error("Run check on this source before using it");
     const settings = await this.deps.store.update(patch);
-    if (inference && !same(inference, current)) this.evaluator = this.build(inference);
+    if (
+      !same(settings.inference, before.inference) ||
+      settings.inferenceTimeoutMs !== before.inferenceTimeoutMs
+    )
+      this.evaluator = this.build(settings.inference, settings.inferenceTimeoutMs);
     this.deps.apply(settings);
     return this.state();
   }
@@ -100,16 +134,39 @@ export class Setup {
       if (this.verified[index]?.kind === id) this.verified.splice(index, 1);
   }
 
-  async check(value: unknown): Promise<ModelCheck> {
-    const config = parseInferenceConfig(value);
-    if (
-      (config.kind === "anthropic" || config.kind === "openai" || config.kind === "google") &&
-      !(await this.deps.keys.has(config.kind))
-    )
-      throw new Error("Save an API key first");
-    const result = await this.build(config).runCheck();
-    if (result.status === "model" && !this.verified.some((entry) => same(entry, config)))
-      this.verified.push(config);
-    return result;
+  /** One check at a time: starting another cancels the one in progress. */
+  async check(
+    id: string,
+    config: unknown,
+    timeoutMs: unknown,
+    onUpdate: (update: ProbeUpdate) => void,
+  ): Promise<ProbeResult> {
+    if (typeof timeoutMs !== "number") throw new Error("Invalid time limit");
+    for (const running of this.checks.values()) running.abort();
+    const controller = new AbortController();
+    this.checks.set(id, controller);
+    try {
+      const result = await this.probe(config, timeoutMs, onUpdate, controller.signal);
+      if (result.ok) {
+        const checked = createInferenceConfig(config);
+        if (!this.verified.some((entry) => same(entry, checked))) this.verified.push(checked);
+      }
+      return result;
+    } finally {
+      if (this.checks.get(id) === controller) this.checks.delete(id);
+    }
   }
+
+  cancel(id: string): void {
+    this.checks.get(id)?.abort();
+  }
+
+  models(endpoint: unknown): Promise<ModelList> {
+    return (this.deps.models ?? ((value) => listLocalModels(value, {})))(endpoint);
+  }
+}
+
+/** The probe already validated this; parse again to store a clean copy. */
+function createInferenceConfig(value: unknown): InferenceConfig {
+  return parseSettingsPatch({ inference: value }).inference ?? { kind: "rules" };
 }

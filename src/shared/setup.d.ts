@@ -1,5 +1,11 @@
 import type { AgentId } from "./agents";
-import type { ApiProvider, InferenceConfig, ModelCheck } from "./inference";
+import type {
+  ApiProvider,
+  InferenceConfig,
+  ModelList,
+  ProbeResult,
+  ProbeUpdate,
+} from "./inference";
 
 /** Everything first-run setup decides. Stored in main; the renderer holds only a copy. */
 export interface Settings {
@@ -11,6 +17,8 @@ export interface Settings {
   worktreeLocation: "root" | "adjacent";
   /** Only rules or a source that passed Run check is ever saved. */
   inference: InferenceConfig;
+  /** How long a model gets per classification, 1–30 seconds. */
+  inferenceTimeoutMs: number;
 }
 
 export type SettingsPatch = Partial<Settings>;
@@ -29,6 +37,17 @@ export interface SetupApi {
   saveSetup(patch: SettingsPatch): Promise<SetupState>;
   setInferenceKey(provider: ApiProvider, key: string): Promise<SetupState>;
   removeInferenceKey(provider: ApiProvider): Promise<SetupState>;
-  /** Runs the sample check against a source. Success lets main save that source. */
-  checkInference(config: InferenceConfig): Promise<ModelCheck>;
+  /**
+   * Runs the sample check against a source, reporting each step to `onUpdate` as it
+   * happens. Success lets main save that source. `id` names the check for cancelling.
+   */
+  checkInference(
+    id: string,
+    config: InferenceConfig,
+    timeoutMs: number,
+    onUpdate: (update: ProbeUpdate) => void,
+  ): Promise<ProbeResult>;
+  cancelInferenceCheck(id: string): Promise<void>;
+  /** Models a local endpoint offers. */
+  localModels(endpoint: string): Promise<ModelList>;
 }

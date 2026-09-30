@@ -324,6 +324,8 @@ test("terminal runs an interactive shell behind an isolated bridge", {
           "setInferenceKey",
           "removeInferenceKey",
           "checkInference",
+          "cancelInferenceCheck",
+          "localModels",
           "feedback",
           "onState",
           "onData",
@@ -1289,7 +1291,7 @@ test("inference keys stay in main and require real OS encryption", async (contex
     await page.evaluate(() =>
       Object.keys(window.desktop).filter((key) => /key|secret|inference/i.test(key)),
     ),
-    ["setInferenceKey", "removeInferenceKey", "checkInference"],
+    ["setInferenceKey", "removeInferenceKey", "checkInference", "cancelInferenceCheck"],
   );
   const state = await page.evaluate(() => window.desktop.setupState());
   assert.deepEqual(state.keys, { anthropic: false, openai: false, google: false });
@@ -1449,6 +1451,7 @@ test("first run goes from no agents to go, launches by keyboard, and can be repl
     agents: { claude: true, codex: true, agy: true },
     worktreeLocation: "root",
     inference: { kind: "rules" },
+    inferenceTimeoutMs: 5000,
   });
 
   // Preflight can run again over the board; Escape returns to the same row.
@@ -1459,4 +1462,66 @@ test("first run goes from no agents to go, launches by keyboard, and can be repl
   await page.keyboard.press("Escape");
   await expect(page.locator(".board-home")).toBeVisible();
   assert.equal(await shellRow.evaluate((row) => row === document.activeElement), true);
+});
+
+test("Run check streams live progress from a local model server, then saves the source", async (context) => {
+  const { createServer } = require("node:http");
+  let release;
+  const released = new Promise((resolve) => {
+    release = resolve;
+  });
+  const chunk = (delta, finish = null) =>
+    `data: ${JSON.stringify({ choices: [{ delta, finish_reason: finish }] })}\n\n`;
+  // A stand-in for Ollama that keeps "thinking" until the test has seen live progress.
+  const server = createServer(async (request, response) => {
+    if (request.url === "/api/version") return response.end('{"version":"9.9.9"}');
+    if (request.url === "/api/ps") return response.end('{"models":[]}');
+    if (request.url === "/v1/models") return response.end('{"data":[{"id":"fake:1b"}]}');
+    if (request.url !== "/v1/chat/completions") return response.writeHead(404).end();
+    response.writeHead(200, { "content-type": "text/event-stream" });
+    response.write(chunk({ reasoning: "Considering" }));
+    await released;
+    response.write(chunk({ content: '{"state":"needs_input","confidence":0.9}' }));
+    response.end(`${chunk({}, "stop")}data: [DONE]\n\n`);
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  context.after(() => new Promise((resolve) => server.close(resolve)));
+  const endpoint = `http://127.0.0.1:${server.address().port}/v1`;
+  const userData = await mkdtemp(path.join(tmpdir(), "foom-check-"));
+  context.after(() => rm(userData, { recursive: true, force: true, maxRetries: 5 }));
+
+  const app = await launchApp(context, false, {
+    firstRun: true,
+    args: [`--user-data-dir=${userData}`],
+  });
+  const page = await app.firstWindow();
+  await page.getByRole("button", { name: "Start preflight" }).click();
+  for (let step = 0; step < 2; step++) await page.getByRole("button", { name: "Continue" }).click();
+  await page.getByRole("radio", { name: /Use a local model/ }).check();
+  await page.getByRole("textbox", { name: "Endpoint" }).fill(endpoint);
+  await page.getByRole("combobox", { name: "Model" }).fill("fake:1b");
+  await page.getByText("Ollama 9.9.9 · 1 model").waitFor();
+  await page.getByRole("button", { name: "Run check" }).click();
+
+  // These arrive while the check is still running.
+  const steps = page.getByRole("list", { name: "Check steps" });
+  await steps.getByText("fake:1b is available").waitFor();
+  await steps.getByText("Thinking").waitFor();
+  await page.getByText("Thinking: 1 chunk").waitFor();
+  await expect(page.getByRole("progressbar", { name: "Time limit" })).toBeVisible();
+  await assertAccessible(page);
+  release();
+
+  await page.getByText(/needs_input · confidence 0\.90 in .*Foom will use this source/).waitFor();
+  await expect(steps.getByText("Loaded fake:1b")).toBeVisible();
+  const saved = JSON.parse(await readFile(path.join(userData, "settings.json"), "utf8"));
+  assert.deepEqual(saved.settings.inference, { kind: "local", model: "fake:1b", endpoint });
+
+  // A closed port fails at the first step, in plain words.
+  await page.getByRole("textbox", { name: "Endpoint" }).fill("http://127.0.0.1:59999/v1");
+  await page.getByRole("button", { name: "Run check" }).click();
+  await page
+    .getByRole("status")
+    .filter({ hasText: "Connection refused: nothing is listening on 127.0.0.1:59999" })
+    .waitFor();
 });
