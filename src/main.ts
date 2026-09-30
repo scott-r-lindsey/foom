@@ -130,13 +130,22 @@ function createWindow() {
   window.webContents.on("will-attach-webview", (event) => {
     event.preventDefault();
   });
-  window.once("ready-to-show", () => {
+  // The detached board need not schedule a terminal paint. Reveal after load even
+  // if the hidden-window compositor has not emitted ready-to-show yet.
+  let shown = false;
+  const show = () => {
+    if (shown) return;
+    shown = true;
     window.show();
-  });
-  window.loadURL(APP_URL).catch((error: unknown) => {
-    console.error("Unable to load the application:", error);
-    app.quit();
-  });
+  };
+  window.once("ready-to-show", show);
+  window
+    .loadURL(APP_URL)
+    .then(show)
+    .catch((error: unknown) => {
+      console.error("Unable to load the application:", error);
+      app.quit();
+    });
 }
 
 app

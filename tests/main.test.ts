@@ -171,6 +171,12 @@ test("reports persistence startup failures", async () => {
 });
 
 test("creates a sandboxed window, loads our document, and only shows it when ready", async () => {
+  let loaded: (() => void) | undefined;
+  mock.window.loadURL.mockReturnValueOnce(
+    new Promise((resolve) => {
+      loaded = resolve;
+    }),
+  );
   await start();
   const options = mock.construct.mock.calls[0]?.[0];
   expect(options?.show).toBe(false);
@@ -186,6 +192,9 @@ test("creates a sandboxed window, loads our document, and only shows it when rea
     action: "deny",
   });
   mock.readyEvents.get("ready-to-show")?.();
+  expect(mock.window.show).toHaveBeenCalledOnce();
+  loaded?.();
+  await Promise.resolve();
   expect(mock.window.show).toHaveBeenCalledOnce();
   for (const name of ["will-navigate", "will-attach-webview"]) {
     const event = { preventDefault: vi.fn() };
@@ -468,4 +477,11 @@ test("defers an already-idle quit until the native close callback has unwound", 
   await vi.waitFor(() => {
     expect(mock.quit).toHaveBeenCalledOnce();
   });
+});
+
+test("reveals a loaded board even without a hidden-window paint and does not show it twice", async () => {
+  await start();
+  expect(mock.window.show).toHaveBeenCalledOnce();
+  mock.readyEvents.get("ready-to-show")?.();
+  expect(mock.window.show).toHaveBeenCalledOnce();
 });

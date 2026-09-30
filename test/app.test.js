@@ -113,6 +113,11 @@ async function launchApp(context, openShell = true) {
   });
   // The shell markup now arrives with React’s first commit.
   const page = await app.firstWindow();
+  await expect
+    .poll(() => app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].isVisible()), {
+      timeout: 10000,
+    })
+    .toBe(true);
   await page.locator(".board-row[data-kind='shell']").waitFor();
   // Report startup errors directly instead of timing out on a permanently disabled control.
   await expect
