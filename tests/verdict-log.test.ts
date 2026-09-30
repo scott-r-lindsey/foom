@@ -84,3 +84,18 @@ it("reports filesystem failures and allows retry after recovery", async () => {
   await rm(dir);
   await log.recordAction("t1", record.id, "ignored");
 });
+
+it("logs model verdicts through the injected classifier without model prose or tails", async () => {
+  const { ModelEvaluator } = await import("../src/model-evaluator");
+  const model = new ModelEvaluator({
+    complete: () => Promise.resolve('{"state":"needs_input","confidence":0.9}'),
+  });
+  const dir = await directory();
+  const log = new VerdictLog(dir, (input) => model.evaluate(input));
+  const record = await log.evaluate({ terminalId: "t1", tail: ["private terminal prose"] });
+  expect(record.verdict).toMatchObject({ state: "needs_input", signal: "model:classification" });
+  await log.recordAction("t1", record.id, "dismissed");
+  const text = await readFile(path.join(dir, "verdicts.jsonl"), "utf8");
+  expect(text).not.toContain("private terminal prose");
+  expect(text).toContain("not_attention");
+});

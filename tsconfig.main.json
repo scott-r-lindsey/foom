@@ -16,6 +16,9 @@
     "src/hook-adapters.ts",
     "src/shared/**/*.ts",
     "src/evaluator.ts",
-    "src/verdict-log.ts"
+    "src/verdict-log.ts",
+    "src/model-evaluator.ts",
+    "src/inference-source.ts",
+    "src/inference-keys.ts"
   ]
 }
