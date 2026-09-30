@@ -231,14 +231,20 @@ source cancels the one in progress.
 
 Failures are reported in Foom's own words from a fixed set: connection refused,
 unreachable, DNS, TLS, connect timeout, missing key, rejected key (401/403), model not
-found (404, or absent from the model list, with `ollama pull` for Ollama), rate limit
-(429), server error (5xx), other HTTP status, timeout, truncated or refused reply, and
-a reply that isn't the requested JSON. Node error codes and HTTP status numbers may be
-shown; provider error bodies are never read or shown. Because the check sends only
+found (404, or absent from the model list, with `ollama pull` for Ollama), no quota
+left, rate limit (429), server error (5xx), other HTTP status, timeout, truncated or
+refused reply, and a reply that isn't the requested JSON. Node error codes and HTTP
+status numbers may be shown. From a provider's error body, Run check reads only the
+machine-readable code (`error.code`, `error.type` or `error.status`) and uses it only
+if it is on a fixed list, such as OpenAI's `insufficient_quota`, which shares 429
+with rate limits. The code picks a message Foom wrote; the body's text is never shown
+or logged. Because the check sends only
 the fixed sample, its Details may show the exact request (URL, parameters and prompt,
 never credentials) and the model's raw reply as inert text, capped at 4,096
 characters. Classification of real terminals shows neither.
-Model JSON must contain exactly a known state and finite confidence in [0, 1].
+Model JSON must contain exactly a known state and finite confidence in [0, 1]. It may
+arrive wrapped in one Markdown code fence, as chat models often send it; nothing else
+may surround it.
 Reasons and signal names are generated locally, never copied from model output.
 HTTP responses are bounded to 64 KiB and truncated/tool/refusal responses fail closed.
 

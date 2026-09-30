@@ -47,6 +47,7 @@ export type ProbeFailure =
   | "no-key"
   | "auth"
   | "model-missing"
+  | "quota"
   | "rate-limited"
   | "server-error"
   | "http"

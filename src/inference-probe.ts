@@ -96,7 +96,53 @@ function networkFailure(error: unknown, where: string): ProbeError {
   return new ProbeError("failed", `The request to ${where} failed${code ? ` (${code})` : ""}`);
 }
 
-function httpFailure(status: number, model: string, ollama: boolean): ProbeError {
+/**
+ * Provider error codes Foom recognises. Only the code is read from an error body, and
+ * only to choose one of these messages; the body's text is never shown or logged.
+ */
+const PROVIDER_CODES: Record<string, [ProbeFailure, string]> = {
+  // OpenAI
+  insufficient_quota: [
+    "quota",
+    "No quota left on this account. Add credit or check billing at the provider",
+  ],
+  rate_limit_exceeded: ["rate-limited", "Rate limited. Try again shortly"],
+  invalid_api_key: ["auth", "The key was rejected"],
+  model_not_found: ["model-missing", "The provider doesn't offer this model to this key"],
+  // Anthropic
+  authentication_error: ["auth", "The key was rejected"],
+  permission_error: ["auth", "The key isn't allowed to use this model"],
+  not_found_error: ["model-missing", "The provider doesn't offer this model to this key"],
+  rate_limit_error: ["rate-limited", "Rate limited. Try again shortly"],
+  overloaded_error: ["server-error", "The provider is overloaded. Try again shortly"],
+  // Google
+  UNAUTHENTICATED: ["auth", "The key was rejected"],
+  PERMISSION_DENIED: ["auth", "The key isn't allowed to use this model"],
+  NOT_FOUND: ["model-missing", "The provider doesn't offer this model to this key"],
+  RESOURCE_EXHAUSTED: [
+    "quota",
+    "Quota or rate limit reached. Check usage and billing at the provider",
+  ],
+};
+
+/** The provider's machine-readable error code, if it is one Foom knows. */
+async function providerCode(response: Response): Promise<string | undefined> {
+  const body = await readLimited(response, 16_384)
+    .then((text): unknown => JSON.parse(text))
+    .catch(() => undefined);
+  const error = record(body) && record(body["error"]) ? body["error"] : undefined;
+  if (!error) return undefined;
+  for (const key of ["code", "type", "status"]) {
+    const value = error[key];
+    if (typeof value === "string" && Object.hasOwn(PROVIDER_CODES, value)) return value;
+  }
+  return undefined;
+}
+
+function httpFailure(status: number, model: string, ollama: boolean, code?: string): ProbeError {
+  const known = code === undefined ? undefined : ([code, PROVIDER_CODES[code]] as const);
+  if (known?.[1])
+    return new ProbeError(known[1][0], `${known[1][1]} (HTTP ${String(status)}, ${known[0]})`);
   if (status === 401 || status === 403)
     return new ProbeError("auth", `The key was rejected (HTTP ${String(status)})`);
   if (status === 404)
@@ -405,10 +451,8 @@ export async function probeInference(
       if (signal.aborted) throw error;
       throw networkFailure(error, target.where);
     }
-    if (!response.ok) {
-      await response.body?.cancel();
-      throw httpFailure(response.status, config.model, ollama);
-    }
+    if (!response.ok)
+      throw httpFailure(response.status, config.model, ollama, await providerCode(response));
     if (!response.body) throw new ProbeError("bad-reply", "The server sent no reply");
     end("request", "ok", `Accepted (HTTP ${String(response.status)})`);
 

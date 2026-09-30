@@ -60,9 +60,16 @@ export function classifierPrompt(tail: readonly string[]): string {
 }
 
 /** Never retain model-authored reasons, signal names, markup, or extra fields. */
+/**
+ * Chat models often wrap JSON in one Markdown code fence. Accept exactly that; the
+ * contents are then checked as strictly as bare JSON.
+ */
+const FENCE = /^```(?:json)?[ \t]*\r?\n([\s\S]*?)\r?\n?```$/;
+
 export function parseModelVerdict(text: string): Verdict {
   if (text.length > 4096) throw new Error("Invalid model response");
-  const value: unknown = JSON.parse(text);
+  const trimmed = text.trim();
+  const value: unknown = JSON.parse(FENCE.exec(trimmed)?.[1] ?? trimmed);
   if (
     typeof value !== "object" ||
     value === null ||

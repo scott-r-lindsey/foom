@@ -595,3 +595,87 @@ test("stream updates are throttled, but the latest one is never dropped", async 
   expect(result.ok).toBe(true);
   expect(streamed().at(-1)).toEqual({ kind: "stream", thinking: 3, reply: verdict });
 });
+
+test("known provider error codes pick Foom's message; the rest of the body is never used", async () => {
+  const failing = (status: number, body: unknown) =>
+    server({
+      version: () => json({}, 404),
+      chat: () => new Response(typeof body === "string" ? body : JSON.stringify(body), { status }),
+    });
+  const cases: [number, unknown, string, string][] = [
+    [
+      429,
+      {
+        error: {
+          message: "You exceeded your quota",
+          type: "insufficient_quota",
+          code: "insufficient_quota",
+        },
+      },
+      "quota",
+      "No quota left on this account. Add credit or check billing at the provider (HTTP 429, insufficient_quota)",
+    ],
+    [
+      429,
+      { error: { code: "rate_limit_exceeded" } },
+      "rate-limited",
+      "Rate limited. Try again shortly (HTTP 429, rate_limit_exceeded)",
+    ],
+    [
+      401,
+      { error: { code: "invalid_api_key" } },
+      "auth",
+      "The key was rejected (HTTP 401, invalid_api_key)",
+    ],
+    [
+      429,
+      { type: "error", error: { type: "rate_limit_error", message: "secret detail" } },
+      "rate-limited",
+      "Rate limited. Try again shortly (HTTP 429, rate_limit_error)",
+    ],
+    [
+      529,
+      { type: "error", error: { type: "overloaded_error" } },
+      "server-error",
+      "The provider is overloaded. Try again shortly (HTTP 529, overloaded_error)",
+    ],
+    [
+      429,
+      { error: { code: 429, status: "RESOURCE_EXHAUSTED", message: "secret detail" } },
+      "quota",
+      "Quota or rate limit reached. Check usage and billing at the provider (HTTP 429, RESOURCE_EXHAUSTED)",
+    ],
+    [
+      403,
+      { error: { status: "PERMISSION_DENIED" } },
+      "auth",
+      "The key isn't allowed to use this model (HTTP 403, PERMISSION_DENIED)",
+    ],
+    // Unknown codes, prototype keys and unreadable bodies fall back to the status.
+    [
+      429,
+      { error: { code: "weird_new_code", message: "secret detail" } },
+      "rate-limited",
+      "Rate limited (HTTP 429). Try again shortly",
+    ],
+    [
+      429,
+      { error: { code: "__proto__" } },
+      "rate-limited",
+      "Rate limited (HTTP 429). Try again shortly",
+    ],
+    [429, { error: "flat string" }, "rate-limited", "Rate limited (HTTP 429). Try again shortly"],
+    [429, "not json at all", "rate-limited", "Rate limited (HTTP 429). Try again shortly"],
+  ];
+  for (const [status, body, failure, message] of cases) {
+    const { result } = await run(local, { request: failing(status, body) });
+    expect(result, JSON.stringify(body)).toMatchObject({ failure, message });
+    expect(JSON.stringify(result)).not.toContain("secret detail");
+  }
+});
+
+test("a verdict wrapped in a code fence passes Run check", async () => {
+  const fenced = "```json\n" + verdict + "\n```";
+  const { result } = await run(local, { request: server({ chat: () => sse(reply(fenced)) }) });
+  expect(result).toMatchObject({ ok: true, verdict: { state: "needs_input" }, reply: fenced });
+});
