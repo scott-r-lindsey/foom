@@ -28,6 +28,7 @@ export function waitTime(row: BoardRow, now: number): string {
 export function sampleRows(now: number): BoardRow[] {
   return [
     {
+      kind: "sample",
       id: "review",
       repository: "foom",
       branch: "fix/session-restore",
@@ -40,30 +41,33 @@ export function sampleRows(now: number): BoardRow[] {
       tail: ["Ready to verify session restore.", "Run npm test? (y/n)"],
     },
     {
+      kind: "sample",
       id: "build",
       repository: "foom",
       branch: "feat/terminal-tabs",
       agent: "Codex",
       state: "working",
-      reason: "Building terminal navigation",
+      reason: "Building terminal navigation · sample: output",
       rate: 2200,
       waitingSince: now,
       seen: false,
       tail: ["Checking keyboard navigation…", "Building renderer"],
     },
     {
+      kind: "sample",
       id: "check",
       repository: "foom",
       branch: "fix/resize",
       agent: "Antigravity",
       state: "checking",
-      reason: "Output stopped · checking last lines",
+      reason: "Output stopped · sample: checking last lines",
       rate: 0,
       waitingSince: now,
       seen: false,
       tail: ["Resize tests complete.", "Reviewing results…"],
     },
     {
+      kind: "sample",
       id: "done",
       repository: "observatory",
       branch: "docs/setup",
@@ -76,6 +80,7 @@ export function sampleRows(now: number): BoardRow[] {
       tail: ["Documentation updated.", "Process exited (0)"],
     },
     {
+      kind: "sample",
       id: "failed",
       repository: "observatory",
       branch: "fix/search",
@@ -88,18 +93,20 @@ export function sampleRows(now: number): BoardRow[] {
       tail: ["FAIL search returns matching results", "Process exited (1)"],
     },
     {
+      kind: "sample",
       id: "server",
       repository: "observatory",
       branch: "feat/dashboard",
       agent: "Shell",
       state: "quiet_ok",
-      reason: "Development server is ready",
+      reason: "Development server is ready · pattern: listening",
       rate: 0,
       waitingSince: now,
       seen: false,
       tail: ["Server listening on localhost:3000", "Ready"],
     },
     {
+      kind: "sample",
       id: "approve",
       repository: "observatory",
       branch: "feat/export",
@@ -111,5 +118,31 @@ export function sampleRows(now: number): BoardRow[] {
       seen: false,
       tail: ["Export is ready.", "Continue? (y/n)"],
     },
+    ...["index", "lint", "package"].map(
+      (name): BoardRow => ({
+        id: name,
+        kind: "sample",
+        repository: "launchpad",
+        branch: `chore/${name}`,
+        agent: "Codex",
+        state: "working",
+        reason: `${name} in progress · sample: output`,
+        rate: 1200,
+        waitingSince: now,
+        seen: false,
+        tail: [`Running ${name}…`],
+      }),
+    ),
   ];
+}
+
+/** Repository insertion order and row insertion order are independent of verdicts. */
+export function groupRows(rows: readonly BoardRow[]): Map<string, BoardRow[]> {
+  const groups = new Map<string, BoardRow[]>();
+  for (const row of rows) {
+    const group = groups.get(row.repository) ?? [];
+    group.push(row);
+    groups.set(row.repository, group);
+  }
+  return groups;
 }

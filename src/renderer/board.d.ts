@@ -1,6 +1,7 @@
 export type BoardState = "working" | "checking" | "needs_input" | "done" | "failed" | "quiet_ok";
 export interface BoardRow {
   id: string;
+  kind: "sample" | "shell";
   repository: string;
   branch: string;
   agent: string;
