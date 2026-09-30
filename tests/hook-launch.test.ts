@@ -147,7 +147,7 @@ function runCommand(file: string, args: readonly string[], env: NodeJS.ProcessEn
       [...args],
       { env, timeout: 8000, windowsVerbatimArguments: file === "cmd.exe" },
       (error, stdout, stderr) => {
-        if (error) reject(new Error("Hook invocation failed", { cause: error }));
+        if (error) reject(new Error(`Hook invocation failed: ${stderr}`, { cause: error }));
         else if (stderr) reject(new Error(stderr));
         else resolve(stdout);
       },
@@ -160,21 +160,22 @@ test.skipIf(process.platform !== "win32").each(["claude", "codex"] as const)(
   "generated %s invocation delivers under an inherited Restricted process policy",
   async (agent) => {
     vi.stubEnv("PSExecutionPolicyPreference", "Restricted");
-    expect(
-      (
-        await runCommand(
-          "powershell.exe",
-          ["-NoProfile", "-NonInteractive", "-Command", "Get-ExecutionPolicy -Scope Process"],
-          process.env,
-        )
-      ).trim(),
-    ).toBe("Restricted");
     const signals: HookSignal[] = [];
     const real = await HookReceiver.listen((signal) => signals.push(signal));
     try {
       const hooks = await prepareHookLaunch(real, agent, vi.fn(), "win32", scratch);
       try {
         expect(signals).toEqual([]); // Startup probe must not send an event.
+        const [file, ...args] = hooks.codexCommand;
+        if (!file) throw new Error("Missing hook executable");
+        // Restricted can block Get-ExecutionPolicy's own module import. Prove
+        // the inherited policy by executing this file without its override.
+        const withoutOverride = args.filter(
+          (arg) => arg !== "-ExecutionPolicy" && arg !== "Bypass",
+        );
+        await expect(
+          runCommand(file, [...withoutOverride, "--foom-probe"], process.env),
+        ).rejects.toThrow("running scripts is disabled");
         const payload = JSON.stringify(
           agent === "claude"
             ? { session_id: "abc", hook_event_name: "PermissionRequest" }
@@ -186,8 +187,6 @@ test.skipIf(process.platform !== "win32").each(["claude", "codex"] as const)(
             await runCommand("cmd.exe", ["/d", "/s", "/c", hooks.claudeCommand], env, payload),
           ).toBe("");
         } else {
-          const [file, ...args] = hooks.codexCommand;
-          if (!file) throw new Error("Missing hook executable");
           expect(await runCommand(file, [...args, payload], env)).toBe("");
         }
         expect(signals).toEqual([
