@@ -141,3 +141,63 @@ test("validates tail replies and activity batches and removes subscriptions", as
   off();
   expect(mock.removeListener).toHaveBeenCalledWith("terminal:activity", listener);
 });
+
+test("workspace requests use their own channels", async () => {
+  const api = await bridge();
+  mock.invoke.mockResolvedValue("reply");
+  await expect(api.workspace()).resolves.toBe("reply");
+  await api.addRepository();
+  await api.worktrees("/repos/app");
+  await api.createWorktree("/repos/app", "feature", "root");
+  await api.scanAgents(true);
+  const request = {
+    agent: "claude" as const,
+    repository: "/r",
+    worktree: "/w",
+    cols: 80,
+    rows: 24,
+  };
+  await api.launchAgent(request);
+  await expect(api.feedback("t1", "v1", "dismissed")).resolves.toBeUndefined();
+  expect(mock.invoke.mock.calls).toEqual([
+    ["workspace:snapshot"],
+    ["workspace:add-repository"],
+    ["workspace:worktrees", "/repos/app"],
+    ["workspace:create-worktree", "/repos/app", "feature", "root"],
+    ["agents:scan", true],
+    ["agents:launch", request],
+    ["terminal:feedback", "t1", "v1", "dismissed"],
+  ]);
+});
+test("terminal state events are validated and can be unsubscribed", async () => {
+  const api = await bridge();
+  const callback = vi.fn();
+  const off = api.onState(callback);
+  const handler = mock.on.mock.calls.find(([channel]) => channel === "terminal:state")?.[1];
+  const state = {
+    id: "t1",
+    verdictId: null,
+    state: "needs_input",
+    reason: "r",
+    signal: "s",
+    confidence: 1,
+    timestamp: 5,
+  };
+  handler?.({}, state);
+  handler?.({}, { ...state, verdictId: "v1" });
+  for (const bad of [
+    null,
+    [],
+    { ...state, id: 1 },
+    { ...state, verdictId: 2 },
+    { ...state, state: "exploded" },
+    { ...state, reason: null },
+    { ...state, signal: 0 },
+    { ...state, confidence: "high" },
+    { ...state, timestamp: "now" },
+  ])
+    handler?.({}, bad);
+  expect(callback.mock.calls).toEqual([[state], [{ ...state, verdictId: "v1" }]]);
+  off();
+  expect(mock.removeListener).toHaveBeenCalledWith("terminal:state", handler);
+});

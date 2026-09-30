@@ -43,20 +43,20 @@ async function quitAndWait(app, requestQuit) {
 
 // A test timeout does not cancel Playwright promises or dispose native processes.
 // Keep a final worker deadline so even broken cleanup cannot occupy a CI runner.
-async function launchApp(context, openShell = true) {
+async function launchApp(context, openShell = true, options = {}) {
   const watchdog = setTimeout(() => {
     console.error("Electron test exceeded its 60-second hard deadline; terminating worker");
     // Playwright's exit handler kills the process groups it launched.
     process.exit(1);
   }, 60_000);
   watchdog.unref();
-  const env = { ...process.env };
+  const env = { ...process.env, ...options.env };
   delete env.ELECTRON_RUN_AS_NODE;
   const app = await electron.launch({
     chromiumSandbox: true,
     colorScheme: null,
     timeout: 15_000,
-    args: [path.join(__dirname, "..")],
+    args: [path.join(__dirname, ".."), ...(options.args ?? [])],
     env,
   });
   const child = app.process();
@@ -287,6 +287,14 @@ test("terminal runs an interactive shell behind an isolated bridge", {
           "acknowledge",
           "tail",
           "onActivity",
+          "workspace",
+          "addRepository",
+          "worktrees",
+          "createWorktree",
+          "scanAgents",
+          "launchAgent",
+          "feedback",
+          "onState",
           "onData",
           "onExit",
         ],
@@ -589,7 +597,7 @@ for (const action of ["close", "quit", "shortcut"]) {
     await expect.poll(() => app.evaluate(() => globalThis.quitPrompts.length)).toBe(1);
     assert.equal(
       await app.evaluate(() => globalThis.quitPrompts[0].message),
-      "2 agents are still working. Quit anyway?",
+      "2 terminals are still running. Quit anyway?",
     );
     assert.equal(await app.evaluate(() => globalThis.quitPrompts[0].cancelId), 0);
     for (const pid of [firstPid, secondPid]) process.kill(pid, 0);
@@ -1040,4 +1048,163 @@ test("renderer bundle contains production React without a Node process dependenc
     bundle,
     /react(?:-dom-client)?\.development|Download the React DevTools|not wrapped in act/,
   );
+});
+
+// A stand-in for Claude Code: reports a hook-capable version, prompts in plain text,
+// then fires its PermissionRequest hook through the command Foom attached.
+const FAKE_CLAUDE = `#!/usr/bin/env node
+const { spawn } = require("node:child_process");
+const { writeFileSync } = require("node:fs");
+const args = process.argv.slice(2);
+if (args[0] === "--version") { console.log("2.1.300 (Claude Code)"); process.exit(0); }
+if (args[0] === "--help") { console.log("  --settings <file-or-json>  Load settings"); process.exit(0); }
+const settings = JSON.parse(args[args.indexOf("--settings") + 1]);
+const command = settings.hooks.PermissionRequest[0].hooks[0].command;
+const env = process.env;
+writeFileSync(process.env.FOOM_FAKE_CREDENTIALS, JSON.stringify({
+  url: env.FOOM_HOOK_URL, session: env.FOOM_SESSION, token: env.FOOM_TOKEN,
+}));
+process.stdout.write("FOOM_AGENT_READY\\r\\nContinue? (y/n) ");
+process.stdin.setRawMode(true);
+process.stdin.on("data", (key) => {
+  const input = key.toString();
+  if (input === "y") {
+    process.stdout.write("y\\r\\n\\x1b[1mAllow Bash(npm test)?\\x1b[0m\\r\\n");
+    const hook = spawn("sh", ["-c", command], { stdio: ["pipe", "ignore", "ignore"] });
+    hook.stdin.end(JSON.stringify({ session_id: "fake-session", hook_event_name: "PermissionRequest" }));
+  } else if (input === "q") {
+    process.exit(3);
+  }
+});
+`;
+
+test("launches an agent in a managed worktree and routes its attention signals", {
+  timeout: 60_000,
+  skip: process.platform === "win32" && "The fake agent is a POSIX script",
+}, async (context) => {
+  const { execFileSync } = require("node:child_process");
+  const { chmod, mkdir, writeFile } = require("node:fs/promises");
+  const root = await mkdtemp(path.join(tmpdir(), "foom-workspace-"));
+  context.after(() => rm(root, { recursive: true, force: true }));
+  const bin = path.join(root, "bin");
+  const repo = path.join(root, "app");
+  await mkdir(bin);
+  await mkdir(repo);
+  await mkdir(path.join(root, "home"));
+  await writeFile(path.join(bin, "claude"), FAKE_CLAUDE);
+  await chmod(path.join(bin, "claude"), 0o755);
+  const git = (...args) =>
+    execFileSync("git", ["-c", "user.name=Foom", "-c", "user.email=foom@example.com", ...args], {
+      cwd: repo,
+    });
+  git("init", "-q", "-b", "main");
+  git("commit", "-q", "--allow-empty", "-m", "init");
+  const credentials = path.join(root, "credentials.json");
+
+  const app = await launchApp(context, false, {
+    args: [`--user-data-dir=${path.join(root, "user-data")}`],
+    // A private HOME keeps the login shell from loading rc files that would put a real
+    // agent ahead of the fake one on PATH.
+    env: {
+      HOME: path.join(root, "home"),
+      PATH: `${bin}${path.delimiter}${process.env.PATH}`,
+      FOOM_FAKE_CREDENTIALS: credentials,
+    },
+  });
+  const page = await app.firstWindow();
+  await app.evaluate(({ dialog }, directory) => {
+    dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [directory] });
+  }, repo);
+  const setup = await page.evaluate(async () => {
+    window.foomStates = [];
+    window.desktop.onState((state) => window.foomStates.push(state));
+    const repository = await window.desktop.addRepository();
+    const tree = await window.desktop.createWorktree(repository.path, "feature/fake", "adjacent");
+    const scan = await window.desktop.scanAgents(false);
+    return { repository, tree, claude: scan.agents.find((agent) => agent.id === "claude") };
+  });
+  assert.equal(setup.tree.branch, "feature/fake");
+  assert.equal(setup.tree.managed, true);
+  assert.equal(
+    setup.claude.hooks,
+    true,
+    `Fake agent not detected: ${JSON.stringify(setup.claude)}`,
+  );
+
+  // The renderer can't substitute an executable or an unmanaged path.
+  await assert.rejects(
+    page.evaluate((request) => window.desktop.launchAgent(request), {
+      agent: "claude",
+      repository: setup.repository.path,
+      worktree: repo,
+      cols: 80,
+      rows: 24,
+    }),
+    /not managed by Foom/,
+  );
+
+  const launched = await page.evaluate((request) => window.desktop.launchAgent(request), {
+    agent: "claude",
+    repository: setup.repository.path,
+    worktree: setup.tree.path,
+    cols: 80,
+    rows: 24,
+  });
+  assert.equal(launched.attention, "hooks");
+  const id = launched.id;
+  const latest = () =>
+    page.evaluate((terminal) => window.foomStates.filter((s) => s.id === terminal).at(-1), id);
+  await expect
+    .poll(() => page.evaluate((terminal) => window.desktop.tail(terminal, 5), id), {
+      timeout: 10000,
+    })
+    .toContain("FOOM_AGENT_READY");
+
+  // Quiet after a y/n prompt: the text rules ask for attention.
+  await expect.poll(async () => (await latest())?.state, { timeout: 10000 }).toBe("needs_input");
+  assert.equal((await latest()).signal, "pattern:confirmation");
+  const snapshot = await page.evaluate(() => window.desktop.workspace());
+  assert.deepEqual(
+    snapshot.terminals.map(({ id: terminal, branch, agent }) => ({ terminal, branch, agent })),
+    [{ terminal: id, branch: "feature/fake", agent: "claude" }],
+  );
+
+  // Typing is the reply; then the agent's hook asks for permission.
+  await page.evaluate((terminal) => window.desktop.input(terminal, "y"), id);
+  await expect
+    .poll(async () => (await latest())?.signal, { timeout: 10000 })
+    .toBe("claude:PermissionRequest");
+  assert.ok(
+    (await page.evaluate(() => window.foomStates.map((s) => s.signal))).includes("user:reply"),
+  );
+  // Later quiet evaluations keep the permission request in force.
+  await page.waitForTimeout(2500);
+  assert.equal((await latest()).state, "needs_input");
+
+  // Not attention clears it and records feedback.
+  const { verdictId } = await latest();
+  await page.evaluate(
+    ({ terminal, verdict }) => window.desktop.feedback(terminal, verdict, "dismissed"),
+    { terminal: id, verdict: verdictId },
+  );
+  assert.equal((await latest()).signal, "user:dismissed");
+
+  // Exit is final and revokes the launch's hook credentials.
+  const hook = JSON.parse(await readFile(credentials, "utf8"));
+  await page.evaluate((terminal) => window.desktop.input(terminal, "q"), id);
+  await expect.poll(async () => (await latest())?.state, { timeout: 10000 }).toBe("failed");
+  const replay = await fetch(hook.url, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: hook.token,
+      "X-Foom-Session": hook.session,
+    },
+    body: JSON.stringify({ session_id: "fake-session", hook_event_name: "PermissionRequest" }),
+  });
+  assert.equal(replay.status, 401);
+  const log = await readFile(path.join(root, "user-data", "verdicts.jsonl"), "utf8");
+  assert.match(log, /"feedback":"not_attention"/);
+  assert.match(log, /"action":"replied"/);
+  assert.doesNotMatch(log, /FOOM_AGENT_READY|npm test/);
 });

@@ -1,6 +1,25 @@
 import { contextBridge, ipcRenderer } from "electron";
 import type { IpcRendererEvent } from "electron";
 import type { DesktopApi, TerminalActivity } from "./shared/desktop";
+import type { TerminalState } from "./shared/workspace";
+
+const states = ["needs_input", "done", "failed", "quiet_ok", "working"];
+function object(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+/** Main is trusted, but the renderer still receives only well-formed state. */
+function terminalState(value: unknown): value is TerminalState {
+  return (
+    object(value) &&
+    typeof value["id"] === "string" &&
+    (value["verdictId"] === null || typeof value["verdictId"] === "string") &&
+    states.includes(String(value["state"])) &&
+    typeof value["reason"] === "string" &&
+    typeof value["signal"] === "string" &&
+    typeof value["confidence"] === "number" &&
+    typeof value["timestamp"] === "number"
+  );
+}
 
 const desktop: DesktopApi = {
   async create(cols, rows) {
@@ -78,6 +97,25 @@ const desktop: DesktopApi = {
     };
     ipcRenderer.on("terminal:activity", listener);
     return () => ipcRenderer.removeListener("terminal:activity", listener);
+  },
+  workspace: () => ipcRenderer.invoke("workspace:snapshot"),
+  addRepository: () => ipcRenderer.invoke("workspace:add-repository"),
+  worktrees: (repository) => ipcRenderer.invoke("workspace:worktrees", repository),
+  createWorktree: (repository, branch, location) =>
+    ipcRenderer.invoke("workspace:create-worktree", repository, branch, location),
+  scanAgents: (refresh) => ipcRenderer.invoke("agents:scan", refresh),
+  launchAgent: (request) => ipcRenderer.invoke("agents:launch", request),
+  async feedback(id, verdictId, action) {
+    await ipcRenderer.invoke("terminal:feedback", id, verdictId, action);
+  },
+  onState(callback) {
+    const listener = (_event: IpcRendererEvent, state: unknown) => {
+      if (terminalState(state)) callback(state);
+    };
+    ipcRenderer.on("terminal:state", listener);
+    return () => {
+      ipcRenderer.removeListener("terminal:state", listener);
+    };
   },
   onData(callback) {
     const listener = (_event: IpcRendererEvent, id: unknown, token: unknown, data: unknown) => {

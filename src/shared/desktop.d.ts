@@ -14,7 +14,9 @@ export interface TerminalSpec {
   rows: number;
   env?: Readonly<Record<string, string>>;
 }
-export interface DesktopApi {
+import type { WorkspaceApi } from "./workspace";
+
+export interface DesktopApi extends WorkspaceApi {
   create(cols: number, rows: number): Promise<{ id: string; title: string }>;
   attach(id: string): Promise<void>;
   detach(id: string): Promise<void>;

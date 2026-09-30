@@ -88,7 +88,16 @@ Every channel checks the sender (the owning window, the main frame, `app://bundl
 | `terminal:exit` | main → renderer | `id`, exit code (final screen retained until killed) |
 | `terminal:tail` | renderer → main (invoke) | `id`, line count (1–10000) → plain text lines from the headless screen |
 | `terminal:activity` | main → renderer | batched `[{ id, rate }]`, about 10 per second at most |
-| `terminal:state` | main → renderer | `id`, state, reason, signal, timestamp |
+| `terminal:state` | main → renderer | `{ id, verdictId, state, reason, signal, confidence, timestamp }`; `verdictId` is null for user actions |
+| `terminal:feedback` | renderer → main (invoke) | `id`, `verdictId`, `replied` / `dismissed` / `ignored` |
+| `workspace:snapshot` | renderer → main (invoke) | → `{ repositories, terminals }`, each launched terminal with its agent, repository, worktree, branch, and latest state |
+| `workspace:add-repository` | renderer → main (invoke) | none; main shows the directory picker → repository or null |
+| `workspace:worktrees` | renderer → main (invoke) | added repository path → worktrees |
+| `workspace:create-worktree` | renderer → main (invoke) | repository path, branch, `root` / `adjacent` → worktree |
+| `agents:scan` | renderer → main (invoke) | `refresh` → `{ warning, agents }` (no PATH) |
+| `agents:launch` | renderer → main (invoke) | `{ agent, repository, worktree, cols, rows, acknowledgeCodexNotifierReplacement? }` → `{ id, attention }` |
+
+The renderer names repositories and worktrees only by paths main returned, and agents by ID. Main copies the known launch fields, checks the repository is registered and the worktree is still owned, and resolves the executable itself. A launched terminal belongs to the window like one it created.
 
 ## Worktrees
 
@@ -96,7 +105,7 @@ Git runs in main through `execFile` with argument arrays, never through a shell.
 
 **Today:** `src/worktrees.ts` provides the main-process `WorktreeService`, independently of the UI and IPC. Add a repository before listing or modifying its worktrees. It canonicalizes repository paths, lists NUL-delimited Git records, checks out existing branches or creates new ones, and delegates dirty/locked removal checks to Git. Force allows dirty removal but does not override ownership or locks. Adjacent trees use `<repo>-<branch>` (branch slashes create subdirectories). Creation checks resolved parent directories against the allowed root and rejects existing destinations. Ownership records the device, inode, and birth time of the worktree directory, its `.git` file, and its resolved Git metadata directory. Listing and removal revalidate that identity; missing or replaced entries permanently invalidate ownership, including for forced removal. Removal rejects redirected paths. These checks do not provide isolation against another local process concurrently replacing filesystem entries.
 
-At startup, main opens the service with `WorktreeService.open(app.getPath("userData"))`. Repository registration and ownership are stored in versioned `worktrees.json` using a private temporary file and atomic rename; writes are serialized within the service. Startup validates the untrusted state, rechecks repository paths, allowed roots, Git membership, and filesystem identity, and drops stale or redirected entries. Corrupt or unsupported state grants no ownership and does not block startup. Registration, creation, removal, and ownership invalidation await persistence; write failures are reported to the caller. The synchronous constructor remains available for an explicitly in-memory service. UI/IPC integration remains future work. State assumes a single application service writer; it is not a security boundary against a local process able to forge the entire state file. Worktrees are never adopted just because they appear under the configured root. Repositories sharing a basename share a destination namespace; a collision fails without overwriting the existing directory.
+At startup, main opens the service with `WorktreeService.open(app.getPath("userData"))`. Repository registration and ownership are stored in versioned `worktrees.json` using a private temporary file and atomic rename; writes are serialized within the service. Startup validates the untrusted state, rechecks repository paths, allowed roots, Git membership, and filesystem identity, and drops stale or redirected entries. Corrupt or unsupported state grants no ownership and does not block startup. Registration, creation, removal, and ownership invalidation await persistence; write failures are reported to the caller. The synchronous constructor remains available for an explicitly in-memory service. The renderer reaches it through the `workspace:*` channels; removal isn't exposed yet (#58). State assumes a single application service writer; it is not a security boundary against a local process able to forge the entire state file. Worktrees are never adopted just because they appear under the configured root. Repositories sharing a basename share a destination namespace; a collision fails without overwriting the existing directory.
 
 ## Agent discovery and launch
 
@@ -106,7 +115,7 @@ Stable Claude Code releases at or above 2.1.284 and Codex releases at or above 0
 
 `setHooksEnabled(false)` disables hook attachment for subsequent launches. A main-process integration supplies a fresh `AgentHooks` binding per launch, with a Claude stdin adapter command, a Codex argv adapter command, session credentials, and a cleanup callback. Claude settings attach Stop, PermissionRequest, and Notification observer hooks as inline JSON in `--settings`; Codex receives `-c notify=[...]`. No settings files are created in the user's HOME or workspace. Codex attachment requires `acknowledgeCodexNotifierReplacement` after the UI discloses that the user's notifier is replaced for this invocation. `release(terminalId)` must be called on exit/kill to revoke credentials and free the worktree; `dispose()` releases all bindings during shutdown after terminals are stopped. Spawn failures clean up immediately.
 
-The receiver and adapters from #13 are available as independent services; connecting them to the launcher, persisted settings/setup (#17), board/IPC integration (#9), and actual output evaluation (#14/#15) remain integration work. Until integrated, the existing renderer continues launching its shell, and `attention: "evaluator"` describes the required fallback rather than an already-running evaluator.
+`src/workspace.ts` connects these services in main. It scans once and reuses the result until a refresh, starts the hook receiver on the first launch that attaches hooks, and closes it after terminals stop on quit. `src/hook-launch.ts` writes each launch's adapter script to its own `mkdtemp` directory (mode 0700), registers receiver credentials under a random key, and maps that key to the terminal ID once it exists (`AgentHooks.bind`). Exit, kill, and shutdown release the launch: credentials are revoked, the directory is deleted, and the worktree is free again. Antigravity launches without hooks. Persisted hook and setup settings remain #17; board rows for launched agents remain #57 and #58.
 
 ## Agent signals
 
@@ -118,7 +127,7 @@ Foom attaches its hooks per launch and never edits the user's own config:
 
 See [agent research](agents.md) for versions, payloads, local probes, sources, and remaining verification. Completion events trigger classification; they do not unconditionally set Done. Echo-off alone is not a password signal: all three tested CLIs disabled echo at startup.
 
-**Today:** `src/hook-receiver.ts` provides an independently usable main-process service. `HookReceiver.listen(onSignal)` binds only `127.0.0.1` on an OS-assigned port. `register(terminalId, agent)` returns fresh `FOOM_SESSION`, `FOOM_TOKEN`, and `FOOM_HOOK_URL` environment additions and an idempotent `revoke()` capability. The launcher must revoke on launch failure, terminal exit, or removal; application shutdown must call `close()`. The agent launcher is available as an independent service; connecting it to the receiver, evaluator, terminal state IPC, and UI remains integration work. The shell-only app does not start an unused listener.
+**Today:** `src/hook-receiver.ts` provides an independently usable main-process service. `HookReceiver.listen(onSignal)` binds only `127.0.0.1` on an OS-assigned port. `register(terminalId, agent)` returns fresh `FOOM_SESSION`, `FOOM_TOKEN`, and `FOOM_HOOK_URL` environment additions and an idempotent `revoke()` capability. The launcher must revoke on launch failure, terminal exit, or removal; application shutdown must call `close()`. The workspace maps receiver keys back to terminal IDs before signals reach the evaluator. The app doesn't start a listener until a launch needs one.
 
 Requests POST JSON to `/hooks`, with `X-Foom-Session` and `Authorization` containing the launch session and raw token. Tokens contain 256 random bits; comparison uses constant-time equality of fixed-length SHA-256 digests, including for unknown sessions. The listener rejects browser origins and nonliteral Host headers, limits headers to 8 KiB and bodies to 64 KiB (including chunked requests), caps connections, and times out stalled requests. It checks revocation again before delivery. Unknown/revoked sessions and incorrect tokens all receive 401. Unsupported events are acknowledged without changing state; malformed events receive 400.
 
@@ -133,9 +142,17 @@ The hook command cannot run Node from the packaged app because the RunAsNode fus
 States: `needs_input`, `done`, `failed`, `quiet_ok`, `working`.
 
 **Today:** `src/evaluator.ts` supplies the pure main-process `evaluateRules` classifier,
-and `src/verdict-log.ts` supplies `VerdictLog`. Application wiring, terminal state IPC,
-and feedback controls belong to #50 and the board integration; these services do not
-start an evaluator in the running app yet. The model tier remains #15.
+and `src/verdict-log.ts` supplies `VerdictLog`. `Workspace` runs them for every terminal
+the window owns, including the shell: on quiet, on a hook signal, and on exit. Each
+evaluation reads the last 40 host lines and runs in order per terminal, so a slow one
+can't overwrite a newer verdict; a failure is logged and the next one still runs. The
+result goes out on `terminal:state` and into the verdict log. The model tier remains #15.
+
+A permission hook (`needs_input`) stays in force across later quiet evaluations, because
+agent dialogs rarely match a text rule. It clears when the user types into the terminal
+(recorded as `replied`, with a `working` state and `user:reply` signal) or sends
+`dismissed` feedback (`quiet_ok`, `user:dismissed`). Completion hooks only trigger an
+evaluation. Opening a terminal is not a reply. Board controls for this feedback are #57.
 
 A known exit is final, including when an older permission hook arrives afterward.
 For a live terminal, a matching permission hook takes precedence over an observed

@@ -16,6 +16,8 @@ export interface AgentHooks {
   readonly claudeCommand: string;
   readonly codexCommand: readonly string[];
   readonly env: Readonly<Record<string, string>>;
+  /** Called once the launch has a terminal ID, before any hook can matter. */
+  bind?(terminalId: string): void;
   dispose(): void;
 }
 export interface AgentLaunch {
