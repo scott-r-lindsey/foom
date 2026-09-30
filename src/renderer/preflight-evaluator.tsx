@@ -47,7 +47,6 @@ export function EvaluatorStep({
   const [localModel, setLocalModel] = useState(saved.kind === "local" ? saved.model : "");
   const [available, setAvailable] = useState<ModelList>();
   const [key, setKey] = useState("");
-  const [replacing, setReplacing] = useState(false);
   const [check, setCheck] = useState<CheckRun>();
   const [error, setError] = useState<string>();
   const checkRef = useRef<CheckRun>(undefined);
@@ -129,7 +128,6 @@ export function EvaluatorStep({
     try {
       onState(await source.setKey(provider, key));
       setKey("");
-      setReplacing(false);
       reset();
     } catch (caught) {
       fail(caught);
@@ -205,7 +203,6 @@ export function EvaluatorStep({
                     const next = PROVIDERS.find((entry) => entry.id === event.target.value);
                     if (next) setProvider(next.id);
                     reset();
-                    setReplacing(false);
                   }}
                 >
                   {PROVIDERS.map((entry) => (
@@ -229,20 +226,12 @@ export function EvaluatorStep({
               </label>
               {limitField}
             </div>
-            {hasKey && !replacing ? (
+            {/* To use a different key, remove this one; the field to paste appears. */}
+            {hasKey ? (
               <p className="preflight-key">
                 A key is saved in your system keychain.{" "}
-                <button
-                  type="button"
-                  className="link"
-                  onClick={() => {
-                    setReplacing(true);
-                  }}
-                >
-                  Replace
-                </button>{" "}
                 <button type="button" className="link" onClick={() => void removeKey()}>
-                  Remove
+                  Remove key
                 </button>
               </p>
             ) : (

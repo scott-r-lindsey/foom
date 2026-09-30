@@ -236,16 +236,18 @@ test("API keys are saved, replaced and removed, and only a passing check is used
   });
   await screen.findByText("Anthropic API · claude-haiku-4-5");
 
-  fireEvent.click(button("Replace"));
-  expect(screen.getByLabelText("API key")).toBeTruthy();
+  expect(screen.queryByRole("button", { name: "Replace" })).toBeNull();
+  expect(screen.queryByLabelText("API key")).toBeNull();
+  // A provider without a saved key asks for one.
   fireEvent.change(screen.getByRole("combobox", { name: "Provider" }), {
     target: { value: "openai" },
   });
+  expect(screen.getByLabelText("API key")).toBeTruthy();
   expect(screen.getByRole("textbox", { name: "Model" })).toHaveProperty("value", "gpt-4.1-mini");
   fireEvent.change(screen.getByRole("combobox", { name: "Provider" }), {
     target: { value: "anthropic" },
   });
-  fireEvent.click(button("Remove"));
+  fireEvent.click(button("Remove key"));
   await waitFor(() => {
     expect(source.removeKey).toHaveBeenCalledWith("anthropic");
   });
