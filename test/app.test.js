@@ -220,11 +220,30 @@ test("terminal runs an interactive shell behind an isolated bridge", {
           label,
         );
       };
+      // Keep both sizes within the runner's display and on the same side of
+      // the board's responsive breakpoint; native window managers may clamp
+      // oversized requests, and switching layouts changes terminal width.
+      const original = await page.locator(".xterm-screen").boundingBox();
+      assert.ok(original);
+      const larger = await app.evaluate(({ BrowserWindow, screen }) => {
+        const window = BrowserWindow.getAllWindows()[0];
+        const area = screen.getDisplayMatching(window.getBounds()).workAreaSize;
+        const width = area.width >= 1040 ? 1000 : 760;
+        const height = Math.min(650, area.height - 40);
+        window.setSize(width - 100, height - 150);
+        return { width, height };
+      });
+      await page.waitForFunction(
+        (height) => document.querySelector(".xterm-screen").getBoundingClientRect().height < height,
+        original.height,
+      );
       const before = await readSize("BEFORE");
       const screen = await page.locator(".xterm-screen").boundingBox();
       assert.ok(screen);
-      await app.evaluate(({ BrowserWindow }) =>
-        BrowserWindow.getAllWindows()[0].setSize(1100, 750),
+      await app.evaluate(
+        ({ BrowserWindow }, size) =>
+          BrowserWindow.getAllWindows()[0].setSize(size.width, size.height),
+        larger,
       );
       await page.waitForFunction((previous) => {
         const current = document.querySelector(".xterm-screen").getBoundingClientRect();
@@ -376,6 +395,8 @@ test("terminal runs an interactive shell behind an isolated bridge", {
       console.error(
         "Terminal failure state:",
         await pages[0].evaluate(() => ({
+          viewport: { width: innerWidth, height: innerHeight },
+          terminal: document.querySelector(".xterm-screen")?.getBoundingClientRect().toJSON(),
           status: document.querySelector("#status")?.textContent,
           output: window.terminalOutput?.slice(-8000),
         })),
