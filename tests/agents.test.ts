@@ -251,6 +251,12 @@ describe("launch", () => {
     service.release("terminal-id");
     expect(cleanup).toHaveBeenCalledTimes(1);
   });
+  it("tells the hook binding its terminal ID once the launch has one", async () => {
+    const bind = vi.fn();
+    prepare.mockResolvedValueOnce({ ...binding, bind });
+    await service.launch(request);
+    expect(bind).toHaveBeenCalledExactlyOnceWith("terminal-id");
+  });
   it("requires disclosure before replacing a Codex notifier", async () => {
     await expect(service.launch({ ...request, agent: "codex" })).rejects.toThrow(
       "replaces your Codex notifier",

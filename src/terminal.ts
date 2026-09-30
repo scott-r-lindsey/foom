@@ -2,11 +2,28 @@ import { app, ipcMain } from "electron";
 import type { BrowserWindow, IpcMainEvent, IpcMainInvokeEvent, Event } from "electron";
 import { homedir } from "node:os";
 import { TerminalHostClient } from "./terminal-host-client";
+import type { TerminalSpec } from "./shared/desktop";
+
+/** Lifecycle hooks for owned terminals; the workspace evaluates and releases from these. */
+export interface TerminalEvents {
+  onQuiet?(id: string): void;
+  onExit?(id: string, code: number): void;
+  onInput?(id: string): void;
+  onRemoved?(id: string): void;
+}
+
+export interface TerminalControl extends Pick<TerminalHostClient, "runningCount" | "shutdown"> {
+  /** Main-only launch: the window may use the new terminal like one it created. */
+  create(spec: TerminalSpec): Promise<string>;
+  tail(id: string, lines: number): Promise<string[]>;
+  owns(id: string): boolean;
+}
 
 /** The app window owns capabilities for multiple independent main-owned sessions. */
 export function attachTerminal(
   window: BrowserWindow,
-): Pick<TerminalHostClient, "runningCount" | "shutdown"> {
+  events: TerminalEvents = {},
+): TerminalControl {
   // Capture before BrowserWindow is destroyed; its getter throws during closed.
   const contents = window.webContents;
   const owned = new Set<string>();
@@ -18,8 +35,12 @@ export function attachTerminal(
   const manager = new TerminalHostClient(
     (id, code) => {
       if (!contents.isDestroyed()) contents.send("terminal:exit", id, code);
+      if (owned.has(id)) events.onExit?.(id, code);
     },
     {
+      onQuiet: (id) => {
+        if (owned.has(id)) events.onQuiet?.(id);
+      },
       onActivity: (batch) => {
         if (contents.isDestroyed() || contents.mainFrame.url !== "app://bundle/index.html") return;
         const entries = batch.filter(({ id }) => owned.has(id));
@@ -67,6 +88,7 @@ export function attachTerminal(
       else {
         await manager.kill(id);
         owned.delete(id);
+        events.onRemoved?.(id);
       }
     });
   }
@@ -79,8 +101,10 @@ export function attachTerminal(
   });
   for (const [channel, handler] of handlers) ipcMain.handle(channel, handler);
   const input = (event: IpcMainEvent, id: unknown, data: unknown) => {
-    if (trusted(event) && validId(id) && typeof data === "string" && data.length <= 65536)
+    if (trusted(event) && validId(id) && typeof data === "string" && data.length <= 65536) {
       manager.write(id, data);
+      events.onInput?.(id);
+    }
   };
   const resize = (event: IpcMainEvent, id: unknown, cols: unknown, rows: unknown) => {
     if (
@@ -144,6 +168,13 @@ export function attachTerminal(
     ipcMain.removeListener("terminal:ack", acknowledge);
   });
   return {
+    async create(spec) {
+      const id = await manager.create(spec);
+      owned.add(id);
+      return id;
+    },
+    tail: (id, lines) => manager.tail(id, lines),
+    owns: (id) => owned.has(id),
     get runningCount() {
       return manager.runningCount;
     },

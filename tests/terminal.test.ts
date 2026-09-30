@@ -843,3 +843,48 @@ test("quiet detection reads parsed headless tails and stops on exit without an a
     vi.useRealTimers();
   }
 });
+
+test("reports quiet, input, exit and removal for owned terminals and grants main launches", async () => {
+  {
+    const events = {
+      onQuiet: vi.fn(),
+      onExit: vi.fn(),
+      onInput: vi.fn(),
+      onRemoved: vi.fn(),
+    };
+    const handles = mock.handle.mock.calls.length;
+    const listeners = mock.on.mock.calls.length;
+    const control = attachTerminal(window as unknown as BrowserWindow, events);
+    const latest = (channel: string) =>
+      mock.handle.mock.calls.slice(handles).find(([name]) => name === `terminal:${channel}`)?.[1];
+    const latestSend = (channel: string) =>
+      mock.on.mock.calls.slice(listeners).find(([name]) => name === `terminal:${channel}`)?.[1];
+
+    const id = await control.create({ ...spec, env: { FOOM_TOKEN: "t" } });
+    expect(control.owns(id)).toBe(true);
+    expect(control.owns("other")).toBe(false);
+    const index = ptys.length - 1;
+    output("Continue? (y/n) ", index);
+    await expect(control.tail(id, 1)).resolves.toEqual(["Continue? (y/n) "]);
+    // A trailing y/n prompt goes quiet after 500 ms of silence.
+    await vi.waitFor(
+      () => {
+        expect(events.onQuiet).toHaveBeenCalledWith(id);
+      },
+      { timeout: 3000 },
+    );
+
+    latestSend("input")?.(event, id, "y");
+    latestSend("input")?.(event, "foreign", "y");
+    expect(events.onInput).toHaveBeenCalledExactlyOnceWith(id);
+
+    pty(index).emitExit();
+    await vi.waitFor(() => {
+      expect(events.onExit).toHaveBeenCalledWith(id, 0);
+    });
+    await latest("kill")?.(event, id);
+    expect(events.onRemoved).toHaveBeenCalledWith(id);
+    expect(control.owns(id)).toBe(false);
+    window.once.mock.calls.at(-1)?.[1]();
+  }
+});

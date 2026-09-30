@@ -1,7 +1,28 @@
 import type { BrowserWindowConstructorOptions, Input } from "electron";
 import { beforeEach, expect, test, vi } from "vitest";
 
-vi.mock("../src/terminal", () => ({ attachTerminal: () => mock.terminals }));
+vi.mock("../src/terminal", () => ({
+  attachTerminal: (_window: unknown, events: Record<string, (...args: never[]) => void>) => {
+    mock.terminalEvents = events;
+    return mock.terminals;
+  },
+}));
+vi.mock("../src/workspace", () => ({
+  Workspace: class {
+    quiet = mock.workspace.quiet;
+    exited = mock.workspace.exited;
+    input = mock.workspace.input;
+    removed = mock.workspace.removed;
+    hook = mock.workspace.hook;
+    dispose = mock.workspace.dispose;
+    constructor(deps: unknown) {
+      mock.workspace.deps = deps;
+    }
+  },
+}));
+vi.mock("../src/workspace-ipc", () => ({ attachWorkspace: mock.attachWorkspace }));
+vi.mock("../src/hook-receiver", () => ({ HookReceiver: { listen: mock.listen } }));
+vi.mock("../src/verdict-log", () => ({ VerdictLog: vi.fn() }));
 vi.mock("../src/worktrees", () => ({ WorktreeService: { open: mock.openWorktrees } }));
 
 type ShortcutInput = Pick<Input, "type" | "key" | "control" | "shift" | "alt" | "meta">;
@@ -28,7 +49,17 @@ const mock = vi.hoisted(() => {
       ),
     },
     once: vi.fn((name: string, handler: () => void) => {
-      readyEvents.set(name, handler);
+      // Several modules listen for the same window event; run them all.
+      const previous = readyEvents.get(name);
+      readyEvents.set(
+        name,
+        previous
+          ? () => {
+              previous();
+              handler();
+            }
+          : handler,
+      );
     }),
     on: vi.fn((name: string, handler: (event: { preventDefault(): void }) => void) => {
       windowEvents.set(name, handler);
@@ -55,8 +86,27 @@ const mock = vi.hoisted(() => {
       return state.windows;
     }
   }
+  const workspace = {
+    deps: undefined as unknown,
+    quiet: vi.fn(),
+    exited: vi.fn(),
+    input: vi.fn(),
+    removed: vi.fn(),
+    hook: vi.fn(),
+    dispose: vi.fn<() => Promise<void>>(),
+  };
+  const ipc = { sendState: vi.fn(), dispose: vi.fn() };
   return {
-    terminals: { runningCount: 0, shutdown: vi.fn<() => Promise<void>>() },
+    terminals: {
+      runningCount: 0,
+      shutdown: vi.fn<() => Promise<void>>(),
+      owns: vi.fn<(id: string) => boolean>(),
+    },
+    terminalEvents: {},
+    workspace,
+    ipc,
+    attachWorkspace: vi.fn<(...args: unknown[]) => typeof ipc>(() => ipc),
+    listen: vi.fn(),
     theme: {
       shouldUseDarkColors: false,
       on: vi.fn<(name: string, handler: () => void) => void>(),
@@ -123,6 +173,8 @@ beforeEach(() => {
   vi.clearAllMocks();
   mock.terminals.runningCount = 0;
   mock.terminals.shutdown.mockResolvedValue();
+  mock.workspace.dispose.mockResolvedValue();
+  mock.attachWorkspace.mockImplementation(() => mock.ipc);
   mock.message.mockResolvedValue({ response: 0 });
   mock.theme.shouldUseDarkColors = false;
   mock.appEvents.clear();
@@ -351,7 +403,7 @@ test.each([1, 3])(
     expect(mock.message).toHaveBeenCalledWith(
       expect.anything(),
       expect.objectContaining({
-        message: `${String(count)} ${count === 1 ? "agent is" : "agents are"} still working. Quit anyway?`,
+        message: `${String(count)} ${count === 1 ? "terminal is" : "terminals are"} still running. Quit anyway?`,
         defaultId: 0,
         cancelId: 0,
       }),
@@ -484,4 +536,59 @@ test("reveals a loaded board even without a hidden-window paint and does not sho
   expect(mock.window.show).toHaveBeenCalledOnce();
   mock.readyEvents.get("ready-to-show")?.();
   expect(mock.window.show).toHaveBeenCalledOnce();
+});
+
+test("routes terminal events, hook signals and state through the workspace", async () => {
+  await start();
+  const events = mock.terminalEvents as {
+    onQuiet(id: string): void;
+    onExit(id: string, code: number): void;
+    onInput(id: string): void;
+    onRemoved(id: string): void;
+  };
+  events.onQuiet("a");
+  events.onExit("a", 1);
+  events.onInput("a");
+  events.onRemoved("a");
+  expect(mock.workspace.quiet).toHaveBeenCalledWith("a");
+  expect(mock.workspace.exited).toHaveBeenCalledWith("a", 1);
+  expect(mock.workspace.input).toHaveBeenCalledWith("a");
+  expect(mock.workspace.removed).toHaveBeenCalledWith("a");
+
+  const deps = mock.workspace.deps as {
+    receiver(): Promise<unknown>;
+    onState(state: unknown): void;
+  };
+  deps.onState({ id: "a" });
+  expect(mock.ipc.sendState).toHaveBeenCalledWith({ id: "a" });
+  mock.listen.mockResolvedValue("receiver");
+  await expect(deps.receiver()).resolves.toBe("receiver");
+  const onSignal = mock.listen.mock.calls[0]?.[0] as (signal: unknown) => void;
+  onSignal({ terminalId: "key" });
+  expect(mock.workspace.hook).toHaveBeenCalledWith({ terminalId: "key" });
+
+  const owns = mock.attachWorkspace.mock.calls[0]?.[2] as (id: string) => boolean;
+  mock.terminals.owns.mockReturnValue(true);
+  expect(owns("a")).toBe(true);
+  mock.readyEvents.get("closed")?.();
+  expect(mock.ipc.dispose).toHaveBeenCalledOnce();
+  expect(mock.workspace.dispose).toHaveBeenCalledOnce();
+});
+
+test("confirmed quit disposes the workspace only after terminals stop", async () => {
+  const order: string[] = [];
+  mock.terminals.shutdown.mockImplementation(() => {
+    order.push("terminals");
+    return Promise.resolve();
+  });
+  mock.workspace.dispose.mockImplementation(() => {
+    order.push("workspace");
+    return Promise.resolve();
+  });
+  await start();
+  quitting();
+  await vi.waitFor(() => {
+    expect(mock.quit).toHaveBeenCalledOnce();
+  });
+  expect(order).toEqual(["terminals", "workspace"]);
 });

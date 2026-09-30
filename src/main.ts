@@ -1,6 +1,10 @@
 import { app, BrowserWindow, dialog, nativeTheme, net, protocol, session } from "electron";
 import { WorktreeService } from "./worktrees";
 import { attachTerminal } from "./terminal";
+import { HookReceiver } from "./hook-receiver";
+import { VerdictLog } from "./verdict-log";
+import { Workspace } from "./workspace";
+import { attachWorkspace } from "./workspace-ipc";
 import * as path from "node:path";
 import { pathToFileURL } from "node:url";
 
@@ -75,7 +79,31 @@ function createWindow() {
       else window.webContents.paste();
     }
   });
-  const terminals = attachTerminal(window);
+  // Terminal events and state updates only arrive after both objects exist.
+  const terminals = attachTerminal(window, {
+    onQuiet: (id) => void workspace.quiet(id),
+    onExit: (id, code) => void workspace.exited(id, code),
+    onInput: (id) => {
+      workspace.input(id);
+    },
+    onRemoved: (id) => {
+      workspace.removed(id);
+    },
+  });
+  const workspace: Workspace = new Workspace({
+    worktrees,
+    terminals,
+    verdicts: new VerdictLog(app.getPath("userData")),
+    receiver: () => HookReceiver.listen((signal) => void workspace.hook(signal)),
+    onState: (state) => {
+      workspaceIpc.sendState(state);
+    },
+  });
+  const workspaceIpc = attachWorkspace(window, workspace, (id) => terminals.owns(id));
+  window.once("closed", () => {
+    workspaceIpc.dispose();
+    void workspace.dispose();
+  });
   let quitting = false;
   let quitPending = false;
   const requestQuit = async () => {
@@ -87,7 +115,7 @@ function createWindow() {
         const { response } = await dialog.showMessageBox(window, {
           type: "question",
           title: "Quit Foom?",
-          message: `${String(count)} ${count === 1 ? "agent is" : "agents are"} still working. Quit anyway?`,
+          message: `${String(count)} ${count === 1 ? "terminal is" : "terminals are"} still running. Quit anyway?`,
           detail: "Quitting stops all terminals, including shells and servers.",
           buttons: ["Cancel", "Quit"],
           defaultId: 0,
@@ -97,6 +125,8 @@ function createWindow() {
         if (response !== 1) return;
       }
       await terminals.shutdown();
+      // Terminals have stopped: revoke every hook credential and stop listening.
+      await workspace.dispose();
       quitting = true;
       // A resolved shutdown can resume inside a native close callback's microtask
       // checkpoint. Let that cancelled close unwind before asking Electron to quit.

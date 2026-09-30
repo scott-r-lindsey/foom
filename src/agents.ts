@@ -218,7 +218,10 @@ export class AgentService {
       });
       this.ensureOpen();
       this.launched.set(id, request.worktree);
-      if (binding) this.bindings.set(id, binding);
+      if (binding) {
+        this.bindings.set(id, binding);
+        binding.bind?.(id);
+      }
       return { id, attention: binding ? "hooks" : "evaluator" };
     } catch (error) {
       binding?.dispose();
