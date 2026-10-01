@@ -1025,6 +1025,12 @@ button:focus-visible {
   inherits: false;
   initial-value: 0deg;
 }
+/* Extra turn while you're on the button; paused, it holds its angle, so no jump. */
+@property --ring-boost {
+  syntax: "<angle>";
+  inherits: false;
+  initial-value: 0deg;
+}
 .ignite {
   --ring-tip: color-mix(in srgb, var(--accent) 30%, white);
   --ring-glow-opacity: 1;
@@ -1039,7 +1045,7 @@ button:focus-visible {
   inset: -4px;
   border-radius: 10px;
   background: conic-gradient(
-    from var(--ring-angle),
+    from calc(var(--ring-angle) + var(--ring-boost)),
     transparent 0 50%,
     var(--accent) 80%,
     var(--ring-tip) 97%,
@@ -1047,7 +1053,9 @@ button:focus-visible {
   );
   filter: blur(8px);
   opacity: var(--ring-glow-opacity);
-  animation: ignite-orbit 4s linear infinite;
+  animation:
+    ignite-orbit 4s linear infinite,
+    ignite-boost 1.25s linear infinite paused;
 }
 /* The arc itself, drawn in the button's border. */
 .preflight .ignite button.primary {
@@ -1056,21 +1064,23 @@ button:focus-visible {
   background:
     linear-gradient(var(--accent), var(--accent)) padding-box,
     conic-gradient(
-      from var(--ring-angle),
+      from calc(var(--ring-angle) + var(--ring-boost)),
       var(--accent) 0 50%,
       var(--accent-deep) 75%,
       var(--ring-tip) 97%,
       var(--accent) 100%
     )
     border-box;
-  animation: ignite-orbit 4s linear infinite;
+  animation:
+    ignite-orbit 4s linear infinite,
+    ignite-boost 1.25s linear infinite paused;
 }
-/* Once you're on it, it has done its job. */
+/* On it, the ring spins up: about one orbit a second. */
 .ignite:hover::before,
 .ignite:focus-within::before,
 .preflight .ignite:hover button.primary,
 .preflight .ignite:focus-within button.primary {
-  animation-play-state: paused;
+  animation-play-state: running, running;
 }
 /* On a pale sky the glow is softer, or it reads as a smudge. */
 @media (prefers-color-scheme: light) {
@@ -1082,6 +1092,11 @@ button:focus-visible {
 @keyframes ignite-orbit {
   to {
     --ring-angle: 360deg;
+  }
+}
+@keyframes ignite-boost {
+  to {
+    --ring-boost: 360deg;
   }
 }
 /* Reduced motion: a steady ring with an even glow. */
@@ -1108,13 +1123,65 @@ button:focus-visible {
   justify-items: start;
   margin: 20px 0;
 }
-.repo-suggestions {
+/* Suggested code folders: one panel, a row per folder, the picker as the fallback. */
+.repo-found {
+  justify-self: stretch;
+  max-width: 720px;
+  padding: 12px 14px 14px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+.repo-found h3 {
+  margin: 0 0 10px;
+  font: 10px var(--font-mono);
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.repo-found ul {
   list-style: none;
   margin: 0;
   padding: 0;
+  display: grid;
+  gap: 6px;
+}
+.preflight .repo-found li button {
+  width: 100%;
   display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
+  gap: 12px;
+  align-items: center;
+  padding: 9px 12px;
+  text-align: left;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+.preflight .repo-found li button:hover {
+  border-color: var(--accent);
+}
+.repo-found li code {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font: 13px var(--font-mono);
+  color: var(--ink);
+}
+.repo-found-count {
+  font-size: 12px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.repo-found-go {
+  color: var(--accent);
+}
+.repo-found-else {
+  margin: 12px 0 0;
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  font-size: 13px;
+  color: var(--muted);
 }
 .repo-scanning {
   margin: 20px 0;

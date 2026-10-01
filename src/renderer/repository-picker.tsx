@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import type { CodeScan, FoundRepository, ScanProgress } from "../shared/setup";
+import type { CodeScan, CodeSuggestion, FoundRepository, ScanProgress } from "../shared/setup";
 import type { Repository } from "../shared/worktrees";
 import type { SetupSource } from "./setup-source.d";
 
@@ -87,7 +87,8 @@ export function RepositoryPicker({
   onScan: (folder: string | null) => void;
   onSelection: (selection: CodeSelection) => void;
 }) {
-  const [suggestions, setSuggestions] = useState<readonly string[]>([]);
+  // Undefined while main is still looking.
+  const [suggestions, setSuggestions] = useState<readonly CodeSuggestion[]>();
   const [filter, setFilter] = useState("");
   const [now] = useState(Date.now);
   const scan = onScan;
@@ -98,7 +99,9 @@ export function RepositoryPicker({
       (found) => {
         if (live) setSuggestions(found);
       },
-      () => undefined,
+      () => {
+        if (live) setSuggestions([]);
+      },
     );
     return () => {
       live = false;
@@ -113,37 +116,56 @@ export function RepositoryPicker({
       </p>
     );
 
-  if (!selection)
+  if (!selection) {
+    const choose = (primary: boolean) => (
+      <button
+        type="button"
+        className={primary ? "primary" : undefined}
+        onClick={() => {
+          scan(null);
+        }}
+      >
+        Choose folder…
+      </button>
+    );
     return (
       <div className="repo-choose">
-        {suggestions.length > 0 && (
-          <>
-            <p className="preflight-note">Found on this computer:</p>
-            <ul className="repo-suggestions">
-              {suggestions.map((folder) => (
-                <li key={folder}>
+        {suggestions === undefined ? (
+          <p className="repo-scanning" role="status">
+            Looking for code on this computer…
+          </p>
+        ) : suggestions.length > 0 ? (
+          <section className="repo-found" aria-labelledby="repo-found-title">
+            <h3 id="repo-found-title">Found on this computer</h3>
+            <ul>
+              {suggestions.map((suggestion) => (
+                <li key={suggestion.path}>
                   <button
                     type="button"
                     onClick={() => {
-                      scan(folder);
+                      scan(suggestion.path);
                     }}
                   >
-                    <code>{folder}</code>
+                    <code>{suggestion.path}</code>
+                    <span className="repo-found-count">
+                      {suggestion.repositories}
+                      {suggestion.more && "+"}{" "}
+                      {suggestion.repositories === 1 && !suggestion.more
+                        ? "repository"
+                        : "repositories"}
+                    </span>
+                    <span className="repo-found-go" aria-hidden="true">
+                      →
+                    </span>
                   </button>
                 </li>
               ))}
             </ul>
-          </>
+            <p className="repo-found-else">Somewhere else? {choose(false)}</p>
+          </section>
+        ) : (
+          choose(true)
         )}
-        <button
-          type="button"
-          className="primary"
-          onClick={() => {
-            scan(null);
-          }}
-        >
-          Choose folder…
-        </button>
         {added.length > 0 && (
           <p className="preflight-note">
             Already added: {added.map((repository) => repository.name).join(", ")}
@@ -151,6 +173,7 @@ export function RepositoryPicker({
         )}
       </div>
     );
+  }
 
   const { scan: found, selected } = selection;
   const scanned = new Set(found.repositories.map((repository) => repository.path));

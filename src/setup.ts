@@ -14,6 +14,7 @@ import type {
 } from "./shared/inference";
 import type {
   CodeScan,
+  CodeSuggestion,
   RepositoryUpdate,
   ScanProgress,
   Settings,
@@ -64,6 +65,9 @@ const same = (a: InferenceConfig, b: InferenceConfig) => JSON.stringify(a) === J
  * Main-side first-run setup. Owns the settings, the stored-key capability, and the
  * app's one model evaluator. A model source is saved only after it passes Run check.
  */
+/** How far the quick scan behind a suggestion's count looks. */
+const QUICK_SCAN_FOLDERS = 5000;
+
 export class Setup {
   private readonly verified: InferenceConfig[] = [];
   private evaluator: Pick<ModelEvaluator, "evaluate">;
@@ -184,9 +188,28 @@ export class Setup {
     return (this.deps.models ?? ((value) => listLocalModels(value, {})))(endpoint);
   }
 
-  async codeSuggestions(): Promise<readonly string[]> {
-    this.suggested = await suggestCodeFolders(this.deps.code.home);
-    return this.suggested;
+  /**
+   * Common code folders that hold repositories, each with a count from a quick scan
+   * (the same scan, stopped sooner). Folders without any aren't suggested.
+   */
+  async codeSuggestions(): Promise<readonly CodeSuggestion[]> {
+    const folders = await suggestCodeFolders(this.deps.code.home);
+    const scan = this.deps.code.scan ?? scanCodeFolder;
+    const found = await Promise.all(
+      folders.map((path) =>
+        scan(path, { exclude: [this.deps.worktreeRoot], maxFolders: QUICK_SCAN_FOLDERS }).then(
+          (result) => ({
+            path,
+            repositories: result.repositories.length,
+            more: result.truncated,
+          }),
+          () => ({ path, repositories: 0, more: false }),
+        ),
+      ),
+    );
+    const suggestions = found.filter((suggestion) => suggestion.repositories > 0);
+    this.suggested = suggestions.map((suggestion) => suggestion.path);
+    return suggestions;
   }
 
   /**

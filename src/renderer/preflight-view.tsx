@@ -184,14 +184,6 @@ export function Preflight({
       source.state().then(setState, () => undefined);
     });
   };
-  const addRepository = async () => {
-    try {
-      const added = await source.addRepository();
-      if (added) setRepositories(await source.repositories());
-    } catch (caught) {
-      setError(message(caught));
-    }
-  };
   const launch = async () => {
     try {
       setState(await source.save({ setupComplete: true }));
@@ -411,12 +403,6 @@ export function Preflight({
           onScan={scanCode}
           onSelection={setCode}
         />
-        <p className="preflight-note">
-          Somewhere else?{" "}
-          <button type="button" className="link" onClick={() => void addRepository()}>
-            Add one repository…
-          </button>
-        </p>
         {nav(
           1,
           selected.length

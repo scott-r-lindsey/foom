@@ -13,7 +13,6 @@ export function createSetupSource(): SetupSource {
     models: (endpoint) => desktop.localModels(endpoint),
     scanAgents: (refresh) => desktop.scanAgents(refresh),
     repositories: async () => (await desktop.workspace()).repositories,
-    addRepository: () => desktop.addRepository(),
     subscribe: (listener) => desktop.onSetupChange(listener),
     suggestions: () => desktop.codeSuggestions(),
     scan: (id, folder, onProgress) => desktop.scanCode(id, folder, onProgress),

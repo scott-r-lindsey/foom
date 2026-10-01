@@ -1,3 +1,6 @@
+import { mkdir, mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { beforeEach, expect, test, vi } from "vitest";
 import { DEFAULT_SETTINGS } from "../src/settings";
 import { Setup } from "../src/setup";
@@ -280,6 +283,38 @@ test("scanning a code folder marks recent and added repositories and saves the f
   // The saved folder can be scanned again without the picker.
   await setup.scanCode("/code", progress);
   expect(pick).toHaveBeenCalledTimes(2);
+});
+
+test("suggestions are folders with repositories in them, counted by a quick scan", async () => {
+  const home = await mkdtemp(join(tmpdir(), "foom-home-"));
+  try {
+    for (const name of ["code", "src", "projects"]) await mkdir(join(home, name));
+    const quick = vi.fn((folder: string) => {
+      if (folder.endsWith("projects")) return Promise.reject(new Error("EACCES"));
+      const many = folder.endsWith("code");
+      return Promise.resolve({
+        folder,
+        folders: 10,
+        truncated: many,
+        repositories: many ? [found("a", 1), found("b", 2)] : [],
+      });
+    });
+    const setup = new Setup({ ...deps, code: { ...deps.code, home, scan: quick } });
+    // An empty folder and an unreadable one aren't suggested.
+    await expect(setup.codeSuggestions()).resolves.toEqual([
+      { path: join(home, "code"), repositories: 2, more: true },
+    ]);
+    expect(quick).toHaveBeenCalledWith(join(home, "code"), {
+      exclude: ["/home/me/.foom/worktrees"],
+      maxFolders: 5000,
+    });
+    await expect(setup.scanCode(join(home, "src"), vi.fn())).rejects.toThrow("Unknown code folder");
+    await expect(setup.scanCode(join(home, "code"), vi.fn())).resolves.toMatchObject({
+      folder: join(home, "code"),
+    });
+  } finally {
+    await rm(home, { recursive: true, force: true });
+  }
 });
 
 test("suggested folders can be scanned directly", async () => {

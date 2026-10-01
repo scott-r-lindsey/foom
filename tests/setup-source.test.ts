@@ -18,7 +18,6 @@ test("preflight reaches main only through the setup bridge", async () => {
     applyRepositories: vi.fn(() => Promise.resolve("applied")),
     scanAgents: vi.fn(() => Promise.resolve("scan")),
     workspace: vi.fn(() => Promise.resolve({ repositories: [repository], terminals: [] })),
-    addRepository: vi.fn(() => Promise.resolve(repository)),
   };
   Object.defineProperty(window, "desktop", { configurable: true, value: desktop });
   const source = createSetupSource();
@@ -43,7 +42,6 @@ test("preflight reaches main only through the setup bridge", async () => {
   expect(desktop.localModels).toHaveBeenCalledWith("http://127.0.0.1:1/v1");
   await expect(source.scanAgents(true)).resolves.toBe("scan");
   await expect(source.repositories()).resolves.toEqual([repository]);
-  await expect(source.addRepository()).resolves.toBe(repository);
   expect(desktop.saveSetup).toHaveBeenCalledWith({ hooks: false });
   expect(desktop.setInferenceKey).toHaveBeenCalledWith("openai", "sk");
   expect(desktop.removeInferenceKey).toHaveBeenCalledWith("openai");

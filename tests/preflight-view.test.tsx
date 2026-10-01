@@ -13,6 +13,7 @@ import type {
 } from "../src/shared/inference";
 import type {
   CodeScan,
+  CodeSuggestion,
   RepositoryUpdate,
   ScanProgress,
   SettingsPatch,
@@ -109,12 +110,11 @@ function fake(initial: SetupState, scan: AgentReport = all) {
         changed = undefined;
       };
     }),
-    addRepository: vi.fn(() => {
-      const repository = { path: "/code/app", name: "app" };
-      repositories.push(repository);
-      return Promise.resolve<Repository | null>(repository);
-    }),
-    suggestions: vi.fn(() => Promise.resolve<readonly string[]>(["/home/me/code"])),
+    suggestions: vi.fn(() =>
+      Promise.resolve<readonly CodeSuggestion[]>([
+        { path: "/home/me/code", repositories: 2, more: false },
+      ]),
+    ),
     scan: vi.fn(
       (_id: string, _folder: string | null, onProgress: (progress: ScanProgress) => void) => {
         onProgress({ folders: 3, repositories: 2 });
@@ -195,7 +195,7 @@ test("first run walks every step, saves each choice, and launches", async () => 
 
   fireEvent.click(button("Continue"));
   expect(screen.getByText("Where do you keep your code?")).toBeTruthy();
-  fireEvent.click(await screen.findByRole("button", { name: "/home/me/code" }));
+  fireEvent.click(await screen.findByRole("button", { name: /^\/home\/me\/code/ }));
   await screen.findByText("1 of 2 selected");
   expect(screen.getByRole("checkbox", { name: /^app/ })).toHaveProperty("checked", true);
   expect(screen.getByRole("checkbox", { name: /^old/ })).toHaveProperty("checked", false);
@@ -389,15 +389,10 @@ test("errors from main are shown without the IPC wrapper", async () => {
   source.save.mockRejectedValueOnce(
     new Error("Error invoking remote method 'setup:save': Error: Disk full"),
   );
-  source.addRepository.mockRejectedValueOnce(new Error("Repository must be a Git work tree"));
   render(<Preflight source={source} initial={setupState()} onLaunched={vi.fn()} />);
   await screen.findByRole("alert");
   fireEvent.click(button("Start preflight"));
   fireEvent.click(button("Continue"));
-  fireEvent.click(button("Add one repository…"));
-  expect((await screen.findByRole("alert")).textContent).toBe("Repository must be a Git work tree");
-  source.addRepository.mockResolvedValueOnce(null);
-  fireEvent.click(button("Add one repository…"));
   fireEvent.click(button("Continue"));
   fireEvent.click(screen.getByRole("radio", { name: /next to each repository/ }));
   await waitFor(() => {
@@ -413,7 +408,7 @@ test("errors from main are shown without the IPC wrapper", async () => {
 
 test("a failed launch save keeps preflight open with the error", async () => {
   const source = fake(setupState());
-  await source.addRepository();
+  source.repositories.mockResolvedValue([{ path: "/code/app", name: "app" }]);
   render(<Preflight source={source} initial={setupState()} onLaunched={vi.fn()} />);
   fireEvent.click(button("Start preflight"));
   await screen.findByText("3 agents ready");
@@ -591,7 +586,7 @@ test("a refused or failed selection keeps you on Repositories with the reason", 
   render(<Preflight source={source} initial={setupState()} onLaunched={vi.fn()} />);
   fireEvent.click(button("Start preflight"));
   fireEvent.click(button("Continue"));
-  fireEvent.click(await screen.findByRole("button", { name: "/home/me/code" }));
+  fireEvent.click(await screen.findByRole("button", { name: /^\/home\/me\/code/ }));
   await screen.findByText("1 of 2 selected");
   source.apply.mockResolvedValueOnce({
     repositories: [],

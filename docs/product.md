@@ -70,7 +70,7 @@ The evaluator sends only the last 40 lines of a quiet terminal, with likely secr
 Setup is a preflight countdown:
 
 1. **Agents** (T-4): detect the supported CLIs on PATH and show each one's attention signal. One setting controls whether Foom attaches hooks per launch.
-2. **Repositories** (T-3): "Where do you keep your code?" Foom scans that folder and lists its Git repositories, with the ones worked on in the last 30 days checked.
+2. **Repositories** (T-3): "Where do you keep your code?" Foom suggests common code folders that hold repositories, with a count for each, or you choose one. It scans that folder and lists its Git repositories, with the ones worked on in the last 30 days checked.
 3. **Worktrees** (T-2): choose where new worktrees live: Foom's folder (`~/.foom/worktrees`, the default) or next to each repository.
 4. **Evaluator** (T-1): pick an inference source and test it on a sample.
 5. **Go / no-go** (T-0): each item shows GO or NO-GO with a link back to its step. Launch needs every item GO: at least one agent ready and one repository added.

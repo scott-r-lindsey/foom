@@ -55,6 +55,14 @@ export interface CodeScan {
   truncated: boolean;
 }
 
+/** A common code folder that exists, with how many repositories a quick look found. */
+export interface CodeSuggestion {
+  path: string;
+  repositories: number;
+  /** The quick look stopped at its limit; there may be more. */
+  more: boolean;
+}
+
 export interface ScanProgress {
   folders: number;
   repositories: number;
@@ -97,8 +105,8 @@ export interface SetupApi {
   localModels(endpoint: string): Promise<ModelList>;
   /** Settings changed outside the renderer, for example by a zoom shortcut. */
   onSetupChange(callback: (state: SetupState) => void): () => void;
-  /** Existing common code folders under the home folder, such as ~/code. */
-  codeSuggestions(): Promise<readonly string[]>;
+  /** Common code folders under the home folder, such as ~/code, that hold repositories. */
+  codeSuggestions(): Promise<readonly CodeSuggestion[]>;
   /**
    * Scans a code folder. `folder` must be a suggestion or the saved code folder; null
    * shows the folder picker. Resolves null if the picker is cancelled.

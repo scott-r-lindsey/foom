@@ -2,7 +2,7 @@ const { AxeBuilder } = require("@axe-core/playwright");
 const { test } = require("node:test");
 const assert = require("node:assert/strict");
 const path = require("node:path");
-const { mkdir, mkdtemp, readFile, rm, writeFile } = require("node:fs/promises");
+const { mkdir, mkdtemp, readFile, realpath, rm, writeFile } = require("node:fs/promises");
 const { tmpdir } = require("node:os");
 const { _electron: electron, expect } = require("@playwright/test");
 
@@ -1370,15 +1370,15 @@ test("a fresh profile opens preflight, and it passes accessibility checks", asyn
   const page = await app.firstWindow();
   await page.getByRole("button", { name: "Start preflight" }).waitFor();
   assert.equal(await page.locator(".board-home").count(), 0);
-  // The accretion ring orbits, pauses while you're on it, and holds still for reduced motion.
+  // The accretion ring orbits, spins up while you're on it, and holds still for reduced motion.
   const ring = () =>
     page.getByRole("button", { name: "Start preflight" }).evaluate((button) => {
       const style = getComputedStyle(button);
       return `${style.animationName} ${style.animationPlayState}`;
     });
-  assert.equal(await ring(), "ignite-orbit running");
+  assert.equal(await ring(), "ignite-orbit, ignite-boost running, paused");
   await page.getByRole("button", { name: "Start preflight" }).hover();
-  assert.equal(await ring(), "ignite-orbit paused");
+  assert.equal(await ring(), "ignite-orbit, ignite-boost running, running");
   await page.mouse.move(0, 0);
   await page.emulateMedia({ reducedMotion: "reduce" });
   assert.equal(await ring(), "none running");
@@ -1429,8 +1429,9 @@ test("first run goes from no agents to go, launches by keyboard, and can be repl
   await expect(page.getByText("Not found")).toHaveCount(3, { timeout: 20000 });
   await tabTo(page, "Continue");
   await page.keyboard.press("Enter");
-  await page.getByRole("button", { name: "Add one repository…" }).click();
-  await page.getByText("Already added: app").waitFor();
+  // The private HOME has no code folders, so the picker is the way in.
+  await page.getByRole("button", { name: "Choose folder…" }).click();
+  await page.getByText("1 of 1 selected").waitFor();
   for (const heading of [
     "Where should new worktrees go?",
     "How should Foom read a terminal that goes quiet?",
@@ -1491,7 +1492,7 @@ test("first run goes from no agents to go, launches by keyboard, and can be repl
     inferenceTimeoutMs: 5000,
     colorMode: "system",
     interfaceScale: 100,
-    codeFolder: null,
+    codeFolder: await realpath(repo),
   });
 
   // Preflight can run again over the board; Escape returns to the same row.

@@ -7,6 +7,7 @@ import type {
 } from "../shared/inference";
 import type {
   CodeScan,
+  CodeSuggestion,
   RepositoryUpdate,
   ScanProgress,
   SettingsPatch,
@@ -31,9 +32,7 @@ export interface SetupSource {
   models(endpoint: string): Promise<ModelList>;
   scanAgents(refresh: boolean): Promise<AgentReport>;
   repositories(): Promise<readonly Repository[]>;
-  /** Main shows the folder picker; null when the user cancels. */
-  addRepository(): Promise<Repository | null>;
-  suggestions(): Promise<readonly string[]>;
+  suggestions(): Promise<readonly CodeSuggestion[]>;
   /** Null picks a folder with the native picker; resolves null if cancelled. */
   scan(
     id: string,

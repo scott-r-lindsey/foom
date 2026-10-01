@@ -10,7 +10,7 @@ import {
 } from "../src/renderer/repository-picker";
 import type { CodeSelection, Scanning } from "../src/renderer/repository-picker";
 import type { SetupSource } from "../src/renderer/setup-source.d";
-import type { CodeScan, FoundRepository } from "../src/shared/setup";
+import type { CodeScan, CodeSuggestion, FoundRepository } from "../src/shared/setup";
 import type { Repository } from "../src/shared/worktrees";
 
 const DAY = 86_400_000;
@@ -57,7 +57,13 @@ test("recent or already added start selected; pending compares with what is adde
   );
 });
 
-const setup = (suggestions: readonly string[] = ["/home/me/code"]) => {
+const setup = (
+  suggestions: readonly CodeSuggestion[] = [
+    { path: "/home/me/code", repositories: 12, more: false },
+    { path: "/home/me/projects", repositories: 1, more: false },
+    { path: "/home/me/src", repositories: 5000, more: true },
+  ],
+) => {
   const fake = { suggestions: vi.fn(() => Promise.resolve(suggestions)) };
   return { fake, source: fake as unknown as SetupSource };
 };
@@ -83,13 +89,24 @@ function Harness(props: {
 }
 const picked = (found: CodeScan) => ({ scan: found, selected: defaultSelection(found) });
 
-test("before a scan: suggestions, a folder picker, and repositories added one at a time", async () => {
+test("before a scan: one panel of found folders with counts, and the picker as a fallback", async () => {
   const onScan = vi.fn();
   const { source } = setup();
   const { rerender } = render(<Harness source={source} onScan={onScan} />);
-  fireEvent.click(await screen.findByRole("button", { name: "/home/me/code" }));
+  expect(screen.getByRole("status").textContent).toBe("Looking for code on this computer…");
+  const panel = await screen.findByRole("region", { name: "Found on this computer" });
+  expect(Array.from(panel.querySelectorAll("li button"), (row) => row.textContent)).toEqual([
+    "/home/me/code12 repositories→",
+    "/home/me/projects1 repository→",
+    "/home/me/src5000+ repositories→",
+  ]);
+  fireEvent.click(screen.getByRole("button", { name: /^\/home\/me\/code/ }));
   expect(onScan).toHaveBeenLastCalledWith("/home/me/code");
-  fireEvent.click(screen.getByRole("button", { name: "Choose folder…" }));
+  // The picker sits in the panel, as the quieter choice.
+  const choose = screen.getByRole("button", { name: "Choose folder…" });
+  expect(panel.contains(choose)).toBe(true);
+  expect(choose.className).toBe("");
+  fireEvent.click(choose);
   expect(onScan).toHaveBeenLastCalledWith(null);
   expect(screen.queryByText(/Already added/)).toBeNull();
   rerender(<Harness source={source} added={[{ path: "/x/tool", name: "tool" }]} />);
@@ -170,4 +187,17 @@ test("empty, truncated, outside repositories, and nothing to save", () => {
   );
   expect(screen.getByText("1 of 1 selected")).toBeTruthy();
   expect(screen.queryByText(/saved when you leave/)).toBeNull();
+});
+
+test("with nothing found, the picker is the main choice", async () => {
+  const { fake, source } = setup([]);
+  render(<Harness source={source} />);
+  const choose = await screen.findByRole("button", { name: "Choose folder…" });
+  expect(choose.className).toBe("primary");
+  expect(screen.queryByRole("region", { name: "Found on this computer" })).toBeNull();
+  // A failed lookup reads the same as finding nothing.
+  cleanup();
+  fake.suggestions.mockRejectedValueOnce(new Error("no home"));
+  render(<Harness source={source} />);
+  expect((await screen.findByRole("button", { name: "Choose folder…" })).className).toBe("primary");
 });
