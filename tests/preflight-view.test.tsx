@@ -482,6 +482,30 @@ test("a running check shows live steps and can be cancelled; editing also cancel
   expect(await screen.findByText(/llama3.2 isn't one of them/)).toBeTruthy();
 });
 
+test("leaving the evaluator cancels its check and a late success cannot replace rules only", async () => {
+  const source = fake(setupState());
+  let finish: (result: ProbeResult) => void = () => {};
+  source.check.mockImplementation(
+    () =>
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+  );
+  await toLocal(source);
+  fireEvent.click(button("Run check"));
+  const id = source.check.mock.calls[0]?.[0];
+  fireEvent.click(button("Continue"));
+  fireEvent.click(button(/T-1.*Evaluator/));
+  fireEvent.click(screen.getByRole("radio", { name: /Rules only/ }));
+  await act(async () => {
+    finish(passed);
+    await Promise.resolve();
+  });
+  expect((await source.state()).settings.inference).toEqual({ kind: "rules" });
+  expect(source.cancel).toHaveBeenCalledWith(id);
+  expect(source.save.mock.calls.some(([patch]) => patch.inference?.kind === "local")).toBe(false);
+});
+
 test("the endpoint's model list reports failures in Foom's words", async () => {
   const source = fake(setupState());
   source.models.mockResolvedValue({

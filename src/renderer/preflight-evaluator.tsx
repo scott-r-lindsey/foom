@@ -64,6 +64,16 @@ export function EvaluatorStep({
   const inUse = draft !== undefined && JSON.stringify(draft) === JSON.stringify(saved);
   const running = check !== undefined && !check.result && !check.error;
 
+  useEffect(
+    () => () => {
+      const current = checkRef.current;
+      // Leaving the step invalidates its result even if cancellation arrives too late.
+      checkRef.current = undefined;
+      if (current && !current.result && !current.error) void source.cancel(current.id);
+    },
+    [source],
+  );
+
   // Ask the endpoint what it offers as the user types, so a missing model shows early.
   useEffect(() => {
     if (kind !== "local") return;

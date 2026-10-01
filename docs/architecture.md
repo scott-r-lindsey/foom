@@ -229,7 +229,8 @@ endpoints identifying the server (`/api/version` for Ollama), finding the model 
 fixed sample with streaming on, reports thinking chunks and reply text as they arrive
 (at most ten updates a second), and parses the verdict. It has the same time limit,
 and a timeout names the stage that was running. Starting a new check or editing the
-source cancels the one in progress.
+source cancels the one in progress. Leaving the Evaluator step also cancels its check
+and ignores any late result, so it cannot replace a source chosen afterward.
 
 Failures are reported in Foom's own words from a fixed set: connection refused,
 unreachable, DNS, TLS, connect timeout, missing key, rejected key (401/403), model not

@@ -1526,15 +1526,16 @@ test("Run check streams live progress from a local model server, then saves the 
     response.end(`${chunk({}, "stop")}data: [DONE]\n\n`);
   });
   await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
-  context.after(() => new Promise((resolve) => server.close(resolve)));
-  const endpoint = `http://127.0.0.1:${server.address().port}/v1`;
-  const userData = await mkdtemp(path.join(tmpdir(), "foom-check-"));
-  context.after(() => rm(userData, { recursive: true, force: true, maxRetries: 5 }));
-
-  const app = await launchApp(context, false, {
-    firstRun: true,
-    args: [`--user-data-dir=${userData}`],
+  context.after(() => {
+    // A failed assertion must not leave a streaming request holding teardown open.
+    release();
+    server.closeAllConnections();
+    return new Promise((resolve) => server.close(resolve));
   });
+  const endpoint = `http://127.0.0.1:${server.address().port}/v1`;
+  // launchApp owns this profile and removes it only after Electron exits.
+  const app = await launchApp(context, false, { firstRun: true });
+  const userData = await app.evaluate(({ app }) => app.getPath("userData"));
   const page = await app.firstWindow();
   await page.getByRole("button", { name: "Start preflight" }).click();
   for (let step = 0; step < 3; step++) await page.getByRole("button", { name: "Continue" }).click();
@@ -1605,13 +1606,25 @@ test("appearance switches light and dark, and zoom shortcuts resize the interfac
       return { width, height };
     });
   const start = await size();
+  const grown = await app.evaluate(({ BrowserWindow, screen }) => {
+    const window = BrowserWindow.getAllWindows()[0];
+    const bounds = window.getBounds();
+    const content = window.getContentBounds();
+    const area = screen.getDisplayMatching(bounds).workArea;
+    // Native frames don't zoom, and the display may cap either dimension.
+    return {
+      width: Math.min(Math.round(content.width * 1.1) + bounds.width - content.width, area.width),
+      height: Math.min(
+        Math.round(content.height * 1.1) + bounds.height - content.height,
+        area.height,
+      ),
+    };
+  });
   await press("=", true);
   await expect.poll(zoom).toBeCloseTo(1.1);
   await page.getByText("110%").waitFor();
   // The window grows with the interface while the screen has room.
-  await expect
-    .poll(size)
-    .toEqual({ width: Math.round(start.width * 1.1), height: Math.round(start.height * 1.1) });
+  await expect.poll(size).toEqual(grown);
   await page.getByRole("button", { name: "Larger" }).click();
   await expect.poll(zoom).toBeCloseTo(1.2);
   await press("0", false);
