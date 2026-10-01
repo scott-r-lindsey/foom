@@ -734,3 +734,40 @@ test("failed live attachment detaches and reports the error; later selection can
   expect(update).toHaveBeenLastCalledWith(expect.objectContaining({ visible: true }));
   controller.dispose();
 });
+
+test("board selection waits for a replacement shell's pending attachment", async () => {
+  const update = vi.fn();
+  const controller = createShell(document.createElement("div"), update, false);
+  await controller.open("one");
+  mock.onExit.mock.calls[0]?.[0]("one", -1);
+  mock.create.mockResolvedValueOnce({ id: "replacement", title: "replacement shell" });
+  let attached: (() => void) | undefined;
+  mock.attach.mockImplementationOnce(
+    () =>
+      new Promise<void>((resolve) => {
+        attached = resolve;
+      }),
+  );
+  const restarting = controller.restart();
+  await vi.waitFor(() => {
+    expect(attached).toBeDefined();
+  });
+  // React follows the new terminal ID while its first attach is still in flight.
+  const opening = controller.open("replacement");
+  await Promise.resolve();
+  await Promise.resolve();
+  expect(update).toHaveBeenLastCalledWith(expect.objectContaining({ toggleDisabled: true }));
+  mock.onInput.mock.calls[0]?.[0]("early");
+  expect(mock.input).not.toHaveBeenCalled();
+  expect(mock.attach).toHaveBeenCalledTimes(2);
+  attached?.();
+  await Promise.all([restarting, opening]);
+  expect(mock.detach).toHaveBeenCalledWith("replacement");
+  expect(mock.attach).toHaveBeenLastCalledWith("replacement");
+  expect(update).toHaveBeenLastCalledWith(
+    expect.objectContaining({ visible: true, toggleDisabled: false }),
+  );
+  mock.onInput.mock.calls[0]?.[0]("echo HOST_RESTART_OK\r");
+  expect(mock.input).toHaveBeenCalledWith("replacement", "echo HOST_RESTART_OK\r");
+  controller.dispose();
+});

@@ -218,7 +218,7 @@ export function createShell(
     terminal.dispose();
   };
   // Measure the first grid only after the bundled terminal face is available.
-  const ready = document.fonts.load('14px "Geist Mono"').then(start, start);
+  let ready = document.fonts.load('14px "Geist Mono"').then(start, start);
   const select = (id: string) => {
     const current = ++request;
     visibleRequested = false;
@@ -277,7 +277,9 @@ export function createShell(
     toggle: toggleView,
     restart: () => {
       visibleRequested = true;
-      return start();
+      // The board follows the new ID before its attachment has finished.
+      ready = start();
+      return ready;
     },
     dispose,
     tail: () => (activeId ? window.desktop.tail(activeId, 40) : Promise.resolve([])),

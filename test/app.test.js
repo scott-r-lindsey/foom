@@ -793,6 +793,9 @@ test("a crashed utility host reports failure and the renderer can restart", {
   await page.waitForFunction(
     () => !/Starting|failed|Unable/.test(document.querySelector("#status").textContent),
   );
+  // A title is available before the replacement attachment is ready for input.
+  await expect(page.getByRole("button", { name: "Hide terminal", exact: true })).toBeEnabled();
+  await expect(page.locator(".xterm-helper-textarea")).toBeFocused();
   const replacementPid = await app.evaluate(
     ({ app }) => app.getAppMetrics().find((metric) => metric.name === "Foom terminal host")?.pid,
   );
