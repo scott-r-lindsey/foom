@@ -1735,7 +1735,10 @@ test("new worktree dialog launches by keyboard and confirms dirty removal", {
   await page.keyboard.type("feature/ui");
   if (process.platform !== "win32") {
     await page.keyboard.press("Tab");
+    // Open the native menu before moving: macOS ArrowDown alone only opens it.
+    await page.keyboard.press("Space");
     await page.keyboard.press("ArrowDown");
+    await page.keyboard.press("Enter");
     await expect(page.getByLabel("Run")).toHaveValue("claude");
   }
   await assertAccessible(page);
