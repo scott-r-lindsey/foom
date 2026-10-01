@@ -300,3 +300,14 @@ test("terminal state events are validated and can be unsubscribed", async () => 
   off();
   expect(mock.removeListener).toHaveBeenCalledWith("terminal:state", handler);
 });
+
+test("workspace notifications invalidate snapshots and unsubscribe", async () => {
+  const api = await bridge();
+  const callback = vi.fn();
+  const off = api.onWorkspaceChange(callback);
+  const listener = mock.on.mock.calls.find(([channel]) => channel === "workspace:changed")?.[1];
+  listener?.({});
+  expect(callback).toHaveBeenCalledOnce();
+  off();
+  expect(mock.removeListener).toHaveBeenCalledWith("workspace:changed", listener);
+});

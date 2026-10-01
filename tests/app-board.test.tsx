@@ -6,8 +6,16 @@ import type { TerminalActivity } from "../src/shared/desktop";
 import { createAppSource } from "../src/renderer/app-source";
 import { Shell } from "../src/renderer/shell";
 import { installation, report, setupState } from "./fixtures/setup";
+import type { TerminalState, WorkspaceSnapshot } from "../src/shared/workspace";
 import type { SetupState } from "../src/shared/setup";
 const mock = vi.hoisted(() => ({
+  failStart: false,
+  created: undefined as ((id: string, title: string) => void) | undefined,
+  state: undefined as ((state: TerminalState) => void) | undefined,
+  changed: undefined as (() => void) | undefined,
+  exit: undefined as ((id: string, code: number) => void) | undefined,
+  workspace: vi.fn<() => Promise<WorkspaceSnapshot>>(),
+  feedback: vi.fn(),
   update: undefined as ((view: ShellView) => void) | undefined,
   escape: undefined as (() => void) | undefined,
   activity: undefined as ((batch: TerminalActivity[]) => void) | undefined,
@@ -27,7 +35,12 @@ vi.mock("../src/renderer/shell-controller", () => ({
     update: (view: ShellView) => void,
     _visible: boolean,
     escape: () => void,
+    created: (id: string, title: string) => void,
   ) => {
+    mock.created = created;
+    if (mock.failStart)
+      update({ ...view, state: "failed", status: "Unable to start shell", restartDisabled: false });
+    else created("real-id", "bash");
     mock.update = update;
     mock.escape = escape;
     return mock;
@@ -43,6 +56,7 @@ const view: ShellView = {
 };
 beforeEach(() => {
   vi.clearAllMocks();
+  mock.failStart = false;
   vi.useFakeTimers();
   Object.defineProperty(window, "desktop", {
     configurable: true,
@@ -54,14 +68,32 @@ beforeEach(() => {
         Promise.resolve(setupState({ ...patch, setupComplete: true })),
       scanAgents: () =>
         Promise.resolve(report(installation("claude"), installation("codex"), installation("agy"))),
-      workspace: () =>
-        Promise.resolve({ repositories: [{ path: "/code/app", name: "app" }], terminals: [] }),
+      workspace: mock.workspace,
+      tail: mock.tail,
+      feedback: mock.feedback,
+      onWorkspaceChange: (listener: () => void) => {
+        mock.changed = listener;
+        return mock.off;
+      },
+      onState: (listener: (state: TerminalState) => void) => {
+        mock.state = listener;
+        return mock.off;
+      },
+      onExit: (listener: (id: string, code: number) => void) => {
+        mock.exit = listener;
+        return mock.off;
+      },
       onActivity: (listener: (batch: TerminalActivity[]) => void) => {
         mock.activity = listener;
         return mock.off;
       },
     },
   });
+  mock.workspace.mockResolvedValue({
+    repositories: [{ path: "/code/app", name: "app" }],
+    terminals: [],
+  });
+  mock.feedback.mockResolvedValue(undefined);
   mock.tail.mockResolvedValue(["real output"]);
   mock.update = undefined;
   mock.setupState.mockResolvedValue(setupState({ setupComplete: true }));
@@ -83,7 +115,27 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-test("shell source routes only its live ID and disposes telemetry and simulation", async () => {
+const agent = (id: string, state: TerminalState | null = null) => ({
+  id,
+  kind: "agent" as const,
+  agent: "claude" as const,
+  repository: "/code/app",
+  worktree: `/code/${id}`,
+  branch: id,
+  attention: "hooks" as const,
+  state,
+});
+const verdict = (id: string, timestamp = 100): TerminalState => ({
+  id,
+  state: "needs_input",
+  verdictId: `v-${String(timestamp)}`,
+  timestamp,
+  reason: "Continue?",
+  signal: "pattern:confirmation",
+  confidence: 1,
+});
+
+test("live source reconciles events, snapshots, tails and feedback without publishing activity", async () => {
   const source = createAppSource();
   const shell = source.shell;
   if (!shell) throw new Error("Missing shell");
@@ -91,43 +143,131 @@ test("shell source routes only its live ID and disposes telemetry and simulation
   await shell.open();
   await shell.restart();
   await shell.hide();
-  expect(mock.toggle).not.toHaveBeenCalled();
-  await expect(source.tail("local-shell")).resolves.toEqual([]);
+  await expect(source.tail("foreign")).resolves.toEqual([]);
+  const dispose = shell.mount(document.createElement("div"), vi.fn());
+  await Promise.resolve();
+  expect(source.getSnapshot().map((row) => row.id)).toEqual(["real-id"]);
   const listener = vi.fn();
-  const off = shell.subscribe(listener);
+  const off = source.subscribe(listener);
+  const viewListener = vi.fn();
+  const offView = shell.subscribe(viewListener);
+  mock.update?.(view);
+  expect(shell.getSnapshot()).toEqual(view);
+  expect(viewListener).toHaveBeenCalledOnce();
   const activity = vi.fn();
   const offActivity = source.subscribeActivity(activity);
-  const dispose = shell.mount(document.createElement("div"), vi.fn());
-  mock.update?.(view);
-  expect(source.getSnapshot()[0]?.reason).toBe("bash · process: shell");
-  expect(shell.getSnapshot()).toEqual(view);
-  expect(listener).toHaveBeenCalledOnce();
-  mock.activity?.([
-    { id: "foreign", rate: 5 },
-    { id: "real-id", rate: 2000 },
-  ]);
-  expect(activity).toHaveBeenCalledExactlyOnceWith([{ id: "local-shell", rate: 2000 }]);
-  vi.advanceTimersByTime(1000);
-  expect(activity).toHaveBeenCalledTimes(101);
-  await expect(source.tail("local-shell")).resolves.toEqual(["real output"]);
-  await expect(source.tail("review")).resolves.toContain("Run npm test? (y/n)");
+  const before = source.getSnapshot();
+  mock.activity?.([{ id: "real-id", rate: 2000 }]);
+  expect(source.getSnapshot()).toBe(before);
+  expect(listener).not.toHaveBeenCalled();
+  expect(activity).toHaveBeenCalledWith([{ id: "real-id", rate: 2000 }]);
+  mock.state?.(verdict("a"));
+  mock.workspace.mockResolvedValue({
+    repositories: [{ path: "/code/app", name: "app" }],
+    terminals: [agent("a")],
+  });
+  mock.changed?.();
+  await Promise.resolve();
+  expect(source.getSnapshot()[1]).toMatchObject({
+    id: "a",
+    repository: "app",
+    state: "needs_input",
+    waitingSince: 100,
+  });
+  source.markSeen("a");
+  await shell.open("a");
+  expect(mock.open).toHaveBeenCalledWith("a");
+  expect(source.getSnapshot()[1]?.state).toBe("needs_input");
+  expect(mock.feedback).not.toHaveBeenCalled();
+  mock.state?.(verdict("a", 200));
+  expect(source.getSnapshot()[1]?.waitingSince).toBe(100);
+  await source.resolve("a", "Not attention");
+  expect(mock.feedback).toHaveBeenCalledWith("a", "v-200", "dismissed");
+  mock.state?.({
+    ...verdict("a", 300),
+    state: "quiet_ok",
+    signal: "user:dismissed",
+    verdictId: null,
+  });
+  expect(source.getSnapshot()[1]?.waitingSince).toBe(0);
+  await source.resolve("a", "Not attention");
+  await source.resolve("foreign", "Not attention");
+  expect(mock.feedback).toHaveBeenCalledOnce();
+  mock.state?.({ ...verdict("a", 400), verdictId: null });
+  await source.resolve("a", "Not attention");
+  expect(mock.feedback).toHaveBeenLastCalledWith("a", null, "dismissed");
+  await expect(source.tail("a")).resolves.toEqual(["real output"]);
+  expect(mock.tail).toHaveBeenCalledWith("a", 40);
+  mock.exit?.("a", 1);
+  expect(source.getSnapshot()[1]).toMatchObject({ state: "failed", waitingSince: 0 });
+  mock.state?.(verdict("a", 500));
+  expect(source.getSnapshot()[1]?.state).toBe("failed");
+  mock.state?.({ ...verdict("a", 600), state: "failed" });
+  source.markSeen("a");
+  mock.workspace.mockResolvedValue({
+    repositories: [],
+    terminals: [agent("b", { ...verdict("b"), state: "done" }), agent("a")],
+  });
+  mock.changed?.();
+  await Promise.resolve();
+  expect(source.getSnapshot().map((row) => row.id)).toEqual(["real-id", "a", "b"]);
+  expect(source.getSnapshot()[1]?.seen).toBe(true);
+  mock.exit?.("real-id", 0);
+  expect(source.getSnapshot()[0]?.state).toBe("done");
+  mock.workspace.mockResolvedValue({ repositories: [], terminals: [] });
+  mock.changed?.();
+  await Promise.resolve();
+  expect(source.getSnapshot()).toHaveLength(1);
   await shell.toggle();
-  await shell.open();
-  await shell.restart();
   await shell.hide();
-  expect(mock.toggle).toHaveBeenCalledTimes(2);
-  expect(mock.restart).toHaveBeenCalledOnce();
-  expect(mock.hide).toHaveBeenCalledOnce();
-  mock.update?.({ ...view, state: "done", status: "Shell exited (0)" });
-  expect(source.getSnapshot()[0]).toMatchObject({ state: "done", seen: false });
-  mock.update?.({ ...view, state: "failed", status: "Shell exited (1)", visible: true });
-  expect(source.getSnapshot()[0]).toMatchObject({ state: "failed", seen: true });
+  await shell.restart();
   off();
+  offView();
   offActivity();
   dispose();
   expect(mock.dispose).toHaveBeenCalledOnce();
-  expect(mock.off).toHaveBeenCalledOnce();
-  expect(vi.getTimerCount()).toBe(0);
+  expect(mock.off).toHaveBeenCalledTimes(4);
+});
+
+test("snapshot loading cannot overwrite newer events or revive a disposed source", async () => {
+  const source = createAppSource();
+  let finish: (snapshot: WorkspaceSnapshot) => void = () => {};
+  mock.workspace.mockReturnValueOnce(
+    new Promise((resolve) => {
+      finish = resolve;
+    }),
+  );
+  const dispose = source.shell?.mount(document.createElement("div"), vi.fn());
+  mock.state?.(verdict("a", 200));
+  finish({ repositories: [], terminals: [{ ...agent("a", verdict("a", 100)), branch: null }] });
+  await Promise.resolve();
+  expect(source.getSnapshot()[1]).toMatchObject({ waitingSince: 200, branch: "Detached HEAD" });
+  mock.workspace.mockReturnValueOnce(
+    new Promise((resolve) => {
+      finish = resolve;
+    }),
+  );
+  mock.changed?.();
+  mock.changed?.();
+  await Promise.resolve();
+  finish({ repositories: [], terminals: [agent("stale")] });
+  await Promise.resolve();
+  expect(source.getSnapshot().some((row) => row.id === "stale")).toBe(false);
+  const error = vi.spyOn(console, "error").mockImplementation(() => {});
+  mock.workspace.mockRejectedValueOnce(new Error("gone"));
+  mock.changed?.();
+  await Promise.resolve();
+  expect(error).toHaveBeenCalled();
+  mock.workspace.mockReturnValueOnce(
+    new Promise((resolve) => {
+      finish = resolve;
+    }),
+  );
+  mock.changed?.();
+  dispose?.();
+  finish({ repositories: [], terminals: [agent("late")] });
+  await Promise.resolve();
+  expect(source.getSnapshot().some((row) => row.id === "late")).toBe(false);
 });
 
 test("board starts hidden, opens the shell, preserves printable keys and returns focus on Escape", async () => {
@@ -181,7 +321,7 @@ test("board starts hidden, opens the shell, preserves printable keys and returns
     screen.getByRole("button", { name: "Open terminal" }).click();
     await Promise.resolve();
   });
-  expect(mock.toggle).toHaveBeenCalledTimes(4);
+  expect(mock.toggle).toHaveBeenCalledTimes(5);
 });
 
 async function settle() {
@@ -260,4 +400,74 @@ test("unreadable settings fall back to the board", async () => {
   await settle();
   expect(screen.container.querySelector('[data-kind="shell"]')).toBeTruthy();
   expect(error).toHaveBeenCalledWith("Unable to load setup:", expect.any(Error));
+});
+
+test("sample sessions require the explicit development flag", async () => {
+  vi.stubGlobal("FOOM_SAMPLE_BOARD", true);
+  try {
+    const screen = render(<Shell />);
+    await settle();
+    expect(screen.container.querySelectorAll('[data-kind="sample"]')).toHaveLength(10);
+    expect(mock.update).toBeUndefined();
+  } finally {
+    vi.unstubAllGlobals();
+  }
+});
+
+test("a dismissal failure is visible and can be retried without clearing attention", async () => {
+  const screen = render(<Shell />);
+  await settle();
+  act(() => {
+    mock.state?.(verdict("real-id"));
+  });
+  await act(async () => {
+    screen.container.querySelector<HTMLButtonElement>(".board-row")?.click();
+    await Promise.resolve();
+  });
+  mock.feedback.mockRejectedValueOnce(new Error("disk full"));
+  await act(async () => {
+    screen.getByRole("button", { name: "Not attention" }).click();
+    await Promise.resolve();
+  });
+  expect(screen.getByRole("alert").textContent).toContain("Unable to record feedback");
+  expect(screen.container.querySelector(".board-row")?.getAttribute("data-state")).toBe(
+    "needs_input",
+  );
+  await act(async () => {
+    screen.getByRole("button", { name: "Not attention" }).click();
+    await Promise.resolve();
+  });
+  expect(screen.queryByRole("alert")).toBeNull();
+});
+
+test("a shell startup failure remains reachable for retry without sending a placeholder ID", async () => {
+  mock.failStart = true;
+  const source = createAppSource();
+  await expect(source.tail("local-shell")).resolves.toEqual([]);
+  const dispose = source.shell?.mount(document.createElement("div"), vi.fn());
+  await Promise.resolve();
+  expect(source.getSnapshot()[0]).toMatchObject({
+    state: "failed",
+    reason: "Unable to start shell",
+  });
+  await source.shell?.open("local-shell");
+  expect(mock.open).toHaveBeenCalledWith(undefined);
+  dispose?.();
+});
+
+test("an open startup row follows the shell's real ID when creation finishes", async () => {
+  mock.failStart = true;
+  const screen = render(<Shell />);
+  await settle();
+  await act(async () => {
+    screen.container.querySelector<HTMLButtonElement>(".board-row")?.click();
+    await Promise.resolve();
+  });
+  await act(async () => {
+    mock.created?.("replacement", "bash");
+    mock.update?.(view);
+    await Promise.resolve();
+  });
+  expect(mock.open).toHaveBeenLastCalledWith("replacement");
+  expect(screen.container.querySelector<HTMLElement>(".board-terminal")?.hidden).toBe(false);
 });

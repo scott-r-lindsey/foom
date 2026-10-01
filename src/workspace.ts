@@ -42,6 +42,7 @@ export interface WorkspaceDependencies {
   /** Started on the first launch that attaches hooks, then reused. */
   receiver: () => Promise<HookRegistrar & { close(): Promise<void> }>;
   onState(state: TerminalState): void;
+  onChange?(): void;
   agents?: (prepare: (agent: AgentId) => Promise<AgentHooks>) => Agents;
   now?: () => number;
 }
@@ -159,6 +160,7 @@ export class Workspace {
       state: null,
     });
     this.track(result.id);
+    this.deps.onChange?.();
     return result;
   }
 
@@ -263,6 +265,7 @@ export class Workspace {
     this.agents.release(id);
     this.launched.delete(id);
     this.terminals.delete(id);
+    this.deps.onChange?.();
   }
 
   /**

@@ -77,7 +77,7 @@ Setup is a preflight countdown:
 
 On wide windows the steps use the extra width: agents as a grid, the worktree choices side by side, and the Evaluator's live check beside its options.
 
-The rail also holds **Appearance**: System, Light or Dark, and the interface size (80–150%; the window grows and shrinks with it while the screen has room, around the pointer when you click + or − or scroll over the percentage, so what you pointed at stays under it; also ⌘ +/−/0 on macOS or Ctrl+Shift+=/− and Ctrl+0 elsewhere). Terminal font size is a separate setting to come. A model source is used only after it passes Run check. Launch opens the board. The target is an empty board with **New worktree**; today it still shows the live shell and labeled sample sessions, pending #57 and #58. **Preflight** on the board runs setup again with the saved choices; Esc returns to the board.
+The rail also holds **Appearance**: System, Light or Dark, and the interface size (80–150%; the window grows and shrinks with it while the screen has room, around the pointer when you click + or − or scroll over the percentage, so what you pointed at stays under it; also ⌘ +/−/0 on macOS or Ctrl+Shift+=/− and Ctrl+0 elsewhere). Terminal font size is a separate setting to come. A model source is used only after it passes Run check. Launch opens the board. The target is an empty board with **New worktree**; today it shows a live shell and any launched agents, pending the New worktree flow in #58. Sample sessions are available only in an explicit development build. **Preflight** on the board runs setup again with the saved choices; Esc returns to the board.
 
 ## Quitting
 

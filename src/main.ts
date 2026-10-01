@@ -118,6 +118,9 @@ function createWindow() {
     // Rules first, then whatever model tier setup has configured.
     verdicts: new VerdictLog(app.getPath("userData"), (input) => setup.classify(input)),
     receiver: () => HookReceiver.listen((signal) => void workspace.hook(signal)),
+    onChange: () => {
+      workspaceIpc.sendChanged();
+    },
     onState: (state) => {
       workspaceIpc.sendState(state);
     },

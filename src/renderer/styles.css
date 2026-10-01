@@ -206,6 +206,7 @@ button:focus-visible {
   }
 }
 .board-peek {
+  pointer-events: none;
   position: fixed;
   inset: auto 8vw 7vh;
   max-height: 35vh;

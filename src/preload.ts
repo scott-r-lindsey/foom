@@ -128,6 +128,15 @@ const desktop: DesktopApi = {
     ipcRenderer.on("terminal:activity", listener);
     return () => ipcRenderer.removeListener("terminal:activity", listener);
   },
+  onWorkspaceChange(callback) {
+    const listener = () => {
+      callback();
+    };
+    ipcRenderer.on("workspace:changed", listener);
+    return () => {
+      ipcRenderer.removeListener("workspace:changed", listener);
+    };
+  },
   workspace: () => ipcRenderer.invoke("workspace:snapshot"),
   addRepository: () => ipcRenderer.invoke("workspace:add-repository"),
   worktrees: (repository) => ipcRenderer.invoke("workspace:worktrees", repository),

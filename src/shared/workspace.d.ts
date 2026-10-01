@@ -50,6 +50,7 @@ export interface LaunchRequest {
 
 export interface WorkspaceApi {
   workspace(): Promise<WorkspaceSnapshot>;
+  onWorkspaceChange(callback: () => void): () => void;
   /** Main shows the directory picker; resolves null when the user cancels. */
   addRepository(): Promise<Repository | null>;
   worktrees(repository: string): Promise<readonly Worktree[]>;

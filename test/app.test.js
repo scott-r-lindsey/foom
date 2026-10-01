@@ -313,6 +313,7 @@ test("terminal runs an interactive shell behind an isolated bridge", {
           "acknowledge",
           "tail",
           "onActivity",
+          "onWorkspaceChange",
           "workspace",
           "addRepository",
           "worktrees",
@@ -792,6 +793,9 @@ test("a crashed utility host reports failure and the renderer can restart", {
   await page.waitForFunction(
     () => !/Starting|failed|Unable/.test(document.querySelector("#status").textContent),
   );
+  // A title is available before the replacement attachment is ready for input.
+  await expect(page.getByRole("button", { name: "Hide terminal", exact: true })).toBeEnabled();
+  await expect(page.locator(".xterm-helper-textarea")).toBeFocused();
   const replacementPid = await app.evaluate(
     ({ app }) => app.getAppMetrics().find((metric) => metric.name === "Foom terminal host")?.pid,
   );
@@ -965,107 +969,34 @@ test("Hide and Open restore hidden fullscreen output across repeated view transi
   await page.keyboard.type("q");
 });
 
-test("board is home, routes attention with the keyboard and respects reduced motion", async (context) => {
+test("board starts with live terminals only and peeks without opening", async (context) => {
   const app = await launchApp(context, false);
   const page = await app.firstWindow();
-  const board = page.getByRole("main", { name: "Board" });
-  const rows = board.locator(".board-row");
-  await expect(rows).toHaveCount(11);
+  const row = page.locator(".board-row");
+  await expect(row).toHaveCount(1);
+  await expect(row).toBeFocused();
   await expect(page.locator("#terminal")).toBeHidden();
-  await expect(rows.first()).toBeFocused();
-  await assertAccessible(page);
-  // An existing hover must not make the first keyboard peek toggle off.
-  await rows.nth(2).hover();
-  await page.keyboard.press("ArrowDown");
   await page.keyboard.press("p");
-  await expect(board.getByRole("complementary", { name: "Terminal peek" })).toBeVisible();
-  await expect(rows.nth(1)).toBeFocused();
+  await expect(page.getByRole("complementary", { name: "Terminal peek" })).toBeVisible();
+  await expect(row).toBeFocused();
+  await expect(page.locator("#terminal")).toBeHidden();
   await page.keyboard.press("Escape");
-  await page.keyboard.press("n");
-  await expect(board.locator(".board-terminal")).toBeFocused();
-  await expect(board.locator(".sample-terminal")).toContainText("Run npm test?");
-  await expect(rows.nth(1)).toContainText("Needs you");
   await assertAccessible(page);
-  await page.keyboard.press("Tab");
-  await expect(board.getByRole("button", { name: "Back to board · Esc" })).toBeFocused();
-  await page.keyboard.press("Escape");
-  await expect(rows.nth(1)).toBeFocused();
-  await page.emulateMedia({ reducedMotion: "reduce" });
-  assert.equal(
-    await board
-      .locator('[data-state="checking"] .board-light')
-      .evaluate((element) => getComputedStyle(element).animationName),
-    "none",
-  );
-  assert.equal(
-    await board
-      .locator('[data-state="working"] .board-light')
-      .first()
-      .evaluate((element) => getComputedStyle(element).opacity),
-    "1",
-  );
-  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(1200, 1100));
-  for (const colorScheme of ["light", "dark"]) {
-    await page.emulateMedia({ colorScheme });
-    await page.screenshot({
-      path: path.join(__dirname, `../out/56-board-${colorScheme}.png`),
-    });
-  }
-  await page.keyboard.press("ArrowUp");
   await page.keyboard.press("Enter");
   await expect(page.locator(".xterm-helper-textarea")).toBeFocused();
-  for (const colorScheme of ["light", "dark"]) {
-    await page.emulateMedia({ colorScheme });
-    await page.screenshot({ path: path.join(__dirname, `../out/56-open-${colorScheme}.png`) });
-  }
   await page.keyboard.type("exit");
   await page.keyboard.press("Enter");
   const restart = page.getByRole("button", { name: "Restart shell" });
   await expect(restart).toBeEnabled();
-  await restart.focus();
-  await page.keyboard.press("Enter");
+  await restart.click();
   await expect(page.locator(".xterm-helper-textarea")).toBeFocused();
   await page.keyboard.press("Escape");
-  await expect(rows.first()).toBeFocused();
-});
-
-test("ten sample rows receive 10 Hz activity without React commits", async (context) => {
-  const app = await launchApp(context, false);
-  const page = await app.firstWindow();
-  await page.addInitScript(() => {
-    window.boardCommits = 0;
-    window.__REACT_DEVTOOLS_GLOBAL_HOOK__ = {
-      supportsFiber: true,
-      inject: () => 1,
-      onCommitFiberRoot: () => {
-        window.boardCommits++;
-      },
-      onCommitFiberUnmount: () => {},
-    };
-  });
-  await page.reload();
-  await page.waitForFunction(() => !document.querySelector("#toggle-terminal")?.disabled);
-  await expect(page.locator('.board-row[data-kind="sample"]')).toHaveCount(10);
-  const before = await page.evaluate(() => {
-    window.activityMutations = 0;
-    window.activityObserver = new MutationObserver((records) => {
-      window.activityMutations += records.length;
-    });
-    for (const light of document.querySelectorAll('.board-row[data-kind="sample"] .board-light')) {
-      window.activityObserver.observe(light, { attributes: true, attributeFilter: ["style"] });
-    }
-    return window.boardCommits;
-  });
-  assert.ok(before > 0, "React commit hook is active");
-  await expect
-    .poll(() => page.evaluate(() => window.activityMutations))
-    .toBeGreaterThanOrEqual(100);
-  assert.equal(await page.evaluate(() => window.boardCommits), before);
-  await page.evaluate(() => window.activityObserver.disconnect());
+  await expect(row).toBeFocused();
 });
 
 test("renderer bundle contains production React without a Node process dependency", async () => {
   const bundle = await readFile(path.join(__dirname, "../build/renderer/renderer.js"), "utf8");
+  assert.doesNotMatch(bundle, /fix\/session-restore|Sample output.*read-only.*Ready to verify/);
   const ts = require("typescript");
   const source = ts.createSourceFile("renderer.js", bundle, ts.ScriptTarget.Latest, true);
   const processReferences = [];
@@ -1095,6 +1026,8 @@ const { writeFileSync } = require("node:fs");
 const args = process.argv.slice(2);
 if (args[0] === "--version") { console.log("2.1.300 (Claude Code)"); process.exit(0); }
 if (args[0] === "--help") { console.log("  --settings <file-or-json>  Load settings"); process.exit(0); }
+if (process.cwd().endsWith("finish-ok")) { console.log("Finished successfully"); setTimeout(() => process.exit(0), 100); return; }
+if (process.cwd().endsWith("finish-failed")) { console.log("Failed task"); setTimeout(() => process.exit(1), 100); return; }
 const settings = JSON.parse(args[args.indexOf("--settings") + 1]);
 const command = settings.hooks.PermissionRequest[0].hooks[0].command;
 const env = process.env;
@@ -1109,6 +1042,12 @@ process.stdin.on("data", (key) => {
     process.stdout.write("y\\r\\n\\x1b[1mAllow Bash(npm test)?\\x1b[0m\\r\\n");
     const hook = spawn("sh", ["-c", command], { stdio: ["pipe", "ignore", "ignore"] });
     hook.stdin.end(JSON.stringify({ session_id: "fake-session", hook_event_name: "PermissionRequest" }));
+  } else if (input === "f") {
+    let count = 0;
+    const timer = setInterval(() => {
+      process.stdout.write("Working " + "x".repeat(1000) + "\\r\\n");
+      if (++count === 50) { clearInterval(timer); process.stdout.write("Continue? (y/n) "); }
+    }, 50);
   } else if (input === "q") {
     process.exit(3);
   }
@@ -1205,8 +1144,34 @@ test("launches an agent in a managed worktree and routes its attention signals",
     [{ terminal: id, branch: "feature/fake", agent: "claude" }],
   );
 
+  const agentRow = page
+    .locator('.board-row[data-kind="agent"]')
+    .filter({ hasText: "feature/fake" });
+  await expect(agentRow).toHaveAttribute("data-state", "needs_input");
+  await expect(agentRow).toContainText("pattern:confirmation");
+  // Peek reads the real host tail and leaves both focus and attachment alone.
+  await agentRow.focus();
+  await page.keyboard.press("p");
+  await expect(page.locator(".board-peek")).toContainText("FOOM_AGENT_READY");
+  await expect(agentRow).toBeFocused();
+  await expect(page.locator("#terminal")).toBeHidden();
+  await page.keyboard.press("Escape");
+  await page.keyboard.press("n");
+  await expect(page.locator(".xterm-helper-textarea")).toBeFocused();
+  await expect(agentRow).toHaveAttribute("data-state", "needs_input");
+  await assertAccessible(page);
+  await page.keyboard.type("f");
+  await expect(agentRow).toHaveAttribute("data-state", "working");
+  await expect
+    .poll(() =>
+      agentRow
+        .locator(".board-light")
+        .evaluate((element) => Number(element.style.getPropertyValue("--light-opacity"))),
+    )
+    .toBeGreaterThan(0.9);
+  await expect(agentRow).toHaveAttribute("data-state", "needs_input");
   // Typing is the reply; then the agent's hook asks for permission.
-  await page.evaluate((terminal) => window.desktop.input(terminal, "y"), id);
+  await page.keyboard.type("y");
   await expect
     .poll(async () => (await latest())?.signal, { timeout: 10000 })
     .toBe("claude:PermissionRequest");
@@ -1218,11 +1183,8 @@ test("launches an agent in a managed worktree and routes its attention signals",
   assert.equal((await latest()).state, "needs_input");
 
   // Not attention clears it and records feedback.
-  const { verdictId } = await latest();
-  await page.evaluate(
-    ({ terminal, verdict }) => window.desktop.feedback(terminal, verdict, "dismissed"),
-    { terminal: id, verdict: verdictId },
-  );
+  await page.getByRole("button", { name: "Not attention", exact: true }).click();
+  await expect(agentRow).toHaveAttribute("data-state", "quiet_ok");
   assert.equal((await latest()).signal, "user:dismissed");
 
   // Exit is final and revokes the launch's hook credentials.
@@ -1239,6 +1201,36 @@ test("launches an agent in a managed worktree and routes its attention signals",
     body: JSON.stringify({ session_id: "fake-session", hook_event_name: "PermissionRequest" }),
   });
   assert.equal(replay.status, 401);
+  await expect(agentRow).toHaveAttribute("data-state", "failed");
+  await page.getByRole("button", { name: "Back to board · Esc" }).click();
+  for (const branch of ["finish-ok", "finish-failed"]) {
+    await page.evaluate(
+      async ({ repository, branch }) => {
+        const tree = await window.desktop.createWorktree(repository, branch, "adjacent");
+        await window.desktop.launchAgent({
+          agent: "claude",
+          repository,
+          worktree: tree.path,
+          cols: 80,
+          rows: 24,
+        });
+      },
+      { repository: setup.repository.path, branch },
+    );
+    const row = page.locator(".board-row").filter({ hasText: branch });
+    await expect(row).toHaveAttribute("data-state", branch === "finish-ok" ? "done" : "failed");
+    await row.click();
+    await expect(page.locator(".xterm-helper-textarea")).toBeFocused();
+    await expect(page.locator(".xterm-rows")).toContainText(
+      branch === "finish-ok" ? "Finished successfully" : "Failed task",
+    );
+    await page.keyboard.press("Escape");
+  }
+  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(1200, 850));
+  for (const colorScheme of ["light", "dark"]) {
+    await page.emulateMedia({ colorScheme });
+    await page.screenshot({ path: path.join(__dirname, `../out/57-board-${colorScheme}.png`) });
+  }
   const log = await readFile(path.join(root, "user-data", "verdicts.jsonl"), "utf8");
   assert.match(log, /"feedback":"not_attention"/);
   assert.match(log, /"action":"replied"/);

@@ -184,3 +184,14 @@ test("dispose removes every handler", () => {
     mock.handle.mock.calls.map(([name]) => name),
   );
 });
+
+test("workspace invalidations go only to the app document", () => {
+  attached.sendChanged();
+  expect(contents.send).toHaveBeenCalledWith("workspace:changed");
+  frame.url = "https://example.com";
+  attached.sendChanged();
+  frame.url = "app://bundle/index.html";
+  contents.isDestroyed.mockReturnValue(true);
+  attached.sendChanged();
+  expect(contents.send).toHaveBeenCalledOnce();
+});
