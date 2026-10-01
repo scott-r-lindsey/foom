@@ -1,11 +1,11 @@
 import { createRoot } from "react-dom/client";
-import { Shell } from "./shell";
+import { App } from "./app";
 import "@xterm/xterm/css/xterm.css";
 
 const host = document.getElementById("root");
 if (!host) throw new Error("Missing renderer root");
 const root = createRoot(host);
-root.render(<Shell />);
+root.render(<App />);
 window.addEventListener(
   "beforeunload",
   () => {

@@ -7,18 +7,9 @@
     "types": ["node"]
   },
   "include": [
-    "src/main.ts",
-    "src/terminal-host.ts",
-    "src/preload.ts",
-    "src/worktrees.ts",
-    "src/agents.ts",
-    "src/hook-receiver.ts",
-    "src/hook-adapters.ts",
-    "src/shared/**/*.ts",
-    "src/evaluator.ts",
-    "src/verdict-log.ts",
-    "src/model-evaluator.ts",
-    "src/inference-source.ts",
-    "src/inference-keys.ts"
+    "src/main/**/*.ts",
+    "src/terminal-host/**/*.ts",
+    "src/preload/**/*.ts",
+    "src/shared/**/*.ts"
   ]
 }

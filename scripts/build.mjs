@@ -23,7 +23,10 @@ for (const config of ["tsconfig.main.json", "tsconfig.renderer.json"]) {
 await mkdir(new URL("../build/renderer/", import.meta.url), { recursive: true });
 for (const asset of ["index.html", "styles.css", "tokens.css"]) {
   await copyFile(
-    new URL(`../src/renderer/${asset}`, import.meta.url),
+    new URL(
+      `../src/renderer/${asset === "index.html" ? asset : `styles/${asset}`}`,
+      import.meta.url,
+    ),
     new URL(`../build/renderer/${asset}`, import.meta.url),
   );
 }

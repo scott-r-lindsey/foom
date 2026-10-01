@@ -19,9 +19,9 @@ test("only explicitly allowed documentation and reference changes skip desktop",
     false,
   );
   for (const path of [
-    "src/main.ts",
+    "src/main/main.ts",
     "package-lock.json",
-    "test/app.test.js",
+    "tests/electron/app.test.js",
     "scripts/build.mjs",
     ".github/workflows/ci.yml",
     "new.config",
@@ -30,7 +30,7 @@ test("only explicitly allowed documentation and reference changes skip desktop",
     "docs/mockups/nested/board.html",
     "docs/mockups/board.js",
     "other.md",
-    "README.md\nsrc/main.ts",
+    "README.md\nsrc/main/main.ts",
   ]) {
     assert.equal(requiresDesktop(["README.md", path]), true, path);
   }
