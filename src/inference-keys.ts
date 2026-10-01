@@ -1,5 +1,5 @@
 import { safeStorage } from "electron";
-import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { access, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import path from "node:path";
 import type { ApiProvider } from "./shared/inference";
@@ -13,12 +13,24 @@ export class InferenceKeys {
       throw new Error("Invalid key provider");
     return path.join(this.userData, `inference-${provider}.key`);
   }
+  /** False without OS encryption, including Linux's plain-text fallback. */
+  available(): boolean {
+    return (
+      safeStorage.isEncryptionAvailable() &&
+      !(process.platform === "linux" && safeStorage.getSelectedStorageBackend() === "basic_text")
+    );
+  }
   private requireEncryption(): void {
-    if (
-      !safeStorage.isEncryptionAvailable() ||
-      (process.platform === "linux" && safeStorage.getSelectedStorageBackend() === "basic_text")
-    ) {
+    if (!this.available())
       throw new Error("Secure key storage unavailable; use a local endpoint or rules only");
+  }
+  /** Whether a key is stored. Never decrypts or returns it. */
+  async has(provider: ApiProvider): Promise<boolean> {
+    try {
+      await access(this.file(provider));
+      return true;
+    } catch {
+      return false;
     }
   }
   async set(provider: ApiProvider, value: unknown): Promise<void> {

@@ -5,6 +5,7 @@ import type { AgentHooks, AgentId } from "./shared/agents";
 import type { TerminalSpec } from "./shared/desktop";
 import type { EvaluationInput, VerdictAction, VerdictRecord } from "./shared/evaluator";
 import type { HookSignal } from "./shared/hooks";
+import type { Settings } from "./shared/setup";
 import type { Repository, Worktree } from "./shared/worktrees";
 import type {
   AgentReport,
@@ -15,7 +16,7 @@ import type {
 } from "./shared/workspace";
 import type { WorktreeService } from "./worktrees";
 
-type Agents = Pick<AgentService, "scan" | "launch" | "release" | "dispose">;
+type Agents = Pick<AgentService, "scan" | "launch" | "release" | "dispose" | "setHooksEnabled">;
 type Terminal = {
   exitCode?: number;
   hook?: HookSignal;
@@ -59,6 +60,7 @@ export class Workspace {
   private receiver: ReturnType<WorkspaceDependencies["receiver"]> | undefined;
   private scanned: ReturnType<Agents["scan"]> | undefined;
   private closed = false;
+  private enabled: Readonly<Record<AgentId, boolean>> = { claude: true, codex: true, agy: true };
   private readonly now: () => number;
 
   constructor(private readonly deps: WorkspaceDependencies) {
@@ -78,6 +80,12 @@ export class Workspace {
     this.agents = deps.agents
       ? deps.agents(prepare)
       : new AgentService(deps.worktrees, deps.terminals, prepare);
+  }
+
+  /** Setup's choices apply to later launches; running agents keep theirs. */
+  configure(settings: Pick<Settings, "hooks" | "agents">): void {
+    this.agents.setHooksEnabled(settings.hooks);
+    this.enabled = settings.agents;
   }
 
   snapshot(): WorkspaceSnapshot {
@@ -132,6 +140,7 @@ export class Workspace {
   async launch(request: LaunchRequest): Promise<{ id: string; attention: "hooks" | "evaluator" }> {
     if (this.closed) throw new Error("Workspace is closed");
     this.known(request.repository);
+    if (!this.enabled[request.agent]) throw new Error("This agent is turned off in preflight");
     // Scan once so launches don't each probe the login shell.
     await this.scanAgents(false);
     // Look up the branch before spawning, so nothing can fail between spawn and tracking.

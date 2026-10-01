@@ -12,6 +12,7 @@
   "scripts": {
     "build": "node scripts/build.mjs",
     "start": "npm run build && electron-forge start",
+    "start:fresh": "npm run build && node scripts/start-fresh.mjs",
     "typecheck": "tsc -p tsconfig.main.json --noEmit && tsc -p tsconfig.renderer.json --noEmit && tsc -p tsconfig.tests.json",
     "lint": "eslint . --max-warnings=0",
     "test": "vitest run",

@@ -14,9 +14,10 @@ export interface TerminalSpec {
   rows: number;
   env?: Readonly<Record<string, string>>;
 }
+import type { SetupApi } from "./setup";
 import type { WorkspaceApi } from "./workspace";
 
-export interface DesktopApi extends WorkspaceApi {
+export interface DesktopApi extends WorkspaceApi, SetupApi {
   create(cols: number, rows: number): Promise<{ id: string; title: string }>;
   attach(id: string): Promise<void>;
   detach(id: string): Promise<void>;

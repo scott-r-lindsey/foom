@@ -1,5 +1,5 @@
 import { evaluateRules } from "./evaluator";
-import { classifierPrompt, parseModelVerdict } from "./inference-input";
+import { CHECK_SAMPLE, classifierPrompt, parseModelVerdict } from "./inference-input";
 import type { EvaluationInput, Verdict } from "./shared/evaluator";
 import type { InferenceSource, ModelCheck } from "./shared/inference";
 
@@ -30,9 +30,7 @@ export class ModelEvaluator {
   }
 
   /** Setup's Run check deliberately exercises inference even for an obvious sample. */
-  runCheck(
-    tail: readonly string[] = ["Would you like me to apply these changes?"],
-  ): Promise<ModelCheck> {
+  runCheck(tail: readonly string[] = [CHECK_SAMPLE]): Promise<ModelCheck> {
     return this.check(tail, evaluateRules({ terminalId: "sample", tail }));
   }
 

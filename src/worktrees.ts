@@ -195,6 +195,26 @@ export class WorktreeService {
     return repository;
   }
 
+  /**
+   * Forgets a repository. Refused while Foom still owns worktrees in it, so their
+   * ownership records aren't silently dropped; remove those worktrees first.
+   */
+  async removeRepository(path: string): Promise<void> {
+    this.repository(path);
+    const owned = [...this.managed.values()].filter((entry) => entry.repository === path).length;
+    if (owned > 0)
+      throw new Error(
+        `Has ${String(owned)} ${owned === 1 ? "worktree" : "worktrees"} Foom made; remove ${owned === 1 ? "it" : "them"} first`,
+      );
+    this.repositories.delete(path);
+    await this.save();
+  }
+
+  /** Where worktrees go when they don't sit next to their repository. */
+  get worktreeRoot(): string {
+    return this.root;
+  }
+
   listRepositories(): readonly Repository[] {
     return [...this.repositories.values()];
   }

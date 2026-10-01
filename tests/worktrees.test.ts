@@ -95,6 +95,30 @@ describe("repository discovery", () => {
   });
 });
 
+describe("forgetting repositories", () => {
+  it("removes an unused repository, persistently", async () => {
+    const service = await WorktreeService.open(join(temporary, "user-data"), root);
+    await service.addRepository(repo);
+    await service.removeRepository(repo);
+    expect(service.listRepositories()).toEqual([]);
+    const reopened = await WorktreeService.open(join(temporary, "user-data"), root);
+    expect(reopened.listRepositories()).toEqual([]);
+    await expect(service.removeRepository(repo)).rejects.toThrow("has not been added");
+  });
+  it("refuses while Foom owns worktrees in it", async () => {
+    const first = await service.createWorktree(repo, "one");
+    await expect(service.removeRepository(repo)).rejects.toThrow(
+      "Has 1 worktree Foom made; remove it first",
+    );
+    await service.createWorktree(repo, "two");
+    await expect(service.removeRepository(repo)).rejects.toThrow(
+      "Has 2 worktrees Foom made; remove them first",
+    );
+    await service.removeWorktree(repo, first);
+    expect(service.listRepositories()).toHaveLength(1);
+  });
+});
+
 describe("creation and listing", () => {
   it("supports linked worktrees belonging to a bare repository", async () => {
     const bare = join(temporary, "bare.git");

@@ -1,14 +1,21 @@
-import { app, BrowserWindow, dialog, nativeTheme, net, protocol, session } from "electron";
+import { app, BrowserWindow, dialog, nativeTheme, net, protocol, screen, session } from "electron";
 import { WorktreeService } from "./worktrees";
 import { attachTerminal } from "./terminal";
 import { HookReceiver } from "./hook-receiver";
 import { VerdictLog } from "./verdict-log";
 import { Workspace } from "./workspace";
 import { attachWorkspace } from "./workspace-ipc";
+import { InferenceKeys } from "./inference-keys";
+import { SettingsStore } from "./settings";
+import { Setup } from "./setup";
+import { attachSetup } from "./setup-ipc";
+import { BASE_SIZE, MINIMUM_SIZE, scaledSize, zoomShortcut } from "./appearance";
+import { attachWindowScale } from "./window-scale";
 import * as path from "node:path";
 import { pathToFileURL } from "node:url";
 
 export let worktrees: WorktreeService;
+let settings: SettingsStore;
 
 const APP_URL = "app://bundle/index.html";
 const rendererDirectory = path.join(__dirname, "renderer");
@@ -29,16 +36,23 @@ protocol.registerSchemesAsPrivileged([
 ]);
 
 function createWindow() {
+  // The window opens at the saved interface scale, sized to match and to fit.
+  const scale = settings.get().interfaceScale;
+  const area = screen.getPrimaryDisplay().workArea;
+  const size = scaledSize(BASE_SIZE, scale, area);
+  const minimum = scaledSize(MINIMUM_SIZE, scale, area);
   const window = new BrowserWindow({
-    width: 900,
-    height: 640,
-    minWidth: 480,
-    minHeight: 420,
+    width: size.width,
+    height: size.height,
+    minWidth: minimum.width,
+    minHeight: minimum.height,
     title: "Foom",
     backgroundColor: nativeTheme.shouldUseDarkColors ? "#05040A" : "#F3F0FA",
     show: false,
     autoHideMenuBar: true,
     webPreferences: {
+      // Saved interface scale, so the first paint is already the right size.
+      zoomFactor: scale / 100,
       preload: path.join(__dirname, "preload.js"),
       contextIsolation: true,
       nodeIntegration: false,
@@ -70,6 +84,14 @@ function createWindow() {
       app.quit();
       return;
     }
+    const zoom = zoomShortcut(input, process.platform);
+    if (zoom) {
+      event.preventDefault();
+      setupIpc.zoom(zoom).catch((error: unknown) => {
+        console.error("Unable to change the interface size:", error);
+      });
+      return;
+    }
     if (input.type !== "keyDown" || !input.control || !input.shift || input.alt || input.meta) {
       return;
     }
@@ -93,14 +115,49 @@ function createWindow() {
   const workspace: Workspace = new Workspace({
     worktrees,
     terminals,
-    verdicts: new VerdictLog(app.getPath("userData")),
+    // Rules first, then whatever model tier setup has configured.
+    verdicts: new VerdictLog(app.getPath("userData"), (input) => setup.classify(input)),
     receiver: () => HookReceiver.listen((signal) => void workspace.hook(signal)),
     onState: (state) => {
       workspaceIpc.sendState(state);
     },
   });
   const workspaceIpc = attachWorkspace(window, workspace, (id) => terminals.owns(id));
+  const windowScale = attachWindowScale(
+    window,
+    (bounds) => screen.getDisplayMatching(bounds).workArea,
+    scale,
+  );
+  const setup = new Setup({
+    store: settings,
+    keys: new InferenceKeys(app.getPath("userData")),
+    worktreeRoot: worktrees.worktreeRoot,
+    code: {
+      worktrees,
+      home: app.getPath("home"),
+      pickFolder: async () => {
+        const result = await dialog.showOpenDialog(window, {
+          title: "Where do you keep your code?",
+          defaultPath: app.getPath("home"),
+          properties: ["openDirectory"],
+        });
+        return result.canceled ? null : (result.filePaths[0] ?? null);
+      },
+    },
+    apply: (next) => {
+      workspace.configure(next);
+      nativeTheme.themeSource = next.colorMode;
+      // Resize first: the page then zooms into a window that already fits it.
+      windowScale.apply(next.interfaceScale);
+      window.webContents.setZoomFactor(next.interfaceScale / 100);
+    },
+  });
+  // A click on + or − grows the window from the pointer, so the button stays under it.
+  const setupIpc = attachSetup(window, setup, (active) => {
+    windowScale.anchorAt(active ? screen.getCursorScreenPoint() : undefined);
+  });
   window.once("closed", () => {
+    setupIpc.dispose();
     workspaceIpc.dispose();
     void workspace.dispose();
   });
@@ -182,6 +239,9 @@ app
   .whenReady()
   .then(async () => {
     worktrees = await WorktreeService.open(app.getPath("userData"));
+    settings = await SettingsStore.open(app.getPath("userData"));
+    // Before the window exists, so its background already matches the saved mode.
+    nativeTheme.themeSource = settings.get().colorMode;
     // Serve only known local assets; arbitrary filesystem access is never exposed.
     protocol.handle("app", (request) => {
       const url = new URL(request.url);

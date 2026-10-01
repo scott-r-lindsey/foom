@@ -169,6 +169,105 @@ test("workspace requests use their own channels", async () => {
     ["terminal:feedback", "t1", "v1", "dismissed"],
   ]);
 });
+test("setup requests use their own channels and never read a key back", async () => {
+  const api = await bridge();
+  mock.invoke.mockResolvedValue("reply");
+  await expect(api.setupState()).resolves.toBe("reply");
+  await api.saveSetup({ hooks: false });
+  await api.setInferenceKey("openai", "sk-test");
+  await api.removeInferenceKey("openai");
+  await api.cancelInferenceCheck("c1");
+  await api.localModels("http://127.0.0.1:11434/v1");
+  expect(mock.invoke.mock.calls).toEqual([
+    ["setup:state"],
+    ["setup:save", { hooks: false }],
+    ["setup:set-key", "openai", "sk-test"],
+    ["setup:remove-key", "openai"],
+    ["setup:check-cancel", "c1"],
+    ["setup:models", "http://127.0.0.1:11434/v1"],
+  ]);
+  expect(Object.keys(api).some((key) => /get.*key|read.*key/i.test(key))).toBe(false);
+});
+test("check progress is filtered by ID, validated, and unsubscribed when the check ends", async () => {
+  const api = await bridge();
+  const updates: unknown[] = [];
+  let finish: (value: unknown) => void = () => {};
+  mock.invoke.mockReturnValueOnce(
+    new Promise((resolve) => {
+      finish = resolve;
+    }),
+  );
+  const pending = api.checkInference("c1", { kind: "rules" }, 5000, (update) => {
+    updates.push(update);
+  });
+  expect(mock.invoke).toHaveBeenLastCalledWith("setup:check", "c1", { kind: "rules" }, 5000);
+  const listener = mock.on.mock.calls.find(([name]) => name === "setup:check-progress")?.[1];
+  if (!listener) throw new Error("Missing listener");
+  const step = { step: "connect", status: "ok", label: "Connected", atMs: 1, durationMs: 1 };
+  for (const [id, update] of [
+    ["c1", { kind: "step", event: step }],
+    ["c1", { kind: "step", event: { ...step, durationMs: undefined } }],
+    ["c1", { kind: "stream", thinking: 2, reply: "{" }],
+    ["other", { kind: "stream", thinking: 2, reply: "{" }],
+    ["c1", null],
+    ["c1", { kind: "stream", thinking: "2", reply: "{" }],
+    ["c1", { kind: "step", event: { ...step, step: "exfiltrate" } }],
+    ["c1", { kind: "step", event: { ...step, status: "maybe" } }],
+    ["c1", { kind: "step", event: { ...step, label: 1 } }],
+    ["c1", { kind: "step", event: { ...step, atMs: "1" } }],
+    ["c1", { kind: "step", event: { ...step, durationMs: "1" } }],
+    ["c1", { kind: "step", event: null }],
+    ["c1", { kind: "other" }],
+  ] as const)
+    listener({}, id, update);
+  expect(updates).toHaveLength(3);
+  finish("result");
+  await expect(pending).resolves.toBe("result");
+  expect(mock.removeListener).toHaveBeenCalledWith("setup:check-progress", listener);
+});
+test("code scans report validated progress and use their own channels", async () => {
+  const api = await bridge();
+  const progress = vi.fn();
+  mock.invoke.mockResolvedValueOnce("scan");
+  const pending = api.scanCode("s1", "/code", progress);
+  expect(mock.invoke).toHaveBeenLastCalledWith("setup:scan-code", "s1", "/code");
+  const listener = mock.on.mock.calls.find(([name]) => name === "setup:scan-progress")?.[1];
+  if (!listener) throw new Error("Missing listener");
+  listener({}, "s1", { folders: 3, repositories: 1 });
+  listener({}, "other", { folders: 3, repositories: 1 });
+  listener({}, "s1", { folders: "3", repositories: 1 });
+  listener({}, "s1", null);
+  await expect(pending).resolves.toBe("scan");
+  expect(progress).toHaveBeenCalledExactlyOnceWith({ folders: 3, repositories: 1 });
+  expect(mock.removeListener).toHaveBeenCalledWith("setup:scan-progress", listener);
+  mock.invoke.mockResolvedValue("reply");
+  await api.codeSuggestions();
+  await api.applyRepositories(["/code/a"]);
+  expect(mock.invoke.mock.calls.slice(-2)).toEqual([
+    ["setup:code-suggestions"],
+    ["setup:apply-repositories", ["/code/a"]],
+  ]);
+});
+test("setup changes from main are validated and can be unsubscribed", async () => {
+  const api = await bridge();
+  const callback = vi.fn();
+  const off = api.onSetupChange(callback);
+  const listener = mock.on.mock.calls.find(([name]) => name === "setup:changed")?.[1];
+  if (!listener) throw new Error("Missing listener");
+  const state = { settings: {}, keys: {}, secureStorage: true, worktreeRoot: "/w" };
+  for (const value of [
+    state,
+    null,
+    { ...state, settings: null },
+    { ...state, keys: [] },
+    { ...state, secureStorage: "yes" },
+    { ...state, worktreeRoot: 1 },
+  ])
+    listener({}, value);
+  expect(callback).toHaveBeenCalledExactlyOnceWith(state);
+  off();
+  expect(mock.removeListener).toHaveBeenCalledWith("setup:changed", listener);
+});
 test("terminal state events are validated and can be unsubscribed", async () => {
   const api = await bridge();
   const callback = vi.fn();

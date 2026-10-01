@@ -1,9 +1,9 @@
 # Model evaluator
 
 Issue #15 supplies main-process services, like the rules evaluator in #14. It does
-not start background inference or expose a new renderer capability. Application
-wiring is #50; first-run source selection, key entry, and the Run check button are
-#17. Main should own one `ModelEvaluator` so its concurrency limit covers all
+not start background inference or expose a new renderer capability. Preflight
+(#17) owns source selection, key entry and Run check, and `Setup` builds the app's
+evaluator from the saved source. Main should own one `ModelEvaluator` so its concurrency limit covers all
 terminals, and discard stale results when output resumes, a terminal exits, or the
 source changes.
 
@@ -39,9 +39,15 @@ original rules verdict. Pass `input => evaluator.evaluate(input)` as the second
 argument to `VerdictLog` to persist these verdicts and their feedback using the
 existing log. `runCheck()` bypasses rules to test the selected model with
 a synthetic prose question, returning a verdict, status, and measured elapsed
-milliseconds. Setup must show this result before accepting the source. A rules
-verdict or timeout is not a successful model check. Both entry points redact input,
-limit it to 40 physical lines, use a five-second deadline, and share two slots.
+milliseconds. Both entry points redact input, limit it to 40 physical lines, use the
+configured deadline (five seconds by default), and share two slots.
+
+Preflight's Run check uses `probeInference` from `src/inference-probe.ts` instead, so
+it can report each stage live and name failures precisely; see the evaluator section
+of [architecture](architecture.md#evaluator-pipeline). It sends the same prompt and
+parameters as classification, with streaming on. Setup must show its result before
+accepting the source. A timeout or a reply that isn't the requested JSON is not a
+successful check.
 Unlabelled secrets can evade heuristic redaction. Response validation constrains
 output shape, not classification accuracy or resistance to every prompt injection.
 

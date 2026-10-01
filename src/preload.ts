@@ -1,6 +1,8 @@
 import { contextBridge, ipcRenderer } from "electron";
 import type { IpcRendererEvent } from "electron";
 import type { DesktopApi, TerminalActivity } from "./shared/desktop";
+import type { ProbeUpdate } from "./shared/inference";
+import type { SetupState } from "./shared/setup";
 import type { TerminalState } from "./shared/workspace";
 
 const states = ["needs_input", "done", "failed", "quiet_ok", "working"];
@@ -18,6 +20,34 @@ function terminalState(value: unknown): value is TerminalState {
     typeof value["signal"] === "string" &&
     typeof value["confidence"] === "number" &&
     typeof value["timestamp"] === "number"
+  );
+}
+
+const steps = ["key", "connect", "server", "model", "load", "request", "reply", "parse"];
+const statuses = ["running", "ok", "failed", "skipped"];
+function probeUpdate(value: unknown): value is ProbeUpdate {
+  if (!object(value)) return false;
+  if (value["kind"] === "stream")
+    return typeof value["thinking"] === "number" && typeof value["reply"] === "string";
+  const event = value["event"];
+  return (
+    value["kind"] === "step" &&
+    object(event) &&
+    steps.includes(String(event["step"])) &&
+    statuses.includes(String(event["status"])) &&
+    typeof event["label"] === "string" &&
+    typeof event["atMs"] === "number" &&
+    (event["durationMs"] === undefined || typeof event["durationMs"] === "number")
+  );
+}
+
+function setupState(value: unknown): value is SetupState {
+  return (
+    object(value) &&
+    object(value["settings"]) &&
+    object(value["keys"]) &&
+    typeof value["secureStorage"] === "boolean" &&
+    typeof value["worktreeRoot"] === "string"
   );
 }
 
@@ -105,6 +135,49 @@ const desktop: DesktopApi = {
     ipcRenderer.invoke("workspace:create-worktree", repository, branch, location),
   scanAgents: (refresh) => ipcRenderer.invoke("agents:scan", refresh),
   launchAgent: (request) => ipcRenderer.invoke("agents:launch", request),
+  setupState: () => ipcRenderer.invoke("setup:state"),
+  saveSetup: (patch) => ipcRenderer.invoke("setup:save", patch),
+  setInferenceKey: (provider, key) => ipcRenderer.invoke("setup:set-key", provider, key),
+  removeInferenceKey: (provider) => ipcRenderer.invoke("setup:remove-key", provider),
+  checkInference(id, config, timeoutMs, onUpdate) {
+    const listener = (_event: IpcRendererEvent, check: unknown, update: unknown) => {
+      if (check === id && probeUpdate(update)) onUpdate(update);
+    };
+    ipcRenderer.on("setup:check-progress", listener);
+    return ipcRenderer.invoke("setup:check", id, config, timeoutMs).finally(() => {
+      ipcRenderer.removeListener("setup:check-progress", listener);
+    });
+  },
+  async cancelInferenceCheck(id) {
+    await ipcRenderer.invoke("setup:check-cancel", id);
+  },
+  localModels: (endpoint) => ipcRenderer.invoke("setup:models", endpoint),
+  codeSuggestions: () => ipcRenderer.invoke("setup:code-suggestions"),
+  scanCode(id, folder, onProgress) {
+    const listener = (_event: IpcRendererEvent, scan: unknown, progress: unknown) => {
+      if (
+        scan === id &&
+        object(progress) &&
+        typeof progress["folders"] === "number" &&
+        typeof progress["repositories"] === "number"
+      )
+        onProgress({ folders: progress["folders"], repositories: progress["repositories"] });
+    };
+    ipcRenderer.on("setup:scan-progress", listener);
+    return ipcRenderer.invoke("setup:scan-code", id, folder).finally(() => {
+      ipcRenderer.removeListener("setup:scan-progress", listener);
+    });
+  },
+  applyRepositories: (selected) => ipcRenderer.invoke("setup:apply-repositories", selected),
+  onSetupChange(callback) {
+    const listener = (_event: IpcRendererEvent, state: unknown) => {
+      if (setupState(state)) callback(state);
+    };
+    ipcRenderer.on("setup:changed", listener);
+    return () => {
+      ipcRenderer.removeListener("setup:changed", listener);
+    };
+  },
   async feedback(id, verdictId, action) {
     await ipcRenderer.invoke("terminal:feedback", id, verdictId, action);
   },

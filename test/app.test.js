@@ -2,7 +2,7 @@ const { AxeBuilder } = require("@axe-core/playwright");
 const { test } = require("node:test");
 const assert = require("node:assert/strict");
 const path = require("node:path");
-const { mkdtemp, readFile, rm } = require("node:fs/promises");
+const { mkdir, mkdtemp, readFile, realpath, rm, writeFile } = require("node:fs/promises");
 const { tmpdir } = require("node:os");
 const { _electron: electron, expect } = require("@playwright/test");
 
@@ -43,7 +43,31 @@ async function quitAndWait(app, requestQuit) {
 
 // A test timeout does not cancel Playwright promises or dispose native processes.
 // Keep a final worker deadline so even broken cleanup cannot occupy a CI runner.
+// Every launch gets its own profile. Unless a test is about first run, preflight is
+// already complete so the app opens on the board.
+async function prepareProfile(options) {
+  const given = options.args?.find((arg) => arg.startsWith("--user-data-dir="));
+  const owned = given ? undefined : await mkdtemp(path.join(tmpdir(), "foom-profile-"));
+  const profile = given ? given.slice("--user-data-dir=".length) : owned;
+  if (!options.firstRun) {
+    await mkdir(profile, { recursive: true });
+    await writeFile(
+      path.join(profile, "settings.json"),
+      JSON.stringify({ version: 1, settings: { setupComplete: true } }),
+      { flag: "wx" },
+    ).catch((error) => {
+      if (error.code !== "EEXIST") throw error;
+    });
+  }
+  return {
+    args: [...(options.args ?? []), ...(owned ? [`--user-data-dir=${owned}`] : [])],
+    cleanup: () =>
+      owned ? rm(owned, { recursive: true, force: true, maxRetries: 5 }) : Promise.resolve(),
+  };
+}
+
 async function launchApp(context, openShell = true, options = {}) {
+  const profile = await prepareProfile(options);
   const watchdog = setTimeout(() => {
     console.error("Electron test exceeded its 60-second hard deadline; terminating worker");
     // Playwright's exit handler kills the process groups it launched.
@@ -56,7 +80,7 @@ async function launchApp(context, openShell = true, options = {}) {
     chromiumSandbox: true,
     colorScheme: null,
     timeout: 15_000,
-    args: [path.join(__dirname, ".."), ...(options.args ?? [])],
+    args: [path.join(__dirname, ".."), ...profile.args],
     env,
   });
   const child = app.process();
@@ -96,6 +120,7 @@ async function launchApp(context, openShell = true, options = {}) {
       clearTimeout(watchdog);
     } finally {
       clearTimeout(timer);
+      await profile.cleanup().catch(() => {});
       // If graceful shutdown failed, fail the test and terminate the process tree.
       // The worker watchdog remains armed in case a Playwright connection also hangs.
       if (child.exitCode === null && child.signalCode === null) {
@@ -118,6 +143,7 @@ async function launchApp(context, openShell = true, options = {}) {
       timeout: 10000,
     })
     .toBe(true);
+  if (options.firstRun) return app;
   await page.locator(".board-row[data-kind='shell']").waitFor();
   // Report startup errors directly instead of timing out on a permanently disabled control.
   await expect
@@ -293,6 +319,17 @@ test("terminal runs an interactive shell behind an isolated bridge", {
           "createWorktree",
           "scanAgents",
           "launchAgent",
+          "setupState",
+          "saveSetup",
+          "setInferenceKey",
+          "removeInferenceKey",
+          "checkInference",
+          "cancelInferenceCheck",
+          "localModels",
+          "codeSuggestions",
+          "scanCode",
+          "applyRepositories",
+          "onSetupChange",
           "feedback",
           "onState",
           "onData",
@@ -1082,7 +1119,6 @@ test("launches an agent in a managed worktree and routes its attention signals",
   timeout: 60_000,
   skip: process.platform === "win32" && "The fake agent is a POSIX script",
 }, async (context) => {
-  const { execFileSync } = require("node:child_process");
   const { chmod, mkdir, writeFile } = require("node:fs/promises");
   const root = await mkdtemp(path.join(tmpdir(), "foom-workspace-"));
   context.after(() => rm(root, { recursive: true, force: true }));
@@ -1094,7 +1130,7 @@ test("launches an agent in a managed worktree and routes its attention signals",
   await writeFile(path.join(bin, "claude"), FAKE_CLAUDE);
   await chmod(path.join(bin, "claude"), 0o755);
   const git = (...args) =>
-    execFileSync("git", ["-c", "user.name=Foom", "-c", "user.email=foom@example.com", ...args], {
+    isolatedGit(["-c", "user.name=Foom", "-c", "user.email=foom@example.com", ...args], {
       cwd: repo,
     });
   git("init", "-q", "-b", "main");
@@ -1253,12 +1289,15 @@ test("inference keys stay in main and require real OS encryption", async (contex
     assert.equal(result.encrypted, true);
   }
   assert.deepEqual(result.files, []);
-  assert.equal(
+  // Preflight can store, remove and test a key; nothing in the bridge reads one back.
+  assert.deepEqual(
     await page.evaluate(() =>
-      Object.keys(window.desktop).some((key) => /key|secret|inference/i.test(key)),
+      Object.keys(window.desktop).filter((key) => /key|secret|inference/i.test(key)),
     ),
-    false,
+    ["setInferenceKey", "removeInferenceKey", "checkInference", "cancelInferenceCheck"],
   );
+  const state = await page.evaluate(() => window.desktop.setupState());
+  assert.deepEqual(state.keys, { anthropic: false, openai: false, google: false });
 });
 
 test("focus reports reach the shell without counting as a reply", {
@@ -1307,4 +1346,329 @@ test("focus reports reach the shell without counting as a reply", {
     ).length,
     1,
   );
+});
+
+/** Git without inherited GIT_* variables, which could point it at Foom's own repository. */
+function isolatedGit(args, options = {}) {
+  const env = Object.fromEntries(
+    Object.entries(process.env).filter(([key]) => !key.startsWith("GIT_")),
+  );
+  return require("node:child_process").execFileSync("git", args, { ...options, env });
+}
+
+async function tabTo(page, name) {
+  for (let step = 0; step < 40; step++) {
+    await page.keyboard.press("Tab");
+    const label = await page.evaluate(() => document.activeElement?.textContent?.trim());
+    if (label === name) return;
+  }
+  throw new Error(`Could not reach "${name}" with Tab`);
+}
+
+test("a fresh profile opens preflight, and it passes accessibility checks", async (context) => {
+  const app = await launchApp(context, false, { firstRun: true });
+  const page = await app.firstWindow();
+  await page.getByRole("button", { name: "Start preflight" }).waitFor();
+  assert.equal(await page.locator(".board-home").count(), 0);
+  // The accretion ring orbits, spins up while you're on it, and holds still for reduced motion.
+  const ring = () =>
+    page.getByRole("button", { name: "Start preflight" }).evaluate((button) => {
+      const style = getComputedStyle(button);
+      return `${style.animationName} ${style.animationPlayState}`;
+    });
+  assert.equal(await ring(), "ignite-orbit, ignite-boost running, paused");
+  await page.getByRole("button", { name: "Start preflight" }).hover();
+  assert.equal(await ring(), "ignite-orbit, ignite-boost running, running");
+  await page.mouse.move(0, 0);
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  assert.equal(await ring(), "none running");
+  await page.emulateMedia({ reducedMotion: null });
+  await assertAccessible(page);
+  await page.getByRole("button", { name: "Start preflight" }).click();
+  await page.getByText("Which agents do you run?").waitFor();
+  await expect(page.getByText("Looking…")).toHaveCount(0, { timeout: 20000 });
+  await assertAccessible(page);
+});
+
+test("first run goes from no agents to go, launches by keyboard, and can be replayed", {
+  timeout: 60_000,
+  skip: process.platform === "win32" && "The fake agents are POSIX scripts",
+}, async (context) => {
+  const { chmod, symlink } = require("node:fs/promises");
+  const root = await mkdtemp(path.join(tmpdir(), "foom-first-run-"));
+  context.after(() => rm(root, { recursive: true, force: true, maxRetries: 5 }));
+  const bin = path.join(root, "bin");
+  const repo = path.join(root, "app");
+  const userData = path.join(root, "user-data");
+  await mkdir(bin);
+  await mkdir(repo);
+  await mkdir(path.join(root, "home"));
+  isolatedGit(["init", "-q", repo]);
+  // Node gets its own folder: agents installed beside it must stay hidden.
+  const nodeBin = path.join(root, "node-bin");
+  await mkdir(nodeBin);
+  await symlink(process.execPath, path.join(nodeBin, "node"));
+
+  const app = await launchApp(context, false, {
+    firstRun: true,
+    args: [`--user-data-dir=${userData}`],
+    // A private HOME and PATH hide any agents installed on this machine.
+    env: {
+      HOME: path.join(root, "home"),
+      PATH: [bin, nodeBin, "/usr/bin", "/bin"].join(path.delimiter),
+    },
+  });
+  const page = await app.firstWindow();
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await app.evaluate(({ dialog }, directory) => {
+    dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [directory] });
+  }, repo);
+
+  await tabTo(page, "Start preflight");
+  await page.keyboard.press("Enter");
+  await expect(page.getByText("Not found")).toHaveCount(3, { timeout: 20000 });
+  await tabTo(page, "Continue");
+  await page.keyboard.press("Enter");
+  // The private HOME has no code folders, so the picker is the way in.
+  await page.getByRole("button", { name: "Choose folder…" }).click();
+  await page.getByText("1 of 1 selected").waitFor();
+  for (const heading of [
+    "Where should new worktrees go?",
+    "How should Foom read a terminal that goes quiet?",
+    "Hold. Something needs fixing.",
+  ]) {
+    await tabTo(page, "Continue");
+    await page.keyboard.press("Enter");
+    await page.getByText(heading).waitFor();
+  }
+  await expect(page.getByRole("button", { name: "Launch" })).toBeDisabled();
+  await page.getByRole("button", { name: "Fix" }).click();
+
+  // Install all three, then scan again.
+  const script = (body) => `#!/usr/bin/env node\nconst a = process.argv[2];\n${body}\n`;
+  const agents = {
+    claude: script(
+      'if (a === "--version") console.log("2.1.300 (Claude Code)"); else console.log("  --settings <file-or-json>");',
+    ),
+    codex: script(
+      'if (a === "--version") console.log("codex-cli 0.155.1"); else console.log("  -c, --config <key=value>");',
+    ),
+    agy: script('if (a === "--version") console.log("1.2.13");'),
+  };
+  for (const [name, source] of Object.entries(agents)) {
+    await writeFile(path.join(bin, name), source);
+    await chmod(path.join(bin, name), 0o755);
+  }
+  await page.getByRole("button", { name: "Scan again" }).click();
+  await expect(page.getByText("Found", { exact: true })).toHaveCount(3, { timeout: 20000 });
+  await expect(page.locator(".badge-value")).toHaveText(["2.1.300", "0.155.1", "1.2.13"]);
+  for (const name of ["Hooks", "Notify", "Evaluator"])
+    await expect(page.getByRole("button", { name, exact: true })).toBeVisible();
+  // Where each agent was found is a tooltip away, by keyboard as well as pointer.
+  // Park the pointer away from the cards, so a hover can't win over keyboard focus.
+  await page.mouse.move(0, 0);
+  await page.getByRole("button", { name: "codex", exact: true }).focus();
+  await expect(page.getByRole("tooltip")).toContainText(`Found at ${path.join(bin, "codex")}`);
+  await assertAccessible(page);
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("tooltip")).toHaveCount(0);
+  await page.getByRole("button", { name: /Go \/ no-go/ }).click();
+  await page.getByText("All stations go.").waitFor();
+  await assertAccessible(page);
+  await tabTo(page, "Launch");
+  await page.keyboard.press("Enter");
+
+  // Reduced motion shows a still frame, then the board.
+  await page.getByText("Takeoff was faster than expected.").waitFor();
+  const shellRow = page.locator(".board-row[data-kind='shell']");
+  await shellRow.waitFor({ timeout: 10000 });
+  const saved = JSON.parse(await readFile(path.join(userData, "settings.json"), "utf8"));
+  assert.deepEqual(saved.settings, {
+    setupComplete: true,
+    hooks: true,
+    agents: { claude: true, codex: true, agy: true },
+    worktreeLocation: "root",
+    inference: { kind: "rules" },
+    inferenceTimeoutMs: 5000,
+    colorMode: "system",
+    interfaceScale: 100,
+    codeFolder: await realpath(repo),
+  });
+
+  // Preflight can run again over the board; Escape returns to the same row.
+  await shellRow.focus();
+  await page.getByRole("button", { name: "Preflight" }).click();
+  await page.getByRole("button", { name: "Start preflight" }).waitFor();
+  await expect(page.locator(".board-home")).toBeHidden();
+  await page.keyboard.press("Escape");
+  await expect(page.locator(".board-home")).toBeVisible();
+  assert.equal(await shellRow.evaluate((row) => row === document.activeElement), true);
+});
+
+test("Run check streams live progress from a local model server, then saves the source", async (context) => {
+  const { createServer } = require("node:http");
+  let release;
+  const released = new Promise((resolve) => {
+    release = resolve;
+  });
+  const chunk = (delta, finish = null) =>
+    `data: ${JSON.stringify({ choices: [{ delta, finish_reason: finish }] })}\n\n`;
+  // A stand-in for Ollama that keeps "thinking" until the test has seen live progress.
+  const server = createServer(async (request, response) => {
+    if (request.url === "/api/version") return response.end('{"version":"9.9.9"}');
+    if (request.url === "/api/ps") return response.end('{"models":[]}');
+    if (request.url === "/v1/models") return response.end('{"data":[{"id":"fake:1b"}]}');
+    if (request.url !== "/v1/chat/completions") return response.writeHead(404).end();
+    response.writeHead(200, { "content-type": "text/event-stream" });
+    response.write(chunk({ reasoning: "Considering" }));
+    await released;
+    response.write(chunk({ content: '{"state":"needs_input","confidence":0.9}' }));
+    response.end(`${chunk({}, "stop")}data: [DONE]\n\n`);
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  context.after(() => {
+    // A failed assertion must not leave a streaming request holding teardown open.
+    release();
+    server.closeAllConnections();
+    return new Promise((resolve) => server.close(resolve));
+  });
+  const endpoint = `http://127.0.0.1:${server.address().port}/v1`;
+  // launchApp owns this profile and removes it only after Electron exits.
+  const app = await launchApp(context, false, { firstRun: true });
+  const userData = await app.evaluate(({ app }) => app.getPath("userData"));
+  const page = await app.firstWindow();
+  await page.getByRole("button", { name: "Start preflight" }).click();
+  for (let step = 0; step < 3; step++) await page.getByRole("button", { name: "Continue" }).click();
+  await page.getByRole("radio", { name: /Use a local model/ }).check();
+  await page.getByRole("textbox", { name: "Endpoint" }).fill(endpoint);
+  await page.getByRole("combobox", { name: "Model" }).fill("fake:1b");
+  await page.getByText("Ollama 9.9.9 · 1 model").waitFor();
+  await page.getByRole("button", { name: "Run check" }).click();
+
+  // These arrive while the check is still running.
+  const steps = page.getByRole("list", { name: "Check steps" });
+  await steps.getByText("fake:1b is available").waitFor();
+  await steps.getByText("Thinking").waitFor();
+  await page.getByText("Thinking: 1 chunk").waitFor();
+  await expect(page.getByRole("progressbar", { name: "Time limit" })).toBeVisible();
+  await assertAccessible(page);
+  release();
+
+  await page.getByText(/needs_input · confidence 0\.90 in .*Foom will use this source/).waitFor();
+  await expect(steps.getByText("Loaded fake:1b")).toBeVisible();
+  const saved = JSON.parse(await readFile(path.join(userData, "settings.json"), "utf8"));
+  assert.deepEqual(saved.settings.inference, { kind: "local", model: "fake:1b", endpoint });
+
+  // A closed port fails at the first step, in plain words.
+  await page.getByRole("textbox", { name: "Endpoint" }).fill("http://127.0.0.1:59999/v1");
+  await page.getByRole("button", { name: "Run check" }).click();
+  await page
+    .getByRole("status")
+    .filter({ hasText: "Connection refused: nothing is listening on 127.0.0.1:59999" })
+    .waitFor();
+});
+
+test("appearance switches light and dark, and zoom shortcuts resize the interface", async (context) => {
+  const app = await launchApp(context, false, { firstRun: true });
+  const page = await app.firstWindow();
+  await page.getByRole("button", { name: "Start preflight" }).waitFor();
+  const dark = () => page.evaluate(() => matchMedia("(prefers-color-scheme: dark)").matches);
+  const background = () =>
+    page.evaluate(() => getComputedStyle(document.documentElement).backgroundColor);
+
+  await page.getByRole("radio", { name: "Dark" }).check();
+  await expect.poll(dark).toBe(true);
+  assert.equal(await app.evaluate(({ nativeTheme }) => nativeTheme.themeSource), "dark");
+  await expect.poll(background).toBe("rgb(5, 4, 10)");
+  await assertAccessible(page);
+  await page.getByRole("radio", { name: "Light" }).check();
+  await expect.poll(dark).toBe(false);
+  await expect.poll(background).toBe("rgb(243, 240, 250)");
+
+  const zoom = () =>
+    app.evaluate(({ BrowserWindow }) =>
+      BrowserWindow.getAllWindows()[0].webContents.getZoomFactor(),
+    );
+  const press = (keyCode, shift) =>
+    app.evaluate(
+      ({ BrowserWindow }, { keyCode, shift, mac }) => {
+        const window = BrowserWindow.getAllWindows()[0];
+        window.focus();
+        const modifiers = mac ? ["meta"] : ["control", ...(shift ? ["shift"] : [])];
+        for (const type of ["keyDown", "keyUp"])
+          window.webContents.sendInputEvent({ type, keyCode, modifiers });
+      },
+      { keyCode, shift, mac: process.platform === "darwin" },
+    );
+  const size = () =>
+    app.evaluate(({ BrowserWindow }) => {
+      const { width, height } = BrowserWindow.getAllWindows()[0].getBounds();
+      return { width, height };
+    });
+  const start = await size();
+  const grown = await app.evaluate(({ BrowserWindow, screen }) => {
+    const window = BrowserWindow.getAllWindows()[0];
+    const bounds = window.getBounds();
+    const content = window.getContentBounds();
+    const area = screen.getDisplayMatching(bounds).workArea;
+    // Native frames don't zoom, and the display may cap either dimension.
+    return {
+      width: Math.min(Math.round(content.width * 1.1) + bounds.width - content.width, area.width),
+      height: Math.min(
+        Math.round(content.height * 1.1) + bounds.height - content.height,
+        area.height,
+      ),
+    };
+  });
+  await press("=", true);
+  await expect.poll(zoom).toBeCloseTo(1.1);
+  await page.getByText("110%").waitFor();
+  // The window grows with the interface while the screen has room.
+  await expect.poll(size).toEqual(grown);
+  await page.getByRole("button", { name: "Larger" }).click();
+  await expect.poll(zoom).toBeCloseTo(1.2);
+  await press("0", false);
+  await expect.poll(zoom).toBeCloseTo(1);
+  await page.getByText("100%").waitFor();
+  // And returns to exactly its starting size.
+  await expect.poll(size).toEqual(start);
+  await assertAccessible(page);
+});
+
+test("preflight scans a code folder and adds the repositories worked on recently", async (context) => {
+  const { utimes } = require("node:fs/promises");
+  const root = await mkdtemp(path.join(tmpdir(), "foom-code-"));
+  context.after(() => rm(root, { recursive: true, force: true, maxRetries: 5 }));
+  const code = path.join(root, "code");
+  const old = new Date(Date.now() - 90 * 86_400_000);
+  for (const [name, stale] of [
+    ["recent-app", false],
+    [path.join("clients", "portal"), false],
+    ["dusty", true],
+  ]) {
+    const repo = path.join(code, name);
+    await mkdir(repo, { recursive: true });
+    isolatedGit(["init", "-q", "-b", "main", repo]);
+    if (stale) await utimes(path.join(repo, ".git", "HEAD"), old, old);
+  }
+  const app = await launchApp(context, false, { firstRun: true });
+  const page = await app.firstWindow();
+  await app.evaluate(({ dialog }, folder) => {
+    dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [folder] });
+  }, code);
+  await page.getByRole("button", { name: "Start preflight" }).click();
+  await page.getByRole("button", { name: "Continue" }).click();
+  await page.getByRole("button", { name: "Choose folder…" }).click();
+  await page.getByText("2 of 3 selected").waitFor();
+  const recent = page.getByRole("region", { name: "Recent · last 30 days" });
+  await expect(recent.getByRole("checkbox")).toHaveCount(2);
+  await expect(page.getByRole("region", { name: "Older" }).getByRole("checkbox")).not.toBeChecked();
+  await assertAccessible(page);
+  await page.getByRole("button", { name: "Continue" }).click();
+  await page.getByText("Where should new worktrees go?").waitFor();
+  await assertAccessible(page);
+  const added = await page.evaluate(async () =>
+    (await window.desktop.workspace()).repositories.map((repo) => repo.name).sort(),
+  );
+  assert.deepEqual(added, ["portal", "recent-app"]);
 });

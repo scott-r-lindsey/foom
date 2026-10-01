@@ -54,6 +54,68 @@ function first(value: unknown): unknown {
   return value[0];
 }
 
+type ModelConfig = Exclude<InferenceConfig, { kind: "rules" }>;
+export interface ProviderRequest {
+  url: string;
+  headers: Record<string, string>;
+  body: Record<string, unknown>;
+}
+
+/**
+ * The request for one classification. Origins are fixed for cloud providers; the key
+ * goes only into a header. `stream` asks for incremental output (used by Run check).
+ */
+export function providerRequest(
+  config: ModelConfig,
+  prompt: string,
+  key: string | undefined,
+  stream = false,
+): ProviderRequest {
+  const headers: Record<string, string> = { "content-type": "application/json" };
+  if (config.kind === "local" || config.kind === "openai") {
+    if (config.kind === "openai") headers["Authorization"] = `Bearer ${key ?? ""}`;
+    return {
+      url:
+        config.kind === "local"
+          ? `${config.endpoint}/chat/completions`
+          : "https://api.openai.com/v1/chat/completions",
+      headers,
+      body: {
+        model: config.model,
+        messages: [{ role: "user", content: prompt }],
+        ...(config.kind === "openai"
+          ? { max_completion_tokens: 512, store: false }
+          : { max_tokens: 512 }),
+        stream,
+      },
+    };
+  }
+  if (config.kind === "anthropic") {
+    headers["x-api-key"] = key ?? "";
+    headers["anthropic-version"] = "2023-06-01";
+    return {
+      url: "https://api.anthropic.com/v1/messages",
+      headers,
+      body: {
+        model: config.model,
+        max_tokens: 512,
+        messages: [{ role: "user", content: prompt }],
+        ...(stream ? { stream: true } : {}),
+      },
+    };
+  }
+  headers["x-goog-api-key"] = key ?? "";
+  const model = encodeURIComponent(config.model);
+  return {
+    url: `https://generativelanguage.googleapis.com/v1beta/models/${model}:${stream ? "streamGenerateContent?alt=sse" : "generateContent"}`,
+    headers,
+    body: {
+      contents: [{ parts: [{ text: prompt }] }],
+      generationConfig: { maxOutputTokens: 512 },
+    },
+  };
+}
+
 /** No tools or files; fixed cloud origins; local endpoints cannot redirect. */
 export function createInferenceSource(
   value: unknown,
@@ -64,41 +126,11 @@ export function createInferenceSource(
   if (config.kind === "rules") return undefined;
   return {
     async complete(prompt, signal) {
-      const headers: Record<string, string> = { "content-type": "application/json" };
-      let url: string;
-      let body: unknown;
-      if (config.kind === "local" || config.kind === "openai") {
-        url =
-          config.kind === "local"
-            ? `${config.endpoint}/chat/completions`
-            : "https://api.openai.com/v1/chat/completions";
-        if (config.kind === "openai")
-          headers["Authorization"] = `Bearer ${await readKey("openai")}`;
-        body = {
-          model: config.model,
-          messages: [{ role: "user", content: prompt }],
-          ...(config.kind === "openai"
-            ? { max_completion_tokens: 512, store: false }
-            : { max_tokens: 512 }),
-          stream: false,
-        };
-      } else if (config.kind === "anthropic") {
-        url = "https://api.anthropic.com/v1/messages";
-        headers["x-api-key"] = await readKey("anthropic");
-        headers["anthropic-version"] = "2023-06-01";
-        body = {
-          model: config.model,
-          max_tokens: 512,
-          messages: [{ role: "user", content: prompt }],
-        };
-      } else {
-        url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(config.model)}:generateContent`;
-        headers["x-goog-api-key"] = await readKey("google");
-        body = {
-          contents: [{ parts: [{ text: prompt }] }],
-          generationConfig: { maxOutputTokens: 512 },
-        };
-      }
+      const key =
+        config.kind === "anthropic" || config.kind === "openai" || config.kind === "google"
+          ? await readKey(config.kind)
+          : undefined;
+      const { url, headers, body } = providerRequest(config, prompt, key);
       signal.throwIfAborted();
       const response = await request(url, {
         method: "POST",

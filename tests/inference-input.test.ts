@@ -158,3 +158,23 @@ it("handles multiple complete and headerless blocks without leaking earlier mate
     ]).split("\n"),
   ).toEqual([...Array<string>(8).fill("[REDACTED PRIVATE KEY]"), "Continue?"]);
 });
+
+it("accepts JSON wrapped in one Markdown code fence, as chat models often send it", () => {
+  const json = '{\n  "state": "needs_input",\n  "confidence": 0.9\n}';
+  for (const reply of [
+    `\`\`\`json\n${json}\n\`\`\``,
+    `\`\`\`\n${json}\n\`\`\``,
+    `\n  \`\`\`json  \r\n${json}\r\n\`\`\`\n`,
+    `  ${json}  `,
+  ])
+    expect(parseModelVerdict(reply)).toMatchObject({ state: "needs_input", confidence: 0.9 });
+  for (const reply of [
+    `Here you go:\n\`\`\`json\n${json}\n\`\`\``,
+    `\`\`\`json\n${json}\n\`\`\`\nHope that helps.`,
+    `\`\`\`json\n${json}\n\`\`\`\n\`\`\`json\n${json}\n\`\`\``,
+    `\`\`\`python\n${json}\n\`\`\``,
+    `\`\`\`json ${json}\`\`\``,
+    '```json\n{"state":"done","confidence":1,"extra":true}\n```',
+  ])
+    expect(() => parseModelVerdict(reply), reply).toThrow();
+});

@@ -15,6 +15,7 @@ vi.mock("../src/workspace", () => ({
     removed = mock.workspace.removed;
     hook = mock.workspace.hook;
     dispose = mock.workspace.dispose;
+    configure = mock.workspace.configure;
     constructor(deps: unknown) {
       mock.workspace.deps = deps;
     }
@@ -22,10 +23,22 @@ vi.mock("../src/workspace", () => ({
 }));
 vi.mock("../src/workspace-ipc", () => ({ attachWorkspace: mock.attachWorkspace }));
 vi.mock("../src/hook-receiver", () => ({ HookReceiver: { listen: mock.listen } }));
-vi.mock("../src/verdict-log", () => ({ VerdictLog: vi.fn() }));
+vi.mock("../src/verdict-log", () => ({ VerdictLog: mock.VerdictLog }));
+vi.mock("../src/inference-keys", () => ({ InferenceKeys: vi.fn() }));
+vi.mock("../src/settings", () => ({ SettingsStore: { open: mock.openSettings } }));
+vi.mock("../src/setup", () => ({
+  Setup: class {
+    classify = mock.setup.classify;
+    constructor(deps: unknown) {
+      mock.setup.deps = deps;
+    }
+  },
+}));
+vi.mock("../src/setup-ipc", () => ({ attachSetup: mock.attachSetup }));
 vi.mock("../src/worktrees", () => ({ WorktreeService: { open: mock.openWorktrees } }));
 
-type ShortcutInput = Pick<Input, "type" | "key" | "control" | "shift" | "alt" | "meta">;
+type ShortcutInput = Pick<Input, "type" | "key" | "control" | "shift" | "alt" | "meta"> &
+  Partial<Pick<Input, "code">>;
 
 const mock = vi.hoisted(() => {
   const appEvents = new Map<string, (event: { preventDefault(): void }) => void>();
@@ -38,6 +51,7 @@ const mock = vi.hoisted(() => {
     webContents: {
       copy: vi.fn(),
       paste: vi.fn(),
+      setZoomFactor: vi.fn(),
       setWindowOpenHandler: vi.fn<(handler: () => { action: "deny" }) => void>(),
       on: vi.fn(
         (
@@ -65,6 +79,12 @@ const mock = vi.hoisted(() => {
       windowEvents.set(name, handler);
     }),
     removeMenu: vi.fn(),
+    getBounds: vi.fn(() => ({ x: 0, y: 0, width: 1080, height: 768 })),
+    getContentBounds: vi.fn(() => ({ x: 0, y: 0, width: 1080, height: 768 })),
+    setBounds: vi.fn(),
+    setMinimumSize: vi.fn(),
+    isMaximized: vi.fn(() => false),
+    isFullScreen: vi.fn(() => false),
     show: vi.fn(),
     setBackgroundColor: vi.fn(),
     loadURL: vi.fn<(url: string) => Promise<void>>(),
@@ -76,6 +96,12 @@ const mock = vi.hoisted(() => {
     once = window.once;
     on = window.on;
     removeMenu = window.removeMenu;
+    getBounds = window.getBounds;
+    getContentBounds = window.getContentBounds;
+    setBounds = window.setBounds;
+    setMinimumSize = window.setMinimumSize;
+    isMaximized = window.isMaximized;
+    isFullScreen = window.isFullScreen;
     show = window.show;
     setBackgroundColor = window.setBackgroundColor;
     loadURL = window.loadURL;
@@ -94,8 +120,10 @@ const mock = vi.hoisted(() => {
     removed: vi.fn(),
     hook: vi.fn(),
     dispose: vi.fn<() => Promise<void>>(),
+    configure: vi.fn(),
   };
   const ipc = { sendState: vi.fn(), dispose: vi.fn() };
+  const setup = { deps: undefined as unknown, classify: vi.fn() };
   return {
     terminals: {
       runningCount: 0,
@@ -106,14 +134,22 @@ const mock = vi.hoisted(() => {
     workspace,
     ipc,
     attachWorkspace: vi.fn<(...args: unknown[]) => typeof ipc>(() => ipc),
+    setup,
+    setupIpc: { dispose: vi.fn(), zoom: vi.fn<(direction: string) => Promise<void>>() },
+    attachSetup: vi.fn<(...args: unknown[]) => unknown>(),
+    openSettings: vi.fn<() => Promise<unknown>>(),
+    settingsStore: { get: () => ({ colorMode: "dark", interfaceScale: 120 }) },
+    VerdictLog: vi.fn<(userData: string, classify: (input: unknown) => unknown) => void>(),
     listen: vi.fn(),
     theme: {
+      themeSource: "system",
       shouldUseDarkColors: false,
       on: vi.fn<(name: string, handler: () => void) => void>(),
       removeListener: vi.fn(),
     },
     message: vi.fn<() => Promise<{ response: number }>>(),
     errorBox: vi.fn(),
+    openDialog: vi.fn<() => Promise<{ canceled: boolean; filePaths: string[] }>>(),
     openWorktrees: vi.fn<() => Promise<unknown>>(),
     BrowserWindow,
     construct,
@@ -146,7 +182,11 @@ const mock = vi.hoisted(() => {
 vi.mock("electron", () => ({
   BrowserWindow: mock.BrowserWindow,
   nativeTheme: mock.theme,
-  dialog: { showMessageBox: mock.message, showErrorBox: mock.errorBox },
+  dialog: {
+    showMessageBox: mock.message,
+    showErrorBox: mock.errorBox,
+    showOpenDialog: mock.openDialog,
+  },
   app: {
     whenReady: mock.ready,
     getPath: () => "/test/user-data",
@@ -160,6 +200,11 @@ vi.mock("electron", () => ({
     handle: mock.protocolHandle,
   },
   net: { fetch: mock.fetch },
+  screen: {
+    getPrimaryDisplay: () => ({ workArea: { x: 0, y: 0, width: 1920, height: 1080 } }),
+    getDisplayMatching: () => ({ workArea: { x: 0, y: 0, width: 1920, height: 1080 } }),
+    getCursorScreenPoint: () => ({ x: 1000, y: 700 }),
+  },
   session: {
     defaultSession: {
       setPermissionRequestHandler: mock.permissionRequest,
@@ -182,7 +227,11 @@ beforeEach(() => {
   mock.readyEvents.clear();
   mock.state.windows = [mock.window];
   mock.ready.mockResolvedValue();
-  mock.openWorktrees.mockResolvedValue({});
+  mock.openWorktrees.mockResolvedValue({ worktreeRoot: "/home/.foom/worktrees" });
+  mock.openSettings.mockResolvedValue(mock.settingsStore);
+  mock.attachSetup.mockImplementation(() => mock.setupIpc);
+  mock.setupIpc.zoom.mockResolvedValue();
+  mock.theme.themeSource = "system";
   mock.window.loadURL.mockResolvedValue();
   mock.fetch.mockResolvedValue(new Response("asset"));
 });
@@ -573,6 +622,59 @@ test("routes terminal events, hook signals and state through the workspace", asy
   mock.readyEvents.get("closed")?.();
   expect(mock.ipc.dispose).toHaveBeenCalledOnce();
   expect(mock.workspace.dispose).toHaveBeenCalledOnce();
+  expect(mock.setupIpc.dispose).toHaveBeenCalledOnce();
+});
+
+test("setup owns the settings, applies them to the workspace, and classifies verdicts", async () => {
+  await start();
+  expect(mock.openSettings).toHaveBeenCalledWith("/test/user-data");
+  const deps = mock.setup.deps as {
+    store: unknown;
+    worktreeRoot: string;
+    apply(settings: unknown): void;
+  };
+  expect(deps.store).toBe(mock.settingsStore);
+  expect(deps.worktreeRoot).toBe("/home/.foom/worktrees");
+  // The saved mode and scale apply before the window exists.
+  expect(mock.construct.mock.calls[0]?.[0].webPreferences?.zoomFactor).toBe(1.2);
+  expect(mock.theme.themeSource).toBe("dark");
+  const next = { hooks: false, colorMode: "light", interfaceScale: 90 };
+  deps.apply(next);
+  expect(mock.workspace.configure).toHaveBeenCalledWith(next);
+  expect(mock.theme.themeSource).toBe("light");
+  expect(mock.window.webContents.setZoomFactor).toHaveBeenCalledWith(0.9);
+  // The window opened at 120% and shrinks with the interface.
+  expect(mock.construct.mock.calls[0]?.[0]).toMatchObject({
+    width: 1080,
+    height: 768,
+    minWidth: 576,
+    minHeight: 504,
+  });
+  expect(mock.window.setBounds).toHaveBeenCalledWith({ x: 0, y: 0, width: 810, height: 576 });
+  // The code folder picker is main's own dialog.
+  const { code } = mock.setup.deps as { code: { pickFolder(): Promise<string | null> } };
+  mock.openDialog.mockResolvedValueOnce({ canceled: false, filePaths: ["/home/me/code"] });
+  await expect(code.pickFolder()).resolves.toBe("/home/me/code");
+  mock.openDialog.mockResolvedValueOnce({ canceled: true, filePaths: [] });
+  await expect(code.pickFolder()).resolves.toBeNull();
+  mock.openDialog.mockResolvedValueOnce({ canceled: false, filePaths: [] });
+  await expect(code.pickFolder()).resolves.toBeNull();
+  expect(mock.attachSetup.mock.calls[0]?.[1]).toBeInstanceOf(Object);
+  // A click on + grows the window from the pointer instead of the top-left corner.
+  const pointerZoom = mock.attachSetup.mock.calls[0]?.[2] as (active: boolean) => void;
+  pointerZoom(true);
+  deps.apply({ ...next, interfaceScale: 80 });
+  pointerZoom(false);
+  // Shrinking toward the pointer at (1000, 700) moves the corner toward it.
+  expect(mock.window.setBounds).toHaveBeenLastCalledWith({
+    x: 111,
+    y: 78,
+    width: 720,
+    height: 512,
+  });
+  const classify = mock.VerdictLog.mock.calls[0]?.[1];
+  classify?.({ terminalId: "a" });
+  expect(mock.setup.classify).toHaveBeenCalledWith({ terminalId: "a" });
 });
 
 test("confirmed quit disposes the workspace only after terminals stop", async () => {
@@ -591,4 +693,36 @@ test("confirmed quit disposes the workspace only after terminals stop", async ()
     expect(mock.quit).toHaveBeenCalledOnce();
   });
   expect(order).toEqual(["terminals", "workspace"]);
+});
+
+test("zoom shortcuts change the interface size instead of reaching the terminal", async () => {
+  await start();
+  const input = mock.windowEvents.get("before-input-event");
+  const key = (overrides: Partial<ShortcutInput>) => {
+    const event = { preventDefault: vi.fn() };
+    const shortcut: ShortcutInput = {
+      type: "keyDown",
+      key: "+",
+      code: "Equal",
+      control: process.platform !== "darwin",
+      meta: process.platform === "darwin",
+      shift: true,
+      alt: false,
+      ...overrides,
+    };
+    input?.(event, shortcut);
+    return event.preventDefault;
+  };
+  expect(key({})).toHaveBeenCalledOnce();
+  expect(mock.setupIpc.zoom).toHaveBeenCalledWith("in");
+  // Plain Ctrl+- stays with the terminal (readline undo) on Linux and Windows.
+  if (process.platform !== "darwin") {
+    expect(key({ code: "Minus", key: "-", shift: false })).not.toHaveBeenCalled();
+  }
+  const log = vi.spyOn(console, "error").mockImplementation(() => {});
+  mock.setupIpc.zoom.mockRejectedValueOnce(new Error("disk full"));
+  key({ code: "Digit0", key: "0", shift: false });
+  await vi.waitFor(() => {
+    expect(log).toHaveBeenCalledWith("Unable to change the interface size:", expect.any(Error));
+  });
 });

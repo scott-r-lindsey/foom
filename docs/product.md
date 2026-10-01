@@ -58,7 +58,7 @@ Every verdict and the user's next action (replied, dismissed, ignored) go into a
 
 The model tier uses one of these sources:
 
-- **An agent the user already has** (recommended): a one-shot headless call through `claude -p` or `codex exec`, using the user's existing login. No key is stored.
+- **An agent the user already has**: a one-shot headless call through `claude -p` or `codex exec`, using the user's existing login. No key is stored. Not available yet: Foom can't yet enforce that such a call sees only the terminal tail (see [architecture](architecture.md#evaluator-pipeline)). Preflight shows it as unavailable.
 - **An API key**: Anthropic, OpenAI, or Google. The key is stored with Electron `safeStorage`.
 - **A local model**: any OpenAI-compatible endpoint, such as Ollama.
 - **Rules only**: no model. Ambiguous terminals stay neutral.
@@ -69,12 +69,15 @@ The evaluator sends only the last 40 lines of a quiet terminal, with likely secr
 
 Setup is a preflight countdown:
 
-1. **Agents** (T-3): detect the supported CLIs on PATH and show each one's attention signal. One setting controls whether Foom attaches hooks per launch.
-2. **Repositories** (T-2): pick repos and where new worktrees live. The default is `~/.foom/worktrees`.
-3. **Evaluator** (T-1): pick an inference source and test it on a sample.
-4. **Go / no-go** (T-0): each item shows GO or NO-GO with a link back to its step.
+1. **Agents** (T-4): detect the supported CLIs on PATH and show each one's attention signal. One setting controls whether Foom attaches hooks per launch.
+2. **Repositories** (T-3): "Where do you keep your code?" Foom suggests common code folders that hold repositories, with a count for each, or you choose one. It scans that folder and lists its Git repositories, with the ones worked on in the last 30 days checked.
+3. **Worktrees** (T-2): choose where new worktrees live: Foom's folder (`~/.foom/worktrees`, the default) or next to each repository.
+4. **Evaluator** (T-1): pick an inference source and test it on a sample.
+5. **Go / no-go** (T-0): each item shows GO or NO-GO with a link back to its step. Launch needs every item GO: at least one agent ready and one repository added.
 
-Launch opens an empty board with **New worktree**.
+On wide windows the steps use the extra width: agents as a grid, the worktree choices side by side, and the Evaluator's live check beside its options.
+
+The rail also holds **Appearance**: System, Light or Dark, and the interface size (80–150%; the window grows and shrinks with it while the screen has room, around the pointer when you click + or − or scroll over the percentage, so what you pointed at stays under it; also ⌘ +/−/0 on macOS or Ctrl+Shift+=/− and Ctrl+0 elsewhere). Terminal font size is a separate setting to come. A model source is used only after it passes Run check. Launch opens the board. The target is an empty board with **New worktree**; today it still shows the live shell and labeled sample sessions, pending #57 and #58. **Preflight** on the board runs setup again with the saved choices; Esc returns to the board.
 
 ## Quitting
 

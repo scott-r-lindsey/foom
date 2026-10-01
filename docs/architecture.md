@@ -96,6 +96,14 @@ Every channel checks the sender (the owning window, the main frame, `app://bundl
 | `workspace:create-worktree` | renderer → main (invoke) | repository path, branch, `root` / `adjacent` → worktree |
 | `agents:scan` | renderer → main (invoke) | `refresh` → `{ warning, agents }` (no PATH) |
 | `agents:launch` | renderer → main (invoke) | `{ agent, repository, worktree, cols, rows, acknowledgeCodexNotifierReplacement? }` → `{ id, attention }` |
+| `setup:state` | renderer → main (invoke) | → `{ settings, keys, secureStorage, worktreeRoot }`; `keys` says only which providers have a stored key |
+| `setup:save` | renderer → main (invoke) | settings patch (known fields only) → state; a model source must have passed `setup:check` |
+| `setup:set-key` / `setup:remove-key` | renderer → main (invoke) | provider, key / provider → state; keys are never returned |
+| `setup:check` | renderer → main (invoke) | check ID, inference source, time limit → `{ ok, failure?, message, verdict?, timings, request, reply, thinking }` |
+| `setup:check-progress` | main → renderer | check ID, `{ kind: "step", event }` or `{ kind: "stream", thinking, reply }`; the preload validates the shape |
+| `setup:check-cancel` | renderer → main (invoke) | check ID |
+| `setup:models` | renderer → main (invoke) | local endpoint → `{ ok, models, server }` or `{ ok: false, failure, message }` |
+| `setup:changed` | main → renderer | setup state after a change made in main (a zoom shortcut) |
 
 The renderer names repositories and worktrees only by paths main returned, and agents by ID. Main copies the known launch fields, checks the repository is registered and the worktree is still owned, and resolves the executable itself. A launched terminal belongs to the window like one it created.
 
@@ -103,7 +111,7 @@ The renderer names repositories and worktrees only by paths main returned, and a
 
 Git runs in main through `execFile` with argument arrays, never through a shell. Branch names are validated with `git check-ref-format --branch` and may not start with `-`. Foom creates worktrees under the configured root (default `~/.foom/worktrees/<repo>/<branch>`) or next to repos the user added. Listing includes all Git worktrees, including external ones; removal is restricted to worktrees the service created.
 
-**Today:** `src/worktrees.ts` provides the main-process `WorktreeService`, independently of the UI and IPC. Add a repository before listing or modifying its worktrees. It canonicalizes repository paths, lists NUL-delimited Git records, checks out existing branches or creates new ones, and delegates dirty/locked removal checks to Git. Force allows dirty removal but does not override ownership or locks. Adjacent trees use `<repo>-<branch>` (branch slashes create subdirectories). Creation checks resolved parent directories against the allowed root and rejects existing destinations. Ownership records the device, inode, and birth time of the worktree directory, its `.git` file, and its resolved Git metadata directory. Listing and removal revalidate that identity; missing or replaced entries permanently invalidate ownership, including for forced removal. Removal rejects redirected paths. These checks do not provide isolation against another local process concurrently replacing filesystem entries.
+**Today:** `src/worktrees.ts` provides the main-process `WorktreeService`, independently of the UI and IPC. Add a repository before listing or modifying its worktrees. It canonicalizes repository paths, lists NUL-delimited Git records, checks out existing branches or creates new ones, and delegates dirty/locked removal checks to Git. Force allows dirty removal but does not override ownership or locks. Adjacent trees use `<repo>-<branch>` (branch slashes create subdirectories). Creation checks resolved parent directories against the allowed root and rejects existing destinations. Ownership records the device, inode, and birth time of the worktree directory, its `.git` file, and its resolved Git metadata directory. Listing and removal revalidate that identity; missing or replaced entries permanently invalidate ownership, including for forced removal. Removal rejects redirected paths. `removeRepository` forgets a repository, but refuses while Foom owns worktrees in it, so their ownership records aren't dropped. These checks do not provide isolation against another local process concurrently replacing filesystem entries.
 
 At startup, main opens the service with `WorktreeService.open(app.getPath("userData"))`. Repository registration and ownership are stored in versioned `worktrees.json` using a private temporary file and atomic rename; writes are serialized within the service. Startup validates the untrusted state, rechecks repository paths, allowed roots, Git membership, and filesystem identity, and drops stale or redirected entries. Corrupt or unsupported state grants no ownership and does not block startup. Registration, creation, removal, and ownership invalidation await persistence; write failures are reported to the caller. The synchronous constructor remains available for an explicitly in-memory service. The renderer reaches it through the `workspace:*` channels; removal isn't exposed yet (#58). State assumes a single application service writer; it is not a security boundary against a local process able to forge the entire state file. Worktrees are never adopted just because they appear under the configured root. Repositories sharing a basename share a destination namespace; a collision fails without overwriting the existing directory.
 
@@ -115,7 +123,21 @@ Stable Claude Code releases at or above 2.1.284 and Codex releases at or above 0
 
 `setHooksEnabled(false)` disables hook attachment for subsequent launches. A main-process integration supplies a fresh `AgentHooks` binding per launch, with a Claude stdin adapter command, a Codex argv adapter command, session credentials, and a cleanup callback. Claude settings attach Stop, PermissionRequest, and Notification observer hooks as inline JSON in `--settings`; Codex receives `-c notify=[...]`. No settings files are created in the user's HOME or workspace. Codex attachment requires `acknowledgeCodexNotifierReplacement` after the UI discloses that the user's notifier is replaced for this invocation. `release(terminalId)` must be called on exit/kill to revoke credentials and free the worktree; `dispose()` releases all bindings during shutdown after terminals are stopped. Spawn failures clean up immediately.
 
-`src/workspace.ts` connects these services in main. It scans once and reuses the result until a refresh, starts the hook receiver on the first launch that attaches hooks, and closes it after terminals stop on quit. `src/hook-launch.ts` writes each launch's adapter script to its own `mkdtemp` directory (mode 0700), registers receiver credentials under a random key, and maps that key to the terminal ID once it exists (`AgentHooks.bind`). Exit, kill, and shutdown release the launch: credentials are revoked, the directory is deleted, and the worktree is free again. Antigravity launches without hooks. Persisted hook and setup settings remain #17; board rows for launched agents remain #57 and #58.
+`src/workspace.ts` connects these services in main. It scans once and reuses the result until a refresh, starts the hook receiver on the first launch that attaches hooks, and closes it after terminals stop on quit. `src/hook-launch.ts` writes each launch's adapter script to its own `mkdtemp` directory (mode 0700), registers receiver credentials under a random key, and maps that key to the terminal ID once it exists (`AgentHooks.bind`). Exit, kill, and shutdown release the launch: credentials are revoked, the directory is deleted, and the worktree is free again. Antigravity launches without hooks. Preflight's settings reach the workspace through `configure`: the hooks setting calls `setHooksEnabled`, and launching an agent that preflight turned off is refused. Board rows for launched agents remain #57 and #58.
+
+## Preflight
+
+**Today:** First run is the preflight countdown from [product](product.md#first-run). `src/settings.ts` stores versioned `settings.json` in user data: whether setup is complete, the hooks setting, which agents are turned on, the default worktree location, and the inference source. Writes are atomic (private temporary file, then rename) and serialized; a failed write leaves the settings unchanged. Missing, corrupt or unsupported files start from defaults, so preflight runs again. Every patch, from IPC or disk, is validated field by field and unknown fields are rejected.
+
+`src/setup.ts` applies the settings to the running app at startup and on each save, owns the key store and the app's model evaluator, and runs Run check. A model source can be saved only if it is already saved or passed a check in this session; storing or removing a provider's key invalidates that provider's checks. A cloud check without a stored key fails at its first step. The Evaluator step asks a local endpoint for its models as the URL is typed, offers them as suggestions for the model field, and says when the named model isn't among them.
+
+Appearance lives in the preflight rail and applies at once. `colorMode` (system, light or dark) sets `nativeTheme.themeSource` in main, before the window is created at startup, so the CSS (`prefers-color-scheme`), the window background and the terminal host's colors all follow it; as with a system theme change, switching resets colors a program set in the terminal. `interfaceScale` (80–150% in steps of 10) is Chromium zoom: the window starts with it as `zoomFactor` and later changes use `setZoomFactor`. The window resizes with it in both directions (`src/window-scale.ts`): main remembers the window's size at 100% and sets the window to that size times the scale, capped to the display's usable area and moved back on screen if needed, so zooming in and back out restores the same size. A resize by the user sets a new size at 100%. The minimum size (480 × 420 at 100%) scales too. Maximized and full-screen windows keep their size. Tiling window managers may ignore the resize; zoom still applies. Main handles the zoom keys before the terminal sees them: ⌘ =, − and 0 on macOS, and Ctrl+Shift+= / Ctrl+Shift+− and Ctrl+0 elsewhere, because plain Ctrl+− is readline's undo. A shortcut saves the new scale and sends `setup:changed` so preflight's controls follow. Terminal font size will be a separate setting.
+
+Themes are not implemented, but the model allows them: `colorMode` chooses the variant, and a theme will supply a palette per variant (for example `lightTheme` and `darkTheme`, both "Eclipse" by default). A theme's palette must also reach the terminal host, which today takes its colors from the brand tokens.
+
+The renderer shows preflight until setup is complete, and again when the board's **Preflight** button is used; the board stays mounted underneath, so its shell keeps running. The default worktree location is stored for #58's New worktree flow.
+
+Repositories come from the user's code folder (one, saved as `codeFolder`). Main offers common folders under home (`~/code`, `~/src`, `~/projects` and similar) that hold repositories, each with a count from a quick scan (the same walk, stopped at 5,000 folders), or shows the native picker; then `src/code-scan.ts` walks the folder breadth first with live progress: at most three levels and 20,000 folders (reporting when it stopped early), never following symbolic links, skipping hidden folders, `node_modules`, `Library`, `AppData`, `Applications` and Foom's worktree folder, stopping at each repository, and skipping `.git` files (linked worktrees and submodules). Last activity comes from the modification times of `.git/logs/HEAD`, `.git/index` and `.git/HEAD`, without running git; activity in the last 30 days preselects a repository, as does already being added. The renderer may add or remove only paths from main's latest scan; leaving the step applies the selection, and a refusal (for example a repository with Foom-made worktrees) keeps the user on the step with the reason. `npm run start:fresh` runs the app with a throwaway profile to test first run.
 
 ## Agent signals
 
@@ -146,9 +168,11 @@ and `src/verdict-log.ts` supplies `VerdictLog`. `Workspace` runs them for every 
 the window owns, including the shell: on quiet, on a hook signal, and on exit. Each
 evaluation reads the last 40 host lines and runs in order per terminal, so a slow one
 can't overwrite a newer verdict; a failure is logged and the next one still runs. The
-result goes out on `terminal:state` and into the verdict log. `src/model-evaluator.ts`
-adds the model tier for ambiguous rule results, but `Workspace` doesn't call it yet;
-setup controls remain #17. See [inference service usage and benchmarking](inference.md).
+result goes out on `terminal:state` and into the verdict log. The verdict log classifies
+through `Setup`, which holds the app's one `ModelEvaluator` for the saved source (rules
+only by default) and replaces it when preflight saves a new source. Results from a
+replaced evaluator still in flight are published, not discarded. See
+[inference service usage and benchmarking](inference.md).
 
 A permission hook (`needs_input`) stays in force across later quiet evaluations, because
 agent dialogs rarely match a text rule. It clears when the user types into the terminal
@@ -192,12 +216,38 @@ retention policy is implemented yet. The reusable fixture suite in
 
 Model calls get the last 40 lines, redacted, with a timeout. One-shot agent evaluators must not load repository instructions or use file, command, MCP, or other external tools to expand that input; a read-only sandbox alone does not enforce this boundary. Use another inference source or rules only when isolation cannot be enforced. A failure falls back to rules-only and never blocks the light.
 
-The model service has a five-second deadline and two concurrent calls by default
-(hard maximums: 30 seconds and four). Saturated calls use rules immediately; there
-is no waiting queue or retry. A timed-out transport keeps its slot until it settles
-so even a transport that ignores cancellation cannot exceed the limit. Run check
-uses the same limits and reports status and elapsed time without provider errors.
-Model JSON must contain exactly a known state and finite confidence in [0, 1].
+The model service has a time limit set in preflight (1–30 seconds, five by default)
+and two concurrent calls by default (hard maximum four). Saturated calls use rules
+immediately; there is no waiting queue or retry. A timed-out transport keeps its slot
+until it settles so even a transport that ignores cancellation cannot exceed the limit.
+
+Run check (`src/inference-probe.ts`) is separate from classification and shows its
+work. It runs one stage at a time and reports each stage to the renderer as it starts
+and ends: reading the key (cloud), a TCP connection to the endpoint, then for local
+endpoints identifying the server (`/api/version` for Ollama), finding the model in
+`/models`, and whether Ollama already has it in memory (`/api/ps`). It then sends the
+fixed sample with streaming on, reports thinking chunks and reply text as they arrive
+(at most ten updates a second), and parses the verdict. It has the same time limit,
+and a timeout names the stage that was running. Starting a new check or editing the
+source cancels the one in progress. Leaving the Evaluator step also cancels its check
+and ignores any late result, so it cannot replace a source chosen afterward.
+
+Failures are reported in Foom's own words from a fixed set: connection refused,
+unreachable, DNS, TLS, connect timeout, missing key, rejected key (401/403), model not
+found (404, or absent from the model list, with `ollama pull` for Ollama), no quota
+left, rate limit (429), server error (5xx), other HTTP status, timeout, truncated or
+refused reply, and a reply that isn't the requested JSON. Node error codes and HTTP
+status numbers may be shown. From a provider's error body, Run check reads only the
+machine-readable code (`error.code`, `error.type` or `error.status`) and uses it only
+if it is on a fixed list, such as OpenAI's `insufficient_quota`, which shares 429
+with rate limits. The code picks a message Foom wrote; the body's text is never shown
+or logged. Because the check sends only
+the fixed sample, its Details may show the exact request (URL, parameters and prompt,
+never credentials) and the model's raw reply as inert text, capped at 4,096
+characters. Classification of real terminals shows neither.
+Model JSON must contain exactly a known state and finite confidence in [0, 1]. It may
+arrive wrapped in one Markdown code fence, as chat models often send it; nothing else
+may surround it.
 Reasons and signal names are generated locally, never copied from model output.
 HTTP responses are bounded to 64 KiB and truncated/tool/refusal responses fail closed.
 
@@ -218,8 +268,8 @@ follows the fail-closed decision above; interactive agent launch is unaffected.
 `InferenceKeys` is a main-only key store using Electron `safeStorage`. It rejects
 unavailable encryption and Linux `basic_text`, writes only ciphertext to private
 0600 files through atomic replacement, and supports removal. There is no renderer
-key-read API. Source/model selection is supplied by main; setup persistence and
-sender-validated entry controls belong to #17/#50. Redaction removes likely labelled
+key-read API; preflight can save, replace or remove a key through `setup:set-key` and
+`setup:remove-key`, and learns only whether one is stored. Redaction removes likely labelled
 credentials, bearer/API tokens, JWTs, URL credentials, and private-key blocks before
 selecting the last 40 physical lines. Already-truncated host tails with an unmatched private-key END marker lose the entire preceding fragment; leading PEM-sized base64 lines are also redacted when both markers are absent. Line boundaries are preserved. Oversized input fails back to rules. Redaction
 is heuristic and cannot identify every unlabelled secret.
