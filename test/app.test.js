@@ -144,7 +144,7 @@ async function launchApp(context, openShell = true, options = {}) {
     })
     .toBe(true);
   if (options.firstRun || options.emptyBoard) return app;
-  await page.getByRole("button", { name: "Local shell", exact: true }).click();
+  await page.getByRole("button", { name: "Local shell", exact: true }).press("Enter");
   await page.locator(".board-row[data-kind='shell']").waitFor();
   // Report startup errors directly instead of timing out on a permanently disabled control.
   await expect
@@ -1475,7 +1475,7 @@ test("first run goes from no agents to go, launches by keyboard, and can be repl
 
   // Reduced motion shows a still frame, then the board.
   await page.getByText("Takeoff was faster than expected.").waitFor();
-  await page.getByRole("button", { name: "Local shell", exact: true }).click();
+  await page.getByRole("button", { name: "Local shell", exact: true }).press("Enter");
   const shellRow = page.locator(".board-row[data-kind='shell']");
   await shellRow.waitFor({ timeout: 10000 });
   const saved = JSON.parse(await readFile(path.join(userData, "settings.json"), "utf8"));
@@ -1707,6 +1707,13 @@ test("new worktree dialog launches by keyboard and confirms dirty removal", {
     },
   });
   const page = await app.firstWindow();
+  const tabToField = async (id, reverse = false) => {
+    for (let step = 0; step < 40; step++) {
+      await page.keyboard.press(reverse ? "Shift+Tab" : "Tab");
+      if ((await page.evaluate(() => document.activeElement?.id)) === id) return;
+    }
+    throw new Error(`Could not reach ${id} by keyboard`);
+  };
   await page.getByRole("button", { name: "New worktree" }).waitFor();
   await expect(page.locator(".board-row")).toHaveCount(0);
   await page.evaluate(() => window.desktop.saveSetup({ worktreeLocation: "adjacent" }));
@@ -1720,25 +1727,23 @@ test("new worktree dialog launches by keyboard and confirms dirty removal", {
   await tabTo(page, "Add repository…");
   await page.keyboard.press("Enter");
   await expect(page.getByLabel("Repository")).not.toHaveValue("");
-  await page.keyboard.press("Tab");
+  await tabToField("worktree-branch");
   await expect(page.getByLabel("Branch")).toBeFocused();
   await page.keyboard.type("--bad");
   await tabTo(page, "Create and start");
   await page.keyboard.press("Enter");
   await expect(page.getByRole("alert")).toContainText("Invalid branch");
   // Return to the branch field entirely by keyboard.
-  await page.keyboard.press("Shift+Tab");
-  await page.keyboard.press("Shift+Tab");
-  await page.keyboard.press("Shift+Tab");
+  await tabToField("worktree-branch", true);
   await expect(page.getByLabel("Branch")).toBeFocused();
   await page.keyboard.press(process.platform === "darwin" ? "Meta+A" : "Control+A");
   await page.keyboard.type("feature/ui");
   if (process.platform !== "win32") {
+    await tabToField("worktree-run");
+    await expect(page.getByLabel("Run")).toBeFocused();
+    // Native select type-ahead works without opening an OS-owned popup.
+    await page.keyboard.press("c");
     await page.keyboard.press("Tab");
-    // Open the native menu before moving: macOS ArrowDown alone only opens it.
-    await page.keyboard.press("Space");
-    await page.keyboard.press("ArrowDown");
-    await page.keyboard.press("Enter");
     await expect(page.getByLabel("Run")).toHaveValue("claude");
   }
   await assertAccessible(page);

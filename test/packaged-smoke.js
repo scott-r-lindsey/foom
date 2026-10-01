@@ -67,7 +67,7 @@ test("packaged utility host runs native PTYs with RunAsNode disabled", {
     const context = browser.contexts()[0];
     const page = context.pages()[0] || (await context.waitForEvent("page"));
     page.setDefaultTimeout(15000);
-    await page.getByRole("button", { name: "Local shell", exact: true }).click();
+    await page.getByRole("button", { name: "Local shell", exact: true }).press("Enter");
     await page.waitForFunction(
       () =>
         window.desktop &&

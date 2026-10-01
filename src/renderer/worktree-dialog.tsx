@@ -79,6 +79,7 @@ export function WorktreeDialog({ source, close }: { source: WorktreeSource; clos
           <label htmlFor="worktree-repository">Repository</label>
           <select
             id="worktree-repository"
+            tabIndex={0}
             value={repository}
             onChange={(event) => {
               setRepository(event.target.value);
@@ -137,6 +138,7 @@ export function WorktreeDialog({ source, close }: { source: WorktreeSource; clos
           <label htmlFor="worktree-run">Run</label>
           <select
             id="worktree-run"
+            tabIndex={0}
             value={run}
             onChange={(event) => {
               const value = event.target.value;
