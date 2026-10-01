@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import type { SetupState } from "../shared/setup";
 import { Board } from "./board-view";
+import { createSampleSource } from "./board-source";
 import { createAppSource } from "./app-source";
 import { Preflight } from "./preflight-view";
 import { createSetupSource } from "./setup-source";
@@ -10,7 +11,11 @@ import { createSetupSource } from "./setup-source";
  * Once mounted, the board stays mounted underneath so its shell keeps running.
  */
 export function Shell() {
-  const [source] = useState(createAppSource);
+  const [source] = useState(() =>
+    typeof FOOM_SAMPLE_BOARD !== "undefined" && FOOM_SAMPLE_BOARD
+      ? createSampleSource()
+      : createAppSource(),
+  );
   const [setup] = useState(createSetupSource);
   const [state, setState] = useState<SetupState>();
   const [preflight, setPreflight] = useState(false);

@@ -190,14 +190,14 @@ test("replies and dismissals advance the queue without moving rows; elapsed wait
   expect(buttons[0]?.textContent).toContain("4m");
   key("N");
   act(() => {
-    board.source.resolve("review", "Sample reply sent");
+    void board.source.resolve("review", "Sample reply sent");
   });
   key("Escape");
   expect(buttons[0]?.textContent).toContain("Sample reply sent");
   key("n");
   expect(dialog.querySelector(".board-terminal h2")?.textContent).toContain("feat/export");
   act(() => {
-    board.source.resolve("approve", "Not attention · dismissed");
+    void board.source.resolve("approve", "Not attention · dismissed");
   });
   key("Escape");
   expect(buttons[6]?.textContent).toContain("Not attention");
@@ -242,8 +242,8 @@ test("activity updates brightness without replacing rows or rerendering React", 
   view.unmount();
   source.setActivity("build", 0);
   expect(bulb?.style.getPropertyValue("--light-opacity")).toBe("1");
-  source.resolve("build", "Ignored");
-  source.resolve("unknown", "Ignored");
+  void source.resolve("build", "Ignored");
+  void source.resolve("unknown", "Ignored");
   expect(source.getSnapshot().find((row) => row.id === "build")?.reason).toBe(
     "Building terminal navigation · sample: output",
   );

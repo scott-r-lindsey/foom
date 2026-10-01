@@ -10,6 +10,7 @@ export function createShell(
   update: (view: ShellView) => void,
   initiallyOpen = true,
   onEscape?: () => void,
+  onCreated?: (id: string, title: string) => void,
 ) {
   const view: ShellView = {
     status: "Starting shell…",
@@ -61,6 +62,10 @@ export function createShell(
   let disposed = false;
   const isDisposed = () => disposed;
   let activeId: string | undefined;
+  let shellId: string | undefined;
+  const exits = new Map<string, number>();
+  let selection = Promise.resolve();
+  let request = 0;
   let attached = false;
   let visibleRequested = initiallyOpen;
   const wantsVisible = () => visibleRequested;
@@ -84,7 +89,7 @@ export function createShell(
   };
   const controls = () => {
     view.toggleDisabled = busy || !activeId;
-    view.restartDisabled = busy || !exited;
+    view.restartDisabled = busy || !exited || (activeId !== undefined && activeId !== shellId);
     publish();
   };
   const offData = window.desktop.onData((id, token, data) => {
@@ -94,6 +99,7 @@ export function createShell(
     });
   });
   const offExit = window.desktop.onExit((id, code) => {
+    exits.set(id, code);
     if (id !== activeId) return;
     hostFailed = code === -1;
     terminalStatus = hostFailed
@@ -184,6 +190,8 @@ export function createShell(
         return;
       }
       activeId = created.id;
+      shellId = created.id;
+      onCreated?.(created.id, created.title);
       exited = false;
       terminalStatus = created.title;
       view.status = terminalStatus;
@@ -201,25 +209,70 @@ export function createShell(
   };
   const dispose = () => {
     disposed = true;
+    visibleRequested = false;
     colors.removeEventListener("change", updateTheme);
     observer.disconnect();
     offData();
     offExit();
+    if (activeId) void window.desktop.detach(activeId).catch(() => {});
     terminal.dispose();
   };
   // Measure the first grid only after the bundled terminal face is available.
-  void document.fonts.load('14px "Geist Mono"').then(start, start);
+  const ready = document.fonts.load('14px "Geist Mono"').then(start, start);
+  const select = (id: string) => {
+    const current = ++request;
+    visibleRequested = false;
+    selection = selection.then(async () => {
+      await ready;
+      if (isDisposed() || current !== request) return;
+      visibleRequested = true;
+      busy = true;
+      controls();
+      try {
+        if (attached && activeId === id) {
+          terminal.focus();
+          return;
+        }
+        const previous = activeId;
+        visibility(false);
+        if (previous) await window.desktop.detach(previous);
+        if (isDisposed() || current !== request) return;
+        activeId = id;
+        const code = exits.get(id);
+        exited = code !== undefined;
+        hostFailed = code === -1;
+        terminalStatus = code === undefined ? "Terminal" : `Terminal exited (${String(code)})`;
+        view.state = code === undefined ? "quiet_ok" : code === 0 ? "done" : "failed";
+        view.status = terminalStatus;
+        await openView(id);
+      } catch (error: unknown) {
+        visibility(false);
+        await window.desktop.detach(id).catch(() => {});
+        showOperationError("Unable to open terminal", error);
+      } finally {
+        busy = false;
+        controls();
+      }
+    });
+    return selection;
+  };
 
   return {
     terminal,
-    open: async () => {
+    open: async (id?: string) => {
+      if (id) return select(id);
       visibleRequested = true;
       if (!attached) await toggleView();
     },
     hide: async () => {
+      const current = ++request;
       visibleRequested = false;
-      if (busy) visibility(false);
-      else if (attached) await toggleView();
+      selection = selection.then(async () => {
+        if (isDisposed() || current !== request) return;
+        if (busy) visibility(false);
+        else if (attached) await toggleView();
+      });
+      await selection;
     },
     toggle: toggleView,
     restart: () => {

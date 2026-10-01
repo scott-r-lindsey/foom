@@ -18,9 +18,11 @@ function lightStyle(row: BoardRow): CSSProperties & { "--light-opacity": number 
 function ShellPanel({
   source,
   onHide,
+  onRestart,
 }: {
   source: NonNullable<BoardSource["shell"]>;
   onHide: () => void;
+  onRestart: () => void;
 }) {
   const view = useSyncExternalStore(source.subscribe, source.getSnapshot);
   const disposeRef = useRef<() => void>(undefined);
@@ -53,7 +55,7 @@ function ShellPanel({
           id="restart"
           disabled={view.restartDisabled}
           onClick={() => {
-            void source.restart();
+            onRestart();
           }}
         >
           Restart shell
@@ -75,14 +77,19 @@ export function Board({
   onPreflight?: () => void;
 }) {
   const rows = useSyncExternalStore(source.subscribe, source.getSnapshot);
-  const [selected, setSelected] = useState(rows[0]?.id);
-  const [opened, setOpened] = useState<{ id: string }>();
+  const [selection, setSelection] = useState(rows[0]?.id);
+  const selected = rows.some((row) => row.id === selection) ? selection : rows[0]?.id;
+  const [opened, setOpened] = useState<{ id: string; kind: BoardRow["kind"] }>();
   const [peek, setPeek] = useState<{ id: string; keyboard: boolean }>();
+  const [feedbackError, setFeedbackError] = useState("");
   const [tail, setTail] = useState<readonly string[]>([]);
   const buttonsRef = useRef(new Map<string, HTMLButtonElement>());
   const terminalRef = useRef<HTMLElement>(null);
   const restoreRowFocusRef = useRef(false);
-  const openRow = rows.find((row) => row.id === opened?.id);
+  const openRow =
+    rows.find((row) => row.id === opened?.id) ??
+    (opened?.kind === "shell" ? rows.find((row) => row.kind === "shell") : undefined);
+  const openedId = openRow?.kind === "sample" ? undefined : openRow?.id;
   const peekRow = rows.find((row) => row.id === peek?.id);
   const waiting = rows.filter((row) => row.state === "needs_input").length;
   const groups = groupRows(rows);
@@ -137,19 +144,19 @@ export function Board({
   useLayoutEffect(() => {
     if (opened) {
       terminalRef.current?.focus();
-      if (
-        source.getSnapshot().find((row) => row.id === opened.id)?.kind === "shell" &&
-        !source.shell?.getSnapshot().visible
-      )
-        void source.shell?.open();
+      if (openedId) void source.shell?.open(openedId);
     } else if (restoreRowFocusRef.current) {
       restoreRowFocusRef.current = false;
       if (selected) buttonsRef.current.get(selected)?.focus();
     }
-  }, [opened, selected, source]);
+  }, [opened, openedId, selected, source]);
+  const focusedInitialRowRef = useRef(false);
   useLayoutEffect(() => {
-    buttonsRef.current.values().next().value?.focus();
-  }, []);
+    if (!focusedInitialRowRef.current && rows.length) {
+      focusedInitialRowRef.current = true;
+      buttonsRef.current.values().next().value?.focus();
+    }
+  }, [rows]);
   const wasInactiveRef = useRef(inactive);
   useLayoutEffect(() => {
     // Coming back from preflight: return focus to the row the user left.
@@ -157,8 +164,9 @@ export function Board({
     wasInactiveRef.current = inactive;
   }, [inactive, selected]);
   const open = (row: BoardRow) => {
-    setSelected(row.id);
-    setOpened({ id: row.id });
+    setFeedbackError("");
+    setSelection(row.id);
+    setOpened({ id: row.id, kind: row.kind });
     setPeek(undefined);
     setTail([]);
     source.markSeen(row.id);
@@ -174,7 +182,7 @@ export function Board({
         if (event.key === "Escape" && (opened || peek)) {
           event.preventDefault();
           hide();
-        } else if (openRow?.kind === "shell") {
+        } else if (openRow && openRow.kind !== "sample") {
           // Every printable key belongs to the shell while its view is open.
           return;
         } else if (event.key.toLowerCase() === "n") {
@@ -215,7 +223,6 @@ export function Board({
         </p>
         <span className="sample-label">
           {rows.some((row) => row.kind === "sample") && "Sample sessions"}
-          {source.shell && " · one live shell"}
         </span>
         {onPreflight && (
           <button
@@ -246,7 +253,7 @@ export function Board({
               <h2>{repository}</h2>
               {group.map((row) => (
                 <button
-                  key={row.id}
+                  key={row.kind === "shell" ? "local-shell" : row.id}
                   type="button"
                   className="board-row"
                   data-kind={row.kind}
@@ -258,7 +265,7 @@ export function Board({
                     else buttonsRef.current.delete(row.id);
                   }}
                   onFocus={() => {
-                    setSelected(row.id);
+                    setSelection(row.id);
                   }}
                   onClick={() => {
                     open(row);
@@ -297,13 +304,41 @@ export function Board({
               Back to board · Esc
             </button>
           </div>
+          {openRow?.state === "needs_input" && (
+            <div className="terminal-toolbar">
+              <span>{openRow.reason}</span>
+              <button
+                type="button"
+                onClick={() => {
+                  setFeedbackError("");
+                  void Promise.resolve(source.resolve(openRow.id, "Not attention")).catch(() => {
+                    setFeedbackError("Unable to record feedback. Try again.");
+                  });
+                }}
+              >
+                Not attention
+              </button>
+            </div>
+          )}
+          {feedbackError && <p role="alert">{feedbackError}</p>}
           <div className="sample-terminal" hidden={openRow?.kind !== "sample"}>
             <pre>{tail.join("\n")}</pre>
             <p>Sample output · read-only</p>
           </div>
           {/* Keep the controller mounted while hidden. The host retains all output. */}
-          <div className="shell-slot" hidden={openRow?.kind !== "shell"}>
-            {source.shell && <ShellPanel source={source.shell} onHide={hide} />}
+          <div className="shell-slot" hidden={!openRow || openRow.kind === "sample"}>
+            {source.shell && (
+              <ShellPanel
+                source={source.shell}
+                onHide={hide}
+                onRestart={() => {
+                  void source.shell?.restart().then(() => {
+                    const row = source.getSnapshot().find((entry) => entry.kind === "shell");
+                    if (row) open(row);
+                  });
+                }}
+              />
+            )}
           </div>
         </section>
       </div>

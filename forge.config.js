@@ -2,7 +2,17 @@ const { FusesPlugin } = require("@electron-forge/plugin-fuses");
 const { FuseV1Options, FuseVersion } = require("@electron/fuses");
 
 module.exports = {
-  hooks: { packageAfterPrune: require("./scripts/package-conpty.cjs") },
+  hooks: {
+    // Rebuild without the development flag before copying assets into a package.
+    prePackage: () => {
+      require("node:child_process").execFileSync(
+        process.execPath,
+        [require("node:path").join(__dirname, "scripts/build.mjs")],
+        { cwd: __dirname, stdio: "inherit" },
+      );
+    },
+    packageAfterPrune: require("./scripts/package-conpty.cjs"),
+  },
   packagerConfig: {
     asar: { unpackDir: "**/node_modules/node-pty/**" },
     executableName: "foom",

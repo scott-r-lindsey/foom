@@ -33,7 +33,11 @@ await build({
   bundle: true,
   tsconfig: fileURLToPath(new URL("../tsconfig.renderer.json", import.meta.url)),
   // React and xterm contain guarded Node fallbacks; the sandbox is browser-only.
-  define: { "process.env.NODE_ENV": '"production"', process: "undefined" },
+  define: {
+    "process.env.NODE_ENV": '"production"',
+    process: "undefined",
+    FOOM_SAMPLE_BOARD: String(process.argv.includes("--samples")),
+  },
   minify: true,
   platform: "browser",
   format: "esm",

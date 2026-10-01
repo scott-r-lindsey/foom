@@ -58,7 +58,7 @@ export function attachWorkspace(
   window: BrowserWindow,
   workspace: Workspace,
   owns: (id: string) => boolean,
-): { sendState(state: TerminalState): void; dispose(): void } {
+): { sendState(state: TerminalState): void; sendChanged(): void; dispose(): void } {
   const contents = window.webContents;
   const trusted = (event: IpcMainInvokeEvent) =>
     event.sender === contents &&
@@ -126,6 +126,10 @@ export function attachWorkspace(
       return handler(...args);
     });
   return {
+    sendChanged() {
+      if (!contents.isDestroyed() && contents.mainFrame.url === APP_URL)
+        contents.send("workspace:changed");
+    },
     sendState(state) {
       if (contents.isDestroyed() || contents.mainFrame.url !== APP_URL || !owns(state.id)) return;
       contents.send("terminal:state", state);

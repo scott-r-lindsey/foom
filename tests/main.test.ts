@@ -122,7 +122,7 @@ const mock = vi.hoisted(() => {
     dispose: vi.fn<() => Promise<void>>(),
     configure: vi.fn(),
   };
-  const ipc = { sendState: vi.fn(), dispose: vi.fn() };
+  const ipc = { sendChanged: vi.fn(), sendState: vi.fn(), dispose: vi.fn() };
   const setup = { deps: undefined as unknown, classify: vi.fn() };
   return {
     terminals: {
@@ -607,7 +607,10 @@ test("routes terminal events, hook signals and state through the workspace", asy
   const deps = mock.workspace.deps as {
     receiver(): Promise<unknown>;
     onState(state: unknown): void;
+    onChange(): void;
   };
+  deps.onChange();
+  expect(mock.ipc.sendChanged).toHaveBeenCalledOnce();
   deps.onState({ id: "a" });
   expect(mock.ipc.sendState).toHaveBeenCalledWith({ id: "a" });
   mock.listen.mockResolvedValue("receiver");
