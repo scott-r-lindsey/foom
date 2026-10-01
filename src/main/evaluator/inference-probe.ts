@@ -1,45 +1,27 @@
+import type { ProbeDependencies, StreamDelta } from "./probe.d";
+import { ProbeError, networkFailure, providerCode, httpFailure } from "./probe-errors";
+import { record, readJson } from "./probe-response";
+import { events, streamDelta } from "./probe-stream";
 import { connect as netConnect } from "node:net";
 import { CHECK_SAMPLE, classifierPrompt, parseModelVerdict } from "./inference-input";
 import { parseInferenceConfig, providerRequest } from "./inference-source";
 import type {
   ApiProvider,
-  InferenceConfig,
   ModelList,
   ProbeEvent,
-  ProbeFailure,
   ProbeResult,
   ProbeStep,
   ProbeUpdate,
 } from "../../shared/inference";
 
-const STREAM_LIMIT = 1_048_576;
 const REPLY_LIMIT = 65_536;
 const SHOWN_REPLY = 4096;
-const LIST_LIMIT = 1_048_576;
 const LIST_TIMEOUT = 3000;
 const LABELS: Record<ApiProvider, string> = {
   anthropic: "Anthropic",
   openai: "OpenAI",
   google: "Google",
 };
-
-export interface ProbeDependencies {
-  readKey(provider: ApiProvider): Promise<string>;
-  request?: typeof fetch;
-  /** Opens and closes a TCP connection, so "refused" shows up before any request. */
-  connect?: (host: string, port: number, signal: AbortSignal) => Promise<void>;
-  now?: () => number;
-}
-
-/** A failure in Foom's own words. Provider error bodies are never read or shown. */
-class ProbeError extends Error {
-  constructor(
-    readonly failure: ProbeFailure,
-    message: string,
-  ) {
-    super(message);
-  }
-}
 
 /** Opens and closes one TCP connection. Exported for tests. */
 export function openConnection(host: string, port: number, signal: AbortSignal): Promise<void> {
@@ -60,221 +42,6 @@ export function openConnection(host: string, port: number, signal: AbortSignal):
     });
     socket.once("error", settle);
   });
-}
-
-function record(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-/** Node's error code (a fixed identifier such as ECONNREFUSED), wherever fetch put it. */
-function errorCode(error: unknown): string | undefined {
-  for (let current = error, depth = 0; record(current) && depth < 4; depth++) {
-    if (typeof current["code"] === "string") return current["code"];
-    current = current["cause"];
-  }
-  return undefined;
-}
-
-function networkFailure(error: unknown, where: string): ProbeError {
-  const code = errorCode(error);
-  if (code === "ECONNREFUSED")
-    return new ProbeError("refused", `Connection refused: nothing is listening on ${where}`);
-  if (code === "ENOTFOUND" || code === "EAI_AGAIN")
-    return new ProbeError("dns", `Couldn't resolve ${where}`);
-  if (code === "EHOSTUNREACH" || code === "ENETUNREACH" || code === "ECONNRESET")
-    return new ProbeError("unreachable", `Can't reach ${where} (${code})`);
-  if (code === "ETIMEDOUT" || code === "UND_ERR_CONNECT_TIMEOUT")
-    return new ProbeError("connect-timeout", `Connecting to ${where} timed out`);
-  if (code && /CERT|TLS|SSL/.test(code))
-    return new ProbeError("tls", `A secure connection to ${where} failed (${code})`);
-  // Fetch refuses some ports outright (https://fetch.spec.whatwg.org/#port-blocking).
-  if (record(error) && record(error["cause"]) && error["cause"]["message"] === "bad port")
-    return new ProbeError(
-      "failed",
-      `Fetch won't connect to port-blocked ${where}. Use another port`,
-    );
-  return new ProbeError("failed", `The request to ${where} failed${code ? ` (${code})` : ""}`);
-}
-
-/**
- * Provider error codes Foom recognises. Only the code is read from an error body, and
- * only to choose one of these messages; the body's text is never shown or logged.
- */
-const PROVIDER_CODES: Record<string, [ProbeFailure, string]> = {
-  // OpenAI
-  insufficient_quota: [
-    "quota",
-    "No quota left on this account. Add credit or check billing at the provider",
-  ],
-  rate_limit_exceeded: ["rate-limited", "Rate limited. Try again shortly"],
-  invalid_api_key: ["auth", "The key was rejected"],
-  model_not_found: ["model-missing", "The provider doesn't offer this model to this key"],
-  // Anthropic
-  authentication_error: ["auth", "The key was rejected"],
-  permission_error: ["auth", "The key isn't allowed to use this model"],
-  not_found_error: ["model-missing", "The provider doesn't offer this model to this key"],
-  rate_limit_error: ["rate-limited", "Rate limited. Try again shortly"],
-  overloaded_error: ["server-error", "The provider is overloaded. Try again shortly"],
-  // Google
-  UNAUTHENTICATED: ["auth", "The key was rejected"],
-  PERMISSION_DENIED: ["auth", "The key isn't allowed to use this model"],
-  NOT_FOUND: ["model-missing", "The provider doesn't offer this model to this key"],
-  RESOURCE_EXHAUSTED: [
-    "quota",
-    "Quota or rate limit reached. Check usage and billing at the provider",
-  ],
-};
-
-/** The provider's machine-readable error code, if it is one Foom knows. */
-async function providerCode(response: Response): Promise<string | undefined> {
-  const body = await readLimited(response, 16_384)
-    .then((text): unknown => JSON.parse(text))
-    .catch(() => undefined);
-  const error = record(body) && record(body["error"]) ? body["error"] : undefined;
-  if (!error) return undefined;
-  for (const key of ["code", "type", "status"]) {
-    const value = error[key];
-    if (typeof value === "string" && Object.hasOwn(PROVIDER_CODES, value)) return value;
-  }
-  return undefined;
-}
-
-function httpFailure(status: number, model: string, ollama: boolean, code?: string): ProbeError {
-  const known = code === undefined ? undefined : ([code, PROVIDER_CODES[code]] as const);
-  if (known?.[1])
-    return new ProbeError(known[1][0], `${known[1][1]} (HTTP ${String(status)}, ${known[0]})`);
-  if (status === 401 || status === 403)
-    return new ProbeError("auth", `The key was rejected (HTTP ${String(status)})`);
-  if (status === 404)
-    return new ProbeError(
-      "model-missing",
-      ollama
-        ? `${model} isn't pulled. Run: ollama pull ${model}`
-        : `Model ${model} wasn't found (HTTP 404)`,
-    );
-  if (status === 429)
-    return new ProbeError("rate-limited", "Rate limited (HTTP 429). Try again shortly");
-  if (status >= 500)
-    return new ProbeError("server-error", `The server failed (HTTP ${String(status)})`);
-  return new ProbeError("http", `Unexpected response (HTTP ${String(status)})`);
-}
-
-async function readLimited(response: Response, limit: number): Promise<string> {
-  if (!response.body) return "";
-  const reader = response.body.getReader();
-  const chunks: Uint8Array[] = [];
-  let size = 0;
-  try {
-    for (;;) {
-      const chunk = await reader.read();
-      if (chunk.done) break;
-      size += chunk.value.byteLength;
-      if (size > limit) throw new Error("Response too large");
-      chunks.push(chunk.value);
-    }
-  } finally {
-    await reader.cancel().catch(() => undefined);
-  }
-  return Buffer.concat(chunks).toString("utf8");
-}
-
-async function readJson(response: Response): Promise<unknown> {
-  try {
-    return JSON.parse(await readLimited(response, LIST_LIMIT));
-  } catch {
-    return undefined;
-  }
-}
-
-/** Server-sent events, bounded in total size. */
-async function* events(
-  body: ReadableStream<Uint8Array>,
-  signal: AbortSignal,
-): AsyncGenerator<string> {
-  const reader = body.getReader();
-  // A stalled stream must end on timeout or cancel even if the body ignores the signal.
-  const abort = () => {
-    reader.cancel().catch(() => undefined);
-  };
-  signal.addEventListener("abort", abort, { once: true });
-  const decoder = new TextDecoder();
-  let buffer = "";
-  let size = 0;
-  try {
-    for (;;) {
-      const chunk = await reader.read();
-      if (chunk.done) break;
-      size += chunk.value.byteLength;
-      if (size > STREAM_LIMIT) throw new ProbeError("bad-reply", "The reply is too large");
-      buffer += decoder.decode(chunk.value, { stream: true });
-      const lines = buffer.split(/\r?\n/);
-      buffer = lines.pop() ?? "";
-      for (const line of lines) if (line.startsWith("data:")) yield line.slice(5).trim();
-    }
-    signal.throwIfAborted();
-    if (buffer.startsWith("data:")) yield buffer.slice(5).trim();
-  } finally {
-    signal.removeEventListener("abort", abort);
-    await reader.cancel().catch(() => undefined);
-  }
-}
-
-interface Delta {
-  text?: string;
-  thinking?: boolean;
-  finish?: "stop" | "length" | "refusal";
-  error?: boolean;
-}
-
-/** One streamed chunk, reduced to what Foom needs. Unknown shapes are ignored. */
-export function streamDelta(kind: InferenceConfig["kind"], data: unknown): Delta {
-  if (!record(data)) return {};
-  if (kind === "anthropic") {
-    const delta = record(data["delta"]) ? data["delta"] : {};
-    if (data["type"] === "error") return { error: true };
-    if (data["type"] === "content_block_delta") {
-      if (delta["type"] === "text_delta" && typeof delta["text"] === "string")
-        return { text: delta["text"] };
-      if (delta["type"] === "thinking_delta") return { thinking: true };
-    }
-    if (data["type"] === "message_delta" && typeof delta["stop_reason"] === "string") {
-      const reason = delta["stop_reason"];
-      return {
-        finish: reason === "max_tokens" ? "length" : reason === "refusal" ? "refusal" : "stop",
-      };
-    }
-    return {};
-  }
-  if (kind === "google") {
-    const candidates: unknown[] = Array.isArray(data["candidates"]) ? data["candidates"] : [];
-    const candidate = candidates[0];
-    if (!record(candidate)) return {};
-    const content = record(candidate["content"]) ? candidate["content"] : {};
-    const parts: unknown[] = Array.isArray(content["parts"]) ? content["parts"] : [];
-    const result: Delta = {};
-    for (const part of parts) {
-      if (!record(part)) continue;
-      if (part["thought"] === true) result.thinking = true;
-      else if (typeof part["text"] === "string") result.text = (result.text ?? "") + part["text"];
-    }
-    const reason = candidate["finishReason"];
-    if (typeof reason === "string")
-      result.finish = reason === "STOP" ? "stop" : reason === "MAX_TOKENS" ? "length" : "refusal";
-    return result;
-  }
-  const choices: unknown[] = Array.isArray(data["choices"]) ? data["choices"] : [];
-  const choice = choices[0];
-  if (!record(choice)) return {};
-  const delta = record(choice["delta"]) ? choice["delta"] : {};
-  const result: Delta = {};
-  if (typeof delta["content"] === "string" && delta["content"]) result.text = delta["content"];
-  for (const key of ["reasoning", "reasoning_content"])
-    if (typeof delta[key] === "string" && delta[key]) result.thinking = true;
-  if (delta["refusal"] || delta["tool_calls"]) result.finish = "refusal";
-  const reason = choice["finish_reason"];
-  if (typeof reason === "string")
-    result.finish = reason === "stop" ? "stop" : reason === "length" ? "length" : "refusal";
-  return result;
 }
 
 function hostOf(url: URL): { host: string; port: number; where: string } {
@@ -458,7 +225,7 @@ export async function probeInference(
 
     begin("reply", "Waiting for the first token");
     let reply = "";
-    let finish: Delta["finish"];
+    let finish: StreamDelta["finish"];
     let phase: "thinking" | "writing" | undefined;
     // At most ten stream updates a second; the latest one is always delivered.
     let shown: number | undefined;

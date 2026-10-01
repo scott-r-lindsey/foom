@@ -1,4 +1,4 @@
-import { sampleRows } from "./board";
+import { sampleRows } from "./sample-rows";
 import type { BoardRow } from "./board.d";
 import type { TerminalActivity } from "../../shared/desktop";
 import type { BoardSource } from "./board-source.d";

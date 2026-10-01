@@ -21,7 +21,7 @@ for (const config of ["tsconfig.main.json", "tsconfig.renderer.json"]) {
   execFileSync(process.execPath, [compiler, "-p", config], { cwd: root, stdio: "inherit" });
 }
 await mkdir(new URL("../build/renderer/", import.meta.url), { recursive: true });
-for (const asset of ["index.html", "styles.css", "tokens.css"]) {
+for (const asset of ["index.html", "tokens.css"]) {
   await copyFile(
     new URL(
       `../src/renderer/${asset === "index.html" ? asset : `styles/${asset}`}`,
@@ -30,6 +30,13 @@ for (const asset of ["index.html", "styles.css", "tokens.css"]) {
     new URL(`../build/renderer/${asset}`, import.meta.url),
   );
 }
+
+// Bundle feature styles into the existing allowlisted URL; no runtime CSS imports.
+await build({
+  entryPoints: [fileURLToPath(new URL("../src/renderer/styles/styles.css", import.meta.url))],
+  bundle: true,
+  outfile: fileURLToPath(new URL("../build/renderer/styles.css", import.meta.url)),
+});
 
 await build({
   entryPoints: [fileURLToPath(new URL("../src/renderer/renderer.tsx", import.meta.url))],

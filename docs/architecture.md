@@ -48,6 +48,13 @@ tests/
 The browser-safe `shared/terminal-colors.ts` runs in both the host and renderer;
 `shared/terminal-host-protocol.ts` validates messages between main and host.
 
+Within those features:
+
+- `preflight-view.tsx` coordinates navigation, scans, persistence, errors, heading focus and launch. Welcome, agents, repositories, worktrees and readiness render in their own `*-step.tsx` modules; they receive state and actions from the coordinator. Evaluator controls remain in `preflight-evaluator.tsx`.
+- `inference-probe.ts` orchestrates Run check and model discovery. `probe-stream.ts` decodes bounded streamed events, `probe-errors.ts` maps transport/provider failures to Foom's messages, and `probe-response.ts` reads bounded response bodies. Shared probe types live in `probe.d.ts`.
+- `board.ts` contains production board helpers. `sample-rows.ts` holds development fixture rows and is imported only by the sample source and tests.
+- `styles/styles.css` is an ordered import manifest for base, board/terminal, preflight, inference check, appearance, welcome, repository picker, layout overrides, tooltips, agent cards and worktree dialog styles. The build bundles it into the existing `styles.css` asset; there are no runtime imports or new asset permissions. Keep the import order: the later preflight/layout/card rules intentionally follow the base feature rules.
+
 The `foom/process-boundaries` ESLint rule checks static imports, re-exports, literal dynamic imports and `require` calls. Process-owned code may depend on its own process and shared modules. Shared modules cannot depend on process-owned code. Renderer and shared modules cannot import Node, Electron, node-pty or headless xterm. The sandboxed preload may import Electron at runtime and shared declarations as types; adding another runtime dependency requires an explicit boundary and loader design change.
 
 Tests live outside `src/`; production compilation excludes them. Coverage still includes every executable source file regardless of its directory. The build emits main at `build/main/main.js`, preload at `build/preload/preload.js`, and the host at `build/terminal-host/terminal-host.js`. Renderer asset URLs remain unchanged.

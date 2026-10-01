@@ -1,0 +1,122 @@
+/* Run check */
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+.preflight-server {
+  margin: 8px 0 0;
+  font: 12px var(--font-mono);
+  color: var(--muted);
+}
+.preflight-server[data-tone="error"] {
+  color: var(--failed-ink);
+}
+.check {
+  display: grid;
+  gap: 10px;
+}
+.check-steps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 4px;
+  font: 12px / 1.5 var(--font-mono);
+}
+.check-steps li {
+  display: grid;
+  grid-template-columns: 16px 1fr auto;
+  gap: 8px;
+  color: var(--muted);
+}
+.check-steps li[data-status="running"] {
+  color: var(--ink);
+}
+.check-steps li[data-status="running"] .check-icon {
+  color: var(--accent);
+  animation: board-breathe 1.2s ease-in-out infinite;
+}
+.check-steps li[data-status="ok"] .check-icon {
+  color: var(--done-ink);
+}
+.check-steps li[data-status="failed"] {
+  color: var(--failed-ink);
+}
+.check-label {
+  overflow-wrap: anywhere;
+}
+.check-time {
+  font-variant-numeric: tabular-nums;
+}
+.check-stream p {
+  margin: 0 0 4px;
+  font: 12px var(--font-mono);
+  color: var(--muted);
+}
+.check pre {
+  margin: 0;
+  padding: 8px 10px;
+  max-height: 160px;
+  overflow: auto;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  font: 12px / 1.5 var(--font-mono);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.check-progress {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.check-meter {
+  flex: 1;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--line);
+  overflow: hidden;
+}
+.check-meter span {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+}
+.check-clock {
+  font: 12px var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+}
+.check-result {
+  margin: 0;
+  font: 13px var(--font-mono);
+}
+.check[data-tone="ok"] .check-result {
+  color: var(--done-ink);
+}
+.check[data-tone="error"] .check-result {
+  color: var(--failed-ink);
+}
+.check-timings {
+  margin: 0;
+  font: 12px var(--font-mono);
+  color: var(--muted);
+}
+.check-details summary {
+  cursor: pointer;
+  font-size: 13px;
+}
+.check-details p {
+  margin: 10px 0 4px;
+  font-size: 12px;
+  color: var(--muted);
+}
+@media (prefers-reduced-motion: reduce) {
+  .check-steps li[data-status="running"] .check-icon {
+    animation: none;
+  }
+}
