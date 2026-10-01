@@ -66,6 +66,46 @@ export function attachWorkspace(
     event.senderFrame === event.sender.mainFrame &&
     event.senderFrame.url === APP_URL;
   const handlers = new Map<string, (...args: unknown[]) => unknown>([
+    [
+      "workspace:start",
+      (request) => {
+        if (
+          !record(request) ||
+          !text(request["repository"]) ||
+          !text(request["branch"], 255) ||
+          !(request["run"] === "shell" || agent(request["run"])) ||
+          typeof request["acknowledgeCodexNotifierReplacement"] !== "boolean"
+        )
+          throw new Error("Invalid worktree launch");
+        return workspace.startWorktree({
+          repository: request["repository"],
+          branch: request["branch"],
+          run: request["run"],
+          acknowledgeCodexNotifierReplacement: request["acknowledgeCodexNotifierReplacement"],
+        });
+      },
+    ],
+    [
+      "workspace:remove",
+      (id) => {
+        if (!text(id)) throw new Error("Invalid terminal ID");
+        return workspace.removeWorktree(id, async (branch, changes) => {
+          const result = await dialog.showMessageBox(window, {
+            type: "warning",
+            title: "Remove worktree",
+            message: `Remove ${branch}?`,
+            detail: changes
+              ? `Stop its terminals and permanently discard these uncommitted changes:\n${changes.split("\0").join("\n")}`
+              : "Stop its terminals and remove the worktree folder. The branch is kept.",
+            buttons: ["Cancel", changes ? "Discard changes and remove" : "Remove worktree"],
+            defaultId: 0,
+            cancelId: 0,
+            noLink: true,
+          });
+          return result.response === 1;
+        });
+      },
+    ],
     ["workspace:snapshot", () => workspace.snapshot()],
     [
       "workspace:add-repository",

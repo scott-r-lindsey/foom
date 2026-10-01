@@ -266,18 +266,33 @@ export class WorktreeService {
     return false;
   }
 
+  async validateBranch(repositoryPath: string, branch: string): Promise<void> {
+    this.repository(repositoryPath);
+    if (!branch || branch.startsWith("-") || /[\\:\0]/u.test(branch))
+      throw new Error("Invalid branch name");
+    let checked: string;
+    try {
+      checked = await git(repositoryPath, ["check-ref-format", "--branch", branch]);
+    } catch {
+      throw new Error("Invalid branch name. Use a Git branch name such as feat/my-task.");
+    }
+    if (checked.trimEnd() !== branch) throw new Error("Branch shorthand is not allowed");
+  }
+
+  async changes(repositoryPath: string, path: string): Promise<string> {
+    const trees = await this.listWorktrees(repositoryPath);
+    if (!trees.some((tree) => tree.path === path && tree.managed && !tree.prunable && !tree.locked))
+      throw new Error("Worktree is not managed by Foom or is locked");
+    return git(path, ["status", "--porcelain=v1", "-z", "--untracked-files=all"]);
+  }
+
   async createWorktree(
     repositoryPath: string,
     branch: string,
     options: CreateWorktreeOptions = {},
   ): Promise<string> {
     const repository = this.repository(repositoryPath);
-    // Backslashes, drive separators and NUL are unsafe across supported filesystems.
-    if (!branch || branch.startsWith("-") || /[\\:\0]/u.test(branch)) {
-      throw new Error("Invalid branch name");
-    }
-    const checked = await git(repository.path, ["check-ref-format", "--branch", branch]);
-    if (checked.trimEnd() !== branch) throw new Error("Branch shorthand is not allowed");
+    await this.validateBranch(repositoryPath, branch);
     const location = options.location ?? "root";
     const configuredRoot = location === "adjacent" ? dirname(repository.path) : this.root;
     await mkdir(configuredRoot, { recursive: true });

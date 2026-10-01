@@ -19,8 +19,8 @@ export interface TerminalState {
 /** A terminal Foom launched in a managed worktree. Paths identify; the renderer never picks them. */
 export interface WorkspaceTerminal {
   id: string;
-  kind: "agent";
-  agent: AgentId;
+  kind: "agent" | "shell";
+  agent: AgentId | "shell";
   repository: string;
   worktree: string;
   branch: string | null;
@@ -48,7 +48,17 @@ export interface LaunchRequest {
   acknowledgeCodexNotifierReplacement?: boolean;
 }
 
+export interface StartWorktreeRequest {
+  repository: string;
+  branch: string;
+  run: AgentId | "shell";
+  acknowledgeCodexNotifierReplacement: boolean;
+}
+
 export interface WorkspaceApi {
+  startWorktree(request: StartWorktreeRequest): Promise<string>;
+  /** Main confirms removal, including any uncommitted changes. */
+  removeWorktree(id: string): Promise<boolean>;
   workspace(): Promise<WorkspaceSnapshot>;
   onWorkspaceChange(callback: () => void): () => void;
   /** Main shows the directory picker; resolves null when the user cancels. */

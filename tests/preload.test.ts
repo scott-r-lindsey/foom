@@ -311,3 +311,17 @@ test("workspace notifications invalidate snapshots and unsubscribe", async () =>
   off();
   expect(mock.removeListener).toHaveBeenCalledWith("workspace:changed", listener);
 });
+
+test("worktree launch and removal have dedicated channels", async () => {
+  const api = await bridge();
+  const request = {
+    repository: "/r",
+    branch: "feature",
+    run: "shell" as const,
+    acknowledgeCodexNotifierReplacement: false,
+  };
+  await api.startWorktree(request);
+  await api.removeWorktree("t1");
+  expect(mock.invoke).toHaveBeenCalledWith("workspace:start", request);
+  expect(mock.invoke).toHaveBeenCalledWith("workspace:remove", "t1");
+});

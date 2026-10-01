@@ -6,24 +6,23 @@ import type { TerminalActivity } from "../shared/desktop";
 import type { TerminalState, WorkspaceSnapshot } from "../shared/workspace";
 
 /** Live terminal truth comes from main; only seen state belongs to this adapter. */
-export function createAppSource(): BoardSource {
+export function createAppSource(localShell = false): BoardSource {
   // Keep startup failures reachable so the user can retry the local shell.
   const pendingShell = "local-shell";
-  let rows: readonly BoardRow[] = [
-    {
-      id: pendingShell,
-      kind: "shell",
-      repository: "Local",
-      branch: "Shell",
-      agent: "Shell",
-      state: "quiet_ok",
-      reason: "Starting shell…",
-      rate: 0,
-      waitingSince: 0,
-      seen: false,
-      tail: [],
-    },
-  ];
+  const startupRow: BoardRow = {
+    id: pendingShell,
+    kind: "shell",
+    repository: "Local",
+    branch: "Shell",
+    agent: "Shell",
+    state: "quiet_ok",
+    reason: "Starting shell…",
+    rate: 0,
+    waitingSince: 0,
+    seen: false,
+    tail: [],
+  };
+  let rows: readonly BoardRow[] = localShell ? [startupRow] : [];
   let controller: ReturnType<typeof createShell> | undefined;
   let shellId = pendingShell;
   let view: ShellView = {
@@ -79,6 +78,7 @@ export function createAppSource(): BoardSource {
       return latest({
         id: entry.id,
         kind: entry.kind,
+        managed: true,
         repository:
           next.repositories.find((repo) => repo.path === entry.repository)?.name ??
           entry.repository,
@@ -106,6 +106,32 @@ export function createAppSource(): BoardSource {
     publish();
   };
   return {
+    worktrees: {
+      load: async () => {
+        const [workspace, scan, setup] = await Promise.all([
+          window.desktop.workspace(),
+          window.desktop.scanAgents(false),
+          window.desktop.setupState(),
+        ]);
+        return {
+          repositories: workspace.repositories,
+          agents: scan.agents,
+          enabled: setup.settings.agents,
+          hooks: setup.settings.hooks,
+          acknowledged: setup.settings.codexNotifierAcknowledged,
+        };
+      },
+      addRepository: () => window.desktop.addRepository(),
+      start: async (request) => {
+        await window.desktop.startWorktree(request);
+        snapshot(await window.desktop.workspace());
+      },
+      remove: async (id) => {
+        const removed = await window.desktop.removeWorktree(id);
+        if (removed) snapshot(await window.desktop.workspace());
+        return removed;
+      },
+    },
     getSnapshot: () => rows,
     subscribe: (listener) => {
       listeners.add(listener);
@@ -203,6 +229,7 @@ export function createAppSource(): BoardSource {
             ];
             publish();
           },
+          localShell,
         );
         return () => {
           disposed = true;
@@ -228,6 +255,10 @@ export function createAppSource(): BoardSource {
         await controller?.toggle();
       },
       restart: async () => {
+        if (shellId === pendingShell && !rows.some((row) => row.id === pendingShell)) {
+          rows = [...rows, startupRow];
+          publish();
+        }
         await controller?.restart();
       },
     },

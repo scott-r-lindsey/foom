@@ -1438,3 +1438,58 @@ button:focus-visible {
 .badge[data-known="false"] .badge-value {
   font-style: italic;
 }
+
+.board-entry {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.board-entry .board-row {
+  flex: 1;
+  min-width: 0;
+}
+.worktree-remove {
+  font-size: 12px;
+}
+.worktree-dialog {
+  width: min(520px, calc(100vw - 48px));
+  color: var(--ink);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 28px;
+}
+.worktree-dialog::backdrop {
+  background: rgb(0 0 0 / 45%);
+}
+.worktree-dialog h2 {
+  margin-top: 0;
+}
+.worktree-dialog fieldset {
+  display: grid;
+  gap: 10px;
+  border: 0;
+  padding: 12px 0;
+}
+.worktree-dialog label {
+  margin-top: 10px;
+}
+.worktree-dialog input:not([type="checkbox"]),
+.worktree-dialog select {
+  width: 100%;
+  padding: 10px;
+  color: inherit;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  font: inherit;
+}
+.worktree-dialog footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  margin-top: 18px;
+}
+.worktree-disclosure {
+  line-height: 1.5;
+}

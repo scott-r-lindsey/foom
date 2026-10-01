@@ -5,6 +5,7 @@ import { Board } from "../src/renderer/board-view";
 import { createSampleSource } from "../src/renderer/board-source";
 import type { BoardRow } from "../src/renderer/board.d";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
+import { installation } from "./fixtures/setup";
 import { groupRows, light, nextWaiting, sampleRows, waitTime } from "../src/renderer/board";
 
 beforeEach(() => {
@@ -166,6 +167,7 @@ test("hover peeks without focus and never covers an open terminal; terminal text
   fireEvent.mouseOver(buttons[1] ?? document.body);
   await act(async () => {
     await Promise.resolve();
+    await Promise.resolve();
   });
   expect(dialog.querySelector(".board-peek pre")?.textContent).toContain("<img");
   expect(dialog.querySelector("img")).toBeNull();
@@ -288,9 +290,11 @@ test("tail failures are visible and obsolete tail responses do not overwrite a n
   fireEvent.mouseOver(buttons[1] ?? document.body);
   await act(async () => {
     await Promise.resolve();
+    await Promise.resolve();
   });
   expect(view.container.querySelector(".board-peek pre")?.textContent).toContain("Unable to read");
   await act(async () => {
+    await Promise.resolve();
     finish?.(["stale"]);
     await Promise.resolve();
   });
@@ -303,10 +307,12 @@ test("opening the same waiting row again keeps its output visible", async () => 
   key("n");
   await act(async () => {
     await Promise.resolve();
+    await Promise.resolve();
   });
   expect(dialog.querySelector(".sample-terminal pre")?.textContent).toContain("Run npm test?");
   key("n");
   await act(async () => {
+    await Promise.resolve();
     await Promise.resolve();
   });
   expect(dialog.querySelector(".sample-terminal pre")?.textContent).toContain("Run npm test?");
@@ -317,10 +323,12 @@ test("keyboard peek replaces hover, stays pinned across mouse movement, and togg
   fireEvent.mouseOver(buttons[1] ?? document.body);
   await act(async () => {
     await Promise.resolve();
+    await Promise.resolve();
   });
   expect(dialog.querySelector(".board-peek h2")?.textContent).toContain("feat/terminal-tabs");
   key("p");
   await act(async () => {
+    await Promise.resolve();
     await Promise.resolve();
   });
   expect(dialog.querySelector(".board-peek h2")?.textContent).toContain("fix/session-restore");
@@ -333,6 +341,7 @@ test("keyboard peek replaces hover, stays pinned across mouse movement, and togg
   key("p");
   await act(async () => {
     await Promise.resolve();
+    await Promise.resolve();
   });
   expect(dialog.querySelector(".board-peek h2")?.textContent).toContain("feat/terminal-tabs");
   key("p");
@@ -344,10 +353,55 @@ test("pinning the currently hovered row retains its tail", async () => {
   fireEvent.mouseOver(buttons[0] ?? document.body);
   await act(async () => {
     await Promise.resolve();
+    await Promise.resolve();
   });
   key("p");
   await act(async () => {
     await Promise.resolve();
+    await Promise.resolve();
   });
   expect(dialog.querySelector(".board-peek pre")?.textContent).toContain("Run npm test?");
+});
+
+test("board opens the launcher without routing typing to shortcuts and reports removal errors", async () => {
+  const row = sampleRows(0)[0];
+  if (!row) throw new Error("Missing sample");
+  const base = createSampleSource([{ ...row, kind: "shell", managed: true }]);
+  const remove = vi.fn(() => Promise.reject(new Error("Worktree changed")));
+  const source = {
+    ...base,
+    worktrees: {
+      load: () =>
+        Promise.resolve({
+          repositories: [],
+          agents: [installation("claude")],
+          hooks: true,
+          acknowledged: false,
+          enabled: { claude: true, codex: true, agy: true },
+        }),
+      addRepository: () => Promise.resolve(null),
+      start: () => Promise.resolve(),
+      remove,
+    },
+  };
+  const screen = render(<Board source={source} />);
+  await act(async () => {
+    await Promise.resolve();
+    fireEvent.click(screen.getByRole("button", { name: "New worktree" }));
+  });
+  fireEvent.keyDown(screen.getByLabelText("Branch"), { key: "n" });
+  expect(screen.getByRole("dialog")).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+  expect(screen.queryByRole("dialog")).toBeNull();
+  await act(async () => {
+    await Promise.resolve();
+    fireEvent.click(screen.getByRole("button", { name: /Remove worktree/ }));
+  });
+  expect(screen.getByRole("alert").textContent).toBe("Worktree changed");
+  remove.mockRejectedValueOnce("failure");
+  await act(async () => {
+    await Promise.resolve();
+    fireEvent.click(screen.getByRole("button", { name: /Remove worktree/ }));
+  });
+  expect(screen.getByRole("alert").textContent).toBe("Unable to remove worktree.");
 });

@@ -10,6 +10,7 @@ const AGENTS: readonly AgentId[] = ["claude", "codex", "agy"];
 
 export const DEFAULT_SETTINGS: Settings = Object.freeze({
   setupComplete: false,
+  codexNotifierAcknowledged: false,
   hooks: true,
   agents: Object.freeze({ claude: true, codex: true, agy: true }),
   worktreeLocation: "root",
@@ -32,7 +33,10 @@ export function parseSettingsPatch(value: unknown): SettingsPatch {
   if (!record(value)) throw new Error("Invalid settings");
   const patch: SettingsPatch = {};
   for (const [key, entry] of Object.entries(value)) {
-    if ((key === "setupComplete" || key === "hooks") && typeof entry === "boolean")
+    if (
+      (key === "setupComplete" || key === "hooks" || key === "codexNotifierAcknowledged") &&
+      typeof entry === "boolean"
+    )
       patch[key] = entry;
     else if (key === "worktreeLocation" && (entry === "root" || entry === "adjacent"))
       patch.worktreeLocation = entry;
