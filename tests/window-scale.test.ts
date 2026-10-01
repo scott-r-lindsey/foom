@@ -60,6 +60,19 @@ test("a resize by the user sets a new size at 100%", () => {
   expect(bounds).toMatchObject({ width: 1000, height: 600 });
 });
 
+test("zoom reset shrinks a window macOS reports maximized after our own resize", () => {
+  const smallScreen = { x: 0, y: 0, width: 1024, height: 684 };
+  window.isMaximized.mockImplementation(
+    () => bounds.width === smallScreen.width && bounds.height === smallScreen.height,
+  );
+  const { apply } = attachWindowScale(window, () => smallScreen, 100);
+  apply(120);
+  resize?.();
+  expect(window.isMaximized()).toBe(true);
+  apply(100);
+  expect(bounds).toMatchObject({ width: 900, height: 640 });
+});
+
 test("maximized and full-screen windows keep their size but get the new minimum", () => {
   const { apply } = attachWindowScale(window, () => area, 100);
   window.isMaximized.mockReturnValue(true);

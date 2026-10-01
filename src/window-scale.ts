@@ -47,14 +47,12 @@ export function attachWindowScale(
   let base = toBase(window.getContentBounds());
   // Our own resizes also raise "resize"; only a different size came from the user.
   let expected: Size | undefined;
+  const isExpected = ({ width, height }: Size) =>
+    expected !== undefined &&
+    Math.abs(width - expected.width) <= 2 &&
+    Math.abs(height - expected.height) <= 2;
   window.on("resize", () => {
-    const { width, height } = window.getBounds();
-    if (
-      expected &&
-      Math.abs(width - expected.width) <= 2 &&
-      Math.abs(height - expected.height) <= 2
-    )
-      return;
+    if (isExpected(window.getBounds())) return;
     expected = undefined;
     if (!window.isMaximized() && !window.isFullScreen()) base = toBase(window.getContentBounds());
   });
@@ -71,7 +69,9 @@ export function attachWindowScale(
       const area = workArea(bounds);
       const minimum = scaledSize(MINIMUM_SIZE, scale, area);
       window.setMinimumSize(minimum.width, minimum.height);
-      if (window.isMaximized() || window.isFullScreen()) return;
+      // macOS also reports maximized when our own resize fills the work area.
+      // That window must still shrink; only a user-maximized window stays put.
+      if ((window.isMaximized() && !isExpected(bounds)) || window.isFullScreen()) return;
       // Only a pointer inside the page anchors; elsewhere it didn't click anything here.
       const origin =
         anchor && inside(anchor, content) ? anchoredOrigin(bounds, content, anchor, ratio) : bounds;
