@@ -23,7 +23,15 @@ beforeEach(async () => {
 });
 afterEach(async () => {
   vi.unstubAllEnvs();
-  await rm(scratch, { recursive: true, force: true });
+  try {
+    // dispose() removes its launch directory asynchronously. Wait for it before
+    // deleting the parent: concurrent recursive removals can fail with EPERM on Windows.
+    await vi.waitFor(async () => {
+      expect(await readdir(scratch)).toEqual([]);
+    });
+  } finally {
+    await rm(scratch, { recursive: true, force: true });
+  }
 });
 
 test("writes a private POSIX adapter and quotes its path for the hook shell", async () => {

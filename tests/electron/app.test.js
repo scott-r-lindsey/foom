@@ -153,7 +153,9 @@ async function launchApp(context, openShell = true, options = {}) {
   assert.doesNotMatch(await page.locator("#status").textContent(), /Unable|failed/);
   await expect(page.locator("#toggle-terminal")).toBeEnabled();
   if (openShell) {
-    await page.locator(".board-row[data-kind='shell']").click();
+    // Use the board's keyboard action for setup; pointer clicks wait for layout
+    // stability and can stall during the first window's startup on a CI display.
+    await page.locator(".board-row[data-kind='shell']").press("Enter");
     await expect(page.getByRole("button", { name: "Hide terminal", exact: true })).toBeEnabled();
   }
   return app;
