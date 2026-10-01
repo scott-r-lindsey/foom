@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { sampleRows } from "../../../../src/renderer/board/sample-rows";
 import { act, cleanup, fireEvent, render } from "@testing-library/react";
 import { Profiler } from "react";
 import { Board } from "../../../../src/renderer/board/board-view";
@@ -6,13 +7,7 @@ import { createSampleSource } from "../../../../src/renderer/board/sample-board-
 import type { BoardRow } from "../../../../src/renderer/board/board.d";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { installation } from "../../../fixtures/setup";
-import {
-  groupRows,
-  light,
-  nextWaiting,
-  sampleRows,
-  waitTime,
-} from "../../../../src/renderer/board/board";
+import { groupRows, light, nextWaiting, waitTime } from "../../../../src/renderer/board/board";
 
 beforeEach(() => {
   vi.useFakeTimers();

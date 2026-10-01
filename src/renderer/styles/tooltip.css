@@ -1,0 +1,32 @@
+/* Tooltip */
+.tip {
+  position: relative;
+  display: inline-block;
+}
+/* Fixed, and placed by script against the window's edges. */
+.tip-bubble {
+  position: fixed;
+  z-index: 5;
+  top: 0;
+  left: 0;
+  width: max-content;
+  max-width: min(400px, calc(100vw - 16px));
+  overflow-wrap: normal;
+  padding: 8px 10px;
+  display: grid;
+  gap: 6px;
+  font: 12px / 1.5 var(--font-interface);
+  color: var(--ink);
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  box-shadow: 0 6px 20px color-mix(in srgb, var(--hole) 35%, transparent);
+  text-transform: none;
+  letter-spacing: 0;
+}
+.tip-path {
+  color: var(--muted);
+}
+.tip-path code {
+  overflow-wrap: anywhere;
+}

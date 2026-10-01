@@ -44,7 +44,7 @@ Electron runs JavaScript compiled from your TypeScript. `npm start`, `npm run te
 
 ESLint enforces process import boundaries. Main, host, and renderer can import their own code and shared code; shared code cannot import process-owned code or Node/Electron capabilities. Preload runtime imports are limited to Electron, with shared contracts imported as types. Keep explicit module filenames; avoid catch-all utility folders and barrel exports that hide ownership. See [architecture](docs/architecture.md#source-layout) for the directory map.
 
-Main, host, and preload compile to CommonJS. esbuild bundles the renderer and xterm CSS for the browser. The build copies styles from `src/renderer/styles/` into `build/renderer/`, retaining the existing asset URLs and allowlist. Compiler environments remain separate. TypeScript 6 is pinned for compatibility with the installed TypeScript ESLint tooling.
+Main, host, and preload compile to CommonJS. esbuild bundles the renderer and xterm CSS for the browser. The build bundles the ordered feature styles in `src/renderer/styles/styles.css` and copies the tokens into `build/renderer/`, retaining the existing asset URLs and allowlist. Compiler environments remain separate. TypeScript 6 is pinned for compatibility with the installed TypeScript ESLint tooling.
 
 ## Everyday commands
 
@@ -70,7 +70,7 @@ Biome owns formatting, and ESLint owns lint rules. Strict TypeScript includes ch
 
 `tests/electron/` contains the real Electron tests and their PTY probe scripts. `app.test.js` is the integration suite for real shell I/O, exit/restart, the isolated bridge, sandbox settings, asset restrictions, and popup blocking. On Linux and Windows it verifies mouse selection and Ctrl+Shift+C / Ctrl+Shift+V against the native clipboard and a real shell. On Linux/macOS it also checks TTY support and Ctrl+C. Detached output, snapshot restoration, and clean application shutdown are required on every platform. Alternate-screen behavior uses deterministic escape sequences in unit tests; Vim and top remain optional manual smoke tests. A second Electron test checks bundled fonts and system themes. Both Electron tests have bounded shutdown cleanup and a hard worker deadline. On Linux, use a graphical session or `xvfb-run -a npm run test:electron` with Electron's system libraries installed. Keep Chromium's sandbox enabled.
 
-Coverage includes every executable TypeScript file under `src/`, including files no test imports. Only `.d.ts` declarations are excluded. Each file must reach **90% lines, statements, and functions, and 85% branches**. Open `coverage/index.html` after running coverage. This is unit-test coverage; it does not imply the real Electron process was instrumented.
+Coverage includes every executable TypeScript file under `src/`, including files no test imports. Only `.d.ts` declarations are excluded. Each file must reach **90% lines, statements, and functions, and 85% branches**. Every successful `npm run test:coverage` prints a `file://` URL for the HTML report at `coverage/index.html`; the `coverage/` directory is ignored by Git. This is unit-test coverage; it does not imply the real Electron process was instrumented.
 
 PR checks additionally require **90% changed executable line coverage**, and fail if a changed application file is missing from LCOV. The scripts under `scripts/` adapt the reporting tools from the Crab Attack II reference, with stricter enforcement and regression tests.
 

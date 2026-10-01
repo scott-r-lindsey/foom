@@ -1,0 +1,96 @@
+/* Accretion ring around Start preflight. Violet is identity, never status: no amber. */
+@property --ring-angle {
+  syntax: "<angle>";
+  inherits: false;
+  initial-value: 0deg;
+}
+/* Extra turn while you're on the button; paused, it holds its angle, so no jump. */
+@property --ring-boost {
+  syntax: "<angle>";
+  inherits: false;
+  initial-value: 0deg;
+}
+.ignite {
+  --ring-tip: color-mix(in srgb, var(--accent) 30%, white);
+  --ring-glow-opacity: 1;
+  position: relative;
+  display: inline-block;
+  border-radius: 7px;
+}
+/* The glow: a blurred copy of the arc just outside the border. */
+.ignite::before {
+  content: "";
+  position: absolute;
+  inset: -4px;
+  border-radius: 10px;
+  background: conic-gradient(
+    from calc(var(--ring-angle) + var(--ring-boost)),
+    transparent 0 50%,
+    var(--accent) 80%,
+    var(--ring-tip) 97%,
+    transparent 100%
+  );
+  filter: blur(8px);
+  opacity: var(--ring-glow-opacity);
+  animation:
+    ignite-orbit 4s linear infinite,
+    ignite-boost 1.25s linear infinite paused;
+}
+/* The arc itself, drawn in the button's border. */
+.preflight .ignite button.primary {
+  position: relative;
+  border: 2px solid transparent;
+  background:
+    linear-gradient(var(--accent), var(--accent)) padding-box,
+    conic-gradient(
+      from calc(var(--ring-angle) + var(--ring-boost)),
+      var(--accent) 0 50%,
+      var(--accent-deep) 75%,
+      var(--ring-tip) 97%,
+      var(--accent) 100%
+    )
+    border-box;
+  animation:
+    ignite-orbit 4s linear infinite,
+    ignite-boost 1.25s linear infinite paused;
+}
+/* On it, the ring spins up: about one orbit a second. */
+.ignite:hover::before,
+.ignite:focus-within::before,
+.preflight .ignite:hover button.primary,
+.preflight .ignite:focus-within button.primary {
+  animation-play-state: running, running;
+}
+/* On a pale sky the glow is softer, or it reads as a smudge. */
+@media (prefers-color-scheme: light) {
+  .ignite {
+    --ring-tip: color-mix(in srgb, var(--accent) 45%, white);
+    --ring-glow-opacity: 0.55;
+  }
+}
+@keyframes ignite-orbit {
+  to {
+    --ring-angle: 360deg;
+  }
+}
+@keyframes ignite-boost {
+  to {
+    --ring-boost: 360deg;
+  }
+}
+/* Reduced motion: a steady ring with an even glow. */
+@media (prefers-reduced-motion: reduce) {
+  .ignite::before,
+  .preflight .ignite button.primary {
+    animation: none;
+  }
+  .ignite::before {
+    background: var(--accent-deep);
+    opacity: 0.6;
+  }
+  .preflight .ignite button.primary {
+    background:
+      linear-gradient(var(--accent), var(--accent)) padding-box,
+      linear-gradient(var(--ring-tip), var(--ring-tip)) border-box;
+  }
+}

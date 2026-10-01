@@ -5,63 +5,16 @@ import type { Repository } from "../../shared/worktrees";
 import { AppearanceControls } from "./appearance-controls";
 import { LaunchSequence } from "./launch-sequence";
 import { EvaluatorStep, message } from "./preflight-evaluator";
-import {
-  AGENTS,
-  examplePath,
-  found,
-  pollRows,
-  readyAgents,
-  signal,
-  signalNote,
-  SIGNALS,
-  STEPS,
-  versionNumber,
-} from "./preflight";
-import { Tooltip } from "../ui/tooltip";
-import { defaultSelection, pending, RepositoryPicker } from "./repository-picker";
+import { STEPS } from "./preflight";
+import { defaultSelection, pending } from "./repository-picker";
+import { Wordmark } from "../ui/wordmark";
+import { WelcomeStep } from "./welcome-step";
+import { AgentsStep } from "./agents-step";
+import { RepositoriesStep } from "./repositories-step";
+import { WorktreesStep } from "./worktrees-step";
+import { ReadinessStep } from "./readiness-step";
 import type { CodeSelection, Scanning } from "./repository-picker";
 import type { SetupSource } from "./setup-source.d";
-
-const SIGNAL_LABEL = { hooks: "Hooks", notify: "Notify", evaluator: "Evaluator" } as const;
-
-/** A path that wraps after a separator, not mid-name. */
-function Path({ path }: { path: string }) {
-  // Each part is keyed by the path up to its end, which is unique even when names repeat.
-  const parts = path
-    .split(/(?<=[\\/])/)
-    .map((part, index, all) => ({ part, key: all.slice(0, index + 1).join("") }));
-  return (
-    <code>
-      {parts.map(({ part, key }) => (
-        <span key={key}>
-          {part}
-          <wbr />
-        </span>
-      ))}
-    </code>
-  );
-}
-
-/** An agent's command as you'd type it. */
-function Command({ command }: { command: string }) {
-  return (
-    <code className="agent-command">
-      <span aria-hidden="true">$ </span>
-      {command}
-    </code>
-  );
-}
-
-function Wordmark() {
-  return (
-    <span className="wordmark" role="img" aria-label="foom">
-      <span aria-hidden="true">
-        fo
-        <span className="wordmark-hole" />m
-      </span>
-    </span>
-  );
-}
 
 /**
  * The first-run countdown. `onClose` is present when setup already ran once: every
@@ -193,9 +146,6 @@ export function Preflight({
     }
   };
 
-  const ready = readyAgents(report, state);
-  const rows = pollRows(state, report, repositories);
-  const allGo = rows.every((row) => row.go);
   const nav = (back: number | undefined, why: string, next?: number) => (
     <div className="preflight-nav">
       {back === undefined ? (
@@ -227,247 +177,41 @@ export function Preflight({
 
   let content;
   if (step === 0) {
-    content = (
-      <div className="preflight-welcome">
-        <h1 ref={headingRef} tabIndex={-1}>
-          <Wordmark />
-        </h1>
-        <p className="preflight-lede">Run ten agents. Hear only from the ones that need you.</p>
-        <p>
-          Every agent gets its own worktree and its own terminal. Terminals stay hidden behind a
-          light. When one goes quiet, Foom works out whether it's done, stuck, or asking you
-          something.
-        </p>
-        <div className="preflight-cta">
-          {/* The accretion ring: light orbiting the button, like the logo's black hole. */}
-          <span className="ignite">
-            <button
-              type="button"
-              className="primary"
-              onClick={() => {
-                go(1);
-              }}
-            >
-              Start preflight
-            </button>
-          </span>
-          <span>Five checks, about a minute</span>
-        </div>
-        <dl className="preflight-facts">
-          <div>
-            <dt>Worktrees, not branches</dt>
-            <dd>Agents never step on each other's files.</dd>
-          </div>
-          <div>
-            <dt>Lights, not tabs</dt>
-            <dd>Brightness follows output. Amber means you're needed.</dd>
-          </div>
-          <div>
-            <dt>Hooks first</dt>
-            <dd>Agents that can report their own state do. The evaluator covers the rest.</dd>
-          </div>
-        </dl>
-      </div>
-    );
+    content = <WelcomeStep headingRef={headingRef} go={go} />;
   } else if (step === 1) {
     content = (
-      <>
-        <p className="preflight-eyebrow">T-4 · Agents</p>
-        <h2 ref={headingRef} tabIndex={-1}>
-          Which agents do you run?
-        </h2>
-        <p className="preflight-intro">
-          Foom checks your PATH and picks the most reliable way each agent can tell you it needs
-          attention.
-        </p>
-        {report?.warning && <p className="preflight-warning">{report.warning}</p>}
-        <ul className="preflight-list agent-grid">
-          {AGENTS.map(({ id, name, command }) => {
-            const agent = found(report, id);
-            const how = agent && signal(agent, state.settings.hooks);
-            const note = agent && signalNote(agent, state.settings.hooks);
-            return (
-              <li key={id} className="preflight-item">
-                <input
-                  type="checkbox"
-                  id={`agent-${id}`}
-                  checked={Boolean(agent) && state.settings.agents[id]}
-                  disabled={!agent}
-                  onChange={(event) => {
-                    save({ agents: { ...state.settings.agents, [id]: event.target.checked } });
-                  }}
-                />
-                <span className="agent-title">
-                  <label htmlFor={`agent-${id}`} className="preflight-name">
-                    {name}
-                  </label>
-                  {agent ? (
-                    <Tooltip className="chip" label={<Command command={command} />}>
-                      <span className="tip-path">
-                        Found at <Path path={agent.path} />
-                      </span>
-                      {agent.version && (
-                        <span className="tip-path">
-                          Reports <code>{agent.version}</code>
-                        </span>
-                      )}
-                    </Tooltip>
-                  ) : (
-                    <Command command={command} />
-                  )}
-                </span>
-                <span
-                  className="preflight-found"
-                  data-found={agent ? "yes" : report ? "no" : "scanning"}
-                >
-                  {agent ? "Found" : scanning || !report ? "Looking…" : "Not found"}
-                </span>
-                {agent && how ? (
-                  <div className="agent-meta">
-                    <span className="badge" data-known={String(Boolean(agent.version))}>
-                      <span className="badge-label">Version</span>
-                      <span className="badge-value">
-                        {versionNumber(agent.version) ?? "unknown"}
-                      </span>
-                    </span>
-                    <Tooltip className="chip chip-signal" label={SIGNAL_LABEL[how]}>
-                      {SIGNALS[how]}
-                      {note && <span>{note}</span>}
-                    </Tooltip>
-                  </div>
-                ) : (
-                  <p className="preflight-sub">
-                    {report && !scanning ? "Not on your PATH." : "Checking your PATH…"}
-                  </p>
-                )}
-              </li>
-            );
-          })}
-        </ul>
-        <button
-          type="button"
-          disabled={scanning}
-          onClick={() => {
-            void scan(true);
-          }}
-        >
-          {scanning ? "Scanning…" : "Scan again"}
-        </button>
-        <label className="preflight-check">
-          <input
-            type="checkbox"
-            checked={state.settings.hooks}
-            onChange={(event) => {
-              save({ hooks: event.target.checked });
-            }}
-          />
-          <span>
-            <b>Attach Foom's hooks when it launches an agent</b>
-            <small>
-              Passed per launch (<code>claude --settings</code>, <code>codex -c notify=…</code>).
-              Your own config files are never edited. Turn this off and every agent falls back to
-              the evaluator.
-            </small>
-          </span>
-        </label>
-        {nav(
-          0,
-          ready.length
-            ? `${String(ready.length)} ${ready.length === 1 ? "agent" : "agents"} ready`
-            : "No agents ready yet · needed to launch",
-          2,
-        )}
-      </>
+      <AgentsStep
+        headingRef={headingRef}
+        state={state}
+        report={report}
+        scanning={scanning}
+        scan={scan}
+        save={save}
+        nav={nav}
+      />
     );
   } else if (step === 2) {
-    const selected = code
-      ? code.scan.repositories
-          .filter((repo) => code.selected.has(repo.path))
-          .map(({ path, name }) => ({ path, name }))
-      : repositories;
     content = (
-      <>
-        <p className="preflight-eyebrow">T-3 · Repositories</p>
-        <h2 ref={headingRef} tabIndex={-1}>
-          Where do you keep your code?
-        </h2>
-        <p className="preflight-intro">
-          Foom looks for Git repositories there. Ones you've worked in over the last 30 days start
-          checked.
-        </p>
-        <RepositoryPicker
-          source={source}
-          selection={code}
-          added={repositories}
-          progress={codeScanning}
-          onScan={scanCode}
-          onSelection={setCode}
-        />
-        {nav(
-          1,
-          selected.length
-            ? `${String(selected.length)} ${selected.length === 1 ? "repository" : "repositories"} selected`
-            : "None selected yet · needed to launch",
-          3,
-        )}
-      </>
+      <RepositoriesStep
+        headingRef={headingRef}
+        source={source}
+        code={code}
+        repositories={repositories}
+        codeScanning={codeScanning}
+        scanCode={scanCode}
+        setCode={setCode}
+        nav={nav}
+      />
     );
   } else if (step === 3) {
     content = (
-      <>
-        <p className="preflight-eyebrow">T-2 · Worktrees</p>
-        <h2 ref={headingRef} tabIndex={-1}>
-          Where should new worktrees go?
-        </h2>
-        <p className="preflight-intro">
-          Every agent works in its own Git worktree, on its own branch, so agents never touch each
-          other's files. Choose where Foom creates them.
-        </p>
-        <fieldset className="preflight-options preflight-split">
-          <legend className="visually-hidden">Where new worktrees go</legend>
-          <label className="preflight-option">
-            <input
-              type="radio"
-              name="worktrees"
-              checked={state.settings.worktreeLocation === "root"}
-              onChange={() => {
-                save({ worktreeLocation: "root" });
-              }}
-            />
-            <span>
-              <b>
-                Keep worktrees in Foom's folder <span className="preflight-rec">Recommended</span>
-              </b>
-              <small>
-                In <code>{state.worktreeRoot}</code>. Your code folder stays tidy, and Foom can
-                clean up merged worktrees in one place.
-              </small>
-            </span>
-          </label>
-          <label className="preflight-option">
-            <input
-              type="radio"
-              name="worktrees"
-              checked={state.settings.worktreeLocation === "adjacent"}
-              onChange={() => {
-                save({ worktreeLocation: "adjacent" });
-              }}
-            />
-            <span>
-              <b>Put them next to each repository</b>
-              <small>
-                Beside the repository, as <code>app-feat/search</code>. Easier to find in your
-                editor and shell history.
-              </small>
-            </span>
-          </label>
-        </fieldset>
-        <p className="preflight-note">
-          A branch named <code>feat/search</code> would land at{" "}
-          <code>{examplePath(state, repositories)}</code>
-        </p>
-        {nav(2, "You can change this any time from Preflight", 4)}
-      </>
+      <WorktreesStep
+        headingRef={headingRef}
+        state={state}
+        repositories={repositories}
+        save={save}
+        nav={nav}
+      />
     );
   } else if (step === 4) {
     content = (
@@ -486,56 +230,14 @@ export function Preflight({
     );
   } else {
     content = (
-      <>
-        <p className="preflight-eyebrow">T-0 · Go / no-go</p>
-        <h2 ref={headingRef} tabIndex={-1}>
-          {allGo ? "All stations go." : "Hold. Something needs fixing."}
-        </h2>
-        <p className="preflight-intro">
-          {allGo
-            ? "Everything checks out. Launch to open your board."
-            : "Fix the no-go items below. Each one links back to its step."}
-        </p>
-        <ul className="preflight-poll">
-          {rows.map((row) => (
-            <li key={row.system} data-go={row.go}>
-              <span className="preflight-system">{row.system}</span>
-              <span className="preflight-detail">
-                {row.detail}
-                {!row.go && (
-                  <>
-                    {" · "}
-                    <button
-                      type="button"
-                      className="link"
-                      onClick={() => {
-                        go(row.step);
-                      }}
-                    >
-                      Fix
-                    </button>
-                  </>
-                )}
-              </span>
-              <span className="preflight-pill">{row.go ? "GO" : "NO-GO"}</span>
-            </li>
-          ))}
-        </ul>
-        <div className="preflight-nav">
-          <button
-            type="button"
-            onClick={() => {
-              go(4);
-            }}
-          >
-            Back
-          </button>
-          <span />
-          <button type="button" className="primary" disabled={!allGo} onClick={() => void launch()}>
-            Launch
-          </button>
-        </div>
-      </>
+      <ReadinessStep
+        headingRef={headingRef}
+        state={state}
+        report={report}
+        repositories={repositories}
+        go={go}
+        launch={launch}
+      />
     );
   }
 

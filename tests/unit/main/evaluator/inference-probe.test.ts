@@ -5,9 +5,9 @@ import {
   listLocalModels,
   openConnection,
   probeInference,
-  streamDelta,
 } from "../../../../src/main/evaluator/inference-probe";
-import type { ProbeDependencies } from "../../../../src/main/evaluator/inference-probe";
+import type { ProbeDependencies } from "../../../../src/main/evaluator/probe.d";
+import { streamDelta } from "../../../../src/main/evaluator/probe-stream";
 import type { ProbeEvent, ProbeUpdate } from "../../../../src/shared/inference";
 
 const local = { kind: "local", model: "qwen3:14b", endpoint: "http://127.0.0.1:11434/v1" };

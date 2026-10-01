@@ -1,0 +1,39 @@
+/* Wider preflight: use the window, keep lines readable. */
+.preflight-inner {
+  max-width: 1040px;
+}
+.preflight-intro,
+.preflight-welcome > p,
+.preflight-note {
+  max-width: 72ch;
+}
+.agent-grid {
+  grid-template-columns: repeat(auto-fill, minmax(290px, 1fr));
+  align-items: stretch;
+}
+.agent-grid .preflight-item {
+  align-content: start;
+}
+.preflight-split {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 12px;
+}
+.preflight-split .preflight-option {
+  margin: 0;
+}
+.evaluator-layout[data-split="true"] {
+  display: grid;
+  gap: 24px;
+}
+@media (min-width: 1180px) {
+  .evaluator-layout[data-split="true"] {
+    grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr);
+    align-items: start;
+  }
+  .evaluator-layout[data-split="true"] .preflight-test {
+    position: sticky;
+    top: 0;
+    margin-top: 0;
+  }
+}

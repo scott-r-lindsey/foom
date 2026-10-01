@@ -199,11 +199,25 @@ test("first run walks every step, saves each choice, and launches", async () => 
   await screen.findByText("1 of 2 selected");
   expect(screen.getByRole("checkbox", { name: /^app/ })).toHaveProperty("checked", true);
   expect(screen.getByRole("checkbox", { name: /^old/ })).toHaveProperty("checked", false);
+  fireEvent.click(screen.getByRole("checkbox", { name: /^old/ }));
+  expect(screen.getByText("2 repositories selected")).toBeTruthy();
+  fireEvent.click(screen.getByRole("checkbox", { name: /^old/ }));
+  expect(screen.getByText("1 repository selected")).toBeTruthy();
 
   // Leaving the step saves the selection; Worktrees is its own step.
   fireEvent.click(button("Continue"));
   await screen.findByText("Where should new worktrees go?");
   expect(source.apply).toHaveBeenCalledWith(["/home/me/code/app"]);
+  expect(screen.getByText("/home/me/.foom/worktrees/app/feat/search")).toBeTruthy();
+  fireEvent.click(screen.getByRole("radio", { name: /Put them next to each repository/ }));
+  await waitFor(() => {
+    expect(source.save).toHaveBeenLastCalledWith({ worktreeLocation: "adjacent" });
+  });
+  expect(screen.getByText("/home/me/code/app-feat/search")).toBeTruthy();
+  fireEvent.click(screen.getByRole("radio", { name: /Keep worktrees in Foom's folder/ }));
+  await waitFor(() => {
+    expect(source.save).toHaveBeenLastCalledWith({ worktreeLocation: "root" });
+  });
   expect(screen.getByText("/home/me/.foom/worktrees/app/feat/search")).toBeTruthy();
   fireEvent.click(screen.getByRole("radio", { name: /next to each repository/ }));
   await screen.findByText("/home/me/code/app-feat/search");
@@ -228,6 +242,10 @@ test("first run walks every step, saves each choice, and launches", async () => 
   expect(source.save).toHaveBeenLastCalledWith({ inference: local });
   await screen.findByText(/qwen3:8b at http/);
 
+  fireEvent.click(button("Continue"));
+  expect(screen.getByText("All stations go.")).toBeTruthy();
+  fireEvent.click(button("Back"));
+  expect(screen.getByText("How should Foom read a terminal that goes quiet?")).toBeTruthy();
   fireEvent.click(button("Continue"));
   expect(screen.getByText("All stations go.")).toBeTruthy();
   fireEvent.click(button("Launch"));

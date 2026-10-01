@@ -25,7 +25,7 @@
     "test:packaged": "node --test tests/electron/packaged-smoke.js",
     "test:ci": "node --test scripts/ci-changes.test.mjs",
     "test:watch": "vitest",
-    "test:coverage": "vitest run --coverage && node --test scripts/tsx-coverage.test.mjs",
+    "test:coverage": "vitest run --coverage && node --test scripts/tsx-coverage.test.mjs && node scripts/print-coverage-url.mjs",
     "test:electron": "npm run build && node --test tests/electron/*.test.js",
     "check": "npm run format:check && npm run lint && npm run typecheck && npm test && npm run test:ci",
     "prepare": "husky",

@@ -1,0 +1,82 @@
+/* Agent cards never overflow, whatever the version string. */
+.agent-grid .preflight-item > * {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.agent-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  align-items: center;
+}
+.agent-title {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  align-items: center;
+  min-width: 0;
+}
+.agent-command {
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+/*
+ * Chips open a tooltip; badges are data. All of them share one box, 20px tall with
+ * centered text, so a row of them lines up whatever the font size or case.
+ */
+.agent-title .tip,
+.agent-meta .tip {
+  display: inline-flex;
+}
+.preflight button.chip,
+.badge {
+  box-sizing: border-box;
+  height: 20px;
+  display: inline-flex;
+  align-items: center;
+  line-height: 1;
+  border-radius: 6px;
+  font: 12px / 1 var(--font-mono);
+}
+.preflight button.chip {
+  padding: 0 7px;
+  color: var(--badge-ink);
+  background: var(--badge-fill);
+  border: 1px solid transparent;
+  cursor: help;
+}
+.preflight button.chip:not(.chip-signal):hover {
+  border-color: var(--line);
+}
+/* The signal is the one outlined thing on a card. */
+.preflight button.chip-signal {
+  font-size: 10px;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  color: var(--accent);
+  background: transparent;
+  border-color: var(--accent);
+}
+.badge {
+  overflow: hidden;
+}
+.badge > span {
+  height: 100%;
+  display: inline-flex;
+  align-items: center;
+  padding: 0 7px;
+}
+.badge-label {
+  font-size: 10px;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  color: var(--badge-label-ink);
+  background: var(--badge-label-fill);
+}
+.badge-value {
+  color: var(--badge-ink);
+  background: var(--badge-fill);
+}
+.badge[data-known="false"] .badge-value {
+  font-style: italic;
+}
