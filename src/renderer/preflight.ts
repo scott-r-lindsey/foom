@@ -6,33 +6,45 @@ import type { Repository } from "../shared/worktrees";
 
 export const STEPS = [
   { t: "", label: "Welcome" },
-  { t: "T-3", label: "Agents" },
-  { t: "T-2", label: "Repositories" },
+  { t: "T-4", label: "Agents" },
+  { t: "T-3", label: "Repositories" },
+  { t: "T-2", label: "Worktrees" },
   { t: "T-1", label: "Evaluator" },
   { t: "T-0", label: "Go / no-go" },
 ] as const;
 
-export const AGENTS: readonly { id: AgentId; name: string; command: string; signal: string }[] = [
-  {
-    id: "claude",
-    name: "Claude Code",
-    command: "claude",
-    signal: "Stop, permission and notification hooks tell Foom when it finishes or asks.",
-  },
-  {
-    id: "codex",
-    name: "Codex",
-    command: "codex",
-    signal:
-      "Foom's notifier runs when a turn completes. It replaces your own notifier for Foom's launches only.",
-  },
-  {
-    id: "agy",
-    name: "Antigravity",
-    command: "agy",
-    signal: "No per-launch hooks yet, so Foom reads its output when it goes quiet.",
-  },
+export const AGENTS: readonly { id: AgentId; name: string; command: string }[] = [
+  { id: "claude", name: "Claude Code", command: "claude" },
+  { id: "codex", name: "Codex", command: "codex" },
+  { id: "agy", name: "Antigravity", command: "agy" },
 ];
+
+/** What each signal means, for the tag's tooltip. */
+export const SIGNALS = {
+  hooks: "Claude Code's hooks tell Foom the moment it stops or asks for permission.",
+  notify: "Codex runs Foom's notifier each time a turn completes.",
+  evaluator: "Foom reads the agent's output when it goes quiet and decides what it means.",
+} as const;
+
+/**
+ * More about how this agent signals, for the tag's tooltip: Codex's notifier
+ * replacement, or why an agent that normally has hooks can't use them.
+ */
+export function signalNote(agent: AgentInstallation, hooks: boolean): string | undefined {
+  const how = signal(agent, hooks);
+  if (how === "notify") return "Replaces your own Codex notifier, for Foom's launches only.";
+  if (how === "evaluator" && hooks && agent.id !== "agy") return agent.reason;
+  return undefined;
+}
+
+/**
+ * The version number in an agent's `--version` output, which each agent words
+ * differently ("2.1.285 (Claude Code)", "codex-cli 0.155.1"); null when there isn't one.
+ */
+export function versionNumber(output: string | null): string | null {
+  if (output === null) return null;
+  return /\d+\.\d+(?:\.\d+)?(?:-[0-9A-Za-z.]+)?/.exec(output)?.[0] ?? null;
+}
 
 export const PROVIDERS: readonly { id: ApiProvider; label: string; model: string }[] = [
   { id: "anthropic", label: "Anthropic", model: "claude-haiku-4-5" },
@@ -48,7 +60,10 @@ export function agentName(id: AgentId): string {
 }
 
 export function found(report: AgentReport | undefined, id: AgentId) {
-  return report?.agents.find((agent) => agent.id === id && agent.path !== null);
+  return report?.agents.find(
+    (agent): agent is AgentInstallation & { path: string } =>
+      agent.id === id && agent.path !== null,
+  );
 }
 
 /** Installed and switched on. */
@@ -130,13 +145,13 @@ export function pollRows(
       system: "Worktrees",
       go: true,
       detail: worktreeLocation === "root" ? state.worktreeRoot : "Next to each repository",
-      step: 2,
+      step: 3,
     },
     {
       system: "Evaluator",
       go: !keyMissing,
       detail: keyMissing ? "The API key for this source is missing" : inferenceSummary(inference),
-      step: 3,
+      step: 4,
     },
   ];
 }

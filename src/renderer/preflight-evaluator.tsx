@@ -161,191 +161,207 @@ export function EvaluatorStep({
   );
 
   return (
-    <>
-      <div className="preflight-options" role="radiogroup" aria-label="Inference source">
-        <label className="preflight-option" data-disabled="true">
-          <input type="radio" name="inference" disabled />
-          <span>
-            <b>Use an agent you already have</b>
-            <small>
-              Not available yet. Foom can't yet prove that a one-shot agent call sees only the
-              terminal tail and never your files, so it won't send anything that way.
-            </small>
-          </span>
-        </label>
-        <label className="preflight-option" data-disabled={!state.secureStorage}>
-          <input
-            type="radio"
-            name="inference"
-            checked={kind === "api"}
-            disabled={!state.secureStorage}
-            onChange={() => {
-              choose("api");
-            }}
-          />
-          <span>
-            <b>Use an API key</b>
-            <small>
-              {state.secureStorage
-                ? "Direct calls to a provider. Fast and cheap per check."
-                : "Your system can't encrypt keys for Foom, so API keys are unavailable here."}
-            </small>
-          </span>
-        </label>
-        {kind === "api" && (
-          <div className="preflight-config">
-            <div className="preflight-fields">
-              <label>
-                Provider
-                <select
-                  value={provider}
-                  onChange={(event) => {
-                    const next = PROVIDERS.find((entry) => entry.id === event.target.value);
-                    if (next) setProvider(next.id);
-                    reset();
-                  }}
-                >
-                  {PROVIDERS.map((entry) => (
-                    <option key={entry.id} value={entry.id}>
-                      {entry.label}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label>
-                Model
-                <input
-                  className="mono"
-                  value={models[provider]}
-                  spellCheck={false}
-                  onChange={(event) => {
-                    setModels({ ...models, [provider]: event.target.value });
-                    reset();
-                  }}
-                />
-              </label>
-              {limitField}
-            </div>
-            {/* To use a different key, remove this one; the field to paste appears. */}
-            {hasKey ? (
-              <p className="preflight-key">
-                A key is saved in your system keychain.{" "}
-                <button type="button" className="link" onClick={() => void removeKey()}>
-                  Remove key
-                </button>
-              </p>
-            ) : (
-              <form
-                className="preflight-fields"
-                onSubmit={(event) => {
-                  event.preventDefault();
-                  void saveKey();
-                }}
-              >
+    // Wide windows: choices on the left, the live check beside them.
+    <div className="evaluator-layout" data-split={kind !== "rules"}>
+      <div className="evaluator-main">
+        <div className="preflight-options" role="radiogroup" aria-label="Inference source">
+          <label className="preflight-option" data-disabled="true">
+            <input type="radio" name="inference" disabled />
+            <span>
+              <b>Use an agent you already have</b>
+              <small>
+                Not available yet. Foom can't yet prove that a one-shot agent call sees only the
+                terminal tail and never your files, so it won't send anything that way.
+              </small>
+            </span>
+          </label>
+          <label className="preflight-option" data-disabled={!state.secureStorage}>
+            <input
+              type="radio"
+              name="inference"
+              checked={kind === "api"}
+              disabled={!state.secureStorage}
+              onChange={() => {
+                choose("api");
+              }}
+            />
+            <span>
+              <b>Use an API key</b>
+              <small>
+                {state.secureStorage
+                  ? "Direct calls to a provider. Fast and cheap per check."
+                  : "Your system can't encrypt keys for Foom, so API keys are unavailable here."}
+              </small>
+            </span>
+          </label>
+          {kind === "api" && (
+            <div className="preflight-config">
+              <div className="preflight-fields">
                 <label>
-                  API key
-                  <input
-                    type="password"
-                    autoComplete="off"
-                    value={key}
-                    placeholder="Paste a key"
+                  Provider
+                  <select
+                    value={provider}
                     onChange={(event) => {
-                      setKey(event.target.value);
+                      const next = PROVIDERS.find((entry) => entry.id === event.target.value);
+                      if (next) setProvider(next.id);
+                      reset();
+                    }}
+                  >
+                    {PROVIDERS.map((entry) => (
+                      <option key={entry.id} value={entry.id}>
+                        {entry.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  Model
+                  <input
+                    className="mono"
+                    value={models[provider]}
+                    spellCheck={false}
+                    onChange={(event) => {
+                      setModels({ ...models, [provider]: event.target.value });
+                      reset();
                     }}
                   />
                 </label>
-                <button type="submit" disabled={!key.trim()}>
-                  Save key
-                </button>
-              </form>
-            )}
-            <p className="preflight-note">
-              Stored in your system keychain. Foom never writes it in plain text or shows it again.
-            </p>
-          </div>
-        )}
-        <label className="preflight-option">
-          <input
-            type="radio"
-            name="inference"
-            checked={kind === "local"}
-            onChange={() => {
-              choose("local");
-            }}
-          />
-          <span>
-            <b>Use a local model</b>
-            <small>Any OpenAI-compatible server on this machine. Nothing leaves it.</small>
-          </span>
-        </label>
-        {kind === "local" && (
-          <div className="preflight-config">
-            <div className="preflight-fields">
-              <label>
-                Endpoint
-                <input
-                  className="mono"
-                  value={endpoint}
-                  spellCheck={false}
-                  onChange={(event) => {
-                    setEndpoint(event.target.value);
-                    reset();
+                {limitField}
+              </div>
+              {/* To use a different key, remove this one; the field to paste appears. */}
+              {hasKey ? (
+                <p className="preflight-key">
+                  A key is saved in your system keychain.{" "}
+                  <button type="button" className="link" onClick={() => void removeKey()}>
+                    Remove key
+                  </button>
+                </p>
+              ) : (
+                <form
+                  className="preflight-fields"
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    void saveKey();
                   }}
-                />
-              </label>
-              <label>
-                Model
-                <input
-                  className="mono"
-                  value={localModel}
-                  placeholder="qwen3:8b"
-                  spellCheck={false}
-                  list="local-models"
-                  onChange={(event) => {
-                    setLocalModel(event.target.value);
-                    reset();
-                  }}
-                />
-                <datalist id="local-models">
-                  {available?.ok &&
-                    available.models.map((model) => <option key={model} value={model} />)}
-                </datalist>
-              </label>
-              {limitField}
-            </div>
-            {available && (
-              <p className="preflight-server" data-tone={available.ok ? "ok" : "error"}>
-                {available.ok
-                  ? `${available.server ?? "OpenAI-compatible server"} · ${String(available.models.length)} ${available.models.length === 1 ? "model" : "models"}${
-                      localModel.trim() && !available.models.includes(localModel.trim())
-                        ? ` · ${localModel.trim()} isn't one of them`
-                        : ""
-                    }`
-                  : available.message}
+                >
+                  <label>
+                    API key
+                    <input
+                      type="password"
+                      autoComplete="off"
+                      value={key}
+                      placeholder="Paste a key"
+                      onChange={(event) => {
+                        setKey(event.target.value);
+                      }}
+                    />
+                  </label>
+                  <button type="submit" disabled={!key.trim()}>
+                    Save key
+                  </button>
+                </form>
+              )}
+              <p className="preflight-note">
+                Stored in your system keychain. Foom never writes it in plain text or shows it
+                again.
               </p>
-            )}
-            <p className="preflight-note">
-              Use a loopback address (127.0.0.1 or [::1]) with the API path, as with Ollama, LM
-              Studio or vLLM.
-            </p>
-          </div>
-        )}
-        <label className="preflight-option">
-          <input
-            type="radio"
-            name="inference"
-            checked={kind === "rules"}
-            onChange={() => {
-              choose("rules");
-            }}
-          />
-          <span>
-            <b>Rules only</b>
-            <small>No model. Ambiguous terminals stay neutral instead of asking for you.</small>
-          </span>
-        </label>
-      </div>
+            </div>
+          )}
+          <label className="preflight-option">
+            <input
+              type="radio"
+              name="inference"
+              checked={kind === "local"}
+              onChange={() => {
+                choose("local");
+              }}
+            />
+            <span>
+              <b>Use a local model</b>
+              <small>Any OpenAI-compatible server on this machine. Nothing leaves it.</small>
+            </span>
+          </label>
+          {kind === "local" && (
+            <div className="preflight-config">
+              <div className="preflight-fields">
+                <label>
+                  Endpoint
+                  <input
+                    className="mono"
+                    value={endpoint}
+                    spellCheck={false}
+                    onChange={(event) => {
+                      setEndpoint(event.target.value);
+                      reset();
+                    }}
+                  />
+                </label>
+                <label>
+                  Model
+                  <input
+                    className="mono"
+                    value={localModel}
+                    placeholder="qwen3:8b"
+                    spellCheck={false}
+                    list="local-models"
+                    onChange={(event) => {
+                      setLocalModel(event.target.value);
+                      reset();
+                    }}
+                  />
+                  <datalist id="local-models">
+                    {available?.ok &&
+                      available.models.map((model) => <option key={model} value={model} />)}
+                  </datalist>
+                </label>
+                {limitField}
+              </div>
+              {available && (
+                <p className="preflight-server" data-tone={available.ok ? "ok" : "error"}>
+                  {available.ok
+                    ? `${available.server ?? "OpenAI-compatible server"} · ${String(available.models.length)} ${available.models.length === 1 ? "model" : "models"}${
+                        localModel.trim() && !available.models.includes(localModel.trim())
+                          ? ` · ${localModel.trim()} isn't one of them`
+                          : ""
+                      }`
+                    : available.message}
+                </p>
+              )}
+              <p className="preflight-note">
+                Use a loopback address (127.0.0.1 or [::1]) with the API path, as with Ollama, LM
+                Studio or vLLM.
+              </p>
+            </div>
+          )}
+          <label className="preflight-option">
+            <input
+              type="radio"
+              name="inference"
+              checked={kind === "rules"}
+              onChange={() => {
+                choose("rules");
+              }}
+            />
+            <span>
+              <b>Rules only</b>
+              <small>No model. Ambiguous terminals stay neutral instead of asking for you.</small>
+            </span>
+          </label>
+        </div>
 
+        {error && (
+          <p className="preflight-result" data-tone="error" role="alert">
+            {error}
+          </p>
+        )}
+        <p className="preflight-in-use">
+          <b>In use:</b> {inferenceSummary(saved)}
+        </p>
+        <p className="preflight-privacy">
+          Foom sends the last 40 lines of a terminal that has gone quiet, with likely secrets
+          redacted. It never sends files, diffs, or your keystrokes.
+        </p>
+      </div>
       {kind !== "rules" && (
         <section className="preflight-test" aria-label="Sample check">
           <div className="preflight-test-head">
@@ -377,18 +393,6 @@ export function EvaluatorStep({
           )}
         </section>
       )}
-      {error && (
-        <p className="preflight-result" data-tone="error" role="alert">
-          {error}
-        </p>
-      )}
-      <p className="preflight-in-use">
-        <b>In use:</b> {inferenceSummary(saved)}
-      </p>
-      <p className="preflight-privacy">
-        Foom sends the last 40 lines of a terminal that has gone quiet, with likely secrets
-        redacted. It never sends files, diffs, or your keystrokes.
-      </p>
-    </>
+    </div>
   );
 }

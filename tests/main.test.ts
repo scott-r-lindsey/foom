@@ -80,6 +80,7 @@ const mock = vi.hoisted(() => {
     }),
     removeMenu: vi.fn(),
     getBounds: vi.fn(() => ({ x: 0, y: 0, width: 1080, height: 768 })),
+    getContentBounds: vi.fn(() => ({ x: 0, y: 0, width: 1080, height: 768 })),
     setBounds: vi.fn(),
     setMinimumSize: vi.fn(),
     isMaximized: vi.fn(() => false),
@@ -96,6 +97,7 @@ const mock = vi.hoisted(() => {
     on = window.on;
     removeMenu = window.removeMenu;
     getBounds = window.getBounds;
+    getContentBounds = window.getContentBounds;
     setBounds = window.setBounds;
     setMinimumSize = window.setMinimumSize;
     isMaximized = window.isMaximized;
@@ -201,6 +203,7 @@ vi.mock("electron", () => ({
   screen: {
     getPrimaryDisplay: () => ({ workArea: { x: 0, y: 0, width: 1920, height: 1080 } }),
     getDisplayMatching: () => ({ workArea: { x: 0, y: 0, width: 1920, height: 1080 } }),
+    getCursorScreenPoint: () => ({ x: 1000, y: 700 }),
   },
   session: {
     defaultSession: {
@@ -657,6 +660,18 @@ test("setup owns the settings, applies them to the workspace, and classifies ver
   mock.openDialog.mockResolvedValueOnce({ canceled: false, filePaths: [] });
   await expect(code.pickFolder()).resolves.toBeNull();
   expect(mock.attachSetup.mock.calls[0]?.[1]).toBeInstanceOf(Object);
+  // A click on + grows the window from the pointer instead of the top-left corner.
+  const pointerZoom = mock.attachSetup.mock.calls[0]?.[2] as (active: boolean) => void;
+  pointerZoom(true);
+  deps.apply({ ...next, interfaceScale: 80 });
+  pointerZoom(false);
+  // Shrinking toward the pointer at (1000, 700) moves the corner toward it.
+  expect(mock.window.setBounds).toHaveBeenLastCalledWith({
+    x: 111,
+    y: 78,
+    width: 720,
+    height: 512,
+  });
   const classify = mock.VerdictLog.mock.calls[0]?.[1];
   classify?.({ terminalId: "a" });
   expect(mock.setup.classify).toHaveBeenCalledWith({ terminalId: "a" });

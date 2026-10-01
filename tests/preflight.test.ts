@@ -1,5 +1,7 @@
 import { expect, test } from "vitest";
 import {
+  signalNote,
+  versionNumber,
   agentName,
   examplePath,
   inferenceSummary,
@@ -66,7 +68,7 @@ test("go / no-go needs a ready agent, a repository and a usable evaluator", () =
 
   const cloud = { kind: "anthropic", model: "claude-haiku-4-5" } as const;
   const missing = pollRows(setupState({ inference: cloud }), scan, [repo])[4];
-  expect(missing).toMatchObject({ go: false, step: 3 });
+  expect(missing).toMatchObject({ go: false, step: 4 });
   const keyed = setupState(
     { inference: cloud },
     { keys: { anthropic: true, openai: false, google: false } },
@@ -74,4 +76,23 @@ test("go / no-go needs a ready agent, a repository and a usable evaluator", () =
   expect(pollRows(keyed, scan, [repo])[4]).toMatchObject({ go: true });
   const local = { kind: "local", model: "m", endpoint: "http://127.0.0.1:1/v1" } as const;
   expect(pollRows(setupState({ inference: local }), scan, [repo])[4]?.go).toBe(true);
+});
+
+test("the signal tooltip explains only what is unusual", () => {
+  const hooksTooOld = { ...installation("claude"), hooks: false, reason: "Too old for hooks." };
+  expect(signalNote(hooksTooOld, true)).toBe("Too old for hooks.");
+  expect(signalNote(hooksTooOld, false)).toBeUndefined();
+  expect(signalNote(installation("claude"), true)).toBeUndefined();
+  expect(signalNote(installation("codex"), true)).toMatch(/Replaces your own Codex notifier/);
+  expect(signalNote(installation("agy"), true)).toBeUndefined();
+});
+
+test("the version badge shows just the number, however the agent words it", () => {
+  expect(versionNumber("2.1.285 (Claude Code)")).toBe("2.1.285");
+  expect(versionNumber("codex-cli 0.155.1")).toBe("0.155.1");
+  expect(versionNumber("1.2.13")).toBe("1.2.13");
+  expect(versionNumber("agy 2.0.0-beta.3 (abc123)")).toBe("2.0.0-beta.3");
+  expect(versionNumber("tool v12.4")).toBe("12.4");
+  expect(versionNumber("development build")).toBeNull();
+  expect(versionNumber(null)).toBeNull();
 });

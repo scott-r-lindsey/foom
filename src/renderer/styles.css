@@ -503,7 +503,7 @@ button:focus-visible {
   border: 1px solid var(--line);
   border-radius: 8px;
 }
-.preflight-item > :not(input, .preflight-name, .preflight-found) {
+.preflight-item > :not(input, .preflight-name, .agent-title, .preflight-found) {
   grid-column: 2 / -1;
   margin: 0;
 }
@@ -522,12 +522,12 @@ button:focus-visible {
 }
 .preflight-signal {
   display: flex;
-  gap: 8px;
-  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  align-items: center;
   font-size: 13px;
   color: var(--muted);
 }
-.preflight-tag,
 .preflight-rec {
   font: 10px var(--font-mono);
   letter-spacing: 0.5px;
@@ -992,7 +992,10 @@ button:focus-visible {
   padding: 2px 9px;
   font-size: 14px;
 }
+/* Scroll here to resize; the up-down cursor says so. */
 .appearance-size output {
+  cursor: ns-resize;
+  padding: 3px 0;
   min-width: 38px;
   text-align: center;
   font: 12px var(--font-mono);
@@ -1211,4 +1214,159 @@ button:focus-visible {
   .repo-tools {
     flex-wrap: wrap;
   }
+}
+
+/* Wider preflight: use the window, keep lines readable. */
+.preflight-inner {
+  max-width: 1040px;
+}
+.preflight-intro,
+.preflight-welcome > p,
+.preflight-note {
+  max-width: 72ch;
+}
+.agent-grid {
+  grid-template-columns: repeat(auto-fill, minmax(290px, 1fr));
+  align-items: stretch;
+}
+.agent-grid .preflight-item {
+  align-content: start;
+}
+.preflight-split {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 12px;
+}
+.preflight-split .preflight-option {
+  margin: 0;
+}
+.evaluator-layout[data-split="true"] {
+  display: grid;
+  gap: 24px;
+}
+@media (min-width: 1180px) {
+  .evaluator-layout[data-split="true"] {
+    grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr);
+    align-items: start;
+  }
+  .evaluator-layout[data-split="true"] .preflight-test {
+    position: sticky;
+    top: 0;
+    margin-top: 0;
+  }
+}
+
+/* Tooltip */
+.tip {
+  position: relative;
+  display: inline-block;
+}
+/* Fixed, and placed by script against the window's edges. */
+.tip-bubble {
+  position: fixed;
+  z-index: 5;
+  top: 0;
+  left: 0;
+  width: max-content;
+  max-width: min(400px, calc(100vw - 16px));
+  overflow-wrap: normal;
+  padding: 8px 10px;
+  display: grid;
+  gap: 6px;
+  font: 12px / 1.5 var(--font-interface);
+  color: var(--ink);
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  box-shadow: 0 6px 20px color-mix(in srgb, var(--hole) 35%, transparent);
+  text-transform: none;
+  letter-spacing: 0;
+}
+.tip-path {
+  color: var(--muted);
+}
+.tip-path code {
+  overflow-wrap: anywhere;
+}
+/* Agent cards never overflow, whatever the version string. */
+.agent-grid .preflight-item > * {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.agent-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  align-items: center;
+}
+.agent-title {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  align-items: center;
+  min-width: 0;
+}
+.agent-command {
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+/*
+ * Chips open a tooltip; badges are data. All of them share one box, 20px tall with
+ * centered text, so a row of them lines up whatever the font size or case.
+ */
+.agent-title .tip,
+.agent-meta .tip {
+  display: inline-flex;
+}
+.preflight button.chip,
+.badge {
+  box-sizing: border-box;
+  height: 20px;
+  display: inline-flex;
+  align-items: center;
+  line-height: 1;
+  border-radius: 6px;
+  font: 12px / 1 var(--font-mono);
+}
+.preflight button.chip {
+  padding: 0 7px;
+  color: var(--badge-ink);
+  background: var(--badge-fill);
+  border: 1px solid transparent;
+  cursor: help;
+}
+.preflight button.chip:not(.chip-signal):hover {
+  border-color: var(--line);
+}
+/* The signal is the one outlined thing on a card. */
+.preflight button.chip-signal {
+  font-size: 10px;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  color: var(--accent);
+  background: transparent;
+  border-color: var(--accent);
+}
+.badge {
+  overflow: hidden;
+}
+.badge > span {
+  height: 100%;
+  display: inline-flex;
+  align-items: center;
+  padding: 0 7px;
+}
+.badge-label {
+  font-size: 10px;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  color: var(--badge-label-ink);
+  background: var(--badge-label-fill);
+}
+.badge-value {
+  color: var(--badge-ink);
+  background: var(--badge-fill);
+}
+.badge[data-known="false"] .badge-value {
+  font-style: italic;
 }

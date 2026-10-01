@@ -5,12 +5,52 @@ import type { Repository } from "../shared/worktrees";
 import { AppearanceControls } from "./appearance-controls";
 import { LaunchSequence } from "./launch-sequence";
 import { EvaluatorStep, message } from "./preflight-evaluator";
-import { AGENTS, examplePath, found, pollRows, readyAgents, signal, STEPS } from "./preflight";
+import {
+  AGENTS,
+  examplePath,
+  found,
+  pollRows,
+  readyAgents,
+  signal,
+  signalNote,
+  SIGNALS,
+  STEPS,
+  versionNumber,
+} from "./preflight";
+import { Tooltip } from "./tooltip";
 import { defaultSelection, pending, RepositoryPicker } from "./repository-picker";
 import type { CodeSelection, Scanning } from "./repository-picker";
 import type { SetupSource } from "./setup-source.d";
 
 const SIGNAL_LABEL = { hooks: "Hooks", notify: "Notify", evaluator: "Evaluator" } as const;
+
+/** A path that wraps after a separator, not mid-name. */
+function Path({ path }: { path: string }) {
+  // Each part is keyed by the path up to its end, which is unique even when names repeat.
+  const parts = path
+    .split(/(?<=[\\/])/)
+    .map((part, index, all) => ({ part, key: all.slice(0, index + 1).join("") }));
+  return (
+    <code>
+      {parts.map(({ part, key }) => (
+        <span key={key}>
+          {part}
+          <wbr />
+        </span>
+      ))}
+    </code>
+  );
+}
+
+/** An agent's command as you'd type it. */
+function Command({ command }: { command: string }) {
+  return (
+    <code className="agent-command">
+      <span aria-hidden="true">$ </span>
+      {command}
+    </code>
+  );
+}
 
 function Wordmark() {
   return (
@@ -219,7 +259,7 @@ export function Preflight({
               Start preflight
             </button>
           </span>
-          <span>Four checks, about a minute</span>
+          <span>Five checks, about a minute</span>
         </div>
         <dl className="preflight-facts">
           <div>
@@ -240,7 +280,7 @@ export function Preflight({
   } else if (step === 1) {
     content = (
       <>
-        <p className="preflight-eyebrow">T-3 · Agents</p>
+        <p className="preflight-eyebrow">T-4 · Agents</p>
         <h2 ref={headingRef} tabIndex={-1}>
           Which agents do you run?
         </h2>
@@ -249,10 +289,11 @@ export function Preflight({
           attention.
         </p>
         {report?.warning && <p className="preflight-warning">{report.warning}</p>}
-        <ul className="preflight-list">
-          {AGENTS.map(({ id, name, command, signal: detail }) => {
+        <ul className="preflight-list agent-grid">
+          {AGENTS.map(({ id, name, command }) => {
             const agent = found(report, id);
             const how = agent && signal(agent, state.settings.hooks);
+            const note = agent && signalNote(agent, state.settings.hooks);
             return (
               <li key={id} className="preflight-item">
                 <input
@@ -264,34 +305,47 @@ export function Preflight({
                     save({ agents: { ...state.settings.agents, [id]: event.target.checked } });
                   }}
                 />
-                <label htmlFor={`agent-${id}`} className="preflight-name">
-                  {name} <code>{command}</code>
-                </label>
+                <span className="agent-title">
+                  <label htmlFor={`agent-${id}`} className="preflight-name">
+                    {name}
+                  </label>
+                  {agent ? (
+                    <Tooltip className="chip" label={<Command command={command} />}>
+                      <span className="tip-path">
+                        Found at <Path path={agent.path} />
+                      </span>
+                      {agent.version && (
+                        <span className="tip-path">
+                          Reports <code>{agent.version}</code>
+                        </span>
+                      )}
+                    </Tooltip>
+                  ) : (
+                    <Command command={command} />
+                  )}
+                </span>
                 <span
                   className="preflight-found"
                   data-found={agent ? "yes" : report ? "no" : "scanning"}
                 >
                   {agent ? "Found" : scanning || !report ? "Looking…" : "Not found"}
                 </span>
-                <p className="preflight-sub">
-                  {agent ? (
-                    <>
-                      <code>{agent.version ?? "unknown version"}</code> at <code>{agent.path}</code>
-                    </>
-                  ) : report && !scanning ? (
-                    <>
-                      <code>{command}</code> isn't on your PATH. Install it, then scan again.
-                    </>
-                  ) : (
-                    <>
-                      Checking your PATH for <code>{command}</code>
-                    </>
-                  )}
-                </p>
-                {agent && how && (
-                  <p className="preflight-signal">
-                    <span className="preflight-tag">{SIGNAL_LABEL[how]}</span>
-                    {how === "evaluator" && state.settings.hooks ? agent.reason : detail}
+                {agent && how ? (
+                  <div className="agent-meta">
+                    <span className="badge" data-known={String(Boolean(agent.version))}>
+                      <span className="badge-label">Version</span>
+                      <span className="badge-value">
+                        {versionNumber(agent.version) ?? "unknown"}
+                      </span>
+                    </span>
+                    <Tooltip className="chip chip-signal" label={SIGNAL_LABEL[how]}>
+                      {SIGNALS[how]}
+                      {note && <span>{note}</span>}
+                    </Tooltip>
+                  </div>
+                ) : (
+                  <p className="preflight-sub">
+                    {report && !scanning ? "Not on your PATH." : "Checking your PATH…"}
                   </p>
                 )}
               </li>
@@ -341,7 +395,7 @@ export function Preflight({
       : repositories;
     content = (
       <>
-        <p className="preflight-eyebrow">T-2 · Repositories</p>
+        <p className="preflight-eyebrow">T-3 · Repositories</p>
         <h2 ref={headingRef} tabIndex={-1}>
           Where do you keep your code?
         </h2>
@@ -363,8 +417,28 @@ export function Preflight({
             Add one repository…
           </button>
         </p>
-        <fieldset className="preflight-options">
-          <legend>Where new worktrees go</legend>
+        {nav(
+          1,
+          selected.length
+            ? `${String(selected.length)} ${selected.length === 1 ? "repository" : "repositories"} selected`
+            : "None selected yet · needed to launch",
+          3,
+        )}
+      </>
+    );
+  } else if (step === 3) {
+    content = (
+      <>
+        <p className="preflight-eyebrow">T-2 · Worktrees</p>
+        <h2 ref={headingRef} tabIndex={-1}>
+          Where should new worktrees go?
+        </h2>
+        <p className="preflight-intro">
+          Every agent works in its own Git worktree, on its own branch, so agents never touch each
+          other's files. Choose where Foom creates them.
+        </p>
+        <fieldset className="preflight-options preflight-split">
+          <legend className="visually-hidden">Where new worktrees go</legend>
           <label className="preflight-option">
             <input
               type="radio"
@@ -379,7 +453,8 @@ export function Preflight({
                 Keep worktrees in Foom's folder <span className="preflight-rec">Recommended</span>
               </b>
               <small>
-                Your code folder stays tidy, and Foom can clean up merged worktrees in one place.
+                In <code>{state.worktreeRoot}</code>. Your code folder stays tidy, and Foom can
+                clean up merged worktrees in one place.
               </small>
             </span>
           </label>
@@ -394,24 +469,21 @@ export function Preflight({
             />
             <span>
               <b>Put them next to each repository</b>
-              <small>Easier to find in your editor and shell history.</small>
+              <small>
+                Beside the repository, as <code>app-feat/search</code>. Easier to find in your
+                editor and shell history.
+              </small>
             </span>
           </label>
         </fieldset>
         <p className="preflight-note">
           A branch named <code>feat/search</code> would land at{" "}
-          <code>{examplePath(state, selected)}</code>
+          <code>{examplePath(state, repositories)}</code>
         </p>
-        {nav(
-          1,
-          selected.length
-            ? `${String(selected.length)} ${selected.length === 1 ? "repository" : "repositories"} selected`
-            : "None selected yet · needed to launch",
-          3,
-        )}
+        {nav(2, "You can change this any time from Preflight", 4)}
       </>
     );
-  } else if (step === 3) {
+  } else if (step === 4) {
     content = (
       <>
         <p className="preflight-eyebrow">T-1 · Evaluator</p>
@@ -423,7 +495,7 @@ export function Preflight({
           question in plain prose, Foom can ask a model. Pick where that model runs.
         </p>
         <EvaluatorStep state={state} source={source} onState={setState} />
-        {nav(2, "You can change this any time from Preflight", 4)}
+        {nav(3, "You can change this any time from Preflight", 5)}
       </>
     );
   } else {
@@ -467,7 +539,7 @@ export function Preflight({
           <button
             type="button"
             onClick={() => {
-              go(3);
+              go(4);
             }}
           >
             Back

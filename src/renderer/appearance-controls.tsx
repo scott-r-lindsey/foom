@@ -1,3 +1,4 @@
+import { useRef } from "react";
 import type { Settings } from "../shared/setup";
 
 const MODES = [
@@ -5,6 +6,8 @@ const MODES = [
   { id: "light", label: "Light" },
   { id: "dark", label: "Dark" },
 ] as const;
+/** Scrolling this far changes the size one step: a mouse notch, or a short trackpad swipe. */
+const WHEEL_STEP = 50;
 // Mirrors SCALES in src/appearance.ts, which main validates against.
 const SCALES = [80, 90, 100, 110, 120, 130, 140, 150];
 const shortcutHint = () =>
@@ -28,6 +31,8 @@ export function AppearanceControls({
       : () => {
           onChange({ interfaceScale: next });
         };
+  // Trackpads send many small deltas; they add up to a step.
+  const wheelRef = useRef(0);
   return (
     <div className="appearance">
       <fieldset className="appearance-mode">
@@ -56,7 +61,20 @@ export function AppearanceControls({
         >
           −
         </button>
-        <output aria-live="polite">{scale}%</output>
+        {/* Scrolling over the size changes it too; the buttons do the same by keyboard. */}
+        <output
+          aria-live="polite"
+          onWheel={(event) => {
+            // Line and page modes come from mouse wheels: each event is a notch.
+            wheelRef.current += event.deltaMode === 0 ? event.deltaY : event.deltaY * WHEEL_STEP;
+            if (Math.abs(wheelRef.current) < WHEEL_STEP) return;
+            const next = wheelRef.current < 0 ? larger : smaller;
+            wheelRef.current = 0;
+            if (next !== undefined) onChange({ interfaceScale: next });
+          }}
+        >
+          {scale}%
+        </output>
         <button
           type="button"
           aria-label="Larger"
@@ -65,17 +83,6 @@ export function AppearanceControls({
         >
           +
         </button>
-        {scale !== 100 && (
-          <button
-            type="button"
-            className="link"
-            onClick={() => {
-              onChange({ interfaceScale: 100 });
-            }}
-          >
-            Reset
-          </button>
-        )}
       </div>
       <p className="appearance-hint">{shortcutHint()}</p>
     </div>

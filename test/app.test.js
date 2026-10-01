@@ -1119,7 +1119,6 @@ test("launches an agent in a managed worktree and routes its attention signals",
   timeout: 60_000,
   skip: process.platform === "win32" && "The fake agent is a POSIX script",
 }, async (context) => {
-  const { execFileSync } = require("node:child_process");
   const { chmod, mkdir, writeFile } = require("node:fs/promises");
   const root = await mkdtemp(path.join(tmpdir(), "foom-workspace-"));
   context.after(() => rm(root, { recursive: true, force: true }));
@@ -1131,7 +1130,7 @@ test("launches an agent in a managed worktree and routes its attention signals",
   await writeFile(path.join(bin, "claude"), FAKE_CLAUDE);
   await chmod(path.join(bin, "claude"), 0o755);
   const git = (...args) =>
-    execFileSync("git", ["-c", "user.name=Foom", "-c", "user.email=foom@example.com", ...args], {
+    isolatedGit(["-c", "user.name=Foom", "-c", "user.email=foom@example.com", ...args], {
       cwd: repo,
     });
   git("init", "-q", "-b", "main");
@@ -1349,6 +1348,14 @@ test("focus reports reach the shell without counting as a reply", {
   );
 });
 
+/** Git without inherited GIT_* variables, which could point it at Foom's own repository. */
+function isolatedGit(args, options = {}) {
+  const env = Object.fromEntries(
+    Object.entries(process.env).filter(([key]) => !key.startsWith("GIT_")),
+  );
+  return require("node:child_process").execFileSync("git", args, { ...options, env });
+}
+
 async function tabTo(page, name) {
   for (let step = 0; step < 40; step++) {
     await page.keyboard.press("Tab");
@@ -1387,7 +1394,6 @@ test("first run goes from no agents to go, launches by keyboard, and can be repl
   timeout: 60_000,
   skip: process.platform === "win32" && "The fake agents are POSIX scripts",
 }, async (context) => {
-  const { execFileSync } = require("node:child_process");
   const { chmod, symlink } = require("node:fs/promises");
   const root = await mkdtemp(path.join(tmpdir(), "foom-first-run-"));
   context.after(() => rm(root, { recursive: true, force: true, maxRetries: 5 }));
@@ -1397,7 +1403,7 @@ test("first run goes from no agents to go, launches by keyboard, and can be repl
   await mkdir(bin);
   await mkdir(repo);
   await mkdir(path.join(root, "home"));
-  execFileSync("git", ["init", "-q", repo]);
+  isolatedGit(["init", "-q", repo]);
   // Node gets its own folder: agents installed beside it must stay hidden.
   const nodeBin = path.join(root, "node-bin");
   await mkdir(nodeBin);
@@ -1425,11 +1431,15 @@ test("first run goes from no agents to go, launches by keyboard, and can be repl
   await page.keyboard.press("Enter");
   await page.getByRole("button", { name: "Add one repository…" }).click();
   await page.getByText("Already added: app").waitFor();
-  await tabTo(page, "Continue");
-  await page.keyboard.press("Enter");
-  await tabTo(page, "Continue");
-  await page.keyboard.press("Enter");
-  await page.getByText("Hold. Something needs fixing.").waitFor();
+  for (const heading of [
+    "Where should new worktrees go?",
+    "How should Foom read a terminal that goes quiet?",
+    "Hold. Something needs fixing.",
+  ]) {
+    await tabTo(page, "Continue");
+    await page.keyboard.press("Enter");
+    await page.getByText(heading).waitFor();
+  }
   await expect(page.getByRole("button", { name: "Launch" })).toBeDisabled();
   await page.getByRole("button", { name: "Fix" }).click();
 
@@ -1450,7 +1460,17 @@ test("first run goes from no agents to go, launches by keyboard, and can be repl
   }
   await page.getByRole("button", { name: "Scan again" }).click();
   await expect(page.getByText("Found", { exact: true })).toHaveCount(3, { timeout: 20000 });
-  await expect(page.locator(".preflight-tag")).toHaveText(["Hooks", "Notify", "Evaluator"]);
+  await expect(page.locator(".badge-value")).toHaveText(["2.1.300", "0.155.1", "1.2.13"]);
+  for (const name of ["Hooks", "Notify", "Evaluator"])
+    await expect(page.getByRole("button", { name, exact: true })).toBeVisible();
+  // Where each agent was found is a tooltip away, by keyboard as well as pointer.
+  // Park the pointer away from the cards, so a hover can't win over keyboard focus.
+  await page.mouse.move(0, 0);
+  await page.getByRole("button", { name: "codex", exact: true }).focus();
+  await expect(page.getByRole("tooltip")).toContainText(`Found at ${path.join(bin, "codex")}`);
+  await assertAccessible(page);
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("tooltip")).toHaveCount(0);
   await page.getByRole("button", { name: /Go \/ no-go/ }).click();
   await page.getByText("All stations go.").waitFor();
   await assertAccessible(page);
@@ -1516,7 +1536,7 @@ test("Run check streams live progress from a local model server, then saves the 
   });
   const page = await app.firstWindow();
   await page.getByRole("button", { name: "Start preflight" }).click();
-  for (let step = 0; step < 2; step++) await page.getByRole("button", { name: "Continue" }).click();
+  for (let step = 0; step < 3; step++) await page.getByRole("button", { name: "Continue" }).click();
   await page.getByRole("radio", { name: /Use a local model/ }).check();
   await page.getByRole("textbox", { name: "Endpoint" }).fill(endpoint);
   await page.getByRole("combobox", { name: "Model" }).fill("fake:1b");
@@ -1602,7 +1622,6 @@ test("appearance switches light and dark, and zoom shortcuts resize the interfac
 });
 
 test("preflight scans a code folder and adds the repositories worked on recently", async (context) => {
-  const { execFileSync } = require("node:child_process");
   const { utimes } = require("node:fs/promises");
   const root = await mkdtemp(path.join(tmpdir(), "foom-code-"));
   context.after(() => rm(root, { recursive: true, force: true, maxRetries: 5 }));
@@ -1615,7 +1634,7 @@ test("preflight scans a code folder and adds the repositories worked on recently
   ]) {
     const repo = path.join(code, name);
     await mkdir(repo, { recursive: true });
-    execFileSync("git", ["init", "-q", "-b", "main", repo]);
+    isolatedGit(["init", "-q", "-b", "main", repo]);
     if (stale) await utimes(path.join(repo, ".git", "HEAD"), old, old);
   }
   const app = await launchApp(context, false, { firstRun: true });
@@ -1632,7 +1651,8 @@ test("preflight scans a code folder and adds the repositories worked on recently
   await expect(page.getByRole("region", { name: "Older" }).getByRole("checkbox")).not.toBeChecked();
   await assertAccessible(page);
   await page.getByRole("button", { name: "Continue" }).click();
-  await page.getByText("How should Foom read a terminal that goes quiet?").waitFor();
+  await page.getByText("Where should new worktrees go?").waitFor();
+  await assertAccessible(page);
   const added = await page.evaluate(async () =>
     (await window.desktop.workspace()).repositories.map((repo) => repo.name).sort(),
   );

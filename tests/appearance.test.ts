@@ -1,5 +1,11 @@
 import { expect, test } from "vitest";
-import { nextScale, scaledBounds, scaledSize, zoomShortcut } from "../src/appearance";
+import {
+  anchoredOrigin,
+  nextScale,
+  scaledBounds,
+  scaledSize,
+  zoomShortcut,
+} from "../src/appearance";
 import type { ZoomDirection } from "../src/appearance";
 
 test("interface scale moves between fixed steps and stops at the ends", () => {
@@ -78,4 +84,29 @@ test("window sizes follow the scale and always fit the screen's usable area", ()
     width: 480,
     height: 420,
   });
+});
+
+test("a scaled window can move to an origin and keep room for its frame", () => {
+  const area = { x: 0, y: 0, width: 1280, height: 800 };
+  const bounds = { x: 100, y: 100, width: 900, height: 670 };
+  const frame = { width: 0, height: 30 };
+  // The page scales; the title bar doesn't.
+  expect(
+    scaledBounds(bounds, { width: 900, height: 640 }, 110, area, { x: 90.4, y: 50 }, frame),
+  ).toEqual({ x: 90, y: 50, width: 990, height: 734 });
+  // A page as tall as the screen leaves room for the title bar.
+  expect(scaledBounds(bounds, { width: 900, height: 900 }, 100, area, bounds, frame)).toMatchObject(
+    { y: 0, height: 800 },
+  );
+});
+
+test("the anchored origin keeps the page under the pointer through a zoom", () => {
+  const bounds = { x: 100, y: 100, width: 900, height: 670 };
+  const content = { x: 100, y: 130, width: 900, height: 640 };
+  // The pointer at the page's top-left corner: the window doesn't move.
+  expect(anchoredOrigin(bounds, content, { x: 100, y: 130 }, 1.5)).toEqual({ x: 100, y: 100 });
+  // 200px into the page: growing by 10% moves the window 20px the other way.
+  const moved = anchoredOrigin(bounds, content, { x: 300, y: 330 }, 1.1);
+  expect(moved.x).toBeCloseTo(80);
+  expect(moved.y).toBeCloseTo(80);
 });

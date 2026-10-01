@@ -123,7 +123,7 @@ function createWindow() {
     },
   });
   const workspaceIpc = attachWorkspace(window, workspace, (id) => terminals.owns(id));
-  const resizeForScale = attachWindowScale(
+  const windowScale = attachWindowScale(
     window,
     (bounds) => screen.getDisplayMatching(bounds).workArea,
     scale,
@@ -147,11 +147,15 @@ function createWindow() {
     apply: (next) => {
       workspace.configure(next);
       nativeTheme.themeSource = next.colorMode;
+      // Resize first: the page then zooms into a window that already fits it.
+      windowScale.apply(next.interfaceScale);
       window.webContents.setZoomFactor(next.interfaceScale / 100);
-      resizeForScale(next.interfaceScale);
     },
   });
-  const setupIpc = attachSetup(window, setup);
+  // A click on + or − grows the window from the pointer, so the button stays under it.
+  const setupIpc = attachSetup(window, setup, (active) => {
+    windowScale.anchorAt(active ? screen.getCursorScreenPoint() : undefined);
+  });
   window.once("closed", () => {
     setupIpc.dispose();
     workspaceIpc.dispose();

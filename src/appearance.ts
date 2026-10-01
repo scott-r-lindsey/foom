@@ -59,19 +59,47 @@ export function scaledSize(size: Size, scale: number, area: Size): Size {
   };
 }
 
+export interface Point {
+  x: number;
+  y: number;
+}
+
 /**
- * The window at a new scale: its size at 100% times the scale, kept on the screen's
- * usable area. The top-left corner stays put unless that would push it off screen.
+ * The window at a new scale: its content at 100% times the scale, plus the frame,
+ * kept on the screen's usable area. The top-left corner goes to `origin` (by default,
+ * where it is now) unless that would push the window off screen.
  */
-export function scaledBounds(bounds: Rect, base: Size, scale: number, area: Rect): Rect {
+export function scaledBounds(
+  bounds: Rect,
+  base: Size,
+  scale: number,
+  area: Rect,
+  origin: Point = bounds,
+  frame: Size = { width: 0, height: 0 },
+): Rect {
   const minimum = scaledSize(MINIMUM_SIZE, scale, area);
-  const target = scaledSize(base, scale, area);
-  const width = Math.max(target.width, minimum.width);
-  const height = Math.max(target.height, minimum.height);
+  const content = scaledSize(base, scale, {
+    width: area.width - frame.width,
+    height: area.height - frame.height,
+  });
+  const width = Math.max(content.width + frame.width, minimum.width);
+  const height = Math.max(content.height + frame.height, minimum.height);
   return {
-    x: clamp(bounds.x, area.x, area.x + area.width - width),
-    y: clamp(bounds.y, area.y, area.y + area.height - height),
+    x: clamp(Math.round(origin.x), area.x, area.x + area.width - width),
+    y: clamp(Math.round(origin.y), area.y, area.y + area.height - height),
     width,
     height,
+  };
+}
+
+/**
+ * Where the window's top-left goes so the page under `anchor` stays under it while
+ * the page zooms by `ratio`. When the content grows by the same ratio, the layout in
+ * CSS pixels doesn't change, so only the window's position needs to.
+ */
+export function anchoredOrigin(bounds: Rect, content: Rect, anchor: Point, ratio: number): Point {
+  return {
+    x: anchor.x - (anchor.x - content.x) * ratio - (content.x - bounds.x),
+    y: anchor.y - (anchor.y - content.y) * ratio - (content.y - bounds.y),
   };
 }

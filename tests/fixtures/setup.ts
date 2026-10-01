@@ -26,6 +26,13 @@ export function setupState(
   };
 }
 
+/** What each agent's `--version` really prints, worded differently by each. */
+const VERSIONS = {
+  claude: "2.1.300 (Claude Code)",
+  codex: "codex-cli 0.155.1",
+  agy: "1.2.13",
+} as const;
+
 export function installation(
   id: AgentInstallation["id"],
   found = true,
@@ -34,7 +41,7 @@ export function installation(
   return {
     id,
     path: found ? `/bin/${id}` : null,
-    version: found ? "1.0.0" : null,
+    version: found ? VERSIONS[id] : null,
     hooks: found && hooks,
     reason: found
       ? hooks

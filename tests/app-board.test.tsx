@@ -199,7 +199,7 @@ test("first run shows preflight, then launches into the board", async () => {
   expect(mock.update).toBeUndefined();
   screen.getByRole("button", { name: "Start preflight" }).click();
   await settle();
-  for (let step = 0; step < 3; step++) {
+  for (let step = 0; step < 4; step++) {
     act(() => {
       screen.getByRole("button", { name: "Continue" }).click();
     });

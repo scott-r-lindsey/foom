@@ -13,6 +13,11 @@ const APP_URL = "app://bundle/index.html";
 export function attachSetup(
   window: BrowserWindow,
   setup: Setup,
+  /**
+   * Called around a save that changes the interface size from the page, such as the
+   * + and − buttons: true before, false after. Shortcuts don't call it.
+   */
+  pointerZoom: (active: boolean) => void = () => undefined,
 ): { dispose(): void; zoom(direction: ZoomDirection): Promise<void> } {
   const contents = window.webContents;
   const trusted = (event: IpcMainInvokeEvent) =>
@@ -27,7 +32,18 @@ export function attachSetup(
   };
   const handlers = new Map<string, (...args: unknown[]) => unknown>([
     ["setup:state", () => setup.state()],
-    ["setup:save", (patch) => setup.save(patch)],
+    [
+      "setup:save",
+      async (patch) => {
+        const zooming = typeof patch === "object" && patch !== null && "interfaceScale" in patch;
+        if (zooming) pointerZoom(true);
+        try {
+          return await setup.save(patch);
+        } finally {
+          if (zooming) pointerZoom(false);
+        }
+      },
+    ],
     ["setup:set-key", (provider, key) => setup.setKey(provider, key)],
     ["setup:remove-key", (provider) => setup.removeKey(provider)],
     [

@@ -45,6 +45,11 @@
   --hole: #06050b;
   /* Stars and text drawn on the black hole, in both modes. */
   --space-ink: #f4efff;
+  /* Filled badges for data, such as an agent's version. */
+  --badge-label-fill: #4a4263;
+  --badge-label-ink: #f4efff;
+  --badge-fill: #d6cfe9;
+  --badge-ink: #14101f;
   --font-display: "Archivo Black", sans-serif;
   --font-voice: "Courier Prime", monospace;
   --font-interface: "Geist", sans-serif;
@@ -67,5 +72,9 @@
     --failed: #ff2e88;
     --failed-ink: #ff2e88;
     --hole: #06050b;
+    --badge-label-fill: #3a3060;
+    --badge-label-ink: #f4efff;
+    --badge-fill: #1c1632;
+    --badge-ink: #f4efff;
   }
 }

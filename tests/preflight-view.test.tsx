@@ -163,9 +163,22 @@ test("first run walks every step, saves each choice, and launches", async () => 
   expect(document.activeElement?.textContent).toBe("Which agents do you run?");
   await screen.findByText("3 agents ready");
   expect(screen.getAllByText("Found")).toHaveLength(3);
-  expect(screen.getByText("Hooks")).toBeTruthy();
-  expect(screen.getByText("Notify")).toBeTruthy();
-  expect(screen.getByText("Unverified hook support; using output evaluation.")).toBeTruthy();
+  // Every card reads the same: name and command chip, then version badge and signal chip.
+  expect(Array.from(document.querySelectorAll(".badge"), (badge) => badge.textContent)).toEqual([
+    "Version2.1.300",
+    "Version0.155.1",
+    "Version1.2.13",
+  ]);
+  const tip = (name: string) => {
+    const trigger = screen.getByRole("button", { name });
+    return document.getElementById(trigger.getAttribute("aria-describedby") ?? "")?.textContent;
+  };
+  // Explanations live in the chips' tooltips, not on the cards.
+  expect(tip("claude")).toContain("Found at /bin/claude");
+  expect(tip("claude")).toContain("Reports 2.1.300 (Claude Code)");
+  expect(tip("Hooks")).toContain("hooks tell Foom");
+  expect(tip("Notify")).toContain("Replaces your own Codex notifier");
+  expect(screen.queryByText(/Replaces your own Codex notifier/, { selector: "p" })).toBeNull();
   fireEvent.click(screen.getByLabelText(/Codex/));
   await waitFor(() => {
     expect(source.save).toHaveBeenCalledWith({
@@ -175,9 +188,7 @@ test("first run walks every step, saves each choice, and launches", async () => 
   await screen.findByText("2 agents ready");
   fireEvent.click(screen.getByRole("checkbox", { name: /Attach Foom's hooks/ }));
   // With hooks off, every found agent falls back to the evaluator, immediately.
-  expect(Array.from(document.querySelectorAll(".preflight-tag"), (tag) => tag.textContent)).toEqual(
-    ["Evaluator", "Evaluator", "Evaluator"],
-  );
+  expect(screen.getAllByRole("button", { name: "Evaluator" })).toHaveLength(3);
   fireEvent.click(button("Scan again"));
   expect(source.scanAgents).toHaveBeenLastCalledWith(true);
   await screen.findByText("Scan again");
@@ -188,14 +199,16 @@ test("first run walks every step, saves each choice, and launches", async () => 
   await screen.findByText("1 of 2 selected");
   expect(screen.getByRole("checkbox", { name: /^app/ })).toHaveProperty("checked", true);
   expect(screen.getByRole("checkbox", { name: /^old/ })).toHaveProperty("checked", false);
+
+  // Leaving the step saves the selection; Worktrees is its own step.
+  fireEvent.click(button("Continue"));
+  await screen.findByText("Where should new worktrees go?");
+  expect(source.apply).toHaveBeenCalledWith(["/home/me/code/app"]);
   expect(screen.getByText("/home/me/.foom/worktrees/app/feat/search")).toBeTruthy();
   fireEvent.click(screen.getByRole("radio", { name: /next to each repository/ }));
   await screen.findByText("/home/me/code/app-feat/search");
-
-  // Leaving the step saves the selection.
   fireEvent.click(button("Continue"));
   await screen.findByText("How should Foom read a terminal that goes quiet?");
-  expect(source.apply).toHaveBeenCalledWith(["/home/me/code/app"]);
   expect(screen.getByRole("radio", { name: /Use an agent you already have/ })).toHaveProperty(
     "disabled",
     true,
@@ -229,6 +242,20 @@ test("first run walks every step, saves each choice, and launches", async () => 
   });
 });
 
+test("an agent whose version can't be read still gets the same card", async () => {
+  const quiet = { ...installation("claude"), version: null };
+  const source = fake(setupState(), report(quiet, installation("codex"), installation("agy")));
+  render(<Preflight source={source} initial={setupState()} onLaunched={vi.fn()} />);
+  fireEvent.click(button("Start preflight"));
+  await screen.findByText("3 agents ready");
+  const badge = document.querySelector(".badge");
+  expect(badge?.textContent).toBe("Versionunknown");
+  expect(badge?.getAttribute("data-known")).toBe("false");
+  const claude = screen.getByRole("button", { name: "claude" });
+  const tip = document.getElementById(claude.getAttribute("aria-describedby") ?? "");
+  expect(tip?.textContent).not.toContain("Reports");
+});
+
 test("with no agents installed, go / no-go holds and links back to each fix", async () => {
   const none = report(installation("claude", false), installation("codex", false));
   const source = fake(setupState(), none);
@@ -236,12 +263,11 @@ test("with no agents installed, go / no-go holds and links back to each fix", as
   fireEvent.click(button("Start preflight"));
   await screen.findByText("No agents ready yet · needed to launch");
   expect(screen.getAllByText("Not found")).toHaveLength(3);
-  expect(screen.getAllByRole("checkbox", { name: /claude|codex|agy/ })[0]).toHaveProperty(
-    "disabled",
-    true,
-  );
-  expect(screen.getAllByText(/isn't on your PATH/, { selector: "p" })).toHaveLength(3);
-  for (let step = 0; step < 3; step++) fireEvent.click(button("Continue"));
+  expect(
+    screen.getAllByRole("checkbox", { name: /Claude Code|Codex|Antigravity/ })[0],
+  ).toHaveProperty("disabled", true);
+  expect(screen.getAllByText("Not on your PATH.")).toHaveLength(3);
+  for (let step = 0; step < 4; step++) fireEvent.click(button("Continue"));
   expect(screen.getByText("Hold. Something needs fixing.")).toBeTruthy();
   expect(button("Launch")).toHaveProperty("disabled", true);
   expect(screen.getAllByText("NO-GO")).toHaveLength(2);
@@ -258,8 +284,7 @@ test("API keys are saved, replaced and removed, and only a passing check is used
   const source = fake(setupState());
   render(<Preflight source={source} initial={setupState()} onLaunched={vi.fn()} />);
   fireEvent.click(button("Start preflight"));
-  fireEvent.click(button("Continue"));
-  fireEvent.click(button("Continue"));
+  for (let step = 0; step < 3; step++) fireEvent.click(button("Continue"));
   fireEvent.click(screen.getByRole("radio", { name: /Use an API key/ }));
   expect(screen.getByText("Save a key, then run the check.")).toBeTruthy();
   expect(button("Run check")).toHaveProperty("disabled", true);
@@ -320,8 +345,7 @@ test("a saved model source reopens configured, and missing encryption disables A
   const initial = setupState({ inference: local }, { secureStorage: false });
   render(<Preflight source={fake(initial)} initial={initial} onLaunched={vi.fn()} />);
   fireEvent.click(button("Start preflight"));
-  fireEvent.click(button("Continue"));
-  fireEvent.click(button("Continue"));
+  for (let step = 0; step < 3; step++) fireEvent.click(button("Continue"));
   expect(screen.getByRole("radio", { name: /Use an API key/ })).toHaveProperty("disabled", true);
   expect(screen.getByText(/can't encrypt keys/)).toBeTruthy();
   expect(screen.getByRole("textbox", { name: "Endpoint" })).toHaveProperty(
@@ -336,8 +360,7 @@ test("a saved model source reopens configured, and missing encryption disables A
   );
   render(<Preflight source={fake(cloud)} initial={cloud} onLaunched={vi.fn()} />);
   fireEvent.click(button("Start preflight"));
-  fireEvent.click(button("Continue"));
-  fireEvent.click(button("Continue"));
+  for (let step = 0; step < 3; step++) fireEvent.click(button("Continue"));
   expect(screen.getByRole("combobox", { name: "Provider" })).toHaveProperty("value", "google");
   expect(screen.getByText(/A key is saved/)).toBeTruthy();
 });
@@ -375,6 +398,7 @@ test("errors from main are shown without the IPC wrapper", async () => {
   expect((await screen.findByRole("alert")).textContent).toBe("Repository must be a Git work tree");
   source.addRepository.mockResolvedValueOnce(null);
   fireEvent.click(button("Add one repository…"));
+  fireEvent.click(button("Continue"));
   fireEvent.click(screen.getByRole("radio", { name: /next to each repository/ }));
   await waitFor(() => {
     expect(screen.getByRole("alert").textContent).toBe("Disk full");
@@ -393,7 +417,7 @@ test("a failed launch save keeps preflight open with the error", async () => {
   render(<Preflight source={source} initial={setupState()} onLaunched={vi.fn()} />);
   fireEvent.click(button("Start preflight"));
   await screen.findByText("3 agents ready");
-  for (let step = 0; step < 3; step++) fireEvent.click(button("Continue"));
+  for (let step = 0; step < 4; step++) fireEvent.click(button("Continue"));
   await screen.findByText("All stations go.");
   source.save.mockRejectedValueOnce(new Error("Disk full"));
   fireEvent.click(button("Launch"));
@@ -404,8 +428,7 @@ test("a failed launch save keeps preflight open with the error", async () => {
 async function toLocal(source: ReturnType<typeof fake>) {
   render(<Preflight source={source} initial={setupState()} onLaunched={vi.fn()} />);
   fireEvent.click(button("Start preflight"));
-  fireEvent.click(button("Continue"));
-  fireEvent.click(button("Continue"));
+  for (let step = 0; step < 3; step++) fireEvent.click(button("Continue"));
   fireEvent.click(screen.getByRole("radio", { name: /Use a local model/ }));
   fireEvent.change(screen.getByRole("combobox", { name: "Model" }), {
     target: { value: "qwen3:8b" },
@@ -473,8 +496,7 @@ test("the endpoint's model list reports failures in Foom's words", async () => {
   });
   render(<Preflight source={source} initial={setupState()} onLaunched={vi.fn()} />);
   fireEvent.click(button("Start preflight"));
-  fireEvent.click(button("Continue"));
-  fireEvent.click(button("Continue"));
+  for (let step = 0; step < 3; step++) fireEvent.click(button("Continue"));
   fireEvent.click(screen.getByRole("radio", { name: /Use a local model/ }));
   await screen.findByText("Connection refused: nothing is listening on 127.0.0.1:11434");
   source.models.mockRejectedValueOnce(new Error("Local endpoint must use a loopback IP"));
@@ -509,8 +531,22 @@ test("appearance applies at once, follows shortcuts from main, and stays within 
   expect(source.save).toHaveBeenLastCalledWith({ interfaceScale: 150 });
   expect(screen.getByText("150%")).toBeTruthy();
   expect(button("Larger")).toHaveProperty("disabled", true);
-  fireEvent.click(button("Reset"));
-  expect(screen.getByText("100%")).toBeTruthy();
+  // Scrolling over the size steps it: down is smaller, up is larger.
+  const size = screen.getByText("150%");
+  fireEvent.wheel(size, { deltaY: 100 });
+  expect(screen.getByText("140%")).toBeTruthy();
+  // Small trackpad deltas add up to a step.
+  fireEvent.wheel(screen.getByText("140%"), { deltaY: 30 });
+  expect(screen.getByText("140%")).toBeTruthy();
+  fireEvent.wheel(screen.getByText("140%"), { deltaY: 30 });
+  expect(screen.getByText("130%")).toBeTruthy();
+  // A mouse wheel in line mode: each notch is a step.
+  fireEvent.wheel(screen.getByText("130%"), { deltaY: -3, deltaMode: 1 });
+  expect(screen.getByText("140%")).toBeTruthy();
+  fireEvent.wheel(screen.getByText("140%"), { deltaY: -100 });
+  fireEvent.wheel(screen.getByText("150%"), { deltaY: -100 });
+  expect(screen.getByText("150%")).toBeTruthy();
+  expect(source.save).toHaveBeenLastCalledWith({ interfaceScale: 150 });
   expect(screen.queryByRole("button", { name: "Reset" })).toBeNull();
   // A shortcut handled in main arrives as a settings change.
   await act(async () => {
@@ -528,9 +564,9 @@ test("appearance applies at once, follows shortcuts from main, and stays within 
   fireEvent.click(button("Larger"));
   expect(screen.getByText("90%")).toBeTruthy();
   await screen.findByText("Disk full");
-  // The fake's own saved scale is 100, so that is what comes back.
+  // The fake last saved 150, so that is what comes back.
   await waitFor(() => {
-    expect(screen.getByText("100%")).toBeTruthy();
+    expect(screen.getByText("150%")).toBeTruthy();
   });
 });
 

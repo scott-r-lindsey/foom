@@ -76,9 +76,9 @@ test("every channel rejects untrusted senders", () => {
   expect(setup.state).not.toHaveBeenCalled();
 });
 
-test("passes payloads to Setup, which validates them, and never offers a key read", () => {
+test("passes payloads to Setup, which validates them, and never offers a key read", async () => {
   expect(invoke("setup:state")).toBe("state");
-  expect(invoke("setup:save", [{ hooks: false }])).toBe("saved");
+  await expect(invoke("setup:save", [{ hooks: false }])).resolves.toBe("saved");
   expect(setup.save).toHaveBeenCalledWith({ hooks: false });
   expect(invoke("setup:set-key", ["openai", "sk"])).toBe("set");
   expect(setup.setKey).toHaveBeenCalledWith("openai", "sk");
@@ -132,6 +132,28 @@ test("a zoom shortcut saves the next size and tells the renderer", async () => {
   await attached.zoom("reset");
   expect(setup.save).toHaveBeenLastCalledWith({ interfaceScale: 100 });
   expect(contents.send).toHaveBeenCalledOnce();
+});
+
+test("a size change from the page anchors the window around the save, even a failed one", async () => {
+  const pointerZoom = vi.fn();
+  mock.handle.mockClear();
+  attachSetup(window, setup as unknown as Setup, pointerZoom);
+  setup.save.mockImplementationOnce(() => {
+    expect(pointerZoom).toHaveBeenLastCalledWith(true);
+    return "saved";
+  });
+  await expect(invoke("setup:save", [{ interfaceScale: 110 }])).resolves.toBe("saved");
+  expect(pointerZoom.mock.calls).toEqual([[true], [false]]);
+  setup.save.mockImplementationOnce(() => {
+    throw new Error("Invalid settings");
+  });
+  await expect(invoke("setup:save", [{ interfaceScale: 7 }])).rejects.toThrow("Invalid settings");
+  expect(pointerZoom).toHaveBeenLastCalledWith(false);
+  // Other settings, and payloads that aren't objects, leave the window alone.
+  pointerZoom.mockClear();
+  await invoke("setup:save", [{ hooks: false }]);
+  await invoke("setup:save", [null]);
+  expect(pointerZoom).not.toHaveBeenCalled();
 });
 
 test("dispose removes every handler", () => {
