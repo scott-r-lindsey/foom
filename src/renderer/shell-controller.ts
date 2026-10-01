@@ -11,6 +11,7 @@ export function createShell(
   initiallyOpen = true,
   onEscape?: () => void,
   onCreated?: (id: string, title: string) => void,
+  autoStart = true,
 ) {
   const view: ShellView = {
     status: "Starting shell…",
@@ -178,7 +179,8 @@ export function createShell(
       if (activeId) {
         const previous = activeId;
         activeId = undefined;
-        await window.desktop.kill(previous);
+        if (previous === shellId) await window.desktop.kill(previous);
+        else await window.desktop.detach(previous);
         if (isDisposed()) return;
       }
       // The view must be visible to measure the initial grid.
@@ -218,7 +220,9 @@ export function createShell(
     terminal.dispose();
   };
   // Measure the first grid only after the bundled terminal face is available.
-  let ready = document.fonts.load('14px "Geist Mono"').then(start, start);
+  let ready = autoStart
+    ? document.fonts.load('14px "Geist Mono"').then(start, start)
+    : Promise.resolve();
   const select = (id: string) => {
     const current = ++request;
     visibleRequested = false;

@@ -16,6 +16,7 @@ export interface TerminalEvents {
 export interface TerminalControl extends Pick<TerminalHostClient, "runningCount" | "shutdown"> {
   /** Main-only launch: the window may use the new terminal like one it created. */
   create(spec: TerminalSpec): Promise<string>;
+  kill(id: string): Promise<void>;
   tail(id: string, lines: number): Promise<string[]>;
   owns(id: string): boolean;
 }
@@ -173,6 +174,10 @@ export function attachTerminal(
       const id = await manager.create(spec);
       owned.add(id);
       return id;
+    },
+    async kill(id) {
+      await manager.kill(id);
+      owned.delete(id);
     },
     tail: (id, lines) => manager.tail(id, lines),
     owns: (id) => owned.has(id),

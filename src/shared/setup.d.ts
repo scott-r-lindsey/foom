@@ -11,6 +11,7 @@ import type {
 /** Everything first-run setup decides. Stored in main; the renderer holds only a copy. */
 export interface Settings {
   setupComplete: boolean;
+  codexNotifierAcknowledged: boolean;
   /** Attach Foom's hooks per launch. Off means every agent uses the evaluator. */
   hooks: boolean;
   agents: Readonly<Record<AgentId, boolean>>;

@@ -138,7 +138,10 @@ const mock = vi.hoisted(() => {
     setupIpc: { dispose: vi.fn(), zoom: vi.fn<(direction: string) => Promise<void>>() },
     attachSetup: vi.fn<(...args: unknown[]) => unknown>(),
     openSettings: vi.fn<() => Promise<unknown>>(),
-    settingsStore: { get: () => ({ colorMode: "dark", interfaceScale: 120 }) },
+    settingsStore: {
+      update: vi.fn(() => Promise.resolve()),
+      get: () => ({ colorMode: "dark", interfaceScale: 120 }),
+    },
     VerdictLog: vi.fn<(userData: string, classify: (input: unknown) => unknown) => void>(),
     listen: vi.fn(),
     theme: {
@@ -608,7 +611,9 @@ test("routes terminal events, hook signals and state through the workspace", asy
     receiver(): Promise<unknown>;
     onState(state: unknown): void;
     onChange(): void;
+    acknowledgeCodex(): Promise<void>;
   };
+  await deps.acknowledgeCodex();
   deps.onChange();
   expect(mock.ipc.sendChanged).toHaveBeenCalledOnce();
   deps.onState({ id: "a" });

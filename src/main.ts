@@ -115,6 +115,9 @@ function createWindow() {
   const workspace: Workspace = new Workspace({
     worktrees,
     terminals,
+    acknowledgeCodex: async () => {
+      await settings.update({ codexNotifierAcknowledged: true });
+    },
     // Rules first, then whatever model tier setup has configured.
     verdicts: new VerdictLog(app.getPath("userData"), (input) => setup.classify(input)),
     receiver: () => HookReceiver.listen((signal) => void workspace.hook(signal)),

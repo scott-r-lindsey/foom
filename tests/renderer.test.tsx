@@ -771,3 +771,22 @@ test("board selection waits for a replacement shell's pending attachment", async
   expect(mock.input).toHaveBeenCalledWith("replacement", "echo HOST_RESTART_OK\r");
   controller.dispose();
 });
+
+test("a passive controller launches no shell until requested and preserves other terminals", async () => {
+  const controller = createShell(
+    document.createElement("div"),
+    vi.fn(),
+    false,
+    undefined,
+    undefined,
+    false,
+  );
+  await Promise.resolve();
+  expect(mock.create).not.toHaveBeenCalled();
+  await controller.open("agent-id");
+  await controller.restart();
+  expect(mock.kill).not.toHaveBeenCalledWith("agent-id");
+  expect(mock.detach).toHaveBeenCalledWith("agent-id");
+  expect(mock.create).toHaveBeenCalledOnce();
+  controller.dispose();
+});

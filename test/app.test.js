@@ -143,7 +143,8 @@ async function launchApp(context, openShell = true, options = {}) {
       timeout: 10000,
     })
     .toBe(true);
-  if (options.firstRun) return app;
+  if (options.firstRun || options.emptyBoard) return app;
+  await page.getByRole("button", { name: "Local shell", exact: true }).click();
   await page.locator(".board-row[data-kind='shell']").waitFor();
   // Report startup errors directly instead of timing out on a permanently disabled control.
   await expect
@@ -314,6 +315,8 @@ test("terminal runs an interactive shell behind an isolated bridge", {
           "tail",
           "onActivity",
           "onWorkspaceChange",
+          "startWorktree",
+          "removeWorktree",
           "workspace",
           "addRepository",
           "worktrees",
@@ -1472,10 +1475,12 @@ test("first run goes from no agents to go, launches by keyboard, and can be repl
 
   // Reduced motion shows a still frame, then the board.
   await page.getByText("Takeoff was faster than expected.").waitFor();
+  await page.getByRole("button", { name: "Local shell", exact: true }).click();
   const shellRow = page.locator(".board-row[data-kind='shell']");
   await shellRow.waitFor({ timeout: 10000 });
   const saved = JSON.parse(await readFile(path.join(userData, "settings.json"), "utf8"));
   assert.deepEqual(saved.settings, {
+    codexNotifierAcknowledged: false,
     setupComplete: true,
     hooks: true,
     agents: { claude: true, codex: true, agy: true },
@@ -1663,4 +1668,113 @@ test("preflight scans a code folder and adds the repositories worked on recently
     (await window.desktop.workspace()).repositories.map((repo) => repo.name).sort(),
   );
   assert.deepEqual(added, ["portal", "recent-app"]);
+});
+
+test("new worktree dialog launches by keyboard and confirms dirty removal", {
+  timeout: 60000,
+}, async (context) => {
+  const root = await mkdtemp(path.join(tmpdir(), "foom-launch-ui-"));
+  context.after(() => rm(root, { recursive: true, force: true, maxRetries: 5 }));
+  const repo = path.join(root, "app");
+  const bin = path.join(root, "bin");
+  await mkdir(repo);
+  await mkdir(bin);
+  await mkdir(path.join(root, "home"));
+  isolatedGit(["init", "-q", "-b", "main"], { cwd: repo });
+  isolatedGit(
+    [
+      "-c",
+      "user.name=Foom",
+      "-c",
+      "user.email=foom@example.com",
+      "commit",
+      "-q",
+      "--allow-empty",
+      "-m",
+      "init",
+    ],
+    { cwd: repo },
+  );
+  if (process.platform !== "win32") {
+    await writeFile(path.join(bin, "claude"), FAKE_CLAUDE, { mode: 0o755 });
+  }
+  const app = await launchApp(context, false, {
+    emptyBoard: true,
+    env: {
+      HOME: path.join(root, "home"),
+      PATH: `${bin}${path.delimiter}${process.env.PATH}`,
+      FOOM_FAKE_CREDENTIALS: path.join(root, "fake-hook.json"),
+    },
+  });
+  const page = await app.firstWindow();
+  await page.getByRole("button", { name: "New worktree" }).waitFor();
+  await expect(page.locator(".board-row")).toHaveCount(0);
+  await page.evaluate(() => window.desktop.saveSetup({ worktreeLocation: "adjacent" }));
+  await app.evaluate(({ dialog }, repo) => {
+    dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [repo] });
+  }, repo);
+  await tabTo(page, "New worktree");
+  await page.keyboard.press("Enter");
+  await expect(page.getByRole("dialog")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Add repository…" })).toBeEnabled();
+  await tabTo(page, "Add repository…");
+  await page.keyboard.press("Enter");
+  await expect(page.getByLabel("Repository")).not.toHaveValue("");
+  await page.keyboard.press("Tab");
+  await expect(page.getByLabel("Branch")).toBeFocused();
+  await page.keyboard.type("--bad");
+  await tabTo(page, "Create and start");
+  await page.keyboard.press("Enter");
+  await expect(page.getByRole("alert")).toContainText("Invalid branch");
+  // Return to the branch field entirely by keyboard.
+  await page.keyboard.press("Shift+Tab");
+  await page.keyboard.press("Shift+Tab");
+  await page.keyboard.press("Shift+Tab");
+  await expect(page.getByLabel("Branch")).toBeFocused();
+  await page.keyboard.press(process.platform === "darwin" ? "Meta+A" : "Control+A");
+  await page.keyboard.type("feature/ui");
+  if (process.platform !== "win32") {
+    await page.keyboard.press("Tab");
+    await page.keyboard.press("ArrowDown");
+    await expect(page.getByLabel("Run")).toHaveValue("claude");
+  }
+  await assertAccessible(page);
+  await tabTo(page, "Create and start");
+  await page.keyboard.press("Enter");
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  const row = page.locator(".board-row").filter({ hasText: "feature/ui" });
+  await expect(row).toBeVisible();
+  const launched = await page.evaluate(() => window.desktop.workspace());
+  const terminal = launched.terminals[0];
+  assert.ok(terminal);
+  if (process.platform !== "win32") {
+    await expect
+      .poll(() => page.evaluate((id) => window.desktop.tail(id, 5), terminal.id))
+      .toContain("FOOM_AGENT_READY");
+  }
+  const dirty = path.join(terminal.worktree, "unsaved.txt");
+  await writeFile(dirty, "preserve unless confirmed");
+  await app.evaluate(({ dialog }) => {
+    globalThis.removalOptions = null;
+    dialog.showMessageBox = async (_window, options) => {
+      globalThis.removalOptions = options;
+      return { response: 0 };
+    };
+  });
+  await page.getByRole("button", { name: "Remove worktree feature/ui" }).click();
+  await expect
+    .poll(() => app.evaluate(() => globalThis.removalOptions?.detail))
+    .toContain("unsaved.txt");
+  assert.equal(await readFile(dirty, "utf8"), "preserve unless confirmed");
+  await expect(row).toBeVisible();
+  await app.evaluate(({ dialog }) => {
+    dialog.showMessageBox = async () => ({ response: 1 });
+  });
+  await page.getByRole("button", { name: "Remove worktree feature/ui" }).click();
+  await expect(row).toHaveCount(0);
+  await assert.rejects(readFile(dirty), { code: "ENOENT" });
+  assert.equal(
+    isolatedGit(["branch", "--list", "feature/ui"], { cwd: repo }).toString().trim(),
+    "feature/ui",
+  );
 });

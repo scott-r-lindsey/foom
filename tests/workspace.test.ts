@@ -85,13 +85,18 @@ beforeEach(() => {
     setHooksEnabled: vi.fn<(enabled: boolean) => void>(),
   };
   deps = {
+    acknowledgeCodex: vi.fn(async () => {}),
     worktrees: {
       listRepositories: vi.fn(() => [repo]),
       addRepository: vi.fn(() => Promise.resolve(repo)),
       listWorktrees: vi.fn(() => Promise.resolve([tree])),
+      validateBranch: vi.fn(async () => {}),
+      changes: vi.fn(() => Promise.resolve("")),
+      removeWorktree: vi.fn(async () => {}),
       createWorktree: vi.fn(() => Promise.resolve(tree.path)),
     },
     terminals: {
+      kill: vi.fn(async () => {}),
       create: vi.fn(() => Promise.resolve("t1")),
       tail: terminalTail,
     },
@@ -610,4 +615,142 @@ test("preflight settings control hooks and which agents may launch", async () =>
     rows: 24,
   });
   expect(agents.launch).toHaveBeenCalledOnce();
+});
+
+const start = {
+  repository: repo.path,
+  branch: "feature",
+  run: "shell" as const,
+  acknowledgeCodexNotifierReplacement: false,
+};
+
+test("launches a shell in a managed worktree and refuses a duplicate live terminal", async () => {
+  const workspace = new Workspace(deps);
+  expect(await workspace.startWorktree(start)).toBe("t1");
+  expect(vi.spyOn(deps.terminals, "create")).toHaveBeenCalledWith(
+    expect.objectContaining({ cwd: tree.path, cols: 80, rows: 24 }),
+  );
+  expect(workspace.snapshot().terminals[0]).toMatchObject({ kind: "shell", branch: "feature" });
+  await expect(workspace.startWorktree(start)).rejects.toThrow("already running");
+  await workspace.exited("t1", 0);
+  await workspace.startWorktree(start);
+  await workspace.dispose();
+});
+
+test("creates missing worktrees at the configured location and persists Codex acknowledgement once", async () => {
+  const listing = vi
+    .spyOn(deps.worktrees, "listWorktrees")
+    .mockResolvedValueOnce([])
+    .mockResolvedValue([tree]);
+  const workspace = new Workspace(deps);
+  workspace.configure({
+    hooks: true,
+    agents: { claude: true, codex: true, agy: true },
+    worktreeLocation: "adjacent",
+  });
+  await workspace.startWorktree({
+    ...start,
+    run: "codex",
+    acknowledgeCodexNotifierReplacement: true,
+  });
+  expect(deps.worktrees.createWorktree).toHaveBeenCalledWith(repo.path, "feature", {
+    location: "adjacent",
+  });
+  expect(vi.spyOn(deps, "acknowledgeCodex")).toHaveBeenCalledOnce();
+  expect(agents.launch).toHaveBeenCalledWith(
+    expect.objectContaining({ agent: "codex", acknowledgeCodexNotifierReplacement: true }),
+  );
+  await workspace.exited("t1", 0);
+  await workspace.startWorktree({
+    ...start,
+    run: "codex",
+    acknowledgeCodexNotifierReplacement: true,
+  });
+  expect(vi.spyOn(deps, "acknowledgeCodex")).toHaveBeenCalledOnce();
+  expect(listing).toHaveBeenCalled();
+  await workspace.dispose();
+});
+
+test("refuses unknown, unmanaged, locked, prunable and invalid branches without spawning", async () => {
+  const workspace = new Workspace(deps);
+  await expect(workspace.startWorktree({ ...start, repository: "/unknown" })).rejects.toThrow(
+    "not been added",
+  );
+  for (const change of [{ managed: false }, { locked: true }, { prunable: true }]) {
+    vi.spyOn(deps.worktrees, "listWorktrees").mockResolvedValueOnce([{ ...tree, ...change }]);
+    await expect(workspace.startWorktree(start)).rejects.toThrow();
+  }
+  vi.spyOn(deps.worktrees, "validateBranch").mockRejectedValueOnce(new Error("Invalid branch"));
+  await expect(workspace.startWorktree(start)).rejects.toThrow("Invalid branch");
+  expect(vi.spyOn(deps.terminals, "create")).not.toHaveBeenCalled();
+  await workspace.dispose();
+  await expect(workspace.startWorktree(start)).rejects.toThrow("closed");
+});
+
+test("serializes branch launches and unlocks after failure", async () => {
+  const deferred = Promise.withResolvers<undefined>();
+  vi.spyOn(deps.worktrees, "validateBranch").mockReturnValueOnce(deferred.promise);
+  const workspace = new Workspace(deps);
+  const first = workspace.startWorktree(start);
+  await expect(workspace.startWorktree(start)).rejects.toThrow("busy");
+  deferred.reject(new Error("invalid"));
+  await expect(first).rejects.toThrow("invalid");
+  await workspace.startWorktree(start);
+  await workspace.dispose();
+});
+
+test("cancelled or stale dirty-file confirmations never kill or remove", async () => {
+  const workspace = new Workspace(deps);
+  await workspace.startWorktree(start);
+  const dirty = " M file.ts\0?? notes.txt\0";
+  vi.spyOn(deps.worktrees, "changes").mockResolvedValue(dirty);
+  const confirm = vi.fn(() => Promise.resolve(false));
+  expect(await workspace.removeWorktree("t1", confirm)).toBe(false);
+  expect(confirm).toHaveBeenCalledWith("feature", dirty);
+  vi.spyOn(deps.worktrees, "changes")
+    .mockResolvedValueOnce(dirty)
+    .mockResolvedValueOnce("?? new.txt\0");
+  await expect(workspace.removeWorktree("t1", () => Promise.resolve(true))).rejects.toThrow(
+    "Review them",
+  );
+  expect(vi.spyOn(deps.terminals, "kill")).not.toHaveBeenCalled();
+  expect(deps.worktrees.removeWorktree).not.toHaveBeenCalled();
+  await workspace.dispose();
+});
+
+test.each(["", "?? file.txt\0"])(
+  "confirmed removal stops the terminal and removes only its owned worktree (%s)",
+  async (changes) => {
+    const workspace = new Workspace(deps);
+    await workspace.startWorktree(start);
+    vi.spyOn(deps.worktrees, "changes").mockResolvedValue(changes);
+    expect(await workspace.removeWorktree("t1", () => Promise.resolve(true))).toBe(true);
+    expect(vi.spyOn(deps.terminals, "kill")).toHaveBeenCalledWith("t1");
+    expect(deps.worktrees.removeWorktree).toHaveBeenCalledWith(
+      repo.path,
+      tree.path,
+      changes.length > 0,
+    );
+    expect(workspace.snapshot().terminals).toEqual([]);
+    await expect(workspace.removeWorktree("t1", () => Promise.resolve(true))).rejects.toThrow(
+      "Unknown",
+    );
+    await workspace.dispose();
+  },
+);
+
+test("failed removal leaves the row available for retry and excludes overlapping operations", async () => {
+  const workspace = new Workspace(deps);
+  await workspace.startWorktree(start);
+  const confirmation = Promise.withResolvers<boolean>();
+  const removing = workspace.removeWorktree("t1", () => confirmation.promise);
+  await expect(workspace.removeWorktree("t1", () => Promise.resolve(true))).rejects.toThrow("busy");
+  await expect(workspace.startWorktree(start)).rejects.toThrow("busy");
+  vi.spyOn(deps.worktrees, "removeWorktree").mockRejectedValueOnce(new Error("filesystem busy"));
+  confirmation.resolve(true);
+  await expect(removing).rejects.toThrow("filesystem busy");
+  expect(workspace.snapshot().terminals).toHaveLength(1);
+  await workspace.removeWorktree("t1", () => Promise.resolve(true));
+  expect(workspace.snapshot().terminals).toHaveLength(0);
+  await workspace.dispose();
 });

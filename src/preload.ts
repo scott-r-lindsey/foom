@@ -137,6 +137,8 @@ const desktop: DesktopApi = {
       ipcRenderer.removeListener("workspace:changed", listener);
     };
   },
+  startWorktree: (request) => ipcRenderer.invoke("workspace:start", request),
+  removeWorktree: (id) => ipcRenderer.invoke("workspace:remove", id),
   workspace: () => ipcRenderer.invoke("workspace:snapshot"),
   addRepository: () => ipcRenderer.invoke("workspace:add-repository"),
   worktrees: (repository) => ipcRenderer.invoke("workspace:worktrees", repository),

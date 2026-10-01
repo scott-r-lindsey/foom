@@ -1,3 +1,4 @@
+import { WorktreeDialog } from "./worktree-dialog";
 import {
   useCallback,
   useEffect,
@@ -77,6 +78,8 @@ export function Board({
   onPreflight?: () => void;
 }) {
   const rows = useSyncExternalStore(source.subscribe, source.getSnapshot);
+  const [launching, setLaunching] = useState(false);
+  const [removeError, setRemoveError] = useState("");
   const [selection, setSelection] = useState(rows[0]?.id);
   const selected = rows.some((row) => row.id === selection) ? selection : rows[0]?.id;
   const [opened, setOpened] = useState<{ id: string; kind: BoardRow["kind"] }>();
@@ -88,7 +91,9 @@ export function Board({
   const restoreRowFocusRef = useRef(false);
   const openRow =
     rows.find((row) => row.id === opened?.id) ??
-    (opened?.kind === "shell" ? rows.find((row) => row.kind === "shell") : undefined);
+    (opened?.kind === "shell"
+      ? rows.find((row) => row.kind === "shell" && !row.managed)
+      : undefined);
   const openedId = openRow?.kind === "sample" ? undefined : openRow?.id;
   const peekRow = rows.find((row) => row.id === peek?.id);
   const waiting = rows.filter((row) => row.state === "needs_input").length;
@@ -178,6 +183,7 @@ export function Board({
       hidden={inactive}
       inert={inactive}
       onKeyDown={(event) => {
+        if (launching) return;
         if (event.altKey || event.ctrlKey || event.metaKey) return;
         if (event.key === "Escape" && (opened || peek)) {
           event.preventDefault();
@@ -224,6 +230,27 @@ export function Board({
         <span className="sample-label">
           {rows.some((row) => row.kind === "sample") && "Sample sessions"}
         </span>
+        {source.shell && !rows.some((row) => row.kind === "shell" && !row.managed) && (
+          <button
+            type="button"
+            onClick={() => {
+              void source.shell?.restart();
+            }}
+          >
+            Local shell
+          </button>
+        )}
+        {source.worktrees && (
+          <button
+            type="button"
+            onClick={() => {
+              if (opened) hide();
+              setLaunching(true);
+            }}
+          >
+            New worktree
+          </button>
+        )}
         {onPreflight && (
           <button
             type="button"
@@ -238,6 +265,15 @@ export function Board({
           </button>
         )}
       </header>
+      {launching && source.worktrees && (
+        <WorktreeDialog
+          source={source.worktrees}
+          close={() => {
+            setLaunching(false);
+          }}
+        />
+      )}
+      {removeError && <p role="alert">{removeError}</p>}
       <p className="board-help">↑ ↓ select · P peek · Enter open · Esc hide · N next waiting</p>
       <div className="board-workspace" data-open={Boolean(openRow)}>
         <div className="board-list" inert={Boolean(openRow)}>
@@ -252,41 +288,62 @@ export function Board({
             <section key={repository}>
               <h2>{repository}</h2>
               {group.map((row) => (
-                <button
-                  key={row.kind === "shell" ? "local-shell" : row.id}
-                  type="button"
-                  className="board-row"
-                  data-kind={row.kind}
-                  data-state={row.state}
-                  tabIndex={row.id === selected ? 0 : -1}
-                  aria-current={row.id === selected}
-                  ref={(element) => {
-                    if (element) buttonsRef.current.set(row.id, element);
-                    else buttonsRef.current.delete(row.id);
-                  }}
-                  onFocus={() => {
-                    setSelection(row.id);
-                  }}
-                  onClick={() => {
-                    open(row);
-                  }}
-                  onMouseEnter={() => {
-                    if (!opened && !peek?.keyboard) {
-                      setTail([]);
-                      setPeek({ id: row.id, keyboard: false });
-                    }
-                  }}
-                  onMouseLeave={() => {
-                    if (!peek?.keyboard) setPeek(undefined);
-                  }}
+                <div
+                  className="board-entry"
+                  key={row.kind === "shell" && !row.managed ? "local-shell" : row.id}
                 >
-                  <span className="board-light" style={lightStyle(row)} aria-hidden="true" />
-                  <span className="board-branch">{row.branch}</span>
-                  <span className="board-agent">{row.agent}</span>
-                  <span className="board-state">{light(row).label}</span>
-                  <span className="board-wait">{waitTime(row, Date.now())}</span>
-                  <span className="board-reason">{row.reason}</span>
-                </button>
+                  <button
+                    type="button"
+                    className="board-row"
+                    data-kind={row.kind}
+                    data-state={row.state}
+                    tabIndex={row.id === selected ? 0 : -1}
+                    aria-current={row.id === selected}
+                    ref={(element) => {
+                      if (element) buttonsRef.current.set(row.id, element);
+                      else buttonsRef.current.delete(row.id);
+                    }}
+                    onFocus={() => {
+                      setSelection(row.id);
+                    }}
+                    onClick={() => {
+                      open(row);
+                    }}
+                    onMouseEnter={() => {
+                      if (!opened && !peek?.keyboard) {
+                        setTail([]);
+                        setPeek({ id: row.id, keyboard: false });
+                      }
+                    }}
+                    onMouseLeave={() => {
+                      if (!peek?.keyboard) setPeek(undefined);
+                    }}
+                  >
+                    <span className="board-light" style={lightStyle(row)} aria-hidden="true" />
+                    <span className="board-branch">{row.branch}</span>
+                    <span className="board-agent">{row.agent}</span>
+                    <span className="board-state">{light(row).label}</span>
+                    <span className="board-wait">{waitTime(row, Date.now())}</span>
+                    <span className="board-reason">{row.reason}</span>
+                  </button>
+                  {row.managed && source.worktrees && (
+                    <button
+                      type="button"
+                      className="worktree-remove"
+                      aria-label={`Remove worktree ${row.branch}`}
+                      onClick={() => {
+                        setRemoveError("");
+                        void source.worktrees?.remove(row.id).catch((error: unknown) => {
+                          setRemoveError(
+                            error instanceof Error ? error.message : "Unable to remove worktree.",
+                          );
+                        });
+                      }}
+                    >
+                      Remove
+                    </button>
+                  )}
+                </div>
               ))}
             </section>
           ))}

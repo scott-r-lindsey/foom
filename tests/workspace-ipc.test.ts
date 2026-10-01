@@ -6,11 +6,12 @@ const mock = vi.hoisted(() => ({
   handle:
     vi.fn<(channel: string, handler: (event: unknown, ...args: unknown[]) => unknown) => void>(),
   removeHandler: vi.fn(),
+  showMessageBox: vi.fn<() => Promise<{ response: number }>>(),
   showOpenDialog: vi.fn<() => Promise<{ canceled: boolean; filePaths: string[] }>>(),
 }));
 vi.mock("electron", () => ({
   ipcMain: { handle: mock.handle, removeHandler: mock.removeHandler },
-  dialog: { showOpenDialog: mock.showOpenDialog },
+  dialog: { showOpenDialog: mock.showOpenDialog, showMessageBox: mock.showMessageBox },
 }));
 import { attachWorkspace } from "../src/workspace-ipc";
 
@@ -19,6 +20,11 @@ const contents = { isDestroyed: vi.fn(() => false), mainFrame: frame, send: vi.f
 const window = { webContents: contents } as unknown as BrowserWindow;
 const trusted = { sender: contents, senderFrame: frame } as unknown as IpcMainInvokeEvent;
 const workspace = {
+  startWorktree: vi.fn(() => Promise.resolve("t1")),
+  removeWorktree: vi.fn(
+    (_id: string, confirm: (branch: string, changes: string) => Promise<boolean>) =>
+      confirm("feature", "?? notes.txt\0"),
+  ),
   snapshot: vi.fn(() => ({ repositories: [], terminals: [] })),
   addRepository: vi.fn((path: string) => Promise.resolve({ path, name: "app" })),
   worktrees: vi.fn(() => Promise.resolve([])),
@@ -46,6 +52,8 @@ function invoke(channel: string, args: unknown[] = [], event: unknown = trusted)
 test("rejects untrusted senders on every channel", () => {
   const channels = mock.handle.mock.calls.map(([name]) => name);
   expect(channels).toEqual([
+    "workspace:start",
+    "workspace:remove",
     "workspace:snapshot",
     "workspace:add-repository",
     "workspace:worktrees",
@@ -194,4 +202,46 @@ test("workspace invalidations go only to the app document", () => {
   contents.isDestroyed.mockReturnValue(true);
   attached.sendChanged();
   expect(contents.send).toHaveBeenCalledOnce();
+});
+
+test("launch accepts names only and rejects malformed or injected payloads", async () => {
+  const request = {
+    repository: "/repos/app",
+    branch: "feature",
+    run: "shell",
+    acknowledgeCodexNotifierReplacement: false,
+  };
+  await invoke("workspace:start", [{ ...request, command: "/bad", cwd: "/bad" }]);
+  expect(workspace.startWorktree).toHaveBeenCalledWith(request);
+  await invoke("workspace:start", [{ ...request, run: "claude" }]);
+  for (const bad of [
+    null,
+    [],
+    { ...request, repository: "" },
+    { ...request, branch: "" },
+    { ...request, run: "sh" },
+    { ...request, acknowledgeCodexNotifierReplacement: 1 },
+  ])
+    expect(() => invoke("workspace:start", [bad])).toThrow("Invalid worktree launch");
+});
+
+test("removal requires a native confirmation naming dirty files, never a renderer force flag", async () => {
+  expect(() => invoke("workspace:remove", [null])).toThrow("Invalid terminal ID");
+  mock.showMessageBox.mockResolvedValueOnce({ response: 0 });
+  await expect(invoke("workspace:remove", ["t1", true])).resolves.toBe(false);
+  expect(mock.showMessageBox).toHaveBeenCalledWith(
+    window,
+    expect.objectContaining({
+      defaultId: 0,
+      cancelId: 0,
+      detail: expect.stringContaining("notes.txt") as unknown,
+    }),
+  );
+  mock.showMessageBox.mockResolvedValueOnce({ response: 1 });
+  workspace.removeWorktree.mockImplementationOnce((_id, confirm) => confirm("feature", ""));
+  await expect(invoke("workspace:remove", ["t1"])).resolves.toBe(true);
+  expect(mock.showMessageBox).toHaveBeenLastCalledWith(
+    window,
+    expect.objectContaining({ detail: expect.stringContaining("branch is kept") as unknown }),
+  );
 });

@@ -4,6 +4,7 @@ import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import type { ShellView } from "../src/renderer/shell.d";
 import type { TerminalActivity } from "../src/shared/desktop";
 import { createAppSource } from "../src/renderer/app-source";
+import { Board } from "../src/renderer/board-view";
 import { Shell } from "../src/renderer/shell";
 import { installation, report, setupState } from "./fixtures/setup";
 import type { TerminalState, WorkspaceSnapshot } from "../src/shared/workspace";
@@ -14,6 +15,9 @@ const mock = vi.hoisted(() => ({
   state: undefined as ((state: TerminalState) => void) | undefined,
   changed: undefined as (() => void) | undefined,
   exit: undefined as ((id: string, code: number) => void) | undefined,
+  startWorktree: vi.fn(() => Promise.resolve("t1")),
+  removeWorktree: vi.fn(() => Promise.resolve(true)),
+  addRepository: vi.fn(() => Promise.resolve(null)),
   workspace: vi.fn<() => Promise<WorkspaceSnapshot>>(),
   feedback: vi.fn(),
   update: undefined as ((view: ShellView) => void) | undefined,
@@ -69,6 +73,9 @@ beforeEach(() => {
       scanAgents: () =>
         Promise.resolve(report(installation("claude"), installation("codex"), installation("agy"))),
       workspace: mock.workspace,
+      startWorktree: mock.startWorktree,
+      removeWorktree: mock.removeWorktree,
+      addRepository: mock.addRepository,
       tail: mock.tail,
       feedback: mock.feedback,
       onWorkspaceChange: (listener: () => void) => {
@@ -136,7 +143,7 @@ const verdict = (id: string, timestamp = 100): TerminalState => ({
 });
 
 test("live source reconciles events, snapshots, tails and feedback without publishing activity", async () => {
-  const source = createAppSource();
+  const source = createAppSource(true);
   const shell = source.shell;
   if (!shell) throw new Error("Missing shell");
   await shell.toggle();
@@ -230,7 +237,7 @@ test("live source reconciles events, snapshots, tails and feedback without publi
 });
 
 test("snapshot loading cannot overwrite newer events or revive a disposed source", async () => {
-  const source = createAppSource();
+  const source = createAppSource(true);
   let finish: (snapshot: WorkspaceSnapshot) => void = () => {};
   mock.workspace.mockReturnValueOnce(
     new Promise((resolve) => {
@@ -442,7 +449,7 @@ test("a dismissal failure is visible and can be retried without clearing attenti
 
 test("a shell startup failure remains reachable for retry without sending a placeholder ID", async () => {
   mock.failStart = true;
-  const source = createAppSource();
+  const source = createAppSource(true);
   await expect(source.tail("local-shell")).resolves.toEqual([]);
   const dispose = source.shell?.mount(document.createElement("div"), vi.fn());
   await Promise.resolve();
@@ -457,7 +464,7 @@ test("a shell startup failure remains reachable for retry without sending a plac
 
 test("an open startup row follows the shell's real ID when creation finishes", async () => {
   mock.failStart = true;
-  const screen = render(<Shell />);
+  const screen = render(<Board source={createAppSource(true)} />);
   await settle();
   await act(async () => {
     screen.container.querySelector<HTMLButtonElement>(".board-row")?.click();
@@ -470,4 +477,36 @@ test("an open startup row follows the shell's real ID when creation finishes", a
   });
   expect(mock.open).toHaveBeenLastCalledWith("replacement");
   expect(screen.container.querySelector<HTMLElement>(".board-terminal")?.hidden).toBe(false);
+});
+
+test("worktree source loads launch options and reconciles successful starts and removals", async () => {
+  const source = createAppSource();
+  expect(source.getSnapshot()).toEqual([]);
+  expect(await source.worktrees?.load()).toMatchObject({ hooks: true, acknowledged: false });
+  expect(await source.worktrees?.addRepository()).toBeNull();
+  const request = {
+    repository: "/r",
+    branch: "feature",
+    run: "shell" as const,
+    acknowledgeCodexNotifierReplacement: false,
+  };
+  await source.worktrees?.start(request);
+  expect(mock.startWorktree).toHaveBeenCalledWith(request);
+  mock.removeWorktree.mockResolvedValueOnce(false);
+  expect(await source.worktrees?.remove("t1")).toBe(false);
+  expect(await source.worktrees?.remove("t1")).toBe(true);
+});
+
+test("starting a local shell explicitly leaves a retryable row if creation fails", async () => {
+  mock.failStart = true;
+  const source = createAppSource();
+  const dispose = source.shell?.mount(document.createElement("div"), vi.fn());
+  await source.shell?.restart();
+  mock.update?.({ ...view, state: "failed", status: "Unable to start shell" });
+  expect(source.getSnapshot()[0]).toMatchObject({
+    id: "local-shell",
+    state: "failed",
+    reason: "Unable to start shell",
+  });
+  dispose?.();
 });

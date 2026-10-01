@@ -889,6 +889,10 @@ test("reports quiet, input, exit and removal for owned terminals and grants main
     await latest("kill")?.(event, id);
     expect(events.onRemoved).toHaveBeenCalledWith(id);
     expect(control.owns(id)).toBe(false);
+    const internalId = await control.create(spec);
+    await control.kill(internalId);
+    expect(control.owns(internalId)).toBe(false);
+    expect(events.onRemoved).not.toHaveBeenCalledWith(internalId);
     window.once.mock.calls.at(-1)?.[1]();
   }
 });

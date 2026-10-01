@@ -510,3 +510,13 @@ describe("persistent ownership", () => {
     expect((await restart()).listRepositories()).toHaveLength(1);
   });
 });
+
+it("reports dirty filenames only for owned, unlocked worktrees", async () => {
+  const tree = await service.createWorktree(repo, "inspect");
+  expect(await service.changes(repo, tree)).toBe("");
+  await writeFile(join(tree, "notes.txt"), "uncommitted");
+  expect(await service.changes(repo, tree)).toBe("?? notes.txt\0");
+  await expect(service.changes(repo, repo)).rejects.toThrow("not managed");
+  await git("worktree", "lock", tree);
+  await expect(service.changes(repo, tree)).rejects.toThrow("locked");
+});

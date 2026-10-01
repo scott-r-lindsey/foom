@@ -8,6 +8,7 @@ export function setupState(
 ): SetupState {
   return {
     settings: {
+      codexNotifierAcknowledged: false,
       setupComplete: false,
       hooks: true,
       agents: { claude: true, codex: true, agy: true },
