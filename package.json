@@ -5,7 +5,7 @@
   "description": "A minimal Electron terminal.",
   "private": true,
   "license": "Apache-2.0",
-  "main": "build/main.js",
+  "main": "build/main/main.js",
   "engines": {
     "node": "^24.0.0 || >=26.0.0"
   },
@@ -22,15 +22,15 @@
     "format": "biome format --write .",
     "format:check": "biome format .",
     "lint:fix": "eslint . --fix --max-warnings=0",
-    "test:packaged": "node --test test/packaged-smoke.js",
+    "test:packaged": "node --test tests/electron/packaged-smoke.js",
     "test:ci": "node --test scripts/ci-changes.test.mjs",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage && node --test scripts/tsx-coverage.test.mjs",
-    "test:electron": "npm run build && node --test test/*.test.js",
+    "test:electron": "npm run build && node --test tests/electron/*.test.js",
     "check": "npm run format:check && npm run lint && npm run typecheck && npm test && npm run test:ci",
     "prepare": "husky",
     "audit": "npm audit --audit-level=low",
-    "test:inference:live": "vitest run tests/inference-live.test.ts"
+    "test:inference:live": "vitest run tests/unit/main/evaluator/inference-live.test.ts"
   },
   "devDependencies": {
     "@axe-core/playwright": "4.13.0",

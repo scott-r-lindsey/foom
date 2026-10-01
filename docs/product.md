@@ -31,7 +31,7 @@ The light carries two separate signals.
 - Done and Failed dim once the user has looked at them.
 - Needs you clears only when the user replies or dismisses it. Opening the terminal doesn't clear it.
 - Failed uses a square light, so the state never depends on color alone.
-- Every verdict carries a one-line reason and the signal that produced it, for example `Wants to edit src/main.ts · pattern: (y/n)`.
+- Every verdict carries a one-line reason and the signal that produced it, for example `Wants to edit src/main/main.ts · pattern: (y/n)`.
 
 ## Revealing a terminal
 
@@ -77,7 +77,7 @@ Setup is a preflight countdown:
 
 On wide windows the steps use the extra width: agents as a grid, the worktree choices side by side, and the Evaluator's live check beside its options.
 
-The rail also holds **Appearance**: System, Light or Dark, and the interface size (80–150%; the window grows and shrinks with it while the screen has room, around the pointer when you click + or − or scroll over the percentage, so what you pointed at stays under it; also ⌘ +/−/0 on macOS or Ctrl+Shift+=/− and Ctrl+0 elsewhere). Terminal font size is a separate setting to come. A model source is used only after it passes Run check. Launch opens the board. The target is an empty board with **New worktree**; today it shows a live shell and any launched agents, pending the New worktree flow in #58. Sample sessions are available only in an explicit development build. **Preflight** on the board runs setup again with the saved choices; Esc returns to the board.
+The rail also holds **Appearance**: System, Light or Dark, and the interface size (80–150%; the window grows and shrinks with it while the screen has room, around the pointer when you click + or − or scroll over the percentage, so what you pointed at stays under it; also ⌘ +/−/0 on macOS or Ctrl+Shift+=/− and Ctrl+0 elsewhere). Terminal font size is a separate setting to come. A model source is used only after it passes Run check. Launch opens the board. The board starts empty. **New worktree** launches an agent or shell in a managed worktree, and **Local shell** starts a standalone shell. Sample sessions are available only in an explicit development build. **Preflight** on the board runs setup again with the saved choices; Esc returns to the board.
 
 ## Quitting
 

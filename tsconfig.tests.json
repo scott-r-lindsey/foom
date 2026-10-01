@@ -13,7 +13,7 @@
   "include": [
     "tests/**/*.ts",
     "vitest.config.mts",
-    "src/renderer/*.d.ts",
+    "src/renderer/**/*.d.ts",
     "scripts/*.mjs",
     "tests/**/*.tsx"
   ]
