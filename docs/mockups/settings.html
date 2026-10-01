@@ -1,0 +1,434 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Foom Settings</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo+Black&family=Courier+Prime&family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: the persistent board sidebar (#88), then the settings sections, then the open section.
+   Colors are the brand tokens from src/renderer/tokens.css. */
+:root {
+  --bg: #f3f0fa; --surface: #e9e4f5; --line: #ddd6ee; --ink: #14101f; --muted: #625a7a;
+  --accent: #5b2bd9; --attention: #d98200; --attention-ink: #8c5000;
+  --done: #13804a; --done-ink: #0e6b3c; --failed: #d6166e; --failed-ink: #b0105a;
+  --idle: #b9b0d3; --badge-fill: #d6cfe9; --halo: rgba(217, 130, 0, .25);
+  --display: "Archivo Black", sans-serif; --voice: "Courier Prime", monospace;
+  --sans: "Geist", system-ui, sans-serif; --mono: "Geist Mono", ui-monospace, monospace;
+  /* Hack Nerd Font Mono is bundled by #86. Here it renders only if installed. */
+  --term: "Hack Nerd Font Mono", "Geist Mono", ui-monospace, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #05040a; --surface: #0d0a17; --line: #251d3f; --ink: #f4efff; --muted: #9d93bd;
+    --accent: #9b6bff; --attention: #ffb23e; --attention-ink: #ffb23e;
+    --done: #6fe0a3; --done-ink: #6fe0a3; --failed: #ff2e88; --failed-ink: #ff2e88;
+    --idle: #4a4263; --badge-fill: #1c1632; --halo: rgba(255, 178, 62, .22);
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #05040a; --surface: #0d0a17; --line: #251d3f; --ink: #f4efff; --muted: #9d93bd;
+  --accent: #9b6bff; --attention: #ffb23e; --attention-ink: #ffb23e;
+  --done: #6fe0a3; --done-ink: #6fe0a3; --failed: #ff2e88; --failed-ink: #ff2e88;
+  --idle: #4a4263; --badge-fill: #1c1632; --halo: rgba(255, 178, 62, .22);
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; }
+body { background: var(--bg); color: var(--ink); font: 14px/1.45 var(--sans); }
+button, select, input { font: inherit; color: inherit; }
+button { cursor: pointer; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+a { color: var(--accent); }
+.app { display: flex; height: 100vh; min-width: 1100px; overflow: hidden; }
+
+/* Sidebar */
+.sidebar { width: 280px; flex-shrink: 0; display: flex; flex-direction: column; background: var(--surface); border-right: 1px solid var(--line); }
+.brand { display: flex; align-items: baseline; justify-content: space-between; padding: 18px 16px 10px; }
+.brand b { font: 22px var(--display); color: var(--accent); font-weight: 400; }
+.brand span, .group-head, .row-agent, .row-wait, .kbd { font-family: var(--mono); font-size: 11px; color: var(--muted); }
+.new { margin: 4px 12px 12px; height: 36px; display: flex; gap: 8px; align-items: center; justify-content: center; background: var(--bg); border: 1px solid var(--line); border-radius: 6px; font-weight: 500; font-size: 13px; }
+.groups { flex: 1; overflow: auto; padding: 4px 8px; display: flex; flex-direction: column; gap: 14px; }
+.group-head { display: flex; justify-content: space-between; padding: 0 8px 4px; }
+.group-head b { font-weight: 400; text-transform: uppercase; letter-spacing: 1px; }
+.row { display: flex; gap: 10px; align-items: flex-start; width: 100%; padding: 8px; text-align: left; background: transparent; border: 1px solid transparent; border-radius: 6px; }
+.row:hover, .row.selected { background: var(--badge-fill); }
+.row.seen { opacity: .6; }
+.row-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.row-top { display: flex; justify-content: space-between; font: 13px var(--mono); }
+.row-reason { font-size: 12px; color: var(--muted); }
+.light { flex-shrink: 0; margin-top: 4px; width: 10px; height: 10px; border-radius: 50%; background: var(--idle); }
+.light.needs { background: var(--attention); box-shadow: 0 0 0 4px var(--halo); }
+.light.working { background: var(--accent); box-shadow: 0 0 8px var(--accent); }
+.light.done { background: var(--done); }
+.light.failed { background: var(--failed); border-radius: 2px; }
+.needs-text { color: var(--attention-ink) !important; }
+.done-text { color: var(--done-ink) !important; }
+.failed-text { color: var(--failed-ink) !important; }
+.side-foot { display: flex; flex-direction: column; gap: 4px; padding: 10px 12px 14px; border-top: 1px solid var(--line); }
+.side-foot button { display: flex; align-items: center; gap: 10px; height: 34px; padding: 0 10px; background: transparent; border: 1px solid transparent; border-radius: 6px; color: var(--muted); font-size: 13px; text-align: left; }
+.side-foot button[aria-current] { background: var(--badge-fill); color: var(--ink); font-weight: 500; }
+.side-foot .kbd { margin-left: auto; }
+
+/* Settings sections */
+.sections { width: 200px; flex-shrink: 0; padding: 28px 12px; display: flex; flex-direction: column; gap: 18px; border-right: 1px solid var(--line); }
+.sections h2 { margin: 0; padding: 0 10px 6px; font: 10px var(--mono); letter-spacing: 1.2px; text-transform: uppercase; color: var(--muted); font-weight: 400; }
+.sections a { display: block; padding: 7px 10px; border-radius: 6px; font-size: 13px; color: var(--muted); text-decoration: none; }
+.sections a[aria-current] { background: var(--badge-fill); color: var(--ink); font-weight: 500; }
+.mode { margin-top: auto; padding: 6px 10px; background: transparent; border: 1px dashed var(--line); border-radius: 6px; font-size: 12px; color: var(--muted); }
+
+/* Content */
+main { flex: 1; min-width: 0; overflow: auto; padding: 32px 40px; }
+section.page { display: none; flex-direction: column; gap: 24px; max-width: 820px; }
+section.page.shown { display: flex; }
+.eyebrow { font: 11px var(--mono); letter-spacing: 1.5px; text-transform: uppercase; color: var(--accent); }
+h1 { margin: 4px 0; font-size: 26px; font-weight: 600; }
+.lede { margin: 0; font: 14px var(--voice); color: var(--muted); }
+h3 { margin: 0 0 10px; font-size: 13px; font-weight: 600; color: var(--muted); }
+.hint { margin: 8px 0 0; font-size: 12px; color: var(--muted); }
+.panel { padding: 16px; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; }
+.field { display: flex; flex-direction: column; gap: 6px; }
+.field label, .field .label { font-size: 12px; color: var(--muted); }
+select { height: 36px; padding: 0 10px; background: var(--surface); border: 1px solid var(--line); border-radius: 6px; }
+.stepper { display: flex; align-items: center; height: 36px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); width: max-content; }
+.stepper button { width: 36px; height: 34px; background: transparent; border: 0; font-size: 16px; }
+.stepper output { min-width: 60px; text-align: center; font: 13px var(--mono); cursor: ns-resize; }
+.pick { display: flex; flex-direction: column; gap: 6px; width: 100%; padding: 9px 10px; text-align: left; background: transparent; border: 1px solid var(--line); border-radius: 6px; }
+.pick[aria-pressed="true"] { background: var(--badge-fill); border-color: var(--accent); }
+.pick-head { display: flex; justify-content: space-between; width: 100%; font-size: 13px; }
+.pick-head small { font-size: 11px; color: var(--muted); }
+.strip { display: flex; gap: 3px; }
+.strip i { width: 18px; height: 8px; border-radius: 2px; }
+.cols { display: flex; gap: 24px; }
+.grid3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.grid2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+
+/* Terminal preview */
+.term { padding: 14px 16px; border: 1px solid var(--line); border-radius: 8px; font-family: var(--term); line-height: 1.45; white-space: pre; overflow: hidden; min-height: 330px; }
+.swatches { display: flex; gap: 4px; margin-top: 4px; }
+.swatches i { width: 22px; height: 14px; border-radius: 2px; }
+
+/* Theme cards */
+.theme { display: flex; flex-direction: column; gap: 8px; padding: 8px; text-align: left; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; }
+.theme[aria-pressed="true"] { border-color: var(--accent); }
+.mini { display: flex; height: 92px; border-radius: 5px; overflow: hidden; border: 1px solid var(--t-line); background: var(--t-bg); }
+.mini-side { width: 46%; display: flex; flex-direction: column; gap: 9px; padding: 10px 8px; background: var(--t-surface); border-right: 1px solid var(--t-line); }
+.mini-side span { display: flex; align-items: center; gap: 6px; }
+.mini-side i { width: 7px; height: 7px; border-radius: 50%; }
+.mini-side b { height: 4px; border-radius: 2px; background: var(--t-muted); }
+.mini-main { flex: 1; display: flex; flex-direction: column; gap: 6px; padding: 12px 10px; }
+.mini-main b { height: 4px; border-radius: 2px; background: var(--t-muted); }
+.mini-main em { margin-top: auto; height: 16px; width: 54px; border-radius: 4px; background: var(--t-accent); }
+.theme-name { display: flex; justify-content: space-between; font-weight: 500; font-size: 13px; }
+.theme-name small { font: 11px var(--mono); color: var(--muted); font-weight: 400; }
+.theme-blurb { font-size: 12px; color: var(--muted); }
+.own { display: flex; flex-direction: column; justify-content: center; align-items: center; gap: 6px; padding: 12px; border: 1px dashed var(--line); border-radius: 8px; text-align: center; text-decoration: none; font-size: 13px; }
+.own small { color: var(--muted); font-size: 12px; }
+.rules { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 6px; font-size: 13px; }
+.rules li { display: flex; gap: 8px; align-items: center; }
+.rules .light { margin: 0; width: 8px; height: 8px; }
+
+/* Sound */
+.scape { display: flex; gap: 12px; align-items: flex-start; padding: 14px; text-align: left; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; }
+.scape[aria-pressed="true"] { border-color: var(--accent); }
+.scape-icon { flex-shrink: 0; width: 34px; height: 34px; display: grid; place-items: center; border-radius: 8px; background: var(--badge-fill); color: var(--accent); }
+.scape b { display: block; font-weight: 500; font-size: 13px; }
+.scape small { font-size: 12px; color: var(--muted); }
+.panel-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+.panel-head h3 { margin: 0; font-size: 14px; color: var(--ink); }
+.small-btn { display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 10px; background: var(--bg); border: 1px solid var(--line); border-radius: 6px; font-size: 12px; }
+.check { display: flex; gap: 10px; align-items: center; font-size: 13px; margin: 10px 0; }
+input[type="checkbox"], input[type="range"] { accent-color: var(--accent); }
+input[type="checkbox"] { width: 16px; height: 16px; }
+input[type="range"] { width: 100%; }
+.meter { display: flex; align-items: flex-end; gap: 3px; height: 30px; margin: 6px 0; }
+.meter i { width: 6px; border-radius: 1px; background: var(--accent); transition: height .3s; }
+.alert { display: flex; align-items: center; gap: 10px; padding: 10px; background: var(--bg); border: 1px solid var(--line); border-radius: 6px; margin-bottom: 10px; }
+.alert .light { margin: 0; }
+.alert-text { flex: 1; display: flex; flex-direction: column; font-size: 13px; }
+.alert-text small { font-size: 12px; color: var(--muted); }
+.repeat { display: flex; align-items: center; gap: 10px; margin: -2px 0 12px 30px; font-size: 12px; color: var(--muted); }
+.repeat select { height: 28px; font-size: 12px; }
+
+/* Foom config */
+.folder { display: flex; align-items: center; gap: 16px; }
+.folder code { font: 14px var(--mono); }
+.btn { height: 36px; padding: 0 14px; background: transparent; border: 1px solid var(--line); border-radius: 6px; font-size: 13px; }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--bg); font-weight: 600; }
+.pending { display: flex; align-items: center; gap: 14px; padding: 14px 16px; background: var(--surface); border: 1px solid var(--attention); border-radius: 8px; }
+.pending h3 { margin: 0; font-size: 14px; color: var(--attention-ink); }
+.pending small { font: 12px var(--mono); color: var(--muted); }
+.changes { border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.change { display: flex; align-items: center; gap: 14px; padding: 10px 14px; background: var(--surface); }
+.change + .change { border-top: 1px solid var(--line); }
+.change time { width: 34px; font: 11px var(--mono); color: var(--muted); }
+.change-text { flex: 1; display: flex; flex-direction: column; font-size: 13px; }
+.change-text small { font: 11px var(--mono); color: var(--muted); }
+.status { display: flex; align-items: center; gap: 6px; font-size: 12px; }
+.status .light { margin: 0; width: 8px; height: 8px; }
+.revert { height: 28px; width: 64px; background: transparent; border: 1px solid var(--line); border-radius: 6px; font-size: 12px; }
+pre { margin: 0; padding: 12px 14px; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; font: 12px/1.6 var(--mono); }
+.placeholder { padding: 24px; border: 1px dashed var(--line); border-radius: 8px; color: var(--muted); }
+</style>
+</head>
+<body>
+<div class="app">
+  <nav class="sidebar" aria-label="Board">
+    <div class="brand"><b>foom</b><span>1 needs you · 2 working</span></div>
+    <button class="new" type="button">+ New worktree</button>
+    <div class="groups">
+      <section aria-label="foom">
+        <div class="group-head"><b>foom</b><span>~/code/foom</span></div>
+        <button class="row" type="button"><span class="light needs" role="img" aria-label="Needs you"></span><span class="row-text"><span class="row-top"><span>feat/sidebar</span><span class="row-wait">4m</span></span><span class="row-reason needs-text">Wants to edit src/main.ts · hook</span><span class="row-agent">claude</span></span></button>
+        <button class="row" type="button"><span class="light working" role="img" aria-label="Working"></span><span class="row-text"><span class="row-top">fix/wheel-scroll</span><span class="row-reason">Running tests · activity</span><span class="row-agent">codex</span></span></button>
+        <button class="row" type="button"><span class="light working" role="img" aria-label="Working"></span><span class="row-text"><span class="row-top">feat/hack-font</span><span class="row-reason">Downloading Nerd Fonts v3.5.1</span><span class="row-agent">claude</span></span></button>
+        <button class="row" type="button"><span class="light" role="img" aria-label="Quiet"></span><span class="row-text"><span class="row-top">main</span><span class="row-reason">npm run dev · quiet, fine</span><span class="row-agent">shell</span></span></button>
+      </section>
+      <section aria-label="eclipse-site">
+        <div class="group-head"><b>eclipse-site</b><span>~/code/eclipse-site</span></div>
+        <button class="row" type="button"><span class="light failed" role="img" aria-label="Failed"></span><span class="row-text"><span class="row-top">chore/deps</span><span class="row-reason failed-text">Exited 1 · npm test failed</span><span class="row-agent">codex</span></span></button>
+        <button class="row seen" type="button"><span class="light done" role="img" aria-label="Done, seen"></span><span class="row-text"><span class="row-top">feat/hero-copy</span><span class="row-reason done-text">Finished · hook</span><span class="row-agent">claude</span></span></button>
+      </section>
+    </div>
+    <div class="side-foot">
+      <button type="button">Preflight</button>
+      <button type="button" aria-current="page">Settings <span class="kbd">⌘,</span></button>
+    </div>
+  </nav>
+
+  <nav class="sections" aria-label="Settings sections">
+    <div><h2>Setup</h2>
+      <a href="#agents">Agents and hooks</a><a href="#repositories">Repositories</a><a href="#worktrees">Worktrees</a><a href="#evaluator">Evaluator</a>
+    </div>
+    <div><h2>Look and sound</h2>
+      <a href="#appearance">Appearance</a><a href="#terminal">Terminal</a><a href="#sound">Sound</a>
+    </div>
+    <div><h2>Advanced</h2>
+      <a href="#config">Foom config</a>
+    </div>
+    <button class="mode" type="button" id="mode">Mockup: switch light / dark</button>
+  </nav>
+
+  <main>
+    <!-- Setup sections reuse preflight's controls; see first-run.html and the built preflight. -->
+    <section class="page" id="agents"><div><div class="eyebrow">Settings</div><h1>Agents and hooks</h1><p class="lede">The same controls as preflight's Agents step.</p></div><div class="placeholder">Preflight's agent cards and the hooks switch, unchanged.</div></section>
+    <section class="page" id="repositories"><div><div class="eyebrow">Settings</div><h1>Repositories</h1><p class="lede">The same controls as preflight's Repositories step.</p></div><div class="placeholder">Code folder, scan and repository list, unchanged.</div></section>
+    <section class="page" id="worktrees"><div><div class="eyebrow">Settings</div><h1>Worktrees</h1><p class="lede">The same controls as preflight's Worktrees step.</p></div><div class="placeholder">Foom's folder or next to each repository, unchanged.</div></section>
+    <section class="page" id="evaluator"><div><div class="eyebrow">Settings</div><h1>Evaluator</h1><p class="lede">The same controls as preflight's Evaluator step.</p></div><div class="placeholder">Rules only, local model or cloud key, with Run check, unchanged.</div></section>
+
+    <section class="page" id="terminal">
+      <div><div class="eyebrow">Settings</div><h1>Terminal</h1><p class="lede">Separate from the interface. Changes reach every terminal at once.</p></div>
+      <div>
+        <h3>Font</h3>
+        <div class="cols" style="align-items: flex-end">
+          <div class="field" style="flex: 1"><label for="font">Family</label>
+            <select id="font" style="font-family: var(--term)">
+              <optgroup label="Bundled with Foom"><option selected>Hack Nerd Font Mono</option><option>Geist Mono</option></optgroup>
+              <optgroup label="Installed on this computer"><option>[Installed monospace fonts]</option></optgroup>
+            </select>
+          </div>
+          <div class="field"><span class="label" id="tsize-label">Size</span>
+            <div class="stepper" role="group" aria-labelledby="tsize-label"><button type="button" aria-label="Smaller" data-step="-1">−</button><output id="tsize">14 px</output><button type="button" aria-label="Larger" data-step="1">+</button></div>
+          </div>
+        </div>
+        <p class="hint">Bold and italic come from the font. If a chosen font is missing, terminals fall back to Geist Mono.</p>
+      </div>
+      <div class="cols">
+        <div style="width: 250px; flex-shrink: 0; display: flex; flex-direction: column; gap: 6px"><h3 style="margin-bottom: 4px">Colors</h3><div id="schemes" style="display: flex; flex-direction: column; gap: 6px"></div></div>
+        <div style="flex: 1; min-width: 0"><h3>Preview</h3><div class="term" id="term"></div></div>
+      </div>
+    </section>
+
+    <section class="page" id="appearance">
+      <div><div class="eyebrow">Settings</div><h1>Appearance</h1><p class="lede">The sky changes. The black hole stays black.</p></div>
+      <div><h3>Theme</h3><div class="grid3" id="themes"></div></div>
+      <div class="cols">
+        <div class="panel" style="flex: 1"><h3>Every theme keeps these</h3>
+          <ul class="rules">
+            <li><span class="light needs"></span>Amber means needs you, and nothing else.</li>
+            <li><span class="light failed"></span>Magenta means failure. Failed is always square.</li>
+            <li><span class="light" style="background: none; border: 1px solid var(--muted)"></span>Status text passes AA contrast on its row.</li>
+          </ul>
+        </div>
+        <div class="panel" style="width: 240px"><h3>Interface size</h3>
+          <div class="stepper" role="group" aria-label="Interface size"><button type="button" aria-label="Smaller" data-scale="-1">−</button><output id="scale">100%</output><button type="button" aria-label="Larger" data-scale="1">+</button></div>
+          <p class="hint">Also in the preflight rail. Scroll over the number, or ⌘ + and ⌘ −.</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="page" id="sound">
+      <div><div class="eyebrow">Settings</div><h1>Sound</h1><p class="lede">Hear the work. Look only when something needs you.</p></div>
+      <div><h3>Soundscape</h3><div class="grid3" id="scapes"></div>
+        <p class="hint">Want something else? <a href="#config">Make a soundscape in Foom config</a>.</p></div>
+      <div class="grid2">
+        <div class="panel">
+          <div class="panel-head"><h3>While agents work</h3><button class="small-btn" type="button">▶ Preview</button></div>
+          <label class="check"><input type="checkbox" id="working" checked> Drive chatter that follows output</label>
+          <div class="field"><label for="wvol">Volume</label><input id="wvol" type="range" min="0" max="100" value="30"></div>
+          <p class="hint">Now: 2 agents working</p>
+          <div class="meter" id="meter" aria-hidden="true"></div>
+          <p class="hint" style="margin: 0">Busy output grinds harder. Quiet terminals are silent.</p>
+        </div>
+        <div class="panel">
+          <div class="panel-head"><h3>Alerts</h3></div>
+          <div class="alert"><span class="light needs"></span><span class="alert-text">Needs you<small>Two rising tones. Used for nothing else.</small></span><button class="small-btn" type="button" aria-label="Preview needs you">▶</button><input type="checkbox" checked aria-label="Needs you sound on"></div>
+          <div class="repeat"><label for="repeat">Repeat while unanswered</label><select id="repeat"><option>Never</option><option selected>Every 2 minutes</option><option>Every 5 minutes</option></select></div>
+          <div class="alert"><span class="light done"></span><span class="alert-text">Done<small>One short beep.</small></span><button class="small-btn" type="button" aria-label="Preview done">▶</button><input type="checkbox" checked aria-label="Done sound on"></div>
+          <div class="field"><label for="avol">Alert volume</label><input id="avol" type="range" min="0" max="100" value="70"></div>
+          <label class="check"><input type="checkbox" checked> Stay quiet for the terminal you are looking at</label>
+        </div>
+      </div>
+    </section>
+
+    <section class="page" id="config">
+      <div><div class="eyebrow">Settings</div><h1>Foom config</h1><p class="lede">Ask an agent to change Foom. Every change is checked, committed, and can be undone.</p></div>
+      <div class="panel folder">
+        <div style="flex: 1; display: flex; flex-direction: column; gap: 6px"><h3 style="margin: 0">Folder</h3><code>~/.foom/config</code><span class="hint" style="margin: 0">Settings, themes, terminal colors and soundscapes. Keys and worktree records live elsewhere.</span></div>
+        <button class="btn" type="button">Open shell here</button><button class="btn primary" type="button">Launch agent here</button>
+      </div>
+      <div class="pending">
+        <span class="light needs" style="margin: 0"></span>
+        <div style="flex: 1"><h3>An agent wants to turn off the needs-you sound</h3><small>settings.json · sound.alerts.needsYou: on → off · waiting for you</small></div>
+        <button class="btn" type="button">Allow</button><button class="btn" type="button" style="background: var(--badge-fill)">Keep it on</button>
+      </div>
+      <div><h3>Recent changes</h3>
+        <div class="changes">
+          <div class="change"><time>2m</time><span class="change-text">Add Deep Field theme<small>themes/deep-field.json · 4c1e9a2</small></span><span class="status done-text"><span class="light done"></span>Applied</span><button class="revert" type="button">Revert</button></div>
+          <div class="change"><time>6m</time><span class="change-text">Add Gruvbox terminal colors<small class="failed-text">terminal-themes/gruvbox.json · ansi[9]: not a color</small></span><span class="status failed-text"><span class="light failed"></span>Rejected</span><span style="width: 64px"></span></div>
+          <div class="change"><time>1h</time><span class="change-text">Terminal font size 15<small>settings.json · 81b07d4</small></span><span class="status done-text"><span class="light done"></span>Applied</span><button class="revert" type="button">Revert</button></div>
+        </div>
+      </div>
+      <div><h3>Check from the command line</h3>
+<pre><span style="color: var(--muted)">$</span> foom --validate-config terminal-themes/gruvbox.json
+<span class="failed-text">terminal-themes/gruvbox.json  ansi[9]  not a color: "#fb4934ff0"</span>
+<span style="color: var(--muted)">exit 1</span></pre>
+        <p class="hint">The agent in this folder is told to run it after every edit.</p>
+      </div>
+    </section>
+  </main>
+</div>
+
+<script>
+// Terminal color schemes: background, foreground, cursor, then the 16 ANSI colors.
+const ECLIPSE_DARK = ["#05040a", "#f4efff", "#9b6bff", ["#1c1632", "#ff5c7a", "#6fe0a3", "#f5d76e", "#7aa2ff", "#c08bff", "#5fd7e8", "#d9d2f0", "#6a6188", "#ff8098", "#95ecbe", "#ffe599", "#a3bfff", "#d6b0ff", "#8fe6f2", "#ffffff"]];
+const ECLIPSE_LIGHT = ["#f3f0fa", "#14101f", "#5b2bd9", ["#14101f", "#c4224a", "#13804a", "#8a6a00", "#2b55c9", "#7a3cff", "#0b7c8c", "#ddd6ee", "#625a7a", "#e0335e", "#17a35e", "#a88200", "#4170e8", "#9b6bff", "#0e98ab", "#ffffff"]];
+const SOLARIZED = ["#073642", "#dc322f", "#859900", "#b58900", "#268bd2", "#d33682", "#2aa198", "#eee8d5", "#586e75", "#cb4b16", "#93a65a", "#c4a020", "#839496", "#6c71c4", "#93a1a1", "#fdf6e3"];
+const dark = () => document.documentElement.dataset.theme === "dark" || (!document.documentElement.dataset.theme && matchMedia("(prefers-color-scheme: dark)").matches);
+const SCHEMES = [
+  { id: "follow", name: "Follow interface", note: () => (dark() ? "Eclipse Dark now" : "Eclipse Light now"), colors: () => (dark() ? ECLIPSE_DARK : ECLIPSE_LIGHT) },
+  { id: "eclipse-dark", name: "Eclipse Dark", note: () => "Foom", colors: () => ECLIPSE_DARK },
+  { id: "eclipse-light", name: "Eclipse Light", note: () => "Foom", colors: () => ECLIPSE_LIGHT },
+  { id: "solarized-dark", name: "Solarized Dark", note: () => "", colors: () => ["#002b36", "#93a1a1", "#93a1a1", SOLARIZED] },
+  { id: "solarized-light", name: "Solarized Light", note: () => "", colors: () => ["#fdf6e3", "#586e75", "#586e75", SOLARIZED] },
+  { id: "dracula", name: "Dracula", note: () => "", colors: () => ["#282a36", "#f8f8f2", "#f8f8f2", ["#21222c", "#ff5555", "#50fa7b", "#f1fa8c", "#bd93f9", "#ff79c6", "#8be9fd", "#f8f8f2", "#6272a4", "#ff6e6e", "#69ff94", "#ffffa5", "#d6acff", "#ff92df", "#a4ffff", "#ffffff"]] },
+];
+let scheme = "follow";
+let termSize = 14;
+
+function renderTerminal() {
+  const [bg, fg, cursor, a] = SCHEMES.find((s) => s.id === scheme).colors();
+  const c = (color, text, extra = "") => `<span style="color:${color};${extra}">${text}</span>`;
+  const on = (back, text, extra = "") => `<span style="background:${back};color:${bg};${extra}">${text}</span>`;
+  const term = document.getElementById("term");
+  term.style.background = bg;
+  term.style.color = fg;
+  term.style.fontSize = termSize + "px";
+  term.innerHTML = [
+    on(a[4], "  ~/code/foom ") + `<span style="color:${a[4]};background:${a[5]}"></span>` + on(a[5], "  feat/settings ") + c(a[5], "") + " npm test",
+    "",
+    on(a[2], " PASS ", "font-weight:700") + " tests/settings.test.ts",
+    "  " + c(a[2], "") + " saves atomically " + c(a[8], "(3 ms)"),
+    "  " + c(a[2], "") + " answers OSC 11 with the theme",
+    on(a[1], " FAIL ", "font-weight:700") + " tests/sound.test.ts",
+    "  " + c(a[1], "") + " debounces alerts",
+    "    " + c(a[8], "expected ") + c(a[2], "1") + c(a[8], " beep, received ") + c(a[1], "2"),
+    "",
+    "<b>Tests:</b>  " + c(a[1], "1 failed", "font-weight:700") + ", " + c(a[2], "2 passed", "font-weight:700") + ", 3 total",
+    c(a[4], " feat/settings") + " " + c(a[3], "±1") + " " + c(a[5], "❯") + ` <span style="background:${cursor}"> </span>`,
+    "",
+    `<div class="swatches">${a.slice(0, 8).map((x) => `<i style="background:${x}"></i>`).join("")}</div><div class="swatches">${a.slice(8).map((x) => `<i style="background:${x}"></i>`).join("")}</div>`,
+  ].join("\n");
+  document.getElementById("tsize").textContent = termSize + " px";
+}
+
+function renderSchemes() {
+  document.getElementById("schemes").innerHTML = SCHEMES.map((s) => {
+    const [bg, , , a] = s.colors();
+    return `<button class="pick" type="button" aria-pressed="${s.id === scheme}" data-scheme="${s.id}"><span class="pick-head"><span>${s.name}</span><small>${s.note()}</small></span><span class="strip">${[bg, ...a.slice(1, 8)].map((x) => `<i style="background:${x}"></i>`).join("")}</span></button>`;
+  }).join("");
+}
+
+// Interface themes, as token values. Deep Field is a proposal.
+const THEMES = [
+  { id: "system", name: "System", tag: () => (dark() ? "dark now" : "light now"), blurb: "Eclipse Dark or Light, following your OS." },
+  { id: "eclipse-dark", name: "Eclipse Dark", tag: () => "default", blurb: "Violet on a black sky.", t: ["#05040a", "#0d0a17", "#251d3f", "#f4efff", "#4a4263", "#9b6bff", "#ffb23e", "rgba(255,178,62,.25)", "#6fe0a3", "#ff2e88"] },
+  { id: "eclipse-light", name: "Eclipse Light", tag: () => "", blurb: "Pale sky, darker amber.", t: ["#f3f0fa", "#e9e4f5", "#ddd6ee", "#14101f", "#b9b0d3", "#5b2bd9", "#d98200", "rgba(217,130,0,.25)", "#13804a", "#d6166e"] },
+  { id: "contrast", name: "High contrast", tag: () => "", blurb: "Pure black, white lines, brighter status.", t: ["#000000", "#000000", "#ffffff", "#ffffff", "#bdb4e0", "#c9b0ff", "#ffc04d", "rgba(255,192,77,.35)", "#7dffb5", "#ff5ca8"] },
+  { id: "deep-field", name: "Deep Field", tag: () => "proposed", blurb: "Blue-black sky, cool accent.", t: ["#03070f", "#0a1322", "#1a2a44", "#eaf2ff", "#2f4466", "#6ea8ff", "#ffb23e", "rgba(255,178,62,.25)", "#6fe0a3", "#ff2e88"] },
+];
+THEMES[0].t = () => (dark() ? THEMES[1].t : THEMES[2].t);
+let theme = "system";
+const STEPS = [80, 90, 100, 110, 120, 130, 140, 150];
+let scale = 100;
+
+function renderThemes() {
+  document.getElementById("themes").innerHTML = THEMES.map((th) => {
+    const [bg, surface, line, ink, muted, accent, attention, halo, done, failed] = typeof th.t === "function" ? th.t() : th.t;
+    return `<button class="theme" type="button" aria-pressed="${th.id === theme}" data-theme-id="${th.id}" style="--t-bg:${bg};--t-surface:${surface};--t-line:${line};--t-muted:${muted};--t-accent:${accent}">
+      <span class="mini"><span class="mini-side">
+        <span><i style="background:${attention};box-shadow:0 0 0 3px ${halo}"></i><b style="width:60%;background:${ink}"></b></span>
+        <span><i style="background:${accent}"></i><b style="width:48%"></b></span>
+        <span><i style="background:${done}"></i><b style="width:55%"></b></span>
+        <span><i style="background:${failed};border-radius:1px"></i><b style="width:40%"></b></span>
+      </span><span class="mini-main"><b style="width:70%"></b><b style="width:50%"></b><b style="width:62%"></b><em></em></span></span>
+      <span class="theme-name"><span>${th.name}</span><small>${th.tag()}</small></span>
+      <span class="theme-blurb">${th.blurb}</span></button>`;
+  }).join("") + `<a class="own" href="#config"><b>+ Make your own</b><small>Ask an agent in Foom config. It appears here once it passes the checks.</small></a>`;
+  document.getElementById("scale").textContent = scale + "%";
+}
+
+const SCAPES = [
+  { id: "drive", icon: "◉", name: "Drive bay", blurb: "Old hard-drive chatter while agents work. Beeps for done and needs you." },
+  { id: "alerts", icon: "•", name: "Alerts only", blurb: "Silence while agents work. Beeps for done and needs you." },
+  { id: "silent", icon: "–", name: "Silent", blurb: "No sound at all. Lights only." },
+];
+let scape = "drive";
+const LEVELS = [3, 5, 9, 14, 8, 4, 6, 12, 18, 22, 15, 9, 6, 10, 16, 11, 7, 4, 3, 6, 9, 5, 3, 2];
+
+function renderSound() {
+  document.getElementById("scapes").innerHTML = SCAPES.map((s) => `<button class="scape" type="button" aria-pressed="${s.id === scape}" data-scape="${s.id}"><span class="scape-icon" aria-hidden="true">${s.icon}</span><span><b>${s.name}</b><small>${s.blurb}</small></span></button>`).join("");
+  const on = document.getElementById("working").checked && scape === "drive";
+  document.getElementById("meter").innerHTML = LEVELS.map((h) => `<i style="height:${on ? h + 4 : 2}px;opacity:${on ? 0.35 + h / 40 : 0.25}"></i>`).join("");
+}
+
+function renderAll() { renderSchemes(); renderTerminal(); renderThemes(); renderSound(); }
+
+function show() {
+  const id = location.hash.slice(1) || "terminal";
+  for (const page of document.querySelectorAll("section.page")) page.classList.toggle("shown", page.id === id);
+  for (const link of document.querySelectorAll(".sections a")) {
+    if (link.getAttribute("href") === "#" + id) link.setAttribute("aria-current", "page");
+    else link.removeAttribute("aria-current");
+  }
+}
+
+document.addEventListener("click", (event) => {
+  const target = event.target.closest("button");
+  if (!target) return;
+  if (target.dataset.scheme) { scheme = target.dataset.scheme; renderSchemes(); renderTerminal(); }
+  if (target.dataset.step) { termSize = Math.min(24, Math.max(10, termSize + Number(target.dataset.step))); renderTerminal(); }
+  if (target.dataset.themeId) { theme = target.dataset.themeId; renderThemes(); }
+  if (target.dataset.scale) { scale = STEPS[Math.min(STEPS.length - 1, Math.max(0, STEPS.indexOf(scale) + Number(target.dataset.scale)))]; renderThemes(); }
+  if (target.dataset.scape) { scape = target.dataset.scape; renderSound(); }
+  if (target.id === "mode") { document.documentElement.dataset.theme = dark() ? "light" : "dark"; renderAll(); }
+});
+document.getElementById("working").addEventListener("change", renderSound);
+matchMedia("(prefers-color-scheme: dark)").addEventListener("change", renderAll);
+addEventListener("hashchange", show);
+renderAll();
+show();
+</script>
+</body>
+</html>
