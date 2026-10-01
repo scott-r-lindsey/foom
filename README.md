@@ -20,13 +20,13 @@ npm run start:fresh -- --keep  # keep the profile to reopen it later
 
 A fresh profile starts with no settings, repositories or keys. Your real profile isn't touched.
 
-The board opens a real interactive shell in the project directory (`$SHELL` on Linux/macOS, PowerShell on Windows). Try `vim`, `top`, or your usual CLI tools; those programs must be installed on your machine. Resizing the window resizes the PTY. Ctrl+C interrupts commands, and full-screen programs use the alternate screen buffer. Type `exit` to end the shell, then use **Restart shell** for a fresh session. Closing the window terminates its PTY. Packaged builds start in your home directory.
+After preflight, the board starts empty. **Local shell** opens an interactive shell (`$SHELL` on Linux/macOS, PowerShell on Windows); **New worktree** creates or reuses a managed Git worktree and launches an agent or shell in it. Select a row to open its terminal. Hidden terminals keep running. Try `vim`, `top`, or your usual CLI tools; those programs must be installed on your machine. Resizing the view resizes the PTY, and Ctrl+C interrupts commands. Type `exit` to end a shell; **Restart shell** starts a fresh local-shell session. Quitting confirms before stopping running terminals.
 
 Change the interface size with **⌘ +/−/0** on macOS, or **Ctrl+Shift+=/−** and **Ctrl+0** on Linux and Windows (plain Ctrl+− stays with the terminal, where it's readline's undo). Light or dark is under **Appearance** in preflight.
 
 On Linux and Windows, select terminal text with the mouse and press **Ctrl+Shift+C** to copy. Press **Ctrl+Shift+V** to paste clipboard text into the terminal. These shortcuts work without an application menu; **Ctrl+C** still interrupts the running command.
 
-This first version has one terminal with 10,000 lines of scrollback. It does not yet create worktrees or restore sessions. Restart `npm start` after editing source files.
+Each terminal has 10,000 lines of scrollback. Terminal sessions are not restored after quitting. Restart `npm start` after editing source files.
 
 `node-pty` is a native dependency. The build corrects executable permissions on its macOS prebuilt spawn helper to work around [node-pty #850](https://github.com/microsoft/node-pty/issues/850). If a prebuilt binary is unavailable, installation/rebuild requires Python and a C++ toolchain (Xcode command line tools on macOS, build-essential on Linux, Visual Studio C++ build tools on Windows).
 
@@ -36,12 +36,15 @@ This first version has one terminal with 10,000 lines of scrollback. It does not
 
 Electron runs JavaScript compiled from your TypeScript. `npm start`, `npm run test:electron`, `npm run package`, and `npm run make` compile automatically. Edit files in `src/`; `build/` is generated and ignored by Git.
 
-- **Main process** (`src/main.ts`): Node.js code that manages the desktop window and validates IPC requests.
-- **Renderer** (`src/renderer/renderer.ts`): browser code that controls the HTML interface.
-- **Preload** (`src/preload.ts`): exposes the explicitly allowed `window.desktop` bridge.
-- **Shared contract** (`src/shared/desktop.d.ts`): types for that bridge. Runtime validation remains necessary because TypeScript types disappear after compilation.
+- **Main process** (`src/main/main.ts`): composes window management, terminal capabilities, workspace/worktree services, agents, evaluator, and setup. Each feature has its own directory under `src/main/`.
+- **Terminal host** (`src/terminal-host/terminal-host.ts`): an Electron utility process owns PTYs, headless xterm screens, activity, and backpressure.
+- **Preload** (`src/preload/preload.ts`): exposes the explicitly allowed `window.desktop` bridge in Electron's sandbox.
+- **Renderer** (`src/renderer/renderer.tsx`): mounts `app.tsx`; browser UI is grouped into `board/`, `terminal/`, `preflight/`, and reusable `ui/` controls. Styles and fonts have their own directories.
+- **Shared code** (`src/shared/`): `.d.ts` contracts plus platform-neutral terminal protocol validation and color handling. Runtime validation remains necessary because TypeScript types disappear after compilation.
 
-Main and preload compile to CommonJS for Electron's sandboxed preload. esbuild bundles the renderer and xterm CSS for the browser. The main process owns the PTY; the preload exposes only start, input, resize, output, exit, and output acknowledgements. Acknowledgements apply backpressure so fast output does not overwhelm the renderer. Their compiler environments remain separate. TypeScript 6 is pinned for compatibility with the installed TypeScript ESLint tooling.
+ESLint enforces process import boundaries. Main, host, and renderer can import their own code and shared code; shared code cannot import process-owned code or Node/Electron capabilities. Preload runtime imports are limited to Electron, with shared contracts imported as types. Keep explicit module filenames; avoid catch-all utility folders and barrel exports that hide ownership. See [architecture](docs/architecture.md#source-layout) for the directory map.
+
+Main, host, and preload compile to CommonJS. esbuild bundles the renderer and xterm CSS for the browser. The build copies styles from `src/renderer/styles/` into `build/renderer/`, retaining the existing asset URLs and allowlist. Compiler environments remain separate. TypeScript 6 is pinned for compatibility with the installed TypeScript ESLint tooling.
 
 ## Everyday commands
 
@@ -63,9 +66,9 @@ Biome owns formatting, and ESLint owns lint rules. Strict TypeScript includes ch
 
 ## Tests and coverage
 
-`tests/` contains TypeScript unit tests for the main process, preload, renderer, and coverage-reporting tools. Tests exercise IPC trust boundaries, asset restrictions, permissions, startup failures, UI pending/error states, and bridge response validation. Electron is mocked in unit tests; jsdom provides the UI environment.
+`tests/unit/` mirrors source ownership and contains TypeScript unit tests for the main process, preload, renderer, and coverage-reporting tools. Tests exercise IPC trust boundaries, asset restrictions, permissions, startup failures, UI pending/error states, and bridge response validation. Electron is mocked in unit tests; jsdom provides the UI environment.
 
-`test/app.test.js` is a separate real Electron smoke test for real shell I/O, exit/restart, the isolated bridge, sandbox settings, asset restrictions, and popup blocking. On Linux and Windows it verifies mouse selection and Ctrl+Shift+C / Ctrl+Shift+V against the native clipboard and a real shell. On Linux/macOS it also checks TTY support and Ctrl+C. Detached output, snapshot restoration, and clean application shutdown are required on every platform. Alternate-screen behavior uses deterministic escape sequences in unit tests; Vim and top remain optional manual smoke tests. A second Electron test checks bundled fonts and system themes. Both Electron tests have bounded shutdown cleanup and a hard worker deadline. On Linux, use a graphical session or `xvfb-run -a npm run test:electron` with Electron's system libraries installed. Keep Chromium's sandbox enabled.
+`tests/electron/` contains the real Electron tests and their PTY probe scripts. `app.test.js` is the integration suite for real shell I/O, exit/restart, the isolated bridge, sandbox settings, asset restrictions, and popup blocking. On Linux and Windows it verifies mouse selection and Ctrl+Shift+C / Ctrl+Shift+V against the native clipboard and a real shell. On Linux/macOS it also checks TTY support and Ctrl+C. Detached output, snapshot restoration, and clean application shutdown are required on every platform. Alternate-screen behavior uses deterministic escape sequences in unit tests; Vim and top remain optional manual smoke tests. A second Electron test checks bundled fonts and system themes. Both Electron tests have bounded shutdown cleanup and a hard worker deadline. On Linux, use a graphical session or `xvfb-run -a npm run test:electron` with Electron's system libraries installed. Keep Chromium's sandbox enabled.
 
 Coverage includes every executable TypeScript file under `src/`, including files no test imports. Only `.d.ts` declarations are excluded. Each file must reach **90% lines, statements, and functions, and 85% branches**. Open `coverage/index.html` after running coverage. This is unit-test coverage; it does not imply the real Electron process was instrumented.
 

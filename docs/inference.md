@@ -42,7 +42,7 @@ a synthetic prose question, returning a verdict, status, and measured elapsed
 milliseconds. Both entry points redact input, limit it to 40 physical lines, use the
 configured deadline (five seconds by default), and share two slots.
 
-Preflight's Run check uses `probeInference` from `src/inference-probe.ts` instead, so
+Preflight's Run check uses `probeInference` from `src/main/evaluator/inference-probe.ts` instead, so
 it can report each stage live and name failures precisely; see the evaluator section
 of [architecture](architecture.md#evaluator-pipeline). It sends the same prompt and
 parameters as classification, with streaming on. Setup must show its result before
