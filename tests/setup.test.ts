@@ -9,7 +9,7 @@ import type {
   ProbeResult,
   ProbeUpdate,
 } from "../src/shared/inference";
-import type { Settings, SettingsPatch } from "../src/shared/setup";
+import type { ScanProgress, Settings, SettingsPatch } from "../src/shared/setup";
 
 const verdict: Verdict = { state: "needs_input", reason: "r", signal: "model", confidence: 0.9 };
 let settings: Settings;
@@ -44,8 +44,43 @@ const setKey = vi.fn((provider: ApiProvider) => {
   return Promise.resolve();
 });
 let deps: SetupDependencies;
+const NOW = Date.UTC(2026, 8, 30);
+let added: { path: string; name: string }[];
+const pick = vi.fn<() => Promise<string | null>>();
+const found = (name: string, daysAgo: number | null) => ({
+  path: `/code/${name}`,
+  name,
+  relative: name,
+  branch: "main",
+  lastActive: daysAgo === null ? null : NOW - daysAgo * 86_400_000,
+});
+const scanFolder = vi.fn(
+  (
+    folder: string,
+    options?: { exclude?: readonly string[]; onProgress?: (p: ScanProgress) => void },
+  ) => {
+    options?.onProgress?.({ folders: 4, repositories: 3 });
+    return Promise.resolve({
+      folder,
+      folders: 4,
+      truncated: false,
+      repositories: [
+        found("new", 1),
+        found("old", 90),
+        found("busy", 5),
+        found("broken", 2),
+        found("idle", null),
+      ],
+    });
+  },
+);
 
 beforeEach(() => {
+  added = [
+    { path: "/code/busy", name: "busy" },
+    { path: "/elsewhere/x", name: "x" },
+  ];
+  pick.mockReset();
   settings = { ...DEFAULT_SETTINGS };
   stored = new Set();
   checks = [];
@@ -77,6 +112,31 @@ beforeEach(() => {
     },
     probe,
     models: (endpoint) => Promise.resolve({ ok: true, models: [String(endpoint)], server: null }),
+    code: {
+      worktrees: {
+        listRepositories: () => [...added],
+        addRepository: vi.fn((path: string) => {
+          if (path.endsWith("broken"))
+            return Promise.reject(new Error("Repository must be a Git work tree"));
+          const repository = { path, name: path.split("/").at(-1) ?? path };
+          added.push(repository);
+          return Promise.resolve(repository);
+        }),
+        removeRepository: vi.fn((path: string) => {
+          if (path.endsWith("busy"))
+            return Promise.reject(new Error("Has 1 worktree Foom made; remove it first"));
+          added.splice(
+            added.findIndex((entry) => entry.path === path),
+            1,
+          );
+          return Promise.resolve();
+        }),
+      },
+      home: "/home/me",
+      pickFolder: pick,
+      scan: scanFolder,
+      now: () => NOW,
+    },
   };
 });
 
@@ -193,4 +253,65 @@ test("uses the real model evaluator, probe and model list by default", async () 
   await expect(
     setup.classify({ terminalId: "t", tail: ["Continue? (y/n)"] }),
   ).resolves.toMatchObject({ state: "needs_input" });
+});
+
+test("scanning a code folder marks recent and added repositories and saves the folder", async () => {
+  const setup = new Setup(deps);
+  const progress = vi.fn();
+  await expect(setup.scanCode("/somewhere/else", progress)).rejects.toThrow("Unknown code folder");
+  await expect(setup.scanCode(7, progress)).rejects.toThrow("Unknown code folder");
+  pick.mockResolvedValueOnce(null);
+  await expect(setup.scanCode(null, progress)).resolves.toBeNull();
+  pick.mockResolvedValueOnce("/code");
+  const scan = await setup.scanCode(null, progress);
+  expect(scanFolder).toHaveBeenLastCalledWith("/code", {
+    exclude: ["/home/me/.foom/worktrees"],
+    onProgress: progress,
+  });
+  expect(progress).toHaveBeenCalledWith({ folders: 4, repositories: 3 });
+  expect(scan?.repositories.map((repo) => [repo.name, repo.recent, repo.added])).toEqual([
+    ["new", true, false],
+    ["old", false, false],
+    ["busy", true, true],
+    ["broken", true, false],
+    ["idle", false, false],
+  ]);
+  expect(settings.codeFolder).toBe("/code");
+  // The saved folder can be scanned again without the picker.
+  await setup.scanCode("/code", progress);
+  expect(pick).toHaveBeenCalledTimes(2);
+});
+
+test("suggested folders can be scanned directly", async () => {
+  const setup = new Setup({ ...deps, code: { ...deps.code, home: "/nonexistent-home" } });
+  await expect(setup.codeSuggestions()).resolves.toEqual([]);
+  await expect(setup.scanCode("/nonexistent-home/code", vi.fn())).rejects.toThrow(
+    "Unknown code folder",
+  );
+});
+
+test("applying a selection adds and removes only scanned repositories, reporting refusals", async () => {
+  const setup = new Setup(deps);
+  await expect(setup.applyRepositories(["/code/new"])).rejects.toThrow(
+    "Choose repositories from the latest scan",
+  );
+  pick.mockResolvedValueOnce("/code");
+  await setup.scanCode(null, vi.fn());
+  for (const bad of ["/code/new", ["/etc"], [7], null])
+    await expect(setup.applyRepositories(bad)).rejects.toThrow("latest scan");
+  const update = await setup.applyRepositories(["/code/new", "/code/broken"]);
+  expect(update.repositories.map((repo) => repo.path)).toEqual([
+    "/code/busy",
+    "/elsewhere/x",
+    "/code/new",
+  ]);
+  expect(update.failures).toEqual([
+    { path: "/code/busy", message: "Has 1 worktree Foom made; remove it first" },
+    { path: "/code/broken", message: "Repository must be a Git work tree" },
+  ]);
+  // Repositories outside the scan are never touched.
+  expect(deps.code.worktrees.removeRepository).not.toHaveBeenCalledWith("/elsewhere/x");
+  const again = await setup.applyRepositories(["/code/new", "/code/busy"]);
+  // Unselected and not added: nothing is attempted, so nothing fails.
+  expect(again.failures).toEqual([]);
 });

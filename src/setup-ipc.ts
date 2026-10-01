@@ -20,6 +20,11 @@ export function attachSetup(
     event.senderFrame !== null &&
     event.senderFrame === event.sender.mainFrame &&
     event.senderFrame.url === APP_URL;
+  /** Progress and changes go only to the app document. */
+  const send = (channel: string, ...args: unknown[]) => {
+    if (!contents.isDestroyed() && contents.mainFrame.url === APP_URL)
+      contents.send(channel, ...args);
+  };
   const handlers = new Map<string, (...args: unknown[]) => unknown>([
     ["setup:state", () => setup.state()],
     ["setup:save", (patch) => setup.save(patch)],
@@ -31,9 +36,7 @@ export function attachSetup(
         if (typeof id !== "string" || !/^[a-zA-Z0-9-]{1,64}$/.test(id))
           throw new Error("Invalid check ID");
         return setup.check(id, config, timeoutMs, (update) => {
-          // Progress goes only to the app document that asked for it.
-          if (!contents.isDestroyed() && contents.mainFrame.url === APP_URL)
-            contents.send("setup:check-progress", id, update);
+          send("setup:check-progress", id, update);
         });
       },
     ],
@@ -44,6 +47,18 @@ export function attachSetup(
       },
     ],
     ["setup:models", (endpoint) => setup.models(endpoint)],
+    ["setup:code-suggestions", () => setup.codeSuggestions()],
+    [
+      "setup:scan-code",
+      (id, folder) => {
+        if (typeof id !== "string" || !/^[a-zA-Z0-9-]{1,64}$/.test(id))
+          throw new Error("Invalid scan ID");
+        return setup.scanCode(folder, (progress) => {
+          send("setup:scan-progress", id, progress);
+        });
+      },
+    ],
+    ["setup:apply-repositories", (selected) => setup.applyRepositories(selected)],
   ]);
   for (const [channel, handler] of handlers)
     ipcMain.handle(channel, (event, ...args: unknown[]) => {
@@ -59,9 +74,7 @@ export function attachSetup(
       const { settings } = await setup.state();
       const scale = nextScale(settings.interfaceScale, direction);
       if (scale === settings.interfaceScale) return;
-      const state = await setup.save({ interfaceScale: scale });
-      if (!contents.isDestroyed() && contents.mainFrame.url === APP_URL)
-        contents.send("setup:changed", state);
+      send("setup:changed", await setup.save({ interfaceScale: scale }));
     },
   };
 }

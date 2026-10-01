@@ -147,6 +147,7 @@ const mock = vi.hoisted(() => {
     },
     message: vi.fn<() => Promise<{ response: number }>>(),
     errorBox: vi.fn(),
+    openDialog: vi.fn<() => Promise<{ canceled: boolean; filePaths: string[] }>>(),
     openWorktrees: vi.fn<() => Promise<unknown>>(),
     BrowserWindow,
     construct,
@@ -179,7 +180,11 @@ const mock = vi.hoisted(() => {
 vi.mock("electron", () => ({
   BrowserWindow: mock.BrowserWindow,
   nativeTheme: mock.theme,
-  dialog: { showMessageBox: mock.message, showErrorBox: mock.errorBox },
+  dialog: {
+    showMessageBox: mock.message,
+    showErrorBox: mock.errorBox,
+    showOpenDialog: mock.openDialog,
+  },
   app: {
     whenReady: mock.ready,
     getPath: () => "/test/user-data",
@@ -643,6 +648,14 @@ test("setup owns the settings, applies them to the workspace, and classifies ver
     minHeight: 504,
   });
   expect(mock.window.setBounds).toHaveBeenCalledWith({ x: 0, y: 0, width: 810, height: 576 });
+  // The code folder picker is main's own dialog.
+  const { code } = mock.setup.deps as { code: { pickFolder(): Promise<string | null> } };
+  mock.openDialog.mockResolvedValueOnce({ canceled: false, filePaths: ["/home/me/code"] });
+  await expect(code.pickFolder()).resolves.toBe("/home/me/code");
+  mock.openDialog.mockResolvedValueOnce({ canceled: true, filePaths: [] });
+  await expect(code.pickFolder()).resolves.toBeNull();
+  mock.openDialog.mockResolvedValueOnce({ canceled: false, filePaths: [] });
+  await expect(code.pickFolder()).resolves.toBeNull();
   expect(mock.attachSetup.mock.calls[0]?.[1]).toBeInstanceOf(Object);
   const classify = mock.VerdictLog.mock.calls[0]?.[1];
   classify?.({ terminalId: "a" });

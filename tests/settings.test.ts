@@ -25,8 +25,10 @@ test("patches copy only known, well-formed fields", () => {
       inferenceTimeoutMs: 15_000,
       colorMode: "dark",
       interfaceScale: 120,
+      codeFolder: "/home/me/code",
     }),
   ).toEqual({
+    codeFolder: "/home/me/code",
     colorMode: "dark",
     interfaceScale: 120,
     inferenceTimeoutMs: 15_000,
@@ -57,6 +59,10 @@ test("patches copy only known, well-formed fields", () => {
     { interfaceScale: 105 },
     { interfaceScale: 200 },
     { interfaceScale: "100" },
+    { codeFolder: "relative/code" },
+    { codeFolder: "/bad\0path" },
+    { codeFolder: `/${"x".repeat(4096)}` },
+    { codeFolder: 7 },
   ])
     expect(() => parseSettingsPatch(bad), JSON.stringify(bad)).toThrow("Invalid settings");
   expect(() => parseSettingsPatch({ inference: { kind: "claude" } })).toThrow(

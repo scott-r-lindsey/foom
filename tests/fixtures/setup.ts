@@ -16,6 +16,7 @@ export function setupState(
       inferenceTimeoutMs: 5000,
       colorMode: "system",
       interfaceScale: 100,
+      codeFolder: null,
       ...settings,
     },
     keys: { anthropic: false, openai: false, google: false },

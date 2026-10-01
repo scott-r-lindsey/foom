@@ -152,6 +152,23 @@ const desktop: DesktopApi = {
     await ipcRenderer.invoke("setup:check-cancel", id);
   },
   localModels: (endpoint) => ipcRenderer.invoke("setup:models", endpoint),
+  codeSuggestions: () => ipcRenderer.invoke("setup:code-suggestions"),
+  scanCode(id, folder, onProgress) {
+    const listener = (_event: IpcRendererEvent, scan: unknown, progress: unknown) => {
+      if (
+        scan === id &&
+        object(progress) &&
+        typeof progress["folders"] === "number" &&
+        typeof progress["repositories"] === "number"
+      )
+        onProgress({ folders: progress["folders"], repositories: progress["repositories"] });
+    };
+    ipcRenderer.on("setup:scan-progress", listener);
+    return ipcRenderer.invoke("setup:scan-code", id, folder).finally(() => {
+      ipcRenderer.removeListener("setup:scan-progress", listener);
+    });
+  },
+  applyRepositories: (selected) => ipcRenderer.invoke("setup:apply-repositories", selected),
   onSetupChange(callback) {
     const listener = (_event: IpcRendererEvent, state: unknown) => {
       if (setupState(state)) callback(state);

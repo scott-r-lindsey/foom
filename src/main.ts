@@ -132,6 +132,18 @@ function createWindow() {
     store: settings,
     keys: new InferenceKeys(app.getPath("userData")),
     worktreeRoot: worktrees.worktreeRoot,
+    code: {
+      worktrees,
+      home: app.getPath("home"),
+      pickFolder: async () => {
+        const result = await dialog.showOpenDialog(window, {
+          title: "Where do you keep your code?",
+          defaultPath: app.getPath("home"),
+          properties: ["openDirectory"],
+        });
+        return result.canceled ? null : (result.filePaths[0] ?? null);
+      },
+    },
     apply: (next) => {
       workspace.configure(next);
       nativeTheme.themeSource = next.colorMode;

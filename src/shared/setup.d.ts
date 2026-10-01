@@ -1,4 +1,5 @@
 import type { AgentId } from "./agents";
+import type { Repository } from "./worktrees";
 import type {
   ApiProvider,
   InferenceConfig,
@@ -26,6 +27,43 @@ export interface Settings {
   colorMode: "system" | "light" | "dark";
   /** Interface zoom in percent, 80–150 in steps of 10. Terminal font size is separate. */
   interfaceScale: number;
+  /** Where the user keeps their code; preflight scans it for repositories. */
+  codeFolder: string | null;
+}
+
+/** A repository found in the code folder. */
+export interface FoundRepository {
+  path: string;
+  name: string;
+  /** Path relative to the code folder, for display. */
+  relative: string;
+  branch: string | null;
+  /** Latest git activity (ms since epoch), from reflog, index and HEAD file times. */
+  lastActive: number | null;
+  /** Active within the last 30 days. */
+  recent: boolean;
+  /** Already added to Foom. */
+  added: boolean;
+}
+
+export interface CodeScan {
+  folder: string;
+  repositories: readonly FoundRepository[];
+  /** Folders looked at. */
+  folders: number;
+  /** The scan stopped at its folder limit before finishing. */
+  truncated: boolean;
+}
+
+export interface ScanProgress {
+  folders: number;
+  repositories: number;
+}
+
+/** After applying a selection: what's added now, and anything refused. */
+export interface RepositoryUpdate {
+  repositories: readonly Repository[];
+  failures: readonly { path: string; message: string }[];
 }
 
 export type SettingsPatch = Partial<Settings>;
@@ -59,4 +97,20 @@ export interface SetupApi {
   localModels(endpoint: string): Promise<ModelList>;
   /** Settings changed outside the renderer, for example by a zoom shortcut. */
   onSetupChange(callback: (state: SetupState) => void): () => void;
+  /** Existing common code folders under the home folder, such as ~/code. */
+  codeSuggestions(): Promise<readonly string[]>;
+  /**
+   * Scans a code folder. `folder` must be a suggestion or the saved code folder; null
+   * shows the folder picker. Resolves null if the picker is cancelled.
+   */
+  scanCode(
+    id: string,
+    folder: string | null,
+    onProgress: (progress: ScanProgress) => void,
+  ): Promise<CodeScan | null>;
+  /**
+   * Makes the added repositories among the last scan's results exactly `selected`.
+   * Paths must come from that scan.
+   */
+  applyRepositories(selected: readonly string[]): Promise<RepositoryUpdate>;
 }

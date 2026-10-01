@@ -11,7 +11,13 @@ import type {
   ProbeResult,
   ProbeUpdate,
 } from "../src/shared/inference";
-import type { SettingsPatch, SetupState } from "../src/shared/setup";
+import type {
+  CodeScan,
+  RepositoryUpdate,
+  ScanProgress,
+  SettingsPatch,
+  SetupState,
+} from "../src/shared/setup";
 import type { AgentReport } from "../src/shared/workspace";
 import type { Repository } from "../src/shared/worktrees";
 import { installation, report, setupState } from "./fixtures/setup";
@@ -39,6 +45,31 @@ const failed = (failure: ProbeFailure, message: string): ProbeResult => ({
 });
 
 let changed: ((state: SetupState) => void) | undefined;
+const codeScan: CodeScan = {
+  folder: "/home/me/code",
+  folders: 3,
+  truncated: false,
+  repositories: [
+    {
+      path: "/home/me/code/app",
+      name: "app",
+      relative: "app",
+      branch: "main",
+      lastActive: Date.now() - 3_600_000,
+      recent: true,
+      added: false,
+    },
+    {
+      path: "/home/me/code/old",
+      name: "old",
+      relative: "old",
+      branch: null,
+      lastActive: Date.now() - 90 * 86_400_000,
+      recent: false,
+      added: false,
+    },
+  ],
+};
 function fake(initial: SetupState, scan: AgentReport = all) {
   let state = initial;
   const repositories: Repository[] = [];
@@ -82,6 +113,26 @@ function fake(initial: SetupState, scan: AgentReport = all) {
       const repository = { path: "/code/app", name: "app" };
       repositories.push(repository);
       return Promise.resolve<Repository | null>(repository);
+    }),
+    suggestions: vi.fn(() => Promise.resolve<readonly string[]>(["/home/me/code"])),
+    scan: vi.fn(
+      (_id: string, _folder: string | null, onProgress: (progress: ScanProgress) => void) => {
+        onProgress({ folders: 3, repositories: 2 });
+        return Promise.resolve<CodeScan | null>(codeScan);
+      },
+    ),
+    apply: vi.fn((selected: readonly string[]) => {
+      const scanned = new Set(codeScan.repositories.map((repo) => repo.path));
+      const kept = repositories.filter((repo) => !scanned.has(repo.path));
+      repositories.splice(
+        0,
+        repositories.length,
+        ...kept,
+        ...codeScan.repositories
+          .filter((repo) => selected.includes(repo.path))
+          .map(({ path, name }) => ({ path, name })),
+      );
+      return Promise.resolve<RepositoryUpdate>({ repositories: [...repositories], failures: [] });
     }),
   } satisfies SetupSource;
 }
@@ -132,14 +183,19 @@ test("first run walks every step, saves each choice, and launches", async () => 
   await screen.findByText("Scan again");
 
   fireEvent.click(button("Continue"));
-  expect(screen.getByText("No repositories yet.")).toBeTruthy();
-  fireEvent.click(button("Add repository…"));
-  await screen.findByText("/code/app");
+  expect(screen.getByText("Where do you keep your code?")).toBeTruthy();
+  fireEvent.click(await screen.findByRole("button", { name: "/home/me/code" }));
+  await screen.findByText("1 of 2 selected");
+  expect(screen.getByRole("checkbox", { name: /^app/ })).toHaveProperty("checked", true);
+  expect(screen.getByRole("checkbox", { name: /^old/ })).toHaveProperty("checked", false);
   expect(screen.getByText("/home/me/.foom/worktrees/app/feat/search")).toBeTruthy();
   fireEvent.click(screen.getByRole("radio", { name: /next to each repository/ }));
-  await screen.findByText("/code/app-feat/search");
+  await screen.findByText("/home/me/code/app-feat/search");
 
+  // Leaving the step saves the selection.
   fireEvent.click(button("Continue"));
+  await screen.findByText("How should Foom read a terminal that goes quiet?");
+  expect(source.apply).toHaveBeenCalledWith(["/home/me/code/app"]);
   expect(screen.getByRole("radio", { name: /Use an agent you already have/ })).toHaveProperty(
     "disabled",
     true,
@@ -178,7 +234,7 @@ test("with no agents installed, go / no-go holds and links back to each fix", as
   const source = fake(setupState(), none);
   render(<Preflight source={source} initial={setupState()} onLaunched={vi.fn()} />);
   fireEvent.click(button("Start preflight"));
-  await screen.findByText("No agents ready yet");
+  await screen.findByText("No agents ready yet · needed to launch");
   expect(screen.getAllByText("Not found")).toHaveLength(3);
   expect(screen.getAllByRole("checkbox", { name: /claude|codex|agy/ })[0]).toHaveProperty(
     "disabled",
@@ -190,7 +246,7 @@ test("with no agents installed, go / no-go holds and links back to each fix", as
   expect(button("Launch")).toHaveProperty("disabled", true);
   expect(screen.getAllByText("NO-GO")).toHaveLength(2);
   fireEvent.click(screen.getAllByRole("button", { name: "Fix" })[1] as HTMLElement);
-  expect(screen.getByText("Where do your repos live?")).toBeTruthy();
+  expect(screen.getByText("Where do you keep your code?")).toBeTruthy();
   fireEvent.click(button(/Go \/ no-go/));
   fireEvent.click(screen.getAllByRole("button", { name: "Fix" })[0] as HTMLElement);
   expect(screen.getByText("Which agents do you run?")).toBeTruthy();
@@ -315,10 +371,10 @@ test("errors from main are shown without the IPC wrapper", async () => {
   await screen.findByRole("alert");
   fireEvent.click(button("Start preflight"));
   fireEvent.click(button("Continue"));
-  fireEvent.click(button("Add repository…"));
+  fireEvent.click(button("Add one repository…"));
   expect((await screen.findByRole("alert")).textContent).toBe("Repository must be a Git work tree");
   source.addRepository.mockResolvedValueOnce(null);
-  fireEvent.click(button("Add repository…"));
+  fireEvent.click(button("Add one repository…"));
   fireEvent.click(screen.getByRole("radio", { name: /next to each repository/ }));
   await waitFor(() => {
     expect(screen.getByRole("alert").textContent).toBe("Disk full");
@@ -492,4 +548,78 @@ test("the size control steps down, and shows macOS shortcuts on a Mac", () => {
   expect(source.save).toHaveBeenCalledWith({ interfaceScale: 110 });
   expect(screen.getByText("⌘ + / − / 0")).toBeTruthy();
   platform.mockRestore();
+});
+
+test("a refused or failed selection keeps you on Repositories with the reason", async () => {
+  const source = fake(setupState());
+  render(<Preflight source={source} initial={setupState()} onLaunched={vi.fn()} />);
+  fireEvent.click(button("Start preflight"));
+  fireEvent.click(button("Continue"));
+  fireEvent.click(await screen.findByRole("button", { name: "/home/me/code" }));
+  await screen.findByText("1 of 2 selected");
+  source.apply.mockResolvedValueOnce({
+    repositories: [],
+    failures: [{ path: "/home/me/code/app", message: "Has 1 worktree Foom made; remove it first" }],
+  });
+  fireEvent.click(button("Continue"));
+  expect((await screen.findByRole("alert")).textContent).toBe(
+    "app: Has 1 worktree Foom made; remove it first",
+  );
+  expect(screen.getByText("Where do you keep your code?")).toBeTruthy();
+  source.apply.mockRejectedValueOnce(new Error("Choose repositories from the latest scan"));
+  fireEvent.click(button("Continue"));
+  await waitFor(() => {
+    expect(screen.getByRole("alert").textContent).toBe("Choose repositories from the latest scan");
+  });
+  // Nothing to save: moving on needs no apply.
+  fireEvent.click(screen.getByRole("checkbox", { name: /^app/ }));
+  fireEvent.click(button("Back"));
+  expect(screen.getByText("Which agents do you run?")).toBeTruthy();
+  expect(source.apply).toHaveBeenCalledTimes(2);
+});
+
+test("scans show live progress; a saved folder is rescanned on arrival; failures are reported", async () => {
+  const saved = setupState({ codeFolder: "/home/me/code", setupComplete: true });
+  const source = fake(saved);
+  let report: (progress: ScanProgress) => void = () => {};
+  let finish: (scan: CodeScan | null) => void = () => {};
+  source.scan.mockImplementation((_id, _folder, onProgress) => {
+    report = onProgress;
+    return new Promise((resolve) => {
+      finish = resolve;
+    });
+  });
+  render(<Preflight source={source} initial={saved} onLaunched={vi.fn()} onClose={vi.fn()} />);
+  fireEvent.click(button(/Repositories/));
+  expect(source.scan).toHaveBeenCalledWith(
+    expect.any(String),
+    "/home/me/code",
+    expect.any(Function),
+  );
+  act(() => {
+    report({ folders: 9, repositories: 2 });
+  });
+  expect(screen.getByText("Scanning /home/me/code… 9 folders, 2 repositories")).toBeTruthy();
+  // Leaving and coming back mid-scan doesn't start another.
+  fireEvent.click(button(/Agents/));
+  fireEvent.click(button(/Repositories/));
+  expect(source.scan).toHaveBeenCalledOnce();
+  await act(async () => {
+    finish(codeScan);
+    await Promise.resolve();
+  });
+  expect(screen.getByText("1 of 2 selected")).toBeTruthy();
+
+  // A cancelled picker leaves the list as it was; a failed scan says why.
+  fireEvent.click(button("Change folder"));
+  await act(async () => {
+    finish(null);
+    await Promise.resolve();
+  });
+  expect(screen.getByText("1 of 2 selected")).toBeTruthy();
+  source.scan.mockRejectedValueOnce(
+    new Error("Error invoking remote method 'setup:scan-code': Error: EACCES"),
+  );
+  fireEvent.click(button("Scan again"));
+  expect((await screen.findByRole("alert")).textContent).toBe("EACCES");
 });

@@ -326,6 +326,9 @@ test("terminal runs an interactive shell behind an isolated bridge", {
           "checkInference",
           "cancelInferenceCheck",
           "localModels",
+          "codeSuggestions",
+          "scanCode",
+          "applyRepositories",
           "onSetupChange",
           "feedback",
           "onState",
@@ -1420,8 +1423,8 @@ test("first run goes from no agents to go, launches by keyboard, and can be repl
   await expect(page.getByText("Not found")).toHaveCount(3, { timeout: 20000 });
   await tabTo(page, "Continue");
   await page.keyboard.press("Enter");
-  await page.getByRole("button", { name: "Add repository…" }).click();
-  await page.getByText(repo).waitFor();
+  await page.getByRole("button", { name: "Add one repository…" }).click();
+  await page.getByText("Already added: app").waitFor();
   await tabTo(page, "Continue");
   await page.keyboard.press("Enter");
   await tabTo(page, "Continue");
@@ -1468,6 +1471,7 @@ test("first run goes from no agents to go, launches by keyboard, and can be repl
     inferenceTimeoutMs: 5000,
     colorMode: "system",
     interfaceScale: 100,
+    codeFolder: null,
   });
 
   // Preflight can run again over the board; Escape returns to the same row.
@@ -1595,4 +1599,42 @@ test("appearance switches light and dark, and zoom shortcuts resize the interfac
   // And returns to exactly its starting size.
   await expect.poll(size).toEqual(start);
   await assertAccessible(page);
+});
+
+test("preflight scans a code folder and adds the repositories worked on recently", async (context) => {
+  const { execFileSync } = require("node:child_process");
+  const { utimes } = require("node:fs/promises");
+  const root = await mkdtemp(path.join(tmpdir(), "foom-code-"));
+  context.after(() => rm(root, { recursive: true, force: true, maxRetries: 5 }));
+  const code = path.join(root, "code");
+  const old = new Date(Date.now() - 90 * 86_400_000);
+  for (const [name, stale] of [
+    ["recent-app", false],
+    [path.join("clients", "portal"), false],
+    ["dusty", true],
+  ]) {
+    const repo = path.join(code, name);
+    await mkdir(repo, { recursive: true });
+    execFileSync("git", ["init", "-q", "-b", "main", repo]);
+    if (stale) await utimes(path.join(repo, ".git", "HEAD"), old, old);
+  }
+  const app = await launchApp(context, false, { firstRun: true });
+  const page = await app.firstWindow();
+  await app.evaluate(({ dialog }, folder) => {
+    dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [folder] });
+  }, code);
+  await page.getByRole("button", { name: "Start preflight" }).click();
+  await page.getByRole("button", { name: "Continue" }).click();
+  await page.getByRole("button", { name: "Choose folder…" }).click();
+  await page.getByText("2 of 3 selected").waitFor();
+  const recent = page.getByRole("region", { name: "Recent · last 30 days" });
+  await expect(recent.getByRole("checkbox")).toHaveCount(2);
+  await expect(page.getByRole("region", { name: "Older" }).getByRole("checkbox")).not.toBeChecked();
+  await assertAccessible(page);
+  await page.getByRole("button", { name: "Continue" }).click();
+  await page.getByText("How should Foom read a terminal that goes quiet?").waitFor();
+  const added = await page.evaluate(async () =>
+    (await window.desktop.workspace()).repositories.map((repo) => repo.name).sort(),
+  );
+  assert.deepEqual(added, ["portal", "recent-app"]);
 });

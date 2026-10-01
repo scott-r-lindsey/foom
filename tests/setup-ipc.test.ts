@@ -29,6 +29,12 @@ const setup = {
   ),
   cancel: vi.fn(),
   models: vi.fn(() => "models"),
+  codeSuggestions: vi.fn(() => "suggestions"),
+  scanCode: vi.fn((_folder: unknown, onProgress: (progress: unknown) => void) => {
+    onProgress({ folders: 1, repositories: 0 });
+    return "scanned";
+  }),
+  applyRepositories: vi.fn(() => "applied"),
 };
 let attached: ReturnType<typeof attachSetup>;
 
@@ -53,6 +59,9 @@ test("every channel rejects untrusted senders", () => {
     "setup:check",
     "setup:check-cancel",
     "setup:models",
+    "setup:code-suggestions",
+    "setup:scan-code",
+    "setup:apply-repositories",
   ]);
   for (const channel of channels)
     for (const event of [
@@ -94,6 +103,16 @@ test("passes payloads to Setup, which validates them, and never offers a key rea
   invoke("setup:check-cancel", [7]);
   expect(setup.cancel).toHaveBeenCalledExactlyOnceWith("id-1");
   expect(invoke("setup:models", ["http://127.0.0.1:11434/v1"])).toBe("models");
+  expect(invoke("setup:code-suggestions")).toBe("suggestions");
+  expect(invoke("setup:scan-code", ["s1", "/code"])).toBe("scanned");
+  expect(setup.scanCode).toHaveBeenCalledWith("/code", expect.any(Function));
+  expect(contents.send).toHaveBeenLastCalledWith("setup:scan-progress", "s1", {
+    folders: 1,
+    repositories: 0,
+  });
+  expect(() => invoke("setup:scan-code", ["bad id", "/code"])).toThrow("Invalid scan ID");
+  expect(invoke("setup:apply-repositories", [["/code/a"]])).toBe("applied");
+  expect(setup.applyRepositories).toHaveBeenCalledWith(["/code/a"]);
   expect(mock.handle.mock.calls.some(([name]) => /get-key|read-key/.test(name))).toBe(false);
 });
 

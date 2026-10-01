@@ -5,7 +5,13 @@ import type {
   ProbeResult,
   ProbeUpdate,
 } from "../shared/inference";
-import type { SettingsPatch, SetupState } from "../shared/setup";
+import type {
+  CodeScan,
+  RepositoryUpdate,
+  ScanProgress,
+  SettingsPatch,
+  SetupState,
+} from "../shared/setup";
 import type { AgentReport } from "../shared/workspace";
 import type { Repository } from "../shared/worktrees";
 
@@ -27,6 +33,14 @@ export interface SetupSource {
   repositories(): Promise<readonly Repository[]>;
   /** Main shows the folder picker; null when the user cancels. */
   addRepository(): Promise<Repository | null>;
+  suggestions(): Promise<readonly string[]>;
+  /** Null picks a folder with the native picker; resolves null if cancelled. */
+  scan(
+    id: string,
+    folder: string | null,
+    onProgress: (progress: ScanProgress) => void,
+  ): Promise<CodeScan | null>;
+  apply(selected: readonly string[]): Promise<RepositoryUpdate>;
   /** Settings changed in main, for example by a zoom shortcut. */
   subscribe(listener: (state: SetupState) => void): () => void;
 }

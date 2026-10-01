@@ -6,6 +6,8 @@ import { AppearanceControls } from "./appearance-controls";
 import { LaunchSequence } from "./launch-sequence";
 import { EvaluatorStep, message } from "./preflight-evaluator";
 import { AGENTS, examplePath, found, pollRows, readyAgents, signal, STEPS } from "./preflight";
+import { defaultSelection, pending, RepositoryPicker } from "./repository-picker";
+import type { CodeSelection, Scanning } from "./repository-picker";
 import type { SetupSource } from "./setup-source.d";
 
 const SIGNAL_LABEL = { hooks: "Hooks", notify: "Notify", evaluator: "Evaluator" } as const;
@@ -42,6 +44,8 @@ export function Preflight({
   const [report, setReport] = useState<AgentReport>();
   const [scanning, setScanning] = useState(false);
   const [repositories, setRepositories] = useState<readonly Repository[]>([]);
+  const [code, setCode] = useState<CodeSelection>();
+  const [codeScanning, setCodeScanning] = useState<Scanning>();
   const [error, setError] = useState<string>();
   const [launching, setLaunching] = useState(false);
   const headingRef = useRef<HTMLHeadingElement>(null);
@@ -82,11 +86,56 @@ export function Preflight({
     headingRef.current?.focus();
   }, [step]);
 
-  const go = (next: number) => {
+  /** Scans a folder (null picks one) and preselects what it finds. */
+  const scanCode = (folder: string | null) => {
+    setCodeScanning({ folder, folders: 0, repositories: 0 });
+    source
+      .scan(crypto.randomUUID(), folder, (progress) => {
+        setCodeScanning({ folder, ...progress });
+      })
+      .then(
+        (result) => {
+          if (result) setCode({ scan: result, selected: defaultSelection(result) });
+        },
+        (caught: unknown) => {
+          setError(message(caught));
+        },
+      )
+      .finally(() => {
+        setCodeScanning(undefined);
+      });
+  };
+  const move = (next: number) => {
     setStep(next);
     setReached((current) => Math.max(current, next));
     setError(undefined);
+    // Arriving at Repositories with a saved folder shows what's in it now.
+    if (next === 2 && !code && !codeScanning && state.settings.codeFolder)
+      scanCode(state.settings.codeFolder);
   };
+  /** Leaving Repositories saves the selection first; a refusal keeps you there. */
+  const go = (next: number) => {
+    if (step !== 2 || next === 2 || !code || !pending(code, repositories)) {
+      move(next);
+      return;
+    }
+    source.apply([...code.selected]).then(
+      (update) => {
+        setRepositories(update.repositories);
+        if (update.failures.length)
+          setError(
+            update.failures
+              .map((failure) => `${failure.path.split(/[\\/]/).at(-1) ?? ""}: ${failure.message}`)
+              .join(". "),
+          );
+        else move(next);
+      },
+      (caught: unknown) => {
+        setError(message(caught));
+      },
+    );
+  };
+
   /** Shows the change at once; if main refuses it, shows main's settings again. */
   const save = (patch: Parameters<SetupSource["save"]>[0]) => {
     setState((current) => ({ ...current, settings: { ...current.settings, ...patch } }));
@@ -279,35 +328,41 @@ export function Preflight({
           0,
           ready.length
             ? `${String(ready.length)} ${ready.length === 1 ? "agent" : "agents"} ready`
-            : "No agents ready yet",
+            : "No agents ready yet · needed to launch",
           2,
         )}
       </>
     );
   } else if (step === 2) {
+    const selected = code
+      ? code.scan.repositories
+          .filter((repo) => code.selected.has(repo.path))
+          .map(({ path, name }) => ({ path, name }))
+      : repositories;
     content = (
       <>
         <p className="preflight-eyebrow">T-2 · Repositories</p>
         <h2 ref={headingRef} tabIndex={-1}>
-          Where do your repos live?
+          Where do you keep your code?
         </h2>
         <p className="preflight-intro">
-          Add the repositories you'll start agents in. You can add more any time.
+          Foom looks for Git repositories there. Ones you've worked in over the last 30 days start
+          checked.
         </p>
-        <ul className="preflight-list">
-          {repositories.map((repository) => (
-            <li key={repository.path} className="preflight-item plain">
-              <span className="preflight-name mono">{repository.name}</span>
-              <p className="preflight-sub">
-                <code>{repository.path}</code>
-              </p>
-            </li>
-          ))}
-          {repositories.length === 0 && <li className="preflight-empty">No repositories yet.</li>}
-        </ul>
-        <button type="button" onClick={() => void addRepository()}>
-          Add repository…
-        </button>
+        <RepositoryPicker
+          source={source}
+          selection={code}
+          added={repositories}
+          progress={codeScanning}
+          onScan={scanCode}
+          onSelection={setCode}
+        />
+        <p className="preflight-note">
+          Somewhere else?{" "}
+          <button type="button" className="link" onClick={() => void addRepository()}>
+            Add one repository…
+          </button>
+        </p>
         <fieldset className="preflight-options">
           <legend>Where new worktrees go</legend>
           <label className="preflight-option">
@@ -345,13 +400,13 @@ export function Preflight({
         </fieldset>
         <p className="preflight-note">
           A branch named <code>feat/search</code> would land at{" "}
-          <code>{examplePath(state, repositories)}</code>
+          <code>{examplePath(state, selected)}</code>
         </p>
         {nav(
           1,
-          repositories.length
-            ? `${String(repositories.length)} ${repositories.length === 1 ? "repository" : "repositories"}`
-            : "Add at least one repository",
+          selected.length
+            ? `${String(selected.length)} ${selected.length === 1 ? "repository" : "repositories"} selected`
+            : "None selected yet · needed to launch",
           3,
         )}
       </>

@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { dirname, isAbsolute, join } from "node:path";
 import { SCALES } from "./appearance";
 import { parseInferenceConfig } from "./inference-source";
 import type { AgentId } from "./shared/agents";
@@ -17,6 +17,7 @@ export const DEFAULT_SETTINGS: Settings = Object.freeze({
   inferenceTimeoutMs: 5000,
   colorMode: "system",
   interfaceScale: 100,
+  codeFolder: null,
 });
 
 function record(value: unknown): value is Record<string, unknown> {
@@ -47,6 +48,15 @@ export function parseSettingsPatch(value: unknown): SettingsPatch {
         agy: entry["agy"] === true,
       };
     else if (key === "inference") patch.inference = parseInferenceConfig(entry);
+    else if (
+      key === "codeFolder" &&
+      (entry === null ||
+        (typeof entry === "string" &&
+          entry.length <= 4096 &&
+          !entry.includes("\0") &&
+          isAbsolute(entry)))
+    )
+      patch.codeFolder = entry;
     else if (key === "colorMode" && (entry === "system" || entry === "light" || entry === "dark"))
       patch.colorMode = entry;
     else if (key === "interfaceScale" && typeof entry === "number" && SCALES.includes(entry))

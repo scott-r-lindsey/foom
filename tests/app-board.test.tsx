@@ -49,6 +49,7 @@ beforeEach(() => {
     value: {
       setupState: mock.setupState,
       onSetupChange: () => () => undefined,
+      codeSuggestions: () => Promise.resolve([]),
       saveSetup: (patch: Partial<SetupState["settings"]>) =>
         Promise.resolve(setupState({ ...patch, setupComplete: true })),
       scanAgents: () =>

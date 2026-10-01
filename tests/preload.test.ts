@@ -225,6 +225,29 @@ test("check progress is filtered by ID, validated, and unsubscribed when the che
   await expect(pending).resolves.toBe("result");
   expect(mock.removeListener).toHaveBeenCalledWith("setup:check-progress", listener);
 });
+test("code scans report validated progress and use their own channels", async () => {
+  const api = await bridge();
+  const progress = vi.fn();
+  mock.invoke.mockResolvedValueOnce("scan");
+  const pending = api.scanCode("s1", "/code", progress);
+  expect(mock.invoke).toHaveBeenLastCalledWith("setup:scan-code", "s1", "/code");
+  const listener = mock.on.mock.calls.find(([name]) => name === "setup:scan-progress")?.[1];
+  if (!listener) throw new Error("Missing listener");
+  listener({}, "s1", { folders: 3, repositories: 1 });
+  listener({}, "other", { folders: 3, repositories: 1 });
+  listener({}, "s1", { folders: "3", repositories: 1 });
+  listener({}, "s1", null);
+  await expect(pending).resolves.toBe("scan");
+  expect(progress).toHaveBeenCalledExactlyOnceWith({ folders: 3, repositories: 1 });
+  expect(mock.removeListener).toHaveBeenCalledWith("setup:scan-progress", listener);
+  mock.invoke.mockResolvedValue("reply");
+  await api.codeSuggestions();
+  await api.applyRepositories(["/code/a"]);
+  expect(mock.invoke.mock.calls.slice(-2)).toEqual([
+    ["setup:code-suggestions"],
+    ["setup:apply-repositories", ["/code/a"]],
+  ]);
+});
 test("setup changes from main are validated and can be unsubscribed", async () => {
   const api = await bridge();
   const callback = vi.fn();
