@@ -1,4 +1,6 @@
 // @vitest-environment jsdom
+import { setupState } from "../../../fixtures/setup";
+import type { SetupState } from "../../../../src/shared/setup";
 import type { ITerminalOptions } from "@xterm/xterm";
 import { act, cleanup, render, waitFor } from "@testing-library/react";
 import { createShell } from "../../../../src/renderer/terminal/shell-controller";
@@ -88,6 +90,9 @@ const mock = vi.hoisted(() => {
     acknowledge: vi.fn(),
     offData: vi.fn(),
     offExit: vi.fn(),
+    setupState: vi.fn<() => Promise<SetupState>>(),
+    onSetupChange: vi.fn<(callback: (state: SetupState) => void) => () => void>(),
+    offSetup: vi.fn(),
     resizeCallback: vi.fn<(callback: () => void) => void>(),
   };
 });
@@ -147,6 +152,8 @@ beforeEach(() => {
     removeEventListener: mock.removeChange,
   }));
   Object.defineProperty(document, "fonts", { configurable: true, value: { load: mock.fonts } });
+  mock.setupState.mockResolvedValue(setupState());
+  mock.onSetupChange.mockReturnValue(mock.offSetup);
   mock.dark = true;
   mock.fonts.mockResolvedValue([]);
   mock.attach.mockResolvedValue(undefined);
@@ -790,5 +797,84 @@ test("wheel input uses the selected attachment and stops while hidden", async ()
   mock.input.mockClear();
   wheel?.(new WheelEvent("wheel", { deltaY: 14 }));
   expect(mock.input).not.toHaveBeenCalled();
+  controller.dispose();
+});
+
+test("saved terminal size loads, follows live changes and unsubscribes on disposal", async () => {
+  mock.setupState.mockResolvedValueOnce(setupState({ terminalFontSize: 20 }));
+  const controller = createShell(document.createElement("div"), vi.fn(), false, undefined, false);
+  await Promise.resolve();
+  expect(mock.options.fontSize).toBe(20);
+  await controller.open("font-session");
+  mock.resize.mockClear();
+  const change = mock.onSetupChange.mock.calls[0]?.[0];
+  change?.(setupState({ terminalFontSize: 24 }));
+  expect(mock.options.fontSize).toBe(24);
+  expect(mock.resize).toHaveBeenCalledWith("font-session", 80, 24);
+  await controller.hide();
+  mock.resize.mockClear();
+  change?.(setupState({ terminalFontSize: 16 }));
+  expect(mock.options.fontSize).toBe(16);
+  expect(mock.resize).not.toHaveBeenCalled();
+  controller.dispose();
+  expect(mock.offSetup).toHaveBeenCalledOnce();
+  change?.(setupState({ terminalFontSize: 30 }));
+  expect(mock.options.fontSize).toBe(16);
+});
+
+test("late initial settings cannot replace a live font change or touch a disposed terminal", async () => {
+  let finish: (state: SetupState) => void = () => {};
+  mock.setupState.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+  );
+  const controller = createShell(document.createElement("div"), vi.fn(), false, undefined, false);
+  mock.onSetupChange.mock.calls[0]?.[0](setupState({ terminalFontSize: 22 }));
+  finish(setupState());
+  await Promise.resolve();
+  expect(mock.options.fontSize).toBe(22);
+  controller.dispose();
+  mock.setupState.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+  );
+  const disposed = createShell(document.createElement("div"), vi.fn(), false, undefined, false);
+  disposed.dispose();
+  finish(setupState({ terminalFontSize: 32 }));
+  await Promise.resolve();
+  expect(mock.options.fontSize).toBe(14);
+  mock.setupState.mockRejectedValueOnce(new Error("Unavailable"));
+  const fallback = createShell(document.createElement("div"), vi.fn(), false, undefined, false);
+  await fallback.open("defaults");
+  expect(mock.options.fontSize).toBe(14);
+  fallback.dispose();
+});
+
+test("font changes during an attachment refit once it is safe to resize", async () => {
+  let finish: () => void = () => {};
+  mock.attach.mockImplementationOnce(
+    () =>
+      new Promise<void>((resolve) => {
+        finish = resolve;
+      }),
+  );
+  const controller = createShell(document.createElement("div"), vi.fn(), false, undefined, false);
+  const opening = controller.open("font-pending");
+  await waitFor(() => {
+    expect(mock.attach).toHaveBeenCalled();
+  });
+  mock.resize.mockClear();
+  mock.onSetupChange.mock.calls[0]?.[0](setupState({ terminalFontSize: 24 }));
+  expect(mock.resize).not.toHaveBeenCalled();
+  finish();
+  await opening;
+  expect(mock.resize).toHaveBeenCalledWith("font-pending", 80, 24);
+  mock.resize.mockClear();
+  mock.onSetupChange.mock.calls[0]?.[0](setupState({ terminalFontSize: 24 }));
+  expect(mock.resize).not.toHaveBeenCalled();
   controller.dispose();
 });

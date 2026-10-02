@@ -38,7 +38,9 @@ export function attachSetup(
         const zooming = typeof patch === "object" && patch !== null && "interfaceScale" in patch;
         if (zooming) pointerZoom(true);
         try {
-          return await setup.save(patch);
+          const state = await setup.save(patch);
+          send("setup:changed", state);
+          return state;
         } finally {
           if (zooming) pointerZoom(false);
         }

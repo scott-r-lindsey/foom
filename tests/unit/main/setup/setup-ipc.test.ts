@@ -80,6 +80,8 @@ test("passes payloads to Setup, which validates them, and never offers a key rea
   expect(invoke("setup:state")).toBe("state");
   await expect(invoke("setup:save", [{ hooks: false }])).resolves.toBe("saved");
   expect(setup.save).toHaveBeenCalledWith({ hooks: false });
+  expect(contents.send).toHaveBeenCalledWith("setup:changed", "saved");
+  contents.send.mockClear();
   expect(invoke("setup:set-key", ["openai", "sk"])).toBe("set");
   expect(setup.setKey).toHaveBeenCalledWith("openai", "sk");
   expect(invoke("setup:remove-key", ["openai"])).toBe("removed");

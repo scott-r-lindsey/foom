@@ -135,7 +135,7 @@ Every channel checks the sender (the owning window, the main frame, `app://bundl
 
 | Channel | Direction | Payload |
 |---|---|---|
-| `board:command` | main → renderer | `sidebar` / `next-waiting`; preload rejects unknown commands, covered boards and modal launchers ignore them |
+| `board:command` | main → renderer | `sidebar` / `next-waiting` / `settings`; preload rejects unknown commands, covered boards and modal launchers ignore them |
 | `terminal:create` | renderer → main (invoke) | `cols`, `rows` → `{ id, title }` |
 | `terminal:attach` / `terminal:detach` | renderer → main | `id` → snapshot via `terminal:data` on attach |
 | `terminal:kill` | renderer → main (invoke) | `id` |
@@ -164,7 +164,7 @@ Every channel checks the sender (the owning window, the main frame, `app://bundl
 | `setup:check-progress` | main → renderer | check ID, `{ kind: "step", event }` or `{ kind: "stream", thinking, reply }`; the preload validates the shape |
 | `setup:check-cancel` | renderer → main (invoke) | check ID |
 | `setup:models` | renderer → main (invoke) | local endpoint → `{ ok, models, server }` or `{ ok: false, failure, message }` |
-| `setup:changed` | main → renderer | setup state after a change made in main (a zoom shortcut) |
+| `setup:changed` | main → renderer | setup state after a successful settings save or zoom shortcut |
 
 The renderer names repositories and worktrees only by paths main returned, and agents by ID. Main copies the known launch fields, checks the repository is registered and the worktree is still owned, and resolves the executable itself. A launched terminal belongs to the window like one it created.
 
@@ -186,17 +186,31 @@ Stable Claude Code releases at or above 2.1.284 and Codex releases at or above 0
 
 `src/main/workspace/workspace.ts` connects these services in main. It scans once and reuses the result until a refresh, starts the hook receiver on the first launch that attaches hooks, and closes it after terminals stop on quit. `src/main/agents/hook-launch.ts` writes each launch's adapter script to its own `mkdtemp` directory (mode 0700), registers receiver credentials under a random key, and maps that key to the terminal ID once it exists (`AgentHooks.bind`). Exit, kill, and shutdown release the launch: credentials are revoked, the directory is deleted, and the worktree is free again. Antigravity launches without hooks. Preflight's settings reach the workspace through `configure`: the hooks setting calls `setHooksEnabled`, and launching an agent that preflight turned off is refused. Launched agents and worktree shells appear immediately in stable repository groups on the board. The New worktree form discloses Codex notifier replacement before the first hooked Codex launch; main persists `codexNotifierAcknowledged` in settings and reuses it for later launches.
 
-## Preflight
+## Settings and setup
 
 **Today:** First run is the preflight countdown from [product](product.md#first-run). `src/main/setup/settings.ts` stores versioned `settings.json` in user data: whether setup is complete, the hooks setting, which agents are turned on, the default worktree location, and the inference source. Writes are atomic (private temporary file, then rename) and serialized; a failed write leaves the settings unchanged. Missing, corrupt or unsupported files start from defaults, so preflight runs again. Every patch, from IPC or disk, is validated field by field and unknown fields are rejected.
 
 `src/main/setup/setup.ts` applies the settings to the running app at startup and on each save, owns the key store and the app's model evaluator, and runs Run check. A model source can be saved only if it is already saved or passed a check in this session; storing or removing a provider's key invalidates that provider's checks. A cloud check without a stored key fails at its first step. The Evaluator step asks a local endpoint for its models as the URL is typed, offers them as suggestions for the model field, and says when the named model isn't among them.
 
-Appearance lives in the preflight rail and applies at once. `colorMode` (system, light or dark) sets `nativeTheme.themeSource` in main, before the window is created at startup, so the CSS (`prefers-color-scheme`), the window background and the terminal host's colors all follow it; as with a system theme change, switching resets colors a program set in the terminal. `interfaceScale` (80–150% in steps of 10) is Chromium zoom: the window starts with it as `zoomFactor` and later changes use `setZoomFactor`. The window resizes with it in both directions (`src/main/window/window-scale.ts`): main remembers the window's size at 100% and sets the window to that size times the scale, capped to the display's usable area and moved back on screen if needed, so zooming in and back out restores the same size. A resize by the user sets a new size at 100%. The minimum size (480 × 420 at 100%) scales too. Maximized and full-screen windows keep their size. Tiling window managers may ignore the resize; zoom still applies. Main handles the zoom keys before the terminal sees them: ⌘ =, − and 0 on macOS, and Ctrl+Shift+= / Ctrl+Shift+− and Ctrl+0 elsewhere, because plain Ctrl+− is readline's undo. A shortcut saves the new scale and sends `setup:changed` so preflight's controls follow. Terminal font size will be a separate setting.
+Appearance lives in Settings and the preflight rail through the same `AppearanceControls` component and applies at once. `colorMode` (system, light or dark) sets `nativeTheme.themeSource` in main, before the window is created at startup, so the CSS (`prefers-color-scheme`), the window background and the terminal host's colors all follow it; as with a system theme change, switching resets colors a program set in the terminal. `interfaceScale` (80–150% in steps of 10) is Chromium zoom: the window starts with it as `zoomFactor` and later changes use `setZoomFactor`. The window resizes with it in both directions (`src/main/window/window-scale.ts`): main remembers the window's size at 100% and sets the window to that size times the scale, capped to the display's usable area and moved back on screen if needed, so zooming in and back out restores the same size. A resize by the user sets a new size at 100%. The minimum size (480 × 420 at 100%) scales too. Maximized and full-screen windows keep their size. Tiling window managers may ignore the resize; zoom still applies. Main handles the zoom keys before the terminal sees them: ⌘ =, − and 0 on macOS, and Ctrl+Shift+= / Ctrl+Shift+− and Ctrl+0 elsewhere, because plain Ctrl+− is readline's undo. A shortcut saves the new scale and sends `setup:changed` so preflight's controls follow. `terminalFontSize` is a separate validated integer setting (10–32 CSS pixels, default 14). Each mounted terminal controller reads it before its initial attachment, subscribes to `setup:changed`, and updates xterm options. Visible attachments refit and send an ID-scoped resize; hidden views use the new size on their next attachment. Disposal removes the subscription.
 
 Themes are not implemented, but the model allows them: `colorMode` chooses the variant, and a theme will supply a palette per variant (for example `lightTheme` and `darkTheme`, both "Eclipse" by default). A theme's palette must also reach the terminal host, which today takes its colors from the brand tokens.
 
 The renderer shows preflight until setup is complete, and again when the board's **Preflight** button is used; the board stays mounted underneath, so its shell keeps running. The default worktree location applies to the New worktree flow.
+
+Settings opens beside the persistent sidebar with the board button or ⌘/Ctrl+,.
+Main reserves the shortcut through the existing validated `board:command` channel.
+There is still one window and one trusted IPC sender. The board keeps its terminal
+controller mounted but detaches and hides its view while Settings is open. Esc
+restores sidebar row focus after the terminal has reattached; selecting a sidebar
+terminal closes Settings. The shared setup coordinator renders the same Agents,
+Repositories, Worktrees, Evaluator and Appearance controls in both paths, with guided
+navigation only in preflight. Settings adds Terminal font size and placeholders for
+Themes and Sound. Successful `setup:save` calls publish `setup:changed` to keep live
+consumers synchronized. Repository selection changes save immediately in Settings,
+with controls disabled during the write and refused selections restored to the
+registered repositories. Scans in Settings start from existing registrations;
+preflight continues to suggest recent repositories and save when leaving the step.
 
 Repositories come from the user's code folder (one, saved as `codeFolder`). Main offers common folders under home (`~/code`, `~/src`, `~/projects` and similar) that hold repositories, each with a count from a quick scan (the same walk, stopped at 5,000 folders), or shows the native picker; then `src/main/setup/code-scan.ts` walks the folder breadth first with live progress: at most three levels and 20,000 folders (reporting when it stopped early), never following symbolic links, skipping hidden folders, `node_modules`, `Library`, `AppData`, `Applications` and Foom's worktree folder, stopping at each repository, and skipping `.git` files (linked worktrees and submodules). Last activity comes from the modification times of `.git/logs/HEAD`, `.git/index` and `.git/HEAD`, without running git; activity in the last 30 days preselects a repository, as does already being added. The renderer may add or remove only paths from main's latest scan; leaving the step applies the selection, and a refusal (for example a repository with Foom-made worktrees) keeps the user on the step with the reason. `npm run start:fresh` runs the app with a throwaway profile to test first run.
 

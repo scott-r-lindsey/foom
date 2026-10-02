@@ -17,6 +17,7 @@ export function setupState(
       inferenceTimeoutMs: 5000,
       colorMode: "system",
       interfaceScale: 100,
+      terminalFontSize: 14,
       codeFolder: null,
       ...settings,
     },

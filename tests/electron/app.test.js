@@ -6,14 +6,18 @@ const { mkdir, mkdtemp, readFile, realpath, rm, writeFile } = require("node:fs/p
 const { tmpdir } = require("node:os");
 const { _electron: electron, expect } = require("@playwright/test");
 
-async function boardCommand(app, keyCode) {
+async function boardCommand(app, keyCode, shift = true) {
   await app.evaluate(
-    ({ BrowserWindow }, { keyCode, mac }) => {
+    ({ BrowserWindow }, { keyCode, mac, shift }) => {
       const contents = BrowserWindow.getAllWindows()[0].webContents;
       for (const type of ["keyDown", "keyUp"])
-        contents.sendInputEvent({ type, keyCode, modifiers: [mac ? "meta" : "control", "shift"] });
+        contents.sendInputEvent({
+          type,
+          keyCode,
+          modifiers: [mac ? "meta" : "control", ...(shift ? ["shift"] : [])],
+        });
     },
-    { keyCode, mac: process.platform === "darwin" },
+    { keyCode, mac: process.platform === "darwin", shift },
   );
 }
 
@@ -555,7 +559,6 @@ test("bundled brand fonts and both system themes render in Electron", {
     assert.equal(rendered.background, background);
     assert.match(rendered.csp, /font-src 'self';/);
     assert.match(rendered.csp, /default-src 'none';/);
-    await page.screenshot({ path: path.join(__dirname, "../..", "out", `brand-${mode}.png`) });
   }
   for (const asset of ["archivo-black", "courier-prime", "geist", "geist-mono"]) {
     assert.equal(
@@ -1283,7 +1286,6 @@ test("launches an agent in a managed worktree and routes its attention signals",
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(1200, 850));
   for (const colorScheme of ["light", "dark"]) {
     await page.emulateMedia({ colorScheme });
-    await page.screenshot({ path: path.join(__dirname, `../../out/57-board-${colorScheme}.png`) });
   }
   const log = await readFile(path.join(root, "user-data", "verdicts.jsonl"), "utf8");
   assert.match(log, /"feedback":"not_attention"/);
@@ -1540,6 +1542,7 @@ test("first run goes from no agents to go, launches by keyboard, and can be repl
     inferenceTimeoutMs: 5000,
     colorMode: "system",
     interfaceScale: 100,
+    terminalFontSize: 14,
     codeFolder: await realpath(repo),
   });
 
@@ -1859,7 +1862,6 @@ test("persistent sidebar keeps Escape in the PTY and routes keyboard navigation"
   await expect.poll(() => readFile(marker, "utf8")).toContain("02");
   await expect.poll(() => readFile(marker, "utf8")).toContain("0e");
   await expect(page.locator("#terminal")).toBeVisible();
-  await page.screenshot({ path: path.join(__dirname, "../../out/88-sidebar-wide.png") });
   await boardCommand(app, "B");
   await expect(page.locator(".board-row")).toBeFocused();
   await expect(page.locator(".board-peek")).toContainText("INPUT_READY");
@@ -1882,7 +1884,6 @@ test("persistent sidebar keeps Escape in the PTY and routes keyboard navigation"
     .poll(() => page.locator(".board-list").evaluate((el) => el.getBoundingClientRect().width))
     .toBe(64);
   await assertAccessible(page);
-  await page.screenshot({ path: path.join(__dirname, "../../out/88-sidebar-narrow.png") });
   await page.locator(".xterm-helper-textarea").focus();
   await page.keyboard.type("q");
 });
@@ -1995,4 +1996,137 @@ else console.log('ARGS:' + JSON.stringify(process.argv.slice(2)));
       .poll(() => page.evaluate((id) => window.desktop.tail(id, 40), id))
       .toContain(supported ? 'ARGS:["--no-alt-screen"]' : "ARGS:[]");
   }
+});
+
+test("Settings shares live preflight values, sizes the terminal and restores keyboard focus", async (context) => {
+  const root = await mkdtemp(path.join(tmpdir(), "foom-settings-repositories-"));
+  context.after(() => rm(root, { recursive: true, force: true, maxRetries: 5 }));
+  const repository = path.join(root, "settings-example");
+  await mkdir(repository);
+  isolatedGit(["init", "-q", repository]);
+  const app = await launchApp(context);
+  await app.evaluate(({ dialog }, folder) => {
+    dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [folder] });
+  }, root);
+  const page = await app.firstWindow();
+  const shortcut = () => boardCommand(app, ",", false);
+  const row = page.locator('.board-row[data-kind="shell"]');
+  await boardCommand(app, "B");
+  await expect(row).toBeFocused();
+  await page.keyboard.press("Enter");
+  await page.locator(".xterm-helper-textarea").waitFor();
+  await shortcut();
+  await expect(page.getByRole("region", { name: "Settings" })).toBeVisible();
+  await expect(page.getByRole("navigation", { name: "Terminal sidebar" })).toBeVisible();
+  await expect(page.getByRole("region", { name: "Terminal pane" })).toBeHidden();
+  const tabToControl = async (control) => {
+    for (let step = 0; step < 50; step++) {
+      await page.keyboard.press("Tab");
+      if (await control.evaluate((element) => document.activeElement === element)) return;
+    }
+    throw new Error("Settings control is not reachable with Tab");
+  };
+  const section = async (name) => {
+    await tabTo(page, name);
+    await page.keyboard.press("Enter");
+  };
+  const hooks = page.getByLabel("Attach Foom's hooks when it launches an agent", { exact: false });
+  await tabToControl(hooks);
+  await page.keyboard.press("Space");
+  await expect
+    .poll(() => page.evaluate(async () => (await window.desktop.setupState()).settings.hooks))
+    .toBe(false);
+  await section("Repositories");
+  await tabTo(page, "Choose folder…");
+  await page.keyboard.press("Enter");
+  const added = page.getByRole("checkbox", { name: /settings-example/ });
+  await expect(added).not.toBeChecked();
+  await tabToControl(added);
+  await page.keyboard.press("Space");
+  await expect
+    .poll(() =>
+      page.evaluate(async () =>
+        (await window.desktop.workspace()).repositories.map((repo) => repo.name),
+      ),
+    )
+    .toContain("settings-example");
+  await section("Worktrees");
+  await tabToControl(page.getByRole("radio", { name: /Keep worktrees/ }));
+  await page.keyboard.press("ArrowDown");
+  await expect
+    .poll(() =>
+      page.evaluate(async () => (await window.desktop.setupState()).settings.worktreeLocation),
+    )
+    .toBe("adjacent");
+  await section("Evaluator");
+  await tabToControl(page.getByRole("radio", { name: /Rules only/ }));
+  await page.keyboard.press("ArrowUp");
+  await tabToControl(page.getByLabel("Time limit"));
+  await page.keyboard.press("ArrowDown");
+  await page.keyboard.press("Tab");
+  await expect
+    .poll(() =>
+      page.evaluate(async () => (await window.desktop.setupState()).settings.inferenceTimeoutMs),
+    )
+    .toBe(10000);
+  await section("Appearance");
+  await tabToControl(page.getByRole("radio", { name: "System", exact: true }));
+  await page.keyboard.press("ArrowRight");
+  await page.keyboard.press("ArrowRight");
+  await tabTo(page, "+");
+  await page.keyboard.press("Enter");
+  await expect(page.getByRole("status").filter({ hasText: "110%" })).toBeVisible();
+  await section("Terminal");
+  const font = page.getByLabel("Terminal font size");
+  await tabToControl(font);
+  await page.keyboard.press("ArrowDown");
+  await page.keyboard.press("Tab");
+  await expect
+    .poll(() =>
+      page.evaluate(async () => (await window.desktop.setupState()).settings.terminalFontSize),
+    )
+    .toBe(15);
+  await page.keyboard.press("Escape");
+
+  await expect(row).toBeFocused();
+  await expect(page.locator(".xterm-rows")).toHaveCSS("font-size", "15px");
+  await page.getByRole("button", { name: "Preflight", exact: true }).click();
+  await expect(page.getByRole("radio", { name: "Dark", exact: true })).toBeChecked();
+  await expect(page.getByRole("status").filter({ hasText: "110%" })).toBeVisible();
+  await page.getByRole("radio", { name: "Light", exact: true }).check();
+  await page.getByRole("button", { name: "Larger", exact: true }).click();
+  await page.keyboard.press("Escape");
+  await shortcut();
+  await section("Appearance");
+  await expect(page.getByRole("radio", { name: "Light", exact: true })).toBeChecked();
+  await expect(page.getByRole("status").filter({ hasText: "120%" })).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(row).toBeFocused();
+  assert.equal(await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().length), 1);
+});
+
+test("every Settings section passes axe in light and dark, including the narrow layout", async (context) => {
+  const app = await launchApp(context, false);
+  const page = await app.firstWindow();
+  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  for (const name of [
+    "Agents and hooks",
+    "Repositories",
+    "Worktrees",
+    "Evaluator",
+    "Appearance",
+    "Terminal",
+    "Themes",
+    "Sound",
+  ]) {
+    await page
+      .getByRole("navigation", { name: "Settings sections" })
+      .getByRole("button", { name, exact: true })
+      .click();
+    await assertAccessible(page);
+  }
+  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(640, 640));
+  await page.getByRole("button", { name: "Appearance", exact: true }).click();
+  await assertAccessible(page);
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
 });

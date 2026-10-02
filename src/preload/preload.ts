@@ -54,7 +54,8 @@ function setupState(value: unknown): value is SetupState {
 const desktop: DesktopApi = {
   onBoardCommand(callback) {
     const listener = (_event: IpcRendererEvent, command: unknown) => {
-      if (command === "sidebar" || command === "next-waiting") callback(command);
+      if (command === "sidebar" || command === "next-waiting" || command === "settings")
+        callback(command);
     };
     ipcRenderer.on("board:command", listener);
     return () => {

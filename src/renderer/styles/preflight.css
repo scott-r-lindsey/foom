@@ -1,5 +1,5 @@
 /* Preflight */
-.preflight {
+:is(.preflight, .settings-view) {
   flex: 1;
   min-height: 0;
   display: grid;
@@ -60,20 +60,20 @@
   margin: 0 auto;
   padding: 40px 32px 48px;
 }
-.preflight h1,
-.preflight h2 {
+:is(.preflight, .settings-view) h1,
+:is(.preflight, .settings-view) h2 {
   margin: 0 0 12px;
 }
-.preflight h1 {
+:is(.preflight, .settings-view) h1 {
   font: 64px var(--font-display);
   letter-spacing: -2px;
 }
-.preflight h2 {
+:is(.preflight, .settings-view) h2 {
   font: 22px var(--font-display);
   font-weight: 400;
 }
-.preflight h1:focus,
-.preflight h2:focus {
+:is(.preflight, .settings-view) h1:focus,
+:is(.preflight, .settings-view) h2:focus {
   outline: none;
 }
 .preflight-lede {
@@ -85,12 +85,12 @@
 .preflight-privacy,
 .preflight-why,
 .preflight-sub,
-.preflight small {
+:is(.preflight, .settings-view) small {
   color: var(--muted);
   font-size: 13px;
   line-height: 1.5;
 }
-.preflight small {
+:is(.preflight, .settings-view) small {
   display: block;
   margin-top: 2px;
 }
@@ -101,17 +101,17 @@
   text-transform: uppercase;
   color: var(--accent);
 }
-.preflight code,
-.preflight .mono {
+:is(.preflight, .settings-view) code,
+:is(.preflight, .settings-view) .mono {
   font-family: var(--font-mono);
   font-size: 12px;
 }
-.preflight button.primary {
+:is(.preflight, .settings-view) button.primary {
   background: var(--accent);
   border-color: var(--accent);
   color: var(--bg);
 }
-.preflight button.link {
+:is(.preflight, .settings-view) button.link {
   padding: 0;
   border: 0;
   background: none;
@@ -248,9 +248,9 @@
   color: var(--muted);
   flex: 1 1 180px;
 }
-.preflight input:not([type]),
-.preflight input[type="password"],
-.preflight select {
+:is(.preflight, .settings-view) input:not([type]),
+:is(.preflight, .settings-view) input[type="password"],
+:is(.preflight, .settings-view) select {
   font: 13px var(--font-interface);
   padding: 6px 8px;
   color: var(--ink);
@@ -258,11 +258,11 @@
   border: 1px solid var(--line);
   border-radius: 5px;
 }
-.preflight input.mono {
+:is(.preflight, .settings-view) input.mono {
   font-family: var(--font-mono);
 }
-.preflight input:focus-visible,
-.preflight select:focus-visible {
+:is(.preflight, .settings-view) input:focus-visible,
+:is(.preflight, .settings-view) select:focus-visible {
   outline: 2px solid var(--accent);
 }
 .preflight-key {
@@ -357,7 +357,7 @@
   font-size: 12px;
 }
 @media (max-width: 650px) {
-  .preflight {
+  :is(.preflight, .settings-view) {
     grid-template-columns: 1fr;
     grid-template-rows: auto 1fr;
     min-height: 0;
@@ -389,7 +389,7 @@
   .preflight-inner {
     padding: 24px 16px;
   }
-  .preflight h1 {
+  :is(.preflight, .settings-view) h1 {
     font-size: 44px;
   }
   .preflight-poll li {
@@ -454,7 +454,7 @@
   font-size: 12px;
   opacity: 0.6;
 }
-.preflight button {
+:is(.preflight, .settings-view) button {
   font-size: 13px;
   padding: 7px 14px;
 }

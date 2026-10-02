@@ -28,6 +28,8 @@ export interface Settings {
   colorMode: "system" | "light" | "dark";
   /** Interface zoom in percent, 80–150 in steps of 10. Terminal font size is separate. */
   interfaceScale: number;
+  /** Terminal text size in CSS pixels, 10–32 in whole pixels. */
+  terminalFontSize: number;
   /** Where the user keeps their code; preflight scans it for repositories. */
   codeFolder: string | null;
 }
@@ -104,7 +106,7 @@ export interface SetupApi {
   cancelInferenceCheck(id: string): Promise<void>;
   /** Models a local endpoint offers. */
   localModels(endpoint: string): Promise<ModelList>;
-  /** Settings changed outside the renderer, for example by a zoom shortcut. */
+  /** Persisted settings after a save or a main-process zoom shortcut. */
   onSetupChange(callback: (state: SetupState) => void): () => void;
   /** Common code folders under the home folder, such as ~/code, that hold repositories. */
   codeSuggestions(): Promise<readonly CodeSuggestion[]>;

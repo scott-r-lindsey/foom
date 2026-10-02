@@ -18,6 +18,7 @@ export const DEFAULT_SETTINGS: Settings = Object.freeze({
   inferenceTimeoutMs: 5000,
   colorMode: "system",
   interfaceScale: 100,
+  terminalFontSize: 14,
   codeFolder: null,
 });
 
@@ -65,6 +66,14 @@ export function parseSettingsPatch(value: unknown): SettingsPatch {
       patch.colorMode = entry;
     else if (key === "interfaceScale" && typeof entry === "number" && SCALES.includes(entry))
       patch.interfaceScale = entry;
+    else if (
+      key === "terminalFontSize" &&
+      typeof entry === "number" &&
+      Number.isInteger(entry) &&
+      entry >= 10 &&
+      entry <= 32
+    )
+      patch.terminalFontSize = entry;
     else if (
       key === "inferenceTimeoutMs" &&
       Number.isInteger(entry) &&

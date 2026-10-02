@@ -16,23 +16,36 @@ import { ReadinessStep } from "./readiness-step";
 import type { CodeSelection, Scanning } from "./repository-picker";
 import type { SetupSource } from "./setup-source.d";
 
+const SETTINGS_SECTIONS = [
+  { step: 1, label: "Agents and hooks" },
+  { step: 2, label: "Repositories" },
+  { step: 3, label: "Worktrees" },
+  { step: 4, label: "Evaluator" },
+  { step: 6, label: "Appearance" },
+  { step: 7, label: "Terminal" },
+  { step: 8, label: "Themes" },
+  { step: 9, label: "Sound" },
+];
+
 /**
- * The first-run countdown. `onClose` is present when setup already ran once: every
- * step is then open, and Esc returns to the board without launching again.
+ * Shared setup coordinator for the first-run countdown and Settings. After setup,
+ * `onClose` opens every step and lets Escape return without launching again.
  */
 export function Preflight({
   source,
   initial,
   onLaunched,
   onClose,
+  settingsMode = false,
 }: {
   source: SetupSource;
   initial: SetupState;
   onLaunched: (state: SetupState) => void;
   onClose?: () => void;
+  settingsMode?: boolean;
 }) {
   const [state, setState] = useState(initial);
-  const [step, setStep] = useState(0);
+  const [step, setStep] = useState(settingsMode ? 1 : 0);
   const [reached, setReached] = useState(onClose ? STEPS.length - 1 : 0);
   const [report, setReport] = useState<AgentReport>();
   const [scanning, setScanning] = useState(false);
@@ -40,8 +53,23 @@ export function Preflight({
   const [code, setCode] = useState<CodeSelection>();
   const [codeScanning, setCodeScanning] = useState<Scanning>();
   const [error, setError] = useState<string>();
+  const [applying, setApplying] = useState(false);
   const [launching, setLaunching] = useState(false);
   const headingRef = useRef<HTMLHeadingElement>(null);
+  useEffect(() => {
+    if (!settingsMode) return;
+    const escape = (event: KeyboardEvent) => {
+      if (event.key !== "Escape" || event.defaultPrevented) return;
+      // Native-modal dialogs own Escape until they close.
+      if (event.target instanceof Element && event.target.closest("dialog")) return;
+      event.preventDefault();
+      if (!applying) onClose?.();
+    };
+    window.addEventListener("keydown", escape);
+    return () => {
+      window.removeEventListener("keydown", escape);
+    };
+  }, [settingsMode, applying, onClose]);
 
   const scan = useCallback(
     async (refresh: boolean) => {
@@ -88,7 +116,13 @@ export function Preflight({
       })
       .then(
         (result) => {
-          if (result) setCode({ scan: result, selected: defaultSelection(result) });
+          if (result)
+            setCode({
+              scan: result,
+              selected: settingsMode
+                ? new Set(result.repositories.filter((repo) => repo.added).map((repo) => repo.path))
+                : defaultSelection(result),
+            });
         },
         (caught: unknown) => {
           setError(message(caught));
@@ -112,21 +146,48 @@ export function Preflight({
       move(next);
       return;
     }
-    source.apply([...code.selected]).then(
-      (update) => {
-        setRepositories(update.repositories);
-        if (update.failures.length)
-          setError(
-            update.failures
-              .map((failure) => `${failure.path.split(/[\\/]/).at(-1) ?? ""}: ${failure.message}`)
-              .join(". "),
-          );
-        else move(next);
-      },
-      (caught: unknown) => {
-        setError(message(caught));
-      },
-    );
+    void applySelection(code).then((ok) => {
+      if (ok) move(next);
+    });
+  };
+  const applySelection = async (selection: CodeSelection) => {
+    setApplying(true);
+    setError(undefined);
+    const restoreSelection = (added: readonly Repository[]) => {
+      if (settingsMode)
+        setCode({
+          ...selection,
+          selected: new Set(
+            selection.scan.repositories
+              .filter((repo) => added.some((entry) => entry.path === repo.path))
+              .map((repo) => repo.path),
+          ),
+        });
+    };
+    try {
+      const update = await source.apply([...selection.selected]);
+      setRepositories(update.repositories);
+      if (update.failures.length) {
+        setError(
+          update.failures
+            .map((failure) => `${failure.path.split(/[\\/]/).at(-1) ?? ""}: ${failure.message}`)
+            .join(". "),
+        );
+        restoreSelection(update.repositories);
+        return false;
+      }
+      return true;
+    } catch (caught) {
+      setError(message(caught));
+      restoreSelection(repositories);
+      return false;
+    } finally {
+      setApplying(false);
+    }
+  };
+  const selectRepositories = (selection: CodeSelection) => {
+    setCode(selection);
+    if (settingsMode) void applySelection(selection);
   };
 
   /** Shows the change at once; if main refuses it, shows main's settings again. */
@@ -146,34 +207,35 @@ export function Preflight({
     }
   };
 
-  const nav = (back: number | undefined, why: string, next?: number) => (
-    <div className="preflight-nav">
-      {back === undefined ? (
-        <span />
-      ) : (
-        <button
-          type="button"
-          onClick={() => {
-            go(back);
-          }}
-        >
-          Back
-        </button>
-      )}
-      <span className="preflight-why">{why}</span>
-      {next !== undefined && (
-        <button
-          type="button"
-          className="primary"
-          onClick={() => {
-            go(next);
-          }}
-        >
-          Continue
-        </button>
-      )}
-    </div>
-  );
+  const nav = (back: number | undefined, why: string, next?: number) =>
+    settingsMode ? null : (
+      <div className="preflight-nav">
+        {back === undefined ? (
+          <span />
+        ) : (
+          <button
+            type="button"
+            onClick={() => {
+              go(back);
+            }}
+          >
+            Back
+          </button>
+        )}
+        <span className="preflight-why">{why}</span>
+        {next !== undefined && (
+          <button
+            type="button"
+            className="primary"
+            onClick={() => {
+              go(next);
+            }}
+          >
+            Continue
+          </button>
+        )}
+      </div>
+    );
 
   let content;
   if (step === 0) {
@@ -199,7 +261,7 @@ export function Preflight({
         repositories={repositories}
         codeScanning={codeScanning}
         scanCode={scanCode}
-        setCode={setCode}
+        setCode={selectRepositories}
         nav={nav}
       />
     );
@@ -228,6 +290,64 @@ export function Preflight({
         {nav(3, "You can change this any time from Preflight", 5)}
       </>
     );
+  } else if (step === 6) {
+    content = (
+      <>
+        <h2 ref={headingRef} tabIndex={-1}>
+          Appearance
+        </h2>
+        <p className="preflight-intro">
+          Choose the light or dark appearance and the size of the interface.
+        </p>
+        <AppearanceControls settings={state.settings} onChange={save} />
+      </>
+    );
+  } else if (step === 7) {
+    content = (
+      <>
+        <h2 ref={headingRef} tabIndex={-1}>
+          Terminal
+        </h2>
+        <p className="preflight-intro">
+          Text size applies to every terminal, independently of interface size.
+        </p>
+        <label className="terminal-font-size">
+          Terminal font size
+          <select
+            value={state.settings.terminalFontSize}
+            onChange={(event) => {
+              save({ terminalFontSize: Number(event.target.value) });
+            }}
+          >
+            {Array.from({ length: 23 }, (_, index) => index + 10).map((size) => (
+              <option key={size} value={size}>
+                {size} px
+              </option>
+            ))}
+          </select>
+        </label>
+        <pre
+          className="settings-terminal-preview"
+          style={{ fontSize: state.settings.terminalFontSize }}
+        >
+          Geist Mono · Aa Bb 0123456789{"\n"}$ Ready when you are.
+        </pre>
+        <p className="preflight-note">More terminal options are coming.</p>
+      </>
+    );
+  } else if (step === 8 || step === 9) {
+    content = (
+      <>
+        <h2 ref={headingRef} tabIndex={-1}>
+          {step === 8 ? "Themes" : "Sound"}
+        </h2>
+        <p className="preflight-intro">
+          {step === 8
+            ? "Eclipse is the current theme. More theme choices are coming."
+            : "Sound controls are coming. Foom is silent for now."}
+        </p>
+      </>
+    );
   } else {
     content = (
       <ReadinessStep
@@ -240,6 +360,46 @@ export function Preflight({
       />
     );
   }
+
+  if (settingsMode)
+    return (
+      <section className="settings-view" aria-label="Settings">
+        <nav className="settings-sections" aria-label="Settings sections">
+          <h2>Settings</h2>
+          {SETTINGS_SECTIONS.map((entry) => (
+            <button
+              key={entry.step}
+              type="button"
+              aria-current={entry.step === step ? "page" : undefined}
+              disabled={applying}
+              onClick={() => {
+                go(entry.step);
+              }}
+            >
+              {entry.label}
+            </button>
+          ))}
+          <button type="button" className="settings-close" disabled={applying} onClick={onClose}>
+            Back to terminal · Esc
+          </button>
+        </nav>
+        <div className="settings-stage">
+          <div className="settings-inner">
+            <fieldset className="settings-controls" disabled={applying}>
+              <legend className="visually-hidden">
+                {SETTINGS_SECTIONS.find((entry) => entry.step === step)?.label}
+              </legend>
+              {content}
+            </fieldset>
+            {error && (
+              <p className="preflight-error" role="alert">
+                {error}
+              </p>
+            )}
+          </div>
+        </div>
+      </section>
+    );
 
   return (
     <div

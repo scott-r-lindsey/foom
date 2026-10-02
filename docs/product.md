@@ -85,7 +85,25 @@ Setup is a preflight countdown:
 
 On wide windows the steps use the extra width: agents as a grid, the worktree choices side by side, and the Evaluator's live check beside its options.
 
-The rail also holds **Appearance**: System, Light or Dark, and the interface size (80–150%; the window grows and shrinks with it while the screen has room, around the pointer when you click + or − or scroll over the percentage, so what you pointed at stays under it; also ⌘ +/−/0 on macOS or Ctrl+Shift+=/− and Ctrl+0 elsewhere). Terminal font size is a separate setting to come. A model source is used only after it passes Run check. Launch opens the board. The board starts empty. **New worktree** launches an agent or shell in a managed worktree, and **Local shell** starts a standalone shell. Sample sessions are available only in an explicit development build. **Preflight** on the board runs setup again with the saved choices; Esc returns to the board.
+The rail also holds **Appearance**: System, Light or Dark, and the interface size (80–150%; the window grows and shrinks with it while the screen has room, around the pointer when you click + or − or scroll over the percentage, so what you pointed at stays under it; also ⌘ +/−/0 on macOS or Ctrl+Shift+=/− and Ctrl+0 elsewhere). Terminal font size is separate and lives in Settings → Terminal. A model source is used only after it passes Run check. Launch opens the board. The board starts empty. **New worktree** launches an agent or shell in a managed worktree, and **Local shell** starts a standalone shell. Sample sessions are available only in an explicit development build. **Preflight** on the board runs setup again with the saved choices; Esc returns to the board.
+
+## Settings
+
+Open **Settings** from the board, or press ⌘, on macOS and Ctrl+, elsewhere.
+It replaces the terminal pane beside the persistent sidebar in the same window.
+Esc returns to the selected terminal and restores the same focused sidebar row.
+Selecting a terminal in the sidebar also leaves Settings; terminals keep running throughout.
+
+Agents and hooks, Repositories, Worktrees, and Evaluator use the same controls as
+preflight. Changes apply immediately and persist. A repository scan in Settings
+starts with the already-added repositories checked; toggling a selection saves it
+at once and reports any refusal. A model source still requires a successful Run check.
+Appearance shares the preflight rail's System/Light/Dark and interface-size controls.
+Changing either view is reflected in the other without restarting.
+
+Terminal font size applies to every terminal view: 10–32 pixels, 14 by default,
+independent of interface size. The Terminal section previews the text size. Additional
+terminal options, Themes, and Sound are placeholders for later work.
 
 ## Quitting
 
