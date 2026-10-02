@@ -297,8 +297,10 @@ test.each(["select", "launch"])(
     await settle(() => regularLoaded?.([]));
     expect(mock.create).not.toHaveBeenCalled();
     expect(mock.attach).not.toHaveBeenCalled();
+    expect(mock.open).not.toHaveBeenCalled();
     boldLoaded?.([]);
     await opening;
+    expect(mock.open).toHaveBeenCalledOnce();
     expect(mock.attach).toHaveBeenCalledOnce();
     controller.dispose();
   },
@@ -536,6 +538,7 @@ test("unmount before fonts load does not create a terminal session", async () =>
     loaded?.([]);
   });
   expect(mock.create).not.toHaveBeenCalled();
+  expect(mock.open).not.toHaveBeenCalled();
   expect(mock.dispose).toHaveBeenCalledOnce();
 });
 

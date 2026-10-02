@@ -59,7 +59,6 @@ export function createShell(
   colors.addEventListener("change", updateTheme);
   const fit = new FitAddon();
   terminal.loadAddon(fit);
-  terminal.open(container);
   let disposed = false;
   const isDisposed = () => disposed;
   let activeId: string | undefined;
@@ -244,7 +243,10 @@ export function createShell(
     initialSettings,
     document.fonts.load('14px "Hack Nerd Font Mono"'),
     document.fonts.load('bold 14px "Hack Nerd Font Mono"'),
-  ]).then(() => {});
+  ]).then(() => {
+    // xterm caches character metrics during open(), before FitAddon runs.
+    if (!isDisposed()) terminal.open(container);
+  });
   let ready = autoStart ? initialReady.then(start) : initialReady;
   const select = (id: string) => {
     const current = ++request;
