@@ -339,3 +339,7 @@
     opacity: 1;
   }
 }
+
+.xterm .xterm-italic {
+  font-family: "Hack Nerd Font Mono Local Italic", var(--font-terminal);
+}

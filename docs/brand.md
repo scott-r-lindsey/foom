@@ -41,9 +41,12 @@ Badges and chips use the badge fills and stay neutral: no amber, magenta, or sta
 |---|---|---|
 | Display | Archivo Black | Wordmark, headlines. Never in dense UI. |
 | Voice | Courier Prime | Taglines, empty states, marketing |
-| Interface | Geist, Geist Mono | App UI text; Geist Mono for terminals, rows, data |
+| Interface | Geist, Geist Mono | App UI text; Geist Mono for rows and data |
+| Terminal | Hack Nerd Font Mono | Terminal output and Settings terminal preview; Geist Mono fallback |
 
-All four are under the SIL Open Font License. Bundle them with the app. Don't load them from a CDN: the renderer CSP blocks remote fonts, and the app must work offline.
+The four UI fonts are under the SIL Open Font License. Bundle them with the app. Don't load them from a CDN: the renderer CSP blocks remote fonts, and the app must work offline.
+
+Hack Nerd Font Mono bundles only Regular and Bold from Nerd Fonts. Installed Hack Nerd Font Mono italic and bold italic faces are preferred for italic terminal output; otherwise Chromium synthesizes italics from the bundled faces. The Mono variant keeps Nerd Font icons in one cell. Nerd Font logo glyphs are not used in Foom’s own UI. Font provenance, checksums, and licenses live in `src/renderer/fonts/README.md` and the packaged third-party notices.
 
 ## Mark
 

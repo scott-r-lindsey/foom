@@ -1,7 +1,9 @@
+const { assertBundledTerminalFonts } = require("./font-checks.js");
+const { extractFile } = require("@electron/asar");
 const { test } = require("node:test");
 const assert = require("node:assert/strict");
 const path = require("node:path");
-const { existsSync, mkdtempSync, rmSync, writeFileSync } = require("node:fs");
+const { readFileSync, existsSync, mkdtempSync, rmSync, writeFileSync } = require("node:fs");
 const { tmpdir } = require("node:os");
 const { spawn, execFileSync } = require("node:child_process");
 const { chromium, expect } = require("@playwright/test");
@@ -27,6 +29,28 @@ test("packaged utility host runs native PTYs with RunAsNode disabled", {
         `missing ${file} beside ${directory}`,
       );
     }
+  }
+  const resources =
+    process.platform === "darwin"
+      ? path.join(root, "Foom.app", "Contents", "Resources")
+      : path.join(root, "resources");
+  const archive = path.join(resources, "app.asar");
+  const notices = extractFile(archive, "build/THIRD_PARTY_NOTICES.txt").toString();
+  for (const name of [
+    "hack-LICENSE.txt",
+    "nerd-fonts-LICENSE.txt",
+    "nerd-fonts-glyphs-NOTICES.txt",
+  ]) {
+    const source = readFileSync(path.join(__dirname, "../../src/renderer/fonts", name), "utf8");
+    assert.equal(extractFile(archive, `build/renderer/fonts/${name}`).toString(), source);
+    assert.ok(notices.includes(source), `${name} is included in packaged third-party notices`);
+  }
+  for (const weight of ["Regular", "Bold"]) {
+    const name = `HackNerdFontMono-${weight}.woff2`;
+    assert.deepEqual(
+      extractFile(archive, `build/renderer/fonts/${name}`),
+      readFileSync(path.join(__dirname, "../../src/renderer/fonts", name)),
+    );
   }
   const wire = await getCurrentFuseWire(executable);
   assert.equal(wire[FuseV1Options.RunAsNode], 48, "RunAsNode fuse is disabled");
@@ -78,6 +102,7 @@ test("packaged utility host runs native PTYs with RunAsNode disabled", {
     await page.locator('.board-row[data-kind="shell"]').press("Enter");
     await expect(page.getByRole("navigation", { name: "Terminal sidebar" })).toBeVisible();
     await expect(page.locator(".xterm-helper-textarea")).toBeFocused();
+    await assertBundledTerminalFonts(page);
     const command =
       process.platform === "win32"
         ? 'Write-Output ("PACKAGED_" + "PTY_OK")'
