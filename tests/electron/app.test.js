@@ -267,7 +267,7 @@ test("terminal runs an interactive shell behind an isolated bridge", {
       const larger = await app.evaluate(({ BrowserWindow, screen }) => {
         const window = BrowserWindow.getAllWindows()[0];
         const area = screen.getDisplayMatching(window.getBounds()).workAreaSize;
-        const width = area.width >= 1040 ? 1000 : 760;
+        const width = area.width >= 1040 ? 1000 : 700;
         const height = Math.min(650, area.height - 40);
         window.setSize(width - 100, height - 150);
         return { width, height };
