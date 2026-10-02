@@ -38,7 +38,6 @@ vi.mock("../../../../src/renderer/terminal/shell-controller", () => ({
     _element: HTMLElement,
     update: (view: ShellView) => void,
     _visible: boolean,
-    escape: () => void,
     created: (id: string, title: string) => void,
   ) => {
     mock.created = created;
@@ -46,7 +45,6 @@ vi.mock("../../../../src/renderer/terminal/shell-controller", () => ({
       update({ ...view, state: "failed", status: "Unable to start shell", restartDisabled: false });
     else created("real-id", "bash");
     mock.update = update;
-    mock.escape = escape;
     return mock;
   },
 }));
@@ -66,6 +64,7 @@ beforeEach(() => {
     configurable: true,
     value: {
       setupState: mock.setupState,
+      onBoardCommand: () => () => undefined,
       onSetupChange: () => () => undefined,
       codeSuggestions: () => Promise.resolve([]),
       saveSetup: (patch: Partial<SetupState["settings"]>) =>
@@ -151,7 +150,7 @@ test("live source reconciles events, snapshots, tails and feedback without publi
   await shell.restart();
   await shell.hide();
   await expect(source.tail("foreign")).resolves.toEqual([]);
-  const dispose = shell.mount(document.createElement("div"), vi.fn());
+  const dispose = shell.mount(document.createElement("div"));
   await Promise.resolve();
   expect(source.getSnapshot().map((row) => row.id)).toEqual(["real-id"]);
   const listener = vi.fn();
@@ -244,7 +243,7 @@ test("snapshot loading cannot overwrite newer events or revive a disposed source
       finish = resolve;
     }),
   );
-  const dispose = source.shell?.mount(document.createElement("div"), vi.fn());
+  const dispose = source.shell?.mount(document.createElement("div"));
   mock.state?.(verdict("a", 200));
   finish({ repositories: [], terminals: [{ ...agent("a", verdict("a", 100)), branch: null }] });
   await Promise.resolve();
@@ -277,7 +276,7 @@ test("snapshot loading cannot overwrite newer events or revive a disposed source
   expect(source.getSnapshot().some((row) => row.id === "late")).toBe(false);
 });
 
-test("board starts hidden, opens the shell, preserves printable keys and returns focus on Escape", async () => {
+test("board starts hidden, opens the shell, preserves printable keys and Escape", async () => {
   const screen = render(<App />);
   // Setup already ran, so the board appears once main's settings arrive.
   await act(async () => {
@@ -297,22 +296,9 @@ test("board starts hidden, opens the shell, preserves printable keys and returns
   if (!panel) throw new Error("Missing panel");
   fireEvent.keyDown(panel, { key: "n" });
   expect(screen.container.querySelector(".terminal-title h2")?.textContent).toBe("Shell · Shell");
-  act(() => {
-    mock.escape?.();
-  });
-  expect(document.activeElement).toBe(row);
-  expect(mock.hide).toHaveBeenCalledOnce();
-  act(() => {
-    mock.update?.(view);
-  });
-  await act(async () => {
-    row?.click();
-    await Promise.resolve();
-  });
-  act(() => {
-    screen.getByRole("button", { name: "Hide terminal" }).click();
-  });
-  expect(document.activeElement).toBe(row);
+  fireEvent.keyDown(panel, { key: "Escape" });
+  expect(document.activeElement).toBe(panel);
+  expect(screen.queryByRole("button", { name: "Hide terminal" })).toBeNull();
   act(() => {
     mock.update?.({ ...view, restartDisabled: false });
     row?.click();
@@ -325,10 +311,10 @@ test("board starts hidden, opens the shell, preserves printable keys and returns
     mock.update?.(view);
   });
   await act(async () => {
-    screen.getByRole("button", { name: "Open terminal" }).click();
+    row?.click();
     await Promise.resolve();
   });
-  expect(mock.toggle).toHaveBeenCalledTimes(5);
+  expect(mock.toggle).toHaveBeenCalledTimes(4);
 });
 
 async function settle() {
@@ -380,7 +366,7 @@ test("Preflight reopens over the board and Escape returns to the same row", asyn
     await Promise.resolve();
   });
   // An open terminal is hidden first; the board stays mounted underneath.
-  expect(mock.hide).toHaveBeenCalledOnce();
+  expect(mock.hide).toHaveBeenCalledTimes(2);
   expect(mock.dispose).not.toHaveBeenCalled();
   expect(screen.container.querySelector<HTMLElement>(".board-home")?.hidden).toBe(true);
   expect(screen.getByRole("button", { name: /Go \/ no-go/ })).toHaveProperty("disabled", false);
@@ -451,7 +437,7 @@ test("a shell startup failure remains reachable for retry without sending a plac
   mock.failStart = true;
   const source = createAppSource(true);
   await expect(source.tail("local-shell")).resolves.toEqual([]);
-  const dispose = source.shell?.mount(document.createElement("div"), vi.fn());
+  const dispose = source.shell?.mount(document.createElement("div"));
   await Promise.resolve();
   expect(source.getSnapshot()[0]).toMatchObject({
     state: "failed",
@@ -500,7 +486,7 @@ test("worktree source loads launch options and reconciles successful starts and 
 test("starting a local shell explicitly leaves a retryable row if creation fails", async () => {
   mock.failStart = true;
   const source = createAppSource();
-  const dispose = source.shell?.mount(document.createElement("div"), vi.fn());
+  const dispose = source.shell?.mount(document.createElement("div"));
   await source.shell?.restart();
   mock.update?.({ ...view, state: "failed", status: "Unable to start shell" });
   expect(source.getSnapshot()[0]).toMatchObject({

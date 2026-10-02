@@ -74,7 +74,14 @@ export function attachSetup(
         });
       },
     ],
-    ["setup:apply-repositories", (selected) => setup.applyRepositories(selected)],
+    [
+      "setup:apply-repositories",
+      async (selected) => {
+        const result = await setup.applyRepositories(selected);
+        send("workspace:changed");
+        return result;
+      },
+    ],
   ]);
   for (const [channel, handler] of handlers)
     ipcMain.handle(channel, (event, ...args: unknown[]) => {

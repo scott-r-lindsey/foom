@@ -363,3 +363,18 @@ describe("launch", () => {
     expect(create).not.toHaveBeenCalled();
   });
 });
+
+it.each([
+  "--no-alt-screen",
+  "  --no-alt-screen\n",
+  "--no-alt-screen-extra",
+  "prefix--no-alt-screen",
+  "--other",
+])("Codex inline launch requires the complete help flag: %s", async (text) => {
+  help = text;
+  service.setHooksEnabled(false);
+  await service.launch({ ...request, agent: "codex" });
+  expect(create.mock.calls[0]?.[0].args).toEqual(
+    text.trim() === "--no-alt-screen" ? ["--no-alt-screen"] : [],
+  );
+});

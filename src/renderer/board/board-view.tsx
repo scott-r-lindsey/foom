@@ -18,21 +18,19 @@ function lightStyle(row: BoardRow): CSSProperties & { "--light-opacity": number 
 
 function ShellPanel({
   source,
-  onHide,
   onRestart,
 }: {
   source: NonNullable<BoardSource["shell"]>;
-  onHide: () => void;
   onRestart: () => void;
 }) {
   const view = useSyncExternalStore(source.subscribe, source.getSnapshot);
   const disposeRef = useRef<() => void>(undefined);
   const mount = useCallback(
     (element: HTMLElement | null) => {
-      if (element) disposeRef.current = source.mount(element, onHide);
+      if (element) disposeRef.current = source.mount(element);
       else disposeRef.current?.();
     },
-    [source, onHide],
+    [source],
   );
   return (
     <section className="shell-panel" aria-label="Shell terminal">
@@ -40,18 +38,6 @@ function ShellPanel({
         <span id="status" role="status">
           {view.status}
         </span>
-        <button
-          id="toggle-terminal"
-          disabled={view.toggleDisabled}
-          aria-controls="terminal"
-          aria-expanded={view.visible}
-          onClick={() => {
-            if (view.visible) onHide();
-            else void source.toggle();
-          }}
-        >
-          {view.toggleLabel}
-        </button>
         <button
           id="restart"
           disabled={view.restartDisabled}
@@ -82,28 +68,25 @@ export function Board({
   const [removeError, setRemoveError] = useState("");
   const [selection, setSelection] = useState(rows[0]?.id);
   const selected = rows.some((row) => row.id === selection) ? selection : rows[0]?.id;
-  const [opened, setOpened] = useState<{ id: string; kind: BoardRow["kind"] }>();
-  const [peek, setPeek] = useState<{ id: string; keyboard: boolean }>();
+  const [displayed, setDisplayed] = useState<{ id: string; kind: BoardRow["kind"] }>();
+  const [peek, setPeek] = useState<{ id: string }>();
   const [feedbackError, setFeedbackError] = useState("");
   const [tail, setTail] = useState<readonly string[]>([]);
   const buttonsRef = useRef(new Map<string, HTMLButtonElement>());
   const terminalRef = useRef<HTMLElement>(null);
-  const restoreRowFocusRef = useRef(false);
   const openRow =
-    rows.find((row) => row.id === opened?.id) ??
-    (opened?.kind === "shell"
+    rows.find((row) => row.id === displayed?.id) ??
+    (displayed?.kind === "shell"
       ? rows.find((row) => row.kind === "shell" && !row.managed)
       : undefined);
-  const openedId = openRow?.kind === "sample" ? undefined : openRow?.id;
+  const displayedId = openRow?.kind === "sample" ? undefined : openRow?.id;
   const peekRow = rows.find((row) => row.id === peek?.id);
   const waiting = rows.filter((row) => row.state === "needs_input").length;
   const groups = groupRows(rows);
-  const hide = useCallback(() => {
-    void source.shell?.hide();
-    restoreRowFocusRef.current = true;
-    setOpened(undefined);
-    setPeek(undefined);
-  }, [source]);
+  for (const repository of source.getRepositories?.() ?? []) {
+    if (!groups.has(repository)) groups.set(repository, []);
+  }
+  const sidebarRef = useRef<HTMLElement>(null);
   useEffect(() => {
     const timer = window.setInterval(() => {
       for (const row of source.getSnapshot()) {
@@ -129,7 +112,7 @@ export function Board({
       }),
     [source],
   );
-  const tailId = peek?.id ?? (openRow?.kind === "sample" ? openRow.id : undefined);
+  const tailId = peek?.id;
   useEffect(() => {
     let current = true;
     if (tailId) {
@@ -145,16 +128,14 @@ export function Board({
     return () => {
       current = false;
     };
-  }, [source, tailId, opened, peek]);
+  }, [source, tailId, displayed, peek]);
   useLayoutEffect(() => {
-    if (opened) {
+    if (displayed && !inactive) {
       terminalRef.current?.focus();
-      if (openedId) void source.shell?.open(openedId);
-    } else if (restoreRowFocusRef.current) {
-      restoreRowFocusRef.current = false;
-      if (selected) buttonsRef.current.get(selected)?.focus();
+      if (displayedId) void source.shell?.open(displayedId);
     }
-  }, [opened, openedId, selected, source]);
+    if (inactive || !displayedId) void source.shell?.hide();
+  }, [displayed, displayedId, source, inactive]);
   const focusedInitialRowRef = useRef(false);
   useLayoutEffect(() => {
     if (!focusedInitialRowRef.current && rows.length) {
@@ -168,53 +149,33 @@ export function Board({
     if (wasInactiveRef.current && !inactive && selected) buttonsRef.current.get(selected)?.focus();
     wasInactiveRef.current = inactive;
   }, [inactive, selected]);
-  const open = (row: BoardRow) => {
-    setFeedbackError("");
-    setSelection(row.id);
-    setOpened({ id: row.id, kind: row.kind });
-    setPeek(undefined);
-    setTail([]);
-    source.markSeen(row.id);
-  };
-  return (
-    <main
-      className="board-home"
-      aria-label="Board"
-      hidden={inactive}
-      inert={inactive}
-      onKeyDown={(event) => {
-        if (launching) return;
-        if (event.altKey || event.ctrlKey || event.metaKey) return;
-        if (event.key === "Escape" && (opened || peek)) {
-          event.preventDefault();
-          hide();
-        } else if (openRow && openRow.kind !== "sample") {
-          // Every printable key belongs to the shell while its view is open.
-          return;
-        } else if (event.key.toLowerCase() === "n") {
-          event.preventDefault();
-          const next = nextWaiting(rows);
+  const open = useCallback(
+    (row: BoardRow) => {
+      setFeedbackError("");
+      setSelection(row.id);
+      setDisplayed({ id: row.id, kind: row.kind });
+      setPeek(undefined);
+      setTail([]);
+      source.markSeen(row.id);
+    },
+    [source],
+  );
+  useEffect(
+    () =>
+      source.subscribeCommands?.((command) => {
+        if (inactive || launching) return;
+        if (command === "sidebar") {
+          const button = selected ? buttonsRef.current.get(selected) : undefined;
+          (button ?? sidebarRef.current)?.focus();
+        } else {
+          const next = nextWaiting(source.getSnapshot());
           if (next) open(next);
-        } else if (!opened && selected) {
-          const ordered = Array.from(groups.values()).flat();
-          const index = ordered.findIndex((row) => row.id === selected);
-          if (event.key === "ArrowDown" || event.key === "ArrowUp") {
-            event.preventDefault();
-            const next =
-              ordered[
-                (index + (event.key === "ArrowDown" ? 1 : ordered.length - 1)) % ordered.length
-              ];
-            if (next) buttonsRef.current.get(next.id)?.focus();
-          } else if (event.key.toLowerCase() === "p") {
-            event.preventDefault();
-            setTail([]);
-            setPeek(
-              peek?.keyboard && peek.id === selected ? undefined : { id: selected, keyboard: true },
-            );
-          }
         }
-      }}
-    >
+      }),
+    [source, inactive, launching, selected, open],
+  );
+  return (
+    <main className="board-home" aria-label="Board" hidden={inactive} inert={inactive}>
       <header className="board-top">
         <h1 className="wordmark" aria-label="foom">
           <span aria-hidden="true">
@@ -240,24 +201,11 @@ export function Board({
             Local shell
           </button>
         )}
-        {source.worktrees && (
-          <button
-            type="button"
-            onClick={() => {
-              if (opened) hide();
-              setLaunching(true);
-            }}
-          >
-            New worktree
-          </button>
-        )}
         {onPreflight && (
           <button
             type="button"
             className="board-preflight"
             onClick={() => {
-              // Hide an open terminal first so its view isn't measured while covered.
-              if (opened) hide();
               onPreflight();
             }}
           >
@@ -274,15 +222,41 @@ export function Board({
         />
       )}
       {removeError && <p role="alert">{removeError}</p>}
-      <p className="board-help">↑ ↓ select · P peek · Enter open · Esc hide · N next waiting</p>
-      <div className="board-workspace" data-open={Boolean(openRow)}>
-        <div className="board-list" inert={Boolean(openRow)}>
-          {rows.length === 0 && (
-            <p className="board-empty">
-              Nothing needs you. Yet.
-              <br />
-              No terminals in orbit.
-            </p>
+      <p className="board-help">
+        ⌘/Ctrl+Shift+B sidebar · ↑ ↓ select · Enter show · ⌘/Ctrl+Shift+N next waiting
+      </p>
+      <div className="board-workspace">
+        <nav
+          className="board-list"
+          aria-label="Terminal sidebar"
+          tabIndex={-1}
+          ref={sidebarRef}
+          onKeyDown={(event) => {
+            if (event.altKey || event.ctrlKey || event.metaKey || !selected) return;
+            if (!(event.target instanceof Element) || !event.target.closest(".board-row")) return;
+            const ordered = Array.from(groups.values()).flat();
+            const index = ordered.findIndex((row) => row.id === selected);
+            if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+              event.preventDefault();
+              const next =
+                ordered[
+                  (index + (event.key === "ArrowDown" ? 1 : ordered.length - 1)) % ordered.length
+                ];
+              if (next) buttonsRef.current.get(next.id)?.focus();
+            }
+          }}
+        >
+          {" "}
+          {source.worktrees && (
+            <button
+              type="button"
+              aria-label="New worktree"
+              onClick={() => {
+                setLaunching(true);
+              }}
+            >
+              New worktree
+            </button>
           )}
           {Array.from(groups, ([repository, group]) => (
             <section key={repository}>
@@ -298,25 +272,29 @@ export function Board({
                     data-kind={row.kind}
                     data-state={row.state}
                     tabIndex={row.id === selected ? 0 : -1}
-                    aria-current={row.id === selected}
+                    aria-current={row.id === openRow?.id}
+                    aria-label={`${row.branch} · ${row.agent} · ${light(row).label} · ${row.reason}`}
                     ref={(element) => {
                       if (element) buttonsRef.current.set(row.id, element);
                       else buttonsRef.current.delete(row.id);
                     }}
                     onFocus={() => {
                       setSelection(row.id);
+                      setTail([]);
+                      setPeek({ id: row.id });
+                    }}
+                    onBlur={() => {
+                      setPeek(undefined);
                     }}
                     onClick={() => {
                       open(row);
                     }}
                     onMouseEnter={() => {
-                      if (!opened && !peek?.keyboard) {
-                        setTail([]);
-                        setPeek({ id: row.id, keyboard: false });
-                      }
+                      setTail([]);
+                      setPeek({ id: row.id });
                     }}
-                    onMouseLeave={() => {
-                      if (!peek?.keyboard) setPeek(undefined);
+                    onMouseLeave={(event) => {
+                      if (document.activeElement !== event.currentTarget) setPeek(undefined);
                     }}
                   >
                     <span className="board-light" style={lightStyle(row)} aria-hidden="true" />
@@ -347,19 +325,18 @@ export function Board({
               ))}
             </section>
           ))}
-        </div>
+        </nav>
         <section
           className="board-terminal"
-          aria-label="Open terminal"
+          aria-label="Terminal pane"
           tabIndex={-1}
-          hidden={!openRow}
           ref={terminalRef}
         >
-          <div className="terminal-title">
+          {!openRow && (
+            <p className="board-empty">Select a terminal or choose New worktree to start.</p>
+          )}
+          <div className="terminal-title" hidden={!openRow}>
             <h2>{openRow && `${openRow.agent} · ${openRow.branch}`}</h2>
-            <button type="button" data-hide="" onClick={hide}>
-              Back to board · Esc
-            </button>
           </div>
           {openRow?.state === "needs_input" && (
             <div className="terminal-toolbar">
@@ -379,7 +356,7 @@ export function Board({
           )}
           {feedbackError && <p role="alert">{feedbackError}</p>}
           <div className="sample-terminal" hidden={openRow?.kind !== "sample"}>
-            <pre>{tail.join("\n")}</pre>
+            <pre>{openRow?.tail.join("\n")}</pre>
             <p>Sample output · read-only</p>
           </div>
           {/* Keep the controller mounted while hidden. The host retains all output. */}
@@ -387,7 +364,6 @@ export function Board({
             {source.shell && (
               <ShellPanel
                 source={source.shell}
-                onHide={hide}
                 onRestart={() => {
                   void source.shell?.restart().then(() => {
                     const row = source.getSnapshot().find((entry) => entry.kind === "shell");

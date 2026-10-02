@@ -80,6 +80,7 @@ const mock = vi.hoisted(() => {
     create: vi.fn<(cols: number, rows: number) => Promise<{ id: string; title: string }>>(),
     attach: vi.fn(),
     detach: vi.fn(),
+    wheel: vi.fn<(handler: (event: WheelEvent) => boolean) => void>(),
     key: vi.fn<(handler: (event: KeyboardEvent) => boolean) => void>(),
     kill: vi.fn(),
     input: vi.fn(),
@@ -108,6 +109,9 @@ vi.mock("@xterm/xterm", () => ({
     dispose = mock.dispose;
     onData = mock.onInput;
     attachCustomKeyEventHandler = mock.key;
+    attachCustomWheelEventHandler = mock.wheel;
+    buffer = { active: { type: "alternate" } };
+    modes = { mouseTrackingMode: "none", applicationCursorKeysMode: false };
     parser = {
       registerCsiHandler: vi.fn(),
       registerOscHandler: mock.osc,
@@ -339,23 +343,14 @@ test("repeated hide/open cycles retain one subscription and gate hidden input an
   expect(mock.onInput).toHaveBeenCalledOnce();
 });
 
-test("Escape hides without reaching the PTY; repeated keys cannot overlap transitions", async () => {
+test("Escape is not intercepted and input reaches the PTY", async () => {
   await settle(() => {
     render(<Shell />);
   });
-  await waitFor(() => {
-    expect(mock.focus).toHaveBeenCalled();
-  });
-  const key = mock.key.mock.calls[0]?.[0];
-  expect(key?.(new KeyboardEvent("keydown", { key: "a" }))).toBe(true);
-  expect(key?.(new KeyboardEvent("keydown", { key: "Escape" }))).toBe(false);
-  key?.(new KeyboardEvent("keydown", { key: "Escape" }));
-  expect(key?.(new KeyboardEvent("keyup", { key: "Escape" }))).toBe(false);
-  expect(mock.detach).toHaveBeenCalledOnce();
-  expect(mock.input).not.toHaveBeenCalled();
-  await waitFor(() => {
-    expect(document.querySelector<HTMLButtonElement>("#toggle-terminal")?.disabled).toBe(false);
-  });
+  expect(mock.key).not.toHaveBeenCalled();
+  mock.onInput.mock.calls[0]?.[0]("\x1b");
+  expect(mock.input).toHaveBeenCalledWith("one", "\x1b");
+  expect(mock.detach).not.toHaveBeenCalled();
 });
 
 test.each([new Error("unavailable"), "unavailable"])(
@@ -590,11 +585,10 @@ test("unmount during restart does not launch a replacement after kill completes"
   expect(mock.create).toHaveBeenCalledOnce();
 });
 
-test("hidden startup exposes a tail without attaching and delegates Escape to the board", async () => {
+test("hidden startup exposes a tail without attaching and preserves Escape", async () => {
   const tail = vi.fn().mockResolvedValue(["hidden output"]);
   Object.assign(window.desktop, { tail });
-  const hide = vi.fn();
-  const controller = createShell(document.createElement("div"), vi.fn(), false, hide);
+  const controller = createShell(document.createElement("div"), vi.fn(), false);
   await expect(controller.tail()).resolves.toEqual([]);
   await waitFor(() => {
     expect(mock.create).toHaveBeenCalledOnce();
@@ -605,7 +599,7 @@ test("hidden startup exposes a tail without attaching and delegates Escape to th
   await expect(controller.tail()).resolves.toEqual(["hidden output"]);
   expect(tail).toHaveBeenCalledWith("one", 40);
   mock.key.mock.calls[0]?.[0](new KeyboardEvent("keydown", { key: "Escape" }));
-  expect(hide).toHaveBeenCalledOnce();
+  expect(mock.key).not.toHaveBeenCalled();
   await controller.hide();
   await controller.open();
   await controller.open();
@@ -665,7 +659,7 @@ test("opening the board row before creation finishes attaches as soon as the she
 test("selecting live IDs detaches before resetting, routes only the selected stream and retains exits", async () => {
   const update = vi.fn();
   const created = vi.fn();
-  const controller = createShell(document.createElement("div"), update, false, undefined, created);
+  const controller = createShell(document.createElement("div"), update, false, created);
   await controller.open("agent-a");
   expect(created).toHaveBeenCalledWith("one", "bash — /project");
   expect(mock.detach).toHaveBeenCalledWith("one");
@@ -773,14 +767,7 @@ test("board selection waits for a replacement shell's pending attachment", async
 });
 
 test("a passive controller launches no shell until requested and preserves other terminals", async () => {
-  const controller = createShell(
-    document.createElement("div"),
-    vi.fn(),
-    false,
-    undefined,
-    undefined,
-    false,
-  );
+  const controller = createShell(document.createElement("div"), vi.fn(), false, undefined, false);
   await Promise.resolve();
   expect(mock.create).not.toHaveBeenCalled();
   await controller.open("agent-id");
@@ -788,5 +775,20 @@ test("a passive controller launches no shell until requested and preserves other
   expect(mock.kill).not.toHaveBeenCalledWith("agent-id");
   expect(mock.detach).toHaveBeenCalledWith("agent-id");
   expect(mock.create).toHaveBeenCalledOnce();
+  controller.dispose();
+});
+
+test("wheel input uses the selected attachment and stops while hidden", async () => {
+  const controller = createShell(document.createElement("div"), vi.fn());
+  await waitFor(() => {
+    expect(mock.focus).toHaveBeenCalled();
+  });
+  const wheel = mock.wheel.mock.calls[0]?.[0];
+  wheel?.(new WheelEvent("wheel", { deltaY: 14 }));
+  expect(mock.input).toHaveBeenLastCalledWith("one", "\x1b[B");
+  await controller.hide();
+  mock.input.mockClear();
+  wheel?.(new WheelEvent("wheel", { deltaY: 14 }));
+  expect(mock.input).not.toHaveBeenCalled();
   controller.dispose();
 });

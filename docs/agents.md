@@ -57,6 +57,12 @@ Approvals depend on permission mode and rules. Manual/default mode displays perm
 
 ## Codex
 
+Interactive launches add `--no-alt-screen` when the bounded `codex --help` probe lists
+that complete flag. This is independent of hook version gating and whether hooks are enabled.
+Codex then draws inline, so normal terminal scrollback is available to wheel scrolling,
+peek and evaluator tails. Missing/failed help probes omit the flag. Launch arguments remain
+an array, and no global configuration is changed.
+
 The installed CLI documents `-c key=value` as an invocation override with TOML values. Pass an argument array such as `["-c", "notify=[\"/absolute/foom-notify\"]"]`; do not pass a shell command string. This replaces the effective notify command for this launch, so Foom must disclose that an existing notifier is displaced or explicitly compose it. It does not edit the user's config.
 
 The documented external notification event is `agent-turn-complete`. The notify program receives one JSON argument appended after its configured arguments, **not stdin**. `tui.notifications` can include `approval-requested`, but that is a separate terminal-notification mechanism and does not add approval callbacks to `notify`. [Notification contract](https://learn.chatgpt.com/docs/config-file/config-advanced#notifications)

@@ -21,6 +21,8 @@ export interface WorktreeSource {
 /** Samples and the live source share rows, verdicts, activity batches and tails. */
 export interface BoardSource {
   getSnapshot: () => readonly BoardRow[];
+  getRepositories?: () => readonly string[];
+  subscribeCommands?: (listener: (command: "sidebar" | "next-waiting") => void) => () => void;
   subscribe: (listener: () => void) => () => void;
   subscribeActivity(listener: (batch: readonly TerminalActivity[]) => void): () => void;
   tail(id: string): Promise<readonly string[]>;
@@ -28,7 +30,7 @@ export interface BoardSource {
   resolve(id: string, reason: string): void | Promise<void>;
   worktrees?: WorktreeSource;
   shell?: {
-    mount(element: HTMLElement, onHide: () => void): () => void;
+    mount(element: HTMLElement): () => void;
     getSnapshot: () => ShellView;
     subscribe: (listener: () => void) => () => void;
     open(id?: string): Promise<void>;

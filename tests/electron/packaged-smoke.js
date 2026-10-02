@@ -4,7 +4,7 @@ const path = require("node:path");
 const { existsSync, mkdtempSync, rmSync, writeFileSync } = require("node:fs");
 const { tmpdir } = require("node:os");
 const { spawn, execFileSync } = require("node:child_process");
-const { chromium } = require("@playwright/test");
+const { chromium, expect } = require("@playwright/test");
 const { getCurrentFuseWire, FuseV1Options } = require("@electron/fuses");
 
 test("packaged utility host runs native PTYs with RunAsNode disabled", {
@@ -75,13 +75,9 @@ test("packaged utility host runs native PTYs with RunAsNode disabled", {
         !document.querySelector("#status").textContent.includes("Starting"),
     );
     assert.doesNotMatch(await page.locator("#status").innerText(), /Unable/);
-    await page.waitForFunction(() => !document.querySelector("#toggle-terminal").disabled);
-    await page.locator('.board-row[data-kind="shell"]').click();
-    await page.waitForFunction(
-      () =>
-        document.querySelector("#toggle-terminal").textContent === "Hide terminal" &&
-        !document.querySelector("#toggle-terminal").disabled,
-    );
+    await page.locator('.board-row[data-kind="shell"]').press("Enter");
+    await expect(page.getByRole("navigation", { name: "Terminal sidebar" })).toBeVisible();
+    await expect(page.locator(".xterm-helper-textarea")).toBeFocused();
     const command =
       process.platform === "win32"
         ? 'Write-Output ("PACKAGED_" + "PTY_OK")'
@@ -132,7 +128,14 @@ test("packaged utility host runs native PTYs with RunAsNode disabled", {
       if (process.platform === "win32")
         execFileSync("taskkill", ["/pid", String(child.pid), "/T", "/F"], { timeout: 5000 });
       else child.kill("SIGTERM");
-      await exited;
+      // A failed assertion can leave a live terminal and a quit confirmation.
+      // Bound cleanup so the original failure survives instead of the watchdog.
+      const forceExit = setTimeout(() => child.kill("SIGKILL"), 1000);
+      try {
+        await exited;
+      } finally {
+        clearTimeout(forceExit);
+      }
     }
     rmSync(profile, { recursive: true, force: true, maxRetries: 5 });
     clearTimeout(watchdog);

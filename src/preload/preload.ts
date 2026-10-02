@@ -52,6 +52,15 @@ function setupState(value: unknown): value is SetupState {
 }
 
 const desktop: DesktopApi = {
+  onBoardCommand(callback) {
+    const listener = (_event: IpcRendererEvent, command: unknown) => {
+      if (command === "sidebar" || command === "next-waiting") callback(command);
+    };
+    ipcRenderer.on("board:command", listener);
+    return () => {
+      ipcRenderer.removeListener("board:command", listener);
+    };
+  },
   async create(cols, rows) {
     const reply: unknown = await ipcRenderer.invoke("terminal:create", cols, rows);
     if (

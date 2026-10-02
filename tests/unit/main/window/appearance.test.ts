@@ -1,6 +1,7 @@
 import { expect, test } from "vitest";
 import {
   anchoredOrigin,
+  boardShortcut,
   nextScale,
   scaledBounds,
   scaledSize,
@@ -109,4 +110,23 @@ test("the anchored origin keeps the page under the pointer through a zoom", () =
   const moved = anchoredOrigin(bounds, content, { x: 300, y: 330 }, 1.1);
   expect(moved.x).toBeCloseTo(80);
   expect(moved.y).toBeCloseTo(80);
+});
+
+test("board chords reserve only platform navigation, preserving terminal control keys", () => {
+  for (const platform of ["darwin", "linux", "win32"] as const) {
+    const modifiers =
+      platform === "darwin" ? { meta: true, shift: true } : { control: true, shift: true };
+    expect(boardShortcut(key("KeyB", modifiers), platform)).toBe("sidebar");
+    expect(boardShortcut(key("KeyN", modifiers), platform)).toBe("next-waiting");
+    for (const input of [
+      key("KeyB", { control: true }),
+      key("KeyN"),
+      key("Escape"),
+      key("KeyC", modifiers),
+      key("KeyB", { ...modifiers, alt: true }),
+      key("KeyB", { ...modifiers, control: true, meta: true }),
+      key("KeyB", modifiers, "keyUp"),
+    ])
+      expect(boardShortcut(input, platform)).toBeUndefined();
+  }
 });

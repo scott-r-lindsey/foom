@@ -325,3 +325,17 @@ test("worktree launch and removal have dedicated channels", async () => {
   expect(mock.invoke).toHaveBeenCalledWith("workspace:start", request);
   expect(mock.invoke).toHaveBeenCalledWith("workspace:remove", "t1");
 });
+
+test("board commands accept only known actions and unsubscribe", async () => {
+  const api = await bridge();
+  const callback = vi.fn();
+  const off = api.onBoardCommand(callback);
+  const handler = mock.on.mock.calls[0]?.[1];
+  handler?.({}, "sidebar");
+  handler?.({}, "next-waiting");
+  handler?.({}, "foreign");
+  handler?.({}, { command: "sidebar" });
+  expect(callback.mock.calls).toEqual([["sidebar"], ["next-waiting"]]);
+  off();
+  expect(mock.removeListener).toHaveBeenCalledWith("board:command", handler);
+});

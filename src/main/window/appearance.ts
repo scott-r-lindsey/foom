@@ -36,6 +36,17 @@ export function zoomShortcut(
   return direction === "reset" || input.shift ? direction : undefined;
 }
 
+/** Reserved navigation chords; plain Ctrl+B remains available to tmux. */
+export function boardShortcut(
+  input: Pick<Input, "type" | "code" | "control" | "shift" | "alt" | "meta">,
+  platform: NodeJS.Platform,
+): "sidebar" | "next-waiting" | undefined {
+  if (input.type !== "keyDown" || !input.shift || input.alt) return undefined;
+  if (platform === "darwin" ? !input.meta || input.control : !input.control || input.meta)
+    return undefined;
+  return input.code === "KeyB" ? "sidebar" : input.code === "KeyN" ? "next-waiting" : undefined;
+}
+
 export interface Size {
   width: number;
   height: number;

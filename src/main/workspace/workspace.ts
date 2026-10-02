@@ -116,8 +116,10 @@ export class Workspace {
     };
   }
 
-  addRepository(path: string): Promise<Repository> {
-    return this.deps.worktrees.addRepository(path);
+  async addRepository(path: string): Promise<Repository> {
+    const repository = await this.deps.worktrees.addRepository(path);
+    this.deps.onChange?.();
+    return repository;
   }
 
   private known(repository: string): void {

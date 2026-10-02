@@ -55,6 +55,7 @@ const mock = vi.hoisted(() => {
   const readyEvents = new Map<string, () => void>();
   const window = {
     webContents: {
+      send: vi.fn(),
       copy: vi.fn(),
       paste: vi.fn(),
       setZoomFactor: vi.fn(),
@@ -739,4 +740,20 @@ test("zoom shortcuts change the interface size instead of reaching the terminal"
   await vi.waitFor(() => {
     expect(log).toHaveBeenCalledWith("Unable to change the interface size:", expect.any(Error));
   });
+});
+
+test("main intercepts board chords before terminal input", async () => {
+  await start();
+  const event = { preventDefault: vi.fn() };
+  mock.windowEvents.get("before-input-event")?.(event, {
+    type: "keyDown",
+    key: "B",
+    code: "KeyB",
+    shift: true,
+    alt: false,
+    control: process.platform !== "darwin",
+    meta: process.platform === "darwin",
+  });
+  expect(event.preventDefault).toHaveBeenCalledOnce();
+  expect(mock.window.webContents.send).toHaveBeenCalledWith("board:command", "sidebar");
 });

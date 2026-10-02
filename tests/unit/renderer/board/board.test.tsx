@@ -24,9 +24,22 @@ afterEach(() => {
   cleanup();
   vi.useRealTimers();
 });
+let command: ((command: "sidebar" | "next-waiting") => void) | undefined;
 function mountBoard(_host: HTMLElement, rows: BoardRow[]) {
   const source = createSampleSource(rows);
-  const view = render(<Board source={source} />);
+  const view = render(
+    <Board
+      source={{
+        ...source,
+        subscribeCommands: (listener) => {
+          command = listener;
+          return () => {
+            command = undefined;
+          };
+        },
+      }}
+    />,
+  );
   return {
     source,
     dispose: view.unmount,
@@ -40,11 +53,15 @@ function setup() {
   const dialog = document.querySelector(".board-home");
   if (!dialog) throw new Error("Missing dialog");
   const buttons = Array.from(dialog.querySelectorAll<HTMLButtonElement>(".board-row"));
-  const key = (key: string, ctrlKey = false) =>
-    fireEvent(
-      dialog,
-      new KeyboardEvent("keydown", { key, ctrlKey, bubbles: true, cancelable: true }),
-    );
+  const key = (key: string, ctrlKey = false) => {
+    if (key.toLowerCase() === "n" && !ctrlKey) {
+      act(() => {
+        command?.("next-waiting");
+      });
+      return;
+    }
+    fireEvent.keyDown(document.activeElement ?? dialog, { key, ctrlKey });
+  };
   const click = (selector: string) => {
     act(() => {
       dialog.querySelector<HTMLButtonElement>(selector)?.click();
@@ -112,29 +129,23 @@ test("queue uses oldest wait, keeps ties stable and never reorders the board", (
   first.state = "working";
   expect(waitTime(first, 300000)).toBe("—");
 });
-test("keyboard selection wraps; peek leaves focus in place; opening preserves attention", () => {
-  const { board, buttons, key, dialog, cancel, click } = setup();
+test("sidebar arrows wrap, focus peeks, selection preserves attention and Escape stays in the pane", () => {
+  const { board, buttons, key, dialog } = setup();
   expect(document.activeElement).toBe(buttons[0]);
   key("ArrowUp");
   expect(document.activeElement).toBe(buttons[9]);
   key("ArrowDown");
   expect(document.activeElement).toBe(buttons[0]);
-  key("p");
-  expect(document.activeElement).toBe(buttons[0]);
   expect(dialog.querySelector<HTMLElement>(".board-peek")?.hidden).toBe(false);
-  key("p");
-  expect(dialog.querySelector<HTMLElement>(".board-peek")?.hidden).toBe(true);
-  key("p");
-  expect(cancel()).toBe(false);
-  expect(dialog.querySelector<HTMLElement>(".board-peek")?.hidden).toBe(true);
-  key("n", true);
-  expect(dialog.querySelector<HTMLElement>(".board-terminal")?.hidden).toBe(true);
-  key("n");
+  act(() => {
+    buttons[0]?.click();
+  });
+  key("Escape");
   expect(document.activeElement).toBe(dialog.querySelector(".board-terminal"));
   expect(buttons[0]?.textContent).toContain("Needs you");
-  key("ArrowDown");
-  expect(document.activeElement).toBe(dialog.querySelector(".board-terminal"));
-  expect(cancel()).toBe(false);
+  act(() => {
+    command?.("sidebar");
+  });
   expect(document.activeElement).toBe(buttons[0]);
   act(() => {
     buttons[3]?.click();
@@ -144,23 +155,9 @@ test("keyboard selection wraps; peek leaves focus in place; opening preserves at
       ?.querySelector<HTMLElement>(".board-light")
       ?.style.getPropertyValue("--light-opacity"),
   ).toBe("0.4");
-  expect(dialog.textContent).toContain("read-only");
-  key("Escape");
-  expect(document.activeElement).toBe(buttons[3]);
-  act(() => {
-    buttons[3]?.click();
-  });
-  click("[data-hide]");
-  expect(document.activeElement).toBe(buttons[3]);
-  expect(cancel()).toBe(true);
-
-  act(() => {
-    vi.advanceTimersByTime(1000);
-  });
   board.dispose();
-  expect(document.querySelector(".board-home")).toBeNull();
 });
-test("hover peeks without focus and never covers an open terminal; terminal text stays data", async () => {
+test("hover peeks without switching the pane; terminal text stays data", async () => {
   const { board, buttons, dialog, rows } = setup();
   const row = rows[1];
   if (!row) throw new Error("Missing row");
@@ -179,7 +176,7 @@ test("hover peeks without focus and never covers an open terminal; terminal text
     buttons[1]?.click();
   });
   fireEvent.mouseOver(buttons[0] ?? document.body);
-  expect(dialog.querySelector<HTMLElement>(".board-peek")?.hidden).toBe(true);
+  expect(dialog.querySelector<HTMLElement>(".board-peek")?.hidden).toBe(false);
   board.dispose();
 });
 test("replies and dismissals advance the queue without moving rows; elapsed waits update", () => {
@@ -207,7 +204,7 @@ test("replies and dismissals advance the queue without moving rows; elapsed wait
   expect(dialog.querySelector(".board-summary")?.textContent).toBe("Nothing needs you. Yet.");
   key("n");
   key("a");
-  expect(dialog.querySelector<HTMLElement>(".board-terminal")?.hidden).toBe(true);
+  expect(dialog.querySelector<HTMLElement>(".board-terminal")?.hidden).toBe(false);
   expect(buttons.map((button) => button.querySelector(".board-branch")?.textContent)).toEqual(
     original,
   );
@@ -319,49 +316,21 @@ test("opening the same waiting row again keeps its output visible", async () => 
   expect(dialog.querySelector(".sample-terminal pre")?.textContent).toContain("Run npm test?");
 });
 
-test("keyboard peek replaces hover, stays pinned across mouse movement, and toggles off with P", async () => {
+test("focusing another row previews it without changing the selected pane", async () => {
   const { buttons, key, dialog } = setup();
-  fireEvent.mouseOver(buttons[1] ?? document.body);
-  await act(async () => {
-    await Promise.resolve();
-    await Promise.resolve();
+  act(() => {
+    buttons[0]?.click();
   });
-  expect(dialog.querySelector(".board-peek h2")?.textContent).toContain("feat/terminal-tabs");
-  key("p");
-  await act(async () => {
-    await Promise.resolve();
-    await Promise.resolve();
+  act(() => {
+    command?.("sidebar");
   });
-  expect(dialog.querySelector(".board-peek h2")?.textContent).toContain("fix/session-restore");
-  expect(dialog.querySelector(".board-peek pre")?.textContent).toContain("Run npm test?");
-  fireEvent.mouseOut(buttons[1] ?? document.body);
-  fireEvent.mouseOver(buttons[2] ?? document.body);
-  expect(dialog.querySelector(".board-peek h2")?.textContent).toContain("fix/session-restore");
-  expect(document.activeElement).toBe(buttons[0]);
   key("ArrowDown");
-  key("p");
   await act(async () => {
-    await Promise.resolve();
     await Promise.resolve();
   });
   expect(dialog.querySelector(".board-peek h2")?.textContent).toContain("feat/terminal-tabs");
-  key("p");
-  expect(dialog.querySelector<HTMLElement>(".board-peek")?.hidden).toBe(true);
-});
-
-test("pinning the currently hovered row retains its tail", async () => {
-  const { buttons, key, dialog } = setup();
-  fireEvent.mouseOver(buttons[0] ?? document.body);
-  await act(async () => {
-    await Promise.resolve();
-    await Promise.resolve();
-  });
-  key("p");
-  await act(async () => {
-    await Promise.resolve();
-    await Promise.resolve();
-  });
-  expect(dialog.querySelector(".board-peek pre")?.textContent).toContain("Run npm test?");
+  expect(dialog.querySelector(".board-terminal h2")?.textContent).toContain("fix/session-restore");
+  expect(dialog.querySelector(".sample-terminal pre")?.textContent).toContain("Run npm test?");
 });
 
 test("board opens the launcher without routing typing to shortcuts and reports removal errors", async () => {
