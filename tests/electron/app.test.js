@@ -1208,6 +1208,9 @@ test("launches an agent in a managed worktree and routes its attention signals",
   await page.locator('.board-row[data-kind="shell"]').press("Enter");
   await expect(page.locator(".xterm-helper-textarea")).toBeFocused();
   await boardCommand(app, "B");
+  // The native shortcut reaches the renderer asynchronously; wait before sending
+  // the next key so ArrowDown cannot go to the terminal instead of the sidebar.
+  await expect(page.locator('.board-row[data-kind="shell"]')).toBeFocused();
   await page.keyboard.press("ArrowDown");
   await expect(agentRow).toBeFocused();
   await page.keyboard.press("Enter");
@@ -2026,6 +2029,15 @@ test("Settings shares live preflight values, sizes the terminal and restores key
     }
     throw new Error("Settings control is not reachable with Tab");
   };
+  const nextSelectOption = async (control) => {
+    await tabToControl(control);
+    // Explicitly open and commit the native popup. ArrowDown followed by Tab
+    // leaves the current value unchanged on macOS.
+    await page.keyboard.press("Space");
+    await page.keyboard.press("ArrowDown");
+    await page.keyboard.press("Enter");
+    await page.keyboard.press("Tab");
+  };
   const section = async (name) => {
     await tabTo(page, name);
     await page.keyboard.press("Enter");
@@ -2061,9 +2073,7 @@ test("Settings shares live preflight values, sizes the terminal and restores key
   await section("Evaluator");
   await tabToControl(page.getByRole("radio", { name: /Rules only/ }));
   await page.keyboard.press("ArrowUp");
-  await tabToControl(page.getByLabel("Time limit"));
-  await page.keyboard.press("ArrowDown");
-  await page.keyboard.press("Tab");
+  await nextSelectOption(page.getByLabel("Time limit"));
   await expect
     .poll(() =>
       page.evaluate(async () => (await window.desktop.setupState()).settings.inferenceTimeoutMs),
@@ -2078,9 +2088,7 @@ test("Settings shares live preflight values, sizes the terminal and restores key
   await expect(page.getByRole("status").filter({ hasText: "110%" })).toBeVisible();
   await section("Terminal");
   const font = page.getByLabel("Terminal font size");
-  await tabToControl(font);
-  await page.keyboard.press("ArrowDown");
-  await page.keyboard.press("Tab");
+  await nextSelectOption(font);
   await expect
     .poll(() =>
       page.evaluate(async () => (await window.desktop.setupState()).settings.terminalFontSize),
