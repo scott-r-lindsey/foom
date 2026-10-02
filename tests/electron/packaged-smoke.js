@@ -35,20 +35,23 @@ test("packaged utility host runs native PTYs with RunAsNode disabled", {
       ? path.join(root, "Foom.app", "Contents", "Resources")
       : path.join(root, "resources");
   const archive = path.join(resources, "app.asar");
-  const notices = extractFile(archive, "build/THIRD_PARTY_NOTICES.txt").toString();
+  const notices = extractFile(archive, path.join("build", "THIRD_PARTY_NOTICES.txt")).toString();
   for (const name of [
     "hack-LICENSE.txt",
     "nerd-fonts-LICENSE.txt",
     "nerd-fonts-glyphs-NOTICES.txt",
   ]) {
     const source = readFileSync(path.join(__dirname, "../../src/renderer/fonts", name), "utf8");
-    assert.equal(extractFile(archive, `build/renderer/fonts/${name}`).toString(), source);
+    assert.equal(
+      extractFile(archive, path.join("build", "renderer", "fonts", name)).toString(),
+      source,
+    );
     assert.ok(notices.includes(source), `${name} is included in packaged third-party notices`);
   }
   for (const weight of ["Regular", "Bold"]) {
     const name = `HackNerdFontMono-${weight}.woff2`;
     assert.deepEqual(
-      extractFile(archive, `build/renderer/fonts/${name}`),
+      extractFile(archive, path.join("build", "renderer", "fonts", name)),
       readFileSync(path.join(__dirname, "../../src/renderer/fonts", name)),
     );
   }
