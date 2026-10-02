@@ -1844,6 +1844,7 @@ test("persistent sidebar keeps Escape in the PTY and routes keyboard navigation"
   const root = await mkdtemp(path.join(tmpdir(), "foom-input-"));
   context.after(() => rm(root, { recursive: true, force: true }));
   const marker = path.join(root, "keys");
+  await writeFile(marker, "");
   const app = await launchApp(context);
   const page = await app.firstWindow();
   await page.keyboard.type(
@@ -1969,7 +1970,8 @@ else console.log('ARGS:' + JSON.stringify(process.argv.slice(2)));
   await app.evaluate(({ dialog }, repo) => {
     dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [repo] });
   }, repo);
-  await page.evaluate(() => window.desktop.addRepository());
+  const repository = await page.evaluate(() => window.desktop.addRepository());
+  assert.equal(repository.path, await realpath(repo));
   await expect(page.getByRole("heading", { name: "repo", exact: true })).toBeVisible();
   for (const supported of [true, false]) {
     await writeFile(help, supported ? "--no-alt-screen" : "--no-alt-screen-extra");
@@ -1987,7 +1989,7 @@ else console.log('ARGS:' + JSON.stringify(process.argv.slice(2)));
           })
         ).id;
       },
-      { repo, branch: supported ? "inline" : "fullscreen" },
+      { repo: repository.path, branch: supported ? "inline" : "fullscreen" },
     );
     await expect
       .poll(() => page.evaluate((id) => window.desktop.tail(id, 40), id))
