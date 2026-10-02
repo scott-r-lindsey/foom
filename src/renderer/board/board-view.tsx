@@ -112,7 +112,7 @@ export function Board({
       }),
     [source],
   );
-  const tailId = peek?.id ?? (openRow?.kind === "sample" ? openRow.id : undefined);
+  const tailId = peek?.id;
   useEffect(() => {
     let current = true;
     if (tailId) {
@@ -356,7 +356,7 @@ export function Board({
           )}
           {feedbackError && <p role="alert">{feedbackError}</p>}
           <div className="sample-terminal" hidden={openRow?.kind !== "sample"}>
-            <pre>{tail.join("\n")}</pre>
+            <pre>{openRow?.tail.join("\n")}</pre>
             <p>Sample output · read-only</p>
           </div>
           {/* Keep the controller mounted while hidden. The host retains all output. */}

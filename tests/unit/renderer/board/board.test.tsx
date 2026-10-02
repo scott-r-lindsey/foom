@@ -330,6 +330,7 @@ test("focusing another row previews it without changing the selected pane", asyn
   });
   expect(dialog.querySelector(".board-peek h2")?.textContent).toContain("feat/terminal-tabs");
   expect(dialog.querySelector(".board-terminal h2")?.textContent).toContain("fix/session-restore");
+  expect(dialog.querySelector(".sample-terminal pre")?.textContent).toContain("Run npm test?");
 });
 
 test("board opens the launcher without routing typing to shortcuts and reports removal errors", async () => {
