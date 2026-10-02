@@ -2029,13 +2029,20 @@ test("Settings shares live preflight values, sizes the terminal and restores key
     }
     throw new Error("Settings control is not reachable with Tab");
   };
-  const nextSelectOption = async (control) => {
+  const nextSelectOption = async (control, value) => {
     await tabToControl(control);
-    // Explicitly open and commit the native popup. ArrowDown followed by Tab
-    // leaves the current value unchanged on macOS.
-    await page.keyboard.press("Space");
-    await page.keyboard.press("ArrowDown");
-    await page.keyboard.press("Enter");
+    if (process.platform === "darwin") {
+      // macOS native select popups do not consume synthetic web keyboard events:
+      // https://github.com/electron/electron/issues/12513
+      // Still verify Tab reachability, DOM change handling, and persistence here;
+      // Linux and Windows exercise selection entirely through the keyboard.
+      await control.selectOption(value);
+    } else {
+      await page.keyboard.press("Space");
+      await page.keyboard.press("ArrowDown");
+      await page.keyboard.press("Enter");
+    }
+    await expect(control).toHaveValue(value);
     await page.keyboard.press("Tab");
   };
   const section = async (name) => {
@@ -2073,7 +2080,7 @@ test("Settings shares live preflight values, sizes the terminal and restores key
   await section("Evaluator");
   await tabToControl(page.getByRole("radio", { name: /Rules only/ }));
   await page.keyboard.press("ArrowUp");
-  await nextSelectOption(page.getByLabel("Time limit"));
+  await nextSelectOption(page.getByLabel("Time limit"), "10000");
   await expect
     .poll(() =>
       page.evaluate(async () => (await window.desktop.setupState()).settings.inferenceTimeoutMs),
@@ -2088,7 +2095,7 @@ test("Settings shares live preflight values, sizes the terminal and restores key
   await expect(page.getByRole("status").filter({ hasText: "110%" })).toBeVisible();
   await section("Terminal");
   const font = page.getByLabel("Terminal font size");
-  await nextSelectOption(font);
+  await nextSelectOption(font, "15");
   await expect
     .poll(() =>
       page.evaluate(async () => (await window.desktop.setupState()).settings.terminalFontSize),
