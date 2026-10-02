@@ -1,3 +1,4 @@
+const { assertBundledTerminalFonts } = require("./font-checks.js");
 const { AxeBuilder } = require("@axe-core/playwright");
 const { test } = require("node:test");
 const assert = require("node:assert/strict");
@@ -555,11 +556,12 @@ test("bundled brand fonts and both system themes render in Electron", {
     assert.deepEqual(rendered.fonts, [true, true, true, true]);
     assert.match(rendered.bodyFont, /Geist/);
     assert.match(rendered.displayFont, /Archivo Black/);
-    assert.match(rendered.terminalFont, /Geist Mono/);
+    assert.match(rendered.terminalFont, /^"Hack Nerd Font Mono", "Geist Mono"/);
     assert.equal(rendered.background, background);
     assert.match(rendered.csp, /font-src 'self';/);
     assert.match(rendered.csp, /default-src 'none';/);
   }
+  await assertBundledTerminalFonts(page);
   for (const asset of ["archivo-black", "courier-prime", "geist", "geist-mono"]) {
     assert.equal(
       await app.evaluate(

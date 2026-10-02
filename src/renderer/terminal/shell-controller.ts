@@ -39,7 +39,7 @@ export function createShell(
   const terminal = new Terminal({
     cursorBlink: true,
     fontSize: 14,
-    fontFamily: '"Geist Mono", monospace',
+    fontFamily: '"Hack Nerd Font Mono", "Geist Mono", monospace',
     scrollback: 10000,
     theme: theme(),
   });
@@ -59,7 +59,6 @@ export function createShell(
   colors.addEventListener("change", updateTheme);
   const fit = new FitAddon();
   terminal.loadAddon(fit);
-  terminal.open(container);
   let disposed = false;
   const isDisposed = () => disposed;
   let activeId: string | undefined;
@@ -240,9 +239,15 @@ export function createShell(
     terminal.dispose();
   };
   // Measure the first grid only after the bundled terminal face is available.
-  let ready = autoStart
-    ? Promise.all([initialSettings, document.fonts.load('14px "Geist Mono"')]).then(start, start)
-    : initialSettings;
+  const initialReady = Promise.allSettled([
+    initialSettings,
+    document.fonts.load('14px "Hack Nerd Font Mono"'),
+    document.fonts.load('bold 14px "Hack Nerd Font Mono"'),
+  ]).then(() => {
+    // xterm caches character metrics during open(), before FitAddon runs.
+    if (!isDisposed()) terminal.open(container);
+  });
+  let ready = autoStart ? initialReady.then(start) : initialReady;
   const select = (id: string) => {
     const current = ++request;
     visibleRequested = false;
@@ -302,7 +307,7 @@ export function createShell(
     restart: () => {
       visibleRequested = true;
       // The board follows the new ID before its attachment has finished.
-      ready = start();
+      ready = initialReady.then(start);
       return ready;
     },
     dispose,

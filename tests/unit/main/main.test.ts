@@ -328,6 +328,8 @@ test("serves allowlisted local assets and rejects other hosts, paths, and method
     "fonts/courier-prime.ttf",
     "fonts/geist.ttf",
     "fonts/geist-mono.ttf",
+    "fonts/HackNerdFontMono-Regular.woff2",
+    "fonts/HackNerdFontMono-Bold.woff2",
   ]) {
     expect((await handler(new Request(`app://bundle/${asset}`))).status).toBe(200);
     expect(mock.fetch).toHaveBeenLastCalledWith(
@@ -346,7 +348,7 @@ test("serves allowlisted local assets and rejects other hosts, paths, and method
   expect((await handler(new Request("app://bundle/index.html", { method: "POST" }))).status).toBe(
     404,
   );
-  expect(mock.fetch).toHaveBeenCalledTimes(9);
+  expect(mock.fetch).toHaveBeenCalledTimes(11);
 });
 
 test("denies requested and checked permissions", async () => {

@@ -330,7 +330,7 @@ export function Preflight({
           className="settings-terminal-preview"
           style={{ fontSize: state.settings.terminalFontSize }}
         >
-          Geist Mono · Aa Bb 0123456789{"\n"}$ Ready when you are.
+          Hack Nerd Font Mono · Aa Bb 0123456789{"\n"}$ Ready when you are.
         </pre>
         <p className="preflight-note">More terminal options are coming.</p>
       </>

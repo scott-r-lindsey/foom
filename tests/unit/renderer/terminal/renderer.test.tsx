@@ -249,7 +249,7 @@ test("derives terminal colors from CSS and follows system theme changes", async 
   await settle(() => {
     render(<Shell />);
   });
-  expect(mock.options.fontFamily).toBe('"Geist Mono", monospace');
+  expect(mock.options.fontFamily).toBe('"Hack Nerd Font Mono", "Geist Mono", monospace');
   await waitFor(() => {
     expect(mock.focus).toHaveBeenCalled();
   });
@@ -271,13 +271,40 @@ test("waits for the terminal font before starting and fitting the shell", async 
   await settle(() => {
     render(<Shell />);
   });
-  expect(mock.fonts).toHaveBeenCalledWith('14px "Geist Mono"');
+  expect(mock.fonts).toHaveBeenCalledWith('14px "Hack Nerd Font Mono"');
+  expect(mock.fonts).toHaveBeenCalledWith('bold 14px "Hack Nerd Font Mono"');
   expect(mock.create).not.toHaveBeenCalled();
   loaded?.([]);
   await waitFor(() => {
     expect(mock.create).toHaveBeenCalledOnce();
   });
 });
+
+test.each(["select", "launch"])(
+  "board %s waits for both bundled weights before fitting",
+  async (action) => {
+    let regularLoaded: ((faces: FontFace[]) => void) | undefined;
+    let boldLoaded: ((faces: FontFace[]) => void) | undefined;
+    mock.fonts.mockImplementation(
+      (...args: unknown[]) =>
+        new Promise((resolve) => {
+          if (args[0] === '14px "Hack Nerd Font Mono"') regularLoaded = resolve;
+          else boldLoaded = resolve;
+        }),
+    );
+    const controller = createShell(document.createElement("div"), vi.fn(), false, undefined, false);
+    const opening = action === "select" ? controller.open("existing") : controller.restart();
+    await settle(() => regularLoaded?.([]));
+    expect(mock.create).not.toHaveBeenCalled();
+    expect(mock.attach).not.toHaveBeenCalled();
+    expect(mock.open).not.toHaveBeenCalled();
+    boldLoaded?.([]);
+    await opening;
+    expect(mock.open).toHaveBeenCalledOnce();
+    expect(mock.attach).toHaveBeenCalledOnce();
+    controller.dispose();
+  },
+);
 
 test("still starts with the fallback face if a bundled font cannot load", async () => {
   mock.fonts.mockRejectedValue(new Error("Font unavailable"));
@@ -511,6 +538,7 @@ test("unmount before fonts load does not create a terminal session", async () =>
     loaded?.([]);
   });
   expect(mock.create).not.toHaveBeenCalled();
+  expect(mock.open).not.toHaveBeenCalled();
   expect(mock.dispose).toHaveBeenCalledOnce();
 });
 

@@ -33,6 +33,8 @@ const assets = new Map([
   ["/fonts/courier-prime.ttf", "fonts/courier-prime.ttf"],
   ["/fonts/geist.ttf", "fonts/geist.ttf"],
   ["/fonts/geist-mono.ttf", "fonts/geist-mono.ttf"],
+  ["/fonts/HackNerdFontMono-Regular.woff2", "fonts/HackNerdFontMono-Regular.woff2"],
+  ["/fonts/HackNerdFontMono-Bold.woff2", "fonts/HackNerdFontMono-Bold.woff2"],
   ["/renderer.js", "renderer.js"],
   ["/renderer.css", "renderer.css"],
 ]);

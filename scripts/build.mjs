@@ -1,6 +1,6 @@
 import { build } from "esbuild";
 import { execFileSync } from "node:child_process";
-import { chmod, copyFile, cp, glob, mkdir, rm } from "node:fs/promises";
+import { chmod, copyFile, cp, glob, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -58,4 +58,21 @@ await cp(
   new URL("../src/renderer/fonts/", import.meta.url),
   new URL("../build/renderer/fonts/", import.meta.url),
   { recursive: true },
+);
+
+// Keep complete font licenses and glyph attributions in a single packaged notice,
+// as well as beside the font assets. No network or font conversion at build time.
+const fontNotices = [];
+for await (const name of glob("src/renderer/fonts/*.txt", { cwd: root })) {
+  fontNotices.push(name);
+}
+fontNotices.sort();
+await writeFile(
+  join(root, "build/THIRD_PARTY_NOTICES.txt"),
+  "Foom bundled font licenses and attributions\n\n" +
+    (
+      await Promise.all(
+        fontNotices.map(async (name) => `${name}\n\n${await readFile(join(root, name), "utf8")}`),
+      )
+    ).join("\n\n"),
 );

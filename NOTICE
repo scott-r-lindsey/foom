@@ -4,3 +4,9 @@ Copyright 2026 Scott Lindsey
 Licensed under the Apache License, Version 2.0.
 
 Third-party components retain their respective licenses and notices.
+
+Bundled fonts: complete licenses and glyph-set attributions are included in
+build/THIRD_PARTY_NOTICES.txt and beside the fonts in build/renderer/fonts/.
+Hack Nerd Font Mono includes Hack (MIT), Bitstream Vera (reserved names
+"Bitstream" and "Vera"), and Nerd Fonts glyph sets, including Microsoft
+Codicons under CC BY 4.0. See those notices for authors, sources, and terms.

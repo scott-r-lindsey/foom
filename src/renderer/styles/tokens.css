@@ -27,6 +27,37 @@
   font-display: swap;
 }
 
+@font-face {
+  font-family: "Hack Nerd Font Mono";
+  src: url("./fonts/HackNerdFontMono-Regular.woff2") format("woff2");
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Hack Nerd Font Mono";
+  src: url("./fonts/HackNerdFontMono-Bold.woff2") format("woff2");
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+}
+/* A separate family lets a missing local italic fall through to synthetic Hack,
+   rather than making the bundled family's italic face fail to load. */
+@font-face {
+  font-family: "Hack Nerd Font Mono Local Italic";
+  src: local("Hack Nerd Font Mono Italic"), local("HackNFM-Italic");
+  font-style: italic;
+  font-weight: 400;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Hack Nerd Font Mono Local Italic";
+  src: local("Hack Nerd Font Mono Bold Italic"), local("HackNFM-BoldItalic");
+  font-style: italic;
+  font-weight: 700;
+  font-display: swap;
+}
+
 :root {
   color-scheme: dark light;
   --bg: #f3f0fa;
@@ -54,6 +85,7 @@
   --font-voice: "Courier Prime", monospace;
   --font-interface: "Geist", sans-serif;
   --font-mono: "Geist Mono", monospace;
+  --font-terminal: "Hack Nerd Font Mono", "Geist Mono", monospace;
 }
 
 @media (prefers-color-scheme: dark) {

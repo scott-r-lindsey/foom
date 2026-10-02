@@ -749,7 +749,7 @@ test("Settings shares setup controls, saves immediately and exposes planned sect
   await waitFor(() => {
     expect(source.save).toHaveBeenCalledWith({ terminalFontSize: 18 });
   });
-  expect(screen.getByText(/Geist Mono ·/).style.fontSize).toBe("18px");
+  expect(screen.getByText(/Hack Nerd Font Mono ·/).style.fontSize).toBe("18px");
   fireEvent.click(button("Themes"));
   expect(screen.getByText(/Eclipse is the current theme/)).toBeTruthy();
   fireEvent.click(button("Sound"));
