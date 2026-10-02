@@ -116,6 +116,8 @@ test("board chords reserve only platform navigation, preserving terminal control
   for (const platform of ["darwin", "linux", "win32"] as const) {
     const modifiers =
       platform === "darwin" ? { meta: true, shift: true } : { control: true, shift: true };
+    expect(boardShortcut(key("Comma", { ...modifiers, shift: false }), platform)).toBe("settings");
+    expect(boardShortcut(key("Comma", modifiers), platform)).toBeUndefined();
     expect(boardShortcut(key("KeyB", modifiers), platform)).toBe("sidebar");
     expect(boardShortcut(key("KeyN", modifiers), platform)).toBe("next-waiting");
     for (const input of [

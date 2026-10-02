@@ -333,9 +333,10 @@ test("board commands accept only known actions and unsubscribe", async () => {
   const handler = mock.on.mock.calls[0]?.[1];
   handler?.({}, "sidebar");
   handler?.({}, "next-waiting");
+  handler?.({}, "settings");
   handler?.({}, "foreign");
   handler?.({}, { command: "sidebar" });
-  expect(callback.mock.calls).toEqual([["sidebar"], ["next-waiting"]]);
+  expect(callback.mock.calls).toEqual([["sidebar"], ["next-waiting"], ["settings"]]);
   off();
   expect(mock.removeListener).toHaveBeenCalledWith("board:command", handler);
 });

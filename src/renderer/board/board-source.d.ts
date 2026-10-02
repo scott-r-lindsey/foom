@@ -22,7 +22,9 @@ export interface WorktreeSource {
 export interface BoardSource {
   getSnapshot: () => readonly BoardRow[];
   getRepositories?: () => readonly string[];
-  subscribeCommands?: (listener: (command: "sidebar" | "next-waiting") => void) => () => void;
+  subscribeCommands?: (
+    listener: (command: "sidebar" | "next-waiting" | "settings") => void,
+  ) => () => void;
   subscribe: (listener: () => void) => () => void;
   subscribeActivity(listener: (batch: readonly TerminalActivity[]) => void): () => void;
   tail(id: string): Promise<readonly string[]>;

@@ -13,8 +13,10 @@ export function RepositoriesStep({
   scanCode,
   setCode,
   nav,
+  immediate = false,
 }: StepHeading &
   Pick<StepActions, "nav"> & {
+    immediate?: boolean;
     source: SetupSource;
     code: CodeSelection | undefined;
     repositories: readonly Repository[];
@@ -34,8 +36,10 @@ export function RepositoriesStep({
         Where do you keep your code?
       </h2>
       <p className="preflight-intro">
-        Foom looks for Git repositories there. Ones you've worked in over the last 30 days start
-        checked.
+        Foom looks for Git repositories there.{" "}
+        {immediate
+          ? "Added repositories start checked. Changes to the selection apply immediately."
+          : "Ones you've worked in over the last 30 days start checked."}
       </p>
       <RepositoryPicker
         source={source}

@@ -29,10 +29,12 @@ test("patches copy only known, well-formed fields", () => {
       inferenceTimeoutMs: 15_000,
       colorMode: "dark",
       interfaceScale: 120,
+      terminalFontSize: 18,
       codeFolder: "/home/me/code",
     }),
   ).toEqual({
     codeFolder: "/home/me/code",
+    terminalFontSize: 18,
     colorMode: "dark",
     interfaceScale: 120,
     inferenceTimeoutMs: 15_000,
@@ -63,6 +65,7 @@ test("patches copy only known, well-formed fields", () => {
     { interfaceScale: 105 },
     { interfaceScale: 200 },
     { interfaceScale: "100" },
+    ...[9, 33, 14.5, "14", null, NaN, Infinity].map((terminalFontSize) => ({ terminalFontSize })),
     { codeFolder: "relative/code" },
     { codeFolder: "/bad\0path" },
     { codeFolder: `/${"x".repeat(4096)}` },
@@ -102,10 +105,14 @@ test("updates are private, atomic, serialized and survive a restart", async () =
   const store = await SettingsStore.open(dir);
   const [first, second] = await Promise.all([
     store.update({ hooks: false }),
-    store.update({ worktreeLocation: "adjacent" }),
+    store.update({ worktreeLocation: "adjacent", terminalFontSize: 32 }),
   ]);
   expect(first.hooks).toBe(false);
-  expect(second).toMatchObject({ hooks: false, worktreeLocation: "adjacent" });
+  expect(second).toMatchObject({
+    hooks: false,
+    worktreeLocation: "adjacent",
+    terminalFontSize: 32,
+  });
   expect(await readdir(dir)).toEqual(["settings.json"]);
   const file = path.join(dir, "settings.json");
   if (process.platform !== "win32") expect((await stat(file)).mode & 0o777).toBe(0o600);

@@ -7,7 +7,7 @@ import {
   useState,
   useSyncExternalStore,
 } from "react";
-import type { CSSProperties } from "react";
+import type { CSSProperties, ReactNode } from "react";
 import type { BoardSource } from "./board-source.d";
 import type { BoardRow } from "./board.d";
 import { groupRows, light, nextWaiting, waitTime } from "./board";
@@ -57,12 +57,20 @@ export function Board({
   source,
   inactive = false,
   onPreflight,
+  onSettings,
+  settingsView,
+  onCloseSettings,
 }: {
   source: BoardSource;
   /** Preflight is covering the board; it stays mounted so terminals keep running. */
   inactive?: boolean;
   onPreflight?: () => void;
+  onSettings?: () => void;
+  settingsView?: ReactNode;
+  onCloseSettings?: () => void;
 }) {
+  const settingsOpen = Boolean(settingsView);
+  const paneInactive = inactive || settingsOpen;
   const rows = useSyncExternalStore(source.subscribe, source.getSnapshot);
   const [launching, setLaunching] = useState(false);
   const [removeError, setRemoveError] = useState("");
@@ -129,13 +137,27 @@ export function Board({
       current = false;
     };
   }, [source, tailId, displayed, peek]);
+  const selectedRef = useRef(selected);
   useLayoutEffect(() => {
-    if (displayed && !inactive) {
+    selectedRef.current = selected;
+  }, [selected]);
+  const wasInactiveRef = useRef(paneInactive);
+  useLayoutEffect(() => {
+    let current = true;
+    const returning = wasInactiveRef.current;
+    if (displayed && !paneInactive) {
       terminalRef.current?.focus();
-      if (displayedId) void source.shell?.open(displayedId);
+      if (displayedId)
+        void source.shell?.open(displayedId).then(() => {
+          if (current && returning && selectedRef.current)
+            buttonsRef.current.get(selectedRef.current)?.focus();
+        });
     }
-    if (inactive || !displayedId) void source.shell?.hide();
-  }, [displayed, displayedId, source, inactive]);
+    if (paneInactive || !displayedId) void source.shell?.hide();
+    return () => {
+      current = false;
+    };
+  }, [displayed, displayedId, source, paneInactive]);
   const focusedInitialRowRef = useRef(false);
   useLayoutEffect(() => {
     if (!focusedInitialRowRef.current && rows.length) {
@@ -143,12 +165,12 @@ export function Board({
       buttonsRef.current.values().next().value?.focus();
     }
   }, [rows]);
-  const wasInactiveRef = useRef(inactive);
   useLayoutEffect(() => {
-    // Coming back from preflight: return focus to the row the user left.
-    if (wasInactiveRef.current && !inactive && selected) buttonsRef.current.get(selected)?.focus();
-    wasInactiveRef.current = inactive;
-  }, [inactive, selected]);
+    // Coming back from setup: restore the row now and again after attachment settles.
+    if (wasInactiveRef.current && !paneInactive && selected)
+      buttonsRef.current.get(selected)?.focus();
+    wasInactiveRef.current = paneInactive;
+  }, [paneInactive, selected]);
   const open = useCallback(
     (row: BoardRow) => {
       setFeedbackError("");
@@ -156,15 +178,20 @@ export function Board({
       setDisplayed({ id: row.id, kind: row.kind });
       setPeek(undefined);
       setTail([]);
+      // Selecting a row asks for terminal input focus, rather than Escape restoration.
+      wasInactiveRef.current = false;
+      onCloseSettings?.();
       source.markSeen(row.id);
     },
-    [source],
+    [source, onCloseSettings],
   );
   useEffect(
     () =>
       source.subscribeCommands?.((command) => {
         if (inactive || launching) return;
-        if (command === "sidebar") {
+        if (command === "settings") {
+          onSettings?.();
+        } else if (command === "sidebar") {
           const button = selected ? buttonsRef.current.get(selected) : undefined;
           (button ?? sidebarRef.current)?.focus();
         } else {
@@ -172,7 +199,7 @@ export function Board({
           if (next) open(next);
         }
       }),
-    [source, inactive, launching, selected, open],
+    [source, inactive, launching, selected, open, onSettings],
   );
   return (
     <main className="board-home" aria-label="Board" hidden={inactive} inert={inactive}>
@@ -199,6 +226,16 @@ export function Board({
             }}
           >
             Local shell
+          </button>
+        )}
+        {onSettings && (
+          <button
+            type="button"
+            className="board-settings"
+            onClick={onSettings}
+            aria-pressed={settingsOpen}
+          >
+            Settings
           </button>
         )}
         {onPreflight && (
@@ -326,7 +363,10 @@ export function Board({
             </section>
           ))}
         </nav>
+        {settingsView}
         <section
+          hidden={settingsOpen}
+          inert={settingsOpen}
           className="board-terminal"
           aria-label="Terminal pane"
           tabIndex={-1}

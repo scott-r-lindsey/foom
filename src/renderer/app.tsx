@@ -19,6 +19,7 @@ export function App() {
   const [setup] = useState(createSetupSource);
   const [state, setState] = useState<SetupState>();
   const [preflight, setPreflight] = useState(false);
+  const [settings, setSettings] = useState(false);
   const [board, setBoard] = useState(false);
   useEffect(() => {
     setup.state().then(
@@ -34,10 +35,11 @@ export function App() {
       },
     );
   }, [setup]);
-  const reopen = async () => {
+  const reopen = async (showSettings = false) => {
     try {
       setState(await setup.state());
-      setPreflight(true);
+      setPreflight(!showSettings);
+      setSettings(showSettings);
     } catch (error) {
       console.error("Unable to load setup:", error);
     }
@@ -62,7 +64,32 @@ export function App() {
             : {})}
         />
       )}
-      {board && <Board source={source} inactive={preflight} onPreflight={() => void reopen()} />}
+      {board && (
+        <Board
+          source={source}
+          inactive={preflight}
+          onPreflight={() => void reopen()}
+          onSettings={() => {
+            if (!settings) void reopen(true);
+          }}
+          onCloseSettings={() => {
+            setSettings(false);
+          }}
+          settingsView={
+            settings && state ? (
+              <Preflight
+                source={setup}
+                initial={state}
+                settingsMode
+                onLaunched={setState}
+                onClose={() => {
+                  setSettings(false);
+                }}
+              />
+            ) : undefined
+          }
+        />
+      )}
     </>
   );
 }

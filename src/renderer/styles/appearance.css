@@ -84,9 +84,9 @@
     align-items: center;
     margin: 0 0 0 auto;
   }
-  .appearance-mode legend,
-  .appearance-hint,
-  .appearance-size > span {
+  .preflight .appearance-mode legend,
+  .preflight .appearance-hint,
+  .preflight .appearance-size > span {
     display: none;
   }
 }

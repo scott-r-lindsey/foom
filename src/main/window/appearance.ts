@@ -40,10 +40,12 @@ export function zoomShortcut(
 export function boardShortcut(
   input: Pick<Input, "type" | "code" | "control" | "shift" | "alt" | "meta">,
   platform: NodeJS.Platform,
-): "sidebar" | "next-waiting" | undefined {
-  if (input.type !== "keyDown" || !input.shift || input.alt) return undefined;
+): "sidebar" | "next-waiting" | "settings" | undefined {
+  if (input.type !== "keyDown" || input.alt) return undefined;
   if (platform === "darwin" ? !input.meta || input.control : !input.control || input.meta)
     return undefined;
+  if (input.code === "Comma" && !input.shift) return "settings";
+  if (!input.shift) return undefined;
   return input.code === "KeyB" ? "sidebar" : input.code === "KeyN" ? "next-waiting" : undefined;
 }
 

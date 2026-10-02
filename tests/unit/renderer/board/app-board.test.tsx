@@ -11,6 +11,7 @@ import type { TerminalState, WorkspaceSnapshot } from "../../../../src/shared/wo
 import type { SetupState } from "../../../../src/shared/setup";
 const mock = vi.hoisted(() => ({
   failStart: false,
+  command: undefined as ((command: "sidebar" | "next-waiting" | "settings") => void) | undefined,
   created: undefined as ((id: string, title: string) => void) | undefined,
   state: undefined as ((state: TerminalState) => void) | undefined,
   changed: undefined as (() => void) | undefined,
@@ -64,7 +65,12 @@ beforeEach(() => {
     configurable: true,
     value: {
       setupState: mock.setupState,
-      onBoardCommand: () => () => undefined,
+      onBoardCommand: (listener: (command: "sidebar" | "next-waiting" | "settings") => void) => {
+        mock.command = listener;
+        return () => {
+          mock.command = undefined;
+        };
+      },
       onSetupChange: () => () => undefined,
       codeSuggestions: () => Promise.resolve([]),
       saveSetup: (patch: Partial<SetupState["settings"]>) =>
@@ -495,4 +501,45 @@ test("starting a local shell explicitly leaves a retryable row if creation fails
     reason: "Unable to start shell",
   });
   dispose?.();
+});
+
+test("Settings keeps the sidebar mounted and returns focus after terminal attachment", async () => {
+  const screen = render(<App />);
+  await settle();
+  const row = screen.container.querySelector<HTMLButtonElement>('[data-kind="shell"]');
+  await act(async () => {
+    await Promise.resolve();
+    row?.click();
+  });
+  await act(async () => {
+    await Promise.resolve();
+    mock.command?.("settings");
+  });
+  expect(screen.getByRole("navigation", { name: "Terminal sidebar" })).toBeTruthy();
+  expect(screen.getByRole("region", { name: "Settings" })).toBeTruthy();
+  expect(screen.container.querySelector<HTMLElement>(".board-terminal")?.hidden).toBe(true);
+  expect(mock.dispose).not.toHaveBeenCalled();
+  const reads = mock.setupState.mock.calls.length;
+  await act(async () => {
+    await Promise.resolve();
+    mock.command?.("settings");
+  });
+  expect(mock.setupState.mock.calls.length).toBe(reads);
+  await act(async () => {
+    await Promise.resolve();
+    fireEvent.keyDown(screen.getByRole("region", { name: "Settings" }), { key: "Escape" });
+  });
+  expect(screen.queryByRole("region", { name: "Settings" })).toBeNull();
+  expect(document.activeElement).toBe(row);
+  expect(screen.container.querySelector<HTMLElement>(".board-terminal")?.hidden).toBe(false);
+  await act(async () => {
+    await Promise.resolve();
+    screen.getByRole("button", { name: "Settings" }).click();
+  });
+  await act(async () => {
+    await Promise.resolve();
+    row?.click();
+  });
+  expect(screen.queryByRole("region", { name: "Settings" })).toBeNull();
+  expect(mock.dispose).not.toHaveBeenCalled();
 });

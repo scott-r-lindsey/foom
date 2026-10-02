@@ -71,6 +71,7 @@ export function createShell(
   let visibleRequested = initiallyOpen;
   const wantsVisible = () => visibleRequested;
   let busy = false;
+  let fontResizePending = false;
   let exited = false;
   let hostFailed = false;
   let terminalStatus = "Starting shell…";
@@ -89,6 +90,7 @@ export function createShell(
     publish();
   };
   const controls = () => {
+    if (fontResizePending) resize();
     view.toggleDisabled = busy || !activeId;
     view.restartDisabled = busy || !exited || (activeId !== undefined && activeId !== shellId);
     publish();
@@ -121,8 +123,27 @@ export function createShell(
   const resize = () => {
     if (!attached || busy) return;
     fit.fit();
+    fontResizePending = false;
     if (activeId) window.desktop.resize(activeId, terminal.cols, terminal.rows);
   };
+  // Subscribe before loading so a late initial response cannot undo a live change.
+  let settingsChanged = false;
+  const applyFont = (size: number) => {
+    if (isDisposed() || terminal.options.fontSize === size) return;
+    terminal.options.fontSize = size;
+    fontResizePending = true;
+    resize();
+  };
+  const offSetup = window.desktop.onSetupChange((state) => {
+    settingsChanged = true;
+    applyFont(state.settings.terminalFontSize);
+  });
+  const initialSettings = window.desktop.setupState().then(
+    (state) => {
+      if (!settingsChanged) applyFont(state.settings.terminalFontSize);
+    },
+    () => undefined,
+  );
   const observer = new ResizeObserver(resize);
   observer.observe(container);
   const openView = async (id: string) => {
@@ -136,6 +157,7 @@ export function createShell(
     updateTheme();
     visibility(true);
     fit.fit();
+    fontResizePending = false;
     window.desktop.resize(id, terminal.cols, terminal.rows);
     await window.desktop.attach(id);
     if (!wantsVisible()) {
@@ -213,13 +235,14 @@ export function createShell(
     observer.disconnect();
     offData();
     offExit();
+    offSetup();
     if (activeId) void window.desktop.detach(activeId).catch(() => {});
     terminal.dispose();
   };
   // Measure the first grid only after the bundled terminal face is available.
   let ready = autoStart
-    ? document.fonts.load('14px "Geist Mono"').then(start, start)
-    : Promise.resolve();
+    ? Promise.all([initialSettings, document.fonts.load('14px "Geist Mono"')]).then(start, start)
+    : initialSettings;
   const select = (id: string) => {
     const current = ++request;
     visibleRequested = false;

@@ -696,3 +696,116 @@ test("scans show live progress; a saved folder is rescanned on arrival; failures
   fireEvent.click(button("Scan again"));
   expect((await screen.findByRole("alert")).textContent).toBe("EACCES");
 });
+
+test("Settings shares setup controls, saves immediately and exposes planned sections", async () => {
+  const initial = setupState({ setupComplete: true });
+  const source = fake(initial);
+  const close = vi.fn();
+  render(
+    <Preflight
+      source={source}
+      initial={initial}
+      settingsMode
+      onLaunched={vi.fn()}
+      onClose={close}
+    />,
+  );
+  await waitFor(() => {
+    expect(screen.getByLabelText("Claude Code")).toHaveProperty("disabled", false);
+  });
+  expect(screen.queryByText("Continue")).toBeNull();
+  fireEvent.click(screen.getByLabelText(/Attach Foom's hooks/));
+  await waitFor(() => {
+    expect(source.save).toHaveBeenCalledWith({ hooks: false });
+  });
+  fireEvent.click(button("Repositories"));
+  fireEvent.click(await screen.findByRole("button", { name: /code.*2 repositories/ }));
+  await screen.findByText("0 of 2 selected");
+  fireEvent.click(screen.getByRole("checkbox", { name: /app/ }));
+  await waitFor(() => {
+    expect(source.apply).toHaveBeenCalledWith(["/home/me/code/app"]);
+  });
+  await waitFor(() => {
+    expect(button("Worktrees")).toHaveProperty("disabled", false);
+  });
+  fireEvent.click(button("Worktrees"));
+  fireEvent.click(screen.getByLabelText(/Put them next to/));
+  await waitFor(() => {
+    expect(source.save).toHaveBeenCalledWith({ worktreeLocation: "adjacent" });
+  });
+  fireEvent.click(button("Evaluator"));
+  expect(screen.getByText("How should Foom read a terminal that goes quiet?")).toBeTruthy();
+  fireEvent.click(button("Appearance"));
+  fireEvent.click(screen.getByLabelText("Dark"));
+  await waitFor(() => {
+    expect(source.save).toHaveBeenCalledWith({ colorMode: "dark" });
+  });
+  fireEvent.click(button("Larger"));
+  await waitFor(() => {
+    expect(source.save).toHaveBeenCalledWith({ interfaceScale: 110 });
+  });
+  fireEvent.click(button("Terminal"));
+  fireEvent.change(screen.getByLabelText("Terminal font size"), { target: { value: "18" } });
+  await waitFor(() => {
+    expect(source.save).toHaveBeenCalledWith({ terminalFontSize: 18 });
+  });
+  expect(screen.getByText(/Geist Mono ·/).style.fontSize).toBe("18px");
+  fireEvent.click(button("Themes"));
+  expect(screen.getByText(/Eclipse is the current theme/)).toBeTruthy();
+  fireEvent.click(button("Sound"));
+  expect(screen.getByText(/Sound controls are coming/)).toBeTruthy();
+  fireEvent.keyDown(screen.getByRole("region", { name: "Settings" }), { key: "a" });
+  expect(close).not.toHaveBeenCalled();
+  const dialog = document.createElement("dialog");
+  document.body.append(dialog);
+  fireEvent.keyDown(dialog, { key: "Escape" });
+  expect(close).not.toHaveBeenCalled();
+  dialog.remove();
+  fireEvent.keyDown(screen.getByRole("region", { name: "Settings" }), { key: "Escape" });
+  expect(close).toHaveBeenCalledOnce();
+});
+
+test("Settings rolls back refused repository changes and prevents leaving during a write", async () => {
+  const initial = setupState({ setupComplete: true, codeFolder: "/home/me/code" });
+  const source = fake(initial);
+  source.repositories.mockResolvedValue([{ path: "/elsewhere/keep", name: "keep" }]);
+  const close = vi.fn();
+  render(
+    <Preflight
+      source={source}
+      initial={initial}
+      settingsMode
+      onLaunched={vi.fn()}
+      onClose={close}
+    />,
+  );
+  fireEvent.click(button("Repositories"));
+  await screen.findByText("0 of 2 selected");
+  let finish: (value: RepositoryUpdate) => void = () => {};
+  source.apply.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+  );
+  fireEvent.click(screen.getByRole("checkbox", { name: /app/ }));
+  expect(button("Terminal")).toHaveProperty("disabled", true);
+  fireEvent.keyDown(screen.getByRole("region", { name: "Settings" }), { key: "Escape" });
+  expect(close).not.toHaveBeenCalled();
+  await act(async () => {
+    await Promise.resolve();
+    finish({
+      repositories: [{ path: "/elsewhere/keep", name: "keep" }],
+      failures: [{ path: "/home/me/code/app", message: "Repository unavailable" }],
+    });
+  });
+  expect(screen.getByRole("alert").textContent).toContain("Repository unavailable");
+  expect(screen.getByRole("checkbox", { name: /app/ })).toHaveProperty("checked", false);
+  source.apply.mockRejectedValueOnce(new Error("Cannot write"));
+  fireEvent.click(screen.getByRole("checkbox", { name: /app/ }));
+  await screen.findByText("Cannot write");
+  expect(source.apply).toHaveBeenLastCalledWith(["/home/me/code/app"]);
+  expect(screen.getByRole("checkbox", { name: /app/ })).toHaveProperty("checked", false);
+  fireEvent.click(button("Back to terminal · Esc"));
+  expect(close).toHaveBeenCalledOnce();
+});
