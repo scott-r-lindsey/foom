@@ -33,13 +33,21 @@ The light carries two separate signals.
 - Failed uses a square light, so the state never depends on color alone.
 - Every verdict carries a one-line reason and the signal that produced it, for example `Wants to edit src/main/main.ts · pattern: (y/n)`.
 
-## Revealing a terminal
+## Terminal sidebar
 
-1. **Glance**: the light plus its reason line.
-2. **Peek**: hover or press a key to see the last lines. Focus doesn't move.
-3. **Open**: the full interactive terminal. Esc hides it again.
+The sidebar stays beside one terminal pane. It groups stable rows by repository, with each
+terminal's light and reason. Registered repositories and **New worktree** remain visible
+when no terminals are running. The empty pane points to New worktree.
 
-`N` opens whichever terminal has waited longest. Rows keep a stable position so users learn where each terminal lives. The waiting queue is ordered by wait time, not by layout.
+Hover or focus a row to peek at its last lines without switching the pane or moving focus.
+Click a row, or press Enter on it, to show that terminal and focus its input. Showing a
+terminal leaves Needs you intact; Done and Failed dim once seen.
+
+Below 720 CSS pixels, the sidebar becomes a column of lights with accessible names.
+It never disappears. ⌘⇧B on macOS or Ctrl+Shift+B elsewhere focuses the sidebar; arrow
+keys move between rows. ⌘⇧N or Ctrl+Shift+N shows and focuses the terminal that has waited
+longest for you. The terminal receives its other keys, including Esc to interrupt agents.
+Preflight returns to this same layout and preserves the selected terminal.
 
 ## The evaluator
 

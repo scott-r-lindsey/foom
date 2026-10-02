@@ -103,6 +103,7 @@ async function detect(id: AgentId, path: string): Promise<AgentInstallation> {
       path: executable,
       version,
       hooks,
+      inline: id === "codex" && /(?:^|\s)--no-alt-screen(?:[ =,]|$)/mu.test(help),
       reason: hooks
         ? "Per-launch hooks supported."
         : "Unverified hook support; using output evaluation.",
@@ -196,7 +197,7 @@ export class AgentService {
     const binding = attach ? await attach(agent.id) : undefined;
     try {
       this.ensureOpen();
-      const args: string[] = [];
+      const args: string[] = agent.inline ? ["--no-alt-screen"] : [];
       if (binding) {
         if (agent.id === "claude") {
           const hook = [{ hooks: [{ type: "command", command: binding.claudeCommand }] }];

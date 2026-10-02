@@ -1,3 +1,4 @@
+import { alternateScroll } from "./alternate-scroll";
 import { TerminalColors } from "../../shared/terminal-colors";
 import { Terminal } from "@xterm/xterm";
 import { suppressTerminalReplies } from "./terminal-replies";
@@ -9,7 +10,6 @@ export function createShell(
   container: HTMLElement,
   update: (view: ShellView) => void,
   initiallyOpen = true,
-  onEscape?: () => void,
   onCreated?: (id: string, title: string) => void,
   autoStart = true,
 ) {
@@ -114,6 +114,10 @@ export function createShell(
   terminal.onData((data) => {
     if (activeId && attached && !busy) window.desktop.input(activeId, data);
   });
+  const wheel = alternateScroll(terminal, (data) => {
+    if (activeId && attached && !busy) window.desktop.input(activeId, data);
+  });
+  terminal.attachCustomWheelEventHandler((event) => wheel.handle(event));
   const resize = () => {
     if (!attached || busy) return;
     fit.fit();
@@ -127,6 +131,7 @@ export function createShell(
       terminal.write("", resolve);
     });
     if (isDisposed() || !wantsVisible()) return;
+    wheel.reset();
     terminal.reset();
     updateTheme();
     visibility(true);
@@ -159,14 +164,6 @@ export function createShell(
       controls();
     }
   };
-  terminal.attachCustomKeyEventHandler((event) => {
-    if (event.key !== "Escape") return true;
-    if (event.type === "keydown") {
-      if (onEscape) onEscape();
-      else void toggleView();
-    }
-    return false;
-  });
   const start = async () => {
     if (isDisposed() || busy) return;
     busy = true;

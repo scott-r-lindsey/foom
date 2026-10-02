@@ -168,8 +168,10 @@ test("records an unknown branch as null and rejects unknown repositories", async
 });
 
 test("adds repositories, lists and creates worktrees through the service", async () => {
-  const workspace = new Workspace(deps);
+  const changed = vi.fn();
+  const workspace = new Workspace({ ...deps, onChange: changed });
   await expect(workspace.addRepository("/repos/app")).resolves.toBe(repo);
+  expect(changed).toHaveBeenCalledOnce();
   await expect(workspace.worktrees(repo.path)).resolves.toEqual([tree]);
   await expect(workspace.createWorktree(repo.path, "feature", "adjacent")).resolves.toBe(tree);
   expect(deps.worktrees.createWorktree).toHaveBeenCalledWith(repo.path, "feature", {

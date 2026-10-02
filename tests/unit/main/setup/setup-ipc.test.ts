@@ -111,7 +111,8 @@ test("passes payloads to Setup, which validates them, and never offers a key rea
     repositories: 0,
   });
   expect(() => invoke("setup:scan-code", ["bad id", "/code"])).toThrow("Invalid scan ID");
-  expect(invoke("setup:apply-repositories", [["/code/a"]])).toBe("applied");
+  await expect(invoke("setup:apply-repositories", [["/code/a"]])).resolves.toBe("applied");
+  expect(contents.send).toHaveBeenLastCalledWith("workspace:changed");
   expect(setup.applyRepositories).toHaveBeenCalledWith(["/code/a"]);
   expect(mock.handle.mock.calls.some(([name]) => /get-key|read-key/.test(name))).toBe(false);
 });

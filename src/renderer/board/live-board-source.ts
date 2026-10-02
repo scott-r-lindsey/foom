@@ -23,6 +23,7 @@ export function createAppSource(localShell = false): BoardSource {
     tail: [],
   };
   let rows: readonly BoardRow[] = localShell ? [startupRow] : [];
+  let repositories: readonly string[] = [];
   let controller: ReturnType<typeof createShell> | undefined;
   let shellId = pendingShell;
   let view: ShellView = {
@@ -70,6 +71,7 @@ export function createAppSource(localShell = false): BoardSource {
     return state ? stateRow(row, state) : { ...row, rate: rates.get(row.id) ?? row.rate };
   };
   const snapshot = (next: WorkspaceSnapshot) => {
+    repositories = next.repositories.map((repo) => repo.name);
     const known = new Map(rows.map((row) => [row.id, row]));
     const live = next.terminals.map((entry): BoardRow => {
       const previousState = states.get(entry.id);
@@ -133,6 +135,8 @@ export function createAppSource(localShell = false): BoardSource {
       },
     },
     getSnapshot: () => rows,
+    getRepositories: () => repositories,
+    subscribeCommands: (listener) => window.desktop.onBoardCommand(listener),
     subscribe: (listener) => {
       listeners.add(listener);
       return () => {
@@ -166,7 +170,7 @@ export function createAppSource(localShell = false): BoardSource {
           viewListeners.delete(listener);
         };
       },
-      mount: (element, onHide) => {
+      mount: (element) => {
         let disposed = false;
         let revision = 0;
         const refresh = async () => {
@@ -207,7 +211,6 @@ export function createAppSource(localShell = false): BoardSource {
             for (const listener of viewListeners) listener();
           },
           false,
-          onHide,
           (id, title) => {
             rows = rows.filter((row) => row.id !== shellId);
             shellId = id;

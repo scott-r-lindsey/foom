@@ -6,6 +6,17 @@ const { mkdir, mkdtemp, readFile, realpath, rm, writeFile } = require("node:fs/p
 const { tmpdir } = require("node:os");
 const { _electron: electron, expect } = require("@playwright/test");
 
+async function boardCommand(app, keyCode) {
+  await app.evaluate(
+    ({ BrowserWindow }, { keyCode, mac }) => {
+      const contents = BrowserWindow.getAllWindows()[0].webContents;
+      for (const type of ["keyDown", "keyUp"])
+        contents.sendInputEvent({ type, keyCode, modifiers: [mac ? "meta" : "control", "shift"] });
+    },
+    { keyCode, mac: process.platform === "darwin" },
+  );
+}
+
 async function assertAccessible(page) {
   // Electron does not support Target.createTarget. This app has no cross-origin frames.
   for (const colorScheme of ["light", "dark"]) {
@@ -151,12 +162,11 @@ async function launchApp(context, openShell = true, options = {}) {
     .poll(() => page.locator("#status").textContent(), { timeout: 10000 })
     .not.toBe("Starting shell…");
   assert.doesNotMatch(await page.locator("#status").textContent(), /Unable|failed/);
-  await expect(page.locator("#toggle-terminal")).toBeEnabled();
   if (openShell) {
     // Use the board's keyboard action for setup; pointer clicks wait for layout
     // stability and can stall during the first window's startup on a CI display.
     await page.locator(".board-row[data-kind='shell']").press("Enter");
-    await expect(page.getByRole("button", { name: "Hide terminal", exact: true })).toBeEnabled();
+    await expect(page.locator(".xterm-helper-textarea")).toBeFocused();
   }
   return app;
 }
@@ -307,6 +317,7 @@ test("terminal runs an interactive shell behind an isolated bridge", {
         node: "undefined",
         process: "undefined",
         capabilities: [
+          "onBoardCommand",
           "create",
           "attach",
           "detach",
@@ -799,7 +810,7 @@ test("a crashed utility host reports failure and the renderer can restart", {
     () => !/Starting|failed|Unable/.test(document.querySelector("#status").textContent),
   );
   // A title is available before the replacement attachment is ready for input.
-  await expect(page.getByRole("button", { name: "Hide terminal", exact: true })).toBeEnabled();
+  await expect(page.locator(".xterm-helper-textarea")).toBeFocused();
   await expect(page.locator(".xterm-helper-textarea")).toBeFocused();
   const replacementPid = await app.evaluate(
     ({ app }) => app.getAppMetrics().find((metric) => metric.name === "Foom terminal host")?.pid,
@@ -879,7 +890,7 @@ test("host answers color queries once through real view transitions and system t
   }
 });
 
-test("Hide and Open restore hidden fullscreen output across repeated view transitions", {
+test("Preflight transitions restore background fullscreen output repeatedly", {
   timeout: 45000,
 }, async (context) => {
   const directory = await mkdtemp(path.join(tmpdir(), "foom-view-probe-"));
@@ -887,7 +898,7 @@ test("Hide and Open restore hidden fullscreen output across repeated view transi
   const marker = path.join(directory, "stage");
   const app = await launchApp(context);
   const page = await app.firstWindow();
-  const hide = page.getByRole("button", { name: "Hide terminal", exact: true });
+  const hide = page.getByRole("button", { name: "Preflight", exact: true });
   const open = page.locator(".board-row[data-kind='shell']");
   await expect(hide).toBeEnabled();
   await page.evaluate(() => {
@@ -903,9 +914,9 @@ test("Hide and Open restore hidden fullscreen output across repeated view transi
   await page.keyboard.press("Enter");
   const rows = page.locator(".xterm-rows");
   await expect(rows).toContainText("NORMAL_VIEW_READY");
-  await page.keyboard.press("Escape");
+  await hide.click();
+  await expect(page.locator(".preflight")).toBeVisible();
   await expect(open).toBeEnabled();
-  await expect(open).toBeFocused();
   await expect(page.locator("#terminal")).toBeHidden();
   await page.evaluate(() => {
     window.viewChunks = 0;
@@ -914,16 +925,22 @@ test("Hide and Open restore hidden fullscreen output across repeated view transi
   await expect.poll(() => readFile(marker, "utf8").catch(() => "pending")).toBe("alternate");
   assert.equal(await page.evaluate(() => window.viewChunks), 0);
   for (let cycle = 0; cycle < 4; cycle++) {
+    await page.keyboard.press("Escape");
+    await expect(page.locator(".preflight")).toBeHidden();
     await open.click();
     await expect(hide).toBeEnabled();
     await expect(rows).toContainText("ALTERNATE_HIDDEN_OUTPUT");
     await expect(rows).not.toContainText("NORMAL_VIEW_READY");
     await expect(page.locator(".xterm-helper-textarea")).toBeFocused();
     await hide.click();
+    await expect(page.locator(".preflight")).toBeVisible();
+    await expect(page.locator(".preflight")).toBeVisible();
     await expect(open).toBeEnabled();
   }
   await page.evaluate(() => window.desktop.input(window.viewId, "n"));
   await expect.poll(() => readFile(marker, "utf8")).toBe("normal");
+  await page.keyboard.press("Escape");
+  await expect(page.locator(".preflight")).toBeHidden();
   await open.click();
   await expect(hide).toBeEnabled();
   await expect(rows).toContainText("NORMAL_VIEW_READY");
@@ -933,6 +950,8 @@ test("Hide and Open restore hidden fullscreen output across repeated view transi
   // repeated attachments, and transitions between both buffers.
   for (const mode of ["a", "n", "a", "n"]) {
     await hide.click();
+    await expect(page.locator(".preflight")).toBeVisible();
+    await expect(page.locator(".preflight")).toBeVisible();
     await expect(open).toBeEnabled();
     await page.evaluate((key) => window.desktop.input(window.viewId, key), mode);
     await expect.poll(() => readFile(marker, "utf8")).toBe(mode === "a" ? "alternate" : "normal");
@@ -940,6 +959,8 @@ test("Hide and Open restore hidden fullscreen output across repeated view transi
       await page.evaluate((key) => window.desktop.input(window.viewId, key), setup);
       await expect.poll(() => readFile(marker, "utf8")).toBe(setup);
       for (let cycle = 0; cycle < 3; cycle++) {
+        await page.keyboard.press("Escape");
+        await expect(page.locator(".preflight")).toBeHidden();
         await open.click();
         await expect(hide).toBeEnabled();
         await expect(rows).toContainText("FOOTER");
@@ -964,9 +985,12 @@ test("Hide and Open restore hidden fullscreen output across repeated view transi
         const tail = await page.evaluate(() => window.desktop.tail(window.viewId, 10000));
         assert.deepEqual(tail.slice(-6), expected);
         await hide.click();
+        await expect(page.locator(".preflight")).toBeVisible();
         await expect(open).toBeEnabled();
       }
     }
+    await page.keyboard.press("Escape");
+    await expect(page.locator(".preflight")).toBeHidden();
     await open.click();
     await expect(hide).toBeEnabled();
   }
@@ -981,7 +1005,8 @@ test("board starts with live terminals only and peeks without opening", async (c
   await expect(row).toHaveCount(1);
   await expect(row).toBeFocused();
   await expect(page.locator("#terminal")).toBeHidden();
-  await page.keyboard.press("p");
+  await page.locator(".board-help").click();
+  await row.focus();
   await expect(page.getByRole("complementary", { name: "Terminal peek" })).toBeVisible();
   await expect(row).toBeFocused();
   await expect(page.locator("#terminal")).toBeHidden();
@@ -996,6 +1021,8 @@ test("board starts with live terminals only and peeks without opening", async (c
   await restart.click();
   await expect(page.locator(".xterm-helper-textarea")).toBeFocused();
   await page.keyboard.press("Escape");
+  await expect(page.locator(".xterm-helper-textarea")).toBeFocused();
+  await boardCommand(app, "B");
   await expect(row).toBeFocused();
 });
 
@@ -1154,14 +1181,36 @@ test("launches an agent in a managed worktree and routes its attention signals",
     .filter({ hasText: "feature/fake" });
   await expect(agentRow).toHaveAttribute("data-state", "needs_input");
   await expect(agentRow).toContainText("pattern:confirmation");
+  const firstCredentials = JSON.parse(await readFile(credentials, "utf8"));
+  await page.evaluate(async (repository) => {
+    const tree = await window.desktop.createWorktree(repository, "feature/newer", "adjacent");
+    await window.desktop.launchAgent({
+      agent: "claude",
+      repository,
+      worktree: tree.path,
+      cols: 80,
+      rows: 24,
+    });
+  }, setup.repository.path);
+  await expect(page.locator(".board-row").filter({ hasText: "feature/newer" })).toHaveAttribute(
+    "data-state",
+    "needs_input",
+  );
   // Peek reads the real host tail and leaves both focus and attachment alone.
   await agentRow.focus();
-  await page.keyboard.press("p");
+  await page.locator(".board-row:focus").focus();
   await expect(page.locator(".board-peek")).toContainText("FOOM_AGENT_READY");
   await expect(agentRow).toBeFocused();
   await expect(page.locator("#terminal")).toBeHidden();
-  await page.keyboard.press("Escape");
-  await page.keyboard.press("n");
+  await page.locator('.board-row[data-kind="shell"]').press("Enter");
+  await expect(page.locator(".xterm-helper-textarea")).toBeFocused();
+  await boardCommand(app, "B");
+  await page.keyboard.press("ArrowDown");
+  await expect(agentRow).toBeFocused();
+  await page.keyboard.press("Enter");
+  await expect(page.locator(".xterm-helper-textarea")).toBeFocused();
+  await page.locator('.board-row[data-kind="shell"]').press("Enter");
+  await boardCommand(app, "N");
   await expect(page.locator(".xterm-helper-textarea")).toBeFocused();
   await expect(agentRow).toHaveAttribute("data-state", "needs_input");
   await assertAccessible(page);
@@ -1193,7 +1242,7 @@ test("launches an agent in a managed worktree and routes its attention signals",
   assert.equal((await latest()).signal, "user:dismissed");
 
   // Exit is final and revokes the launch's hook credentials.
-  const hook = JSON.parse(await readFile(credentials, "utf8"));
+  const hook = firstCredentials;
   await page.evaluate((terminal) => window.desktop.input(terminal, "q"), id);
   await expect.poll(async () => (await latest())?.state, { timeout: 10000 }).toBe("failed");
   const replay = await fetch(hook.url, {
@@ -1207,7 +1256,7 @@ test("launches an agent in a managed worktree and routes its attention signals",
   });
   assert.equal(replay.status, 401);
   await expect(agentRow).toHaveAttribute("data-state", "failed");
-  await page.getByRole("button", { name: "Back to board · Esc" }).click();
+  await boardCommand(app, "B");
   for (const branch of ["finish-ok", "finish-failed"]) {
     await page.evaluate(
       async ({ repository, branch }) => {
@@ -1324,7 +1373,7 @@ test("focus reports reach the shell without counting as a reply", {
     .toBe("pattern:password");
 
   // Moving focus to the board control makes xterm report focus-out to the program.
-  await page.locator("#toggle-terminal").focus();
+  await boardCommand(app, "B");
   await page.waitForTimeout(1500);
   assert.equal((await latest()).state, "needs_input");
 
@@ -1787,4 +1836,161 @@ test("new worktree dialog launches by keyboard and confirms dirty removal", {
     isolatedGit(["branch", "--list", "feature/ui"], { cwd: repo }).toString().trim(),
     "feature/ui",
   );
+});
+
+test("persistent sidebar keeps Escape in the PTY and routes keyboard navigation", {
+  timeout: 45000,
+}, async (context) => {
+  const root = await mkdtemp(path.join(tmpdir(), "foom-input-"));
+  context.after(() => rm(root, { recursive: true, force: true }));
+  const marker = path.join(root, "keys");
+  const app = await launchApp(context);
+  const page = await app.firstWindow();
+  await page.keyboard.type(
+    `${process.platform === "win32" ? "& " : ""}"${process.execPath}" "${path.join(__dirname, "input-probe.js")}" "${marker}"`,
+  );
+  await page.keyboard.press("Enter");
+  await expect(page.locator(".xterm-rows")).toContainText("INPUT_READY");
+  await page.keyboard.press("Escape");
+  await expect.poll(() => readFile(marker, "utf8")).toContain("1b\n");
+  await page.keyboard.press("Control+b");
+  await page.keyboard.press("Control+n");
+  await expect.poll(() => readFile(marker, "utf8")).toContain("02");
+  await expect.poll(() => readFile(marker, "utf8")).toContain("0e");
+  await expect(page.locator("#terminal")).toBeVisible();
+  await page.screenshot({ path: path.join(__dirname, "../../out/88-sidebar-wide.png") });
+  await boardCommand(app, "B");
+  await expect(page.locator(".board-row")).toBeFocused();
+  await expect(page.locator(".board-peek")).toContainText("INPUT_READY");
+  await page.keyboard.press("Enter");
+  await expect(page.locator(".xterm-helper-textarea")).toBeFocused();
+  const screen = page.locator(".xterm-screen");
+  await screen.hover();
+  await page.mouse.wheel(0, 56);
+  await expect.poll(() => readFile(marker, "utf8")).toContain("1b5b42");
+  await page.keyboard.type("m");
+  await expect(page.locator(".xterm-rows")).toContainText("MOUSE_READY");
+  await writeFile(marker, "");
+  await page.mouse.wheel(0, -56);
+  await expect.poll(() => readFile(marker, "utf8")).toContain("1b5b3c");
+  assert.doesNotMatch(await readFile(marker, "utf8"), /1b5b41|1b4f41/);
+  await assertAccessible(page);
+  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(640, 600));
+  await expect(page.getByRole("navigation", { name: "Terminal sidebar" })).toBeVisible();
+  await expect
+    .poll(() => page.locator(".board-list").evaluate((el) => el.getBoundingClientRect().width))
+    .toBe(64);
+  await assertAccessible(page);
+  await page.screenshot({ path: path.join(__dirname, "../../out/88-sidebar-narrow.png") });
+  await page.locator(".xterm-helper-textarea").focus();
+  await page.keyboard.type("q");
+});
+
+test("wheel moves less and preserves normal shell scrollback", {
+  timeout: 30000,
+  skip: process.platform === "win32" && "less is a POSIX pager",
+}, async (context) => {
+  const app = await launchApp(context);
+  const page = await app.firstWindow();
+  await page.keyboard.type("seq 1 300 | less");
+  await page.keyboard.press("Enter");
+  const rows = page.locator(".xterm-rows");
+  await expect.poll(() => rows.locator(":scope > div").first().textContent()).toMatch(/^1\s*$/);
+  await page.locator(".xterm-screen").hover();
+  await page.mouse.wheel(0, 140);
+  await expect.poll(() => rows.locator(":scope > div").first().textContent()).not.toMatch(/^1\s*$/);
+  await page.keyboard.type("q");
+  await page.keyboard.type("seq 1 300");
+  await page.keyboard.press("Enter");
+  await expect(rows).toContainText("300");
+  const before = await rows.textContent();
+  await page.mouse.wheel(0, -500);
+  await expect.poll(() => rows.textContent()).not.toBe(before);
+});
+
+test("empty sidebar and terminal pane stay accessible at both widths", async (context) => {
+  const app = await launchApp(context, false, { emptyBoard: true });
+  const page = await app.firstWindow();
+  for (const width of [1000, 640]) {
+    await app.evaluate(
+      ({ BrowserWindow }, width) => BrowserWindow.getAllWindows()[0].setSize(width, 600),
+      width,
+    );
+    await expect(page.getByRole("navigation", { name: "Terminal sidebar" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "New worktree", exact: true })).toBeVisible();
+    await expect(page.getByRole("region", { name: "Terminal pane" })).toContainText("New worktree");
+    await assertAccessible(page);
+  }
+});
+
+test("fake Codex receives inline flag only when help advertises it", {
+  timeout: 30000,
+  skip: process.platform === "win32" && "The fake CLI is a POSIX executable",
+}, async (context) => {
+  const { chmod } = require("node:fs/promises");
+  const root = await mkdtemp(path.join(tmpdir(), "foom-inline-"));
+  context.after(() => rm(root, { recursive: true, force: true }));
+  const bin = path.join(root, "bin");
+  const repo = path.join(root, "repo");
+  const home = path.join(root, "home");
+  await Promise.all([mkdir(bin), mkdir(repo), mkdir(home)]);
+  const help = path.join(root, "help");
+  const cli = path.join(bin, "codex");
+  await writeFile(
+    cli,
+    `#!/usr/bin/env node
+const fs = require('node:fs');
+if (process.argv[2] === '--version') console.log('codex-cli 0.159.3');
+else if (process.argv[2] === '--help') console.log(fs.readFileSync(${JSON.stringify(help)}, 'utf8'));
+else console.log('ARGS:' + JSON.stringify(process.argv.slice(2)));
+`,
+  );
+  await chmod(cli, 0o755);
+  isolatedGit(["init", "-q", "-b", "main"], { cwd: repo });
+  isolatedGit(
+    [
+      "-c",
+      "user.name=Foom",
+      "-c",
+      "user.email=foom@example.com",
+      "commit",
+      "--allow-empty",
+      "-qm",
+      "init",
+    ],
+    { cwd: repo },
+  );
+  await writeFile(help, "--no-alt-screen");
+  const app = await launchApp(context, false, {
+    emptyBoard: true,
+    env: { HOME: home, PATH: `${bin}${path.delimiter}${process.env.PATH}` },
+  });
+  const page = await app.firstWindow();
+  await app.evaluate(({ dialog }, repo) => {
+    dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [repo] });
+  }, repo);
+  await page.evaluate(() => window.desktop.addRepository());
+  await expect(page.getByRole("heading", { name: "repo", exact: true })).toBeVisible();
+  for (const supported of [true, false]) {
+    await writeFile(help, supported ? "--no-alt-screen" : "--no-alt-screen-extra");
+    const id = await page.evaluate(
+      async ({ repo, branch }) => {
+        await window.desktop.scanAgents(true);
+        const tree = await window.desktop.createWorktree(repo, branch, "adjacent");
+        return (
+          await window.desktop.launchAgent({
+            agent: "codex",
+            repository: repo,
+            worktree: tree.path,
+            cols: 80,
+            rows: 24,
+          })
+        ).id;
+      },
+      { repo, branch: supported ? "inline" : "fullscreen" },
+    );
+    await expect
+      .poll(() => page.evaluate((id) => window.desktop.tail(id, 40), id))
+      .toContain(supported ? 'ARGS:["--no-alt-screen"]' : "ARGS:[]");
+  }
 });

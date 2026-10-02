@@ -4,6 +4,7 @@ export interface AgentInstallation {
   readonly path: string | null;
   readonly version: string | null;
   readonly hooks: boolean;
+  readonly inline?: boolean;
   readonly reason: string;
 }
 export interface AgentScan {

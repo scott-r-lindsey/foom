@@ -236,33 +236,100 @@
   color: var(--muted);
   font-size: 12px;
 }
-.board-workspace[data-open="true"] .board-list {
-  flex: 0 0 44%;
+.board-workspace .board-list {
+  flex: 0 0 300px;
 }
-.board-workspace[data-open="true"] .board-row {
-  grid-template-columns: 16px minmax(80px, 1fr) 80px;
+.board-workspace .board-row {
+  grid-template-columns: 16px minmax(0, 1fr) auto;
 }
-.board-workspace[data-open="true"] .board-agent {
+.board-list .board-entry {
+  display: block;
+  position: relative;
+}
+.board-list .board-entry:has(.worktree-remove) .board-row {
+  padding-bottom: 44px;
+}
+.board-list .worktree-remove {
+  position: absolute;
+  right: 10px;
+  bottom: 10px;
+}
+.board-list .board-reason {
+  overflow-wrap: anywhere;
+}
+.board-workspace .board-agent {
   grid-column: 2;
 }
-.board-workspace[data-open="true"] .board-state {
+.board-workspace .board-state {
   grid-column: 3;
   grid-row: 1;
 }
-.board-workspace[data-open="true"] .board-wait {
+.board-workspace .board-wait {
   grid-column: 3;
   grid-row: 2;
 }
-.board-workspace[data-open="true"] .board-reason {
+.board-workspace .board-reason {
   grid-row: 3;
 }
 [hidden] {
   display: none !important;
 }
-@media (max-width: 800px) {
-  .board-workspace[data-open="true"] .board-list {
-    display: none;
+@media (max-width: 720px) {
+  .board-workspace .board-list {
+    flex: 0 0 64px;
+    padding: 12px 8px;
   }
+  .board-list h2 {
+    font-size: 10px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .board-workspace .board-row {
+    display: flex;
+    justify-content: center;
+    padding: 14px;
+  }
+  .board-list .board-entry:has(.worktree-remove) .board-row {
+    padding-bottom: 14px;
+  }
+  .board-row > span:not(.board-light),
+  .board-list .worktree-remove {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+  }
+  .board-list .worktree-remove:focus-visible {
+    position: static;
+    width: auto;
+    height: auto;
+    clip-path: none;
+  }
+  .board-list > button {
+    font-size: 0;
+    width: 100%;
+    padding: 10px;
+  }
+  .board-list > button::before {
+    content: "+";
+    font-size: 20px;
+  }
+  .board-top {
+    padding: 12px;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+  .board-top .board-summary {
+    font-size: 13px;
+  }
+  .board-home {
+    padding: 0;
+  }
+  .board-help {
+    padding: 8px 12px;
+  }
+
   .sample-label {
     display: none;
   }

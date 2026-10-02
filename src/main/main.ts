@@ -9,7 +9,13 @@ import { InferenceKeys } from "./evaluator/inference-keys";
 import { SettingsStore } from "./setup/settings";
 import { Setup } from "./setup/setup";
 import { attachSetup } from "./setup/setup-ipc";
-import { BASE_SIZE, MINIMUM_SIZE, scaledSize, zoomShortcut } from "./window/appearance";
+import {
+  BASE_SIZE,
+  MINIMUM_SIZE,
+  scaledSize,
+  zoomShortcut,
+  boardShortcut,
+} from "./window/appearance";
 import { attachWindowScale } from "./window/window-scale";
 import * as path from "node:path";
 import { pathToFileURL } from "node:url";
@@ -82,6 +88,12 @@ function createWindow() {
     if (input.type === "keyDown" && !input.shift && quitShortcut) {
       event.preventDefault();
       app.quit();
+      return;
+    }
+    const command = boardShortcut(input, process.platform);
+    if (command) {
+      event.preventDefault();
+      window.webContents.send("board:command", command);
       return;
     }
     const zoom = zoomShortcut(input, process.platform);
