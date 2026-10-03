@@ -24,6 +24,7 @@ type Terminal = {
   state: TerminalState | null;
   /** Bumped by replies and dismissals; evaluations that began earlier are discarded. */
   generation: number;
+  outputVersion: number;
 };
 
 export interface WorkspaceDependencies {
@@ -40,6 +41,7 @@ export interface WorkspaceDependencies {
   terminals: {
     create(spec: TerminalSpec): Promise<string>;
     kill(id: string): Promise<void>;
+    stop(id: string): Promise<void>;
     tail(id: string, lines: number): Promise<string[]>;
   };
   verdicts: {
@@ -270,15 +272,20 @@ export class Workspace {
         (item) => item.worktree === entry.worktree,
       );
       for (const item of entries) {
-        await this.deps.terminals.kill(item.id);
+        await this.deps.terminals.stop(item.id);
         await this.exited(item.id, -1);
       }
+      if ((await this.deps.worktrees.changes(entry.repository, entry.worktree)) !== changes)
+        throw new Error("Worktree changes have changed. Review them and try again.");
       await this.deps.worktrees.removeWorktree(
         entry.repository,
         entry.worktree,
         changes.length > 0,
       );
-      for (const item of entries) this.removed(item.id);
+      for (const item of entries) {
+        await this.deps.terminals.kill(item.id);
+        this.removed(item.id);
+      }
       return true;
     } finally {
       this.busyWorktrees.delete(key);
@@ -288,7 +295,7 @@ export class Workspace {
   private track(id: string): Terminal {
     let terminal = this.terminals.get(id);
     if (!terminal) {
-      terminal = { state: null, generation: 0 };
+      terminal = { state: null, generation: 0, outputVersion: 0 };
       this.terminals.set(id, terminal);
     }
     return terminal;
@@ -317,7 +324,12 @@ export class Workspace {
     this.deps.onState(terminal.state);
   }
 
-  private async evaluate(id: string, terminal: Terminal, generation?: number): Promise<void> {
+  private async evaluate(
+    id: string,
+    terminal: Terminal,
+    generation?: number,
+    outputVersion = terminal.outputVersion,
+  ): Promise<void> {
     let tail: string[] = [];
     try {
       tail = await this.deps.terminals.tail(id, 40);
@@ -331,7 +343,11 @@ export class Workspace {
       ...(terminal.exitCode !== undefined ? { exitCode: terminal.exitCode } : {}),
     });
     // A reply or dismissal since this evaluation began makes its evidence stale.
-    const stale = () => generation !== undefined && generation !== terminal.generation;
+    const stale = () =>
+      (generation !== undefined && generation !== terminal.generation) ||
+      (terminal.exitCode === undefined &&
+        !terminal.hook &&
+        outputVersion !== terminal.outputVersion);
     if (stale()) return;
     let verdictId: string | null = record.id;
     try {
@@ -345,11 +361,32 @@ export class Workspace {
     this.publish(id, terminal, { verdictId, ...record.verdict });
   }
 
+  /** Output invalidates screen evidence without dismissing authoritative hooks. */
+  output(id: string): void {
+    const terminal = this.track(id);
+    terminal.outputVersion += 1;
+    if (
+      terminal.exitCode !== undefined ||
+      terminal.hook ||
+      !terminal.state ||
+      terminal.state.state === "working"
+    )
+      return;
+    this.publish(id, terminal, {
+      verdictId: null,
+      state: "working",
+      reason: "Terminal output resumed",
+      signal: "process:output",
+      confidence: 1,
+    });
+  }
+
   /** Output went quiet. Live terminals only; an exit verdict is final. */
   quiet(id: string): Promise<void> {
-    const { generation } = this.track(id);
+    const { generation, outputVersion } = this.track(id);
     return this.enqueue(id, async (terminal) => {
-      if (terminal.exitCode === undefined) await this.evaluate(id, terminal, generation);
+      if (terminal.exitCode === undefined)
+        await this.evaluate(id, terminal, generation, outputVersion);
     });
   }
 

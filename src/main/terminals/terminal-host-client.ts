@@ -63,7 +63,9 @@ export class TerminalHostClient {
         return;
       }
       const session = this.sessions.get(message.id);
-      if (message.type === "quiet") {
+      if (message.type === "output") {
+        if (session?.alive) this.events.onOutput?.(message.id);
+      } else if (message.type === "quiet") {
         if (session?.alive) this.events.onQuiet?.(message.id);
       } else if (message.type === "data") {
         if (session?.view === message.view) session.send?.(message.token, message.data);
@@ -170,6 +172,10 @@ export class TerminalHostClient {
     if (!this.sessions.get(id)?.available || !this.child)
       throw new Error("Terminal host unavailable");
     return this.request({ type: "tail", id, lines });
+  }
+  async stop(id: string): Promise<void> {
+    if (!this.sessions.get(id)?.alive) return;
+    await this.request({ type: "stop", id });
   }
   async kill(id: string): Promise<void> {
     if (!this.sessions.has(id)) return;

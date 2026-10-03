@@ -51,6 +51,9 @@ vi.mock("../../../../src/main/terminals/terminal-host-client", async () => {
       acknowledge(id: string, token: string, count: number) {
         this.manager.acknowledge(id, token, count);
       }
+      stop(id: string) {
+        return this.manager.stop(id);
+      }
       kill(id: string) {
         this.manager.kill(id);
       }
@@ -847,6 +850,7 @@ test("quiet detection reads parsed headless tails and stops on exit without an a
 test("reports quiet, input, exit and removal for owned terminals and grants main launches", async () => {
   {
     const events = {
+      onOutput: vi.fn(),
       onQuiet: vi.fn(),
       onExit: vi.fn(),
       onInput: vi.fn(),
@@ -865,6 +869,7 @@ test("reports quiet, input, exit and removal for owned terminals and grants main
     expect(control.owns("other")).toBe(false);
     const index = ptys.length - 1;
     output("Continue? (y/n) ", index);
+    expect(events.onOutput).toHaveBeenCalledWith(id);
     await expect(control.tail(id, 1)).resolves.toEqual(["Continue? (y/n) "]);
     // A trailing y/n prompt goes quiet after 500 ms of silence.
     await vi.waitFor(
@@ -878,7 +883,14 @@ test("reports quiet, input, exit and removal for owned terminals and grants main
     latestSend("input")?.(event, id, "\x1b[O");
     expect(pty(index).write).toHaveBeenCalledWith("\x1b[O");
     expect(events.onInput).not.toHaveBeenCalled();
-    latestSend("input")?.(event, id, "y");
+    latestSend("input")?.(event, id, "\x1b[B", "wheel");
+    expect(pty(index).write).toHaveBeenCalledWith("\x1b[B");
+    expect(events.onInput).not.toHaveBeenCalled();
+    const writes = pty(index).write.mock.calls.length;
+    latestSend("input")?.(event, id, "x", "invalid");
+    latestSend("input")?.(event, "foreign", "\x1b[B", "wheel");
+    expect(pty(index).write).toHaveBeenCalledTimes(writes);
+    latestSend("input")?.(event, id, "\x1b[B");
     latestSend("input")?.(event, "foreign", "y");
     expect(events.onInput).toHaveBeenCalledExactlyOnceWith(id);
 
@@ -895,4 +907,21 @@ test("reports quiet, input, exit and removal for owned terminals and grants main
     expect(events.onRemoved).not.toHaveBeenCalledWith(internalId);
     window.once.mock.calls.at(-1)?.[1]();
   }
+});
+
+test("stopping waits for native exit and retains an owned readable terminal", async () => {
+  const id = await terminalControl.create(spec);
+  const index = ptys.length - 1;
+  output("preserved screen", index);
+  pty(index).kill.mockImplementation(() => {});
+  const stopped = vi.fn();
+  const stopping = terminalControl.stop(id).then(stopped);
+  await Promise.resolve();
+  expect(stopped).not.toHaveBeenCalled();
+  expect(terminalControl.owns(id)).toBe(true);
+  exitPty(index);
+  await stopping;
+  expect(await terminalControl.tail(id, 1)).toEqual(["preserved screen"]);
+  await terminalControl.stop(id);
+  expect(pty(index).kill).toHaveBeenCalledOnce();
 });

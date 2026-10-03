@@ -14,6 +14,9 @@ const manager = new TerminalManager(
     onActivity: (entries) => {
       send({ type: "activity", entries });
     },
+    onOutput: (id) => {
+      send({ type: "output", id });
+    },
     onQuiet: (id) => {
       send({ type: "quiet", id });
     },
@@ -57,6 +60,9 @@ port.on("message", (event: { data: unknown }) => {
           break;
         case "detach":
           manager.detach(id);
+          break;
+        case "stop":
+          await manager.stop(id);
           break;
         case "kill":
           manager.kill(id);

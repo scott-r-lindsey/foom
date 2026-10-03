@@ -96,6 +96,7 @@ beforeEach(() => {
       createWorktree: vi.fn(() => Promise.resolve(tree.path)),
     },
     terminals: {
+      stop: vi.fn(async () => {}),
       kill: vi.fn(async () => {}),
       create: vi.fn(() => Promise.resolve("t1")),
       tail: terminalTail,
@@ -755,4 +756,96 @@ test("failed removal leaves the row available for retry and excludes overlapping
   await workspace.removeWorktree("t1", () => Promise.resolve(true));
   expect(workspace.snapshot().terminals).toHaveLength(0);
   await workspace.dispose();
+});
+
+test.each(["", "?? reviewed.txt\0"])(
+  "shutdown changes require fresh review and permit retry (%s)",
+  async (changes) => {
+    const workspace = new Workspace(deps);
+    await workspace.startWorktree(start);
+    const changed = changes + "?? NEW-AFTER-CONFIRM.txt\0";
+    vi.spyOn(deps.worktrees, "changes").mockResolvedValue(changes);
+    const shutdown = Promise.withResolvers<undefined>();
+    const stop = vi.spyOn(deps.terminals, "stop").mockImplementationOnce(async () => {
+      await shutdown.promise;
+      vi.spyOn(deps.worktrees, "changes").mockResolvedValue(changed);
+    });
+    const removal = workspace.removeWorktree("t1", () => Promise.resolve(true));
+    const rejected = expect(removal).rejects.toThrow("Review them");
+    await vi.waitFor(() => {
+      expect(stop).toHaveBeenCalled();
+    });
+    expect(deps.worktrees.removeWorktree).not.toHaveBeenCalled();
+    shutdown.resolve(undefined);
+    await rejected;
+    expect(vi.spyOn(deps.terminals, "kill")).not.toHaveBeenCalled();
+    expect(deps.worktrees.removeWorktree).not.toHaveBeenCalled();
+    expect(workspace.snapshot().terminals).toHaveLength(1);
+    expect(workspace.snapshot().terminals[0]?.state?.state).toBe("failed");
+    const confirm = vi.fn(() => Promise.resolve(true));
+    await workspace.removeWorktree("t1", confirm);
+    expect(confirm).toHaveBeenCalledWith("feature", changed);
+    expect(workspace.snapshot().terminals).toHaveLength(0);
+    await workspace.dispose();
+  },
+);
+
+test("resumed output discards deferred inference before publication or logging", async () => {
+  const workspace = await launched();
+  const response = Promise.withResolvers<VerdictRecord>();
+  classify.mockReturnValueOnce(response.promise);
+  const pending = workspace.quiet("t1");
+  await vi.waitFor(() => {
+    expect(classify).toHaveBeenCalled();
+  });
+  workspace.output("t1");
+  response.resolve({
+    id: "obsolete",
+    terminalId: "t1",
+    timestamp: "now",
+    verdict: {
+      state: "done",
+      reason: "Model detected successful completion",
+      signal: "model:classification",
+      confidence: 1,
+    },
+  });
+  await pending;
+  expect(states).toEqual([]);
+  expect(commit).not.toHaveBeenCalled();
+  await workspace.quiet("t1");
+  expect(states.at(-1)?.state).toBe("needs_input");
+  workspace.output("t1");
+  expect(states.at(-1)).toMatchObject({
+    state: "working",
+    signal: "process:output",
+    verdictId: null,
+  });
+  const count = states.length;
+  workspace.output("t1");
+  expect(states).toHaveLength(count);
+  expect(recordAction).not.toHaveBeenCalled();
+  await workspace.exited("t1", 0);
+  workspace.output("t1");
+  expect(states.at(-1)?.state).toBe("done");
+});
+
+test("output preserves a permission hook even while its evaluation is pending", async () => {
+  const workspace = await launched();
+  const key = await bound();
+  const reading = Promise.withResolvers<string[]>();
+  terminalTail.mockReturnValueOnce(reading.promise);
+  const pending = workspace.hook({
+    terminalId: key,
+    action: "needs_input",
+    signal: "claude:PermissionRequest",
+  });
+  await vi.waitFor(() => {
+    expect(terminalTail).toHaveBeenCalled();
+  });
+  workspace.output("t1");
+  reading.resolve(["redrawn dialog"]);
+  await pending;
+  workspace.output("t1");
+  expect(states.at(-1)?.state).toBe("needs_input");
 });

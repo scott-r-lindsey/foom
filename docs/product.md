@@ -29,7 +29,7 @@ The light carries two separate signals.
 | Quiet | Dim neutral | Quiet but fine (dev server, long install) |
 
 - Done and Failed dim once the user has looked at them.
-- Needs you clears only when the user replies or dismisses it. Opening the terminal doesn't clear it.
+- Needs you clears when the user replies or dismisses it. Screen-based attention also clears when output resumes; permission-hook attention stays until a reply or dismissal. Opening the terminal doesn't clear it.
 - Failed uses a square light, so the state never depends on color alone.
 - Every verdict carries a one-line reason and the signal that produced it, for example `Wants to edit src/main/main.ts · pattern: (y/n)`.
 

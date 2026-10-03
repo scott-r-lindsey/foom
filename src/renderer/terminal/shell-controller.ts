@@ -116,7 +116,7 @@ export function createShell(
     if (activeId && attached && !busy) window.desktop.input(activeId, data);
   });
   const wheel = alternateScroll(terminal, (data) => {
-    if (activeId && attached && !busy) window.desktop.input(activeId, data);
+    if (activeId && attached && !busy) window.desktop.input(activeId, data, "wheel");
   });
   terminal.attachCustomWheelEventHandler((event) => wheel.handle(event));
   const resize = () => {
@@ -264,7 +264,10 @@ export function createShell(
         }
         const previous = activeId;
         visibility(false);
-        if (previous) await window.desktop.detach(previous);
+        activeId = undefined;
+        // Removal can revoke the old capability before selection catches up.
+        // Its failed detach must not prevent attaching the next owned terminal.
+        if (previous) await window.desktop.detach(previous).catch(() => {});
         if (isDisposed() || current !== request) return;
         activeId = id;
         const code = exits.get(id);

@@ -820,7 +820,7 @@ test("wheel input uses the selected attachment and stops while hidden", async ()
   });
   const wheel = mock.wheel.mock.calls[0]?.[0];
   wheel?.(new WheelEvent("wheel", { deltaY: 14 }));
-  expect(mock.input).toHaveBeenLastCalledWith("one", "\x1b[B");
+  expect(mock.input).toHaveBeenLastCalledWith("one", "\x1b[B", "wheel");
   await controller.hide();
   mock.input.mockClear();
   wheel?.(new WheelEvent("wheel", { deltaY: 14 }));
@@ -904,5 +904,19 @@ test("font changes during an attachment refit once it is safe to resize", async 
   mock.resize.mockClear();
   mock.onSetupChange.mock.calls[0]?.[0](setupState({ terminalFontSize: 24 }));
   expect(mock.resize).not.toHaveBeenCalled();
+  controller.dispose();
+});
+
+test("selection recovers from a removed terminal whose detach capability was revoked", async () => {
+  const update = vi.fn();
+  const controller = createShell(document.createElement("div"), update, false);
+  await controller.open("removed");
+  mock.detach.mockRejectedValueOnce(new Error("Unknown or foreign terminal ID"));
+  await controller.open("remaining");
+  expect(controller.owns("removed")).toBe(false);
+  expect(mock.attach).toHaveBeenLastCalledWith("remaining");
+  expect(update).toHaveBeenLastCalledWith(expect.objectContaining({ visible: true }));
+  mock.onInput.mock.calls[0]?.[0]("hello");
+  expect(mock.input).toHaveBeenCalledWith("remaining", "hello");
   controller.dispose();
 });

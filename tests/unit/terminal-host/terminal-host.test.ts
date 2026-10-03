@@ -8,6 +8,7 @@ const mock = vi.hoisted(() => {
     create: vi.fn(),
     attach: vi.fn(),
     detach: vi.fn(),
+    stop: vi.fn(),
     kill: vi.fn(),
     write: vi.fn(),
     resize: vi.fn(),
@@ -24,6 +25,7 @@ vi.mock("../../../src/terminal-host/terminal-manager", () => ({
     create = mock.create;
     attach = mock.attach;
     detach = mock.detach;
+    stop = mock.stop;
     kill = mock.kill;
     write = mock.write;
     resize = mock.resize;
@@ -75,6 +77,7 @@ test("dispatches validated terminal operations and reports events with IDs", asy
   for (const operation of [
     { type: "attach", view: "view" },
     { type: "detach" },
+    { type: "stop" },
     { type: "theme", dark: true },
     { type: "write", data: "input" },
     { type: "resize", cols: 90, rows: 25 },
@@ -168,6 +171,8 @@ test.each([false, true])(
 
 test("forwards activity batches and quiet IDs from the host meter", () => {
   mock.events.onActivity?.([{ id: "one", rate: 42 }]);
+  mock.events.onOutput?.("one");
+  expect(port.postMessage).toHaveBeenCalledWith({ type: "output", id: "one" });
   mock.events.onQuiet?.("one");
   expect(port.postMessage).toHaveBeenCalledWith({
     type: "activity",

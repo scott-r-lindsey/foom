@@ -7,13 +7,15 @@ import type { TerminalSpec } from "../../shared/desktop";
 
 /** Lifecycle hooks for owned terminals; the workspace evaluates and releases from these. */
 export interface TerminalEvents {
+  onOutput?(id: string): void;
   onQuiet?(id: string): void;
   onExit?(id: string, code: number): void;
   onInput?(id: string): void;
   onRemoved?(id: string): void;
 }
 
-export interface TerminalControl extends Pick<TerminalHostClient, "runningCount" | "shutdown"> {
+export interface TerminalControl
+  extends Pick<TerminalHostClient, "runningCount" | "shutdown" | "stop"> {
   /** Main-only launch: the window may use the new terminal like one it created. */
   create(spec: TerminalSpec): Promise<string>;
   kill(id: string): Promise<void>;
@@ -40,6 +42,9 @@ export function attachTerminal(
       if (owned.has(id)) events.onExit?.(id, code);
     },
     {
+      onOutput: (id) => {
+        if (owned.has(id)) events.onOutput?.(id);
+      },
       onQuiet: (id) => {
         if (owned.has(id)) events.onQuiet?.(id);
       },
@@ -102,10 +107,11 @@ export function attachTerminal(
     return manager.tail(id, lines);
   });
   for (const [channel, handler] of handlers) ipcMain.handle(channel, handler);
-  const input = (event: IpcMainEvent, id: unknown, data: unknown) => {
+  const input = (event: IpcMainEvent, id: unknown, data: unknown, origin: unknown) => {
+    if (origin !== undefined && origin !== "wheel") return;
     if (trusted(event) && validId(id) && typeof data === "string" && data.length <= 65536) {
       manager.write(id, data);
-      if (isReply(data)) events.onInput?.(id);
+      if (origin !== "wheel" && isReply(data)) events.onInput?.(id);
     }
   };
   const resize = (event: IpcMainEvent, id: unknown, cols: unknown, rows: unknown) => {
@@ -179,6 +185,7 @@ export function attachTerminal(
       await manager.kill(id);
       owned.delete(id);
     },
+    stop: (id) => manager.stop(id),
     tail: (id, lines) => manager.tail(id, lines),
     owns: (id) => owned.has(id),
     get runningCount() {

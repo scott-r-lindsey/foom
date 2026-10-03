@@ -50,6 +50,7 @@ export function hostRequest(value: unknown): value is HostRequest {
       return text(value["view"]);
     case "shutdown":
     case "detach":
+    case "stop":
     case "kill":
       return true;
     case "write":
@@ -80,6 +81,7 @@ export function hostResponse(value: unknown): value is HostResponse {
     );
   if (!text(value["id"])) return false;
   switch (value["type"]) {
+    case "output":
     case "quiet":
       return true;
     case "result":
