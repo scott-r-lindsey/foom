@@ -82,9 +82,7 @@ a { color: var(--accent); }
 main { flex: 1; min-width: 0; overflow: auto; padding: 32px 40px; }
 section.page { display: none; flex-direction: column; gap: 24px; max-width: 820px; }
 section.page.shown { display: flex; }
-.eyebrow { font: 11px var(--mono); letter-spacing: 1.5px; text-transform: uppercase; color: var(--accent); }
 h1 { margin: 4px 0; font-size: 26px; font-weight: 600; }
-.lede { margin: 0; font: 14px var(--voice); color: var(--muted); }
 h3 { margin: 0 0 10px; font-size: 13px; font-weight: 600; color: var(--muted); }
 .hint { margin: 8px 0 0; font-size: 12px; color: var(--muted); }
 .panel { padding: 16px; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; }
@@ -122,9 +120,7 @@ select { height: 36px; padding: 0 10px; background: var(--surface); border: 1px 
 .mini-main em { margin-top: auto; height: 16px; width: 54px; border-radius: 4px; background: var(--t-accent); }
 .theme-name { display: flex; justify-content: space-between; font-weight: 500; font-size: 13px; }
 .theme-name small { font: 11px var(--mono); color: var(--muted); font-weight: 400; }
-.theme-blurb { font-size: 12px; color: var(--muted); }
-.own { display: flex; flex-direction: column; justify-content: center; align-items: center; gap: 6px; padding: 12px; border: 1px dashed var(--line); border-radius: 8px; text-align: center; text-decoration: none; font-size: 13px; }
-.own small { color: var(--muted); font-size: 12px; }
+.own { display: flex; justify-content: center; align-items: center; min-height: 140px; border: 1px dashed var(--line); border-radius: 8px; text-decoration: none; font-size: 24px; color: var(--muted); }
 .rules { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 6px; font-size: 13px; }
 .rules li { display: flex; gap: 8px; align-items: center; }
 .rules .light { margin: 0; width: 8px; height: 8px; }
@@ -212,27 +208,25 @@ pre { margin: 0; padding: 12px 14px; background: var(--surface); border: 1px sol
 
   <main>
     <!-- Setup sections reuse preflight's controls; see first-run.html and the built preflight. -->
-    <section class="page" id="agents"><div><div class="eyebrow">Settings</div><h1>Agents and hooks</h1><p class="lede">The same controls as preflight's Agents step.</p></div><div class="placeholder">Preflight's agent cards and the hooks switch, unchanged.</div></section>
-    <section class="page" id="repositories"><div><div class="eyebrow">Settings</div><h1>Repositories</h1><p class="lede">The same controls as preflight's Repositories step.</p></div><div class="placeholder">Code folder, scan and repository list, unchanged.</div></section>
-    <section class="page" id="worktrees"><div><div class="eyebrow">Settings</div><h1>Worktrees</h1><p class="lede">The same controls as preflight's Worktrees step.</p></div><div class="placeholder">Foom's folder or next to each repository, unchanged.</div></section>
-    <section class="page" id="evaluator"><div><div class="eyebrow">Settings</div><h1>Evaluator</h1><p class="lede">The same controls as preflight's Evaluator step.</p></div><div class="placeholder">Rules only, local model or cloud key, with Run check, unchanged.</div></section>
+    <section class="page" id="agents"><div><h1>Agents and hooks</h1></div><div class="placeholder">Preflight's agent cards and the hooks switch, unchanged.</div></section>
+    <section class="page" id="repositories"><div><h1>Repositories</h1></div><div class="placeholder">Code folder, scan and repository list, unchanged.</div></section>
+    <section class="page" id="worktrees"><div><h1>Worktrees</h1></div><div class="placeholder">Foom's folder or next to each repository, unchanged.</div></section>
+    <section class="page" id="evaluator"><div><h1>Evaluator</h1></div><div class="placeholder">Rules only, local model or cloud key, with Run check, unchanged.</div></section>
 
     <section class="page" id="terminal">
-      <div><div class="eyebrow">Settings</div><h1>Terminal</h1><p class="lede">Separate from the interface. Changes reach every terminal at once.</p></div>
+      <div><h1>Terminal</h1></div>
       <div>
         <h3>Font</h3>
         <div class="cols" style="align-items: flex-end">
           <div class="field" style="flex: 1"><label for="font">Family</label>
             <select id="font" style="font-family: var(--term)">
-              <optgroup label="Bundled with Foom"><option selected>Hack Nerd Font Mono</option><option>Geist Mono</option></optgroup>
-              <optgroup label="Installed on this computer"><option>[Installed monospace fonts]</option></optgroup>
+              <option selected>Hack Nerd Font Mono</option><option>Geist Mono</option><option>[Installed monospace fonts]</option>
             </select>
           </div>
           <div class="field"><span class="label" id="tsize-label">Size</span>
             <div class="stepper" role="group" aria-labelledby="tsize-label"><button type="button" aria-label="Smaller" data-step="-1">−</button><output id="tsize">14 px</output><button type="button" aria-label="Larger" data-step="1">+</button></div>
           </div>
         </div>
-        <p class="hint">Bold and italic come from the font. If a chosen font is missing, terminals fall back to Geist Mono.</p>
       </div>
       <div class="cols">
         <div style="width: 250px; flex-shrink: 0; display: flex; flex-direction: column; gap: 6px"><h3 style="margin-bottom: 4px">Colors</h3><div id="schemes" style="display: flex; flex-direction: column; gap: 6px"></div></div>
@@ -241,56 +235,46 @@ pre { margin: 0; padding: 12px 14px; background: var(--surface); border: 1px sol
     </section>
 
     <section class="page" id="appearance">
-      <div><div class="eyebrow">Settings</div><h1>Appearance</h1><p class="lede">The sky changes. The black hole stays black.</p></div>
+      <div><h1>Appearance</h1></div>
       <div><h3>Theme</h3><div class="grid3" id="themes"></div></div>
       <div class="cols">
-        <div class="panel" style="flex: 1"><h3>Every theme keeps these</h3>
-          <ul class="rules">
-            <li><span class="light needs"></span>Amber means needs you, and nothing else.</li>
-            <li><span class="light failed"></span>Magenta means failure. Failed is always square.</li>
-            <li><span class="light" style="background: none; border: 1px solid var(--muted)"></span>Status text passes AA contrast on its row.</li>
-          </ul>
-        </div>
         <div class="panel" style="width: 240px"><h3>Interface size</h3>
           <div class="stepper" role="group" aria-label="Interface size"><button type="button" aria-label="Smaller" data-scale="-1">−</button><output id="scale">100%</output><button type="button" aria-label="Larger" data-scale="1">+</button></div>
-          <p class="hint">Also in the preflight rail. Scroll over the number, or ⌘ + and ⌘ −.</p>
         </div>
       </div>
     </section>
 
     <section class="page" id="sound">
-      <div><div class="eyebrow">Settings</div><h1>Sound</h1><p class="lede">Hear the work. Look only when something needs you.</p></div>
+      <div><h1>Sound</h1></div>
       <div><h3>Soundscape</h3><div class="grid3" id="scapes"></div>
-        <p class="hint">Want something else? <a href="#config">Make a soundscape in Foom config</a>.</p></div>
+</div>
       <div class="grid2">
         <div class="panel">
-          <div class="panel-head"><h3>While agents work</h3><button class="small-btn" type="button">▶ Preview</button></div>
-          <label class="check"><input type="checkbox" id="working" checked> Drive chatter that follows output</label>
+          <div class="panel-head"><h3>Working</h3><button class="small-btn" type="button">▶ Preview</button></div>
+          <label class="check"><input type="checkbox" id="working" checked> On</label>
           <div class="field"><label for="wvol">Volume</label><input id="wvol" type="range" min="0" max="100" value="30"></div>
-          <p class="hint">Now: 2 agents working</p>
           <div class="meter" id="meter" aria-hidden="true"></div>
-          <p class="hint" style="margin: 0">Busy output grinds harder. Quiet terminals are silent.</p>
         </div>
         <div class="panel">
           <div class="panel-head"><h3>Alerts</h3></div>
-          <div class="alert"><span class="light needs"></span><span class="alert-text">Needs you<small>Two rising tones. Used for nothing else.</small></span><button class="small-btn" type="button" aria-label="Preview needs you">▶</button><input type="checkbox" checked aria-label="Needs you sound on"></div>
-          <div class="repeat"><label for="repeat">Repeat while unanswered</label><select id="repeat"><option>Never</option><option selected>Every 2 minutes</option><option>Every 5 minutes</option></select></div>
-          <div class="alert"><span class="light done"></span><span class="alert-text">Done<small>One short beep.</small></span><button class="small-btn" type="button" aria-label="Preview done">▶</button><input type="checkbox" checked aria-label="Done sound on"></div>
+          <div class="alert"><span class="light needs"></span><span class="alert-text">Needs you</span><button class="small-btn" type="button" aria-label="Preview needs you">▶</button><input type="checkbox" checked aria-label="Needs you sound on"></div>
+          <div class="repeat"><label for="repeat">Repeat</label><select id="repeat"><option>Never</option><option selected>Every 2 minutes</option><option>Every 5 minutes</option></select></div>
+          <div class="alert"><span class="light done"></span><span class="alert-text">Done</span><button class="small-btn" type="button" aria-label="Preview done">▶</button><input type="checkbox" checked aria-label="Done sound on"></div>
           <div class="field"><label for="avol">Alert volume</label><input id="avol" type="range" min="0" max="100" value="70"></div>
-          <label class="check"><input type="checkbox" checked> Stay quiet for the terminal you are looking at</label>
+          <label class="check"><input type="checkbox" checked> Mute the open terminal</label>
         </div>
       </div>
     </section>
 
     <section class="page" id="config">
-      <div><div class="eyebrow">Settings</div><h1>Foom config</h1><p class="lede">Ask an agent to change Foom. Every change is checked, committed, and can be undone.</p></div>
+      <div><h1>Foom config</h1></div>
       <div class="panel folder">
-        <div style="flex: 1; display: flex; flex-direction: column; gap: 6px"><h3 style="margin: 0">Folder</h3><code>~/.foom/config</code><span class="hint" style="margin: 0">Settings, themes, terminal colors and soundscapes. Keys and worktree records live elsewhere.</span></div>
+        <div style="flex: 1; display: flex; flex-direction: column; gap: 6px"><h3 style="margin: 0">Folder</h3><code>~/.foom/config</code></div>
         <button class="btn" type="button">Open shell here</button><button class="btn primary" type="button">Launch agent here</button>
       </div>
       <div class="pending">
         <span class="light needs" style="margin: 0"></span>
-        <div style="flex: 1"><h3>An agent wants to turn off the needs-you sound</h3><small>settings.json · sound.alerts.needsYou: on → off · waiting for you</small></div>
+        <div style="flex: 1"><h3>An agent wants to turn off the needs-you sound</h3><small>settings.json · sound.alerts.needsYou: on → off</small></div>
         <button class="btn" type="button">Allow</button><button class="btn" type="button" style="background: var(--badge-fill)">Keep it on</button>
       </div>
       <div><h3>Recent changes</h3>
@@ -299,12 +283,6 @@ pre { margin: 0; padding: 12px 14px; background: var(--surface); border: 1px sol
           <div class="change"><time>6m</time><span class="change-text">Add Gruvbox terminal colors<small class="failed-text">terminal-themes/gruvbox.json · ansi[9]: not a color</small></span><span class="status failed-text"><span class="light failed"></span>Rejected</span><span style="width: 64px"></span></div>
           <div class="change"><time>1h</time><span class="change-text">Terminal font size 15<small>settings.json · 81b07d4</small></span><span class="status done-text"><span class="light done"></span>Applied</span><button class="revert" type="button">Revert</button></div>
         </div>
-      </div>
-      <div><h3>Check from the command line</h3>
-<pre><span style="color: var(--muted)">$</span> foom --validate-config terminal-themes/gruvbox.json
-<span class="failed-text">terminal-themes/gruvbox.json  ansi[9]  not a color: "#fb4934ff0"</span>
-<span style="color: var(--muted)">exit 1</span></pre>
-        <p class="hint">The agent in this folder is told to run it after every edit.</p>
       </div>
     </section>
   </main>
@@ -317,12 +295,12 @@ const ECLIPSE_LIGHT = ["#f3f0fa", "#14101f", "#5b2bd9", ["#14101f", "#c4224a", "
 const SOLARIZED = ["#073642", "#dc322f", "#859900", "#b58900", "#268bd2", "#d33682", "#2aa198", "#eee8d5", "#586e75", "#cb4b16", "#93a65a", "#c4a020", "#839496", "#6c71c4", "#93a1a1", "#fdf6e3"];
 const dark = () => document.documentElement.dataset.theme === "dark" || (!document.documentElement.dataset.theme && matchMedia("(prefers-color-scheme: dark)").matches);
 const SCHEMES = [
-  { id: "follow", name: "Follow interface", note: () => (dark() ? "Eclipse Dark now" : "Eclipse Light now"), colors: () => (dark() ? ECLIPSE_DARK : ECLIPSE_LIGHT) },
-  { id: "eclipse-dark", name: "Eclipse Dark", note: () => "Foom", colors: () => ECLIPSE_DARK },
-  { id: "eclipse-light", name: "Eclipse Light", note: () => "Foom", colors: () => ECLIPSE_LIGHT },
-  { id: "solarized-dark", name: "Solarized Dark", note: () => "", colors: () => ["#002b36", "#93a1a1", "#93a1a1", SOLARIZED] },
-  { id: "solarized-light", name: "Solarized Light", note: () => "", colors: () => ["#fdf6e3", "#586e75", "#586e75", SOLARIZED] },
-  { id: "dracula", name: "Dracula", note: () => "", colors: () => ["#282a36", "#f8f8f2", "#f8f8f2", ["#21222c", "#ff5555", "#50fa7b", "#f1fa8c", "#bd93f9", "#ff79c6", "#8be9fd", "#f8f8f2", "#6272a4", "#ff6e6e", "#69ff94", "#ffffa5", "#d6acff", "#ff92df", "#a4ffff", "#ffffff"]] },
+  { id: "follow", name: "Follow interface", colors: () => (dark() ? ECLIPSE_DARK : ECLIPSE_LIGHT) },
+  { id: "eclipse-dark", name: "Eclipse Dark", colors: () => ECLIPSE_DARK },
+  { id: "eclipse-light", name: "Eclipse Light", colors: () => ECLIPSE_LIGHT },
+  { id: "solarized-dark", name: "Solarized Dark", colors: () => ["#002b36", "#93a1a1", "#93a1a1", SOLARIZED] },
+  { id: "solarized-light", name: "Solarized Light", colors: () => ["#fdf6e3", "#586e75", "#586e75", SOLARIZED] },
+  { id: "dracula", name: "Dracula", colors: () => ["#282a36", "#f8f8f2", "#f8f8f2", ["#21222c", "#ff5555", "#50fa7b", "#f1fa8c", "#bd93f9", "#ff79c6", "#8be9fd", "#f8f8f2", "#6272a4", "#ff6e6e", "#69ff94", "#ffffa5", "#d6acff", "#ff92df", "#a4ffff", "#ffffff"]] },
 ];
 let scheme = "follow";
 let termSize = 14;
@@ -356,17 +334,17 @@ function renderTerminal() {
 function renderSchemes() {
   document.getElementById("schemes").innerHTML = SCHEMES.map((s) => {
     const [bg, , , a] = s.colors();
-    return `<button class="pick" type="button" aria-pressed="${s.id === scheme}" data-scheme="${s.id}"><span class="pick-head"><span>${s.name}</span><small>${s.note()}</small></span><span class="strip">${[bg, ...a.slice(1, 8)].map((x) => `<i style="background:${x}"></i>`).join("")}</span></button>`;
+    return `<button class="pick" type="button" aria-pressed="${s.id === scheme}" data-scheme="${s.id}"><span class="pick-head"><span>${s.name}</span></span><span class="strip">${[bg, ...a.slice(1, 8)].map((x) => `<i style="background:${x}"></i>`).join("")}</span></button>`;
   }).join("");
 }
 
 // Interface themes, as token values. Deep Field is a proposal.
 const THEMES = [
-  { id: "system", name: "System", tag: () => (dark() ? "dark now" : "light now"), blurb: "Eclipse Dark or Light, following your OS." },
-  { id: "eclipse-dark", name: "Eclipse Dark", tag: () => "default", blurb: "Violet on a black sky.", t: ["#05040a", "#0d0a17", "#251d3f", "#f4efff", "#4a4263", "#9b6bff", "#ffb23e", "rgba(255,178,62,.25)", "#6fe0a3", "#ff2e88"] },
-  { id: "eclipse-light", name: "Eclipse Light", tag: () => "", blurb: "Pale sky, darker amber.", t: ["#f3f0fa", "#e9e4f5", "#ddd6ee", "#14101f", "#b9b0d3", "#5b2bd9", "#d98200", "rgba(217,130,0,.25)", "#13804a", "#d6166e"] },
-  { id: "contrast", name: "High contrast", tag: () => "", blurb: "Pure black, white lines, brighter status.", t: ["#000000", "#000000", "#ffffff", "#ffffff", "#bdb4e0", "#c9b0ff", "#ffc04d", "rgba(255,192,77,.35)", "#7dffb5", "#ff5ca8"] },
-  { id: "deep-field", name: "Deep Field", tag: () => "proposed", blurb: "Blue-black sky, cool accent.", t: ["#03070f", "#0a1322", "#1a2a44", "#eaf2ff", "#2f4466", "#6ea8ff", "#ffb23e", "rgba(255,178,62,.25)", "#6fe0a3", "#ff2e88"] },
+  { id: "system", name: "System" },
+  { id: "eclipse-dark", name: "Eclipse Dark", t: ["#05040a", "#0d0a17", "#251d3f", "#f4efff", "#4a4263", "#9b6bff", "#ffb23e", "rgba(255,178,62,.25)", "#6fe0a3", "#ff2e88"] },
+  { id: "eclipse-light", name: "Eclipse Light", t: ["#f3f0fa", "#e9e4f5", "#ddd6ee", "#14101f", "#b9b0d3", "#5b2bd9", "#d98200", "rgba(217,130,0,.25)", "#13804a", "#d6166e"] },
+  { id: "contrast", name: "High contrast", t: ["#000000", "#000000", "#ffffff", "#ffffff", "#bdb4e0", "#c9b0ff", "#ffc04d", "rgba(255,192,77,.35)", "#7dffb5", "#ff5ca8"] },
+  { id: "deep-field", name: "Deep Field", t: ["#03070f", "#0a1322", "#1a2a44", "#eaf2ff", "#2f4466", "#6ea8ff", "#ffb23e", "rgba(255,178,62,.25)", "#6fe0a3", "#ff2e88"] },
 ];
 THEMES[0].t = () => (dark() ? THEMES[1].t : THEMES[2].t);
 let theme = "system";
@@ -383,22 +361,21 @@ function renderThemes() {
         <span><i style="background:${done}"></i><b style="width:55%"></b></span>
         <span><i style="background:${failed};border-radius:1px"></i><b style="width:40%"></b></span>
       </span><span class="mini-main"><b style="width:70%"></b><b style="width:50%"></b><b style="width:62%"></b><em></em></span></span>
-      <span class="theme-name"><span>${th.name}</span><small>${th.tag()}</small></span>
-      <span class="theme-blurb">${th.blurb}</span></button>`;
-  }).join("") + `<a class="own" href="#config"><b>+ Make your own</b><small>Ask an agent in Foom config. It appears here once it passes the checks.</small></a>`;
+      <span class="theme-name"><span>${th.name}</span></span></button>`;
+  }).join("") + `<a class="own" href="#config" aria-label="New theme">+</a>`;
   document.getElementById("scale").textContent = scale + "%";
 }
 
 const SCAPES = [
-  { id: "drive", icon: "◉", name: "Drive bay", blurb: "Old hard-drive chatter while agents work. Beeps for done and needs you." },
-  { id: "alerts", icon: "•", name: "Alerts only", blurb: "Silence while agents work. Beeps for done and needs you." },
-  { id: "silent", icon: "–", name: "Silent", blurb: "No sound at all. Lights only." },
+  { id: "drive", icon: "◉", name: "Drive bay" },
+  { id: "alerts", icon: "•", name: "Alerts only" },
+  { id: "silent", icon: "–", name: "Silent" },
 ];
 let scape = "drive";
 const LEVELS = [3, 5, 9, 14, 8, 4, 6, 12, 18, 22, 15, 9, 6, 10, 16, 11, 7, 4, 3, 6, 9, 5, 3, 2];
 
 function renderSound() {
-  document.getElementById("scapes").innerHTML = SCAPES.map((s) => `<button class="scape" type="button" aria-pressed="${s.id === scape}" data-scape="${s.id}"><span class="scape-icon" aria-hidden="true">${s.icon}</span><span><b>${s.name}</b><small>${s.blurb}</small></span></button>`).join("");
+  document.getElementById("scapes").innerHTML = SCAPES.map((s) => `<button class="scape" type="button" aria-pressed="${s.id === scape}" data-scape="${s.id}"><span class="scape-icon" aria-hidden="true">${s.icon}</span><b>${s.name}</b></button>`).join("");
   const on = document.getElementById("working").checked && scape === "drive";
   document.getElementById("meter").innerHTML = LEVELS.map((h) => `<i style="height:${on ? h + 4 : 2}px;opacity:${on ? 0.35 + h / 40 : 0.25}"></i>`).join("");
 }
