@@ -1,3 +1,5 @@
+import { Workspace } from "../../../../src/main/workspace/workspace";
+import { evaluateRules } from "../../../../src/main/evaluator/evaluator";
 import { execFile } from "node:child_process";
 import {
   mkdir,
@@ -520,3 +522,49 @@ it("reports dirty filenames only for owned, unlocked worktrees", async () => {
   await git("worktree", "lock", tree);
   await expect(service.changes(repo, tree)).rejects.toThrow("locked");
 });
+
+it.each([false, true])(
+  "preserves files created during worktree process shutdown (initially dirty=%s)",
+  async (dirty) => {
+    const tree = await service.createWorktree(repo, "shutdown-race");
+    if (dirty) await writeFile(join(tree, "reviewed.txt"), "reviewed");
+    const workspace = new Workspace({
+      worktrees: service,
+      terminals: {
+        create: () => Promise.resolve("terminal"),
+        kill: () => Promise.resolve(),
+        stop: () => writeFile(join(tree, "NEW-AFTER-CONFIRM.txt"), "must survive"),
+        tail: () => Promise.resolve([]),
+      },
+      verdicts: {
+        classify: (input) =>
+          Promise.resolve({
+            id: "exit",
+            terminalId: input.terminalId,
+            timestamp: "now",
+            verdict: evaluateRules(input),
+          }),
+        commit: () => Promise.resolve(),
+        recordAction: () => Promise.resolve(),
+      },
+      receiver: () => Promise.reject(new Error("Hooks must not start")),
+      onState: () => {},
+      acknowledgeCodex: () => Promise.resolve(),
+    });
+    try {
+      await workspace.startWorktree({
+        repository: repo,
+        branch: "shutdown-race",
+        run: "shell",
+        acknowledgeCodexNotifierReplacement: false,
+      });
+      await expect(
+        workspace.removeWorktree("terminal", () => Promise.resolve(true)),
+      ).rejects.toThrow("Review them");
+      expect(await readFile(join(tree, "NEW-AFTER-CONFIRM.txt"), "utf8")).toBe("must survive");
+      expect(workspace.snapshot().terminals).toHaveLength(1);
+    } finally {
+      await workspace.dispose();
+    }
+  },
+);

@@ -41,6 +41,7 @@ export interface WorkspaceDependencies {
   terminals: {
     create(spec: TerminalSpec): Promise<string>;
     kill(id: string): Promise<void>;
+    stop(id: string): Promise<void>;
     tail(id: string, lines: number): Promise<string[]>;
   };
   verdicts: {
@@ -271,15 +272,20 @@ export class Workspace {
         (item) => item.worktree === entry.worktree,
       );
       for (const item of entries) {
-        await this.deps.terminals.kill(item.id);
+        await this.deps.terminals.stop(item.id);
         await this.exited(item.id, -1);
       }
+      if ((await this.deps.worktrees.changes(entry.repository, entry.worktree)) !== changes)
+        throw new Error("Worktree changes have changed. Review them and try again.");
       await this.deps.worktrees.removeWorktree(
         entry.repository,
         entry.worktree,
         changes.length > 0,
       );
-      for (const item of entries) this.removed(item.id);
+      for (const item of entries) {
+        await this.deps.terminals.kill(item.id);
+        this.removed(item.id);
+      }
       return true;
     } finally {
       this.busyWorktrees.delete(key);

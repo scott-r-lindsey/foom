@@ -14,7 +14,8 @@ export interface TerminalEvents {
   onRemoved?(id: string): void;
 }
 
-export interface TerminalControl extends Pick<TerminalHostClient, "runningCount" | "shutdown"> {
+export interface TerminalControl
+  extends Pick<TerminalHostClient, "runningCount" | "shutdown" | "stop"> {
   /** Main-only launch: the window may use the new terminal like one it created. */
   create(spec: TerminalSpec): Promise<string>;
   kill(id: string): Promise<void>;
@@ -184,6 +185,7 @@ export function attachTerminal(
       await manager.kill(id);
       owned.delete(id);
     },
+    stop: (id) => manager.stop(id),
     tail: (id, lines) => manager.tail(id, lines),
     owns: (id) => owned.has(id),
     get runningCount() {
