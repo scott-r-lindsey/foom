@@ -1931,6 +1931,9 @@ test("wheel moves less and preserves normal shell scrollback", {
   await page.keyboard.press("Enter");
   const rows = page.locator(".xterm-rows");
   await expect.poll(() => rows.locator(":scope > div").first().textContent()).toMatch(/^1\s*$/);
+  // The first row can paint before less finishes entering its interactive mode.
+  // Its bottom prompt is the readiness boundary for sending wheel-generated keys.
+  await expect(rows.locator(":scope > div").last()).toHaveText(/^\s*:\s*$/);
   await page.locator(".xterm-screen").hover();
   await page.mouse.wheel(0, 140);
   await expect.poll(() => rows.locator(":scope > div").first().textContent()).not.toMatch(/^1\s*$/);
