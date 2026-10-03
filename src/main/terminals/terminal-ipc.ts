@@ -103,10 +103,11 @@ export function attachTerminal(
     return manager.tail(id, lines);
   });
   for (const [channel, handler] of handlers) ipcMain.handle(channel, handler);
-  const input = (event: IpcMainEvent, id: unknown, data: unknown) => {
+  const input = (event: IpcMainEvent, id: unknown, data: unknown, origin: unknown) => {
+    if (origin !== undefined && origin !== "wheel") return;
     if (trusted(event) && validId(id) && typeof data === "string" && data.length <= 65536) {
       manager.write(id, data);
-      if (isReply(data)) events.onInput?.(id);
+      if (origin !== "wheel" && isReply(data)) events.onInput?.(id);
     }
   };
   const resize = (event: IpcMainEvent, id: unknown, cols: unknown, rows: unknown) => {

@@ -881,7 +881,14 @@ test("reports quiet, input, exit and removal for owned terminals and grants main
     latestSend("input")?.(event, id, "\x1b[O");
     expect(pty(index).write).toHaveBeenCalledWith("\x1b[O");
     expect(events.onInput).not.toHaveBeenCalled();
-    latestSend("input")?.(event, id, "y");
+    latestSend("input")?.(event, id, "\x1b[B", "wheel");
+    expect(pty(index).write).toHaveBeenCalledWith("\x1b[B");
+    expect(events.onInput).not.toHaveBeenCalled();
+    const writes = pty(index).write.mock.calls.length;
+    latestSend("input")?.(event, id, "x", "invalid");
+    latestSend("input")?.(event, "foreign", "\x1b[B", "wheel");
+    expect(pty(index).write).toHaveBeenCalledTimes(writes);
+    latestSend("input")?.(event, id, "\x1b[B");
     latestSend("input")?.(event, "foreign", "y");
     expect(events.onInput).toHaveBeenCalledExactlyOnceWith(id);
 
