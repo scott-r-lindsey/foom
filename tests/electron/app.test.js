@@ -1946,22 +1946,42 @@ test("wheel moves less and preserves normal shell scrollback", {
 }, async (context) => {
   const app = await launchApp(context);
   const page = await app.firstWindow();
+  await page.evaluate(() => {
+    window.pagerOutput = "";
+    window.desktop.onData((_id, _token, data) => {
+      window.pagerOutput = (window.pagerOutput + data).slice(-8192);
+    });
+  });
+  const rows = page.locator(".xterm-rows");
+  // View focus does not guarantee that the login shell has finished initializing.
+  await page.keyboard.type("printf 'FOOM_%s\\n' PAGER_READY");
+  await page.keyboard.press("Enter");
+  await expect(
+    rows.locator(":scope > div").filter({ hasText: /^FOOM_PAGER_READY\s*$/ }),
+  ).toHaveCount(1);
   // Login-shell exports must not override the PTY dimensions or alternate screen.
   await page.keyboard.type("seq 1 300 | env -u LINES -u COLUMNS -u LESS less");
   await page.keyboard.press("Enter");
-  const rows = page.locator(".xterm-rows");
-  await expect.poll(() => rows.locator(":scope > div").first().textContent()).toMatch(/^1\s*$/);
-  // The first row can paint before less finishes entering its interactive mode.
-  // Its bottom prompt is the readiness boundary for sending wheel-generated keys.
-  await expect(rows.locator(":scope > div").last())
-    .toHaveText(/^\s*:\s*$/)
-    .catch(async (error) => {
-      console.error("Pager readiness failed", await rows.innerText());
-      throw error;
-    });
-  await page.locator(".xterm-screen").hover();
-  await page.mouse.wheel(0, 140);
-  await expect.poll(() => rows.locator(":scope > div").first().textContent()).not.toMatch(/^1\s*$/);
+  try {
+    await expect.poll(() => rows.locator(":scope > div").first().textContent()).toMatch(/^1\s*$/);
+    // The first row can paint before less finishes entering its interactive mode.
+    // Its bottom prompt is the readiness boundary for sending wheel-generated keys.
+    await expect(rows.locator(":scope > div").last())
+      .toHaveText(/^\s*:\s*$/)
+      .catch(async (error) => {
+        console.error("Pager readiness failed", await rows.innerText());
+        throw error;
+      });
+    await page.locator(".xterm-screen").hover();
+    await page.mouse.wheel(0, 140);
+    await expect
+      .poll(() => rows.locator(":scope > div").first().textContent())
+      .not.toMatch(/^1\s*$/);
+  } catch (error) {
+    console.error("Pager screen", await rows.innerText());
+    console.error("Pager stream", JSON.stringify(await page.evaluate(() => window.pagerOutput)));
+    throw error;
+  }
   await page.keyboard.type("q");
   await page.keyboard.type("seq 1 300");
   await page.keyboard.press("Enter");
