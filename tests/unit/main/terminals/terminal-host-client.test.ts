@@ -265,3 +265,19 @@ test("telemetry requires no subscriber", async () => {
   child.emit("message", { type: "activity", entries: [{ id, rate: 4 }] });
   child.emit("message", { type: "quiet", id });
 });
+
+test("stop waits for host completion and preserves the terminal for retry or inspection", async () => {
+  const id = await create();
+  const stopping = client.stop(id);
+  expect(child.postMessage).toHaveBeenLastCalledWith(expect.objectContaining({ type: "stop", id }));
+  child.reply();
+  await stopping;
+  const tail = client.tail(id, 1);
+  child.reply(undefined, { lines: ["preserved"] });
+  expect(await tail).toEqual(["preserved"]);
+  child.emit("message", { type: "exit", id, code: 0 });
+  const count = child.postMessage.mock.calls.length;
+  await client.stop(id);
+  await client.stop("unknown");
+  expect(child.postMessage).toHaveBeenCalledTimes(count);
+});

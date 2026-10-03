@@ -145,7 +145,10 @@ export class TerminalManager {
   }
 
   private updateFlow(session: Session): void {
-    const blocked = !this.shuttingDown && (session.parserBlocked || session.viewBlocked);
+    const blocked =
+      !this.shuttingDown &&
+      !session.terminationRequested &&
+      (session.parserBlocked || session.viewBlocked);
     if (session.exited || session.paused === blocked) return;
     session.paused = blocked;
     if (blocked) session.pty.pause();
@@ -300,44 +303,54 @@ export class TerminalManager {
     return [...this.sessions.values()].filter((session) => !session.exited).length;
   }
 
+  /** Stop one process while retaining its screen and capability for recovery. */
+  async stop(id: string): Promise<void> {
+    const session = this.get(id);
+    if (!session.exited) await this.stopSession(session);
+  }
+
+  private async stopSession(session: Session): Promise<void> {
+    if (session.paused) {
+      session.pty.resume();
+      session.paused = false;
+    }
+    await new Promise<void>((resolve, reject) => {
+      const finish = (error?: Error) => {
+        clearTimeout(force);
+        clearTimeout(deadline);
+        subscription.dispose();
+        if (error) reject(error);
+        else resolve();
+      };
+      const subscription = session.pty.onExit(() => {
+        finish();
+      });
+      const force = setTimeout(() => {
+        try {
+          // ConPTY kill already terminates the process tree and rejects signals.
+          if (process.platform !== "win32") session.pty.kill("SIGKILL");
+        } catch (error) {
+          finish(new Error("Unable to stop terminal", { cause: error }));
+        }
+      }, 1000);
+      const deadline = setTimeout(() => {
+        finish(new Error("A terminal did not exit; try quitting again."));
+      }, 5000);
+      try {
+        this.terminate(session);
+      } catch (error) {
+        finish(new Error("Unable to stop terminal", { cause: error }));
+      }
+    });
+  }
+
   /** Keep exit listeners alive until every PTY has actually stopped. */
   async shutdown(): Promise<void> {
     this.shuttingDown = true;
     try {
       const results = await Promise.allSettled(
         [...this.pendingExits.keys()].map(async (session) => {
-          if (session.paused) {
-            session.pty.resume();
-            session.paused = false;
-          }
-          await new Promise<void>((resolve, reject) => {
-            const finish = (error?: Error) => {
-              clearTimeout(force);
-              clearTimeout(deadline);
-              subscription.dispose();
-              if (error) reject(error);
-              else resolve();
-            };
-            const subscription = session.pty.onExit(() => {
-              finish();
-            });
-            const force = setTimeout(() => {
-              try {
-                // ConPTY kill already terminates the process tree and rejects signals.
-                if (process.platform !== "win32") session.pty.kill("SIGKILL");
-              } catch (error) {
-                finish(new Error("Unable to stop terminal", { cause: error }));
-              }
-            }, 1000);
-            const deadline = setTimeout(() => {
-              finish(new Error("A terminal did not exit; try quitting again."));
-            }, 5000);
-            try {
-              this.terminate(session);
-            } catch (error) {
-              finish(new Error("Unable to stop terminal", { cause: error }));
-            }
-          });
+          await this.stopSession(session);
         }),
       );
       const failure = results.find((result) => result.status === "rejected");

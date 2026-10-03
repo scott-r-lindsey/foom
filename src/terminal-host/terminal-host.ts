@@ -58,6 +58,9 @@ port.on("message", (event: { data: unknown }) => {
         case "detach":
           manager.detach(id);
           break;
+        case "stop":
+          await manager.stop(id);
+          break;
         case "kill":
           manager.kill(id);
           owned.delete(id);

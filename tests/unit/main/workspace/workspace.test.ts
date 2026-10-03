@@ -96,6 +96,7 @@ beforeEach(() => {
       createWorktree: vi.fn(() => Promise.resolve(tree.path)),
     },
     terminals: {
+      stop: vi.fn(async () => {}),
       kill: vi.fn(async () => {}),
       create: vi.fn(() => Promise.resolve("t1")),
       tail: terminalTail,
@@ -756,3 +757,35 @@ test("failed removal leaves the row available for retry and excludes overlapping
   expect(workspace.snapshot().terminals).toHaveLength(0);
   await workspace.dispose();
 });
+
+test.each(["", "?? reviewed.txt\0"])(
+  "shutdown changes require fresh review and permit retry (%s)",
+  async (changes) => {
+    const workspace = new Workspace(deps);
+    await workspace.startWorktree(start);
+    const changed = changes + "?? NEW-AFTER-CONFIRM.txt\0";
+    vi.spyOn(deps.worktrees, "changes").mockResolvedValue(changes);
+    const shutdown = Promise.withResolvers<undefined>();
+    const stop = vi.spyOn(deps.terminals, "stop").mockImplementationOnce(async () => {
+      await shutdown.promise;
+      vi.spyOn(deps.worktrees, "changes").mockResolvedValue(changed);
+    });
+    const removal = workspace.removeWorktree("t1", () => Promise.resolve(true));
+    const rejected = expect(removal).rejects.toThrow("Review them");
+    await vi.waitFor(() => {
+      expect(stop).toHaveBeenCalled();
+    });
+    expect(deps.worktrees.removeWorktree).not.toHaveBeenCalled();
+    shutdown.resolve(undefined);
+    await rejected;
+    expect(vi.spyOn(deps.terminals, "kill")).not.toHaveBeenCalled();
+    expect(deps.worktrees.removeWorktree).not.toHaveBeenCalled();
+    expect(workspace.snapshot().terminals).toHaveLength(1);
+    expect(workspace.snapshot().terminals[0]?.state?.state).toBe("failed");
+    const confirm = vi.fn(() => Promise.resolve(true));
+    await workspace.removeWorktree("t1", confirm);
+    expect(confirm).toHaveBeenCalledWith("feature", changed);
+    expect(workspace.snapshot().terminals).toHaveLength(0);
+    await workspace.dispose();
+  },
+);

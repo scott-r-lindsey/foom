@@ -50,6 +50,7 @@ export function hostRequest(value: unknown): value is HostRequest {
       return text(value["view"]);
     case "shutdown":
     case "detach":
+    case "stop":
     case "kill":
       return true;
     case "write":

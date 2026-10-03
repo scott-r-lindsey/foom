@@ -51,6 +51,9 @@ vi.mock("../../../../src/main/terminals/terminal-host-client", async () => {
       acknowledge(id: string, token: string, count: number) {
         this.manager.acknowledge(id, token, count);
       }
+      stop(id: string) {
+        return this.manager.stop(id);
+      }
       kill(id: string) {
         this.manager.kill(id);
       }
@@ -895,4 +898,21 @@ test("reports quiet, input, exit and removal for owned terminals and grants main
     expect(events.onRemoved).not.toHaveBeenCalledWith(internalId);
     window.once.mock.calls.at(-1)?.[1]();
   }
+});
+
+test("stopping waits for native exit and retains an owned readable terminal", async () => {
+  const id = await terminalControl.create(spec);
+  const index = ptys.length - 1;
+  output("preserved screen", index);
+  pty(index).kill.mockImplementation(() => {});
+  const stopped = vi.fn();
+  const stopping = terminalControl.stop(id).then(stopped);
+  await Promise.resolve();
+  expect(stopped).not.toHaveBeenCalled();
+  expect(terminalControl.owns(id)).toBe(true);
+  exitPty(index);
+  await stopping;
+  expect(await terminalControl.tail(id, 1)).toEqual(["preserved screen"]);
+  await terminalControl.stop(id);
+  expect(pty(index).kill).toHaveBeenCalledOnce();
 });

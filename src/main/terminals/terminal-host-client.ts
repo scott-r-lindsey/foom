@@ -171,6 +171,10 @@ export class TerminalHostClient {
       throw new Error("Terminal host unavailable");
     return this.request({ type: "tail", id, lines });
   }
+  async stop(id: string): Promise<void> {
+    if (!this.sessions.get(id)?.alive) return;
+    await this.request({ type: "stop", id });
+  }
   async kill(id: string): Promise<void> {
     if (!this.sessions.has(id)) return;
     // A failed host has no remaining screen to remove. Allow the renderer to restart.
