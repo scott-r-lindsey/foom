@@ -1,6 +1,7 @@
 import { expect, test } from "vitest";
 import {
   anchoredOrigin,
+  initialSize,
   boardShortcut,
   nextScale,
   scaledBounds,
@@ -82,8 +83,8 @@ test("window sizes follow the scale and always fit the screen's usable area", ()
   expect(scaledBounds(bounds, base, 150, area)).toEqual({ x: 0, y: 25, width: 1280, height: 775 });
   // Never below the minimum at that scale, even for a small window.
   expect(scaledBounds(bounds, { width: 300, height: 200 }, 100, area)).toMatchObject({
-    width: 480,
-    height: 420,
+    width: 900,
+    height: 640,
   });
 });
 
@@ -131,4 +132,26 @@ test("board chords reserve only platform navigation, preserving terminal control
     ])
       expect(boardShortcut(input, platform)).toBeUndefined();
   }
+});
+
+test("starting size uses the work area with a scaled minimum and fits small displays", () => {
+  expect(initialSize(100, { width: 1920, height: 1080 })).toEqual({ width: 1152, height: 648 });
+  expect(initialSize(100, { width: 1000, height: 700 })).toEqual({ width: 900, height: 640 });
+  expect(initialSize(150, { width: 1600, height: 1000 })).toEqual({ width: 1350, height: 960 });
+  expect(initialSize(100, { width: 800, height: 600 })).toEqual({ width: 800, height: 600 });
+});
+
+test("restored dimensions respect the minimum and current display without rescaling", () => {
+  expect(initialSize(120, { width: 1920, height: 1080 }, { width: 1400, height: 900 })).toEqual({
+    width: 1400,
+    height: 900,
+  });
+  expect(initialSize(100, { width: 1280, height: 800 }, { width: 1800, height: 1000 })).toEqual({
+    width: 1280,
+    height: 800,
+  });
+  expect(initialSize(100, { width: 1280, height: 800 }, { width: 600, height: 400 })).toEqual({
+    width: 900,
+    height: 640,
+  });
 });

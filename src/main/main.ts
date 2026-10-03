@@ -10,12 +10,14 @@ import { SettingsStore } from "./setup/settings";
 import { Setup } from "./setup/setup";
 import { attachSetup } from "./setup/setup-ipc";
 import {
-  BASE_SIZE,
+  initialSize,
   MINIMUM_SIZE,
   scaledSize,
   zoomShortcut,
   boardShortcut,
 } from "./window/appearance";
+import { loadWindowSize, saveWindowSize } from "./window/window-state";
+import type { Size } from "./window/appearance";
 import { attachWindowScale } from "./window/window-scale";
 import * as path from "node:path";
 import { pathToFileURL } from "node:url";
@@ -43,11 +45,11 @@ protocol.registerSchemesAsPrivileged([
   { scheme: "app", privileges: { standard: true, secure: true, supportFetchAPI: true } },
 ]);
 
-function createWindow() {
-  // The window opens at the saved interface scale, sized to match and to fit.
+function createWindow(savedSize?: Size) {
+  // Use most of the display while respecting the saved interface scale minimum.
   const scale = settings.get().interfaceScale;
   const area = screen.getPrimaryDisplay().workArea;
-  const size = scaledSize(BASE_SIZE, scale, area);
+  const size = initialSize(scale, area, savedSize);
   const minimum = scaledSize(MINIMUM_SIZE, scale, area);
   const window = new BrowserWindow({
     width: size.width,
@@ -204,6 +206,11 @@ function createWindow() {
       await terminals.shutdown();
       // Terminals have stopped: revoke every hook credential and stop listening.
       await workspace.dispose();
+      try {
+        await saveWindowSize(app.getPath("userData"), window.getNormalBounds());
+      } catch (error) {
+        console.error("Unable to save the window size:", error);
+      }
       quitting = true;
       // A resolved shutdown can resume inside a native close callback's microtask
       // checkpoint. Let that cancelled close unwind before asking Electron to quit.
@@ -277,7 +284,7 @@ app
     });
     session.defaultSession.setPermissionCheckHandler(() => false);
 
-    createWindow();
+    createWindow(await loadWindowSize(app.getPath("userData")));
   })
   .catch((error: unknown) => {
     console.error("Unable to start the application:", error);

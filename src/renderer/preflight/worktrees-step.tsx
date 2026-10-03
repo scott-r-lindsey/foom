@@ -36,9 +36,7 @@ export function WorktreesStep({
             }}
           />
           <span>
-            <b>
-              Keep worktrees in Foom's folder <span className="preflight-rec">Recommended</span>
-            </b>
+            <b>Keep worktrees in Foom's folder</b>
             <small>
               In <code>{state.worktreeRoot}</code>. Your code folder stays tidy, and Foom can clean
               up merged worktrees in one place.

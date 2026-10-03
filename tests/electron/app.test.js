@@ -274,6 +274,8 @@ test("terminal runs an interactive shell behind an isolated bridge", {
         const area = screen.getDisplayMatching(window.getBounds()).workAreaSize;
         const width = area.width >= 1040 ? 1000 : 700;
         const height = Math.min(650, area.height - 40);
+        // Exercise PTY resizing below the normal minimum on small CI displays.
+        window.setMinimumSize(0, 0);
         window.setSize(width - 100, height - 150);
         return { width, height };
       });
@@ -1423,18 +1425,29 @@ test("a fresh profile opens preflight, and it passes accessibility checks", asyn
   const page = await app.firstWindow();
   await page.getByRole("button", { name: "Start preflight" }).waitFor();
   assert.equal(await page.locator(".board-home").count(), 0);
-  // The accretion ring orbits, spins up while you're on it, and holds still for reduced motion.
+  // The ring moves by path distance, boosts on hover/focus, and stops for reduced motion.
   const ring = () =>
-    page.getByRole("button", { name: "Start preflight" }).evaluate((button) => {
-      const style = getComputedStyle(button);
-      return `${style.animationName} ${style.animationPlayState}`;
-    });
-  assert.equal(await ring(), "ignite-orbit, ignite-boost running, paused");
+    page
+      .locator(".ignite-ring")
+      .last()
+      .evaluate((ring) => {
+        const style = getComputedStyle(ring);
+        return `${style.animationName} ${style.animationPlayState} ${style.animationDuration} ${style.animationTimingFunction}`;
+      });
+  assert.equal(await ring(), "ignite-orbit, ignite-boost running, paused 4s, 1.25s linear, linear");
   await page.getByRole("button", { name: "Start preflight" }).hover();
-  assert.equal(await ring(), "ignite-orbit, ignite-boost running, running");
+  assert.equal(
+    await ring(),
+    "ignite-orbit, ignite-boost running, running 4s, 1.25s linear, linear",
+  );
   await page.mouse.move(0, 0);
+  await page.getByRole("button", { name: "Start preflight" }).focus();
+  assert.equal(
+    await ring(),
+    "ignite-orbit, ignite-boost running, running 4s, 1.25s linear, linear",
+  );
   await page.emulateMedia({ reducedMotion: "reduce" });
-  assert.equal(await ring(), "none running");
+  assert.equal(await ring(), "none running, running 0s ease");
   await page.emulateMedia({ reducedMotion: null });
   await assertAccessible(page);
   await page.getByRole("button", { name: "Start preflight" }).click();
@@ -1883,7 +1896,12 @@ test("persistent sidebar keeps Escape in the PTY and routes keyboard navigation"
   await expect.poll(() => readFile(marker, "utf8")).toContain("1b5b3c");
   assert.doesNotMatch(await readFile(marker, "utf8"), /1b5b41|1b4f41/);
   await assertAccessible(page);
-  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(640, 600));
+  await app.evaluate(({ BrowserWindow }) => {
+    const window = BrowserWindow.getAllWindows()[0];
+    // Exercise compact layouts as on a display smaller than the normal minimum.
+    window.setMinimumSize(0, 0);
+    window.setSize(640, 600);
+  });
   await expect(page.getByRole("navigation", { name: "Terminal sidebar" })).toBeVisible();
   await expect
     .poll(() => page.locator(".board-list").evaluate((el) => el.getBoundingClientRect().width))
@@ -1919,10 +1937,11 @@ test("empty sidebar and terminal pane stay accessible at both widths", async (co
   const app = await launchApp(context, false, { emptyBoard: true });
   const page = await app.firstWindow();
   for (const width of [1000, 640]) {
-    await app.evaluate(
-      ({ BrowserWindow }, width) => BrowserWindow.getAllWindows()[0].setSize(width, 600),
-      width,
-    );
+    await app.evaluate(({ BrowserWindow }, width) => {
+      const window = BrowserWindow.getAllWindows()[0];
+      window.setMinimumSize(0, 0);
+      window.setSize(width, 600);
+    }, width);
     await expect(page.getByRole("navigation", { name: "Terminal sidebar" })).toBeVisible();
     await expect(page.getByRole("button", { name: "New worktree", exact: true })).toBeVisible();
     await expect(page.getByRole("region", { name: "Terminal pane" })).toContainText("New worktree");
@@ -2058,6 +2077,7 @@ test("Settings shares live preflight values, sizes the terminal and restores key
     .poll(() => page.evaluate(async () => (await window.desktop.setupState()).settings.hooks))
     .toBe(false);
   await section("Repositories");
+  await page.getByRole("button", { name: "Choose folder…" }).waitFor();
   await tabTo(page, "Choose folder…");
   await page.keyboard.press("Enter");
   const added = page.getByRole("checkbox", { name: /settings-example/ });
@@ -2142,8 +2162,50 @@ test("every Settings section passes axe in light and dark, including the narrow 
       .click();
     await assertAccessible(page);
   }
-  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(640, 640));
+  await app.evaluate(({ BrowserWindow }) => {
+    const window = BrowserWindow.getAllWindows()[0];
+    // Exercise compact layouts as on a display smaller than the normal minimum.
+    window.setMinimumSize(0, 0);
+    window.setSize(640, 640);
+  });
   await page.getByRole("button", { name: "Appearance", exact: true }).click();
   await assertAccessible(page);
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
+});
+
+test("window size defaults to 60 percent and survives a normal quit and relaunch", async (context) => {
+  const profile = await mkdtemp(path.join(tmpdir(), "foom-window-size-"));
+  context.after(() => rm(profile, { recursive: true, force: true, maxRetries: 5 }));
+  const options = { args: [`--user-data-dir=${profile}`], emptyBoard: true };
+  const app = await launchApp(context, false, options);
+  const initial = await app.evaluate(({ BrowserWindow, screen }) => {
+    const window = BrowserWindow.getAllWindows()[0];
+    const area = screen.getPrimaryDisplay().workAreaSize;
+    return { size: window.getSize(), area };
+  });
+  assert.deepEqual(initial.size, [
+    Math.min(initial.area.width, Math.max(900, Math.round(initial.area.width * 0.6))),
+    Math.min(initial.area.height, Math.max(640, Math.round(initial.area.height * 0.6))),
+  ]);
+  await app.evaluate(({ BrowserWindow, screen }) => {
+    const area = screen.getPrimaryDisplay().workAreaSize;
+    BrowserWindow.getAllWindows()[0].setSize(
+      Math.min(1200, area.width),
+      Math.min(850, area.height),
+    );
+  });
+  const size = await app.evaluate(({ BrowserWindow }) =>
+    BrowserWindow.getAllWindows()[0].getSize(),
+  );
+  await quitAndWait(app, () => app.evaluate(({ app }) => app.quit()));
+  assert.deepEqual(JSON.parse(await readFile(path.join(profile, "window-size.json"), "utf8")), {
+    width: size[0],
+    height: size[1],
+  });
+  const restored = await launchApp(context, false, options);
+  assert.deepEqual(
+    await restored.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].getSize()),
+    size,
+  );
+  await quitAndWait(restored, () => restored.evaluate(({ app }) => app.quit()));
 });

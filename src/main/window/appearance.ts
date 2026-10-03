@@ -58,9 +58,8 @@ export interface Rect extends Size {
   y: number;
 }
 
-/** The window's size at 100%, and its smallest usable size. */
-export const BASE_SIZE: Size = { width: 900, height: 640 };
-export const MINIMUM_SIZE: Size = { width: 480, height: 420 };
+/** The former starting size is the minimum at 100% interface scale. */
+export const MINIMUM_SIZE: Size = { width: 900, height: 640 };
 
 const clamp = (value: number, low: number, high: number) => Math.min(Math.max(value, low), high);
 
@@ -69,6 +68,15 @@ export function scaledSize(size: Size, scale: number, area: Size): Size {
   return {
     width: Math.min(Math.round((size.width * scale) / 100), area.width),
     height: Math.min(Math.round((size.height * scale) / 100), area.height),
+  };
+}
+
+/** Restore the saved size, or open at 60% of the work area, clamped to fit. */
+export function initialSize(scale: number, area: Size, saved?: Size): Size {
+  const minimum = scaledSize(MINIMUM_SIZE, scale, area);
+  return {
+    width: clamp(saved?.width ?? Math.round(area.width * 0.6), minimum.width, area.width),
+    height: clamp(saved?.height ?? Math.round(area.height * 0.6), minimum.height, area.height),
   };
 }
 
