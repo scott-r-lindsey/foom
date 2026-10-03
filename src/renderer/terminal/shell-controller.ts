@@ -264,7 +264,10 @@ export function createShell(
         }
         const previous = activeId;
         visibility(false);
-        if (previous) await window.desktop.detach(previous);
+        activeId = undefined;
+        // Removal can revoke the old capability before selection catches up.
+        // Its failed detach must not prevent attaching the next owned terminal.
+        if (previous) await window.desktop.detach(previous).catch(() => {});
         if (isDisposed() || current !== request) return;
         activeId = id;
         const code = exits.get(id);

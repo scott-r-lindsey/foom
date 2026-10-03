@@ -1099,7 +1099,6 @@ test("launches an agent in a managed worktree and routes its attention signals",
 }, async (context) => {
   const { chmod, mkdir, writeFile } = require("node:fs/promises");
   const root = await mkdtemp(path.join(tmpdir(), "foom-workspace-"));
-  context.after(() => rm(root, { recursive: true, force: true }));
   const bin = path.join(root, "bin");
   const repo = path.join(root, "app");
   await mkdir(bin);
@@ -1124,6 +1123,9 @@ test("launches an agent in a managed worktree and routes its attention signals",
       PATH: `${bin}${path.delimiter}${process.env.PATH}`,
       FOOM_FAKE_CREDENTIALS: credentials,
     },
+  }).finally(() => {
+    // Chromium may still write user-data until the app cleanup hook has finished.
+    context.after(() => rm(root, { recursive: true, force: true }));
   });
   const page = await app.firstWindow();
   await app.evaluate(({ dialog }, directory) => {
@@ -1756,7 +1758,6 @@ test("new worktree dialog launches by keyboard and confirms dirty removal", {
   timeout: 60000,
 }, async (context) => {
   const root = await mkdtemp(path.join(tmpdir(), "foom-launch-ui-"));
-  context.after(() => rm(root, { recursive: true, force: true, maxRetries: 5 }));
   const repo = path.join(root, "app");
   const bin = path.join(root, "bin");
   await mkdir(repo);
@@ -1787,6 +1788,10 @@ test("new worktree dialog launches by keyboard and confirms dirty removal", {
       PATH: `${bin}${path.delimiter}${process.env.PATH}`,
       FOOM_FAKE_CREDENTIALS: path.join(root, "fake-hook.json"),
     },
+  }).finally(() => {
+    // Hooks run in registration order. Close Electron before deleting the second
+    // worktree: a live PowerShell process holds its working directory on Windows.
+    context.after(() => rm(root, { recursive: true, force: true, maxRetries: 5 }));
   });
   const page = await app.firstWindow();
   const tabToField = async (id, reverse = false) => {
@@ -1842,6 +1847,18 @@ test("new worktree dialog launches by keyboard and confirms dirty removal", {
       .poll(() => page.evaluate((id) => window.desktop.tail(id, 5), terminal.id))
       .toContain("FOOM_AGENT_READY");
   }
+  const remaining = await page.evaluate(
+    (repository) =>
+      window.desktop.startWorktree({
+        repository,
+        branch: "feature/remaining",
+        run: "shell",
+        acknowledgeCodexNotifierReplacement: false,
+      }),
+    terminal.repository,
+  );
+  await row.click();
+  await expect(page.locator("#terminal")).toBeVisible();
   const dirty = path.join(terminal.worktree, "unsaved.txt");
   await writeFile(dirty, "preserve unless confirmed");
   await app.evaluate(({ dialog }) => {
@@ -1863,6 +1880,15 @@ test("new worktree dialog launches by keyboard and confirms dirty removal", {
   await page.getByRole("button", { name: "Remove worktree feature/ui" }).click();
   await expect(row).toHaveCount(0);
   await assert.rejects(readFile(dirty), { code: "ENOENT" });
+  await page.locator(".board-row").filter({ hasText: "feature/remaining" }).click();
+  await expect(page.locator("#terminal")).toBeVisible();
+  await expect(page.locator(".xterm-helper-textarea")).toBeFocused();
+  await page.keyboard.type("echo FOOM_REMAINING_TERMINAL");
+  await page.keyboard.press("Enter");
+  await expect
+    .poll(() => page.evaluate((id) => window.desktop.tail(id, 10), remaining))
+    .toContain("FOOM_REMAINING_TERMINAL");
+
   assert.equal(
     isolatedGit(["branch", "--list", "feature/ui"], { cwd: repo }).toString().trim(),
     "feature/ui",
@@ -1944,13 +1970,42 @@ test("wheel moves less and preserves normal shell scrollback", {
 }, async (context) => {
   const app = await launchApp(context);
   const page = await app.firstWindow();
-  await page.keyboard.type("seq 1 300 | less");
-  await page.keyboard.press("Enter");
+  await page.evaluate(() => {
+    window.pagerOutput = "";
+    window.desktop.onData((_id, _token, data) => {
+      window.pagerOutput = (window.pagerOutput + data).slice(-8192);
+    });
+  });
   const rows = page.locator(".xterm-rows");
-  await expect.poll(() => rows.locator(":scope > div").first().textContent()).toMatch(/^1\s*$/);
-  await page.locator(".xterm-screen").hover();
-  await page.mouse.wheel(0, 140);
-  await expect.poll(() => rows.locator(":scope > div").first().textContent()).not.toMatch(/^1\s*$/);
+  // View focus does not guarantee that the login shell has finished initializing.
+  await page.keyboard.type("printf 'FOOM_%s\\n' PAGER_READY");
+  await page.keyboard.press("Enter");
+  await expect(
+    rows.locator(":scope > div").filter({ hasText: /^FOOM_PAGER_READY\s*$/ }),
+  ).toHaveCount(1);
+  // Login-shell exports must not override the PTY dimensions or alternate screen.
+  await page.keyboard.type("seq 1 300 | env -u LINES -u COLUMNS -u LESS less");
+  await page.keyboard.press("Enter");
+  try {
+    await expect.poll(() => rows.locator(":scope > div").first().textContent()).toMatch(/^1\s*$/);
+    // The first row can paint before less finishes entering its interactive mode.
+    // Its bottom prompt is the readiness boundary for sending wheel-generated keys.
+    await expect(rows.locator(":scope > div").last())
+      .toHaveText(/^\s*:\s*$/)
+      .catch(async (error) => {
+        console.error("Pager readiness failed", await rows.innerText());
+        throw error;
+      });
+    await page.locator(".xterm-screen").hover();
+    await page.mouse.wheel(0, 140);
+    await expect
+      .poll(() => rows.locator(":scope > div").first().textContent())
+      .not.toMatch(/^1\s*$/);
+  } catch (error) {
+    console.error("Pager screen", await rows.innerText());
+    console.error("Pager stream", JSON.stringify(await page.evaluate(() => window.pagerOutput)));
+    throw error;
+  }
   await page.keyboard.type("q");
   await page.keyboard.type("seq 1 300");
   await page.keyboard.press("Enter");
