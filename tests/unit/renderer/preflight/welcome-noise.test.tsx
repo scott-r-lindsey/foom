@@ -4,6 +4,7 @@ import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import {
   AGENTS,
   DONE,
+  LAYOUT,
   NEEDS_YOU,
   NoiseToCalm,
 } from "../../../../src/renderer/preflight/welcome-noise";
@@ -33,9 +34,11 @@ test("ten terminals fold into lights, then one needs you and one is done", () =>
   expect(tiles(container).every((tile) => tile.getAttribute("data-state") === "working")).toBe(
     true,
   );
-  expect(container.querySelector(".noise-output")?.textContent).toContain("●");
+  // Each terminal starts mid-session with colored output and a status line.
+  expect(container.querySelector(".noise-output .tone-accent")).not.toBeNull();
+  expect(container.querySelectorAll(".noise-status")).toHaveLength(AGENTS.length);
   act(() => {
-    vi.advanceTimersByTime(2200);
+    vi.advanceTimersByTime(3000);
   });
   expect(stage(container)?.getAttribute("data-phase")).toBe("calm");
   act(() => {
@@ -50,32 +53,37 @@ test("ten terminals fold into lights, then one needs you and one is done", () =>
   expect(settled.filter((tile) => tile.getAttribute("data-state") === "working")).toHaveLength(8);
 });
 
-test("working lights follow made-up output and stay in range", () => {
-  let next = 1;
-  const { container } = render(<NoiseToCalm random={() => next} />);
-  const level = () => Number(tiles(container)[0]?.style.getPropertyValue("--light"));
-  for (let index = 0; index < 6; index++)
+test("tiles are laid out like a window manager, and lights follow each terminal", () => {
+  let seed = 0;
+  // A fixed walk through [0, 1) keeps the output varied and the test repeatable.
+  const { container } = render(<NoiseToCalm random={() => (seed = (seed + 0.618) % 1)} />);
+  const light = (index: number) =>
+    Number(tiles(container)[index]?.style.getPropertyValue("--light"));
+  const area = LAYOUT.reduce((total, [, , w, h]) => total + w * h, 0);
+  expect(area).toBe(100 * 100);
+  expect(tiles(container)[0]?.style.getPropertyValue("--w")).toBe(String(LAYOUT[0][2]));
+  const seen = new Set<number>();
+  for (let tick = 0; tick < 40; tick++) {
     act(() => {
-      vi.advanceTimersByTime(420);
+      vi.advanceTimersByTime(70);
     });
-  expect(level()).toBe(1);
-  next = 0;
-  for (let index = 0; index < 10; index++)
-    act(() => {
-      vi.advanceTimersByTime(420);
-    });
-  expect(level()).toBe(0.25);
+    seen.add(light(0));
+  }
+  expect(seen.size).toBeGreaterThan(3);
+  expect([...seen].every((level) => level >= 0.25 && level <= 1)).toBe(true);
   act(() => {
-    vi.advanceTimersByTime(4200);
+    vi.advanceTimersByTime(5000);
   });
   // Lights that need you or are done hold steady.
-  expect(tiles(container)[NEEDS_YOU]?.style.getPropertyValue("--light")).toBe("1");
+  expect(light(NEEDS_YOU)).toBe(1);
+  expect(light(DONE)).toBe(1);
 });
 
 test("reduced motion shows the settled board and schedules nothing", () => {
   reduced = true;
   const { container } = render(<NoiseToCalm />);
   expect(stage(container)?.getAttribute("data-phase")).toBe("settled");
+  expect(tiles(container)[0]?.style.getPropertyValue("--light")).toBe("0.7");
   expect(vi.getTimerCount()).toBe(0);
 });
 

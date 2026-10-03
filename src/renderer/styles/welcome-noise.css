@@ -1,30 +1,42 @@
-/* Ten terminals scroll at once, then fold into ten lights. */
+/* Ten tiled terminals print at once, then fold into ten lights. */
 .welcome-noise {
+  /* Terminals stay dark in both modes; their palette is separate from the interface. */
+  --term-bg: #0b0913;
+  --term-bar: #15111f;
+  --term-line: #2a2240;
+  --term-plain: #e8e3f5;
+  --term-dim: #857da6;
+  --term-accent: #b48cff;
+  --term-blue: #7aa2ff;
+  --term-cyan: #5fd7e6;
+  --term-green: #6fe0a3;
+  --term-red: #ff6b81;
   position: relative;
-  width: min(100%, 880px);
-  height: clamp(300px, 44vh, 440px);
+  width: min(100%, 920px);
+  height: clamp(320px, 48vh, 480px);
   margin: 28px 0 32px;
 }
 .noise-tile {
-  --col: mod(var(--i), 5);
-  --row: round(down, var(--i) / 5);
   --ease: cubic-bezier(0.7, 0, 0.2, 1);
   --delay: calc(var(--i) * 45ms);
   position: absolute;
-  left: calc(var(--col) * 20% + 4px);
-  top: calc(var(--row) * 50% + 4px);
-  width: calc(20% - 8px);
-  height: calc(50% - 8px);
+  left: calc(var(--x) * 1% + 2px);
+  top: calc(var(--y) * 1% + 2px);
+  width: calc(var(--w) * 1% - 4px);
+  height: calc(var(--h) * 1% - 4px);
   overflow: hidden;
   text-align: left;
-  background: var(--surface);
-  border: 1px solid var(--line);
-  border-radius: 6px;
+  background: var(--term-bg);
+  border: 1px solid var(--term-line);
+  border-radius: 4px;
   transition:
     left 900ms var(--ease) var(--delay),
     top 900ms var(--ease) var(--delay),
     width 900ms var(--ease) var(--delay),
     height 900ms var(--ease) var(--delay),
+    background-color 600ms ease calc(var(--delay) + 450ms),
+    border-color 600ms ease calc(var(--delay) + 450ms),
+    border-radius 900ms var(--ease) var(--delay),
     opacity 1200ms ease;
 }
 .welcome-noise:not([data-phase="noise"]) .noise-tile {
@@ -32,15 +44,63 @@
   top: calc(var(--i) * 10% + 2px);
   width: 60%;
   height: calc(10% - 4px);
+  background: var(--surface);
+  border-color: var(--line);
+  border-radius: 6px;
 }
-/* Margin, not padding: the loop scrolls exactly half the text's own height. */
-.noise-output {
-  margin: 8px;
-  padding: 0;
-  font: 9px / 1.45 var(--font-terminal);
-  color: var(--muted);
-  animation: noise-scroll var(--scroll) linear infinite;
+.noise-title {
+  height: 16px;
+  padding: 0 8px;
+  overflow: hidden;
+  font: 9px / 16px var(--font-mono);
+  white-space: nowrap;
+  color: var(--term-dim);
+  background: var(--term-bar);
+  border-bottom: 1px solid var(--term-line);
   transition: opacity 400ms ease calc(var(--delay) + 450ms);
+}
+/* New lines push up from the bottom, like a real terminal. */
+.noise-output {
+  position: absolute;
+  inset: 16px 0 0;
+  margin: 0;
+  padding: 4px 8px 6px;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  overflow: hidden;
+  font: 9px / 1.45 var(--font-terminal);
+  color: var(--term-plain);
+  white-space: pre;
+  transition: opacity 400ms ease calc(var(--delay) + 450ms);
+}
+.noise-line {
+  display: block;
+  min-height: 1.45em;
+}
+.noise-status {
+  margin-top: 4px;
+}
+.tone-dim {
+  color: var(--term-dim);
+}
+.tone-bold {
+  font-weight: 700;
+}
+.tone-accent {
+  color: var(--term-accent);
+}
+.tone-blue {
+  color: var(--term-blue);
+}
+.tone-cyan {
+  color: var(--term-cyan);
+}
+.tone-green {
+  color: var(--term-green);
+}
+.tone-red {
+  color: var(--term-red);
 }
 .noise-row {
   position: absolute;
@@ -54,7 +114,8 @@
   opacity: 0;
   transition: opacity 500ms ease calc(var(--delay) + 600ms);
 }
-.welcome-noise:not([data-phase="noise"]) .noise-output {
+.welcome-noise:not([data-phase="noise"]) .noise-output,
+.welcome-noise:not([data-phase="noise"]) .noise-title {
   opacity: 0;
 }
 .welcome-noise:not([data-phase="noise"]) .noise-row {
@@ -88,11 +149,6 @@
 .noise-tile[data-state="done"] .noise-agent {
   color: var(--done-ink);
 }
-@keyframes noise-scroll {
-  to {
-    transform: translateY(-50%);
-  }
-}
 @keyframes noise-knock {
   0%,
   100% {
@@ -104,11 +160,12 @@
 }
 @media (prefers-reduced-motion: reduce) {
   .noise-tile,
+  .noise-title,
+  .noise-output,
   .noise-row,
   .noise-light {
     transition: none;
   }
-  .noise-output,
   .noise-tile[data-state="needs_input"] .noise-light {
     animation: none;
   }
