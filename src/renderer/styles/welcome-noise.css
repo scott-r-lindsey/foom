@@ -1,0 +1,118 @@
+/* Ten terminals scroll at once, then fold into ten lights. */
+.welcome-noise {
+  position: relative;
+  width: min(100%, 880px);
+  height: clamp(300px, 44vh, 440px);
+  margin: 28px 0 32px;
+}
+.noise-tile {
+  --col: mod(var(--i), 5);
+  --row: round(down, var(--i) / 5);
+  --ease: cubic-bezier(0.7, 0, 0.2, 1);
+  --delay: calc(var(--i) * 45ms);
+  position: absolute;
+  left: calc(var(--col) * 20% + 4px);
+  top: calc(var(--row) * 50% + 4px);
+  width: calc(20% - 8px);
+  height: calc(50% - 8px);
+  overflow: hidden;
+  text-align: left;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  transition:
+    left 900ms var(--ease) var(--delay),
+    top 900ms var(--ease) var(--delay),
+    width 900ms var(--ease) var(--delay),
+    height 900ms var(--ease) var(--delay),
+    opacity 1200ms ease;
+}
+.welcome-noise:not([data-phase="noise"]) .noise-tile {
+  left: 20%;
+  top: calc(var(--i) * 10% + 2px);
+  width: 60%;
+  height: calc(10% - 4px);
+}
+/* Margin, not padding: the loop scrolls exactly half the text's own height. */
+.noise-output {
+  margin: 8px;
+  padding: 0;
+  font: 9px / 1.45 var(--font-terminal);
+  color: var(--muted);
+  animation: noise-scroll var(--scroll) linear infinite;
+  transition: opacity 400ms ease calc(var(--delay) + 450ms);
+}
+.noise-row {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  grid-template-columns: 10px 1fr auto;
+  gap: 12px;
+  align-items: center;
+  padding: 0 14px;
+  font: 12px var(--font-mono);
+  opacity: 0;
+  transition: opacity 500ms ease calc(var(--delay) + 600ms);
+}
+.welcome-noise:not([data-phase="noise"]) .noise-output {
+  opacity: 0;
+}
+.welcome-noise:not([data-phase="noise"]) .noise-row {
+  opacity: 1;
+}
+.noise-light {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--accent);
+  opacity: var(--light);
+  transition: opacity 420ms linear;
+}
+.noise-agent {
+  color: var(--muted);
+}
+/* Once settled, everything that doesn't need you recedes. */
+.welcome-noise[data-phase="settled"] .noise-tile[data-state="working"] {
+  opacity: 0.7;
+}
+.noise-tile[data-state="needs_input"] .noise-light {
+  background: var(--attention);
+  animation: noise-knock 2.4s ease-in-out infinite;
+}
+.noise-tile[data-state="needs_input"] .noise-agent {
+  color: var(--attention-ink);
+}
+.noise-tile[data-state="done"] .noise-light {
+  background: var(--done);
+}
+.noise-tile[data-state="done"] .noise-agent {
+  color: var(--done-ink);
+}
+@keyframes noise-scroll {
+  to {
+    transform: translateY(-50%);
+  }
+}
+@keyframes noise-knock {
+  0%,
+  100% {
+    box-shadow: 0 0 0 4px color-mix(in srgb, var(--attention) 22%, transparent);
+  }
+  50% {
+    box-shadow: 0 0 0 7px color-mix(in srgb, var(--attention) 12%, transparent);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .noise-tile,
+  .noise-row,
+  .noise-light {
+    transition: none;
+  }
+  .noise-output,
+  .noise-tile[data-state="needs_input"] .noise-light {
+    animation: none;
+  }
+  .noise-tile[data-state="needs_input"] .noise-light {
+    box-shadow: 0 0 0 4px color-mix(in srgb, var(--attention) 22%, transparent);
+  }
+}
