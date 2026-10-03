@@ -1099,7 +1099,6 @@ test("launches an agent in a managed worktree and routes its attention signals",
 }, async (context) => {
   const { chmod, mkdir, writeFile } = require("node:fs/promises");
   const root = await mkdtemp(path.join(tmpdir(), "foom-workspace-"));
-  context.after(() => rm(root, { recursive: true, force: true }));
   const bin = path.join(root, "bin");
   const repo = path.join(root, "app");
   await mkdir(bin);
@@ -1124,6 +1123,9 @@ test("launches an agent in a managed worktree and routes its attention signals",
       PATH: `${bin}${path.delimiter}${process.env.PATH}`,
       FOOM_FAKE_CREDENTIALS: credentials,
     },
+  }).finally(() => {
+    // Chromium may still write user-data until the app cleanup hook has finished.
+    context.after(() => rm(root, { recursive: true, force: true }));
   });
   const page = await app.firstWindow();
   await app.evaluate(({ dialog }, directory) => {
@@ -1968,22 +1970,42 @@ test("wheel moves less and preserves normal shell scrollback", {
 }, async (context) => {
   const app = await launchApp(context);
   const page = await app.firstWindow();
+  await page.evaluate(() => {
+    window.pagerOutput = "";
+    window.desktop.onData((_id, _token, data) => {
+      window.pagerOutput = (window.pagerOutput + data).slice(-8192);
+    });
+  });
+  const rows = page.locator(".xterm-rows");
+  // View focus does not guarantee that the login shell has finished initializing.
+  await page.keyboard.type("printf 'FOOM_%s\\n' PAGER_READY");
+  await page.keyboard.press("Enter");
+  await expect(
+    rows.locator(":scope > div").filter({ hasText: /^FOOM_PAGER_READY\s*$/ }),
+  ).toHaveCount(1);
   // Login-shell exports must not override the PTY dimensions or alternate screen.
   await page.keyboard.type("seq 1 300 | env -u LINES -u COLUMNS -u LESS less");
   await page.keyboard.press("Enter");
-  const rows = page.locator(".xterm-rows");
-  await expect.poll(() => rows.locator(":scope > div").first().textContent()).toMatch(/^1\s*$/);
-  // The first row can paint before less finishes entering its interactive mode.
-  // Its bottom prompt is the readiness boundary for sending wheel-generated keys.
-  await expect(rows.locator(":scope > div").last())
-    .toHaveText(/^\s*:\s*$/)
-    .catch(async (error) => {
-      console.error("Pager readiness failed", await rows.innerText());
-      throw error;
-    });
-  await page.locator(".xterm-screen").hover();
-  await page.mouse.wheel(0, 140);
-  await expect.poll(() => rows.locator(":scope > div").first().textContent()).not.toMatch(/^1\s*$/);
+  try {
+    await expect.poll(() => rows.locator(":scope > div").first().textContent()).toMatch(/^1\s*$/);
+    // The first row can paint before less finishes entering its interactive mode.
+    // Its bottom prompt is the readiness boundary for sending wheel-generated keys.
+    await expect(rows.locator(":scope > div").last())
+      .toHaveText(/^\s*:\s*$/)
+      .catch(async (error) => {
+        console.error("Pager readiness failed", await rows.innerText());
+        throw error;
+      });
+    await page.locator(".xterm-screen").hover();
+    await page.mouse.wheel(0, 140);
+    await expect
+      .poll(() => rows.locator(":scope > div").first().textContent())
+      .not.toMatch(/^1\s*$/);
+  } catch (error) {
+    console.error("Pager screen", await rows.innerText());
+    console.error("Pager stream", JSON.stringify(await page.evaluate(() => window.pagerOutput)));
+    throw error;
+  }
   await page.keyboard.type("q");
   await page.keyboard.type("seq 1 300");
   await page.keyboard.press("Enter");
