@@ -1,14 +1,13 @@
-/* Accretion ring around Start preflight. Violet is identity, never status: no amber. */
-@property --ring-angle {
-  syntax: "<angle>";
-  inherits: false;
-  initial-value: 0deg;
+/* Move by distance around a rounded rectangle, not by angle around its center. */
+@property --ring-distance {
+  syntax: "<number>";
+  inherits: true;
+  initial-value: 0;
 }
-/* Extra turn while you're on the button; paused, it holds its angle, so no jump. */
 @property --ring-boost {
-  syntax: "<angle>";
-  inherits: false;
-  initial-value: 0deg;
+  syntax: "<number>";
+  inherits: true;
+  initial-value: 0;
 }
 .ignite {
   --ring-tip: color-mix(in srgb, var(--accent) 30%, white);
@@ -17,51 +16,56 @@
   display: inline-block;
   border-radius: 7px;
 }
-/* The glow: a blurred copy of the arc just outside the border. */
-.ignite::before {
-  content: "";
-  position: absolute;
-  inset: -4px;
-  border-radius: 10px;
-  background: conic-gradient(
-    from calc(var(--ring-angle) + var(--ring-boost)),
-    transparent 0 50%,
-    var(--accent) 80%,
-    var(--ring-tip) 97%,
-    transparent 100%
-  );
-  filter: blur(8px);
-  opacity: var(--ring-glow-opacity);
-  animation:
-    ignite-orbit 4s linear infinite,
-    ignite-boost 1.25s linear infinite paused;
-}
-/* The arc itself, drawn in the button's border. */
 .preflight .ignite button.primary {
   position: relative;
-  border: 2px solid transparent;
-  background:
-    linear-gradient(var(--accent), var(--accent)) padding-box,
-    conic-gradient(
-      from calc(var(--ring-angle) + var(--ring-boost)),
-      var(--accent) 0 50%,
-      var(--accent-deep) 75%,
-      var(--ring-tip) 97%,
-      var(--accent) 100%
-    )
-    border-box;
+  border: 2px solid var(--accent);
+  background: var(--accent);
+}
+.ignite-ring {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  pointer-events: none;
+  fill: none;
+  stroke: var(--ring-tip);
+  stroke-width: 2;
+  stroke-linecap: round;
   animation:
     ignite-orbit 4s linear infinite,
     ignite-boost 1.25s linear infinite paused;
 }
-/* On it, the ring spins up: about one orbit a second. */
-.ignite:hover::before,
-.ignite:focus-within::before,
-.preflight .ignite:hover button.primary,
-.preflight .ignite:focus-within button.primary {
+.ignite-ring rect {
+  x: 1px;
+  y: 1px;
+  width: calc(100% - 2px);
+  height: calc(100% - 2px);
+  rx: 6px;
+  stroke-dashoffset: calc(var(--ring-distance) + var(--ring-boost));
+}
+/* Each dash/gap pair spans half the path, placing two highlights opposite each other. */
+.ignite-ring .ring-tail {
+  stroke-dasharray: 22 28;
+  opacity: 0.25;
+}
+.ignite-ring .ring-middle {
+  stroke-dasharray: 12 38;
+  opacity: 0.5;
+}
+.ignite-ring .ring-tip {
+  stroke-dasharray: 3 47;
+}
+.ignite-ring-glow {
+  filter: blur(6px);
+  opacity: var(--ring-glow-opacity);
+  stroke-width: 5;
+}
+/* The extra distance pauses in place on exit, so the highlight never jumps. */
+.ignite:hover .ignite-ring,
+.ignite:focus-within .ignite-ring {
   animation-play-state: running, running;
 }
-/* On a pale sky the glow is softer, or it reads as a smudge. */
 @media (prefers-color-scheme: light) {
   .ignite {
     --ring-tip: color-mix(in srgb, var(--accent) 45%, white);
@@ -70,27 +74,19 @@
 }
 @keyframes ignite-orbit {
   to {
-    --ring-angle: 360deg;
+    --ring-distance: 100;
   }
 }
 @keyframes ignite-boost {
   to {
-    --ring-boost: 360deg;
+    --ring-boost: 100;
   }
 }
-/* Reduced motion: a steady ring with an even glow. */
 @media (prefers-reduced-motion: reduce) {
-  .ignite::before,
-  .preflight .ignite button.primary {
+  .ignite-ring {
     animation: none;
   }
-  .ignite::before {
-    background: var(--accent-deep);
-    opacity: 0.6;
-  }
-  .preflight .ignite button.primary {
-    background:
-      linear-gradient(var(--accent), var(--accent)) padding-box,
-      linear-gradient(var(--ring-tip), var(--ring-tip)) border-box;
+  .ignite-ring rect {
+    stroke-dasharray: none;
   }
 }

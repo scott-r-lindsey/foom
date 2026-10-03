@@ -38,7 +38,7 @@ test("zooming in and back out returns to the same window, even after hitting an 
   const { apply } = attachWindowScale(window, () => area, 100);
   apply(110);
   expect(bounds).toEqual({ x: 100, y: 100, width: 990, height: 704 });
-  expect(window.setMinimumSize).toHaveBeenLastCalledWith(528, 462);
+  expect(window.setMinimumSize).toHaveBeenLastCalledWith(990, 704);
   resize?.();
   apply(150);
   // Capped by the screen and moved back onto it.
@@ -47,17 +47,17 @@ test("zooming in and back out returns to the same window, even after hitting an 
   // The size comes back exactly; the position stays where the edge put it.
   apply(100);
   expect(bounds).toEqual({ x: 0, y: 64, width: 900, height: 640 });
-  expect(window.setMinimumSize).toHaveBeenLastCalledWith(480, 420);
+  expect(window.setMinimumSize).toHaveBeenLastCalledWith(900, 640);
   apply(100);
   expect(window.setBounds).toHaveBeenCalledTimes(3);
 });
 
 test("a resize by the user sets a new size at 100%", () => {
   const { apply } = attachWindowScale(window, () => area, 120);
-  bounds = { ...bounds, width: 1200, height: 720 };
+  bounds = { ...bounds, width: 1200, height: 840 };
   resize?.();
   apply(100);
-  expect(bounds).toMatchObject({ width: 1000, height: 600 });
+  expect(bounds).toMatchObject({ width: 1000, height: 700 });
 });
 
 test("zoom reset shrinks a window macOS reports maximized after our own resize", () => {
@@ -80,7 +80,7 @@ test("maximized and full-screen windows keep their size but get the new minimum"
   resize?.();
   apply(120);
   expect(window.setBounds).not.toHaveBeenCalled();
-  expect(window.setMinimumSize).toHaveBeenCalledWith(576, 504);
+  expect(window.setMinimumSize).toHaveBeenCalledWith(1080, 768);
   window.isMaximized.mockReturnValue(false);
   window.isFullScreen.mockReturnValue(true);
   apply(130);
