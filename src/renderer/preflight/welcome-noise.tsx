@@ -15,7 +15,7 @@ type TileStyle = CSSProperties & {
 /** Ten made-up agents. One will need you; one will finish. */
 export const AGENTS = [
   ["feat/sidebar-tree", "Claude Code"],
-  ["fix/session-restore", "Codex"],
+  ["fix/resume-exited", "Codex"],
   ["feat/soundscapes", "Claude Code"],
   ["fix/esc-passthrough", "Codex"],
   ["docs/licenses", "Antigravity"],
