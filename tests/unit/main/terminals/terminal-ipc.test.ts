@@ -850,6 +850,7 @@ test("quiet detection reads parsed headless tails and stops on exit without an a
 test("reports quiet, input, exit and removal for owned terminals and grants main launches", async () => {
   {
     const events = {
+      onOutput: vi.fn(),
       onQuiet: vi.fn(),
       onExit: vi.fn(),
       onInput: vi.fn(),
@@ -868,6 +869,7 @@ test("reports quiet, input, exit and removal for owned terminals and grants main
     expect(control.owns("other")).toBe(false);
     const index = ptys.length - 1;
     output("Continue? (y/n) ", index);
+    expect(events.onOutput).toHaveBeenCalledWith(id);
     await expect(control.tail(id, 1)).resolves.toEqual(["Continue? (y/n) "]);
     // A trailing y/n prompt goes quiet after 500 ms of silence.
     await vi.waitFor(

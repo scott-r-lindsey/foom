@@ -63,7 +63,9 @@ export class TerminalHostClient {
         return;
       }
       const session = this.sessions.get(message.id);
-      if (message.type === "quiet") {
+      if (message.type === "output") {
+        if (session?.alive) this.events.onOutput?.(message.id);
+      } else if (message.type === "quiet") {
         if (session?.alive) this.events.onQuiet?.(message.id);
       } else if (message.type === "data") {
         if (session?.view === message.view) session.send?.(message.token, message.data);

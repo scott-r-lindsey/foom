@@ -171,6 +171,8 @@ test.each([false, true])(
 
 test("forwards activity batches and quiet IDs from the host meter", () => {
   mock.events.onActivity?.([{ id: "one", rate: 42 }]);
+  mock.events.onOutput?.("one");
+  expect(port.postMessage).toHaveBeenCalledWith({ type: "output", id: "one" });
   mock.events.onQuiet?.("one");
   expect(port.postMessage).toHaveBeenCalledWith({
     type: "activity",

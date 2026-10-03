@@ -281,3 +281,14 @@ test("stop waits for host completion and preserves the terminal for retry or ins
   await client.stop("unknown");
   expect(child.postMessage).toHaveBeenCalledTimes(count);
 });
+
+test("output invalidation is delivered without an attached view and rejects foreign or exited IDs", async () => {
+  const output = vi.fn();
+  client = new TerminalHostClient(exited, { onOutput: output });
+  const id = await create();
+  child.emit("message", { type: "output", id });
+  child.emit("message", { type: "output", id: "foreign" });
+  child.emit("message", { type: "exit", id, code: 0 });
+  child.emit("message", { type: "output", id });
+  expect(output).toHaveBeenCalledExactlyOnceWith(id);
+});

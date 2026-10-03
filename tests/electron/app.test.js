@@ -1758,7 +1758,6 @@ test("new worktree dialog launches by keyboard and confirms dirty removal", {
   timeout: 60000,
 }, async (context) => {
   const root = await mkdtemp(path.join(tmpdir(), "foom-launch-ui-"));
-  context.after(() => rm(root, { recursive: true, force: true, maxRetries: 5 }));
   const repo = path.join(root, "app");
   const bin = path.join(root, "bin");
   await mkdir(repo);
@@ -1789,6 +1788,10 @@ test("new worktree dialog launches by keyboard and confirms dirty removal", {
       PATH: `${bin}${path.delimiter}${process.env.PATH}`,
       FOOM_FAKE_CREDENTIALS: path.join(root, "fake-hook.json"),
     },
+  }).finally(() => {
+    // Hooks run in registration order. Close Electron before deleting the second
+    // worktree: a live PowerShell process holds its working directory on Windows.
+    context.after(() => rm(root, { recursive: true, force: true, maxRetries: 5 }));
   });
   const page = await app.firstWindow();
   const tabToField = async (id, reverse = false) => {
@@ -1844,6 +1847,18 @@ test("new worktree dialog launches by keyboard and confirms dirty removal", {
       .poll(() => page.evaluate((id) => window.desktop.tail(id, 5), terminal.id))
       .toContain("FOOM_AGENT_READY");
   }
+  const remaining = await page.evaluate(
+    (repository) =>
+      window.desktop.startWorktree({
+        repository,
+        branch: "feature/remaining",
+        run: "shell",
+        acknowledgeCodexNotifierReplacement: false,
+      }),
+    terminal.repository,
+  );
+  await row.click();
+  await expect(page.locator("#terminal")).toBeVisible();
   const dirty = path.join(terminal.worktree, "unsaved.txt");
   await writeFile(dirty, "preserve unless confirmed");
   await app.evaluate(({ dialog }) => {
@@ -1865,6 +1880,15 @@ test("new worktree dialog launches by keyboard and confirms dirty removal", {
   await page.getByRole("button", { name: "Remove worktree feature/ui" }).click();
   await expect(row).toHaveCount(0);
   await assert.rejects(readFile(dirty), { code: "ENOENT" });
+  await page.locator(".board-row").filter({ hasText: "feature/remaining" }).click();
+  await expect(page.locator("#terminal")).toBeVisible();
+  await expect(page.locator(".xterm-helper-textarea")).toBeFocused();
+  await page.keyboard.type("echo FOOM_REMAINING_TERMINAL");
+  await page.keyboard.press("Enter");
+  await expect
+    .poll(() => page.evaluate((id) => window.desktop.tail(id, 10), remaining))
+    .toContain("FOOM_REMAINING_TERMINAL");
+
   assert.equal(
     isolatedGit(["branch", "--list", "feature/ui"], { cwd: repo }).toString().trim(),
     "feature/ui",

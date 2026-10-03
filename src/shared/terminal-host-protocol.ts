@@ -81,6 +81,7 @@ export function hostResponse(value: unknown): value is HostResponse {
     );
   if (!text(value["id"])) return false;
   switch (value["type"]) {
+    case "output":
     case "quiet":
       return true;
     case "result":

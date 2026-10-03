@@ -7,6 +7,7 @@ import type { TerminalSpec } from "../../shared/desktop";
 
 /** Lifecycle hooks for owned terminals; the workspace evaluates and releases from these. */
 export interface TerminalEvents {
+  onOutput?(id: string): void;
   onQuiet?(id: string): void;
   onExit?(id: string, code: number): void;
   onInput?(id: string): void;
@@ -41,6 +42,9 @@ export function attachTerminal(
       if (owned.has(id)) events.onExit?.(id, code);
     },
     {
+      onOutput: (id) => {
+        if (owned.has(id)) events.onOutput?.(id);
+      },
       onQuiet: (id) => {
         if (owned.has(id)) events.onQuiet?.(id);
       },

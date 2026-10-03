@@ -119,6 +119,9 @@ function createWindow(savedSize?: Size) {
   });
   // Terminal events and state updates only arrive after both objects exist.
   const terminals = attachTerminal(window, {
+    onOutput: (id) => {
+      workspace.output(id);
+    },
     onQuiet: (id) => void workspace.quiet(id),
     onExit: (id, code) => void workspace.exited(id, code),
     onInput: (id) => {
