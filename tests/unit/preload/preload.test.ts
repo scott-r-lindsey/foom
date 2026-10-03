@@ -340,3 +340,9 @@ test("board commands accept only known actions and unsubscribe", async () => {
   off();
   expect(mock.removeListener).toHaveBeenCalledWith("board:command", handler);
 });
+
+test("preserves wheel origin through the bridge", async () => {
+  const api = await bridge();
+  api.input("one", "\x1b[B", "wheel");
+  expect(mock.send).toHaveBeenCalledWith("terminal:input", "one", "\x1b[B", "wheel");
+});

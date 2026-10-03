@@ -22,7 +22,7 @@ export interface DesktopApi extends WorkspaceApi, SetupApi {
   attach(id: string): Promise<void>;
   detach(id: string): Promise<void>;
   kill(id: string): Promise<void>;
-  input(id: string, data: string): void;
+  input(id: string, data: string, origin?: "wheel"): void;
   resize(id: string, cols: number, rows: number): void;
   acknowledge(id: string, token: string, count: number): void;
   tail(id: string, lines: number): Promise<string[]>;

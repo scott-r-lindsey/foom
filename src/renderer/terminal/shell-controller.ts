@@ -116,7 +116,7 @@ export function createShell(
     if (activeId && attached && !busy) window.desktop.input(activeId, data);
   });
   const wheel = alternateScroll(terminal, (data) => {
-    if (activeId && attached && !busy) window.desktop.input(activeId, data);
+    if (activeId && attached && !busy) window.desktop.input(activeId, data, "wheel");
   });
   terminal.attachCustomWheelEventHandler((event) => wheel.handle(event));
   const resize = () => {

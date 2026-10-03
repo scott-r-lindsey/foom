@@ -1921,8 +1921,25 @@ test("persistent sidebar keeps Escape in the PTY and routes keyboard navigation"
   await expect(page.locator(".xterm-helper-textarea")).toBeFocused();
   const screen = page.locator(".xterm-screen");
   await screen.hover();
+  await expect
+    .poll(() => page.locator(".board-row").getAttribute("data-state"))
+    .toBe("needs_input");
+  const verdictLog = path.join(
+    await app.evaluate(({ app }) => app.getPath("userData")),
+    "verdicts.jsonl",
+  );
+  const feedbackBefore = (await readFile(verdictLog, "utf8"))
+    .split("\n")
+    .filter((line) => line.includes('"action"'));
   await page.mouse.wheel(0, 56);
   await expect.poll(() => readFile(marker, "utf8")).toContain("1b5b42");
+  await expect(page.locator(".board-row")).toHaveAttribute("data-state", "needs_input");
+  assert.deepEqual(
+    (await readFile(verdictLog, "utf8")).split("\n").filter((line) => line.includes('"action"')),
+    feedbackBefore,
+  );
+  await page.keyboard.press("ArrowDown");
+  await expect(page.locator(".board-row")).toHaveAttribute("data-state", "working");
   await page.keyboard.type("m");
   await expect(page.locator(".xterm-rows")).toContainText("MOUSE_READY");
   await writeFile(marker, "");
