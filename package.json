@@ -35,10 +35,10 @@
   "devDependencies": {
     "@axe-core/playwright": "4.13.0",
     "@biomejs/biome": "2.5.14",
-    "@electron-forge/cli": "7.11.2",
-    "@electron-forge/maker-zip": "7.11.2",
-    "@electron-forge/plugin-fuses": "7.11.2",
-    "@electron/fuses": "1.8.0",
+    "@electron-forge/cli": "8.0.1",
+    "@electron-forge/maker-zip": "8.0.1",
+    "@electron-forge/plugin-fuses": "8.0.1",
+    "@electron/fuses": "2.1.3",
     "@eslint-react/eslint-plugin": "5.23.1",
     "@eslint/js": "10.0.1",
     "@playwright/test": "1.63.0",
@@ -59,15 +59,6 @@
     "typescript": "6.0.3",
     "typescript-eslint": "8.71.0",
     "vitest": "5.0.2"
-  },
-  "overrides": {
-    "@electron/rebuild": "4.2.0",
-    "@electron/packager": {
-      "extract-zip": "npm:@electron-internal/extract-zip@1.0.5"
-    },
-    "external-editor": {
-      "tmp": "0.2.7"
-    }
   },
   "dependencies": {
     "@xterm/addon-fit": "0.11.0",

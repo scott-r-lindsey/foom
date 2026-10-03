@@ -30,6 +30,10 @@ vi.mock("../../../src/main/agents/hook-receiver", () => ({
 vi.mock("../../../src/main/evaluator/verdict-log", () => ({ VerdictLog: mock.VerdictLog }));
 vi.mock("../../../src/main/evaluator/inference-keys", () => ({ InferenceKeys: vi.fn() }));
 vi.mock("../../../src/main/setup/settings", () => ({ SettingsStore: { open: mock.openSettings } }));
+vi.mock("../../../src/main/window/window-state", () => ({
+  loadWindowSize: mock.loadWindowSize,
+  saveWindowSize: mock.saveWindowSize,
+}));
 vi.mock("../../../src/main/setup/setup", () => ({
   Setup: class {
     classify = mock.setup.classify;
@@ -86,6 +90,7 @@ const mock = vi.hoisted(() => {
       windowEvents.set(name, handler);
     }),
     removeMenu: vi.fn(),
+    getNormalBounds: vi.fn(() => ({ x: 0, y: 0, width: 1100, height: 800 })),
     getBounds: vi.fn(() => ({ x: 0, y: 0, width: 1080, height: 768 })),
     getContentBounds: vi.fn(() => ({ x: 0, y: 0, width: 1080, height: 768 })),
     setBounds: vi.fn(),
@@ -104,6 +109,7 @@ const mock = vi.hoisted(() => {
     on = window.on;
     removeMenu = window.removeMenu;
     getBounds = window.getBounds;
+    getNormalBounds = window.getNormalBounds;
     getContentBounds = window.getContentBounds;
     setBounds = window.setBounds;
     setMinimumSize = window.setMinimumSize;
@@ -144,6 +150,8 @@ const mock = vi.hoisted(() => {
     setup,
     setupIpc: { dispose: vi.fn(), zoom: vi.fn<(direction: string) => Promise<void>>() },
     attachSetup: vi.fn<(...args: unknown[]) => unknown>(),
+    loadWindowSize: vi.fn<() => Promise<{ width: number; height: number } | undefined>>(),
+    saveWindowSize: vi.fn<() => Promise<void>>(),
     openSettings: vi.fn<() => Promise<unknown>>(),
     settingsStore: {
       update: vi.fn(() => Promise.resolve()),
@@ -662,10 +670,10 @@ test("setup owns the settings, applies them to the workspace, and classifies ver
   expect(mock.window.webContents.setZoomFactor).toHaveBeenCalledWith(0.9);
   // The window opened at 120% and shrinks with the interface.
   expect(mock.construct.mock.calls[0]?.[0]).toMatchObject({
-    width: 1080,
+    width: 1152,
     height: 768,
-    minWidth: 576,
-    minHeight: 504,
+    minWidth: 1080,
+    minHeight: 768,
   });
   expect(mock.window.setBounds).toHaveBeenCalledWith({ x: 0, y: 0, width: 810, height: 576 });
   // The code folder picker is main's own dialog.
@@ -758,4 +766,34 @@ test("main intercepts board chords before terminal input", async () => {
   });
   expect(event.preventDefault).toHaveBeenCalledOnce();
   expect(mock.window.webContents.send).toHaveBeenCalledWith("board:command", "sidebar");
+});
+
+test("restores saved dimensions on startup", async () => {
+  mock.loadWindowSize.mockResolvedValueOnce({ width: 1400, height: 900 });
+  await start();
+  expect(mock.construct.mock.calls[0]?.[0]).toMatchObject({ width: 1400, height: 900 });
+});
+test("saves normal dimensions before quitting", async () => {
+  await start();
+  quitting();
+  await vi.waitFor(() => {
+    expect(mock.quit).toHaveBeenCalledOnce();
+  });
+  expect(mock.saveWindowSize).toHaveBeenCalledWith("/test/user-data", {
+    x: 0,
+    y: 0,
+    width: 1100,
+    height: 800,
+  });
+});
+test("a window size write failure does not prevent quitting", async () => {
+  const error = new Error("disk full");
+  const log = vi.spyOn(console, "error").mockImplementation(() => {});
+  mock.saveWindowSize.mockRejectedValueOnce(error);
+  await start();
+  quitting();
+  await vi.waitFor(() => {
+    expect(mock.quit).toHaveBeenCalledOnce();
+  });
+  expect(log).toHaveBeenCalledWith("Unable to save the window size:", error);
 });

@@ -134,13 +134,14 @@ export async function scanCodeFolder(
   return { folder: root, repositories, folders, truncated };
 }
 
-/** Common code folders that exist under the home folder. */
+/** Common code folders that exist, including the Linux web root. */
 export async function suggestCodeFolders(home: string, platform = process.platform) {
   const names = ["code", "src", "projects", "dev", "git", "repos", "workspace", "work"];
   if (platform === "darwin") names.push("Developer");
+  const candidates = names.map((name) => join(home, name));
+  if (platform === "linux") candidates.push("/var/www/html");
   const found: string[] = [];
-  for (const name of names) {
-    const path = join(home, name);
+  for (const path of candidates) {
     try {
       if ((await stat(path)).isDirectory()) found.push(path);
     } catch {

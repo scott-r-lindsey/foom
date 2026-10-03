@@ -318,7 +318,14 @@ test("suggestions are folders with repositories in them, counted by a quick scan
 });
 
 test("suggested folders can be scanned directly", async () => {
-  const setup = new Setup({ ...deps, code: { ...deps.code, home: "/nonexistent-home" } });
+  const setup = new Setup({
+    ...deps,
+    code: {
+      ...deps.code,
+      home: "/nonexistent-home",
+      scan: (folder) => Promise.resolve({ folder, folders: 0, truncated: false, repositories: [] }),
+    },
+  });
   await expect(setup.codeSuggestions()).resolves.toEqual([]);
   await expect(setup.scanCode("/nonexistent-home/code", vi.fn())).rejects.toThrow(
     "Unknown code folder",

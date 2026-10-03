@@ -1,11 +1,14 @@
+import * as fs from "node:fs/promises";
 import { execFile } from "node:child_process";
 import { mkdir, mkdtemp, realpath, rm, symlink, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
-import { afterEach, beforeEach, expect, test } from "vitest";
+import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { isRecent, scanCodeFolder, suggestCodeFolders } from "../../../../src/main/setup/code-scan";
 import type { ScanProgress } from "../../../../src/shared/setup";
+
+vi.mock("node:fs/promises", { spy: true });
 
 const executeFile = promisify(execFile);
 /**
@@ -34,6 +37,7 @@ beforeEach(async () => {
   root = await realpath(await mkdtemp(join(tmpdir(), "foom-code-")));
 });
 afterEach(async () => {
+  vi.mocked(fs.stat).mockReset();
   await rm(root, { recursive: true, force: true });
 });
 
@@ -123,9 +127,18 @@ test("suggests common code folders that exist", async () => {
   await mkdir(join(root, "code"));
   await mkdir(join(root, "Developer"));
   await writeFile(join(root, "src"), "a file, not a folder");
-  expect(await suggestCodeFolders(root, "linux")).toEqual([join(root, "code")]);
+  expect(await suggestCodeFolders(root, "win32")).toEqual([join(root, "code")]);
   expect(await suggestCodeFolders(root, "darwin")).toEqual([
     join(root, "code"),
     join(root, "Developer"),
   ]);
+});
+
+test("Linux includes an existing web root and skips it when unavailable", async () => {
+  const directory = await fs.stat(root);
+  const probe = vi.mocked(fs.stat).mockResolvedValue(directory);
+  expect(await suggestCodeFolders(root, "linux")).toContain("/var/www/html");
+  expect(await suggestCodeFolders(root, "win32")).not.toContain("/var/www/html");
+  probe.mockRejectedValue(new Error("ENOENT"));
+  expect(await suggestCodeFolders(root, "linux")).toEqual([]);
 });

@@ -106,19 +106,13 @@ Keep Electron updated and review the [Electron security checklist](https://www.e
 
 The full `npm run audit` scan currently reports **zero vulnerabilities**, including development dependencies. It runs as a required CI job before packaging. A registry failure also fails that job; advisories are not suppressed. This scan does not replace monitoring Electron's Chromium and Node.js security updates.
 
-Forge 7.11.2 is the latest stable Forge release at the time of this update, but still requests older transitive dependencies. Three pinned npm overrides remove the previous 25 findings:
+Forge CLI, ZIP maker, and fuses plugin are pinned together at 8.0.1, with `@electron/fuses` 2.1.3 to satisfy the plugin peer requirement. Forge 8 removes the vulnerable `braces` and `http-cache-semantics` dependency chains that blocked the audit gate. Its maintained rebuild and Packager dependencies also replace the older chains, so the previous rebuild, ZIP-extractor, and temporary-file overrides are no longer needed.
 
-| Override | Reason |
-| --- | --- |
-| `@electron/rebuild` → `4.2.0` | Replaces the old Electron node-gyp fork and vulnerable `tar` 6 dependency chain with maintained node-gyp and patched `tar` 7.5.22. |
-| `@electron/packager` → `extract-zip` alias to `@electron-internal/extract-zip@1.0.5` | The original `extract-zip` has no patched release. Electron's maintained extractor provides the API used by Packager and protects extraction paths. |
-| `external-editor` → `tmp@0.2.7` | Fixes temporary-file path handling while retaining the API used by Forge's prompt dependency. |
+Validate clean installs, real Electron tests, packaging, and packaged smoke tests when updating Forge. The Electron tests exercise the native node-pty addon, and Forge rebuilds it for the target Electron version during startup and packaging. The three-platform CI matrix checks the resulting artifacts with sandboxing and application fuses enabled.
 
-These cross upstream version ranges. Keep validating clean installs and packaging on all three operating systems when changing them, and remove the overrides when a stable Forge release incorporates the fixes. The real Electron tests exercise the native node-pty addon, and Forge rebuilds it for the target Electron version during startup and packaging.
+Vitest and its V8 coverage provider are updated together to 5.0.2. TypeScript 6 matches typescript-eslint's supported range, and Node types match Node 24. Use Node 24 LTS (`nvm use`); Vitest 5 does not support Node 25.
 
-Vitest and its V8 coverage provider are updated together to 5.0.2. Some dependencies intentionally remain below their newest major: TypeScript 6 matches typescript-eslint's supported range; Node types match Node 24; fuses 1.8 matches Forge's plugin peer requirement. Use Node 24 LTS (`nvm use`); Vitest 5 does not support Node 25.
-
-Sources: [Electron's maintained ZIP extractor](https://github.com/electron/extract-zip), [original extractor advisory](https://github.com/advisories/GHSA-jmr9-qjv8-65gv), and the installed packages' peer/engine requirements.
+Sources: [Forge 8.0.1 release notes](https://github.com/electron/forge/releases/tag/v8.0.1), [Electron's maintained ZIP extractor](https://github.com/electron/extract-zip), and the installed packages' peer/engine requirements.
 
 ## License
 

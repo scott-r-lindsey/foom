@@ -16,6 +16,11 @@ export function WelcomeStep({ headingRef, go }: StepHeading & { go: (step: numbe
       <div className="preflight-cta">
         {/* The accretion ring: light orbiting the button, like the logo's black hole. */}
         <span className="ignite">
+          <svg className="ignite-ring ignite-ring-glow" aria-hidden="true" focusable="false">
+            <rect className="ring-tail" pathLength="100" />
+            <rect className="ring-middle" pathLength="100" />
+            <rect className="ring-tip" pathLength="100" />
+          </svg>
           <button
             type="button"
             className="primary"
@@ -25,6 +30,11 @@ export function WelcomeStep({ headingRef, go }: StepHeading & { go: (step: numbe
           >
             Start preflight
           </button>
+          <svg className="ignite-ring" aria-hidden="true" focusable="false">
+            <rect className="ring-tail" pathLength="100" />
+            <rect className="ring-middle" pathLength="100" />
+            <rect className="ring-tip" pathLength="100" />
+          </svg>
         </span>
         <span>Five checks, about a minute</span>
       </div>
