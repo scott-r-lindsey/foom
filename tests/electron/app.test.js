@@ -1680,11 +1680,21 @@ test("appearance switches light and dark, and zoom shortcuts resize the interfac
     const bounds = window.getBounds();
     const content = window.getContentBounds();
     const area = screen.getDisplayMatching(bounds).workArea;
-    // Native frames don't zoom, and the display may cap either dimension.
+    const [minimumWidth, minimumHeight] = window.getMinimumSize();
+    // Native frames don't zoom; the scaled minimum and display constrain the result.
     return {
-      width: Math.min(Math.round(content.width * 1.1) + bounds.width - content.width, area.width),
+      width: Math.min(
+        Math.max(
+          Math.round(content.width * 1.1) + bounds.width - content.width,
+          Math.round(minimumWidth * 1.1),
+        ),
+        area.width,
+      ),
       height: Math.min(
-        Math.round(content.height * 1.1) + bounds.height - content.height,
+        Math.max(
+          Math.round(content.height * 1.1) + bounds.height - content.height,
+          Math.round(minimumHeight * 1.1),
+        ),
         area.height,
       ),
     };
