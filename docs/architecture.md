@@ -260,7 +260,9 @@ to terminal queries (cursor position, device attributes, colors), and mouse rele
 motion and wheel events through the input channel. Those still reach the PTY but are
 not replies; `src/main/terminals/terminal-reports.ts` separates them. A reply or dismissal also
 invalidates evaluations and hook signals that were already in flight, so older
-evidence can't restore attention the user just cleared. Exit verdicts are exempt.
+evidence can't restore attention the user just cleared. Exit verdicts are exempt. Host output events also invalidate pending screen-based
+classifications, including with no attached view, and return screen-based attention
+to Working without recording reply feedback. Permission hooks remain authoritative.
 
 A verdict is published even if the log can't store it. It then has a null
 `verdictId`: a reply still clears it without recording anything, and

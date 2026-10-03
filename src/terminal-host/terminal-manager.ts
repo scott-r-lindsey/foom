@@ -35,7 +35,7 @@ export class TerminalManager {
   private readonly activity: TerminalActivityMeter;
   constructor(
     private readonly onExit: (id: string, code: number) => void,
-    events: TerminalTelemetry = {},
+    private readonly events: TerminalTelemetry = {},
   ) {
     this.activity = new TerminalActivityMeter(events);
   }
@@ -95,7 +95,10 @@ export class TerminalManager {
         if (!session.exited) pty.write(data);
       }),
       pty.onData((data) => {
-        if (data && !session.exited) this.activity.output(id, data);
+        if (data && !session.exited) {
+          this.events.onOutput?.(id);
+          this.activity.output(id, data);
+        }
         session.parserPending += data.length;
         if (session.parserPending > 262144) session.parserBlocked = true;
         this.updateFlow(session);

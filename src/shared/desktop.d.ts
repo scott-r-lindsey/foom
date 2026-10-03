@@ -3,6 +3,7 @@ export interface TerminalActivity {
   rate: number;
 }
 export interface TerminalTelemetry {
+  onOutput?(id: string): void;
   onActivity?(batch: TerminalActivity[]): void;
   onQuiet?(id: string): void;
 }
