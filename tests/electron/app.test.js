@@ -1099,7 +1099,6 @@ test("launches an agent in a managed worktree and routes its attention signals",
 }, async (context) => {
   const { chmod, mkdir, writeFile } = require("node:fs/promises");
   const root = await mkdtemp(path.join(tmpdir(), "foom-workspace-"));
-  context.after(() => rm(root, { recursive: true, force: true }));
   const bin = path.join(root, "bin");
   const repo = path.join(root, "app");
   await mkdir(bin);
@@ -1124,6 +1123,9 @@ test("launches an agent in a managed worktree and routes its attention signals",
       PATH: `${bin}${path.delimiter}${process.env.PATH}`,
       FOOM_FAKE_CREDENTIALS: credentials,
     },
+  }).finally(() => {
+    // Chromium may still write user-data until the app cleanup hook has finished.
+    context.after(() => rm(root, { recursive: true, force: true }));
   });
   const page = await app.firstWindow();
   await app.evaluate(({ dialog }, directory) => {
