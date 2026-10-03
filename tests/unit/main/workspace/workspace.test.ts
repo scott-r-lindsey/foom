@@ -756,3 +756,63 @@ test("failed removal leaves the row available for retry and excludes overlapping
   expect(workspace.snapshot().terminals).toHaveLength(0);
   await workspace.dispose();
 });
+
+test("resumed output discards deferred inference before publication or logging", async () => {
+  const workspace = await launched();
+  const response = Promise.withResolvers<VerdictRecord>();
+  classify.mockReturnValueOnce(response.promise);
+  const pending = workspace.quiet("t1");
+  await vi.waitFor(() => {
+    expect(classify).toHaveBeenCalled();
+  });
+  workspace.output("t1");
+  response.resolve({
+    id: "obsolete",
+    terminalId: "t1",
+    timestamp: "now",
+    verdict: {
+      state: "done",
+      reason: "Model detected successful completion",
+      signal: "model:classification",
+      confidence: 1,
+    },
+  });
+  await pending;
+  expect(states).toEqual([]);
+  expect(commit).not.toHaveBeenCalled();
+  await workspace.quiet("t1");
+  expect(states.at(-1)?.state).toBe("needs_input");
+  workspace.output("t1");
+  expect(states.at(-1)).toMatchObject({
+    state: "working",
+    signal: "process:output",
+    verdictId: null,
+  });
+  const count = states.length;
+  workspace.output("t1");
+  expect(states).toHaveLength(count);
+  expect(recordAction).not.toHaveBeenCalled();
+  await workspace.exited("t1", 0);
+  workspace.output("t1");
+  expect(states.at(-1)?.state).toBe("done");
+});
+
+test("output preserves a permission hook even while its evaluation is pending", async () => {
+  const workspace = await launched();
+  const key = await bound();
+  const reading = Promise.withResolvers<string[]>();
+  terminalTail.mockReturnValueOnce(reading.promise);
+  const pending = workspace.hook({
+    terminalId: key,
+    action: "needs_input",
+    signal: "claude:PermissionRequest",
+  });
+  await vi.waitFor(() => {
+    expect(terminalTail).toHaveBeenCalled();
+  });
+  workspace.output("t1");
+  reading.resolve(["redrawn dialog"]);
+  await pending;
+  workspace.output("t1");
+  expect(states.at(-1)?.state).toBe("needs_input");
+});

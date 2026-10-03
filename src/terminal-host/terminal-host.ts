@@ -14,6 +14,9 @@ const manager = new TerminalManager(
     onActivity: (entries) => {
       send({ type: "activity", entries });
     },
+    onOutput: (id) => {
+      send({ type: "output", id });
+    },
     onQuiet: (id) => {
       send({ type: "quiet", id });
     },

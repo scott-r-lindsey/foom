@@ -15,6 +15,7 @@ export type HostRequest = RequestBase &
 export type HostResponse =
   | { type: "activity"; entries: TerminalActivity[] }
   | { type: "quiet"; id: string }
+  | { type: "output"; id: string }
   | { type: "result"; request: number; id: string; lines: string[] }
   | { type: "error"; request: number; id: string }
   | { type: "data"; id: string; view: string; token: string; data: string }
