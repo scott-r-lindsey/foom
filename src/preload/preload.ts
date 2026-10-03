@@ -84,7 +84,7 @@ const desktop: DesktopApi = {
   async kill(id) {
     await ipcRenderer.invoke("terminal:kill", id);
   },
-  input(id, data) {
+  input(id, data, origin) {
     for (let offset = 0; offset < data.length; ) {
       let end = Math.min(offset + 65536, data.length);
       // IPC limits use UTF-16 code units. Keep a surrogate pair in the same write.
@@ -93,7 +93,8 @@ const desktop: DesktopApi = {
       if (before >= 0xd800 && before <= 0xdbff && after >= 0xdc00 && after <= 0xdfff) {
         end -= 1;
       }
-      ipcRenderer.send("terminal:input", id, data.slice(offset, end));
+      if (origin === undefined) ipcRenderer.send("terminal:input", id, data.slice(offset, end));
+      else ipcRenderer.send("terminal:input", id, data.slice(offset, end), origin);
       offset = end;
     }
   },
