@@ -258,7 +258,9 @@ evaluation. Opening a terminal is not a reply. The board exposes dismissal as **
 Only input the user produced counts as typing. xterm also sends focus reports, answers
 to terminal queries (cursor position, device attributes, colors), and mouse releases,
 motion and wheel events through the input channel. Those still reach the PTY but are
-not replies; `src/main/terminals/terminal-reports.ts` separates them. A reply or dismissal also
+not replies; `src/main/terminals/terminal-reports.ts` separates them. Alternate-screen
+wheel-generated cursor keys carry a validated wheel origin through the preload bridge;
+real arrow keys still count as replies. A reply or dismissal also
 invalidates evaluations and hook signals that were already in flight, so older
 evidence can't restore attention the user just cleared. Exit verdicts are exempt. Host output events also invalidate pending screen-based
 classifications, including with no attached view, and return screen-based attention
