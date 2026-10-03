@@ -1842,6 +1842,18 @@ test("new worktree dialog launches by keyboard and confirms dirty removal", {
       .poll(() => page.evaluate((id) => window.desktop.tail(id, 5), terminal.id))
       .toContain("FOOM_AGENT_READY");
   }
+  const remaining = await page.evaluate(
+    (repository) =>
+      window.desktop.startWorktree({
+        repository,
+        branch: "feature/remaining",
+        run: "shell",
+        acknowledgeCodexNotifierReplacement: false,
+      }),
+    repo,
+  );
+  await row.click();
+  await expect(page.locator("#terminal")).toBeVisible();
   const dirty = path.join(terminal.worktree, "unsaved.txt");
   await writeFile(dirty, "preserve unless confirmed");
   await app.evaluate(({ dialog }) => {
@@ -1863,6 +1875,14 @@ test("new worktree dialog launches by keyboard and confirms dirty removal", {
   await page.getByRole("button", { name: "Remove worktree feature/ui" }).click();
   await expect(row).toHaveCount(0);
   await assert.rejects(readFile(dirty), { code: "ENOENT" });
+  await page.locator(".board-row").filter({ hasText: "feature/remaining" }).click();
+  await expect(page.locator("#terminal")).toBeVisible();
+  await page.keyboard.type("echo FOOM_REMAINING_TERMINAL");
+  await page.keyboard.press("Enter");
+  await expect
+    .poll(() => page.evaluate((id) => window.desktop.tail(id, 10), remaining))
+    .toContain("FOOM_REMAINING_TERMINAL");
+
   assert.equal(
     isolatedGit(["branch", "--list", "feature/ui"], { cwd: repo }).toString().trim(),
     "feature/ui",
