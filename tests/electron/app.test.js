@@ -1968,13 +1968,19 @@ test("wheel moves less and preserves normal shell scrollback", {
 }, async (context) => {
   const app = await launchApp(context);
   const page = await app.firstWindow();
-  await page.keyboard.type("seq 1 300 | less");
+  // Login-shell exports must not override the PTY dimensions or alternate screen.
+  await page.keyboard.type("seq 1 300 | env -u LINES -u COLUMNS -u LESS less");
   await page.keyboard.press("Enter");
   const rows = page.locator(".xterm-rows");
   await expect.poll(() => rows.locator(":scope > div").first().textContent()).toMatch(/^1\s*$/);
   // The first row can paint before less finishes entering its interactive mode.
   // Its bottom prompt is the readiness boundary for sending wheel-generated keys.
-  await expect(rows.locator(":scope > div").last()).toHaveText(/^\s*:\s*$/);
+  await expect(rows.locator(":scope > div").last())
+    .toHaveText(/^\s*:\s*$/)
+    .catch(async (error) => {
+      console.error("Pager readiness failed", await rows.innerText());
+      throw error;
+    });
   await page.locator(".xterm-screen").hover();
   await page.mouse.wheel(0, 140);
   await expect.poll(() => rows.locator(":scope > div").first().textContent()).not.toMatch(/^1\s*$/);
