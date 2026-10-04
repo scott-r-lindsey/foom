@@ -3158,6 +3158,13 @@ test("tiles build irregular layouts, preserve views, refuse full placement and r
     BrowserWindow.getAllWindows()[0].setSize(1500, 900);
   }, repo);
   await page.getByRole("button", { name: "Add repository", exact: true }).click();
+  await expect
+    .poll(async () =>
+      (await page.evaluate(() => window.desktop.workspace())).repositories.map(
+        (entry) => entry.path,
+      ),
+    )
+    .toContain(repo);
   await page.evaluate(async (repo) => {
     for (let i = 0; i < 4; i++)
       await window.desktop.sidebarCommand({
@@ -3272,4 +3279,34 @@ test("tiles build irregular layouts, preserve views, refuse full placement and r
   await page.reload();
   await expect(tiles).toHaveCount(3);
   assert.equal(await page.evaluate(() => localStorage.getItem("foom.tiles.v1")), persisted);
+});
+
+test("tile terminal viewport has no native overflow bars", async (context) => {
+  const app = await launchApp(context);
+  const page = await app.firstWindow();
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  await page.getByRole("button", { name: "Terminal", exact: true }).click();
+  await page.getByRole("button", { name: "Dracula", exact: true }).click();
+  await expect
+    .poll(() =>
+      page.evaluate(async () => (await window.desktop.setupState()).settings.terminalTheme),
+    )
+    .toBe("dracula");
+  await page.keyboard.press("Escape");
+  await page.getByRole("button", { name: "Two by two", exact: true }).click();
+  await expect(page.locator(".terminal-tile").first()).toHaveCSS(
+    "background-color",
+    "rgb(40, 42, 54)",
+  );
+  for (const colorScheme of ["light", "dark"]) {
+    await page.emulateMedia({ colorScheme });
+    const viewport = page.locator(".tile-terminal .xterm-viewport").first();
+    await expect(viewport).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+    await expect(viewport).toHaveCSS("overflow", "hidden");
+    // The bottom strip below the last whole character row comes from the tile's
+    // terminal theme, while xterm's current viewport still owns scrollback.
+    await expect(page.locator(".xterm-scrollable-element").first()).toBeVisible();
+  }
+  await page.screenshot({ path: path.join(tmpdir(), "foom-132-bars-fixed.png") });
 });
