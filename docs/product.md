@@ -142,7 +142,7 @@ independent of interface size. The Terminal section previews text size, all 16 A
 Terminal colors default to Follow interface, with Foom Light/Dark, Solarized Light/Dark
 and Dracula built in. Changes apply live to visible and detached terminals and board peek.
 Settings → Themes offers System, Eclipse Light, Eclipse Dark, High Contrast,
-Deep Field and Moonlight, with a live preview of all six terminal statuses.
+Deep Field, Moonlight, Graphite and Midnight Indigo, with a live preview of all six terminal statuses.
 System follows the operating system's light/dark appearance. The other themes have
 a fixed light or dark base. Changes apply immediately and persist. The preflight
 and Appearance System/Light/Dark controls return to the corresponding Eclipse
@@ -151,8 +151,23 @@ schemes remain independent; Follow interface uses the light/dark base.
 
 Every theme keeps amber for Needs you, magenta for Failed, and violet for activity.
 Needs you retains its halo, Failed its square light, and all states their labels.
-High Contrast provides at least 7:1 text contrast and stronger borders. Sound remains
-a placeholder for later work.
+High Contrast provides at least 7:1 text contrast and stronger borders.
+
+Settings → Sound offers Hard drive and Soft drive soundscapes. Both synthesize
+seek chatter and a spinning hum from total terminal output, with a capped mix;
+quiet terminals are silent. Working sound is off by default, with a separate
+volume (15% initially). Alerts are on at 50%: Done is one short beep and Needs you
+has a reserved two-beep cadence. Needs you repeats every two minutes until replied
+to or dismissed. The terminal displayed in the focused window does not alert;
+Settings and preflight hide that terminal and allow its alerts again. Completion
+observed while muted is not replayed. Attention reminders resume after two minutes
+away from its view or after unmuting.
+
+Verdicts must settle for one second before sounding. Simultaneous alerts play
+once, with Needs you taking precedence over Done; alerts are at least two seconds
+apart. Each sound has a preview, using its selected volume even when switched off.
+Sound choices, switches and volumes persist. Sound supplements the visual state;
+it never clears or replaces it.
 
 ## Quitting
 

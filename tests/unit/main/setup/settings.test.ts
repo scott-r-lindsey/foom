@@ -149,3 +149,19 @@ test("interface themes persist, preserve legacy modes and reject invalid portabl
   expect((await SettingsStore.open(dir)).get().interfaceTheme).toEqual(custom);
   expect(() => parseSettingsPatch({ interfaceTheme: { colors: { bg: "url(x)" } } })).toThrow();
 });
+
+test("sound mutes, volumes and portable soundscape persist after reopening", async () => {
+  const dir = await directory();
+  const store = await SettingsStore.open(dir);
+  const sound = {
+    ...DEFAULT_SETTINGS.sound,
+    soundscape: "soft" as const,
+    working: true,
+    alerts: false,
+    workingVolume: 0.3,
+    alertVolume: 0.7,
+  };
+  await store.update(parseSettingsPatch({ sound }));
+  expect((await SettingsStore.open(dir)).get().sound).toEqual(sound);
+  expect(() => parseSettingsPatch({ sound: { ...sound, alertVolume: 2 } })).toThrow();
+});

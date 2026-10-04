@@ -758,7 +758,7 @@ test("Settings shares setup controls, saves immediately and exposes planned sect
   fireEvent.click(button("Themes"));
   expect(screen.getByRole("group", { name: "Interface themes" })).toBeTruthy();
   fireEvent.click(button("Sound"));
-  expect(screen.getByText(/Sound controls are coming/)).toBeTruthy();
+  expect(screen.getByRole("checkbox", { name: "Alerts on" })).toBeTruthy();
   fireEvent.keyDown(screen.getByRole("region", { name: "Settings" }), { key: "a" });
   expect(close).not.toHaveBeenCalled();
   const dialog = document.createElement("dialog");

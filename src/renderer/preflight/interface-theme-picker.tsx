@@ -10,6 +10,8 @@ const choices: readonly InterfaceThemeId[] = [
   "high-contrast",
   "deep-field",
   "moonlight",
+  "graphite",
+  "midnight-indigo",
 ];
 const states = [
   { state: "working", label: "Working", reason: "Output is arriving", ink: "accent" },

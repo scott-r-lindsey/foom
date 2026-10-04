@@ -1,4 +1,5 @@
 import type { InterfaceThemeChoice } from "./interface-theme";
+import type { SoundSettings } from "./sound";
 import type { TerminalThemeChoice } from "./terminal-theme";
 import type { AgentId } from "./agents";
 import type { Repository } from "./worktrees";
@@ -32,6 +33,7 @@ export interface Settings {
   /** Terminal text size in CSS pixels, 10–32 in whole pixels. */
   terminalFontSize: number;
   terminalTheme: TerminalThemeChoice;
+  sound: SoundSettings;
   /** Where the user keeps their code; preflight scans it for repositories. */
   codeFolder: string | null;
 }

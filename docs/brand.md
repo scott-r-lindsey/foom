@@ -45,6 +45,8 @@ Badges and chips use the badge fills and stay neutral: no amber, magenta, or sta
 | High Contrast | Dark | Black surfaces, brighter text and status inks, visible neutral borders |
 | Deep Field | Dark | Blue-slate surfaces with a violet accent |
 | Moonlight | Light | Cool slate surfaces with a violet accent |
+| Graphite | Dark | Neutral charcoal surfaces with a soft violet accent |
+| Midnight Indigo | Dark | Rich indigo surfaces with a lavender-violet accent |
 
 Themes are complete color-token data, not CSS. `src/shared/interface-theme.d.ts`
 defines the version 1 schema: `{ version: 1, name, base, colors }`. `colors` contains

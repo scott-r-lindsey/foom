@@ -1,4 +1,5 @@
 import { InterfaceThemePicker } from "./interface-theme-picker";
+import { SoundControls } from "../sound/sound-controls";
 import { TerminalThemePicker } from "./terminal-theme-picker";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { SetupState } from "../../shared/setup";
@@ -362,7 +363,7 @@ export function Preflight({
         <h2 ref={headingRef} tabIndex={-1}>
           Sound
         </h2>
-        <p className="preflight-intro">Sound controls are coming. Foom is silent for now.</p>
+        <SoundControls settings={state.settings.sound} onChange={save} />
       </>
     );
   } else {

@@ -1,3 +1,4 @@
+import { DEFAULT_SOUND } from "../../src/shared/soundscapes";
 import type { AgentInstallation } from "../../src/shared/agents";
 import type { Settings, SetupState } from "../../src/shared/setup";
 import type { AgentReport } from "../../src/shared/workspace";
@@ -20,6 +21,7 @@ export function setupState(
       interfaceScale: 100,
       terminalFontSize: 14,
       terminalTheme: "follow",
+      sound: DEFAULT_SOUND,
       codeFolder: null,
       ...settings,
     },

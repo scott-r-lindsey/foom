@@ -1,3 +1,6 @@
+import type { SetupSource } from "../preflight/setup-source.d";
+import { createSoundController } from "../sound/sound-controller";
+import { createAudioSink } from "../sound/web-audio";
 import { Sidebar, launcherActions } from "./sidebar-view";
 import { readPreferences, writePreferences, renameSession } from "./sidebar-preferences";
 import type { SidebarLocation } from "./sidebar.d";
@@ -71,8 +74,10 @@ export function Board({
   onSettings,
   settingsView,
   onCloseSettings,
+  soundSetup,
 }: {
   source: BoardSource;
+  soundSetup?: Pick<SetupSource, "state" | "subscribe">;
   /** Preflight is covering the board; it stays mounted so terminals keep running. */
   inactive?: boolean;
   onPreflight?: () => void;
@@ -128,6 +133,16 @@ export function Board({
       ? rows.find((row) => row.kind === "shell" && !row.managed)
       : undefined);
   const displayedId = openRow?.kind === "sample" ? undefined : openRow?.id;
+  const soundFocusRef = useRef<string | undefined>(undefined);
+  useLayoutEffect(() => {
+    soundFocusRef.current = paneInactive || location ? undefined : displayedId;
+  }, [paneInactive, location, displayedId]);
+  useEffect(() => {
+    if (!soundSetup) return;
+    return createSoundController(source, soundSetup, createAudioSink(), () =>
+      document.hasFocus() ? soundFocusRef.current : undefined,
+    );
+  }, [source, soundSetup]);
   const peekRow = rows.find((row) => row.id === peek?.id);
   const sidebarRef = useRef<HTMLElement>(null);
   useEffect(() => {

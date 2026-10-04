@@ -30,6 +30,8 @@ export type InterfaceThemeId =
   | "eclipse-dark"
   | "high-contrast"
   | "deep-field"
-  | "moonlight";
+  | "moonlight"
+  | "graphite"
+  | "midnight-indigo";
 /** Follow preserves the preflight System/Light/Dark preference and existing profiles. */
 export type InterfaceThemeChoice = "follow" | InterfaceThemeId | InterfaceTheme;
