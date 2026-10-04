@@ -525,9 +525,11 @@ test("bundled brand fonts and both system themes render in Electron", {
     );
     const background = mode === "dark" ? "rgb(5, 4, 10)" : "rgb(243, 240, 250)";
     await page.waitForFunction(
+      // Terminal and interface themes have separate media-change listeners.
       (expected) =>
+        getComputedStyle(document.documentElement).backgroundColor === expected &&
         getComputedStyle(document.querySelector(".xterm-scrollable-element")).backgroundColor ===
-        expected,
+          expected,
       background,
     );
     const rendered = await page.evaluate(async () => {
