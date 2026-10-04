@@ -29,15 +29,14 @@
   background: var(--term-bg);
   border: 1px solid var(--term-line);
   border-radius: 4px;
+  /* Theme colors switch together: fading the background alone breaks text contrast. */
   transition:
     left 900ms var(--ease) var(--delay),
     top 900ms var(--ease) var(--delay),
     width 900ms var(--ease) var(--delay),
     height 900ms var(--ease) var(--delay),
-    background-color 600ms ease calc(var(--delay) + 450ms),
     border-color 600ms ease calc(var(--delay) + 450ms),
-    border-radius 900ms var(--ease) var(--delay),
-    opacity 1200ms ease;
+    border-radius 900ms var(--ease) var(--delay);
 }
 .welcome-noise:not([data-phase="noise"]) .noise-tile {
   left: 20%;
@@ -132,9 +131,9 @@
 .noise-agent {
   color: var(--muted);
 }
-/* Once settled, everything that doesn't need you recedes. */
-.welcome-noise[data-phase="settled"] .noise-tile[data-state="working"] {
-  opacity: 0.7;
+/* Recede with readable secondary text; fading the whole row loses contrast. */
+.welcome-noise[data-phase="settled"] .noise-tile[data-state="working"] .noise-branch {
+  color: var(--muted);
 }
 .noise-tile[data-state="needs_input"] .noise-light {
   background: var(--attention);
