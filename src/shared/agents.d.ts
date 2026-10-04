@@ -24,6 +24,8 @@ export interface AgentHooks {
 export interface AgentLaunch {
   /** Main-only authorization; never copied from renderer payloads. */
   readonly mainCheckout?: boolean;
+  /** Main-only identity of an explicitly selected existing checkout. */
+  readonly checkoutIdentity?: string;
   readonly sharedCheckout?: boolean;
   readonly agent: AgentId;
   readonly repository: string;

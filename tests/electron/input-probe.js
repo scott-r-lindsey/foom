@@ -6,6 +6,7 @@ process.stdin.resume();
 process.stdout.write("\x1b[?1049h\x1b[2J\x1b[HINPUT_READY\r\nPassword:");
 process.stdin.on("data", (data) => {
   appendFileSync(marker, data.toString("hex") + "\n");
+  if (data.toString() === "p") process.stdout.write("\r\nPassword:");
   if (data.toString() === "m") process.stdout.write("\x1b[?1000h\x1b[?1006hMOUSE_READY");
   if (data.toString() === "q") {
     process.stdout.write("\x1b[?1000l\x1b[?1006l\x1b[?1049l");

@@ -3,10 +3,11 @@ import type { BrowserWindow, IpcMainEvent, IpcMainInvokeEvent, Event } from "ele
 import { homedir } from "node:os";
 import { TerminalHostClient } from "./terminal-host-client";
 import { isReply } from "./terminal-reports";
-import type { TerminalSpec } from "../../shared/desktop";
+import type { TerminalSpec, ShellState } from "../../shared/desktop";
 
 /** Lifecycle hooks for owned terminals; the workspace evaluates and releases from these. */
 export interface TerminalEvents {
+  onShellState?(id: string, state: ShellState): void;
   onOutput?(id: string): void;
   onQuiet?(id: string): void;
   onExit?(id: string, code: number): void;
@@ -45,6 +46,9 @@ export function attachTerminal(
       onOutput: (id) => {
         if (owned.has(id)) events.onOutput?.(id);
       },
+      onShellState: (id, state) => {
+        if (owned.has(id)) events.onShellState?.(id, state);
+      },
       onQuiet: (id) => {
         if (owned.has(id)) events.onQuiet?.(id);
       },
@@ -75,6 +79,7 @@ export function attachTerminal(
     const cwd = app.isPackaged ? homedir() : process.cwd();
     const id = await manager.create({
       command,
+      shellIntegration: true,
       args: process.platform === "win32" ? ["-NoLogo"] : ["-l"],
       cwd,
       cols,

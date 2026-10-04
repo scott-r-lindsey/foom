@@ -568,3 +568,95 @@ it.each([false, true])(
     }
   },
 );
+
+it.each([false, true])(
+  "explicitly removes an external worktree without adopting it (dirty=%s)",
+  async (dirty) => {
+    const path = join(temporary, "external");
+    await git("worktree", "add", "-b", "external", path);
+    if (dirty) await writeFile(join(path, "notes.txt"), "keep until confirmed");
+    const identity = await service.removalIdentity(repo, path);
+    expect(await service.changes(repo, path, identity)).toBe(dirty ? "?? notes.txt\0" : "");
+    expect(await service.listWorktrees(repo)).toContainEqual(
+      expect.objectContaining({ path, managed: false }),
+    );
+    if (dirty) await expect(service.removeWorktree(repo, path, false, identity)).rejects.toThrow();
+    await service.removeWorktree(repo, path, dirty, identity);
+    await expect(realpath(path)).rejects.toThrow();
+    expect((await git("branch", "--list", "external")).trim()).toBe("external");
+  },
+);
+
+it("rejects replacement external worktrees even when their dirty filenames match", async () => {
+  const path = join(temporary, "external");
+  await git("worktree", "add", "-b", "external", path);
+  await writeFile(join(path, "notes.txt"), "reviewed");
+  const identity = await service.removalIdentity(repo, path);
+  await git("worktree", "remove", "--force", path);
+  await git("worktree", "add", "-b", "replacement", path);
+  await writeFile(join(path, "notes.txt"), "unreviewed");
+  await expect(service.changes(repo, path, identity)).rejects.toThrow("replaced");
+  await expect(service.removeWorktree(repo, path, true, identity)).rejects.toThrow("replaced");
+  expect(await readFile(join(path, "notes.txt"), "utf8")).toBe("unreviewed");
+});
+
+it("rejects main, missing, locked, prunable, bare and unrelated removal targets", async () => {
+  const path = join(temporary, "external");
+  await git("worktree", "add", "-b", "external", path);
+  await expect(service.removalIdentity(repo, repo)).rejects.toThrow("main checkout");
+  await expect(service.removalIdentity(repo, temporary)).rejects.toThrow("missing");
+  await expect(service.removalIdentity(repo, "\0")).rejects.toThrow("Invalid path");
+  const identity = await service.removalIdentity(repo, path);
+  await git("worktree", "lock", path);
+  await expect(service.removeWorktree(repo, path, true, identity)).rejects.toThrow("locked");
+  await git("worktree", "unlock", path);
+  const inventory = await service.listWorktrees(repo);
+  const listing = vi.spyOn(service, "listWorktrees");
+  for (const flags of [{ prunable: true }, { bare: true }]) {
+    listing.mockResolvedValueOnce(
+      inventory.map((tree) => (tree.path === path ? { ...tree, ...flags } : tree)),
+    );
+    await expect(service.removalIdentity(repo, path)).rejects.toThrow("main checkout");
+  }
+  listing.mockRestore();
+  await service.addRepository(path);
+  await expect(service.removalIdentity(path, repo)).rejects.toThrow("not a linked checkout");
+  const other = join(temporary, "other");
+  await mkdir(other);
+  await execute("git", ["init"], { cwd: other });
+  await service.addRepository(other);
+  await expect(service.removalIdentity(other, path)).rejects.toThrow("missing");
+  await rm(join(path, ".git"));
+  await writeFile(join(path, ".git"), `gitdir: ${join(other, ".git")}\n`);
+  await expect(service.removalIdentity(repo, path)).rejects.toThrow("not a linked checkout");
+});
+
+it("rejects redirected external worktrees before inspection or removal", async () => {
+  const path = join(temporary, "external");
+  await git("worktree", "add", "-b", "external", path);
+  const identity = await service.removalIdentity(repo, path);
+  const moved = join(temporary, "moved");
+  await rename(path, moved);
+  await symlink(moved, path, "junction");
+  await expect(service.changes(repo, path, identity)).rejects.toThrow("redirected");
+  await expect(service.removeWorktree(repo, path, true, identity)).rejects.toThrow("redirected");
+  expect(await realpath(moved)).toBe(moved);
+});
+
+it("validates main, external and detached launch locations without acquiring ownership", async () => {
+  const path = join(temporary, "external");
+  await git("worktree", "add", "--detach", path);
+  expect(await service.launchIdentity(repo, repo)).toEqual(expect.any(String));
+  const identity = await service.launchIdentity(repo, path);
+  expect(identity).toEqual(expect.any(String));
+  expect(await service.listWorktrees(repo)).toContainEqual(
+    expect.objectContaining({ path, managed: false, branch: null }),
+  );
+  await git("worktree", "lock", path);
+  await expect(service.launchIdentity(repo, path)).rejects.toThrow("locked");
+  await git("worktree", "unlock", path);
+  await git("worktree", "remove", path);
+  await git("worktree", "add", "--detach", path);
+  expect(await service.launchIdentity(repo, path)).not.toBe(identity);
+  await expect(service.launchIdentity(repo, temporary)).rejects.toThrow("missing");
+});

@@ -109,3 +109,43 @@ test.skipIf(process.platform === "win32")(
     }
   },
 );
+
+test.skipIf(process.platform !== "linux")(
+  "Bash reports ready, silent commands, and failures without an attached view",
+  async () => {
+    const states = vi.fn();
+    const manager = new TerminalManager(() => {}, { onShellState: states });
+    const id = manager.create({
+      command: "/bin/bash",
+      args: ["-l"],
+      cwd: process.cwd(),
+      cols: 80,
+      rows: 24,
+      shellIntegration: true,
+    });
+    try {
+      await vi.waitFor(
+        () => {
+          expect(states).toHaveBeenLastCalledWith(id, { phase: "prompt", exitCode: 0 });
+        },
+        { timeout: 5000 },
+      );
+      states.mockClear();
+      manager.write(id, "sleep 0.3\r");
+      await vi.waitFor(() => {
+        expect(states).toHaveBeenCalledWith(id, { phase: "running" });
+      });
+      await vi.waitFor(() => {
+        expect(states).toHaveBeenLastCalledWith(id, { phase: "prompt", exitCode: 0 });
+      });
+      states.mockClear();
+      manager.write(id, "false\r");
+      await vi.waitFor(() => {
+        expect(states).toHaveBeenLastCalledWith(id, { phase: "prompt", exitCode: 1 });
+      });
+      expect((await manager.tail(id, 24)).join("\n")).not.toContain("633;");
+    } finally {
+      await manager.shutdown();
+    }
+  },
+);

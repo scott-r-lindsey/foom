@@ -360,11 +360,13 @@ export function Board({
                       location.repository)}
                   {location?.worktree &&
                     ` › ${
-                      source
-                        .getSidebar?.()
-                        .find((repo) => repo.path === location.repository)
-                        ?.worktrees.find((tree) => tree.path === location.worktree)?.branch ??
-                      location.worktree
+                      location.worktree === location.repository
+                        ? "Main checkout"
+                        : (source
+                            .getSidebar?.()
+                            .find((repo) => repo.path === location.repository)
+                            ?.worktrees.find((tree) => tree.path === location.worktree)?.branch ??
+                          location.worktree)
                     }`}
                 </h2>
               </div>
@@ -405,7 +407,7 @@ export function Board({
           <div className="terminal-title" hidden={!openRow}>
             <h2>
               {openRow &&
-                `${openRow.repository} › ${openRow.branch} › ${sessionName(openRow, preferences)}`}
+                `${openRow.repository} › ${rowWorktree(openRow) === rowRepository(openRow) ? "Main checkout" : openRow.branch} › ${sessionName(openRow, preferences)}`}
             </h2>
           </div>
           {openRow?.state === "needs_input" && (

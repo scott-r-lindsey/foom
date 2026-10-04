@@ -58,5 +58,5 @@ export function evaluateRules(input: EvaluationInput): Verdict {
   ) {
     return verdict("quiet_ok", "Server is listening", "pattern:server", 0.9);
   }
-  return verdict("working", "Quiet without decisive evidence", "rules:ambiguous", 0.25);
+  return verdict("working", "No completion or input request detected", "rules:ambiguous", 0.25);
 }

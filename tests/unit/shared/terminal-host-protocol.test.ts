@@ -120,3 +120,28 @@ test("validates complete palettes at the utility-process boundary", async () => 
     }
   }
 });
+
+test("validates shell lifecycle opt-in and bounded event data", () => {
+  expect(hostRequest({ ...base, type: "create", spec: { ...spec, shellIntegration: true } })).toBe(
+    true,
+  );
+  expect(
+    hostRequest({ ...base, type: "create", spec: { ...spec, shellIntegration: "true" } }),
+  ).toBe(false);
+  for (const state of [
+    { phase: "running" },
+    { phase: "prompt", exitCode: 0 },
+    { phase: "prompt", exitCode: 255 },
+  ])
+    expect(hostResponse({ id: "t1", type: "shell-state", state })).toBe(true);
+  for (const state of [
+    null,
+    {},
+    { phase: "other" },
+    { phase: "prompt" },
+    { phase: "prompt", exitCode: -1 },
+    { phase: "prompt", exitCode: 256 },
+    { phase: "prompt", exitCode: "0" },
+  ])
+    expect(hostResponse({ id: "t1", type: "shell-state", state })).toBe(false);
+});

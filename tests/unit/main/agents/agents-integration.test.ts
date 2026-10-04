@@ -54,6 +54,8 @@ it.skipIf(process.platform === "win32")(
     const create = vi.fn((_spec: TerminalSpec) => "real-probe-terminal");
     const service = new AgentService(
       {
+        launchIdentity: () =>
+          Promise.reject(new Error("Legacy launch must not authorize external checkouts")),
         listWorktrees: () =>
           Promise.resolve([
             {

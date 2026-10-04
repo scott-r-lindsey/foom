@@ -91,6 +91,8 @@ beforeEach(() => {
       addRepository: vi.fn(() => Promise.resolve(repo)),
       listWorktrees: vi.fn(() => Promise.resolve([tree])),
       validateBranch: vi.fn(async () => {}),
+      launchIdentity: vi.fn(() => Promise.resolve("identity")),
+      removalIdentity: vi.fn(() => Promise.resolve("identity")),
       changes: vi.fn(() => Promise.resolve("")),
       removeRepository: vi.fn(async () => {}),
       removeWorktree: vi.fn(async () => {}),
@@ -227,7 +229,7 @@ test("quiet terminals are evaluated from their tail and reported", async () => {
       id: "shell",
       verdictId: "v1",
       state: "working",
-      reason: "Quiet without decisive evidence",
+      reason: "No completion or input request detected",
       signal: "rules:ambiguous",
       confidence: 0.25,
       timestamp: 1000,
@@ -629,14 +631,16 @@ const start = {
   acknowledgeCodexNotifierReplacement: false,
 };
 
-test("launches a shell in a managed worktree and refuses a duplicate live terminal", async () => {
+test("launches multiple shells in a managed worktree", async () => {
   const workspace = new Workspace(deps);
   expect(await workspace.startWorktree(start)).toBe("t1");
   expect(vi.spyOn(deps.terminals, "create")).toHaveBeenCalledWith(
     expect.objectContaining({ cwd: tree.path, cols: 80, rows: 24 }),
   );
   expect(workspace.snapshot().terminals[0]).toMatchObject({ kind: "shell", branch: "feature" });
-  await expect(workspace.startWorktree(start)).rejects.toThrow("already running");
+  vi.spyOn(deps.terminals, "create").mockResolvedValueOnce("t2");
+  expect(await workspace.startWorktree(start)).toBe("t2");
+  expect(workspace.snapshot().terminals).toHaveLength(2);
   await workspace.exited("t1", 0);
   await workspace.startWorktree(start);
   await workspace.dispose();
@@ -735,6 +739,7 @@ test.each(["", "?? file.txt\0"])(
       repo.path,
       tree.path,
       changes.length > 0,
+      "identity",
     );
     expect(workspace.snapshot().terminals).toEqual([]);
     await expect(workspace.removeWorktree("t1", () => Promise.resolve(true))).rejects.toThrow(
@@ -813,7 +818,7 @@ test("resumed output discards deferred inference before publication or logging",
     },
   });
   await pending;
-  expect(states).toEqual([]);
+  expect(states.at(-1)).toMatchObject({ state: "working", signal: "process:output" });
   expect(commit).not.toHaveBeenCalled();
   await workspace.quiet("t1");
   expect(states.at(-1)?.state).toBe("needs_input");
@@ -869,12 +874,10 @@ test("sidebar inventory includes empty trees and the actual shell; launches use 
       args: process.platform === "win32" ? ["-NoLogo"] : ["-l"],
     }),
   );
-  await expect(
-    workspace.sidebarCommand(
-      { kind: "launch", repository: repo.path, worktree: tree.path, run: "claude" },
-      () => Promise.resolve(true),
-    ),
-  ).rejects.toThrow("already running");
+  await workspace.sidebarCommand(
+    { kind: "launch", repository: repo.path, worktree: tree.path, run: "claude" },
+    () => Promise.resolve(true),
+  );
   await expect(
     workspace.sidebarCommand(
       { kind: "launch", repository: "/foreign", worktree: tree.path, run: "shell" },
@@ -891,7 +894,6 @@ test("sidebar inventory includes empty trees and the actual shell; launches use 
     { ...tree, locked: true },
     { ...tree, bare: true },
     { ...tree, prunable: true },
-    { ...tree, managed: false },
   ]) {
     vi.mocked(deps.worktrees.listWorktrees).mockResolvedValue([unavailable]);
     await expect(
@@ -921,10 +923,7 @@ test("main checkout supports shells and confirms a second agent; cancellation cr
     expect.objectContaining({ mainCheckout: true, sharedCheckout: true }),
   );
   await workspace.sidebarCommand(command, confirm);
-  expect(confirm).toHaveBeenCalledWith(
-    "Do you mean to run two agents in the same checkout?",
-    expect.any(String),
-  );
+  expect(confirm).toHaveBeenCalledWith("Run another agent in this checkout?", expect.any(String));
   expect(agents.launch).toHaveBeenCalledTimes(1);
   confirm.mockResolvedValue(true);
   agents.launch.mockResolvedValue({ id: "t2", attention: "hooks" });
@@ -1001,7 +1000,7 @@ test("an exited shell restarts in its original location and frees its old termin
   expect(workspace.snapshot().terminals.map((entry) => entry.id)).toEqual(["t2"]);
   expect(vi.spyOn(deps.terminals, "kill")).toHaveBeenCalledWith("t1");
 });
-test("repository and empty worktree removal confirm and retain ownership restrictions", async () => {
+test("repository and external worktree removal confirm and protect the main checkout", async () => {
   const workspace = new Workspace(deps);
   await workspace.sidebarCommand({ kind: "remove-repository", repository: repo.path }, () =>
     Promise.resolve(false),
@@ -1011,6 +1010,7 @@ test("repository and empty worktree removal confirm and retain ownership restric
     Promise.resolve(true),
   );
   expect(vi.mocked(deps.worktrees.removeRepository)).toHaveBeenCalledWith(repo.path);
+  vi.mocked(deps.worktrees.listWorktrees).mockResolvedValue([{ ...tree, managed: false }]);
   for (const changes of ["", "?? private.txt\0"]) {
     vi.mocked(deps.worktrees.changes).mockResolvedValue(changes);
     const confirm = vi.fn(() => Promise.resolve(true));
@@ -1028,7 +1028,8 @@ test("repository and empty worktree removal confirm and retain ownership restric
       { kind: "remove-worktree", repository: repo.path, worktree: repo.path },
       () => Promise.resolve(true),
     ),
-  ).rejects.toThrow("not managed");
+  ).rejects.toThrow("main checkout");
+  vi.mocked(deps.worktrees.listWorktrees).mockResolvedValue([tree]);
   await workspace.sidebarCommand(
     { kind: "launch", repository: repo.path, worktree: tree.path, run: "shell" },
     () => Promise.resolve(true),
@@ -1176,8 +1177,18 @@ test("failed and overlapping launches retain the reservation until the last oper
   const first = Promise.withResolvers<Launched>();
   const second = Promise.withResolvers<Launched>();
   agents.launch.mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise);
+  vi.mocked(deps.worktrees.listWorktrees).mockResolvedValue([
+    tree,
+    { ...tree, path: "/second", branch: "second" },
+  ]);
   const a = startRepositoryOperation(workspace, "agent-ipc");
-  const b = startRepositoryOperation(workspace, "agent-ipc");
+  const b = workspace.launch({
+    agent: "claude",
+    repository: repo.path,
+    worktree: "/second",
+    cols: 80,
+    rows: 24,
+  });
   await vi.waitFor(() => {
     expect(agents.launch).toHaveBeenCalledTimes(2);
   });
@@ -1211,3 +1222,260 @@ test("repository removal cannot pass while a main-checkout shell is still spawni
   expect(vi.mocked(deps.worktrees.removeRepository)).not.toHaveBeenCalled();
   expect(workspace.snapshot().terminals[0]?.repository).toBe(repo.path);
 });
+
+test.each(["shell", "claude", "codex", "agy"] as const)(
+  "sidebar launches %s in an external checkout without adopting it",
+  async (run) => {
+    const workspace = new Workspace(deps);
+    vi.mocked(deps.worktrees.listWorktrees).mockResolvedValue([
+      { ...tree, managed: false, branch: null },
+    ]);
+    await workspace.sidebarCommand(
+      { kind: "launch", repository: repo.path, worktree: tree.path, run },
+      () => Promise.resolve(true),
+    );
+    expect(deps.worktrees.launchIdentity).toHaveBeenCalledWith(repo.path, tree.path);
+    if (run === "shell")
+      expect(vi.spyOn(deps.terminals, "create")).toHaveBeenCalledWith(
+        expect.objectContaining({ cwd: tree.path }),
+      );
+    else
+      expect(agents.launch).toHaveBeenCalledWith(
+        expect.objectContaining({
+          worktree: tree.path,
+          checkoutIdentity: "identity",
+          mainCheckout: false,
+          sharedCheckout: true,
+        }),
+      );
+    expect(workspace.snapshot().terminals[0]).toMatchObject({ worktree: tree.path, branch: null });
+    expect(deps.worktrees.createWorktree).not.toHaveBeenCalled();
+  },
+);
+
+test("a checkout replaced before shell creation is refused and remains retryable", async () => {
+  const workspace = new Workspace(deps);
+  vi.mocked(deps.worktrees.launchIdentity)
+    .mockResolvedValueOnce("old")
+    .mockResolvedValueOnce("new");
+  const command = {
+    kind: "launch",
+    repository: repo.path,
+    worktree: tree.path,
+    run: "shell",
+  } as const;
+  await expect(workspace.sidebarCommand(command, () => Promise.resolve(true))).rejects.toThrow(
+    "Worktree has changed",
+  );
+  expect(vi.spyOn(deps.terminals, "create")).not.toHaveBeenCalled();
+  await workspace.sidebarCommand(command, () => Promise.resolve(true));
+  expect(vi.spyOn(deps.terminals, "create")).toHaveBeenCalledOnce();
+});
+
+test.each(["sidebar", "dialog", "agent-ipc"] as const)(
+  "%s warns only for another live agent, supports cancellation and allows shells",
+  async (entry) => {
+    const workspace = new Workspace(deps);
+    const confirm = vi.fn(() => Promise.resolve(false));
+    vi.spyOn(deps.terminals, "create")
+      .mockResolvedValueOnce("s1")
+      .mockResolvedValueOnce("s2")
+      .mockResolvedValueOnce("s3");
+    await workspace.startWorktree(start, confirm);
+    await workspace.sidebarCommand(
+      { kind: "launch", repository: repo.path, worktree: tree.path, run: "shell" },
+      confirm,
+    );
+    expect(confirm).not.toHaveBeenCalled();
+    let next = 0;
+    agents.launch.mockImplementation(() =>
+      Promise.resolve({
+        id: `a${String(++next)}`,
+        attention: "hooks",
+      }),
+    );
+    const launch = () =>
+      entry === "sidebar"
+        ? workspace.sidebarCommand(
+            { kind: "launch", repository: repo.path, worktree: tree.path, run: "claude" },
+            confirm,
+          )
+        : entry === "dialog"
+          ? workspace.startWorktree({ ...start, run: "claude" }, confirm)
+          : workspace.launch(
+              { agent: "claude", repository: repo.path, worktree: tree.path, cols: 80, rows: 24 },
+              confirm,
+            );
+    await launch();
+    expect(confirm).not.toHaveBeenCalled();
+    await launch();
+    expect(confirm).toHaveBeenCalledWith(
+      "Run another agent in this checkout?",
+      expect.stringContaining("same files"),
+    );
+    expect(agents.launch).toHaveBeenCalledTimes(1);
+    confirm.mockResolvedValue(true);
+    await launch();
+    expect(agents.launch).toHaveBeenCalledTimes(2);
+    expect(agents.launch).toHaveBeenLastCalledWith(
+      expect.objectContaining({ sharedCheckout: true }),
+    );
+    confirm.mockClear();
+    await workspace.sidebarCommand(
+      { kind: "launch", repository: repo.path, worktree: tree.path, run: "shell" },
+      confirm,
+    );
+    expect(confirm).not.toHaveBeenCalled();
+    expect(workspace.snapshot().terminals).toHaveLength(5);
+    tails.set("a1", []);
+    tails.set("a2", []);
+    await workspace.exited("a1", 0);
+    await workspace.exited("a2", 0);
+    await launch();
+    expect(confirm).not.toHaveBeenCalled();
+    expect(agents.launch).toHaveBeenCalledTimes(3);
+  },
+);
+
+test("simultaneous legacy launches cannot bypass the active-agent warning", async () => {
+  const workspace = new Workspace(deps);
+  const pending = Promise.withResolvers<Launched>();
+  agents.launch.mockReturnValueOnce(pending.promise);
+  const request = {
+    agent: "claude",
+    repository: repo.path,
+    worktree: tree.path,
+    cols: 80,
+    rows: 24,
+  } as const;
+  const first = workspace.launch(request);
+  await vi.waitFor(() => {
+    expect(agents.launch).toHaveBeenCalledOnce();
+  });
+  await expect(workspace.launch(request)).rejects.toThrow("busy");
+  pending.resolve({ id: "a1", attention: "hooks" });
+  await first;
+  expect(await workspace.launch(request)).toBeNull();
+  expect(agents.launch).toHaveBeenCalledOnce();
+  expect(await workspace.startWorktree({ ...start, run: "claude" })).toBeNull();
+});
+
+test("removing a shared worktree stops every session before the final status check and removal", async () => {
+  const workspace = new Workspace(deps);
+  vi.spyOn(deps.terminals, "create").mockResolvedValueOnce("s1").mockResolvedValueOnce("s2");
+  await workspace.startWorktree(start);
+  await workspace.startWorktree(start);
+  agents.launch.mockResolvedValueOnce({ id: "a1", attention: "hooks" });
+  await workspace.startWorktree({ ...start, run: "claude" });
+  const stopped: string[] = [];
+  vi.spyOn(deps.terminals, "stop").mockImplementation((id) => {
+    stopped.push(id);
+    return Promise.resolve();
+  });
+  for (const id of ["s1", "s2", "a1"]) tails.set(id, []);
+  vi.mocked(deps.worktrees.changes)
+    .mockResolvedValueOnce("")
+    .mockResolvedValueOnce("")
+    .mockImplementation(() => {
+      expect(stopped).toEqual(["s1", "s2", "a1"]);
+      return Promise.resolve("");
+    });
+  await workspace.removeWorktree("s1", () => Promise.resolve(true));
+  expect(vi.spyOn(deps.terminals, "kill").mock.calls.map(([id]) => id)).toEqual(["s1", "s2", "a1"]);
+  expect(workspace.snapshot().terminals).toEqual([]);
+});
+
+test("shell lifecycle reports ready, working, done and failed, preserving completion while editing", async () => {
+  const workspace = new Workspace(deps);
+  workspace.shellState("t1", { phase: "prompt", exitCode: 0 });
+  expect(states.at(-1)).toMatchObject({ state: "quiet_ok", reason: "Shell is ready" });
+  workspace.shellState("t1", { phase: "running" });
+  expect(states.at(-1)?.state).toBe("working");
+  workspace.shellState("t1", { phase: "prompt", exitCode: 0 });
+  expect(states.at(-1)?.state).toBe("done");
+  workspace.output("t1");
+  workspace.input("t1");
+  workspace.shellState("t1", { phase: "prompt", exitCode: 0 });
+  await workspace.quiet("t1");
+  expect(states.at(-1)?.state).toBe("done");
+  expect(classify).not.toHaveBeenCalled();
+  workspace.shellState("t1", { phase: "running" });
+  workspace.shellState("t1", { phase: "prompt", exitCode: 7 });
+  expect(states.at(-1)).toMatchObject({ state: "failed", reason: "Command exited with status 7" });
+  await workspace.exited("t1", 0);
+  workspace.shellState("t1", { phase: "running" });
+  expect(states.at(-1)).toMatchObject({ state: "done", signal: "process:exit" });
+});
+
+test.each(["finish", "output", "prompt", "reject"])(
+  "slow evaluation shows Checking and survives %s",
+  async (action) => {
+    vi.useFakeTimers();
+    const workspace = new Workspace(deps);
+    let resolve!: (record: VerdictRecord) => void;
+    let reject!: (error: Error) => void;
+    classify.mockImplementationOnce(
+      () =>
+        new Promise((yes, no) => {
+          resolve = yes;
+          reject = no;
+        }),
+    );
+    const pending = workspace.quiet("t1");
+    await vi.advanceTimersByTimeAsync(151);
+    expect(states.at(-1)?.state).toBe("checking");
+    if (action === "output") workspace.output("t1");
+    if (action === "prompt") workspace.shellState("t1", { phase: "prompt", exitCode: 0 });
+    if (action === "reject") reject(new Error("unavailable"));
+    else
+      resolve({
+        id: "slow",
+        terminalId: "t1",
+        timestamp: "now",
+        verdict: evaluateRules({ terminalId: "t1", tail: ["Password:"] }),
+      });
+    await pending;
+    expect(states.at(-1)?.state).toBe(
+      action === "finish" ? "needs_input" : action === "prompt" ? "quiet_ok" : "working",
+    );
+    vi.useRealTimers();
+  },
+);
+
+test("shell markers do not override a permission hook", async () => {
+  const workspace = await launched();
+  const key = await bound();
+  await workspace.hook({
+    terminalId: key,
+    action: "needs_input",
+    signal: "claude:PermissionRequest",
+  });
+  workspace.shellState("t1", { phase: "running" });
+  workspace.shellState("t1", { phase: "prompt", exitCode: 0 });
+  expect(states.at(-1)?.state).toBe("needs_input");
+});
+
+test.each(["output", "input", "removed"] as const)(
+  "no Checking or verdict after %s invalidates an evaluation",
+  async (action) => {
+    vi.useFakeTimers();
+    const workspace = new Workspace(deps);
+    const response = Promise.withResolvers<VerdictRecord>();
+    classify.mockReturnValueOnce(response.promise);
+    const pending = workspace.quiet("t1");
+    await vi.advanceTimersByTimeAsync(1);
+    workspace[action]("t1");
+    const count = states.length;
+    await vi.advanceTimersByTimeAsync(200);
+    response.resolve({
+      id: "stale",
+      terminalId: "t1",
+      timestamp: "now",
+      verdict: evaluateRules({ terminalId: "t1", tail: ["Password:"] }),
+    });
+    await pending;
+    expect(states).toHaveLength(count);
+    expect(commit).not.toHaveBeenCalled();
+    vi.useRealTimers();
+  },
+);

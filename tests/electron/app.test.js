@@ -1417,7 +1417,12 @@ test("focus reports reach the shell without counting as a reply", {
   await input.focus();
   await page.keyboard.type("y");
   await page.keyboard.press("Enter");
-  await expect.poll(async () => (await latest())?.signal, { timeout: 10000 }).toBe("user:reply");
+  await expect
+    .poll(
+      () => page.evaluate(() => window.foomStates.some((state) => state.signal === "user:reply")),
+      { timeout: 10000 },
+    )
+    .toBe(true);
   // The program received the focus reports along with the real reply.
   // xterm also reports focus-in as soon as reporting is enabled.
   await page.waitForFunction(() =>
@@ -2269,6 +2274,235 @@ test("new worktree dialog launches by keyboard and confirms dirty removal", {
   );
 });
 
+test("external worktrees offer confirmed removal while preserving branches and the main checkout", {
+  timeout: 45000,
+}, async (context) => {
+  const root = await mkdtemp(path.join(tmpdir(), "foom-external-removal-"));
+  const repo = path.join(root, "repo");
+  const external = path.join(root, "external");
+  await mkdir(repo);
+  isolatedGit(["init", "-q", "-b", "main"], { cwd: repo });
+  isolatedGit(
+    [
+      "-c",
+      "user.name=Foom",
+      "-c",
+      "user.email=foom@example.com",
+      "commit",
+      "-q",
+      "--allow-empty",
+      "-m",
+      "init",
+    ],
+    { cwd: repo },
+  );
+  isolatedGit(["worktree", "add", "-b", "external", external], { cwd: repo });
+  const dirty = path.join(external, "unsaved.txt");
+  await writeFile(dirty, "keep until confirmed");
+  const app = await launchApp(context, false, { emptyBoard: true }).finally(() => {
+    context.after(() => rm(root, { recursive: true, force: true, maxRetries: 5 }));
+  });
+  const page = await app.firstWindow();
+  await app.evaluate(({ dialog }, repo) => {
+    dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [repo] });
+    globalThis.removalOptions = null;
+    dialog.showMessageBox = async (_window, options) => {
+      globalThis.removalOptions = options;
+      return { response: 0 };
+    };
+  }, repo);
+  await page.getByRole("button", { name: "Add repository", exact: true }).click();
+  const row = page.getByRole("button", { name: "Actions for external", exact: true });
+  await row.click();
+  await page.getByRole("menuitem", { name: "Remove worktree…" }).click();
+  await expect
+    .poll(() => app.evaluate(() => globalThis.removalOptions?.detail))
+    .toContain("unsaved.txt");
+  assert.equal(await readFile(dirty, "utf8"), "keep until confirmed");
+  await expect(row).toBeVisible();
+  await app.evaluate(({ dialog }) => {
+    dialog.showMessageBox = async () => ({ response: 1 });
+  });
+  await row.click();
+  await page.getByRole("menuitem", { name: "Remove worktree…" }).click();
+  await expect(row).toHaveCount(0);
+  await assert.rejects(readFile(dirty), { code: "ENOENT" });
+  assert.equal(
+    isolatedGit(["branch", "--list", "external"], { cwd: repo }).toString().trim(),
+    "external",
+  );
+  await page.getByRole("button", { name: "Actions for Main checkout", exact: true }).click();
+  await expect(page.getByRole("menuitem", { name: "Remove worktree…" })).toHaveCount(0);
+  await page.getByRole("menuitem", { name: /^Shell \(/ }).click();
+  await expect(
+    page.getByRole("heading", { name: "repo › Main checkout › Shell", exact: true }),
+  ).toBeVisible();
+  const checkout = page.getByRole("button", { name: "Main checkout", exact: true });
+  await expect(checkout.locator(".tree-checkout-branch")).toHaveText("main");
+  await expect(
+    page.getByRole("treeitem", { name: "Main checkout", exact: true }).locator(".board-row"),
+  ).toHaveCount(1);
+  if (process.env.FOOM_SCREENSHOTS) {
+    for (const colorScheme of ["light", "dark"]) {
+      await page.emulateMedia({ colorScheme });
+      await page.screenshot({ path: path.join(tmpdir(), `foom-main-checkout-${colorScheme}.png`) });
+    }
+  }
+});
+
+test("external worktrees support independent shells and confirmed shared agents", {
+  timeout: 60000,
+}, async (context) => {
+  // macOS temp aliases and Windows short/case-normalized paths differ from Git's inventory.
+  const root = await realpath(await mkdtemp(path.join(tmpdir(), "foom-external-launch-")));
+  const repo = path.join(root, "repo");
+  const bin = path.join(root, "bin");
+  await mkdir(repo);
+  await mkdir(bin);
+  await mkdir(path.join(root, "home"));
+  const git = (...args) =>
+    isolatedGit(["-c", "user.name=Test", "-c", "user.email=test@example.com", ...args], {
+      cwd: repo,
+    });
+  git("init", "-q", "-b", "main");
+  git("commit", "-q", "--allow-empty", "-m", "init");
+  const external = path.join(root, "external");
+  const detached = path.join(root, "detached");
+  const agentTree = path.join(root, "agent");
+  git("worktree", "add", "-b", "external", external);
+  git("worktree", "add", "--detach", detached);
+  git("worktree", "add", "-b", "agent", agentTree);
+  if (process.platform !== "win32") {
+    await writeFile(
+      path.join(bin, "claude"),
+      FAKE_CLAUDE.replace(
+        "const settings =",
+        'process.stdout.write("CWD:" + process.cwd() + "\\r\\n");\nconst settings =',
+      ),
+      { mode: 0o755 },
+    );
+  }
+  const app = await launchApp(context, false, {
+    emptyBoard: true,
+    env: {
+      HOME: path.join(root, "home"),
+      PATH: `${bin}${path.delimiter}${process.env.PATH}`,
+      FOOM_FAKE_CREDENTIALS: path.join(root, "fake-hook.json"),
+    },
+  }).finally(() => {
+    context.after(() => rm(root, { recursive: true, force: true, maxRetries: 5 }));
+  });
+  const page = await app.firstWindow();
+  await app.evaluate(({ dialog }, repo) => {
+    dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [repo] });
+  }, repo);
+  await page.getByRole("button", { name: "Add repository", exact: true }).click();
+  for (const [name, directory] of [
+    ["external", external],
+    ["Detached HEAD", detached],
+  ]) {
+    await page.getByRole("button", { name: `Actions for ${name}`, exact: true }).click();
+    await page.getByRole("menuitem", { name: /^Shell \(/ }).click();
+    await expect(page.locator(".board-row").filter({ hasText: name })).toBeVisible();
+    const terminal = (await page.evaluate(() => window.desktop.workspace())).terminals.find(
+      (t) => t.worktree === directory,
+    );
+    assert.ok(terminal);
+    const command =
+      process.platform === "win32"
+        ? "[Console]::WriteLine(('CWD:' + (Get-Location).Path))"
+        : "printf 'CWD:%s\\n' \"$PWD\"";
+    await page.evaluate(({ id, command }) => window.desktop.input(id, command + "\r"), {
+      id: terminal.id,
+      command,
+    });
+    await expect
+      .poll(() =>
+        page.evaluate(async (id) => (await window.desktop.tail(id, 20)).join(""), terminal.id),
+      )
+      .toContain(`CWD:${directory}`);
+  }
+  await app.evaluate(({ dialog }) => {
+    globalThis.sharingPrompts = [];
+    globalThis.allowSharing = false;
+    dialog.showMessageBox = async (_window, options) => {
+      globalThis.sharingPrompts.push(options.message);
+      return { response: globalThis.allowSharing ? 1 : 0 };
+    };
+  });
+  const sharedSessions = () =>
+    page.evaluate(
+      async (worktree) =>
+        (await window.desktop.workspace()).terminals.filter((t) => t.worktree === worktree),
+      agentTree,
+    );
+  for (let i = 0; i < 2; i++) {
+    await page.getByRole("button", { name: "Actions for agent", exact: true }).click();
+    await page.getByRole("menuitem", { name: /^Shell \(/ }).click();
+    await expect.poll(async () => (await sharedSessions()).length).toBe(i + 1);
+  }
+  assert.deepEqual(await app.evaluate(() => globalThis.sharingPrompts), []);
+  if (process.platform !== "win32") {
+    await page.getByRole("button", { name: "Actions for agent", exact: true }).click();
+    await page.getByRole("menuitem", { name: "Claude Code", exact: true }).click();
+    await expect(page.locator(".board-row").filter({ hasText: "agent" })).toHaveCount(3);
+    assert.deepEqual(await app.evaluate(() => globalThis.sharingPrompts), []);
+    const terminal = (await page.evaluate(() => window.desktop.workspace())).terminals.find(
+      (t) => t.worktree === agentTree && t.kind === "agent",
+    );
+    assert.ok(terminal);
+    await expect
+      .poll(() =>
+        page.evaluate(async (id) => (await window.desktop.tail(id, 20)).join(""), terminal.id),
+      )
+      .toContain(`CWD:${agentTree}`);
+    const anotherAgent = () =>
+      page.evaluate(
+        ({ repository, worktree }) =>
+          window.desktop.sidebarCommand({ kind: "launch", repository, worktree, run: "claude" }),
+        { repository: repo, worktree: agentTree },
+      );
+    await anotherAgent();
+    assert.equal((await sharedSessions()).length, 3, "Cancel must not create an agent");
+    assert.deepEqual(await app.evaluate(() => globalThis.sharingPrompts), [
+      "Run another agent in this checkout?",
+    ]);
+    await app.evaluate(() => {
+      globalThis.allowSharing = true;
+    });
+    await anotherAgent();
+    assert.equal((await sharedSessions()).filter((t) => t.kind === "agent").length, 2);
+    assert.equal(await app.evaluate(() => globalThis.sharingPrompts.length), 2);
+  }
+  const shell = (await sharedSessions()).find((t) => t.kind === "shell");
+  assert.ok(shell);
+  await page.evaluate((id) => window.desktop.sidebarCommand({ kind: "stop", id }), shell.id);
+  await expect
+    .poll(async () => (await sharedSessions()).find((t) => t.id === shell.id)?.exited)
+    .toBe(true);
+  const promptsBeforeRestart = await app.evaluate(() => globalThis.sharingPrompts.length);
+  await page.evaluate((id) => window.desktop.sidebarCommand({ kind: "restart", id }), shell.id);
+  assert.equal((await sharedSessions()).filter((t) => t.kind === "shell").length, 2);
+  assert.ok((await sharedSessions()).every((t) => t.id !== shell.id));
+  assert.equal(await app.evaluate(() => globalThis.sharingPrompts.length), promptsBeforeRestart);
+  const inventory = await page.evaluate(() => window.desktop.sidebarInventory());
+  assert.ok(
+    inventory.repositories[0].worktrees.every((tree) => !tree.managed),
+    "Launching must not adopt external checkouts",
+  );
+  await app.evaluate(() => {
+    globalThis.allowSharing = true;
+  });
+  await page.evaluate(
+    ({ repository, worktree }) =>
+      window.desktop.sidebarCommand({ kind: "remove-worktree", repository, worktree }),
+    { repository: repo, worktree: agentTree },
+  );
+  assert.deepEqual(await sharedSessions(), []);
+  await assert.rejects(realpath(agentTree), { code: "ENOENT" });
+  assert.equal((await page.evaluate(() => window.desktop.workspace())).terminals.length, 2);
+});
+
 test("persistent sidebar keeps Escape in the PTY and routes keyboard navigation", {
   timeout: 45000,
 }, async (context) => {
@@ -2283,6 +2517,8 @@ test("persistent sidebar keeps Escape in the PTY and routes keyboard navigation"
   );
   await page.keyboard.press("Enter");
   await expect(page.locator(".xterm-rows")).toContainText("INPUT_READY");
+  // Establish the startup verdict first, including on faster runners.
+  await expect(page.locator(".board-row")).toHaveAttribute("data-state", "needs_input");
   await page.keyboard.press("Escape");
   await expect.poll(() => readFile(marker, "utf8")).toContain("1b\n");
   await page.keyboard.press("Control+b");
@@ -2297,6 +2533,9 @@ test("persistent sidebar keeps Escape in the PTY and routes keyboard navigation"
   await expect(page.locator(".xterm-helper-textarea")).toBeFocused();
   const screen = page.locator(".xterm-screen");
   await screen.hover();
+  // Earlier keystrokes can clear the initial prompt before slow runners reach here.
+  // Ask the probe for fresh evidence rather than relying on its startup debounce.
+  await page.keyboard.type("p");
   await expect
     .poll(() => page.locator(".board-row").getAttribute("data-state"))
     .toBe("needs_input");
@@ -2860,4 +3099,30 @@ test("sidebar menus escape the scroll area, stay in the window and launch from a
   await expect(page.getByRole("menuitem", { name: "Stop shell" })).toBeFocused();
   await page.keyboard.press("Escape");
   await assertAccessible(page);
+});
+
+test("Bash command status reaches the sidebar without closing the shell", {
+  timeout: 30_000,
+  skip: process.platform !== "linux" && "Requires Bash 4.4 or newer",
+}, async (context) => {
+  const app = await launchApp(context, true, { env: { SHELL: "/bin/bash" } });
+  const page = await app.firstWindow();
+  const row = page.locator(".board-row[data-kind='shell']");
+  await expect(row).toContainText("Shell is ready");
+  await expect(row).toHaveAttribute("data-state", "quiet_ok");
+  const input = page.locator(".xterm-helper-textarea");
+  await input.focus();
+  await page.keyboard.type("sleep 1");
+  await page.keyboard.press("Enter");
+  await expect(row).toHaveAttribute("data-state", "working");
+  await expect(row).toHaveAttribute("data-state", "done");
+  await page.keyboard.type("false");
+  await page.keyboard.press("Enter");
+  await expect(row).toHaveAttribute("data-state", "failed");
+  await page.waitForTimeout(2500);
+  await expect(row).toHaveAttribute("data-state", "failed");
+  await page.keyboard.type("echo next");
+  await expect(row).toHaveAttribute("data-state", "failed");
+  await page.keyboard.press("Enter");
+  await expect(row).toHaveAttribute("data-state", "done");
 });

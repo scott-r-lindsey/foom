@@ -107,12 +107,15 @@ export function attachWorkspace(
           typeof request["acknowledgeCodexNotifierReplacement"] !== "boolean"
         )
           throw new Error("Invalid worktree launch");
-        return workspace.startWorktree({
-          repository: request["repository"],
-          branch: request["branch"],
-          run: request["run"],
-          acknowledgeCodexNotifierReplacement: request["acknowledgeCodexNotifierReplacement"],
-        });
+        return workspace.startWorktree(
+          {
+            repository: request["repository"],
+            branch: request["branch"],
+            run: request["run"],
+            acknowledgeCodexNotifierReplacement: request["acknowledgeCodexNotifierReplacement"],
+          },
+          confirm,
+        );
       },
     ],
     [
@@ -184,7 +187,7 @@ export function attachWorkspace(
         return workspace.scanAgents(refresh);
       },
     ],
-    ["agents:launch", (request) => workspace.launch(launchRequest(request))],
+    ["agents:launch", (request) => workspace.launch(launchRequest(request), confirm)],
     [
       "terminal:feedback",
       async (id, verdictId, next) => {

@@ -121,14 +121,17 @@ test("launch requests are validated and copied field by field", async () => {
     args: ["--danger"],
   };
   await invoke("agents:launch", [request]);
-  expect(workspace.launch).toHaveBeenCalledWith({
-    agent: "codex",
-    repository: "/repos/app",
-    worktree: "/trees/app/x",
-    cols: 80,
-    rows: 24,
-    acknowledgeCodexNotifierReplacement: true,
-  });
+  expect(workspace.launch).toHaveBeenCalledWith(
+    {
+      agent: "codex",
+      repository: "/repos/app",
+      worktree: "/trees/app/x",
+      cols: 80,
+      rows: 24,
+      acknowledgeCodexNotifierReplacement: true,
+    },
+    expect.any(Function),
+  );
   const plain: Record<string, unknown> = { ...request };
   delete plain["acknowledgeCodexNotifierReplacement"];
   await invoke("agents:launch", [plain]);
@@ -214,7 +217,7 @@ test("launch accepts names only and rejects malformed or injected payloads", asy
     acknowledgeCodexNotifierReplacement: false,
   };
   await invoke("workspace:start", [{ ...request, command: "/bad", cwd: "/bad" }]);
-  expect(workspace.startWorktree).toHaveBeenCalledWith(request);
+  expect(workspace.startWorktree).toHaveBeenCalledWith(request, expect.any(Function));
   await invoke("workspace:start", [{ ...request, run: "claude" }]);
   for (const bad of [
     null,

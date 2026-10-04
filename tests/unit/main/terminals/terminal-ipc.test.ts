@@ -944,3 +944,28 @@ test("a detached host answers foreground, background and palette queries with th
   await manager.attach(id, data);
   expect(data.mock.calls[0]?.[1]).toContain("#657b83;#fdf6e3;#586e75");
 });
+
+test("owned Bash lifecycle markers cross the terminal bridge; arbitrary OSC payloads do not", async () => {
+  const onShellState = vi.fn();
+  terminalControl = attachTerminal(window as unknown as BrowserWindow, { onShellState });
+  const id = await terminalControl.create({ ...spec, shellIntegration: true });
+  const args: unknown = mock.spawn.mock.calls.at(-1)?.[1];
+  if (!Array.isArray(args) || typeof args[1] !== "string")
+    throw new Error("Missing Bash startup file");
+  const { readFileSync } = await import("node:fs");
+  const token = /633;([a-f0-9-]+);prompt/.exec(readFileSync(args[1], "utf8"))?.[1];
+  if (!token) throw new Error("Missing integration token");
+  output(`\x1b]633;${token};running\x07`);
+  await terminalControl.tail(id, 1);
+  expect(onShellState).toHaveBeenCalledWith(id, { phase: "running" });
+  output("\x1b]633;foreign;running\x07");
+  await terminalControl.tail(id, 1);
+  expect(onShellState).toHaveBeenCalledTimes(1);
+});
+
+test("failed Bash spawn removes the private startup directory", () => {
+  mock.spawn.mockImplementationOnce(() => {
+    throw new Error("spawn failed");
+  });
+  expect(() => manager.create({ ...spec, shellIntegration: true })).toThrow("spawn failed");
+});

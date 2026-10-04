@@ -17,6 +17,9 @@ const manager = new TerminalManager(
     onOutput: (id) => {
       send({ type: "output", id });
     },
+    onShellState: (id, state) => {
+      send({ type: "shell-state", id, state });
+    },
     onQuiet: (id) => {
       send({ type: "quiet", id });
     },

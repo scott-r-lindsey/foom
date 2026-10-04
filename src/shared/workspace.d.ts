@@ -9,7 +9,7 @@ import type { Repository, Worktree } from "./worktrees";
 export interface TerminalState {
   id: string;
   verdictId: string | null;
-  state: VerdictState;
+  state: VerdictState | "checking";
   reason: string;
   signal: string;
   confidence: number;
@@ -59,7 +59,8 @@ export interface StartWorktreeRequest {
 export interface WorkspaceApi {
   sidebarInventory(): Promise<SidebarInventory>;
   sidebarCommand(command: SidebarCommand): Promise<void>;
-  startWorktree(request: StartWorktreeRequest): Promise<string>;
+  /** Null means the user cancelled the shared-agent confirmation. */
+  startWorktree(request: StartWorktreeRequest): Promise<string | null>;
   /** Main confirms removal, including any uncommitted changes. */
   removeWorktree(id: string): Promise<boolean>;
   workspace(): Promise<WorkspaceSnapshot>;
@@ -73,7 +74,10 @@ export interface WorkspaceApi {
     location: "root" | "adjacent",
   ): Promise<Worktree>;
   scanAgents(refresh: boolean): Promise<AgentReport>;
-  launchAgent(request: LaunchRequest): Promise<{ id: string; attention: "hooks" | "evaluator" }>;
+  /** Null means the user cancelled the shared-agent confirmation. */
+  launchAgent(
+    request: LaunchRequest,
+  ): Promise<{ id: string; attention: "hooks" | "evaluator" } | null>;
   /** Pass null only for the current verdict when it couldn't be stored. */
   feedback(id: string, verdictId: string | null, action: VerdictAction): Promise<void>;
   onState(callback: (state: TerminalState) => void): () => void;

@@ -129,7 +129,7 @@ export class AgentService {
   private readonly bindings = new Map<string, AgentHooks>();
 
   constructor(
-    private readonly worktrees: Pick<WorktreeService, "listWorktrees">,
+    private readonly worktrees: Pick<WorktreeService, "listWorktrees" | "launchIdentity">,
     private readonly terminals: { create(spec: TerminalSpec): string | Promise<string> },
     private readonly prepareHooks?: (agent: AgentId) => Promise<AgentHooks>,
   ) {}
@@ -184,7 +184,9 @@ export class AgentService {
       !trees.some(
         (tree) =>
           tree.path === request.worktree &&
-          (tree.managed || (request.mainCheckout && tree.path === request.repository)) &&
+          (tree.managed ||
+            request.checkoutIdentity !== undefined ||
+            (request.mainCheckout && tree.path === request.repository)) &&
           !tree.bare &&
           !tree.prunable &&
           !tree.locked,
@@ -203,6 +205,12 @@ export class AgentService {
     const binding = attach ? await attach(agent.id) : undefined;
     try {
       this.ensureOpen();
+      if (
+        request.checkoutIdentity !== undefined &&
+        (await this.worktrees.launchIdentity(request.repository, request.worktree)) !==
+          request.checkoutIdentity
+      )
+        throw new Error("Worktree has changed. Select it and try again.");
       const args: string[] = agent.inline ? ["--no-alt-screen"] : [];
       if (binding) {
         if (agent.id === "claude") {

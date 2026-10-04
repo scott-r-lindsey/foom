@@ -180,3 +180,12 @@ test("forwards activity batches and quiet IDs from the host meter", () => {
   });
   expect(port.postMessage).toHaveBeenCalledWith({ type: "quiet", id: "one" });
 });
+
+test("forwards terminal-scoped shell lifecycle events", () => {
+  mock.events.onShellState?.("one", { phase: "running" });
+  expect(port.postMessage).toHaveBeenCalledWith({
+    type: "shell-state",
+    id: "one",
+    state: { phase: "running" },
+  });
+});

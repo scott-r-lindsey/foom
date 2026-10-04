@@ -1,3 +1,4 @@
+import { prepareShell } from "./shell-integration";
 import type { TerminalTheme } from "../shared/terminal-theme";
 import { TerminalActivityMeter } from "./terminal-activity";
 import { terminalSnapshot } from "./terminal-snapshot";
@@ -51,21 +52,28 @@ export class TerminalManager {
     for (const [key, value] of Object.entries(process.env)) {
       if (value !== undefined && !/^(npm_|ELECTRON_)/i.test(key)) env[key] = value;
     }
-    const pty = spawn(spec.command, [...spec.args], {
-      name: "xterm-256color",
-      // The OS cleanup path forks a Node helper, incompatible with RunAsNode=false.
-      useConptyDll: true,
-      cols: spec.cols,
-      rows: spec.rows,
-      cwd: spec.cwd,
-      env: {
-        ...env,
-        ...spec.env,
-        TERM: "xterm-256color",
-        COLORTERM: "truecolor",
-        TERM_PROGRAM: "Foom",
-      },
-    });
+    const shell = prepareShell(spec);
+    let pty: IPty;
+    try {
+      pty = spawn(spec.command, [...(shell?.args ?? spec.args)], {
+        name: "xterm-256color",
+        // The OS cleanup path forks a Node helper, incompatible with RunAsNode=false.
+        useConptyDll: true,
+        cols: spec.cols,
+        rows: spec.rows,
+        cwd: spec.cwd,
+        env: {
+          ...env,
+          ...spec.env,
+          TERM: "xterm-256color",
+          COLORTERM: "truecolor",
+          TERM_PROGRAM: "Foom",
+        },
+      });
+    } catch (error) {
+      shell?.dispose();
+      throw error;
+    }
     const screen = new Terminal({
       cols: spec.cols,
       rows: spec.rows,
@@ -117,6 +125,14 @@ export class TerminalManager {
         });
       }),
     ];
+    if (shell)
+      session.subscriptions.push(
+        screen.parser.registerOscHandler(633, (data) => {
+          const state = shell.parse(data);
+          if (state) this.events.onShellState?.(id, state);
+          return Boolean(state);
+        }),
+      );
     let resolveExit: () => void;
     const exited = new Promise<void>((resolve) => {
       resolveExit = resolve;
@@ -125,6 +141,7 @@ export class TerminalManager {
     // Keep this subscription after kill: killing a PTY only requests termination.
     const exitSubscription = pty.onExit(({ exitCode }) => {
       session.exited = true;
+      shell?.dispose();
       this.activity.remove(id);
       this.pendingExits.delete(session);
       exitSubscription.dispose();

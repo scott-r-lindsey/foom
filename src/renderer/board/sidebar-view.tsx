@@ -480,6 +480,7 @@ export function Sidebar({
                             const wid = worktreeKey(worktree.path);
                             const branch = worktree.branch ?? "Detached HEAD";
                             const main = worktree.path === repo.repository.path;
+                            const name = main ? "Main checkout" : branch;
                             const target = {
                               repository: repo.repository.path,
                               worktree: worktree.path,
@@ -489,7 +490,7 @@ export function Sidebar({
                                 key={wid}
                                 role="treeitem"
                                 aria-expanded={expanded}
-                                aria-label={branch}
+                                aria-label={name}
                               >
                                 <div
                                   className="tree-row worktree-row"
@@ -498,7 +499,7 @@ export function Sidebar({
                                   <button
                                     type="button"
                                     className="tree-chevron"
-                                    aria-label={`${expanded ? "Collapse" : "Expand"} ${branch}`}
+                                    aria-label={`${expanded ? "Collapse" : "Expand"} ${name}`}
                                     onClick={() => {
                                       toggle(wid, expanded);
                                     }}
@@ -509,7 +510,7 @@ export function Sidebar({
                                     type="button"
                                     data-nav
                                     className="tree-name"
-                                    aria-label={branch}
+                                    aria-label={name}
                                     onClick={() => {
                                       choose(target);
                                     }}
@@ -535,14 +536,25 @@ export function Sidebar({
                                         </>
                                       )}
                                     </svg>
-                                    <span className="tree-label">
-                                      <Highlight text={branch} filter={filter} />
+                                    <span className={main ? "tree-checkout-label" : "tree-label"}>
+                                      {main && (
+                                        <span>
+                                          <Highlight text="Main checkout" filter={filter} />
+                                        </span>
+                                      )}
+                                      <span
+                                        className={
+                                          main ? "tree-label tree-checkout-branch" : undefined
+                                        }
+                                      >
+                                        <Highlight text={branch} filter={filter} />
+                                      </span>
                                     </span>
                                   </button>
                                   {!expanded && roll(rollup)}
-                                  {actions(wid, branch, [
+                                  {actions(wid, name, [
                                     ...launchers(target),
-                                    ...(!main && worktree.managed
+                                    ...(!main && !worktree.bare
                                       ? [
                                           null,
                                           {

@@ -2,12 +2,16 @@ export interface TerminalActivity {
   id: string;
   rate: number;
 }
+export type ShellState = { phase: "running" } | { phase: "prompt"; exitCode: number };
 export interface TerminalTelemetry {
+  onShellState?(id: string, state: ShellState): void;
   onOutput?(id: string): void;
   onActivity?(batch: TerminalActivity[]): void;
   onQuiet?(id: string): void;
 }
 export interface TerminalSpec {
+  /** Main opts interactive shells into invocation-scoped lifecycle integration. */
+  shellIntegration?: boolean;
   command: string;
   args: readonly string[];
   cwd: string;

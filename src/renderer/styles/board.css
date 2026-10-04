@@ -424,6 +424,15 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.tree-checkout-label {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.tree-checkout-branch {
+  color: var(--muted);
+  font-size: 11px;
+}
 .tree-name > svg {
   flex-shrink: 0;
   color: var(--muted);
@@ -525,8 +534,8 @@
 [data-state="done"] .board-reason {
   color: var(--done-ink);
 }
-.sidebar-shell .board-row[data-state="done"] {
-  opacity: 0.65;
+.sidebar-shell .board-row[data-state="done"] .board-light {
+  filter: brightness(0.65);
 }
 .sidebar-shell .row-actions {
   flex: 0 0 24px;

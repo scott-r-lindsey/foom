@@ -7,7 +7,7 @@ The target is about 10 concurrent agents. Supported agents are Claude Code (`cla
 ## Terms
 
 - **Repository**: a git repo the user has added.
-- **Worktree**: a `git worktree` Foom creates for one branch. Managed worktrees currently run one session at a time. The main checkout can run several sessions; starting another agent there requires confirmation because both can edit the same files.
+- **Worktree**: a `git worktree` for one branch, created by Foom or another tool. Every checkout can run multiple shells and agents. Shells need no sharing confirmation. Starting an agent while another agent is still running in that checkout requires confirmation because they can edit the same files. Exited agents do not trigger the warning.
 - **Terminal**: one PTY session inside a worktree. It may run an agent, a dev server, or a shell.
 - **Light**: the indicator that represents a hidden terminal.
 - **Evaluator**: the pipeline that decides what a terminal's state is when its output stops.
@@ -44,7 +44,8 @@ The case-insensitive filter matches repository names, branches, session names an
 highlights matching text and expands ancestors. A banner counts filtered-out sessions that
 need you; Show clears the filter. Collapsed repository rows show their worktree count and
 most urgent state; collapsed worktrees show the same roll-up. Urgency is Needs you, Failed,
-Working/Checking, Done, then Quiet. The main checkout has a folder icon. Other worktrees
+Working/Checking, Done, then Quiet. The main checkout is labeled **Main checkout**, with its branch on a secondary line and a folder icon.
+Location and session breadcrumbs also call it **Main checkout**. Other worktrees
 have a branch icon. Pins and repository/worktree expansion choices persist.
 Repositories with running sessions start expanded; idle repositories start collapsed.
 With one repository, everything starts expanded.
@@ -59,11 +60,13 @@ its terminal and focus input. Needs you remains; Done and Failed dim once seen.
 Each row has an actions menu that opens to the right, over the pane, outside the scrolling
 tree. Arrow keys, Home/End, Enter and Escape operate it; outside clicks and tree scrolling
 close it. Repository and worktree selection show breadcrumbs and location launch buttons.
-Repository launchers use the main checkout. Launchers name the user's shell and show only
+Repository launchers use the main checkout. Worktree launchers use the selected checkout,
+including worktrees created outside Foom and detached checkouts. Launchers name the user's shell and show only
 installed, enabled agents. New worktree opens the existing branch/agent dialog. A running
 session offers Stop; an exited session offers Close, plus Restart shell for shells. Close
-removes only the session, never the checkout. Worktree removal retains confirmation and
-ownership checks; the main checkout cannot be removed. Repository removal forgets its
+removes only the session, never the checkout. Worktree removal is available for linked checkouts created by any tool. It requires
+confirmation, validates repository membership and worktree identity, and rechecks dirty
+files before deletion. The branch is kept; the main checkout cannot be removed. Repository removal forgets its
 registration, retains files and refuses while it has sessions or Foom-owned worktrees.
 
 Below 720 CSS pixels the tree becomes a flat column with one light per session and accessible
@@ -150,3 +153,10 @@ Quitting stops every PTY before the app exits. Terminals live exactly as long as
 ## Mockups
 
 Clickable mockups live in [`docs/mockups/`](mockups/README.md): the [board](mockups/board.html), [first run](mockups/first-run.html), and [brand](mockups/brand.html). The board and first-run mockups predate the brand; take their layout and behavior, and take color and type from [brand.md](brand.md). The mockups README lists what else they get wrong.
+
+Shell status currently follows command start and completion in Bash 4.4+: an initial
+prompt is Quiet (“Shell is ready”), a command is Working, and return to the prompt is
+Done or Failed according to its exit code. Editing the next command preserves that
+result until execution starts. Other shells use output patterns and process exit.
+Checking appears for evaluations lasting longer than 150 ms. Rules-only mode keeps
+ambiguous output Working; it cannot determine arbitrary agent completion from silence.

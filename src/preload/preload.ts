@@ -5,7 +5,7 @@ import type { ProbeUpdate } from "../shared/inference";
 import type { SetupState } from "../shared/setup";
 import type { TerminalState } from "../shared/workspace";
 
-const states = ["needs_input", "done", "failed", "quiet_ok", "working"];
+const states = ["needs_input", "done", "failed", "quiet_ok", "working", "checking"];
 function object(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
