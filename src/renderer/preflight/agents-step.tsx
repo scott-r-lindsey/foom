@@ -2,15 +2,7 @@ import type { SetupState } from "../../shared/setup";
 import type { AgentReport } from "../../shared/workspace";
 import type { StepHeading, StepActions } from "./preflight-step.d";
 import { Tooltip } from "../ui/tooltip";
-import {
-  AGENTS,
-  found,
-  readyAgents,
-  signal,
-  signalNote,
-  SIGNALS,
-  versionNumber,
-} from "./preflight";
+import { AGENTS, found, signal, signalNote, SIGNALS, versionNumber } from "./preflight";
 
 const SIGNAL_LABEL = { hooks: "Hooks", notify: "Notify", evaluator: "Evaluator" } as const;
 
@@ -49,7 +41,6 @@ export function AgentsStep({
   scanning,
   scan,
   save,
-  nav,
 }: StepHeading &
   StepActions & {
     state: SetupState;
@@ -57,8 +48,6 @@ export function AgentsStep({
     scanning: boolean;
     scan: (refresh: boolean) => Promise<void>;
   }) {
-  const ready = readyAgents(report, state);
-
   return (
     <>
       <p className="preflight-eyebrow">T-4 · Agents</p>
@@ -157,13 +146,6 @@ export function AgentsStep({
           </small>
         </span>
       </label>
-      {nav(
-        0,
-        ready.length
-          ? `${String(ready.length)} ${ready.length === 1 ? "agent" : "agents"} ready`
-          : "No agents ready yet · needed to launch",
-        2,
-      )}
     </>
   );
 }

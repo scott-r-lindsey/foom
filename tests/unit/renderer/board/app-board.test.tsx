@@ -57,6 +57,10 @@ const view: ShellView = {
   toggleDisabled: false,
   restartDisabled: true,
 };
+vi.mock("../../../../src/renderer/preflight/scale-preflight", () => ({ scalePreflight: vi.fn() }));
+
+vi.mock("../../../../src/renderer/preflight/center-step", () => ({ centerStep: vi.fn() }));
+
 beforeEach(() => {
   vi.clearAllMocks();
   mock.failStart = false;

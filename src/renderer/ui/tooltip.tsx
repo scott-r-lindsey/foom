@@ -1,4 +1,5 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import type { ReactNode } from "react";
 
 interface Box {
@@ -64,9 +65,17 @@ export function Tooltip({
       bubble.style.top = `${String(top)}px`;
     };
     place();
+    // A scaled or animated ancestor can move the trigger without a window event.
+    let frame = 0;
+    const follow = () => {
+      place();
+      frame = requestAnimationFrame(follow);
+    };
+    frame = requestAnimationFrame(follow);
     window.addEventListener("resize", place);
     window.addEventListener("scroll", place, true);
     return () => {
+      cancelAnimationFrame(frame);
       window.removeEventListener("resize", place);
       window.removeEventListener("scroll", place, true);
     };
@@ -116,9 +125,13 @@ export function Tooltip({
       >
         {label}
       </button>
-      <span ref={bubbleRef} role="tooltip" id={id} className="tip-bubble" hidden={!open}>
-        {children}
-      </span>
+      {/* Viewport coordinates must not inherit the preflight's zoom or containment. */}
+      {createPortal(
+        <span ref={bubbleRef} role="tooltip" id={id} className="tip-bubble" hidden={!open}>
+          {children}
+        </span>,
+        document.body,
+      )}
     </span>
   );
 }

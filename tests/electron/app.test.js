@@ -1461,6 +1461,186 @@ test("a fresh profile opens preflight, and it passes accessibility checks", asyn
   await assertAccessible(page);
 });
 
+async function assertPreflightFits(page, label) {
+  const settle = () =>
+    page.evaluate(
+      () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))),
+    );
+  await expect
+    .poll(
+      () =>
+        page.locator(".preflight-viewport").evaluate((viewport) => {
+          const content = viewport.querySelector(".preflight-content");
+          const stage = viewport.querySelector(".preflight-stage");
+          const inner = viewport.querySelector(".preflight-inner");
+          const footer = viewport.querySelector(".preflight-footer");
+          const scale = Number(getComputedStyle(content).zoom);
+          const overflows =
+            Math.max(inner.offsetHeight, inner.scrollHeight) > stage.clientHeight + 1;
+          return {
+            clippedNavigation: footer
+              ? [...footer.querySelectorAll("button")].some((button) => {
+                  const bounds = button.getBoundingClientRect();
+                  const visible = footer.getBoundingClientRect();
+                  return (
+                    bounds.top < visible.top - 1 ||
+                    bounds.bottom > visible.bottom + 1 ||
+                    bounds.left < visible.left - 1 ||
+                    bounds.right > visible.right + 1
+                  );
+                })
+              : false,
+            horizontal: stage.scrollWidth > stage.clientWidth + 1,
+            enlargedOverflow: overflows && scale > 1.00001,
+            outsideWindow: viewport.getBoundingClientRect().bottom > window.innerHeight + 1,
+            coveredFooter: footer
+              ? stage.getBoundingClientRect().bottom > footer.getBoundingClientRect().top + 1
+              : false,
+          };
+        }),
+      { message: label },
+    )
+    .toEqual({
+      clippedNavigation: false,
+      horizontal: false,
+      enlargedOverflow: false,
+      outsideWindow: false,
+      coveredFooter: false,
+    });
+  await expect
+    .poll(async () => {
+      const before = await page
+        .locator(".preflight-content")
+        .evaluate((content) => getComputedStyle(content).zoom);
+      await settle();
+      return page
+        .locator(".preflight-content")
+        .evaluate((content, before) => getComputedStyle(content).zoom === before, before);
+    })
+    .toBe(true);
+}
+
+test("preflight fits safely through resize, zoom, long input and changing steps", {
+  timeout: 60_000,
+}, async (context) => {
+  const app = await launchApp(context, false);
+  const page = await app.firstWindow();
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.getByRole("button", { name: "Preflight", exact: true }).click();
+  const rail = page.getByRole("navigation", { name: "Preflight steps" });
+  for (const [width, height, zoom] of [
+    [1600, 1000, 100],
+    [1600, 1000, 150],
+    [1600, 1000, 80],
+    [1280, 720, 150],
+    [900, 640, 100],
+    [650, 600, 150],
+    [480, 360, 150],
+    // Leave room for native window chrome even on Linux without a window manager.
+    [480, 300, 150],
+    [2400, 1400, 100],
+    [1600, 1000, 100],
+  ]) {
+    const size = await app.evaluate(
+      ({ BrowserWindow }, { width, height, zoom }) => {
+        const window = BrowserWindow.getAllWindows()[0];
+        window.setMinimumSize(0, 0);
+        window.setSize(width, height);
+        window.webContents.setZoomFactor(zoom / 100);
+        return window.getContentBounds();
+      },
+      { width, height, zoom },
+    );
+    await expect
+      .poll(() => page.evaluate(() => [window.innerWidth, window.innerHeight]))
+      .toEqual([Math.round((size.width * 100) / zoom), Math.round((size.height * 100) / zoom)]);
+    for (const step of [
+      "Welcome",
+      "Agents",
+      "Repositories",
+      "Worktrees",
+      "Evaluator",
+      "Go / no-go",
+    ]) {
+      await rail.getByRole("button", { name: new RegExp(step) }).click();
+      await assertPreflightFits(page, `${width}×${height} at ${zoom}%: ${step}`);
+      if (step === "Evaluator") {
+        const cloud = page.getByRole("radio", { name: /Use an API key/ });
+        if (await cloud.isEnabled()) {
+          await cloud.check();
+          await page.getByLabel("Model", { exact: true }).fill("a".repeat(300));
+          await assertPreflightFits(page, "Expanded API settings and a long model name");
+        }
+        await page.getByRole("radio", { name: /Use a local model/ }).check();
+        await page.getByLabel("Model", { exact: true }).fill("a".repeat(300));
+        await assertPreflightFits(page, "Expanded local settings and a long model name");
+      }
+    }
+  }
+  await rail.getByRole("button", { name: /Evaluator/ }).click();
+  await page.getByRole("radio", { name: /Use a local model/ }).check();
+  for (const control of [
+    "Larger",
+    "Larger",
+    "Larger",
+    "Larger",
+    "Larger",
+    "Smaller",
+    "Smaller",
+    "Smaller",
+    "Smaller",
+    "Smaller",
+    "Smaller",
+    "Smaller",
+    "Larger",
+    "Larger",
+  ]) {
+    await page.getByRole("button", { name: control, exact: true }).click();
+    await assertPreflightFits(
+      page,
+      "Real interface-size controls after resizing and expanding settings",
+    );
+  }
+});
+
+test("large repository scans remain readable and filter without changing scale", async (context) => {
+  const root = await mkdtemp(path.join(tmpdir(), "foom-layout-repos-"));
+  context.after(() => rm(root, { recursive: true, force: true, maxRetries: 5 }));
+  for (const group of ["alpha", "beta", "gamma"]) {
+    for (let index = 0; index < 12; index++) {
+      const directory = path.join(root, group, `project-${index}-${"long-name-".repeat(12)}`);
+      await mkdir(directory, { recursive: true });
+      isolatedGit(["init", "-q", directory]);
+    }
+  }
+  const app = await launchApp(context, false);
+  const page = await app.firstWindow();
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await app.evaluate(({ BrowserWindow, dialog }, directory) => {
+    BrowserWindow.getAllWindows()[0].setSize(1600, 1000);
+    dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [directory] });
+  }, root);
+  await page.getByRole("button", { name: "Preflight", exact: true }).click();
+  await page
+    .getByRole("navigation", { name: "Preflight steps" })
+    .getByRole("button", { name: /Repositories/ })
+    .click();
+  await page.getByRole("button", { name: "Choose folder…" }).click();
+  await expect(page.locator(".repo-row")).toHaveCount(36);
+  await assertPreflightFits(page, "Many repository groups and long names");
+  await page.locator('.repo-row input[type="checkbox"]').last().uncheck();
+  await assertPreflightFits(page, "Selection at the bottom of a long scan");
+  const scale = await page
+    .locator(".preflight-content")
+    .evaluate((content) => getComputedStyle(content).zoom);
+  await page.getByRole("searchbox").fill("does-not-exist");
+  await expect(page.locator(".repo-row")).toHaveCount(0);
+  await expect(page.locator(".preflight-content")).toHaveCSS("zoom", scale);
+  await page.getByRole("searchbox").fill("");
+  await expect(page.locator(".repo-row")).toHaveCount(36);
+  await assertPreflightFits(page, "Clearing a repository filter");
+});
+
 test("first run goes from no agents to go, launches by keyboard, and can be replayed", {
   timeout: 60_000,
   skip: process.platform === "win32" && "The fake agents are POSIX scripts",
@@ -1495,14 +1675,135 @@ test("first run goes from no agents to go, launches by keyboard, and can be repl
     dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [directory] });
   }, repo);
 
+  const contentScales = new Map();
+  // Check centering against actual stage bounds: macOS can clamp tall window requests.
+  // Short steps center at every interface size; overflowing steps keep their top reachable.
+  for (const [width, height, zoom] of [
+    [1200, 900, 1],
+    [1600, 1000, 1],
+    [1600, 700, 1],
+    [1600, 2000, 1],
+    // A small CI display can clamp both requested window sizes to the same bounds.
+    // Zoom out further to exercise actual scale growth even on that display.
+    [1600, 1000, 0.5],
+    [1600, 1000, 0.8],
+    [1600, 1000, 1.5],
+    [800, 600, 1.5],
+  ]) {
+    const size = await app.evaluate(
+      ({ BrowserWindow, screen }, { width, height, zoom }) => {
+        const window = BrowserWindow.getAllWindows()[0];
+        const available = screen.getPrimaryDisplay().workAreaSize;
+        window.setSize(Math.min(width, available.width), Math.min(height, available.height));
+        window.webContents.setZoomFactor(zoom);
+        return window.getContentBounds();
+      },
+      { width, height, zoom },
+    );
+    // Window resize delivery and ResizeObserver run after the main-process call returns.
+    await expect
+      .poll(() =>
+        page.evaluate(
+          ({ size, zoom }) =>
+            Math.max(
+              Math.abs(window.innerWidth - size.width / zoom),
+              Math.abs(window.innerHeight - size.height / zoom),
+            ),
+          { size, zoom },
+        ),
+      )
+      .toBeLessThanOrEqual(1);
+    await page.evaluate(
+      () =>
+        new Promise((resolve) => {
+          requestAnimationFrame(() => requestAnimationFrame(resolve));
+        }),
+    );
+    await expect
+      .poll(() =>
+        page.locator(".preflight-stage").evaluate((stage) => {
+          const inner = stage.querySelector(".preflight-inner");
+          const bounds = inner.getBoundingClientRect();
+          const stageBounds = stage.getBoundingClientRect();
+          return Math.abs(
+            bounds.top - stageBounds.top - Math.max(0, (stageBounds.height - bounds.height) / 2),
+          );
+        }),
+      )
+      .toBeLessThan(2);
+    contentScales.set(
+      `${width}x${height}@${zoom}`,
+      await page
+        .locator(".preflight-content")
+        .evaluate((content) => Number(getComputedStyle(content).zoom)),
+    );
+    if (width === 800) {
+      const overflow = await page.locator(".preflight-stage").evaluate((stage) => {
+        const overflows = stage.scrollHeight > stage.clientHeight;
+        stage.scrollTop = stage.scrollHeight;
+        return {
+          overflows,
+          bottom: stage.querySelector(".preflight-inner").getBoundingClientRect().bottom,
+          stageBottom: stage.getBoundingClientRect().bottom,
+        };
+      });
+      assert.ok(overflow.overflows, "Small zoomed stage exercises overflow");
+      assert.ok(
+        Math.abs(overflow.bottom - overflow.stageBottom) < 2,
+        "The content bottom is reachable",
+      );
+    }
+  }
+  await app.evaluate(({ BrowserWindow, screen }) => {
+    const window = BrowserWindow.getAllWindows()[0];
+    window.webContents.setZoomFactor(1);
+    const available = screen.getPrimaryDisplay().workAreaSize;
+    window.setSize(Math.min(1600, available.width), Math.min(1000, available.height));
+  });
+
+  assert.ok(
+    contentScales.get("1600x1000@0.5") > contentScales.get("1600x1000@1.5"),
+    "More available CSS space enlarges content, even when native window sizes are clamped",
+  );
+  const sharedScale = contentScales.get("1600x1000@1");
+  const assertFooter = async (sameSize = true) => {
+    const layout = await page.locator(".preflight-content").evaluate((content) => {
+      const stage = content.querySelector(".preflight-stage");
+      const footer = content.querySelector(".preflight-footer");
+      stage.scrollTop = stage.scrollHeight;
+      return {
+        scale: getComputedStyle(content).zoom,
+        bottom: footer.getBoundingClientRect().bottom,
+        viewport: window.innerHeight,
+        stageBottom: stage.getBoundingClientRect().bottom,
+        footerTop: footer.getBoundingClientRect().top,
+      };
+    });
+    if (sameSize)
+      assert.ok(
+        Number(layout.scale) <= sharedScale,
+        "Larger steps can only lower the shared scale ceiling",
+      );
+    assert.ok(
+      Math.abs(layout.bottom - layout.viewport) < 2,
+      "Navigation stays at the viewport bottom",
+    );
+    assert.ok(
+      layout.stageBottom <= layout.footerTop + 1,
+      "Scrolled content cannot cover navigation",
+    );
+  };
+
   await tabTo(page, "Start preflight");
   await page.keyboard.press("Enter");
   await expect(page.getByText("Not found")).toHaveCount(3, { timeout: 20000 });
+  await assertFooter();
   await tabTo(page, "Continue");
   await page.keyboard.press("Enter");
   // The private HOME has no code folders, so the picker is the way in.
   await page.getByRole("button", { name: "Choose folder…" }).click();
   await page.getByText("1 of 1 selected").waitFor();
+  await assertFooter();
   for (const heading of [
     "Where should new worktrees go?",
     "How should Foom read a terminal that goes quiet?",
@@ -1511,6 +1812,23 @@ test("first run goes from no agents to go, launches by keyboard, and can be repl
     await tabTo(page, "Continue");
     await page.keyboard.press("Enter");
     await page.getByText(heading).waitFor();
+    await assertFooter();
+    if (heading.startsWith("How should")) {
+      await app.evaluate(({ BrowserWindow }) => {
+        const window = BrowserWindow.getAllWindows()[0];
+        window.setSize(800, 600);
+        window.webContents.setZoomFactor(1.5);
+      });
+      await assertFooter(false);
+      await expect(page.getByRole("button", { name: "Continue", exact: true })).toBeInViewport();
+      await expect(page.getByRole("button", { name: "Back", exact: true })).toBeInViewport();
+      await app.evaluate(({ BrowserWindow, screen }) => {
+        const window = BrowserWindow.getAllWindows()[0];
+        window.webContents.setZoomFactor(1);
+        const available = screen.getPrimaryDisplay().workAreaSize;
+        window.setSize(Math.min(1600, available.width), Math.min(1000, available.height));
+      });
+    }
   }
   await expect(page.getByRole("button", { name: "Launch" })).toBeDisabled();
   await page.getByRole("button", { name: "Fix" }).click();
@@ -1540,6 +1858,16 @@ test("first run goes from no agents to go, launches by keyboard, and can be repl
   await page.mouse.move(0, 0);
   await page.getByRole("button", { name: "codex", exact: true }).focus();
   await expect(page.getByRole("tooltip")).toContainText(`Found at ${path.join(bin, "codex")}`);
+  await expect
+    .poll(() =>
+      page.getByRole("button", { name: "codex", exact: true }).evaluate((trigger) => {
+        const bubble = document.querySelector('[role="tooltip"]:not([hidden])');
+        const bounds = bubble.getBoundingClientRect();
+        return Math.abs(bounds.top - trigger.getBoundingClientRect().bottom - 6);
+      }),
+    )
+    .toBeLessThan(2);
+  await assertPreflightFits(page, "Tooltip outside the scaled layout");
   await assertAccessible(page);
   await page.keyboard.press("Escape");
   await expect(page.getByRole("tooltip")).toHaveCount(0);
@@ -1624,12 +1952,15 @@ test("Run check streams live progress from a local model server, then saves the 
   await steps.getByText("fake:1b is available").waitFor();
   await steps.getByText("Thinking").waitFor();
   await page.getByText("Thinking: 1 chunk").waitFor();
+  await assertPreflightFits(page, "Streaming evaluator output");
   await expect(page.getByRole("progressbar", { name: "Time limit" })).toBeVisible();
   await assertAccessible(page);
   release();
 
   await page.getByText(/needs_input · confidence 0\.90 in .*Foom will use this source/).waitFor();
   await expect(steps.getByText("Loaded fake:1b")).toBeVisible();
+  await page.getByText("Details", { exact: true }).click();
+  await assertPreflightFits(page, "Expanded evaluator request and reply details");
   const saved = JSON.parse(await readFile(path.join(userData, "settings.json"), "utf8"));
   assert.deepEqual(saved.settings.inference, { kind: "local", model: "fake:1b", endpoint });
 

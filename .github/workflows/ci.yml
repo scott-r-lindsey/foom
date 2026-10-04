@@ -144,12 +144,14 @@ jobs:
           sudo apt-get install -y xvfb libgtk-3-0 libnss3 libasound2t64
           # Permit Chromium's user-namespace sandbox on this ephemeral CI runner.
           sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+      # The full suite includes preflight and sidebar flows; per-test deadlines
+      # and the Electron worker watchdog still bound individual hangs.
       - name: Test Electron on Linux
-        timeout-minutes: 3
+        timeout-minutes: 5
         if: runner.os == 'Linux'
         run: xvfb-run -a npm run test:electron
       - name: Test Electron on macOS and Windows
-        timeout-minutes: 3
+        timeout-minutes: 5
         if: runner.os != 'Linux'
         run: npm run test:electron
       - name: Package desktop application

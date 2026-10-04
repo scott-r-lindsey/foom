@@ -94,3 +94,38 @@ test("an open bubble is placed against the window and follows resizes", () => {
   expect(bubble.style.left).toBe("70px");
   fireEvent.blur(trigger);
 });
+
+test("a portaled bubble follows a moving scaled trigger and stops when closed", () => {
+  let frame = () => {};
+  const request = vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => {
+    frame = () => {
+      callback(0);
+    };
+    return 1;
+  });
+  const cancel = vi.spyOn(window, "cancelAnimationFrame");
+  try {
+    const view = render(
+      <div style={{ zoom: 2 }}>
+        <Tooltip label="Scaled">Details</Tooltip>
+      </div>,
+    );
+    const trigger = screen.getByRole("button", { name: "Scaled" });
+    let left = 100;
+    vi.spyOn(trigger, "getBoundingClientRect").mockImplementation(
+      () => new DOMRect(left, 20, 40, 20),
+    );
+    fireEvent.focus(trigger);
+    const bubble = screen.getByRole("tooltip");
+    expect(bubble.parentElement).toBe(document.body);
+    expect(bubble.style.left).toBe("100px");
+    left = 200;
+    frame();
+    expect(bubble.style.left).toBe("200px");
+    view.unmount();
+    expect(cancel).toHaveBeenCalledWith(1);
+  } finally {
+    request.mockRestore();
+    cancel.mockRestore();
+  }
+});

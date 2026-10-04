@@ -2,6 +2,7 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { message } from "../../../../src/renderer/preflight/preflight-evaluator";
+import { RepositoriesStep } from "../../../../src/renderer/preflight/repositories-step";
 import { Preflight } from "../../../../src/renderer/preflight/preflight-view";
 import type { SetupSource } from "../../../../src/renderer/preflight/setup-source.d";
 import type {
@@ -22,6 +23,10 @@ import type {
 import type { AgentReport } from "../../../../src/shared/workspace";
 import type { Repository } from "../../../../src/shared/worktrees";
 import { installation, report, setupState } from "../../../fixtures/setup";
+
+vi.mock("../../../../src/renderer/preflight/scale-preflight", () => ({ scalePreflight: vi.fn() }));
+
+vi.mock("../../../../src/renderer/preflight/center-step", () => ({ centerStep: vi.fn() }));
 
 const all = report(installation("claude"), installation("codex"), installation("agy"));
 const passed: ProbeResult = {
@@ -808,4 +813,21 @@ test("Settings rolls back refused repository changes and prevents leaving during
   expect(screen.getByRole("checkbox", { name: /app/ })).toHaveProperty("checked", false);
   fireEvent.click(button("Back to terminal · Esc"));
   expect(close).toHaveBeenCalledOnce();
+});
+
+test("repository controls explain immediate selection when used outside guided setup", async () => {
+  render(
+    <RepositoriesStep
+      headingRef={{ current: null }}
+      source={fake(setupState())}
+      code={undefined}
+      repositories={[]}
+      codeScanning={undefined}
+      scanCode={vi.fn()}
+      setCode={vi.fn()}
+      immediate
+    />,
+  );
+  expect(screen.getByText(/Changes to the selection apply immediately/)).toBeTruthy();
+  await screen.findByRole("button", { name: "Choose folder…" });
 });

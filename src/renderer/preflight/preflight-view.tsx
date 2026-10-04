@@ -1,11 +1,13 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { SetupState } from "../../shared/setup";
 import type { AgentReport } from "../../shared/workspace";
 import type { Repository } from "../../shared/worktrees";
 import { AppearanceControls } from "./appearance-controls";
+import { centerStep } from "./center-step";
+import { scalePreflight } from "./scale-preflight";
 import { LaunchSequence } from "./launch-sequence";
 import { EvaluatorStep, message } from "./preflight-evaluator";
-import { STEPS } from "./preflight";
+import { STEPS, readyAgents, pollRows } from "./preflight";
 import { defaultSelection, pending } from "./repository-picker";
 import { Wordmark } from "../ui/wordmark";
 import { WelcomeStep } from "./welcome-step";
@@ -56,6 +58,23 @@ export function Preflight({
   const [applying, setApplying] = useState(false);
   const [launching, setLaunching] = useState(false);
   const headingRef = useRef<HTMLHeadingElement>(null);
+  const stageRef = useRef<HTMLDivElement>(null);
+  const innerRef = useRef<HTMLDivElement>(null);
+  const viewportRef = useRef<HTMLElement>(null);
+  const contentRef = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const viewport = viewportRef.current;
+    const content = contentRef.current;
+    const stage = stageRef.current;
+    const inner = innerRef.current;
+    if (viewport && content && stage && inner)
+      return scalePreflight(viewport, content, stage, inner);
+  }, [settingsMode]);
+  useEffect(() => {
+    const stage = stageRef.current;
+    const inner = innerRef.current;
+    if (stage && inner) return centerStep(stage, inner);
+  }, [step]);
   useEffect(() => {
     if (!settingsMode) return;
     const escape = (event: KeyboardEvent) => {
@@ -249,7 +268,6 @@ export function Preflight({
         scanning={scanning}
         scan={scan}
         save={save}
-        nav={nav}
       />
     );
   } else if (step === 2) {
@@ -262,7 +280,6 @@ export function Preflight({
         codeScanning={codeScanning}
         scanCode={scanCode}
         setCode={selectRepositories}
-        nav={nav}
       />
     );
   } else if (step === 3) {
@@ -272,7 +289,6 @@ export function Preflight({
         state={state}
         repositories={repositories}
         save={save}
-        nav={nav}
       />
     );
   } else if (step === 4) {
@@ -287,7 +303,6 @@ export function Preflight({
           question in plain prose, Foom can ask a model. Pick where that model runs.
         </p>
         <EvaluatorStep state={state} source={source} onState={setState} />
-        {nav(3, "You can change this any time from Preflight", 5)}
       </>
     );
   } else if (step === 6) {
@@ -356,10 +371,54 @@ export function Preflight({
         report={report}
         repositories={repositories}
         go={go}
-        launch={launch}
       />
     );
   }
+
+  const ready = readyAgents(report, state).length;
+  const selected = code
+    ? code.scan.repositories.filter((repo) => code.selected.has(repo.path)).length
+    : repositories.length;
+  const navigation =
+    step === 1 ? (
+      nav(
+        0,
+        ready
+          ? `${String(ready)} ${ready === 1 ? "agent" : "agents"} ready`
+          : "No agents ready yet · needed to launch",
+        2,
+      )
+    ) : step === 2 ? (
+      nav(
+        1,
+        selected
+          ? `${String(selected)} ${selected === 1 ? "repository" : "repositories"} selected`
+          : "None selected yet · needed to launch",
+        3,
+      )
+    ) : step === 3 || step === 4 ? (
+      nav(step - 1, "You can change this any time from Preflight", step + 1)
+    ) : step === 5 ? (
+      <div className="preflight-nav">
+        <button
+          type="button"
+          onClick={() => {
+            go(4);
+          }}
+        >
+          Back
+        </button>
+        <span />
+        <button
+          type="button"
+          className="primary"
+          disabled={!pollRows(state, report, repositories).every((row) => row.go)}
+          onClick={() => void launch()}
+        >
+          Launch
+        </button>
+      </div>
+    ) : null;
 
   if (settingsMode)
     return (
@@ -420,6 +479,7 @@ export function Preflight({
             <li key={entry.label}>
               <button
                 type="button"
+                aria-label={`${entry.t} ${entry.label}`}
                 aria-current={index === step ? "step" : undefined}
                 data-done={index < reached && index !== step}
                 disabled={index > reached}
@@ -445,14 +505,19 @@ export function Preflight({
           )}
         </div>
       </nav>
-      <main className="preflight-stage" aria-label="Preflight">
-        <div className="preflight-inner">
-          {content}
-          {error && (
-            <p className="preflight-error" role="alert">
-              {error}
-            </p>
-          )}
+      <main className="preflight-viewport" aria-label="Preflight" ref={viewportRef}>
+        <div className="preflight-content" ref={contentRef}>
+          <div className="preflight-stage" ref={stageRef}>
+            <div className="preflight-inner" ref={innerRef}>
+              {content}
+              {error && (
+                <p className="preflight-error" role="alert">
+                  {error}
+                </p>
+              )}
+            </div>
+          </div>
+          {navigation && <footer className="preflight-footer">{navigation}</footer>}
         </div>
       </main>
       {launching && (

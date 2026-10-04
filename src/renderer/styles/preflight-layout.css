@@ -1,5 +1,6 @@
 /* Wider preflight: use the window, keep lines readable. */
 .preflight-inner {
+  container-type: inline-size;
   max-width: 1040px;
 }
 .preflight-intro,
@@ -8,7 +9,7 @@
   max-width: 72ch;
 }
 .agent-grid {
-  grid-template-columns: repeat(auto-fill, minmax(290px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 290px), 1fr));
   align-items: stretch;
 }
 .agent-grid .preflight-item {
@@ -16,7 +17,7 @@
 }
 .preflight-split {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr));
   gap: 12px;
 }
 .preflight-split .preflight-option {
@@ -27,6 +28,17 @@
   gap: 24px;
 }
 @media (min-width: 1180px) {
+  .settings-view .evaluator-layout[data-split="true"] {
+    grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr);
+    align-items: start;
+  }
+  .settings-view .evaluator-layout[data-split="true"] .preflight-test {
+    position: sticky;
+    top: 0;
+    margin-top: 0;
+  }
+}
+@container (min-width: 940px) {
   .evaluator-layout[data-split="true"] {
     grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr);
     align-items: start;
@@ -36,4 +48,13 @@
     top: 0;
     margin-top: 0;
   }
+}
+.preflight-inner input:not([type="checkbox"], [type="radio"]),
+.preflight-inner select {
+  min-width: 0;
+  max-width: 100%;
+}
+.preflight-nav .preflight-why {
+  text-align: center;
+  overflow-wrap: anywhere;
 }
