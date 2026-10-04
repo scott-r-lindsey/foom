@@ -1,0 +1,257 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Foom Confirmations</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo+Black&family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&display=swap">
+<style>
+/* Confirming without dialogs: click again in the ⋯ menu for actions with nothing to review,
+   and one trusted dialog window for decisions with content. Colors are the brand tokens. */
+:root {
+  --bg: #f3f0fa; --surface: #e9e4f5; --line: #ddd6ee; --ink: #14101f; --muted: #625a7a;
+  --accent: #5b2bd9; --accent-deep: #3b1a99; --attention: #d98200; --done: #13804a; --failed: #d6166e;
+  --idle: #b9b0d3; --select: #d6cfe9; --badge: #4a4263; --badge-ink: #f4efff; --halo: rgba(217, 130, 0, .25);
+  --raised-top: #f7f4fd; --raised-bottom: #ece7f7; --raised-line: #cfc6e6; --raised-hover: #e2dbf3;
+  --shadow: rgba(40, 20, 90, .28); --scrim: rgba(20, 16, 31, .28); --solid: #14101f; --solid-ink: #f4efff;
+  --display: "Archivo Black", sans-serif; --sans: "Geist", system-ui, sans-serif; --mono: "Geist Mono", ui-monospace, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #05040a; --surface: #0d0a17; --line: #251d3f; --ink: #f4efff; --muted: #9d93bd;
+    --accent: #9b6bff; --accent-deep: #7a3cff; --attention: #ffb23e; --done: #6fe0a3; --failed: #ff2e88;
+    --idle: #4a4263; --select: #1c1632; --badge: #3a3060; --badge-ink: #f4efff; --halo: rgba(255, 178, 62, .22);
+    --raised-top: #1b1629; --raised-bottom: #110e1b; --raised-line: #3a3060; --raised-hover: #221b3a;
+    --shadow: rgba(0, 0, 0, .85); --scrim: rgba(0, 0, 0, .55); --solid: #f4efff; --solid-ink: #14101f;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #05040a; --surface: #0d0a17; --line: #251d3f; --ink: #f4efff; --muted: #9d93bd;
+  --accent: #9b6bff; --accent-deep: #7a3cff; --attention: #ffb23e; --done: #6fe0a3; --failed: #ff2e88;
+  --idle: #4a4263; --select: #1c1632; --badge: #3a3060; --badge-ink: #f4efff; --halo: rgba(255, 178, 62, .22);
+  --raised-top: #1b1629; --raised-bottom: #110e1b; --raised-line: #3a3060; --raised-hover: #221b3a;
+  --shadow: rgba(0, 0, 0, .85); --scrim: rgba(0, 0, 0, .55); --solid: #f4efff; --solid-ink: #14101f;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; }
+body { background: var(--bg); color: var(--ink); font: 13px/1.4 var(--sans); }
+button { font: inherit; color: inherit; cursor: pointer; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.app { position: relative; display: flex; height: 100vh; min-width: 960px; overflow: hidden; }
+
+/* A slice of the sidebar (see sidebar.html) */
+.side { position: relative; z-index: 2; width: 300px; flex-shrink: 0; background: var(--surface); border-right: 1px solid var(--line); padding: 16px 6px; }
+.side b.brand { display: block; padding: 0 8px 14px; font: 22px var(--display); font-weight: 400; color: var(--accent); }
+.row { position: relative; display: flex; align-items: center; gap: 6px; height: 30px; padding: 0 4px 0 8px; border-radius: 6px; }
+.row.wt { padding-left: 24px; font: 12.5px var(--mono); height: 28px; }
+.row.term { align-items: flex-start; height: auto; padding: 6px 4px 6px 40px; }
+.row.sel { background: var(--select); }
+.row .name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.repo .name { font-weight: 600; }
+.lines { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.top { display: flex; align-items: center; gap: 6px; font: 12px var(--mono); }
+.reason { font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.light { flex-shrink: 0; width: 9px; height: 9px; margin-top: 4px; border-radius: 50%; background: var(--idle); }
+.light.working { background: var(--accent); box-shadow: 0 0 8px var(--accent); }
+.light.needs { background: var(--attention); box-shadow: 0 0 0 4px var(--halo); }
+.badge { flex-shrink: 0; width: 20px; height: 15px; display: inline-flex; align-items: center; justify-content: center; border-radius: 4px; background: var(--badge); color: var(--badge-ink); font: 600 9px var(--mono); }
+.act { flex-shrink: 0; width: 24px; height: 24px; padding: 0; display: grid; place-items: center; background: transparent; border: 1px solid var(--line); border-radius: 5px; color: var(--muted); }
+.act[aria-expanded="true"] { background: var(--select); border-color: var(--accent); color: var(--ink); }
+.term .act { margin-top: 0; }
+
+/* The ⋯ menu (see sidebar.html), plus the armed state */
+.menu { position: absolute; z-index: 30; width: 256px; padding: 6px; background: linear-gradient(180deg, var(--raised-top), var(--raised-bottom)); border: 1px solid var(--raised-line); border-radius: 10px; box-shadow: 0 22px 48px -12px var(--shadow), 0 8px 16px -8px var(--shadow), 0 0 28px -8px color-mix(in srgb, var(--accent) 40%, transparent); animation: menu-in 160ms cubic-bezier(.2, .8, .2, 1) both; }
+.menu::before { content: ""; position: absolute; left: -6px; top: 12px; width: 10px; height: 10px; background: var(--raised-top); border-left: 1px solid var(--raised-line); border-bottom: 1px solid var(--raised-line); transform: rotate(45deg); }
+.menu hr { height: 1px; margin: 6px; border: 0; background: var(--line); }
+.item { position: relative; white-space: nowrap; display: flex; align-items: center; gap: 10px; width: 100%; height: 32px; padding: 0 10px; overflow: hidden; background: transparent; border: 0; border-radius: 6px; text-align: left; transition: background-color 120ms ease; }
+.item::before { content: ""; position: absolute; left: 0; top: 8px; bottom: 8px; width: 2px; border-radius: 2px; background: var(--accent); transform: scaleY(0); transition: transform 160ms cubic-bezier(.2, .8, .2, 1); }
+.item:hover, .item:focus-visible { background: var(--raised-hover); outline: none; }
+.item:hover::before, .item:focus-visible::before { transform: scaleY(1); }
+.item .badge { width: 22px; height: 17px; }
+.item .label { transition: transform 160ms cubic-bezier(.2, .8, .2, 1); }
+.item:hover .label { transform: translateX(3px); }
+/* Armed: the label becomes the consequence, in solid ink, and a hairline drains while it waits.
+   Not magenta (failures only) and not amber (needs you only). */
+.item[data-armed] { background: var(--solid); color: var(--solid-ink); }
+.item[data-armed]::before { display: none; }
+.item[data-armed] .label { font-weight: 600; transform: none; animation: swap 140ms ease both; }
+.item[data-armed]::after { content: ""; position: absolute; left: 10px; right: 10px; bottom: 4px; height: 1px; background: currentColor; opacity: .5; transform-origin: left; animation: drain 3s linear forwards; }
+@keyframes drain { to { transform: scaleX(0); } }
+@keyframes swap { from { opacity: 0; transform: translateY(4px); } }
+@keyframes menu-in { from { opacity: 0; transform: translateX(-8px) scale(.96); } }
+
+/* The pane behind */
+.pane { flex: 1; display: flex; flex-direction: column; background: #05040a; }
+.crumbs { height: 44px; display: flex; align-items: center; padding: 0 18px; border-bottom: 1px solid var(--line); background: var(--surface); font: 13px var(--mono); color: var(--muted); }
+.crumbs b { font-weight: 400; color: var(--ink); }
+.terminal { flex: 1; padding: 16px 20px; color: #f4efff; font: 14px/1.5 "Hack Nerd Font Mono", "Geist Mono", monospace; white-space: pre; }
+
+/* The trusted dialog window: a separate frameless window, modal to Foom, drawn here over a scrim. */
+.scrim { position: absolute; inset: 0; z-index: 40; display: grid; place-items: center; background: var(--scrim); animation: fade 160ms ease both; }
+.scrim[hidden] { display: none; }
+.window { width: 440px; max-height: 70vh; display: flex; flex-direction: column; background: linear-gradient(180deg, var(--raised-top), var(--raised-bottom)); border: 1px solid var(--raised-line); border-radius: 12px; box-shadow: 0 30px 70px -20px var(--shadow), 0 0 40px -12px color-mix(in srgb, var(--accent) 40%, transparent); animation: rise 200ms cubic-bezier(.2, .8, .2, 1) both; }
+.window h2 { margin: 0; padding: 20px 22px 6px; font: 600 16px var(--sans); }
+.window .body { padding: 6px 22px 4px; overflow: auto; }
+.window .actions { display: flex; justify-content: flex-end; gap: 8px; padding: 18px 22px 20px; }
+.window .actions button { height: 34px; padding: 0 14px; border-radius: 7px; border: 1px solid var(--line); background: transparent; }
+.window .actions .commit { background: var(--solid); border-color: var(--solid); color: var(--solid-ink); font-weight: 600; }
+.changes { margin: 0; padding: 10px 12px; list-style: none; background: var(--bg); border: 1px solid var(--line); border-radius: 8px; font: 12px/1.7 var(--mono); }
+.changes span { display: inline-block; width: 26px; color: var(--muted); }
+.running { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 2px; }
+.running li { display: flex; align-items: center; gap: 8px; height: 26px; font: 12px var(--mono); }
+.running .light { margin-top: 0; width: 8px; height: 8px; }
+.running .where { margin-left: auto; color: var(--muted); }
+@keyframes fade { from { opacity: 0; } }
+@keyframes rise { from { opacity: 0; transform: translateY(10px) scale(.98); } }
+
+.toast { position: absolute; left: 316px; bottom: 16px; z-index: 50; padding: 8px 12px; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; font-size: 12px; color: var(--muted); animation: fade 160ms ease both; }
+.mock { position: fixed; right: 12px; bottom: 12px; z-index: 60; display: flex; gap: 6px; }
+.mock button { padding: 6px 10px; background: var(--bg); border: 1px dashed var(--line); border-radius: 6px; color: var(--muted); font-size: 12px; }
+@media (prefers-reduced-motion: reduce) {
+  .menu, .scrim, .window, .item[data-armed] .label { animation: none; }
+  .item[data-armed]::after { animation: none; }
+}
+</style>
+</head>
+<body>
+<div class="app" id="app">
+  <nav class="side" id="side" aria-label="Repositories">
+    <b class="brand">foom</b>
+    <div class="row repo" data-row="repo"><span class="name">eclipse-site</span><button type="button" class="act" data-menu="repo" aria-haspopup="menu" aria-label="Actions for eclipse-site">⋯</button></div>
+    <div class="row wt" data-row="wt-main"><span class="name">main</span><button type="button" class="act" data-menu="main" aria-haspopup="menu" aria-label="Actions for main">⋯</button></div>
+    <div class="row term">
+      <span class="light working" aria-label="Working"></span>
+      <span class="lines"><span class="top"><span class="badge" aria-hidden="true">CC</span>Claude Code</span><span class="reason">Editing hero copy · hook</span></span>
+      <button type="button" class="act" data-menu="session" aria-haspopup="menu" aria-label="Actions for Claude Code in main">⋯</button>
+    </div>
+    <div class="row wt" data-row="wt-clean"><span class="name">chore/deps</span><button type="button" class="act" data-menu="clean" aria-haspopup="menu" aria-label="Actions for chore/deps">⋯</button></div>
+    <div class="row wt sel" data-row="wt-dirty"><span class="name">feat/hero-copy</span><button type="button" class="act" data-menu="dirty" aria-haspopup="menu" aria-label="Actions for feat/hero-copy">⋯</button></div>
+    <div id="menu-slot"></div>
+  </nav>
+  <main class="pane">
+    <div class="crumbs">eclipse-site › <b>&nbsp;main</b></div>
+    <div class="terminal">● Updating the hero headline and subcopy.
+  ⎿ Edited src/pages/index.astro</div>
+  </main>
+  <div class="scrim" id="scrim" hidden><div class="window" role="alertdialog" aria-modal="true" aria-labelledby="dlg-title" id="dialog"></div></div>
+  <div id="toast-slot"></div>
+</div>
+<div class="mock">
+  <button type="button" id="quit">Mockup: quit with running terminals</button>
+  <button type="button" id="mode">Mockup: light / dark</button>
+</div>
+<script>
+/* Menu contents. `confirm` turns an item into click-again; `dialog` hands it to the trusted window. */
+const BADGES = [["CC", "Claude Code"], ["CX", "Codex"], ["AG", "Antigravity"], [">_", "Shell (zsh)"]];
+const launchers = (secondAgent) => BADGES.map(([badge, label]) => ({ badge, label,
+  confirm: secondAgent && badge !== ">_" ? "Click again for two agents here" : null,
+  done: "Started " + label }));
+const MENUS = {
+  repo: [{ label: "New worktree…" }, null, ...launchers(false), null, { label: "Unpin" },
+    { label: "Remove repository…", confirm: "Click again to remove", done: "Removed eclipse-site · checkout kept" }],
+  main: [...launchers(true)],
+  session: [{ label: "Stop Claude Code", confirm: "Click again to stop", done: "Stopped Claude Code" }],
+  clean: [...launchers(false), null, { label: "Remove worktree…", confirm: "Click again to remove", done: "Removed chore/deps" }],
+  dirty: [...launchers(false), null, { label: "Remove worktree…", dialog: "dirty" }],
+};
+
+let open = "";
+let armed = null;
+let timer = 0;
+const slot = document.getElementById("menu-slot");
+
+function disarm() {
+  clearTimeout(timer);
+  if (!armed) return;
+  const el = slot.querySelector("[data-armed]");
+  if (el) { el.removeAttribute("data-armed"); el.querySelector(".label").textContent = armed.label; }
+  armed = null;
+}
+function close() { disarm(); open = ""; slot.innerHTML = ""; document.querySelectorAll(".act[aria-expanded]").forEach((b) => b.removeAttribute("aria-expanded")); }
+function toast(text) {
+  const t = document.getElementById("toast-slot");
+  t.innerHTML = `<div class="toast" role="status">${text}</div>`;
+  setTimeout(() => { t.innerHTML = ""; }, 2400);
+}
+
+function openMenu(button) {
+  const id = button.dataset.menu;
+  close();
+  open = id;
+  button.setAttribute("aria-expanded", "true");
+  const side = document.getElementById("side").getBoundingClientRect();
+  const b = button.getBoundingClientRect();
+  const items = MENUS[id].map((m, i) => (m ? `<button type="button" role="menuitem" class="item" data-i="${i}">${m.badge ? `<span class="badge" aria-hidden="true">${m.badge}</span>` : ""}<span class="label">${m.label}</span></button>` : "<hr>")).join("");
+  slot.innerHTML = `<div class="menu" role="menu" style="left:${b.right - side.left + 10}px;top:${b.top - side.top - 7}px">${items}</div>`;
+  const menu = slot.firstElementChild;
+  menu.addEventListener("pointerleave", disarm);
+  menu.querySelector(".item").focus();
+}
+
+function pick(el) {
+  const m = MENUS[open][Number(el.dataset.i)];
+  if (m.dialog) { close(); return showDialog(m.dialog); }
+  if (m.confirm && armed !== m) {
+    // First click arms. Main would record the arm and accept the second click only
+    // after a short gap, so a double-click never confirms.
+    disarm();
+    armed = m;
+    el.setAttribute("data-armed", "");
+    el.querySelector(".label").textContent = m.confirm;
+    timer = setTimeout(disarm, 3000);
+    return;
+  }
+  close();
+  if (m.done) toast(m.done);
+}
+
+function showDialog(kind) {
+  const d = document.getElementById("dialog");
+  if (kind === "dirty")
+    d.innerHTML = `<h2 id="dlg-title">Remove feat/hero-copy?</h2>
+      <div class="body"><ul class="changes" aria-label="Uncommitted changes">
+        <li><span>M</span>src/pages/index.astro</li><li><span>M</span>src/styles/hero.css</li><li><span>??</span>notes/copy-ideas.md</li></ul></div>
+      <div class="actions"><button type="button" data-close autofocus>Cancel</button><button type="button" class="commit" data-done="Removed feat/hero-copy">Discard 3 changes and remove</button></div>`;
+  else
+    d.innerHTML = `<h2 id="dlg-title">Quit with 3 terminals running?</h2>
+      <div class="body"><ul class="running">
+        <li><span class="light working"></span>Claude Code<span class="where">eclipse-site › main</span></li>
+        <li><span class="light needs"></span>Codex<span class="where">payments › fix/refund-rounding</span></li>
+        <li><span class="light"></span>zsh<span class="where">foom › main</span></li></ul></div>
+      <div class="actions"><button type="button" data-close autofocus>Cancel</button><button type="button" class="commit" data-done="Quit">Stop all and quit</button></div>`;
+  document.getElementById("scrim").hidden = false;
+  d.querySelector("[autofocus]").focus();
+}
+function hideDialog() { document.getElementById("scrim").hidden = true; }
+
+document.getElementById("side").addEventListener("click", (event) => {
+  event.stopPropagation();
+  const act = event.target.closest(".act");
+  if (act) return open === act.dataset.menu ? close() : openMenu(act);
+  const item = event.target.closest(".item");
+  if (item) pick(item);
+});
+document.getElementById("scrim").addEventListener("click", (event) => {
+  const done = event.target.closest("[data-done]");
+  if (done) { hideDialog(); toast(done.dataset.done); return; }
+  if (event.target.closest("[data-close]") || event.target.id === "scrim") hideDialog();
+});
+document.addEventListener("click", () => { if (open) close(); });
+document.addEventListener("keydown", (event) => {
+  if (event.key !== "Escape") return;
+  if (!document.getElementById("scrim").hidden) hideDialog();
+  else if (armed) disarm();
+  else close();
+});
+document.getElementById("quit").addEventListener("click", (event) => { event.stopPropagation(); close(); showDialog("quit"); });
+document.getElementById("mode").addEventListener("click", () => {
+  const dark = document.documentElement.dataset.theme
+    ? document.documentElement.dataset.theme === "dark"
+    : matchMedia("(prefers-color-scheme: dark)").matches;
+  document.documentElement.dataset.theme = dark ? "light" : "dark";
+});
+</script>
+</body>
+</html>
