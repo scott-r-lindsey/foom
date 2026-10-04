@@ -149,7 +149,7 @@ function button(name: string | RegExp) {
 beforeEach(() => {
   Object.defineProperty(window, "matchMedia", {
     configurable: true,
-    value: () => ({ matches: true }),
+    value: () => ({ matches: true, addEventListener: vi.fn(), removeEventListener: vi.fn() }),
   });
 });
 afterEach(() => {

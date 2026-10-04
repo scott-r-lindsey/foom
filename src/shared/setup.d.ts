@@ -1,3 +1,4 @@
+import type { TerminalThemeChoice } from "./terminal-theme";
 import type { AgentId } from "./agents";
 import type { Repository } from "./worktrees";
 import type {
@@ -30,6 +31,7 @@ export interface Settings {
   interfaceScale: number;
   /** Terminal text size in CSS pixels, 10–32 in whole pixels. */
   terminalFontSize: number;
+  terminalTheme: TerminalThemeChoice;
   /** Where the user keeps their code; preflight scans it for repositories. */
   codeFolder: string | null;
 }

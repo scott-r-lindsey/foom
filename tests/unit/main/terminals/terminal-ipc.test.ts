@@ -925,3 +925,22 @@ test("stopping waits for native exit and retains an owned readable terminal", as
   await terminalControl.stop(id);
   expect(pty(index).kill).toHaveBeenCalledOnce();
 });
+
+test("a detached host answers foreground, background and palette queries with the chosen theme", async () => {
+  const { terminalThemes } = await import("../../../../src/shared/terminal-themes");
+  const id = manager.create(spec, "theme-test", terminalThemes.dracula);
+  output("\x1b]10;?\x07\x1b]11;?\x07\x1b]4;1;?\x07");
+  await manager.tail(id, 1);
+  expect(pty().write.mock.calls.slice(-3)).toEqual([
+    ["\x1b]10;rgb:f8f8/f8f8/f2f2\x1b\\"],
+    ["\x1b]11;rgb:2828/2a2a/3636\x1b\\"],
+    ["\x1b]4;1;rgb:ffff/5555/5555\x1b\\"],
+  ]);
+  manager.setTheme(id, terminalThemes["solarized-light"]);
+  output("\x1b]11;?\x07");
+  await manager.tail(id, 1);
+  expect(pty().write).toHaveBeenLastCalledWith("\x1b]11;rgb:fdfd/f6f6/e3e3\x1b\\");
+  const data = vi.fn();
+  await manager.attach(id, data);
+  expect(data.mock.calls[0]?.[1]).toContain("#657b83;#fdf6e3;#586e75");
+});

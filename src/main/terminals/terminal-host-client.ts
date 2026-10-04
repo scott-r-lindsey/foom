@@ -1,3 +1,5 @@
+import type { TerminalThemeChoice } from "../../shared/terminal-theme";
+import { parseTerminalThemeChoice, resolveTerminalTheme } from "../../shared/terminal-themes";
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 import { utilityProcess, nativeTheme } from "electron";
@@ -35,9 +37,21 @@ export class TerminalHostClient {
   private stopping: Promise<void> | undefined;
   private closing: Promise<void> | undefined;
 
+  private themeChoice: TerminalThemeChoice = "follow";
+  private themeKey = "";
+
+  setTheme(choice: TerminalThemeChoice): void {
+    this.themeChoice = parseTerminalThemeChoice(choice);
+    this.updateTheme();
+  }
+
   private readonly updateTheme = () => {
+    const theme = resolveTerminalTheme(this.themeChoice, nativeTheme.shouldUseDarkColors);
+    const key = JSON.stringify(theme);
+    if (this.themeKey === key) return;
+    this.themeKey = key;
     for (const id of this.sessions.keys())
-      this.notify({ type: "theme", id, dark: nativeTheme.shouldUseDarkColors });
+      this.notify({ type: "theme", id, dark: nativeTheme.shouldUseDarkColors, theme });
   };
 
   constructor(
@@ -133,7 +147,13 @@ export class TerminalHostClient {
     const id = randomUUID();
     this.sessions.set(id, { alive: true, available: true });
     try {
-      await this.request({ type: "create", id, spec, dark: nativeTheme.shouldUseDarkColors });
+      await this.request({
+        type: "create",
+        id,
+        spec,
+        dark: nativeTheme.shouldUseDarkColors,
+        theme: resolveTerminalTheme(this.themeChoice, nativeTheme.shouldUseDarkColors),
+      });
     } catch (error) {
       this.sessions.delete(id);
       throw error;

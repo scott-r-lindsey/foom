@@ -1,3 +1,4 @@
+import { isTerminalTheme } from "./terminal-themes.js";
 import type { HostRequest, HostResponse } from "./terminal-host";
 
 function record(value: unknown): value is Record<string, unknown> {
@@ -14,6 +15,7 @@ function integer(value: unknown, min: number, max: number): value is number {
 export function hostRequest(value: unknown): value is HostRequest {
   if (
     !record(value) ||
+    (value["theme"] !== undefined && !isTerminalTheme(value["theme"])) ||
     !text(value["id"]) ||
     !integer(value["request"], 1, Number.MAX_SAFE_INTEGER)
   )

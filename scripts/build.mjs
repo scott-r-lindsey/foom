@@ -62,14 +62,14 @@ await cp(
 
 // Keep complete font licenses and glyph attributions in a single packaged notice,
 // as well as beside the font assets. No network or font conversion at build time.
-const fontNotices = [];
+const fontNotices = ["src/shared/terminal-theme-LICENSE.txt"];
 for await (const name of glob("src/renderer/fonts/*.txt", { cwd: root })) {
   fontNotices.push(name);
 }
 fontNotices.sort();
 await writeFile(
   join(root, "build/THIRD_PARTY_NOTICES.txt"),
-  "Foom bundled font licenses and attributions\n\n" +
+  "Foom bundled font and terminal palette licenses and attributions\n\n" +
     (
       await Promise.all(
         fontNotices.map(async (name) => `${name}\n\n${await readFile(join(root, name), "utf8")}`),

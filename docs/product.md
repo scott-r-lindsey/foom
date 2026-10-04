@@ -135,8 +135,10 @@ Appearance shares the preflight rail's System/Light/Dark and interface-size cont
 Changing either view is reflected in the other without restarting.
 
 Terminal font size applies to every terminal view: 10–32 pixels, 14 by default,
-independent of interface size. The Terminal section previews the text size. Additional
-terminal options, Themes, and Sound are placeholders for later work.
+independent of interface size. The Terminal section previews text size, all 16 ANSI colors, bold, dim and selection.
+Terminal colors default to Follow interface, with Foom Light/Dark, Solarized Light/Dark
+and Dracula built in. Changes apply live to visible and detached terminals and board peek.
+Interface Themes and Sound remain placeholders for later work.
 
 ## Quitting
 

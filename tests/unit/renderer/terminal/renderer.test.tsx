@@ -245,7 +245,7 @@ test("ignores other sessions and preserves the ID in delayed draw acknowledgemen
   expect(document.querySelector("#status")?.textContent).toBe("bash — /project");
 });
 
-test("derives terminal colors from CSS and follows system theme changes", async () => {
+test("follows the interface palette and system theme changes", async () => {
   await settle(() => {
     render(<Shell />);
   });
@@ -919,4 +919,21 @@ test("selection recovers from a removed terminal whose detach capability was rev
   mock.onInput.mock.calls[0]?.[0]("hello");
   expect(mock.input).toHaveBeenCalledWith("remaining", "hello");
   controller.dispose();
+});
+
+test("live terminal themes also color peek and fixed palettes ignore interface changes", async () => {
+  mock.setupState.mockResolvedValueOnce(setupState({ terminalTheme: "dracula" }));
+  const controller = createShell(document.createElement("div"), vi.fn());
+  await vi.waitFor(() => {
+    expect(mock.options.theme?.background).toBe("#282a36");
+  });
+  expect(document.documentElement.style.getPropertyValue("--terminal-background")).toBe("#282a36");
+  mock.dark = !mock.dark;
+  mock.change.mock.calls[0]?.[1]();
+  expect(mock.options.theme?.background).toBe("#282a36");
+  mock.onSetupChange.mock.calls[0]?.[0](setupState({ terminalTheme: "solarized-light" }));
+  expect(mock.options.theme?.background).toBe("#fdf6e3");
+  controller.dispose();
+  mock.onSetupChange.mock.calls[0]?.[0](setupState({ terminalTheme: "follow" }));
+  expect(mock.options.theme?.background).toBe("#fdf6e3");
 });

@@ -1,10 +1,11 @@
+import type { TerminalTheme } from "./terminal-theme";
 import type { TerminalActivity, TerminalSpec } from "./desktop";
 
 type RequestBase = { request: number; id: string };
 export type HostRequest = RequestBase &
   (
-    | { type: "create"; spec: TerminalSpec; dark?: boolean }
-    | { type: "theme"; dark: boolean }
+    | { type: "create"; spec: TerminalSpec; dark?: boolean; theme?: TerminalTheme }
+    | { type: "theme"; dark: boolean; theme?: TerminalTheme }
     | { type: "attach"; view: string }
     | { type: "detach" | "kill" | "stop" | "shutdown" }
     | { type: "write"; data: string }

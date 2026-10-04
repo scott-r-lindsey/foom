@@ -10,3 +10,6 @@ build/THIRD_PARTY_NOTICES.txt and beside the fonts in build/renderer/fonts/.
 Hack Nerd Font Mono includes Hack (MIT), Bitstream Vera (reserved names
 "Bitstream" and "Vera"), and Nerd Fonts glyph sets, including Microsoft
 Codicons under CC BY 4.0. See those notices for authors, sources, and terms.
+
+Solarized and Dracula terminal palettes are MIT licensed. Complete licenses
+and source attributions are included in build/THIRD_PARTY_NOTICES.txt.

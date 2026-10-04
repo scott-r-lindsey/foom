@@ -15,7 +15,7 @@ export interface TerminalEvents {
 }
 
 export interface TerminalControl
-  extends Pick<TerminalHostClient, "runningCount" | "shutdown" | "stop"> {
+  extends Pick<TerminalHostClient, "runningCount" | "shutdown" | "stop" | "setTheme"> {
   /** Main-only launch: the window may use the new terminal like one it created. */
   create(spec: TerminalSpec): Promise<string>;
   kill(id: string): Promise<void>;
@@ -184,6 +184,9 @@ export function attachTerminal(
     async kill(id) {
       await manager.kill(id);
       owned.delete(id);
+    },
+    setTheme: (choice) => {
+      manager.setTheme(choice);
     },
     stop: (id) => manager.stop(id),
     tail: (id, lines) => manager.tail(id, lines),

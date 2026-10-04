@@ -108,3 +108,15 @@ test("validates every member of activity batches and quiet IDs", () => {
   ])
     expect(hostResponse({ type: "activity", entries })).toBe(false);
 });
+
+test("validates complete palettes at the utility-process boundary", async () => {
+  const { terminalThemes } = await import("../../../src/shared/terminal-themes");
+  for (const type of ["create", "theme"]) {
+    expect(hostRequest({ ...base, type, spec, dark: false, theme: terminalThemes.dracula })).toBe(
+      true,
+    );
+    for (const theme of [null, {}, "dracula", { ...terminalThemes.dracula, cursor: "red" }]) {
+      expect(hostRequest({ ...base, type, spec, dark: false, theme })).toBe(false);
+    }
+  }
+});
