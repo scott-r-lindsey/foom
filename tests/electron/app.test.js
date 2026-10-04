@@ -2389,6 +2389,57 @@ test("sidebar menus escape the scroll area, stay in the window and launch from a
   await expect(page.locator(".board-row").filter({ hasText: "feature/row-17" })).toBeVisible();
   const snapshot = await page.evaluate(() => window.desktop.workspace());
   assert.equal(snapshot.terminals[0].branch, "feature/row-17");
+  const launchedRow = page.locator(".board-row");
+  const filter = page.getByLabel("Filter repositories and sessions");
+  await filter.fill("row");
+  const label = page
+    .getByRole("button", { name: "feature/row-17", exact: true })
+    .locator(".tree-label");
+  await expect(label).toHaveText("feature/row-17");
+  await expect(label.locator("mark")).toHaveText("row");
+  // Highlight fragments flow as text within one label, without flex gaps.
+  await expect(label).toHaveCSS("display", "block");
+  await filter.fill("");
+  for (const colorScheme of ["light", "dark"]) {
+    await page.emulateMedia({ colorScheme, reducedMotion: "reduce" });
+    await launchedRow.focus();
+    const accent = await page.locator(".sidebar-shell").evaluate((element) => {
+      const probe = document.createElement("span");
+      probe.style.color = "var(--accent)";
+      element.append(probe);
+      const color = getComputedStyle(probe).color;
+      probe.remove();
+      return color;
+    });
+    await expect(launchedRow).toHaveCSS("outline-color", accent);
+    await expect(launchedRow).toHaveCSS("outline-style", "solid");
+    const peek = page.getByRole("complementary", { name: "Terminal peek" });
+    await expect(peek).toBeVisible();
+    const peekBox = await peek.boundingBox();
+    const sidebarBox = await page.locator(".sidebar-shell").boundingBox();
+    assert.ok(
+      peekBox && sidebarBox && peekBox.x >= sidebarBox.x + sidebarBox.width,
+      "peek stays in the terminal pane",
+    );
+    await launchedRow.press("Enter");
+    await page.getByRole("region", { name: "Terminal pane" }).focus();
+    await expect(launchedRow).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+    await expect(page.locator('.board-entry[data-selected="true"]')).not.toHaveCSS(
+      "background-color",
+      "rgba(0, 0, 0, 0)",
+    );
+    const rowBox = await launchedRow.boundingBox();
+    const headerBox = await page.locator(".sidebar-shell .board-top").boundingBox();
+    assert.ok(rowBox && rowBox.height <= 50, "session keeps two compact readable lines");
+    assert.ok(headerBox && headerBox.height <= 100, "header preserves tree space");
+    await expect(launchedRow.locator(".board-reason")).toHaveCSS("font-size", "12px");
+    await expect(launchedRow.locator(".board-reason")).toHaveCSS("white-space", "nowrap");
+    if (process.env.FOOM_SCREENSHOTS)
+      await page.screenshot({
+        path: path.join(tmpdir(), `foom-review-session-${colorScheme}.png`),
+      });
+  }
+
   await bottom.click();
   await page.locator(".board-list").evaluate((element) => {
     element.scrollTop = 0;
@@ -2412,13 +2463,24 @@ test("sidebar menus escape the scroll area, stay in the window and launch from a
   await assertAccessible(page);
   await app.evaluate(({ BrowserWindow }) => {
     const window = BrowserWindow.getAllWindows()[0];
-    window.setMinimumSize(0, 0);
-    window.setSize(680, 700);
+    // Use interface scaling: macOS can retain the native minimum window width.
+    window.setSize(960, 700);
+    window.webContents.setZoomFactor(1.5);
   });
   await expect.poll(() => page.evaluate(() => innerWidth)).toBeLessThan(720);
   await expect(page.getByRole("button", { name: "Actions for repo", exact: true })).toHaveCount(0);
   await expect(page.locator(".board-row")).toHaveCount(1);
   await page.getByRole("button", { name: "Actions for Build helper in feature/row-17" }).focus();
+  const compactAction = await page
+    .getByRole("button", { name: "Actions for Build helper in feature/row-17" })
+    .boundingBox();
+  const compactLight = await page.locator(".board-row .board-light").boundingBox();
+  assert.ok(
+    compactAction && compactLight && compactAction.x >= compactLight.x + compactLight.width + 4,
+    "compact action clears the light and its attention halo",
+  );
+  if (process.env.FOOM_SCREENSHOTS)
+    await page.screenshot({ path: path.join(tmpdir(), "foom-review-compact.png") });
   await page.keyboard.press("Enter");
   await expect(page.getByRole("menuitem", { name: "Stop shell" })).toBeFocused();
   await page.keyboard.press("Escape");

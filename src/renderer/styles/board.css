@@ -143,8 +143,9 @@
 }
 .board-peek {
   pointer-events: none;
-  position: fixed;
-  inset: auto 8vw 7vh;
+  position: absolute;
+  inset: auto 16px 16px;
+  z-index: 2;
   max-height: 35vh;
   overflow: auto;
   box-shadow: 0 8px 30px var(--hole);
@@ -194,6 +195,7 @@
   color: var(--muted);
 }
 .board-terminal {
+  position: relative;
   flex: 1;
   min-width: 0;
   display: flex;
@@ -354,17 +356,26 @@
   background: var(--surface);
 }
 .sidebar-shell .board-top {
-  display: block;
-  padding: 20px 16px 12px;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: baseline;
+  gap: 10px 8px;
+  padding: 16px 12px 10px;
   background: transparent;
+}
+.sidebar-shell .wordmark {
+  font-size: 22px;
 }
 .sidebar-shell .board-summary {
   font: 11px var(--font-mono);
-  margin: 12px 0;
+  margin: 0;
+  text-align: right;
 }
 .sidebar-filter {
+  grid-column: 1 / -1;
   display: flex;
   gap: 4px;
+  height: 32px;
 }
 .sidebar-filter input {
   width: 100%;
@@ -374,6 +385,8 @@
   flex: 1;
   padding: 4px 8px;
   overflow: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--line) transparent;
 }
 .sidebar-footer {
   display: flex;
@@ -388,7 +401,7 @@
 .tree-row {
   display: flex;
   align-items: center;
-  min-height: 34px;
+  min-height: 30px;
   position: relative;
   gap: 5px;
 }
@@ -404,18 +417,28 @@
   text-align: left;
   flex: 1;
   min-width: 0;
-  overflow-wrap: anywhere;
   font: 12px var(--font-mono);
 }
+.tree-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tree-name > svg {
+  flex-shrink: 0;
+  color: var(--muted);
+}
 .repository-row .tree-name {
-  font-weight: 650;
+  font: 600 13px var(--font-interface);
 }
 .worktree-row {
   padding-left: 14px;
+  min-height: 28px;
 }
 .tree-chevron {
   flex: 0 0 18px;
   color: var(--muted);
+  font-size: 11px;
 }
 .tree-separator {
   border: 0;
@@ -434,20 +457,26 @@
 }
 .sidebar-shell .board-row {
   display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 10px 6px;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 6px 4px;
   margin: 0;
   border: 0;
   border-radius: 4px;
   min-width: 0;
   flex: 1;
   cursor: pointer;
+  background: transparent;
+}
+.sidebar-shell .board-row:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
 }
 .sidebar-shell .board-row .board-light {
   flex: 0 0 8px;
   width: 8px;
   height: 8px;
+  margin-top: 5px;
 }
 .session-lines {
   flex: 1;
@@ -457,10 +486,14 @@
   display: flex;
   align-items: center;
   gap: 6px;
+  line-height: 18px;
 }
 .session-name {
   flex: 1;
-  overflow-wrap: anywhere;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .board-agent {
   display: inline-flex;
@@ -477,18 +510,17 @@
 }
 .sidebar-shell .board-reason {
   display: block;
-  font: 10px / 1.5 var(--font-mono);
-  margin-top: 4px;
+  font: 12px / 1.4 var(--font-interface);
+  margin-top: 2px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 [data-state="needs_input"] .board-reason {
   color: var(--attention-ink);
 }
 [data-state="failed"] .board-reason {
   color: var(--failed-ink);
-}
-[data-state="working"] .board-reason,
-[data-state="checking"] .board-reason {
-  color: var(--accent);
 }
 [data-state="done"] .board-reason {
   color: var(--done-ink);
@@ -562,7 +594,8 @@
 }
 .sidebar-shell mark {
   color: var(--ink);
-  background: color-mix(in srgb, var(--accent) 25%, transparent);
+  background: color-mix(in srgb, var(--accent) 35%, transparent);
+  border-radius: 2px;
 }
 .visually-hidden {
   position: absolute;
@@ -697,17 +730,18 @@
     display: none;
   }
   .sidebar-shell .board-list {
-    padding: 8px;
+    padding: 8px 2px;
   }
   .sidebar-shell .board-entry {
     margin-left: 0;
   }
   .sidebar-shell .board-row {
     justify-content: center;
-    padding: 14px;
+    align-items: center;
+    padding: 10px 4px;
   }
-  .sidebar-shell .row-actions {
-    display: none;
+  .sidebar-shell .board-row .board-light {
+    margin-top: 0;
   }
   .sidebar-footer {
     padding: 4px;
@@ -751,12 +785,6 @@
 }
 
 @media (max-width: 719px) {
-  .sidebar-shell .row-actions {
-    display: grid;
-    position: absolute;
-    right: -4px;
-    top: 0;
-  }
   .sidebar-shell .board-row .session-lines:has(.session-rename) {
     position: fixed;
     left: 64px;

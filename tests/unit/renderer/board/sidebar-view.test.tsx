@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { act, cleanup, fireEvent, render, within } from "@testing-library/react";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
+import { launcherActions } from "../../../../src/renderer/board/sidebar-view";
 import { Board } from "../../../../src/renderer/board/board-view";
 import { createSampleSource } from "../../../../src/renderer/board/sample-board-source";
 import { sampleRows } from "../../../../src/renderer/board/sample-rows";
@@ -286,4 +287,23 @@ test("restarting a renamed shell preserves its name and presents the replacement
   });
   expect(view.getByRole("region", { name: "Terminal pane" }).textContent).toContain("Tests");
   expect(view.getByRole("button", { name: "Actions for Tests in feature" })).toBeTruthy();
+});
+
+test("wait labels follow attention and unnamed shells have a plain launcher label", async () => {
+  const view = setup();
+  await act(async () => {
+    await Promise.resolve();
+  });
+  expect(view.container.querySelector(".board-wait")).not.toBeNull();
+  act(() => {
+    view.base.update("a", { state: "working" });
+  });
+  expect(view.container.querySelector(".board-wait")).toBeNull();
+  act(() => {
+    view.base.update("a", { state: "needs_input", waitingSince: Date.now() });
+  });
+  expect(view.container.querySelector(".board-wait")?.textContent).toBe("0s");
+  expect(launcherActions(undefined, undefined)).toEqual([
+    { label: "Shell", badge: ">_", run: "shell" },
+  ]);
 });

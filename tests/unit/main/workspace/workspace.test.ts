@@ -1043,3 +1043,171 @@ test("repository and empty worktree removal confirm and retain ownership restric
     workspace.sidebarCommand({ kind: "stop", id: "t1" }, () => Promise.resolve(true)),
   ).rejects.toThrow("closed");
 });
+
+const launchEntries = [
+  "sidebar-shell",
+  "sidebar-agent",
+  "agent-ipc",
+  "worktree-shell",
+  "worktree-agent",
+  "create-worktree",
+] as const;
+function startRepositoryOperation(
+  workspace: Workspace,
+  entry: (typeof launchEntries)[number],
+): Promise<unknown> {
+  if (entry === "agent-ipc")
+    return workspace.launch({
+      agent: "claude",
+      repository: repo.path,
+      worktree: tree.path,
+      cols: 80,
+      rows: 24,
+    });
+  if (entry === "create-worktree") return workspace.createWorktree(repo.path, "feature", "root");
+  if (entry === "worktree-shell" || entry === "worktree-agent")
+    return workspace.startWorktree({
+      repository: repo.path,
+      branch: "feature",
+      run: entry === "worktree-shell" ? "shell" : "claude",
+      acknowledgeCodexNotifierReplacement: false,
+    });
+  return workspace.sidebarCommand(
+    {
+      kind: "launch",
+      repository: repo.path,
+      worktree: repo.path,
+      run: entry === "sidebar-shell" ? "shell" : "claude",
+    },
+    () => Promise.resolve(true),
+  );
+}
+
+test.each(launchEntries)(
+  "repository removal blocks %s through confirmation and deregistration",
+  async (entry) => {
+    const workspace = new Workspace(deps);
+    const answer = Promise.withResolvers<boolean>();
+    const deleted = Promise.withResolvers<undefined>();
+    vi.mocked(deps.worktrees.removeRepository).mockReturnValue(deleted.promise);
+    const removing = workspace.sidebarCommand(
+      { kind: "remove-repository", repository: repo.path },
+      () => answer.promise,
+    );
+    await expect(startRepositoryOperation(workspace, entry)).rejects.toThrow(
+      "removal is in progress",
+    );
+    await expect(workspace.removeRepository(repo.path)).rejects.toThrow("busy");
+    answer.resolve(true);
+    await vi.waitFor(() => {
+      expect(vi.mocked(deps.worktrees.removeRepository)).toHaveBeenCalledOnce();
+    });
+    await expect(startRepositoryOperation(workspace, entry)).rejects.toThrow(
+      "removal is in progress",
+    );
+    expect(vi.spyOn(deps.terminals, "create")).not.toHaveBeenCalled();
+    expect(agents.launch).not.toHaveBeenCalled();
+    vi.mocked(deps.worktrees.listRepositories).mockReturnValue([]);
+    deleted.resolve(undefined);
+    await removing;
+    await expect(startRepositoryOperation(workspace, entry)).rejects.toThrow("not been added");
+    expect(workspace.snapshot().terminals).toEqual([]);
+  },
+);
+
+test.each(launchEntries)(
+  "an in-flight %s reserves its repository before the terminal exists",
+  async (entry) => {
+    const workspace = new Workspace(deps);
+    const listing = Promise.withResolvers<readonly (typeof tree)[]>();
+    vi.mocked(deps.worktrees.listWorktrees).mockReturnValue(listing.promise);
+    const starting = startRepositoryOperation(workspace, entry);
+    await vi.waitFor(() => {
+      expect(deps.worktrees.listWorktrees).toHaveBeenCalled();
+    });
+    const confirm = vi.fn(() => Promise.resolve(true));
+    await expect(
+      workspace.sidebarCommand({ kind: "remove-repository", repository: repo.path }, confirm),
+    ).rejects.toThrow("busy");
+    await expect(workspace.removeRepository(repo.path)).rejects.toThrow("busy");
+    expect(confirm).not.toHaveBeenCalled();
+    expect(deps.worktrees.removeRepository).not.toHaveBeenCalled();
+    listing.resolve([tree, { ...tree, path: repo.path, managed: false }]);
+    await starting;
+    if (entry !== "create-worktree") {
+      await expect(workspace.removeRepository(repo.path)).rejects.toThrow("Close");
+      await workspace.exited("t1", 0);
+      await expect(workspace.removeRepository(repo.path)).rejects.toThrow("Close");
+      workspace.removed("t1");
+    }
+    await workspace.removeRepository(repo.path);
+    expect(vi.mocked(deps.worktrees.removeRepository)).toHaveBeenCalledOnce();
+  },
+);
+
+test("repository reservations are scoped and release after cancellation, confirmation failure and write failure", async () => {
+  const workspace = new Workspace(deps);
+  const answer = Promise.withResolvers<boolean>();
+  const other = { path: "/repos/other", name: "other" };
+  vi.mocked(deps.worktrees.listRepositories).mockReturnValue([repo, other]);
+  const removing = workspace.removeRepository(repo.path, () => answer.promise);
+  await workspace.launch({
+    agent: "claude",
+    repository: other.path,
+    worktree: tree.path,
+    cols: 80,
+    rows: 24,
+  });
+  answer.resolve(false);
+  await removing;
+  expect(deps.worktrees.removeRepository).not.toHaveBeenCalled();
+  await expect(
+    workspace.removeRepository(repo.path, () => Promise.reject(new Error("dialog"))),
+  ).rejects.toThrow("dialog");
+  vi.mocked(deps.worktrees.removeRepository).mockRejectedValueOnce(new Error("write"));
+  await expect(workspace.removeRepository(repo.path)).rejects.toThrow("write");
+  await workspace.removeRepository(repo.path);
+  await workspace.dispose();
+  await expect(workspace.removeRepository(repo.path)).rejects.toThrow("closed");
+});
+
+test("failed and overlapping launches retain the reservation until the last operation settles", async () => {
+  const workspace = new Workspace(deps);
+  const first = Promise.withResolvers<Launched>();
+  const second = Promise.withResolvers<Launched>();
+  agents.launch.mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise);
+  const a = startRepositoryOperation(workspace, "agent-ipc");
+  const b = startRepositoryOperation(workspace, "agent-ipc");
+  await vi.waitFor(() => {
+    expect(agents.launch).toHaveBeenCalledTimes(2);
+  });
+  const failed = expect(a).rejects.toThrow("spawn");
+  first.reject(new Error("spawn"));
+  await failed;
+  await expect(workspace.removeRepository(repo.path)).rejects.toThrow("busy");
+  const alsoFailed = expect(b).rejects.toThrow("spawn");
+  second.reject(new Error("spawn"));
+  await alsoFailed;
+  await workspace.removeRepository(repo.path);
+  expect(vi.mocked(deps.worktrees.removeRepository)).toHaveBeenCalledOnce();
+});
+
+test("repository removal cannot pass while a main-checkout shell is still spawning", async () => {
+  const workspace = new Workspace(deps);
+  vi.mocked(deps.worktrees.listWorktrees).mockResolvedValue([
+    { ...tree, path: repo.path, managed: false },
+  ]);
+  const spawned = Promise.withResolvers<string>();
+  const create = vi.spyOn(deps.terminals, "create").mockReturnValueOnce(spawned.promise);
+  const starting = startRepositoryOperation(workspace, "sidebar-shell");
+  await vi.waitFor(() => {
+    expect(create).toHaveBeenCalledOnce();
+  });
+  await expect(workspace.removeRepository(repo.path)).rejects.toThrow("busy");
+  expect(workspace.snapshot().terminals).toEqual([]);
+  spawned.resolve("t1");
+  await starting;
+  await expect(workspace.removeRepository(repo.path)).rejects.toThrow("Close");
+  expect(vi.mocked(deps.worktrees.removeRepository)).not.toHaveBeenCalled();
+  expect(workspace.snapshot().terminals[0]?.repository).toBe(repo.path);
+});

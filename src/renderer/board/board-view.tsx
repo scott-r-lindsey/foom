@@ -370,7 +370,7 @@ export function Board({
               </div>
               <div className="location-launchers">
                 {location &&
-                  launcherActions(options, source.shellName?.() ?? "shell").map((action) => (
+                  launcherActions(options, source.shellName?.()).map((action) => (
                     <button
                       key={action.label}
                       type="button"
@@ -448,12 +448,12 @@ export function Board({
               />
             )}
           </div>
+          <aside className="board-peek" aria-label="Terminal peek" hidden={!peekRow}>
+            <h2>{peekRow && `${peekRow.agent} · ${peekRow.branch}`}</h2>
+            <pre>{tail.join("\n")}</pre>
+          </aside>
         </section>
       </div>
-      <aside className="board-peek" aria-label="Terminal peek" hidden={!peekRow}>
-        <h2>{peekRow && `${peekRow.agent} · ${peekRow.branch}`}</h2>
-        <pre>{tail.join("\n")}</pre>
-      </aside>
     </main>
   );
 }

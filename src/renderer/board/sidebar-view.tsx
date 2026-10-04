@@ -25,7 +25,7 @@ import type { AgentId } from "../../shared/agents";
 
 export function launcherActions(
   options: LaunchOptions | undefined,
-  shell: string,
+  shell: string | undefined,
 ): { label: string; badge: string; run: AgentId | "shell" }[] {
   return [
     ...(options?.agents
@@ -35,7 +35,7 @@ export function launcherActions(
         badge: agentBadges[agent.id] ?? "",
         run: agent.id,
       })) ?? []),
-    { label: `Shell (${shell})`, badge: ">_", run: "shell" },
+    { label: shell ? `Shell (${shell})` : "Shell", badge: ">_", run: "shell" },
   ];
 }
 export function Sidebar({
@@ -129,7 +129,7 @@ export function Sidebar({
     save({ ...preferences, expanded: { ...preferences.expanded, [id]: !expanded } });
   };
   const launchers = (location: SidebarLocation) =>
-    launcherActions(options, source.shellName?.() ?? "shell").map((action) => ({
+    launcherActions(options, source.shellName?.()).map((action) => ({
       ...action,
       run: () => {
         command({
@@ -259,9 +259,11 @@ export function Sidebar({
                   save(renameSession(preferences, row.id, value));
                 }}
               />
-              <span className="board-wait">{waitTime(row, now)}</span>
+              {row.state === "needs_input" && (
+                <span className="board-wait">{waitTime(row, now)}</span>
+              )}
             </span>
-            <span className="board-reason">
+            <span className="board-reason" title={row.reason}>
               <Highlight text={row.reason} filter={filter} />
             </span>
             <span className="visually-hidden board-state">{light(row).label}</span>
@@ -427,7 +429,9 @@ export function Sidebar({
                             choose({ repository: repo.repository.path });
                           }}
                         >
-                          <Highlight text={repo.repository.name} filter={filter} />
+                          <span className="tree-label">
+                            <Highlight text={repo.repository.name} filter={filter} />
+                          </span>
                           {repo.pinned && <span aria-label="Pinned">⌖</span>}
                         </button>
                         {!repo.expanded && (
@@ -531,7 +535,9 @@ export function Sidebar({
                                         </>
                                       )}
                                     </svg>
-                                    <Highlight text={branch} filter={filter} />
+                                    <span className="tree-label">
+                                      <Highlight text={branch} filter={filter} />
+                                    </span>
                                   </button>
                                   {!expanded && roll(rollup)}
                                   {actions(wid, branch, [
