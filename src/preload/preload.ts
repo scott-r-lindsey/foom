@@ -54,7 +54,29 @@ function setupState(value: unknown): value is SetupState {
 const desktop: DesktopApi = {
   onBoardCommand(callback) {
     const listener = (_event: IpcRendererEvent, command: unknown) => {
-      if (command === "sidebar" || command === "next-waiting" || command === "settings")
+      if (
+        command === "sidebar" ||
+        command === "next-waiting" ||
+        command === "settings" ||
+        command === "maximize" ||
+        command === "left" ||
+        command === "right" ||
+        command === "up" ||
+        command === "down" ||
+        command === "split-right" ||
+        command === "split-down" ||
+        command === "close-tile" ||
+        command === "hide-session" ||
+        command === "tile-1" ||
+        command === "tile-2" ||
+        command === "tile-3" ||
+        command === "tile-4" ||
+        command === "tile-5" ||
+        command === "tile-6" ||
+        command === "tile-7" ||
+        command === "tile-8" ||
+        command === "tile-9"
+      )
         callback(command);
     };
     ipcRenderer.on("board:command", listener);

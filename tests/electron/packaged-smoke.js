@@ -98,10 +98,10 @@ test("packaged utility host runs native PTYs with RunAsNode disabled", {
     await page.waitForFunction(
       () =>
         window.desktop &&
-        document.querySelector("#status")?.textContent &&
-        !document.querySelector("#status").textContent.includes("Starting"),
+        document.querySelector(".tile-status")?.textContent &&
+        !document.querySelector(".tile-status").textContent.includes("Starting"),
     );
-    assert.doesNotMatch(await page.locator("#status").innerText(), /Unable/);
+    assert.doesNotMatch(await page.locator(".tile-status").innerText(), /Unable/);
     await page.locator('.board-row[data-kind="shell"]').press("Enter");
     await expect(page.getByRole("navigation", { name: "Terminal sidebar" })).toBeVisible();
     await expect(page.locator(".xterm-helper-textarea")).toBeFocused();

@@ -57,6 +57,9 @@ export function Sidebar({
   command,
   options,
   footer,
+  tileNumbers,
+  refused,
+  clearRefusal,
 }: {
   source: BoardSource;
   location: SidebarLocation | undefined;
@@ -76,6 +79,9 @@ export function Sidebar({
   command: (command: SidebarCommand) => void;
   options: LaunchOptions | undefined;
   footer: ReactNode;
+  tileNumbers?: ReadonlyMap<string, { number: number; focused: boolean }>;
+  refused?: string | undefined;
+  clearRefusal?: () => void;
 }) {
   const [now] = useState(Date.now);
   const [filter, setFilter] = useState("");
@@ -203,6 +209,8 @@ export function Sidebar({
           role="treeitem"
           aria-selected={!location && selected === row.id}
           className="board-row"
+          data-refused={refused === row.id}
+          onAnimationEnd={clearRefusal}
           data-nav
           data-kind={row.kind}
           data-state={row.state}
@@ -249,6 +257,15 @@ export function Sidebar({
             <span className="visually-hidden board-branch">{row.branch}</span>
             <span className="session-top">
               <span className="board-agent">{agentBadges[row.agent] ?? row.agent}</span>
+              {tileNumbers?.has(row.id) && (
+                <span
+                  className="tile-number"
+                  data-focused={tileNumbers.get(row.id)?.focused}
+                  aria-label={`Tile ${String(tileNumbers.get(row.id)?.number)}`}
+                >
+                  {tileNumbers.get(row.id)?.number}
+                </span>
+              )}
               <SessionName
                 name={name}
                 filter={filter}

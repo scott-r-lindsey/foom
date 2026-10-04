@@ -937,3 +937,24 @@ test("live terminal themes also color peek and fixed palettes ignore interface c
   mock.onSetupChange.mock.calls[0]?.[0](setupState({ terminalTheme: "follow" }));
   expect(mock.options.theme?.background).toBe("#fdf6e3");
 });
+
+test("passive tile controllers neither steal focus nor detach another view after being hidden", async () => {
+  const controller = createShell(
+    document.createElement("div"),
+    vi.fn(),
+    false,
+    undefined,
+    false,
+    false,
+  );
+  await controller.open("one");
+  await controller.open("one");
+  expect(mock.focus).not.toHaveBeenCalled();
+  expect(mock.attach).toHaveBeenCalledOnce();
+  await controller.hide();
+  // Another controller may now own this terminal's new attachment.
+  mock.detach.mockClear();
+  controller.dispose();
+  expect(mock.detach).not.toHaveBeenCalled();
+  expect(mock.kill).not.toHaveBeenCalled();
+});

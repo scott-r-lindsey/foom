@@ -143,13 +143,14 @@ test("sidebar arrows wrap, focus peeks, selection preserves attention and Escape
     buttons[0]?.click();
   });
   key("Escape");
-  expect(document.activeElement).toBe(dialog.querySelector(".board-terminal"));
+  expect(document.activeElement).toBe(dialog.querySelector('.terminal-tile[data-focused="true"]'));
   expect(buttons[0]?.textContent).toContain("Needs you");
   act(() => {
     command?.("sidebar");
   });
   expect(document.activeElement).toBe(buttons[0]);
   act(() => {
+    dialog.querySelector<HTMLButtonElement>('[aria-label="Hide session"]')?.click();
     dialog.querySelector<HTMLElement>('.board-row[data-state="done"]')?.click();
   });
   expect(
@@ -261,7 +262,7 @@ test("next waiting refocuses an already open terminal from its controls", () => 
     dialog.querySelector<HTMLButtonElement>("[data-hide]")?.focus();
   });
   key("n");
-  expect(document.activeElement).toBe(dialog.querySelector(".board-terminal"));
+  expect(document.activeElement).toBe(dialog.querySelector('.terminal-tile[data-focused="true"]'));
   board.dispose();
 });
 

@@ -1,0 +1,209 @@
+.board-terminal {
+  position: relative;
+}
+.tile-area {
+  flex: 1;
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+}
+.terminal-tile {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  padding: 3px;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--terminal-background, var(--bg));
+  background-clip: padding-box;
+  transition:
+    left 220ms ease,
+    top 220ms ease,
+    width 220ms ease,
+    height 220ms ease,
+    opacity 180ms ease;
+}
+.terminal-tile[data-focused="true"] {
+  border-color: var(--accent);
+}
+.terminal-tile[data-state="needs_input"] {
+  border-color: var(--attention);
+}
+.terminal-tile[data-empty="true"] {
+  border-style: dashed;
+  background: transparent;
+}
+.terminal-tile[data-behind="true"] {
+  opacity: 0;
+  pointer-events: none;
+}
+.terminal-tile[data-maximized="true"] {
+  z-index: 3;
+}
+.tile-area:has(.tile-gutter[data-dragging="true"]) .terminal-tile {
+  transition: none;
+}
+.tile-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 30px;
+  padding: 0 5px;
+  background: var(--surface);
+  font: 11px var(--font-mono);
+  color: var(--muted);
+}
+.terminal-tile[data-focused="true"] .tile-title {
+  background: color-mix(in srgb, var(--accent) 10%, var(--surface));
+  color: var(--ink);
+}
+.tile-location {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tile-name {
+  flex-shrink: 0;
+  max-width: 35%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tile-number {
+  flex-shrink: 0;
+  font: 10px var(--font-mono);
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  padding: 1px 3px;
+  color: var(--muted);
+}
+.tile-title .tile-number {
+  margin-left: auto;
+}
+.tile-number[data-focused="true"],
+.terminal-tile[data-focused="true"] .tile-number {
+  border-color: var(--accent);
+  color: var(--ink);
+}
+.tile-controls {
+  display: flex;
+  opacity: 0;
+}
+.terminal-tile:hover .tile-controls,
+.terminal-tile:focus-within .tile-controls,
+.terminal-tile[data-focused="true"] .tile-controls {
+  opacity: 1;
+}
+.tile-controls button {
+  padding: 0;
+  width: 20px;
+  height: 24px;
+  border: 0;
+  background: transparent;
+}
+.tile-shell,
+.tile-terminal {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.tile-terminal {
+  padding: 4px;
+}
+.tile-terminal .xterm {
+  height: 100%;
+}
+.terminal-tile:not([data-focused="true"]) .tile-shell {
+  opacity: 0.8;
+}
+.tile-attention {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  color: var(--attention-ink);
+  background: var(--surface);
+}
+.tile-attention span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+}
+.tile-attention button {
+  padding: 2px 4px;
+  font-size: 10px;
+}
+.terminal-tile[data-state="needs_input"] .board-light {
+  background: var(--attention);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--attention) 22%, transparent);
+}
+.terminal-tile[data-state="failed"] .board-light {
+  background: var(--failed);
+  border-radius: 0;
+}
+.terminal-tile[data-state="done"] .board-light {
+  background: var(--done);
+}
+.terminal-tile[data-state="quiet_ok"] .board-light {
+  background: var(--muted);
+}
+.tile-gutter {
+  position: absolute;
+  z-index: 2;
+  touch-action: none;
+}
+.tile-gutter[data-direction="horizontal"] {
+  min-width: 8px;
+  transform: translateX(-4px);
+  cursor: col-resize;
+}
+.tile-gutter[data-direction="vertical"] {
+  min-height: 8px;
+  transform: translateY(-4px);
+  cursor: row-resize;
+}
+.tile-gutter:hover,
+.tile-gutter:focus-visible,
+.tile-gutter[data-dragging="true"] {
+  background: color-mix(in srgb, var(--accent) 35%, transparent);
+}
+.tile-presets {
+  display: flex;
+  align-items: center;
+}
+.tile-presets button {
+  padding: 2px;
+  width: 24px;
+  height: 26px;
+  border: 0;
+  background: transparent;
+}
+.board-row[data-refused="true"] {
+  animation: tile-refusal 320ms ease;
+}
+@keyframes tile-refusal {
+  20%,
+  80% {
+    transform: translateX(-2px);
+  }
+  40%,
+  60% {
+    transform: translateX(3px);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .terminal-tile {
+    transition: none;
+  }
+  .board-row[data-refused="true"] {
+    animation: none;
+  }
+}

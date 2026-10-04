@@ -1,3 +1,4 @@
+import type { BoardCommand } from "../../shared/board-command";
 import type { Input } from "electron";
 
 /** Interface scale steps, in percent. 100 is the default. */
@@ -40,10 +41,39 @@ export function zoomShortcut(
 export function boardShortcut(
   input: Pick<Input, "type" | "code" | "control" | "shift" | "alt" | "meta">,
   platform: NodeJS.Platform,
-): "sidebar" | "next-waiting" | "settings" | undefined {
-  if (input.type !== "keyDown" || input.alt) return undefined;
+): BoardCommand | undefined {
+  if (input.type !== "keyDown") return undefined;
   if (platform === "darwin" ? !input.meta || input.control : !input.control || input.meta)
     return undefined;
+  if (input.alt) {
+    if (!input.shift) return undefined;
+    const commands: Readonly<Record<string, BoardCommand>> = {
+      ArrowLeft: "left",
+      ArrowRight: "right",
+      ArrowUp: "up",
+      ArrowDown: "down",
+      KeyR: "split-right",
+      KeyD: "split-down",
+      KeyW: "close-tile",
+      KeyH: "hide-session",
+    };
+    return commands[input.code];
+  }
+  if (!input.shift) {
+    const numbers: Readonly<Record<string, BoardCommand>> = {
+      Digit1: "tile-1",
+      Digit2: "tile-2",
+      Digit3: "tile-3",
+      Digit4: "tile-4",
+      Digit5: "tile-5",
+      Digit6: "tile-6",
+      Digit7: "tile-7",
+      Digit8: "tile-8",
+      Digit9: "tile-9",
+    };
+    if (numbers[input.code]) return numbers[input.code];
+  }
+  if (input.shift && input.code === "Enter") return "maximize";
   if (input.code === "Comma" && !input.shift) return "settings";
   if (!input.shift) return undefined;
   return input.code === "KeyB" ? "sidebar" : input.code === "KeyN" ? "next-waiting" : undefined;

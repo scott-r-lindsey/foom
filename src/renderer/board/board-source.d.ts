@@ -1,7 +1,8 @@
+import type { BoardCommand } from "../../shared/board-command";
 import type { SidebarRepository } from "./sidebar.d";
 import type { SidebarCommand } from "../../shared/workspace";
 import type { BoardRow } from "./board.d";
-import type { ShellView } from "../terminal/shell.d";
+import type { TerminalViewSource } from "../terminal/terminal-view-source.d";
 import type { TerminalActivity } from "../../shared/desktop";
 
 import type { AgentInstallation, AgentId } from "../../shared/agents";
@@ -22,28 +23,21 @@ export interface WorktreeSource {
 }
 /** Samples and the live source share rows, verdicts, activity batches and tails. */
 export interface BoardSource {
+  isReady?: () => boolean;
+  connect?: () => () => void;
+  createView?: () => TerminalViewSource;
   getSidebar?: () => SidebarRepository[] | readonly SidebarRepository[];
   sidebarCommand?: (command: SidebarCommand) => Promise<void>;
   shellName?: () => string;
 
   getSnapshot: () => readonly BoardRow[];
   getRepositories?: () => readonly string[];
-  subscribeCommands?: (
-    listener: (command: "sidebar" | "next-waiting" | "settings") => void,
-  ) => () => void;
+  subscribeCommands?: (listener: (command: BoardCommand) => void) => () => void;
   subscribe: (listener: () => void) => () => void;
   subscribeActivity(listener: (batch: readonly TerminalActivity[]) => void): () => void;
   tail(id: string): Promise<readonly string[]>;
   markSeen(id: string): void;
   resolve(id: string, reason: string): void | Promise<void>;
   worktrees?: WorktreeSource;
-  shell?: {
-    mount(element: HTMLElement): () => void;
-    getSnapshot: () => ShellView;
-    subscribe: (listener: () => void) => () => void;
-    open(id?: string): Promise<void>;
-    hide(): Promise<void>;
-    toggle(): Promise<void>;
-    restart(): Promise<void>;
-  };
+  shell?: { restart(): Promise<void> };
 }

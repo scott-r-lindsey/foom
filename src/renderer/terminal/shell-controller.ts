@@ -14,6 +14,7 @@ export function createShell(
   initiallyOpen = true,
   onCreated?: (id: string, title: string) => void,
   autoStart = true,
+  focusOnOpen = true,
 ) {
   const view: ShellView = {
     status: "Starting shell…",
@@ -169,7 +170,7 @@ export function createShell(
     if (!wantsVisible()) {
       visibility(false);
       await window.desktop.detach(id);
-    } else if (!isDisposed()) terminal.focus();
+    } else if (!isDisposed() && focusOnOpen) terminal.focus();
   };
   const toggleView = async () => {
     if (busy || !activeId) return;
@@ -242,7 +243,7 @@ export function createShell(
     offData();
     offExit();
     offSetup();
-    if (activeId) void window.desktop.detach(activeId).catch(() => {});
+    if (activeId && attached) void window.desktop.detach(activeId).catch(() => {});
     terminal.dispose();
   };
   // Measure the first grid only after the bundled terminal face is available.
@@ -266,7 +267,7 @@ export function createShell(
       controls();
       try {
         if (attached && activeId === id) {
-          terminal.focus();
+          if (focusOnOpen) terminal.focus();
           return;
         }
         const previous = activeId;

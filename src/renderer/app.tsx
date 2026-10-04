@@ -7,7 +7,7 @@ import { Preflight } from "./preflight/preflight-view";
 import { createSetupSource } from "./preflight/setup-source";
 
 /**
- * Preflight runs until setup is complete, and again whenever the board asks for it.
+ * Preflight runs until setup is complete; later changes live in Settings.
  * Once mounted, the board stays mounted underneath so its shell keeps running.
  */
 export function App() {
@@ -35,11 +35,10 @@ export function App() {
       },
     );
   }, [setup]);
-  const reopen = async (showSettings = false) => {
+  const reopen = async () => {
     try {
       setState(await setup.state());
-      setPreflight(!showSettings);
-      setSettings(showSettings);
+      setSettings(true);
     } catch (error) {
       console.error("Unable to load setup:", error);
     }
@@ -55,22 +54,14 @@ export function App() {
             setPreflight(false);
             setBoard(true);
           }}
-          {...(state.settings.setupComplete
-            ? {
-                onClose: () => {
-                  setPreflight(false);
-                },
-              }
-            : {})}
         />
       )}
       {board && (
         <Board
           source={source}
           inactive={preflight}
-          onPreflight={() => void reopen()}
           onSettings={() => {
-            if (!settings) void reopen(true);
+            if (!settings) void reopen();
           }}
           onCloseSettings={() => {
             setSettings(false);

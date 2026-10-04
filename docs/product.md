@@ -1,6 +1,6 @@
 # Product
 
-Foom is a desktop workspace for running many coding agents at once, each in its own git worktree and terminal. Its job is to route your attention. Terminals stay hidden, and Foom tells you which one needs you.
+Foom is a desktop workspace for running many coding agents at once, each in its own git worktree and terminal. Its job is to route your attention. Terminals can stay hidden or share the workspace in tiles; Foom tells you which one needs you.
 
 The target is about 10 concurrent agents. Supported agents are Claude Code (`claude`), Codex (`codex`), and Antigravity (`agy`). Any other CLI runs as a plain terminal, watched by the evaluator.
 
@@ -35,7 +35,7 @@ The light carries two separate signals.
 
 ## Terminal sidebar
 
-The sidebar is a repository → worktree → session tree beside the terminal pane.
+The sidebar is a repository → worktree → session tree beside the terminal tiles.
 The header shows the wordmark, needs-you and working counts, a filter and Add repository.
 Pinned repositories appear in pin order, followed by repositories with sessions A–Z,
 then idle repositories A–Z. Thin rules separate nonempty sections; one repository has no sections.
@@ -55,7 +55,7 @@ to edit it; Enter or blur commits, Escape cancels, and an empty value restores t
 Names persist as local UI metadata keyed by terminal ID. Terminal sessions themselves still
 live only as long as Foom; restoring agent conversations is tracked separately in #115.
 Hover or focus a session to peek without switching the pane. Click or press Enter to show
-its terminal and focus input. Needs you remains; Done and Failed dim once seen.
+its terminal and focus input, using the placement rules below. Needs you remains; Done and Failed dim once seen.
 
 Each row has an actions menu that opens to the right, over the pane, outside the scrolling
 tree. Arrow keys, Home/End, Enter and Escape operate it; outside clicks and tree scrolling
@@ -73,7 +73,58 @@ Below 720 CSS pixels the tree becomes a flat column with one light per session a
 names. ⌘⇧B on macOS or Ctrl+Shift+B elsewhere focuses the sidebar; arrow keys navigate.
 ⌘⇧N or Ctrl+Shift+N reveals and opens the session that has waited longest for you, clearing
 its filter and expanding its ancestors. Other terminal keys, including Escape, remain input.
-Preflight and Settings stay at the bottom of the sidebar. Preflight preserves the selected terminal.
+Settings and the six tile preset icons stay at the bottom of the sidebar.
+
+## Terminal tiles
+
+The layout is a binary split tree. Each leaf is a tile with a stable identity and
+at most one session; each split has a horizontal or vertical direction and a ratio.
+Split right and Split down add an empty tile. Close tile gives its sibling the
+space. Hide session empties the tile. These actions, including applying a preset,
+never stop a terminal. Hidden sessions keep running and retain their sidebar lights.
+
+Clicking a visible session focuses its tile. A hidden session fills the focused
+tile if empty, otherwise the first empty tile in tree order. When all tiles are
+full, nothing is replaced: the sidebar row briefly shakes (disabled with reduced
+motion). The refusal sound is deferred to #83. The longest-waiting shortcut is the
+one deliberate replacement: it places that session in the focused tile and hides
+its previous occupant. If the waiting session was in another tile, that tile empties.
+
+Title bars show the state light, agent badge, location, session name and tile number.
+Location text shrinks first. Split right, Split down, Maximize, Hide session and
+Close tile controls appear on hover or focus. Empty tiles are dashed outlines with
+no copy or buttons; keyboard commands can still split or close them. Focus uses a
+violet border and brighter title bar; Needs you uses an amber border that takes
+precedence, with a labelled, haloed light as a second state cue.
+
+Tiles are numbered in tree order and share their numbers with the sidebar. The
+focused tile's number is highlighted. Presets are One, Two side by side, Two
+stacked, Two by two, One and two, and One and three. They keep the focused session
+first, then other occupied leaves in tree order, then empty leaves. Existing leaves keep
+their views; additional leaves start empty, and sessions that no longer fit hide.
+
+Gutters drag between 15% and 85%. Focus a gutter and use its axis's arrow keys to
+resize by five percentage points; Home and End select the limits. Maximize expands
+one tile from its own position while the others fade and stay mounted and attached.
+Restoring returns to the saved split geometry. Reduced motion disables movement
+and refusal animation.
+
+Use Ctrl on Linux/Windows, or ⌘ on macOS:
+
+| Shortcut | Action |
+|---|---|
+| Ctrl/⌘ + 1–9 | Focus tile by number |
+| Ctrl/⌘ + Shift + Enter | Toggle focused tile maximize |
+| Ctrl/⌘ + Shift + N | Replace focused tile with the longest-waiting session |
+| Ctrl/⌘ + Alt + Shift + arrow | Focus the nearest tile in that direction |
+| Ctrl/⌘ + Alt + Shift + R / D | Split right / down |
+| Ctrl/⌘ + Alt + Shift + W / H | Close tile / hide session |
+
+Plain terminal control keys remain terminal input. The split tree, ratios, leaf
+identities, focus and assigned session IDs persist as local view preferences.
+Maximize is temporary. On restart, unavailable sessions leave empty tiles; terminal
+sessions themselves are not restored. Drag-and-drop placement and rearrangement
+are deferred to #133; pop-out windows and WebGL are separate future work.
 
 ## The evaluator
 
@@ -121,13 +172,13 @@ Short steps center vertically. Content changes
 re-center over 180 milliseconds (immediately with reduced motion). Back, Continue and
 Launch stay in a footer at the bottom of the window, outside the scrolling content.
 
-The rail also holds **Appearance**: System, Light or Dark, and the interface size (80–150%; the window grows and shrinks with it while the screen has room, around the pointer when you click + or − or scroll over the percentage, so what you pointed at stays under it; also ⌘ +/−/0 on macOS or Ctrl+Shift+=/− and Ctrl+0 elsewhere). Terminal font size is separate and lives in Settings → Terminal. A model source is used only after it passes Run check. Launch opens the board. The board starts empty. **New worktree** launches an agent or shell in a managed worktree, and **Local shell** starts a standalone shell. Sample sessions are available only in an explicit development build. **Preflight** on the board runs setup again with the saved choices; Esc returns to the board.
+The rail also holds **Appearance**: System, Light or Dark, and the interface size (80–150%; the window grows and shrinks with it while the screen has room, around the pointer when you click + or − or scroll over the percentage, so what you pointed at stays under it; also ⌘ +/−/0 on macOS or Ctrl+Shift+=/− and Ctrl+0 elsewhere). Terminal font size is separate and lives in Settings → Terminal. A model source is used only after it passes Run check. Launch opens the board. The board starts empty. **New worktree** launches an agent or shell in a managed worktree, and **Local shell** starts a standalone shell. Sample sessions are available only in an explicit development build. After first run, **Settings** on the board edits the saved choices.
 
 ## Settings
 
 Open **Settings** from the board, or press ⌘, on macOS and Ctrl+, elsewhere.
-It replaces the terminal pane beside the persistent sidebar in the same window.
-Esc returns to the selected terminal and restores the same focused sidebar row.
+It replaces the terminal tiles beside the persistent sidebar in the same window.
+Esc returns to the tiles and restores the same focused sidebar row.
 Selecting a terminal in the sidebar also leaves Settings; terminals keep running throughout.
 
 Agents and hooks, Repositories, Worktrees, and Evaluator use the same controls as

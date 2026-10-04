@@ -332,7 +332,7 @@ test("worktree launch and removal have dedicated channels", async () => {
 
 test("board commands accept only known actions and unsubscribe", async () => {
   const api = await bridge();
-  const callback = vi.fn();
+  const callback = vi.fn<(command: string) => void>();
   const off = api.onBoardCommand(callback);
   const handler = mock.on.mock.calls[0]?.[1];
   handler?.({}, "sidebar");
@@ -349,4 +349,34 @@ test("preserves wheel origin through the bridge", async () => {
   const api = await bridge();
   api.input("one", "\x1b[B", "wheel");
   expect(mock.send).toHaveBeenCalledWith("terminal:input", "one", "\x1b[B", "wheel");
+});
+
+test("only known tile commands cross the navigation bridge", async () => {
+  const api = await bridge();
+  const callback = vi.fn<(command: string) => void>();
+  const off = api.onBoardCommand(callback);
+  const listener = mock.on.mock.calls.find(([channel]) => channel === "board:command")?.[1];
+  const commands = [
+    "tile-1",
+    "tile-2",
+    "tile-3",
+    "tile-4",
+    "tile-5",
+    "tile-6",
+    "tile-7",
+    "tile-8",
+    "tile-9",
+    "maximize",
+    "left",
+    "right",
+    "up",
+    "down",
+    "split-right",
+    "split-down",
+    "close-tile",
+    "hide-session",
+  ];
+  for (const command of [...commands, "tile-0", "tile-10", {}, null]) listener?.({}, command);
+  expect(callback.mock.calls.map(([command]) => command)).toEqual(commands);
+  off();
 });
