@@ -349,8 +349,7 @@
 }
 .preflight-footer {
   flex: none;
-  max-height: 40%;
-  overflow: auto;
+  /* Reserve the full navigation height; the stage yields space and scrolls. */
   border-top: 1px solid var(--line);
   background: var(--bg);
 }
