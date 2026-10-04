@@ -2517,6 +2517,8 @@ test("persistent sidebar keeps Escape in the PTY and routes keyboard navigation"
   );
   await page.keyboard.press("Enter");
   await expect(page.locator(".xterm-rows")).toContainText("INPUT_READY");
+  // Establish the startup verdict first, including on faster runners.
+  await expect(page.locator(".board-row")).toHaveAttribute("data-state", "needs_input");
   await page.keyboard.press("Escape");
   await expect.poll(() => readFile(marker, "utf8")).toContain("1b\n");
   await page.keyboard.press("Control+b");
@@ -2531,6 +2533,9 @@ test("persistent sidebar keeps Escape in the PTY and routes keyboard navigation"
   await expect(page.locator(".xterm-helper-textarea")).toBeFocused();
   const screen = page.locator(".xterm-screen");
   await screen.hover();
+  // Earlier keystrokes can clear the initial prompt before slow runners reach here.
+  // Ask the probe for fresh evidence rather than relying on its startup debounce.
+  await page.keyboard.type("p");
   await expect
     .poll(() => page.locator(".board-row").getAttribute("data-state"))
     .toBe("needs_input");
