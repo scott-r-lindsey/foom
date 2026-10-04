@@ -378,31 +378,6 @@ export function Board({
           options={options}
           footer={
             <>
-              {source.worktrees && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    newWorktree();
-                  }}
-                >
-                  New worktree
-                </button>
-              )}
-              {source.shell && !rows.some((row) => row.kind === "shell" && !row.managed) && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    void source.shell?.restart().then(() => {
-                      const row = source
-                        .getSnapshot()
-                        .find((row) => row.kind === "shell" && !row.managed);
-                      if (row) open(row);
-                    });
-                  }}
-                >
-                  Local shell
-                </button>
-              )}
               <div className="tile-presets" role="group" aria-label="Tile layout">
                 {(
                   [

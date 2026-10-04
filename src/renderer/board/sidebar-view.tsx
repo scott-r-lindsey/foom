@@ -130,7 +130,13 @@ export function Sidebar({
     source.getSidebar?.() ??
       (source.getRepositories?.() ?? []).map((name) => ({ name, path: name, worktrees: [] })),
   );
-  const { tree, hiddenNeeds } = buildSidebar(rows, repositories, preferences, narrow ? "" : filter);
+  const compact = narrow && rows.length > 0;
+  const { tree, hiddenNeeds } = buildSidebar(
+    rows,
+    repositories,
+    preferences,
+    compact ? "" : filter,
+  );
   const toggle = (id: string, expanded: boolean) => {
     save({ ...preferences, expanded: { ...preferences.expanded, [id]: !expanded } });
   };
@@ -297,7 +303,7 @@ export function Sidebar({
       </span>
     );
   return (
-    <aside className="sidebar-shell">
+    <aside className="sidebar-shell" data-compact={compact}>
       <header className="board-top">
         <h1 className="wordmark" aria-label="foom">
           <span aria-hidden="true">
@@ -340,7 +346,7 @@ export function Sidebar({
               });
             }}
           >
-            +
+            {tree.length === 0 ? "Add repository" : "+"}
           </button>
         </div>
       </header>
@@ -403,7 +409,7 @@ export function Sidebar({
         }}
       >
         <div role="tree" aria-label="Repositories and sessions">
-          {narrow
+          {compact
             ? tree
                 .flatMap((repo) => repo.worktrees.flatMap((worktree) => worktree.sessions))
                 .map(session)

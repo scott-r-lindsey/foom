@@ -365,8 +365,9 @@ test("board opens the launcher without routing typing to shortcuts and reports r
   const screen = render(<Board source={source} />);
   await act(async () => {
     await Promise.resolve();
-    fireEvent.click(screen.getByRole("button", { name: "New worktree" }));
+    fireEvent.click(screen.getByRole("button", { name: `Actions for ${row.repository}` }));
   });
+  fireEvent.click(screen.getByRole("menuitem", { name: "New worktree…" }));
   fireEvent.keyDown(screen.getByLabelText("Branch"), { key: "n" });
   expect(screen.getByRole("dialog")).toBeTruthy();
   fireEvent.click(screen.getByRole("button", { name: "Cancel" }));

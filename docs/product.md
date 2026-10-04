@@ -69,11 +69,11 @@ confirmation, validates repository membership and worktree identity, and recheck
 files before deletion. The branch is kept; the main checkout cannot be removed. Repository removal forgets its
 registration, retains files and refuses while it has sessions or Foom-owned worktrees.
 
-Below 720 CSS pixels the tree becomes a flat column with one light per session and accessible
+Below 720 CSS pixels, once sessions exist, the tree becomes a flat column with one light per session and accessible
 names. ⌘⇧B on macOS or Ctrl+Shift+B elsewhere focuses the sidebar; arrow keys navigate.
 ⌘⇧N or Ctrl+Shift+N reveals and opens the session that has waited longest for you, clearing
 its filter and expanding its ancestors. Other terminal keys, including Escape, remain input.
-Settings and the six tile preset icons stay at the bottom of the sidebar.
+Settings and the six tile preset icons stay at the bottom of the sidebar. Launch actions live in repository and checkout menus. An empty sidebar labels its starting action **Add repository**.
 
 ## Terminal tiles
 
@@ -172,7 +172,7 @@ Short steps center vertically. Content changes
 re-center over 180 milliseconds (immediately with reduced motion). Back, Continue and
 Launch stay in a footer at the bottom of the window, outside the scrolling content.
 
-The rail also holds **Appearance**: System, Light or Dark, and the interface size (80–150%; the window grows and shrinks with it while the screen has room, around the pointer when you click + or − or scroll over the percentage, so what you pointed at stays under it; also ⌘ +/−/0 on macOS or Ctrl+Shift+=/− and Ctrl+0 elsewhere). Terminal font size is separate and lives in Settings → Terminal. A model source is used only after it passes Run check. Launch opens the board. The board starts empty. **New worktree** launches an agent or shell in a managed worktree, and **Local shell** starts a standalone shell. Sample sessions are available only in an explicit development build. After first run, **Settings** on the board edits the saved choices.
+The rail also holds **Appearance**: System, Light or Dark, and the interface size (80–150%; the window grows and shrinks with it while the screen has room, around the pointer when you click + or − or scroll over the percentage, so what you pointed at stays under it; also ⌘ +/−/0 on macOS or Ctrl+Shift+=/− and Ctrl+0 elsewhere). Terminal font size is separate and lives in Settings → Terminal. A model source is used only after it passes Run check. Launch opens the board. The board starts empty. A repository’s **New worktree** action launches an agent or shell in a managed worktree; checkout menus launch sessions in an existing checkout. Sample sessions are available only in an explicit development build. After first run, **Settings** on the board edits the saved choices.
 
 ## Settings
 

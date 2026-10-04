@@ -87,6 +87,27 @@ async function prepareProfile(options) {
   };
 }
 
+async function launchCheckoutShell(app, page) {
+  const profile = await app.evaluate(({ app }) => app.getPath("userData"));
+  const directory = path.join(profile, "shell-fixture");
+  await mkdir(directory, { recursive: true });
+  const repository = await realpath(directory);
+  isolatedGit(["init", "-q", repository]);
+  await app.evaluate(({ dialog }, repository) => {
+    dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [repository] });
+  }, repository);
+  await page.getByRole("button", { name: "Add repository", exact: true }).press("Enter");
+  await expect
+    .poll(async () =>
+      (await page.evaluate(() => window.desktop.workspace())).repositories.map(
+        (entry) => entry.path,
+      ),
+    )
+    .toContain(repository);
+  await page.getByRole("button", { name: "Actions for shell-fixture", exact: true }).click();
+  await page.getByRole("menuitem", { name: /^Shell \(/ }).click();
+}
+
 async function launchApp(context, openShell = true, options = {}) {
   const profile = await prepareProfile(options);
   const watchdog = setTimeout(() => {
@@ -165,7 +186,7 @@ async function launchApp(context, openShell = true, options = {}) {
     })
     .toBe(true);
   if (options.firstRun || options.emptyBoard) return app;
-  await page.getByRole("button", { name: "Local shell", exact: true }).press("Enter");
+  await launchCheckoutShell(app, page);
   await page.locator(".board-row[data-kind='shell']").waitFor();
   // Report startup errors directly instead of timing out on a permanently disabled control.
   await expect
@@ -1210,7 +1231,9 @@ test("launches an agent in a managed worktree and routes its attention signals",
   assert.equal((await latest()).signal, "pattern:confirmation");
   const snapshot = await page.evaluate(() => window.desktop.workspace());
   assert.deepEqual(
-    snapshot.terminals.map(({ id: terminal, branch, agent }) => ({ terminal, branch, agent })),
+    snapshot.terminals
+      .filter((entry) => entry.kind === "agent")
+      .map(({ id: terminal, branch, agent }) => ({ terminal, branch, agent })),
     [{ terminal: id, branch: "feature/fake", agent: "claude" }],
   );
 
@@ -1917,7 +1940,7 @@ test("first run goes from no agents to go, launches by keyboard, and can be repl
 
   // Reduced motion shows a still frame, then the board.
   await page.getByText("Takeoff was faster than expected.").waitFor();
-  await page.getByRole("button", { name: "Local shell", exact: true }).press("Enter");
+  await launchCheckoutShell(app, page);
   const shellRow = page.locator(".board-row[data-kind='shell']");
   await shellRow.waitFor({ timeout: 10000 });
   const saved = JSON.parse(await readFile(path.join(userData, "settings.json"), "utf8"));
@@ -2188,14 +2211,16 @@ test("new worktree dialog launches by keyboard and confirms dirty removal", {
     }
     throw new Error(`Could not reach ${id} by keyboard`);
   };
-  await page.getByRole("button", { name: "New worktree", exact: true }).waitFor();
+  await page.getByRole("button", { name: "Add repository", exact: true }).waitFor();
   await expect(page.locator(".board-row")).toHaveCount(0);
   await page.evaluate(() => window.desktop.saveSetup({ worktreeLocation: "adjacent" }));
   await app.evaluate(({ dialog }, repo) => {
     dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [repo] });
   }, repo);
-  await tabTo(page, "New worktree");
+  await tabTo(page, "Add repository");
   await page.keyboard.press("Enter");
+  await page.getByRole("button", { name: "Actions for app", exact: true }).click();
+  await page.getByRole("menuitem", { name: "New worktree…", exact: true }).press("Enter");
   await expect(page.getByRole("dialog")).toBeVisible();
   await expect(page.getByRole("button", { name: "Add repository…" })).toBeEnabled();
   await tabTo(page, "Add repository…");
@@ -2649,10 +2674,13 @@ test("empty sidebar and terminal pane stay accessible at both widths", async (co
       window.setSize(width, 600);
     }, width);
     await expect(page.getByRole("navigation", { name: "Terminal sidebar" })).toBeVisible();
-    await expect(page.getByRole("button", { name: "New worktree", exact: true })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Add repository", exact: true })).toBeVisible();
+    await expect(page.getByRole("button", { name: "New worktree", exact: true })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Local shell", exact: true })).toHaveCount(0);
     await expect(page.getByRole("region", { name: "Tile 1: empty" })).toBeVisible();
     await assertAccessible(page);
   }
+  await page.screenshot({ path: path.join(tmpdir(), "foom-132-empty-sidebar.png") });
 });
 
 test("fake Codex receives inline flag only when help advertises it", {
@@ -3245,7 +3273,7 @@ test("tiles build irregular layouts, preserve views, refuse full placement and r
     id: sessions[3].id,
     command:
       process.platform === "win32"
-        ? "Write-Output 'Continue? (y/n)'\r"
+        ? "Read-Host 'Continue? (y/n)'\r"
         : "printf 'Continue? (y/n)'; read answer\r",
   });
   await expect(rows.nth(3)).toHaveAttribute("data-state", "needs_input");

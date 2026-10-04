@@ -381,6 +381,10 @@
   width: 100%;
   min-width: 0;
 }
+.sidebar-filter button {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
 .sidebar-shell .board-list {
   flex: 1;
   padding: 4px 8px;
@@ -731,11 +735,11 @@
   }
 }
 @media (max-width: 719px) {
-  .sidebar-shell {
+  .sidebar-shell[data-compact="true"] {
     flex-basis: 64px;
   }
-  .sidebar-shell .board-top,
-  .sidebar-shell .hidden-needs {
+  .sidebar-shell[data-compact="true"] .board-top,
+  .sidebar-shell[data-compact="true"] .hidden-needs {
     display: none;
   }
   .sidebar-shell .board-list {

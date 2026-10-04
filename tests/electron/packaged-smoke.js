@@ -3,7 +3,14 @@ const { extractFile } = require("@electron/asar");
 const { test } = require("node:test");
 const assert = require("node:assert/strict");
 const path = require("node:path");
-const { readFileSync, existsSync, mkdtempSync, rmSync, writeFileSync } = require("node:fs");
+const {
+  readFileSync,
+  existsSync,
+  mkdtempSync,
+  mkdirSync,
+  rmSync,
+  writeFileSync,
+} = require("node:fs");
 const { tmpdir } = require("node:os");
 const { spawn, execFileSync } = require("node:child_process");
 const { chromium, expect } = require("@playwright/test");
@@ -67,6 +74,13 @@ test("packaged utility host runs native PTYs with RunAsNode disabled", {
     path.join(profile, "settings.json"),
     JSON.stringify({ version: 1, settings: { setupComplete: true } }),
   );
+  const repository = path.join(profile, "repo");
+  mkdirSync(repository);
+  execFileSync("git", ["init", "-q", repository]);
+  writeFileSync(
+    path.join(profile, "worktrees.json"),
+    JSON.stringify({ version: 1, repositories: [repository], managed: [] }),
+  );
   const child = spawn(executable, ["--remote-debugging-port=0", `--user-data-dir=${profile}`], {
     env,
     stdio: ["ignore", "ignore", "pipe"],
@@ -94,7 +108,8 @@ test("packaged utility host runs native PTYs with RunAsNode disabled", {
     const context = browser.contexts()[0];
     const page = context.pages()[0] || (await context.waitForEvent("page"));
     page.setDefaultTimeout(15000);
-    await page.getByRole("button", { name: "Local shell", exact: true }).press("Enter");
+    await page.getByRole("button", { name: "Actions for Main checkout", exact: true }).click();
+    await page.getByRole("menuitem", { name: /^Shell \(/ }).click();
     await page.waitForFunction(
       () =>
         window.desktop &&

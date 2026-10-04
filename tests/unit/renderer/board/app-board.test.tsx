@@ -308,10 +308,15 @@ test("board starts empty, launches into a tile, and Settings keeps its view moun
   await settle();
   expect(screen.queryByRole("button", { name: "Preflight" })).toBeNull();
   expect(mock.create).not.toHaveBeenCalled();
-  fireEvent.click(screen.getByRole("button", { name: "Local shell" }));
+  expect(screen.queryByRole("button", { name: "Local shell" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "New worktree" })).toBeNull();
+  mock.workspace.mockResolvedValue({ repositories: [], terminals: [agent("a")] });
+  act(() => mock.changed?.());
   await settle();
-  expect(mock.open).toHaveBeenCalledWith("real-id");
-  const tile = screen.getByRole("region", { name: "Tile 1: Shell" });
+  fireEvent.click(screen.getByRole("treeitem", { name: /Running/ }));
+  await settle();
+  expect(mock.open).toHaveBeenCalledWith("a");
+  const tile = screen.getByRole("region", { name: "Tile 1: Claude Code" });
   fireEvent.keyDown(tile, { key: "Escape" });
   expect(mock.kill).not.toHaveBeenCalled();
   act(() => {
