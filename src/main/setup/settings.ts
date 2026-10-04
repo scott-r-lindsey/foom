@@ -1,3 +1,4 @@
+import { parseTerminalThemeChoice } from "../../shared/terminal-themes";
 import { randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { dirname, isAbsolute, join } from "node:path";
@@ -19,6 +20,7 @@ export const DEFAULT_SETTINGS: Settings = Object.freeze({
   colorMode: "system",
   interfaceScale: 100,
   terminalFontSize: 14,
+  terminalTheme: "follow",
   codeFolder: null,
 });
 
@@ -52,6 +54,7 @@ export function parseSettingsPatch(value: unknown): SettingsPatch {
         codex: entry["codex"] === true,
         agy: entry["agy"] === true,
       };
+    else if (key === "terminalTheme") patch.terminalTheme = parseTerminalThemeChoice(entry);
     else if (key === "inference") patch.inference = parseInferenceConfig(entry);
     else if (
       key === "codeFolder" &&

@@ -292,3 +292,28 @@ test("output invalidation is delivered without an attached view and rejects fore
   child.emit("message", { type: "output", id });
   expect(output).toHaveBeenCalledExactlyOnceWith(id);
 });
+
+test("fixed themes apply to existing and new terminals and ignore interface changes", async () => {
+  const { terminalThemes } = await import("../../../../src/shared/terminal-themes");
+  const id = await create();
+  client.setTheme("dracula");
+  expect(child.postMessage).toHaveBeenLastCalledWith(
+    expect.objectContaining({ type: "theme", id, theme: terminalThemes.dracula }),
+  );
+  child.reply();
+  const calls = child.postMessage.mock.calls.length;
+  mock.theme.shouldUseDarkColors = !mock.theme.shouldUseDarkColors;
+  mock.theme.on.mock.calls[0]?.[1]();
+  expect(child.postMessage.mock.calls).toHaveLength(calls);
+  await create();
+  expect(child.postMessage).toHaveBeenLastCalledWith(
+    expect.objectContaining({ type: "create", theme: terminalThemes.dracula }),
+  );
+  client.setTheme("follow");
+  expect(child.postMessage).toHaveBeenLastCalledWith(
+    expect.objectContaining({
+      type: "theme",
+      theme: terminalThemes[mock.theme.shouldUseDarkColors ? "foom-dark" : "foom-light"],
+    }),
+  );
+});

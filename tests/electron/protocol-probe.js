@@ -11,8 +11,14 @@ const osc = (code, data) => `\x1b]${code};${data}\x1b\\`;
 let expected = "\x1b[1;1R";
 let query = "\x1b[H\x1b[6n";
 if (process.argv[2] === "colors") {
-  const background = process.argv[3] === "dark" ? "rgb:0505/0404/0a0a" : "rgb:f3f3/f0f0/fafa";
+  const background =
+    process.argv[3] === "dracula"
+      ? "rgb:2828/2a2a/3636"
+      : process.argv[3] === "dark"
+        ? "rgb:0505/0404/0a0a"
+        : "rgb:f3f3/f0f0/fafa";
   query +=
+    osc(10, "?") +
     osc(11, "?") +
     osc(4, "1;#123456;1;?;255;?") +
     osc(10, "#112233;#445566;#778899") +
@@ -23,6 +29,14 @@ if (process.argv[2] === "colors") {
     osc(112, "") +
     osc(11, "?");
   expected +=
+    osc(
+      10,
+      process.argv[3] === "dracula"
+        ? "rgb:f8f8/f8f8/f2f2"
+        : process.argv[3] === "dark"
+          ? "rgb:f4f4/efef/ffff"
+          : "rgb:1414/1010/1f1f",
+    ) +
     osc(11, background) +
     osc(4, "1;rgb:1212/3434/5656") +
     osc(4, "255;rgb:eeee/eeee/eeee") +

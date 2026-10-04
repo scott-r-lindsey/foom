@@ -1,3 +1,5 @@
+import { resolveTerminalTheme } from "../../shared/terminal-themes";
+import type { TerminalThemeChoice } from "../../shared/terminal-theme";
 import { alternateScroll } from "./alternate-scroll";
 import { TerminalColors } from "../../shared/terminal-colors";
 import { Terminal } from "@xterm/xterm";
@@ -25,17 +27,8 @@ export function createShell(
     if (!isDisposed()) update({ ...view });
   };
   const colors = matchMedia("(prefers-color-scheme: dark)");
-  const theme = () => {
-    const style = getComputedStyle(document.documentElement);
-    const token = (name: string) => style.getPropertyValue(`--${name}`).trim();
-    return {
-      background: token("bg"),
-      foreground: token("ink"),
-      cursor: token("accent"),
-      cursorAccent: token("bg"),
-      selectionBackground: token("line"),
-    };
-  };
+  let themeChoice: TerminalThemeChoice = "follow";
+  const theme = () => resolveTerminalTheme(themeChoice, colors.matches);
   const terminal = new Terminal({
     cursorBlink: true,
     fontSize: 14,
@@ -46,17 +39,22 @@ export function createShell(
   suppressTerminalReplies(terminal);
   const terminalColors = new TerminalColors(
     terminal.parser,
-    colors.matches,
+    theme(),
     () => {},
     () => {
       terminal.options.theme = { ...theme(), ...terminalColors.theme() };
     },
   );
   const updateTheme = () => {
-    terminalColors.reset(colors.matches);
+    terminalColors.reset(theme());
     terminal.options.theme = { ...theme(), ...terminalColors.theme() };
+    document.documentElement.style.setProperty("--terminal-background", theme().background);
+    document.documentElement.style.setProperty("--terminal-foreground", theme().foreground);
   };
-  colors.addEventListener("change", updateTheme);
+  const interfaceChanged = () => {
+    if (themeChoice === "follow") updateTheme();
+  };
+  colors.addEventListener("change", interfaceChanged);
   const fit = new FitAddon();
   terminal.loadAddon(fit);
   let disposed = false;
@@ -133,13 +131,22 @@ export function createShell(
     fontResizePending = true;
     resize();
   };
+  const applyTheme = (choice: TerminalThemeChoice) => {
+    if (isDisposed() || JSON.stringify(choice) === JSON.stringify(themeChoice)) return;
+    themeChoice = choice;
+    updateTheme();
+  };
   const offSetup = window.desktop.onSetupChange((state) => {
     settingsChanged = true;
     applyFont(state.settings.terminalFontSize);
+    applyTheme(state.settings.terminalTheme);
   });
   const initialSettings = window.desktop.setupState().then(
     (state) => {
-      if (!settingsChanged) applyFont(state.settings.terminalFontSize);
+      if (!settingsChanged) {
+        applyFont(state.settings.terminalFontSize);
+        applyTheme(state.settings.terminalTheme);
+      }
     },
     () => undefined,
   );
@@ -230,7 +237,7 @@ export function createShell(
   const dispose = () => {
     disposed = true;
     visibleRequested = false;
-    colors.removeEventListener("change", updateTheme);
+    colors.removeEventListener("change", interfaceChanged);
     observer.disconnect();
     offData();
     offExit();

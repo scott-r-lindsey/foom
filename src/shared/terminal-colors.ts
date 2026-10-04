@@ -1,23 +1,7 @@
+import { ansiNames, resolveTerminalTheme } from "./terminal-themes.js";
+import type { TerminalTheme } from "./terminal-theme";
 import type { IParser, ITheme } from "@xterm/xterm";
 
-const ansiNames = [
-  "black",
-  "red",
-  "green",
-  "yellow",
-  "blue",
-  "magenta",
-  "cyan",
-  "white",
-  "brightBlack",
-  "brightRed",
-  "brightGreen",
-  "brightYellow",
-  "brightBlue",
-  "brightMagenta",
-  "brightCyan",
-  "brightWhite",
-] as const;
 // xterm's default ANSI palette; application status colors do not redefine shell colors.
 const ansi = [
   "2e3436",
@@ -70,10 +54,11 @@ const rgb = (color: string) =>
 export class TerminalColors {
   private defaults: string[] = [];
   private colors: string[] = [];
+  private selectionBackground = "";
 
   constructor(
     parser: IParser,
-    dark: boolean,
+    dark: boolean | TerminalTheme,
     reply: (data: string) => void,
     changed: () => void = () => {},
   ) {
@@ -113,7 +98,7 @@ export class TerminalColors {
       });
     }
     parser.registerOscHandler(104, (data) => {
-      if (!data) this.colors.splice(0, 256, ...ansi);
+      if (!data) this.colors.splice(0, 256, ...this.defaults.slice(0, 256));
       else
         for (const index of data.split(";")) {
           if (/^\d+$/.test(index) && Number(index) < 256) this.restore(Number(index));
@@ -128,17 +113,25 @@ export class TerminalColors {
     if (color) this.colors[index] = color;
   }
 
-  /** A system theme change resets OSC overrides, matching xterm's theme replacement. */
-  reset(dark: boolean): void {
+  /** A palette change resets OSC overrides, matching xterm's theme replacement. */
+  reset(dark: boolean | TerminalTheme): void {
+    const theme = typeof dark === "boolean" ? resolveTerminalTheme("follow", dark) : dark;
+    this.selectionBackground = theme.selectionBackground;
     this.defaults = [
-      ...ansi,
-      ...(dark ? ["#f4efff", "#05040a", "#9b6bff"] : ["#14101f", "#f3f0fa", "#5b2bd9"]),
+      ...ansiNames.map((name) => theme[name].toLowerCase()),
+      ...ansi.slice(16),
+      theme.foreground.toLowerCase(),
+      theme.background.toLowerCase(),
+      theme.cursor.toLowerCase(),
     ];
     this.colors = [...this.defaults];
   }
 
   theme(): ITheme {
-    const theme: ITheme = { extendedAnsi: this.colors.slice(16, 256) };
+    const theme: ITheme = {
+      selectionBackground: this.selectionBackground,
+      extendedAnsi: this.colors.slice(16, 256),
+    };
     for (const [index, color] of this.colors.entries()) {
       const name =
         index < 16

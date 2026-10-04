@@ -1,3 +1,4 @@
+import type { TerminalTheme } from "../shared/terminal-theme";
 import { TerminalActivityMeter } from "./terminal-activity";
 import { terminalSnapshot } from "./terminal-snapshot";
 import { TerminalColors } from "../shared/terminal-colors";
@@ -40,7 +41,11 @@ export class TerminalManager {
     this.activity = new TerminalActivityMeter(events);
   }
 
-  create(spec: TerminalSpec, id: string = randomUUID(), dark = false): string {
+  create(
+    spec: TerminalSpec,
+    id: string = randomUUID(),
+    dark: boolean | TerminalTheme = false,
+  ): string {
     if (this.shuttingDown) throw new Error("Terminals are shutting down");
     const env: Record<string, string> = {};
     for (const [key, value] of Object.entries(process.env)) {
@@ -163,7 +168,7 @@ export class TerminalManager {
     if (!session.exited) session.pty.write(data);
   }
 
-  setTheme(id: string, dark: boolean): void {
+  setTheme(id: string, dark: boolean | TerminalTheme): void {
     const session = this.get(id);
     session.screen.write("", () => {
       if (!this.sessions.has(id)) return;

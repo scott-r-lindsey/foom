@@ -18,6 +18,7 @@ export function setupState(
       colorMode: "system",
       interfaceScale: 100,
       terminalFontSize: 14,
+      terminalTheme: "follow",
       codeFolder: null,
       ...settings,
     },

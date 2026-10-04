@@ -1,3 +1,4 @@
+import { TerminalThemePicker } from "./terminal-theme-picker";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { SetupState } from "../../shared/setup";
 import type { AgentReport } from "../../shared/workspace";
@@ -341,12 +342,7 @@ export function Preflight({
             ))}
           </select>
         </label>
-        <pre
-          className="settings-terminal-preview"
-          style={{ fontSize: state.settings.terminalFontSize }}
-        >
-          Hack Nerd Font Mono · Aa Bb 0123456789{"\n"}$ Ready when you are.
-        </pre>
+        <TerminalThemePicker settings={state.settings} onChange={save} />
         <p className="preflight-note">More terminal options are coming.</p>
       </>
     );

@@ -175,6 +175,7 @@ function createWindow(savedSize?: Size) {
     },
     apply: (next) => {
       workspace.configure(next);
+      terminals.setTheme(next.terminalTheme);
       nativeTheme.themeSource = next.colorMode;
       // Resize first: the page then zooms into a window that already fits it.
       windowScale.apply(next.interfaceScale);

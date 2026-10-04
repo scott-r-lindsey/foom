@@ -147,6 +147,7 @@ const mock = vi.hoisted(() => {
   };
   return {
     terminals: {
+      setTheme: vi.fn(),
       runningCount: 0,
       shutdown: vi.fn<() => Promise<void>>(),
       owns: vi.fn<(id: string) => boolean>(),

@@ -94,3 +94,30 @@ test("views consume color queries without replies, preserve changes and ordinary
     screen.dispose();
   }
 });
+
+test("chosen palettes answer OSC queries and restore their own ANSI defaults", async () => {
+  const { terminalThemes } = await import("../../../src/shared/terminal-themes");
+  const screen = new Terminal({ allowProposedApi: true });
+  const reply = vi.fn();
+  const theme = terminalThemes.dracula;
+  const colors = new TerminalColors(screen.parser, theme, reply);
+  const write = (data: string) =>
+    new Promise<void>((resolve) => {
+      screen.write(data, resolve);
+    });
+  try {
+    await write(osc(10, "?") + osc(11, "?") + osc(4, "1;?"));
+    expect(reply.mock.calls).toEqual([
+      [osc(10, "rgb:f8f8/f8f8/f2f2")],
+      [osc(11, "rgb:2828/2a2a/3636")],
+      [osc(4, "1;rgb:ffff/5555/5555")],
+    ]);
+    await write(osc(4, "1;#000000") + osc(104));
+    expect(colors.theme()).toMatchObject(theme);
+    colors.reset({ ...theme, foreground: "#ABCDEF" });
+    await write(osc(10, "?"));
+    expect(reply).toHaveBeenLastCalledWith(osc(10, "rgb:abab/cdcd/efef"));
+  } finally {
+    screen.dispose();
+  }
+});

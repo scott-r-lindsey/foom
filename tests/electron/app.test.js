@@ -27,8 +27,13 @@ async function assertAccessible(page) {
   for (const colorScheme of ["light", "dark"]) {
     await page.emulateMedia({ colorScheme });
     // PTY output has arbitrary user/agent-selected ANSI colors. Keep the app chrome
-    // and xterm input in scope, but do not audit external programs' rendered text.
-    const results = await new AxeBuilder({ page }).setLegacyMode().exclude(".xterm-rows").analyze();
+    // and xterm input in scope. Terminal output and the ANSI/style sample intentionally
+    // demonstrate arbitrary palettes, including dim text.
+    const results = await new AxeBuilder({ page })
+      .setLegacyMode()
+      .exclude(".xterm-rows")
+      .exclude(".settings-terminal-preview")
+      .analyze();
     assert.deepEqual(
       results.violations.filter(({ impact }) => impact === "serious" || impact === "critical"),
       [],
@@ -855,10 +860,28 @@ test("host answers color queries once through real view transitions and system t
   await page.locator(".xterm-helper-textarea").focus();
   await page.keyboard.press("Enter");
   await page.waitForFunction(() => window.probeId);
-  for (const theme of ["light", "dark"]) {
-    await app.evaluate(({ nativeTheme }, value) => {
-      nativeTheme.themeSource = value;
-    }, theme);
+  for (const theme of ["light", "dark", "dracula"]) {
+    if (theme === "dracula") {
+      await page.getByRole("button", { name: "Settings", exact: true }).click();
+      await page.getByRole("button", { name: "Terminal", exact: true }).click();
+      await page.getByRole("button", { name: "Dracula", exact: true }).click();
+      await expect
+        .poll(() =>
+          page.evaluate(async () => (await window.desktop.setupState()).settings.terminalTheme),
+        )
+        .toBe("dracula");
+      await page.keyboard.press("Escape");
+      await expect(page.locator(".xterm-scrollable-element")).toHaveCSS(
+        "background-color",
+        "rgb(40, 42, 54)",
+      );
+    }
+    await app.evaluate(
+      ({ nativeTheme }, value) => {
+        nativeTheme.themeSource = value;
+      },
+      theme === "dracula" ? "light" : theme,
+    );
     await page.waitForFunction(
       (dark) => matchMedia("(prefers-color-scheme: dark)").matches === dark,
       theme === "dark",
@@ -1894,6 +1917,7 @@ test("first run goes from no agents to go, launches by keyboard, and can be repl
     colorMode: "system",
     interfaceScale: 100,
     terminalFontSize: 14,
+    terminalTheme: "follow",
     codeFolder: await realpath(repo),
   });
 
