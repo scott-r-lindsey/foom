@@ -2353,7 +2353,8 @@ test("external worktrees offer confirmed removal while preserving branches and t
 test("external worktrees support independent shells and confirmed shared agents", {
   timeout: 60000,
 }, async (context) => {
-  const root = await mkdtemp(path.join(tmpdir(), "foom-external-launch-"));
+  // macOS temp aliases and Windows short/case-normalized paths differ from Git's inventory.
+  const root = await realpath(await mkdtemp(path.join(tmpdir(), "foom-external-launch-")));
   const repo = path.join(root, "repo");
   const bin = path.join(root, "bin");
   await mkdir(repo);
@@ -2416,7 +2417,9 @@ test("external worktrees support independent shells and confirmed shared agents"
       command,
     });
     await expect
-      .poll(() => page.evaluate((id) => window.desktop.tail(id, 20), terminal.id))
+      .poll(() =>
+        page.evaluate(async (id) => (await window.desktop.tail(id, 20)).join(""), terminal.id),
+      )
       .toContain(`CWD:${directory}`);
   }
   await app.evaluate(({ dialog }) => {
@@ -2449,7 +2452,9 @@ test("external worktrees support independent shells and confirmed shared agents"
     );
     assert.ok(terminal);
     await expect
-      .poll(() => page.evaluate((id) => window.desktop.tail(id, 20), terminal.id))
+      .poll(() =>
+        page.evaluate(async (id) => (await window.desktop.tail(id, 20)).join(""), terminal.id),
+      )
       .toContain(`CWD:${agentTree}`);
     const anotherAgent = () =>
       page.evaluate(
