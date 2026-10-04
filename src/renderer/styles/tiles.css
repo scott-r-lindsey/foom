@@ -60,6 +60,10 @@
   background: color-mix(in srgb, var(--accent) 10%, var(--surface));
   color: var(--ink);
 }
+.terminal-tile[data-empty="true"] .tile-title {
+  background: transparent;
+  border: 0;
+}
 .tile-location {
   min-width: 0;
   overflow: hidden;

@@ -3323,6 +3323,44 @@ test("tiles build irregular layouts, preserve views, refuse full placement and r
   assert.equal(await page.evaluate(() => localStorage.getItem("foom.tiles.v1")), persisted);
 });
 
+test("launching into full tiles replaces focus and empty tiles support mouse controls", async (context) => {
+  const app = await launchApp(context);
+  const page = await app.firstWindow();
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  const original = (await page.evaluate(() => window.desktop.workspace())).terminals[0];
+  await page.getByRole("button", { name: "Actions for shell-fixture", exact: true }).click();
+  await page.getByRole("menuitem", { name: /^Shell \(/ }).click();
+  await expect(page.locator(".board-row")).toHaveCount(2);
+  const sessions = (await page.evaluate(() => window.desktop.workspace())).terminals;
+  const created = sessions.find((session) => session.id !== original.id);
+  assert.ok(created);
+  await expect
+    .poll(() => page.evaluate(() => JSON.parse(localStorage.getItem("foom.tiles.v1")).tree.session))
+    .toBe(created.id);
+  await expect(page.locator('.board-row[data-refused="true"]')).toHaveCount(0);
+  await expect(page.locator(".xterm-helper-textarea").first()).toBeFocused();
+  assert.equal(sessions.find((session) => session.id === original.id).exited, false);
+
+  await page.getByRole("button", { name: "Two by two", exact: true }).click();
+  const empty = page.getByRole("region", { name: "Tile 4: empty", exact: true });
+  await empty.hover();
+  await expect(empty.locator(".tile-number")).toHaveText("4");
+  await expect(empty.getByRole("button")).toHaveCount(3);
+  await empty.getByRole("button", { name: "Close tile", exact: true }).click();
+  await expect(page.locator(".terminal-tile")).toHaveCount(3);
+  const sibling = page.getByRole("region", { name: "Tile 3: empty", exact: true });
+  await expect(sibling).toHaveAttribute("data-focused", "true");
+  await sibling.getByRole("button", { name: "Split down", exact: true }).click();
+  await expect(page.locator(".terminal-tile")).toHaveCount(4);
+  for (const colorScheme of ["light", "dark"]) {
+    await page.emulateMedia({ colorScheme });
+    await expect(page.locator("html")).toHaveCSS("color-scheme", colorScheme);
+    await expect(empty.locator(".tile-title")).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+    await assertAccessible(page);
+  }
+  await page.screenshot({ path: path.join(tmpdir(), "foom-tile-bug-fixes.png") });
+});
+
 test("tile terminal viewport has no native overflow bars", async (context) => {
   const app = await launchApp(context);
   const page = await app.firstWindow();

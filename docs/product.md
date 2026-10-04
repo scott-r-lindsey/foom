@@ -80,21 +80,28 @@ Settings and the six tile preset icons stay at the bottom of the sidebar. Launch
 The layout is a binary split tree. Each leaf is a tile with a stable identity and
 at most one session; each split has a horizontal or vertical direction and a ratio.
 Split right and Split down add an empty tile. Close tile gives its sibling the
-space. Hide session empties the tile. These actions, including applying a preset,
-never stop a terminal. Hidden sessions keep running and retain their sidebar lights.
+space and focuses the first tile in that sibling. Hide session empties the tile.
+These actions, including applying a preset, never stop a terminal. Hidden sessions keep running and retain their sidebar lights.
 
 Clicking a visible session focuses its tile. A hidden session fills the focused
 tile if empty, otherwise the first empty tile in tree order. When all tiles are
 full, nothing is replaced: the sidebar row briefly shakes (disabled with reduced
-motion). A dedicated refusal sound is not yet available; soundscapes currently cover working, completion and attention. The longest-waiting shortcut is the
-one deliberate replacement: it places that session in the focused tile and hides
+motion). A dedicated refusal sound is not yet available; soundscapes currently
+cover working, completion and attention.
+
+Launching a session fills the focused empty tile, then the first empty tile, or
+replaces the focused tile when all tiles are full. Its previous session becomes
+hidden and keeps running. Restart replaces the focused tile. The longest-waiting
+shortcut places that session in the focused tile and hides
 its previous occupant. If the waiting session was in another tile, that tile empties.
 
 Title bars show the state light, agent badge, location, session name and tile number.
 Location text shrinks first. Split right, Split down, Maximize, Hide session and
 Close tile controls appear on hover or focus. Empty tiles are dashed outlines with
-no copy or buttons; keyboard commands can still split or close them. Focus uses a
-violet border and brighter title bar; Needs you uses an amber border that takes
+a transparent title bar showing the tile number and Split right, Split down and
+Close tile controls on hover or focus. Their bodies have no copy or launch buttons;
+Maximize and Hide session are omitted. Focus uses a violet border and brighter
+occupied title bar; Needs you uses an amber border that takes
 precedence, with a labelled, haloed light as a second state cue.
 
 Tiles are numbered in tree order and share their numbers with the sidebar. The

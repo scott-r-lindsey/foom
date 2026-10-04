@@ -43,15 +43,20 @@ export function splitTile(layout: TileLayout, direction: TileSplit["direction"])
   };
 }
 export function closeTile(layout: TileLayout): TileLayout {
+  let focused = layout.focused;
   const remove = (node: TileNode): TileNode | null => {
     if (node.id === layout.focused) return null;
     if (node.kind === "tile") return node;
     const first = remove(node.first),
       second = remove(node.second);
-    return first && second ? { ...node, first, second } : (first ?? second);
+    if (first && second) return { ...node, first, second };
+    const sibling = first ?? second;
+    if (sibling) focused = leaves(sibling)[0]?.id ?? sibling.id;
+    return sibling;
   };
-  const tree = remove(layout.tree) ?? newTile();
-  return { tree, focused: leaves(tree)[0]?.id ?? tree.id, maximized: null };
+  const remaining = remove(layout.tree);
+  const tree = remaining ?? newTile();
+  return { tree, focused: remaining ? focused : tree.id, maximized: null };
 }
 export function hideSession(layout: TileLayout): TileLayout {
   return {

@@ -122,9 +122,9 @@ function Tile({
         }
       }}
     >
-      {row && (
-        <>
-          <header className="tile-title">
+      <header className="tile-title">
+        {row && (
+          <>
             <h2 className="visually-hidden">{`${row.repository} › ${rowWorktree(row) === rowRepository(row) ? "Main checkout" : row.branch} › ${sessionName(row, preferences)}`}</h2>
             <span
               ref={lightRef}
@@ -138,31 +138,37 @@ function Tile({
               {row.repository} › {row.branch}
             </span>
             <span className="tile-name">{sessionName(row, preferences)}</span>
-            <span className="tile-number">{number}</span>
-            <div className="tile-controls">
-              {(
-                [
-                  ["right", "Split right", "◫"],
-                  ["down", "Split down", "⬒"],
-                  ["maximize", maximized ? "Restore tile" : "Maximize tile", "□"],
-                  ["hide", "Hide session", "−"],
-                  ["close", "Close tile", "×"],
-                ] as const
-              ).map(([key, label, icon]) => (
-                <button
-                  key={key}
-                  type="button"
-                  aria-label={label}
-                  title={label}
-                  onClick={() => {
-                    action(key);
-                  }}
-                >
-                  {icon}
-                </button>
-              ))}
-            </div>
-          </header>
+          </>
+        )}
+        <span className="tile-number">{number}</span>
+        <div className="tile-controls">
+          {(
+            [
+              ["right", "Split right", "◫"],
+              ["down", "Split down", "⬒"],
+              ["maximize", maximized ? "Restore tile" : "Maximize tile", "□"],
+              ["hide", "Hide session", "−"],
+              ["close", "Close tile", "×"],
+            ] as const
+          )
+            .filter(([key]) => row || (key !== "maximize" && key !== "hide"))
+            .map(([key, label, icon]) => (
+              <button
+                key={key}
+                type="button"
+                aria-label={label}
+                title={label}
+                onClick={() => {
+                  action(key);
+                }}
+              >
+                {icon}
+              </button>
+            ))}
+        </div>
+      </header>
+      {row && (
+        <>
           {row.state === "needs_input" && (
             <div className="tile-attention">
               <span title={row.reason}>{row.reason}</span>
