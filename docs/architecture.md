@@ -207,8 +207,8 @@ controller mounted but detaches and hides its view while Settings is open. Esc
 restores sidebar row focus after the terminal has reattached; selecting a sidebar
 terminal closes Settings. The shared setup coordinator renders the same Agents,
 Repositories, Worktrees, Evaluator and Appearance controls in both paths, with guided
-navigation only in preflight. Settings adds Terminal font size and placeholders for
-Themes and Sound. Successful `setup:save` calls publish `setup:changed` to keep live
+navigation only in preflight. Settings adds Terminal font size, Sound controls and a
+placeholder for Themes. Successful `setup:save` calls publish `setup:changed` to keep live
 consumers synchronized. Repository selection changes save immediately in Settings,
 with controls disabled during the write and refused selections restored to the
 registered repositories. Scans in Settings start from existing registrations;
@@ -376,3 +376,33 @@ Slow classification displays transient Checking after 150 ms; new output, user i
 removal and command lifecycle changes invalidate the old result. Checking is a UI
 state, not a model verdict or a verdict-log entry. Ambiguous rules-only results say
 “No completion or input request detected,” rather than implying a Quiet verdict.
+
+## Soundscapes
+
+`shared/sound.d.ts` defines version 1 soundscape data: a name, working synthesis
+parameters (`hum` and `seek` in Hz, `density` in seeks per second at full activity),
+and `done`/`needsYou` tones (`frequency` in Hz, `duration`/`gap` in seconds, `count`).
+`shared/soundscapes.ts` validates exact keys, finite bounded parameters and a reserved
+attention cadence (two or three separated beeps; Done is always one). No sample URLs,
+code or arbitrary Web Audio graphs are accepted. Settings stores a built-in ID or
+this portable object, ready for the future Foom-config loader; it does not read user
+soundscape files yet. The existing validated setup IPC and atomic settings store own
+persistence, with default sound settings for profiles that predate this feature.
+
+The renderer's sound controller subscribes to the board source and setup source.
+Activity bypasses React and is mixed logarithmically into one capped working sound.
+A 100 ms clock settles verdicts for one second, spaces alerts by at least two seconds,
+coalesces simultaneous alerts (attention takes priority), and repeats outstanding
+attention every two minutes. State changes, removal and disposal cancel pending
+reminders; repeated verdict IDs in the same state do not restart a reminder.
+The displayed terminal is muted when the document has focus, excluding Settings,
+preflight and location views. Muted completion is consumed, not queued for later.
+Settings must load before any audio is produced; later settings events take precedence
+over a pending initial load. No terminal text or keystrokes enter the audio layer.
+
+`renderer/sound/web-audio.ts` synthesizes a single hum with brief randomized seek
+pulses and a separate bounded alert voice. It creates AudioContext lazily, attempts
+resume when suspended, ramps gain and closes the context on disposal. Audio device
+unavailability leaves terminals and visual status operational. Settings previews
+last at most two seconds and dispose their timers and audio nodes on replacement
+or unmount. The CSP and preload capabilities are unchanged.
