@@ -115,9 +115,15 @@ test("removes the directory and revokes credentials if registration fails", asyn
 });
 
 test("defaults to the system temporary directory", async () => {
-  const hooks = await prepareHookLaunch(receiver, "claude", vi.fn());
-  expect(hooks.codexCommand.at(-1)?.startsWith(tmpdir())).toBe(true);
-  hooks.dispose();
+  // This checks default path selection. Real Windows interpreter/policy behavior
+  // is exercised by the bounded integration tests below, not this filesystem unit test.
+  const execute = vi.fn().mockResolvedValue({ stdout: "", stderr: "" });
+  const hooks = await prepareHookLaunch(receiver, "claude", vi.fn(), undefined, undefined, execute);
+  try {
+    expect(hooks.codexCommand.at(-1)?.startsWith(tmpdir())).toBe(true);
+  } finally {
+    hooks.dispose();
+  }
 });
 
 test.skipIf(process.platform === "win32")(

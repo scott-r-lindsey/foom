@@ -1,3 +1,4 @@
+import { InterfaceThemePicker } from "./interface-theme-picker";
 import { SoundControls } from "../sound/sound-controls";
 import { TerminalThemePicker } from "./terminal-theme-picker";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
@@ -347,6 +348,15 @@ export function Preflight({
         <p className="preflight-note">More terminal options are coming.</p>
       </>
     );
+  } else if (step === 8) {
+    content = (
+      <>
+        <h2 ref={headingRef} tabIndex={-1}>
+          Themes
+        </h2>
+        <InterfaceThemePicker settings={state.settings} onChange={save} />
+      </>
+    );
   } else if (step === 9) {
     content = (
       <>
@@ -354,17 +364,6 @@ export function Preflight({
           Sound
         </h2>
         <SoundControls settings={state.settings.sound} onChange={save} />
-      </>
-    );
-  } else if (step === 8) {
-    content = (
-      <>
-        <h2 ref={headingRef} tabIndex={-1}>
-          Themes
-        </h2>
-        <p className="preflight-intro">
-          Eclipse is the current theme. More theme choices are coming.
-        </p>
       </>
     );
   } else {

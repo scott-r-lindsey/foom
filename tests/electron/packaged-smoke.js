@@ -7,6 +7,7 @@ const {
   readFileSync,
   existsSync,
   mkdtempSync,
+  realpathSync,
   mkdirSync,
   rmSync,
   writeFileSync,
@@ -69,7 +70,8 @@ test("packaged utility host runs native PTYs with RunAsNode disabled", {
   // Main's inspector is disabled in the package. CDP reaches only the renderer;
   // the probe exercises the same restricted bridge as the shipped application.
   // A private profile with preflight already complete, so the package opens on the board.
-  const profile = mkdtempSync(path.join(tmpdir(), "foom-packaged-"));
+  // Worktree persistence accepts only canonical paths (/var is a symlink on macOS).
+  const profile = realpathSync(mkdtempSync(path.join(tmpdir(), "foom-packaged-")));
   writeFileSync(
     path.join(profile, "settings.json"),
     JSON.stringify({ version: 1, settings: { setupComplete: true } }),
@@ -108,7 +110,14 @@ test("packaged utility host runs native PTYs with RunAsNode disabled", {
     const context = browser.contexts()[0];
     const page = context.pages()[0] || (await context.waitForEvent("page"));
     page.setDefaultTimeout(15000);
-    await page.getByRole("button", { name: "Actions for Main checkout", exact: true }).click();
+    await expect
+      .poll(async () =>
+        (await page.evaluate(() => window.desktop.workspace())).repositories.map(
+          (entry) => entry.path,
+        ),
+      )
+      .toContain(repository);
+    await page.getByRole("button", { name: "Actions for repo", exact: true }).click();
     await page.getByRole("menuitem", { name: /^Shell \(/ }).click();
     await page.waitForFunction(
       () =>

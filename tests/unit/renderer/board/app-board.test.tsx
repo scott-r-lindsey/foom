@@ -358,12 +358,13 @@ test("feedback failure is visible and retry leaves main in charge of attention",
 });
 test("unreadable settings fall back to the empty board; samples require the build flag", async () => {
   const error = vi.spyOn(console, "error").mockImplementation(() => {});
-  mock.setupState.mockRejectedValueOnce(new Error("gone"));
+  mock.setupState.mockRejectedValue(new Error("gone"));
   const screen = render(<App />);
   await settle();
   expect(screen.getByRole("main", { name: "Board" })).toBeTruthy();
   expect(error).toHaveBeenCalled();
   screen.unmount();
+  mock.setupState.mockResolvedValue(setupState({ setupComplete: true }));
   vi.stubGlobal("FOOM_SAMPLE_BOARD", true);
   const sample = render(<App />);
   await settle();

@@ -1,3 +1,5 @@
+import type { Settings } from "../../../src/shared/setup";
+import { setupState } from "../../fixtures/setup";
 import type { BrowserWindowConstructorOptions, Input } from "electron";
 import type { Setup } from "../../../src/main/setup/setup";
 import { beforeEach, expect, test, vi } from "vitest";
@@ -164,7 +166,11 @@ const mock = vi.hoisted(() => {
     openSettings: vi.fn<() => Promise<unknown>>(),
     settingsStore: {
       update: vi.fn(() => Promise.resolve()),
-      get: () => ({ colorMode: "dark", interfaceScale: 120 }),
+      get: (): Pick<Settings, "colorMode" | "interfaceScale" | "interfaceTheme"> => ({
+        colorMode: "dark",
+        interfaceScale: 120,
+        interfaceTheme: "follow",
+      }),
     },
     VerdictLog: vi.fn<(userData: string, classify: (input: unknown) => unknown) => void>(),
     listen: vi.fn(),
@@ -458,7 +464,7 @@ function quitting() {
 test.each([true, false])("uses the native theme at window creation (dark: %s)", async (dark) => {
   mock.theme.shouldUseDarkColors = dark;
   await start();
-  expect(mock.construct.mock.calls[0]?.[0].backgroundColor).toBe(dark ? "#05040A" : "#F3F0FA");
+  expect(mock.construct.mock.calls[0]?.[0].backgroundColor).toBe(dark ? "#05040a" : "#f3f0fa");
 });
 
 test("window close requests the same quit path without destroying the window", async () => {
@@ -591,7 +597,7 @@ test("keeps the native background in sync with theme updates and removes its lis
   for (const dark of [true, false]) {
     mock.theme.shouldUseDarkColors = dark;
     update?.();
-    expect(mock.window.setBackgroundColor).toHaveBeenLastCalledWith(dark ? "#05040A" : "#F3F0FA");
+    expect(mock.window.setBackgroundColor).toHaveBeenLastCalledWith(dark ? "#05040a" : "#f3f0fa");
   }
   mock.readyEvents.get("closed")?.();
   expect(mock.theme.removeListener).toHaveBeenCalledWith("updated", update);
@@ -672,7 +678,7 @@ test("setup owns the settings, applies them to the workspace, and classifies ver
   // The saved mode and scale apply before the window exists.
   expect(mock.construct.mock.calls[0]?.[0].webPreferences?.zoomFactor).toBe(1.2);
   expect(mock.theme.themeSource).toBe("dark");
-  const next = { hooks: false, colorMode: "light", interfaceScale: 90 };
+  const next = { hooks: false, colorMode: "light", interfaceScale: 90, interfaceTheme: "follow" };
   deps.apply(next);
   expect(mock.workspace.configure).toHaveBeenCalledWith(next);
   expect(mock.theme.themeSource).toBe("light");
@@ -825,4 +831,19 @@ test("Settings repository selection uses workspace lifecycle guards", async () =
   expect(mock.workspace.addRepository).toHaveBeenCalledWith(repository.path);
   await expect(code.worktrees.removeRepository(repository.path)).rejects.toThrow("Close");
   expect(mock.workspace.removeRepository).toHaveBeenCalledWith(repository.path);
+});
+
+test("fixed interface themes set the native base and exact background, even between two dark themes", async () => {
+  let settings = setupState({ interfaceTheme: "deep-field" }).settings;
+  vi.spyOn(mock.settingsStore, "get").mockImplementation(() => settings);
+  await start();
+  expect(mock.theme.themeSource).toBe("dark");
+  expect(mock.construct.mock.calls[0]?.[0].backgroundColor).toBe("#080f1e");
+  settings = { ...settings, interfaceTheme: "high-contrast" };
+  mock.setup.deps?.apply(settings);
+  expect(mock.window.setBackgroundColor).toHaveBeenLastCalledWith("#000000");
+  settings = { ...settings, interfaceTheme: "moonlight" };
+  mock.setup.deps?.apply(settings);
+  expect(mock.theme.themeSource).toBe("light");
+  expect(mock.window.setBackgroundColor).toHaveBeenLastCalledWith("#f5f7fc");
 });

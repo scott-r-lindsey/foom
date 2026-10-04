@@ -357,3 +357,16 @@ test("applying a selection adds and removes only scanned repositories, reporting
   // Unselected and not added: nothing is attempted, so nothing fails.
   expect(again.failures).toEqual([]);
 });
+
+test("choosing a legacy appearance mode returns to Eclipse but size changes keep a theme", async () => {
+  const setup = new Setup(deps);
+  expect((await setup.save({ interfaceTheme: "moonlight" })).settings.interfaceTheme).toBe(
+    "moonlight",
+  );
+  expect((await setup.save({ interfaceScale: 110 })).settings.interfaceTheme).toBe("moonlight");
+  expect((await setup.save({ colorMode: "dark" })).settings.interfaceTheme).toBe("follow");
+  expect(
+    (await setup.save({ colorMode: "system", interfaceTheme: "deep-field" })).settings
+      .interfaceTheme,
+  ).toBe("deep-field");
+});

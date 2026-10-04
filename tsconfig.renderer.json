@@ -2,6 +2,7 @@
   "extends": "./tsconfig.json",
   "compilerOptions": {
     "module": "ESNext",
+    "noEmit": true,
     "moduleResolution": "Bundler",
     "lib": ["ES2023", "DOM", "DOM.Iterable"],
     "types": [],

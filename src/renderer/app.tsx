@@ -1,3 +1,4 @@
+import { attachInterfaceTheme } from "./ui/interface-theme";
 import { useEffect, useState } from "react";
 import type { SetupState } from "../shared/setup";
 import { Board } from "./board/board-view";
@@ -17,6 +18,7 @@ export function App() {
       : createAppSource(),
   );
   const [setup] = useState(createSetupSource);
+  useEffect(() => attachInterfaceTheme(setup), [setup]);
   const [state, setState] = useState<SetupState>();
   const [preflight, setPreflight] = useState(false);
   const [settings, setSettings] = useState(false);
