@@ -147,7 +147,7 @@
   inset: auto 16px 16px;
   z-index: 2;
   max-height: 35vh;
-  overflow: auto;
+  overflow: clip;
   box-shadow: 0 8px 30px var(--hole);
 }
 

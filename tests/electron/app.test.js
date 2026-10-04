@@ -2389,6 +2389,24 @@ test("sidebar menus escape the scroll area, stay in the window and launch from a
   await expect(page.locator(".board-row").filter({ hasText: "feature/row-17" })).toBeVisible();
   const snapshot = await page.evaluate(() => window.desktop.workspace());
   assert.equal(snapshot.terminals[0].branch, "feature/row-17");
+  // Long previews remain passive and bounded, without an inaccessible scroll region.
+  const previewCommand =
+    process.platform === "win32"
+      ? "1..40 | ForEach-Object { 'peek-line' }"
+      : "printf 'peek-line\\n%.0s' {1..40}";
+  await page.evaluate(({ id, command }) => window.desktop.input(id, command + "\r"), {
+    id: snapshot.terminals[0].id,
+    command: previewCommand,
+  });
+  await expect
+    .poll(() =>
+      page.evaluate(
+        async (id) =>
+          (await window.desktop.tail(id, 40)).filter((line) => line.includes("peek-line")).length,
+        snapshot.terminals[0].id,
+      ),
+    )
+    .toBeGreaterThan(20);
   const launchedRow = page.locator(".board-row");
   const filter = page.getByLabel("Filter repositories and sessions");
   await filter.fill("row");
@@ -2415,6 +2433,8 @@ test("sidebar menus escape the scroll area, stay in the window and launch from a
     await expect(launchedRow).toHaveCSS("outline-style", "solid");
     const peek = page.getByRole("complementary", { name: "Terminal peek" });
     await expect(peek).toBeVisible();
+    await expect(peek).toHaveCSS("overflow", "clip");
+    await assertAccessible(page);
     const peekBox = await peek.boundingBox();
     const sidebarBox = await page.locator(".sidebar-shell").boundingBox();
     assert.ok(
