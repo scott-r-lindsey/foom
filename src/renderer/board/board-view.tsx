@@ -13,6 +13,9 @@ import {
   neighbor,
 } from "./tiles";
 import type { TileLayout, TilePreset } from "./tiles.d";
+import type { SetupSource } from "../preflight/setup-source.d";
+import { createSoundController } from "../sound/sound-controller";
+import { createAudioSink } from "../sound/web-audio";
 import { Sidebar, launcherActions } from "./sidebar-view";
 import { readPreferences, writePreferences, renameSession } from "./sidebar-preferences";
 import type { SidebarLocation } from "./sidebar.d";
@@ -39,8 +42,10 @@ export function Board({
   onSettings,
   settingsView,
   onCloseSettings,
+  soundSetup,
 }: {
   source: BoardSource;
+  soundSetup?: Pick<SetupSource, "state" | "subscribe">;
   /** Preflight is covering the board; it stays mounted so terminals keep running. */
   inactive?: boolean;
   onSettings?: () => void;
@@ -150,6 +155,19 @@ export function Board({
   const [tail, setTail] = useState<readonly string[]>([]);
   const buttonsRef = useRef(new Map<string, HTMLElement>());
   const terminalRef = useRef<HTMLElement>(null);
+  const focusedSession = leaves(layout.tree).find((tile) => tile.id === layout.focused)?.session;
+  const focusedRow = rows.find((row) => row.id === focusedSession);
+  const displayedId = focusedRow?.kind === "sample" ? undefined : focusedRow?.id;
+  const soundFocusRef = useRef<string | undefined>(undefined);
+  useLayoutEffect(() => {
+    soundFocusRef.current = paneInactive || location ? undefined : displayedId;
+  }, [paneInactive, location, displayedId]);
+  useEffect(() => {
+    if (!soundSetup) return;
+    return createSoundController(source, soundSetup, createAudioSink(), () =>
+      document.hasFocus() ? soundFocusRef.current : undefined,
+    );
+  }, [source, soundSetup]);
   const peekRow = rows.find((row) => row.id === peek?.id);
   const sidebarRef = useRef<HTMLElement>(null);
   useEffect(() => {

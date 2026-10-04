@@ -59,6 +59,7 @@ export function App() {
       {board && (
         <Board
           source={source}
+          soundSetup={setup}
           inactive={preflight}
           onSettings={() => {
             if (!settings) void reopen();

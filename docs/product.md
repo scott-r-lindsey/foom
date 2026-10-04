@@ -86,7 +86,7 @@ never stop a terminal. Hidden sessions keep running and retain their sidebar lig
 Clicking a visible session focuses its tile. A hidden session fills the focused
 tile if empty, otherwise the first empty tile in tree order. When all tiles are
 full, nothing is replaced: the sidebar row briefly shakes (disabled with reduced
-motion). The refusal sound is deferred to #83. The longest-waiting shortcut is the
+motion). A dedicated refusal sound is not yet available; soundscapes currently cover working, completion and attention. The longest-waiting shortcut is the
 one deliberate replacement: it places that session in the focused tile and hides
 its previous occupant. If the waiting session was in another tile, that tile empties.
 
@@ -192,7 +192,23 @@ Terminal font size applies to every terminal view: 10–32 pixels, 14 by default
 independent of interface size. The Terminal section previews text size, all 16 ANSI colors, bold, dim and selection.
 Terminal colors default to Follow interface, with Foom Light/Dark, Solarized Light/Dark
 and Dracula built in. Changes apply live to visible and detached terminals and board peek.
-Interface Themes and Sound remain placeholders for later work.
+Interface themes remain a placeholder for later work.
+
+Settings → Sound offers Hard drive and Soft drive soundscapes. Both synthesize
+seek chatter and a spinning hum from total terminal output, with a capped mix;
+quiet terminals are silent. Working sound is off by default, with a separate
+volume (15% initially). Alerts are on at 50%: Done is one short beep and Needs you
+has a reserved two-beep cadence. Needs you repeats every two minutes until replied
+to or dismissed. The terminal in the focused tile of the focused window does not alert;
+Settings and preflight hide that terminal and allow its alerts again. Completion
+observed while muted is not replayed. Attention reminders resume after two minutes
+away from its view or after unmuting.
+
+Verdicts must settle for one second before sounding. Simultaneous alerts play
+once, with Needs you taking precedence over Done; alerts are at least two seconds
+apart. Each sound has a preview, using its selected volume even when switched off.
+Sound choices, switches and volumes persist. Sound supplements the visual state;
+it never clears or replaces it.
 
 ## Quitting
 

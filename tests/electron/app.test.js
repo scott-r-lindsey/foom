@@ -1956,6 +1956,13 @@ test("first run goes from no agents to go, launches by keyboard, and can be repl
     interfaceScale: 100,
     terminalFontSize: 14,
     terminalTheme: "follow",
+    sound: {
+      soundscape: "drive",
+      working: false,
+      workingVolume: 0.15,
+      alerts: true,
+      alertVolume: 0.5,
+    },
     codeFolder: await realpath(repo),
   });
 
@@ -3337,4 +3344,83 @@ test("tile terminal viewport has no native overflow bars", async (context) => {
     await expect(page.locator(".xterm-scrollable-element").first()).toBeVisible();
   }
   await page.screenshot({ path: path.join(tmpdir(), "foom-132-bars-fixed.png") });
+});
+
+test("soundscape sends one attention cadence and one completion to a fake audio sink", {
+  timeout: 45000,
+}, async (context) => {
+  const root = await mkdtemp(path.join(tmpdir(), "foom-sound-"));
+  context.after(() => rm(root, { recursive: true, force: true }));
+  const marker = path.join(root, "keys");
+  const app = await launchApp(context);
+  const page = await app.firstWindow();
+  await page.evaluate(() => {
+    window.soundTones = [];
+    window.AudioContext = class {
+      currentTime = 0;
+      state = "running";
+      destination = {};
+      createGain() {
+        return {
+          gain: {
+            setValueAtTime() {},
+            linearRampToValueAtTime() {},
+            exponentialRampToValueAtTime() {},
+          },
+          connect() {},
+          disconnect() {},
+        };
+      }
+      createOscillator() {
+        let frequency;
+        return {
+          frequency: {
+            setValueAtTime(value) {
+              frequency = value;
+            },
+          },
+          connect() {},
+          disconnect() {},
+          start() {
+            window.soundTones.push(frequency);
+          },
+          stop() {},
+        };
+      }
+      close() {
+        return Promise.resolve();
+      }
+    };
+    window.soundTerminal = undefined;
+    window.desktop.onData((id) => {
+      window.soundTerminal = id;
+    });
+  });
+  await page.keyboard.type(
+    `${process.platform === "win32" ? "& " : ""}"${process.execPath}" "${path.join(__dirname, "input-probe.js")}" "${marker}"`,
+  );
+  await page.keyboard.press("Enter");
+  // Hide the terminal before its verdict settles; settings keeps the source subscribed.
+  await boardCommand(app, ",", false);
+  await page.getByRole("button", { name: "Sound", exact: true }).click();
+  await expect(page.locator(".board-row")).toHaveAttribute("data-state", "needs_input");
+  await expect.poll(() => page.evaluate(() => window.soundTones)).toEqual([880, 880]);
+  await assertAccessible(page);
+  assert.deepEqual(await page.evaluate(() => window.soundTones), [880, 880]);
+  // Exit the real PTY: process exit is a Done verdict on every supported shell/platform.
+  await page.evaluate(() => window.desktop.input(window.soundTerminal, "q"));
+  await expect
+    .poll(() =>
+      page.evaluate(async () => (await window.desktop.tail(window.soundTerminal, 40)).join("\n")),
+    )
+    .not.toContain("INPUT_READY");
+  await page.evaluate(() => window.desktop.input(window.soundTerminal, "exit\r"));
+  await expect(page.locator(".board-row")).toHaveAttribute("data-state", "done");
+  await expect.poll(() => page.evaluate(() => window.soundTones)).toEqual([880, 880, 660]);
+  await page.getByLabel("Alerts on", { exact: true }).uncheck();
+  await expect
+    .poll(() =>
+      page.evaluate(async () => (await window.desktop.setupState()).settings.sound.alerts),
+    )
+    .toBe(false);
 });
