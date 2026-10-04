@@ -2343,14 +2343,16 @@ test("sidebar menus escape the scroll area, stay in the window and launch from a
   }, repo);
   await page.getByRole("button", { name: "Add repository", exact: true }).click();
   await expect(page.getByRole("treeitem", { name: "repo", exact: true })).toBeVisible();
-  await page.evaluate(async (repository) => {
+  await page.evaluate(async () => {
+    const repository = (await window.desktop.workspace()).repositories[0];
+    if (!repository) throw new Error("Missing registered repository");
     for (let i = 0; i < 18; i++)
       await window.desktop.createWorktree(
-        repository,
+        repository.path,
         `feature/row-${String(i).padStart(2, "0")}`,
         "adjacent",
       );
-  }, repo);
+  });
   // A reload also verifies the registered repository and its empty worktrees survive.
   await page.reload();
   const bottom = page.getByRole("button", { name: "Actions for feature/row-17", exact: true });
