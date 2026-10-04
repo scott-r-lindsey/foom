@@ -3191,7 +3191,9 @@ test("every interface theme applies live to native chrome and passes axe on boar
   await boardCommand(app, ",", false);
   await page.getByRole("button", { name: "Themes", exact: true }).click();
   await page.getByRole("button", { name: /^System/ }).click();
-  assert.equal(await app.evaluate(({ nativeTheme }) => nativeTheme.themeSource), "system");
+  await expect
+    .poll(() => app.evaluate(({ nativeTheme }) => nativeTheme.themeSource))
+    .toBe("system");
   for (const [colorScheme, expected] of [
     ["dark", "#05040a"],
     ["light", "#f3f0fa"],
@@ -3266,6 +3268,8 @@ test("soundscape sends one attention cadence and one completion to a fake audio 
     `${process.platform === "win32" ? "& " : ""}"${process.execPath}" "${path.join(__dirname, "input-probe.js")}" "${marker}"`,
   );
   await page.keyboard.press("Enter");
+  // Capture its ID before Settings detaches the view and stops output delivery.
+  await page.waitForFunction(() => typeof window.soundTerminal === "string");
   // Hide the terminal before its verdict settles; settings keeps the source subscribed.
   await boardCommand(app, ",", false);
   await page.getByRole("button", { name: "Sound", exact: true }).click();
