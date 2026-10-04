@@ -37,6 +37,7 @@ const versions: Record<string, string> & { claude: string; codex: string; agy: s
 let help: string;
 let failed: string;
 const listWorktrees = vi.fn();
+const launchIdentity = vi.fn(() => Promise.resolve("identity"));
 const create = vi.fn((_spec: TerminalSpec) => "terminal-id");
 const cleanup = vi.fn();
 const binding: AgentHooks = {
@@ -57,6 +58,7 @@ const request: AgentLaunch = {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  launchIdentity.mockReset().mockResolvedValue("identity");
   vi.stubEnv("PATH", root);
   help = "--settings <file-or-json>\n-c, --config <key=value>";
   failed = "";
@@ -82,7 +84,7 @@ beforeEach(() => {
     return new ChildProcess();
   });
   listWorktrees.mockResolvedValue([{ path: tree, managed: true, bare: false, prunable: false }]);
-  service = new AgentService({ listWorktrees }, { create }, prepare);
+  service = new AgentService({ listWorktrees, launchIdentity }, { create }, prepare);
 });
 afterEach(() => vi.unstubAllEnvs());
 
@@ -279,7 +281,7 @@ describe("launch", () => {
     expect(create).toHaveBeenCalledWith(expect.objectContaining({ args: [], env: { PATH: root } }));
   });
   it("uses evaluation when a hook receiver is unavailable", async () => {
-    service = new AgentService({ listWorktrees }, { create });
+    service = new AgentService({ listWorktrees, launchIdentity }, { create });
     await expect(service.launch(request)).resolves.toEqual({
       id: "terminal-id",
       attention: "evaluator",
@@ -294,7 +296,7 @@ describe("launch", () => {
   });
   it("awaits asynchronous terminal creation and cleans up rejected or cancelled launches", async () => {
     const asyncCreate = vi.fn<(_spec: TerminalSpec) => Promise<string>>();
-    service = new AgentService({ listWorktrees }, { create: asyncCreate }, prepare);
+    service = new AgentService({ listWorktrees, launchIdentity }, { create: asyncCreate }, prepare);
     asyncCreate.mockRejectedValueOnce(new Error("host stopped"));
     await expect(service.launch(request)).rejects.toThrow("host stopped");
     expect(cleanup).toHaveBeenCalledOnce();
@@ -401,3 +403,26 @@ it("main-only checkout authorization permits the registered checkout and retains
   service.release("terminal-id");
   await expect(service.launch({ ...main, mainCheckout: false })).rejects.toThrow("not managed");
 });
+
+it("launches a main-authorized external checkout at its selected directory", async () => {
+  listWorktrees.mockResolvedValue([{ path: tree, managed: false, bare: false, prunable: false }]);
+  await service.launch({ ...request, checkoutIdentity: "identity" });
+  expect(launchIdentity).toHaveBeenCalledWith(root, tree);
+  expect(create).toHaveBeenCalledWith(expect.objectContaining({ cwd: tree }));
+});
+
+it.each(["replaced", "locked"])(
+  "revalidates external checkout identity after hook preparation (%s)",
+  async (reason) => {
+    listWorktrees.mockResolvedValue([{ path: tree, managed: false, bare: false, prunable: false }]);
+    if (reason === "replaced") launchIdentity.mockResolvedValueOnce("replacement");
+    else launchIdentity.mockRejectedValueOnce(new Error("Worktree is locked"));
+    await expect(service.launch({ ...request, checkoutIdentity: "identity" })).rejects.toThrow(
+      reason === "replaced" ? "has changed" : "locked",
+    );
+    expect(create).not.toHaveBeenCalled();
+    expect(cleanup).toHaveBeenCalledOnce();
+    await service.launch({ ...request, checkoutIdentity: "identity" });
+    expect(create).toHaveBeenCalledOnce();
+  },
+);

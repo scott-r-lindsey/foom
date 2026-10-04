@@ -24,7 +24,7 @@ const repository: SidebarRepository = {
     {
       path: "/tree",
       branch: "feature",
-      managed: true,
+      managed: false,
       bare: false,
       locked: false,
       prunable: false,
@@ -44,7 +44,7 @@ const load = () =>
     hooks: true,
     acknowledged: true,
   });
-function setup() {
+function setup(mainCheckout = false) {
   const original = sampleRows(0)[0];
   if (!original) throw Error("fixture");
   const base = createSampleSource([
@@ -53,8 +53,8 @@ function setup() {
       id: "a",
       repository: "Foom",
       repositoryPath: "/foom",
-      worktree: "/tree",
-      branch: "feature",
+      worktree: mainCheckout ? "/foom" : "/tree",
+      branch: mainCheckout ? "main" : "feature",
       kind: "agent",
       agent: "claude",
       managed: true,
@@ -133,6 +133,18 @@ test("location selection shows breadcrumbs and launches there; menus issue locat
     worktree: "/foom",
     run: "shell",
   });
+  const checkout = view.getByRole("button", { name: "Main checkout" });
+  expect(checkout.textContent).toContain("Main checkout");
+  expect(checkout.textContent).toContain("main");
+  fireEvent.click(checkout);
+  expect(pane.textContent).toContain("Foom › Main checkout");
+  const filter = view.getByLabelText("Filter repositories and sessions");
+  fireEvent.change(filter, { target: { value: "Main checkout" } });
+  expect(
+    view.getByRole("button", { name: "Main checkout" }).querySelector("mark")?.textContent,
+  ).toBe("Main checkout");
+  expect(view.queryByRole("button", { name: "feature" })).toBeNull();
+  fireEvent.change(filter, { target: { value: "" } });
   fireEvent.click(view.getByRole("button", { name: "feature" }));
   expect(pane.textContent).toContain("Foom › feature");
   for (const [label, expected] of [
@@ -147,7 +159,7 @@ test("location selection shows breadcrumbs and launches there; menus issue locat
     });
     expect(view.command).toHaveBeenLastCalledWith(expected);
   }
-  fireEvent.click(view.getByRole("button", { name: "Actions for main" }));
+  fireEvent.click(view.getByRole("button", { name: "Actions for Main checkout" }));
   expect(view.queryByRole("menuitem", { name: "Remove worktree…" })).toBeNull();
   fireEvent.keyDown(view.getByRole("menu"), { key: "Escape" });
   fireEvent.click(view.getByRole("button", { name: "Actions for Foom" }));
@@ -214,9 +226,9 @@ test("tree keyboard traversal, filter typing, narrow mode and persistence failur
   });
   const name = view.getByRole("button", { name: "Foom" });
   fireEvent.keyDown(name, { key: "ArrowLeft" });
-  expect(view.queryByRole("button", { name: "Actions for main" })).toBeNull();
+  expect(view.queryByRole("button", { name: "Actions for Main checkout" })).toBeNull();
   fireEvent.keyDown(name, { key: "ArrowRight" });
-  expect(view.getByRole("button", { name: "Actions for main" })).toBeTruthy();
+  expect(view.getByRole("button", { name: "Actions for Main checkout" })).toBeTruthy();
   fireEvent.keyDown(name, { key: "Home" });
   expect(document.activeElement).toBe(name);
   fireEvent.keyDown(name, { key: "End" });
@@ -306,4 +318,16 @@ test("wait labels follow attention and unnamed shells have a plain launcher labe
   expect(launcherActions(undefined, undefined)).toEqual([
     { label: "Shell", badge: ">_", run: "shell" },
   ]);
+});
+
+test("main-checkout session breadcrumbs identify the checkout rather than its branch", async () => {
+  const view = setup(true);
+  await act(async () => {
+    await Promise.resolve();
+  });
+  const checkout = view.getByRole("treeitem", { name: "Main checkout" });
+  const session = checkout.querySelector(".board-row");
+  if (!session) throw new Error("Missing main-checkout session");
+  fireEvent.click(session);
+  expect(view.getByRole("heading", { name: "Foom › Main checkout › Claude Code" })).toBeTruthy();
 });

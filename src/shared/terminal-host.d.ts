@@ -1,5 +1,5 @@
 import type { TerminalTheme } from "./terminal-theme";
-import type { TerminalActivity, TerminalSpec } from "./desktop";
+import type { TerminalActivity, TerminalSpec, ShellState } from "./desktop";
 
 type RequestBase = { request: number; id: string };
 export type HostRequest = RequestBase &
@@ -14,6 +14,7 @@ export type HostRequest = RequestBase &
     | { type: "tail"; lines: number }
   );
 export type HostResponse =
+  | { type: "shell-state"; id: string; state: ShellState }
   | { type: "activity"; entries: TerminalActivity[] }
   | { type: "quiet"; id: string }
   | { type: "output"; id: string }

@@ -26,6 +26,7 @@ export function hostRequest(value: unknown): value is HostRequest {
       return (
         (value["dark"] === undefined || typeof value["dark"] === "boolean") &&
         record(spec) &&
+        (spec["shellIntegration"] === undefined || typeof spec["shellIntegration"] === "boolean") &&
         text(spec["command"]) &&
         text(spec["cwd"]) &&
         Array.isArray(spec["args"]) &&
@@ -83,6 +84,14 @@ export function hostResponse(value: unknown): value is HostResponse {
     );
   if (!text(value["id"])) return false;
   switch (value["type"]) {
+    case "shell-state": {
+      const state = value["state"];
+      return (
+        record(state) &&
+        (state["phase"] === "running" ||
+          (state["phase"] === "prompt" && integer(state["exitCode"], 0, 255)))
+      );
+    }
     case "output":
     case "quiet":
       return true;

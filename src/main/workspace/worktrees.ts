@@ -279,7 +279,60 @@ export class WorktreeService {
     if (checked.trimEnd() !== branch) throw new Error("Branch shorthand is not allowed");
   }
 
-  async changes(repositoryPath: string, path: string): Promise<string> {
+  /** Main-only snapshot for an explicitly confirmed removal, including external trees. */
+  async removalIdentity(repositoryPath: string, path: string): Promise<string> {
+    return this.checkoutIdentity(repositoryPath, path, false);
+  }
+
+  /** Validate a selected checkout without adopting it as Foom-owned. */
+  async launchIdentity(repositoryPath: string, path: string): Promise<string> {
+    return this.checkoutIdentity(repositoryPath, path, true);
+  }
+
+  private async checkoutIdentity(
+    repositoryPath: string,
+    path: string,
+    allowMain: boolean,
+  ): Promise<string> {
+    validatePath(path);
+    const trees = await this.listWorktrees(repositoryPath);
+    const tree = trees.find((item) => item.path === path);
+    if (
+      !tree ||
+      tree.bare ||
+      tree.locked ||
+      tree.prunable ||
+      (!allowMain && path === repositoryPath)
+    )
+      throw new Error("Worktree is missing, locked, prunable, or is the main checkout");
+    if ((await realpath(path)) !== path) throw new Error("Worktree path has been redirected");
+    const commonDirectory = async (cwd: string) =>
+      realpath(
+        (await git(cwd, ["rev-parse", "--path-format=absolute", "--git-common-dir"])).slice(0, -1),
+      );
+    const common = await commonDirectory(repositoryPath);
+    const gitDirectory = await realpath(
+      (await git(path, ["rev-parse", "--absolute-git-dir"])).slice(0, -1),
+    );
+    if ((!allowMain && gitDirectory === common) || (await commonDirectory(path)) !== common)
+      throw new Error("Worktree is not a linked checkout of this repository");
+    return worktreeIdentity(path);
+  }
+
+  private async checkRemovalIdentity(
+    repositoryPath: string,
+    path: string,
+    identity: string,
+  ): Promise<void> {
+    if ((await this.removalIdentity(repositoryPath, path)) !== identity)
+      throw new Error("Worktree has been replaced. Review it and try again.");
+  }
+
+  async changes(repositoryPath: string, path: string, identity?: string): Promise<string> {
+    if (identity !== undefined) {
+      await this.checkRemovalIdentity(repositoryPath, path, identity);
+      return git(path, ["status", "--porcelain=v1", "-z", "--untracked-files=all"]);
+    }
     const trees = await this.listWorktrees(repositoryPath);
     if (!trees.some((tree) => tree.path === path && tree.managed && !tree.prunable && !tree.locked))
       throw new Error("Worktree is not managed by Foom or is locked");
@@ -334,18 +387,27 @@ export class WorktreeService {
     return path;
   }
 
-  async removeWorktree(repositoryPath: string, path: string, force = false): Promise<void> {
+  async removeWorktree(
+    repositoryPath: string,
+    path: string,
+    force = false,
+    identity?: string,
+  ): Promise<void> {
     const repository = this.repository(repositoryPath);
     validatePath(path);
     const resolved = resolve(path);
-    const ownership = this.managed.get(resolved);
-    if (ownership?.repository !== repository.path)
-      throw new Error("Worktree is not managed by Foom");
-    assertInside(ownership.root, resolved);
-    if ((await realpath(resolved)) !== resolved)
-      throw new Error("Worktree path has been redirected");
-    if (!(await this.isManaged(repository.path, resolved)))
-      throw new Error("Worktree is not managed by Foom");
+    if (identity !== undefined) {
+      await this.checkRemovalIdentity(repositoryPath, resolved, identity);
+    } else {
+      const ownership = this.managed.get(resolved);
+      if (ownership?.repository !== repository.path)
+        throw new Error("Worktree is not managed by Foom");
+      assertInside(ownership.root, resolved);
+      if ((await realpath(resolved)) !== resolved)
+        throw new Error("Worktree path has been redirected");
+      if (!(await this.isManaged(repository.path, resolved)))
+        throw new Error("Worktree is not managed by Foom");
+    }
     // Git performs its own dirty/locked checks before removing the tree.
     await git(repository.path, [
       "worktree",
