@@ -2785,7 +2785,12 @@ test("Settings shares live preflight values, sizes the terminal and restores key
     dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [folder] });
   }, root);
   const page = await app.firstWindow();
-  const shortcut = () => boardCommand(app, ",", false);
+  const shortcut = async () => {
+    await boardCommand(app, ",", false);
+    // Native input dispatch returns before React makes Settings interactive.
+    // Wait before sending Tab, which otherwise still goes to the terminal.
+    await expect(page.getByRole("region", { name: "Settings" })).toBeVisible();
+  };
   const row = page.locator('.board-row[data-kind="shell"]');
   await boardCommand(app, "B");
   await expect(row).toBeFocused();

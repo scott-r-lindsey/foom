@@ -151,7 +151,9 @@ jobs:
         if: runner.os == 'Linux'
         run: xvfb-run -a npm run test:electron
       - name: Test Electron on macOS and Windows
-        timeout-minutes: 5
+        # Windows can exceed five minutes across 39 tests on a busy runner.
+        # Individual app launches retain the 60-second hard watchdog.
+        timeout-minutes: 10
         if: runner.os != 'Linux'
         run: npm run test:electron
       - name: Package desktop application
