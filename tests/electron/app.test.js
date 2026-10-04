@@ -525,9 +525,11 @@ test("bundled brand fonts and both system themes render in Electron", {
     );
     const background = mode === "dark" ? "rgb(5, 4, 10)" : "rgb(243, 240, 250)";
     await page.waitForFunction(
+      // Terminal and interface themes have separate media-change listeners.
       (expected) =>
+        getComputedStyle(document.documentElement).backgroundColor === expected &&
         getComputedStyle(document.querySelector(".xterm-scrollable-element")).backgroundColor ===
-        expected,
+          expected,
       background,
     );
     const rendered = await page.evaluate(async () => {
@@ -1920,6 +1922,7 @@ test("first run goes from no agents to go, launches by keyboard, and can be repl
     inference: { kind: "rules" },
     inferenceTimeoutMs: 5000,
     colorMode: "system",
+    interfaceTheme: "follow",
     interfaceScale: 100,
     terminalFontSize: 14,
     terminalTheme: "follow",
@@ -2020,11 +2023,15 @@ test("appearance switches light and dark, and zoom shortcuts resize the interfac
     ["dark", "rgb(13, 10, 23)"],
   ]) {
     await page.emulateMedia({ colorScheme });
-    const backgrounds = await page.locator(".noise-tile").evaluateAll(async (tiles) => {
-      await new Promise((resolve) => requestAnimationFrame(resolve));
-      return tiles.map((tile) => getComputedStyle(tile).backgroundColor);
-    });
-    assert.deepEqual(backgrounds, Array(10).fill(surface), "Row backgrounds must switch with text");
+    await expect
+      .poll(
+        () =>
+          page
+            .locator(".noise-tile")
+            .evaluateAll((tiles) => tiles.map((tile) => getComputedStyle(tile).backgroundColor)),
+        { message: "Row backgrounds must switch with text" },
+      )
+      .toEqual(Array(10).fill(surface));
   }
   await page.emulateMedia({ colorScheme: null });
   const dark = () => page.evaluate(() => matchMedia("(prefers-color-scheme: dark)").matches);
@@ -3134,6 +3141,79 @@ test("Bash command status reaches the sidebar without closing the shell", {
   await expect(row).toHaveAttribute("data-state", "done");
 });
 
+test("every interface theme applies live to native chrome and passes axe on board and Settings", {
+  timeout: 55000,
+}, async (context) => {
+  const app = await launchApp(context);
+  const page = await app.firstWindow();
+  const choices = [
+    ["eclipse-light", "Eclipse Light", "light", "#f3f0fa"],
+    ["eclipse-dark", "Eclipse Dark", "dark", "#05040a"],
+    ["high-contrast", "High Contrast", "dark", "#000000"],
+    ["deep-field", "Deep Field", "dark", "#080f1e"],
+    ["moonlight", "Moonlight", "light", "#f5f7fc"],
+    ["graphite", "Graphite", "dark", "#18181b"],
+    ["midnight-indigo", "Midnight Indigo", "dark", "#101027"],
+  ];
+  for (const [id, name, base, background] of choices) {
+    await boardCommand(app, ",", false);
+    await page.getByRole("button", { name: "Themes", exact: true }).click();
+    await page.getByRole("button", { name, exact: true }).click();
+    await expect(page.getByRole("button", { name, exact: true })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    await expect
+      .poll(() =>
+        page.evaluate(async () => (await window.desktop.setupState()).settings.interfaceTheme),
+      )
+      .toBe(id);
+    await expect
+      .poll(() => page.evaluate(() => document.documentElement.style.getPropertyValue("--bg")))
+      .toBe(background);
+    assert.equal(await app.evaluate(({ nativeTheme }) => nativeTheme.themeSource), base);
+    assert.equal(
+      (
+        await app.evaluate(({ BrowserWindow }) =>
+          BrowserWindow.getAllWindows()[0].getBackgroundColor(),
+        )
+      ).toLowerCase(),
+      background,
+    );
+    await expect(
+      page.getByRole("list", { name: "Terminal status previews" }).getByRole("listitem"),
+    ).toHaveCount(6);
+    await assertAccessible(page);
+    await page.keyboard.press("Escape");
+    await expect(page.locator("#terminal")).toBeVisible();
+    await assertAccessible(page);
+  }
+  await boardCommand(app, ",", false);
+  await page.getByRole("button", { name: "Themes", exact: true }).click();
+  await page.getByRole("button", { name: /^System/ }).click();
+  await expect
+    .poll(() => app.evaluate(({ nativeTheme }) => nativeTheme.themeSource))
+    .toBe("system");
+  for (const [colorScheme, expected] of [
+    ["dark", "#05040a"],
+    ["light", "#f3f0fa"],
+  ]) {
+    await page.emulateMedia({ colorScheme });
+    await expect
+      .poll(() => page.evaluate(() => document.documentElement.style.getPropertyValue("--bg")))
+      .toBe(expected);
+  }
+  await page.emulateMedia({ colorScheme: null });
+  await page.getByRole("button", { name: "High Contrast", exact: true }).click();
+  await app.evaluate(({ BrowserWindow }) => {
+    const window = BrowserWindow.getAllWindows()[0];
+    window.setMinimumSize(0, 0);
+    window.setSize(640, 640);
+  });
+  await assertAccessible(page);
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
+});
+
 test("soundscape sends one attention cadence and one completion to a fake audio sink", {
   timeout: 45000,
 }, async (context) => {
@@ -3188,6 +3268,8 @@ test("soundscape sends one attention cadence and one completion to a fake audio 
     `${process.platform === "win32" ? "& " : ""}"${process.execPath}" "${path.join(__dirname, "input-probe.js")}" "${marker}"`,
   );
   await page.keyboard.press("Enter");
+  // Capture its ID before Settings detaches the view and stops output delivery.
+  await page.waitForFunction(() => typeof window.soundTerminal === "string");
   // Hide the terminal before its verdict settles; settings keeps the source subscribed.
   await boardCommand(app, ",", false);
   await page.getByRole("button", { name: "Sound", exact: true }).click();

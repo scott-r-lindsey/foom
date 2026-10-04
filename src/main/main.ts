@@ -1,3 +1,4 @@
+import { interfaceThemeSource, resolveInterfaceTheme } from "../shared/interface-themes";
 import { app, BrowserWindow, dialog, nativeTheme, net, protocol, screen, session } from "electron";
 import { WorktreeService } from "./workspace/worktrees";
 import { attachTerminal } from "./terminals/terminal-ipc";
@@ -57,7 +58,10 @@ function createWindow(savedSize?: Size) {
     minWidth: minimum.width,
     minHeight: minimum.height,
     title: "Foom",
-    backgroundColor: nativeTheme.shouldUseDarkColors ? "#05040A" : "#F3F0FA",
+    backgroundColor: resolveInterfaceTheme(
+      settings.get().interfaceTheme,
+      nativeTheme.shouldUseDarkColors,
+    ).colors.bg,
     show: false,
     autoHideMenuBar: true,
     webPreferences: {
@@ -72,7 +76,10 @@ function createWindow(savedSize?: Size) {
   });
 
   const updateBackground = () => {
-    window.setBackgroundColor(nativeTheme.shouldUseDarkColors ? "#05040A" : "#F3F0FA");
+    window.setBackgroundColor(
+      resolveInterfaceTheme(settings.get().interfaceTheme, nativeTheme.shouldUseDarkColors).colors
+        .bg,
+    );
   };
   nativeTheme.on("updated", updateBackground);
   window.once("closed", () => {
@@ -179,7 +186,8 @@ function createWindow(savedSize?: Size) {
     apply: (next) => {
       workspace.configure(next);
       terminals.setTheme(next.terminalTheme);
-      nativeTheme.themeSource = next.colorMode;
+      nativeTheme.themeSource = interfaceThemeSource(next.interfaceTheme, next.colorMode);
+      updateBackground();
       // Resize first: the page then zooms into a window that already fits it.
       windowScale.apply(next.interfaceScale);
       window.webContents.setZoomFactor(next.interfaceScale / 100);
@@ -279,7 +287,10 @@ app
     worktrees = await WorktreeService.open(app.getPath("userData"));
     settings = await SettingsStore.open(app.getPath("userData"));
     // Before the window exists, so its background already matches the saved mode.
-    nativeTheme.themeSource = settings.get().colorMode;
+    nativeTheme.themeSource = interfaceThemeSource(
+      settings.get().interfaceTheme,
+      settings.get().colorMode,
+    );
     // Serve only known local assets; arbitrary filesystem access is never exposed.
     protocol.handle("app", (request) => {
       const url = new URL(request.url);

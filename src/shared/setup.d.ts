@@ -1,3 +1,4 @@
+import type { InterfaceThemeChoice } from "./interface-theme";
 import type { SoundSettings } from "./sound";
 import type { TerminalThemeChoice } from "./terminal-theme";
 import type { AgentId } from "./agents";
@@ -23,11 +24,10 @@ export interface Settings {
   inference: InferenceConfig;
   /** How long a model gets per classification, 1–30 seconds. */
   inferenceTimeoutMs: number;
-  /**
-   * Which variant applies: the system's, or always light or dark. Themes will add a
-   * palette per variant (for example `lightTheme`, `darkTheme`); Eclipse is the default.
-   */
+  /** Eclipse variant when interfaceTheme is Follow; fixed themes supply their own base. */
   colorMode: "system" | "light" | "dark";
+  /** A built-in or complete validated color palette; Follow preserves the legacy mode. */
+  interfaceTheme: InterfaceThemeChoice;
   /** Interface zoom in percent, 80–150 in steps of 10. Terminal font size is separate. */
   interfaceScale: number;
   /** Terminal text size in CSS pixels, 10–32 in whole pixels. */

@@ -1,3 +1,4 @@
+import { resolveInterfaceTheme } from "../../shared/interface-themes";
 import { useRef } from "react";
 import type { Settings } from "../../shared/setup";
 
@@ -18,7 +19,8 @@ export function AppearanceControls({
   settings,
   onChange,
 }: {
-  settings: Pick<Settings, "colorMode" | "interfaceScale">;
+  settings: Pick<Settings, "colorMode" | "interfaceScale"> &
+    Partial<Pick<Settings, "interfaceTheme">>;
   onChange: (patch: Partial<Pick<Settings, "colorMode" | "interfaceScale">>) => void;
 }) {
   const scale = settings.interfaceScale;
@@ -42,7 +44,10 @@ export function AppearanceControls({
             <input
               type="radio"
               name="color-mode"
-              checked={settings.colorMode === mode.id}
+              checked={
+                (settings.interfaceTheme === undefined || settings.interfaceTheme === "follow") &&
+                settings.colorMode === mode.id
+              }
               onChange={() => {
                 onChange({ colorMode: mode.id });
               }}
@@ -84,6 +89,11 @@ export function AppearanceControls({
           +
         </button>
       </div>
+      {settings.interfaceTheme && settings.interfaceTheme !== "follow" && (
+        <p className="appearance-hint">
+          Theme: {resolveInterfaceTheme(settings.interfaceTheme, false).name}
+        </p>
+      )}
       <p className="appearance-hint">{shortcutHint()}</p>
     </div>
   );
