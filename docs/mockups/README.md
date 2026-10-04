@@ -9,6 +9,7 @@ Clickable HTML mockups from the design phase. Open them in a browser; each is a 
 | [brand.html](brand.html) | The chosen brand direction, Event Horizon: Eclipse, in light and dark | The look: color, type, icon, wordmark, and how the app should feel |
 | [settings.html](settings.html) | Settings beside the persistent sidebar: Terminal, Appearance, Sound and Foom config, in light and dark | Layout and controls for #80–#84 and #86 |
 | [sidebar.html](sidebar.html) | The sidebar as a tree: repository → worktree → session, with filter, pins, roll-up lights, ⋯ menus that open to the right, rename in place, and the empty pane; 50 repositories or one, in light and dark | Layout and interaction for the sidebar tree (#113), shared worktrees (#114) and resume (#115) |
+| [confirmations.html](confirmations.html) | Confirming without native dialogs: click again in the ⋯ menu for actions with nothing to review, and a trusted dialog window for removing a worktree with changes and for quitting with terminals running, in light and dark | Look and interaction for #128 |
 
 ## What wins when they disagree
 
