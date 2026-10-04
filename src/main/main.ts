@@ -158,7 +158,11 @@ function createWindow(savedSize?: Size) {
     keys: new InferenceKeys(app.getPath("userData")),
     worktreeRoot: worktrees.worktreeRoot,
     code: {
-      worktrees,
+      worktrees: {
+        listRepositories: () => worktrees.listRepositories(),
+        addRepository: (path) => workspace.addRepository(path),
+        removeRepository: (path) => workspace.removeRepository(path),
+      },
       home: app.getPath("home"),
       pickFolder: async () => {
         const result = await dialog.showOpenDialog(window, {

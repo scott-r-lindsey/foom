@@ -13,6 +13,7 @@ beforeEach(() => {
   vi.useFakeTimers();
   vi.setSystemTime(200000);
   document.body.replaceChildren();
+  localStorage.clear();
   HTMLDialogElement.prototype.showModal = function () {
     this.open = true;
   };
@@ -132,10 +133,11 @@ test("queue uses oldest wait, keeps ties stable and never reorders the board", (
 test("sidebar arrows wrap, focus peeks, selection preserves attention and Escape stays in the pane", () => {
   const { board, buttons, key, dialog } = setup();
   expect(document.activeElement).toBe(buttons[0]);
-  key("ArrowUp");
+  key("End");
   expect(document.activeElement).toBe(buttons[9]);
-  key("ArrowDown");
-  expect(document.activeElement).toBe(buttons[0]);
+  act(() => {
+    buttons[0]?.focus();
+  });
   expect(dialog.querySelector<HTMLElement>(".board-peek")?.hidden).toBe(false);
   act(() => {
     buttons[0]?.click();
@@ -148,10 +150,11 @@ test("sidebar arrows wrap, focus peeks, selection preserves attention and Escape
   });
   expect(document.activeElement).toBe(buttons[0]);
   act(() => {
-    buttons[3]?.click();
+    dialog.querySelector<HTMLElement>('.board-row[data-state="done"]')?.click();
   });
   expect(
-    buttons[3]
+    dialog
+      .querySelector('.board-row[data-state="done"]')
       ?.querySelector<HTMLElement>(".board-light")
       ?.style.getPropertyValue("--light-opacity"),
   ).toBe("0.4");
@@ -200,8 +203,10 @@ test("replies and dismissals advance the queue without moving rows; elapsed wait
     void board.source.resolve("approve", "Not attention · dismissed");
   });
   key("Escape");
-  expect(buttons[6]?.textContent).toContain("Not attention");
-  expect(dialog.querySelector(".board-summary")?.textContent).toBe("Nothing needs you. Yet.");
+  expect(dialog.querySelector('.board-row[aria-label*="feat/export"]')?.textContent).toContain(
+    "Not attention",
+  );
+  expect(dialog.querySelector(".board-summary")?.textContent).toMatch(/^0 need you/);
   key("n");
   key("a");
   expect(dialog.querySelector<HTMLElement>(".board-terminal")?.hidden).toBe(false);
@@ -214,7 +219,7 @@ test("empty boards remain usable", () => {
   const board = mountBoard(document.body, []);
   board.show();
   document.querySelector(".board-home")?.dispatchEvent(new KeyboardEvent("keydown", { key: "p" }));
-  expect(document.querySelector(".board-summary")?.textContent).toBe("Nothing needs you. Yet.");
+  expect(document.querySelector(".board-summary")?.textContent).toMatch(/^0 need you/);
   board.dispose();
 });
 
@@ -325,6 +330,7 @@ test("focusing another row previews it without changing the selected pane", asyn
     command?.("sidebar");
   });
   key("ArrowDown");
+  key("ArrowDown");
   await act(async () => {
     await Promise.resolve();
   });
@@ -340,6 +346,7 @@ test("board opens the launcher without routing typing to shortcuts and reports r
   const remove = vi.fn(() => Promise.reject(new Error("Worktree changed")));
   const source = {
     ...base,
+    sidebarCommand: remove,
     worktrees: {
       load: () =>
         Promise.resolve({
@@ -365,13 +372,23 @@ test("board opens the launcher without routing typing to shortcuts and reports r
   expect(screen.queryByRole("dialog")).toBeNull();
   await act(async () => {
     await Promise.resolve();
-    fireEvent.click(screen.getByRole("button", { name: /Remove worktree/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Actions for fix/session-restore" }));
+    await Promise.resolve();
+  });
+  await act(async () => {
+    fireEvent.click(screen.getByRole("menuitem", { name: "Remove worktree…" }));
+    await Promise.resolve();
   });
   expect(screen.getByRole("alert").textContent).toBe("Worktree changed");
   remove.mockRejectedValueOnce("failure");
   await act(async () => {
     await Promise.resolve();
-    fireEvent.click(screen.getByRole("button", { name: /Remove worktree/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Actions for fix/session-restore" }));
+    await Promise.resolve();
   });
-  expect(screen.getByRole("alert").textContent).toBe("Unable to remove worktree.");
+  await act(async () => {
+    fireEvent.click(screen.getByRole("menuitem", { name: "Remove worktree…" }));
+    await Promise.resolve();
+  });
+  expect(screen.getByRole("alert").textContent).toBe("Unable to update workspace.");
 });

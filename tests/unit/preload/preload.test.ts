@@ -322,8 +322,12 @@ test("worktree launch and removal have dedicated channels", async () => {
   };
   await api.startWorktree(request);
   await api.removeWorktree("t1");
+  await api.sidebarInventory();
+  await api.sidebarCommand({ kind: "stop", id: "t1" });
   expect(mock.invoke).toHaveBeenCalledWith("workspace:start", request);
   expect(mock.invoke).toHaveBeenCalledWith("workspace:remove", "t1");
+  expect(mock.invoke).toHaveBeenCalledWith("workspace:sidebar");
+  expect(mock.invoke).toHaveBeenCalledWith("workspace:sidebar-command", { kind: "stop", id: "t1" });
 });
 
 test("board commands accept only known actions and unsubscribe", async () => {

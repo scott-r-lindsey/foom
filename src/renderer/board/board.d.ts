@@ -2,6 +2,9 @@ export type BoardState = "working" | "checking" | "needs_input" | "done" | "fail
 export interface BoardRow {
   id: string;
   managed?: boolean;
+  repositoryPath?: string;
+  worktree?: string;
+  exited?: boolean;
   kind: "sample" | "shell" | "agent";
   repository: string;
   branch: string;

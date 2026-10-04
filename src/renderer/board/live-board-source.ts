@@ -1,3 +1,4 @@
+import type { SidebarRepository } from "./sidebar.d";
 import { createShell } from "../terminal/shell-controller";
 import type { BoardSource } from "./board-source.d";
 import type { BoardRow } from "./board.d";
@@ -24,6 +25,8 @@ export function createAppSource(localShell = false): BoardSource {
   };
   let rows: readonly BoardRow[] = localShell ? [startupRow] : [];
   let repositories: readonly string[] = [];
+  let sidebar: readonly SidebarRepository[] = [];
+  let shellName = "Shell";
   let controller: ReturnType<typeof createShell> | undefined;
   let shellId = pendingShell;
   let view: ShellView = {
@@ -67,8 +70,11 @@ export function createAppSource(localShell = false): BoardSource {
         waitingSince: 0,
         reason: `Process exited (${String(code)}) · process:exit`,
         seen: false,
+        exited: true,
       };
-    return state ? stateRow(row, state) : { ...row, rate: rates.get(row.id) ?? row.rate };
+    return state
+      ? { ...stateRow(row, state), exited: code !== undefined || row.exited === true }
+      : { ...row, rate: rates.get(row.id) ?? row.rate };
   };
   const snapshot = (next: WorkspaceSnapshot) => {
     repositories = next.repositories.map((repo) => repo.name);
@@ -81,6 +87,8 @@ export function createAppSource(localShell = false): BoardSource {
         id: entry.id,
         kind: entry.kind,
         managed: true,
+        repositoryPath: entry.repository,
+        worktree: entry.worktree,
         repository:
           next.repositories.find((repo) => repo.path === entry.repository)?.name ??
           entry.repository,
@@ -93,6 +101,7 @@ export function createAppSource(localShell = false): BoardSource {
         seen: false,
         tail: [],
         ...known.get(entry.id),
+        exited: entry.exited ?? exits.has(entry.id),
       });
     });
     // Keep surviving rows in place; append newly launched terminals.
@@ -108,6 +117,21 @@ export function createAppSource(localShell = false): BoardSource {
     publish();
   };
   return {
+    getSidebar: () => sidebar,
+    shellName: () => shellName,
+    sidebarCommand: async (command) => {
+      if ("id" in command && command.id === shellId && command.kind === "restart") {
+        await controller?.restart();
+        return;
+      }
+      await window.desktop.sidebarCommand(command);
+      if ("id" in command && command.kind === "close")
+        rows = rows.filter((row) => row.id !== command.id);
+      const inventory = await window.desktop.sidebarInventory();
+      sidebar = inventory.repositories;
+      shellName = inventory.shell;
+      snapshot(await window.desktop.workspace());
+    },
     worktrees: {
       load: async () => {
         const [workspace, scan, setup] = await Promise.all([
@@ -176,8 +200,15 @@ export function createAppSource(localShell = false): BoardSource {
         const refresh = async () => {
           const current = ++revision;
           try {
-            const next = await window.desktop.workspace();
-            if (!disposed && current === revision) snapshot(next);
+            const [next, inventory] = await Promise.all([
+              window.desktop.workspace(),
+              window.desktop.sidebarInventory(),
+            ]);
+            if (!disposed && current === revision) {
+              sidebar = inventory.repositories;
+              shellName = inventory.shell;
+              snapshot(next);
+            }
           } catch (error) {
             if (!disposed) console.error("Unable to load terminals:", error);
           }

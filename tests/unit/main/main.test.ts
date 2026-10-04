@@ -1,4 +1,5 @@
 import type { BrowserWindowConstructorOptions, Input } from "electron";
+import type { Setup } from "../../../src/main/setup/setup";
 import { beforeEach, expect, test, vi } from "vitest";
 
 vi.mock("../../../src/main/terminals/terminal-ipc", () => ({
@@ -16,6 +17,8 @@ vi.mock("../../../src/main/workspace/workspace", () => ({
     hook = mock.workspace.hook;
     dispose = mock.workspace.dispose;
     configure = mock.workspace.configure;
+    addRepository = mock.workspace.addRepository;
+    removeRepository = mock.workspace.removeRepository;
     constructor(deps: unknown) {
       mock.workspace.deps = deps;
     }
@@ -37,7 +40,7 @@ vi.mock("../../../src/main/window/window-state", () => ({
 vi.mock("../../../src/main/setup/setup", () => ({
   Setup: class {
     classify = mock.setup.classify;
-    constructor(deps: unknown) {
+    constructor(deps: ConstructorParameters<typeof Setup>[0]) {
       mock.setup.deps = deps;
     }
   },
@@ -134,9 +137,14 @@ const mock = vi.hoisted(() => {
     hook: vi.fn(),
     dispose: vi.fn<() => Promise<void>>(),
     configure: vi.fn(),
+    addRepository: vi.fn(),
+    removeRepository: vi.fn(),
   };
   const ipc = { sendChanged: vi.fn(), sendState: vi.fn(), dispose: vi.fn() };
-  const setup = { deps: undefined as unknown, classify: vi.fn() };
+  const setup = {
+    deps: undefined as ConstructorParameters<typeof Setup>[0] | undefined,
+    classify: vi.fn(),
+  };
   return {
     terminals: {
       runningCount: 0,
@@ -796,4 +804,24 @@ test("a window size write failure does not prevent quitting", async () => {
     expect(mock.quit).toHaveBeenCalledOnce();
   });
   expect(log).toHaveBeenCalledWith("Unable to save the window size:", error);
+});
+
+test("Settings repository selection uses workspace lifecycle guards", async () => {
+  const repository = { path: "/repo", name: "repo" };
+  mock.openWorktrees.mockResolvedValue({
+    worktreeRoot: "/trees",
+    listRepositories: () => [repository],
+  });
+  mock.workspace.addRepository.mockResolvedValue(repository);
+  mock.workspace.removeRepository.mockRejectedValueOnce(
+    new Error("Close this repository's sessions first"),
+  );
+  await start();
+  const code = mock.setup.deps?.code;
+  if (!code) throw new Error("Missing setup code dependency");
+  expect(code.worktrees.listRepositories()).toEqual([repository]);
+  await expect(code.worktrees.addRepository(repository.path)).resolves.toEqual(repository);
+  expect(mock.workspace.addRepository).toHaveBeenCalledWith(repository.path);
+  await expect(code.worktrees.removeRepository(repository.path)).rejects.toThrow("Close");
+  expect(mock.workspace.removeRepository).toHaveBeenCalledWith(repository.path);
 });

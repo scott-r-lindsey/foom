@@ -54,6 +54,8 @@ test("rejects untrusted senders on every channel", () => {
   expect(channels).toEqual([
     "workspace:start",
     "workspace:remove",
+    "workspace:sidebar",
+    "workspace:sidebar-command",
     "workspace:snapshot",
     "workspace:add-repository",
     "workspace:worktrees",
@@ -244,4 +246,43 @@ test("removal requires a native confirmation naming dirty files, never a rendere
     window,
     expect.objectContaining({ detail: expect.stringContaining("branch is kept") as unknown }),
   );
+});
+
+test("sidebar commands copy known fields, validate IDs and paths, and keep confirmations in main", async () => {
+  const inventory = vi.fn(() => Promise.resolve({ repositories: [], shell: "zsh" }));
+  const command = vi.fn(
+    async (_value: unknown, confirm: (message: string, detail?: string) => Promise<boolean>) => {
+      expect(await confirm("Confirm", "Details")).toBe(true);
+      expect(await confirm("Confirm")).toBe(true);
+    },
+  );
+  Object.assign(workspace, { sidebarInventory: inventory, sidebarCommand: command });
+  mock.showMessageBox.mockResolvedValue({ response: 1 });
+  await invoke("workspace:sidebar");
+  expect(inventory).toHaveBeenCalledOnce();
+  for (const value of [
+    { kind: "launch", repository: "/repo", worktree: "/tree", run: "shell" },
+    { kind: "launch", repository: "/repo", worktree: "/tree", run: "claude" },
+    { kind: "remove-repository", repository: "/repo" },
+    { kind: "remove-worktree", repository: "/repo", worktree: "/tree" },
+    { kind: "stop", id: "t1" },
+    { kind: "close", id: "t1" },
+    { kind: "restart", id: "t1" },
+  ]) {
+    await invoke("workspace:sidebar-command", [
+      { ...value, executable: "/evil", sharedCheckout: true },
+    ]);
+    expect(command).toHaveBeenLastCalledWith(value, expect.any(Function));
+  }
+  for (const value of [
+    null,
+    [],
+    { kind: "stop", id: "" },
+    { kind: "close", id: "foreign" },
+    { kind: "launch", repository: null },
+    { kind: "launch", repository: "/repo", worktree: "" },
+    { kind: "launch", repository: "/repo", worktree: "/tree", run: "evil" },
+    { kind: "evil", repository: "/repo", worktree: "/tree" },
+  ])
+    expect(() => invoke("workspace:sidebar-command", [value])).toThrow();
 });

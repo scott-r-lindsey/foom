@@ -378,3 +378,26 @@ it.each([
     text.trim() === "--no-alt-screen" ? ["--no-alt-screen"] : [],
   );
 });
+
+it("main-only checkout authorization permits the registered checkout and retains shared occupancy after release or failure", async () => {
+  listWorktrees.mockResolvedValue([{ path: root, managed: false, bare: false, prunable: false }]);
+  const main = { ...request, worktree: root, mainCheckout: true, sharedCheckout: true };
+  create.mockReturnValueOnce("first").mockReturnValueOnce("second");
+  await service.launch(main);
+  await service.launch(main);
+  service.release("first");
+  await expect(service.launch({ ...main, sharedCheckout: false })).rejects.toThrow(
+    "already running",
+  );
+  create.mockImplementationOnce(() => {
+    throw Error("spawn");
+  });
+  await expect(service.launch(main)).rejects.toThrow("spawn");
+  await expect(service.launch({ ...main, sharedCheckout: false })).rejects.toThrow(
+    "already running",
+  );
+  service.release("second");
+  await service.launch({ ...main, sharedCheckout: false });
+  service.release("terminal-id");
+  await expect(service.launch({ ...main, mainCheckout: false })).rejects.toThrow("not managed");
+});
