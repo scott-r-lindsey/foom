@@ -1,0 +1,437 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Foom Sidebar Tree</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo+Black&family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&display=swap">
+<style>
+/* The sidebar as a tree: repository → worktree → session, beside one pane.
+   Colors are the brand tokens from src/renderer/styles/tokens.css. */
+:root {
+  --bg: #f3f0fa; --surface: #e9e4f5; --line: #ddd6ee; --ink: #14101f; --muted: #625a7a;
+  --accent: #5b2bd9; --accent-deep: #3b1a99; --attention: #d98200; --attention-ink: #8c5000;
+  --done: #13804a; --done-ink: #0e6b3c; --failed: #d6166e; --failed-ink: #b0105a;
+  --idle: #b9b0d3; --select: #d6cfe9; --badge: #4a4263; --badge-ink: #f4efff;
+  --mark: rgba(91, 43, 217, .22); --halo: rgba(217, 130, 0, .25);
+  --raised-top: #f7f4fd; --raised-bottom: #ece7f7; --raised-line: #cfc6e6; --raised-hover: #e2dbf3;
+  --shadow: rgba(40, 20, 90, .28);
+  --display: "Archivo Black", sans-serif;
+  --sans: "Geist", system-ui, sans-serif; --mono: "Geist Mono", ui-monospace, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #05040a; --surface: #0d0a17; --line: #251d3f; --ink: #f4efff; --muted: #9d93bd;
+    --accent: #9b6bff; --accent-deep: #7a3cff; --attention: #ffb23e; --attention-ink: #ffb23e;
+    --done: #6fe0a3; --done-ink: #6fe0a3; --failed: #ff2e88; --failed-ink: #ff2e88;
+    --idle: #4a4263; --select: #1c1632; --badge: #3a3060; --badge-ink: #f4efff;
+    --mark: rgba(155, 107, 255, .35); --halo: rgba(255, 178, 62, .22);
+    --raised-top: #1b1629; --raised-bottom: #110e1b; --raised-line: #3a3060; --raised-hover: #221b3a;
+    --shadow: rgba(0, 0, 0, .85);
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #05040a; --surface: #0d0a17; --line: #251d3f; --ink: #f4efff; --muted: #9d93bd;
+  --accent: #9b6bff; --accent-deep: #7a3cff; --attention: #ffb23e; --attention-ink: #ffb23e;
+  --done: #6fe0a3; --done-ink: #6fe0a3; --failed: #ff2e88; --failed-ink: #ff2e88;
+  --idle: #4a4263; --select: #1c1632; --badge: #3a3060; --badge-ink: #f4efff;
+  --mark: rgba(155, 107, 255, .35); --halo: rgba(255, 178, 62, .22);
+  --raised-top: #1b1629; --raised-bottom: #110e1b; --raised-line: #3a3060; --raised-hover: #221b3a;
+  --shadow: rgba(0, 0, 0, .85);
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; }
+body { background: var(--bg); color: var(--ink); font: 13px/1.4 var(--sans); }
+button, input { font: inherit; color: inherit; }
+button { cursor: pointer; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+mark { background: var(--mark); color: inherit; border-radius: 2px; }
+.app { display: flex; height: 100vh; min-width: 960px; overflow: hidden; }
+
+/* Sidebar */
+.side { position: relative; z-index: 2; width: 300px; flex-shrink: 0; display: flex; flex-direction: column; background: var(--surface); border-right: 1px solid var(--line); }
+.head { display: flex; align-items: baseline; justify-content: space-between; padding: 16px 14px 10px; }
+.head b { font: 22px var(--display); font-weight: 400; color: var(--accent); }
+.head span { font: 11px var(--mono); color: var(--muted); }
+.tools { display: flex; gap: 6px; padding: 0 10px 10px; }
+.filter { flex: 1; display: flex; align-items: center; gap: 6px; height: 32px; padding: 0 8px; background: var(--bg); border: 1px solid var(--line); border-radius: 6px; }
+.filter.on { border-color: var(--accent); }
+.filter input { flex: 1; min-width: 0; height: 28px; background: transparent; border: 0; outline: none; }
+.filter button, .add { width: 22px; height: 22px; padding: 0; background: transparent; border: 0; color: var(--muted); font-size: 15px; }
+.add { flex-shrink: 0; width: 32px; height: 32px; background: var(--bg); border: 1px solid var(--line); border-radius: 6px; color: var(--ink); font-size: 16px; }
+.hidden-needs { margin: 0 10px 8px; display: flex; align-items: center; gap: 10px; padding: 8px 10px; background: var(--bg); border: 1px solid var(--attention); border-radius: 6px; color: var(--attention-ink); font-size: 12px; text-align: left; }
+.hidden-needs span:nth-child(2) { flex: 1; }
+.hidden-needs u { text-decoration: underline; }
+.tree { flex: 1; min-height: 0; overflow-y: auto; padding: 0 6px 10px; scrollbar-width: thin; scrollbar-color: var(--line) transparent; }
+.sep { height: 1px; margin: 8px; background: var(--line); }
+.row { position: relative; display: flex; align-items: center; gap: 2px; border-radius: 6px; }
+.row.sel { background: var(--select); }
+.row.repo { height: 30px; padding: 0 4px 0 2px; }
+.row.wt { height: 28px; padding: 0 4px 0 16px; }
+.row.term { align-items: flex-start; }
+.row.term.dim { opacity: .65; }
+.chev { flex-shrink: 0; width: 20px; height: 22px; padding: 0; background: transparent; border: 0; color: var(--muted); font-size: 11px; }
+.name { flex: 1; min-width: 0; display: flex; align-items: center; gap: 6px; height: 26px; padding: 0; background: transparent; border: 0; text-align: left; }
+.name > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.repo .name { font-weight: 600; }
+.wt .name { font: 12.5px var(--mono); }
+.icon { flex-shrink: 0; stroke: var(--muted); fill: none; }
+.count { flex-shrink: 0; padding: 0 4px; font: 11px var(--mono); color: var(--muted); }
+.light { flex-shrink: 0; width: 8px; height: 8px; border-radius: 50%; background: var(--idle); }
+.light.needs { background: var(--attention); box-shadow: 0 0 0 4px var(--halo); }
+.light.working { background: var(--accent); box-shadow: 0 0 8px var(--accent); }
+.light.done { background: var(--done); }
+.light.failed { background: var(--failed); border-radius: 2px; }
+.roll { margin-right: 4px; }
+.session { flex: 1; min-width: 0; display: flex; gap: 8px; align-items: flex-start; padding: 6px 4px 6px 40px; background: transparent; border: 0; text-align: left; }
+.session .light { margin-top: 4px; width: 9px; height: 9px; }
+.lines { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.top { display: flex; align-items: center; gap: 6px; font: 12px var(--mono); }
+.wait { margin-left: auto; font-size: 11px; color: var(--muted); }
+.reason { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; color: var(--muted); }
+.reason.needs { color: var(--attention-ink); }
+.reason.done { color: var(--done-ink); }
+.reason.failed { color: var(--failed-ink); }
+.badge { flex-shrink: 0; width: 20px; height: 15px; display: inline-flex; align-items: center; justify-content: center; border-radius: 4px; background: var(--badge); color: var(--badge-ink); font: 600 9px var(--mono); }
+.rename { flex: 1; min-width: 0; height: 18px; padding: 0 4px; background: var(--bg); border: 1px solid var(--accent); border-radius: 3px; font: 12px var(--mono); outline: none; }
+.foot { display: flex; gap: 4px; padding: 10px 10px 12px; border-top: 1px solid var(--line); }
+.foot button { flex: 1; height: 32px; background: transparent; border: 1px solid transparent; border-radius: 6px; color: var(--muted); }
+
+/* The ⋯ button: only on hover, focus, selection, or while its menu is open. */
+.act { flex-shrink: 0; width: 24px; height: 24px; padding: 0; display: grid; place-items: center; background: transparent; border: 1px solid var(--line); border-radius: 5px; color: var(--muted); opacity: 0; transition: opacity 120ms ease, background-color 120ms ease, color 120ms ease, border-color 120ms ease; }
+.term .act { margin: 5px 4px 0 0; }
+.row:hover .act, .row:focus-within .act, .row.sel .act, .act[aria-expanded="true"] { opacity: 1; }
+.act:hover { background: var(--select); color: var(--ink); }
+.act[aria-expanded="true"] { background: var(--select); border-color: var(--accent); color: var(--ink); }
+
+/* The menu opens to the right of its ⋯, over the pane, and points back at it. */
+.menu { position: absolute; z-index: 30; width: 232px; padding: 6px; background: linear-gradient(180deg, var(--raised-top), var(--raised-bottom)); border: 1px solid var(--raised-line); border-radius: 10px; box-shadow: 0 1px 0 rgba(255, 255, 255, .05) inset, 0 22px 48px -12px var(--shadow), 0 8px 16px -8px var(--shadow), 0 0 28px -8px color-mix(in srgb, var(--accent) 40%, transparent); transform-origin: 0 var(--n); animation: menu-in 160ms cubic-bezier(.2, .8, .2, 1) both; }
+.menu::before { content: ""; position: absolute; left: -6px; top: calc(var(--n) - 5px); width: 10px; height: 10px; background: var(--raised-top); border-left: 1px solid var(--raised-line); border-bottom: 1px solid var(--raised-line); transform: rotate(45deg); }
+.menu hr { height: 1px; margin: 6px; border: 0; background: var(--line); }
+.item { position: relative; display: flex; align-items: center; gap: 10px; width: 100%; height: 32px; padding: 0 10px; background: transparent; border: 0; border-radius: 6px; text-align: left; transition: background-color 120ms ease; animation: item-in 200ms cubic-bezier(.2, .8, .2, 1) both; animation-delay: calc(var(--d) * 22ms + 50ms); }
+.item::before { content: ""; position: absolute; left: 0; top: 8px; bottom: 8px; width: 2px; border-radius: 2px; background: var(--accent); transform: scaleY(0); transition: transform 160ms cubic-bezier(.2, .8, .2, 1); }
+.item:hover, .item:focus-visible { background: var(--raised-hover); outline: none; }
+.item:hover::before, .item:focus-visible::before { transform: scaleY(1); }
+.item .label { transition: transform 160ms cubic-bezier(.2, .8, .2, 1); }
+.item:hover .label, .item:focus-visible .label { transform: translateX(3px); }
+.item .badge { width: 22px; height: 17px; transition: background-color 160ms ease, box-shadow 160ms ease; }
+.item:hover .badge, .item:focus-visible .badge { background: var(--accent-deep); box-shadow: 0 0 10px color-mix(in srgb, var(--accent) 60%, transparent); }
+.item .hint { margin-left: auto; font: 11px var(--mono); color: var(--muted); }
+@keyframes menu-in { from { opacity: 0; transform: translateX(-8px) scale(.96); } }
+@keyframes item-in { from { opacity: 0; transform: translateX(-6px); } }
+
+/* Pane: a terminal stays dark in both modes. */
+.pane { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.crumbs { display: flex; align-items: center; gap: 10px; height: 44px; padding: 0 18px; border-bottom: 1px solid var(--line); background: var(--surface); font: 13px var(--mono); color: var(--muted); }
+.crumbs b { font-weight: 400; color: var(--ink); }
+.crumbs .state { margin-left: auto; display: flex; align-items: center; gap: 8px; font: 12px var(--sans); }
+.terminal { flex: 1; padding: 16px 20px; overflow: hidden; background: #05040a; color: #f4efff; font: 14px/1.5 "Hack Nerd Font Mono", "Geist Mono", monospace; white-space: pre; }
+.t-dim { color: #6a6188; } .t-acc { color: #c08bff; } .t-blue { color: #7aa2ff; } .t-add { color: #6fe0a3; } .t-del { color: #ff5c7a; }
+.empty { flex: 1; display: flex; align-items: center; justify-content: center; gap: 10px; }
+.empty button { display: flex; align-items: center; gap: 10px; height: 44px; padding: 0 16px; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; }
+.empty button.dashed { background: transparent; border-style: dashed; color: var(--muted); }
+.empty .badge { width: 22px; height: 17px; }
+
+/* Mockup controls, not part of the design. */
+.mock { position: fixed; right: 12px; bottom: 12px; z-index: 50; display: flex; gap: 6px; }
+.mock button { padding: 6px 10px; background: var(--bg); border: 1px dashed var(--line); border-radius: 6px; color: var(--muted); font-size: 12px; }
+@media (prefers-reduced-motion: reduce) {
+  .menu, .item { animation: none; }
+  .act, .item, .item::before, .item .label, .item .badge { transition: none; }
+}
+</style>
+</head>
+<body>
+<div class="app">
+  <nav class="side" id="side" aria-label="Repositories">
+    <div class="head"><b>foom</b><span role="status" id="summary"></span></div>
+    <div class="tools">
+      <label class="filter" id="filter-box">
+        <svg class="icon" width="14" height="14" viewBox="0 0 14 14" stroke-width="1.5" aria-hidden="true"><circle cx="6" cy="6" r="4.2"/><path d="M9.2 9.2L12.5 12.5"/></svg>
+        <input type="text" id="filter" placeholder="Filter" aria-label="Filter repositories, worktrees and sessions">
+        <button type="button" id="clear" aria-label="Clear filter" hidden>×</button>
+      </label>
+      <button type="button" class="add" aria-label="Add repository">+</button>
+    </div>
+    <div id="banner"></div>
+    <div class="tree" id="tree" role="tree" aria-label="Repositories"></div>
+    <div class="foot"><button type="button">Preflight</button><button type="button">Settings</button></div>
+    <div id="menu-slot"></div>
+  </nav>
+  <main class="pane" id="pane"></main>
+</div>
+<div class="mock">
+  <button type="button" id="dataset">Mockup: one repository</button>
+  <button type="button" id="mode">Mockup: light / dark</button>
+</div>
+<script>
+const AGENT = { claude: ["Claude Code", "CC"], codex: ["Codex", "CX"], antigravity: ["Antigravity", "AG"], shell: ["zsh", ">_"] };
+const LABEL = { needs: "Needs you", working: "Working", done: "Done", failed: "Failed", quiet: "Quiet" };
+const RANK = { needs: 5, failed: 4, working: 3, done: 2, quiet: 1 };
+const T = (id, agent, light, reason, wait, exited) => ({ id, agent, light, reason, wait: wait || "", exited: !!exited });
+const checkout = (t) => ({ b: "main", checkout: true, t: t || [] });
+
+function dataset(many) {
+  const repos = {};
+  if (!many) {
+    repos["my-app"] = [checkout()];
+    return repos;
+  }
+  repos.foom = [
+    checkout([T("t1", "shell", "quiet", "npm run dev · quiet, fine")]),
+    { b: "feat/sidebar-tree", t: [T("t2", "claude", "needs", "Wants to edit src/renderer/sidebar.tsx · hook", "4m"), T("t10", "codex", "working", "Reviewing changes · read-only"), T("t3", "shell", "working", "vitest --watch · activity")] },
+    { b: "fix/wheel-scroll", t: [T("t4", "codex", "working", "Running tests · activity")] },
+    { b: "chore/licenses", t: [T("t9", "claude", "done", "Exited · conversation saved", "", true)] },
+  ];
+  repos["eclipse-site"] = [checkout(), { b: "chore/deps", t: [T("t5", "codex", "failed", "Exited 1 · npm test failed", "", true)] }, { b: "feat/hero-copy", t: [T("t6", "claude", "done", "Finished · hook")] }];
+  repos.infra = [checkout(), { b: "feat/k8s-upgrade", t: [T("t7", "codex", "working", "terraform plan · activity")] }];
+  repos.payments = [checkout(), { b: "fix/refund-rounding", t: [T("t8", "codex", "needs", "Run migrations? (y/n) · pattern", "1m")] }];
+  repos["web-app"] = [checkout(), { b: "feat/oauth-login", t: [] }];
+  for (const n of ["admin-portal", "analytics", "api-gateway", "auth-service", "billing", "cdn-config", "chat-widget", "ci-templates", "cli-tools", "data-pipeline", "design-system", "docs-site", "email-service", "feature-flags", "fleet-manager", "geo-service", "graphql-api", "helm-charts", "identity", "ios-app", "jobs-runner", "kafka-tools", "landing-page", "ledger", "load-tests", "logging", "marketing-site", "metrics", "mobile-web", "notifications", "oauth-proxy", "onboarding", "pdf-renderer", "playground", "rate-limiter", "search", "sdk-js", "sdk-python", "settings-ui", "storybook", "support-bot", "terraform", "user-service", "video-encoder", "webhooks"])
+    repos[n] = [checkout()].concat(["feat/update-deps", "fix/flaky-test"].slice(0, n.length % 3).map((b) => ({ b, t: [] })));
+  return repos;
+}
+
+const state = { many: true, filter: "", menu: "", selected: "t:t2", pins: ["foom", "eclipse-site"], open: {}, names: { t3: "tests" }, editing: "" };
+let rows = [];
+let repos = dataset(true);
+
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+const q = () => state.filter.trim().toLowerCase();
+const has = (text) => q() !== "" && text.toLowerCase().includes(q());
+function hl(text) {
+  const i = q() ? text.toLowerCase().indexOf(q()) : -1;
+  return i < 0 ? esc(text) : esc(text.slice(0, i)) + "<mark>" + esc(text.slice(i, i + q().length)) + "</mark>" + esc(text.slice(i + q().length));
+}
+const termsOf = (name) => repos[name].flatMap((w) => w.t);
+const brightest = (ts) => ts.reduce((best, t) => (!best || RANK[t.light] > RANK[best.light] ? t : best), null);
+const isOpen = (id, fallback) => (id in state.open ? state.open[id] : fallback);
+const dots = '<svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor" aria-hidden="true"><circle cx="3" cy="7" r="1.3"/><circle cx="7" cy="7" r="1.3"/><circle cx="11" cy="7" r="1.3"/></svg>';
+const item = (label, badge, hint) => ({ label, badge: badge || "", hint: hint || "" });
+const launchers = () => [item("Claude Code", "CC"), item("Codex", "CX"), item("Antigravity", "AG"), item("Shell (zsh)", ">_")];
+const SEP = { sep: true };
+
+function build() {
+  rows = [];
+  const names = Object.keys(repos);
+  const pins = state.pins.filter((n) => repos[n]);
+  const active = names.filter((n) => !pins.includes(n) && termsOf(n).length).sort();
+  const rest = names.filter((n) => !pins.includes(n) && !termsOf(n).length).sort();
+  const sections = state.many ? [pins, active, rest] : [names];
+  const visible = new Set();
+  for (const section of sections) {
+    let labelled = false;
+    for (const name of section) {
+      const wts = repos[name];
+      let matched = null;
+      if (q() && !has(name)) {
+        matched = wts.map((w) => ({ w, ts: has(w.b) ? w.t : w.t.filter((t) => has(state.names[t.id] || AGENT[t.agent][0]) || has(t.reason)), forced: true }))
+          .filter((m) => has(m.w.b) || m.ts.length);
+        if (!matched.length) continue;
+        matched.forEach((m) => m.ts.forEach((t) => visible.add(t.id)));
+      } else termsOf(name).forEach((t) => visible.add(t.id));
+      if (!labelled) { if (rows.length) rows.push({ kind: "sep" }); labelled = true; }
+      const terms = termsOf(name);
+      const running = terms.some((t) => !t.exited && t.light !== "done" && t.light !== "failed");
+      const rid = "r:" + name;
+      const expanded = matched ? true : isOpen(rid, running || !state.many);
+      const pinned = state.pins.includes(name);
+      rows.push({ kind: "repo", id: rid, name, expanded, pinned, best: brightest(terms), count: wts.length,
+        menu: [item("New worktree…"), SEP, ...launchers(), SEP, { label: pinned ? "Unpin" : "Pin to top", run: () => { state.pins = pinned ? state.pins.filter((p) => p !== name) : state.pins.concat(name); } }, item("Remove repository…")] });
+      if (!expanded) continue;
+      for (const m of matched || wts.map((w) => ({ w, ts: w.t, forced: false }))) {
+        const w = m.w;
+        const wid = "w:" + name + ":" + w.b;
+        const wexp = m.forced || isOpen(wid, true);
+        const author = w.t.find((t) => t.agent !== "shell" && !t.exited);
+        const review = author ? [SEP, ...["claude", "codex"].filter((a) => a !== author.agent).map((a) => item("Review with " + AGENT[a][0], AGENT[a][1], "read-only"))] : [];
+        rows.push({ kind: "wt", id: wid, name: w.b, checkout: !!w.checkout, expanded: wexp, hasTerms: w.t.length > 0, best: brightest(w.t),
+          menu: [...launchers(), ...review, ...(w.checkout ? [] : [SEP, item("Remove worktree…")])] });
+        if (!wexp) continue;
+        for (const t of m.ts) {
+          const shell = t.agent === "shell";
+          const menu = t.exited
+            ? (shell ? [item("Restart shell"), SEP, item("Close")] : [item("Resume conversation", "", "9f3c…"), item("New conversation here"), item("Copy session ID"), SEP, item("Close")])
+            : [item(shell ? "Stop shell" : "Stop " + AGENT[t.agent][0])];
+          rows.push({ kind: "term", id: "t:" + t.id, t, repo: name, branch: w.b, menu });
+        }
+      }
+    }
+  }
+  const all = Object.keys(repos).flatMap(termsOf);
+  const needs = all.filter((t) => t.light === "needs").length;
+  const working = all.filter((t) => t.light === "working").length;
+  const hidden = q() ? all.filter((t) => t.light === "needs" && !visible.has(t.id)).length : 0;
+  return { needs, working, hidden };
+}
+
+function light(t, extra) {
+  return t ? `<span class="light ${t.light} ${extra || ""}" aria-label="${LABEL[t.light]}"></span>` : "";
+}
+function act(r) {
+  return `<button type="button" class="act" data-menu="${esc(r.id)}" aria-haspopup="menu" aria-expanded="${state.menu === r.id}" aria-label="Actions for ${esc(r.kind === "term" ? AGENT[r.t.agent][0] + " in " + r.branch : r.name)}">${dots}</button>`;
+}
+function rowHtml(r) {
+  const sel = state.selected === r.id ? " sel" : "";
+  if (r.kind === "sep") return '<div class="sep" role="separator"></div>';
+  if (r.kind === "repo")
+    return `<div class="row repo${sel}" role="treeitem" aria-expanded="${r.expanded}">
+      <button type="button" class="chev" data-toggle="${esc(r.id)}" data-open="${r.expanded}" aria-label="${r.expanded ? "Collapse" : "Expand"} ${esc(r.name)}">${r.expanded ? "▾" : "▸"}</button>
+      <button type="button" class="name" data-select="${esc(r.id)}"><span>${hl(r.name)}</span>${r.pinned ? '<svg class="icon" width="11" height="11" viewBox="0 0 12 12" stroke-width="1.3" aria-label="Pinned"><path d="M4 1.5h4M5 1.5v3.5L3 7h6L7 5V1.5M6 7v4"/></svg>' : ""}</button>
+      ${r.expanded ? "" : light(r.best) + `<span class="count">${r.count}</span>`}${act(r)}</div>`;
+  if (r.kind === "wt") {
+    const icon = r.checkout
+      ? '<svg class="icon" width="11" height="11" viewBox="0 0 12 12" stroke-width="1.2" aria-label="Main checkout"><path d="M1.5 3h3.2l1 1.2h4.8v5.3h-9z"/></svg>'
+      : '<svg class="icon" width="11" height="11" viewBox="0 0 12 12" stroke-width="1.2" aria-hidden="true"><circle cx="3" cy="2.5" r="1.3"/><circle cx="3" cy="9.5" r="1.3"/><circle cx="9" cy="4" r="1.3"/><path d="M3 3.8v4.4M9 5.3c0 2-3 1.7-5.6 3.3"/></svg>';
+    return `<div class="row wt${sel}" role="treeitem" aria-expanded="${r.expanded}">
+      <button type="button" class="chev" data-toggle="${esc(r.id)}" data-open="${r.expanded}" aria-label="${r.expanded ? "Collapse" : "Expand"} ${esc(r.name)}">${r.hasTerms ? (r.expanded ? "▾" : "▸") : ""}</button>
+      <button type="button" class="name" data-select="${esc(r.id)}">${icon}<span>${hl(r.name)}</span></button>
+      ${r.expanded ? "" : light(r.best, "roll")}${act(r)}</div>`;
+  }
+  const t = r.t;
+  const name = state.names[t.id] || AGENT[t.agent][0];
+  const label = state.editing === t.id
+    ? `<input class="rename" id="rename" aria-label="Session name" value="${esc(name)}">`
+    : `<span>${hl(name)}</span>`;
+  return `<div class="row term${sel}${t.light === "done" ? " dim" : ""}" role="treeitem">
+    <button type="button" class="session" data-select="${esc(r.id)}" data-rename="${t.id}">
+      <span class="light ${t.light}" aria-label="${LABEL[t.light]}${t.exited ? ", exited" : ""}"></span>
+      <span class="lines"><span class="top"><span class="badge" aria-hidden="true">${esc(AGENT[t.agent][1])}</span>${label}<span class="wait">${t.wait}</span></span>
+      <span class="reason ${t.light}">${hl(t.reason)}</span></span>
+    </button>${act(r)}</div>`;
+}
+
+function menuHtml() {
+  const r = rows.find((row) => row.id === state.menu);
+  if (!r) return "";
+  let d = 0;
+  return `<div class="menu" role="menu" id="menu" aria-label="Actions" style="visibility:hidden">${r.menu.map((m, i) => (m.sep ? "<hr>" : `<button type="button" role="menuitem" class="item" data-item="${i}" style="--d:${d++}">${m.badge ? `<span class="badge" aria-hidden="true">${esc(m.badge)}</span>` : ""}<span class="label">${esc(m.label)}</span><span class="hint">${esc(m.hint || "")}</span></button>`)).join("")}</div>`;
+}
+
+/* Position: right of the ⋯, top-aligned with its row, kept inside the window. */
+function place() {
+  const menu = document.getElementById("menu");
+  const button = document.querySelector(".act[aria-expanded=true]");
+  if (!menu || !button) return;
+  const side = document.getElementById("side").getBoundingClientRect();
+  const b = button.getBoundingClientRect();
+  const top = b.top - side.top;
+  let y = top - 7;
+  y = Math.max(8, Math.min(y, side.height - menu.offsetHeight - 8));
+  menu.style.left = b.right - side.left + 10 + "px";
+  menu.style.top = y + "px";
+  menu.style.setProperty("--n", top + b.height / 2 - y + "px");
+  menu.style.visibility = "visible";
+}
+
+function pane() {
+  const r = rows.find((row) => row.id === state.selected);
+  const el = document.getElementById("pane");
+  if (r && r.kind === "term") {
+    const t = r.t;
+    const name = state.names[t.id] || AGENT[t.agent][0];
+    el.innerHTML = `<div class="crumbs">${esc(r.repo)} › ${esc(r.branch)} › <b>${esc(name)}</b><span class="state">${light(t)}<span class="reason ${t.light}">${LABEL[t.light]}${t.wait ? " · " + t.wait : ""}</span></span></div>
+<div class="terminal"><span class="t-acc">●</span> Read <span class="t-blue">src/renderer/sidebar.tsx</span> <span class="t-dim">(212 lines)</span>
+<span class="t-acc">●</span> I'll add pins and the filter field to the sidebar header.
+
+  Edit src/renderer/sidebar.tsx
+  <span class="t-dim">│</span> <span class="t-add">43 +    &lt;FilterField value={filter} onChange={setFilter} /&gt;</span>
+  <span class="t-dim">│</span> <span class="t-del">52 -  const rows = sortRows(repos);</span>
+  <span class="t-dim">│</span> <span class="t-add">52 +  const rows = pinnedFirst(repos, pins, filter);</span>
+
+  Apply this edit?
+  <span class="t-acc">❯ 1. Yes</span>
+    2. Yes, and allow edits for this session
+    3. No, explain what to change</div>`;
+    return;
+  }
+  const where = r ? (r.kind === "repo" ? `<b>${esc(r.name)}</b>` : `${esc(rows.find((x) => x.kind === "repo" && r.id.startsWith("w:" + x.name + ":"))?.name || "")} › <b>${esc(r.name)}</b>`) : "";
+  const launch = launchers().map((l) => `<button type="button"><span class="badge" aria-hidden="true">${esc(l.badge)}</span>${esc(l.label)}</button>`).join("");
+  el.innerHTML = `<div class="crumbs">${where}</div><div class="empty">${launch}<button type="button" class="dashed">New worktree…</button></div>`;
+}
+
+function render() {
+  const counts = build();
+  document.getElementById("summary").textContent = `${counts.needs} ${counts.needs === 1 ? "needs" : "need"} you · ${counts.working} working`;
+  document.getElementById("filter-box").classList.toggle("on", q() !== "");
+  document.getElementById("clear").hidden = q() === "";
+  document.getElementById("banner").innerHTML = counts.hidden
+    ? `<button type="button" class="hidden-needs" data-clear><span class="light needs"></span><span>${counts.hidden} hidden · needs you</span><u>Show</u></button>`
+    : "";
+  document.getElementById("tree").innerHTML = rows.map(rowHtml).join("");
+  document.getElementById("menu-slot").innerHTML = menuHtml();
+  place();
+  pane();
+  const input = document.getElementById("rename");
+  if (input) { input.focus(); input.select(); }
+}
+
+function closeMenu() { if (state.menu) { state.menu = ""; render(); } }
+
+document.getElementById("side").addEventListener("click", (event) => {
+  // Rendering replaces the clicked element, so the outside-click check below must not see it.
+  event.stopPropagation();
+  const el = event.target.closest("[data-menu],[data-toggle],[data-select],[data-item],[data-clear]");
+  if (!el || event.target.closest(".rename")) return;
+  if (el.dataset.menu) { state.menu = state.menu === el.dataset.menu ? "" : el.dataset.menu; return render(); }
+  if (el.dataset.item) {
+    const m = rows.find((r) => r.id === state.menu).menu[Number(el.dataset.item)];
+    if (m.run) m.run();
+    state.menu = "";
+    return render();
+  }
+  if (el.dataset.select && !state.menu) {
+    // Selection alone keeps the rows in place, so a double-click can rename.
+    state.selected = el.dataset.select;
+    document.querySelectorAll(".row.sel").forEach((row) => row.classList.remove("sel"));
+    el.closest(".row").classList.add("sel");
+    return pane();
+  }
+  state.menu = "";
+  if (el.dataset.toggle) state.open[el.dataset.toggle] = el.dataset.open !== "true";
+  if (el.dataset.select) state.selected = el.dataset.select;
+  if ("clear" in el.dataset) { state.filter = ""; document.getElementById("filter").value = ""; }
+  render();
+});
+/* Rename by editing the name in place: double-click, Enter keeps, Esc cancels. */
+document.getElementById("tree").addEventListener("dblclick", (event) => {
+  const el = event.target.closest("[data-rename]");
+  if (!el) return;
+  state.editing = el.dataset.rename;
+  state.menu = "";
+  render();
+});
+document.getElementById("tree").addEventListener("keydown", (event) => {
+  if (event.target.id !== "rename") return;
+  if (event.key === "Enter") { state.names[state.editing] = event.target.value.trim() || state.names[state.editing]; state.editing = ""; render(); }
+  if (event.key === "Escape") { event.stopPropagation(); state.editing = ""; render(); }
+});
+document.getElementById("tree").addEventListener("focusout", (event) => {
+  if (event.target.id === "rename" && state.editing) { state.names[state.editing] = event.target.value.trim() || state.names[state.editing]; state.editing = ""; setTimeout(render); }
+});
+document.getElementById("tree").addEventListener("scroll", closeMenu);
+document.getElementById("filter").addEventListener("input", (event) => { state.filter = event.target.value; state.menu = ""; render(); });
+document.getElementById("clear").addEventListener("click", () => { state.filter = ""; document.getElementById("filter").value = ""; render(); });
+document.addEventListener("keydown", (event) => { if (event.key === "Escape") closeMenu(); });
+document.addEventListener("click", (event) => { if (state.menu && !event.target.closest("#side")) closeMenu(); });
+window.addEventListener("resize", place);
+document.getElementById("dataset").addEventListener("click", (event) => {
+  state.many = !state.many;
+  repos = dataset(state.many);
+  Object.assign(state, { filter: "", menu: "", open: {}, editing: "", selected: state.many ? "t:t2" : "w:my-app:main" });
+  document.getElementById("filter").value = "";
+  event.target.textContent = state.many ? "Mockup: one repository" : "Mockup: 50 repositories";
+  render();
+});
+document.getElementById("mode").addEventListener("click", () => {
+  const dark = document.documentElement.dataset.theme
+    ? document.documentElement.dataset.theme === "dark"
+    : matchMedia("(prefers-color-scheme: dark)").matches;
+  document.documentElement.dataset.theme = dark ? "light" : "dark";
+});
+render();
+</script>
+</body>
+</html>
