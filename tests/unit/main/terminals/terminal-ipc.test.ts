@@ -153,6 +153,9 @@ beforeEach(() => {
   vi.clearAllMocks();
   ptys = [];
   mock.app.isPackaged = false;
+  contents.send.mockImplementation((channel: string, ids: unknown, token: unknown) => {
+    if (channel === "terminal:flush-views") send("views-flushed", [ids, token]);
+  });
   mock.spawn.mockImplementation(() => {
     const next = fakePty();
     ptys.push(next);
@@ -901,6 +904,7 @@ test("reports quiet, input, exit and removal for owned terminals and grants main
     await latest("kill")?.(event, id);
     expect(events.onRemoved).toHaveBeenCalledWith(id);
     expect(control.owns(id)).toBe(false);
+    expect(window.webContents.send).toHaveBeenCalledWith("terminal:availability", [id], false);
     const internalId = await control.create(spec);
     await control.kill(internalId);
     expect(control.owns(internalId)).toBe(false);
@@ -988,5 +992,47 @@ test("tile hide, close and preset detach sequences leave every PTY consuming out
   for (const index of [0, 1]) {
     expect(pty(index).kill).not.toHaveBeenCalled();
     expect(pty(index).pause).not.toHaveBeenCalled();
+  }
+});
+
+test("failed shutdown restores availability without revoking ownership", async () => {
+  const id = await create();
+  pty().kill.mockImplementationOnce(() => {
+    throw new Error("kill refused");
+  });
+  await expect(terminalControl.shutdown()).rejects.toThrow("Unable to stop terminal");
+  expect(contents.send).toHaveBeenCalledWith("terminal:availability", [id], false);
+  expect(contents.send).toHaveBeenCalledWith("terminal:availability", [id], true);
+  expect(terminalControl.owns(id)).toBe(true);
+  await terminalControl.shutdown();
+});
+
+test("shutdown flush validates its sender and envelope before stopping native processes", async () => {
+  const id = await create();
+  contents.send.mockImplementation(() => {});
+  const closing = terminalControl.shutdown();
+  expect(contents.send).toHaveBeenCalledWith("terminal:flush-views", [id], 1);
+  send("views-flushed", [[id], 1], { ...event, senderFrame: null });
+  send("views-flushed", [[id], 2]);
+  send("views-flushed", [null, 1]);
+  send("views-flushed", [[], 1]);
+  send("views-flushed", [["foreign"], 1]);
+  expect(pty().kill).not.toHaveBeenCalled();
+  send("views-flushed", [[id], 1]);
+  await closing;
+  expect(pty().kill).toHaveBeenCalledOnce();
+  send("views-flushed", [[id], 1]);
+});
+test("an unresponsive renderer cannot block native shutdown indefinitely", async () => {
+  vi.useFakeTimers();
+  try {
+    await create();
+    contents.send.mockImplementation(() => {});
+    const closing = terminalControl.shutdown();
+    await vi.advanceTimersByTimeAsync(3000);
+    await closing;
+    expect(pty().kill).toHaveBeenCalledOnce();
+  } finally {
+    vi.useRealTimers();
   }
 });

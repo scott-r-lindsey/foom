@@ -112,6 +112,12 @@ export function createAppSource(): BoardSource {
         return nextRow ? [nextRow] : [];
       })
       .concat([...incoming.values()]);
+    for (const [id, owner] of owners) {
+      if (!rows.some((row) => row.id === id)) {
+        owner.release(id);
+        owners.delete(id);
+      }
+    }
     publish();
   };
   let starting = false;
@@ -121,6 +127,9 @@ export function createAppSource(): BoardSource {
     try {
       if (shellId !== pendingShell) {
         const previous = shellId;
+        await owners.get(previous)?.hide();
+        owners.get(previous)?.release(previous);
+        owners.delete(previous);
         await window.desktop.kill(previous);
         rows = rows.filter((row) => row.id !== previous);
         shellId = pendingShell;
@@ -195,7 +204,9 @@ export function createAppSource(): BoardSource {
   return {
     connect,
     createView: () => {
-      const view = createTerminalView(scheduleView, owners);
+      const view = createTerminalView(scheduleView, owners, (id) =>
+        rows.some((row) => row.id === id),
+      );
       return {
         ...view,
         open: (id) =>
@@ -214,6 +225,11 @@ export function createAppSource(): BoardSource {
         rows = rows.filter((row) => row.id !== pendingShell);
         publish();
         return;
+      }
+      if (command.kind === "close" || command.kind === "restart") {
+        await owners.get(command.id)?.hide();
+        owners.get(command.id)?.release(command.id);
+        owners.delete(command.id);
       }
       await window.desktop.sidebarCommand(command);
       if (command.kind === "close") {

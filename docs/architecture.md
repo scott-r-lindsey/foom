@@ -469,3 +469,25 @@ resume when suspended, ramps gain and closes the context on disposal. Audio devi
 unavailability leaves terminals and visual status operational. Settings previews
 last at most two seconds and dispose their timers and audio nodes on replacement
 or unmount. The CSP and preload capabilities are unchanged.
+
+## Board shortcut definitions
+
+`main/window/appearance.ts` defines board command IDs, labels and physical keys in
+`BOARD_COMMANDS`. Direct bindings and the per-window tile leader resolve from that
+list. Windows/Linux use Ctrl+Shift+Space followed by an unmodified tile key within
+two seconds; blur cancels the pending leader. Unmatched keys pass through. macOS
+keeps its Command bindings. The full application menu and its integration with
+this list remain #135.
+
+Terminal view operations recheck current inventory when queued work executes.
+The validated `terminal:availability` notification carries terminal IDs in a batch.
+It revokes each ID locally on removal, before asynchronous inventory refresh, and
+suspends view work before shutdown. Preload acknowledges a subsequent ID-scoped
+flush after the current renderer turn; main validates sender, IDs and token and
+waits for that acknowledgement before revocation. A three-second fallback permits
+cleanup when the renderer is crashed or unresponsive. A failed shutdown restores availability and
+the previously selected view unless the user changed selection. Removing a terminal releases
+its controller locally; known lifecycle actions hide
+its view before revoking the capability. A hidden controller never detaches a
+later owner's attachment. View queue failures become status text and cleanup
+still disposes controllers. Main continues to reject unknown and foreign IDs.

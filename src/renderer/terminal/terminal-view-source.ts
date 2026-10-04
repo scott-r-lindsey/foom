@@ -5,6 +5,7 @@ import type { ShellView } from "./shell.d";
 export function createTerminalView(
   schedule: (operation: () => Promise<void>) => Promise<void> = (operation) => operation(),
   owners = new Map<string, ReturnType<typeof createShell>>(),
+  available: (id: string) => boolean = () => true,
 ): TerminalViewSource {
   let controller: ReturnType<typeof createShell> | undefined;
   let snapshot: ShellView = {
@@ -16,6 +17,14 @@ export function createTerminalView(
     restartDisabled: true,
   };
   const listeners = new Set<() => void>();
+  const run = (operation: () => Promise<void>) =>
+    schedule(operation).catch((error: unknown) => {
+      snapshot = {
+        ...snapshot,
+        status: `Unable to update terminal view: ${error instanceof Error ? error.message : String(error)}`,
+      };
+      for (const listener of listeners) listener();
+    });
   return {
     mount: (element) => {
       controller = createShell(
@@ -28,21 +37,25 @@ export function createTerminalView(
         undefined,
         false,
         false,
+        available,
       );
       return () => {
         const previous = controller;
         controller = undefined;
-        void schedule(async () => {
-          await previous?.hide();
-          previous?.dispose();
-          for (const [session, owner] of owners) if (owner === previous) owners.delete(session);
+        void run(async () => {
+          try {
+            await previous?.hide();
+          } finally {
+            previous?.dispose();
+            for (const [session, owner] of owners) if (owner === previous) owners.delete(session);
+          }
         });
       };
     },
     open: (id) =>
-      schedule(async () => {
+      run(async () => {
         const current = controller;
-        if (!current) return;
+        if (!current || !available(id)) return;
         const previous = owners.get(id);
         if (previous && previous !== current) await previous.hide();
         for (const [session, owner] of owners) if (owner === current) owners.delete(session);
@@ -50,11 +63,11 @@ export function createTerminalView(
         owners.set(id, current);
       }),
     hide: () =>
-      schedule(async () => {
+      run(async () => {
         await controller?.hide();
       }),
     focus: () => {
-      void schedule(() => {
+      void run(() => {
         controller?.terminal.focus();
         return Promise.resolve();
       });

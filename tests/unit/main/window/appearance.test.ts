@@ -3,6 +3,8 @@ import {
   anchoredOrigin,
   initialSize,
   boardShortcut,
+  BOARD_COMMANDS,
+  createBoardShortcuts,
   nextScale,
   scaledBounds,
   scaledSize,
@@ -157,8 +159,8 @@ test("restored dimensions respect the minimum and current display without rescal
 });
 
 test("tile chords cover both platforms without consuming plain terminal keys", () => {
-  for (const platform of ["linux", "darwin"] as const) {
-    const modifier = platform === "darwin" ? { meta: true } : { control: true };
+  for (const platform of ["darwin"] as const) {
+    const modifier = { meta: true };
     for (let index = 1; index <= 9; index++)
       expect(boardShortcut(key(`Digit${String(index)}`, modifier), platform)).toBe(
         `tile-${String(index)}`,
@@ -184,4 +186,65 @@ test("tile chords cover both platforms without consuming plain terminal keys", (
     ).toBeUndefined();
     expect(boardShortcut(key("KeyW", modifier), platform)).toBeUndefined();
   }
+});
+
+test.each(["linux", "win32"] as const)(
+  "%s command bindings avoid AltGr, OS chords and plain Ctrl letters/numbers",
+  (platform) => {
+    const seen = new Set<string>();
+    for (const command of BOARD_COMMANDS) {
+      const binding = command.leader
+        ? `leader:${command.code}`
+        : `ctrl:${String(command.shift)}:${command.code}`;
+      expect(seen.has(binding)).toBe(false);
+      seen.add(binding);
+      if (!command.leader) {
+        expect(command.alt).toBe(false);
+        expect(command.shift || !/^Key/.test(command.code)).toBe(true);
+      }
+      expect(
+        boardShortcut(key(command.code, { control: true, alt: true, shift: true }), platform),
+      ).toBeUndefined();
+      const shortcuts = createBoardShortcuts(platform, () => 100);
+      if (command.leader) {
+        expect(shortcuts.handle(key("Space", { control: true, shift: true }))).toEqual({
+          handled: true,
+        });
+        expect(shortcuts.handle(key(command.code))).toEqual({ handled: true, command: command.id });
+      }
+    }
+    for (let i = 1; i <= 9; i++)
+      expect(boardShortcut(key(`Digit${String(i)}`, { control: true }), platform)).toBeUndefined();
+  },
+);
+test("leader cancels on timeout, blur, Escape or unmatched input and preserves modifier/key-up events", () => {
+  let time = 100;
+  const shortcuts = createBoardShortcuts("linux", () => time);
+  const arm = () => shortcuts.handle(key("Space", { control: true, shift: true }));
+  arm();
+  expect(shortcuts.handle(key("ShiftLeft", { shift: true }))).toEqual({ handled: false });
+  expect(shortcuts.handle(key("Space", {}, "keyUp"))).toEqual({ handled: false });
+  expect(shortcuts.handle(key("KeyR"))).toEqual({ handled: true, command: "split-right" });
+  arm();
+  time += 2000;
+  expect(shortcuts.handle(key("KeyR"))).toEqual({ handled: false });
+  arm();
+  shortcuts.reset();
+  expect(shortcuts.handle(key("KeyR"))).toEqual({ handled: false });
+  arm();
+  expect(shortcuts.handle(key("Escape"))).toEqual({ handled: true });
+  arm();
+  expect(shortcuts.handle(key("KeyC", { control: true }))).toEqual({ handled: false });
+  expect(shortcuts.handle(key("KeyR"))).toEqual({ handled: false });
+  arm();
+  expect(shortcuts.handle(key("KeyX"))).toEqual({ handled: false });
+  expect(shortcuts.handle(key("KeyB", { control: true, shift: true }))).toEqual({
+    handled: true,
+    command: "sidebar",
+  });
+  const mac = createBoardShortcuts("darwin");
+  expect(mac.handle(key("KeyR", { meta: true, alt: true, shift: true }))).toEqual({
+    handled: true,
+    command: "split-right",
+  });
 });

@@ -35,5 +35,6 @@ export interface DesktopApi extends WorkspaceApi, SetupApi {
   onBoardCommand(callback: (command: BoardCommand) => void): () => void;
   onActivity(callback: (batch: TerminalActivity[]) => void): () => void;
   onData(callback: (id: string, token: string, data: string) => void): () => void;
+  onTerminalAvailability(callback: (id: string, available: boolean) => void): () => void;
   onExit(callback: (id: string, code: number) => void): () => void;
 }

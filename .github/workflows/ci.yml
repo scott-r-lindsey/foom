@@ -156,6 +156,14 @@ jobs:
         timeout-minutes: 10
         if: runner.os != 'Linux'
         run: npm run test:electron
+      - name: Repeat theme and teardown regressions
+        if: runner.os != 'Linux'
+        timeout-minutes: 10
+        shell: bash
+        run: |
+          for attempt in 1 2 3; do
+            node --test --test-name-pattern='sidebar menus escape|persistent sidebar keeps Escape' tests/electron/app.test.js
+          done
       - name: Package desktop application
         run: npm run make
       - name: Test packaged terminal host on Linux

@@ -52,6 +52,7 @@ test("one passive controller per mount, ordered transfer, focus, subscriptions a
     undefined,
     false,
     false,
+    expect.any(Function),
   );
   const listener = vi.fn(),
     off = second.subscribe(listener);
@@ -85,4 +86,31 @@ test("a standalone view has an immediate operation scheduler", async () => {
   await view.open("absent");
   await view.hide();
   view.focus();
+});
+
+test("queued opens recheck inventory and failed operations report status without rejecting", async () => {
+  let live = true;
+  const open = vi.fn(() => Promise.resolve());
+  const hide = vi.fn(() => Promise.reject(new Error("connection closed")));
+  const dispose = vi.fn();
+  mock.create.mockReturnValue({ open, hide, dispose, terminal: { focus: vi.fn() } });
+  let queue = Promise.resolve();
+  const schedule = (operation: () => Promise<void>) => {
+    queue = queue.then(operation, operation);
+    return queue;
+  };
+  const view = createTerminalView(schedule, new Map(), () => live);
+  const unmount = view.mount(document.createElement("div"));
+  const pending = view.open("removed");
+  live = false;
+  await pending;
+  expect(open).not.toHaveBeenCalled();
+  const listener = vi.fn();
+  view.subscribe(listener);
+  await expect(view.hide()).resolves.toBeUndefined();
+  expect(view.getSnapshot().status).toContain("connection closed");
+  expect(listener).toHaveBeenCalled();
+  unmount();
+  await queue.catch(() => {});
+  expect(dispose).toHaveBeenCalledOnce();
 });

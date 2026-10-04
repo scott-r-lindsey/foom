@@ -19,6 +19,7 @@ async function bridge() {
   await import("../../../src/preload/preload");
   const api = mock.expose.mock.calls[0]?.[1];
   if (!api) throw new Error("Missing bridge");
+  mock.on.mockClear();
   return api;
 }
 test("starts through the dedicated channel and validates the response", async () => {
@@ -379,4 +380,34 @@ test("only known tile commands cross the navigation bridge", async () => {
   for (const command of [...commands, "tile-0", "tile-10", {}, null]) listener?.({}, command);
   expect(callback.mock.calls.map(([command]) => command)).toEqual(commands);
   off();
+});
+
+test("removal notifications validate IDs and strip event objects", async () => {
+  const api = await bridge();
+  const removed = vi.fn();
+  const off = api.onTerminalAvailability(removed);
+  const handler = mock.on.mock.calls.find(([channel]) => channel === "terminal:availability")?.[1];
+  for (const ids of [null, 42, [""], ["x".repeat(201)], ["owned", 42]]) handler?.({}, ids, false);
+  handler?.({}, ["owned"], false);
+  handler?.({}, ["owned"], "invalid");
+  expect(removed.mock.calls).toEqual([["owned", false]]);
+  off();
+  expect(mock.removeListener).toHaveBeenCalledWith("terminal:availability", handler);
+});
+
+test("view flush acknowledgement runs after callbacks and validates its envelope", async () => {
+  await import("../../../src/preload/preload");
+  const handler = mock.on.mock.calls.find(([channel]) => channel === "terminal:flush-views")?.[1];
+  for (const [ids, token] of [
+    [null, 1],
+    [[42], 1],
+    [["one"], "bad"],
+    [["one"], 0],
+    [["one"], 1.2],
+  ])
+    handler?.({}, ids, token);
+  handler?.({}, ["one"], 1);
+  expect(mock.send).not.toHaveBeenCalled();
+  await Promise.resolve();
+  expect(mock.send).toHaveBeenCalledExactlyOnceWith("terminal:views-flushed", ["one"], 1);
 });

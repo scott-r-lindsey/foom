@@ -51,6 +51,22 @@ function setupState(value: unknown): value is SetupState {
   );
 }
 
+// Main sends this after availability notifications. Reply after the current
+// renderer turn, behind any already-sent view IPC, even when no view is mounted.
+ipcRenderer.on("terminal:flush-views", (_event, ids: unknown, token: unknown) => {
+  if (
+    !Array.isArray(ids) ||
+    !ids.every((id: unknown) => typeof id === "string") ||
+    typeof token !== "number" ||
+    !Number.isSafeInteger(token) ||
+    token <= 0
+  )
+    return;
+  queueMicrotask(() => {
+    ipcRenderer.send("terminal:views-flushed", ids, token);
+  });
+});
+
 const desktop: DesktopApi = {
   onBoardCommand(callback) {
     const listener = (_event: IpcRendererEvent, command: unknown) => {
@@ -244,6 +260,19 @@ const desktop: DesktopApi = {
     ipcRenderer.on("terminal:data", listener);
     return () => {
       ipcRenderer.removeListener("terminal:data", listener);
+    };
+  },
+  onTerminalAvailability(callback) {
+    const listener = (_event: IpcRendererEvent, ids: unknown, available: unknown) => {
+      if (!Array.isArray(ids) || typeof available !== "boolean") return;
+      const values: unknown[] = ids;
+      if (!values.every((id) => typeof id === "string" && id.length > 0 && id.length <= 200))
+        return;
+      for (const id of values) if (typeof id === "string") callback(id, available);
+    };
+    ipcRenderer.on("terminal:availability", listener);
+    return () => {
+      ipcRenderer.removeListener("terminal:availability", listener);
     };
   },
   onExit(callback) {
