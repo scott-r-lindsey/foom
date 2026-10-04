@@ -2262,7 +2262,9 @@ test("new worktree dialog launches by keyboard and confirms dirty removal", {
   await assertAccessible(page);
   await tabTo(page, "Create and start");
   await page.keyboard.press("Enter");
-  await expect(page.getByRole("dialog")).toHaveCount(0);
+  // This includes real Git worktree creation and shell startup, which can take
+  // longer than the default five-second assertion budget on Windows runners.
+  await expect(page.getByRole("dialog")).toHaveCount(0, { timeout: 15000 });
   const row = page.locator(".board-row").filter({ hasText: "feature/ui" });
   await expect(row).toBeVisible();
   const launched = await page.evaluate(() => window.desktop.workspace());
