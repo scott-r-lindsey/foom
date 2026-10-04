@@ -141,7 +141,18 @@ Terminal font size applies to every terminal view: 10–32 pixels, 14 by default
 independent of interface size. The Terminal section previews text size, all 16 ANSI colors, bold, dim and selection.
 Terminal colors default to Follow interface, with Foom Light/Dark, Solarized Light/Dark
 and Dracula built in. Changes apply live to visible and detached terminals and board peek.
-Interface Themes and Sound remain placeholders for later work.
+Settings → Themes offers System, Eclipse Light, Eclipse Dark, High Contrast,
+Deep Field and Moonlight, with a live preview of all six terminal statuses.
+System follows the operating system's light/dark appearance. The other themes have
+a fixed light or dark base. Changes apply immediately and persist. The preflight
+and Appearance System/Light/Dark controls return to the corresponding Eclipse
+appearance; changing interface size keeps the selected theme. Terminal color
+schemes remain independent; Follow interface uses the light/dark base.
+
+Every theme keeps amber for Needs you, magenta for Failed, and violet for activity.
+Needs you retains its halo, Failed its square light, and all states their labels.
+High Contrast provides at least 7:1 text contrast and stronger borders. Sound remains
+a placeholder for later work.
 
 ## Quitting
 

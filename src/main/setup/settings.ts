@@ -1,3 +1,4 @@
+import { parseInterfaceTheme } from "../../shared/interface-themes";
 import { parseTerminalThemeChoice } from "../../shared/terminal-themes";
 import { randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
@@ -18,6 +19,7 @@ export const DEFAULT_SETTINGS: Settings = Object.freeze({
   inference: Object.freeze({ kind: "rules" }),
   inferenceTimeoutMs: 5000,
   colorMode: "system",
+  interfaceTheme: "follow",
   interfaceScale: 100,
   terminalFontSize: 14,
   terminalTheme: "follow",
@@ -54,6 +56,7 @@ export function parseSettingsPatch(value: unknown): SettingsPatch {
         codex: entry["codex"] === true,
         agy: entry["agy"] === true,
       };
+    else if (key === "interfaceTheme") patch.interfaceTheme = parseInterfaceTheme(entry);
     else if (key === "terminalTheme") patch.terminalTheme = parseTerminalThemeChoice(entry);
     else if (key === "inference") patch.inference = parseInferenceConfig(entry);
     else if (

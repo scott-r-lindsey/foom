@@ -118,6 +118,9 @@ export class Setup {
 
   async save(value: unknown): Promise<SetupState> {
     const patch = parseSettingsPatch(value);
+    // Choosing System/Light/Dark explicitly returns to Eclipse. Size-only edits keep the theme.
+    if (patch.colorMode !== undefined && patch.interfaceTheme === undefined)
+      patch.interfaceTheme = "follow";
     const { inference } = patch;
     const before = this.deps.store.get();
     if (

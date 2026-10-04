@@ -1,3 +1,4 @@
+import { interfaceThemes } from "../../../../src/shared/interface-themes";
 import { mkdtemp, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -131,4 +132,20 @@ test("a failed write leaves settings unchanged and later writes still work", asy
   await expect(store.update({ setupComplete: true })).resolves.toMatchObject({
     setupComplete: true,
   });
+});
+
+test("interface themes persist, preserve legacy modes and reject invalid portable colors", async () => {
+  const dir = await directory();
+  await writeFile(
+    path.join(dir, "settings.json"),
+    JSON.stringify({ version: 1, settings: { colorMode: "dark" } }),
+  );
+  const store = await SettingsStore.open(dir);
+  expect(store.get()).toMatchObject({ colorMode: "dark", interfaceTheme: "follow" });
+  await store.update(parseSettingsPatch({ interfaceTheme: "deep-field" }));
+  expect((await SettingsStore.open(dir)).get().interfaceTheme).toBe("deep-field");
+  const custom = { ...interfaceThemes.moonlight, name: "My Moonlight" };
+  await store.update(parseSettingsPatch({ interfaceTheme: custom }));
+  expect((await SettingsStore.open(dir)).get().interfaceTheme).toEqual(custom);
+  expect(() => parseSettingsPatch({ interfaceTheme: { colors: { bg: "url(x)" } } })).toThrow();
 });

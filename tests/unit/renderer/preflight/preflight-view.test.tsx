@@ -756,7 +756,7 @@ test("Settings shares setup controls, saves immediately and exposes planned sect
   });
   expect(screen.getByText(/Hack Nerd Font Mono ·/).style.fontSize).toBe("18px");
   fireEvent.click(button("Themes"));
-  expect(screen.getByText(/Eclipse is the current theme/)).toBeTruthy();
+  expect(screen.getByRole("group", { name: "Interface themes" })).toBeTruthy();
   fireEvent.click(button("Sound"));
   expect(screen.getByText(/Sound controls are coming/)).toBeTruthy();
   fireEvent.keyDown(screen.getByRole("region", { name: "Settings" }), { key: "a" });

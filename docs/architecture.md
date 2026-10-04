@@ -57,7 +57,7 @@ Within those features:
 
 The `foom/process-boundaries` ESLint rule checks static imports, re-exports, literal dynamic imports and `require` calls. Process-owned code may depend on its own process and shared modules. Shared modules cannot depend on process-owned code. Renderer and shared modules cannot import Node, Electron, node-pty or headless xterm. The sandboxed preload may import Electron at runtime and shared declarations as types; adding another runtime dependency requires an explicit boundary and loader design change.
 
-Tests live outside `src/`; production compilation excludes them. Coverage still includes every executable source file regardless of its directory. The build emits main at `build/main/main.js`, preload at `build/preload/preload.js`, and the host at `build/terminal-host/terminal-host.js`. Renderer asset URLs remain unchanged.
+Tests live outside `src/`; production compilation excludes them. Coverage still includes every executable source file regardless of its directory. The build emits main at `build/main/main.js`, preload at `build/preload/preload.js`, and the host at `build/terminal-host/terminal-host.js`. Renderer TypeScript is type-checked without emitting; esbuild produces the browser bundle. This prevents the renderer compiler from overwriting main’s CommonJS shared modules with unbundled ES modules. Renderer asset URLs remain unchanged.
 
 ## Board
 
@@ -194,9 +194,34 @@ Stable Claude Code releases at or above 2.1.284 and Codex releases at or above 0
 
 `src/main/setup/setup.ts` applies the settings to the running app at startup and on each save, owns the key store and the app's model evaluator, and runs Run check. A model source can be saved only if it is already saved or passed a check in this session; storing or removing a provider's key invalidates that provider's checks. A cloud check without a stored key fails at its first step. The Evaluator step asks a local endpoint for its models as the URL is typed, offers them as suggestions for the model field, and says when the named model isn't among them.
 
-Appearance lives in Settings and the preflight rail through the same `AppearanceControls` component and applies at once. `colorMode` (system, light or dark) sets `nativeTheme.themeSource` in main, before the window is created at startup, so the CSS (`prefers-color-scheme`), the window background and terminals using Follow interface all follow it; changing the resolved terminal palette resets colors a program set in the terminal; fixed terminal themes ignore interface changes. `interfaceScale` (80–150% in steps of 10) is Chromium zoom: the window starts with it as `zoomFactor` and later changes use `setZoomFactor`. The window resizes with it in both directions (`src/main/window/window-scale.ts`): main remembers the window's size at 100% and sets the window to that size times the scale, capped to the display's usable area and moved back on screen if needed, so zooming in and back out restores the same size. A resize by the user sets a new size at 100%. On first launch, the window uses 60% of the primary display’s usable width and height. After a successful quit, main saves the normal window dimensions in `window-size.json` in user data and restores them on the next launch, clamped to the current display and minimum. Maximized or full-screen exits save the normal dimensions. Missing or invalid saved dimensions use the first-launch size. The minimum size (900 × 640 at 100%) scales too. Maximized and full-screen windows keep their size. Tiling window managers may ignore the resize; zoom still applies. Main handles the zoom keys before the terminal sees them: ⌘ =, − and 0 on macOS, and Ctrl+Shift+= / Ctrl+Shift+− and Ctrl+0 elsewhere, because plain Ctrl+− is readline's undo. A shortcut saves the new scale and sends `setup:changed` so preflight's controls follow. `terminalFontSize` is a separate validated integer setting (10–32 CSS pixels, default 14). Each mounted terminal controller reads it before its initial attachment, subscribes to `setup:changed`, and updates xterm options. Visible attachments refit and send an ID-scoped resize; hidden views use the new size on their next attachment. Disposal removes the subscription.
+Appearance lives in Settings and the preflight rail through the same `AppearanceControls` component and applies at once. `colorMode` (system, light or dark) sets `nativeTheme.themeSource` for Eclipse; fixed interface themes supply their own base. Main applies the source before the window is created at startup, so the CSS (`prefers-color-scheme`), the window background and terminals using Follow interface all follow it; changing the resolved terminal palette resets colors a program set in the terminal; fixed terminal themes ignore interface changes. `interfaceScale` (80–150% in steps of 10) is Chromium zoom: the window starts with it as `zoomFactor` and later changes use `setZoomFactor`. The window resizes with it in both directions (`src/main/window/window-scale.ts`): main remembers the window's size at 100% and sets the window to that size times the scale, capped to the display's usable area and moved back on screen if needed, so zooming in and back out restores the same size. A resize by the user sets a new size at 100%. On first launch, the window uses 60% of the primary display’s usable width and height. After a successful quit, main saves the normal window dimensions in `window-size.json` in user data and restores them on the next launch, clamped to the current display and minimum. Maximized or full-screen exits save the normal dimensions. Missing or invalid saved dimensions use the first-launch size. The minimum size (900 × 640 at 100%) scales too. Maximized and full-screen windows keep their size. Tiling window managers may ignore the resize; zoom still applies. Main handles the zoom keys before the terminal sees them: ⌘ =, − and 0 on macOS, and Ctrl+Shift+= / Ctrl+Shift+− and Ctrl+0 elsewhere, because plain Ctrl+− is readline's undo. A shortcut saves the new scale and sends `setup:changed` so preflight's controls follow. `terminalFontSize` is a separate validated integer setting (10–32 CSS pixels, default 14). Each mounted terminal controller reads it before its initial attachment, subscribes to `setup:changed`, and updates xterm options. Visible attachments refit and send an ID-scoped resize; hidden views use the new size on their next attachment. Disposal removes the subscription.
 
-Interface themes are not implemented, but the model allows them: `colorMode` chooses the variant, and a theme will supply a palette per variant (for example `lightTheme` and `darkTheme`, both "Eclipse" by default). Terminal colors are independently stored as `terminalTheme`: `follow` (default), a built-in ID (`foom-light`, `foom-dark`, `solarized-light`, `solarized-dark`, `dracula`), or a portable palette object for future user configuration files. The object has exactly foreground, background, cursor, selectionBackground and the 16 named ANSI colors (black through brightWhite), each a six-digit `#RRGGBB` color. Main validates every key and value; the host protocol validates palettes again. Both processes and the renderer share the same resolver. Palette replacement resets OSC overrides; OSC 104 restores the active theme's ANSI defaults. Settings previews all 16 colors, bold, dim and selection; board peek uses the resolved foreground/background. Third-party palette licenses are bundled in the packaged notices.
+Interface colors are independently stored as `interfaceTheme`: `follow` (default),
+a built-in ID, or a version 1 portable object with `name`, `base` and `colors`.
+Follow retains existing `colorMode` preferences and uses Eclipse Light/Dark; the
+Themes picker’s System choice sets both Follow and System. A `colorMode`-only save
+returns to Follow, while changing zoom or terminal settings retains the theme.
+Fixed themes override `colorMode` with their declared light/dark base for
+`nativeTheme.themeSource`. Main uses the palette's exact background both at startup
+and after saves, including switches between themes with the same base.
+
+`shared/interface-themes.ts` validates exact keys, six-digit opaque hex colors,
+brand hue and color-distance rules, contrast and the declared base. Built-in palettes
+pass the same gate used for user data. The object covers every color token in
+`styles/tokens.css`; fonts stay fixed and bundled. There are no CSS filenames,
+imports, URLs or arbitrary CSS values in theme data. See [brand](brand.md#interface-themes)
+for the numerical invariants. A future Foom-config loader can supply the same
+object through the existing settings validation; this change does not load files.
+
+`renderer/ui/interface-theme.ts` subscribes to the setup source and system media
+changes, sets color tokens on the root element and removes its listeners on unmount.
+It ignores stale initial reads after a newer save or disposal. CSS keeps the original
+Eclipse tokens as a startup/failure fallback. Settings → Themes uses token-scoped
+previews of every board status, including the halo, square failure light and labels.
+It neither renders terminal output nor subscribes to activity. The CSP and preload
+surface are unchanged.
+
+Terminal colors are independently stored as `terminalTheme`: `follow` (default), a built-in ID (`foom-light`, `foom-dark`, `solarized-light`, `solarized-dark`, `dracula`), or a portable palette object for future user configuration files. The object has exactly foreground, background, cursor, selectionBackground and the 16 named ANSI colors (black through brightWhite), each a six-digit `#RRGGBB` color. Main validates every key and value; the host protocol validates palettes again. Both processes and the renderer share the same resolver. Palette replacement resets OSC overrides; OSC 104 restores the active theme's ANSI defaults. Settings previews all 16 colors, bold, dim and selection; board peek uses the resolved foreground/background. Third-party palette licenses are bundled in the packaged notices.
 
 The renderer shows preflight until setup is complete, and again when the board's **Preflight** button is used; the board stays mounted underneath, so its shell keeps running. The default worktree location applies to the New worktree flow.
 
@@ -207,8 +232,8 @@ controller mounted but detaches and hides its view while Settings is open. Esc
 restores sidebar row focus after the terminal has reattached; selecting a sidebar
 terminal closes Settings. The shared setup coordinator renders the same Agents,
 Repositories, Worktrees, Evaluator and Appearance controls in both paths, with guided
-navigation only in preflight. Settings adds Terminal font size and placeholders for
-Themes and Sound. Successful `setup:save` calls publish `setup:changed` to keep live
+navigation only in preflight. Settings adds Terminal font size, interface Themes and a placeholder for
+Sound. Successful `setup:save` calls publish `setup:changed` to keep live
 consumers synchronized. Repository selection changes save immediately in Settings,
 with controls disabled during the write and refused selections restored to the
 registered repositories. Scans in Settings start from existing registrations;

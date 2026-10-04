@@ -35,6 +35,51 @@ Light mode uses a darker amber so "needs you" still wins against a pale backgrou
 
 Badges and chips use the badge fills and stay neutral: no amber, magenta, or status color. A card outlines at most one thing, such as an agent's signal.
 
+## Interface themes
+
+| Theme | Base | Palette |
+|---|---|---|
+| System | System | Eclipse Light/Dark follows the operating system |
+| Eclipse Light | Light | Original pale violet surfaces and dark violet accent |
+| Eclipse Dark | Dark | Original near-black violet surfaces and bright violet accent |
+| High Contrast | Dark | Black surfaces, brighter text and status inks, visible neutral borders |
+| Deep Field | Dark | Blue-slate surfaces with a violet accent |
+| Moonlight | Light | Cool slate surfaces with a violet accent |
+
+Themes are complete color-token data, not CSS. `src/shared/interface-theme.d.ts`
+defines the version 1 schema: `{ version: 1, name, base, colors }`. `colors` contains
+all 19 color tokens from `src/renderer/styles/tokens.css`, including `space-ink`;
+font tokens stay fixed. Names contain 1–40 letters, numbers, spaces, dots, hyphens
+or underscores. Every color is an opaque six-digit `#RRGGBB` value. Extra and
+missing fields are rejected. `base` must agree with the background's lightness
+(white has higher contrast than black on a dark background, and vice versa).
+
+Built-in and future user themes share these enforced invariants:
+
+- `hole` is exactly `#06050B`.
+- Attention and attention ink have HSL hues 25–50°; failure and failure ink
+  315–345°; accent and accent-deep 245–280°. Each has at least 45% saturation.
+  Other tokens may not use the amber 20–55° or magenta 310–350° bands above 20%
+  saturation. This keeps status colors out of decoration and preserves violet identity.
+- Attention, failure and accent colors are separated pairwise by at least 40
+  CIE Lab Delta E 1976 units, using sRGB and a D65 reference white. The same
+  minimum applies to attention ink, failure ink and accent. This is Foom's design
+  threshold, not a WCAG criterion.
+- Primary text, muted text, accent and all three status inks meet **4.5:1** on both
+  background and surface. Badge inks meet 4.5:1 on their own fills; space ink meets
+  4.5:1 on the black hole. Contrast uses the
+  [WCAG 2.2 relative-luminance calculation](https://www.w3.org/WAI/WCAG22/Understanding/contrast-minimum.html).
+- High Contrast raises the six text/ink roles to **7:1** and its border token to
+  **3:1** against background and surface. Tests enforce this built-in promise.
+- Status labels, the Needs you halo and the square Failed light remain visible;
+  color is never the only signal. Real-app axe checks cover the board and Settings
+  in every built-in theme.
+
+Choosing System, Light or Dark in Appearance or preflight returns to Eclipse.
+Changing interface size preserves the theme. Terminal schemes remain independent;
+Follow interface follows the base variant. Native controls follow the theme's base,
+and the native window background uses its exact `bg` token.
+
 ## Type
 
 | Role | Face | Use |

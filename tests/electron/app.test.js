@@ -1920,6 +1920,7 @@ test("first run goes from no agents to go, launches by keyboard, and can be repl
     inference: { kind: "rules" },
     inferenceTimeoutMs: 5000,
     colorMode: "system",
+    interfaceTheme: "follow",
     interfaceScale: 100,
     terminalFontSize: 14,
     terminalTheme: "follow",
@@ -3125,4 +3126,73 @@ test("Bash command status reaches the sidebar without closing the shell", {
   await expect(row).toHaveAttribute("data-state", "failed");
   await page.keyboard.press("Enter");
   await expect(row).toHaveAttribute("data-state", "done");
+});
+
+test("every interface theme applies live to native chrome and passes axe on board and Settings", {
+  timeout: 55000,
+}, async (context) => {
+  const app = await launchApp(context);
+  const page = await app.firstWindow();
+  const choices = [
+    ["eclipse-light", "Eclipse Light", "light", "#f3f0fa"],
+    ["eclipse-dark", "Eclipse Dark", "dark", "#05040a"],
+    ["high-contrast", "High Contrast", "dark", "#000000"],
+    ["deep-field", "Deep Field", "dark", "#080f1e"],
+    ["moonlight", "Moonlight", "light", "#f5f7fc"],
+  ];
+  for (const [id, name, base, background] of choices) {
+    await boardCommand(app, ",", false);
+    await page.getByRole("button", { name: "Themes", exact: true }).click();
+    await page.getByRole("button", { name, exact: true }).click();
+    await expect(page.getByRole("button", { name, exact: true })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    await expect
+      .poll(() =>
+        page.evaluate(async () => (await window.desktop.setupState()).settings.interfaceTheme),
+      )
+      .toBe(id);
+    await expect
+      .poll(() => page.evaluate(() => document.documentElement.style.getPropertyValue("--bg")))
+      .toBe(background);
+    assert.equal(await app.evaluate(({ nativeTheme }) => nativeTheme.themeSource), base);
+    assert.equal(
+      (
+        await app.evaluate(({ BrowserWindow }) =>
+          BrowserWindow.getAllWindows()[0].getBackgroundColor(),
+        )
+      ).toLowerCase(),
+      background,
+    );
+    await expect(
+      page.getByRole("list", { name: "Terminal status previews" }).getByRole("listitem"),
+    ).toHaveCount(6);
+    await assertAccessible(page);
+    await page.keyboard.press("Escape");
+    await expect(page.locator("#terminal")).toBeVisible();
+    await assertAccessible(page);
+  }
+  await boardCommand(app, ",", false);
+  await page.getByRole("button", { name: "Themes", exact: true }).click();
+  await page.getByRole("button", { name: /^System/ }).click();
+  assert.equal(await app.evaluate(({ nativeTheme }) => nativeTheme.themeSource), "system");
+  for (const [colorScheme, expected] of [
+    ["dark", "#05040a"],
+    ["light", "#f3f0fa"],
+  ]) {
+    await page.emulateMedia({ colorScheme });
+    await expect
+      .poll(() => page.evaluate(() => document.documentElement.style.getPropertyValue("--bg")))
+      .toBe(expected);
+  }
+  await page.emulateMedia({ colorScheme: null });
+  await page.getByRole("button", { name: "High Contrast", exact: true }).click();
+  await app.evaluate(({ BrowserWindow }) => {
+    const window = BrowserWindow.getAllWindows()[0];
+    window.setMinimumSize(0, 0);
+    window.setSize(640, 640);
+  });
+  await assertAccessible(page);
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
 });

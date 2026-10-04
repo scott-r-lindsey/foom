@@ -16,6 +16,7 @@ export function setupState(
       inference: { kind: "rules" },
       inferenceTimeoutMs: 5000,
       colorMode: "system",
+      interfaceTheme: "follow",
       interfaceScale: 100,
       terminalFontSize: 14,
       terminalTheme: "follow",
