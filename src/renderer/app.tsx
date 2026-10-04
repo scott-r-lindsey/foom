@@ -67,6 +67,7 @@ export function App() {
       {board && (
         <Board
           source={source}
+          soundSetup={setup}
           inactive={preflight}
           onPreflight={() => void reopen()}
           onSettings={() => {

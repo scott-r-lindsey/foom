@@ -1,3 +1,4 @@
+import { SoundControls } from "../sound/sound-controls";
 import { TerminalThemePicker } from "./terminal-theme-picker";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { SetupState } from "../../shared/setup";
@@ -346,16 +347,23 @@ export function Preflight({
         <p className="preflight-note">More terminal options are coming.</p>
       </>
     );
-  } else if (step === 8 || step === 9) {
+  } else if (step === 9) {
     content = (
       <>
         <h2 ref={headingRef} tabIndex={-1}>
-          {step === 8 ? "Themes" : "Sound"}
+          Sound
+        </h2>
+        <SoundControls settings={state.settings.sound} onChange={save} />
+      </>
+    );
+  } else if (step === 8) {
+    content = (
+      <>
+        <h2 ref={headingRef} tabIndex={-1}>
+          Themes
         </h2>
         <p className="preflight-intro">
-          {step === 8
-            ? "Eclipse is the current theme. More theme choices are coming."
-            : "Sound controls are coming. Foom is silent for now."}
+          Eclipse is the current theme. More theme choices are coming.
         </p>
       </>
     );
