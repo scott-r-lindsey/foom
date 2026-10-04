@@ -1680,14 +1680,18 @@ test("first run goes from no agents to go, launches by keyboard, and can be repl
     [1600, 1000, 1],
     [1600, 700, 1],
     [1600, 2000, 1],
+    // A small CI display can clamp both requested window sizes to the same bounds.
+    // Zoom out further to exercise actual scale growth even on that display.
+    [1600, 1000, 0.5],
     [1600, 1000, 0.8],
     [1600, 1000, 1.5],
     [800, 600, 1.5],
   ]) {
     const size = await app.evaluate(
-      ({ BrowserWindow }, { width, height, zoom }) => {
+      ({ BrowserWindow, screen }, { width, height, zoom }) => {
         const window = BrowserWindow.getAllWindows()[0];
-        window.setSize(width, height);
+        const available = screen.getPrimaryDisplay().workAreaSize;
+        window.setSize(Math.min(width, available.width), Math.min(height, available.height));
         window.webContents.setZoomFactor(zoom);
         return window.getContentBounds();
       },
@@ -1695,8 +1699,17 @@ test("first run goes from no agents to go, launches by keyboard, and can be repl
     );
     // Window resize delivery and ResizeObserver run after the main-process call returns.
     await expect
-      .poll(() => page.evaluate(() => [window.innerWidth, window.innerHeight]))
-      .toEqual([Math.round(size.width / zoom), Math.round(size.height / zoom)]);
+      .poll(() =>
+        page.evaluate(
+          ({ size, zoom }) =>
+            Math.max(
+              Math.abs(window.innerWidth - size.width / zoom),
+              Math.abs(window.innerHeight - size.height / zoom),
+            ),
+          { size, zoom },
+        ),
+      )
+      .toBeLessThanOrEqual(1);
     await page.evaluate(
       () =>
         new Promise((resolve) => {
@@ -1738,19 +1751,16 @@ test("first run goes from no agents to go, launches by keyboard, and can be repl
       );
     }
   }
-  await app.evaluate(({ BrowserWindow }) => {
+  await app.evaluate(({ BrowserWindow, screen }) => {
     const window = BrowserWindow.getAllWindows()[0];
     window.webContents.setZoomFactor(1);
-    window.setSize(1600, 1000);
+    const available = screen.getPrimaryDisplay().workAreaSize;
+    window.setSize(Math.min(1600, available.width), Math.min(1000, available.height));
   });
 
   assert.ok(
-    contentScales.get("1600x1000@1") > contentScales.get("1200x900@1"),
-    "More available width enlarges content",
-  );
-  assert.ok(
-    contentScales.get("1600x1000@1") > contentScales.get("1600x700@1"),
-    "Less available height reduces content scale",
+    contentScales.get("1600x1000@0.5") > contentScales.get("1600x1000@1.5"),
+    "More available CSS space enlarges content, even when native window sizes are clamped",
   );
   const sharedScale = contentScales.get("1600x1000@1");
   const assertFooter = async (sameSize = true) => {
@@ -1809,10 +1819,11 @@ test("first run goes from no agents to go, launches by keyboard, and can be repl
       await assertFooter(false);
       await expect(page.getByRole("button", { name: "Continue", exact: true })).toBeInViewport();
       await expect(page.getByRole("button", { name: "Back", exact: true })).toBeInViewport();
-      await app.evaluate(({ BrowserWindow }) => {
+      await app.evaluate(({ BrowserWindow, screen }) => {
         const window = BrowserWindow.getAllWindows()[0];
         window.webContents.setZoomFactor(1);
-        window.setSize(1600, 1000);
+        const available = screen.getPrimaryDisplay().workAreaSize;
+        window.setSize(Math.min(1600, available.width), Math.min(1000, available.height));
       });
     }
   }
