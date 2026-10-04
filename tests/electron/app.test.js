@@ -2489,6 +2489,10 @@ test("external worktrees support independent shells and confirmed shared agents"
     await page.getByRole("button", { name: "Actions for agent", exact: true }).click();
     await page.getByRole("menuitem", { name: /^Shell \(/ }).click();
     await expect.poll(async () => (await sharedSessions()).length).toBe(i + 1);
+    // Inventory arrives before the launch command finishes revealing the row and
+    // focusing its terminal. Revealing clears any open menu, so wait for focus
+    // before opening the next one.
+    await expect(page.locator(".xterm-helper-textarea").first()).toBeFocused();
   }
   assert.deepEqual(await app.evaluate(() => globalThis.sharingPrompts), []);
   if (process.platform !== "win32") {
