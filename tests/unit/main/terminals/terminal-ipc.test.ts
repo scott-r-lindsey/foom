@@ -969,3 +969,24 @@ test("failed Bash spawn removes the private startup directory", () => {
   });
   expect(() => manager.create({ ...spec, shellIntegration: true })).toThrow("spawn failed");
 });
+
+test("tile hide, close and preset detach sequences leave every PTY consuming output", async () => {
+  const first = await create();
+  const second = await create();
+  await invoke("attach", [first]);
+  await invoke("attach", [second]);
+  await invoke("detach", [first]);
+  output("first hidden\r\n", 0);
+  output("second visible\r\n", 1);
+  await invoke("detach", [second]);
+  await invoke("attach", [first]);
+  await invoke("detach", [first]);
+  output("first still running\r\n", 0);
+  output("second still running\r\n", 1);
+  expect(await invoke("tail", [first, 40])).toContain("first still running");
+  expect(await invoke("tail", [second, 40])).toContain("second still running");
+  for (const index of [0, 1]) {
+    expect(pty(index).kill).not.toHaveBeenCalled();
+    expect(pty(index).pause).not.toHaveBeenCalled();
+  }
+});

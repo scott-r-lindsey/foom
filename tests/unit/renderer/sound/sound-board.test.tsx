@@ -61,3 +61,59 @@ test("board uses the displayed terminal and window focus for muting and disposes
   view.unmount();
   expect(sink.dispose).toHaveBeenCalledOnce();
 });
+
+test("only the focused tile is muted while other visible tiles can alert", async () => {
+  vi.useFakeTimers();
+  localStorage.clear();
+  vi.spyOn(document, "hasFocus").mockReturnValue(true);
+  const sink = { working: vi.fn(), alert: vi.fn(), silenceAlerts: vi.fn(), dispose: vi.fn() };
+  vi.spyOn(audio, "createAudioSink").mockReturnValue(sink);
+  const source = createSampleSource(
+    ["a", "b"].map((id) => ({
+      id,
+      kind: "shell",
+      agent: "Shell",
+      repository: "Local",
+      branch: id,
+      state: "working",
+      reason: "Running",
+      waitingSince: 0,
+      rate: 0,
+      seen: false,
+      tail: [],
+    })),
+  );
+  const soundSetup = { state: () => Promise.resolve(setupState()), subscribe: () => () => {} };
+  const view = render(<Board source={source} soundSetup={soundSetup} />);
+  await act(async () => {
+    await Promise.resolve();
+  });
+  const rows = view.container.querySelectorAll(".board-row");
+  const first = rows[0];
+  const second = rows[1];
+  if (!first || !second) throw Error("Missing terminal rows");
+  fireEvent.click(first);
+  fireEvent.click(view.getByRole("button", { name: "Split right" }));
+  fireEvent.click(second);
+  act(() => {
+    source.update("b", { state: "done" });
+    vi.advanceTimersByTime(1200);
+  });
+  expect(sink.alert).not.toHaveBeenCalled();
+  act(() => {
+    source.update("a", { state: "done" });
+    vi.advanceTimersByTime(1200);
+  });
+  expect(sink.alert).toHaveBeenCalledOnce();
+  fireEvent.click(first);
+  act(() => {
+    source.update("a", { state: "needs_input" });
+    vi.advanceTimersByTime(2100);
+  });
+  expect(sink.alert).toHaveBeenCalledOnce();
+  act(() => {
+    source.update("b", { state: "needs_input" });
+    vi.advanceTimersByTime(1200);
+  });
+  expect(sink.alert).toHaveBeenCalledTimes(2);
+});

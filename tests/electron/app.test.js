@@ -87,6 +87,27 @@ async function prepareProfile(options) {
   };
 }
 
+async function launchCheckoutShell(app, page) {
+  const profile = await app.evaluate(({ app }) => app.getPath("userData"));
+  const directory = path.join(profile, "shell-fixture");
+  await mkdir(directory, { recursive: true });
+  const repository = await realpath(directory);
+  isolatedGit(["init", "-q", repository]);
+  await app.evaluate(({ dialog }, repository) => {
+    dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [repository] });
+  }, repository);
+  await page.getByRole("button", { name: "Add repository", exact: true }).press("Enter");
+  await expect
+    .poll(async () =>
+      (await page.evaluate(() => window.desktop.workspace())).repositories.map(
+        (entry) => entry.path,
+      ),
+    )
+    .toContain(repository);
+  await page.getByRole("button", { name: "Actions for shell-fixture", exact: true }).click();
+  await page.getByRole("menuitem", { name: /^Shell \(/ }).click();
+}
+
 async function launchApp(context, openShell = true, options = {}) {
   const profile = await prepareProfile(options);
   const watchdog = setTimeout(() => {
@@ -165,13 +186,17 @@ async function launchApp(context, openShell = true, options = {}) {
     })
     .toBe(true);
   if (options.firstRun || options.emptyBoard) return app;
-  await page.getByRole("button", { name: "Local shell", exact: true }).press("Enter");
+  await launchCheckoutShell(app, page);
   await page.locator(".board-row[data-kind='shell']").waitFor();
   // Report startup errors directly instead of timing out on a permanently disabled control.
   await expect
-    .poll(() => page.locator("#status").textContent(), { timeout: 10000 })
+    .poll(() => page.locator(".tile-status").textContent(), { timeout: 10000 })
     .not.toBe("Starting shell…");
-  assert.doesNotMatch(await page.locator("#status").textContent(), /Unable|failed/);
+  assert.doesNotMatch(await page.locator(".tile-status").textContent(), /Unable|failed/);
+  if (!openShell) {
+    await page.getByRole("button", { name: "Hide session", exact: true }).click();
+    await boardCommand(app, "B");
+  }
   if (openShell) {
     // Use the board's keyboard action for setup; pointer clicks wait for layout
     // stability and can stall during the first window's startup on a CI display.
@@ -192,10 +217,10 @@ test("terminal runs an interactive shell behind an isolated bridge", {
     await page.waitForLoadState("domcontentloaded");
     assert.equal(await page.title(), "Foom");
     await page.waitForFunction(
-      () => !document.querySelector("#status").textContent.includes("Starting"),
+      () => !document.querySelector(".tile-status").textContent.includes("Starting"),
     );
     console.info("Shell started");
-    assert.doesNotMatch(await page.locator("#status").innerText(), /Unable/);
+    assert.doesNotMatch(await page.locator(".tile-status").innerText(), /Unable/);
     await page.evaluate(() => {
       window.terminalOutput = "";
       window.desktop.onData((_id, _token, data) => {
@@ -222,7 +247,7 @@ test("terminal runs an interactive shell behind an isolated bridge", {
       await marker.waitFor();
       const box = await marker.boundingBox();
       assert.ok(box);
-      await page.mouse.dblclick(box.x + 10, box.y + box.height / 2);
+      await page.mouse.dblclick(box.x + 10, box.y + box.height / 4);
       await app.evaluate(({ clipboard }) => clipboard.writeText("clipboard sentinel"));
       // Playwright's CDP keyboard path bypasses Electron's before-input-event.
       const shortcut = (keyCode) =>
@@ -455,7 +480,7 @@ test("terminal runs an interactive shell behind an isolated bridge", {
     console.info("Shell exited");
     await page.getByRole("button", { name: "Restart shell" }).click();
     await page.waitForFunction(
-      () => !/Starting|exited|Unable/.test(document.querySelector("#status").textContent),
+      () => !/Starting|exited|Unable/.test(document.querySelector(".tile-status").textContent),
     );
     console.info("Shell restarted");
     // Quit with fresh, detached PTYs as well as the restarted visible shell. Native
@@ -473,7 +498,7 @@ test("terminal runs an interactive shell behind an isolated bridge", {
         await pages[0].evaluate(() => ({
           viewport: { width: innerWidth, height: innerHeight },
           terminal: document.querySelector(".xterm-screen")?.getBoundingClientRect().toJSON(),
-          status: document.querySelector("#status")?.textContent,
+          status: document.querySelector(".tile-status")?.textContent,
           output: window.terminalOutput?.slice(-8000),
         })),
       );
@@ -599,7 +624,7 @@ for (const action of ["close", "quit", "shortcut"]) {
     const app = await launchApp(context);
     const page = await app.firstWindow();
     await page.waitForFunction(
-      () => !/Starting|Unable/.test(document.querySelector("#status").textContent),
+      () => !/Starting|Unable/.test(document.querySelector(".tile-status").textContent),
     );
     await page.evaluate(() => {
       window.quitOutput = "";
@@ -705,7 +730,7 @@ test("closing with an exited terminal quits without confirmation", {
   const app = await launchApp(context);
   const page = await app.firstWindow();
   await page.waitForFunction(
-    () => !/Starting|Unable/.test(document.querySelector("#status").textContent),
+    () => !/Starting|Unable/.test(document.querySelector(".tile-status").textContent),
   );
   const background = await app.evaluate(({ BrowserWindow, nativeTheme }) => ({
     actual: BrowserWindow.getAllWindows()[0].getBackgroundColor().toUpperCase(),
@@ -812,7 +837,7 @@ test("a crashed utility host reports failure and the renderer can restart", {
   const app = await launchApp(context);
   const page = await app.firstWindow();
   await page.waitForFunction(
-    () => !/Starting|exited|Unable/.test(document.querySelector("#status").textContent),
+    () => !/Starting|exited|Unable/.test(document.querySelector(".tile-status").textContent),
   );
   const hostPid = await app.evaluate(({ app }) => {
     const metric = app.getAppMetrics().find((metric) => metric.name === "Foom terminal host");
@@ -823,7 +848,7 @@ test("a crashed utility host reports failure and the renderer can restart", {
   await page.getByRole("status").filter({ hasText: "Terminal host failed" }).waitFor();
   await page.getByRole("button", { name: "Restart shell" }).click();
   await page.waitForFunction(
-    () => !/Starting|failed|Unable/.test(document.querySelector("#status").textContent),
+    () => !/Starting|failed|Unable/.test(document.querySelector(".tile-status").textContent),
   );
   // A title is available before the replacement attachment is ready for input.
   await expect(page.locator(".xterm-helper-textarea")).toBeFocused();
@@ -850,7 +875,7 @@ test("host answers color queries once through real view transitions and system t
   const app = await launchApp(context);
   const page = await app.firstWindow();
   await page.waitForFunction(
-    () => !document.querySelector("#status").textContent.includes("Starting"),
+    () => !document.querySelector(".tile-status").textContent.includes("Starting"),
   );
   await page.evaluate(() => {
     window.probeOutput = "";
@@ -924,7 +949,7 @@ test("host answers color queries once through real view transitions and system t
   }
 });
 
-test("Preflight transitions restore background fullscreen output repeatedly", {
+test("Settings transitions restore background fullscreen output repeatedly", {
   timeout: 45000,
 }, async (context) => {
   const directory = await mkdtemp(path.join(tmpdir(), "foom-view-probe-"));
@@ -932,7 +957,7 @@ test("Preflight transitions restore background fullscreen output repeatedly", {
   const marker = path.join(directory, "stage");
   const app = await launchApp(context);
   const page = await app.firstWindow();
-  const hide = page.getByRole("button", { name: "Preflight", exact: true });
+  const hide = page.getByRole("button", { name: "Settings", exact: true });
   const open = page.locator(".board-row[data-kind='shell']");
   await expect(hide).toBeEnabled();
   await page.evaluate(() => {
@@ -949,9 +974,9 @@ test("Preflight transitions restore background fullscreen output repeatedly", {
   const rows = page.locator(".xterm-rows");
   await expect(rows).toContainText("NORMAL_VIEW_READY");
   await hide.click();
-  await expect(page.locator(".preflight")).toBeVisible();
+  await expect(page.getByRole("region", { name: "Settings" })).toBeVisible();
   await expect(open).toBeEnabled();
-  await expect(page.locator("#terminal")).toBeHidden();
+  await expect(page.locator(".tile-terminal")).toBeHidden();
   await page.evaluate(() => {
     window.viewChunks = 0;
     window.desktop.input(window.viewId, "a");
@@ -960,21 +985,21 @@ test("Preflight transitions restore background fullscreen output repeatedly", {
   assert.equal(await page.evaluate(() => window.viewChunks), 0);
   for (let cycle = 0; cycle < 4; cycle++) {
     await page.keyboard.press("Escape");
-    await expect(page.locator(".preflight")).toBeHidden();
+    await expect(page.getByRole("region", { name: "Settings" })).toBeHidden();
     await open.click();
     await expect(hide).toBeEnabled();
     await expect(rows).toContainText("ALTERNATE_HIDDEN_OUTPUT");
     await expect(rows).not.toContainText("NORMAL_VIEW_READY");
     await expect(page.locator(".xterm-helper-textarea")).toBeFocused();
     await hide.click();
-    await expect(page.locator(".preflight")).toBeVisible();
-    await expect(page.locator(".preflight")).toBeVisible();
+    await expect(page.getByRole("region", { name: "Settings" })).toBeVisible();
+    await expect(page.getByRole("region", { name: "Settings" })).toBeVisible();
     await expect(open).toBeEnabled();
   }
   await page.evaluate(() => window.desktop.input(window.viewId, "n"));
   await expect.poll(() => readFile(marker, "utf8")).toBe("normal");
   await page.keyboard.press("Escape");
-  await expect(page.locator(".preflight")).toBeHidden();
+  await expect(page.getByRole("region", { name: "Settings" })).toBeHidden();
   await open.click();
   await expect(hide).toBeEnabled();
   await expect(rows).toContainText("NORMAL_VIEW_READY");
@@ -984,8 +1009,8 @@ test("Preflight transitions restore background fullscreen output repeatedly", {
   // repeated attachments, and transitions between both buffers.
   for (const mode of ["a", "n", "a", "n"]) {
     await hide.click();
-    await expect(page.locator(".preflight")).toBeVisible();
-    await expect(page.locator(".preflight")).toBeVisible();
+    await expect(page.getByRole("region", { name: "Settings" })).toBeVisible();
+    await expect(page.getByRole("region", { name: "Settings" })).toBeVisible();
     await expect(open).toBeEnabled();
     await page.evaluate((key) => window.desktop.input(window.viewId, key), mode);
     await expect.poll(() => readFile(marker, "utf8")).toBe(mode === "a" ? "alternate" : "normal");
@@ -994,7 +1019,7 @@ test("Preflight transitions restore background fullscreen output repeatedly", {
       await expect.poll(() => readFile(marker, "utf8")).toBe(setup);
       for (let cycle = 0; cycle < 3; cycle++) {
         await page.keyboard.press("Escape");
-        await expect(page.locator(".preflight")).toBeHidden();
+        await expect(page.getByRole("region", { name: "Settings" })).toBeHidden();
         await open.click();
         await expect(hide).toBeEnabled();
         await expect(rows).toContainText("FOOTER");
@@ -1019,12 +1044,12 @@ test("Preflight transitions restore background fullscreen output repeatedly", {
         const tail = await page.evaluate(() => window.desktop.tail(window.viewId, 10000));
         assert.deepEqual(tail.slice(-6), expected);
         await hide.click();
-        await expect(page.locator(".preflight")).toBeVisible();
+        await expect(page.getByRole("region", { name: "Settings" })).toBeVisible();
         await expect(open).toBeEnabled();
       }
     }
     await page.keyboard.press("Escape");
-    await expect(page.locator(".preflight")).toBeHidden();
+    await expect(page.getByRole("region", { name: "Settings" })).toBeHidden();
     await open.click();
     await expect(hide).toBeEnabled();
   }
@@ -1038,12 +1063,12 @@ test("board starts with live terminals only and peeks without opening", async (c
   const row = page.locator(".board-row");
   await expect(row).toHaveCount(1);
   await expect(row).toBeFocused();
-  await expect(page.locator("#terminal")).toBeHidden();
+  await expect(page.locator(".tile-terminal")).toBeHidden();
   await page.getByLabel("Filter repositories and sessions").click();
   await row.focus();
   await expect(page.getByRole("complementary", { name: "Terminal peek" })).toBeVisible();
   await expect(row).toBeFocused();
-  await expect(page.locator("#terminal")).toBeHidden();
+  await expect(page.locator(".tile-terminal")).toBeHidden();
   await page.keyboard.press("Escape");
   await assertAccessible(page);
   await page.keyboard.press("Enter");
@@ -1208,7 +1233,9 @@ test("launches an agent in a managed worktree and routes its attention signals",
   assert.equal((await latest()).signal, "pattern:confirmation");
   const snapshot = await page.evaluate(() => window.desktop.workspace());
   assert.deepEqual(
-    snapshot.terminals.map(({ id: terminal, branch, agent }) => ({ terminal, branch, agent })),
+    snapshot.terminals
+      .filter((entry) => entry.kind === "agent")
+      .map(({ id: terminal, branch, agent }) => ({ terminal, branch, agent })),
     [{ terminal: id, branch: "feature/fake", agent: "claude" }],
   );
 
@@ -1237,7 +1264,7 @@ test("launches an agent in a managed worktree and routes its attention signals",
   await page.locator(".board-row:focus").focus();
   await expect(page.locator(".board-peek")).toContainText("FOOM_AGENT_READY");
   await expect(agentRow).toBeFocused();
-  await expect(page.locator("#terminal")).toBeHidden();
+  await expect(page.locator(".tile-terminal")).toBeHidden();
   await page.locator('.board-row[data-kind="shell"]').press("Enter");
   await expect(page.locator(".xterm-helper-textarea")).toBeFocused();
   await boardCommand(app, "B");
@@ -1246,9 +1273,11 @@ test("launches an agent in a managed worktree and routes its attention signals",
   await expect(page.locator('.board-row[data-kind="shell"]')).toBeFocused();
   await page.keyboard.press("ArrowDown");
   await expect(page.locator("[data-nav]:focus")).toBeVisible();
+  await page.getByRole("button", { name: "Hide session", exact: true }).click();
   await agentRow.focus();
   await page.keyboard.press("Enter");
   await expect(page.locator(".xterm-helper-textarea")).toBeFocused();
+  await page.getByRole("button", { name: "Hide session", exact: true }).click();
   await page.locator('.board-row[data-kind="shell"]').press("Enter");
   await boardCommand(app, "N");
   await expect(page.locator(".xterm-helper-textarea")).toBeFocused();
@@ -1313,6 +1342,7 @@ test("launches an agent in a managed worktree and routes its attention signals",
     );
     const row = page.locator(".board-row").filter({ hasText: branch });
     await expect(row).toHaveAttribute("data-state", branch === "finish-ok" ? "done" : "failed");
+    await page.getByRole("button", { name: "Hide session", exact: true }).click();
     await row.click();
     await expect(page.locator(".xterm-helper-textarea")).toBeFocused();
     await expect(page.locator(".xterm-rows")).toContainText(
@@ -1553,10 +1583,12 @@ async function assertPreflightFits(page, label) {
 test("preflight fits safely through resize, zoom, long input and changing steps", {
   timeout: 60_000,
 }, async (context) => {
-  const app = await launchApp(context, false);
+  const app = await launchApp(context, false, { firstRun: true });
   const page = await app.firstWindow();
   await page.emulateMedia({ reducedMotion: "reduce" });
-  await page.getByRole("button", { name: "Preflight", exact: true }).click();
+  await page.getByRole("button", { name: "Start preflight", exact: true }).click();
+  for (let step = 0; step < 4; step++)
+    await page.getByRole("button", { name: "Continue", exact: true }).click();
   const rail = page.getByRole("navigation", { name: "Preflight steps" });
   for (const [width, height, zoom] of [
     [1600, 1000, 100],
@@ -1643,14 +1675,15 @@ test("large repository scans remain readable and filter without changing scale",
       isolatedGit(["init", "-q", directory]);
     }
   }
-  const app = await launchApp(context, false);
+  const app = await launchApp(context, false, { firstRun: true });
   const page = await app.firstWindow();
   await page.emulateMedia({ reducedMotion: "reduce" });
   await app.evaluate(({ BrowserWindow, dialog }, directory) => {
     BrowserWindow.getAllWindows()[0].setSize(1600, 1000);
     dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [directory] });
   }, root);
-  await page.getByRole("button", { name: "Preflight", exact: true }).click();
+  await page.getByRole("button", { name: "Start preflight", exact: true }).click();
+  await page.getByRole("button", { name: "Continue", exact: true }).click();
   await page
     .getByRole("navigation", { name: "Preflight steps" })
     .getByRole("button", { name: /Repositories/ })
@@ -1909,7 +1942,7 @@ test("first run goes from no agents to go, launches by keyboard, and can be repl
 
   // Reduced motion shows a still frame, then the board.
   await page.getByText("Takeoff was faster than expected.").waitFor();
-  await page.getByRole("button", { name: "Local shell", exact: true }).press("Enter");
+  await launchCheckoutShell(app, page);
   const shellRow = page.locator(".board-row[data-kind='shell']");
   await shellRow.waitFor({ timeout: 10000 });
   const saved = JSON.parse(await readFile(path.join(userData, "settings.json"), "utf8"));
@@ -1936,11 +1969,11 @@ test("first run goes from no agents to go, launches by keyboard, and can be repl
     codeFolder: await realpath(repo),
   });
 
-  // Preflight can run again over the board; Escape returns to the same row.
+  // Settings returns to the same sidebar row.
   await shellRow.focus();
-  await page.getByRole("button", { name: "Preflight" }).click();
-  await page.getByRole("button", { name: "Start preflight" }).waitFor();
-  await expect(page.locator(".board-home")).toBeHidden();
+  await page.getByRole("button", { name: "Settings" }).click();
+  await page.getByRole("region", { name: "Settings" }).waitFor();
+  await expect(page.locator(".board-terminal")).toBeHidden();
   await page.keyboard.press("Escape");
   await expect(page.locator(".board-home")).toBeVisible();
   assert.equal(await shellRow.evaluate((row) => row === document.activeElement), true);
@@ -2192,14 +2225,16 @@ test("new worktree dialog launches by keyboard and confirms dirty removal", {
     }
     throw new Error(`Could not reach ${id} by keyboard`);
   };
-  await page.getByRole("button", { name: "New worktree", exact: true }).waitFor();
+  await page.getByRole("button", { name: "Add repository", exact: true }).waitFor();
   await expect(page.locator(".board-row")).toHaveCount(0);
   await page.evaluate(() => window.desktop.saveSetup({ worktreeLocation: "adjacent" }));
   await app.evaluate(({ dialog }, repo) => {
     dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [repo] });
   }, repo);
-  await tabTo(page, "New worktree");
+  await tabTo(page, "Add repository");
   await page.keyboard.press("Enter");
+  await page.getByRole("button", { name: "Actions for app", exact: true }).click();
+  await page.getByRole("menuitem", { name: "New worktree…", exact: true }).press("Enter");
   await expect(page.getByRole("dialog")).toBeVisible();
   await expect(page.getByRole("button", { name: "Add repository…" })).toBeEnabled();
   await tabTo(page, "Add repository…");
@@ -2249,7 +2284,7 @@ test("new worktree dialog launches by keyboard and confirms dirty removal", {
     terminal.repository,
   );
   await row.click();
-  await expect(page.locator("#terminal")).toBeVisible();
+  await expect(page.locator(".tile-terminal")).toBeVisible();
   const dirty = path.join(terminal.worktree, "unsaved.txt");
   await writeFile(dirty, "preserve unless confirmed");
   await app.evaluate(({ dialog }) => {
@@ -2274,7 +2309,7 @@ test("new worktree dialog launches by keyboard and confirms dirty removal", {
   await expect(row).toHaveCount(0);
   await assert.rejects(readFile(dirty), { code: "ENOENT" });
   await page.locator(".board-row").filter({ hasText: "feature/remaining" }).click();
-  await expect(page.locator("#terminal")).toBeVisible();
+  await expect(page.locator(".tile-terminal")).toBeVisible();
   await expect(page.locator(".xterm-helper-textarea")).toBeFocused();
   await page.keyboard.type("echo FOOM_REMAINING_TERMINAL");
   await page.keyboard.press("Enter");
@@ -2539,7 +2574,7 @@ test("persistent sidebar keeps Escape in the PTY and routes keyboard navigation"
   await page.keyboard.press("Control+n");
   await expect.poll(() => readFile(marker, "utf8")).toContain("02");
   await expect.poll(() => readFile(marker, "utf8")).toContain("0e");
-  await expect(page.locator("#terminal")).toBeVisible();
+  await expect(page.locator(".tile-terminal")).toBeVisible();
   await boardCommand(app, "B");
   await expect(page.locator(".board-row")).toBeFocused();
   await expect(page.locator(".board-peek")).toContainText("INPUT_READY");
@@ -2653,10 +2688,13 @@ test("empty sidebar and terminal pane stay accessible at both widths", async (co
       window.setSize(width, 600);
     }, width);
     await expect(page.getByRole("navigation", { name: "Terminal sidebar" })).toBeVisible();
-    await expect(page.getByRole("button", { name: "New worktree", exact: true })).toBeVisible();
-    await expect(page.getByRole("region", { name: "Terminal pane" })).toContainText("New worktree");
+    await expect(page.getByRole("button", { name: "Add repository", exact: true })).toBeVisible();
+    await expect(page.getByRole("button", { name: "New worktree", exact: true })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Local shell", exact: true })).toHaveCount(0);
+    await expect(page.getByRole("region", { name: "Tile 1: empty" })).toBeVisible();
     await assertAccessible(page);
   }
+  await page.screenshot({ path: path.join(tmpdir(), "foom-132-empty-sidebar.png") });
 });
 
 test("fake Codex receives inline flag only when help advertises it", {
@@ -2837,7 +2875,8 @@ test("Settings shares live preflight values, sizes the terminal and restores key
 
   await expect(row).toBeFocused();
   await expect(page.locator(".xterm-rows")).toHaveCSS("font-size", "15px");
-  await page.getByRole("button", { name: "Preflight", exact: true }).click();
+  await shortcut();
+  await section("Appearance");
   await expect(page.getByRole("radio", { name: "Dark", exact: true })).toBeChecked();
   await expect(page.getByRole("status").filter({ hasText: "110%" })).toBeVisible();
   await page.getByRole("radio", { name: "Light", exact: true }).check();
@@ -3141,6 +3180,179 @@ test("Bash command status reaches the sidebar without closing the shell", {
   await expect(row).toHaveAttribute("data-state", "done");
 });
 
+test("tiles build irregular layouts, preserve views, refuse full placement and replace only for attention", {
+  timeout: 60000,
+}, async (context) => {
+  const root = await realpath(await mkdtemp(path.join(tmpdir(), "foom-tiles-")));
+  const repo = path.join(root, "repo");
+  await mkdir(repo);
+  await mkdir(path.join(root, "home"));
+  isolatedGit(["init", "-q", repo]);
+  const app = await launchApp(context, false, {
+    emptyBoard: true,
+    env: { HOME: path.join(root, "home") },
+  }).finally(() => {
+    context.after(() => rm(root, { recursive: true, force: true, maxRetries: 5 }));
+  });
+  const page = await app.firstWindow();
+  await app.evaluate(({ dialog, BrowserWindow }, repo) => {
+    dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [repo] });
+    BrowserWindow.getAllWindows()[0].setSize(1500, 900);
+  }, repo);
+  await page.getByRole("button", { name: "Add repository", exact: true }).click();
+  await expect
+    .poll(async () =>
+      (await page.evaluate(() => window.desktop.workspace())).repositories.map(
+        (entry) => entry.path,
+      ),
+    )
+    .toContain(repo);
+  await page.evaluate(async (repo) => {
+    for (let i = 0; i < 4; i++)
+      await window.desktop.sidebarCommand({
+        kind: "launch",
+        repository: repo,
+        worktree: repo,
+        run: "shell",
+      });
+  }, repo);
+  const rows = page.locator(".board-row");
+  await expect(rows).toHaveCount(4);
+  const sessions = (await page.evaluate(() => window.desktop.workspace())).terminals;
+  await rows.nth(0).click();
+  await expect(page.locator(".xterm-helper-textarea").first()).toBeFocused();
+  await page.evaluate(() => {
+    window.tileElements = [document.querySelector(".terminal-tile")];
+    window.attachments = [];
+    window.desktop.onData((id, token) => {
+      if (!window.attachments.some((item) => item.id === id && item.token === token))
+        window.attachments.push({ id, token });
+    });
+  });
+  await page.getByRole("button", { name: "Split right", exact: true }).click();
+  await expect(page.getByRole("region", { name: "Tile 2: empty" })).toBeVisible();
+  await rows.nth(1).click();
+  await page.getByRole("button", { name: "Split down", exact: true }).nth(1).click();
+  await rows.nth(2).click();
+  const tiles = page.locator(".terminal-tile");
+  await expect(tiles).toHaveCount(3);
+  await expect(page.locator(".xterm-helper-textarea").nth(2)).toBeFocused();
+  assert.equal(
+    await page.evaluate(() => window.tileElements[0] === document.querySelector(".terminal-tile")),
+    true,
+  );
+  await rows.nth(3).click();
+  await expect(rows.nth(3)).toHaveAttribute("data-refused", "true");
+  await expect(tiles.nth(2)).toContainText("Shell");
+  assert.equal(
+    await page.evaluate(
+      () => JSON.parse(localStorage.getItem("foom.tiles.v1")).tree.second.second.session,
+    ),
+    sessions[2].id,
+  );
+  const gutter = page.getByRole("separator").first();
+  const box = await gutter.boundingBox();
+  assert.ok(box);
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 4);
+  await page.mouse.down();
+  await page.mouse.move(box.x + 110, box.y + box.height / 4, { steps: 8 });
+  await page.mouse.up();
+  await expect(gutter).not.toHaveAttribute("aria-valuenow", "50");
+  await boardCommand(app, "1", false);
+  await expect(page.locator(".xterm-helper-textarea").first()).toBeFocused();
+  await page.evaluate(() => {
+    window.tileElements = [...document.querySelectorAll(".terminal-tile")];
+    window.xterms = [...document.querySelectorAll(".xterm")];
+  });
+  for (const session of sessions.slice(0, 3))
+    await page.evaluate((id) => window.desktop.input(id, "echo VIEW_TOKEN_READY\r"), session.id);
+  await expect.poll(() => page.evaluate(() => window.attachments.length)).toBe(3);
+  const attachments = await page.evaluate(() => window.attachments);
+  await boardCommand(app, "Enter");
+  await expect(tiles.first()).toHaveAttribute("data-maximized", "true");
+  await expect(tiles.nth(1)).toHaveAttribute("inert", "");
+  await boardCommand(app, "Enter");
+  await expect(tiles.first()).toHaveAttribute("data-maximized", "false");
+  assert.equal(
+    await page.evaluate(() =>
+      window.xterms.every((element, i) => element === document.querySelectorAll(".xterm")[i]),
+    ),
+    true,
+  );
+  for (const session of sessions.slice(0, 3))
+    await page.evaluate((id) => window.desktop.input(id, "echo VIEW_TOKEN_STABLE\r"), session.id);
+  await expect(page.locator(".xterm-rows").first()).toContainText("VIEW_TOKEN_STABLE");
+  assert.deepEqual(await page.evaluate(() => window.attachments), attachments);
+  await page.evaluate(({ id, command }) => window.desktop.input(id, command), {
+    id: sessions[3].id,
+    command:
+      process.platform === "win32"
+        ? "Read-Host 'Continue? (y/n)'\r"
+        : "printf 'Continue? (y/n)'; read answer\r",
+  });
+  await expect(rows.nth(3)).toHaveAttribute("data-state", "needs_input");
+  await boardCommand(app, "N");
+  await expect(page.locator(".xterm-helper-textarea").first()).toBeFocused();
+  assert.equal(
+    await page.evaluate(() => JSON.parse(localStorage.getItem("foom.tiles.v1")).tree.first.session),
+    sessions[3].id,
+  );
+  await page.getByRole("button", { name: "Hide session", exact: true }).first().click();
+  await rows.nth(0).click();
+  await page.getByRole("button", { name: "One and three", exact: true }).click();
+  await expect(tiles).toHaveCount(4);
+  assert.equal(
+    await page.evaluate(() =>
+      window.tileElements.every((element) => document.body.contains(element)),
+    ),
+    true,
+  );
+  await assertAccessible(page);
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await expect(tiles.first()).toHaveCSS("transition-duration", "0s");
+  await page.screenshot({ path: path.join(tmpdir(), "foom-132-tiles.png") });
+  await page.getByRole("button", { name: "Close tile", exact: true }).first().click();
+  assert.equal(
+    (await page.evaluate(() => window.desktop.workspace())).terminals.filter((t) => !t.exited)
+      .length,
+    4,
+  );
+  const persisted = await page.evaluate(() => localStorage.getItem("foom.tiles.v1"));
+  await page.reload();
+  await expect(tiles).toHaveCount(3);
+  assert.equal(await page.evaluate(() => localStorage.getItem("foom.tiles.v1")), persisted);
+});
+
+test("tile terminal viewport has no native overflow bars", async (context) => {
+  const app = await launchApp(context);
+  const page = await app.firstWindow();
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  await page.getByRole("button", { name: "Terminal", exact: true }).click();
+  await page.getByRole("button", { name: "Dracula", exact: true }).click();
+  await expect
+    .poll(() =>
+      page.evaluate(async () => (await window.desktop.setupState()).settings.terminalTheme),
+    )
+    .toBe("dracula");
+  await page.keyboard.press("Escape");
+  await page.getByRole("button", { name: "Two by two", exact: true }).click();
+  await expect(page.locator(".terminal-tile").first()).toHaveCSS(
+    "background-color",
+    "rgb(40, 42, 54)",
+  );
+  for (const colorScheme of ["light", "dark"]) {
+    await page.emulateMedia({ colorScheme });
+    const viewport = page.locator(".tile-terminal .xterm-viewport").first();
+    await expect(viewport).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+    await expect(viewport).toHaveCSS("overflow", "hidden");
+    // The bottom strip below the last whole character row comes from the tile's
+    // terminal theme, while xterm's current viewport still owns scrollback.
+    await expect(page.locator(".xterm-scrollable-element").first()).toBeVisible();
+  }
+  await page.screenshot({ path: path.join(tmpdir(), "foom-132-bars-fixed.png") });
+});
+
 test("every interface theme applies live to native chrome and passes axe on board and Settings", {
   timeout: 55000,
 }, async (context) => {
@@ -3185,7 +3397,7 @@ test("every interface theme applies live to native chrome and passes axe on boar
     ).toHaveCount(6);
     await assertAccessible(page);
     await page.keyboard.press("Escape");
-    await expect(page.locator("#terminal")).toBeVisible();
+    await expect(page.locator(".tile-terminal")).toBeVisible();
     await assertAccessible(page);
   }
   await boardCommand(app, ",", false);

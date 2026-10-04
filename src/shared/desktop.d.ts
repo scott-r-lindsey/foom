@@ -1,3 +1,4 @@
+import type { BoardCommand } from "./board-command";
 export interface TerminalActivity {
   id: string;
   rate: number;
@@ -31,7 +32,7 @@ export interface DesktopApi extends WorkspaceApi, SetupApi {
   resize(id: string, cols: number, rows: number): void;
   acknowledge(id: string, token: string, count: number): void;
   tail(id: string, lines: number): Promise<string[]>;
-  onBoardCommand(callback: (command: "sidebar" | "next-waiting" | "settings") => void): () => void;
+  onBoardCommand(callback: (command: BoardCommand) => void): () => void;
   onActivity(callback: (batch: TerminalActivity[]) => void): () => void;
   onData(callback: (id: string, token: string, data: string) => void): () => void;
   onExit(callback: (id: string, code: number) => void): () => void;

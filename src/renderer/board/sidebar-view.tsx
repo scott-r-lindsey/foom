@@ -57,6 +57,9 @@ export function Sidebar({
   command,
   options,
   footer,
+  tileNumbers,
+  refused,
+  clearRefusal,
 }: {
   source: BoardSource;
   location: SidebarLocation | undefined;
@@ -76,6 +79,9 @@ export function Sidebar({
   command: (command: SidebarCommand) => void;
   options: LaunchOptions | undefined;
   footer: ReactNode;
+  tileNumbers?: ReadonlyMap<string, { number: number; focused: boolean }>;
+  refused?: string | undefined;
+  clearRefusal?: () => void;
 }) {
   const [now] = useState(Date.now);
   const [filter, setFilter] = useState("");
@@ -124,7 +130,13 @@ export function Sidebar({
     source.getSidebar?.() ??
       (source.getRepositories?.() ?? []).map((name) => ({ name, path: name, worktrees: [] })),
   );
-  const { tree, hiddenNeeds } = buildSidebar(rows, repositories, preferences, narrow ? "" : filter);
+  const compact = narrow && rows.length > 0;
+  const { tree, hiddenNeeds } = buildSidebar(
+    rows,
+    repositories,
+    preferences,
+    compact ? "" : filter,
+  );
   const toggle = (id: string, expanded: boolean) => {
     save({ ...preferences, expanded: { ...preferences.expanded, [id]: !expanded } });
   };
@@ -203,6 +215,8 @@ export function Sidebar({
           role="treeitem"
           aria-selected={!location && selected === row.id}
           className="board-row"
+          data-refused={refused === row.id}
+          onAnimationEnd={clearRefusal}
           data-nav
           data-kind={row.kind}
           data-state={row.state}
@@ -249,6 +263,15 @@ export function Sidebar({
             <span className="visually-hidden board-branch">{row.branch}</span>
             <span className="session-top">
               <span className="board-agent">{agentBadges[row.agent] ?? row.agent}</span>
+              {tileNumbers?.has(row.id) && (
+                <span
+                  className="tile-number"
+                  data-focused={tileNumbers.get(row.id)?.focused}
+                  aria-label={`Tile ${String(tileNumbers.get(row.id)?.number)}`}
+                >
+                  {tileNumbers.get(row.id)?.number}
+                </span>
+              )}
               <SessionName
                 name={name}
                 filter={filter}
@@ -280,7 +303,7 @@ export function Sidebar({
       </span>
     );
   return (
-    <aside className="sidebar-shell">
+    <aside className="sidebar-shell" data-compact={compact}>
       <header className="board-top">
         <h1 className="wordmark" aria-label="foom">
           <span aria-hidden="true">
@@ -323,7 +346,7 @@ export function Sidebar({
               });
             }}
           >
-            +
+            {tree.length === 0 ? "Add repository" : "+"}
           </button>
         </div>
       </header>
@@ -386,7 +409,7 @@ export function Sidebar({
         }}
       >
         <div role="tree" aria-label="Repositories and sessions">
-          {narrow
+          {compact
             ? tree
                 .flatMap((repo) => repo.worktrees.flatMap((worktree) => worktree.sessions))
                 .map(session)

@@ -1,13 +1,13 @@
+import { createTerminalView } from "../terminal/terminal-view-source";
 import type { SidebarRepository } from "./sidebar.d";
-import { createShell } from "../terminal/shell-controller";
+import type { createShell } from "../terminal/shell-controller";
 import type { BoardSource } from "./board-source.d";
 import type { BoardRow } from "./board.d";
-import type { ShellView } from "../terminal/shell.d";
 import type { TerminalActivity } from "../../shared/desktop";
 import type { TerminalState, WorkspaceSnapshot } from "../../shared/workspace";
 
 /** Live terminal truth comes from main; only seen state belongs to this adapter. */
-export function createAppSource(localShell = false): BoardSource {
+export function createAppSource(): BoardSource {
   // Keep startup failures reachable so the user can retry the local shell.
   const pendingShell = "local-shell";
   const startupRow: BoardRow = {
@@ -23,22 +23,19 @@ export function createAppSource(localShell = false): BoardSource {
     seen: false,
     tail: [],
   };
-  let rows: readonly BoardRow[] = localShell ? [startupRow] : [];
+  const owners = new Map<string, ReturnType<typeof createShell>>();
+  let viewQueue = Promise.resolve();
+  const scheduleView = (operation: () => Promise<void>) => {
+    viewQueue = viewQueue.then(operation, operation);
+    return viewQueue;
+  };
+  let loaded = false;
+  let rows: readonly BoardRow[] = [];
   let repositories: readonly string[] = [];
   let sidebar: readonly SidebarRepository[] = [];
   let shellName = "Shell";
-  let controller: ReturnType<typeof createShell> | undefined;
   let shellId = pendingShell;
-  let view: ShellView = {
-    status: "Starting shell…",
-    state: "quiet_ok",
-    toggleLabel: "Open terminal",
-    visible: false,
-    toggleDisabled: true,
-    restartDisabled: true,
-  };
   const listeners = new Set<() => void>();
-  const viewListeners = new Set<() => void>();
   const activityListeners = new Set<(batch: readonly TerminalActivity[]) => void>();
   const states = new Map<string, TerminalState>();
   const exits = new Map<string, number>();
@@ -77,6 +74,7 @@ export function createAppSource(localShell = false): BoardSource {
       : { ...row, rate: rates.get(row.id) ?? row.rate };
   };
   const snapshot = (next: WorkspaceSnapshot) => {
+    loaded = true;
     repositories = next.repositories.map((repo) => repo.name);
     const known = new Map(rows.map((row) => [row.id, row]));
     const live = next.terminals.map((entry): BoardRow => {
@@ -116,17 +114,112 @@ export function createAppSource(localShell = false): BoardSource {
       .concat([...incoming.values()]);
     publish();
   };
+  let starting = false;
+  const restart = async () => {
+    if (starting) return;
+    starting = true;
+    try {
+      if (shellId !== pendingShell) {
+        const previous = shellId;
+        await window.desktop.kill(previous);
+        rows = rows.filter((row) => row.id !== previous);
+        shellId = pendingShell;
+      }
+      const created = await window.desktop.create(80, 24);
+      rows = rows.filter((row) => row.id !== shellId);
+      shellId = created.id;
+      rows = [
+        latest({ ...startupRow, id: created.id, state: "working", reason: created.title }),
+        ...rows,
+      ];
+      publish();
+    } catch (error) {
+      rows = [
+        ...rows.filter((row) => row.id !== shellId),
+        {
+          ...startupRow,
+          id: shellId,
+          state: "failed",
+          exited: true,
+          reason: `Unable to start shell: ${error instanceof Error ? error.message : String(error)}`,
+        },
+      ];
+      publish();
+    } finally {
+      starting = false;
+    }
+  };
+  const connect = () => {
+    let disposed = false;
+    let revision = 0;
+    const refresh = async () => {
+      const current = ++revision;
+      try {
+        const [next, inventory] = await Promise.all([
+          window.desktop.workspace(),
+          window.desktop.sidebarInventory(),
+        ]);
+        if (!disposed && current === revision) {
+          sidebar = inventory.repositories;
+          shellName = inventory.shell;
+          snapshot(next);
+        }
+      } catch (error) {
+        if (!disposed) console.error("Unable to load terminals:", error);
+      }
+    };
+    const offWorkspace = window.desktop.onWorkspaceChange(() => void refresh());
+    const offState = window.desktop.onState((state) => {
+      states.set(state.id, state);
+      rows = rows.map((row) => (row.id === state.id ? latest(row) : row));
+      publish();
+    });
+    const offExit = window.desktop.onExit((id, code) => {
+      exits.set(id, code);
+      rows = rows.map((row) => (row.id === id ? latest(row) : row));
+      publish();
+    });
+    const offActivity = window.desktop.onActivity((batch) => {
+      for (const { id, rate } of batch) rates.set(id, rate);
+      for (const listener of activityListeners) listener(batch);
+    });
+    void refresh();
+    return () => {
+      disposed = true;
+      offWorkspace();
+      offState();
+      offExit();
+      offActivity();
+    };
+  };
   return {
+    connect,
+    createView: () => {
+      const view = createTerminalView(scheduleView, owners);
+      return {
+        ...view,
+        open: (id) =>
+          id !== pendingShell && rows.some((row) => row.id === id) ? view.open(id) : view.hide(),
+      };
+    },
+    isReady: () => loaded,
     getSidebar: () => sidebar,
     shellName: () => shellName,
     sidebarCommand: async (command) => {
       if ("id" in command && command.id === shellId && command.kind === "restart") {
-        await controller?.restart();
+        await restart();
+        return;
+      }
+      if (command.kind === "close" && command.id === pendingShell) {
+        rows = rows.filter((row) => row.id !== pendingShell);
+        publish();
         return;
       }
       await window.desktop.sidebarCommand(command);
-      if ("id" in command && command.kind === "close")
+      if (command.kind === "close") {
         rows = rows.filter((row) => row.id !== command.id);
+        if (command.id === shellId) shellId = pendingShell;
+      }
       const inventory = await window.desktop.sidebarInventory();
       sidebar = inventory.repositories;
       shellName = inventory.shell;
@@ -186,115 +279,6 @@ export function createAppSource(localShell = false): BoardSource {
       if (row?.state === "needs_input")
         await window.desktop.feedback(id, row.verdictId ?? null, "dismissed");
     },
-    shell: {
-      getSnapshot: () => view,
-      subscribe: (listener) => {
-        viewListeners.add(listener);
-        return () => {
-          viewListeners.delete(listener);
-        };
-      },
-      mount: (element) => {
-        let disposed = false;
-        let revision = 0;
-        const refresh = async () => {
-          const current = ++revision;
-          try {
-            const [next, inventory] = await Promise.all([
-              window.desktop.workspace(),
-              window.desktop.sidebarInventory(),
-            ]);
-            if (!disposed && current === revision) {
-              sidebar = inventory.repositories;
-              shellName = inventory.shell;
-              snapshot(next);
-            }
-          } catch (error) {
-            if (!disposed) console.error("Unable to load terminals:", error);
-          }
-        };
-        const offWorkspace = window.desktop.onWorkspaceChange(() => void refresh());
-        const offState = window.desktop.onState((state) => {
-          states.set(state.id, state);
-          rows = rows.map((row) => (row.id === state.id ? latest(row) : row));
-          publish();
-        });
-        const offExit = window.desktop.onExit((id, code) => {
-          exits.set(id, code);
-          rows = rows.map((row) => (row.id === id ? latest(row) : row));
-          publish();
-        });
-        const offActivity = window.desktop.onActivity((batch) => {
-          for (const { id, rate } of batch) rates.set(id, rate);
-          for (const listener of activityListeners) listener(batch);
-        });
-        void refresh();
-        controller = createShell(
-          element,
-          (next) => {
-            view = next;
-            if (shellId === pendingShell) {
-              rows = rows.map((row) =>
-                row.id === pendingShell ? { ...row, state: next.state, reason: next.status } : row,
-              );
-              publish();
-            }
-            for (const listener of viewListeners) listener();
-          },
-          false,
-          (id, title) => {
-            rows = rows.filter((row) => row.id !== shellId);
-            shellId = id;
-            rows = [
-              latest({
-                id,
-                kind: "shell",
-                repository: "Local",
-                branch: "Shell",
-                agent: "Shell",
-                state: "working",
-                reason: title,
-                rate: 0,
-                waitingSince: 0,
-                seen: false,
-                tail: [],
-              }),
-              ...rows,
-            ];
-            publish();
-          },
-          localShell,
-        );
-        return () => {
-          disposed = true;
-          offWorkspace();
-          offState();
-          offExit();
-          offActivity();
-          controller?.dispose();
-          controller = undefined;
-          states.clear();
-          exits.clear();
-          rates.clear();
-        };
-      },
-      open: async (id) => {
-        if (id && rows.some((row) => row.id === id))
-          await controller?.open(id === pendingShell ? undefined : id);
-      },
-      hide: async () => {
-        await controller?.hide();
-      },
-      toggle: async () => {
-        await controller?.toggle();
-      },
-      restart: async () => {
-        if (shellId === pendingShell && !rows.some((row) => row.id === pendingShell)) {
-          rows = [...rows, startupRow];
-          publish();
-        }
-        await controller?.restart();
-      },
-    },
+    shell: { restart },
   };
 }

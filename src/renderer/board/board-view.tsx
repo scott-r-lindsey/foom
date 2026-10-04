@@ -1,3 +1,18 @@
+import { TileArea } from "./tile-area";
+import {
+  TILE_STORAGE,
+  restoreLayout,
+  saveLayout,
+  leaves,
+  placeSession,
+  preset,
+  splitTile,
+  closeTile,
+  hideSession,
+  pruneSessions,
+  neighbor,
+} from "./tiles";
+import type { TileLayout, TilePreset } from "./tiles.d";
 import type { SetupSource } from "../preflight/setup-source.d";
 import { createSoundController } from "../sound/sound-controller";
 import { createAudioSink } from "../sound/web-audio";
@@ -6,13 +21,7 @@ import { readPreferences, writePreferences, renameSession } from "./sidebar-pref
 import type { SidebarLocation } from "./sidebar.d";
 import type { SidebarCommand } from "../../shared/workspace";
 import type { LaunchOptions } from "./board-source.d";
-import {
-  sessionName,
-  repositoryKey,
-  worktreeKey,
-  rowRepository,
-  rowWorktree,
-} from "./sidebar-model";
+import { repositoryKey, worktreeKey, rowRepository, rowWorktree } from "./sidebar-model";
 import { WorktreeDialog } from "./worktree-dialog";
 import {
   useCallback,
@@ -27,50 +36,9 @@ import type { BoardSource } from "./board-source.d";
 import type { BoardRow } from "./board.d";
 import { light, nextWaiting, waitTime } from "./board";
 
-function ShellPanel({
-  source,
-  onRestart,
-  canRestart,
-}: {
-  source: NonNullable<BoardSource["shell"]>;
-  onRestart: () => void;
-  canRestart: boolean;
-}) {
-  const view = useSyncExternalStore(source.subscribe, source.getSnapshot);
-  const disposeRef = useRef<() => void>(undefined);
-  const mount = useCallback(
-    (element: HTMLElement | null) => {
-      if (element) disposeRef.current = source.mount(element);
-      else disposeRef.current?.();
-    },
-    [source],
-  );
-  return (
-    <section className="shell-panel" aria-label="Shell terminal">
-      <div className="terminal-toolbar">
-        <span id="status" role="status">
-          {view.status}
-        </span>
-        <button
-          id="restart"
-          hidden={!canRestart}
-          disabled={view.restartDisabled}
-          onClick={() => {
-            onRestart();
-          }}
-        >
-          Restart shell
-        </button>
-      </div>
-      <div id="terminal" aria-label="Terminal" ref={mount} />
-    </section>
-  );
-}
-
 export function Board({
   source,
   inactive = false,
-  onPreflight,
   onSettings,
   settingsView,
   onCloseSettings,
@@ -80,14 +48,77 @@ export function Board({
   soundSetup?: Pick<SetupSource, "state" | "subscribe">;
   /** Preflight is covering the board; it stays mounted so terminals keep running. */
   inactive?: boolean;
-  onPreflight?: () => void;
   onSettings?: () => void;
   settingsView?: ReactNode;
   onCloseSettings?: () => void;
 }) {
+  const [removeError, setRemoveError] = useState("");
   const settingsOpen = Boolean(settingsView);
   const paneInactive = inactive || settingsOpen;
   const rows = useSyncExternalStore(source.subscribe, source.getSnapshot);
+  useEffect(() => source.connect?.(), [source]);
+  const [layout, setLayout] = useState(() => {
+    try {
+      return restoreLayout(localStorage.getItem(TILE_STORAGE));
+    } catch {
+      return restoreLayout(null);
+    }
+  });
+  const layoutRef = useRef(layout);
+  const [focusRequest, setFocusRequest] = useState(0);
+  const changeLayout = useCallback((next: TileLayout) => {
+    layoutRef.current = next;
+    setLayout(next);
+    try {
+      saveLayout(localStorage, next);
+    } catch {
+      setRemoveError("Unable to save tile layout.");
+    }
+  }, []);
+  useEffect(() => {
+    if (source.isReady && !source.isReady()) return;
+    const current = layoutRef.current;
+    if (
+      leaves(current.tree).some(
+        (tile) => tile.session && !rows.some((row) => row.id === tile.session),
+      )
+    ) {
+      const next = pruneSessions(current, new Set(rows.map((row) => row.id)));
+      layoutRef.current = next;
+      setLayout(next);
+      try {
+        saveLayout(localStorage, next);
+      } catch {
+        setRemoveError("Unable to save tile layout.");
+      }
+    }
+  }, [source, rows]);
+  const [refused, setRefused] = useState<string>();
+  useEffect(() => {
+    if (!refused) return;
+    const timer = window.setTimeout(() => {
+      setRefused(undefined);
+    }, 350);
+    return () => {
+      window.clearTimeout(timer);
+    };
+  }, [refused]);
+  const tileAction = useCallback(
+    (tile: string, action: "right" | "down" | "maximize" | "hide" | "close") => {
+      setFocusRequest((value) => value + 1);
+      const current = { ...layoutRef.current, focused: tile };
+      changeLayout(
+        action === "right" || action === "down"
+          ? splitTile(current, action === "right" ? "horizontal" : "vertical")
+          : action === "close"
+            ? closeTile(current)
+            : action === "hide"
+              ? hideSession(current)
+              : { ...current, maximized: current.maximized === tile ? null : tile },
+      );
+    },
+    [changeLayout],
+  );
   const [launching, setLaunching] = useState(false);
   const [launchRepository, setLaunchRepository] = useState<string>();
   const [location, setLocation] = useState<SidebarLocation>();
@@ -118,21 +149,15 @@ export function Board({
     setLaunchRepository(repository);
     setLaunching(true);
   };
-  const [removeError, setRemoveError] = useState("");
   const [selection, setSelection] = useState(rows[0]?.id);
   const selected = rows.some((row) => row.id === selection) ? selection : rows[0]?.id;
-  const [displayed, setDisplayed] = useState<{ id: string; kind: BoardRow["kind"] }>();
   const [peek, setPeek] = useState<{ id: string }>();
-  const [feedbackError, setFeedbackError] = useState("");
   const [tail, setTail] = useState<readonly string[]>([]);
   const buttonsRef = useRef(new Map<string, HTMLElement>());
   const terminalRef = useRef<HTMLElement>(null);
-  const openRow =
-    rows.find((row) => row.id === displayed?.id) ??
-    (displayed?.kind === "shell"
-      ? rows.find((row) => row.kind === "shell" && !row.managed)
-      : undefined);
-  const displayedId = openRow?.kind === "sample" ? undefined : openRow?.id;
+  const focusedSession = leaves(layout.tree).find((tile) => tile.id === layout.focused)?.session;
+  const focusedRow = rows.find((row) => row.id === focusedSession);
+  const displayedId = focusedRow?.kind === "sample" ? undefined : focusedRow?.id;
   const soundFocusRef = useRef<string | undefined>(undefined);
   useLayoutEffect(() => {
     soundFocusRef.current = paneInactive || location ? undefined : displayedId;
@@ -186,28 +211,8 @@ export function Board({
     return () => {
       current = false;
     };
-  }, [source, tailId, displayed, peek]);
-  const selectedRef = useRef(selected);
-  useLayoutEffect(() => {
-    selectedRef.current = selected;
-  }, [selected]);
+  }, [source, tailId, peek]);
   const wasInactiveRef = useRef(paneInactive);
-  useLayoutEffect(() => {
-    let current = true;
-    const returning = wasInactiveRef.current;
-    if (displayed && !paneInactive) {
-      terminalRef.current?.focus();
-      if (displayedId)
-        void source.shell?.open(displayedId).then(() => {
-          if (current && returning && selectedRef.current)
-            buttonsRef.current.get(selectedRef.current)?.focus();
-        });
-    }
-    if (paneInactive || !displayedId) void source.shell?.hide();
-    return () => {
-      current = false;
-    };
-  }, [displayed, displayedId, source, paneInactive]);
   const focusedInitialRowRef = useRef(false);
   useLayoutEffect(() => {
     if (!focusedInitialRowRef.current && rows.length) {
@@ -222,12 +227,24 @@ export function Board({
     wasInactiveRef.current = paneInactive;
   }, [paneInactive, selected]);
   const open = useCallback(
-    (row: BoardRow) => {
-      setFeedbackError("");
+    (row: BoardRow, replace = false) => {
+      const next = placeSession(layoutRef.current, row.id, replace);
+      if (!next) {
+        setRefused(row.id);
+        return;
+      }
+      layoutRef.current = next;
+      setLayout(next);
+      try {
+        saveLayout(localStorage, next);
+      } catch {
+        setRemoveError("Unable to save tile layout.");
+      }
+      setFocusRequest((value) => value + 1);
+      setRefused(undefined);
       setSelection(row.id);
       setLocation(undefined);
       revealRef.current?.(row);
-      setDisplayed({ id: row.id, kind: row.kind });
       setPeek(undefined);
       setTail([]);
       // Selecting a row asks for terminal input focus, rather than Escape restoration.
@@ -246,7 +263,7 @@ export function Board({
         if (value.kind === "launch" || value.kind === "restart") {
           const created = source.getSnapshot().find((row) => !before.has(row.id));
           if (created) {
-            open(created);
+            open(created, value.kind === "restart");
             const name = value.kind === "restart" ? preferences.names[value.id] : undefined;
             if (name) {
               const renamed = renameSession(preferences, created.id, name);
@@ -275,12 +292,56 @@ export function Board({
         } else if (command === "sidebar") {
           const button = selected ? buttonsRef.current.get(selected) : undefined;
           (button ?? sidebarRef.current)?.focus();
-        } else {
+        } else if (command === "next-waiting") {
           const next = nextWaiting(source.getSnapshot());
-          if (next) open(next);
+          if (next) open(next, true);
+        } else if (!settingsOpen) {
+          const current = layoutRef.current;
+          if (command.startsWith("tile-")) {
+            const tile = leaves(current.tree)[Number(command.slice(5)) - 1];
+            if (tile) {
+              setFocusRequest((value) => value + 1);
+              changeLayout({
+                ...current,
+                focused: tile.id,
+                maximized: current.maximized ? tile.id : null,
+              });
+            }
+          } else if (
+            command === "left" ||
+            command === "right" ||
+            command === "up" ||
+            command === "down"
+          ) {
+            setFocusRequest((value) => value + 1);
+            const focused = neighbor(current, command);
+            changeLayout({ ...current, focused, maximized: current.maximized ? focused : null });
+          } else
+            tileAction(
+              current.focused,
+              command === "split-right"
+                ? "right"
+                : command === "split-down"
+                  ? "down"
+                  : command === "hide-session"
+                    ? "hide"
+                    : command === "close-tile"
+                      ? "close"
+                      : "maximize",
+            );
         }
       }),
-    [source, inactive, launching, selected, open, onSettings],
+    [
+      source,
+      inactive,
+      launching,
+      selected,
+      open,
+      onSettings,
+      settingsOpen,
+      tileAction,
+      changeLayout,
+    ],
   );
   return (
     <main className="board-home" aria-label="Board" hidden={inactive} inert={inactive}>
@@ -297,6 +358,19 @@ export function Board({
       <div className="board-workspace">
         <Sidebar
           source={source}
+          tileNumbers={
+            new Map(
+              leaves(layout.tree).flatMap((tile, index) =>
+                tile.session
+                  ? [[tile.session, { number: index + 1, focused: tile.id === layout.focused }]]
+                  : [],
+              ),
+            )
+          }
+          refused={refused}
+          clearRefusal={() => {
+            setRefused(undefined);
+          }}
           revealRef={revealRef}
           location={location}
           inactive={inactive || launching}
@@ -314,7 +388,6 @@ export function Board({
           }}
           choose={(next) => {
             setLocation(next);
-            setDisplayed(undefined);
             setPeek(undefined);
             onCloseSettings?.();
           }}
@@ -323,31 +396,32 @@ export function Board({
           options={options}
           footer={
             <>
-              {source.worktrees && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    newWorktree();
-                  }}
-                >
-                  New worktree
-                </button>
-              )}
-              {source.shell && !rows.some((row) => row.kind === "shell" && !row.managed) && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    void source.shell?.restart();
-                  }}
-                >
-                  Local shell
-                </button>
-              )}
-              {onPreflight && (
-                <button type="button" onClick={onPreflight}>
-                  Preflight
-                </button>
-              )}
+              <div className="tile-presets" role="group" aria-label="Tile layout">
+                {(
+                  [
+                    ["one", "One", "M1 1h14v10H1z"],
+                    ["columns", "Two side by side", "M1 1h14v10H1z M8 1v10"],
+                    ["rows", "Two stacked", "M1 1h14v10H1z M1 6h14"],
+                    ["grid", "Two by two", "M1 1h14v10H1z M8 1v10 M1 6h14"],
+                    ["main2", "One and two", "M1 1h14v10H1z M9 1v10 M9 6h6"],
+                    ["main3", "One and three", "M1 1h14v10H1z M9 1v10 M9 4h6 M9 8h6"],
+                  ] satisfies [TilePreset, string, string][]
+                ).map(([key, label, path]) => (
+                  <button
+                    key={key}
+                    type="button"
+                    aria-label={label}
+                    title={label}
+                    onClick={() => {
+                      changeLayout(preset(layoutRef.current, key));
+                    }}
+                  >
+                    <svg width="18" height="14" viewBox="0 0 16 12" aria-hidden="true">
+                      <path d={path} fill="none" stroke="currentColor" />
+                    </svg>
+                  </button>
+                ))}
+              </div>
               {onSettings && (
                 <button type="button" onClick={onSettings} aria-pressed={settingsOpen}>
                   Settings
@@ -365,15 +439,13 @@ export function Board({
           tabIndex={-1}
           ref={terminalRef}
         >
-          {!openRow && (
+          {location && (
             <>
               <div className="terminal-title">
                 <h2>
-                  {location &&
-                    (source.getSidebar?.().find((repo) => repo.path === location.repository)
-                      ?.name ??
-                      location.repository)}
-                  {location?.worktree &&
+                  {source.getSidebar?.().find((repo) => repo.path === location.repository)?.name ??
+                    location.repository}
+                  {location.worktree &&
                     ` › ${
                       location.worktree === location.repository
                         ? "Main checkout"
@@ -386,31 +458,30 @@ export function Board({
                 </h2>
               </div>
               <div className="location-launchers">
-                {location &&
-                  launcherActions(options, source.shellName?.()).map((action) => (
-                    <button
-                      key={action.label}
-                      type="button"
-                      onClick={() => {
-                        command({
-                          kind: "launch",
-                          repository: location.repository,
-                          worktree: location.worktree ?? location.repository,
-                          run: action.run,
-                        });
-                      }}
-                    >
-                      <span className="board-agent" aria-hidden="true">
-                        {action.badge}
-                      </span>
-                      {action.label}
-                    </button>
-                  ))}
+                {launcherActions(options, source.shellName?.()).map((action) => (
+                  <button
+                    key={action.label}
+                    type="button"
+                    onClick={() => {
+                      command({
+                        kind: "launch",
+                        repository: location.repository,
+                        worktree: location.worktree ?? location.repository,
+                        run: action.run,
+                      });
+                    }}
+                  >
+                    <span className="board-agent" aria-hidden="true">
+                      {action.badge}
+                    </span>
+                    {action.label}
+                  </button>
+                ))}
                 {source.worktrees && (
                   <button
                     type="button"
                     onClick={() => {
-                      newWorktree(location?.repository);
+                      newWorktree(location.repository);
                     }}
                   >
                     New worktree…
@@ -419,52 +490,23 @@ export function Board({
               </div>
             </>
           )}
-          <div className="terminal-title" hidden={!openRow}>
-            <h2>
-              {openRow &&
-                `${openRow.repository} › ${rowWorktree(openRow) === rowRepository(openRow) ? "Main checkout" : openRow.branch} › ${sessionName(openRow, preferences)}`}
-            </h2>
-          </div>
-          {openRow?.state === "needs_input" && (
-            <div className="terminal-toolbar">
-              <span>{openRow.reason}</span>
-              <button
-                type="button"
-                onClick={() => {
-                  setFeedbackError("");
-                  void Promise.resolve(source.resolve(openRow.id, "Not attention")).catch(() => {
-                    setFeedbackError("Unable to record feedback. Try again.");
-                  });
-                }}
-              >
-                Not attention
-              </button>
-            </div>
-          )}
-          {feedbackError && <p role="alert">{feedbackError}</p>}
-          <div className="sample-terminal" hidden={openRow?.kind !== "sample"}>
-            <pre>{openRow?.tail.join("\n")}</pre>
-            <p>Sample output · read-only</p>
-          </div>
-          {/* Keep the controller mounted while hidden. The host retains all output. */}
-          <div className="shell-slot" hidden={!openRow || openRow.kind === "sample"}>
-            {source.shell && (
-              <ShellPanel
-                source={source.shell}
-                canRestart={openRow?.kind === "shell"}
-                onRestart={() => {
-                  if (openRow?.managed) {
-                    command({ kind: "restart", id: openRow.id });
-                    return;
-                  }
-                  void source.shell?.restart().then(() => {
-                    const row = source.getSnapshot().find((entry) => entry.kind === "shell");
-                    if (row) open(row);
-                  });
-                }}
-              />
-            )}
-          </div>
+          <TileArea
+            source={source}
+            layout={layout}
+            focusRequest={focusRequest}
+            setLayout={changeLayout}
+            rows={rows}
+            preferences={preferences}
+            inactive={paneInactive || Boolean(location)}
+            action={(tile, action) => {
+              if (action === "restart") {
+                const session = leaves(layoutRef.current.tree).find(
+                  (item) => item.id === tile,
+                )?.session;
+                if (session) command({ kind: "restart", id: session });
+              } else tileAction(tile, action);
+            }}
+          />
           <aside className="board-peek" aria-label="Terminal peek" hidden={!peekRow}>
             <h2>{peekRow && `${peekRow.agent} · ${peekRow.branch}`}</h2>
             <pre>{tail.join("\n")}</pre>

@@ -143,13 +143,14 @@ test("sidebar arrows wrap, focus peeks, selection preserves attention and Escape
     buttons[0]?.click();
   });
   key("Escape");
-  expect(document.activeElement).toBe(dialog.querySelector(".board-terminal"));
+  expect(document.activeElement).toBe(dialog.querySelector('.terminal-tile[data-focused="true"]'));
   expect(buttons[0]?.textContent).toContain("Needs you");
   act(() => {
     command?.("sidebar");
   });
   expect(document.activeElement).toBe(buttons[0]);
   act(() => {
+    dialog.querySelector<HTMLButtonElement>('[aria-label="Hide session"]')?.click();
     dialog.querySelector<HTMLElement>('.board-row[data-state="done"]')?.click();
   });
   expect(
@@ -261,7 +262,7 @@ test("next waiting refocuses an already open terminal from its controls", () => 
     dialog.querySelector<HTMLButtonElement>("[data-hide]")?.focus();
   });
   key("n");
-  expect(document.activeElement).toBe(dialog.querySelector(".board-terminal"));
+  expect(document.activeElement).toBe(dialog.querySelector('.terminal-tile[data-focused="true"]'));
   board.dispose();
 });
 
@@ -364,8 +365,9 @@ test("board opens the launcher without routing typing to shortcuts and reports r
   const screen = render(<Board source={source} />);
   await act(async () => {
     await Promise.resolve();
-    fireEvent.click(screen.getByRole("button", { name: "New worktree" }));
+    fireEvent.click(screen.getByRole("button", { name: `Actions for ${row.repository}` }));
   });
+  fireEvent.click(screen.getByRole("menuitem", { name: "New worktree…" }));
   fireEvent.keyDown(screen.getByLabelText("Branch"), { key: "n" });
   expect(screen.getByRole("dialog")).toBeTruthy();
   fireEvent.click(screen.getByRole("button", { name: "Cancel" }));

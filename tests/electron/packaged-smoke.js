@@ -3,9 +3,17 @@ const { extractFile } = require("@electron/asar");
 const { test } = require("node:test");
 const assert = require("node:assert/strict");
 const path = require("node:path");
-const { readFileSync, existsSync, mkdtempSync, rmSync, writeFileSync } = require("node:fs");
+const {
+  readFileSync,
+  existsSync,
+  mkdtempSync,
+  realpathSync,
+  mkdirSync,
+  rmSync,
+  writeFileSync,
+} = require("node:fs");
 const { tmpdir } = require("node:os");
-const { spawn, execFileSync } = require("node:child_process");
+const { spawn, execFile, execFileSync } = require("node:child_process");
 const { chromium, expect } = require("@playwright/test");
 const { getCurrentFuseWire, FuseV1Options } = require("@electron/fuses");
 
@@ -62,22 +70,36 @@ test("packaged utility host runs native PTYs with RunAsNode disabled", {
   // Main's inspector is disabled in the package. CDP reaches only the renderer;
   // the probe exercises the same restricted bridge as the shipped application.
   // A private profile with preflight already complete, so the package opens on the board.
-  const profile = mkdtempSync(path.join(tmpdir(), "foom-packaged-"));
+  // Match fs.promises.realpath in the registry: resolve macOS symlinks and Windows 8.3 names.
+  const profile = realpathSync.native(mkdtempSync(path.join(tmpdir(), "foom-packaged-")));
   writeFileSync(
     path.join(profile, "settings.json"),
     JSON.stringify({ version: 1, settings: { setupComplete: true } }),
+  );
+  const repository = path.join(profile, "repo");
+  mkdirSync(repository);
+  execFileSync("git", ["init", "-q", repository]);
+  writeFileSync(
+    path.join(profile, "worktrees.json"),
+    JSON.stringify({ version: 1, repositories: [repository], managed: [] }),
   );
   const child = spawn(executable, ["--remote-debugging-port=0", `--user-data-dir=${profile}`], {
     env,
     stdio: ["ignore", "ignore", "pipe"],
   });
   let browser;
+  let page;
+  let standalone;
+  let failure;
   const watchdog = setTimeout(() => {
     console.error("Packaged probe exceeded its hard deadline");
-    if (process.platform === "win32")
-      execFileSync("taskkill", ["/pid", String(child.pid), "/T", "/F"]);
-    else child.kill("SIGKILL");
-    process.exit(1);
+    try {
+      if (process.platform === "win32")
+        execFileSync("taskkill", ["/pid", String(child.pid), "/T", "/F"], { timeout: 3000 });
+    } finally {
+      child.kill("SIGKILL");
+      process.exit(1);
+    }
   }, 40000);
   let stderr = "";
   try {
@@ -92,20 +114,30 @@ test("packaged utility host runs native PTYs with RunAsNode disabled", {
     });
     browser = await chromium.connectOverCDP(endpoint, { timeout: 10000 });
     const context = browser.contexts()[0];
-    const page = context.pages()[0] || (await context.waitForEvent("page"));
+    page = context.pages()[0] || (await context.waitForEvent("page"));
     page.setDefaultTimeout(15000);
-    await page.getByRole("button", { name: "Local shell", exact: true }).press("Enter");
+    await expect
+      .poll(async () =>
+        (await page.evaluate(() => window.desktop.workspace())).repositories.map(
+          (entry) => entry.path,
+        ),
+      )
+      .toContain(repository);
+    console.info("Packaged repository restored");
+    await page.getByRole("button", { name: "Actions for repo", exact: true }).click();
+    await page.getByRole("menuitem", { name: /^Shell \(/ }).click();
     await page.waitForFunction(
       () =>
         window.desktop &&
-        document.querySelector("#status")?.textContent &&
-        !document.querySelector("#status").textContent.includes("Starting"),
+        document.querySelector(".tile-status")?.textContent &&
+        !document.querySelector(".tile-status").textContent.includes("Starting"),
     );
-    assert.doesNotMatch(await page.locator("#status").innerText(), /Unable/);
+    assert.doesNotMatch(await page.locator(".tile-status").innerText(), /Unable/);
     await page.locator('.board-row[data-kind="shell"]').press("Enter");
     await expect(page.getByRole("navigation", { name: "Terminal sidebar" })).toBeVisible();
     await expect(page.locator(".xterm-helper-textarea")).toBeFocused();
     await assertBundledTerminalFonts(page);
+    console.info("Packaged terminal attached");
     const command =
       process.platform === "win32"
         ? 'Write-Output ("PACKAGED_" + "PTY_OK")'
@@ -118,6 +150,7 @@ test("packaged utility host runs native PTYs with RunAsNode disabled", {
       .filter({ hasText: /^PACKAGED_PTY_OK$/ })
       .last()
       .waitFor();
+    console.info("Packaged interactive PTY command passed");
     // Exercise detached headless state, native process exit and snapshot restoration.
     const id = await page.evaluate(async () => {
       const { id } = await window.desktop.create(80, 24);
@@ -134,6 +167,7 @@ test("packaged utility host runs native PTYs with RunAsNode disabled", {
       });
       return id;
     });
+    standalone = id;
     await page.evaluate(({ id, command }) => window.desktop.input(id, command + "; exit\r"), {
       id,
       command,
@@ -149,23 +183,59 @@ test("packaged utility host runs native PTYs with RunAsNode disabled", {
     console.info(
       `Packaged ${process.platform}/${process.arch}: native PTY, detached headless snapshot, RunAsNode=false passed`,
     );
+  } catch (error) {
+    failure = error;
+    console.error("Packaged smoke failed:", error);
   } finally {
-    await browser?.close();
-    if (child.exitCode === null && child.signalCode === null) {
-      const exited = new Promise((resolve) => child.once("exit", resolve));
-      if (process.platform === "win32")
-        execFileSync("taskkill", ["/pid", String(child.pid), "/T", "/F"], { timeout: 5000 });
-      else child.kill("SIGTERM");
-      // A failed assertion can leave a live terminal and a quit confirmation.
-      // Bound cleanup so the original failure survives instead of the watchdog.
-      const forceExit = setTimeout(() => child.kill("SIGKILL"), 1000);
-      try {
-        await exited;
-      } finally {
-        clearTimeout(forceExit);
+    try {
+      // Close through the app after revoking its terminal capabilities. Disconnecting
+      // CDP does not quit Electron, and taskkill can stall on a busy Windows runner.
+      await page
+        ?.evaluate(async (standalone) => {
+          const ids = (await window.desktop.workspace()).terminals.map((terminal) => terminal.id);
+          if (standalone) ids.push(standalone);
+          await Promise.all(ids.map((id) => window.desktop.kill(id).catch(() => {})));
+        }, standalone)
+        .catch(() => {});
+      await page?.keyboard
+        .press(process.platform === "darwin" ? "Meta+q" : "Control+q")
+        .catch(() => {});
+      await browser?.close();
+      if (child.exitCode === null && child.signalCode === null) {
+        let timer;
+        const exited = new Promise((resolve) => child.once("exit", resolve));
+        await Promise.race([
+          exited,
+          new Promise((resolve) => {
+            timer = setTimeout(resolve, 5000);
+          }),
+        ]);
+        clearTimeout(timer);
+        if (child.exitCode === null && child.signalCode === null) {
+          if (process.platform === "win32") {
+            await new Promise((resolve, reject) => {
+              execFile(
+                "taskkill",
+                ["/pid", String(child.pid), "/T", "/F"],
+                { timeout: 5000 },
+                (error) => {
+                  if (error && child.exitCode === null && child.signalCode === null) reject(error);
+                  else resolve();
+                },
+              );
+            });
+          } else child.kill("SIGKILL");
+          await exited;
+        }
       }
+      rmSync(profile, { recursive: true, force: true, maxRetries: 5 });
+    } catch (error) {
+      child.kill("SIGKILL");
+      failure ??= error;
+      console.error("Packaged cleanup failed:", error);
+    } finally {
+      clearTimeout(watchdog);
     }
-    rmSync(profile, { recursive: true, force: true, maxRetries: 5 });
-    clearTimeout(watchdog);
   }
+  if (failure) throw failure;
 });

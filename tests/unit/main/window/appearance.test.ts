@@ -155,3 +155,33 @@ test("restored dimensions respect the minimum and current display without rescal
     height: 640,
   });
 });
+
+test("tile chords cover both platforms without consuming plain terminal keys", () => {
+  for (const platform of ["linux", "darwin"] as const) {
+    const modifier = platform === "darwin" ? { meta: true } : { control: true };
+    for (let index = 1; index <= 9; index++)
+      expect(boardShortcut(key(`Digit${String(index)}`, modifier), platform)).toBe(
+        `tile-${String(index)}`,
+      );
+    expect(boardShortcut(key("Enter", { ...modifier, shift: true }), platform)).toBe("maximize");
+    for (const [code, command] of Object.entries({
+      ArrowLeft: "left",
+      ArrowRight: "right",
+      ArrowUp: "up",
+      ArrowDown: "down",
+      KeyR: "split-right",
+      KeyD: "split-down",
+      KeyW: "close-tile",
+      KeyH: "hide-session",
+    })) {
+      expect(boardShortcut(key(code, { ...modifier, shift: true, alt: true }), platform)).toBe(
+        command,
+      );
+      expect(boardShortcut(key(code, { ...modifier, alt: true }), platform)).toBeUndefined();
+    }
+    expect(
+      boardShortcut(key("KeyX", { ...modifier, shift: true, alt: true }), platform),
+    ).toBeUndefined();
+    expect(boardShortcut(key("KeyW", modifier), platform)).toBeUndefined();
+  }
+});
