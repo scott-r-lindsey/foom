@@ -1,0 +1,358 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Foom Tiles</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo+Black&family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&display=swap">
+<style>
+/* Several terminals at once. The layout is a split tree; presets are shortcuts that build trees.
+   Interface colors are the brand tokens; terminals stay dark in both modes. */
+:root {
+  --bg: #f3f0fa; --surface: #e9e4f5; --line: #ddd6ee; --ink: #14101f; --muted: #625a7a;
+  --accent: #5b2bd9; --attention: #d98200; --attention-ink: #8c5000; --done: #13804a; --done-ink: #0e6b3c; --failed: #d6166e;
+  --idle: #b9b0d3; --select: #d6cfe9; --badge: #4a4263; --badge-ink: #f4efff; --halo: rgba(217, 130, 0, .25); --chip: #cfc6e6;
+  --display: "Archivo Black", sans-serif; --sans: "Geist", system-ui, sans-serif; --mono: "Geist Mono", ui-monospace, monospace;
+  --term: "Hack Nerd Font Mono", "Geist Mono", ui-monospace, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #05040a; --surface: #0d0a17; --line: #251d3f; --ink: #f4efff; --muted: #9d93bd;
+    --accent: #9b6bff; --attention: #ffb23e; --attention-ink: #ffb23e; --done: #6fe0a3; --done-ink: #6fe0a3; --failed: #ff2e88;
+    --idle: #4a4263; --select: #1c1632; --badge: #3a3060; --badge-ink: #f4efff; --halo: rgba(255, 178, 62, .22); --chip: #3a3060;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #05040a; --surface: #0d0a17; --line: #251d3f; --ink: #f4efff; --muted: #9d93bd;
+  --accent: #9b6bff; --attention: #ffb23e; --attention-ink: #ffb23e; --done: #6fe0a3; --done-ink: #6fe0a3; --failed: #ff2e88;
+  --idle: #4a4263; --select: #1c1632; --badge: #3a3060; --badge-ink: #f4efff; --halo: rgba(255, 178, 62, .22); --chip: #3a3060;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; }
+body { background: var(--bg); color: var(--ink); font: 13px/1.4 var(--sans); }
+button { font: inherit; color: inherit; cursor: pointer; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.app { display: flex; height: 100vh; min-width: 960px; overflow: hidden; }
+
+/* Sidebar slice (the full tree is sidebar.html) */
+.side { width: 300px; flex-shrink: 0; display: flex; flex-direction: column; background: var(--surface); border-right: 1px solid var(--line); }
+.head { display: flex; align-items: baseline; justify-content: space-between; padding: 16px 14px 12px; }
+.head b { font: 22px var(--display); font-weight: 400; color: var(--accent); }
+.head span { font: 11px var(--mono); color: var(--muted); }
+.tree { flex: 1; overflow-y: auto; padding: 0 6px 10px; scrollbar-width: thin; scrollbar-color: var(--line) transparent; }
+.grp { padding: 8px 8px 2px; font-weight: 600; }
+.wt { padding: 4px 8px 2px 24px; font: 12.5px var(--mono); color: var(--muted); }
+.sess { display: flex; gap: 8px; align-items: flex-start; width: 100%; padding: 6px 8px 6px 40px; background: transparent; border: 0; border-radius: 6px; text-align: left; }
+.sess:hover { background: color-mix(in srgb, var(--select) 60%, transparent); }
+.sess.sel { background: var(--select); }
+.sess .lines { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.sess .top { display: flex; align-items: center; gap: 6px; font: 12px var(--mono); }
+.sess .reason { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; color: var(--muted); }
+.sess .reason.needs { color: var(--attention-ink); }
+.sess .reason.done { color: var(--done-ink); }
+.sess .light { margin-top: 4px; }
+.wait { margin-left: auto; font-size: 11px; color: var(--muted); }
+.no { flex-shrink: 0; min-width: 16px; height: 16px; padding: 0 3px; display: inline-flex; align-items: center; justify-content: center; border: 1px solid var(--chip); border-radius: 4px; font: 10px var(--mono); color: var(--muted); }
+.no.on { border-color: var(--accent); color: var(--ink); }
+.buzz { animation: buzz 320ms cubic-bezier(.36, .07, .19, .97) both; }
+@keyframes buzz { 20%, 80% { transform: translateX(-2px); } 40% { transform: translateX(3px); } 60% { transform: translateX(-3px); } }
+.foot { display: flex; align-items: center; gap: 2px; padding: 10px 8px 12px; border-top: 1px solid var(--line); }
+.foot .settings { height: 32px; padding: 0 6px; background: transparent; border: 0; border-radius: 6px; color: var(--muted); }
+.presets { margin-left: auto; display: flex; }
+.preset { width: 23px; height: 24px; padding: 0; display: grid; place-items: center; background: transparent; border: 1px solid transparent; border-radius: 5px; color: var(--muted); }
+.preset:hover { color: var(--ink); background: var(--select); }
+.light { flex-shrink: 0; width: 9px; height: 9px; border-radius: 50%; background: var(--idle); }
+.light.needs { background: var(--attention); box-shadow: 0 0 0 4px var(--halo); }
+.light.working { background: var(--accent); box-shadow: 0 0 8px var(--accent); }
+.light.done { background: var(--done); }
+.light.failed { background: var(--failed); border-radius: 2px; }
+.badge { flex-shrink: 0; width: 20px; height: 15px; display: inline-flex; align-items: center; justify-content: center; border-radius: 4px; background: var(--badge); color: var(--badge-ink); font: 600 9px var(--mono); }
+
+/* Tiles */
+.area { position: relative; flex: 1; min-width: 0; background: #05040a; }
+.tile { position: absolute; display: flex; flex-direction: column; overflow: hidden; background: #05040a; border: 1px solid #251d3f; border-radius: 6px;
+  transition: left 220ms cubic-bezier(.2, .8, .2, 1), top 220ms cubic-bezier(.2, .8, .2, 1), width 220ms cubic-bezier(.2, .8, .2, 1), height 220ms cubic-bezier(.2, .8, .2, 1), border-color 160ms ease, opacity 180ms ease;
+  animation: tile-in 200ms ease both; }
+.area.dragging .tile { transition: none; }
+@keyframes tile-in { from { opacity: 0; transform: scale(.98); } }
+.tile.focus { border-color: #9b6bff; }
+.tile.needs { border-color: #ffb23e; }
+.tile.behind { opacity: 0; pointer-events: none; }
+.tile.front { z-index: 3; }
+.tb { flex-shrink: 0; display: flex; align-items: center; gap: 8px; height: 28px; padding: 0 6px 0 10px; background: #0d0a17; border-bottom: 1px solid #251d3f; font: 12px "Geist Mono", monospace; color: #9d93bd; white-space: nowrap; }
+.tile.focus .tb { background: #15111f; color: #f4efff; }
+.tb .where { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.tb .name { flex-shrink: 0; color: #c9c0e6; }
+.tile.focus .tb .name { color: #f4efff; }
+.tb .badge { background: #3a3060; color: #f4efff; }
+.tb .no { margin-left: auto; border-color: #3a3060; color: #9d93bd; }
+.tile.focus .tb .no { border-color: #9b6bff; color: #f4efff; }
+.ctl { display: flex; gap: 1px; opacity: 0; transition: opacity 120ms ease; }
+.tile:hover .ctl, .tile.focus .ctl { opacity: 1; }
+.ctl button { width: 22px; height: 22px; padding: 0; display: grid; place-items: center; background: transparent; border: 1px solid transparent; border-radius: 4px; color: #9d93bd; }
+.ctl button:hover { background: #1c1632; border-color: #251d3f; color: #f4efff; }
+.out { flex: 1; margin: 0; padding: 10px 14px; overflow: hidden; color: #f4efff; font: 13px/1.5 var(--term); white-space: pre; }
+.tile:not(.focus) .out { opacity: .78; }
+.out .cursor { display: inline-block; width: .6em; height: 1.1em; vertical-align: text-bottom; background: #9b6bff; }
+.tile:not(.focus) .out .cursor { background: transparent; outline: 1px solid #6a6188; }
+.c-dim { color: #857da6; } .c-acc { color: #c08bff; } .c-blue { color: #7aa2ff; } .c-green { color: #6fe0a3; } .c-red { color: #ff6b81; } .c-cyan { color: #5fd7e6; } .c-bold { font-weight: 700; }
+/* An empty tile is only an outline: the next session you click lands in it. */
+.tile.empty { background: transparent; border: 1px dashed #251d3f; }
+.tile.empty.focus { border-color: #9b6bff; }
+.tile.empty .tb { background: transparent; border-bottom-color: transparent; }
+.gutter { position: absolute; z-index: 2; }
+.gutter.col { cursor: col-resize; }
+.gutter.row { cursor: row-resize; }
+.gutter::after { content: ""; position: absolute; border-radius: 2px; background: transparent; transition: background-color 120ms ease; }
+.gutter.col::after { left: 50%; top: 20%; bottom: 20%; width: 2px; margin-left: -1px; }
+.gutter.row::after { top: 50%; left: 20%; right: 20%; height: 2px; margin-top: -1px; }
+.gutter:hover::after, .gutter.active::after { background: #9b6bff; }
+
+.mock { position: fixed; right: 12px; bottom: 12px; z-index: 50; }
+.mock button { padding: 6px 10px; background: var(--bg); border: 1px dashed var(--line); border-radius: 6px; color: var(--muted); font-size: 12px; }
+@media (prefers-reduced-motion: reduce) { .tile, .buzz { transition: none; animation: none; } }
+</style>
+</head>
+<body>
+<div class="app">
+  <nav class="side" aria-label="Sessions">
+    <div class="head"><b>foom</b><span id="summary"></span></div>
+    <div class="tree" id="tree"></div>
+    <div class="foot">
+      <button type="button" class="settings">Settings</button>
+      <div class="presets" role="group" aria-label="Tile layout" id="presets"></div>
+    </div>
+  </nav>
+  <main class="area" id="area" aria-label="Tiles"></main>
+</div>
+<div class="mock"><button type="button" id="mode">Mockup: light / dark</button></div>
+<script>
+const L = (...segs) => segs;
+const S = (c, t) => [c, t];
+const SESSIONS = {
+  t1: { repo: "foom", wt: "main", name: "zsh", badge: ">_", light: "quiet", reason: "npm run dev · quiet, fine", out: [L(S("dim", "$ "), S("", "npm run dev")), L(S("green", "  VITE "), S("", "v7.1.4  ready in 312 ms")), [], L(S("acc", "  ➜  "), S("", "Local:   "), S("blue", "http://localhost:5173/"))] },
+  t2: { repo: "foom", wt: "feat/sidebar-tree", name: "Claude Code", badge: "CC", light: "needs", wait: "4m", reason: "Wants to edit src/renderer/sidebar.tsx · hook", out: [L(S("acc", "● "), S("", "Read "), S("blue", "src/renderer/sidebar.tsx"), S("dim", " (212 lines)")), L(S("acc", "● "), S("", "I'll add pins and the filter field to the header.")), [], L(S("", "  "), S("bold", "Edit src/renderer/sidebar.tsx")), L(S("dim", "  │ "), S("green", "43 +    <FilterField value={filter} />")), L(S("dim", "  │ "), S("red", "52 -  const rows = sortRows(repos);")), L(S("dim", "  │ "), S("green", "52 +  const rows = pinnedFirst(repos, pins);")), [], L(S("", "  Apply this edit?")), L(S("acc", "  ❯ 1. Yes")), L(S("", "    2. Yes, and allow edits for this session")), L(S("", "    3. No, explain what to change"))] },
+  t10: { repo: "foom", wt: "feat/sidebar-tree", name: "Codex", badge: "CX", light: "working", reason: "Reviewing changes · read-only", out: [L(S("cyan", "• "), S("bold", "Explored "), S("", "6 files")), L(S("dim", "  └ "), S("", "Read "), S("blue", "src/renderer/sidebar.tsx")), L(S("cyan", "• "), S("", "Review notes so far:")), L(S("", "  1. "), S("bold", "pinnedFirst"), S("", " ignores the filter when pins are empty.")), L(S("", "  2. The rename input loses focus on reload.")), L(S("cyan", "• "), S("bold", "Working "), S("dim", "(2m 03s • esc to interrupt)"))] },
+  t3: { repo: "foom", wt: "feat/sidebar-tree", name: "tests", badge: ">_", light: "working", reason: "vitest --watch · activity", out: [L(S("dim", "$ "), S("", "npx vitest --watch")), [], L(S("green", " ✓ "), S("", "sidebar-model.test.tsx "), S("dim", "(41)")), L(S("green", " ✓ "), S("", "row-menu.test.tsx "), S("dim", "(12)")), [], L(S("", " Tests  "), S("green", "53 passed"), S("dim", " (53)")), L(S("dim", " Waiting for file changes..."))] },
+  t4: { repo: "foom", wt: "fix/wheel-scroll", name: "Codex", badge: "CX", light: "working", reason: "Running tests · activity", out: [L(S("cyan", "• "), S("bold", "Ran "), S("", "npx vitest run alternate-scroll")), L(S("dim", "  └ "), S("green", "✓ "), S("", "6 passed")), L(S("cyan", "• "), S("bold", "Working "), S("dim", "(41s • esc to interrupt)"))] },
+  t6: { repo: "eclipse-site", wt: "feat/hero-copy", name: "Claude Code", badge: "CC", light: "done", reason: "Finished · hook", out: [L(S("acc", "● "), S("", "Updated the hero headline and subcopy.")), L(S("dim", "  ⎿ "), S("green", "+12 "), S("red", "-9")), L(S("acc", "● "), S("", "Done."))] },
+  t7: { repo: "infra", wt: "feat/k8s-upgrade", name: "Codex", badge: "CX", light: "working", reason: "terraform plan · activity", out: [L(S("cyan", "• "), S("bold", "Ran "), S("", "terraform plan")), L(S("dim", "  └ "), S("", "Plan: "), S("green", "4 to add"), S("", ", "), S("blue", "7 to change"), S("", ", 0 to destroy."))] },
+  t8: { repo: "payments", wt: "fix/refund-rounding", name: "Codex", badge: "CX", light: "needs", wait: "1m", reason: "Run migrations? (y/n) · pattern", out: [L(S("cyan", "• "), S("bold", "Edited "), S("blue", "src/refunds/round.ts")), L(S("dim", "    "), S("green", "+ return Math.round(cents) / 100;")), L(S("cyan", "• "), S("", "The schema change needs the migration first.")), [], L(S("", "  Run migrations? (y/n)"))] },
+};
+
+/* The layout: a split tree. Leaves are tiles; each leaf keeps its id for life, so its terminal view is never rebuilt. */
+let nextId = 1;
+const leaf = (session) => ({ leaf: true, id: "L" + nextId++, session: session || null });
+const split = (dir, ratio, a, b) => ({ leaf: false, dir, ratio, a, b });
+const PRESETS = {
+  one: ["One", "M1.5 1.5h13v9h-13z", (s) => leaf(s[0])],
+  two: ["Two side by side", "M1.5 1.5h13v9h-13zM8 1.5v9", (s) => split("col", 0.5, leaf(s[0]), leaf(s[1]))],
+  stack: ["Two stacked", "M1.5 1.5h13v9h-13zM1.5 6h13", (s) => split("row", 0.5, leaf(s[0]), leaf(s[1]))],
+  grid: ["Two by two", "M1.5 1.5h13v9h-13zM8 1.5v9M1.5 6h13", (s) => split("col", 0.5, split("row", 0.5, leaf(s[0]), leaf(s[2])), split("row", 0.5, leaf(s[1]), leaf(s[3])))],
+  main2: ["One and two", "M1.5 1.5h13v9h-13zM9.5 1.5v9M9.5 6h5", (s) => split("col", 0.6, leaf(s[0]), split("row", 0.5, leaf(s[1]), leaf(s[2])))],
+  main3: ["One and three", "M1.5 1.5h13v9h-13zM9.5 1.5v9M9.5 4.5h5M9.5 7.5h5", (s) => split("col", 0.6, leaf(s[0]), split("row", 1 / 3, leaf(s[1]), split("row", 0.5, leaf(s[2]), leaf(s[3]))))],
+};
+let root = PRESETS.main2[2](["t2", "t10", null]);
+let focus = leaves(root)[0].id;
+let maximized = null;
+let buzzing = "";
+
+function leaves(node, out = []) { if (node.leaf) out.push(node); else { leaves(node.a, out); leaves(node.b, out); } return out; }
+function parentOf(node, target, parent = null) {
+  if (node === target) return parent;
+  if (node.leaf) return undefined;
+  const a = parentOf(node.a, target, node);
+  return a !== undefined ? a : parentOf(node.b, target, node);
+}
+function replace(target, next) {
+  const parent = parentOf(root, target);
+  if (!parent) root = next;
+  else if (parent.a === target) parent.a = next;
+  else parent.b = next;
+}
+const byId = (id) => leaves(root).find((l) => l.id === id);
+const shown = () => new Map(leaves(root).filter((l) => l.session).map((l, i) => [l.session, l]));
+const numberOf = (id) => leaves(root).findIndex((l) => l.id === id) + 1;
+
+/* Operations: these make any layout. Presets just build particular trees. */
+function applyPreset(key) {
+  const sessions = leaves(root).map((l) => l.session).filter((s) => s);
+  const order = [focusedSession(), ...sessions.filter((s) => s !== focusedSession())].filter((s) => s);
+  const count = { one: 1, two: 2, stack: 2, grid: 4, main2: 3, main3: 4 }[key];
+  root = PRESETS[key][2](Array.from({ length: count }, (_, i) => order[i] || null));
+  focus = leaves(root)[0].id;
+  maximized = null;
+  render();
+}
+function focusedSession() { const l = byId(focus); return l ? l.session : null; }
+function splitFocused(dir) {
+  const target = byId(focus);
+  const fresh = leaf(null);
+  replace(target, split(dir, 0.5, target, fresh));
+  focus = fresh.id;
+  maximized = null;
+  render();
+}
+/* Close a tile: its sibling takes the space; its session keeps running and shows only in the sidebar. */
+function closeTile(id) {
+  const target = byId(id);
+  const parent = parentOf(root, target);
+  if (!parent) { target.session = null; return render(); }
+  const sibling = parent.a === target ? parent.b : parent.a;
+  replace(parent, sibling);
+  focus = leaves(sibling)[0].id;
+  maximized = null;
+  render();
+}
+function hideSession(id) { byId(id).session = null; render(); }
+/* A hidden session goes to the focused tile if it's empty, then the first empty tile; otherwise buzz. */
+function pick(session) {
+  const at = shown().get(session);
+  if (at) { focus = at.id; if (maximized) maximized = at.id; return render(); }
+  const f = byId(focus);
+  const target = f && !f.session ? f : leaves(root).find((l) => !l.session);
+  if (!target) { buzzing = session; render(); setTimeout(() => { buzzing = ""; }, 400); return; }
+  target.session = session;
+  focus = target.id;
+  render();
+}
+
+/* Geometry */
+const GAP = 6;
+function layout(node, x, y, w, h, out) {
+  if (node.leaf) { out.tiles.push({ node, x, y, w, h }); return; }
+  if (node.dir === "col") {
+    const aw = Math.round((w - GAP) * node.ratio);
+    out.gutters.push({ node, x: x + aw, y, w: GAP, h, dir: "col", span: w, origin: x });
+    layout(node.a, x, y, aw, h, out);
+    layout(node.b, x + aw + GAP, y, w - aw - GAP, h, out);
+  } else {
+    const ah = Math.round((h - GAP) * node.ratio);
+    out.gutters.push({ node, x, y: y + ah, w, h: GAP, dir: "row", span: h, origin: y });
+    layout(node.a, x, y, w, ah, out);
+    layout(node.b, x, y + ah + GAP, w, h - ah - GAP, out);
+  }
+}
+
+const area = document.getElementById("area");
+const els = new Map();
+const gutters = new Map();
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+const ICON = { right: "M1.5 1.5h9v9h-9zM6 1.5v9", down: "M1.5 1.5h9v9h-9zM1.5 6h9", max: "M1.5 4.5v-3h3M10.5 4.5v-3h-3M1.5 7.5v3h3M10.5 7.5v3h-3", restore: "M4.5 1.5v3h-3M7.5 1.5v3h3M4.5 10.5v-3h-3M7.5 10.5v-3h3", close: "M3 3l6 6M9 3l-6 6", hide: "M2 6h8" };
+const button = (act, label, icon) => `<button type="button" data-act="${act}" aria-label="${label}"><svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.3" aria-hidden="true"><path d="${ICON[icon]}"/></svg></button>`;
+
+function tileHtml(node) {
+  const s = node.session && SESSIONS[node.session];
+  const controls = `<span class="ctl">${button("right", "Split right", "right")}${button("down", "Split down", "down")}${s ? button("max", maximized ? "Restore layout" : "Maximize", maximized ? "restore" : "max") + button("hide", "Hide session", "hide") : ""}${button("close", "Close tile", "close")}</span>`;
+  if (!s) return `<div class="tb"><span class="no">${numberOf(node.id)}</span>${controls}</div>`;
+  const out = s.out.map((line) => line.map(([c, t]) => `<span class="${c ? "c-" + c : ""}">${esc(t)}</span>`).join("")).join("\n");
+  return `<div class="tb"><span class="light ${s.light}"></span><span class="badge">${s.badge}</span><span class="where">${esc(s.repo)} › ${esc(s.wt)} ›</span><span class="name">${esc(s.name)}</span><span class="no">${numberOf(node.id)}</span>${controls}</div><pre class="out">${out}\n<span class="cursor"></span></pre>`;
+}
+
+function render() {
+  const W = area.clientWidth, H = area.clientHeight;
+  const geo = { tiles: [], gutters: [] };
+  layout(root, GAP, GAP, W - 2 * GAP, H - 2 * GAP, geo);
+  const live = new Set();
+  for (const t of geo.tiles) {
+    const n = t.node;
+    live.add(n.id);
+    let el = els.get(n.id);
+    if (!el) { el = document.createElement("section"); el.className = "tile"; el.dataset.id = n.id; area.appendChild(el); els.set(n.id, el); }
+    const s = n.session && SESSIONS[n.session];
+    const full = maximized === n.id;
+    el.className = "tile" + (n.id === focus ? " focus" : "") + (s ? (s.light === "needs" ? " needs" : "") : " empty") + (maximized ? (full ? " front" : " behind") : "");
+    el.setAttribute("aria-label", s ? `Tile ${numberOf(n.id)}: ${s.name}` : `Tile ${numberOf(n.id)}: empty`);
+    const box = full ? { x: GAP, y: GAP, w: W - 2 * GAP, h: H - 2 * GAP } : t;
+    Object.assign(el.style, { left: box.x + "px", top: box.y + "px", width: box.w + "px", height: box.h + "px" });
+    const html = tileHtml(n);
+    if (el.dataset.html !== html) { el.innerHTML = html; el.dataset.html = html; }
+  }
+  for (const [id, el] of els) if (!live.has(id)) { el.remove(); els.delete(id); }
+  // Gutters are keyed by their split, so a drag survives re-rendering.
+  const liveSplits = new Set();
+  if (!maximized) for (const g of geo.gutters) {
+    liveSplits.add(g.node);
+    let el = gutters.get(g.node);
+    if (!el) {
+      el = document.createElement("div");
+      el.addEventListener("pointerdown", (event) => drag(event, el));
+      area.appendChild(el);
+      gutters.set(g.node, el);
+    }
+    el.geo = g;
+    el.className = "gutter " + g.dir + (el.classList.contains("active") ? " active" : "");
+    Object.assign(el.style, { left: g.x + "px", top: g.y + "px", width: g.w + "px", height: g.h + "px" });
+  }
+  for (const [node, el] of gutters) if (!liveSplits.has(node)) { el.remove(); gutters.delete(node); }
+  sidebar();
+}
+
+/* Drag a gutter to change its split's ratio. */
+function drag(event, el) {
+  event.preventDefault();
+  el.setPointerCapture(event.pointerId);
+  el.classList.add("active");
+  area.classList.add("dragging");
+  const rect = area.getBoundingClientRect();
+  const move = (e) => {
+    const g = el.geo;
+    const pos = g.dir === "col" ? e.clientX - rect.left : e.clientY - rect.top;
+    g.node.ratio = Math.min(0.85, Math.max(0.15, (pos - g.origin) / g.span));
+    render();
+  };
+  const up = () => { area.classList.remove("dragging"); el.classList.remove("active"); el.removeEventListener("pointermove", move); render(); };
+  el.addEventListener("pointermove", move);
+  el.addEventListener("pointerup", up, { once: true });
+}
+
+function sidebar() {
+  const vis = shown();
+  const groups = {};
+  for (const [id, s] of Object.entries(SESSIONS)) ((groups[s.repo] ||= {})[s.wt] ||= []).push(id);
+  let html = "";
+  for (const [repo, wts] of Object.entries(groups)) {
+    html += `<div class="grp">${esc(repo)}</div>`;
+    for (const [wt, ids] of Object.entries(wts)) {
+      html += `<div class="wt">${esc(wt)}</div>`;
+      for (const id of ids) {
+        const s = SESSIONS[id];
+        const at = vis.get(id);
+        const no = at ? `<span class="no${at.id === focus ? " on" : ""}">${numberOf(at.id)}</span>` : "";
+        html += `<button type="button" class="sess${at && at.id === focus ? " sel" : ""}${buzzing === id ? " buzz" : ""}" data-session="${id}"><span class="light ${s.light}"></span><span class="lines"><span class="top"><span class="badge">${s.badge}</span>${esc(s.name)}<span class="wait">${s.wait || ""}</span>${no}</span><span class="reason ${s.light}">${esc(s.reason)}</span></span></button>`;
+      }
+    }
+  }
+  document.getElementById("tree").innerHTML = html;
+  const all = Object.values(SESSIONS);
+  document.getElementById("summary").textContent = `${all.filter((s) => s.light === "needs").length} need you · ${all.filter((s) => s.light === "working").length} working`;
+}
+
+document.getElementById("presets").innerHTML = Object.entries(PRESETS).map(([k, [label, d]]) => `<button type="button" class="preset" data-preset="${k}" aria-label="${label}"><svg width="16" height="12" viewBox="0 0 16 12" fill="none" stroke="currentColor" stroke-width="1.2" aria-hidden="true"><path d="${d}"/></svg></button>`).join("");
+document.getElementById("presets").addEventListener("click", (e) => { const b = e.target.closest("[data-preset]"); if (b) applyPreset(b.dataset.preset); });
+document.getElementById("tree").addEventListener("click", (e) => { const b = e.target.closest("[data-session]"); if (b) pick(b.dataset.session); });
+area.addEventListener("click", (e) => {
+  const tile = e.target.closest(".tile");
+  if (!tile) return;
+  const act = e.target.closest("[data-act]");
+  const id = tile.dataset.id;
+  focus = id;
+  if (!act) return render();
+  ({ right: () => splitFocused("col"), down: () => splitFocused("row"), max: () => { maximized = maximized ? null : id; render(); }, hide: () => hideSession(id), close: () => closeTile(id) })[act.dataset.act]();
+});
+/* Keyboard: Ctrl+1…9 focuses a tile, Ctrl+Shift+Enter maximizes. The ticket lists the rest. */
+document.addEventListener("keydown", (e) => {
+  if (e.ctrlKey && !e.shiftKey && /^[1-9]$/.test(e.key)) { const l = leaves(root)[Number(e.key) - 1]; if (l) { focus = l.id; if (maximized) maximized = l.id; render(); e.preventDefault(); } }
+  if (e.ctrlKey && e.shiftKey && e.key === "Enter") { maximized = maximized ? null : focus; render(); e.preventDefault(); }
+});
+window.addEventListener("resize", render);
+document.getElementById("mode").addEventListener("click", () => {
+  const dark = document.documentElement.dataset.theme ? document.documentElement.dataset.theme === "dark" : matchMedia("(prefers-color-scheme: dark)").matches;
+  document.documentElement.dataset.theme = dark ? "light" : "dark";
+});
+render();
+</script>
+</body>
+</html>
