@@ -70,8 +70,8 @@ test("packaged utility host runs native PTYs with RunAsNode disabled", {
   // Main's inspector is disabled in the package. CDP reaches only the renderer;
   // the probe exercises the same restricted bridge as the shipped application.
   // A private profile with preflight already complete, so the package opens on the board.
-  // Worktree persistence accepts only canonical paths (/var is a symlink on macOS).
-  const profile = realpathSync(mkdtempSync(path.join(tmpdir(), "foom-packaged-")));
+  // Match fs.promises.realpath in the registry: resolve macOS symlinks and Windows 8.3 names.
+  const profile = realpathSync.native(mkdtempSync(path.join(tmpdir(), "foom-packaged-")));
   writeFileSync(
     path.join(profile, "settings.json"),
     JSON.stringify({ version: 1, settings: { setupComplete: true } }),

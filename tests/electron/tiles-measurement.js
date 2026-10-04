@@ -6,7 +6,7 @@ const { mkdtempSync, mkdirSync, writeFileSync, realpathSync, rmSync } = require(
 const { tmpdir, cpus } = require("node:os");
 const path = require("node:path");
 async function measure() {
-  const directory = realpathSync(mkdtempSync(path.join(tmpdir(), "foom-tiles-measure-")));
+  const directory = realpathSync.native(mkdtempSync(path.join(tmpdir(), "foom-tiles-measure-")));
   const profile = path.join(directory, "profile"),
     repository = path.join(directory, "repo");
   mkdirSync(profile);
