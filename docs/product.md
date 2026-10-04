@@ -7,7 +7,7 @@ The target is about 10 concurrent agents. Supported agents are Claude Code (`cla
 ## Terms
 
 - **Repository**: a git repo the user has added.
-- **Worktree**: a `git worktree` Foom creates for one branch. Agents never share a worktree.
+- **Worktree**: a `git worktree` Foom creates for one branch. Managed worktrees currently run one session at a time. The main checkout can run several sessions; starting another agent there requires confirmation because both can edit the same files.
 - **Terminal**: one PTY session inside a worktree. It may run an agent, a dev server, or a shell.
 - **Light**: the indicator that represents a hidden terminal.
 - **Evaluator**: the pipeline that decides what a terminal's state is when its output stops.
@@ -35,19 +35,42 @@ The light carries two separate signals.
 
 ## Terminal sidebar
 
-The sidebar stays beside one terminal pane. It groups stable rows by repository, with each
-terminal's light and reason. Registered repositories and **New worktree** remain visible
-when no terminals are running. The empty pane points to New worktree.
+The sidebar is a repository → worktree → session tree beside the terminal pane.
+The header shows the wordmark, needs-you and working counts, a filter and Add repository.
+Pinned repositories appear in pin order, followed by repositories with sessions A–Z,
+then idle repositories A–Z. Thin rules separate nonempty sections; one repository has no sections.
 
-Hover or focus a row to peek at its last lines without switching the pane or moving focus.
-Click a row, or press Enter on it, to show that terminal and focus its input. Showing a
-terminal leaves Needs you intact; Done and Failed dim once seen.
+The case-insensitive filter matches repository names, branches, session names and reasons,
+highlights matching text and expands ancestors. A banner counts filtered-out sessions that
+need you; Show clears the filter. Collapsed repository rows show their worktree count and
+most urgent state; collapsed worktrees show the same roll-up. Urgency is Needs you, Failed,
+Working/Checking, Done, then Quiet. The main checkout has a folder icon. Other worktrees
+have a branch icon. Pins and repository/worktree expansion choices persist.
+Repositories with running sessions start expanded; idle repositories start collapsed.
+With one repository, everything starts expanded.
 
-Below 720 CSS pixels, the sidebar becomes a column of lights with accessible names.
-It never disappears. ⌘⇧B on macOS or Ctrl+Shift+B elsewhere focuses the sidebar; arrow
-keys move between rows. ⌘⇧N or Ctrl+Shift+N shows and focuses the terminal that has waited
-longest for you. The terminal receives its other keys, including Esc to interrupt agents.
-Preflight returns to this same layout and preserves the selected terminal.
+Session rows show a light, letter agent badge, name, wait and reason. Double-click the name
+to edit it; Enter or blur commits, Escape cancels, and an empty value restores the default.
+Names persist as local UI metadata keyed by terminal ID. Terminal sessions themselves still
+live only as long as Foom; restoring agent conversations is tracked separately in #115.
+Hover or focus a session to peek without switching the pane. Click or press Enter to show
+its terminal and focus input. Needs you remains; Done and Failed dim once seen.
+
+Each row has an actions menu that opens to the right, over the pane, outside the scrolling
+tree. Arrow keys, Home/End, Enter and Escape operate it; outside clicks and tree scrolling
+close it. Repository and worktree selection show breadcrumbs and location launch buttons.
+Repository launchers use the main checkout. Launchers name the user's shell and show only
+installed, enabled agents. New worktree opens the existing branch/agent dialog. A running
+session offers Stop; an exited session offers Close, plus Restart shell for shells. Close
+removes only the session, never the checkout. Worktree removal retains confirmation and
+ownership checks; the main checkout cannot be removed. Repository removal forgets its
+registration, retains files and refuses while it has sessions or Foom-owned worktrees.
+
+Below 720 CSS pixels the tree becomes a flat column with one light per session and accessible
+names. ⌘⇧B on macOS or Ctrl+Shift+B elsewhere focuses the sidebar; arrow keys navigate.
+⌘⇧N or Ctrl+Shift+N reveals and opens the session that has waited longest for you, clearing
+its filter and expanding its ancestors. Other terminal keys, including Escape, remain input.
+Preflight and Settings stay at the bottom of the sidebar. Preflight preserves the selected terminal.
 
 ## The evaluator
 

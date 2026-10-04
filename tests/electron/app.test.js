@@ -337,6 +337,8 @@ test("terminal runs an interactive shell behind an isolated bridge", {
           "onWorkspaceChange",
           "startWorktree",
           "removeWorktree",
+          "sidebarInventory",
+          "sidebarCommand",
           "workspace",
           "addRepository",
           "worktrees",
@@ -1012,7 +1014,7 @@ test("board starts with live terminals only and peeks without opening", async (c
   await expect(row).toHaveCount(1);
   await expect(row).toBeFocused();
   await expect(page.locator("#terminal")).toBeHidden();
-  await page.locator(".board-help").click();
+  await page.getByLabel("Filter repositories and sessions").click();
   await row.focus();
   await expect(page.getByRole("complementary", { name: "Terminal peek" })).toBeVisible();
   await expect(row).toBeFocused();
@@ -1218,7 +1220,8 @@ test("launches an agent in a managed worktree and routes its attention signals",
   // the next key so ArrowDown cannot go to the terminal instead of the sidebar.
   await expect(page.locator('.board-row[data-kind="shell"]')).toBeFocused();
   await page.keyboard.press("ArrowDown");
-  await expect(agentRow).toBeFocused();
+  await expect(page.locator("[data-nav]:focus")).toBeVisible();
+  await agentRow.focus();
   await page.keyboard.press("Enter");
   await expect(page.locator(".xterm-helper-textarea")).toBeFocused();
   await page.locator('.board-row[data-kind="shell"]').press("Enter");
@@ -2146,7 +2149,7 @@ test("new worktree dialog launches by keyboard and confirms dirty removal", {
     }
     throw new Error(`Could not reach ${id} by keyboard`);
   };
-  await page.getByRole("button", { name: "New worktree" }).waitFor();
+  await page.getByRole("button", { name: "New worktree", exact: true }).waitFor();
   await expect(page.locator(".board-row")).toHaveCount(0);
   await page.evaluate(() => window.desktop.saveSetup({ worktreeLocation: "adjacent" }));
   await app.evaluate(({ dialog }, repo) => {
@@ -2158,7 +2161,7 @@ test("new worktree dialog launches by keyboard and confirms dirty removal", {
   await expect(page.getByRole("button", { name: "Add repository…" })).toBeEnabled();
   await tabTo(page, "Add repository…");
   await page.keyboard.press("Enter");
-  await expect(page.getByLabel("Repository")).not.toHaveValue("");
+  await expect(page.getByLabel("Repository", { exact: true })).not.toHaveValue("");
   await tabToField("worktree-branch");
   await expect(page.getByLabel("Branch")).toBeFocused();
   await page.keyboard.type("--bad");
@@ -2213,7 +2216,8 @@ test("new worktree dialog launches by keyboard and confirms dirty removal", {
       return { response: 0 };
     };
   });
-  await page.getByRole("button", { name: "Remove worktree feature/ui" }).click();
+  await page.getByRole("button", { name: "Actions for feature/ui", exact: true }).click();
+  await page.getByRole("menuitem", { name: "Remove worktree…" }).click();
   await expect
     .poll(() => app.evaluate(() => globalThis.removalOptions?.detail))
     .toContain("unsaved.txt");
@@ -2222,7 +2226,8 @@ test("new worktree dialog launches by keyboard and confirms dirty removal", {
   await app.evaluate(({ dialog }) => {
     dialog.showMessageBox = async () => ({ response: 1 });
   });
-  await page.getByRole("button", { name: "Remove worktree feature/ui" }).click();
+  await page.getByRole("button", { name: "Actions for feature/ui", exact: true }).click();
+  await page.getByRole("menuitem", { name: "Remove worktree…" }).click();
   await expect(row).toHaveCount(0);
   await assert.rejects(readFile(dirty), { code: "ENOENT" });
   await page.locator(".board-row").filter({ hasText: "feature/remaining" }).click();
@@ -2425,7 +2430,7 @@ else console.log('ARGS:' + JSON.stringify(process.argv.slice(2)));
   }, repo);
   const repository = await page.evaluate(() => window.desktop.addRepository());
   assert.equal(repository.path, await realpath(repo));
-  await expect(page.getByRole("heading", { name: "repo", exact: true })).toBeVisible();
+  await expect(page.getByRole("treeitem", { name: "repo", exact: true })).toBeVisible();
   for (const supported of [true, false]) {
     await writeFile(help, supported ? "--no-alt-screen" : "--no-alt-screen-extra");
     const id = await page.evaluate(
@@ -2636,4 +2641,199 @@ test("window size defaults to 60 percent and survives a normal quit and relaunch
     size,
   );
   await quitAndWait(restored, () => restored.evaluate(({ app }) => app.quit()));
+});
+
+test("sidebar menus escape the scroll area, stay in the window and launch from a worktree", {
+  timeout: 60000,
+}, async (context) => {
+  const root = await mkdtemp(path.join(tmpdir(), "foom-sidebar-"));
+  const repo = path.join(root, "repo");
+  await mkdir(repo);
+  isolatedGit(["init", "-q", "-b", "main"], { cwd: repo });
+  isolatedGit(
+    [
+      "-c",
+      "user.name=Foom",
+      "-c",
+      "user.email=foom@example.com",
+      "commit",
+      "-q",
+      "--allow-empty",
+      "-m",
+      "init",
+    ],
+    { cwd: repo },
+  );
+  const app = await launchApp(context, false, { emptyBoard: true }).finally(() => {
+    context.after(() => rm(root, { recursive: true, force: true, maxRetries: 5 }));
+  });
+  const page = await app.firstWindow();
+  await app.evaluate(({ dialog, BrowserWindow }, repo) => {
+    dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [repo] });
+    BrowserWindow.getAllWindows()[0].setSize(1000, 700);
+  }, repo);
+  await page.getByRole("button", { name: "Add repository", exact: true }).click();
+  await expect(page.getByRole("treeitem", { name: "repo", exact: true })).toBeVisible();
+  await page.evaluate(async () => {
+    const repository = (await window.desktop.workspace()).repositories[0];
+    if (!repository) throw new Error("Missing registered repository");
+    for (let i = 0; i < 18; i++)
+      await window.desktop.createWorktree(
+        repository.path,
+        `feature/row-${String(i).padStart(2, "0")}`,
+        "adjacent",
+      );
+  });
+  // A reload also verifies the registered repository and its empty worktrees survive.
+  await page.reload();
+  const bottom = page.getByRole("button", { name: "Actions for feature/row-17", exact: true });
+  await bottom.scrollIntoViewIfNeeded();
+  await bottom.click();
+  const menu = page.getByRole("menu", { name: "Actions" });
+  await expect(menu).toBeVisible();
+  const box = await menu.boundingBox();
+  const anchor = await bottom.boundingBox();
+  assert.ok(box && anchor);
+  const viewport = await page.evaluate(() => ({ width: innerWidth, height: innerHeight }));
+  assert.ok(box.x >= anchor.x + anchor.width, "menu opens to the right over the pane");
+  assert.ok(
+    box.y >= 0 && box.y + box.height <= viewport.height && box.x + box.width <= viewport.width,
+  );
+  assert.equal(await menu.evaluate((element) => element.closest(".board-list")), null);
+  await assertAccessible(page);
+  if (process.env.FOOM_SCREENSHOTS) {
+    for (const colorScheme of ["light", "dark"]) {
+      await page.emulateMedia({ colorScheme, reducedMotion: "reduce" });
+      await page.screenshot({ path: path.join(tmpdir(), `foom-sidebar-${colorScheme}.png`) });
+    }
+  }
+
+  await page.keyboard.press("End");
+  await expect(page.getByRole("menuitem", { name: "Remove worktree…" })).toBeFocused();
+  await page.keyboard.press("ArrowUp");
+  await expect(page.getByRole("menuitem", { name: /^Shell \(/ })).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(menu).toHaveCount(0);
+  await expect(bottom).toBeFocused();
+  await bottom.click();
+  await page.getByRole("menuitem", { name: /^Shell \(/ }).press("Enter");
+  await expect(page.locator(".board-row").filter({ hasText: "feature/row-17" })).toBeVisible();
+  const snapshot = await page.evaluate(() => window.desktop.workspace());
+  assert.equal(snapshot.terminals[0].branch, "feature/row-17");
+  // Long previews remain passive and bounded, without an inaccessible scroll region.
+  const previewCommand =
+    process.platform === "win32"
+      ? "1..40 | ForEach-Object { 'peek-line' }"
+      : "printf 'peek-line\\n%.0s' {1..40}";
+  await page.evaluate(({ id, command }) => window.desktop.input(id, command + "\r"), {
+    id: snapshot.terminals[0].id,
+    command: previewCommand,
+  });
+  await expect
+    .poll(() =>
+      page.evaluate(
+        async (id) =>
+          (await window.desktop.tail(id, 40)).filter((line) => line.includes("peek-line")).length,
+        snapshot.terminals[0].id,
+      ),
+    )
+    .toBeGreaterThan(20);
+  const launchedRow = page.locator(".board-row");
+  const filter = page.getByLabel("Filter repositories and sessions");
+  await filter.fill("row");
+  const label = page
+    .getByRole("button", { name: "feature/row-17", exact: true })
+    .locator(".tree-label");
+  await expect(label).toHaveText("feature/row-17");
+  await expect(label.locator("mark")).toHaveText("row");
+  // Highlight fragments flow as text within one label, without flex gaps.
+  await expect(label).toHaveCSS("display", "block");
+  await filter.fill("");
+  for (const colorScheme of ["light", "dark"]) {
+    await page.emulateMedia({ colorScheme, reducedMotion: "reduce" });
+    await launchedRow.focus();
+    const accent = await page.locator(".sidebar-shell").evaluate((element) => {
+      const probe = document.createElement("span");
+      probe.style.color = "var(--accent)";
+      element.append(probe);
+      const color = getComputedStyle(probe).color;
+      probe.remove();
+      return color;
+    });
+    await expect(launchedRow).toHaveCSS("outline-color", accent);
+    await expect(launchedRow).toHaveCSS("outline-style", "solid");
+    const peek = page.getByRole("complementary", { name: "Terminal peek" });
+    await expect(peek).toBeVisible();
+    await expect(peek).toHaveCSS("overflow", "clip");
+    await assertAccessible(page);
+    const peekBox = await peek.boundingBox();
+    const sidebarBox = await page.locator(".sidebar-shell").boundingBox();
+    assert.ok(
+      peekBox && sidebarBox && peekBox.x >= sidebarBox.x + sidebarBox.width,
+      "peek stays in the terminal pane",
+    );
+    await launchedRow.press("Enter");
+    await page.getByRole("region", { name: "Terminal pane" }).focus();
+    await expect(launchedRow).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+    await expect(page.locator('.board-entry[data-selected="true"]')).not.toHaveCSS(
+      "background-color",
+      "rgba(0, 0, 0, 0)",
+    );
+    const rowBox = await launchedRow.boundingBox();
+    const headerBox = await page.locator(".sidebar-shell .board-top").boundingBox();
+    assert.ok(rowBox && rowBox.height <= 50, "session keeps two compact readable lines");
+    assert.ok(headerBox && headerBox.height <= 100, "header preserves tree space");
+    await expect(launchedRow.locator(".board-reason")).toHaveCSS("font-size", "12px");
+    await expect(launchedRow.locator(".board-reason")).toHaveCSS("white-space", "nowrap");
+    if (process.env.FOOM_SCREENSHOTS)
+      await page.screenshot({
+        path: path.join(tmpdir(), `foom-review-session-${colorScheme}.png`),
+      });
+  }
+
+  await bottom.click();
+  await page.locator(".board-list").evaluate((element) => {
+    element.scrollTop = 0;
+  });
+  await expect(menu).toHaveCount(0);
+  await page.getByRole("button", { name: "Actions for repo", exact: true }).click();
+  await page.getByRole("menuitem", { name: "Pin to top" }).click();
+  await page.getByRole("button", { name: "Collapse repo", exact: true }).click();
+  await page.reload();
+  await expect(page.getByRole("button", { name: "Expand repo", exact: true })).toBeVisible();
+  await expect(page.getByLabel("Pinned")).toBeVisible();
+  await page.getByRole("button", { name: "Expand repo", exact: true }).click();
+  const session = page.locator(".board-row");
+  await session.locator(".session-name").dblclick();
+  await assertAccessible(page);
+  await page.getByRole("textbox", { name: "Session name", exact: true }).fill("Build helper");
+  await page.getByRole("textbox", { name: "Session name", exact: true }).press("Enter");
+  await page.reload();
+  await page.getByLabel("Filter repositories and sessions").fill("build helper");
+  await expect(page.locator(".board-row")).toContainText("Build helper");
+  await assertAccessible(page);
+  await app.evaluate(({ BrowserWindow }) => {
+    const window = BrowserWindow.getAllWindows()[0];
+    // Use interface scaling: macOS can retain the native minimum window width.
+    window.setSize(960, 700);
+    window.webContents.setZoomFactor(1.5);
+  });
+  await expect.poll(() => page.evaluate(() => innerWidth)).toBeLessThan(720);
+  await expect(page.getByRole("button", { name: "Actions for repo", exact: true })).toHaveCount(0);
+  await expect(page.locator(".board-row")).toHaveCount(1);
+  await page.getByRole("button", { name: "Actions for Build helper in feature/row-17" }).focus();
+  const compactAction = await page
+    .getByRole("button", { name: "Actions for Build helper in feature/row-17" })
+    .boundingBox();
+  const compactLight = await page.locator(".board-row .board-light").boundingBox();
+  assert.ok(
+    compactAction && compactLight && compactAction.x >= compactLight.x + compactLight.width + 4,
+    "compact action clears the light and its attention halo",
+  );
+  if (process.env.FOOM_SCREENSHOTS)
+    await page.screenshot({ path: path.join(tmpdir(), "foom-review-compact.png") });
+  await page.keyboard.press("Enter");
+  await expect(page.getByRole("menuitem", { name: "Stop shell" })).toBeFocused();
+  await page.keyboard.press("Escape");
+  await assertAccessible(page);
 });

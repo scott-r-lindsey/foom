@@ -1,3 +1,5 @@
+import { basename } from "node:path";
+import type { SidebarCommand, SidebarInventory } from "../../shared/workspace";
 import { AgentService } from "../agents/agents";
 import { prepareHookLaunch } from "../agents/hook-launch";
 import type { HookRegistrar } from "../agents/hook-launch";
@@ -37,6 +39,7 @@ export interface WorkspaceDependencies {
     | "validateBranch"
     | "changes"
     | "removeWorktree"
+    | "removeRepository"
   >;
   terminals: {
     create(spec: TerminalSpec): Promise<string>;
@@ -74,7 +77,10 @@ export class Workspace {
   private closed = false;
   private location: "root" | "adjacent" = "root";
   private acknowledged = false;
+  private hooksEnabled = true;
   private readonly busyWorktrees = new Set<string>();
+  private readonly repositoryOperations = new Map<string, Set<symbol>>();
+  private readonly removingRepositories = new Set<string>();
   private enabled: Readonly<Record<AgentId, boolean>> = { claude: true, codex: true, agy: true };
   private readonly now: () => number;
 
@@ -103,6 +109,7 @@ export class Workspace {
       Partial<Pick<Settings, "worktreeLocation" | "codexNotifierAcknowledged">>,
   ): void {
     this.agents.setHooksEnabled(settings.hooks);
+    this.hooksEnabled = settings.hooks;
     this.enabled = settings.agents;
     this.location = settings.worktreeLocation ?? "root";
     this.acknowledged = settings.codexNotifierAcknowledged ?? false;
@@ -114,6 +121,7 @@ export class Workspace {
       terminals: [...this.launched.values()].map((entry) => ({
         ...entry,
         state: this.terminals.get(entry.id)?.state ?? null,
+        exited: this.terminals.get(entry.id)?.exitCode !== undefined,
       })),
     };
   }
@@ -129,6 +137,46 @@ export class Workspace {
       throw new Error("Repository has not been added");
   }
 
+  /** Reserve registration before any async work; independent launches can still overlap. */
+  private async withRepository<T>(repository: string, work: () => Promise<T>): Promise<T> {
+    if (this.closed) throw new Error("Workspace is closed");
+    this.known(repository);
+    if (this.removingRepositories.has(repository))
+      throw new Error("Repository removal is in progress");
+    const operations = this.repositoryOperations.get(repository) ?? new Set<symbol>();
+    const operation = Symbol();
+    operations.add(operation);
+    this.repositoryOperations.set(repository, operations);
+    try {
+      return await work();
+    } finally {
+      operations.delete(operation);
+      if (operations.size === 0) this.repositoryOperations.delete(repository);
+    }
+  }
+
+  /** Used by both sidebar confirmation and Settings repository selection. */
+  async removeRepository(repository: string, confirm?: () => Promise<boolean>): Promise<void> {
+    if (this.closed) throw new Error("Workspace is closed");
+    this.known(repository);
+    if (this.removingRepositories.has(repository) || this.repositoryOperations.has(repository))
+      throw new Error("Repository is busy. Try again when its current operation finishes.");
+    const checkSessions = () => {
+      if ([...this.launched.values()].some((entry) => entry.repository === repository))
+        throw new Error("Close this repository's sessions first");
+    };
+    checkSessions();
+    this.removingRepositories.add(repository);
+    try {
+      if (confirm && !(await confirm())) return;
+      checkSessions();
+      await this.deps.worktrees.removeRepository(repository);
+      this.deps.onChange?.();
+    } finally {
+      this.removingRepositories.delete(repository);
+    }
+  }
+
   async worktrees(repository: string): Promise<readonly Worktree[]> {
     this.known(repository);
     return this.deps.worktrees.listWorktrees(repository);
@@ -139,13 +187,14 @@ export class Workspace {
     branch: string,
     location: "root" | "adjacent",
   ): Promise<Worktree> {
-    this.known(repository);
-    const path = await this.deps.worktrees.createWorktree(repository, branch, { location });
-    const created = (await this.deps.worktrees.listWorktrees(repository)).find(
-      (tree) => tree.path === path,
-    );
-    if (!created) throw new Error("Created worktree is missing");
-    return created;
+    return this.withRepository(repository, async () => {
+      const path = await this.deps.worktrees.createWorktree(repository, branch, { location });
+      const created = (await this.deps.worktrees.listWorktrees(repository)).find(
+        (tree) => tree.path === path,
+      );
+      if (!created) throw new Error("Created worktree is missing");
+      return created;
+    });
   }
 
   async scanAgents(refresh: boolean): Promise<AgentReport> {
@@ -159,99 +208,105 @@ export class Workspace {
       throw error;
     }
   }
-  async launch(request: LaunchRequest): Promise<{ id: string; attention: "hooks" | "evaluator" }> {
-    if (this.closed) throw new Error("Workspace is closed");
-    this.known(request.repository);
-    if (!this.enabled[request.agent]) throw new Error("This agent is turned off in preflight");
-    // Scan once so launches don't each probe the login shell.
-    await this.scanAgents(false);
-    // Look up the branch before spawning, so nothing can fail between spawn and tracking.
-    const tree = (await this.deps.worktrees.listWorktrees(request.repository)).find(
-      (entry) => entry.path === request.worktree,
-    );
-    const result = await this.agents.launch(request);
-    this.launched.set(result.id, {
-      id: result.id,
-      kind: "agent",
-      agent: request.agent,
-      repository: request.repository,
-      worktree: request.worktree,
-      branch: tree?.branch ?? null,
-      attention: result.attention,
-      state: null,
+  async launch(
+    request: LaunchRequest,
+    mainCheckout = false,
+    sharedCheckout = false,
+  ): Promise<{ id: string; attention: "hooks" | "evaluator" }> {
+    return this.withRepository(request.repository, async () => {
+      if (!this.enabled[request.agent]) throw new Error("This agent is turned off in preflight");
+      // Scan once so launches don't each probe the login shell.
+      await this.scanAgents(false);
+      // Look up the branch before spawning, so nothing can fail between spawn and tracking.
+      const tree = (await this.deps.worktrees.listWorktrees(request.repository)).find(
+        (entry) => entry.path === request.worktree,
+      );
+      const result = await this.agents.launch({ ...request, mainCheckout, sharedCheckout });
+      this.launched.set(result.id, {
+        id: result.id,
+        kind: "agent",
+        agent: request.agent,
+        repository: request.repository,
+        worktree: request.worktree,
+        branch: tree?.branch ?? null,
+        attention: result.attention,
+        state: null,
+      });
+      this.track(result.id);
+      this.deps.onChange?.();
+      return result;
     });
-    this.track(result.id);
-    this.deps.onChange?.();
-    return result;
   }
 
   async startWorktree(request: StartWorktreeRequest): Promise<string> {
-    if (this.closed) throw new Error("Workspace is closed");
-    this.known(request.repository);
-    // Lock the logical branch before any async operation, including creation.
-    const key = `${request.repository}\0${request.branch}`;
-    if (this.busyWorktrees.has(key)) throw new Error("This worktree is busy");
-    this.busyWorktrees.add(key);
-    try {
-      await this.deps.worktrees.validateBranch(request.repository, request.branch);
-      const trees = await this.worktrees(request.repository);
-      const existing = trees.find((tree) => tree.branch === request.branch);
-      if (existing && !existing.managed)
-        throw new Error("This branch is already checked out outside Foom");
-      const tree =
-        existing ?? (await this.createWorktree(request.repository, request.branch, this.location));
-      if (!tree.managed || tree.locked || tree.prunable) throw new Error("Worktree is unavailable");
-      if (
-        [...this.launched.values()].some(
-          (entry) =>
-            entry.worktree === tree.path && this.terminals.get(entry.id)?.exitCode === undefined,
-        )
-      )
-        throw new Error("A terminal is already running in this worktree");
-      if (request.run !== "shell") {
+    return this.withRepository(request.repository, async () => {
+      // Lock the logical branch before any async operation, including creation.
+      const key = `${request.repository}\0${request.branch}`;
+      if (this.busyWorktrees.has(key)) throw new Error("This worktree is busy");
+      this.busyWorktrees.add(key);
+      try {
+        await this.deps.worktrees.validateBranch(request.repository, request.branch);
+        const trees = await this.worktrees(request.repository);
+        const existing = trees.find((tree) => tree.branch === request.branch);
+        if (existing && !existing.managed)
+          throw new Error("This branch is already checked out outside Foom");
+        const tree =
+          existing ??
+          (await this.createWorktree(request.repository, request.branch, this.location));
+        if (!tree.managed || tree.locked || tree.prunable)
+          throw new Error("Worktree is unavailable");
         if (
-          request.run === "codex" &&
-          request.acknowledgeCodexNotifierReplacement &&
-          !this.acknowledged
-        ) {
-          await this.deps.acknowledgeCodex();
-          this.acknowledged = true;
+          [...this.launched.values()].some(
+            (entry) =>
+              entry.worktree === tree.path && this.terminals.get(entry.id)?.exitCode === undefined,
+          )
+        )
+          throw new Error("A terminal is already running in this worktree");
+        if (request.run !== "shell") {
+          if (
+            request.run === "codex" &&
+            request.acknowledgeCodexNotifierReplacement &&
+            !this.acknowledged
+          ) {
+            await this.deps.acknowledgeCodex();
+            this.acknowledged = true;
+          }
+          return (
+            await this.launch({
+              agent: request.run,
+              repository: request.repository,
+              worktree: tree.path,
+              cols: 80,
+              rows: 24,
+              acknowledgeCodexNotifierReplacement: this.acknowledged,
+            })
+          ).id;
         }
-        return (
-          await this.launch({
-            agent: request.run,
-            repository: request.repository,
-            worktree: tree.path,
-            cols: 80,
-            rows: 24,
-            acknowledgeCodexNotifierReplacement: this.acknowledged,
-          })
-        ).id;
+        const windows = process.platform === "win32";
+        const id = await this.deps.terminals.create({
+          command: windows ? "powershell.exe" : process.env["SHELL"] || "/bin/bash",
+          args: windows ? ["-NoLogo"] : ["-l"],
+          cwd: tree.path,
+          cols: 80,
+          rows: 24,
+        });
+        this.launched.set(id, {
+          id,
+          kind: "shell",
+          agent: "shell",
+          repository: request.repository,
+          worktree: tree.path,
+          branch: tree.branch,
+          attention: "evaluator",
+          state: null,
+        });
+        this.track(id);
+        this.deps.onChange?.();
+        return id;
+      } finally {
+        this.busyWorktrees.delete(key);
       }
-      const windows = process.platform === "win32";
-      const id = await this.deps.terminals.create({
-        command: windows ? "powershell.exe" : process.env["SHELL"] || "/bin/bash",
-        args: windows ? ["-NoLogo"] : ["-l"],
-        cwd: tree.path,
-        cols: 80,
-        rows: 24,
-      });
-      this.launched.set(id, {
-        id,
-        kind: "shell",
-        agent: "shell",
-        repository: request.repository,
-        worktree: tree.path,
-        branch: tree.branch,
-        attention: "evaluator",
-        state: null,
-      });
-      this.track(id);
-      this.deps.onChange?.();
-      return id;
-    } finally {
-      this.busyWorktrees.delete(key);
-    }
+    });
   }
 
   async removeWorktree(
@@ -260,6 +315,16 @@ export class Workspace {
   ): Promise<boolean> {
     const entry = this.launched.get(id);
     if (!entry) throw new Error("Unknown worktree terminal");
+    return this.removeTree(entry.repository, entry.worktree, entry.branch, confirm);
+  }
+
+  private async removeTree(
+    repository: string,
+    worktree: string,
+    branch: string | null,
+    confirm: (branch: string, changes: string) => Promise<boolean>,
+  ): Promise<boolean> {
+    const entry = { repository, worktree, branch };
     const key = `${entry.repository}\0${entry.branch ?? ""}`;
     if (this.busyWorktrees.has(key)) throw new Error("This worktree is busy");
     this.busyWorktrees.add(key);
@@ -290,6 +355,163 @@ export class Workspace {
     } finally {
       this.busyWorktrees.delete(key);
     }
+  }
+
+  async sidebarInventory(): Promise<SidebarInventory> {
+    return {
+      repositories: await Promise.all(
+        this.deps.worktrees.listRepositories().map(async (repository) => ({
+          ...repository,
+          worktrees: await this.worktrees(repository.path),
+        })),
+      ),
+      shell:
+        process.platform === "win32"
+          ? "powershell.exe"
+          : basename(process.env["SHELL"] || "/bin/bash"),
+    };
+  }
+
+  async sidebarCommand(
+    command: SidebarCommand,
+    confirm: (message: string, detail?: string) => Promise<boolean>,
+  ): Promise<void> {
+    if (this.closed) throw new Error("Workspace is closed");
+    if (command.kind === "stop" || command.kind === "close" || command.kind === "restart") {
+      const entry = this.launched.get(command.id);
+      if (!entry && command.kind !== "stop" && command.kind !== "close")
+        throw new Error("Unknown session");
+      const exited = this.terminals.get(command.id)?.exitCode !== undefined;
+      if (command.kind === "stop") {
+        await this.deps.terminals.stop(command.id);
+        return;
+      }
+      if (!exited) throw new Error("Session is still running");
+      if (command.kind === "restart") {
+        if (!entry || entry.kind !== "shell") throw new Error("Only shells can restart");
+        await this.startExisting(entry.repository, entry.worktree, "shell", confirm);
+      }
+      await this.deps.terminals.kill(command.id);
+      this.removed(command.id);
+      return;
+    }
+    this.known(command.repository);
+    if (command.kind === "remove-repository") {
+      return this.removeRepository(command.repository, () =>
+        confirm("Remove repository?", "The checkout and branches are kept."),
+      );
+    }
+    if (command.kind === "launch") {
+      await this.startExisting(command.repository, command.worktree, command.run, confirm);
+      return;
+    }
+    const tree = (await this.worktrees(command.repository)).find(
+      (item) => item.path === command.worktree,
+    );
+    if (!tree?.managed || tree.path === command.repository)
+      throw new Error("Worktree is not managed by Foom");
+    await this.removeTree(command.repository, tree.path, tree.branch, (branch, changes) =>
+      confirm(
+        `Remove ${branch}?`,
+        changes
+          ? `Stop its terminals and permanently discard these uncommitted changes:\n${changes.split("\0").join("\n")}`
+          : "Stop its terminals and remove the worktree folder. The branch is kept.",
+      ),
+    );
+    this.deps.onChange?.();
+  }
+
+  private async startExisting(
+    repository: string,
+    worktree: string,
+    run: AgentId | "shell",
+    confirm: (message: string, detail?: string) => Promise<boolean>,
+  ): Promise<void> {
+    return this.withRepository(repository, async () => {
+      const tree = (await this.worktrees(repository)).find((item) => item.path === worktree);
+      if (
+        !tree ||
+        tree.bare ||
+        tree.prunable ||
+        tree.locked ||
+        (!tree.managed && worktree !== repository)
+      )
+        throw new Error("Worktree is unavailable");
+      const key = `${repository}\0${tree.branch ?? ""}`;
+      if (this.busyWorktrees.has(key)) throw new Error("This worktree is busy");
+      this.busyWorktrees.add(key);
+      try {
+        const running = [...this.launched.values()].filter(
+          (entry) =>
+            entry.worktree === worktree && this.terminals.get(entry.id)?.exitCode === undefined,
+        );
+        if (worktree !== repository && running.length)
+          throw new Error("A terminal is already running in this worktree");
+        if (
+          run !== "shell" &&
+          running.some((entry) => entry.kind === "agent") &&
+          !(await confirm(
+            "Do you mean to run two agents in the same checkout?",
+            "Both agents can change the same files.",
+          ))
+        )
+          return;
+        if (run !== "shell") {
+          const scan = await this.scanAgents(false);
+          if (
+            run === "codex" &&
+            this.hooksEnabled &&
+            !this.acknowledged &&
+            scan.agents.some((agent) => agent.id === "codex" && agent.hooks)
+          ) {
+            if (
+              !(await confirm(
+                "Replace your Codex notifier for this launch?",
+                "Foom attaches its notifier for this invocation. Your global configuration stays unchanged.",
+              ))
+            )
+              return;
+            await this.deps.acknowledgeCodex();
+            this.acknowledged = true;
+          }
+          await this.launch(
+            {
+              agent: run,
+              repository,
+              worktree,
+              cols: 80,
+              rows: 24,
+              acknowledgeCodexNotifierReplacement: this.acknowledged,
+            },
+            worktree === repository,
+            worktree === repository,
+          );
+        } else {
+          const windows = process.platform === "win32";
+          const id = await this.deps.terminals.create({
+            command: windows ? "powershell.exe" : process.env["SHELL"] || "/bin/bash",
+            args: windows ? ["-NoLogo"] : ["-l"],
+            cwd: worktree,
+            cols: 80,
+            rows: 24,
+          });
+          this.launched.set(id, {
+            id,
+            kind: "shell",
+            agent: "shell",
+            repository,
+            worktree,
+            branch: tree.branch,
+            attention: "evaluator",
+            state: null,
+          });
+          this.track(id);
+          this.deps.onChange?.();
+        }
+      } finally {
+        this.busyWorktrees.delete(key);
+      }
+    });
   }
 
   private track(id: string): Terminal {

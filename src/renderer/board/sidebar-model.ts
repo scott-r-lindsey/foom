@@ -1,0 +1,140 @@
+import type { BoardRow, BoardState } from "./board.d";
+import type { SidebarPreferences, SidebarRepository, SidebarTree } from "./sidebar.d";
+
+const ranks: Record<BoardState, number> = {
+  needs_input: 5,
+  failed: 4,
+  working: 3,
+  checking: 3,
+  done: 2,
+  quiet_ok: 1,
+};
+export const agentNames: Readonly<Record<string, string>> = {
+  claude: "Claude Code",
+  codex: "Codex",
+  agy: "Antigravity",
+  shell: "Shell",
+};
+export const agentBadges: Readonly<Record<string, string>> = {
+  claude: "CC",
+  "Claude Code": "CC",
+  codex: "CX",
+  Codex: "CX",
+  agy: "AG",
+  Antigravity: "AG",
+  shell: ">_",
+  Shell: ">_",
+};
+export function sessionName(row: BoardRow, preferences: SidebarPreferences): string {
+  return preferences.names[row.id] || agentNames[row.agent] || row.agent;
+}
+export function rollup(rows: readonly BoardRow[]): BoardRow | undefined {
+  return rows.reduce<BoardRow | undefined>(
+    (best, row) => (!best || ranks[row.state] > ranks[best.state] ? row : best),
+    undefined,
+  );
+}
+export function repositoryKey(path: string): string {
+  return `repository:${path}`;
+}
+export function worktreeKey(path: string): string {
+  return `worktree:${path}`;
+}
+export function rowRepository(row: BoardRow): string {
+  return row.repositoryPath ?? row.repository;
+}
+export function rowWorktree(row: BoardRow): string {
+  return row.worktree ?? `${rowRepository(row)}/${row.branch}`;
+}
+/** Fill only sample/local locations; real repositories include main's complete Git inventory. */
+export function sidebarRepositories(
+  rows: readonly BoardRow[],
+  registered: readonly SidebarRepository[],
+): SidebarRepository[] {
+  const result = new Map(registered.map((repo) => [repo.path, repo]));
+  for (const row of rows) {
+    const path = rowRepository(row);
+    const repo = result.get(path) ?? { path, name: row.repository, worktrees: [] };
+    if (!repo.worktrees.some((tree) => tree.path === rowWorktree(row))) {
+      result.set(path, {
+        ...repo,
+        worktrees: [
+          ...repo.worktrees,
+          {
+            path: rowWorktree(row),
+            branch: row.branch,
+            head: null,
+            bare: false,
+            locked: false,
+            prunable: false,
+            managed: Boolean(row.managed),
+          },
+        ],
+      });
+    } else result.set(path, repo);
+  }
+  return [...result.values()];
+}
+export function buildSidebar(
+  rows: readonly BoardRow[],
+  repositories: readonly SidebarRepository[],
+  preferences: SidebarPreferences,
+  filter: string,
+): { tree: SidebarTree[]; hiddenNeeds: number } {
+  const query = filter.trim().toLocaleLowerCase();
+  const matches = (text: string) => text.toLocaleLowerCase().includes(query);
+  const visible = new Set<string>();
+  const single = repositories.length === 1;
+  const tree: SidebarTree[] = [];
+  for (const repository of repositories) {
+    const sessions = rows.filter((row) => rowRepository(row) === repository.path);
+    const pin = preferences.pins.indexOf(repository.path);
+    const repoMatches = matches(repository.name);
+    const worktrees: SidebarTree["worktrees"] = [];
+    for (const item of repository.worktrees) {
+      const all = sessions.filter((row) => rowWorktree(row) === item.path);
+      const branchMatches = matches(item.branch ?? "Detached HEAD");
+      const filtered = all.filter(
+        (row) =>
+          repoMatches ||
+          branchMatches ||
+          matches(sessionName(row, preferences)) ||
+          matches(row.reason),
+      );
+      if (query && !repoMatches && !branchMatches && !filtered.length) continue;
+      for (const row of filtered) visible.add(row.id);
+      worktrees.push({
+        tree: item,
+        sessions: filtered,
+        rollup: rollup(all),
+        expanded: Boolean(query) || (preferences.expanded[worktreeKey(item.path)] ?? true),
+      });
+    }
+    if (query && !repoMatches && !worktrees.length) continue;
+    tree.push({
+      repository,
+      section: single ? 0 : pin >= 0 ? 0 : sessions.length ? 1 : 2,
+      pinned: pin >= 0,
+      rollup: rollup(sessions),
+      worktrees,
+      expanded:
+        Boolean(query) ||
+        (preferences.expanded[repositoryKey(repository.path)] ??
+          (single || sessions.some((row) => !row.exited))),
+    });
+  }
+  tree.sort(
+    (a, b) =>
+      a.section - b.section ||
+      (a.pinned && b.pinned
+        ? preferences.pins.indexOf(a.repository.path) - preferences.pins.indexOf(b.repository.path)
+        : a.repository.name.localeCompare(b.repository.name, undefined, { sensitivity: "base" }) ||
+          a.repository.path.localeCompare(b.repository.path)),
+  );
+  return {
+    tree,
+    hiddenNeeds: query
+      ? rows.filter((row) => row.state === "needs_input" && !visible.has(row.id)).length
+      : 0,
+  };
+}

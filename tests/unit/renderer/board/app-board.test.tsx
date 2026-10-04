@@ -81,6 +81,8 @@ beforeEach(() => {
         Promise.resolve(setupState({ ...patch, setupComplete: true })),
       scanAgents: () =>
         Promise.resolve(report(installation("claude"), installation("codex"), installation("agy"))),
+      sidebarInventory: () => Promise.resolve({ repositories: [], shell: "bash" }),
+      sidebarCommand: () => Promise.resolve(),
       workspace: mock.workspace,
       startWorktree: mock.startWorktree,
       removeWorktree: mock.removeWorktree,
@@ -115,10 +117,11 @@ beforeEach(() => {
   mock.setupState.mockResolvedValue(setupState({ setupComplete: true }));
   Object.defineProperty(window, "matchMedia", {
     configurable: true,
-    value: () => ({ matches: true }),
+    value: () => ({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() }),
   });
   mock.owns.mockImplementation((id) => id === "real-id");
   mock.toggle.mockImplementation(async () => {
+    await Promise.resolve();
     await Promise.resolve();
     mock.update?.({ ...view, visible: true, toggleLabel: "Hide terminal" });
   });
@@ -162,6 +165,7 @@ test("live source reconciles events, snapshots, tails and feedback without publi
   await expect(source.tail("foreign")).resolves.toEqual([]);
   const dispose = shell.mount(document.createElement("div"));
   await Promise.resolve();
+  await Promise.resolve();
   expect(source.getSnapshot().map((row) => row.id)).toEqual(["real-id"]);
   const listener = vi.fn();
   const off = source.subscribe(listener);
@@ -183,6 +187,7 @@ test("live source reconciles events, snapshots, tails and feedback without publi
     terminals: [agent("a")],
   });
   mock.changed?.();
+  await Promise.resolve();
   await Promise.resolve();
   expect(source.getSnapshot()[1]).toMatchObject({
     id: "a",
@@ -226,12 +231,14 @@ test("live source reconciles events, snapshots, tails and feedback without publi
   });
   mock.changed?.();
   await Promise.resolve();
+  await Promise.resolve();
   expect(source.getSnapshot().map((row) => row.id)).toEqual(["real-id", "a", "b"]);
   expect(source.getSnapshot()[1]?.seen).toBe(true);
   mock.exit?.("real-id", 0);
   expect(source.getSnapshot()[0]?.state).toBe("done");
   mock.workspace.mockResolvedValue({ repositories: [], terminals: [] });
   mock.changed?.();
+  await Promise.resolve();
   await Promise.resolve();
   expect(source.getSnapshot()).toHaveLength(1);
   await shell.toggle();
@@ -257,6 +264,7 @@ test("snapshot loading cannot overwrite newer events or revive a disposed source
   mock.state?.(verdict("a", 200));
   finish({ repositories: [], terminals: [{ ...agent("a", verdict("a", 100)), branch: null }] });
   await Promise.resolve();
+  await Promise.resolve();
   expect(source.getSnapshot()[1]).toMatchObject({ waitingSince: 200, branch: "Detached HEAD" });
   mock.workspace.mockReturnValueOnce(
     new Promise((resolve) => {
@@ -266,12 +274,15 @@ test("snapshot loading cannot overwrite newer events or revive a disposed source
   mock.changed?.();
   mock.changed?.();
   await Promise.resolve();
+  await Promise.resolve();
   finish({ repositories: [], terminals: [agent("stale")] });
+  await Promise.resolve();
   await Promise.resolve();
   expect(source.getSnapshot().some((row) => row.id === "stale")).toBe(false);
   const error = vi.spyOn(console, "error").mockImplementation(() => {});
   mock.workspace.mockRejectedValueOnce(new Error("gone"));
   mock.changed?.();
+  await Promise.resolve();
   await Promise.resolve();
   expect(error).toHaveBeenCalled();
   mock.workspace.mockReturnValueOnce(
@@ -283,6 +294,7 @@ test("snapshot loading cannot overwrite newer events or revive a disposed source
   dispose?.();
   finish({ repositories: [], terminals: [agent("late")] });
   await Promise.resolve();
+  await Promise.resolve();
   expect(source.getSnapshot().some((row) => row.id === "late")).toBe(false);
 });
 
@@ -290,6 +302,7 @@ test("board starts hidden, opens the shell, preserves printable keys and Escape"
   const screen = render(<App />);
   // Setup already ran, so the board appears once main's settings arrive.
   await act(async () => {
+    await Promise.resolve();
     await Promise.resolve();
   });
   act(() => {
@@ -300,12 +313,15 @@ test("board starts hidden, opens the shell, preserves printable keys and Escape"
   await act(async () => {
     row?.click();
     await Promise.resolve();
+    await Promise.resolve();
   });
   expect(mock.toggle).toHaveBeenCalledOnce();
   const panel = screen.container.querySelector(".board-terminal");
   if (!panel) throw new Error("Missing panel");
   fireEvent.keyDown(panel, { key: "n" });
-  expect(screen.container.querySelector(".terminal-title h2")?.textContent).toBe("Shell · Shell");
+  expect(screen.container.querySelector(".terminal-title h2")?.textContent).toBe(
+    "Local › Shell › Shell",
+  );
   fireEvent.keyDown(panel, { key: "Escape" });
   expect(document.activeElement).toBe(panel);
   expect(screen.queryByRole("button", { name: "Hide terminal" })).toBeNull();
@@ -322,6 +338,7 @@ test("board starts hidden, opens the shell, preserves printable keys and Escape"
   });
   await act(async () => {
     row?.click();
+    await Promise.resolve();
     await Promise.resolve();
   });
   expect(mock.toggle).toHaveBeenCalledTimes(4);
@@ -370,9 +387,11 @@ test("Preflight reopens over the board and Escape returns to the same row", asyn
   await act(async () => {
     row?.click();
     await Promise.resolve();
+    await Promise.resolve();
   });
   await act(async () => {
     screen.getByRole("button", { name: "Preflight" }).click();
+    await Promise.resolve();
     await Promise.resolve();
   });
   // An open terminal is hidden first; the board stays mounted underneath.
@@ -390,6 +409,7 @@ test("Preflight reopens over the board and Escape returns to the same row", asyn
   mock.setupState.mockRejectedValueOnce(new Error("gone"));
   await act(async () => {
     screen.getByRole("button", { name: "Preflight" }).click();
+    await Promise.resolve();
     await Promise.resolve();
   });
   expect(screen.container.querySelector(".preflight")).toBeNull();
@@ -426,10 +446,12 @@ test("a dismissal failure is visible and can be retried without clearing attenti
   await act(async () => {
     screen.container.querySelector<HTMLButtonElement>(".board-row")?.click();
     await Promise.resolve();
+    await Promise.resolve();
   });
   mock.feedback.mockRejectedValueOnce(new Error("disk full"));
   await act(async () => {
     screen.getByRole("button", { name: "Not attention" }).click();
+    await Promise.resolve();
     await Promise.resolve();
   });
   expect(screen.getByRole("alert").textContent).toContain("Unable to record feedback");
@@ -438,6 +460,7 @@ test("a dismissal failure is visible and can be retried without clearing attenti
   );
   await act(async () => {
     screen.getByRole("button", { name: "Not attention" }).click();
+    await Promise.resolve();
     await Promise.resolve();
   });
   expect(screen.queryByRole("alert")).toBeNull();
@@ -448,6 +471,7 @@ test("a shell startup failure remains reachable for retry without sending a plac
   const source = createAppSource(true);
   await expect(source.tail("local-shell")).resolves.toEqual([]);
   const dispose = source.shell?.mount(document.createElement("div"));
+  await Promise.resolve();
   await Promise.resolve();
   expect(source.getSnapshot()[0]).toMatchObject({
     state: "failed",
@@ -465,10 +489,12 @@ test("an open startup row follows the shell's real ID when creation finishes", a
   await act(async () => {
     screen.container.querySelector<HTMLButtonElement>(".board-row")?.click();
     await Promise.resolve();
+    await Promise.resolve();
   });
   await act(async () => {
     mock.created?.("replacement", "bash");
     mock.update?.(view);
+    await Promise.resolve();
     await Promise.resolve();
   });
   expect(mock.open).toHaveBeenLastCalledWith("replacement");
@@ -513,9 +539,11 @@ test("Settings keeps the sidebar mounted and returns focus after terminal attach
   const row = screen.container.querySelector<HTMLButtonElement>('[data-kind="shell"]');
   await act(async () => {
     await Promise.resolve();
+    await Promise.resolve();
     row?.click();
   });
   await act(async () => {
+    await Promise.resolve();
     await Promise.resolve();
     mock.command?.("settings");
   });
@@ -526,10 +554,12 @@ test("Settings keeps the sidebar mounted and returns focus after terminal attach
   const reads = mock.setupState.mock.calls.length;
   await act(async () => {
     await Promise.resolve();
+    await Promise.resolve();
     mock.command?.("settings");
   });
   expect(mock.setupState.mock.calls.length).toBe(reads);
   await act(async () => {
+    await Promise.resolve();
     await Promise.resolve();
     fireEvent.keyDown(screen.getByRole("region", { name: "Settings" }), { key: "Escape" });
   });
@@ -538,12 +568,31 @@ test("Settings keeps the sidebar mounted and returns focus after terminal attach
   expect(screen.container.querySelector<HTMLElement>(".board-terminal")?.hidden).toBe(false);
   await act(async () => {
     await Promise.resolve();
+    await Promise.resolve();
     screen.getByRole("button", { name: "Settings" }).click();
   });
   await act(async () => {
+    await Promise.resolve();
     await Promise.resolve();
     row?.click();
   });
   expect(screen.queryByRole("region", { name: "Settings" })).toBeNull();
   expect(mock.dispose).not.toHaveBeenCalled();
+});
+
+test("sidebar commands refresh inventory and session rows, and local shell restart stays with its controller", async () => {
+  const source = createAppSource(true);
+  const dispose = source.shell?.mount(document.createElement("div"));
+  await Promise.resolve();
+  await Promise.resolve();
+  const invoke = vi.spyOn(window.desktop, "sidebarCommand");
+  await source.sidebarCommand?.({ kind: "stop", id: "real-id" });
+  expect(invoke).toHaveBeenCalledWith({ kind: "stop", id: "real-id" });
+  expect(source.shellName?.()).toBe("bash");
+  expect(source.getSidebar?.()).toEqual([]);
+  await source.sidebarCommand?.({ kind: "restart", id: "real-id" });
+  expect(mock.restart).toHaveBeenCalledOnce();
+  await source.sidebarCommand?.({ kind: "close", id: "real-id" });
+  expect(source.getSnapshot()).toEqual([]);
+  dispose?.();
 });

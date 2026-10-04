@@ -164,13 +164,14 @@ export class AgentService {
       throw new Error("Invalid terminal dimensions");
     if (!isAbsolute(request.worktree) || request.worktree.includes("\0"))
       throw new Error("Invalid worktree path");
-    if (this.occupied.has(request.worktree))
+    if (this.occupied.has(request.worktree) && !request.sharedCheckout)
       throw new Error("An agent is already running in this worktree");
     this.occupied.add(request.worktree);
     try {
       return await this.start(request);
     } catch (error) {
-      this.occupied.delete(request.worktree);
+      if (![...this.launched.values()].includes(request.worktree))
+        this.occupied.delete(request.worktree);
       throw error;
     }
   }
@@ -181,7 +182,12 @@ export class AgentService {
     const trees = await this.worktrees.listWorktrees(request.repository);
     if (
       !trees.some(
-        (tree) => tree.path === request.worktree && tree.managed && !tree.bare && !tree.prunable,
+        (tree) =>
+          tree.path === request.worktree &&
+          (tree.managed || (request.mainCheckout && tree.path === request.repository)) &&
+          !tree.bare &&
+          !tree.prunable &&
+          !tree.locked,
       )
     )
       throw new Error("Worktree is not managed by Foom");
@@ -233,8 +239,8 @@ export class AgentService {
   /** Call on terminal exit/kill. Revokes this launch's receiver credentials. */
   release(id: string): void {
     const worktree = this.launched.get(id);
-    if (worktree) this.occupied.delete(worktree);
     this.launched.delete(id);
+    if (worktree && ![...this.launched.values()].includes(worktree)) this.occupied.delete(worktree);
     const binding = this.bindings.get(id);
     this.bindings.delete(id);
     binding?.dispose();

@@ -2,7 +2,7 @@ import { dialog, ipcMain } from "electron";
 import type { BrowserWindow, IpcMainInvokeEvent } from "electron";
 import type { AgentId } from "../../shared/agents";
 import type { VerdictAction } from "../../shared/evaluator";
-import type { LaunchRequest, TerminalState } from "../../shared/workspace";
+import type { LaunchRequest, TerminalState, SidebarCommand } from "../../shared/workspace";
 import type { Workspace } from "./workspace";
 
 const APP_URL = "app://bundle/index.html";
@@ -50,6 +50,24 @@ function launchRequest(value: unknown): LaunchRequest {
   };
 }
 
+function sidebarCommand(value: unknown): SidebarCommand {
+  if (!record(value)) throw new Error("Invalid sidebar command");
+  const kind = value["kind"];
+  if (kind === "stop" || kind === "close" || kind === "restart") {
+    if (!text(value["id"])) throw new Error("Invalid terminal ID");
+    return { kind, id: value["id"] };
+  }
+  if (!text(value["repository"])) throw new Error("Invalid repository");
+  const repository = value["repository"];
+  if (kind === "remove-repository") return { kind, repository };
+  if (!text(value["worktree"])) throw new Error("Invalid worktree");
+  const worktree = value["worktree"];
+  if (kind === "remove-worktree") return { kind, repository, worktree };
+  if (kind === "launch" && (value["run"] === "shell" || agent(value["run"])))
+    return { kind, repository, worktree, run: value["run"] };
+  throw new Error("Invalid sidebar command");
+}
+
 /**
  * Renderer access to the workspace. The renderer names repositories, worktrees and
  * agents by values main gave it; main resolves executables and picks new paths itself.
@@ -65,6 +83,18 @@ export function attachWorkspace(
     event.senderFrame !== null &&
     event.senderFrame === event.sender.mainFrame &&
     event.senderFrame.url === APP_URL;
+  const confirm = async (message: string, detail?: string) => {
+    const result = await dialog.showMessageBox(window, {
+      type: "question",
+      message,
+      ...(detail ? { detail } : {}),
+      buttons: ["Cancel", "Continue"],
+      defaultId: 0,
+      cancelId: 0,
+      noLink: true,
+    });
+    return result.response === 1;
+  };
   const handlers = new Map<string, (...args: unknown[]) => unknown>([
     [
       "workspace:start",
@@ -104,6 +134,15 @@ export function attachWorkspace(
           });
           return result.response === 1;
         });
+      },
+    ],
+    ["workspace:sidebar", () => workspace.sidebarInventory()],
+    [
+      "workspace:sidebar-command",
+      (value) => {
+        const command = sidebarCommand(value);
+        if ("id" in command && !owns(command.id)) throw new Error("Unknown or foreign terminal ID");
+        return workspace.sidebarCommand(command, confirm);
       },
     ],
     ["workspace:snapshot", () => workspace.snapshot()],
