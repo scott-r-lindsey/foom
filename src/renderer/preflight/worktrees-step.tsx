@@ -8,7 +8,6 @@ export function WorktreesStep({
   state,
   repositories,
   save,
-  nav,
 }: StepHeading &
   StepActions & {
     state: SetupState;
@@ -65,7 +64,6 @@ export function WorktreesStep({
         A branch named <code>feat/search</code> would land at{" "}
         <code>{examplePath(state, repositories)}</code>
       </p>
-      {nav(2, "You can change this any time from Preflight", 4)}
     </>
   );
 }

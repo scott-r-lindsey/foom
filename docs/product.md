@@ -85,6 +85,16 @@ Setup is a preflight countdown:
 
 On wide windows the steps use the extra width: agents as a grid, the worktree choices side by side, and the Evaluator's live check beside its options.
 
+Preflight derives a shared enlargement from the actual space left beside or below the
+rail, then checks the rendered content, including wrapping and the fixed footer. It
+never enlarges content into overflow or shrinks it below the user's chosen interface
+size. The scale stays between 100% and 200%; larger steps can lower the shared ceiling,
+but only a window resize or interface-size change lets it grow again. Long lists,
+expanded details and small windows scroll at normal size, with navigation still visible.
+Short steps center vertically. Content changes
+re-center over 180 milliseconds (immediately with reduced motion). Back, Continue and
+Launch stay in a footer at the bottom of the window, outside the scrolling content.
+
 The rail also holds **Appearance**: System, Light or Dark, and the interface size (80–150%; the window grows and shrinks with it while the screen has room, around the pointer when you click + or − or scroll over the percentage, so what you pointed at stays under it; also ⌘ +/−/0 on macOS or Ctrl+Shift+=/− and Ctrl+0 elsewhere). Terminal font size is separate and lives in Settings → Terminal. A model source is used only after it passes Run check. Launch opens the board. The board starts empty. **New worktree** launches an agent or shell in a managed worktree, and **Local shell** starts a standalone shell. Sample sessions are available only in an explicit development build. **Preflight** on the board runs setup again with the saved choices; Esc returns to the board.
 
 ## Settings

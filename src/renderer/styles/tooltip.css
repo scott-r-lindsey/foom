@@ -28,5 +28,6 @@
   color: var(--muted);
 }
 .tip-path code {
+  font: 12px var(--font-mono);
   overflow-wrap: anywhere;
 }

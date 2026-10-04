@@ -10,13 +10,11 @@ export function ReadinessStep({
   report,
   repositories,
   go,
-  launch,
 }: StepHeading & {
   state: SetupState;
   report: AgentReport | undefined;
   repositories: readonly Repository[];
   go: (step: number) => void;
-  launch: () => Promise<void>;
 }) {
   const rows = pollRows(state, report, repositories);
   const allGo = rows.every((row) => row.go);
@@ -57,20 +55,6 @@ export function ReadinessStep({
           </li>
         ))}
       </ul>
-      <div className="preflight-nav">
-        <button
-          type="button"
-          onClick={() => {
-            go(4);
-          }}
-        >
-          Back
-        </button>
-        <span />
-        <button type="button" className="primary" disabled={!allGo} onClick={() => void launch()}>
-          Launch
-        </button>
-      </div>
     </>
   );
 }
