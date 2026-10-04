@@ -93,7 +93,13 @@ test("irregular splits, presets and maximize retain leaf elements and mounted co
   fireEvent.click(screen.getAllByRole("button", { name: "Split down" })[1] ?? document.body);
   expect(screen.container.querySelectorAll(".terminal-tile")).toHaveLength(3);
   expect(screen.container.querySelector(".terminal-tile")).toBe(first);
-  expect(screen.getByRole("region", { name: "Tile 3: empty" }).querySelector("button")).toBeNull();
+  const empty = within(screen.getByRole("region", { name: "Tile 3: empty" }));
+  expect(empty.getByText("3")).toBeTruthy();
+  expect(empty.getAllByRole("button").map((button) => button.getAttribute("aria-label"))).toEqual([
+    "Split right",
+    "Split down",
+    "Close tile",
+  ]);
   click(2);
   await act(async () => {});
   const opens = views.map((view) => view.open.mock.calls.length);
@@ -316,3 +322,31 @@ test("a zero-sized drag target is harmless and a missing session cannot be resto
   expect(gutter.getAttribute("aria-valuenow")).toBe("50");
   fireEvent.pointerUp(gutter);
 });
+
+test.each(["full", "focused empty", "first empty"] as const)(
+  "launch placement with %s tiles",
+  async (mode) => {
+    const { screen, click, source, data, views, send } = setup();
+    click(0);
+    send("split-right");
+    if (mode !== "focused empty") click(1);
+    if (mode === "first empty") {
+      send("split-right");
+      send("tile-2");
+    }
+    await act(async () => {});
+    source.sidebarCommand = vi.fn(async (command: SidebarCommand) => {
+      if (command.kind === "launch") data.update("check", { id: "launched" });
+      await Promise.resolve();
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Actions for foom" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Shell" }));
+    await act(async () => {});
+    const target = mode === "first empty" ? 2 : 1;
+    expect(views[target]?.open).toHaveBeenLastCalledWith("launched");
+    expect(screen.container.querySelector('[data-refused="true"]')).toBeNull();
+    expect(source.getSnapshot().some((row) => row.id === "build")).toBe(true);
+    expect(views[0]?.open).toHaveBeenLastCalledWith("review");
+    if (mode === "first empty") expect(views[1]?.open).toHaveBeenLastCalledWith("build");
+  },
+);

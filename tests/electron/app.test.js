@@ -2262,7 +2262,9 @@ test("new worktree dialog launches by keyboard and confirms dirty removal", {
   await assertAccessible(page);
   await tabTo(page, "Create and start");
   await page.keyboard.press("Enter");
-  await expect(page.getByRole("dialog")).toHaveCount(0);
+  // This includes real Git worktree creation and shell startup, which can take
+  // longer than the default five-second assertion budget on Windows runners.
+  await expect(page.getByRole("dialog")).toHaveCount(0, { timeout: 15000 });
   const row = page.locator(".board-row").filter({ hasText: "feature/ui" });
   await expect(row).toBeVisible();
   const launched = await page.evaluate(() => window.desktop.workspace());
@@ -2489,6 +2491,10 @@ test("external worktrees support independent shells and confirmed shared agents"
     await page.getByRole("button", { name: "Actions for agent", exact: true }).click();
     await page.getByRole("menuitem", { name: /^Shell \(/ }).click();
     await expect.poll(async () => (await sharedSessions()).length).toBe(i + 1);
+    // Inventory arrives before the launch command finishes revealing the row and
+    // focusing its terminal. Revealing clears any open menu, so wait for focus
+    // before opening the next one.
+    await expect(page.locator(".xterm-helper-textarea").first()).toBeFocused();
   }
   assert.deepEqual(await app.evaluate(() => globalThis.sharingPrompts), []);
   if (process.platform !== "win32") {
@@ -2781,7 +2787,12 @@ test("Settings shares live preflight values, sizes the terminal and restores key
     dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [folder] });
   }, root);
   const page = await app.firstWindow();
-  const shortcut = () => boardCommand(app, ",", false);
+  const shortcut = async () => {
+    await boardCommand(app, ",", false);
+    // Native input dispatch returns before React makes Settings interactive.
+    // Wait before sending Tab, which otherwise still goes to the terminal.
+    await expect(page.getByRole("region", { name: "Settings" })).toBeVisible();
+  };
   const row = page.locator('.board-row[data-kind="shell"]');
   await boardCommand(app, "B");
   await expect(row).toBeFocused();
@@ -3321,6 +3332,44 @@ test("tiles build irregular layouts, preserve views, refuse full placement and r
   await page.reload();
   await expect(tiles).toHaveCount(3);
   assert.equal(await page.evaluate(() => localStorage.getItem("foom.tiles.v1")), persisted);
+});
+
+test("launching into full tiles replaces focus and empty tiles support mouse controls", async (context) => {
+  const app = await launchApp(context);
+  const page = await app.firstWindow();
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  const original = (await page.evaluate(() => window.desktop.workspace())).terminals[0];
+  await page.getByRole("button", { name: "Actions for shell-fixture", exact: true }).click();
+  await page.getByRole("menuitem", { name: /^Shell \(/ }).click();
+  await expect(page.locator(".board-row")).toHaveCount(2);
+  const sessions = (await page.evaluate(() => window.desktop.workspace())).terminals;
+  const created = sessions.find((session) => session.id !== original.id);
+  assert.ok(created);
+  await expect
+    .poll(() => page.evaluate(() => JSON.parse(localStorage.getItem("foom.tiles.v1")).tree.session))
+    .toBe(created.id);
+  await expect(page.locator('.board-row[data-refused="true"]')).toHaveCount(0);
+  await expect(page.locator(".xterm-helper-textarea").first()).toBeFocused();
+  assert.equal(sessions.find((session) => session.id === original.id).exited, false);
+
+  await page.getByRole("button", { name: "Two by two", exact: true }).click();
+  const empty = page.getByRole("region", { name: "Tile 4: empty", exact: true });
+  await empty.hover();
+  await expect(empty.locator(".tile-number")).toHaveText("4");
+  await expect(empty.getByRole("button")).toHaveCount(3);
+  await empty.getByRole("button", { name: "Close tile", exact: true }).click();
+  await expect(page.locator(".terminal-tile")).toHaveCount(3);
+  const sibling = page.getByRole("region", { name: "Tile 3: empty", exact: true });
+  await expect(sibling).toHaveAttribute("data-focused", "true");
+  await sibling.getByRole("button", { name: "Split down", exact: true }).click();
+  await expect(page.locator(".terminal-tile")).toHaveCount(4);
+  for (const colorScheme of ["light", "dark"]) {
+    await page.emulateMedia({ colorScheme });
+    await expect(page.locator("html")).toHaveCSS("color-scheme", colorScheme);
+    await expect(empty.locator(".tile-title")).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+    await assertAccessible(page);
+  }
+  await page.screenshot({ path: path.join(tmpdir(), "foom-tile-bug-fixes.png") });
 });
 
 test("tile terminal viewport has no native overflow bars", async (context) => {

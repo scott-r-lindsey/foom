@@ -263,7 +263,11 @@ export function Board({
         if (value.kind === "launch" || value.kind === "restart") {
           const created = source.getSnapshot().find((row) => !before.has(row.id));
           if (created) {
-            open(created, value.kind === "restart");
+            open(
+              created,
+              value.kind === "restart" ||
+                leaves(layoutRef.current.tree).every((tile) => tile.session !== null),
+            );
             const name = value.kind === "restart" ? preferences.names[value.id] : undefined;
             if (name) {
               const renamed = renameSession(preferences, created.id, name);

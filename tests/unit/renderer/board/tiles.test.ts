@@ -36,9 +36,13 @@ test("arbitrary nested splits retain leaf identity; closing gives the sibling th
   ]);
   const closed = closeTile(down);
   expect(leaves(closed.tree)).toEqual(leaves(filled.tree));
+  expect(closed.focused).toBe(filled.focused);
   const single = closeTile({ ...closed, focused: original?.id ?? "" });
   expect(leaves(single.tree).map((tile) => tile.session)).toEqual(["b"]);
-  expect(leaves(closeTile(single).tree).map((tile) => tile.session)).toEqual([null]);
+  const last = closeTile(single);
+  expect(leaves(last.tree).map((tile) => tile.session)).toEqual([null]);
+  expect(last.focused).toBe(last.tree.id);
+  expect(last.maximized).toBeNull();
 });
 test("gutters clamp finite ratios and leave leaves untouched", () => {
   expect([-0.1, 0.2, 2, NaN, Infinity].map(clampRatio)).toEqual([0.15, 0.2, 0.85, 0.5, 0.5]);
@@ -201,4 +205,23 @@ test("split construction stays within restore bounds and ignores an absent focus
   }
   expect(leaves(wide.tree)).toHaveLength(256);
   expect(splitTile(wide, "vertical")).toBe(wide);
+});
+
+test("closing a nested tile focuses the first leaf of its replacement sibling", () => {
+  const layout = preset(initialLayout(), "main3");
+  const tiles = leaves(layout.tree);
+  for (const [closed, focused] of [
+    [3, 2],
+    [2, 3],
+    [1, 2],
+    [0, 1],
+  ]) {
+    const target = tiles[closed ?? -1];
+    const sibling = tiles[focused ?? -1];
+    if (!target || !sibling) throw new Error("Missing tile");
+    const next = closeTile({ ...layout, focused: target.id, maximized: target.id });
+    expect(next.focused).toBe(sibling.id);
+    expect(next.maximized).toBeNull();
+    expect(leaves(next.tree)).not.toContain(target);
+  }
 });
