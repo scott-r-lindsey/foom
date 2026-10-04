@@ -1,3 +1,5 @@
+import type { SidebarRepository } from "./sidebar.d";
+import type { SidebarCommand } from "../../shared/workspace";
 import type { BoardRow } from "./board.d";
 import type { ShellView } from "../terminal/shell.d";
 import type { TerminalActivity } from "../../shared/desktop";
@@ -20,6 +22,10 @@ export interface WorktreeSource {
 }
 /** Samples and the live source share rows, verdicts, activity batches and tails. */
 export interface BoardSource {
+  getSidebar?: () => SidebarRepository[] | readonly SidebarRepository[];
+  sidebarCommand?: (command: SidebarCommand) => Promise<void>;
+  shellName?: () => string;
+
   getSnapshot: () => readonly BoardRow[];
   getRepositories?: () => readonly string[];
   subscribeCommands?: (

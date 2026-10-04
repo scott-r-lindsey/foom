@@ -8,7 +8,15 @@ const names: Record<AgentId, string> = {
   agy: "Antigravity",
 };
 
-export function WorktreeDialog({ source, close }: { source: WorktreeSource; close: () => void }) {
+export function WorktreeDialog({
+  source,
+  close,
+  initialRepository,
+}: {
+  source: WorktreeSource;
+  close: () => void;
+  initialRepository?: string | undefined;
+}) {
   const dialogRef = useRef<HTMLDialogElement>(null);
   const [options, setOptions] = useState<LaunchOptions>();
   const [repository, setRepository] = useState("");
@@ -25,7 +33,7 @@ export function WorktreeDialog({ source, close }: { source: WorktreeSource; clos
       (next) => {
         if (current) {
           setOptions(next);
-          setRepository(next.repositories[0]?.path ?? "");
+          setRepository(initialRepository ?? next.repositories[0]?.path ?? "");
         }
       },
       () => {
@@ -36,7 +44,7 @@ export function WorktreeDialog({ source, close }: { source: WorktreeSource; clos
       current = false;
       if (previous instanceof HTMLElement) previous.focus();
     };
-  }, [source]);
+  }, [source, initialRepository]);
   const fail = (error: unknown) => {
     setError(
       error instanceof Error

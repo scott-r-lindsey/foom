@@ -1,3 +1,15 @@
+import { Sidebar, launcherActions } from "./sidebar-view";
+import { readPreferences, writePreferences, renameSession } from "./sidebar-preferences";
+import type { SidebarLocation } from "./sidebar.d";
+import type { SidebarCommand } from "../../shared/workspace";
+import type { LaunchOptions } from "./board-source.d";
+import {
+  sessionName,
+  repositoryKey,
+  worktreeKey,
+  rowRepository,
+  rowWorktree,
+} from "./sidebar-model";
 import { WorktreeDialog } from "./worktree-dialog";
 import {
   useCallback,
@@ -7,21 +19,19 @@ import {
   useState,
   useSyncExternalStore,
 } from "react";
-import type { CSSProperties, ReactNode } from "react";
+import type { ReactNode } from "react";
 import type { BoardSource } from "./board-source.d";
 import type { BoardRow } from "./board.d";
-import { groupRows, light, nextWaiting, waitTime } from "./board";
-
-function lightStyle(row: BoardRow): CSSProperties & { "--light-opacity": number } {
-  return { "--light-opacity": light(row).opacity };
-}
+import { light, nextWaiting, waitTime } from "./board";
 
 function ShellPanel({
   source,
   onRestart,
+  canRestart,
 }: {
   source: NonNullable<BoardSource["shell"]>;
   onRestart: () => void;
+  canRestart: boolean;
 }) {
   const view = useSyncExternalStore(source.subscribe, source.getSnapshot);
   const disposeRef = useRef<() => void>(undefined);
@@ -40,6 +50,7 @@ function ShellPanel({
         </span>
         <button
           id="restart"
+          hidden={!canRestart}
           disabled={view.restartDisabled}
           onClick={() => {
             onRestart();
@@ -73,6 +84,35 @@ export function Board({
   const paneInactive = inactive || settingsOpen;
   const rows = useSyncExternalStore(source.subscribe, source.getSnapshot);
   const [launching, setLaunching] = useState(false);
+  const [launchRepository, setLaunchRepository] = useState<string>();
+  const [location, setLocation] = useState<SidebarLocation>();
+  const [preferences, setPreferences] = useState(() => readPreferences(localStorage));
+  const revealRef = useRef<(row: BoardRow) => void>(undefined);
+  const [options, setOptions] = useState<LaunchOptions>();
+  useEffect(() => {
+    let current = true;
+    void source.worktrees?.load().then(
+      (next) => {
+        if (current) setOptions(next);
+      },
+      () => {},
+    );
+    return () => {
+      current = false;
+    };
+  }, [source, inactive, settingsOpen]);
+  const save = (next: typeof preferences) => {
+    try {
+      writePreferences(localStorage, next);
+      setPreferences(next);
+    } catch {
+      setRemoveError("Unable to save sidebar preferences.");
+    }
+  };
+  const newWorktree = (repository?: string) => {
+    setLaunchRepository(repository);
+    setLaunching(true);
+  };
   const [removeError, setRemoveError] = useState("");
   const [selection, setSelection] = useState(rows[0]?.id);
   const selected = rows.some((row) => row.id === selection) ? selection : rows[0]?.id;
@@ -80,7 +120,7 @@ export function Board({
   const [peek, setPeek] = useState<{ id: string }>();
   const [feedbackError, setFeedbackError] = useState("");
   const [tail, setTail] = useState<readonly string[]>([]);
-  const buttonsRef = useRef(new Map<string, HTMLButtonElement>());
+  const buttonsRef = useRef(new Map<string, HTMLElement>());
   const terminalRef = useRef<HTMLElement>(null);
   const openRow =
     rows.find((row) => row.id === displayed?.id) ??
@@ -89,11 +129,6 @@ export function Board({
       : undefined);
   const displayedId = openRow?.kind === "sample" ? undefined : openRow?.id;
   const peekRow = rows.find((row) => row.id === peek?.id);
-  const waiting = rows.filter((row) => row.state === "needs_input").length;
-  const groups = groupRows(rows);
-  for (const repository of source.getRepositories?.() ?? []) {
-    if (!groups.has(repository)) groups.set(repository, []);
-  }
   const sidebarRef = useRef<HTMLElement>(null);
   useEffect(() => {
     const timer = window.setInterval(() => {
@@ -175,6 +210,8 @@ export function Board({
     (row: BoardRow) => {
       setFeedbackError("");
       setSelection(row.id);
+      setLocation(undefined);
+      revealRef.current?.(row);
       setDisplayed({ id: row.id, kind: row.kind });
       setPeek(undefined);
       setTail([]);
@@ -185,6 +222,35 @@ export function Board({
     },
     [source, onCloseSettings],
   );
+  const command = (value: SidebarCommand) => {
+    setRemoveError("");
+    const before = new Set(source.getSnapshot().map((row) => row.id));
+    void source
+      .sidebarCommand?.(value)
+      .then(() => {
+        if (value.kind === "launch" || value.kind === "restart") {
+          const created = source.getSnapshot().find((row) => !before.has(row.id));
+          if (created) {
+            open(created);
+            const name = value.kind === "restart" ? preferences.names[value.id] : undefined;
+            if (name) {
+              const renamed = renameSession(preferences, created.id, name);
+              save({
+                ...renamed,
+                expanded: {
+                  ...renamed.expanded,
+                  [repositoryKey(rowRepository(created))]: true,
+                  [worktreeKey(rowWorktree(created))]: true,
+                },
+              });
+            }
+          }
+        }
+      })
+      .catch((error: unknown) => {
+        setRemoveError(error instanceof Error ? error.message : "Unable to update workspace.");
+      });
+  };
   useEffect(
     () =>
       source.subscribeCommands?.((command) => {
@@ -203,166 +269,78 @@ export function Board({
   );
   return (
     <main className="board-home" aria-label="Board" hidden={inactive} inert={inactive}>
-      <header className="board-top">
-        <h1 className="wordmark" aria-label="foom">
-          <span aria-hidden="true">
-            fo
-            <span className="wordmark-hole" />m
-          </span>
-        </h1>
-        <p className="board-summary" role="status">
-          {waiting
-            ? `${String(waiting)} ${waiting === 1 ? "session needs" : "sessions need"} you.`
-            : "Nothing needs you. Yet."}
-        </p>
-        <span className="sample-label">
-          {rows.some((row) => row.kind === "sample") && "Sample sessions"}
-        </span>
-        {source.shell && !rows.some((row) => row.kind === "shell" && !row.managed) && (
-          <button
-            type="button"
-            onClick={() => {
-              void source.shell?.restart();
-            }}
-          >
-            Local shell
-          </button>
-        )}
-        {onSettings && (
-          <button
-            type="button"
-            className="board-settings"
-            onClick={onSettings}
-            aria-pressed={settingsOpen}
-          >
-            Settings
-          </button>
-        )}
-        {onPreflight && (
-          <button
-            type="button"
-            className="board-preflight"
-            onClick={() => {
-              onPreflight();
-            }}
-          >
-            Preflight
-          </button>
-        )}
-      </header>
       {launching && source.worktrees && (
         <WorktreeDialog
           source={source.worktrees}
+          initialRepository={launchRepository}
           close={() => {
             setLaunching(false);
           }}
         />
       )}
       {removeError && <p role="alert">{removeError}</p>}
-      <p className="board-help">
-        ⌘/Ctrl+Shift+B sidebar · ↑ ↓ select · Enter show · ⌘/Ctrl+Shift+N next waiting
-      </p>
       <div className="board-workspace">
-        <nav
-          className="board-list"
-          aria-label="Terminal sidebar"
-          tabIndex={-1}
-          ref={sidebarRef}
-          onKeyDown={(event) => {
-            if (event.altKey || event.ctrlKey || event.metaKey || !selected) return;
-            if (!(event.target instanceof Element) || !event.target.closest(".board-row")) return;
-            const ordered = Array.from(groups.values()).flat();
-            const index = ordered.findIndex((row) => row.id === selected);
-            if (event.key === "ArrowDown" || event.key === "ArrowUp") {
-              event.preventDefault();
-              const next =
-                ordered[
-                  (index + (event.key === "ArrowDown" ? 1 : ordered.length - 1)) % ordered.length
-                ];
-              if (next) buttonsRef.current.get(next.id)?.focus();
-            }
+        <Sidebar
+          source={source}
+          revealRef={revealRef}
+          location={location}
+          inactive={inactive || launching}
+          rows={rows}
+          preferences={preferences}
+          save={save}
+          selected={selected}
+          buttons={buttonsRef}
+          sidebar={sidebarRef}
+          open={open}
+          focus={setSelection}
+          peek={(id) => {
+            setTail([]);
+            setPeek(id ? { id } : undefined);
           }}
-        >
-          {" "}
-          {source.worktrees && (
-            <button
-              type="button"
-              aria-label="New worktree"
-              onClick={() => {
-                setLaunching(true);
-              }}
-            >
-              New worktree
-            </button>
-          )}
-          {Array.from(groups, ([repository, group]) => (
-            <section key={repository}>
-              <h2>{repository}</h2>
-              {group.map((row) => (
-                <div
-                  className="board-entry"
-                  key={row.kind === "shell" && !row.managed ? "local-shell" : row.id}
+          choose={(next) => {
+            setLocation(next);
+            setDisplayed(undefined);
+            setPeek(undefined);
+            onCloseSettings?.();
+          }}
+          newWorktree={newWorktree}
+          command={command}
+          options={options}
+          footer={
+            <>
+              {source.worktrees && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    newWorktree();
+                  }}
                 >
-                  <button
-                    type="button"
-                    className="board-row"
-                    data-kind={row.kind}
-                    data-state={row.state}
-                    tabIndex={row.id === selected ? 0 : -1}
-                    aria-current={row.id === openRow?.id}
-                    aria-label={`${row.branch} · ${row.agent} · ${light(row).label} · ${row.reason}`}
-                    ref={(element) => {
-                      if (element) buttonsRef.current.set(row.id, element);
-                      else buttonsRef.current.delete(row.id);
-                    }}
-                    onFocus={() => {
-                      setSelection(row.id);
-                      setTail([]);
-                      setPeek({ id: row.id });
-                    }}
-                    onBlur={() => {
-                      setPeek(undefined);
-                    }}
-                    onClick={() => {
-                      open(row);
-                    }}
-                    onMouseEnter={() => {
-                      setTail([]);
-                      setPeek({ id: row.id });
-                    }}
-                    onMouseLeave={(event) => {
-                      if (document.activeElement !== event.currentTarget) setPeek(undefined);
-                    }}
-                  >
-                    <span className="board-light" style={lightStyle(row)} aria-hidden="true" />
-                    <span className="board-branch">{row.branch}</span>
-                    <span className="board-agent">{row.agent}</span>
-                    <span className="board-state">{light(row).label}</span>
-                    <span className="board-wait">{waitTime(row, Date.now())}</span>
-                    <span className="board-reason">{row.reason}</span>
-                  </button>
-                  {row.managed && source.worktrees && (
-                    <button
-                      type="button"
-                      className="worktree-remove"
-                      aria-label={`Remove worktree ${row.branch}`}
-                      onClick={() => {
-                        setRemoveError("");
-                        void source.worktrees?.remove(row.id).catch((error: unknown) => {
-                          setRemoveError(
-                            error instanceof Error ? error.message : "Unable to remove worktree.",
-                          );
-                        });
-                      }}
-                    >
-                      Remove
-                    </button>
-                  )}
-                </div>
-              ))}
-            </section>
-          ))}
-        </nav>
+                  New worktree
+                </button>
+              )}
+              {source.shell && !rows.some((row) => row.kind === "shell" && !row.managed) && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    void source.shell?.restart();
+                  }}
+                >
+                  Local shell
+                </button>
+              )}
+              {onPreflight && (
+                <button type="button" onClick={onPreflight}>
+                  Preflight
+                </button>
+              )}
+              {onSettings && (
+                <button type="button" onClick={onSettings} aria-pressed={settingsOpen}>
+                  Settings
+                </button>
+              )}
+            </>
+          }
+        />
         {settingsView}
         <section
           hidden={settingsOpen}
@@ -373,10 +351,62 @@ export function Board({
           ref={terminalRef}
         >
           {!openRow && (
-            <p className="board-empty">Select a terminal or choose New worktree to start.</p>
+            <>
+              <div className="terminal-title">
+                <h2>
+                  {location &&
+                    (source.getSidebar?.().find((repo) => repo.path === location.repository)
+                      ?.name ??
+                      location.repository)}
+                  {location?.worktree &&
+                    ` › ${
+                      source
+                        .getSidebar?.()
+                        .find((repo) => repo.path === location.repository)
+                        ?.worktrees.find((tree) => tree.path === location.worktree)?.branch ??
+                      location.worktree
+                    }`}
+                </h2>
+              </div>
+              <div className="location-launchers">
+                {location &&
+                  launcherActions(options, source.shellName?.() ?? "shell").map((action) => (
+                    <button
+                      key={action.label}
+                      type="button"
+                      onClick={() => {
+                        command({
+                          kind: "launch",
+                          repository: location.repository,
+                          worktree: location.worktree ?? location.repository,
+                          run: action.run,
+                        });
+                      }}
+                    >
+                      <span className="board-agent" aria-hidden="true">
+                        {action.badge}
+                      </span>
+                      {action.label}
+                    </button>
+                  ))}
+                {source.worktrees && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      newWorktree(location?.repository);
+                    }}
+                  >
+                    New worktree…
+                  </button>
+                )}
+              </div>
+            </>
           )}
           <div className="terminal-title" hidden={!openRow}>
-            <h2>{openRow && `${openRow.agent} · ${openRow.branch}`}</h2>
+            <h2>
+              {openRow &&
+                `${openRow.repository} › ${openRow.branch} › ${sessionName(openRow, preferences)}`}
+            </h2>
           </div>
           {openRow?.state === "needs_input" && (
             <div className="terminal-toolbar">
@@ -404,7 +434,12 @@ export function Board({
             {source.shell && (
               <ShellPanel
                 source={source.shell}
+                canRestart={openRow?.kind === "shell"}
                 onRestart={() => {
+                  if (openRow?.managed) {
+                    command({ kind: "restart", id: openRow.id });
+                    return;
+                  }
                   void source.shell?.restart().then(() => {
                     const row = source.getSnapshot().find((entry) => entry.kind === "shell");
                     if (row) open(row);

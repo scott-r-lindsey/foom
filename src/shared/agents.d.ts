@@ -22,6 +22,9 @@ export interface AgentHooks {
   dispose(): void;
 }
 export interface AgentLaunch {
+  /** Main-only authorization; never copied from renderer payloads. */
+  readonly mainCheckout?: boolean;
+  readonly sharedCheckout?: boolean;
   readonly agent: AgentId;
   readonly repository: string;
   readonly worktree: string;

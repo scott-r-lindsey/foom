@@ -26,6 +26,7 @@ export interface WorkspaceTerminal {
   branch: string | null;
   attention: "hooks" | "evaluator";
   state: TerminalState | null;
+  exited?: boolean;
 }
 
 export interface WorkspaceSnapshot {
@@ -56,6 +57,8 @@ export interface StartWorktreeRequest {
 }
 
 export interface WorkspaceApi {
+  sidebarInventory(): Promise<SidebarInventory>;
+  sidebarCommand(command: SidebarCommand): Promise<void>;
   startWorktree(request: StartWorktreeRequest): Promise<string>;
   /** Main confirms removal, including any uncommitted changes. */
   removeWorktree(id: string): Promise<boolean>;
@@ -75,3 +78,15 @@ export interface WorkspaceApi {
   feedback(id: string, verdictId: string | null, action: VerdictAction): Promise<void>;
   onState(callback: (state: TerminalState) => void): () => void;
 }
+
+export interface SidebarInventory {
+  repositories: readonly (Repository & { worktrees: readonly Worktree[] })[];
+  shell: string;
+}
+export type SidebarCommand =
+  | { kind: "launch"; repository: string; worktree: string; run: AgentId | "shell" }
+  | { kind: "remove-worktree"; repository: string; worktree: string }
+  | { kind: "remove-repository"; repository: string }
+  | { kind: "stop"; id: string }
+  | { kind: "close"; id: string }
+  | { kind: "restart"; id: string };
