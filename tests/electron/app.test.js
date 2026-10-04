@@ -1643,6 +1643,20 @@ test("appearance switches light and dark, and zoom shortcuts resize the interfac
   const app = await launchApp(context, false, { firstRun: true });
   const page = await app.firstWindow();
   await page.getByRole("button", { name: "Start preflight" }).waitFor();
+  // Exercise theme changes after the rows appear, independently of CI startup speed.
+  await page.locator('.welcome-noise[data-phase="settled"]').waitFor();
+  for (const [colorScheme, surface] of [
+    ["light", "rgb(233, 228, 245)"],
+    ["dark", "rgb(13, 10, 23)"],
+  ]) {
+    await page.emulateMedia({ colorScheme });
+    const backgrounds = await page.locator(".noise-tile").evaluateAll(async (tiles) => {
+      await new Promise((resolve) => requestAnimationFrame(resolve));
+      return tiles.map((tile) => getComputedStyle(tile).backgroundColor);
+    });
+    assert.deepEqual(backgrounds, Array(10).fill(surface), "Row backgrounds must switch with text");
+  }
+  await page.emulateMedia({ colorScheme: null });
   const dark = () => page.evaluate(() => matchMedia("(prefers-color-scheme: dark)").matches);
   const background = () =>
     page.evaluate(() => getComputedStyle(document.documentElement).backgroundColor);
@@ -1978,7 +1992,8 @@ test("wheel moves less and preserves normal shell scrollback", {
   });
   const rows = page.locator(".xterm-rows");
   // View focus does not guarantee that the login shell has finished initializing.
-  await page.keyboard.type("printf 'FOOM_%s\\n' PAGER_READY");
+  // Start a fresh line so an unechoed command cannot leave the marker after the prompt.
+  await page.keyboard.type("printf '\\nFOOM_%s\\n' PAGER_READY");
   await page.keyboard.press("Enter");
   await expect(
     rows.locator(":scope > div").filter({ hasText: /^FOOM_PAGER_READY\s*$/ }),

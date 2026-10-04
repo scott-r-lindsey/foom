@@ -90,3 +90,19 @@
     stroke-dasharray: none;
   }
 }
+/* Welcome: the wordmark, the lede, the demonstration and the button, centered. */
+.preflight-stage:has(.preflight-welcome) .preflight-inner {
+  min-height: 100%;
+  display: flex;
+}
+.preflight-welcome {
+  margin: auto;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+}
+.preflight-welcome .preflight-cta {
+  margin: 8px 0 0;
+}

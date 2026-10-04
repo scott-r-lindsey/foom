@@ -5,6 +5,7 @@
 @import "./inference-check.css";
 @import "./appearance.css";
 @import "./welcome.css";
+@import "./welcome-noise.css";
 @import "./repository-picker.css";
 @import "./preflight-layout.css";
 @import "./tooltip.css";
