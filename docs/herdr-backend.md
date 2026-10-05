@@ -1,5 +1,14 @@
 # Herdr terminal backend spike (#159)
 
+> **Status: not adopted (2026-10-05).** Foom keeps its own terminal backend. Route A
+> works, but adopting it would give up working scrollback, direct terminal modes,
+> the per-terminal activity signal the evaluator and sound depend on, and the
+> per-window trust model, and Windows support is unverified. In return it buys
+> features that aren't on the near roadmap. This report is kept as the record, and
+> as the starting point if Foom later adds Herdr as an optional second backend.
+> Ideas Foom adopts independently, such as terminal titles as a detection signal,
+> are tracked in their own issues.
+
 ## Decision and scope
 
 Route A is viable for **independently sized tiles spanning different Herdr
