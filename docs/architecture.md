@@ -215,6 +215,75 @@ Stable Claude Code releases at or above 2.1.284 and Codex releases at or above 0
 
 `src/main/workspace/workspace.ts` connects these services in main. It scans once and reuses the result until a refresh, starts the hook receiver on the first launch that attaches hooks, and closes it after terminals stop on quit. `src/main/agents/hook-launch.ts` writes each launch's adapter script to its own `mkdtemp` directory (mode 0700), registers receiver credentials under a random key, and maps that key to the terminal ID once it exists (`AgentHooks.bind`). Exit, kill, and shutdown release the launch: credentials are revoked, the directory is deleted, and the worktree is free again. Antigravity launches without hooks. Preflight's settings reach the workspace through `configure`: the hooks setting calls `setHooksEnabled`, and launching an agent that preflight turned off is refused. Launched agents and worktree shells appear immediately in stable repository groups on the board. The New worktree form discloses Codex notifier replacement before the first hooked Codex launch; main persists `codexNotifierAcknowledged` in settings and reuses it for later launches.
 
+## Control plane
+
+**Draft target from #119; not implemented.** See [orchestration research](orchestration.md)
+for per-agent evidence, transport comparison, concrete limits and implementation
+issues. Existing terminal ownership, utility-host parsing and renderer boundaries
+remain in force.
+
+Main owns one control service over the workspace, agent, evaluator and terminal-host
+services. A loopback Streamable HTTP MCP adapter and a versioned HTTP CLI adapter
+call it; neither adapter owns policy. A separate console executable built from
+TypeScript provides `foom`, without enabling Electron's RunAsNode fuse or requiring
+system Node. Per-launch Claude MCP config and Codex `-c` overrides attach the server;
+Antigravity receives CLI guidance and a process-local PATH addition until per-launch
+MCP support is verified. No global agent or repository configuration is written.
+
+A separate 256-bit control token shares the hook launch's lifecycle but never its
+secret or authority. Main stores a digest mapped to role, canonical repository,
+terminal, parent and generation. Caller-supplied roles and MCP session IDs grant
+nothing. Authenticate initialization and every subsequent request, bind protocol
+sessions to principals, validate every payload and target at runtime, and recheck
+revocation before effects. Reject browser origins and unexpected Host values; bind
+only `127.0.0.1` on an ephemeral port. Never expose tokens through renderer IPC,
+logs, argv or tool results. Child launches scrub inherited credentials and receive
+fresh read-only tokens. Exit, failed launch and shutdown revoke grants.
+
+Ordinary agents see `sessions`, `session_state` and `whoami` for their repository,
+without terminal contents. Only a main-created orchestrator principal sees
+`create_worktree`, `launch`, `tail`, `reply`, `stop`, `remove_worktree` and `wait_for`.
+Enforce authorization again in the service even for hidden tools. The repository
+menu reserves one orchestrator slot atomically; reserve at most four child slots,
+including starting/stopping children. Children run only in new worktrees created by
+that orchestrator. No child can gain orchestration through the API. #84 config-only
+roles and #67 remote access are separate capabilities, not implicit extensions.
+
+Existing main-owned git validation, argument-array execution, launch/removal locks
+and confirmations are reused. Removal always asks the human, including clean
+worktrees; no API force flag bypasses identity or dirty-state checks. Mutations use
+idempotency keys and bounded operation records. Parent exit cancels pending actions
+but leaves children visible and running for human control. A replacement parent
+does not inherit them. Metadata-only `wait_for` is bounded to 30 seconds. CLI access
+outside Foom-launched agents requires explicit, expiring in-app pairing; private
+discovery files contain endpoint metadata, never a reusable human credential.
+Same-OS-user processes are not isolated by these bearer capabilities or worktrees.
+
+Agent output, hooks, model verdicts and names are untrusted data. `tail` authorizes
+only an orchestrator's children, reads the host screen, applies evaluator redaction,
+and returns at most 40 lines and 16 KiB with revision and untrusted-data metadata.
+No files, diffs, transcripts, keystrokes or raw hook payloads are read for the API.
+Printed content may include them; the product privacy wording describes the new
+path to the orchestrator's model provider and redaction's limits.
+
+The reply gate adds question/permission/credential/unknown attention provenance;
+`needs_input` or confidence alone is insufficient. Current PTY adapters only permit
+human-reviewed proposals for question verdicts. Permission, credential and unknown
+states reject proposals. Automatic delivery remains disabled until an adapter can
+prove question-specific routing; no combination of absent hooks, text patterns and
+a main-process write lock proves that a PTY is not displaying a new approval prompt.
+Proposals bind to actor generation, child, verdict and output/input revisions;
+output, input, permission signals, exit and takeover invalidate them. Delivery is
+single-use, bounded and rate-limited, never automatically retried after ambiguity.
+The human can suspend replies immediately. Agent approval policies stay intact.
+
+A separate bounded private action log records actor, target, operation and outcome,
+with redacted reply proposals but no tails, credentials or initial prompts. Persist
+intent before automated mutations; audit failure refuses automation while human
+terminal control remains available. Ship basic action visibility and takeover with
+mutations, then nest children under their orchestrator in the board source and add
+the full log view. Components retain view state only; hidden PTYs keep running.
+
 ## Settings and setup
 
 **Today:** First run is the preflight countdown from [product](product.md#first-run). `src/main/setup/settings.ts` stores versioned `settings.json` in user data: whether setup is complete, the hooks setting, which agents are turned on, the default worktree location, and the inference source. Writes are atomic (private temporary file, then rename) and serialized; a failed write leaves the settings unchanged. Missing, corrupt or unsupported files start from defaults, so preflight runs again. Every patch, from IPC or disk, is validated field by field and unknown fields are rejected.
