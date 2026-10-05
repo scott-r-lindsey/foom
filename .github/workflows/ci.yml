@@ -118,7 +118,7 @@ jobs:
           retention-days: 3
 
   desktop:
-    name: Electron (${{ matrix.os }})
+    name: Electron (${{ matrix.os }}, ${{ matrix.shard }})
     needs: [checks, unit]
     if: needs.checks.outputs.desktop_required == 'true'
     runs-on: ${{ matrix.os }}
@@ -126,7 +126,15 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-24.04, windows-2025, macos-15]
+        os: [ubuntu-24.04, macos-15]
+        shard: ['1/1']
+        include:
+          - os: windows-2025
+            shard: '1/2'
+          - os: windows-2025
+            shard: '2/2'
+    env:
+      FOOM_ELECTRON_SHARD: ${{ matrix.shard }}
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
@@ -152,29 +160,31 @@ jobs:
         if: runner.os == 'Linux'
         run: xvfb-run -a npm run test:electron
       - name: Test Electron on macOS and Windows
-        # Windows can exceed five minutes across 39 tests on a busy runner.
+        # A measured full Windows suite exceeded 10 minutes without a test failure.
+        # Two disjoint shards run every test once, in separate runner processes.
         # Individual launches and waits use the shared platform deadline policy.
         timeout-minutes: 10
         if: runner.os != 'Linux'
         run: npm run test:electron
       - name: Package desktop application
+        if: matrix.shard != '2/2'
         run: npm run make
       - name: Test packaged terminal host on Linux
         if: runner.os == 'Linux'
         run: xvfb-run -a npm run test:packaged
       - name: Test packaged terminal host on macOS and Windows
-        if: runner.os != 'Linux'
+        if: runner.os != 'Linux' && matrix.shard != '2/2'
         run: npm run test:packaged
       - name: Upload Electron timing and process diagnostics
         if: always()
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
-          name: electron-results-${{ matrix.os }}
+          name: electron-results-${{ matrix.os }}-${{ strategy.job-index }}
           path: test-results/
           if-no-files-found: error
           retention-days: 3
       - name: Upload unsigned development package
-        if: github.event_name == 'workflow_dispatch' && inputs.upload_packages
+        if: github.event_name == 'workflow_dispatch' && inputs.upload_packages && matrix.shard != '2/2'
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
           name: foom-${{ matrix.os }}

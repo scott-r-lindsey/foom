@@ -1,6 +1,6 @@
 const { assertBundledTerminalFonts } = require("./font-checks.js");
 const { AxeBuilder } = require("@axe-core/playwright");
-const { test } = require("node:test");
+const { test } = require("./test-shard.js");
 const assert = require("node:assert/strict");
 const path = require("node:path");
 const { mkdir, mkdtemp, readFile, realpath, rm, writeFile } = require("node:fs/promises");
