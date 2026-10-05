@@ -145,7 +145,10 @@ jobs:
           cache: npm
       - run: npm ci
       - name: Test hook transport with native OS tools
-        run: npx vitest run tests/unit/main/agents/hook-receiver.test.ts tests/unit/main/agents/hook-adapters.test.ts tests/unit/main/agents/hook-launch.test.ts
+        if: matrix.shard != '2/2'
+        # Cold PowerShell probes compete for startup when these files run together.
+        # Exercise native transport once per platform, with one OS probe at a time.
+        run: npx vitest run --no-file-parallelism tests/unit/main/agents/hook-receiver.test.ts tests/unit/main/agents/hook-adapters.test.ts tests/unit/main/agents/hook-launch.test.ts
       - name: Prepare Linux display and sandbox
         if: runner.os == 'Linux'
         run: |
