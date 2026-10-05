@@ -14,12 +14,14 @@ const {
 } = require("node:fs");
 const { tmpdir } = require("node:os");
 const { spawn, execFile, execFileSync } = require("node:child_process");
-const { chromium, expect } = require("@playwright/test");
+const { chromium } = require("@playwright/test");
+const { deadline, expect } = require("./test-policy.js");
+const { auditProcesses } = require("./process-audit.js");
 const { getCurrentFuseWire, FuseV1Options } = require("@electron/fuses");
 
 test("packaged utility host runs native PTYs with RunAsNode disabled", {
-  timeout: 45000,
-}, async () => {
+  timeout: deadline(45000),
+}, async (context) => {
   const root = path.join(__dirname, "../..", "out", `Foom-${process.platform}-${process.arch}`);
   const executable =
     process.platform === "darwin"
@@ -83,10 +85,13 @@ test("packaged utility host runs native PTYs with RunAsNode disabled", {
     path.join(profile, "worktrees.json"),
     JSON.stringify({ version: 1, repositories: [repository], managed: [] }),
   );
+  const audit = await auditProcesses(context);
+  context.after(() => audit.finish());
   const child = spawn(executable, ["--remote-debugging-port=0", `--user-data-dir=${profile}`], {
     env,
     stdio: ["ignore", "ignore", "pipe"],
   });
+  audit.add(child.pid);
   let browser;
   let page;
   let standalone;
@@ -95,12 +100,14 @@ test("packaged utility host runs native PTYs with RunAsNode disabled", {
     console.error("Packaged probe exceeded its hard deadline");
     try {
       if (process.platform === "win32")
-        execFileSync("taskkill", ["/pid", String(child.pid), "/T", "/F"], { timeout: 3000 });
+        execFileSync("taskkill", ["/pid", String(child.pid), "/T", "/F"], {
+          timeout: deadline(3000),
+        });
     } finally {
       child.kill("SIGKILL");
       process.exit(1);
     }
-  }, 40000);
+  }, deadline(40000));
   let stderr = "";
   try {
     const endpoint = await new Promise((resolve, reject) => {
@@ -112,10 +119,10 @@ test("packaged utility host runs native PTYs with RunAsNode disabled", {
         if (match) resolve(match[1]);
       });
     });
-    browser = await chromium.connectOverCDP(endpoint, { timeout: 10000 });
+    browser = await chromium.connectOverCDP(endpoint, { timeout: deadline(10000) });
     const context = browser.contexts()[0];
     page = context.pages()[0] || (await context.waitForEvent("page"));
-    page.setDefaultTimeout(15000);
+    page.setDefaultTimeout(deadline(15000));
     await expect
       .poll(async () =>
         (await page.evaluate(() => window.desktop.workspace())).repositories.map(
@@ -188,6 +195,7 @@ test("packaged utility host runs native PTYs with RunAsNode disabled", {
     console.error("Packaged smoke failed:", error);
   } finally {
     try {
+      await audit.capture();
       // Close through the app after revoking its terminal capabilities. Disconnecting
       // CDP does not quit Electron, and taskkill can stall on a busy Windows runner.
       await page
@@ -207,7 +215,7 @@ test("packaged utility host runs native PTYs with RunAsNode disabled", {
         await Promise.race([
           exited,
           new Promise((resolve) => {
-            timer = setTimeout(resolve, 5000);
+            timer = setTimeout(resolve, deadline(5000));
           }),
         ]);
         clearTimeout(timer);
@@ -217,7 +225,7 @@ test("packaged utility host runs native PTYs with RunAsNode disabled", {
               execFile(
                 "taskkill",
                 ["/pid", String(child.pid), "/T", "/F"],
-                { timeout: 5000 },
+                { timeout: deadline(5000) },
                 (error) => {
                   if (error && child.exitCode === null && child.signalCode === null) reject(error);
                   else resolve();

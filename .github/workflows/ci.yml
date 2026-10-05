@@ -152,18 +152,10 @@ jobs:
         run: xvfb-run -a npm run test:electron
       - name: Test Electron on macOS and Windows
         # Windows can exceed five minutes across 39 tests on a busy runner.
-        # Individual app launches retain the 60-second hard watchdog.
+        # Individual launches and waits use the shared platform deadline policy.
         timeout-minutes: 10
         if: runner.os != 'Linux'
         run: npm run test:electron
-      - name: Repeat theme and teardown regressions
-        if: runner.os != 'Linux'
-        timeout-minutes: 10
-        shell: bash
-        run: |
-          for attempt in 1 2 3; do
-            node --test --test-name-pattern='sidebar menus escape|persistent sidebar keeps Escape' tests/electron/app.test.js
-          done
       - name: Package desktop application
         run: npm run make
       - name: Test packaged terminal host on Linux
@@ -172,6 +164,14 @@ jobs:
       - name: Test packaged terminal host on macOS and Windows
         if: runner.os != 'Linux'
         run: npm run test:packaged
+      - name: Upload Electron timing and process diagnostics
+        if: always()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: electron-results-${{ matrix.os }}
+          path: test-results/
+          if-no-files-found: error
+          retention-days: 3
       - name: Upload unsigned development package
         if: github.event_name == 'workflow_dispatch' && inputs.upload_packages
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6

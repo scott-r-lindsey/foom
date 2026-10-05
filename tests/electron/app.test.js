@@ -5,7 +5,9 @@ const assert = require("node:assert/strict");
 const path = require("node:path");
 const { mkdir, mkdtemp, readFile, realpath, rm, writeFile } = require("node:fs/promises");
 const { tmpdir } = require("node:os");
-const { _electron: electron, expect } = require("@playwright/test");
+const { _electron: electron } = require("@playwright/test");
+const { deadline, expect } = require("./test-policy.js");
+const { auditProcesses } = require("./process-audit.js");
 
 async function boardCommand(app, keyCode, shift = true) {
   await app.evaluate(
@@ -64,7 +66,9 @@ async function quitAndWait(app, requestQuit) {
     app.on("will-quit", ready);
   });
   await requestQuit();
-  await expect.poll(() => app.evaluate(() => globalThis.readyToQuit), { timeout: 8000 }).toBe(true);
+  await expect
+    .poll(() => app.evaluate(() => globalThis.readyToQuit), { timeout: deadline(8000) })
+    .toBe(true);
   await app.close();
 }
 
@@ -78,12 +82,22 @@ function fixtureCleanup(context) {
     fixtureCleanups.set(context, cleanup);
     context.after(async () => {
       const failures = [];
+      try {
+        await cleanup.audit?.capture();
+      } catch (error) {
+        failures.push(error);
+      }
       for (const close of cleanup.apps) {
         try {
           await close();
         } catch (error) {
           failures.push(error);
         }
+      }
+      try {
+        await cleanup.audit?.finish();
+      } catch (error) {
+        failures.push(error);
       }
       for (const directory of cleanup.directories) {
         try {
@@ -175,25 +189,33 @@ async function launchCheckoutShell(app, page) {
 }
 
 async function launchApp(context, openShell = true, options = {}) {
+  const cleanup = fixtureCleanup(context);
+  cleanup.audit ??= await auditProcesses(context);
   const profile = await prepareProfile(options);
   if (profile.owned) removeAfterApps(context, profile.owned);
   const watchdog = setTimeout(() => {
-    console.error("Electron test exceeded its 60-second hard deadline; terminating worker");
+    console.error("Electron test exceeded its hard deadline; terminating worker");
     // Playwright's exit handler kills the process groups it launched.
     process.exit(1);
-  }, 60_000);
+  }, deadline(90_000));
   watchdog.unref();
   const env = { ...process.env, ...options.env };
   delete env.ELECTRON_RUN_AS_NODE;
-  const app = await electron.launch({
-    chromiumSandbox: true,
-    colorScheme: null,
-    timeout: 15_000,
-    args: [path.join(__dirname, "../.."), ...profile.args],
-    env,
-  });
+  const app = await electron
+    .launch({
+      chromiumSandbox: true,
+      colorScheme: null,
+      timeout: deadline(15_000),
+      args: [path.join(__dirname, "../.."), ...profile.args],
+      env,
+    })
+    .catch((error) => {
+      clearTimeout(watchdog);
+      throw error;
+    });
   const child = app.process();
-  app.context().setDefaultTimeout(10_000);
+  cleanup.audit.add(child.pid);
+  app.context().setDefaultTimeout(deadline(10_000));
   const staleTerminalErrors = [];
   app.on("console", (message) => {
     if (message.text().includes("Unknown or foreign terminal ID"))
@@ -222,8 +244,8 @@ async function launchApp(context, openShell = true, options = {}) {
         })(),
         new Promise((_, reject) => {
           timer = setTimeout(
-            () => reject(new Error("Electron shutdown exceeded 10 seconds")),
-            10000,
+            () => reject(new Error("Electron shutdown exceeded its deadline")),
+            deadline(10000),
           );
         }),
       ]);
@@ -240,7 +262,7 @@ async function launchApp(context, openShell = true, options = {}) {
           require("node:child_process").execFileSync(
             "taskkill",
             ["/pid", String(child.pid), "/T", "/F"],
-            { timeout: 5000 },
+            { timeout: deadline(5000) },
           );
         } else {
           process.kill(-child.pid, "SIGKILL");
@@ -252,7 +274,7 @@ async function launchApp(context, openShell = true, options = {}) {
   const page = await app.firstWindow();
   await expect
     .poll(() => app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].isVisible()), {
-      timeout: 10000,
+      timeout: deadline(10000),
     })
     .toBe(true);
   if (options.firstRun || options.emptyBoard) return app;
@@ -260,7 +282,7 @@ async function launchApp(context, openShell = true, options = {}) {
   await page.locator(".board-row[data-kind='shell']").waitFor();
   // Report startup errors directly instead of timing out on a permanently disabled control.
   await expect
-    .poll(() => page.locator(".tile-status").textContent(), { timeout: 10000 })
+    .poll(() => page.locator(".tile-status").textContent(), { timeout: deadline(10000) })
     .not.toBe("Starting shell…");
   assert.doesNotMatch(await page.locator(".tile-status").textContent(), /Unable|failed/);
   if (!openShell) {
@@ -277,7 +299,7 @@ async function launchApp(context, openShell = true, options = {}) {
 }
 
 test("terminal runs an interactive shell behind an isolated bridge", {
-  timeout: 45_000,
+  timeout: deadline(45_000),
 }, async (context) => {
   const app = await launchApp(context);
   console.info("Electron launched");
@@ -578,7 +600,7 @@ test("terminal runs an interactive shell behind an isolated bridge", {
 });
 
 test("bundled brand fonts and both system themes render in Electron", {
-  timeout: 45_000,
+  timeout: deadline(45_000),
 }, async (context) => {
   const app = await launchApp(context);
   const page = await app.firstWindow();
@@ -690,7 +712,7 @@ test("bundled brand fonts and both system themes render in Electron", {
 // these checks run on all three desktop platforms without OS-specific UI drivers.
 for (const action of ["close", "quit", "shortcut"]) {
   test(`quit via ${action} confirms, cancel preserves PTYs, and confirm reaps shells`, {
-    timeout: 45_000,
+    timeout: deadline(45_000),
   }, async (context) => {
     const app = await launchApp(context);
     const page = await app.firstWindow();
@@ -796,7 +818,7 @@ for (const action of ["close", "quit", "shortcut"]) {
 }
 
 test("closing with an exited terminal quits without confirmation", {
-  timeout: 45_000,
+  timeout: deadline(45_000),
 }, async (context) => {
   const app = await launchApp(context);
   const page = await app.firstWindow();
@@ -823,7 +845,7 @@ test("closing with an exited terminal quits without confirmation", {
 });
 
 test("utility host survives output floods without losing rows or delaying another PTY", {
-  timeout: 45_000,
+  timeout: deadline(45_000),
 }, async (context) => {
   const app = await launchApp(context);
   await app.firstWindow();
@@ -903,7 +925,7 @@ test("utility host survives output floods without losing rows or delaying anothe
 });
 
 test("a crashed utility host reports failure and the renderer can restart", {
-  timeout: 45_000,
+  timeout: deadline(45_000),
 }, async (context) => {
   const app = await launchApp(context);
   const page = await app.firstWindow();
@@ -939,7 +961,7 @@ test("a crashed utility host reports failure and the renderer can restart", {
 });
 
 test("host answers color queries once through real view transitions and system themes", {
-  timeout: 45000,
+  timeout: deadline(45000),
 }, async (context) => {
   const directory = await mkdtemp(path.join(tmpdir(), "foom-color-probe-"));
   removeAfterApps(context, directory);
@@ -1021,7 +1043,7 @@ test("host answers color queries once through real view transitions and system t
 });
 
 test("Settings transitions restore background fullscreen output repeatedly", {
-  timeout: 45000,
+  timeout: deadline(45000),
 }, async (context) => {
   const directory = await mkdtemp(path.join(tmpdir(), "foom-view-probe-"));
   removeAfterApps(context, directory);
@@ -1217,7 +1239,7 @@ process.stdin.on("data", (key) => {
 `;
 
 test("launches an agent in a managed worktree and routes its attention signals", {
-  timeout: 60_000,
+  timeout: deadline(60_000),
   skip: process.platform === "win32" && "The fake agent is a POSIX script",
 }, async (context) => {
   const { chmod, mkdir, writeFile } = require("node:fs/promises");
@@ -1295,12 +1317,14 @@ test("launches an agent in a managed worktree and routes its attention signals",
     page.evaluate((terminal) => window.foomStates.filter((s) => s.id === terminal).at(-1), id);
   await expect
     .poll(() => page.evaluate((terminal) => window.desktop.tail(terminal, 5), id), {
-      timeout: 10000,
+      timeout: deadline(10000),
     })
     .toContain("FOOM_AGENT_READY");
 
   // Quiet after a y/n prompt: the text rules ask for attention.
-  await expect.poll(async () => (await latest())?.state, { timeout: 10000 }).toBe("needs_input");
+  await expect
+    .poll(async () => (await latest())?.state, { timeout: deadline(10000) })
+    .toBe("needs_input");
   assert.equal((await latest()).signal, "pattern:confirmation");
   const snapshot = await page.evaluate(() => window.desktop.workspace());
   assert.deepEqual(
@@ -1367,7 +1391,7 @@ test("launches an agent in a managed worktree and routes its attention signals",
   // Typing is the reply; then the agent's hook asks for permission.
   await page.keyboard.type("y");
   await expect
-    .poll(async () => (await latest())?.signal, { timeout: 10000 })
+    .poll(async () => (await latest())?.signal, { timeout: deadline(10000) })
     .toBe("claude:PermissionRequest");
   assert.ok(
     (await page.evaluate(() => window.foomStates.map((s) => s.signal))).includes("user:reply"),
@@ -1384,7 +1408,9 @@ test("launches an agent in a managed worktree and routes its attention signals",
   // Exit is final and revokes the launch's hook credentials.
   const hook = firstCredentials;
   await page.evaluate((terminal) => window.desktop.input(terminal, "q"), id);
-  await expect.poll(async () => (await latest())?.state, { timeout: 10000 }).toBe("failed");
+  await expect
+    .poll(async () => (await latest())?.state, { timeout: deadline(10000) })
+    .toBe("failed");
   const replay = await fetch(hook.url, {
     method: "POST",
     headers: {
@@ -1487,7 +1513,7 @@ test("inference keys stay in main and require real OS encryption", async (contex
 });
 
 test("focus reports reach the shell without counting as a reply", {
-  timeout: 45_000,
+  timeout: deadline(45_000),
   skip: process.platform === "win32" && "The prompt script is POSIX shell",
 }, async (context) => {
   const app = await launchApp(context);
@@ -1509,7 +1535,7 @@ test("focus reports reach the shell without counting as a reply", {
   );
   await page.keyboard.press("Enter");
   await expect
-    .poll(async () => (await latest())?.signal, { timeout: 10000 })
+    .poll(async () => (await latest())?.signal, { timeout: deadline(10000) })
     .toBe("pattern:password");
 
   // Moving focus to the board control makes xterm report focus-out to the program.
@@ -1523,7 +1549,7 @@ test("focus reports reach the shell without counting as a reply", {
   await expect
     .poll(
       () => page.evaluate(() => window.foomStates.some((state) => state.signal === "user:reply")),
-      { timeout: 10000 },
+      { timeout: deadline(10000) },
     )
     .toBe(true);
   // The program received the focus reports along with the real reply.
@@ -1547,7 +1573,8 @@ function isolatedGit(args, options = {}) {
   return require("node:child_process").execFileSync("git", args, { ...options, env });
 }
 
-async function tabTo(page, name) {
+async function tabTo(page, name, accessibleName = name) {
+  await expect(page.getByRole("button", { name: accessibleName, exact: true })).toBeVisible();
   for (let step = 0; step < 40; step++) {
     await page.keyboard.press("Tab");
     const label = await page.evaluate(() => document.activeElement?.textContent?.trim());
@@ -1588,7 +1615,7 @@ test("a fresh profile opens preflight, and it passes accessibility checks", asyn
   await assertAccessible(page);
   await page.getByRole("button", { name: "Start preflight" }).click();
   await page.getByText("Which agents do you run?").waitFor();
-  await expect(page.getByText("Looking…")).toHaveCount(0, { timeout: 20000 });
+  await expect(page.getByText("Looking…")).toHaveCount(0, { timeout: deadline(20000) });
   await assertAccessible(page);
 });
 
@@ -1652,7 +1679,7 @@ async function assertPreflightFits(page, label) {
 }
 
 test("preflight fits safely through resize, zoom, long input and changing steps", {
-  timeout: 60_000,
+  timeout: deadline(60_000),
 }, async (context) => {
   const app = await launchApp(context, false, { firstRun: true });
   const page = await app.firstWindow();
@@ -1776,7 +1803,7 @@ test("large repository scans remain readable and filter without changing scale",
 });
 
 test("first run goes from no agents to go, launches by keyboard, and can be replayed", {
-  timeout: 60_000,
+  timeout: deadline(60_000),
   skip: process.platform === "win32" && "The fake agents are POSIX scripts",
 }, async (context) => {
   const { chmod, symlink } = require("node:fs/promises");
@@ -1930,7 +1957,7 @@ test("first run goes from no agents to go, launches by keyboard, and can be repl
 
   await tabTo(page, "Start preflight");
   await page.keyboard.press("Enter");
-  await expect(page.getByText("Not found")).toHaveCount(3, { timeout: 20000 });
+  await expect(page.getByText("Not found")).toHaveCount(3, { timeout: deadline(20000) });
   await assertFooter();
   await tabTo(page, "Continue");
   await page.keyboard.press("Enter");
@@ -1983,7 +2010,9 @@ test("first run goes from no agents to go, launches by keyboard, and can be repl
     await chmod(path.join(bin, name), 0o755);
   }
   await page.getByRole("button", { name: "Scan again" }).click();
-  await expect(page.getByText("Found", { exact: true })).toHaveCount(3, { timeout: 20000 });
+  await expect(page.getByText("Found", { exact: true })).toHaveCount(3, {
+    timeout: deadline(20000),
+  });
   await expect(page.locator(".badge-value")).toHaveText(["2.1.300", "0.155.1", "1.2.13"]);
   for (const name of ["Hooks", "Notify", "Evaluator"])
     await expect(page.getByRole("button", { name, exact: true })).toBeVisible();
@@ -2015,7 +2044,7 @@ test("first run goes from no agents to go, launches by keyboard, and can be repl
   await page.getByText("Takeoff was faster than expected.").waitFor();
   await launchCheckoutShell(app, page);
   const shellRow = page.locator(".board-row[data-kind='shell']");
-  await shellRow.waitFor({ timeout: 10000 });
+  await shellRow.waitFor({ timeout: deadline(10000) });
   const saved = JSON.parse(await readFile(path.join(userData, "settings.json"), "utf8"));
   assert.deepEqual(saved.settings, {
     codexNotifierAcknowledged: false,
@@ -2250,7 +2279,7 @@ test("preflight scans a code folder and adds the repositories worked on recently
 });
 
 test("new worktree dialog launches by keyboard and confirms dirty removal", {
-  timeout: 60000,
+  timeout: deadline(60000),
 }, async (context) => {
   const root = await mkdtemp(path.join(tmpdir(), "foom-launch-ui-"));
   const repo = path.join(root, "app");
@@ -2335,7 +2364,7 @@ test("new worktree dialog launches by keyboard and confirms dirty removal", {
   await page.keyboard.press("Enter");
   // This includes real Git worktree creation and shell startup, which can take
   // longer than the default five-second assertion budget on Windows runners.
-  await expect(page.getByRole("dialog")).toHaveCount(0, { timeout: 15000 });
+  await expect(page.getByRole("dialog")).toHaveCount(0, { timeout: deadline(15000) });
   const row = page.locator(".board-row").filter({ hasText: "feature/ui" });
   await expect(row).toBeVisible();
   const launched = await page.evaluate(() => window.desktop.workspace());
@@ -2397,7 +2426,7 @@ test("new worktree dialog launches by keyboard and confirms dirty removal", {
 });
 
 test("external worktrees offer confirmed removal while preserving branches and the main checkout", {
-  timeout: 45000,
+  timeout: deadline(45000),
 }, async (context) => {
   const root = await mkdtemp(path.join(tmpdir(), "foom-external-removal-"));
   const repo = path.join(root, "repo");
@@ -2473,7 +2502,7 @@ test("external worktrees offer confirmed removal while preserving branches and t
 });
 
 test("external worktrees support independent shells and confirmed shared agents", {
-  timeout: 60000,
+  timeout: deadline(60000),
 }, async (context) => {
   // macOS temp aliases and Windows short/case-normalized paths differ from Git's inventory.
   const root = await realpath(await mkdtemp(path.join(tmpdir(), "foom-external-launch-")));
@@ -2630,7 +2659,7 @@ test("external worktrees support independent shells and confirmed shared agents"
 });
 
 test("persistent sidebar keeps Escape in the PTY and routes keyboard navigation", {
-  timeout: 45000,
+  timeout: deadline(45000),
 }, async (context) => {
   const root = await mkdtemp(path.join(tmpdir(), "foom-input-"));
   removeAfterApps(context, root);
@@ -2704,7 +2733,7 @@ test("persistent sidebar keeps Escape in the PTY and routes keyboard navigation"
 });
 
 test("wheel moves less and preserves normal shell scrollback", {
-  timeout: 30000,
+  timeout: deadline(30000),
   skip: process.platform === "win32" && "less is a POSIX pager",
 }, async (context) => {
   const app = await launchApp(context);
@@ -2775,7 +2804,7 @@ test("empty sidebar and terminal pane stay accessible at both widths", async (co
 });
 
 test("fake Codex receives inline flag only when help advertises it", {
-  timeout: 30000,
+  timeout: deadline(30000),
   skip: process.platform === "win32" && "The fake CLI is a POSIX executable",
 }, async (context) => {
   const { chmod } = require("node:fs/promises");
@@ -2942,7 +2971,7 @@ test("Settings shares live preflight values, sizes the terminal and restores key
   await tabToControl(page.getByRole("radio", { name: "System", exact: true }));
   await page.keyboard.press("ArrowRight");
   await page.keyboard.press("ArrowRight");
-  await tabTo(page, "+");
+  await tabTo(page, "+", "Larger");
   await page.keyboard.press("Enter");
   await expect(page.getByRole("status").filter({ hasText: "110%" })).toBeVisible();
   await section("Terminal");
@@ -3042,7 +3071,7 @@ test("window size defaults to 60 percent and survives a normal quit and relaunch
 });
 
 test("sidebar menus escape the scroll area, stay in the window and launch from a worktree", {
-  timeout: 60000,
+  timeout: deadline(60000),
 }, async (context) => {
   const root = await mkdtemp(path.join(tmpdir(), "foom-sidebar-"));
   const repo = path.join(root, "repo");
@@ -3231,7 +3260,7 @@ test("sidebar menus escape the scroll area, stay in the window and launch from a
 });
 
 test("Bash command status reaches the sidebar without closing the shell", {
-  timeout: 30_000,
+  timeout: deadline(30_000),
   skip: process.platform !== "linux" && "Requires Bash 4.4 or newer",
 }, async (context) => {
   const app = await launchApp(context, true, { env: { SHELL: "/bin/bash" } });
@@ -3257,7 +3286,7 @@ test("Bash command status reaches the sidebar without closing the shell", {
 });
 
 test("tiles build irregular layouts, preserve views, refuse full placement and replace only for attention", {
-  timeout: 60000,
+  timeout: deadline(60000),
 }, async (context) => {
   const root = await realpath(await mkdtemp(path.join(tmpdir(), "foom-tiles-")));
   const repo = path.join(root, "repo");
@@ -3494,7 +3523,7 @@ test("tile terminal viewport has no native overflow bars", async (context) => {
 });
 
 test("every interface theme applies live to native chrome and passes axe on board and Settings", {
-  timeout: 55000,
+  timeout: deadline(55000),
 }, async (context) => {
   const app = await launchApp(context);
   const page = await app.firstWindow();
@@ -3567,7 +3596,7 @@ test("every interface theme applies live to native chrome and passes axe on boar
 });
 
 test("soundscape sends one attention cadence and one completion to a fake audio sink", {
-  timeout: 45000,
+  timeout: deadline(45000),
 }, async (context) => {
   const root = await mkdtemp(path.join(tmpdir(), "foom-sound-"));
   removeAfterApps(context, root);

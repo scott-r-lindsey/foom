@@ -42,6 +42,9 @@ Read `docs/product.md` and `docs/architecture.md` before changing terminal, eval
 - `npm test` runs fast unit tests without a display. Test behavior, failure paths, and security boundaries. Keep logic separable from platform APIs as the app grows.
 - `npm run test:electron` launches the real app and verifies the Electron boundary. Mocks do not replace this check.
 - On Linux, run Electron tests under Xvfb (`xvfb-run -a npm run test:electron`) so test windows do not appear on the user’s desktop or steal focus. Use the same virtual-display wrapper for packaged smoke tests and automated Electron previews; use the visible desktop only when the user explicitly requests it. Keep sandboxing enabled.
+- Electron tests use an isolated profile and fixture repositories per test. Register cleanup before launching; quit all apps before deleting fixtures, including on assertion or startup failure. The process audit tracks app descendants and fails on surviving processes; never use retries to hide leaks.
+- Wait for visible UI, bridge state, terminal output or quit acknowledgement before the next interaction. Use `tests/electron/test-policy.js` for platform-scaled deadlines, not individual timeout increases. Keep fixed delays only when elapsed time is the behavior under test. A test must also pass alone with `--test-name-pattern`.
+- CI uploads Electron and packaged JUnit reports, including per-test durations and process diagnostics, even on failure. Compare these measurements before changing deadlines or splitting the suite.
 - Unit coverage includes every executable `src/**/*.{ts,tsx}` file; only declarations are excluded. Per-file minimums are 90% lines, statements, and functions, and 85% branches. PR changed-line coverage must be at least 90%; missing source files in LCOV fail the check.
 - Do not lower thresholds or exclude application files to hide missing tests. Test meaningful behavior, not implementation trivia.
 
