@@ -11,6 +11,12 @@ async function boardCommand(app, keyCode, shift = true) {
   await app.evaluate(
     ({ BrowserWindow }, { keyCode, mac, shift }) => {
       const contents = BrowserWindow.getAllWindows()[0].webContents;
+      if (!mac && /^[1-9]$/.test(keyCode) && !shift) {
+        for (const type of ["keyDown", "keyUp"])
+          contents.sendInputEvent({ type, keyCode: "Space", modifiers: ["control", "shift"] });
+        for (const type of ["keyDown", "keyUp"]) contents.sendInputEvent({ type, keyCode });
+        return;
+      }
       for (const type of ["keyDown", "keyUp"])
         contents.sendInputEvent({
           type,
@@ -63,6 +69,67 @@ async function quitAndWait(app, requestQuit) {
 }
 
 // A test timeout does not cancel Playwright promises or dispose native processes.
+// One teardown owns ordering: all apps/PTY hosts quit before any fixture removal.
+const fixtureCleanups = new WeakMap();
+function fixtureCleanup(context) {
+  let cleanup = fixtureCleanups.get(context);
+  if (!cleanup) {
+    cleanup = { apps: [], directories: new Set() };
+    fixtureCleanups.set(context, cleanup);
+    context.after(async () => {
+      const failures = [];
+      for (const close of cleanup.apps) {
+        try {
+          await close();
+        } catch (error) {
+          failures.push(error);
+        }
+      }
+      for (const directory of cleanup.directories) {
+        try {
+          await rm(directory, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
+        } catch (error) {
+          // Fixture deletion is best effort; keep assertion/quit failures intact.
+          console.warn(`Unable to remove test fixture ${directory}:`, error);
+        }
+      }
+      if (failures.length) throw new AggregateError(failures, "Electron teardown failed");
+    });
+  }
+  return cleanup;
+}
+function removeAfterApps(context, directory) {
+  fixtureCleanup(context).directories.add(directory);
+}
+
+test("fixture cleanup closes every app before removing directories and retains quit failures", async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "foom-cleanup-order-"));
+  let teardown;
+  const context = {
+    after: (callback) => {
+      teardown = callback;
+    },
+  };
+  removeAfterApps(context, root);
+  const cleanup = fixtureCleanup(context);
+  const failure = new Error("quit failed");
+  let secondClosed = false;
+  cleanup.apps.push(async () => {
+    await realpath(root);
+    throw failure;
+  });
+  cleanup.apps.push(async () => {
+    await realpath(root);
+    secondClosed = true;
+  });
+  await assert.rejects(
+    teardown,
+    (error) => error instanceof AggregateError && error.errors[0] === failure,
+  );
+  assert.equal(secondClosed, true);
+  await assert.rejects(realpath(root), { code: "ENOENT" });
+});
+
 // Keep a final worker deadline so even broken cleanup cannot occupy a CI runner.
 // Every launch gets its own profile. Unless a test is about first run, preflight is
 // already complete so the app opens on the board.
@@ -82,8 +149,7 @@ async function prepareProfile(options) {
   }
   return {
     args: [...(options.args ?? []), ...(owned ? [`--user-data-dir=${owned}`] : [])],
-    cleanup: () =>
-      owned ? rm(owned, { recursive: true, force: true, maxRetries: 5 }) : Promise.resolve(),
+    owned,
   };
 }
 
@@ -110,6 +176,7 @@ async function launchCheckoutShell(app, page) {
 
 async function launchApp(context, openShell = true, options = {}) {
   const profile = await prepareProfile(options);
+  if (profile.owned) removeAfterApps(context, profile.owned);
   const watchdog = setTimeout(() => {
     console.error("Electron test exceeded its 60-second hard deadline; terminating worker");
     // Playwright's exit handler kills the process groups it launched.
@@ -127,10 +194,13 @@ async function launchApp(context, openShell = true, options = {}) {
   });
   const child = app.process();
   app.context().setDefaultTimeout(10_000);
+  const staleTerminalErrors = [];
   app.on("console", (message) => {
+    if (message.text().includes("Unknown or foreign terminal ID"))
+      staleTerminalErrors.push(message.text());
     if (message.type() === "error") console.error("Electron:", message.text());
   });
-  context.after(async () => {
+  fixtureCleanup(context).apps.push(async () => {
     console.info("Closing app");
     let timer;
     try {
@@ -159,10 +229,10 @@ async function launchApp(context, openShell = true, options = {}) {
       ]);
       assert.equal(child.exitCode, 0, "Electron must exit normally");
       console.info("App closed");
+      assert.deepEqual(staleTerminalErrors, [], "Normal flows must not use revoked terminal IDs");
       clearTimeout(watchdog);
     } finally {
       clearTimeout(timer);
-      await profile.cleanup().catch(() => {});
       // If graceful shutdown failed, fail the test and terminate the process tree.
       // The worker watchdog remains armed in case a Playwright connection also hangs.
       if (child.exitCode === null && child.signalCode === null) {
@@ -389,6 +459,7 @@ test("terminal runs an interactive shell behind an isolated bridge", {
           "feedback",
           "onState",
           "onData",
+          "onTerminalAvailability",
           "onExit",
         ],
       },
@@ -871,7 +942,7 @@ test("host answers color queries once through real view transitions and system t
   timeout: 45000,
 }, async (context) => {
   const directory = await mkdtemp(path.join(tmpdir(), "foom-color-probe-"));
-  context.after(() => rm(directory, { recursive: true, force: true }));
+  removeAfterApps(context, directory);
   const app = await launchApp(context);
   const page = await app.firstWindow();
   await page.waitForFunction(
@@ -953,7 +1024,7 @@ test("Settings transitions restore background fullscreen output repeatedly", {
   timeout: 45000,
 }, async (context) => {
   const directory = await mkdtemp(path.join(tmpdir(), "foom-view-probe-"));
-  context.after(() => rm(directory, { recursive: true, force: true }));
+  removeAfterApps(context, directory);
   const marker = path.join(directory, "stage");
   const app = await launchApp(context);
   const page = await app.firstWindow();
@@ -1177,7 +1248,7 @@ test("launches an agent in a managed worktree and routes its attention signals",
     },
   }).finally(() => {
     // Chromium may still write user-data until the app cleanup hook has finished.
-    context.after(() => rm(root, { recursive: true, force: true }));
+    removeAfterApps(context, root);
   });
   const page = await app.firstWindow();
   await app.evaluate(({ dialog }, directory) => {
@@ -1667,7 +1738,7 @@ test("preflight fits safely through resize, zoom, long input and changing steps"
 
 test("large repository scans remain readable and filter without changing scale", async (context) => {
   const root = await mkdtemp(path.join(tmpdir(), "foom-layout-repos-"));
-  context.after(() => rm(root, { recursive: true, force: true, maxRetries: 5 }));
+  removeAfterApps(context, root);
   for (const group of ["alpha", "beta", "gamma"]) {
     for (let index = 0; index < 12; index++) {
       const directory = path.join(root, group, `project-${index}-${"long-name-".repeat(12)}`);
@@ -1710,7 +1781,7 @@ test("first run goes from no agents to go, launches by keyboard, and can be repl
 }, async (context) => {
   const { chmod, symlink } = require("node:fs/promises");
   const root = await mkdtemp(path.join(tmpdir(), "foom-first-run-"));
-  context.after(() => rm(root, { recursive: true, force: true, maxRetries: 5 }));
+  removeAfterApps(context, root);
   const bin = path.join(root, "bin");
   const repo = path.join(root, "app");
   const userData = path.join(root, "user-data");
@@ -2143,7 +2214,7 @@ test("appearance switches light and dark, and zoom shortcuts resize the interfac
 test("preflight scans a code folder and adds the repositories worked on recently", async (context) => {
   const { utimes } = require("node:fs/promises");
   const root = await mkdtemp(path.join(tmpdir(), "foom-code-"));
-  context.after(() => rm(root, { recursive: true, force: true, maxRetries: 5 }));
+  removeAfterApps(context, root);
   const code = path.join(root, "code");
   const old = new Date(Date.now() - 90 * 86_400_000);
   for (const [name, stale] of [
@@ -2215,7 +2286,7 @@ test("new worktree dialog launches by keyboard and confirms dirty removal", {
   }).finally(() => {
     // Hooks run in registration order. Close Electron before deleting the second
     // worktree: a live PowerShell process holds its working directory on Windows.
-    context.after(() => rm(root, { recursive: true, force: true, maxRetries: 5 }));
+    removeAfterApps(context, root);
   });
   const page = await app.firstWindow();
   const tabToField = async (id, reverse = false) => {
@@ -2351,7 +2422,7 @@ test("external worktrees offer confirmed removal while preserving branches and t
   const dirty = path.join(external, "unsaved.txt");
   await writeFile(dirty, "keep until confirmed");
   const app = await launchApp(context, false, { emptyBoard: true }).finally(() => {
-    context.after(() => rm(root, { recursive: true, force: true, maxRetries: 5 }));
+    removeAfterApps(context, root);
   });
   const page = await app.firstWindow();
   await app.evaluate(({ dialog }, repo) => {
@@ -2441,7 +2512,7 @@ test("external worktrees support independent shells and confirmed shared agents"
       FOOM_FAKE_CREDENTIALS: path.join(root, "fake-hook.json"),
     },
   }).finally(() => {
-    context.after(() => rm(root, { recursive: true, force: true, maxRetries: 5 }));
+    removeAfterApps(context, root);
   });
   const page = await app.firstWindow();
   await app.evaluate(({ dialog }, repo) => {
@@ -2562,7 +2633,7 @@ test("persistent sidebar keeps Escape in the PTY and routes keyboard navigation"
   timeout: 45000,
 }, async (context) => {
   const root = await mkdtemp(path.join(tmpdir(), "foom-input-"));
-  context.after(() => rm(root, { recursive: true, force: true }));
+  removeAfterApps(context, root);
   const marker = path.join(root, "keys");
   await writeFile(marker, "");
   const app = await launchApp(context);
@@ -2709,7 +2780,7 @@ test("fake Codex receives inline flag only when help advertises it", {
 }, async (context) => {
   const { chmod } = require("node:fs/promises");
   const root = await mkdtemp(path.join(tmpdir(), "foom-inline-"));
-  context.after(() => rm(root, { recursive: true, force: true }));
+  removeAfterApps(context, root);
   const bin = path.join(root, "bin");
   const repo = path.join(root, "repo");
   const home = path.join(root, "home");
@@ -2778,7 +2849,7 @@ else console.log('ARGS:' + JSON.stringify(process.argv.slice(2)));
 
 test("Settings shares live preflight values, sizes the terminal and restores keyboard focus", async (context) => {
   const root = await mkdtemp(path.join(tmpdir(), "foom-settings-repositories-"));
-  context.after(() => rm(root, { recursive: true, force: true, maxRetries: 5 }));
+  removeAfterApps(context, root);
   const repository = path.join(root, "settings-example");
   await mkdir(repository);
   isolatedGit(["init", "-q", repository]);
@@ -2935,7 +3006,7 @@ test("every Settings section passes axe in light and dark, including the narrow 
 
 test("window size defaults to 60 percent and survives a normal quit and relaunch", async (context) => {
   const profile = await mkdtemp(path.join(tmpdir(), "foom-window-size-"));
-  context.after(() => rm(profile, { recursive: true, force: true, maxRetries: 5 }));
+  removeAfterApps(context, profile);
   const options = { args: [`--user-data-dir=${profile}`], emptyBoard: true };
   const app = await launchApp(context, false, options);
   const initial = await app.evaluate(({ BrowserWindow, screen }) => {
@@ -2992,7 +3063,7 @@ test("sidebar menus escape the scroll area, stay in the window and launch from a
     { cwd: repo },
   );
   const app = await launchApp(context, false, { emptyBoard: true }).finally(() => {
-    context.after(() => rm(root, { recursive: true, force: true, maxRetries: 5 }));
+    removeAfterApps(context, root);
   });
   const page = await app.firstWindow();
   await app.evaluate(({ dialog, BrowserWindow }, repo) => {
@@ -3079,14 +3150,8 @@ test("sidebar menus escape the scroll area, stay in the window and launch from a
   for (const colorScheme of ["light", "dark"]) {
     await page.emulateMedia({ colorScheme, reducedMotion: "reduce" });
     await launchedRow.focus();
-    const accent = await page.locator(".sidebar-shell").evaluate((element) => {
-      const probe = document.createElement("span");
-      probe.style.color = "var(--accent)";
-      element.append(probe);
-      const color = getComputedStyle(probe).color;
-      probe.remove();
-      return color;
-    });
+    const accent = colorScheme === "light" ? "rgb(91, 43, 217)" : "rgb(155, 107, 255)";
+    await expect(page.locator("html")).toHaveCSS("color-scheme", colorScheme);
     await expect(launchedRow).toHaveCSS("outline-color", accent);
     await expect(launchedRow).toHaveCSS("outline-style", "solid");
     const peek = page.getByRole("complementary", { name: "Terminal peek" });
@@ -3203,7 +3268,7 @@ test("tiles build irregular layouts, preserve views, refuse full placement and r
     emptyBoard: true,
     env: { HOME: path.join(root, "home") },
   }).finally(() => {
-    context.after(() => rm(root, { recursive: true, force: true, maxRetries: 5 }));
+    removeAfterApps(context, root);
   });
   const page = await app.firstWindow();
   await app.evaluate(({ dialog, BrowserWindow }, repo) => {
@@ -3372,6 +3437,32 @@ test("launching into full tiles replaces focus and empty tiles support mouse con
   await page.screenshot({ path: path.join(tmpdir(), "foom-tile-bug-fixes.png") });
 });
 
+test("tile leader avoids AltGr chords and cancels unmatched keys", {
+  skip: process.platform === "darwin" && "macOS retains Command tile bindings",
+}, async (context) => {
+  const app = await launchApp(context);
+  const page = await app.firstWindow();
+  const leader = async (keyCode) => {
+    await boardCommand(app, "Space");
+    await app.evaluate(({ BrowserWindow }, keyCode) => {
+      for (const type of ["keyDown", "keyUp"])
+        BrowserWindow.getAllWindows()[0].webContents.sendInputEvent({ type, keyCode });
+    }, keyCode);
+  };
+  const tiles = page.locator(".terminal-tile");
+  await page.keyboard.press("Control+Alt+Shift+r");
+  await expect(tiles).toHaveCount(1);
+  await leader("R");
+  await expect(tiles).toHaveCount(2);
+  await leader("1");
+  await expect(tiles.first()).toHaveAttribute("data-focused", "true");
+  await leader("Escape");
+  await page.keyboard.press("r");
+  await expect(tiles).toHaveCount(2);
+  await leader("W");
+  await expect(tiles).toHaveCount(1);
+});
+
 test("tile terminal viewport has no native overflow bars", async (context) => {
   const app = await launchApp(context);
   const page = await app.firstWindow();
@@ -3479,7 +3570,7 @@ test("soundscape sends one attention cadence and one completion to a fake audio 
   timeout: 45000,
 }, async (context) => {
   const root = await mkdtemp(path.join(tmpdir(), "foom-sound-"));
-  context.after(() => rm(root, { recursive: true, force: true }));
+  removeAfterApps(context, root);
   const marker = path.join(root, "keys");
   const app = await launchApp(context);
   const page = await app.firstWindow();

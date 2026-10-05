@@ -37,46 +37,106 @@ export function zoomShortcut(
   return direction === "reset" || input.shift ? direction : undefined;
 }
 
-/** Reserved navigation chords; plain Ctrl+B remains available to tmux. */
+/** Board command definitions shared by direct shortcuts and the tile leader. */
+export const BOARD_COMMANDS = [
+  { id: "settings", label: "Settings", code: "Comma", shift: false, alt: false, leader: false },
+  { id: "sidebar", label: "Focus sidebar", code: "KeyB", shift: true, alt: false, leader: false },
+  {
+    id: "next-waiting",
+    label: "Longest waiting",
+    code: "KeyN",
+    shift: true,
+    alt: false,
+    leader: false,
+  },
+  { id: "maximize", label: "Maximize tile", code: "Enter", shift: true, alt: false, leader: false },
+  ...(
+    [
+      ["left", "Focus left", "ArrowLeft"],
+      ["right", "Focus right", "ArrowRight"],
+      ["up", "Focus up", "ArrowUp"],
+      ["down", "Focus down", "ArrowDown"],
+      ["split-right", "Split right", "KeyR"],
+      ["split-down", "Split down", "KeyD"],
+      ["close-tile", "Close tile", "KeyW"],
+      ["hide-session", "Hide session", "KeyH"],
+    ] as const
+  ).map(([id, label, code]) => ({ id, label, code, shift: true, alt: true, leader: true })),
+  ...(
+    [
+      "tile-1",
+      "tile-2",
+      "tile-3",
+      "tile-4",
+      "tile-5",
+      "tile-6",
+      "tile-7",
+      "tile-8",
+      "tile-9",
+    ] as const
+  ).map((id, index) => ({
+    id,
+    label: `Focus tile ${String(index + 1)}`,
+    code: `Digit${String(index + 1)}`,
+    shift: false,
+    alt: false,
+    leader: true,
+  })),
+] satisfies readonly {
+  id: BoardCommand;
+  label: string;
+  code: string;
+  shift: boolean;
+  alt: boolean;
+  leader: boolean;
+}[];
+
+type ShortcutInput = Pick<Input, "type" | "code" | "control" | "shift" | "alt" | "meta">;
 export function boardShortcut(
-  input: Pick<Input, "type" | "code" | "control" | "shift" | "alt" | "meta">,
+  input: ShortcutInput,
   platform: NodeJS.Platform,
 ): BoardCommand | undefined {
   if (input.type !== "keyDown") return undefined;
   if (platform === "darwin" ? !input.meta || input.control : !input.control || input.meta)
     return undefined;
-  if (input.alt) {
-    if (!input.shift) return undefined;
-    const commands: Readonly<Record<string, BoardCommand>> = {
-      ArrowLeft: "left",
-      ArrowRight: "right",
-      ArrowUp: "up",
-      ArrowDown: "down",
-      KeyR: "split-right",
-      KeyD: "split-down",
-      KeyW: "close-tile",
-      KeyH: "hide-session",
-    };
-    return commands[input.code];
-  }
-  if (!input.shift) {
-    const numbers: Readonly<Record<string, BoardCommand>> = {
-      Digit1: "tile-1",
-      Digit2: "tile-2",
-      Digit3: "tile-3",
-      Digit4: "tile-4",
-      Digit5: "tile-5",
-      Digit6: "tile-6",
-      Digit7: "tile-7",
-      Digit8: "tile-8",
-      Digit9: "tile-9",
-    };
-    if (numbers[input.code]) return numbers[input.code];
-  }
-  if (input.shift && input.code === "Enter") return "maximize";
-  if (input.code === "Comma" && !input.shift) return "settings";
-  if (!input.shift) return undefined;
-  return input.code === "KeyB" ? "sidebar" : input.code === "KeyN" ? "next-waiting" : undefined;
+  return BOARD_COMMANDS.find(
+    (command) =>
+      (platform === "darwin" || !command.leader) &&
+      command.code === input.code &&
+      command.shift === input.shift &&
+      command.alt === input.alt,
+  )?.id;
+}
+
+/** A per-window, two-second leader; unmatched input stays terminal input. */
+export function createBoardShortcuts(platform: NodeJS.Platform, now = Date.now) {
+  let expires = 0;
+  return {
+    reset: () => {
+      expires = 0;
+    },
+    handle: (input: ShortcutInput): { handled: boolean; command?: BoardCommand } => {
+      if (input.type !== "keyDown") return { handled: false };
+      if (platform !== "darwin") {
+        if (input.code === "Space" && input.control && input.shift && !input.alt && !input.meta) {
+          expires = now() + 2000;
+          return { handled: true };
+        }
+        if (/^(Control|Shift|Alt|Meta)(Left|Right)$/.test(input.code)) return { handled: false };
+        const armed = expires > now();
+        expires = 0;
+        if (armed && !input.control && !input.shift && !input.alt && !input.meta) {
+          const command = BOARD_COMMANDS.find(
+            (command) => command.leader && command.code === input.code,
+          );
+          if (command) return { handled: true, command: command.id };
+          if (input.code === "Escape") return { handled: true };
+        }
+      }
+      const command = boardShortcut(input, platform);
+      return command ? { handled: true, command } : { handled: false };
+    },
+  };
 }
 
 export interface Size {

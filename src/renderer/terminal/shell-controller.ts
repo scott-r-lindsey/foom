@@ -15,6 +15,7 @@ export function createShell(
   onCreated?: (id: string, title: string) => void,
   autoStart = true,
   focusOnOpen = true,
+  available: (id: string) => boolean = () => true,
 ) {
   const view: ShellView = {
     status: "Starting shell…",
@@ -63,6 +64,8 @@ export function createShell(
   let activeId: string | undefined;
   let shellId: string | undefined;
   const exits = new Map<string, number>();
+  const removed = new Set<string>();
+  const isAvailable = (id: string) => available(id) && !removed.has(id);
   let selection = Promise.resolve();
   let request = 0;
   let attached = false;
@@ -93,6 +96,29 @@ export function createShell(
     view.restartDisabled = busy || !exited || (activeId !== undefined && activeId !== shellId);
     publish();
   };
+  const release = (id: string) => {
+    if (activeId !== id) return;
+    ++request;
+    activeId = undefined;
+    visibleRequested = false;
+    visibility(false);
+    controls();
+  };
+  let suspended: { id: string; request: number } | undefined;
+  const offRemoved = window.desktop.onTerminalAvailability((id, available) => {
+    if (available) {
+      removed.delete(id);
+      if (suspended?.id === id) {
+        if (suspended.request === request) void select(id);
+        suspended = undefined;
+      }
+    } else {
+      const selected = activeId === id;
+      removed.add(id);
+      release(id);
+      if (selected) suspended = { id, request };
+    }
+  });
   const offData = window.desktop.onData((id, token, data) => {
     if (id !== activeId || !attached) return;
     terminal.write(data, () => {
@@ -109,6 +135,10 @@ export function createShell(
     view.status = terminalStatus;
     view.state = code === 0 ? "done" : "failed";
     exited = true;
+    if (hostFailed) {
+      activeId = undefined;
+      visibility(false);
+    }
     controls();
   });
   terminal.onData((data) => {
@@ -158,7 +188,7 @@ export function createShell(
     await new Promise<void>((resolve) => {
       terminal.write("", resolve);
     });
-    if (isDisposed() || !wantsVisible()) return;
+    if (isDisposed() || !wantsVisible() || !isAvailable(id)) return;
     wheel.reset();
     terminal.reset();
     updateTheme();
@@ -169,7 +199,7 @@ export function createShell(
     await window.desktop.attach(id);
     if (!wantsVisible()) {
       visibility(false);
-      await window.desktop.detach(id);
+      if (isAvailable(id)) await window.desktop.detach(id);
     } else if (!isDisposed() && focusOnOpen) terminal.focus();
   };
   const toggleView = async () => {
@@ -180,7 +210,7 @@ export function createShell(
     try {
       if (attached) {
         visibility(false);
-        await window.desktop.detach(activeId);
+        if (isAvailable(activeId)) await window.desktop.detach(activeId);
       } else {
         await openView(activeId);
       }
@@ -242,8 +272,10 @@ export function createShell(
     observer.disconnect();
     offData();
     offExit();
+    offRemoved();
     offSetup();
-    if (activeId && attached) void window.desktop.detach(activeId).catch(() => {});
+    if (activeId && attached && isAvailable(activeId))
+      void window.desktop.detach(activeId).catch(() => {});
     terminal.dispose();
   };
   // Measure the first grid only after the bundled terminal face is available.
@@ -261,7 +293,7 @@ export function createShell(
     visibleRequested = false;
     selection = selection.then(async () => {
       await ready;
-      if (isDisposed() || current !== request) return;
+      if (isDisposed() || current !== request || !isAvailable(id)) return;
       visibleRequested = true;
       busy = true;
       controls();
@@ -270,13 +302,14 @@ export function createShell(
           if (focusOnOpen) terminal.focus();
           return;
         }
-        const previous = activeId;
+        const previous = attached ? activeId : undefined;
         visibility(false);
         activeId = undefined;
         // Removal can revoke the old capability before selection catches up.
         // Its failed detach must not prevent attaching the next owned terminal.
-        if (previous) await window.desktop.detach(previous).catch(() => {});
-        if (isDisposed() || current !== request) return;
+        if (previous && isAvailable(previous))
+          await window.desktop.detach(previous).catch(() => {});
+        if (isDisposed() || current !== request || !isAvailable(id)) return;
         activeId = id;
         const code = exits.get(id);
         exited = code !== undefined;
@@ -287,7 +320,7 @@ export function createShell(
         await openView(id);
       } catch (error: unknown) {
         visibility(false);
-        await window.desktop.detach(id).catch(() => {});
+        if (isAvailable(id)) await window.desktop.detach(id).catch(() => {});
         showOperationError("Unable to open terminal", error);
       } finally {
         busy = false;
@@ -299,6 +332,7 @@ export function createShell(
 
   return {
     terminal,
+    release,
     open: async (id?: string) => {
       if (id) return select(id);
       visibleRequested = true;

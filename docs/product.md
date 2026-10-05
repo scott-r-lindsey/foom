@@ -120,12 +120,20 @@ Use Ctrl on Linux/Windows, or ⌘ on macOS:
 
 | Shortcut | Action |
 |---|---|
-| Ctrl/⌘ + 1–9 | Focus tile by number |
+| ⌘ + 1–9 (macOS); leader, then 1–9 (Windows/Linux) | Focus tile by number |
 | Ctrl/⌘ + Shift + Enter | Toggle focused tile maximize |
 | Ctrl/⌘ + Shift + N | Replace focused tile with the longest-waiting session |
-| Ctrl/⌘ + Alt + Shift + arrow | Focus the nearest tile in that direction |
-| Ctrl/⌘ + Alt + Shift + R / D | Split right / down |
-| Ctrl/⌘ + Alt + Shift + W / H | Close tile / hide session |
+| ⌘ + Alt + Shift + arrow (macOS); leader, then arrow (Windows/Linux) | Focus the nearest tile in that direction |
+| ⌘ + Alt + Shift + R / D (macOS); leader, then R / D (Windows/Linux) | Split right / down |
+| ⌘ + Alt + Shift + W / H (macOS); leader, then W / H (Windows/Linux) | Close tile / hide session |
+
+On Windows/Linux the tile leader is Ctrl+Shift+Space. Release the modifiers, then
+press the second key within two seconds. Escape cancels it; an unmatched key
+cancels and reaches the terminal. Window blur also cancels. These bindings avoid
+Ctrl+Alt (AltGr) and GNOME's Ctrl+Alt+Shift+arrow workspace commands. Plain Ctrl+1–9
+now remain terminal input, including Ctrl+2–8 terminal encodings. macOS bindings
+are unchanged. The board command list is shared by shortcut handling; application
+menu integration is tracked in #135.
 
 Plain terminal control keys remain terminal input. The split tree, ratios, leaf
 identities, focus and assigned session IDs persist as local view preferences.

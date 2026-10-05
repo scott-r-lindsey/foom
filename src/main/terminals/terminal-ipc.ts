@@ -69,6 +69,30 @@ export function attachTerminal(
     cols <= 500 &&
     rows >= 2 &&
     rows <= 300;
+  let flushToken = 0;
+  let pendingFlush: { token: number; ids: string[]; resolve: () => void } | undefined;
+  const flushed = (event: IpcMainEvent, ids: unknown, token: unknown) => {
+    if (!trusted(event) || !pendingFlush || token !== pendingFlush.token || !Array.isArray(ids))
+      return;
+    if (
+      ids.length === pendingFlush.ids.length &&
+      ids.every((id, index) => id === pendingFlush?.ids[index])
+    )
+      pendingFlush.resolve();
+  };
+  ipcMain.on("terminal:views-flushed", flushed);
+  const flushViews = (ids: string[]) =>
+    new Promise<void>((resolve) => {
+      const done = () => {
+        clearTimeout(timer);
+        pendingFlush = undefined;
+        resolve();
+      };
+      // A crashed/unresponsive renderer must not prevent native process cleanup.
+      const timer = setTimeout(done, 3000);
+      pendingFlush = { token: ++flushToken, ids, resolve: done };
+      contents.send("terminal:flush-views", ids, flushToken);
+    });
   const handlers = new Map<string, (event: IpcMainInvokeEvent, ...args: unknown[]) => unknown>();
   handlers.set("terminal:create", async (event, cols, rows) => {
     if (!trusted(event)) throw new Error("Untrusted IPC sender");
@@ -100,6 +124,7 @@ export function attachTerminal(
       else {
         await manager.kill(id);
         owned.delete(id);
+        if (!contents.isDestroyed()) contents.send("terminal:availability", [id], false);
         events.onRemoved?.(id);
       }
     });
@@ -176,6 +201,8 @@ export function attachTerminal(
         console.error("Unable to finish terminal shutdown:", error);
       });
     for (const channel of handlers.keys()) ipcMain.removeHandler(channel);
+    ipcMain.removeListener("terminal:views-flushed", flushed);
+    pendingFlush?.resolve();
     ipcMain.removeListener("terminal:input", input);
     ipcMain.removeListener("terminal:resize", resize);
     ipcMain.removeListener("terminal:ack", acknowledge);
@@ -189,6 +216,7 @@ export function attachTerminal(
     async kill(id) {
       await manager.kill(id);
       owned.delete(id);
+      if (!contents.isDestroyed()) contents.send("terminal:availability", [id], false);
     },
     setTheme: (choice) => {
       manager.setTheme(choice);
@@ -200,9 +228,18 @@ export function attachTerminal(
       return manager.runningCount;
     },
     async shutdown() {
-      await manager.shutdown();
-      // Drop capabilities before queued renderer IPC or teardown callbacks run.
-      owned.clear();
+      const ids = [...owned];
+      // Stop queued renderer attachment work before stopping the native hosts.
+      if (!contents.isDestroyed()) contents.send("terminal:availability", ids, false);
+      try {
+        if (!contents.isDestroyed()) await flushViews(ids);
+        await manager.shutdown();
+        owned.clear();
+      } catch (error) {
+        // A failed quit leaves the window open and its capabilities valid.
+        if (!contents.isDestroyed()) contents.send("terminal:availability", ids, true);
+        throw error;
+      }
     },
   };
 }

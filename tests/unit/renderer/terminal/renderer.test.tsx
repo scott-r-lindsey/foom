@@ -78,6 +78,8 @@ const mock = vi.hoisted(() => {
     disconnect: vi.fn(),
     onInput: vi.fn<(callback: (data: string) => void) => void>(),
     onData: vi.fn<(callback: (id: string, token: string, data: string) => void) => () => void>(),
+    onTerminalAvailability:
+      vi.fn<(callback: (id: string, available: boolean) => void) => () => void>(),
     onExit: vi.fn<(callback: (id: string, code: number) => void) => () => void>(),
     create: vi.fn<(cols: number, rows: number) => Promise<{ id: string; title: string }>>(),
     attach: vi.fn(),
@@ -165,6 +167,7 @@ beforeEach(() => {
   document.documentElement.style.setProperty("--ink", "#F4EFFF");
   mock.create.mockResolvedValue({ id: "one", title: "bash — /project" });
   mock.onData.mockReturnValue(mock.offData);
+  mock.onTerminalAvailability.mockReturnValue(() => {});
   mock.onExit.mockReturnValue(mock.offExit);
 });
 test("starts at fitted dimensions, routes input/output, resizes and disposes", async () => {
@@ -697,7 +700,7 @@ test("selecting live IDs detaches before resetting, routes only the selected str
   const controller = createShell(document.createElement("div"), update, false, created);
   await controller.open("agent-a");
   expect(created).toHaveBeenCalledWith("one", "bash — /project");
-  expect(mock.detach).toHaveBeenCalledWith("one");
+  expect(mock.detach).not.toHaveBeenCalled();
   expect(mock.attach).toHaveBeenLastCalledWith("agent-a");
   mock.write.mockClear();
   mock.onData.mock.calls[0]?.[0]("one", "old", "foreign");
@@ -957,4 +960,65 @@ test("passive tile controllers neither steal focus nor detach another view after
   controller.dispose();
   expect(mock.detach).not.toHaveBeenCalled();
   expect(mock.kill).not.toHaveBeenCalled();
+});
+
+test("removed terminals release locally; hiding and queued opening never touch revoked IDs", async () => {
+  let live = true;
+  const controller = createShell(
+    document.createElement("div"),
+    vi.fn(),
+    false,
+    undefined,
+    false,
+    false,
+    () => live,
+  );
+  await controller.open("gone");
+  live = false;
+  controller.release("unrelated");
+  controller.release("gone");
+  await expect(controller.hide()).resolves.toBeUndefined();
+  await controller.open("gone");
+  expect(mock.attach).toHaveBeenCalledTimes(1);
+  expect(mock.detach).not.toHaveBeenCalled();
+  controller.dispose();
+  expect(mock.detach).not.toHaveBeenCalled();
+});
+test("selecting after a hidden terminal never detaches the old view twice", async () => {
+  const controller = createShell(document.createElement("div"), vi.fn(), false, undefined, false);
+  await controller.open("one");
+  await controller.hide();
+  mock.detach.mockClear();
+  await controller.open("two");
+  expect(mock.detach).not.toHaveBeenCalled();
+  controller.dispose();
+});
+
+test("main removal revokes active and queued views without detach, including shutdown", async () => {
+  const controller = createShell(document.createElement("div"), vi.fn(), false, undefined, false);
+  await controller.open("one");
+  mock.onTerminalAvailability.mock.calls[0]?.[0]("one", false);
+  await controller.hide();
+  await controller.open("one");
+  expect(mock.detach).not.toHaveBeenCalled();
+  expect(mock.attach).toHaveBeenCalledOnce();
+  controller.dispose();
+});
+
+test("failed shutdown restores the previous view unless the user changed selection", async () => {
+  const controller = createShell(document.createElement("div"), vi.fn(), false, undefined, false);
+  await controller.open("one");
+  const availability = mock.onTerminalAvailability.mock.calls[0]?.[0];
+  availability?.("one", false);
+  availability?.("other", true);
+  availability?.("one", true);
+  await vi.waitFor(() => {
+    expect(mock.attach).toHaveBeenCalledTimes(2);
+  });
+  availability?.("one", false);
+  await controller.open("two");
+  availability?.("one", true);
+  await Promise.resolve();
+  expect(mock.attach).toHaveBeenLastCalledWith("two");
+  controller.dispose();
 });

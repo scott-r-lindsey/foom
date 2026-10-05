@@ -15,7 +15,7 @@ import {
   MINIMUM_SIZE,
   scaledSize,
   zoomShortcut,
-  boardShortcut,
+  createBoardShortcuts,
 } from "./window/appearance";
 import { loadWindowSize, saveWindowSize } from "./window/window-state";
 import type { Size } from "./window/appearance";
@@ -88,6 +88,8 @@ function createWindow(savedSize?: Size) {
 
   // Terminal control keys (for example Ctrl+W in vim) must reach the PTY.
   window.removeMenu();
+  const boardShortcuts = createBoardShortcuts(process.platform);
+  window.on("blur", boardShortcuts.reset);
   window.webContents.on("before-input-event", (event, input) => {
     const key = input.key.toLowerCase();
     const quitShortcut =
@@ -101,10 +103,10 @@ function createWindow(savedSize?: Size) {
       app.quit();
       return;
     }
-    const command = boardShortcut(input, process.platform);
-    if (command) {
+    const { handled, command } = boardShortcuts.handle(input);
+    if (handled) {
       event.preventDefault();
-      window.webContents.send("board:command", command);
+      if (command) window.webContents.send("board:command", command);
       return;
     }
     const zoom = zoomShortcut(input, process.platform);
