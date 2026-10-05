@@ -17,6 +17,24 @@ test("process ancestry includes grandchildren in any order, excluding unrelated 
   );
 });
 
+test("PID reuse never adopts processes that existed before the test", () => {
+  const oldChild = { pid: 20, parent: 10, start: "old" };
+  const oldGrandchild = { pid: 30, parent: 20, start: "old" };
+  const rows = [
+    oldChild,
+    oldGrandchild,
+    { pid: 10, parent: 1, start: "new" },
+    { pid: 40, parent: 10, start: "new" },
+    // A baseline PID may legitimately be reused by a new app child.
+    { pid: 50, parent: 40, start: "new" },
+  ];
+  const baseline = [oldChild, oldGrandchild, { pid: 50, parent: 1, start: "old" }];
+  assert.deepEqual(
+    audit.descendants(rows, [10], baseline).map((row) => row.pid),
+    [10, 40, 50],
+  );
+});
+
 test("process audit detects a live descendant and accepts it after exit", async (context) => {
   const scope = await audit.auditProcesses(context);
   const child = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], { stdio: "ignore" });

@@ -1574,7 +1574,9 @@ function isolatedGit(args, options = {}) {
 }
 
 async function tabTo(page, name, accessibleName = name) {
-  await expect(page.getByRole("button", { name: accessibleName, exact: true })).toBeVisible();
+  const target = page.getByRole("button", { name: accessibleName, exact: true });
+  await expect(target).toBeVisible();
+  await expect(target).toBeEnabled();
   for (let step = 0; step < 40; step++) {
     await page.keyboard.press("Tab");
     const label = await page.evaluate(() => document.activeElement?.textContent?.trim());
@@ -2319,6 +2321,10 @@ test("new worktree dialog launches by keyboard and confirms dirty removal", {
   });
   const page = await app.firstWindow();
   const tabToField = async (id, reverse = false) => {
+    // Selecting the already-registered repository does not change its value.
+    // Wait for the async add to release the disabled fieldset before sending Tab.
+    await expect(page.locator(`#${id}`)).toBeVisible();
+    await expect(page.locator(`#${id}`)).toBeEnabled();
     for (let step = 0; step < 40; step++) {
       await page.keyboard.press(reverse ? "Shift+Tab" : "Tab");
       if ((await page.evaluate(() => document.activeElement?.id)) === id) return;
@@ -2903,6 +2909,8 @@ test("Settings shares live preflight values, sizes the terminal and restores key
   await expect(page.getByRole("navigation", { name: "Terminal sidebar" })).toBeVisible();
   await expect(page.getByRole("region", { name: "Terminal pane" })).toBeHidden();
   const tabToControl = async (control) => {
+    await expect(control).toBeVisible();
+    await expect(control).toBeEnabled();
     for (let step = 0; step < 50; step++) {
       await page.keyboard.press("Tab");
       if (await control.evaluate((element) => document.activeElement === element)) return;

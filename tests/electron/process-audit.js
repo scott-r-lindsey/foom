@@ -44,7 +44,11 @@ async function snapshot() {
     });
 }
 
-function descendants(rows, roots) {
+function descendants(rows, roots, baseline = []) {
+  // Windows retains a creator PID after that process exits. A new Electron can
+  // reuse the PID of an old system process; its older children are not ours.
+  const existing = new Map(baseline.map((row) => [row.pid, row.start]));
+  rows = rows.filter((row) => !existing.has(row.pid) || existing.get(row.pid) !== row.start);
   const ids = new Set(roots);
   let changed = true;
   while (changed) {
@@ -75,7 +79,12 @@ async function auditProcesses(context) {
   let stopped = false;
   let failure;
   const capture = async () => {
-    for (const row of descendants(await snapshot(), roots)) tracked.set(row.pid, row);
+    const rows = await snapshot();
+    const liveRoots = [...roots].filter((pid) => {
+      const previous = tracked.get(pid);
+      return !previous || rows.some((row) => row.pid === pid && row.start === previous.start);
+    });
+    for (const row of descendants(rows, liveRoots, baseline)) tracked.set(row.pid, row);
   };
   const polling = (async () => {
     while (!stopped) {
@@ -87,6 +96,7 @@ async function auditProcesses(context) {
   });
   return {
     add(pid) {
+      tracked.delete(pid); // A later launch in the same test may reuse an exited app PID.
       roots.add(pid);
     },
     capture,
