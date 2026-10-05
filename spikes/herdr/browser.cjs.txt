@@ -1,0 +1,323 @@
+const { spawn } = require("node:child_process");
+const fs = require("node:fs");
+const path = require("node:path");
+const http = require("node:http");
+const crypto = require("node:crypto");
+const os = require("node:os");
+const { chromium } = require("@playwright/test");
+module.exports = async (s, { root, delay, until, mode }) => {
+  const count = mode.startsWith("six") ? 6 : 1;
+  const panes = [];
+  for (let i = 0; i < count; i++)
+    panes.push(s.cli("workspace", "create", "--cwd", s.dir, "--no-focus").result.root_pane.pane_id);
+  const controls = panes.map((p) => s.control(p));
+  await Promise.all(controls.map((c) => c.ready()));
+  const token = crypto.randomBytes(24).toString("hex");
+  const assets = {
+    "/": [
+      "text/html",
+      fs
+        .readFileSync(path.join(root, "spikes/herdr/view.html"), "utf8")
+        .replaceAll("TOKEN", token)
+        .replace("TILE_COUNT", String(count)),
+    ],
+    "/xterm.js": [
+      "text/javascript",
+      fs.readFileSync(path.join(root, "node_modules/@xterm/xterm/lib/xterm.js")),
+    ],
+    "/xterm.css": [
+      "text/css",
+      fs.readFileSync(path.join(root, "node_modules/@xterm/xterm/css/xterm.css")),
+    ],
+  };
+  const requests = new Set();
+  let origin;
+  const server = http.createServer((req, res) => {
+    if (req.headers.host !== new URL(origin).host) {
+      res.writeHead(403).end();
+      return;
+    }
+    const url = new URL(req.url, origin);
+    const asset = assets[url.pathname];
+    if (req.method === "GET" && asset) {
+      res.writeHead(200, {
+        "Content-Type": asset[0],
+        "Content-Security-Policy": `default-src 'none'; script-src 'self' 'nonce-${token}'; style-src 'self' 'unsafe-inline'; connect-src 'self'; font-src 'self'`,
+      });
+      res.end(asset[1]);
+      return;
+    }
+    if (
+      url.searchParams.get("token") !== token ||
+      (req.method === "POST" && req.headers.origin !== origin)
+    ) {
+      res.writeHead(403).end();
+      return;
+    }
+    const index = Number(url.searchParams.get("tile"));
+    if (!Number.isInteger(index) || index < 0 || index >= count) {
+      res.writeHead(400).end();
+      return;
+    }
+    const control = controls[index];
+    if (req.method === "GET" && url.pathname === "/frames") {
+      res.writeHead(200, { "Content-Type": "text/event-stream", "Cache-Control": "no-store" });
+      requests.add(res);
+      const next = controls.map(() => 0);
+      const timer = setInterval(() => {
+        for (let tile = 0; tile < count; tile++)
+          while (next[tile] < controls[tile].records.length) {
+            if (res.writableLength > 2 * 1024 * 1024) {
+              res.destroy();
+              break;
+            }
+            res.write(
+              `data: ${JSON.stringify({ tile, frame: controls[tile].records[next[tile]++] })}\n\n`,
+            );
+          }
+      }, 4);
+      req.on("close", () => {
+        clearInterval(timer);
+        requests.delete(res);
+      });
+      return;
+    }
+    if (req.method === "POST" && url.pathname === "/input") {
+      let body = "";
+      req.on("data", (b) => {
+        body += b;
+        if (body.length > 65536) req.destroy();
+      });
+      req.on("end", () => {
+        try {
+          const m = JSON.parse(body);
+          const integer = (v, max) => Number.isInteger(v) && v >= 0 && v <= max;
+          const valid =
+            (m.type === "terminal.input" && typeof m.text === "string" && m.text.length <= 32768) ||
+            (m.type === "terminal.resize" &&
+              integer(m.cols, 500) &&
+              m.cols > 0 &&
+              integer(m.rows, 200) &&
+              m.rows > 0) ||
+            (m.type === "terminal.scroll" &&
+              ["up", "down"].includes(m.direction) &&
+              integer(m.lines, 200) &&
+              m.lines > 0 &&
+              integer(m.column, 500) &&
+              integer(m.row, 200) &&
+              integer(m.modifiers, 7)) ||
+            (m.type === "terminal.mouse" &&
+              ["down", "up", "drag", "move"].includes(m.action) &&
+              ["left", "middle", "right"].includes(m.button) &&
+              integer(m.column, 500) &&
+              integer(m.row, 200) &&
+              integer(m.modifiers, 7));
+          if (!valid) throw Error("Invalid message");
+          control.send(m);
+          res.writeHead(204).end();
+        } catch {
+          res.writeHead(400).end();
+        }
+      });
+      return;
+    }
+    res.writeHead(404).end();
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  origin = `http://127.0.0.1:${server.address().port}`;
+  const main = path.join(s.dir, "electron.cjs");
+  fs.writeFileSync(
+    main,
+    `const {app,BrowserWindow}=require('electron');app.whenReady().then(()=>{const w=new BrowserWindow({width:900,height:640,useContentSize:true,webPreferences:{contextIsolation:true,sandbox:true,nodeIntegration:false}});w.webContents.setWindowOpenHandler(()=>({action:'deny'}));w.webContents.on('will-navigate',e=>e.preventDefault());w.loadURL(${JSON.stringify(origin)});});app.on('window-all-closed',()=>app.quit());`,
+  );
+  const child = spawn(
+    require("electron"),
+    [main, "--remote-debugging-port=0", `--user-data-dir=${path.join(s.dir, "electron-profile")}`],
+    { env: s.env, stdio: ["ignore", "ignore", "pipe"] },
+  );
+  let browser;
+  try {
+    const endpoint = await new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject(Error("Electron startup timeout")), 15000);
+      let stderr = "";
+      child.on("error", reject);
+      child.on("exit", (code) => {
+        clearTimeout(timer);
+        reject(Error(`Electron exit ${code}: ${stderr}`));
+      });
+      child.stderr.on("data", (b) => {
+        stderr = (stderr + b).slice(-4000);
+        const m = stderr.match(/DevTools listening on (ws:\/\/\S+)/);
+        if (m) {
+          clearTimeout(timer);
+          resolve(m[1]);
+        }
+      });
+    });
+    browser = await chromium.connectOverCDP(endpoint);
+    const page = browser.contexts()[0].pages()[0];
+    page.on("pageerror", (e) => console.error(e.message));
+    await page.waitForFunction(() => window.spike?.ready === true);
+    await delay(500);
+    if (mode === "demo") {
+      console.error("Private prototype is open; close its window or press Ctrl+C.");
+      await new Promise((resolve) => child.once("exit", resolve));
+      return { mode };
+    }
+    // Render/input verification before load, including actual browser mouse and wheel.
+    await page.locator(".tile").first().click();
+    await page.keyboard.type("echo BROWSER_TYPING");
+    await page.keyboard.press("Enter");
+    await page.waitForFunction(() => window.spike.text(0).includes("BROWSER_TYPING"));
+    const fixture = path.join(root, "spikes/herdr/fidelity.py");
+    s.cli("pane", "run", panes[0], `python3 ${fixture}`);
+    await page.waitForFunction(() => window.spike.text(0).includes("FIDELITY"));
+    const fidelity = await page.evaluate(() => ({
+      text: window.spike.text(0),
+      modes: window.spike.terms[0].modes,
+      bufferType: window.spike.terms[0].buffer.active.type,
+    }));
+    await page
+      .locator(".tile")
+      .first()
+      .click({ position: { x: 40, y: 55 } });
+    await page.evaluate(() => {
+      const data = new DataTransfer();
+      data.setData("text/plain", "paste");
+      document
+        .querySelector(".tile")
+        .dispatchEvent(
+          new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true }),
+        );
+    });
+    await delay(100);
+    await page.keyboard.type("q");
+    await delay(300);
+    await page.screenshot({ path: path.join(s.dir, "fidelity.png") });
+    const mouse = s.cli("pane", "read", panes[0], "--source", "recent-unwrapped", "--lines", "10");
+    s.cli("pane", "run", panes[0], "for i in {1..100}; do echo HISTORY_$i; done");
+    await delay(300);
+    await page.mouse.wheel(0, -400);
+    await delay(300);
+    const wheel = await page.evaluate(() => window.spike.text(0));
+    if (mode === "verify") {
+      const before = controls[0].records.length;
+      await page.setViewportSize({ width: 720, height: 480 });
+      await until(
+        () => controls[0].records.slice(before).some((r) => r.full),
+        "browser resize frame",
+      );
+      return { mode, fidelity, mouse, wheel, resizeFrame: controls[0].records.at(-1) };
+    }
+    await page.mouse.wheel(0, 4000);
+    await delay(300);
+    // Match #138's 100 * 78-byte rows / 20ms, bounded at 12 seconds.
+    const flood = path.join(s.dir, "flood.cjs");
+    fs.copyFileSync(path.join(root, "tests/electron/tile-flood.js"), flood);
+    if (mode === "six-vary")
+      fs.writeFileSync(
+        flood,
+        "let n=0,bytes=0;const timer=setInterval(()=>{const chunk=Array.from({length:100},()=>String(n++).padStart(8,'0')+' '+ '0123456789'.repeat(6)+'\\r\\n').join('');bytes+=chunk.length;process.stdout.write(chunk);},20);setTimeout(()=>{clearInterval(timer);console.log('FLOOD_DONE',bytes);},12000);",
+      );
+    for (const pane of panes.slice(0, count === 6 ? 2 : 1))
+      s.cli("pane", "run", pane, `${process.execPath} ${flood}`);
+    const startCounts = controls.map((c) => c.records.length);
+    const raf = page.evaluate(
+      () =>
+        new Promise((resolve) => {
+          const intervals = [],
+            longTasks = [];
+          let previous = performance.now();
+          const start = previous;
+          const observer = new PerformanceObserver((list) =>
+            longTasks.push(...list.getEntries().map((e) => e.duration)),
+          );
+          observer.observe({ type: "longtask" });
+          function tick(now) {
+            intervals.push(now - previous);
+            previous = now;
+            if (now - start < 10000) requestAnimationFrame(tick);
+            else {
+              observer.disconnect();
+              intervals.sort((a, b) => a - b);
+              resolve({
+                durationMs: now - start,
+                frames: intervals.length,
+                p95Ms: intervals[Math.floor(intervals.length * 0.95)],
+                maxMs: Math.max(...intervals),
+                longTasks: longTasks.length,
+                longTaskMaxMs: Math.max(0, ...longTasks),
+              });
+            }
+          }
+          requestAnimationFrame(tick);
+        }),
+    );
+    raf.catch(() => {});
+    const latency = [];
+    // Single-pane flood: PTY line discipline echoes while flood runs. Six tiles: idle tile 3.
+    const target = count === 6 ? 2 : 0;
+    for (let i = 0; i < 10; i++) {
+      await delay(500);
+      const marker = `PING_${i}_`;
+      const elapsed = await page
+        .evaluate(
+          async ({ target, marker }) => {
+            const start = performance.now();
+            await window.spike.send(target, { type: "terminal.input", text: "\x15" + marker });
+            await new Promise((resolve, reject) => {
+              const deadline = performance.now() + 400;
+              const poll = () => {
+                if (window.spike.text(target).includes(marker))
+                  requestAnimationFrame(() => resolve());
+                else if (performance.now() > deadline) reject(Error("echo timeout"));
+                else requestAnimationFrame(poll);
+              };
+              poll();
+            });
+            return performance.now() - start;
+          },
+          { target, marker },
+        )
+        .catch((error) => ({ error: error.message }));
+      latency.push(elapsed);
+    }
+    const animation = await raf;
+    const stream = controls.map((c, i) => {
+      const frames = c.records.slice(startCounts[i]).filter((r) => r.type === "terminal.frame");
+      return {
+        frames: frames.length,
+        full: frames.filter((r) => r.full).length,
+        decodedBytes: frames.reduce((n, r) => n + Buffer.from(r.bytes, "base64").length, 0),
+      };
+    });
+    await delay(2500);
+    await page.screenshot({ path: path.join(s.dir, "load.png") });
+    const floodOutput = panes
+      .slice(0, count === 6 ? 2 : 1)
+      .map((p) => s.cli("pane", "read", p, "--source", "recent-unwrapped", "--lines", "10"));
+    const successful = latency.filter((v) => typeof v === "number").sort((a, b) => a - b);
+    return {
+      mode,
+      platform: process.platform,
+      cpu: os.cpus()[0].model,
+      node: process.version,
+      electron: require("electron/package.json").version,
+      viewport: await page.evaluate(() => ({ width: innerWidth, height: innerHeight })),
+      fidelity,
+      mouse,
+      wheel,
+      animation,
+      latencyMs: latency,
+      inputP95Ms: successful[Math.floor(successful.length * 0.95)] ?? null,
+      stream,
+      floodOutput,
+    };
+  } finally {
+    if (browser) await browser.close();
+    child.kill();
+    for (const response of requests) response.destroy();
+    server.closeAllConnections();
+    await new Promise((resolve) => server.close(resolve));
+  }
+};

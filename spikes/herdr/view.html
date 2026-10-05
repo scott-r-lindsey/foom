@@ -1,0 +1,212 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <title>Isolated Herdr spike</title>
+    <link rel="stylesheet" href="/xterm.css">
+    <style>
+    body {
+      margin: 0;
+      background: #05040a;
+      color: #f4efff;
+      font: 14px monospace;
+    }
+    #tiles {
+      display: grid;
+      grid-template-columns: repeat(var(--columns), 1fr);
+      height: 100vh;
+    }
+    .tile {
+      min-width: 0;
+      min-height: 0;
+      overflow: hidden;
+      border: 1px solid #9b6bff;
+      position: relative;
+    }
+    .status {
+      position: absolute;
+      right: 4px;
+      top: 2px;
+      z-index: 2;
+      background: #0d0a17;
+    }
+    .xterm-viewport {
+      overflow: hidden !important;
+    }
+    </style>
+    <script src="/xterm.js"></script>
+  </head>
+  <body>
+    <div id="tiles"></div>
+    <script nonce="TOKEN">
+    const count = TILE_COUNT,
+      terms = [],
+      stats = [],
+      handlers = [],
+      closed = [];
+    const events = new EventSource("/frames?token=TOKEN");
+    events.onmessage = (e) => {
+      const { tile, frame } = JSON.parse(e.data);
+      handlers[tile]?.(frame);
+    };
+    const tiles = document.querySelector("#tiles");
+    tiles.style.setProperty("--columns", count === 1 ? 1 : 2);
+    let inputQueue = Promise.resolve();
+    const send = (i, message) =>
+      closed[i]
+        ? Promise.resolve()
+        : (inputQueue = inputQueue.then(() =>
+            fetch(`/input?token=TOKEN&tile=${i}`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(message),
+            }).then((r) => {
+              if (!r.ok) throw Error(`Input rejected: ${r.status}`);
+            }),
+          ));
+    for (let i = 0; i < count; i++) {
+      const el = document.createElement("div");
+      el.className = "tile";
+      tiles.append(el);
+      const status = document.createElement("span");
+      status.className = "status";
+      status.textContent = `${i + 1}: connecting`;
+      el.append(status);
+      const term = new Terminal({
+        cols: 80,
+        rows: 24,
+        fontSize: 12,
+        scrollback: 0,
+        allowProposedApi: true,
+      });
+      term.open(el);
+      terms.push(term);
+      stats.push({ frames: 0, bytes: 0 });
+      // Frames are display state; Herdr, not xterm, owns application modes and scrollback.
+      term.onData((text) => send(i, { type: "terminal.input", text }));
+      el.addEventListener(
+        "paste",
+        (e) => {
+          e.preventDefault();
+          e.stopImmediatePropagation();
+          const text = e.clipboardData?.getData("text/plain");
+          if (text) send(i, { type: "terminal.input", text: "\x1b[200~" + text + "\x1b[201~" });
+        },
+        { capture: true },
+      );
+      const position = (e) => {
+        const box = el.querySelector(".xterm-screen").getBoundingClientRect();
+        return {
+          column: Math.max(
+            0,
+            Math.min(term.cols - 1, Math.floor((e.clientX - box.left) / (box.width / term.cols))),
+          ),
+          row: Math.max(
+            0,
+            Math.min(term.rows - 1, Math.floor((e.clientY - box.top) / (box.height / term.rows))),
+          ),
+        };
+      };
+      const modifiers = (e) => (e.shiftKey ? 1 : 0) | (e.ctrlKey ? 2 : 0) | (e.altKey ? 4 : 0);
+      el.addEventListener(
+        "wheel",
+        (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          send(i, {
+            type: "terminal.scroll",
+            direction: e.deltaY < 0 ? "up" : "down",
+            lines: Math.min(200, Math.max(1, Math.ceil(Math.abs(e.deltaY) / 20))),
+            ...position(e),
+            modifiers: modifiers(e),
+          });
+        },
+        { passive: false, capture: true },
+      );
+      for (const [event, action] of [
+        ["mousedown", "down"],
+        ["mouseup", "up"],
+        ["mousemove", "move"],
+      ])
+        el.addEventListener(event, (e) => {
+          send(i, {
+            type: "terminal.mouse",
+            action: action === "move" && e.buttons ? "drag" : action,
+            button:
+              action === "move"
+                ? e.buttons & 1
+                  ? "left"
+                  : e.buttons & 4
+                    ? "middle"
+                    : "right"
+                : ["left", "middle", "right"][e.button] || "left",
+            ...position(e),
+            modifiers: modifiers(e),
+          });
+        });
+      el.addEventListener("contextmenu", (e) => e.preventDefault());
+      new ResizeObserver(() => {
+        const cols = Math.max(2, Math.floor(el.clientWidth / 7.23)),
+          rows = Math.max(2, Math.floor(el.clientHeight / 14));
+        send(i, { type: "terminal.resize", cols, rows });
+      }).observe(el);
+      let queued = 0,
+        writing = false;
+      const queue = [];
+      const pump = () => {
+        if (writing || !queue.length) return;
+        writing = true;
+        const { frame, bytes } = queue.shift();
+        term.resize(frame.width, frame.height);
+        term.write(bytes, () => {
+          queued -= bytes.length;
+          writing = false;
+          status.textContent = `${i + 1}: control`;
+          pump();
+        });
+      };
+      handlers[i] = (frame) => {
+        if (frame.type === "terminal.closed") {
+          status.textContent = `${i + 1}: ${frame.reason || "closed"}`;
+          closed[i] = true;
+          return;
+        }
+        if (
+          frame.type !== "terminal.frame" ||
+          frame.encoding !== "ansi" ||
+          typeof frame.bytes !== "string"
+        )
+          throw Error("Invalid frame");
+        const bytes = Uint8Array.from(atob(frame.bytes), (c) => c.charCodeAt(0));
+        queued += bytes.length;
+        if (queued > 2 * 1024 * 1024) {
+          events.close();
+          status.textContent = "Queue overflow: reconnect required";
+          return;
+        }
+        stats[i].frames++;
+        stats[i].bytes += bytes.length;
+        queue.push({ frame, bytes });
+        pump();
+      };
+      events.addEventListener("error", () => {
+        events.close();
+        status.textContent = `${i + 1}: disconnected`;
+      });
+    }
+    window.spike = {
+      terms,
+      stats,
+      send,
+      ready: true,
+      text(i) {
+        const b = terms[i].buffer.active;
+        return Array.from(
+          { length: b.length },
+          (_, y) => b.getLine(y)?.translateToString(true) || "",
+        ).join("\n");
+      },
+    };
+    </script>
+  </body>
+</html>

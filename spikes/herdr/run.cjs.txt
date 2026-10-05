@@ -1,0 +1,385 @@
+// Research fixture: intentionally outside the application's JS/TS globs.
+const { spawn, execFileSync } = require("node:child_process");
+const fs = require("node:fs");
+const path = require("node:path");
+const os = require("node:os");
+const net = require("node:net");
+const readline = require("node:readline");
+const assert = require("node:assert/strict");
+const root = process.cwd();
+const binary = process.env.FOOM_HERDR_BINARY || path.join(os.homedir(), ".local/bin/herdr");
+const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+async function until(test, label, timeout = 10000) {
+  const end = Date.now() + timeout;
+  while (Date.now() < end) {
+    if (await test()) return;
+    await delay(20);
+  }
+  throw new Error(`Timeout: ${label}`);
+}
+async function isolated() {
+  const dir = fs.mkdtempSync("/tmp/foom-herdr-");
+  // Never inherit the user's session, socket, pane identity, or agent identity.
+  const env = Object.fromEntries(
+    Object.entries(process.env).filter(
+      ([key]) =>
+        !key.startsWith("HERDR_") &&
+        !key.startsWith("CLAUDE") &&
+        !key.startsWith("CODEX") &&
+        key !== "ELECTRON_RUN_AS_NODE",
+    ),
+  );
+  Object.assign(env, {
+    XDG_CONFIG_HOME: dir,
+    XDG_STATE_HOME: dir,
+    HERDR_CONFIG_PATH: path.join(dir, "config.toml"),
+    SHELL: "/bin/bash",
+  });
+  const shell = path.join(dir, "shell");
+  fs.writeFileSync(shell, "#!/bin/sh\nexec /bin/bash --noprofile --norc -i\n", { mode: 0o700 });
+  fs.writeFileSync(
+    env.HERDR_CONFIG_PATH,
+    `[terminal]\ndefault_shell = "${shell}"\nshell_mode = "non_login"\n[session]\nresume_agents_on_restore = false\n`,
+  );
+  const prefix = ["--session", "foom-spike"];
+  const children = [];
+  const start = (args) => {
+    const child = spawn(binary, [...prefix, ...args], {
+      env,
+      cwd: dir,
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+    children.push(child);
+    child.on("error", (error) => {
+      child.failure = error;
+    });
+    return child;
+  };
+  const cli = (...args) => {
+    const output = execFileSync(binary, [...prefix, ...args], {
+      env,
+      cwd: dir,
+      timeout: 15000,
+      encoding: "utf8",
+    });
+    return args[0] === "pane" && args[1] === "read"
+      ? output
+      : output.trim()
+        ? JSON.parse(output)
+        : null;
+  };
+  const socket = path.join(dir, "herdr/sessions/foom-spike/herdr.sock");
+  const api = (method, params = {}) =>
+    new Promise((resolve, reject) => {
+      const connection = net.createConnection(socket);
+      connection.setTimeout(5000, () => connection.destroy(new Error("API timeout")));
+      connection.on("error", reject);
+      connection.on("connect", () =>
+        connection.write(JSON.stringify({ id: "spike", method, params }) + "\n"),
+      );
+      let pending = "";
+      connection.on("data", (bytes) => {
+        pending += bytes;
+        if (pending.includes("\n")) {
+          resolve(JSON.parse(pending.split("\n")[0]));
+          connection.destroy();
+        }
+      });
+    });
+  const server = start(["server"]);
+  let serverLog = "";
+  server.stderr.on("data", (b) => {
+    serverLog = (serverLog + b).slice(-8000);
+  });
+  try {
+    await until(() => {
+      if (server.failure || server.exitCode !== null)
+        throw new Error(serverLog || String(server.failure));
+      return fs.existsSync(socket);
+    }, "private server");
+  } catch (error) {
+    server.kill();
+    throw error;
+  }
+  const control = (target, mode = "control", takeover = false) => {
+    assert.match(target, /^w\d+:p\d+$/);
+    const child = start([
+      "terminal",
+      "session",
+      mode,
+      target,
+      "--cols",
+      "80",
+      "--rows",
+      "24",
+      ...(takeover ? ["--takeover"] : []),
+    ]);
+    const records = [];
+    let stderr = "";
+    child.stderr.on("data", (b) => {
+      stderr = (stderr + b).slice(-4000);
+    });
+    readline.createInterface({ input: child.stdout }).on("line", (line) => {
+      records.push(JSON.parse(line));
+    });
+    child.stdin.on("error", () => {});
+    return {
+      child,
+      records,
+      get stderr() {
+        return stderr;
+      },
+      send(message) {
+        child.stdin.write(JSON.stringify(message) + "\n");
+      },
+      async ready() {
+        await until(() => records.length || child.exitCode !== null, "control first record");
+        return records[0];
+      },
+    };
+  };
+  const stop = async () => {
+    try {
+      if (fs.existsSync(socket)) cli("server", "stop");
+    } finally {
+      for (const child of children) if (child.exitCode === null) child.kill("SIGTERM");
+      await until(
+        () => children.every((c) => c.exitCode !== null || c.signalCode !== null),
+        "owned children exit",
+      );
+    }
+    console.error(`Stopped private session; evidence directory: ${dir}`);
+  };
+  return { dir, env, server, socket, start, cli, api, control, stop };
+}
+async function research(s) {
+  const evidence = {
+    version: execFileSync(binary, ["--version"], { encoding: "utf8" }).trim(),
+    ping: await s.api("ping"),
+  };
+  const repo = path.join(s.dir, "repo");
+  fs.mkdirSync(repo);
+  execFileSync("git", ["init", "-q", repo]);
+  execFileSync("git", [
+    "-C",
+    repo,
+    "-c",
+    "user.name=Spike",
+    "-c",
+    "user.email=spike@example.invalid",
+    "commit",
+    "--allow-empty",
+    "-qm",
+    "fixture",
+  ]);
+  const workspace = s.cli(
+    "workspace",
+    "create",
+    "--cwd",
+    repo,
+    "--label",
+    "Foom spike",
+    "--no-focus",
+  );
+  evidence.workspace = workspace;
+  const pane = workspace.result.root_pane.pane_id;
+  const controller = s.control(pane);
+  await controller.ready();
+  const observer = s.control(pane, "observe");
+  await observer.ready();
+  const conflict = s.control(pane);
+  await conflict.ready();
+  evidence.conflict = conflict.records;
+  controller.send({ type: "terminal.resize", cols: 91, rows: 27 });
+  await until(() => controller.records.some((r) => r.width === 91), "resize");
+  evidence.resize = controller.records.find((r) => r.width === 91);
+  evidence.tui = execFileSync("python3", [path.join(root, "spikes/herdr/tui.py"), binary], {
+    env: s.env,
+    timeout: 10000,
+    encoding: "utf8",
+  });
+  controller.send({ type: "terminal.input", text: "echo TUI_COEXIST\r" });
+  await delay(300);
+  evidence.afterTui = controller.records.at(-1);
+  const eventConnection = net.createConnection(s.socket),
+    events = [];
+  const eventReader = readline.createInterface({ input: eventConnection });
+  eventReader.on("line", (line) => events.push(JSON.parse(line)));
+  await new Promise((resolve, reject) => {
+    eventConnection.once("connect", resolve);
+    eventConnection.once("error", reject);
+  });
+  eventConnection.write(
+    JSON.stringify({
+      id: "events",
+      method: "events.subscribe",
+      params: { subscriptions: [{ type: "pane.created" }, { type: "worktree.created" }] },
+    }) + "\n",
+  );
+  // Write a deterministic fixture file; only this private shell receives its path.
+  const fixture = path.join(s.dir, "fidelity.py");
+  fs.copyFileSync(path.join(root, "spikes/herdr/fidelity.py"), fixture);
+  s.cli("pane", "run", pane, `python3 ${fixture}`);
+  await until(
+    () =>
+      controller.records.some(
+        (r) => r.bytes && Buffer.from(r.bytes, "base64").includes(Buffer.from("FIDELITY")),
+      ),
+    "fidelity output",
+  );
+  await delay(300);
+  evidence.fidelityPane = s.cli("pane", "get", pane);
+  evidence.observerFrame = observer.records.at(-1);
+  controller.send({ type: "terminal.input", text: "h" });
+  await delay(150);
+  evidence.fidelity = controller.records
+    .filter((r) => r.bytes)
+    .map((r) => ({ ...r, ansi: Buffer.from(r.bytes, "base64").toString() }));
+  controller.send({ type: "terminal.mouse", action: "down", button: "left", column: 4, row: 3 });
+  controller.send({ type: "terminal.mouse", action: "up", button: "left", column: 4, row: 3 });
+  controller.send({ type: "terminal.input", text: "\x1b[200~paste\x1b[201~" });
+  await delay(300);
+  controller.send({ type: "terminal.input", text: "q" });
+  await delay(500);
+  evidence.input = s.cli("pane", "read", pane, "--source", "recent-unwrapped", "--lines", "40");
+  s.cli("pane", "run", pane, "for i in {1..100}; do echo HISTORY_$i; done");
+  await delay(500);
+  const before = controller.records.length;
+  controller.send({ type: "terminal.scroll", direction: "up", lines: 15 });
+  await delay(300);
+  evidence.scroll = controller.records
+    .slice(before)
+    .map((r) => ({ ...r, ansi: r.bytes ? Buffer.from(r.bytes, "base64").toString() : undefined }));
+  const replacement = s.control(pane, "control", true);
+  await replacement.ready();
+  await delay(200);
+  evidence.takeover = controller.records.filter((r) => r.type === "terminal.closed");
+  replacement.send({ type: "terminal.release" });
+  await delay(200);
+  evidence.release = replacement.records.filter((r) => r.type === "terminal.closed");
+  const reclaim = s.control(pane);
+  await reclaim.ready();
+  evidence.reclaim = reclaim.records[0].type;
+  evidence.worktree = s.cli(
+    "worktree",
+    "create",
+    "--workspace",
+    workspace.result.workspace.workspace_id,
+    "--branch",
+    "spike-child",
+    "--path",
+    path.join(s.dir, "child"),
+    "--no-focus",
+  );
+  evidence.split = s.cli(
+    "pane",
+    "split",
+    pane,
+    "--direction",
+    "right",
+    "--cwd",
+    repo,
+    "--no-focus",
+  );
+  // Names and selected non-secret values only; never dump the inherited environment.
+  const envFile = path.join(s.dir, "env.py");
+  fs.writeFileSync(
+    envFile,
+    'import os,json\nprint("ENV_PROBE "+json.dumps({k:v for k,v in os.environ.items() if k.startswith("HERDR_") or k in ["TERM","COLORTERM","TERM_PROGRAM","TERM_PROGRAM_VERSION","SSH_AUTH_SOCK"]},sort_keys=True))\n',
+  );
+  s.cli("pane", "run", pane, `python3 ${envFile}`);
+  await delay(400);
+  evidence.environment = s.cli(
+    "pane",
+    "read",
+    pane,
+    "--source",
+    "recent-unwrapped",
+    "--lines",
+    "12",
+  );
+  evidence.snapshot = s.cli("api", "snapshot");
+  evidence.events = events;
+  eventConnection.destroy();
+  evidence.beforeHandoffProcess = s.cli("pane", "process-info", "--pane", pane);
+  evidence.handoff = await s.api("server.live_handoff", {
+    expected_version: "0.9.3",
+    expected_protocol: 22,
+  });
+  await delay(1000);
+  evidence.handoffStream = {
+    closed: reclaim.records.filter((r) => r.type === "terminal.closed"),
+    exit: reclaim.child.exitCode,
+  };
+  evidence.afterHandoffPing = await s.api("ping");
+  evidence.afterHandoffPane = s.cli("pane", "get", pane);
+  evidence.afterHandoffProcess = s.cli("pane", "process-info", "--pane", pane);
+  const afterHandoff = s.control(pane, "observe");
+  await afterHandoff.ready();
+  evidence.afterHandoffObserve = afterHandoff.records[0].type;
+  s.cli("server", "stop");
+  await delay(300);
+  evidence.shutdown = afterHandoff.records.filter((r) => r.type === "terminal.closed");
+  evidence.shutdownExit = {
+    code: afterHandoff.child.exitCode,
+    signal: afterHandoff.child.signalCode,
+  };
+  const restarted = s.start(["server"]);
+  await until(async () => {
+    try {
+      return (await s.api("ping")).result?.type === "pong";
+    } catch {
+      return false;
+    }
+  }, "restart");
+  evidence.restart = s.cli("workspace", "list");
+  const fresh = s.cli("workspace", "create", "--cwd", s.dir, "--no-focus").result.root_pane.pane_id;
+  const crashView = s.control(fresh);
+  await crashView.ready();
+  restarted.kill("SIGKILL");
+  await until(() => crashView.child.exitCode !== null, "crash EOF");
+  evidence.crash = {
+    closed: crashView.records.filter((r) => r.type === "terminal.closed"),
+    exit: crashView.child.exitCode,
+  };
+  // A clean private restart removes stale socket files and is stopped by finally.
+  s.start(["server"]);
+  await until(async () => {
+    try {
+      return (await s.api("ping")).result?.type === "pong";
+    } catch {
+      return false;
+    }
+  }, "post-crash restart");
+  return evidence;
+}
+(async () => {
+  const s = await isolated();
+  let stopped = false;
+  const cleanup = async () => {
+    if (!stopped) {
+      stopped = true;
+      await s.stop();
+    }
+  };
+  process.once("SIGINT", () => cleanup().finally(() => process.exit(130)));
+  process.once("SIGTERM", () => cleanup().finally(() => process.exit(143)));
+  try {
+    const mode = process.argv[2] || "research";
+    const result =
+      mode === "research"
+        ? await research(s)
+        : await require(
+            path.join(
+              root,
+              mode === "sizing" ? "spikes/herdr/sizing.cjs.txt" : "spikes/herdr/browser.cjs.txt",
+            ),
+          )(s, { root, delay, until, mode });
+    console.log(JSON.stringify(result, null, 2));
+  } finally {
+    await cleanup();
+  }
+})().catch((error) => {
+  console.error(error);
+  process.exitCode = 1;
+});

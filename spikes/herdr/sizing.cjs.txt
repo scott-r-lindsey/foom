@@ -1,0 +1,90 @@
+const fs = require("node:fs");
+const path = require("node:path");
+const assert = require("node:assert/strict");
+const { spawn } = require("node:child_process");
+module.exports = async (s, { root, delay, until }) => {
+  const binary =
+    process.env.FOOM_HERDR_BINARY || path.join(require("node:os").homedir(), ".local/bin/herdr");
+  const sizes = [
+    [100, 30],
+    [61, 17],
+    [133, 41],
+  ];
+  const items = [];
+  for (const [cols, rows] of sizes) {
+    const workspace = s.cli("workspace", "create", "--cwd", s.dir, "--no-focus").result;
+    const pane = workspace.root_pane.pane_id,
+      control = s.control(pane);
+    await control.ready();
+    control.send({ type: "terminal.resize", cols, rows });
+    await until(
+      () => control.records.some((r) => r.width === cols && r.height === rows),
+      "tile size",
+    );
+    const log = path.join(s.dir, `${items.length}-sizes.jsonl`);
+    s.cli("pane", "run", pane, `python3 ${path.join(root, "spikes/herdr/size-probe.py")} ${log}`);
+    await until(() => fs.existsSync(log), "stty log");
+    items.push({
+      pane,
+      control,
+      log,
+      tab: workspace.tab.tab_id,
+      workspace: workspace.workspace.workspace_id,
+    });
+  }
+  const read = () =>
+    items.map((item) => ({
+      pane: item.pane,
+      workspace: item.workspace,
+      measurements: fs.readFileSync(item.log, "utf8").trim().split("\n").map(JSON.parse),
+    }));
+  const initial = read();
+  for (let i = 0; i < items.length; i++)
+    assert.deepEqual(initial[i].measurements.at(-1), {
+      event: "start",
+      cols: sizes[i][0],
+      rows: sizes[i][1],
+    });
+  items[1].control.send({ type: "terminal.resize", cols: 72, rows: 19 });
+  await until(() => read()[1].measurements.at(-1).cols === 72, "middle resize");
+  const independentResize = read();
+  assert.equal(independentResize[0].measurements.length, 1);
+  assert.equal(independentResize[2].measurements.length, 1);
+  const tui = spawn("python3", [path.join(root, "spikes/herdr/tui.py"), binary, "12"], {
+    env: s.env,
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  let tuiOutput = "";
+  tui.stdout.on("data", (b) => {
+    tuiOutput += b;
+  });
+  tui.stderr.on("data", (b) => {
+    tuiOutput += b;
+  });
+  try {
+    await delay(1500);
+    for (const item of items) {
+      s.cli("workspace", "focus", item.workspace);
+      s.cli("tab", "focus", item.tab);
+      await delay(600);
+    }
+    await delay(7000); // helper shrinks its own PTY near the end
+    const whileTui = read();
+    for (let i = 0; i < items.length; i++)
+      assert.deepEqual(whileTui[i].measurements, independentResize[i].measurements);
+    // A genuine Foom resize during TUI coexistence still reaches the real PTY.
+    items[0].control.send({ type: "terminal.resize", cols: 88, rows: 23 });
+    await until(() => read()[0].measurements.at(-1).cols === 88, "resize while TUI attached");
+    const duringControlResize = read();
+    // Releasing Foom restores TUI tab geometry and causes a real SIGWINCH/reflow.
+    s.cli("workspace", "focus", items[2].workspace);
+    s.cli("tab", "focus", items[2].tab);
+    items[2].control.send({ type: "terminal.release" });
+    await until(() => read()[2].measurements.length > 1, "TUI geometry after release");
+    const afterRelease = read();
+    return { initial, independentResize, whileTui, duringControlResize, afterRelease, tuiOutput };
+  } finally {
+    tui.kill();
+    await until(() => tui.exitCode !== null || tui.signalCode !== null, "private TUI exit");
+  }
+};
