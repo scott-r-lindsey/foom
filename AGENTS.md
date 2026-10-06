@@ -61,6 +61,6 @@ npm run make
 git diff --check
 ```
 
-Batch related fixes and finish local validation before pushing; avoid CI runs for partial agent work.
+Batch related fixes and finish local validation before pushing; avoid CI runs for partial agent work. Open pull requests as **drafts**: CI skips drafts, and runs when the PR is marked ready for review. CI minutes are billed, so don't push to re-run CI; reproduce failures locally.
 
-CI repeats these checks and runs Electron and packaging on Linux, Windows, and macOS for code, configuration, and unknown-path changes. Explicitly allowlisted documentation/reference-only changes skip desktop jobs; manual runs always validate all platforms. Development ZIP uploads are manual opt-in and retained for three days. Report what ran locally versus what passed remotely. Packages are unsigned development artifacts; release signing/notarization is a separate configuration task.
+CI repeats these checks and runs Electron and packaging for code, configuration, and unknown-path changes. Pull requests run desktop jobs on Linux only; Windows and macOS minutes cost 2× and 10× as much. Add the `full-ci` label to a pull request that touches platform-specific behavior (terminals and PTYs, paths, processes, packaging, native windows, menus or themes) to run all three. Pushes to `main`, nightly runs when `main` changed, and manual runs always validate Linux, Windows and macOS. Explicitly allowlisted documentation/reference-only changes (including `inspiration/` and `spikes/`) skip desktop jobs. Development ZIP uploads are manual opt-in and retained for three days. Report what ran locally versus what passed remotely. Packages are unsigned development artifacts; release signing/notarization is a separate configuration task.

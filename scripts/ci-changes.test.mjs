@@ -1,6 +1,12 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { detectDesktop, requiresDesktop } from "./ci-changes.mjs";
+import {
+  allPlatforms,
+  desktopMatrix,
+  desktopPlatforms,
+  detectDesktop,
+  requiresDesktop,
+} from "./ci-changes.mjs";
 
 const base = "a".repeat(40);
 const head = "b".repeat(40);
@@ -15,6 +21,7 @@ test("only explicitly allowed documentation and reference changes skip desktop",
       "docs/architecture.md",
       "docs/mockups/board.html",
       "inspiration/example.ts",
+      "spikes/herdr/run.cjs.txt",
     ]),
     false,
   );
@@ -74,6 +81,70 @@ test("manual runs, unknown events, new branches, and empty diffs require desktop
   assert.equal(
     detectDesktop("push", { before: base, after: head }, () => ""),
     true,
+  );
+});
+
+test("pull requests run Linux only unless labelled full-ci", () => {
+  assert.deepEqual(desktopPlatforms("pull_request", { pull_request: { labels: [] } }), [
+    "ubuntu-24.04",
+  ]);
+  assert.deepEqual(desktopPlatforms("pull_request", {}), ["ubuntu-24.04"]);
+  assert.deepEqual(
+    desktopPlatforms("pull_request", { pull_request: { labels: [{ name: "roadmap" }] } }),
+    ["ubuntu-24.04"],
+  );
+  assert.deepEqual(
+    desktopPlatforms("pull_request", {
+      pull_request: { labels: [{ name: "roadmap" }, { name: "full-ci" }] },
+    }),
+    allPlatforms,
+  );
+  for (const eventName of ["push", "schedule", "workflow_dispatch", "unknown"]) {
+    assert.deepEqual(desktopPlatforms(eventName, {}), allPlatforms, eventName);
+  }
+});
+
+test("desktop jobs preserve platform selection and shard Windows exactly twice", () => {
+  assert.deepEqual(desktopMatrix(desktopPlatforms("pull_request", {})), [
+    { os: "ubuntu-24.04", shard: "1/1" },
+  ]);
+  const expected = [
+    { os: "ubuntu-24.04", shard: "1/1" },
+    { os: "windows-2025", shard: "1/2" },
+    { os: "windows-2025", shard: "2/2" },
+    { os: "macos-15", shard: "1/1" },
+  ];
+  assert.deepEqual(
+    desktopMatrix(
+      desktopPlatforms("pull_request", {
+        pull_request: { labels: [{ name: "full-ci" }] },
+      }),
+    ),
+    expected,
+  );
+  for (const eventName of ["push", "schedule", "workflow_dispatch"]) {
+    assert.deepEqual(desktopMatrix(desktopPlatforms(eventName, {})), expected);
+  }
+});
+
+test("nightly runs validate desktop only when main changed recently", () => {
+  const unexpectedDiff = () => {
+    throw new Error("Unexpected diff");
+  };
+  assert.equal(
+    detectDesktop("schedule", {}, unexpectedDiff, () => `${head}\n`),
+    true,
+  );
+  assert.equal(
+    detectDesktop("schedule", {}, unexpectedDiff, () => ""),
+    false,
+  );
+  assert.throws(
+    () =>
+      detectDesktop("schedule", {}, unexpectedDiff, () => {
+        throw new Error("Missing history");
+      }),
+    /Missing history/,
   );
 });
 
@@ -137,11 +208,17 @@ test("CLI uses real Git history, includes renamed source paths, and emits no ski
       );
     };
     assert.equal(run(initial, docs).status, 0);
-    assert.equal(readFileSync(outputPath, "utf8"), "desktop_required=false\n");
+    assert.equal(
+      readFileSync(outputPath, "utf8"),
+      `desktop_required=false\ndesktop_platforms=${JSON.stringify(allPlatforms)}\ndesktop_matrix=${JSON.stringify(desktopMatrix(allPlatforms))}\n`,
+    );
     git("mv", "source.ts", "NOTICE");
     git("-c", "commit.gpgsign=false", "commit", "--quiet", "-m", "rename");
     assert.equal(run(docs, git("rev-parse", "HEAD")).status, 0);
-    assert.equal(readFileSync(outputPath, "utf8"), "desktop_required=true\n");
+    assert.equal(
+      readFileSync(outputPath, "utf8"),
+      `desktop_required=true\ndesktop_platforms=${JSON.stringify(allPlatforms)}\ndesktop_matrix=${JSON.stringify(desktopMatrix(allPlatforms))}\n`,
+    );
     assert.notEqual(run("f".repeat(40), docs).status, 0);
     assert.equal(readFileSync(outputPath, "utf8"), "");
   } finally {
