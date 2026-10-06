@@ -1,0 +1,738 @@
+{
+  "version": "herdr 0.9.3",
+  "ping": {
+    "id": "spike",
+    "result": {
+      "type": "pong",
+      "version": "0.9.3",
+      "protocol": 22,
+      "capabilities": {
+        "live_handoff": true,
+        "detached_server_daemon": false,
+        "endpoint_protocol_generation": 1,
+        "surface_interest": true,
+        "health_check": true,
+        "ssh_agent_registration": true
+      }
+    }
+  },
+  "workspace": {
+    "id": "cli:workspace:create",
+    "result": {
+      "root_pane": {
+        "agent_status": "unknown",
+        "cwd": "/tmp/foom-herdr-aTG2lC/repo",
+        "focused": true,
+        "foreground_cwd": "/tmp/foom-herdr-aTG2lC/repo",
+        "pane_id": "w1:p1",
+        "revision": 0,
+        "scroll": {
+          "max_offset_from_bottom": 0,
+          "offset_from_bottom": 0,
+          "viewport_rows": 40
+        },
+        "tab_id": "w1:t1",
+        "terminal_id": "term_65d1ee58cc6411",
+        "workspace_id": "w1"
+      },
+      "tab": {
+        "agent_status": "unknown",
+        "focused": true,
+        "label": "1",
+        "number": 1,
+        "pane_count": 1,
+        "tab_id": "w1:t1",
+        "workspace_id": "w1"
+      },
+      "type": "workspace_created",
+      "workspace": {
+        "active_tab_id": "w1:t1",
+        "agent_status": "unknown",
+        "focused": true,
+        "label": "Foom spike",
+        "number": 1,
+        "pane_count": 1,
+        "tab_count": 1,
+        "workspace_id": "w1"
+      }
+    }
+  },
+  "conflict": [
+    {
+      "reason": "terminal attach failed: terminal term_65d1ee58cc6411 already has an attached client; retry with --takeover",
+      "type": "terminal.closed"
+    }
+  ],
+  "resize": {
+    "bytes": "G1s/MjAyNmgbWz8yNWwbXTg7OxtcG1sxOzFIG1swOzM5OzQ5bWJhc2gtNS4yJCAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzI7MUggICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1szOzFIICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbNDsxSCAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzU7MUggICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1s2OzFIICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbNzsxSCAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzg7MUggICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1s5OzFIICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMTA7MUggICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1sxMTsxSCAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzEyOzFIICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMTM7MUggICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1sxNDsxSCAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzE1OzFIICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMTY7MUggICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1sxNzsxSCAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzE4OzFIICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMTk7MUggICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1syMDsxSCAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzIxOzFIICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMjI7MUggICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1syMzsxSCAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzI0OzFIICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMjU7MUggICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1syNjsxSCAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzI3OzFIICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMG0bWzE7MTFIG1s/MjVoG1s/MjAyNmwbWzE7MTFIG1s/MjVo",
+    "encoding": "ansi",
+    "full": true,
+    "height": 27,
+    "seq": 2,
+    "type": "terminal.frame",
+    "width": 91
+  },
+  "tui": "TUI_STARTED\nTUI_RESIZED 60x20\nTUI_BYTES 31493 RESIZED True EXIT_BEFORE_STOP None\n",
+  "afterTui": {
+    "bytes": "G1s/MjAyNmgbWz8yNWwbXTg7OxtcG1sxOzExSBtbMDszOTs0OW1lY2hvG1sxOzE2SFRVSV9DT0VYSVNUG1syOzFIVFVJX0NPRVhJU1QbWzM7MUhiYXNoLTUuMiQbWzBtG1szOzExSBtbPzI1aBtbPzIwMjZsG1szOzExSBtbPzI1aA==",
+    "encoding": "ansi",
+    "full": false,
+    "height": 27,
+    "seq": 5,
+    "type": "terminal.frame",
+    "width": 91
+  },
+  "fidelityPane": {
+    "id": "cli:pane:get",
+    "result": {
+      "pane": {
+        "agent_status": "unknown",
+        "cwd": "/tmp/foom-herdr-aTG2lC/repo",
+        "focused": true,
+        "foreground_cwd": "/tmp/foom-herdr-aTG2lC/repo",
+        "pane_id": "w1:p1",
+        "revision": 1,
+        "scroll": {
+          "max_offset_from_bottom": 0,
+          "offset_from_bottom": 0,
+          "viewport_rows": 27
+        },
+        "tab_id": "w1:t1",
+        "terminal_id": "term_65d1ee58cc6411",
+        "terminal_title": "FOOM_SPIKE_TITLE",
+        "terminal_title_stripped": "FOOM_SPIKE_TITLE",
+        "workspace_id": "w1"
+      },
+      "type": "pane_info"
+    }
+  },
+  "observerFrame": {
+    "bytes": "G1s/MjAyNmgbWz8yNWwbXTg7OxtcG1sxOzFIG1swOzM5OzQ5bUZJREVMSVRZIBtbMDszODsyOzE4OzUyOzg2OzQ5bVRSVUVDT0xPUhtbMDszOTs0OW0g55WMG1sxOzIySCBlzIEbWzE7MjRIICAgG1syOzFIG104OztodHRwczovL2V4YW1wbGUuaW52YWxpZC9mb29tG1xMSU5LG104OzsbXCAgICAgICAbWzM7MUggICAgICAgICAbWzM7MTFIICAgICAgIBtbMzsxOUggICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1swbRtbMzsxSBtbNSBxG1s/MjVoG1s/MjAyNmwbWzM7MUgbWz8yNWg=",
+    "encoding": "ansi",
+    "full": false,
+    "height": 24,
+    "seq": 6,
+    "type": "terminal.frame",
+    "width": 80
+  },
+  "fidelity": [
+    {
+      "bytes": "G1s/MjAyNmgbWz8yNWwbXTg7OxtcG1syShtbMTsxSBtbMDszOTs0OW1iYXNoLTUuMiQgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMjsxSCAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1szOzFIICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzQ7MUggICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbNTsxSCAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1s2OzFIICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzc7MUggICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbODsxSCAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1s5OzFIICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzEwOzFIICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzExOzFIICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzEyOzFIICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzEzOzFIICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzE0OzFIICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzE1OzFIICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzE2OzFIICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzE3OzFIICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzE4OzFIICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzE5OzFIICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzIwOzFIICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzIxOzFIICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzIyOzFIICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzIzOzFIICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzI0OzFIICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzBtG1sxOzExSBtbPzI1aBtbPzIwMjZsG1sxOzExSBtbPzI1aA==",
+      "encoding": "ansi",
+      "full": true,
+      "height": 24,
+      "seq": 1,
+      "type": "terminal.frame",
+      "width": 80,
+      "ansi": "\u001b[?2026h\u001b[?25l\u001b]8;;\u001b\\\u001b[2J\u001b[1;1H\u001b[0;39;49mbash-5.2$                                                                       \u001b[2;1H                                                                                \u001b[3;1H                                                                                \u001b[4;1H                                                                                \u001b[5;1H                                                                                \u001b[6;1H                                                                                \u001b[7;1H                                                                                \u001b[8;1H                                                                                \u001b[9;1H                                                                                \u001b[10;1H                                                                                \u001b[11;1H                                                                                \u001b[12;1H                                                                                \u001b[13;1H                                                                                \u001b[14;1H                                                                                \u001b[15;1H                                                                                \u001b[16;1H                                                                                \u001b[17;1H                                                                                \u001b[18;1H                                                                                \u001b[19;1H                                                                                \u001b[20;1H                                                                                \u001b[21;1H                                                                                \u001b[22;1H                                                                                \u001b[23;1H                                                                                \u001b[24;1H                                                                                \u001b[0m\u001b[1;11H\u001b[?25h\u001b[?2026l\u001b[1;11H\u001b[?25h"
+    },
+    {
+      "bytes": "G1s/MjAyNmgbWz8yNWwbXTg7OxtcG1sxOzFIG1swOzM5OzQ5bWJhc2gtNS4yJCAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzI7MUggICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1szOzFIICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbNDsxSCAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzU7MUggICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1s2OzFIICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbNzsxSCAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzg7MUggICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1s5OzFIICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMTA7MUggICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1sxMTsxSCAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzEyOzFIICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMTM7MUggICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1sxNDsxSCAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzE1OzFIICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMTY7MUggICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1sxNzsxSCAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzE4OzFIICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMTk7MUggICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1syMDsxSCAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzIxOzFIICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMjI7MUggICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1syMzsxSCAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzI0OzFIICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMjU7MUggICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1syNjsxSCAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzI3OzFIICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMG0bWzE7MTFIG1s/MjVoG1s/MjAyNmwbWzE7MTFIG1s/MjVo",
+      "encoding": "ansi",
+      "full": true,
+      "height": 27,
+      "seq": 2,
+      "type": "terminal.frame",
+      "width": 91,
+      "ansi": "\u001b[?2026h\u001b[?25l\u001b]8;;\u001b\\\u001b[1;1H\u001b[0;39;49mbash-5.2$                                                                                  \u001b[2;1H                                                                                           \u001b[3;1H                                                                                           \u001b[4;1H                                                                                           \u001b[5;1H                                                                                           \u001b[6;1H                                                                                           \u001b[7;1H                                                                                           \u001b[8;1H                                                                                           \u001b[9;1H                                                                                           \u001b[10;1H                                                                                           \u001b[11;1H                                                                                           \u001b[12;1H                                                                                           \u001b[13;1H                                                                                           \u001b[14;1H                                                                                           \u001b[15;1H                                                                                           \u001b[16;1H                                                                                           \u001b[17;1H                                                                                           \u001b[18;1H                                                                                           \u001b[19;1H                                                                                           \u001b[20;1H                                                                                           \u001b[21;1H                                                                                           \u001b[22;1H                                                                                           \u001b[23;1H                                                                                           \u001b[24;1H                                                                                           \u001b[25;1H                                                                                           \u001b[26;1H                                                                                           \u001b[27;1H                                                                                           \u001b[0m\u001b[1;11H\u001b[?25h\u001b[?2026l\u001b[1;11H\u001b[?25h"
+    },
+    {
+      "bytes": "G1s/MjAyNmgbWz8yNWwbXTg7OxtcG1sxOzFIG1swOzM5OzQ5bWJhc2gtNS4yJCAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzI7MUggICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1szOzFIICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbNDsxSCAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzU7MUggICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1s2OzFIICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbNzsxSCAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzg7MUggICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1s5OzFIICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMTA7MUggICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1sxMTsxSCAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzEyOzFIICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMTM7MUggICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1sxNDsxSCAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzE1OzFIICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMTY7MUggICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1sxNzsxSCAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzE4OzFIICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMTk7MUggICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1syMDsxSCAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzIxOzFIICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMjI7MUggICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1syMzsxSCAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzI0OzFIICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMjU7MUggICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1syNjsxSCAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzI3OzFIICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMG0bWzE7MTFIG1s/MjVoG1s/MjAyNmwbWzE7MTFIG1s/MjVo",
+      "encoding": "ansi",
+      "full": true,
+      "height": 27,
+      "seq": 3,
+      "type": "terminal.frame",
+      "width": 91,
+      "ansi": "\u001b[?2026h\u001b[?25l\u001b]8;;\u001b\\\u001b[1;1H\u001b[0;39;49mbash-5.2$                                                                                  \u001b[2;1H                                                                                           \u001b[3;1H                                                                                           \u001b[4;1H                                                                                           \u001b[5;1H                                                                                           \u001b[6;1H                                                                                           \u001b[7;1H                                                                                           \u001b[8;1H                                                                                           \u001b[9;1H                                                                                           \u001b[10;1H                                                                                           \u001b[11;1H                                                                                           \u001b[12;1H                                                                                           \u001b[13;1H                                                                                           \u001b[14;1H                                                                                           \u001b[15;1H                                                                                           \u001b[16;1H                                                                                           \u001b[17;1H                                                                                           \u001b[18;1H                                                                                           \u001b[19;1H                                                                                           \u001b[20;1H                                                                                           \u001b[21;1H                                                                                           \u001b[22;1H                                                                                           \u001b[23;1H                                                                                           \u001b[24;1H                                                                                           \u001b[25;1H                                                                                           \u001b[26;1H                                                                                           \u001b[27;1H                                                                                           \u001b[0m\u001b[1;11H\u001b[?25h\u001b[?2026l\u001b[1;11H\u001b[?25h"
+    },
+    {
+      "bytes": "G1s/MjAyNmgbWz8yNWwbXTg7OxtcG1sxOzFIG1swOzM5OzQ5bWJhc2gtNS4yJCAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzI7MUggICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1szOzFIICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbNDsxSCAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzU7MUggICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1s2OzFIICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbNzsxSCAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzg7MUggICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1s5OzFIICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMTA7MUggICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1sxMTsxSCAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzEyOzFIICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMTM7MUggICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1sxNDsxSCAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzE1OzFIICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMTY7MUggICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1sxNzsxSCAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzE4OzFIICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMTk7MUggICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1syMDsxSCAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzIxOzFIICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMjI7MUggICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1syMzsxSCAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzI0OzFIICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMjU7MUggICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1syNjsxSCAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzI3OzFIICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMG0bWzE7MTFIG1s/MjVoG1s/MjAyNmwbWzE7MTFIG1s/MjVo",
+      "encoding": "ansi",
+      "full": true,
+      "height": 27,
+      "seq": 4,
+      "type": "terminal.frame",
+      "width": 91,
+      "ansi": "\u001b[?2026h\u001b[?25l\u001b]8;;\u001b\\\u001b[1;1H\u001b[0;39;49mbash-5.2$                                                                                  \u001b[2;1H                                                                                           \u001b[3;1H                                                                                           \u001b[4;1H                                                                                           \u001b[5;1H                                                                                           \u001b[6;1H                                                                                           \u001b[7;1H                                                                                           \u001b[8;1H                                                                                           \u001b[9;1H                                                                                           \u001b[10;1H                                                                                           \u001b[11;1H                                                                                           \u001b[12;1H                                                                                           \u001b[13;1H                                                                                           \u001b[14;1H                                                                                           \u001b[15;1H                                                                                           \u001b[16;1H                                                                                           \u001b[17;1H                                                                                           \u001b[18;1H                                                                                           \u001b[19;1H                                                                                           \u001b[20;1H                                                                                           \u001b[21;1H                                                                                           \u001b[22;1H                                                                                           \u001b[23;1H                                                                                           \u001b[24;1H                                                                                           \u001b[25;1H                                                                                           \u001b[26;1H                                                                                           \u001b[27;1H                                                                                           \u001b[0m\u001b[1;11H\u001b[?25h\u001b[?2026l\u001b[1;11H\u001b[?25h"
+    },
+    {
+      "bytes": "G1s/MjAyNmgbWz8yNWwbXTg7OxtcG1sxOzExSBtbMDszOTs0OW1lY2hvG1sxOzE2SFRVSV9DT0VYSVNUG1syOzFIVFVJX0NPRVhJU1QbWzM7MUhiYXNoLTUuMiQbWzBtG1szOzExSBtbPzI1aBtbPzIwMjZsG1szOzExSBtbPzI1aA==",
+      "encoding": "ansi",
+      "full": false,
+      "height": 27,
+      "seq": 5,
+      "type": "terminal.frame",
+      "width": 91,
+      "ansi": "\u001b[?2026h\u001b[?25l\u001b]8;;\u001b\\\u001b[1;11H\u001b[0;39;49mecho\u001b[1;16HTUI_COEXIST\u001b[2;1HTUI_COEXIST\u001b[3;1Hbash-5.2$\u001b[0m\u001b[3;11H\u001b[?25h\u001b[?2026l\u001b[3;11H\u001b[?25h"
+    },
+    {
+      "bytes": "G1s/MjAyNmgbWz8yNWwbXTg7OxtcG1szOzExSBtbMDszOTs0OW1weXRob24zG1szOzE5SC90bXAvZm9vbS1oZXJkci1hVEcybEMvZmlkZWxpdHkucHkbWzBtG1s0OzFIG1s/MjVoG1s/MjAyNmwbWzQ7MUgbWz8yNWg=",
+      "encoding": "ansi",
+      "full": false,
+      "height": 27,
+      "seq": 6,
+      "type": "terminal.frame",
+      "width": 91,
+      "ansi": "\u001b[?2026h\u001b[?25l\u001b]8;;\u001b\\\u001b[3;11H\u001b[0;39;49mpython3\u001b[3;19H/tmp/foom-herdr-aTG2lC/fidelity.py\u001b[0m\u001b[4;1H\u001b[?25h\u001b[?2026l\u001b[4;1H\u001b[?25h"
+    },
+    {
+      "bytes": "G1s/MjAyNmgbWz8yNWwbXTg7OxtcG1sxOzFIG1swOzM5OzQ5bUZJREVMSVRZIBtbMDszODsyOzE4OzUyOzg2OzQ5bVRSVUVDT0xPUhtbMDszOTs0OW0g55WMG1sxOzIySCBlzIEbWzE7MjRIICAgG1syOzFIG104OztodHRwczovL2V4YW1wbGUuaW52YWxpZC9mb29tG1xMSU5LG104OzsbXCAgICAgICAbWzM7MUggICAgICAgICAbWzM7MTFIICAgICAgIBtbMzsxOUggICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1swbRtbMzsxSBtbNSBxG1s/MjVoG1s/MjAyNmwbWzM7MUgbWz8yNWg=",
+      "encoding": "ansi",
+      "full": false,
+      "height": 27,
+      "seq": 7,
+      "type": "terminal.frame",
+      "width": 91,
+      "ansi": "\u001b[?2026h\u001b[?25l\u001b]8;;\u001b\\\u001b[1;1H\u001b[0;39;49mFIDELITY \u001b[0;38;2;18;52;86;49mTRUECOLOR\u001b[0;39;49m 界\u001b[1;22H é\u001b[1;24H   \u001b[2;1H\u001b]8;;https://example.invalid/foom\u001b\\LINK\u001b]8;;\u001b\\       \u001b[3;1H         \u001b[3;11H       \u001b[3;19H                                  \u001b[0m\u001b[3;1H\u001b[5 q\u001b[?25h\u001b[?2026l\u001b[3;1H\u001b[?25h"
+    },
+    {
+      "bytes": "G1s/MjAyNmgbWz8yNWwbXTg7OxtcG1szOzFIG1s/MjVsG1s/MjAyNmwbWzM7MUgbWz8yNWw=",
+      "encoding": "ansi",
+      "full": false,
+      "height": 27,
+      "seq": 8,
+      "type": "terminal.frame",
+      "width": 91,
+      "ansi": "\u001b[?2026h\u001b[?25l\u001b]8;;\u001b\\\u001b[3;1H\u001b[?25l\u001b[?2026l\u001b[3;1H\u001b[?25l"
+    }
+  ],
+  "input": "bash-5.2$ echo TUI_COEXIST\nTUI_COEXIST\nbash-5.2$ python3 /tmp/foom-herdr-aTG2lC/fidelity.py\nINPUT_HEX 681b5b3c303b353b344d1b5b3c303b353b346d1b5b3230307e70617374651b5b3230317e71\nbash-5.2$",
+  "scroll": [
+    {
+      "bytes": "G1s/MjAyNmgbWz8yNWwbXTg7OxtcG1sxOzlIG1swOzM5OzQ5bTYwG1syOzlINjEbWzM7OUg2MhtbNDs5SDYzG1s1OzlINjQbWzY7OUg2NRtbNzs5SDY2G1s4OzlINjcbWzk7OUg2OBtbMTA7OUg2ORtbMTE7OUg3MBtbMTI7OUg3MRtbMTM7OUg3MhtbMTQ7OUg3MxtbMTU7OUg3NBtbMTY7OUg3NRtbMTc7OUg3NhtbMTg7OUg3NxtbMTk7OUg3OBtbMjA7OUg3ORtbMjE7OUg4MBtbMjI7OUg4MRtbMjM7OUg4MhtbMjQ7OUg4MxtbMjU7OUg4NBtbMjY7OUg4NSAbWzI3OzFISElTVE9SWV84NhtbMG0bWzM7MUgbWzAgcRtbPzI1bBtbPzIwMjZsG1szOzFIG1s/MjVs",
+      "encoding": "ansi",
+      "full": false,
+      "height": 27,
+      "seq": 13,
+      "type": "terminal.frame",
+      "width": 91,
+      "ansi": "\u001b[?2026h\u001b[?25l\u001b]8;;\u001b\\\u001b[1;9H\u001b[0;39;49m60\u001b[2;9H61\u001b[3;9H62\u001b[4;9H63\u001b[5;9H64\u001b[6;9H65\u001b[7;9H66\u001b[8;9H67\u001b[9;9H68\u001b[10;9H69\u001b[11;9H70\u001b[12;9H71\u001b[13;9H72\u001b[14;9H73\u001b[15;9H74\u001b[16;9H75\u001b[17;9H76\u001b[18;9H77\u001b[19;9H78\u001b[20;9H79\u001b[21;9H80\u001b[22;9H81\u001b[23;9H82\u001b[24;9H83\u001b[25;9H84\u001b[26;9H85 \u001b[27;1HHISTORY_86\u001b[0m\u001b[3;1H\u001b[0 q\u001b[?25l\u001b[?2026l\u001b[3;1H\u001b[?25l"
+    }
+  ],
+  "takeover": [
+    {
+      "reason": "terminal attach taken over",
+      "type": "terminal.closed"
+    }
+  ],
+  "release": [
+    {
+      "reason": "detached",
+      "type": "terminal.closed"
+    }
+  ],
+  "reclaim": "terminal.frame",
+  "worktree": {
+    "id": "cli:worktree:create",
+    "result": {
+      "root_pane": {
+        "agent_status": "unknown",
+        "cwd": "/tmp/foom-herdr-aTG2lC/child",
+        "focused": false,
+        "foreground_cwd": "/tmp/foom-herdr-aTG2lC/child",
+        "pane_id": "w2:p1",
+        "revision": 0,
+        "scroll": {
+          "max_offset_from_bottom": 0,
+          "offset_from_bottom": 0,
+          "viewport_rows": 40
+        },
+        "tab_id": "w2:t1",
+        "terminal_id": "term_65d1ee5f10f442",
+        "workspace_id": "w2"
+      },
+      "tab": {
+        "agent_status": "unknown",
+        "focused": false,
+        "label": "1",
+        "number": 1,
+        "pane_count": 1,
+        "tab_id": "w2:t1",
+        "workspace_id": "w2"
+      },
+      "type": "worktree_created",
+      "workspace": {
+        "active_tab_id": "w2:t1",
+        "agent_status": "unknown",
+        "focused": false,
+        "label": "child",
+        "number": 2,
+        "pane_count": 1,
+        "tab_count": 1,
+        "workspace_id": "w2",
+        "worktree": {
+          "checkout_path": "/tmp/foom-herdr-aTG2lC/child",
+          "is_linked_worktree": true,
+          "repo_key": "/tmp/foom-herdr-aTG2lC/repo/.git",
+          "repo_name": "repo",
+          "repo_root": "/tmp/foom-herdr-aTG2lC/repo"
+        }
+      },
+      "worktree": {
+        "branch": "spike-child",
+        "is_bare": false,
+        "is_detached": false,
+        "is_linked_worktree": true,
+        "is_prunable": false,
+        "label": "repo",
+        "open_workspace_id": "w2",
+        "path": "/tmp/foom-herdr-aTG2lC/child"
+      }
+    }
+  },
+  "split": {
+    "id": "cli:pane:split",
+    "result": {
+      "pane": {
+        "agent_status": "unknown",
+        "cwd": "/tmp/foom-herdr-aTG2lC/repo",
+        "focused": false,
+        "foreground_cwd": "/tmp/foom-herdr-aTG2lC/repo",
+        "pane_id": "w1:p2",
+        "revision": 0,
+        "scroll": {
+          "max_offset_from_bottom": 0,
+          "offset_from_bottom": 0,
+          "viewport_rows": 40
+        },
+        "tab_id": "w1:t1",
+        "terminal_id": "term_65d1ee5f11e4e3",
+        "workspace_id": "w1"
+      },
+      "type": "pane_info"
+    }
+  },
+  "environment": "HISTORY_98\nHISTORY_99\nHISTORY_100\nbash-5.2$ python3 /tmp/foom-herdr-aTG2lC/env.py\nENV_PROBE {\"COLORTERM\": \"truecolor\", \"HERDR_BIN_PATH\": \"/home/slindsey/.local/bin/herdr\", \"HERDR_CONFIG_PATH\": \"/tmp/foom-herdr-aTG2lC/config.toml\", \"HERDR_ENV\": \"1\", \"HERDR_PANE_ID\": \"w1:p1\", \"HERDR_SESSION\": \"foom-spike\", \"HERDR_SOCKET_PATH\": \"/tmp/foom-herdr-aTG2lC/herdr/sessions/foom-spike/herdr.sock\", \"HERDR_TAB_ID\": \"w1:t1\", \"HERDR_WORKSPACE_ID\": \"w1\", \"SSH_AUTH_SOCK\": \"/tmp/foom-herdr-aTG2lC/herdr/sessions/foom-spike/herdr.sock.agent\", \"TERM\": \"xterm-256color\", \"TERM_PROGRAM\": \"herdr\", \"TERM_PROGRAM_VERSION\": \"0.9.3\"}\nbash-5.2$",
+  "snapshot": {
+    "id": "cli:api:snapshot",
+    "result": {
+      "snapshot": {
+        "agents": [],
+        "focused_pane_id": "w1:p1",
+        "focused_tab_id": "w1:t1",
+        "focused_workspace_id": "w1",
+        "layouts": [
+          {
+            "area": {
+              "height": 40,
+              "width": 120,
+              "x": 0,
+              "y": 0
+            },
+            "focused_pane_id": "w1:p1",
+            "panes": [
+              {
+                "focused": true,
+                "pane_id": "w1:p1",
+                "rect": {
+                  "height": 40,
+                  "width": 60,
+                  "x": 0,
+                  "y": 0
+                }
+              },
+              {
+                "focused": false,
+                "pane_id": "w1:p2",
+                "rect": {
+                  "height": 40,
+                  "width": 60,
+                  "x": 60,
+                  "y": 0
+                }
+              }
+            ],
+            "splits": [
+              {
+                "direction": "right",
+                "id": "split_0_root",
+                "ratio": 0.5,
+                "rect": {
+                  "height": 40,
+                  "width": 120,
+                  "x": 0,
+                  "y": 0
+                }
+              }
+            ],
+            "tab_id": "w1:t1",
+            "workspace_id": "w1",
+            "zoomed": false
+          },
+          {
+            "area": {
+              "height": 40,
+              "width": 120,
+              "x": 0,
+              "y": 0
+            },
+            "focused_pane_id": "w2:p1",
+            "panes": [
+              {
+                "focused": true,
+                "pane_id": "w2:p1",
+                "rect": {
+                  "height": 40,
+                  "width": 120,
+                  "x": 0,
+                  "y": 0
+                }
+              }
+            ],
+            "splits": [],
+            "tab_id": "w2:t1",
+            "workspace_id": "w2",
+            "zoomed": false
+          }
+        ],
+        "panes": [
+          {
+            "agent_status": "unknown",
+            "cwd": "/tmp/foom-herdr-aTG2lC/repo",
+            "focused": true,
+            "foreground_cwd": "/tmp/foom-herdr-aTG2lC/repo",
+            "pane_id": "w1:p1",
+            "revision": 1,
+            "scroll": {
+              "max_offset_from_bottom": 91,
+              "offset_from_bottom": 23,
+              "viewport_rows": 24
+            },
+            "tab_id": "w1:t1",
+            "terminal_id": "term_65d1ee58cc6411",
+            "terminal_title": "FOOM_SPIKE_TITLE",
+            "terminal_title_stripped": "FOOM_SPIKE_TITLE",
+            "workspace_id": "w1"
+          },
+          {
+            "agent_status": "unknown",
+            "cwd": "/tmp/foom-herdr-aTG2lC/repo",
+            "focused": false,
+            "foreground_cwd": "/tmp/foom-herdr-aTG2lC/repo",
+            "pane_id": "w1:p2",
+            "revision": 0,
+            "scroll": {
+              "max_offset_from_bottom": 0,
+              "offset_from_bottom": 0,
+              "viewport_rows": 40
+            },
+            "tab_id": "w1:t1",
+            "terminal_id": "term_65d1ee5f11e4e3",
+            "workspace_id": "w1"
+          },
+          {
+            "agent_status": "unknown",
+            "cwd": "/tmp/foom-herdr-aTG2lC/child",
+            "focused": false,
+            "foreground_cwd": "/tmp/foom-herdr-aTG2lC/child",
+            "pane_id": "w2:p1",
+            "revision": 0,
+            "scroll": {
+              "max_offset_from_bottom": 0,
+              "offset_from_bottom": 0,
+              "viewport_rows": 40
+            },
+            "tab_id": "w2:t1",
+            "terminal_id": "term_65d1ee5f10f442",
+            "workspace_id": "w2"
+          }
+        ],
+        "protocol": 22,
+        "tabs": [
+          {
+            "agent_status": "unknown",
+            "focused": true,
+            "label": "1",
+            "number": 1,
+            "pane_count": 2,
+            "tab_id": "w1:t1",
+            "workspace_id": "w1"
+          },
+          {
+            "agent_status": "unknown",
+            "focused": false,
+            "label": "1",
+            "number": 1,
+            "pane_count": 1,
+            "tab_id": "w2:t1",
+            "workspace_id": "w2"
+          }
+        ],
+        "version": "0.9.3",
+        "workspaces": [
+          {
+            "active_tab_id": "w1:t1",
+            "agent_status": "unknown",
+            "focused": true,
+            "label": "Foom spike",
+            "number": 1,
+            "pane_count": 2,
+            "tab_count": 1,
+            "workspace_id": "w1",
+            "worktree": {
+              "checkout_path": "/tmp/foom-herdr-aTG2lC/repo",
+              "is_linked_worktree": false,
+              "repo_key": "/tmp/foom-herdr-aTG2lC/repo/.git",
+              "repo_name": "repo",
+              "repo_root": "/tmp/foom-herdr-aTG2lC/repo"
+            }
+          },
+          {
+            "active_tab_id": "w2:t1",
+            "agent_status": "unknown",
+            "focused": false,
+            "label": "child",
+            "number": 2,
+            "pane_count": 1,
+            "tab_count": 1,
+            "workspace_id": "w2",
+            "worktree": {
+              "checkout_path": "/tmp/foom-herdr-aTG2lC/child",
+              "is_linked_worktree": true,
+              "repo_key": "/tmp/foom-herdr-aTG2lC/repo/.git",
+              "repo_name": "repo",
+              "repo_root": "/tmp/foom-herdr-aTG2lC/repo"
+            }
+          }
+        ]
+      },
+      "type": "session_snapshot"
+    }
+  },
+  "events": [
+    {
+      "id": "events",
+      "result": {
+        "type": "subscription_started"
+      }
+    },
+    {
+      "data": {
+        "pane": {
+          "agent_status": "unknown",
+          "cwd": "/tmp/foom-herdr-aTG2lC/child",
+          "focused": false,
+          "foreground_cwd": "/tmp/foom-herdr-aTG2lC/child",
+          "pane_id": "w2:p1",
+          "revision": 0,
+          "scroll": {
+            "max_offset_from_bottom": 0,
+            "offset_from_bottom": 0,
+            "viewport_rows": 40
+          },
+          "tab_id": "w2:t1",
+          "terminal_id": "term_65d1ee5f10f442",
+          "workspace_id": "w2"
+        },
+        "type": "pane_created"
+      },
+      "event": "pane_created"
+    },
+    {
+      "data": {
+        "pane": {
+          "agent_status": "unknown",
+          "cwd": "/tmp/foom-herdr-aTG2lC/repo",
+          "focused": false,
+          "foreground_cwd": "/tmp/foom-herdr-aTG2lC/repo",
+          "pane_id": "w1:p2",
+          "revision": 0,
+          "scroll": {
+            "max_offset_from_bottom": 0,
+            "offset_from_bottom": 0,
+            "viewport_rows": 40
+          },
+          "tab_id": "w1:t1",
+          "terminal_id": "term_65d1ee5f11e4e3",
+          "workspace_id": "w1"
+        },
+        "type": "pane_created"
+      },
+      "event": "pane_created"
+    },
+    {
+      "data": {
+        "type": "worktree_created",
+        "workspace": {
+          "active_tab_id": "w2:t1",
+          "agent_status": "unknown",
+          "focused": false,
+          "label": "child",
+          "number": 2,
+          "pane_count": 1,
+          "tab_count": 1,
+          "workspace_id": "w2",
+          "worktree": {
+            "checkout_path": "/tmp/foom-herdr-aTG2lC/child",
+            "is_linked_worktree": true,
+            "repo_key": "/tmp/foom-herdr-aTG2lC/repo/.git",
+            "repo_name": "repo",
+            "repo_root": "/tmp/foom-herdr-aTG2lC/repo"
+          }
+        },
+        "worktree": {
+          "branch": "spike-child",
+          "is_bare": false,
+          "is_detached": false,
+          "is_linked_worktree": true,
+          "is_prunable": false,
+          "label": "repo",
+          "open_workspace_id": "w2",
+          "path": "/tmp/foom-herdr-aTG2lC/child"
+        }
+      },
+      "event": "worktree_created"
+    }
+  ],
+  "beforeHandoffProcess": {
+    "id": "cli:pane:process_info",
+    "result": {
+      "process_info": {
+        "foreground_process_group_id": 148653,
+        "foreground_processes": [
+          {
+            "argv": ["/bin/bash", "--noprofile", "--norc", "-i"],
+            "cmdline": "/bin/bash --noprofile --norc -i",
+            "cwd": "/tmp/foom-herdr-aTG2lC/repo",
+            "name": "bash",
+            "pid": 148653
+          }
+        ],
+        "pane_id": "w1:p1",
+        "shell_pid": 148653
+      },
+      "type": "pane_process_info"
+    }
+  },
+  "handoff": {
+    "id": "spike",
+    "result": {
+      "type": "ok"
+    }
+  },
+  "handoffStream": {
+    "closed": [
+      {
+        "reason": "live update in progress; reconnect after handoff completes",
+        "type": "terminal.closed"
+      }
+    ],
+    "exit": 0
+  },
+  "afterHandoffPing": {
+    "id": "spike",
+    "result": {
+      "type": "pong",
+      "version": "0.9.3",
+      "protocol": 22,
+      "capabilities": {
+        "live_handoff": true,
+        "detached_server_daemon": true,
+        "endpoint_protocol_generation": 1,
+        "surface_interest": true,
+        "health_check": true,
+        "ssh_agent_registration": true
+      }
+    }
+  },
+  "afterHandoffPane": {
+    "id": "cli:pane:get",
+    "result": {
+      "pane": {
+        "agent_status": "unknown",
+        "cwd": "/tmp/foom-herdr-aTG2lC/repo",
+        "focused": true,
+        "foreground_cwd": "/tmp/foom-herdr-aTG2lC/repo",
+        "pane_id": "w1:p1",
+        "revision": 0,
+        "scroll": {
+          "max_offset_from_bottom": 91,
+          "offset_from_bottom": 0,
+          "viewport_rows": 38
+        },
+        "tab_id": "w1:t1",
+        "terminal_id": "term_65d1ee5fa885a1",
+        "workspace_id": "w1"
+      },
+      "type": "pane_info"
+    }
+  },
+  "afterHandoffProcess": {
+    "id": "cli:pane:process_info",
+    "result": {
+      "process_info": {
+        "foreground_process_group_id": 148653,
+        "foreground_processes": [
+          {
+            "argv": ["/bin/bash", "--noprofile", "--norc", "-i"],
+            "cmdline": "/bin/bash --noprofile --norc -i",
+            "cwd": "/tmp/foom-herdr-aTG2lC/repo",
+            "name": "bash",
+            "pid": 148653
+          }
+        ],
+        "pane_id": "w1:p1",
+        "shell_pid": 148653
+      },
+      "type": "pane_process_info"
+    }
+  },
+  "afterHandoffObserve": "terminal.frame",
+  "shutdown": [
+    {
+      "reason": "server is shutting down",
+      "type": "terminal.closed"
+    }
+  ],
+  "shutdownExit": {
+    "code": 0,
+    "signal": null
+  },
+  "restart": {
+    "id": "cli:workspace:list",
+    "result": {
+      "type": "workspace_list",
+      "workspaces": [
+        {
+          "active_tab_id": "w1:t1",
+          "agent_status": "unknown",
+          "focused": true,
+          "label": "Foom spike",
+          "number": 1,
+          "pane_count": 2,
+          "tab_count": 1,
+          "workspace_id": "w1",
+          "worktree": {
+            "checkout_path": "/tmp/foom-herdr-aTG2lC/repo",
+            "is_linked_worktree": false,
+            "repo_key": "/tmp/foom-herdr-aTG2lC/repo/.git",
+            "repo_name": "repo",
+            "repo_root": "/tmp/foom-herdr-aTG2lC/repo"
+          }
+        },
+        {
+          "active_tab_id": "w2:t1",
+          "agent_status": "unknown",
+          "focused": false,
+          "label": "child",
+          "number": 2,
+          "pane_count": 1,
+          "tab_count": 1,
+          "workspace_id": "w2",
+          "worktree": {
+            "checkout_path": "/tmp/foom-herdr-aTG2lC/child",
+            "is_linked_worktree": true,
+            "repo_key": "/tmp/foom-herdr-aTG2lC/repo/.git",
+            "repo_name": "repo",
+            "repo_root": "/tmp/foom-herdr-aTG2lC/repo"
+          }
+        }
+      ]
+    }
+  },
+  "crash": {
+    "closed": [],
+    "exit": 0
+  }
+}
