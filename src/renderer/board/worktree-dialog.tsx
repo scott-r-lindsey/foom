@@ -1,3 +1,4 @@
+import { useConfirmation } from "./use-confirmation";
 import { useEffect, useRef, useState } from "react";
 import type { LaunchOptions, WorktreeSource } from "./board-source.d";
 import type { AgentId } from "../../shared/agents";
@@ -17,6 +18,7 @@ export function WorktreeDialog({
   close: () => void;
   initialRepository?: string | undefined;
 }) {
+  const confirmation = useConfirmation(source.confirmations);
   const dialogRef = useRef<HTMLDialogElement>(null);
   const [options, setOptions] = useState<LaunchOptions>();
   const [repository, setRepository] = useState("");
@@ -64,20 +66,34 @@ export function WorktreeDialog({
       aria-labelledby="worktree-title"
       onCancel={(event) => {
         event.preventDefault();
-        if (!busy) close();
+        if (!busy || confirmation.arm) {
+          confirmation.cancel();
+          close();
+        }
       }}
     >
       <form
         onSubmit={(event) => {
           event.preventDefault();
-          setBusy(true);
-          setError("");
-          void source
-            .start({ repository, branch, run, acknowledgeCodexNotifierReplacement: acknowledge })
-            .then(close, fail)
-            .finally(() => {
-              setBusy(false);
-            });
+          void confirmation
+            .run(async () => {
+              setBusy(true);
+              setError("");
+              try {
+                await source.start({
+                  repository,
+                  branch,
+                  run,
+                  acknowledgeCodexNotifierReplacement: acknowledge,
+                });
+              } catch (error) {
+                fail(error);
+                throw error;
+              } finally {
+                setBusy(false);
+              }
+            }, close)
+            .catch(() => undefined);
         }}
       >
         <h2 id="worktree-title">New worktree</h2>
@@ -105,6 +121,7 @@ export function WorktreeDialog({
           </select>
           <button
             type="button"
+            disabled={busy && !confirmation.arm}
             onClick={() => {
               setBusy(true);
               setError("");
@@ -183,16 +200,34 @@ export function WorktreeDialog({
         </fieldset>
         {error && <p role="alert">{error}</p>}
         <footer>
-          <button type="button" disabled={busy} onClick={close}>
+          <button
+            type="button"
+            disabled={busy && !confirmation.arm}
+            onClick={() => {
+              confirmation.cancel();
+              close();
+            }}
+          >
             Cancel
           </button>
           <button
             type="submit"
+            data-armed={Boolean(confirmation.arm) || undefined}
+            onPointerLeave={() => {
+              if (confirmation.arm) confirmation.cancel();
+            }}
+            onBlur={() => {
+              if (confirmation.arm) confirmation.cancel();
+            }}
             disabled={
-              busy || !options || !repository || !branch || Boolean(needsDisclosure && !acknowledge)
+              (busy && !confirmation.arm) ||
+              !options ||
+              !repository ||
+              !branch ||
+              Boolean(needsDisclosure && !acknowledge)
             }
           >
-            {busy ? "Working…" : "Create and start"}
+            {confirmation.arm?.label ?? (busy ? "Working…" : "Create and start")}
           </button>
         </footer>
       </form>

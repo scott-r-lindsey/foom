@@ -213,6 +213,7 @@ export function createAppSource(): BoardSource {
           id !== pendingShell && rows.some((row) => row.id === id) ? view.open(id) : view.hide(),
       };
     },
+    confirmations: window.desktop.confirmations,
     isReady: () => loaded,
     getSidebar: () => sidebar,
     shellName: () => shellName,
@@ -242,6 +243,7 @@ export function createAppSource(): BoardSource {
       snapshot(await window.desktop.workspace());
     },
     worktrees: {
+      confirmations: window.desktop.confirmations,
       load: async () => {
         const [workspace, scan, setup] = await Promise.all([
           window.desktop.workspace(),

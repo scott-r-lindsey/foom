@@ -1,22 +1,36 @@
-import { useEffect, useLayoutEffect, useRef } from "react";
+import { useConfirmation } from "./use-confirmation";
+import type { ConfirmationClient } from "../../shared/confirmation";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { CSSProperties } from "react";
 export interface RowAction {
   label: string;
   badge?: string;
-  run: () => void;
+  run: () => void | Promise<void>;
 }
 /** A body portal escapes scrolling and stacking contexts; positioning remains viewport-relative. */
 export function RowMenu({
   anchor,
   actions,
   close,
+  confirmations,
 }: {
   anchor: HTMLButtonElement;
   actions: readonly (RowAction | null)[];
   close: () => void;
+  confirmations?: ConfirmationClient | undefined;
 }) {
+  const confirmation = useConfirmation(confirmations);
+  const [selected, setSelected] = useState<number>();
   const ref = useRef<HTMLDivElement>(null);
+  useEffect(
+    () =>
+      confirmations?.onDialog?.(() => {
+        close();
+        anchor.focus();
+      }),
+    [confirmations, close, anchor],
+  );
   useLayoutEffect(() => {
     const menu = ref.current;
     if (!menu) return;
@@ -88,10 +102,19 @@ export function RowMenu({
               type="button"
               role="menuitem"
               style={{ "--item": index } as CSSProperties}
+              data-armed={(selected === index && Boolean(confirmation.arm)) || undefined}
+              onPointerLeave={confirmation.cancel}
+              onBlur={confirmation.cancel}
               onClick={() => {
-                close();
-                anchor.focus();
-                action.run();
+                if (confirmation.pending && selected !== index) {
+                  confirmation.cancel();
+                  return;
+                }
+                setSelected(index);
+                void confirmation.run(action.run, () => {
+                  close();
+                  anchor.focus();
+                });
               }}
             >
               {action.badge && (
@@ -99,7 +122,9 @@ export function RowMenu({
                   {action.badge}
                 </span>
               )}
-              <span className="menu-label">{action.label}</span>
+              <span className="menu-label">
+                {selected === index && confirmation.arm ? confirmation.arm.label : action.label}
+              </span>
             </button>
           ) : (
             <hr key={`separator-${String(index)}`} />

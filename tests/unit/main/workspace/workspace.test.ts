@@ -1018,10 +1018,7 @@ test("repository and external worktree removal confirm and protect the main chec
       { kind: "remove-worktree", repository: repo.path, worktree: tree.path },
       confirm,
     );
-    expect(confirm).toHaveBeenCalledWith(
-      "Remove feature?",
-      expect.stringContaining(changes ? "private.txt" : "branch is kept"),
-    );
+    expect(confirm).toHaveBeenCalledWith("Remove feature?", undefined, changes);
   }
   await expect(
     workspace.sidebarCommand(

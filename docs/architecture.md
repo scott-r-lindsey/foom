@@ -90,7 +90,7 @@ pruned only after the source's first inventory completes, so an asynchronous loa
 cannot erase valid assignments. This data grants no process capabilities. Maximize
 is not persisted. All terminal IPC remains ID-scoped and main-validated.
 
-The board starts empty. Shells and agents launch from a repository or checkout’s menu; **New worktree** is a repository action. `npm run start:samples` explicitly builds the development sample board. Normal builds omit its data, and Forge rebuilds without the sample flag before packaging, including when invoked directly. The native-modal New worktree form selects a repository, branch and detected agent or shell, and shows versions and hook availability. Repository paths come from main’s registry or native directory picker; main chooses worktree destinations and executables.
+The board starts empty. Shells and agents launch from a repository or checkout’s menu; **New worktree** is a repository action. `npm run start:samples` explicitly builds the development sample board. Normal builds omit its data, and Forge rebuilds without the sample flag before packaging, including when invoked directly. The renderer `<dialog>` New worktree form selects a repository, branch and detected agent or shell, and shows versions and hook availability. Repository paths come from main’s registry or native directory picker; main chooses worktree destinations and executables.
 
 ## Renderer
 
@@ -197,13 +197,59 @@ Every channel checks the sender (the owning window, the main frame, `app://bundl
 
 The renderer names repositories and worktrees only by paths main returned, and agents by ID. Main copies the known launch fields, checks the repository is registered and the checkout is authorized for that launch, and resolves the executable itself. A launched terminal belongs to the window like one it created.
 
+## Confirmations
+
+`main/confirmations/arming.ts` owns the click-again capability. A validated workspace
+command begins one generation and retains its action/target in main while its
+confirmation callback waits. Main emits `confirmation:armed` with a random UUID,
+the canonical target and a consequence label. `confirmation:confirm` must carry
+that exact nonce and target, arrive at least 300 ms after arming and no more than
+three seconds later, and come from the board's top frame. A monotonic clock checks
+the deadline independently of the expiry timer. Acceptance consumes the nonce
+before resuming the operation; forged, mismatched, early and replayed answers do
+not approve anything. `confirmation:cancel`, expiry, replacement, navigation and
+renderer loss revoke pending arming. Generation checks reject delayed preparation
+after cancellation. Existing workspace locks, identity/status rechecks and launch
+validation remain in force while an operation awaits confirmation.
+
+The board receives arm/end events through its source's `ConfirmationClient`.
+Menus and launch buttons keep only view state; pointer exit, focus movement and
+unmount disarm main. A trusted-dialog notification closes a menu and restores its
+anchor before the separate window takes focus. Main-originated end events reset
+armed labels without closing a menu on expiry. The legacy launch and removal IPC
+entry points use the same gate; a renderer-supplied force or shared-checkout flag
+cannot answer a confirmation.
+
+`main/confirmations/trusted-dialog.ts` preloads one hidden, frameless modal window.
+A separate in-memory session and `app://confirmation/confirmation.html` origin
+isolate its renderer process from the board. The window covers the parent's bounds;
+its page centers a raised card over a translucent scrim, so dimming and quit approval
+do not need the board to render. Main serializes requests, supplies the current
+resolved theme and content, and gives each request a new ID. Its sandboxed preload
+exposes only request rendering and answering; it buffers the request until the page
+subscribes. `confirmation:answer` validates the exact window, top frame, URL,
+request ID and boolean. Board frames, stale IDs and malformed answers are ignored.
+Closing, renderer failure and disposal cancel. A failed window is recreated for
+the next request. This main-only content API can later serve #122 and #119.
+
+The trusted session denies permissions and navigation, blocks new windows and
+webviews, and serves only its page, script, styles and bundled fonts. Context
+isolation and sandboxing stay enabled; Node integration stays disabled. Its CSP
+matches the board's restrictions. React renders titles, filenames and session
+metadata as text. The page traps focus between Cancel and the confirming button,
+handles Escape, focuses Cancel for every request, and respects reduced motion.
+Quit inventories live terminals in main, including shells outside the workspace
+snapshot; it does not query the board. Renderer loss immediately releases a pending terminal view flush; a crashed board
+is not asked to flush again until it loads. The existing deadline still allows
+shutdown when a live board is unresponsive.
+
 ## Worktrees
 
 Git runs in main through `execFile` with argument arrays, never through a shell. Branch names are validated with `git check-ref-format --branch` and may not start with `-`. Foom creates worktrees under the configured root (default `~/.foom/worktrees/<repo>/<branch>`) or next to repos the user added. Listing includes all Git worktrees, including external ones; confirmed removal supports linked worktrees created by any tool.
 
 **Today:** `src/main/workspace/worktrees.ts` provides the main-process `WorktreeService`, independently of the UI and IPC. Add a repository before listing or modifying its worktrees. It canonicalizes repository paths, lists NUL-delimited Git records, checks out existing branches or creates new ones, and delegates dirty/locked removal checks to Git. Force allows dirty removal but does not override locks or target validation. Direct service removal still requires ownership unless main supplies a worktree identity captured for explicit confirmation. Adjacent trees use `<repo>-<branch>` (branch slashes create subdirectories). Creation checks resolved parent directories against the allowed root and rejects existing destinations. Ownership records the device, inode, and birth time of the worktree directory, its `.git` file, and its resolved Git metadata directory. Listing and removal revalidate that identity; missing or replaced entries permanently invalidate ownership, including for forced removal. Removal rejects redirected paths. `removeRepository` forgets a repository, but refuses while Foom owns worktrees in it, so their ownership records aren't dropped. These checks do not provide isolation against another local process concurrently replacing filesystem entries.
 
-At startup, main opens the service with `WorktreeService.open(app.getPath("userData"))`. Repository registration and ownership are stored in versioned `worktrees.json` using a private temporary file and atomic rename; writes are serialized within the service. Startup validates the untrusted state, rechecks repository paths, allowed roots, Git membership, and filesystem identity, and drops stale or redirected entries. Corrupt or unsupported state grants no ownership and does not block startup. Registration, creation, removal, and ownership invalidation await persistence; write failures are reported to the caller. The synchronous constructor remains available for an explicitly in-memory service. The renderer reaches it through the `workspace:*` channels. `workspace:start` validates the branch in main and creates or reuses an owned worktree at the configured location. A failed launch leaves the owned worktree available for retry with the same branch. `workspace:remove` takes a terminal ID; sidebar removal takes a registered repository and worktree path. Main validates Git membership, canonical paths and locks, excludes the main checkout (including when a linked checkout is registered as the repository), captures filesystem identity, and shows a native confirmation naming uncommitted changes from NUL-delimited Git status. Cancellation preserves the terminal and files. Main rechecks identity and status after confirmation, stops the worktree’s terminals and waits for native exit, then rechecks identity and status again before removing the directory; the branch is kept. Changed files require a fresh review. A refusal retains the exited terminal screen and capability for inspection, restart, or another removal attempt. Capabilities are revoked only after successful removal. Dirty removal is authorized only by that confirmation, never by a renderer force flag. Failed removal leaves the row available for retry. Operations on the same repository/branch are serialized. State assumes a single application service writer; it is not a security boundary against a local process able to forge the entire state file. External removal does not adopt the worktree. Worktrees are never adopted just because they appear under the configured root. Repositories sharing a basename share a destination namespace; a collision fails without overwriting the existing directory.
+At startup, main opens the service with `WorktreeService.open(app.getPath("userData"))`. Repository registration and ownership are stored in versioned `worktrees.json` using a private temporary file and atomic rename; writes are serialized within the service. Startup validates the untrusted state, rechecks repository paths, allowed roots, Git membership, and filesystem identity, and drops stale or redirected entries. Corrupt or unsupported state grants no ownership and does not block startup. Registration, creation, removal, and ownership invalidation await persistence; write failures are reported to the caller. The synchronous constructor remains available for an explicitly in-memory service. The renderer reaches it through the `workspace:*` channels. `workspace:start` validates the branch in main and creates or reuses an owned worktree at the configured location. A failed launch leaves the owned worktree available for retry with the same branch. `workspace:remove` takes a terminal ID; sidebar removal takes a registered repository and worktree path. Main validates Git membership, canonical paths and locks, excludes the main checkout (including when a linked checkout is registered as the repository), captures filesystem identity, and requests click-again for a clean checkout or a trusted dialog naming uncommitted changes from NUL-delimited Git status. Cancellation preserves the terminal and files. Main rechecks identity and status after confirmation, stops the worktree’s terminals and waits for native exit, then rechecks identity and status again before removing the directory; the branch is kept. Changed files require a fresh review. A refusal retains the exited terminal screen and capability for inspection, restart, or another removal attempt. Capabilities are revoked only after successful removal. Dirty removal is authorized only by that confirmation, never by a renderer force flag. Failed removal leaves the row available for retry. Operations on the same repository/branch are serialized. State assumes a single application service writer; it is not a security boundary against a local process able to forge the entire state file. External removal does not adopt the worktree. Worktrees are never adopted just because they appear under the configured root. Repositories sharing a basename share a destination namespace; a collision fails without overwriting the existing directory.
 
 ## Agent discovery and launch
 

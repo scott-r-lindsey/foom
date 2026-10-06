@@ -213,7 +213,7 @@ export class Workspace {
   }
   private async confirmAgentLaunch(
     worktree: string,
-    confirm: (message: string, detail?: string) => Promise<boolean>,
+    confirm: (message: string, detail?: string, changes?: string) => Promise<boolean>,
   ): Promise<boolean> {
     const active = [...this.launched.values()].some(
       (entry) =>
@@ -232,7 +232,8 @@ export class Workspace {
 
   async launch(
     request: LaunchRequest,
-    confirm: (message: string, detail?: string) => Promise<boolean> = () => Promise.resolve(false),
+    confirm: (message: string, detail?: string, changes?: string) => Promise<boolean> = () =>
+      Promise.resolve(false),
   ): Promise<{ id: string; attention: "hooks" | "evaluator" } | null> {
     return this.withRepository(request.repository, async () => {
       const tree = (await this.worktrees(request.repository)).find(
@@ -288,7 +289,8 @@ export class Workspace {
 
   async startWorktree(
     request: StartWorktreeRequest,
-    confirm: (message: string, detail?: string) => Promise<boolean> = () => Promise.resolve(false),
+    confirm: (message: string, detail?: string, changes?: string) => Promise<boolean> = () =>
+      Promise.resolve(false),
   ): Promise<string | null> {
     return this.withRepository(request.repository, async () => {
       // Lock the logical branch before any async operation, including creation.
@@ -430,7 +432,7 @@ export class Workspace {
 
   async sidebarCommand(
     command: SidebarCommand,
-    confirm: (message: string, detail?: string) => Promise<boolean>,
+    confirm: (message: string, detail?: string, changes?: string) => Promise<boolean>,
   ): Promise<void> {
     if (this.closed) throw new Error("Workspace is closed");
     if (command.kind === "stop" || command.kind === "close" || command.kind === "restart") {
@@ -439,6 +441,7 @@ export class Workspace {
         throw new Error("Unknown session");
       const exited = this.terminals.get(command.id)?.exitCode !== undefined;
       if (command.kind === "stop") {
+        if (!(await confirm("Stop session?"))) return;
         await this.deps.terminals.stop(command.id);
         return;
       }
@@ -467,12 +470,7 @@ export class Workspace {
     if (!tree || tree.path === command.repository)
       throw new Error("Worktree is missing or is the main checkout");
     await this.removeTree(command.repository, tree.path, tree.branch, (branch, changes) =>
-      confirm(
-        `Remove ${branch}?`,
-        changes
-          ? `Stop its terminals and permanently discard these uncommitted changes:\n${changes.split("\0").join("\n")}`
-          : "Stop its terminals and remove the worktree folder. The branch is kept.",
-      ),
+      confirm(`Remove ${branch}?`, undefined, changes),
     );
     this.deps.onChange?.();
   }
@@ -481,7 +479,7 @@ export class Workspace {
     repository: string,
     worktree: string,
     run: AgentId | "shell",
-    confirm: (message: string, detail?: string) => Promise<boolean>,
+    confirm: (message: string, detail?: string, changes?: string) => Promise<boolean>,
   ): Promise<void> {
     return this.withRepository(repository, async () => {
       const tree = (await this.worktrees(repository)).find((item) => item.path === worktree);

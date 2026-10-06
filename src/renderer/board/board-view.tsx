@@ -1,3 +1,4 @@
+import { ConfirmationButton } from "./confirmation-button";
 import { TileArea } from "./tile-area";
 import {
   TILE_STORAGE,
@@ -257,8 +258,7 @@ export function Board({
   const command = (value: SidebarCommand) => {
     setRemoveError("");
     const before = new Set(source.getSnapshot().map((row) => row.id));
-    void source
-      .sidebarCommand?.(value)
+    return (source.sidebarCommand?.(value) ?? Promise.resolve())
       .then(() => {
         if (value.kind === "launch" || value.kind === "restart") {
           const created = source.getSnapshot().find((row) => !before.has(row.id));
@@ -463,11 +463,11 @@ export function Board({
               </div>
               <div className="location-launchers">
                 {launcherActions(options, source.shellName?.()).map((action) => (
-                  <button
+                  <ConfirmationButton
+                    client={source.confirmations}
                     key={action.label}
-                    type="button"
-                    onClick={() => {
-                      command({
+                    action={() => {
+                      return command({
                         kind: "launch",
                         repository: location.repository,
                         worktree: location.worktree ?? location.repository,
@@ -479,7 +479,7 @@ export function Board({
                       {action.badge}
                     </span>
                     {action.label}
-                  </button>
+                  </ConfirmationButton>
                 ))}
                 {source.worktrees && (
                   <button
@@ -507,7 +507,7 @@ export function Board({
                 const session = leaves(layoutRef.current.tree).find(
                   (item) => item.id === tile,
                 )?.session;
-                if (session) command({ kind: "restart", id: session });
+                if (session) void command({ kind: "restart", id: session });
               } else tileAction(tile, action);
             }}
           />

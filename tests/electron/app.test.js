@@ -1,3 +1,25 @@
+async function boardPage(app) {
+  let page;
+  await expect
+    .poll(() => {
+      page = app.windows().find((page) => page.url() === "app://bundle/index.html");
+      return Boolean(page);
+    })
+    .toBe(true);
+  return page;
+}
+
+async function confirmationPage(app) {
+  let page;
+  await expect
+    .poll(() => {
+      page = app.windows().find((page) => page.url() === "app://confirmation/confirmation.html");
+      return Boolean(page);
+    })
+    .toBe(true);
+  return page;
+}
+
 const { assertBundledTerminalFonts } = require("./font-checks.js");
 const { AxeBuilder } = require("@axe-core/playwright");
 const { test } = require("./test-shard.js");
@@ -12,7 +34,9 @@ const { auditProcesses } = require("./process-audit.js");
 async function boardCommand(app, keyCode, shift = true) {
   await app.evaluate(
     ({ BrowserWindow }, { keyCode, mac, shift }) => {
-      const contents = BrowserWindow.getAllWindows()[0].webContents;
+      const contents = BrowserWindow.getAllWindows().find(
+        (window) => window.webContents.getURL() === "app://bundle/index.html",
+      ).webContents;
       if (!mac && /^[1-9]$/.test(keyCode) && !shift) {
         for (const type of ["keyDown", "keyUp"])
           contents.sendInputEvent({ type, keyCode: "Space", modifiers: ["control", "shift"] });
@@ -217,6 +241,9 @@ async function launchApp(context, openShell = true, options = {}) {
   cleanup.audit.add(child.pid);
   app.context().setDefaultTimeout(deadline(10_000));
   const staleTerminalErrors = [];
+  app.on("window", (page) => {
+    page.on("pageerror", (error) => console.error("Renderer error:", error));
+  });
   app.on("console", (message) => {
     if (message.text().includes("Unknown or foreign terminal ID"))
       staleTerminalErrors.push(message.text());
@@ -233,14 +260,32 @@ async function launchApp(context, openShell = true, options = {}) {
       }
       await Promise.race([
         (async () => {
-          // Cleanup uses the public quit path too, with a deterministic response.
-          await app.evaluate(({ dialog }) => {
-            dialog.showMessageBox = async () => ({ response: 1, checkboxChecked: false });
-            dialog.showErrorBox = (title, content) => {
-              console.error(title, content);
-            };
+          // Use the real quit dialog, including when the board has crashed.
+          await quitAndWait(app, async () => {
+            await app.evaluate(({ app }) => app.quit());
+            await expect
+              .poll(async () => {
+                if (await app.evaluate(() => globalThis.readyToQuit)) return true;
+                const dialog = app
+                  .windows()
+                  .find((page) => page.url() === "app://confirmation/confirmation.html");
+                return Boolean(
+                  dialog &&
+                    (await dialog
+                      .getByRole("button", { name: "Stop all and quit" })
+                      .count()
+                      .catch((error) => {
+                        if (dialog.isClosed()) return 0;
+                        throw error;
+                      })),
+                );
+              })
+              .toBe(true);
+            if (!(await app.evaluate(() => globalThis.readyToQuit))) {
+              const dialog = await confirmationPage(app);
+              await dialog.getByRole("button", { name: "Stop all and quit" }).click();
+            }
           });
-          await quitAndWait(app, () => app.evaluate(({ app }) => app.quit()));
         })(),
         new Promise((_, reject) => {
           timer = setTimeout(
@@ -271,11 +316,19 @@ async function launchApp(context, openShell = true, options = {}) {
     }
   });
   // The shell markup now arrives with React’s first commit.
-  const page = await app.firstWindow();
+  const page = await boardPage(app);
   await expect
-    .poll(() => app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].isVisible()), {
-      timeout: deadline(10000),
-    })
+    .poll(
+      () =>
+        app.evaluate(({ BrowserWindow }) =>
+          BrowserWindow.getAllWindows()
+            .find((window) => window.webContents.getURL() === "app://bundle/index.html")
+            .isVisible(),
+        ),
+      {
+        timeout: deadline(10000),
+      },
+    )
     .toBe(true);
   if (options.firstRun || options.emptyBoard) return app;
   await launchCheckoutShell(app, page);
@@ -304,7 +357,7 @@ test("terminal runs an interactive shell behind an isolated bridge", {
   const app = await launchApp(context);
   console.info("Electron launched");
   try {
-    const page = await app.firstWindow();
+    const page = await boardPage(app);
     console.info("Window opened");
     await page.waitForLoadState("domcontentloaded");
     assert.equal(await page.title(), "Foom");
@@ -344,7 +397,9 @@ test("terminal runs an interactive shell behind an isolated bridge", {
       // Playwright's CDP keyboard path bypasses Electron's before-input-event.
       const shortcut = (keyCode) =>
         app.evaluate(({ BrowserWindow }, key) => {
-          const window = BrowserWindow.getAllWindows()[0];
+          const window = BrowserWindow.getAllWindows().find(
+            (window) => window.webContents.getURL() === "app://bundle/index.html",
+          );
           window.focus();
           for (const type of ["keyDown", "keyUp"]) {
             window.webContents.sendInputEvent({
@@ -392,7 +447,9 @@ test("terminal runs an interactive shell behind an isolated bridge", {
       const original = await page.locator(".xterm-screen").boundingBox();
       assert.ok(original);
       const larger = await app.evaluate(({ BrowserWindow, screen }) => {
-        const window = BrowserWindow.getAllWindows()[0];
+        const window = BrowserWindow.getAllWindows().find(
+          (window) => window.webContents.getURL() === "app://bundle/index.html",
+        );
         const area = screen.getDisplayMatching(window.getBounds()).workAreaSize;
         const width = area.width >= 1040 ? 1000 : 700;
         const height = Math.min(650, area.height - 40);
@@ -410,7 +467,9 @@ test("terminal runs an interactive shell behind an isolated bridge", {
       assert.ok(screen);
       await app.evaluate(
         ({ BrowserWindow }, size) =>
-          BrowserWindow.getAllWindows()[0].setSize(size.width, size.height),
+          BrowserWindow.getAllWindows()
+            .find((window) => window.webContents.getURL() === "app://bundle/index.html")
+            .setSize(size.width, size.height),
         larger,
       );
       await page.waitForFunction((previous) => {
@@ -446,6 +505,7 @@ test("terminal runs an interactive shell behind an isolated bridge", {
         node: "undefined",
         process: "undefined",
         capabilities: [
+          "confirmations",
           "onBoardCommand",
           "create",
           "attach",
@@ -547,8 +607,9 @@ test("terminal runs an interactive shell behind an isolated bridge", {
     await page.evaluate((id) => window.desktop.kill(id), detached);
     console.info("Renderer isolated");
     const preferences = await app.evaluate(({ BrowserWindow }) => {
-      const { sandbox, contextIsolation, nodeIntegration } =
-        BrowserWindow.getAllWindows()[0].webContents.getLastWebPreferences();
+      const { sandbox, contextIsolation, nodeIntegration } = BrowserWindow.getAllWindows()
+        .find((window) => window.webContents.getURL() === "app://bundle/index.html")
+        .webContents.getLastWebPreferences();
       return { sandbox, contextIsolation, nodeIntegration };
     });
     assert.deepEqual(preferences, {
@@ -561,9 +622,13 @@ test("terminal runs an interactive shell behind an isolated bridge", {
       404,
     );
     await page.evaluate(() => window.open("https://example.com"));
-    assert.equal(
-      await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().length),
-      1,
+    assert.deepEqual(
+      await app.evaluate(({ BrowserWindow }) =>
+        BrowserWindow.getAllWindows()
+          .map((window) => window.webContents.getURL())
+          .sort(),
+      ),
+      ["app://bundle/index.html", "app://confirmation/confirmation.html"],
     );
     console.info("Security checks passed");
     await input.focus();
@@ -603,7 +668,7 @@ test("bundled brand fonts and both system themes render in Electron", {
   timeout: deadline(45_000),
 }, async (context) => {
   const app = await launchApp(context);
-  const page = await app.firstWindow();
+  const page = await boardPage(app);
   await page.waitForLoadState("domcontentloaded");
   const palettes = {
     dark: [
@@ -715,7 +780,7 @@ for (const action of ["close", "quit", "shortcut"]) {
     timeout: deadline(45_000),
   }, async (context) => {
     const app = await launchApp(context);
-    const page = await app.firstWindow();
+    const page = await boardPage(app);
     await page.waitForFunction(
       () => !/Starting|Unable/.test(document.querySelector(".tile-status").textContent),
     );
@@ -757,17 +822,11 @@ for (const action of ["close", "quit", "shortcut"]) {
       Number(window.secondOutput.match(/QUIT_PID:(\d+)/)[1]),
     );
     await page.evaluate((id) => window.desktop.detach(id), second);
-    await app.evaluate(({ dialog }) => {
-      globalThis.quitPrompts = [];
-      globalThis.quitResponse = 0;
-      dialog.showMessageBox = async (_window, options) => {
-        globalThis.quitPrompts.push(options);
-        return { response: globalThis.quitResponse, checkboxChecked: false };
-      };
-    });
     const requestQuit = () =>
       app.evaluate(({ app, BrowserWindow }, method) => {
-        const window = BrowserWindow.getAllWindows()[0];
+        const window = BrowserWindow.getAllWindows().find(
+          (window) => window.webContents.getURL() === "app://bundle/index.html",
+        );
         setTimeout(() => {
           if (method === "close") window.close();
           else if (method === "quit") app.quit();
@@ -782,12 +841,13 @@ for (const action of ["close", "quit", "shortcut"]) {
         }, 50);
       }, action);
     await requestQuit();
-    await expect.poll(() => app.evaluate(() => globalThis.quitPrompts.length)).toBe(1);
-    assert.equal(
-      await app.evaluate(() => globalThis.quitPrompts[0].message),
-      "2 terminals are still running. Quit anyway?",
+    const confirmation = await confirmationPage(app);
+    await expect(confirmation.getByRole("alertdialog")).toHaveAccessibleName(
+      "Quit with 2 terminals running?",
     );
-    assert.equal(await app.evaluate(() => globalThis.quitPrompts[0].cancelId), 0);
+    await expect(confirmation.getByRole("button", { name: "Cancel" })).toBeFocused();
+    await confirmation.keyboard.press("Enter");
+    await expect(confirmation.getByRole("alertdialog")).toHaveCount(0);
     for (const pid of [firstPid, secondPid]) process.kill(pid, 0);
     const alive =
       process.platform === "win32"
@@ -797,10 +857,10 @@ for (const action of ["close", "quit", "shortcut"]) {
     await page.keyboard.type(alive);
     await page.keyboard.press("Enter");
     await page.waitForFunction(() => window.quitOutput.includes("CANCEL_ALIVE"));
-    await app.evaluate(() => {
-      globalThis.quitResponse = 1;
+    await quitAndWait(app, async () => {
+      await requestQuit();
+      await confirmation.getByRole("button", { name: "Stop all and quit" }).click();
     });
-    await quitAndWait(app, requestQuit);
     for (const pid of [firstPid, secondPid]) {
       await expect
         .poll(() => {
@@ -821,12 +881,15 @@ test("closing with an exited terminal quits without confirmation", {
   timeout: deadline(45_000),
 }, async (context) => {
   const app = await launchApp(context);
-  const page = await app.firstWindow();
+  const page = await boardPage(app);
   await page.waitForFunction(
     () => !/Starting|Unable/.test(document.querySelector(".tile-status").textContent),
   );
   const background = await app.evaluate(({ BrowserWindow, nativeTheme }) => ({
-    actual: BrowserWindow.getAllWindows()[0].getBackgroundColor().toUpperCase(),
+    actual: BrowserWindow.getAllWindows()
+      .find((window) => window.webContents.getURL() === "app://bundle/index.html")
+      .getBackgroundColor()
+      .toUpperCase(),
     expected: nativeTheme.shouldUseDarkColors ? "#05040A" : "#F3F0FA",
   }));
   assert.equal(background.actual, background.expected);
@@ -840,7 +903,11 @@ test("closing with an exited terminal quits without confirmation", {
     };
   });
   await quitAndWait(app, () =>
-    app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].close()),
+    app.evaluate(({ BrowserWindow }) =>
+      BrowserWindow.getAllWindows()
+        .find((window) => window.webContents.getURL() === "app://bundle/index.html")
+        .close(),
+    ),
   );
 });
 
@@ -848,7 +915,7 @@ test("utility host survives output floods without losing rows or delaying anothe
   timeout: deadline(45_000),
 }, async (context) => {
   const app = await launchApp(context);
-  await app.firstWindow();
+  await boardPage(app);
   const measured = await app.evaluate(
     async ({ app }, { node, probe }) => {
       const load = process
@@ -928,7 +995,7 @@ test("a crashed utility host reports failure and the renderer can restart", {
   timeout: deadline(45_000),
 }, async (context) => {
   const app = await launchApp(context);
-  const page = await app.firstWindow();
+  const page = await boardPage(app);
   await page.waitForFunction(
     () => !/Starting|exited|Unable/.test(document.querySelector(".tile-status").textContent),
   );
@@ -966,7 +1033,7 @@ test("host answers color queries once through real view transitions and system t
   const directory = await mkdtemp(path.join(tmpdir(), "foom-color-probe-"));
   removeAfterApps(context, directory);
   const app = await launchApp(context);
-  const page = await app.firstWindow();
+  const page = await boardPage(app);
   await page.waitForFunction(
     () => !document.querySelector(".tile-status").textContent.includes("Starting"),
   );
@@ -1049,7 +1116,7 @@ test("Settings transitions restore background fullscreen output repeatedly", {
   removeAfterApps(context, directory);
   const marker = path.join(directory, "stage");
   const app = await launchApp(context);
-  const page = await app.firstWindow();
+  const page = await boardPage(app);
   const hide = page.getByRole("button", { name: "Settings", exact: true });
   const open = page.locator(".board-row[data-kind='shell']");
   await expect(hide).toBeEnabled();
@@ -1152,7 +1219,7 @@ test("Settings transitions restore background fullscreen output repeatedly", {
 
 test("board starts with live terminals only and peeks without opening", async (context) => {
   const app = await launchApp(context, false);
-  const page = await app.firstWindow();
+  const page = await boardPage(app);
   const row = page.locator(".board-row");
   await expect(row).toHaveCount(1);
   await expect(row).toBeFocused();
@@ -1272,7 +1339,7 @@ test("launches an agent in a managed worktree and routes its attention signals",
     // Chromium may still write user-data until the app cleanup hook has finished.
     removeAfterApps(context, root);
   });
-  const page = await app.firstWindow();
+  const page = await boardPage(app);
   await app.evaluate(({ dialog }, directory) => {
     dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [directory] });
   }, repo);
@@ -1447,7 +1514,11 @@ test("launches an agent in a managed worktree and routes its attention signals",
     );
     await page.keyboard.press("Escape");
   }
-  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(1200, 850));
+  await app.evaluate(({ BrowserWindow }) =>
+    BrowserWindow.getAllWindows()
+      .find((window) => window.webContents.getURL() === "app://bundle/index.html")
+      .setSize(1200, 850),
+  );
   for (const colorScheme of ["light", "dark"]) {
     await page.emulateMedia({ colorScheme });
   }
@@ -1459,7 +1530,7 @@ test("launches an agent in a managed worktree and routes its attention signals",
 
 test("inference keys stay in main and require real OS encryption", async (context) => {
   const instance = await launchApp(context, false);
-  const page = await instance.firstWindow();
+  const page = await boardPage(instance);
   const result = await instance.evaluate(async ({ app, safeStorage }) => {
     const load = process
       .getBuiltinModule("node:module")
@@ -1517,7 +1588,7 @@ test("focus reports reach the shell without counting as a reply", {
   skip: process.platform === "win32" && "The prompt script is POSIX shell",
 }, async (context) => {
   const app = await launchApp(context);
-  const page = await app.firstWindow();
+  const page = await boardPage(app);
   await page.evaluate(() => {
     window.foomStates = [];
     window.focusOutput = "";
@@ -1587,7 +1658,7 @@ async function tabTo(page, name, accessibleName = name) {
 
 test("a fresh profile opens preflight, and it passes accessibility checks", async (context) => {
   const app = await launchApp(context, false, { firstRun: true });
-  const page = await app.firstWindow();
+  const page = await boardPage(app);
   await page.getByRole("button", { name: "Start preflight" }).waitFor();
   assert.equal(await page.locator(".board-home").count(), 0);
   // The ring moves by path distance, boosts on hover/focus, and stops for reduced motion.
@@ -1684,7 +1755,7 @@ test("preflight fits safely through resize, zoom, long input and changing steps"
   timeout: deadline(60_000),
 }, async (context) => {
   const app = await launchApp(context, false, { firstRun: true });
-  const page = await app.firstWindow();
+  const page = await boardPage(app);
   await page.emulateMedia({ reducedMotion: "reduce" });
   await page.getByRole("button", { name: "Start preflight", exact: true }).click();
   for (let step = 0; step < 4; step++)
@@ -1705,7 +1776,9 @@ test("preflight fits safely through resize, zoom, long input and changing steps"
   ]) {
     const size = await app.evaluate(
       ({ BrowserWindow }, { width, height, zoom }) => {
-        const window = BrowserWindow.getAllWindows()[0];
+        const window = BrowserWindow.getAllWindows().find(
+          (window) => window.webContents.getURL() === "app://bundle/index.html",
+        );
         window.setMinimumSize(0, 0);
         window.setSize(width, height);
         window.webContents.setZoomFactor(zoom / 100);
@@ -1776,10 +1849,12 @@ test("large repository scans remain readable and filter without changing scale",
     }
   }
   const app = await launchApp(context, false, { firstRun: true });
-  const page = await app.firstWindow();
+  const page = await boardPage(app);
   await page.emulateMedia({ reducedMotion: "reduce" });
   await app.evaluate(({ BrowserWindow, dialog }, directory) => {
-    BrowserWindow.getAllWindows()[0].setSize(1600, 1000);
+    BrowserWindow.getAllWindows()
+      .find((window) => window.webContents.getURL() === "app://bundle/index.html")
+      .setSize(1600, 1000);
     dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [directory] });
   }, root);
   await page.getByRole("button", { name: "Start preflight", exact: true }).click();
@@ -1832,7 +1907,7 @@ test("first run goes from no agents to go, launches by keyboard, and can be repl
       PATH: [bin, nodeBin, "/usr/bin", "/bin"].join(path.delimiter),
     },
   });
-  const page = await app.firstWindow();
+  const page = await boardPage(app);
   await page.emulateMedia({ reducedMotion: "reduce" });
   await app.evaluate(({ dialog }, directory) => {
     dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [directory] });
@@ -1855,7 +1930,9 @@ test("first run goes from no agents to go, launches by keyboard, and can be repl
   ]) {
     const size = await app.evaluate(
       ({ BrowserWindow, screen }, { width, height, zoom }) => {
-        const window = BrowserWindow.getAllWindows()[0];
+        const window = BrowserWindow.getAllWindows().find(
+          (window) => window.webContents.getURL() === "app://bundle/index.html",
+        );
         const available = screen.getPrimaryDisplay().workAreaSize;
         window.setSize(Math.min(width, available.width), Math.min(height, available.height));
         window.webContents.setZoomFactor(zoom);
@@ -1918,7 +1995,9 @@ test("first run goes from no agents to go, launches by keyboard, and can be repl
     }
   }
   await app.evaluate(({ BrowserWindow, screen }) => {
-    const window = BrowserWindow.getAllWindows()[0];
+    const window = BrowserWindow.getAllWindows().find(
+      (window) => window.webContents.getURL() === "app://bundle/index.html",
+    );
     window.webContents.setZoomFactor(1);
     const available = screen.getPrimaryDisplay().workAreaSize;
     window.setSize(Math.min(1600, available.width), Math.min(1000, available.height));
@@ -1978,7 +2057,9 @@ test("first run goes from no agents to go, launches by keyboard, and can be repl
     await assertFooter();
     if (heading.startsWith("How should")) {
       await app.evaluate(({ BrowserWindow }) => {
-        const window = BrowserWindow.getAllWindows()[0];
+        const window = BrowserWindow.getAllWindows().find(
+          (window) => window.webContents.getURL() === "app://bundle/index.html",
+        );
         window.setSize(800, 600);
         window.webContents.setZoomFactor(1.5);
       });
@@ -1986,7 +2067,9 @@ test("first run goes from no agents to go, launches by keyboard, and can be repl
       await expect(page.getByRole("button", { name: "Continue", exact: true })).toBeInViewport();
       await expect(page.getByRole("button", { name: "Back", exact: true })).toBeInViewport();
       await app.evaluate(({ BrowserWindow, screen }) => {
-        const window = BrowserWindow.getAllWindows()[0];
+        const window = BrowserWindow.getAllWindows().find(
+          (window) => window.webContents.getURL() === "app://bundle/index.html",
+        );
         window.webContents.setZoomFactor(1);
         const available = screen.getPrimaryDisplay().workAreaSize;
         window.setSize(Math.min(1600, available.width), Math.min(1000, available.height));
@@ -2112,7 +2195,7 @@ test("Run check streams live progress from a local model server, then saves the 
   // launchApp owns this profile and removes it only after Electron exits.
   const app = await launchApp(context, false, { firstRun: true });
   const userData = await app.evaluate(({ app }) => app.getPath("userData"));
-  const page = await app.firstWindow();
+  const page = await boardPage(app);
   await page.getByRole("button", { name: "Start preflight" }).click();
   for (let step = 0; step < 3; step++) await page.getByRole("button", { name: "Continue" }).click();
   await page.getByRole("radio", { name: /Use a local model/ }).check();
@@ -2149,7 +2232,7 @@ test("Run check streams live progress from a local model server, then saves the 
 
 test("appearance switches light and dark, and zoom shortcuts resize the interface", async (context) => {
   const app = await launchApp(context, false, { firstRun: true });
-  const page = await app.firstWindow();
+  const page = await boardPage(app);
   await page.getByRole("button", { name: "Start preflight" }).waitFor();
   // Exercise theme changes after the rows appear, independently of CI startup speed.
   await page.locator('.welcome-noise[data-phase="settled"]').waitFor();
@@ -2184,12 +2267,16 @@ test("appearance switches light and dark, and zoom shortcuts resize the interfac
 
   const zoom = () =>
     app.evaluate(({ BrowserWindow }) =>
-      BrowserWindow.getAllWindows()[0].webContents.getZoomFactor(),
+      BrowserWindow.getAllWindows()
+        .find((window) => window.webContents.getURL() === "app://bundle/index.html")
+        .webContents.getZoomFactor(),
     );
   const press = (keyCode, shift) =>
     app.evaluate(
       ({ BrowserWindow }, { keyCode, shift, mac }) => {
-        const window = BrowserWindow.getAllWindows()[0];
+        const window = BrowserWindow.getAllWindows().find(
+          (window) => window.webContents.getURL() === "app://bundle/index.html",
+        );
         window.focus();
         const modifiers = mac ? ["meta"] : ["control", ...(shift ? ["shift"] : [])];
         for (const type of ["keyDown", "keyUp"])
@@ -2199,12 +2286,16 @@ test("appearance switches light and dark, and zoom shortcuts resize the interfac
     );
   const size = () =>
     app.evaluate(({ BrowserWindow }) => {
-      const { width, height } = BrowserWindow.getAllWindows()[0].getBounds();
+      const { width, height } = BrowserWindow.getAllWindows()
+        .find((window) => window.webContents.getURL() === "app://bundle/index.html")
+        .getBounds();
       return { width, height };
     });
   const start = await size();
   const grown = await app.evaluate(({ BrowserWindow, screen }) => {
-    const window = BrowserWindow.getAllWindows()[0];
+    const window = BrowserWindow.getAllWindows().find(
+      (window) => window.webContents.getURL() === "app://bundle/index.html",
+    );
     const bounds = window.getBounds();
     const content = window.getContentBounds();
     const area = screen.getDisplayMatching(bounds).workArea;
@@ -2259,7 +2350,7 @@ test("preflight scans a code folder and adds the repositories worked on recently
     if (stale) await utimes(path.join(repo, ".git", "HEAD"), old, old);
   }
   const app = await launchApp(context, false, { firstRun: true });
-  const page = await app.firstWindow();
+  const page = await boardPage(app);
   await app.evaluate(({ dialog }, folder) => {
     dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [folder] });
   }, code);
@@ -2319,7 +2410,7 @@ test("new worktree dialog launches by keyboard and confirms dirty removal", {
     // worktree: a live PowerShell process holds its working directory on Windows.
     removeAfterApps(context, root);
   });
-  const page = await app.firstWindow();
+  const page = await boardPage(app);
   const tabToField = async (id, reverse = false) => {
     // Selecting the already-registered repository does not change its value.
     // Wait for the async add to release the disabled fieldset before sending Tab.
@@ -2395,25 +2486,18 @@ test("new worktree dialog launches by keyboard and confirms dirty removal", {
   await expect(page.locator(".tile-terminal")).toBeVisible();
   const dirty = path.join(terminal.worktree, "unsaved.txt");
   await writeFile(dirty, "preserve unless confirmed");
-  await app.evaluate(({ dialog }) => {
-    globalThis.removalOptions = null;
-    dialog.showMessageBox = async (_window, options) => {
-      globalThis.removalOptions = options;
-      return { response: 0 };
-    };
-  });
   await page.getByRole("button", { name: "Actions for feature/ui", exact: true }).click();
   await page.getByRole("menuitem", { name: "Remove worktree…" }).click();
-  await expect
-    .poll(() => app.evaluate(() => globalThis.removalOptions?.detail))
-    .toContain("unsaved.txt");
+  const confirmation = await confirmationPage(app);
+  await expect(confirmation.getByLabel("Uncommitted changes")).toContainText("unsaved.txt");
+  await expect(confirmation.getByRole("button", { name: "Cancel" })).toBeFocused();
+  await confirmation.keyboard.press("Enter");
+  await expect(confirmation.getByRole("alertdialog")).toHaveCount(0);
   assert.equal(await readFile(dirty, "utf8"), "preserve unless confirmed");
   await expect(row).toBeVisible();
-  await app.evaluate(({ dialog }) => {
-    dialog.showMessageBox = async () => ({ response: 1 });
-  });
   await page.getByRole("button", { name: "Actions for feature/ui", exact: true }).click();
   await page.getByRole("menuitem", { name: "Remove worktree…" }).click();
+  await confirmation.getByRole("button", { name: "Discard 1 change and remove" }).click();
   await expect(row).toHaveCount(0);
   await assert.rejects(readFile(dirty), { code: "ENOENT" });
   await page.locator(".board-row").filter({ hasText: "feature/remaining" }).click();
@@ -2459,29 +2543,24 @@ test("external worktrees offer confirmed removal while preserving branches and t
   const app = await launchApp(context, false, { emptyBoard: true }).finally(() => {
     removeAfterApps(context, root);
   });
-  const page = await app.firstWindow();
+  const page = await boardPage(app);
   await app.evaluate(({ dialog }, repo) => {
     dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [repo] });
-    globalThis.removalOptions = null;
-    dialog.showMessageBox = async (_window, options) => {
-      globalThis.removalOptions = options;
-      return { response: 0 };
-    };
   }, repo);
   await page.getByRole("button", { name: "Add repository", exact: true }).click();
   const row = page.getByRole("button", { name: "Actions for external", exact: true });
   await row.click();
   await page.getByRole("menuitem", { name: "Remove worktree…" }).click();
-  await expect
-    .poll(() => app.evaluate(() => globalThis.removalOptions?.detail))
-    .toContain("unsaved.txt");
+  const confirmation = await confirmationPage(app);
+  await expect(confirmation.getByLabel("Uncommitted changes")).toContainText("unsaved.txt");
+  await expect(confirmation.getByRole("button", { name: "Cancel" })).toBeFocused();
+  await confirmation.keyboard.press("Enter");
+  await expect(confirmation.getByRole("alertdialog")).toHaveCount(0);
   assert.equal(await readFile(dirty, "utf8"), "keep until confirmed");
   await expect(row).toBeVisible();
-  await app.evaluate(({ dialog }) => {
-    dialog.showMessageBox = async () => ({ response: 1 });
-  });
   await row.click();
   await page.getByRole("menuitem", { name: "Remove worktree…" }).click();
+  await confirmation.getByRole("button", { name: "Discard 1 change and remove" }).click();
   await expect(row).toHaveCount(0);
   await assert.rejects(readFile(dirty), { code: "ENOENT" });
   assert.equal(
@@ -2549,7 +2628,7 @@ test("external worktrees support independent shells and confirmed shared agents"
   }).finally(() => {
     removeAfterApps(context, root);
   });
-  const page = await app.firstWindow();
+  const page = await boardPage(app);
   await app.evaluate(({ dialog }, repo) => {
     dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [repo] });
   }, repo);
@@ -2579,14 +2658,6 @@ test("external worktrees support independent shells and confirmed shared agents"
       )
       .toContain(`CWD:${directory}`);
   }
-  await app.evaluate(({ dialog }) => {
-    globalThis.sharingPrompts = [];
-    globalThis.allowSharing = false;
-    dialog.showMessageBox = async (_window, options) => {
-      globalThis.sharingPrompts.push(options.message);
-      return { response: globalThis.allowSharing ? 1 : 0 };
-    };
-  });
   const sharedSessions = () =>
     page.evaluate(
       async (worktree) =>
@@ -2602,12 +2673,10 @@ test("external worktrees support independent shells and confirmed shared agents"
     // before opening the next one.
     await expect(page.locator(".xterm-helper-textarea").first()).toBeFocused();
   }
-  assert.deepEqual(await app.evaluate(() => globalThis.sharingPrompts), []);
   if (process.platform !== "win32") {
     await page.getByRole("button", { name: "Actions for agent", exact: true }).click();
     await page.getByRole("menuitem", { name: "Claude Code", exact: true }).click();
     await expect(page.locator(".board-row").filter({ hasText: "agent" })).toHaveCount(3);
-    assert.deepEqual(await app.evaluate(() => globalThis.sharingPrompts), []);
     const terminal = (await page.evaluate(() => window.desktop.workspace())).terminals.find(
       (t) => t.worktree === agentTree && t.kind === "agent",
     );
@@ -2617,48 +2686,55 @@ test("external worktrees support independent shells and confirmed shared agents"
         page.evaluate(async (id) => (await window.desktop.tail(id, 20)).join(""), terminal.id),
       )
       .toContain(`CWD:${agentTree}`);
-    const anotherAgent = () =>
-      page.evaluate(
-        ({ repository, worktree }) =>
-          window.desktop.sidebarCommand({ kind: "launch", repository, worktree, run: "claude" }),
-        { repository: repo, worktree: agentTree },
-      );
-    await anotherAgent();
+    await page.getByRole("button", { name: "Actions for agent", exact: true }).click();
+    await page.getByRole("menuitem", { name: "Claude Code", exact: true }).click();
+    await expect(
+      page.getByRole("menuitem", { name: "Click again for two agents here" }),
+    ).toBeVisible();
+    await page.keyboard.press("Escape");
     assert.equal((await sharedSessions()).length, 3, "Cancel must not create an agent");
-    assert.deepEqual(await app.evaluate(() => globalThis.sharingPrompts), [
-      "Run another agent in this checkout?",
-    ]);
-    await app.evaluate(() => {
-      globalThis.allowSharing = true;
-    });
-    await anotherAgent();
-    assert.equal((await sharedSessions()).filter((t) => t.kind === "agent").length, 2);
-    assert.equal(await app.evaluate(() => globalThis.sharingPrompts.length), 2);
+    await page.getByRole("button", { name: "Actions for agent", exact: true }).click();
+    await page.getByRole("menuitem", { name: "Claude Code", exact: true }).click();
+    // The minimum elapsed time is the behavior under test.
+    await page.waitForTimeout(310);
+    await page.getByRole("menuitem", { name: "Click again for two agents here" }).click();
+    await expect
+      .poll(async () => (await sharedSessions()).filter((t) => t.kind === "agent").length)
+      .toBe(2);
   }
   const shell = (await sharedSessions()).find((t) => t.kind === "shell");
   assert.ok(shell);
-  await page.evaluate((id) => window.desktop.sidebarCommand({ kind: "stop", id }), shell.id);
+  await page.evaluate(() => {
+    window.confirmationArm = null;
+    window.desktop.confirmations.subscribe((arm) => {
+      window.confirmationArm = arm;
+    });
+  });
+  const stop = page.evaluate((id) => window.desktop.sidebarCommand({ kind: "stop", id }), shell.id);
+  await page.waitForFunction(() => window.confirmationArm !== null);
+  await page.waitForTimeout(310);
+  await page.evaluate(() => window.desktop.confirmations.confirm(window.confirmationArm));
+  await stop;
   await expect
     .poll(async () => (await sharedSessions()).find((t) => t.id === shell.id)?.exited)
     .toBe(true);
-  const promptsBeforeRestart = await app.evaluate(() => globalThis.sharingPrompts.length);
   await page.evaluate((id) => window.desktop.sidebarCommand({ kind: "restart", id }), shell.id);
   assert.equal((await sharedSessions()).filter((t) => t.kind === "shell").length, 2);
   assert.ok((await sharedSessions()).every((t) => t.id !== shell.id));
-  assert.equal(await app.evaluate(() => globalThis.sharingPrompts.length), promptsBeforeRestart);
   const inventory = await page.evaluate(() => window.desktop.sidebarInventory());
   assert.ok(
     inventory.repositories[0].worktrees.every((tree) => !tree.managed),
     "Launching must not adopt external checkouts",
   );
-  await app.evaluate(() => {
-    globalThis.allowSharing = true;
-  });
-  await page.evaluate(
+  const removal = page.evaluate(
     ({ repository, worktree }) =>
       window.desktop.sidebarCommand({ kind: "remove-worktree", repository, worktree }),
     { repository: repo, worktree: agentTree },
   );
+  await page.waitForFunction(() => window.confirmationArm !== null);
+  await page.waitForTimeout(310);
+  await page.evaluate(() => window.desktop.confirmations.confirm(window.confirmationArm));
+  await removal;
   assert.deepEqual(await sharedSessions(), []);
   await assert.rejects(realpath(agentTree), { code: "ENOENT" });
   assert.equal((await page.evaluate(() => window.desktop.workspace())).terminals.length, 2);
@@ -2672,7 +2748,7 @@ test("persistent sidebar keeps Escape in the PTY and routes keyboard navigation"
   const marker = path.join(root, "keys");
   await writeFile(marker, "");
   const app = await launchApp(context);
-  const page = await app.firstWindow();
+  const page = await boardPage(app);
   await page.keyboard.type(
     `${process.platform === "win32" ? "& " : ""}"${process.execPath}" "${path.join(__dirname, "input-probe.js")}" "${marker}"`,
   );
@@ -2724,7 +2800,9 @@ test("persistent sidebar keeps Escape in the PTY and routes keyboard navigation"
   assert.doesNotMatch(await readFile(marker, "utf8"), /1b5b41|1b4f41/);
   await assertAccessible(page);
   await app.evaluate(({ BrowserWindow }) => {
-    const window = BrowserWindow.getAllWindows()[0];
+    const window = BrowserWindow.getAllWindows().find(
+      (window) => window.webContents.getURL() === "app://bundle/index.html",
+    );
     // Exercise compact layouts as on a display smaller than the normal minimum.
     window.setMinimumSize(0, 0);
     window.setSize(640, 600);
@@ -2743,7 +2821,7 @@ test("wheel moves less and preserves normal shell scrollback", {
   skip: process.platform === "win32" && "less is a POSIX pager",
 }, async (context) => {
   const app = await launchApp(context);
-  const page = await app.firstWindow();
+  const page = await boardPage(app);
   await page.evaluate(() => {
     window.pagerOutput = "";
     window.desktop.onData((_id, _token, data) => {
@@ -2792,10 +2870,12 @@ test("wheel moves less and preserves normal shell scrollback", {
 
 test("empty sidebar and terminal pane stay accessible at both widths", async (context) => {
   const app = await launchApp(context, false, { emptyBoard: true });
-  const page = await app.firstWindow();
+  const page = await boardPage(app);
   for (const width of [1000, 640]) {
     await app.evaluate(({ BrowserWindow }, width) => {
-      const window = BrowserWindow.getAllWindows()[0];
+      const window = BrowserWindow.getAllWindows().find(
+        (window) => window.webContents.getURL() === "app://bundle/index.html",
+      );
       window.setMinimumSize(0, 0);
       window.setSize(width, 600);
     }, width);
@@ -2851,7 +2931,7 @@ else console.log('ARGS:' + JSON.stringify(process.argv.slice(2)));
     emptyBoard: true,
     env: { HOME: home, PATH: `${bin}${path.delimiter}${process.env.PATH}` },
   });
-  const page = await app.firstWindow();
+  const page = await boardPage(app);
   await app.evaluate(({ dialog }, repo) => {
     dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [repo] });
   }, repo);
@@ -2892,7 +2972,7 @@ test("Settings shares live preflight values, sizes the terminal and restores key
   await app.evaluate(({ dialog }, folder) => {
     dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [folder] });
   }, root);
-  const page = await app.firstWindow();
+  const page = await boardPage(app);
   const shortcut = async () => {
     await boardCommand(app, ",", false);
     // Native input dispatch returns before React makes Settings interactive.
@@ -3007,12 +3087,22 @@ test("Settings shares live preflight values, sizes the terminal and restores key
   await expect(page.getByRole("status").filter({ hasText: "120%" })).toBeVisible();
   await page.keyboard.press("Escape");
   await expect(row).toBeFocused();
-  assert.equal(await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().length), 1);
+  assert.deepEqual(
+    await app.evaluate(({ BrowserWindow }) =>
+      BrowserWindow.getAllWindows()
+        .map((window) => ({ url: window.webContents.getURL(), visible: window.isVisible() }))
+        .sort((a, b) => a.url.localeCompare(b.url)),
+    ),
+    [
+      { url: "app://bundle/index.html", visible: true },
+      { url: "app://confirmation/confirmation.html", visible: false },
+    ],
+  );
 });
 
 test("every Settings section passes axe in light and dark, including the narrow layout", async (context) => {
   const app = await launchApp(context, false);
-  const page = await app.firstWindow();
+  const page = await boardPage(app);
   await page.getByRole("button", { name: "Settings", exact: true }).click();
   for (const name of [
     "Agents and hooks",
@@ -3031,7 +3121,9 @@ test("every Settings section passes axe in light and dark, including the narrow 
     await assertAccessible(page);
   }
   await app.evaluate(({ BrowserWindow }) => {
-    const window = BrowserWindow.getAllWindows()[0];
+    const window = BrowserWindow.getAllWindows().find(
+      (window) => window.webContents.getURL() === "app://bundle/index.html",
+    );
     // Exercise compact layouts as on a display smaller than the normal minimum.
     window.setMinimumSize(0, 0);
     window.setSize(640, 640);
@@ -3047,7 +3139,9 @@ test("window size defaults to 60 percent and survives a normal quit and relaunch
   const options = { args: [`--user-data-dir=${profile}`], emptyBoard: true };
   const app = await launchApp(context, false, options);
   const initial = await app.evaluate(({ BrowserWindow, screen }) => {
-    const window = BrowserWindow.getAllWindows()[0];
+    const window = BrowserWindow.getAllWindows().find(
+      (window) => window.webContents.getURL() === "app://bundle/index.html",
+    );
     const area = screen.getPrimaryDisplay().workAreaSize;
     return { size: window.getSize(), area };
   });
@@ -3057,13 +3151,14 @@ test("window size defaults to 60 percent and survives a normal quit and relaunch
   ]);
   await app.evaluate(({ BrowserWindow, screen }) => {
     const area = screen.getPrimaryDisplay().workAreaSize;
-    BrowserWindow.getAllWindows()[0].setSize(
-      Math.min(1200, area.width),
-      Math.min(850, area.height),
-    );
+    BrowserWindow.getAllWindows()
+      .find((window) => window.webContents.getURL() === "app://bundle/index.html")
+      .setSize(Math.min(1200, area.width), Math.min(850, area.height));
   });
   const size = await app.evaluate(({ BrowserWindow }) =>
-    BrowserWindow.getAllWindows()[0].getSize(),
+    BrowserWindow.getAllWindows()
+      .find((window) => window.webContents.getURL() === "app://bundle/index.html")
+      .getSize(),
   );
   await quitAndWait(app, () => app.evaluate(({ app }) => app.quit()));
   assert.deepEqual(JSON.parse(await readFile(path.join(profile, "window-size.json"), "utf8")), {
@@ -3072,7 +3167,11 @@ test("window size defaults to 60 percent and survives a normal quit and relaunch
   });
   const restored = await launchApp(context, false, options);
   assert.deepEqual(
-    await restored.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].getSize()),
+    await restored.evaluate(({ BrowserWindow }) =>
+      BrowserWindow.getAllWindows()
+        .find((window) => window.webContents.getURL() === "app://bundle/index.html")
+        .getSize(),
+    ),
     size,
   );
   await quitAndWait(restored, () => restored.evaluate(({ app }) => app.quit()));
@@ -3102,10 +3201,12 @@ test("sidebar menus escape the scroll area, stay in the window and launch from a
   const app = await launchApp(context, false, { emptyBoard: true }).finally(() => {
     removeAfterApps(context, root);
   });
-  const page = await app.firstWindow();
+  const page = await boardPage(app);
   await app.evaluate(({ dialog, BrowserWindow }, repo) => {
     dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [repo] });
-    BrowserWindow.getAllWindows()[0].setSize(1000, 700);
+    BrowserWindow.getAllWindows()
+      .find((window) => window.webContents.getURL() === "app://bundle/index.html")
+      .setSize(1000, 700);
   }, repo);
   await page.getByRole("button", { name: "Add repository", exact: true }).click();
   await expect(page.getByRole("treeitem", { name: "repo", exact: true })).toBeVisible();
@@ -3242,7 +3343,9 @@ test("sidebar menus escape the scroll area, stay in the window and launch from a
   await expect(page.locator(".board-row")).toContainText("Build helper");
   await assertAccessible(page);
   await app.evaluate(({ BrowserWindow }) => {
-    const window = BrowserWindow.getAllWindows()[0];
+    const window = BrowserWindow.getAllWindows().find(
+      (window) => window.webContents.getURL() === "app://bundle/index.html",
+    );
     // Use interface scaling: macOS can retain the native minimum window width.
     window.setSize(960, 700);
     window.webContents.setZoomFactor(1.5);
@@ -3272,7 +3375,7 @@ test("Bash command status reaches the sidebar without closing the shell", {
   skip: process.platform !== "linux" && "Requires Bash 4.4 or newer",
 }, async (context) => {
   const app = await launchApp(context, true, { env: { SHELL: "/bin/bash" } });
-  const page = await app.firstWindow();
+  const page = await boardPage(app);
   const row = page.locator(".board-row[data-kind='shell']");
   await expect(row).toContainText("Shell is ready");
   await expect(row).toHaveAttribute("data-state", "quiet_ok");
@@ -3307,10 +3410,12 @@ test("tiles build irregular layouts, preserve views, refuse full placement and r
   }).finally(() => {
     removeAfterApps(context, root);
   });
-  const page = await app.firstWindow();
+  const page = await boardPage(app);
   await app.evaluate(({ dialog, BrowserWindow }, repo) => {
     dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [repo] });
-    BrowserWindow.getAllWindows()[0].setSize(1500, 900);
+    BrowserWindow.getAllWindows()
+      .find((window) => window.webContents.getURL() === "app://bundle/index.html")
+      .setSize(1500, 900);
   }, repo);
   await page.getByRole("button", { name: "Add repository", exact: true }).click();
   await expect
@@ -3438,7 +3543,7 @@ test("tiles build irregular layouts, preserve views, refuse full placement and r
 
 test("launching into full tiles replaces focus and empty tiles support mouse controls", async (context) => {
   const app = await launchApp(context);
-  const page = await app.firstWindow();
+  const page = await boardPage(app);
   await page.emulateMedia({ reducedMotion: "reduce" });
   const original = (await page.evaluate(() => window.desktop.workspace())).terminals[0];
   await page.getByRole("button", { name: "Actions for shell-fixture", exact: true }).click();
@@ -3478,12 +3583,14 @@ test("tile leader avoids AltGr chords and cancels unmatched keys", {
   skip: process.platform === "darwin" && "macOS retains Command tile bindings",
 }, async (context) => {
   const app = await launchApp(context);
-  const page = await app.firstWindow();
+  const page = await boardPage(app);
   const leader = async (keyCode) => {
     await boardCommand(app, "Space");
     await app.evaluate(({ BrowserWindow }, keyCode) => {
       for (const type of ["keyDown", "keyUp"])
-        BrowserWindow.getAllWindows()[0].webContents.sendInputEvent({ type, keyCode });
+        BrowserWindow.getAllWindows()
+          .find((window) => window.webContents.getURL() === "app://bundle/index.html")
+          .webContents.sendInputEvent({ type, keyCode });
     }, keyCode);
   };
   const tiles = page.locator(".terminal-tile");
@@ -3502,7 +3609,7 @@ test("tile leader avoids AltGr chords and cancels unmatched keys", {
 
 test("tile terminal viewport has no native overflow bars", async (context) => {
   const app = await launchApp(context);
-  const page = await app.firstWindow();
+  const page = await boardPage(app);
   await page.emulateMedia({ reducedMotion: "reduce" });
   await page.getByRole("button", { name: "Settings", exact: true }).click();
   await page.getByRole("button", { name: "Terminal", exact: true }).click();
@@ -3534,7 +3641,7 @@ test("every interface theme applies live to native chrome and passes axe on boar
   timeout: deadline(55000),
 }, async (context) => {
   const app = await launchApp(context);
-  const page = await app.firstWindow();
+  const page = await boardPage(app);
   const choices = [
     ["eclipse-light", "Eclipse Light", "light", "#f3f0fa"],
     ["eclipse-dark", "Eclipse Dark", "dark", "#05040a"],
@@ -3564,7 +3671,9 @@ test("every interface theme applies live to native chrome and passes axe on boar
     assert.equal(
       (
         await app.evaluate(({ BrowserWindow }) =>
-          BrowserWindow.getAllWindows()[0].getBackgroundColor(),
+          BrowserWindow.getAllWindows()
+            .find((window) => window.webContents.getURL() === "app://bundle/index.html")
+            .getBackgroundColor(),
         )
       ).toLowerCase(),
       background,
@@ -3595,7 +3704,9 @@ test("every interface theme applies live to native chrome and passes axe on boar
   await page.emulateMedia({ colorScheme: null });
   await page.getByRole("button", { name: "High Contrast", exact: true }).click();
   await app.evaluate(({ BrowserWindow }) => {
-    const window = BrowserWindow.getAllWindows()[0];
+    const window = BrowserWindow.getAllWindows().find(
+      (window) => window.webContents.getURL() === "app://bundle/index.html",
+    );
     window.setMinimumSize(0, 0);
     window.setSize(640, 640);
   });
@@ -3610,7 +3721,7 @@ test("soundscape sends one attention cadence and one completion to a fake audio 
   removeAfterApps(context, root);
   const marker = path.join(root, "keys");
   const app = await launchApp(context);
-  const page = await app.firstWindow();
+  const page = await boardPage(app);
   await page.evaluate(() => {
     window.soundTones = [];
     window.AudioContext = class {
@@ -3682,4 +3793,101 @@ test("soundscape sends one attention cadence and one completion to a fake audio 
       page.evaluate(async () => (await window.desktop.setupState()).settings.sound.alerts),
     )
     .toBe(false);
+});
+
+test("click-again repository removal rejects double clicks, cancels, expires and confirms", {
+  timeout: deadline(45000),
+}, async (context) => {
+  const app = await launchApp(context, false, { emptyBoard: true });
+  const page = await boardPage(app);
+  const profile = await app.evaluate(({ app }) => app.getPath("userData"));
+  const repo = path.join(profile, "remove-fixture");
+  await mkdir(repo);
+  isolatedGit(["init", "-q", repo]);
+  await app.evaluate(({ dialog }, repo) => {
+    dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [repo] });
+  }, repo);
+  await page.getByRole("button", { name: "Add repository", exact: true }).click();
+  const actions = page.getByRole("button", { name: "Actions for remove-fixture", exact: true });
+  await actions.click();
+  await page.getByRole("menuitem", { name: "Remove repository…" }).dblclick();
+  const armed = page.getByRole("menuitem", { name: "Click again to remove" });
+  await expect(armed).toBeVisible();
+  assert.equal((await page.evaluate(() => window.desktop.workspace())).repositories.length, 1);
+  await page.keyboard.press("Escape");
+  await actions.click();
+  await page.getByRole("menuitem", { name: "Remove repository…" }).click();
+  await expect(armed).toBeVisible();
+  // The expiration interval itself is under test.
+  await page.waitForTimeout(3050);
+  await expect(page.getByRole("menuitem", { name: "Remove repository…" })).toBeVisible();
+  await page.getByRole("menuitem", { name: "Remove repository…" }).click();
+  await expect(armed).toBeVisible();
+  await page.waitForTimeout(310);
+  await armed.click();
+  await expect(actions).toHaveCount(0);
+  assert.equal(await realpath(repo), repo, "Repository files are kept");
+});
+
+test("trusted quit dialog isolates answers, passes axe in both themes and survives a board crash", {
+  timeout: deadline(45000),
+}, async (context) => {
+  const app = await launchApp(context);
+  const board = await boardPage(app);
+  const dialog = await confirmationPage(app);
+  const processes = await app.evaluate(({ BrowserWindow }) =>
+    BrowserWindow.getAllWindows().map((window) => window.webContents.getOSProcessId()),
+  );
+  assert.equal(new Set(processes).size, 2, "Confirmation must use a separate renderer process");
+  for (const colorMode of ["light", "dark"]) {
+    await board.evaluate((colorMode) => window.desktop.saveSetup({ colorMode }), colorMode);
+    await app.evaluate(({ app }) => app.quit());
+    await expect(dialog.getByRole("alertdialog")).toBeVisible();
+    const id = await dialog.evaluate(() => {
+      let id;
+      const off = window.confirmation.render((request) => {
+        id = request?.id;
+      });
+      off();
+      return id;
+    });
+    await app.evaluate(({ BrowserWindow, ipcMain }, id) => {
+      const board = BrowserWindow.getAllWindows().find(
+        (window) => window.webContents.getURL() === "app://bundle/index.html",
+      ).webContents;
+      ipcMain.emit(
+        "confirmation:answer",
+        { sender: board, senderFrame: board.mainFrame },
+        id,
+        true,
+      );
+    }, id);
+    await expect(dialog.getByRole("button", { name: "Cancel" })).toBeFocused();
+    assert.equal(await board.evaluate(() => "confirmation" in window), false);
+    await mkdir("test-results", { recursive: true });
+    await dialog.screenshot({
+      path: `test-results/confirmation-${colorMode}.png`,
+      animations: "disabled",
+    });
+    const scan = await new AxeBuilder({ page: dialog }).setLegacyMode().analyze();
+    assert.deepEqual(scan.violations, []);
+    await dialog.keyboard.press("Tab");
+    await expect(dialog.getByRole("button", { name: "Stop all and quit" })).toBeFocused();
+    await dialog.keyboard.press("Tab");
+    await expect(dialog.getByRole("button", { name: "Cancel" })).toBeFocused();
+    await dialog.keyboard.press("Escape");
+    await expect(dialog.getByRole("alertdialog")).toHaveCount(0);
+  }
+  await app.evaluate(({ BrowserWindow }) =>
+    BrowserWindow.getAllWindows()
+      .find((window) => window.webContents.getURL() === "app://bundle/index.html")
+      .webContents.forcefullyCrashRenderer(),
+  );
+  await quitAndWait(app, async () => {
+    await app.evaluate(({ app }) => app.quit());
+    await expect(dialog.getByRole("alertdialog")).toHaveAccessibleName(
+      "Quit with 1 terminal running?",
+    );
+    await dialog.getByRole("button", { name: "Stop all and quit" }).click();
+  });
 });

@@ -809,3 +809,41 @@
     z-index: 5;
   }
 }
+
+.row-menu button[data-armed],
+.location-launchers button[data-armed],
+.worktree-dialog button[data-armed] {
+  position: relative;
+  background: var(--ink);
+  color: var(--bg);
+  font-weight: 600;
+}
+.row-menu button[data-armed]::before {
+  display: none;
+}
+.row-menu button[data-armed]::after,
+.location-launchers button[data-armed]::after,
+.worktree-dialog button[data-armed]::after {
+  content: "";
+  position: absolute;
+  left: 10px;
+  right: 10px;
+  bottom: 4px;
+  height: 1px;
+  background: currentColor;
+  opacity: 0.5;
+  transform-origin: left;
+  animation: confirmation-drain 3s linear forwards;
+}
+@keyframes confirmation-drain {
+  to {
+    transform: scaleX(0);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .row-menu button[data-armed]::after,
+  .location-launchers button[data-armed]::after,
+  .worktree-dialog button[data-armed]::after {
+    animation: none;
+  }
+}

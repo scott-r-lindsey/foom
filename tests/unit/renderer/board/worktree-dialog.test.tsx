@@ -158,3 +158,51 @@ test("an empty repo list can be populated and previously acknowledged Codex does
   fireEvent.change(screen.getByLabelText("Run"), { target: { value: "codex" } });
   expect(screen.queryByRole("checkbox")).toBeNull();
 });
+
+test("a shared-agent launch stays armed in the form and pointer exit or Escape cancels it", async () => {
+  let receive: (
+    arm: { nonce: string; target: string; label: string } | null,
+    accepted?: boolean,
+  ) => void = () => undefined;
+  const operation = Promise.withResolvers<undefined>();
+  const cancel = vi.fn(() => Promise.resolve());
+  const confirm = vi.fn(() => Promise.resolve());
+  source.confirmations = {
+    subscribe(callback) {
+      receive = callback;
+      return () => undefined;
+    },
+    confirm,
+    cancel,
+  };
+  source.start = () => operation.promise;
+  const screen = await mount();
+  fireEvent.change(screen.getByLabelText("Branch"), { target: { value: "feature" } });
+  const button = screen.getByRole("button", { name: "Create and start" });
+  fireEvent.pointerLeave(button);
+  fireEvent.blur(button);
+  fireEvent.click(button);
+  const arm = { nonce: "n", target: "feature", label: "Click again for two agents here" };
+  act(() => {
+    receive(arm);
+  });
+  fireEvent.click(button);
+  expect(confirm).toHaveBeenCalledWith(arm);
+  fireEvent.pointerLeave(button);
+  expect(cancel).toHaveBeenCalledOnce();
+  act(() => {
+    receive(arm);
+  });
+  fireEvent.blur(button);
+  expect(cancel).toHaveBeenCalledTimes(2);
+  act(() => {
+    receive(arm);
+  });
+  fireEvent(screen.getByRole("dialog"), new Event("cancel", { cancelable: true }));
+  expect(close).toHaveBeenCalledOnce();
+  await act(async () => {
+    operation.resolve(undefined);
+    await operation.promise;
+  });
+  expect(close).toHaveBeenCalledOnce();
+});

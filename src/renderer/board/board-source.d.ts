@@ -1,3 +1,4 @@
+import type { ConfirmationClient } from "../../shared/confirmation";
 import type { BoardCommand } from "../../shared/board-command";
 import type { SidebarRepository } from "./sidebar.d";
 import type { SidebarCommand } from "../../shared/workspace";
@@ -16,6 +17,7 @@ export interface LaunchOptions {
   acknowledged: boolean;
 }
 export interface WorktreeSource {
+  confirmations?: ConfirmationClient;
   load(): Promise<LaunchOptions>;
   addRepository(): Promise<Repository | null>;
   start(request: StartWorktreeRequest): Promise<void>;
@@ -23,6 +25,7 @@ export interface WorktreeSource {
 }
 /** Samples and the live source share rows, verdicts, activity batches and tails. */
 export interface BoardSource {
+  confirmations?: ConfirmationClient;
   isReady?: () => boolean;
   connect?: () => () => void;
   createView?: () => TerminalViewSource;

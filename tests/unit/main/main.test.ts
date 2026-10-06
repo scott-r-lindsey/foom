@@ -1,3 +1,13 @@
+import type { DialogContent } from "../../../src/shared/confirmation";
+vi.mock("../../../src/main/confirmations/trusted-dialog", () => ({
+  TrustedDialog: class {
+    constructor(_parent: unknown, _session: unknown, theme: () => unknown) {
+      theme();
+    }
+    request = async (content: unknown) => (await mock.message(content)).response === 1;
+    dispose = vi.fn();
+  },
+}));
 import type { Settings } from "../../../src/shared/setup";
 import { setupState } from "../../fixtures/setup";
 import type { BrowserWindowConstructorOptions, Input } from "electron";
@@ -12,6 +22,26 @@ vi.mock("../../../src/main/terminals/terminal-ipc", () => ({
 }));
 vi.mock("../../../src/main/workspace/workspace", () => ({
   Workspace: class {
+    snapshot = () => ({
+      terminals: [
+        {
+          id: "t1",
+          agent: "claude",
+          repository: "/repo",
+          branch: "feature",
+          worktree: "/tree",
+          state: { state: "working" },
+        },
+        {
+          id: "t2",
+          agent: "shell",
+          repository: "/repo",
+          branch: null,
+          worktree: "/tree2",
+          state: null,
+        },
+      ],
+    });
     quiet = mock.workspace.quiet;
     exited = mock.workspace.exited;
     input = mock.workspace.input;
@@ -149,6 +179,11 @@ const mock = vi.hoisted(() => {
   };
   return {
     terminals: {
+      runningSessions: () => [
+        { id: "t1", command: "claude", cwd: "/tree" },
+        { id: "t2", command: "bash", cwd: "/tree2" },
+        { id: "t3", command: "bash", cwd: "/home" },
+      ],
       setTheme: vi.fn(),
       runningCount: 0,
       shutdown: vi.fn<() => Promise<void>>(),
@@ -157,7 +192,14 @@ const mock = vi.hoisted(() => {
     terminalEvents: {},
     workspace,
     ipc,
-    attachWorkspace: vi.fn<(...args: unknown[]) => typeof ipc>(() => ipc),
+    attachWorkspace: vi.fn<
+      (
+        window: unknown,
+        workspace: unknown,
+        owns: (id: string) => boolean,
+        request: (content: DialogContent) => Promise<boolean>,
+      ) => typeof ipc
+    >(() => ipc),
     setup,
     setupIpc: { dispose: vi.fn(), zoom: vi.fn<(direction: string) => Promise<void>>() },
     attachSetup: vi.fn<(...args: unknown[]) => unknown>(),
@@ -180,7 +222,7 @@ const mock = vi.hoisted(() => {
       on: vi.fn<(name: string, handler: () => void) => void>(),
       removeListener: vi.fn(),
     },
-    message: vi.fn<() => Promise<{ response: number }>>(),
+    message: vi.fn<(content?: unknown) => Promise<{ response: number }>>(),
     errorBox: vi.fn(),
     openDialog: vi.fn<() => Promise<{ canceled: boolean; filePaths: string[] }>>(),
     openWorktrees: vi.fn<() => Promise<unknown>>(),
@@ -239,6 +281,19 @@ vi.mock("electron", () => ({
     getCursorScreenPoint: () => ({ x: 1000, y: 700 }),
   },
   session: {
+    fromPartition: () => ({
+      protocol: { handle: vi.fn() },
+      setPermissionRequestHandler: (
+        callback: (
+          contents: unknown,
+          permission: string,
+          answer: (allowed: boolean) => void,
+        ) => void,
+      ) => {
+        callback({}, "camera", vi.fn());
+      },
+      setPermissionCheckHandler: (callback: () => boolean) => callback(),
+    }),
     defaultSession: {
       setPermissionRequestHandler: mock.permissionRequest,
       setPermissionCheckHandler: mock.permissionCheck,
@@ -485,11 +540,9 @@ test.each([1, 3])(
     await start();
     expect(quitting().preventDefault).toHaveBeenCalledOnce();
     expect(mock.message).toHaveBeenCalledWith(
-      expect.anything(),
       expect.objectContaining({
-        message: `${String(count)} ${count === 1 ? "terminal is" : "terminals are"} still running. Quit anyway?`,
-        defaultId: 0,
-        cancelId: 0,
+        title: `Quit with ${String(count)} ${count === 1 ? "terminal" : "terminals"} running?`,
+        accept: "Stop all and quit",
       }),
     );
     await vi.waitFor(() => {
@@ -846,4 +899,12 @@ test("fixed interface themes set the native base and exact background, even betw
   mock.setup.deps?.apply(settings);
   expect(mock.theme.themeSource).toBe("light");
   expect(mock.window.setBackgroundColor).toHaveBeenLastCalledWith("#f5f7fc");
+});
+
+test("workspace content is routed to the trusted dialog service", async () => {
+  await start();
+  const request = mock.attachWorkspace.mock.calls[0]?.[3];
+  if (typeof request !== "function") throw Error("Missing trusted dialog callback");
+  await request({ title: "Remove?", accept: "Remove" });
+  expect(mock.message).toHaveBeenCalledWith({ title: "Remove?", accept: "Remove" });
 });

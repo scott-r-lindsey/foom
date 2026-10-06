@@ -21,10 +21,10 @@ for (const config of ["tsconfig.main.json", "tsconfig.renderer.json"]) {
   execFileSync(process.execPath, [compiler, "-p", config], { cwd: root, stdio: "inherit" });
 }
 await mkdir(new URL("../build/renderer/", import.meta.url), { recursive: true });
-for (const asset of ["index.html", "tokens.css"]) {
+for (const asset of ["index.html", "confirmation.html", "tokens.css"]) {
   await copyFile(
     new URL(
-      `../src/renderer/${asset === "index.html" ? asset : `styles/${asset}`}`,
+      `../src/renderer/${asset.endsWith(".html") ? asset : `styles/${asset}`}`,
       import.meta.url,
     ),
     new URL(`../build/renderer/${asset}`, import.meta.url),
@@ -75,4 +75,19 @@ await writeFile(
         fontNotices.map(async (name) => `${name}\n\n${await readFile(join(root, name), "utf8")}`),
       )
     ).join("\n\n"),
+);
+
+await build({
+  entryPoints: [join(root, "src/renderer/confirmation.tsx")],
+  tsconfig: join(root, "tsconfig.renderer.json"),
+  bundle: true,
+  define: { "process.env.NODE_ENV": '"production"' },
+  minify: true,
+  platform: "browser",
+  format: "esm",
+  outfile: join(root, "build/renderer/confirmation.js"),
+});
+await copyFile(
+  join(root, "src/renderer/styles/confirmation.css"),
+  join(root, "build/renderer/confirmation.css"),
 );

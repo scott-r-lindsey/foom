@@ -76,7 +76,7 @@ export function Sidebar({
   peek: (id?: string) => void;
   choose: (location: SidebarLocation) => void;
   newWorktree: (repository?: string) => void;
-  command: (command: SidebarCommand) => void;
+  command: (command: SidebarCommand) => Promise<void>;
   options: LaunchOptions | undefined;
   footer: ReactNode;
   tileNumbers?: ReadonlyMap<string, { number: number; focused: boolean }>;
@@ -144,7 +144,7 @@ export function Sidebar({
     launcherActions(options, source.shellName?.()).map((action) => ({
       ...action,
       run: () => {
-        command({
+        return command({
           kind: "launch",
           repository: location.repository,
           worktree: location.worktree ?? location.repository,
@@ -183,7 +183,7 @@ export function Sidebar({
                 {
                   label: "Restart shell",
                   run: () => {
-                    command({ kind: "restart", id: row.id });
+                    return command({ kind: "restart", id: row.id });
                   },
                 },
                 null,
@@ -192,7 +192,7 @@ export function Sidebar({
           {
             label: "Close",
             run: () => {
-              command({ kind: "close", id: row.id });
+              return command({ kind: "close", id: row.id });
             },
           },
         ]
@@ -200,7 +200,7 @@ export function Sidebar({
           {
             label: `Stop ${row.kind === "shell" ? "shell" : (agentNames[row.agent] ?? row.agent)}`,
             run: () => {
-              command({ kind: "stop", id: row.id });
+              return command({ kind: "stop", id: row.id });
             },
           },
         ];
@@ -489,7 +489,7 @@ export function Sidebar({
                           {
                             label: "Remove repository…",
                             run: () => {
-                              command({
+                              return command({
                                 kind: "remove-repository",
                                 repository: repo.repository.path,
                               });
@@ -583,7 +583,10 @@ export function Sidebar({
                                           {
                                             label: "Remove worktree…",
                                             run: () => {
-                                              command({ kind: "remove-worktree", ...target });
+                                              return command({
+                                                kind: "remove-worktree",
+                                                ...target,
+                                              });
                                             },
                                           },
                                         ]
@@ -604,7 +607,12 @@ export function Sidebar({
       </nav>
       <footer className="sidebar-footer">{footer}</footer>
       {menu && !inactive && (
-        <RowMenu anchor={menu.anchor} actions={menu.actions} close={closeMenu} />
+        <RowMenu
+          confirmations={source.confirmations}
+          anchor={menu.anchor}
+          actions={menu.actions}
+          close={closeMenu}
+        />
       )}
     </aside>
   );

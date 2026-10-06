@@ -75,6 +75,33 @@ names. ⌘⇧B on macOS or Ctrl+Shift+B elsewhere focuses the sidebar; arrow key
 its filter and expanding its ancestors. Other terminal keys, including Escape, remain input.
 Settings and the six tile preset icons stay at the bottom of the sidebar. Launch actions live in repository and checkout menus. An empty sidebar labels its starting action **Add repository**.
 
+## Confirmations
+
+Repository removal, clean worktree removal and stopping a session use click-again
+in the actions menu. The first click changes the item to **Click again to remove**
+or **Click again to stop**, in solid ink with a hairline draining over three seconds.
+A second click after at least 300 ms confirms; a double-click does not. Moving away,
+changing focus, Escape, closing the menu or expiry disarms it. Files stay untouched
+when removing a repository. Removing a worktree keeps its branch.
+
+Launching an agent in a checkout with another running agent changes the launcher
+to **Click again for two agents here**. Shell launches need no sharing confirmation.
+The first hooked Codex launch also requires **Click again to replace notifier**
+when the notifier replacement has not already been acknowledged. The New worktree
+form keeps its existing disclosure checkbox.
+
+Decisions with content use a separate trusted Foom window. Removing a dirty
+worktree lists the exact uncommitted status from Git and offers **Cancel** and
+**Discard N changes and remove**. Quitting with live terminals lists each session,
+its status light and location, then **Cancel** and **Stop all and quit**. Cancel is
+focused initially; Escape cancels, Tab stays within the dialog and Enter activates
+the focused button. The window dims the board and returns focus on dismissal.
+It remains usable if the board renderer crashes or hangs. Confirmation buttons
+use solid ink; amber and magenta retain their status meanings.
+
+Folder pickers stay native. The New worktree form remains a renderer `<dialog>`;
+it collects input and does not grant destructive approval.
+
 ## Terminal tiles
 
 The layout is a binary split tree. Each leaf is a tile with a stable identity and
