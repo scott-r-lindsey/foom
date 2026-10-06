@@ -242,7 +242,8 @@ fresh read-only tokens. Exit, failed launch and shutdown revoke grants.
 
 Ordinary agents see `sessions`, `session_state` and `whoami` for their repository,
 without terminal contents. Only a main-created orchestrator principal sees
-`create_worktree`, `launch`, `tail`, `reply`, `stop`, `remove_worktree` and `wait_for`.
+`create_worktree`, `launch`, `tail`, `reply`, `stop`, `remove_worktree`, `wait_for`
+and `operation_status`.
 Enforce authorization again in the service even for hidden tools. The repository
 menu reserves one orchestrator slot atomically; reserve at most four child slots,
 including starting/stopping children. Children run only in new worktrees created by
@@ -252,7 +253,13 @@ roles and #67 remote access are separate capabilities, not implicit extensions.
 Existing main-owned git validation, argument-array execution, launch/removal locks
 and confirmations are reused. Removal always asks the human, including clean
 worktrees; no API force flag bypasses identity or dirty-state checks. Mutations use
-idempotency keys and bounded operation records. Parent exit cancels pending actions
+idempotency keys and bounded operation records. MCP `operation_status` and CLI
+`foom operation-status` query by operation ID or idempotency key within the same
+actor generation and repository, including when the original response was lost.
+Records distinguish pending confirmation, running, succeeded, failed, declined,
+cancelled and indeterminate outcomes; lookup never replays a mutation. Retain
+records and deduplication mappings for the grant's lifetime, refusing new mutations
+at the storage limit. Parent exit cancels pending actions
 but leaves children visible and running for human control. A replacement parent
 does not inherit them. Metadata-only `wait_for` is bounded to 30 seconds. CLI access
 outside Foom-launched agents requires explicit, expiring in-app pairing; private

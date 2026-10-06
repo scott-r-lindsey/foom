@@ -238,6 +238,7 @@ under the existing launch/removal locks. Git and processes use argument arrays.
 | `stop` | Orchestrator, own child only | Graceful stop with existing bounded termination fallback; retains worktree and final screen |
 | `remove_worktree` | Orchestrator, own created worktree only | Requests an app confirmation even when clean; no force option or deleting branches |
 | `wait_for` | Orchestrator, own children only | Up to four IDs, after-revision cursor, timeout 0–30 seconds; returns state metadata or timeout |
+| `operation_status` | Orchestrator or authorized human CLI grant, own operations only | Exactly one of operation ID or idempotency key; returns the operation record described below, never child output |
 
 Ordinary agents never see orchestration tools in `tools/list`; the service also
 rejects direct calls to hidden methods. Config-only tools for #84 are a separate
@@ -251,6 +252,33 @@ orchestrator-created worktrees to four as well. Release reservations on failure;
 retain successfully created worktrees for explicit cleanup. Idempotency keys on
 mutations return the prior operation result, rejecting reuse with different input;
 a timed-out client must query the operation rather than launch again blindly.
+
+Both adapters expose the same read-only lookup: MCP `operation_status` takes
+exactly one of `operationId` or `idempotencyKey`; CLI
+`foom operation-status --operation-id <id>` or
+`foom operation-status --idempotency-key <key>` returns the same JSON record.
+Scope both selectors to the authenticated actor's immutable principal generation
+and repository, never a caller-supplied actor. Recheck authorization on every
+lookup; revoked grants cannot query, and replacement orchestrators do not inherit
+records. Unknown and foreign selectors return the same `not_found` response.
+
+The record contains `operationId`, `action`, scoped target/result IDs when known,
+`status`, creation/update timestamps and a fixed reason code. Status is one of
+`pending_confirmation`, `running`, `succeeded`, `failed`, `declined`, `cancelled`
+or `indeterminate`. Human refusal of removal is `declined`; completed deletion is
+`succeeded`; a known failure is `failed`. Ambiguous side effects are
+`indeterminate`, never reported as a definite failure. Do not include credentials,
+prompts, reply text, terminal content or raw exception messages. `wait_for`
+continues to report child state only; it does not report operation completion.
+
+Persist the actor-scoped idempotency-key mapping and operation intent before side
+effects, so losing the original response does not require knowing its operation
+ID. Keep lookup records and deduplication mappings for the grant's lifetime,
+independent of action-log rotation or clearing. Bound their storage and refuse new
+mutations when full rather than evicting records for an active grant. Lookup never
+replays a mutation. A timeout, `not_found` or `indeterminate` result does not prove
+that no side effect occurred and must not trigger an automatic retry with a new
+key; unresolved outcomes require human reconciliation.
 
 Removal confirmation is tied to the actor, worktree identity and dirty state;
 recheck all three before deletion using the existing service. Pending confirmation
@@ -352,7 +380,10 @@ Before enabling attachment: synthetic HTTP initialize/tools-list/tool-call tests
 for Claude and Codex, bearer header validation, existing user MCP coexistence,
 managed-policy refusal, disabled hooks, token revocation and no config writes.
 Before enabling mutations: cross-role/foreign-ID denial, simultaneous launch and
-removal races, idempotency, parent exit, log failure and human confirmations.
+removal races, idempotency, parent exit, log failure and human confirmations. Test
+operation lookup through MCP and CLI after a lost mutation response, by both ID
+and idempotency key; cover pending, successful, failed and declined removal,
+cancellation, indeterminate outcomes, foreign actors, revocation and record limits.
 Before enabling replies: permission/question/password fixtures plus adversarial
 mode switches, stale proposals, duplicate delivery, takeover and loop limits;
 current PTY adapters must remain unable to auto-send. Before shipping the CLI:
