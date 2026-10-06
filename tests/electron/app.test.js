@@ -446,6 +446,7 @@ test("terminal runs an interactive shell behind an isolated bridge", {
         node: "undefined",
         process: "undefined",
         capabilities: [
+          "isDevelopment",
           "onBoardCommand",
           "create",
           "attach",
@@ -1215,7 +1216,7 @@ if (process.cwd().endsWith("finish-failed")) { console.log("Failed task"); setTi
 const settings = JSON.parse(args[args.indexOf("--settings") + 1]);
 const command = settings.hooks.PermissionRequest[0].hooks[0].command;
 const env = process.env;
-writeFileSync(process.env.FOOM_FAKE_CREDENTIALS, JSON.stringify({
+writeFileSync(process.env.TEST_FAKE_CREDENTIALS, JSON.stringify({
   url: env.FOOM_HOOK_URL, session: env.FOOM_SESSION, token: env.FOOM_TOKEN,
 }));
 process.stdout.write("FOOM_AGENT_READY\\r\\nContinue? (y/n) ");
@@ -1266,7 +1267,7 @@ test("launches an agent in a managed worktree and routes its attention signals",
     env: {
       HOME: path.join(root, "home"),
       PATH: `${bin}${path.delimiter}${process.env.PATH}`,
-      FOOM_FAKE_CREDENTIALS: credentials,
+      TEST_FAKE_CREDENTIALS: credentials,
     },
   }).finally(() => {
     // Chromium may still write user-data until the app cleanup hook has finished.
@@ -2312,7 +2313,7 @@ test("new worktree dialog launches by keyboard and confirms dirty removal", {
     env: {
       HOME: path.join(root, "home"),
       PATH: `${bin}${path.delimiter}${process.env.PATH}`,
-      FOOM_FAKE_CREDENTIALS: path.join(root, "fake-hook.json"),
+      TEST_FAKE_CREDENTIALS: path.join(root, "fake-hook.json"),
     },
   }).finally(() => {
     // Hooks run in registration order. Close Electron before deleting the second
@@ -2544,7 +2545,7 @@ test("external worktrees support independent shells and confirmed shared agents"
     env: {
       HOME: path.join(root, "home"),
       PATH: `${bin}${path.delimiter}${process.env.PATH}`,
-      FOOM_FAKE_CREDENTIALS: path.join(root, "fake-hook.json"),
+      TEST_FAKE_CREDENTIALS: path.join(root, "fake-hook.json"),
     },
   }).finally(() => {
     removeAfterApps(context, root);
@@ -3682,4 +3683,69 @@ test("soundscape sends one attention cadence and one completion to a fake audio 
       page.evaluate(async () => (await window.desktop.setupState()).settings.sound.alerts),
     )
     .toBe(false);
+});
+
+test("profile lock focuses the first app, exits duplicates and permits another profile", {
+  timeout: deadline(45000),
+}, async (context) => {
+  const first = await launchApp(context, false, {
+    emptyBoard: true,
+    env: {
+      FOOM_SESSION: "parent-session",
+      FOOM_TOKEN: "parent-token",
+      FOOM_HOOK_URL: "http://127.0.0.1:1/hooks",
+      CLAUDECODE: "1",
+    },
+  });
+  const page = await first.firstWindow();
+  await expect(page.locator(".dev-profile")).toHaveText("Dev");
+  assert.equal(
+    await first.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].getTitle()),
+    "Foom Dev",
+  );
+  assert.deepEqual(
+    await first.evaluate(() =>
+      Object.keys(process.env).filter((key) => key.startsWith("FOOM_") || key === "CLAUDECODE"),
+    ),
+    [],
+  );
+  const profile = await first.evaluate(({ app }) => app.getPath("userData"));
+  const second = await launchApp(context, false, { emptyBoard: true });
+  assert.notEqual(await second.evaluate(({ app }) => app.getPath("userData")), profile);
+  await first.evaluate(({ BrowserWindow }) => {
+    const window = BrowserWindow.getAllWindows()[0];
+    globalThis.duplicateFocused = false;
+    window.on("focus", () => {
+      globalThis.duplicateFocused = true;
+    });
+    window.hide();
+  });
+  const env = { ...process.env };
+  delete env.ELECTRON_RUN_AS_NODE;
+  let child;
+  let exited;
+  fixtureCleanup(context).apps.push(async () => {
+    if (child && child.exitCode === null && child.signalCode === null) child.kill();
+    await exited;
+  });
+  child = require("node:child_process").spawn(
+    require("electron"),
+    [path.join(__dirname, "../.."), `--user-data-dir=${profile}`],
+    { env, stdio: "ignore" },
+  );
+  exited = new Promise((resolve, reject) => {
+    child.once("error", reject);
+    child.once("exit", (code, signal) => resolve({ code, signal }));
+  });
+  fixtureCleanup(context).audit.add(child.pid);
+  await expect.poll(() => child.exitCode, { timeout: deadline(10000) }).toBe(0);
+  assert.deepEqual(await exited, { code: 0, signal: null });
+  await expect
+    .poll(() =>
+      first.evaluate(({ BrowserWindow }) => {
+        const window = BrowserWindow.getAllWindows()[0];
+        return globalThis.duplicateFocused && window.isVisible() && window.isFocused();
+      }),
+    )
+    .toBe(true);
 });

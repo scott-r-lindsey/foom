@@ -331,3 +331,13 @@ test("main-checkout session breadcrumbs identify the checkout rather than its br
   fireEvent.click(session);
   expect(view.getByRole("heading", { name: "Foom › Main checkout › Claude Code" })).toBeTruthy();
 });
+
+test.each([false, true])(
+  "marks development builds with neutral sidebar text (%s)",
+  (isDevelopment) => {
+    const source = { ...createSampleSource([]), isDevelopment };
+    const view = render(<Board source={source} />);
+    expect(view.queryByText("Dev") !== null).toBe(isDevelopment);
+    expect(view.getByRole("heading", { name: isDevelopment ? "foom dev" : "foom" })).toBeTruthy();
+  },
+);

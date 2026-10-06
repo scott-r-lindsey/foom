@@ -411,3 +411,11 @@ test("view flush acknowledgement runs after callbacks and validates its envelope
   await Promise.resolve();
   expect(mock.send).toHaveBeenCalledExactlyOnceWith("terminal:views-flushed", ["one"], 1);
 });
+
+test.each([false, true])(
+  "exposes only the development flag from main's preload arguments (%s)",
+  async (development) => {
+    vi.spyOn(process, "argv", "get").mockReturnValue(development ? ["--foom-development"] : []);
+    expect((await bridge()).isDevelopment).toBe(development);
+  },
+);
