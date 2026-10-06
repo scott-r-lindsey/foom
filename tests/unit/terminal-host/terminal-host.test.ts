@@ -189,3 +189,9 @@ test("forwards terminal-scoped shell lifecycle events", () => {
     state: { phase: "running" },
   });
 });
+
+test("forwards parsed title and progress evidence with the terminal ID", () => {
+  const evidence = { title: "codex", progress: null };
+  mock.events.onEvidence?.("t", evidence);
+  expect(port.postMessage).toHaveBeenCalledWith({ type: "evidence", id: "t", evidence });
+});

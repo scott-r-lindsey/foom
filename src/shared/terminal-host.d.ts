@@ -1,3 +1,4 @@
+import type { AgentEvidence } from "./agent-detection";
 import type { TerminalTheme } from "./terminal-theme";
 import type { TerminalActivity, TerminalSpec, ShellState } from "./desktop";
 
@@ -14,6 +15,7 @@ export type HostRequest = RequestBase &
     | { type: "tail"; lines: number }
   );
 export type HostResponse =
+  | { type: "evidence"; id: string; evidence: AgentEvidence }
   | { type: "shell-state"; id: string; state: ShellState }
   | { type: "activity"; entries: TerminalActivity[] }
   | { type: "quiet"; id: string }

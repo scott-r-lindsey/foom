@@ -25,7 +25,7 @@ export class ModelEvaluator {
 
   async evaluate(input: EvaluationInput): Promise<Verdict> {
     const rules = evaluateRules(input);
-    if (rules.signal !== "rules:ambiguous") return rules;
+    if (!(rules.signal.startsWith("rules:") && rules.confidence === 0.25)) return rules;
     return (await this.check(input.tail, rules)).verdict;
   }
 

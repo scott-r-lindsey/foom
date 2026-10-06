@@ -131,6 +131,9 @@ function createWindow(savedSize?: Size) {
     onOutput: (id) => {
       workspace.output(id);
     },
+    onEvidence: (id, evidence) => {
+      void workspace.evidence(id, evidence);
+    },
     onQuiet: (id) => void workspace.quiet(id),
     onShellState: (id, state) => {
       workspace.shellState(id, state);

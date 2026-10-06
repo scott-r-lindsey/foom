@@ -1,3 +1,4 @@
+import type { AgentEvidence } from "./agent-detection";
 import type { BoardCommand } from "./board-command";
 export interface TerminalActivity {
   id: string;
@@ -5,6 +6,7 @@ export interface TerminalActivity {
 }
 export type ShellState = { phase: "running" } | { phase: "prompt"; exitCode: number };
 export interface TerminalTelemetry {
+  onEvidence?(id: string, evidence: AgentEvidence): void;
   onShellState?(id: string, state: ShellState): void;
   onOutput?(id: string): void;
   onActivity?(batch: TerminalActivity[]): void;

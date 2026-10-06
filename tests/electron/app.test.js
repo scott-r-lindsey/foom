@@ -2882,6 +2882,89 @@ else console.log('ARGS:' + JSON.stringify(process.argv.slice(2)));
   }
 });
 
+test("agent titles update hidden sidebar attention and route idle through evaluation", {
+  timeout: deadline(30000),
+  skip: process.platform === "win32" && "The fake CLI is a POSIX executable",
+}, async (context) => {
+  const { chmod } = require("node:fs/promises");
+  const root = await mkdtemp(path.join(tmpdir(), "foom-inline-"));
+  removeAfterApps(context, root);
+  const bin = path.join(root, "bin");
+  const repo = path.join(root, "repo");
+  const home = path.join(root, "home");
+  await Promise.all([mkdir(bin), mkdir(repo), mkdir(home)]);
+  const help = path.join(root, "help");
+  const cli = path.join(bin, "codex");
+  await writeFile(
+    cli,
+    `#!/usr/bin/env node
+const fs = require('node:fs');
+if (process.argv[2] === '--version') console.log('codex-cli 0.159.3');
+else if (process.argv[2] === '--help') console.log(fs.readFileSync(${JSON.stringify(help)}, 'utf8'));
+else {
+  process.stdin.setRawMode(true);
+  process.stdin.resume();
+  process.stdout.write('\\x1b]2;⠋ codex\\x07');
+  process.stdin.on('data', data => {
+    if (data.toString().includes('a')) process.stdout.write('\\x1b]2;Action Required | codex\\x07');
+    if (data.toString().includes('i')) process.stdout.write('\\x1b[2J\\x1b[HWhich file should I edit?\\x1b]2;codex\\x07');
+  });
+}
+`,
+  );
+  await chmod(cli, 0o755);
+  isolatedGit(["init", "-q", "-b", "main"], { cwd: repo });
+  isolatedGit(
+    [
+      "-c",
+      "user.name=Foom",
+      "-c",
+      "user.email=foom@example.com",
+      "commit",
+      "--allow-empty",
+      "-qm",
+      "init",
+    ],
+    { cwd: repo },
+  );
+  await writeFile(help, "--no-alt-screen");
+  const app = await launchApp(context, false, {
+    emptyBoard: true,
+    env: { HOME: home, PATH: `${bin}${path.delimiter}${process.env.PATH}` },
+  });
+  const page = await app.firstWindow();
+  await app.evaluate(({ dialog }, repo) => {
+    dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [repo] });
+  }, repo);
+  const repository = await page.evaluate(() => window.desktop.addRepository());
+  assert.equal(repository.path, await realpath(repo));
+  await expect(page.getByRole("treeitem", { name: "repo", exact: true })).toBeVisible();
+  const id = await page.evaluate(async (repo) => {
+    await window.desktop.scanAgents(true);
+    const tree = await window.desktop.createWorktree(repo, "titles", "adjacent");
+    return (
+      await window.desktop.launchAgent({
+        agent: "codex",
+        repository: repo,
+        worktree: tree.path,
+        cols: 80,
+        rows: 24,
+      })
+    ).id;
+  }, repository.path);
+  const row = page.locator('.board-row[data-kind="agent"]');
+  await expect(row).toHaveAttribute("data-state", "working");
+  await expect(row).toContainText("rules:codex:osc_title_working");
+  await page.evaluate((id) => window.desktop.input(id, "a"), id);
+  await expect(row).toHaveAttribute("data-state", "needs_input");
+  await expect(row).toContainText("Approval requested");
+  await expect(row).toContainText("rules:codex:osc_title_blocked");
+  await page.evaluate((id) => window.desktop.input(id, "i"), id);
+  await expect(row).toHaveAttribute("data-state", "working");
+  await expect(row).toContainText("Agent turn ended; checking output");
+  await expect(row).toContainText("rules:codex:osc_title_idle");
+});
+
 test("Settings shares live preflight values, sizes the terminal and restores keyboard focus", async (context) => {
   const root = await mkdtemp(path.join(tmpdir(), "foom-settings-repositories-"));
   removeAfterApps(context, root);
