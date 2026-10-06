@@ -831,3 +831,23 @@ test("repository controls explain immediate selection when used outside guided s
   expect(screen.getByText(/Changes to the selection apply immediately/)).toBeTruthy();
   await screen.findByRole("button", { name: "Choose folder…" });
 });
+
+test("Settings saves agent defaults through its source and retains the saved state", async () => {
+  const state = setupState({ setupComplete: true });
+  const source = fake(state);
+  render(<Preflight source={source} initial={state} onLaunched={vi.fn()} settingsMode />);
+  fireEvent.change(screen.getByLabelText("Codex default arguments"), {
+    target: { value: "--model\nexample" },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Save default arguments" }));
+  await waitFor(() => {
+    expect(source.save).toHaveBeenCalledWith({
+      agentArguments: { claude: [], codex: ["--model", "example"], agy: [] },
+    });
+  });
+  await waitFor(() => {
+    expect(
+      screen.getByText("Default arguments saved. They apply to future launches."),
+    ).toBeTruthy();
+  });
+});

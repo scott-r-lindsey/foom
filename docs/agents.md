@@ -14,6 +14,48 @@ Discovery regression tests cover the baseline, Claude 2.1.285 / 2.2.0 / 3.0.0 an
 
 Only help/version, two synthetic model calls, and startup PTY behavior were tested locally. Notification timing, actual approval dialogs during tool use, password prompts, Windows, and macOS were not exercised. No global configuration was edited; normal CLI runtime state is separate from configuration. No repository content or real terminal tail was supplied to the model probes.
 
+## Default launch arguments (#164)
+
+Re-verified installed `--version` and `--help` on Linux on 2026-10-06:
+Claude Code `2.1.291 (Claude Code)`, `codex-cli 0.160.1`, and Antigravity `1.3.0`.
+These are help/version observations only; the hook/model measurements above remain
+from the original baseline, not fresh live-agent tests.
+
+| Policy | Claude Code 2.1.291 | Codex 0.160.1 | Antigravity 1.3.0 |
+|---|---|---|---|
+| Plan / read-only | `--permission-mode plan` | `--sandbox read-only` | `--mode plan` |
+| Auto-edit | `--permission-mode acceptEdits` | `--sandbox workspace-write` | `--mode accept-edits` |
+| Auto-review | `--permission-mode auto` | `--approve-for-me` | Not advertised |
+| Bypass | `--dangerously-skip-permissions` | `--dangerously-bypass-approvals-and-sandbox` | `--dangerously-skip-permissions` |
+
+The table uses conventional CLI notation; in Settings, each flag and value occupies
+its own line. All three help outputs advertise `--model`; Claude and Antigravity
+advertise `--effort`, while Codex accepts `-c` followed by
+`model_reasoning_effort="high"`. Values and quotes are passed unchanged as argv,
+not evaluated by a shell. Empty defaults preserve the prior launch behavior.
+
+Settings stores arrays in main (maximum 64 arguments per agent, 1–4096 characters
+each, no control characters). User defaults precede Foom's own arguments.
+Claude `--settings` (including `=` form) and `--safe-mode` are reserved to protect
+hooks, and `--no-alt-screen` is reserved for Foom's display. Codex overrides whose
+key path sets `notify` or `hooks` are rejected, including `-c notify=…`,
+`--config=notify=…`, attached short forms and nested keys. The `--` terminator is
+also rejected because it would turn Foom's flags into positional arguments.
+
+The fixed bypass table includes the three Bypass flags above and Claude's
+`--permission-mode bypassPermissions` and `--permission-mode=bypassPermissions`.
+The first save of any of those forms per agent requires a main-owned confirmation:
+a worktree is not a sandbox, and the agent can act as the user anywhere on the
+machine. A successful save persists that agent's acknowledgement; cancelling or
+a failed write does not. Renderer requests cannot set acknowledgement themselves.
+Rows show a neutral ◇ Bypass label based on the arguments at launch. This does not
+infer policy from global settings or every possible combination of arguments.
+`--allow-dangerously-skip-permissions` alone does not enable bypass mode.
+
+Issue #128's trusted custom dialog has not landed, so disclosure currently uses
+the existing parented native main-process confirmation with Cancel as the default.
+Orchestrator children are outside this feature's scope; see [orchestration](orchestration.md).
+
 ## Claude Code
 
 `--settings <file-or-json>` loads additional settings for that invocation. Foom can supply a private temporary file without editing `~/.claude/settings.json`; the CLI itself may still write session/runtime data under `~/.claude`. The local Stop capture confirmed attachment through this flag. Keep ordinary user settings in interactive agent launches; the isolated evaluation probe below deliberately disabled them. [CLI reference](https://code.claude.com/docs/en/cli-reference)
@@ -83,7 +125,7 @@ The local `codex exec` probe received:
 
 Validate and correlate IDs locally. Drop `input-messages` from Foom logs and model inputs; these are user prompts, outside the tail-only contract. Do not interpolate message text into commands. Completion is evidence to run classification, not an unconditional Done verdict. Silence in the middle of a turn proves nothing.
 
-Interactive approvals depend on the configured policy and sandbox. The tested help exposes `on-request` and `never`; a request may present a tool/command approval in the TUI. `never` returns failures to the model instead of asking. Keep the user's policy when launching interactive agents. Filesystem sandbox permissions do not constrain all connectors or other model tools. [Permission boundaries](https://learn.chatgpt.com/docs/permissions)
+Interactive approvals depend on the configured policy and sandbox. The tested help exposes `on-request` and `never`; a request may present a tool/command approval in the TUI. `never` returns failures to the model instead of asking. Interactive policy is the user's global agent config plus their Foom default launch arguments, followed by Foom's own display and hook flags. Foom never edits global config. Filesystem sandbox permissions do not constrain all connectors or other model tools. [Permission boundaries](https://learn.chatgpt.com/docs/permissions)
 
 `codex exec --json` is usable for bounded evaluation and emits JSONL events, including completion usage. `--output-schema` constrains the final answer. [Non-interactive usage](https://learn.chatgpt.com/docs/non-interactive-mode)
 
@@ -91,13 +133,13 @@ However, read-only is not no-read. Before shipping this evaluator, disable file/
 
 ## Antigravity
 
-The tested `agy --help` includes `-p`/`--print`, JSON and stream-JSON output, `--json-schema`, and `--print-timeout` (local default: five minutes). Thus “no headless mode” is incorrect. Headless output separates responses from diagnostics and supports structured results. [Headless mode](https://www.antigravity.google/docs/cli/headless/)
+The tested `agy --help` includes `-p`/`--print`, JSON and stream-JSON output, `--json-schema`, and `--print-timeout` (1.3.0 help default: 0, wait until the turn completes). Thus “no headless mode” is incorrect. Headless output separates responses from diagnostics and supports structured results. [Headless mode](https://www.antigravity.google/docs/cli/headless/)
 
 Hooks also exist: `PreToolUse`, `PostToolUse`, `PreInvocation`, `PostInvocation`, and `Stop`. Stop receives JSON on stdin with `executionNum`, `terminationReason`, optional `error`, `fullyIdle`, and common conversation/workspace metadata. Documented installation locations are workspace `.agents/hooks.json`, global configuration, or installed plugins. No Notification event or per-launch settings/hook flag was established by the docs or installed help. [Lifecycle hooks](https://www.antigravity.google/docs/hooks/)
 
 Recommendation: keep output evaluation until a supported invocation-scoped hook mechanism is verified. Do not install a plugin or write workspace/global hook files merely to attach Foom. Headless support alone does not add Antigravity to the product's inference-source choices; tool isolation and end-to-end behavior remain unverified.
 
-Interactive permission prompts cover actions requiring a grant, depending on rules and sandbox settings. Treat those as Needs you; do not enable `--dangerously-skip-permissions`. Exact prompt text is not a stable interface. [Permissions](https://www.antigravity.google/docs/permissions/)
+Interactive permission prompts cover actions requiring a grant, depending on rules and sandbox settings. Treat those as Needs you. Foom never adds `--dangerously-skip-permissions` itself; users may explicitly save it as a default after the bypass disclosure. Exact prompt text is not a stable interface. [Permissions](https://www.antigravity.google/docs/permissions/)
 
 ## Echo is not a password detector
 

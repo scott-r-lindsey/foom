@@ -1,3 +1,4 @@
+import { EMPTY_AGENT_ARGUMENTS, parseAgentDefaults } from "../agents/default-arguments";
 import { parseInterfaceTheme } from "../../shared/interface-themes";
 import { DEFAULT_SOUND, parseSoundSettings } from "../../shared/soundscapes";
 import { parseTerminalThemeChoice } from "../../shared/terminal-themes";
@@ -16,6 +17,8 @@ export const DEFAULT_SETTINGS: Settings = Object.freeze({
   codexNotifierAcknowledged: false,
   hooks: true,
   agents: Object.freeze({ claude: true, codex: true, agy: true }),
+  agentArguments: EMPTY_AGENT_ARGUMENTS,
+  agentBypassAcknowledged: Object.freeze({ claude: false, codex: false, agy: false }),
   worktreeLocation: "root",
   inference: Object.freeze({ kind: "rules" }),
   inferenceTimeoutMs: 5000,
@@ -48,16 +51,17 @@ export function parseSettingsPatch(value: unknown): SettingsPatch {
     else if (key === "worktreeLocation" && (entry === "root" || entry === "adjacent"))
       patch.worktreeLocation = entry;
     else if (
-      key === "agents" &&
+      (key === "agents" || key === "agentBypassAcknowledged") &&
       record(entry) &&
       Object.keys(entry).length === AGENTS.length &&
       AGENTS.every((id) => typeof entry[id] === "boolean")
     )
-      patch.agents = {
+      patch[key] = {
         claude: entry["claude"] === true,
         codex: entry["codex"] === true,
         agy: entry["agy"] === true,
       };
+    else if (key === "agentArguments") patch.agentArguments = parseAgentDefaults(entry);
     else if (key === "interfaceTheme") patch.interfaceTheme = parseInterfaceTheme(entry);
     else if (key === "sound") patch.sound = parseSoundSettings(entry);
     else if (key === "terminalTheme") patch.terminalTheme = parseTerminalThemeChoice(entry);

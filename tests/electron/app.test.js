@@ -2053,6 +2053,8 @@ test("first run goes from no agents to go, launches by keyboard, and can be repl
     setupComplete: true,
     hooks: true,
     agents: { claude: true, codex: true, agy: true },
+    agentArguments: { claude: [], codex: [], agy: [] },
+    agentBypassAcknowledged: { claude: false, codex: false, agy: false },
     worktreeLocation: "root",
     inference: { kind: "rules" },
     inferenceTimeoutMs: 5000,
@@ -3682,4 +3684,121 @@ test("soundscape sends one attention cadence and one completion to a fake audio 
       page.evaluate(async () => (await window.desktop.setupState()).settings.sound.alerts),
     )
     .toBe(false);
+});
+
+test("Settings persists literal agent defaults and discloses bypass once per agent", {
+  timeout: deadline(60_000),
+}, async (context) => {
+  const { copyFile, chmod } = require("node:fs/promises");
+  const root = await mkdtemp(path.join(tmpdir(), "foom-default-args-"));
+  removeAfterApps(context, root);
+  const bin = path.join(root, "bin");
+  const home = path.join(root, "home");
+  const repo = path.join(root, "repo");
+  const output = path.join(root, "argv.json");
+  await Promise.all([bin, home, repo].map((directory) => mkdir(directory)));
+  // A real Node executable is a cross-platform fixture agent. Its unrecognized version
+  // falls back to output evaluation; --eval records execArgv plus positional argv.
+  const executable = path.join(bin, process.platform === "win32" ? "claude.exe" : "claude");
+  await copyFile(process.execPath, executable);
+  await chmod(executable, 0o755);
+  isolatedGit(["init", "-q", "-b", "main"], { cwd: repo });
+  isolatedGit(
+    [
+      "-c",
+      "user.name=Foom",
+      "-c",
+      "user.email=foom@example.com",
+      "commit",
+      "-q",
+      "--allow-empty",
+      "-m",
+      "init",
+    ],
+    { cwd: repo },
+  );
+  const profile = path.join(root, "profile");
+  const app = await launchApp(context, false, {
+    args: [`--user-data-dir=${profile}`],
+    emptyBoard: true,
+    env: { HOME: home, PATH: `${bin}${path.delimiter}${process.env.PATH}`, FOOM_ARGV: output },
+  });
+  const page = await app.firstWindow();
+  await app.evaluate(({ dialog }, repo) => {
+    globalThis.bypassDialogs = [];
+    globalThis.acceptBypass = false;
+    dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [repo] });
+    dialog.showMessageBox = async (_window, options) => {
+      globalThis.bypassDialogs.push(options);
+      return { response: globalThis.acceptBypass ? 1 : 0 };
+    };
+  }, repo);
+  const repository = await page.evaluate(() => window.desktop.addRepository());
+  assert.ok(repository);
+  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  const input = page.getByLabel("Claude Code default arguments");
+  await expect(input).toBeVisible();
+  await input.fill("--settings={}");
+  await page.getByRole("button", { name: "Save default arguments", exact: true }).click();
+  await expect(page.locator(".agent-defaults [role=status]")).toContainText("reserved");
+  const args = [
+    "--eval",
+    'require("node:fs").writeFileSync(process.env.FOOM_ARGV, JSON.stringify([...process.execArgv, ...process.argv.slice(1)])); setInterval(() => {}, 1000)',
+    "value with spaces",
+    "'literal quotes'",
+    "$(not-a-command); &",
+    "--dangerously-skip-permissions",
+  ];
+  await input.fill(args.join("\n"));
+  await page.getByRole("button", { name: "Save default arguments", exact: true }).click();
+  await expect(page.locator(".agent-defaults [role=status]")).toContainText("cancelled");
+  assert.deepEqual(
+    (await page.evaluate(() => window.desktop.setupState())).settings.agentArguments.claude,
+    [],
+  );
+  await app.evaluate(() => {
+    globalThis.acceptBypass = true;
+  });
+  await page.getByRole("button", { name: "Save default arguments", exact: true }).click();
+  await expect(page.locator(".agent-defaults [role=status]")).toContainText(
+    "Default arguments saved",
+  );
+  await page.getByRole("button", { name: "Save default arguments", exact: true }).click();
+  await expect(page.locator(".agent-defaults [role=status]")).toContainText(
+    "Default arguments saved",
+  );
+  const dialogs = await app.evaluate(() => globalThis.bypassDialogs);
+  assert.equal(dialogs.length, 2);
+  assert.match(dialogs[1].detail, /worktree is not a sandbox.*anywhere on the machine/);
+  const persisted = JSON.parse(
+    await readFile(path.join(profile, "settings.json"), "utf8"),
+  ).settings;
+  assert.deepEqual(persisted.agentArguments.claude, args);
+  assert.equal(persisted.agentBypassAcknowledged.claude, true);
+  await assertAccessible(page);
+  await page.keyboard.press("Escape");
+  await page.evaluate(
+    (repo) =>
+      window.desktop.sidebarCommand({
+        kind: "launch",
+        repository: repo,
+        worktree: repo,
+        run: "claude",
+      }),
+    repository.path,
+  );
+  await expect
+    .poll(async () => {
+      try {
+        return JSON.parse(await readFile(output, "utf8"));
+      } catch {
+        return null;
+      }
+    })
+    .toEqual(args);
+  await expect(page.locator(".session-bypass")).toHaveText("◇ Bypass");
+  await page.evaluate(() =>
+    window.desktop.saveSetup({ agentArguments: { claude: [], codex: [], agy: [] } }),
+  );
+  await expect(page.locator(".session-bypass")).toHaveText("◇ Bypass");
 });

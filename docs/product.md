@@ -52,6 +52,9 @@ With one repository, everything starts expanded.
 
 Session rows show a light, letter agent badge, name, wait and reason. Double-click the name
 to edit it; Enter or blur commits, Escape cancels, and an empty value restores the default.
+Rows launched with a known bypass argument also show a neutral ◇ Bypass label.
+This records launch flags, not inferred global agent policy; changing defaults does not
+change existing rows.
 Names persist as local UI metadata keyed by terminal ID. Terminal sessions themselves still
 live only as long as Foom; restoring agent conversations is tracked separately in #115.
 Hover or focus a session to peek without switching the pane. Click or press Enter to show
@@ -228,6 +231,21 @@ Agents and hooks, Repositories, Worktrees, and Evaluator use the same controls a
 preflight. Changes apply immediately and persist. A repository scan in Settings
 starts with the already-added repositories checked; toggling a selection saves it
 at once and reports any refusal. A model source still requires a successful Run check.
+Settings → Agents and hooks also provides default launch arguments for each supported
+agent, one argument per line, with an explicit Save default arguments action. Put flag
+values on separate lines. Spaces and quotes are literal, with no shell parsing or
+splitting. An empty editor uses the existing launch behavior. The user's agent policy
+is their global config plus Foom defaults; Foom appends its own display and attention
+flags and never edits global config. Defaults affect future user launches only.
+
+Main validates at most 64 arguments per agent, each 1–4096 characters with no control
+characters. Foom reserves Claude `--settings` and `--safe-mode`, `--no-alt-screen`,
+Codex `-c`/`--config` overrides of `notify` or `hooks`, and the `--` terminator so
+these defaults cannot displace its attention flags. Saving a known bypass argument
+requires a main-owned disclosure once per agent: a worktree is not a sandbox, and
+the agent can act as the user anywhere on the machine. Cancelling leaves settings
+unchanged. Known bypass detection is a fixed table, not an effective-policy audit.
+
 Appearance shares the preflight rail's System/Light/Dark and interface-size controls.
 Changing either view is reflected in the other without restarting.
 

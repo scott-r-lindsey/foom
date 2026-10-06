@@ -165,3 +165,23 @@ test("sound mutes, volumes and portable soundscape persist after reopening", asy
   expect((await SettingsStore.open(dir)).get().sound).toEqual(sound);
   expect(() => parseSettingsPatch({ sound: { ...sound, alertVolume: 2 } })).toThrow();
 });
+
+test("stores default argv and per-agent acknowledgement and migrates old profiles", async () => {
+  const dir = await directory();
+  await writeFile(
+    path.join(dir, "settings.json"),
+    JSON.stringify({ version: 1, settings: { setupComplete: true } }),
+  );
+  const store = await SettingsStore.open(dir);
+  expect(store.get().agentArguments).toEqual({ claude: [], codex: [], agy: [] });
+  const patch = parseSettingsPatch({
+    agentArguments: { claude: ["--model", "a model"], codex: [], agy: [] },
+    agentBypassAcknowledged: { claude: true, codex: false, agy: false },
+  });
+  await store.update(patch);
+  expect((await SettingsStore.open(dir)).get()).toEqual(store.get());
+  expect(() => parseSettingsPatch({ agentBypassAcknowledged: { claude: true } })).toThrow();
+  expect(() =>
+    parseSettingsPatch({ agentArguments: { claude: ["--settings"], codex: [], agy: [] } }),
+  ).toThrow("reserved");
+});

@@ -150,6 +150,7 @@ test("launches into a known repository and lists the terminal with its branch", 
         worktree: tree.path,
         branch: "feature",
         attention: "hooks",
+        bypass: false,
         state: null,
         exited: false,
       },
@@ -1479,3 +1480,32 @@ test.each(["output", "input", "removed"] as const)(
     vi.useRealTimers();
   },
 );
+
+test("snapshots bypass policy per launch and never accepts defaults from a renderer request", async () => {
+  const workspace = new Workspace(deps);
+  const config = { hooks: true, agents: { claude: true, codex: true, agy: true } };
+  workspace.configure({
+    ...config,
+    agentArguments: { claude: ["--dangerously-skip-permissions"], codex: [], agy: [] },
+  });
+  const request = {
+    agent: "claude" as const,
+    repository: repo.path,
+    worktree: tree.path,
+    cols: 80,
+    rows: 24,
+    defaultArguments: ["--settings", "hostile"],
+  };
+  await workspace.launch(request);
+  expect(agents.launch).toHaveBeenLastCalledWith(
+    expect.objectContaining({ defaultArguments: ["--dangerously-skip-permissions"] }),
+  );
+  workspace.configure(config);
+  expect(workspace.snapshot().terminals[0]?.bypass).toBe(true);
+  await workspace.exited("t1", 0);
+  agents.launch.mockResolvedValueOnce({ id: "t2", attention: "hooks" });
+  await workspace.launch(request);
+  expect(agents.launch).toHaveBeenLastCalledWith(expect.objectContaining({ defaultArguments: [] }));
+  expect(workspace.snapshot().terminals.find(({ id }) => id === "t2")?.bypass).toBe(false);
+  await workspace.dispose();
+});

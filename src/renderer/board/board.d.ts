@@ -5,6 +5,8 @@ export interface BoardRow {
   repositoryPath?: string;
   worktree?: string;
   exited?: boolean;
+  /** Known bypass argument present at launch; does not infer global agent policy. */
+  bypass?: boolean;
   kind: "sample" | "shell" | "agent";
   repository: string;
   branch: string;

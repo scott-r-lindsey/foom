@@ -18,6 +18,11 @@ running children, each in a new worktree in that repository. Children get ordina
 read-only credentials and cannot create grandchildren through Foom. Agent-native
 subagents and processes outside Foom are not controlled by this limit.
 
+Per-agent default launch arguments (#164) apply to user launches. Orchestrator
+children (#155) must not inherit bypass defaults unless their design explicitly
+allows it with its own authorization rules. A user's acknowledgement for manual
+launches does not authorize an orchestrator to grant bypass to children.
+
 **Reply finding:** none of the three current PTY integrations proves that a prose
 question is still the active input destination when bytes are written. An absent
 permission hook is not proof of safety. Ship observation, launch and stop first;
