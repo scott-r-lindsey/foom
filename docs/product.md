@@ -165,6 +165,34 @@ The model tier uses one of these sources:
 
 The evaluator sends only the last 40 lines of a quiet terminal, with likely secrets redacted. It never sends files, diffs, or keystrokes.
 
+## Orchestration and privacy (planned)
+
+The [control-plane design](orchestration.md) is planned, not implemented. Agents
+launched by Foom will receive read-only access to session metadata in their own
+repository. **Launch as Foom orchestrator** in a repository's menu will grant one
+agent permission to create worktrees and run up to four children in that repository.
+Children cannot orchestrate through Foom. Their sessions and actions remain visible;
+you can stop them or take over. Agents launched outside Foom receive no automatic
+access. Agent configuration is attached per launch, never installed globally or
+written into the repository.
+
+An orchestrator can request at most the last 40 lines of each child's terminal,
+with likely secrets redacted and each response capped at 16 KiB. These results may
+be sent to the orchestrator agent's model provider, which can differ from your
+evaluator provider. Repeated reads can collect more output over time. Foom does
+not read files, diffs, transcripts or keystrokes for this API; a terminal may print
+file contents, diffs or echoed input, and redaction cannot catch every secret.
+The launch flow will disclose this data path. The agent's own tools and provider
+settings continue to govern its other data access.
+
+Permission and credential prompts always stay with you. With the current agent
+interfaces, proposed answers to prose questions also require review in Foom;
+unattended replies need a verified question-specific routing mechanism first.
+Take over cancels pending replies. Worktree removal always asks you and rechecks
+its identity and changed files. A local action log records who acted, targets and
+outcomes, plus redacted reply proposals; it omits terminal tails, credentials and
+initial prompts. It retains at most 30 days and five 10 MiB files and can be cleared.
+
 ## First run
 
 Setup is a preflight countdown:
