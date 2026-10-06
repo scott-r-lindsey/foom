@@ -1,0 +1,213 @@
+{
+  "initial": [
+    {
+      "pane": "w1:p1",
+      "workspace": "w1",
+      "measurements": [
+        {
+          "event": "start",
+          "rows": 30,
+          "cols": 100
+        }
+      ]
+    },
+    {
+      "pane": "w2:p1",
+      "workspace": "w2",
+      "measurements": [
+        {
+          "event": "start",
+          "rows": 17,
+          "cols": 61
+        }
+      ]
+    },
+    {
+      "pane": "w3:p1",
+      "workspace": "w3",
+      "measurements": [
+        {
+          "event": "start",
+          "rows": 41,
+          "cols": 133
+        }
+      ]
+    }
+  ],
+  "independentResize": [
+    {
+      "pane": "w1:p1",
+      "workspace": "w1",
+      "measurements": [
+        {
+          "event": "start",
+          "rows": 30,
+          "cols": 100
+        }
+      ]
+    },
+    {
+      "pane": "w2:p1",
+      "workspace": "w2",
+      "measurements": [
+        {
+          "event": "start",
+          "rows": 17,
+          "cols": 61
+        },
+        {
+          "event": "SIGWINCH",
+          "rows": 19,
+          "cols": 72
+        }
+      ]
+    },
+    {
+      "pane": "w3:p1",
+      "workspace": "w3",
+      "measurements": [
+        {
+          "event": "start",
+          "rows": 41,
+          "cols": 133
+        }
+      ]
+    }
+  ],
+  "whileTui": [
+    {
+      "pane": "w1:p1",
+      "workspace": "w1",
+      "measurements": [
+        {
+          "event": "start",
+          "rows": 30,
+          "cols": 100
+        }
+      ]
+    },
+    {
+      "pane": "w2:p1",
+      "workspace": "w2",
+      "measurements": [
+        {
+          "event": "start",
+          "rows": 17,
+          "cols": 61
+        },
+        {
+          "event": "SIGWINCH",
+          "rows": 19,
+          "cols": 72
+        }
+      ]
+    },
+    {
+      "pane": "w3:p1",
+      "workspace": "w3",
+      "measurements": [
+        {
+          "event": "start",
+          "rows": 41,
+          "cols": 133
+        }
+      ]
+    }
+  ],
+  "duringControlResize": [
+    {
+      "pane": "w1:p1",
+      "workspace": "w1",
+      "measurements": [
+        {
+          "event": "start",
+          "rows": 30,
+          "cols": 100
+        },
+        {
+          "event": "SIGWINCH",
+          "rows": 23,
+          "cols": 88
+        }
+      ]
+    },
+    {
+      "pane": "w2:p1",
+      "workspace": "w2",
+      "measurements": [
+        {
+          "event": "start",
+          "rows": 17,
+          "cols": 61
+        },
+        {
+          "event": "SIGWINCH",
+          "rows": 19,
+          "cols": 72
+        }
+      ]
+    },
+    {
+      "pane": "w3:p1",
+      "workspace": "w3",
+      "measurements": [
+        {
+          "event": "start",
+          "rows": 41,
+          "cols": 133
+        }
+      ]
+    }
+  ],
+  "afterRelease": [
+    {
+      "pane": "w1:p1",
+      "workspace": "w1",
+      "measurements": [
+        {
+          "event": "start",
+          "rows": 30,
+          "cols": 100
+        },
+        {
+          "event": "SIGWINCH",
+          "rows": 23,
+          "cols": 88
+        }
+      ]
+    },
+    {
+      "pane": "w2:p1",
+      "workspace": "w2",
+      "measurements": [
+        {
+          "event": "start",
+          "rows": 17,
+          "cols": 61
+        },
+        {
+          "event": "SIGWINCH",
+          "rows": 19,
+          "cols": 72
+        }
+      ]
+    },
+    {
+      "pane": "w3:p1",
+      "workspace": "w3",
+      "measurements": [
+        {
+          "event": "start",
+          "rows": 41,
+          "cols": 133
+        },
+        {
+          "event": "SIGWINCH",
+          "rows": 18,
+          "cols": 59
+        }
+      ]
+    }
+  ],
+  "tuiOutput": "TUI_STARTED\nTUI_RESIZED 60x20\n"
+}
