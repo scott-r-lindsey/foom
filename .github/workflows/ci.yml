@@ -1,9 +1,16 @@
 name: CI
 
+# Windows and macOS minutes cost 2× and 10× Linux. Pull requests run Linux only;
+# label one `full-ci` to add Windows and macOS. Pushes to main, nightly runs (when
+# main changed) and manual runs validate every platform. Draft pull requests skip
+# CI until they are marked ready for review.
 on:
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review, labeled]
   push:
     branches: [main]
+  schedule:
+    - cron: '17 9 * * *'
   workflow_dispatch:
     inputs:
       upload_packages:
@@ -15,7 +22,8 @@ permissions:
   contents: read
 
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.ref }}
+  # Adding an unrelated label must not cancel a run in progress, so it gets its own group.
+  group: ci-${{ github.workflow }}-${{ github.ref }}${{ github.event.action == 'labeled' && github.event.label.name != 'full-ci' && format('-{0}', github.run_id) || '' }}
   cancel-in-progress: true
 
 env:
@@ -24,10 +32,12 @@ env:
 jobs:
   checks:
     name: Static checks and change detection
+    if: github.event_name != 'pull_request' || (!github.event.pull_request.draft && (github.event.action != 'labeled' || github.event.label.name == 'full-ci'))
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     outputs:
       desktop_required: ${{ steps.changes.outputs.desktop_required }}
+      desktop_platforms: ${{ steps.changes.outputs.desktop_platforms }}
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
@@ -51,6 +61,7 @@ jobs:
 
   unit:
     name: Unit tests and coverage
+    if: github.event_name != 'pull_request' || (!github.event.pull_request.draft && (github.event.action != 'labeled' || github.event.label.name == 'full-ci'))
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
@@ -125,7 +136,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-24.04, windows-2025, macos-15]
+        os: ${{ fromJSON(needs.checks.outputs.desktop_platforms) }}
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
@@ -183,7 +194,7 @@ jobs:
 
   quality:
     name: Quality gate
-    if: always()
+    if: always() && (github.event_name != 'pull_request' || (!github.event.pull_request.draft && (github.event.action != 'labeled' || github.event.label.name == 'full-ci')))
     needs: [checks, unit, desktop]
     runs-on: ubuntu-24.04
     timeout-minutes: 5
