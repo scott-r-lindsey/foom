@@ -32,6 +32,13 @@ export function desktopPlatforms(eventName, event) {
     : ["ubuntu-24.04"];
 }
 
+/** Only selected platforms get jobs; Windows runs two disjoint test shards. */
+export function desktopMatrix(platforms) {
+  return platforms.flatMap((os) =>
+    (os === "windows-2025" ? ["1/2", "2/2"] : ["1/1"]).map((shard) => ({ os, shard })),
+  );
+}
+
 export function detectDesktop(
   eventName,
   event,
@@ -66,7 +73,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   const platforms = desktopPlatforms(process.env.GITHUB_EVENT_NAME, event);
   appendFileSync(
     process.env.GITHUB_OUTPUT,
-    `desktop_required=${required}\ndesktop_platforms=${JSON.stringify(platforms)}\n`,
+    `desktop_required=${required}\ndesktop_platforms=${JSON.stringify(platforms)}\ndesktop_matrix=${JSON.stringify(desktopMatrix(platforms))}\n`,
   );
   console.log(
     required

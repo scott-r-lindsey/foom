@@ -1,6 +1,12 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { allPlatforms, desktopPlatforms, detectDesktop, requiresDesktop } from "./ci-changes.mjs";
+import {
+  allPlatforms,
+  desktopMatrix,
+  desktopPlatforms,
+  detectDesktop,
+  requiresDesktop,
+} from "./ci-changes.mjs";
 
 const base = "a".repeat(40);
 const head = "b".repeat(40);
@@ -98,6 +104,29 @@ test("pull requests run Linux only unless labelled full-ci", () => {
   }
 });
 
+test("desktop jobs preserve platform selection and shard Windows exactly twice", () => {
+  assert.deepEqual(desktopMatrix(desktopPlatforms("pull_request", {})), [
+    { os: "ubuntu-24.04", shard: "1/1" },
+  ]);
+  const expected = [
+    { os: "ubuntu-24.04", shard: "1/1" },
+    { os: "windows-2025", shard: "1/2" },
+    { os: "windows-2025", shard: "2/2" },
+    { os: "macos-15", shard: "1/1" },
+  ];
+  assert.deepEqual(
+    desktopMatrix(
+      desktopPlatforms("pull_request", {
+        pull_request: { labels: [{ name: "full-ci" }] },
+      }),
+    ),
+    expected,
+  );
+  for (const eventName of ["push", "schedule", "workflow_dispatch"]) {
+    assert.deepEqual(desktopMatrix(desktopPlatforms(eventName, {})), expected);
+  }
+});
+
 test("nightly runs validate desktop only when main changed recently", () => {
   const unexpectedDiff = () => {
     throw new Error("Unexpected diff");
@@ -181,14 +210,14 @@ test("CLI uses real Git history, includes renamed source paths, and emits no ski
     assert.equal(run(initial, docs).status, 0);
     assert.equal(
       readFileSync(outputPath, "utf8"),
-      `desktop_required=false\ndesktop_platforms=${JSON.stringify(allPlatforms)}\n`,
+      `desktop_required=false\ndesktop_platforms=${JSON.stringify(allPlatforms)}\ndesktop_matrix=${JSON.stringify(desktopMatrix(allPlatforms))}\n`,
     );
     git("mv", "source.ts", "NOTICE");
     git("-c", "commit.gpgsign=false", "commit", "--quiet", "-m", "rename");
     assert.equal(run(docs, git("rev-parse", "HEAD")).status, 0);
     assert.equal(
       readFileSync(outputPath, "utf8"),
-      `desktop_required=true\ndesktop_platforms=${JSON.stringify(allPlatforms)}\n`,
+      `desktop_required=true\ndesktop_platforms=${JSON.stringify(allPlatforms)}\ndesktop_matrix=${JSON.stringify(desktopMatrix(allPlatforms))}\n`,
     );
     assert.notEqual(run("f".repeat(40), docs).status, 0);
     assert.equal(readFileSync(outputPath, "utf8"), "");
