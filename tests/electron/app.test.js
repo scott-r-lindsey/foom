@@ -3721,7 +3721,7 @@ test("Settings persists literal agent defaults and discloses bypass once per age
   const app = await launchApp(context, false, {
     args: [`--user-data-dir=${profile}`],
     emptyBoard: true,
-    env: { HOME: home, PATH: `${bin}${path.delimiter}${process.env.PATH}`, FOOM_ARGV: output },
+    env: { HOME: home, PATH: `${bin}${path.delimiter}${process.env.PATH}`, TEST_ARGV: output },
   });
   const page = await app.firstWindow();
   await app.evaluate(({ dialog }, repo) => {
@@ -3743,7 +3743,7 @@ test("Settings persists literal agent defaults and discloses bypass once per age
   await expect(page.locator(".agent-defaults [role=status]")).toContainText("reserved");
   const args = [
     "--eval",
-    'require("node:fs").writeFileSync(process.env.FOOM_ARGV, JSON.stringify([...process.execArgv, ...process.argv.slice(1)])); setInterval(() => {}, 1000)',
+    'require("node:fs").writeFileSync(process.env.TEST_ARGV, JSON.stringify([...process.execArgv, ...process.argv.slice(1)])); setInterval(() => {}, 1000)',
     "value with spaces",
     "'literal quotes'",
     "$(not-a-command); &",

@@ -36,9 +36,9 @@ not evaluated by a shell. Empty defaults preserve the prior launch behavior.
 
 Settings stores arrays in main (maximum 64 arguments per agent, 1–4096 characters
 each, no control characters). User defaults precede Foom's own arguments.
-Claude `--settings` (including `=` form) and `--safe-mode` are reserved to protect
-hooks, and `--no-alt-screen` is reserved for Foom's display. Codex overrides whose
-key path sets `notify` or `hooks` are rejected, including `-c notify=…`,
+Claude `--settings` (including `=` form), `--safe-mode` and `--bare` are reserved
+to protect hooks (`--bare` skips hooks defined in settings and plugins).
+`--no-alt-screen` is reserved for Foom's display. Codex overrides whose key path sets `notify` or `hooks` are rejected, including `-c notify=…`,
 `--config=notify=…`, attached short forms and nested keys. The `--` terminator is
 also rejected because it would turn Foom's flags into positional arguments.
 

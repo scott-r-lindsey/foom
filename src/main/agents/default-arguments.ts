@@ -38,8 +38,10 @@ export function parseAgentArguments(agent: AgentId, value: unknown): readonly st
       throw new Error("The -- argument would prevent Foom from attaching its flags.");
     if (arg === "--no-alt-screen" || arg.startsWith("--no-alt-screen="))
       throw new Error("--no-alt-screen is reserved for Foom's terminal display.");
-    if (agent === "claude" && /^(?:--settings|--safe-mode)(?:=|$)/u.test(arg))
-      throw new Error("Claude --settings and --safe-mode are reserved to preserve Foom's hooks.");
+    if (agent === "claude" && /^(?:--settings|--safe-mode|--bare)(?:=|$)/u.test(arg))
+      throw new Error(
+        "Claude --settings, --safe-mode and --bare are reserved to preserve Foom's hooks.",
+      );
     if (agent !== "codex") continue;
     const config =
       arg === "-c" || arg === "--config"

@@ -239,8 +239,8 @@ is their global config plus Foom defaults; Foom appends its own display and atte
 flags and never edits global config. Defaults affect future user launches only.
 
 Main validates at most 64 arguments per agent, each 1–4096 characters with no control
-characters. Foom reserves Claude `--settings` and `--safe-mode`, `--no-alt-screen`,
-Codex `-c`/`--config` overrides of `notify` or `hooks`, and the `--` terminator so
+characters. Foom reserves Claude `--settings`, `--safe-mode` and `--bare`,
+`--no-alt-screen`, Codex `-c`/`--config` overrides of `notify` or `hooks`, and the `--` terminator so
 these defaults cannot displace its attention flags. Saving a known bypass argument
 requires a main-owned disclosure once per agent: a worktree is not a sandbox, and
 the agent can act as the user anywhere on the machine. Cancelling leaves settings

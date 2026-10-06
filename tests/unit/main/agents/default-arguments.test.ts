@@ -59,6 +59,8 @@ test.each<[AgentId, string[]]>([
   ["claude", ["--settings", "{}"]],
   ["claude", ["--settings={}"]],
   ["claude", ["--safe-mode"]],
+  ["claude", ["--bare"]],
+  ["claude", ["--bare=true"]],
   ["claude", ["--no-alt-screen"]],
   ["codex", ["--no-alt-screen=true"]],
   ["agy", ["--"]],
