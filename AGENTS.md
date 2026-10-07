@@ -23,6 +23,16 @@ Read `docs/product.md` and `docs/architecture.md` before changing terminal, eval
 - For UI work, open the matching mockup in `docs/mockups/` and read its README first. Mockups show layout and interaction; the docs win when they disagree. Treat `docs/mockups/` as read-only reference, like `inspiration/`.
 - Follow `docs/brand.md` for color and type. Amber means "needs you" and is used for nothing else; magenta is only for failures. Status must not depend on color alone.
 
+## Building Foom inside Foom
+
+Run everyday Foom from a packaged build, or a dedicated checkout no agent edits.
+Use a separate worktree for development. `npm start` and `npm run start:samples`
+use the persistent **Foom Dev** profile; packaged builds use the everyday profile.
+Only one app can own each profile. A repeated launch focuses the existing window,
+so quit Foom Dev before testing a rebuilt version. To run another development app
+alongside it, pass a distinct `--user-data-dir` to Electron. `npm run start:fresh`
+uses an isolated disposable profile and deletes it on exit.
+
 ## Planning and tasks
 
 - Work is tracked as GitHub issues labeled `roadmap`. Each issue lists its dependencies and acceptance criteria; don't start one whose dependencies are still open without saying so in the PR.

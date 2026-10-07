@@ -68,6 +68,7 @@ ipcRenderer.on("terminal:flush-views", (_event, ids: unknown, token: unknown) =>
 });
 
 const desktop: DesktopApi = {
+  isDevelopment: process.argv.includes("--foom-development"),
   onBoardCommand(callback) {
     const listener = (_event: IpcRendererEvent, command: unknown) => {
       if (

@@ -1,3 +1,4 @@
+import { selectProfile, clearParentHooks } from "./profile";
 import { interfaceThemeSource, resolveInterfaceTheme } from "../shared/interface-themes";
 import { app, BrowserWindow, dialog, nativeTheme, net, protocol, screen, session } from "electron";
 import { WorktreeService } from "./workspace/worktrees";
@@ -22,6 +23,10 @@ import type { Size } from "./window/appearance";
 import { attachWindowScale } from "./window/window-scale";
 import * as path from "node:path";
 import { pathToFileURL } from "node:url";
+
+clearParentHooks(process.env);
+selectProfile(app);
+const ownsProfile = app.requestSingleInstanceLock();
 
 export let worktrees: WorktreeService;
 let settings: SettingsStore;
@@ -57,7 +62,7 @@ function createWindow(savedSize?: Size) {
     height: size.height,
     minWidth: minimum.width,
     minHeight: minimum.height,
-    title: "Foom",
+    title: app.isPackaged ? "Foom" : "Foom Dev",
     backgroundColor: resolveInterfaceTheme(
       settings.get().interfaceTheme,
       nativeTheme.shouldUseDarkColors,
@@ -71,8 +76,14 @@ function createWindow(savedSize?: Size) {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
+      additionalArguments: app.isPackaged ? [] : ["--foom-development"],
       webviewTag: false,
     },
+  });
+
+  // Keep the development identity when the document publishes its title.
+  window.on("page-title-updated", (event) => {
+    event.preventDefault();
   });
 
   const updateBackground = () => {
@@ -286,38 +297,50 @@ function createWindow(savedSize?: Size) {
     });
 }
 
-app
-  .whenReady()
-  .then(async () => {
-    worktrees = await WorktreeService.open(app.getPath("userData"));
-    settings = await SettingsStore.open(app.getPath("userData"));
-    // Before the window exists, so its background already matches the saved mode.
-    nativeTheme.themeSource = interfaceThemeSource(
-      settings.get().interfaceTheme,
-      settings.get().colorMode,
-    );
-    // Serve only known local assets; arbitrary filesystem access is never exposed.
-    protocol.handle("app", (request) => {
-      const url = new URL(request.url);
-      const asset = url.host === "bundle" && assets.get(url.pathname);
-      if (request.method !== "GET" || !asset) {
-        return new Response("Not found", { status: 404 });
-      }
-      return net.fetch(pathToFileURL(path.join(rendererDirectory, asset)).href);
+if (!ownsProfile) {
+  // Do not initialize persistence, sessions, IPC, or shutdown writers in the loser.
+  app.quit();
+} else {
+  app.on("second-instance", () => {
+    const window = BrowserWindow.getAllWindows()[0];
+    if (!window) return; // Startup will show the first window once it has loaded.
+    if (window.isMinimized()) window.restore();
+    window.show();
+    window.focus();
+  });
+  app
+    .whenReady()
+    .then(async () => {
+      worktrees = await WorktreeService.open(app.getPath("userData"));
+      settings = await SettingsStore.open(app.getPath("userData"));
+      // Before the window exists, so its background already matches the saved mode.
+      nativeTheme.themeSource = interfaceThemeSource(
+        settings.get().interfaceTheme,
+        settings.get().colorMode,
+      );
+      // Serve only known local assets; arbitrary filesystem access is never exposed.
+      protocol.handle("app", (request) => {
+        const url = new URL(request.url);
+        const asset = url.host === "bundle" && assets.get(url.pathname);
+        if (request.method !== "GET" || !asset) {
+          return new Response("Not found", { status: 404 });
+        }
+        return net.fetch(pathToFileURL(path.join(rendererDirectory, asset)).href);
+      });
+
+      session.defaultSession.setPermissionRequestHandler((_contents, _permission, callback) => {
+        callback(false);
+      });
+      session.defaultSession.setPermissionCheckHandler(() => false);
+
+      createWindow(await loadWindowSize(app.getPath("userData")));
+    })
+    .catch((error: unknown) => {
+      console.error("Unable to start the application:", error);
+      app.quit();
     });
 
-    session.defaultSession.setPermissionRequestHandler((_contents, _permission, callback) => {
-      callback(false);
-    });
-    session.defaultSession.setPermissionCheckHandler(() => false);
-
-    createWindow(await loadWindowSize(app.getPath("userData")));
-  })
-  .catch((error: unknown) => {
-    console.error("Unable to start the application:", error);
+  app.on("window-all-closed", () => {
     app.quit();
   });
-
-app.on("window-all-closed", () => {
-  app.quit();
-});
+}

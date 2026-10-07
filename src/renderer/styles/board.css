@@ -366,6 +366,11 @@
 .sidebar-shell .wordmark {
   font-size: 22px;
 }
+.dev-profile {
+  margin-left: 6px;
+  color: var(--muted);
+  font: 11px var(--font-mono);
+}
 .sidebar-shell .board-summary {
   font: 11px var(--font-mono);
   margin: 0;

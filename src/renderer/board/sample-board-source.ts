@@ -12,6 +12,7 @@ export function createSampleSource(initial: readonly BoardRow[] = sampleRows(Dat
     for (const listener of listeners) listener();
   };
   const source: BoardSource = {
+    isDevelopment: true,
     getSnapshot: () => rows,
     subscribe: (listener) => {
       listeners.add(listener);
