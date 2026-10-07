@@ -1,4 +1,5 @@
 import { InventoryWatch } from "./workspace/inventory-watch";
+import { ControlRuntime } from "./control/runtime";
 import { TrustedDialog } from "./confirmations/trusted-dialog";
 import { selectProfile, clearParentHooks } from "./profile";
 import { interfaceThemeSource, resolveInterfaceTheme } from "../shared/interface-themes";
@@ -176,6 +177,7 @@ function createWindow(savedSize?: Size) {
     },
     // Rules first, then whatever model tier setup has configured.
     verdicts: new VerdictLog(app.getPath("userData"), (input) => setup.classify(input)),
+    control: () => ControlRuntime.start(app.getPath("userData")),
     receiver: () => HookReceiver.listen((signal) => void workspace.hook(signal)),
     onChange: () => {
       workspaceIpc.sendChanged();

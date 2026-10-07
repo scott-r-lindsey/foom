@@ -1,8 +1,11 @@
 # Foom control plane
 
 Research for [#119](https://github.com/scott-r-lindsey/foom/issues/119), checked
-2026-10-05 on Linux. This is a design for follow-up implementation, not a shipped
-feature. No application code changes are part of this issue.
+2026-10-05 on Linux. This document specifies the complete target. The security and
+HTTP foundation is implemented in #152; see the [current architecture](architecture.md#control-plane)
+for its exposed methods and storage contract. MCP, CLI packaging/pairing and
+orchestration actions remain follow-up work. The original #119 research changed no
+application code.
 
 ## Decision
 

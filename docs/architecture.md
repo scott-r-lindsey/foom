@@ -314,10 +314,57 @@ Stable Claude Code releases at or above 2.1.284 and Codex releases at or above 0
 
 ## Control plane
 
-**Draft target from #119; not implemented.** See [orchestration research](orchestration.md)
-for per-agent evidence, transport comparison, concrete limits and implementation
-issues. Existing terminal ownership, utility-host parsing and renderer boundaries
-remain in force.
+**Foundation implemented in #152.** `main/control/` owns the service, launch grants,
+versioned HTTP adapter, private discovery, operation records and audit storage.
+The workspace starts it lazily on the first agent launch, even when hooks are off.
+All current launches receive the immutable `agent` role. The only exposed methods
+are `whoami` and actor-scoped `operation_status` (the latter requires a main-issued
+orchestrator grant, which has no user launch path yet). Unknown methods, role/force
+flags and unknown fields fail closed. No orchestration mutations are exposed.
+
+`POST /control/v1` requires `Authorization: Bearer <token>` and a JSON envelope
+`{ version: 1, instanceId, method, params }`. Identity takes empty params; operation
+lookup takes exactly one of `operationId` or `idempotencyKey`. Every request checks
+the live grant and app-instance ID, including after receiving its bounded body.
+Responses contain `{ result }` or a fixed `{ error }` code. The adapter enforces
+8 KiB headers, 64 KiB bodies, 32 connections and four outstanding requests per
+grant, with five-second transport deadlines. Policy and role checks stay in the service.
+
+Launch environments carry `FOOM_CONTROL_URL`, `FOOM_CONTROL_TOKEN` and
+`FOOM_CONTROL_INSTANCE`; `FOOM_SESSION` correlates with hooks when attached.
+Control tokens remain unavailable until main binds the terminal ID. The host
+scrubs inherited `FOOM_*` and `CLAUDECODE` on every spawn before adding main's
+fresh launch environment. Early exit before launch completion also revokes grants.
+
+The profile's `control/` directory is private (0700/0600 on Unix; current-user
+DACL on Windows). Discovery contains only version, endpoint and instance ID;
+clients validate ownership, permissions, file type and the literal loopback endpoint.
+Clean shutdown removes discovery; the instance check rejects stale metadata.
+Windows ACL setup/verification uses a fixed PowerShell program calling .NET ACL
+APIs directly, with paths passed as environment data. It does not autoload modules
+from an inherited PowerShell 7 `PSModulePath`; failure refuses control initialization.
+
+Operation intent and the hashed actor-scoped idempotency mapping are synced before
+returning a new reservation. Only `created: true` authorizes a future handler to
+start work; duplicates return the existing record with `created: false`. This is
+a main-only distinction, omitted from public operation lookup. At 4096 records,
+new reservations refuse rather than evicting deduplication state. Canonical action
+input is hashed, never stored as prompt or reply text. A main-only confirmation
+closure binds actor, operation and a caller-rechecked target/dirty-state identity;
+it cannot be approved by a transport flag. Revocation cancels pending confirmations
+and marks running operations indeterminate. Audit failure refuses the reservation.
+
+Separate audit files rotate before 10 MiB, retain at most five files and prune
+files older than 30 days on startup and writes; clearing them preserves live operation records.
+Recovery preserves known outcomes and records interrupted operations as
+indeterminate, then retires old-generation deduplication files. It never restores
+authority or replays actions. Mutation handlers, trusted dialog wiring, visibility
+and takeover must ship together in later issues.
+
+**Remaining target from #119.** See [orchestration research](orchestration.md) for
+per-agent evidence and follow-ups #153–#157. MCP attachment, repository session
+metadata, the packaged console helper and pairing remain future work. Existing
+terminal ownership, utility-host parsing and renderer boundaries remain in force.
 
 Main owns one control service over the workspace, agent, evaluator and terminal-host
 services. A loopback Streamable HTTP MCP adapter and a versioned HTTP CLI adapter

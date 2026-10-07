@@ -148,16 +148,28 @@ jobs:
           node-version-file: .nvmrc
           cache: npm
       - run: npm ci
-      - name: Test hook transport with native OS tools
+      - name: Test hooks and control storage with native OS tools
         if: matrix.shard != '2/2'
         # Cold PowerShell probes compete for startup when these files run together.
         # Exercise native transport once per platform, with one OS probe at a time.
-        run: npx vitest run --no-file-parallelism tests/unit/main/agents/hook-receiver.test.ts tests/unit/main/agents/hook-adapters.test.ts tests/unit/main/agents/hook-launch.test.ts
+        run: npx vitest run --no-file-parallelism tests/unit/main/agents/hook-receiver.test.ts tests/unit/main/agents/hook-adapters.test.ts tests/unit/main/agents/hook-launch.test.ts tests/unit/main/control/private-native.test.ts
       - name: Prepare Linux display and sandbox
+        timeout-minutes: 3
         if: runner.os == 'Linux'
         run: |
-          sudo apt-get update
-          sudo apt-get install -y xvfb libgtk-3-0 libnss3 libasound2t64
+          # Hosted images usually already contain these. Avoid contacting a stale
+          # mirror when nothing needs installing; bound network waits otherwise.
+          missing=()
+          for package in xvfb libgtk-3-0t64 libnss3 libasound2t64; do
+            if [ "$(dpkg-query -W -f='${Status}' "$package" 2>/dev/null || true)" != "install ok installed" ]; then
+              missing+=("$package")
+            fi
+          done
+          if [ "${#missing[@]}" -gt 0 ]; then
+            apt_options=(-o Acquire::Retries=1 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30)
+            sudo apt-get "${apt_options[@]}" update
+            sudo apt-get "${apt_options[@]}" install -y "${missing[@]}"
+          fi
           # Permit Chromium's user-namespace sandbox on this ephemeral CI runner.
           sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
       # The full suite includes preflight and sidebar flows; per-test deadlines
