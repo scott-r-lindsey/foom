@@ -1,0 +1,54 @@
+{
+  "id": "claude",
+  "version": 1,
+  "minimumEngineVersion": 1,
+  "source": "https://github.com/herdrdev/herdr/tree/ff83689f1512f11b762fe52fb3a0032e7373c35e/src/detect/manifests/claude.toml",
+  "license": "Apache-2.0; Herdr contributors (upstream provides no separate copyright notice)",
+  "modified": "Modified for Foom: bounded regions, restricted regexes, capture-backed subset and local reasons.",
+  "rules": [
+    {
+      "id": "live_blocked_form",
+      "state": "blocked",
+      "priority": 980,
+      "region": "after_horizontal_rule",
+      "match": {
+        "contains": ["esc to cancel", "enter to confirm"]
+      },
+      "reason": "Confirmation requested",
+      "comment": "Ported Enter-to-confirm branch; other navigation variants await captures."
+    },
+    {
+      "id": "live_question_form",
+      "state": "blocked",
+      "priority": 980,
+      "region": "after_horizontal_rule",
+      "match": {
+        "contains": ["esc to cancel", "enter to select", "↑/↓ to navigate"]
+      },
+      "reason": "Question form",
+      "comment": "Ported live_blocked_form navigation branch; the last divider leaves the form footer visible."
+    },
+    {
+      "id": "osc_title_working",
+      "state": "working",
+      "priority": 1100,
+      "region": "title",
+      "match": {
+        "regex": ["^[◐◓◑◒] "]
+      },
+      "reason": "Agent is working",
+      "comment": "Half-circle spinner introduced in Claude 2.1.228; captured in 2.1.291. Earlier braille variant omitted without a capture."
+    },
+    {
+      "id": "osc_title_idle",
+      "state": "idle",
+      "priority": 250,
+      "region": "title",
+      "match": {
+        "regex": ["^✳ "]
+      },
+      "reason": "Agent turn ended; checking output",
+      "comment": "Idle title can coexist with a question form. Screen blockers have higher priority."
+    }
+  ]
+}

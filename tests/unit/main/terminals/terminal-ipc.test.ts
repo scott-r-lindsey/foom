@@ -1036,3 +1036,37 @@ test("an unresponsive renderer cannot block native shutdown indefinitely", async
     vi.useRealTimers();
   }
 });
+
+test("headless titles and progress reach main only after parsing, without a view", async () => {
+  const onEvidence = vi.fn();
+  terminalControl = attachTerminal(window as unknown as BrowserWindow, { onEvidence });
+  const id = await terminalControl.create(spec);
+  output("\x1b]0;⠋ codex\x07\x1b]9;4;1;50\x07screen");
+  await terminalControl.tail(id, 1);
+  expect(onEvidence).toHaveBeenLastCalledWith(id, {
+    title: "⠋ codex",
+    progress: { state: 1, value: 50 },
+  });
+  output("\x1b]2;Action Required\x07\x1b]9;4;0\x07");
+  await terminalControl.tail(id, 1);
+  expect(onEvidence).toHaveBeenLastCalledWith(id, {
+    title: "Action Required",
+    progress: { state: 0, value: null },
+  });
+  const count = onEvidence.mock.calls.length;
+  output("\x1b]2;Action Required\x07\x1b]9;4;0\x07\x1b]9;garbage\x07");
+  await terminalControl.tail(id, 1);
+  expect(onEvidence).toHaveBeenCalledTimes(count);
+  output("\x1b]9;4;1;60\x07");
+  await terminalControl.tail(id, 1);
+  expect(onEvidence).toHaveBeenLastCalledWith(id, {
+    title: "Action Required",
+    progress: { state: 1, value: 60 },
+  });
+  output("\x1b]9;4;1;61\x07");
+  await terminalControl.tail(id, 1);
+  expect(onEvidence).toHaveBeenLastCalledWith(id, {
+    title: "Action Required",
+    progress: { state: 1, value: 61 },
+  });
+});

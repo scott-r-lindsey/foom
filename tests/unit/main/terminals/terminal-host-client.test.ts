@@ -331,3 +331,17 @@ test("shell events are delivered only for live owned sessions", async () => {
   child.emit("message", { type: "shell-state", id, state });
   expect(onShellState).toHaveBeenCalledTimes(1);
 });
+
+test("agent evidence is delivered only for live owned sessions", async () => {
+  const onEvidence = vi.fn();
+  client = new TerminalHostClient(exited, { onEvidence });
+  const id = await create();
+  const evidence = { title: "Action Required", progress: null };
+  child.emit("message", { type: "evidence", id, evidence });
+  expect(onEvidence).toHaveBeenCalledWith(id, evidence);
+  child.emit("message", { type: "evidence", id: "foreign", evidence });
+  child.emit("message", { type: "evidence", id, evidence: { ...evidence, title: "\x1b" } });
+  child.emit("message", { type: "exit", id, code: 0 });
+  child.emit("message", { type: "evidence", id, evidence });
+  expect(onEvidence).toHaveBeenCalledOnce();
+});

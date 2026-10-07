@@ -1,0 +1,26 @@
+{
+  "id": "agy",
+  "version": 1,
+  "minimumEngineVersion": 1,
+  "source": "https://github.com/herdrdev/herdr/tree/ff83689f1512f11b762fe52fb3a0032e7373c35e/src/detect/manifests/antigravity.toml",
+  "license": "Apache-2.0; Herdr contributors (upstream provides no separate copyright notice)",
+  "modified": "Modified for Foom: bounded regions, restricted regexes, capture-backed subset and local reasons.",
+  "rules": [
+    {
+      "id": "trust_prompt",
+      "state": "blocked",
+      "priority": 280,
+      "region": "bottom",
+      "match": {
+        "contains": [
+          "do you trust the contents of this project?",
+          "yes, i trust this folder",
+          "enter confirm"
+        ]
+      },
+      "reason": "Workspace trust requested",
+      "comment": "Trust dialog footer; bottom nonempty lines exclude blank padding.",
+      "lines": 8
+    }
+  ]
+}

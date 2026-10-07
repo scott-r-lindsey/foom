@@ -1,0 +1,33 @@
+{
+  "agent": "claude",
+  "version": "2.1.291",
+  "state": "trust",
+  "platform": "linux",
+  "date": "2026-10-06",
+  "size": {
+    "cols": 110,
+    "rows": 32
+  },
+  "rules": ["live_blocked_form"],
+  "titles": [],
+  "progress": null,
+  "tail": [
+    "",
+    "──────────────────────────────────────────────────────────────────────────────────────────────────────────────",
+    " Accessing workspace:",
+    "",
+    " /scratch/agent",
+    "",
+    " Quick safety check: Is this a project you created or one you trust? (Like your own code, a well-known open",
+    " source project, or work from your team). If not, take a moment to review what's in this folder first.",
+    "",
+    " Claude Code'll be able to read, edit, and execute files here.",
+    "",
+    " Security guide",
+    "",
+    " ❯ No, exit",
+    "   Yes, I trust this folder",
+    "",
+    " Enter to confirm · Esc to cancel"
+  ]
+}

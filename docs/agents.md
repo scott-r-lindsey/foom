@@ -126,3 +126,51 @@ Before implementing detection, repeat real approval/idle/interrupt tests on each
 The receiver now accepts `PermissionRequest` as immediate needs-input evidence, alongside delayed `permission_prompt` notifications. The [official hook contract](https://code.claude.com/docs/en/hooks#permissionrequest) says it runs when a tool needs a permission decision; Foom's adapter returns no decision and does not change permissions. This is a documented mapping, not a new end-to-end measurement of real approval timing. Real interactive approval and disabled-hook behavior still need the launch-time probes described above.
 
 See [architecture](architecture.md#agent-signals) for the transport API, lifecycle, limits, and reduced signal contract. Synthetic transport tests execute the native OS adapter against the real listener; they do not call a model or read transcript files.
+
+## Local title and screen detection (#161)
+
+Checked on Linux on 2026-10-06 with Claude Code **2.1.291**, Codex **0.160.1**,
+and Antigravity **1.3.0**. The versioned, redacted captures in
+[`tests/fixtures/agent-detection`](../tests/fixtures/agent-detection/) are the
+shipping gate: every bundled rule must match a capture. They are real CLI output,
+not the fake agent used by Electron tests. They do not establish cross-platform
+or cross-version reliability.
+
+- Claude: a half-circle title prefix means Working; `✳ ` means turn-ended evidence.
+  The trust confirmation and question-form footer after the last horizontal rule
+  mean Needs you. The question capture has an idle title: screen blockers must win
+  over idle. Older braille titles, background tasks, MCP elicitation, overlays and
+  other unobserved Herdr variants are omitted.
+- Codex: the braille title prefix means Working; `Action Required` means Approval
+  requested. Other nonempty titles without either marker are idle evidence. The
+  approval capture used a harmless `printf` escalation request and was terminated
+  without approving it. A startup spinner-to-idle sequence is also captured.
+- Antigravity: the captured trust dialog is recognized from the bottom eight
+  nonempty lines. Uncaptured approval/working/question variants remain subject to
+  generic rules and the evaluator.
+
+The host parses OSC 0/2 titles, caps them at 512 UTF-16 code units and strips control
+and format characters. OSC 9;4 accepts only states 0–4 and optional integer values
+0–100; state 0 means no progress/busy indication. Invalid sequences leave the prior
+metadata intact. These probes did not emit OSC 9;4, so progress is retained locally
+but no progress-only rule is shipped without capture evidence. No title or progress
+is sent to inference. Rules are packaged JSON, never downloaded or supplied by a CLI.
+Matched signals are `rules:<agent>:<rule-id>`; reasons are authored by Foom.
+
+**Codex notifier decision:** retain the invocation-only `notify` override and its
+existing disclosure. One Linux version's title captures do not prove dependable
+turn completion across supported installations, interrupts, reconnects and user
+TUI configuration. An idle title can also mean initial readiness or a question,
+not successful completion. Removing the notifier is therefore premature.
+
+The current [Codex hook documentation](https://learn.chatgpt.com/docs/hooks) lists
+`PermissionRequest`, `Stop` and `UserPromptSubmit`, and supports inline hooks next
+to active config layers. Non-managed hooks require trust before execution. A real 0.160.1 startup probe using
+`-c 'hooks.SessionStart=[{hooks=[{type="command",command="true"}]}]'`
+confirmed invocation-scoped discovery: Codex displayed **Hooks need review** before
+starting the session. The probe ended without trusting the hook; no callback or
+coexistence behavior was claimed. Thus a per-launch override is discoverable, but
+unattended attachment would require a trust workflow. Foom does not bypass hook
+trust or write user/project hook configuration. A verified
+invocation-scoped adapter can replace the notifier separately; this change retains
+the established adapter.

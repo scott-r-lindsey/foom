@@ -146,9 +146,10 @@ are deferred to #133; pop-out windows and WebGL are separate future work.
 Checks run from cheapest and most certain to least:
 
 1. **Agent signals**: Claude Code hooks and Codex `notify`, attached per launch. These report specific events, not necessarily task completion; a finished response can still ask a question. See [agent research](agents.md).
-2. **Process facts**: exit code, the shell prompt returning, echo changes only with corroborating prompt context (agent TUIs also disable echo during ordinary operation; this may not be detectable on Windows).
-3. **Text patterns** in the tail: `(y/n)`, `Password:`, `Press Enter`.
-4. **A model** for what's still ambiguous, such as a question asked in plain prose.
+2. **Local agent UI signals**: capture-backed terminal title and screen rules. Idle is evidence for classification, never Done by itself. Process exit remains final and permission hooks take precedence.
+3. **Process facts**: exit code, the shell prompt returning, echo changes only with corroborating prompt context (agent TUIs also disable echo during ordinary operation; this may not be detectable on Windows).
+4. **Text patterns** in the tail: `(y/n)`, `Password:`, `Press Enter`.
+5. **A model** for what's still ambiguous, such as a question asked in plain prose.
 
 "Quiet" is not "done". A process can be silent while it works. The debounce adapts: it's short when the tail ends in a question and longer mid-stream.
 

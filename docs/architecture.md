@@ -387,7 +387,7 @@ The hook command cannot run Node from the packaged app because the RunAsNode fus
 
 ## Evaluator pipeline
 
-`quiet` event → agent signal received? → process facts → text patterns → model (if configured) → verdict `{ state, reason, signal, confidence }` → `terminal:state` and the verdict log.
+`quiet` or parsed metadata event → process exit → permission hook → per-agent title/progress/screen rules → shell facts and generic text patterns → model (if configured) → verdict `{ state, reason, signal, confidence }` → `terminal:state` and the verdict log.
 
 States: `needs_input`, `done`, `failed`, `quiet_ok`, `working`.
 
@@ -590,3 +590,37 @@ its controller locally; known lifecycle actions hide
 its view before revoking the capability. A hidden controller never detaches a
 later owner's attachment. View queue failures become status text and cleanup
 still disposes controllers. Main continues to reject unknown and foreign IDs.
+
+### Agent title, progress and screen evidence
+
+The evaluator order is **process exit → permission hook → per-agent rules → shell
+facts/generic text rules → model**. Main chooses the agent from its launch record;
+output cannot choose a rule manifest. Shell sessions never use agent rules.
+`main/evaluator/agent-rules/*.json` ships one versioned manifest per agent, recording
+minimum engine version, provenance, ordered priorities, region, matchers, exclusions
+and the source rationale. Herdr-derived rules are a capture-backed subset; the
+Apache-2.0 license and modification notice are included in generated third-party
+notices. The future About screen (#96) can consume that same notice bundle.
+
+The headless host listens to OSC 0/2 titles and parses OSC 9;4 progress without a
+view. It retains only sanitized titles (512 code units, no control/format chars)
+and bounded numeric progress. Changed metadata is emitted after queued parsing
+finishes, with a terminal ID. Main validates it, checks live session ownership and
+keeps it outside renderer IPC. Recognized title transitions request immediate
+evaluation; progress-only or unknown changes wait for normal quiet events, so they
+cannot trigger inference during streaming output. Existing generation/output guards discard stale results, exits stay
+final, and permission hooks stay sticky until a reply/dismissal.
+
+Screen matching uses the existing 40-line host tail, capped to 500 characters per
+line, and only the bottom nonempty lines or text after the last horizontal divider.
+Titles and progress are separate local evidence. Pattern strings have a 128-character
+limit; the regex subset forbids groups, repetition, alternation and backreferences.
+Only fixed-width atoms, classes, anchors and approved escapes are accepted. A five
+millisecond evaluation budget supplements those bounds; it is not presented as a
+way to interrupt a running JavaScript regex. No matcher can type into a terminal.
+
+Working and blocked rules produce fixed reasons and `rules:<agent>:<rule-id>` signals.
+Idle evidence has low confidence and continues through generic rules and the model,
+never directly to Done. With rules-only inference it stays Working with a turn-ended
+reason. Model requests still contain only the existing redacted 40-line tail; titles,
+progress, files, diffs, keystrokes and manifest content are never added to that input.
