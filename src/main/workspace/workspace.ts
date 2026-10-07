@@ -1,3 +1,5 @@
+import type { ControlLaunch } from "../control/types";
+import type { ControlRuntime } from "../control/runtime";
 import type { ConfirmWorkspace } from "../../shared/confirmation";
 import { EMPTY_AGENT_ARGUMENTS, hasBypassArgument } from "../agents/default-arguments";
 import { detectAgent } from "../evaluator/agent-rules";
@@ -60,12 +62,17 @@ export interface WorkspaceDependencies {
     commit(record: VerdictRecord): Promise<void>;
     recordAction(terminalId: string, verdictId: string, action: VerdictAction): Promise<void>;
   };
+  /** Started on the first agent launch, independently of hook support. */
+  control?: () => Promise<Pick<ControlRuntime, "prepare" | "close">>;
   /** Started on the first launch that attaches hooks, then reused. */
   receiver: () => Promise<HookRegistrar & { close(): Promise<void> }>;
   onState(state: TerminalState): void;
   onChange?(): void;
   acknowledgeCodex(): Promise<void>;
-  agents?: (prepare: (agent: AgentId) => Promise<AgentHooks>) => Agents;
+  agents?: (
+    prepare: (agent: AgentId) => Promise<AgentHooks>,
+    control?: (repository: string, worktree: string, sessionId?: string) => Promise<ControlLaunch>,
+  ) => Agents;
   now?: () => number;
 }
 
@@ -80,6 +87,7 @@ export class Workspace {
   private readonly terminals = new Map<string, Terminal>();
   private readonly hookKeys = new Map<string, string>();
   private readonly queues = new Map<string, Promise<void>>();
+  private control: Promise<Pick<ControlRuntime, "prepare" | "close">> | undefined;
   private receiver: ReturnType<WorkspaceDependencies["receiver"]> | undefined;
   private scanned: ReturnType<Agents["scan"]> | undefined;
   private closed = false;
@@ -107,9 +115,23 @@ export class Workspace {
         else this.hookKeys.delete(key);
       });
     };
+    const startControl = deps.control;
+    const prepareControl = startControl
+      ? async (
+          repository: string,
+          worktree: string,
+          sessionId?: string,
+        ): Promise<ControlLaunch> => {
+          this.control ??= startControl().catch((error: unknown) => {
+            this.control = undefined;
+            throw error;
+          });
+          return (await this.control).prepare(repository, worktree, sessionId);
+        }
+      : undefined;
     this.agents = deps.agents
-      ? deps.agents(prepare)
-      : new AgentService(deps.worktrees, deps.terminals, prepare);
+      ? deps.agents(prepare, prepareControl)
+      : new AgentService(deps.worktrees, deps.terminals, prepare, prepareControl);
   }
 
   /** Setup's choices apply to later launches; running agents keep theirs. */
@@ -815,9 +837,13 @@ export class Workspace {
     if (this.closed) return;
     this.closed = true;
     this.agents.dispose();
-    this.hookKeys.clear();
-    const receiver = this.receiver;
-    this.receiver = undefined;
-    if (receiver) await (await receiver.catch(() => undefined))?.close();
+    try {
+      await (await this.control?.catch(() => undefined))?.close();
+    } finally {
+      this.hookKeys.clear();
+      const receiver = this.receiver;
+      this.receiver = undefined;
+      if (receiver) await (await receiver.catch(() => undefined))?.close();
+    }
   }
 }

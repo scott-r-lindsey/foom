@@ -198,8 +198,10 @@ The evaluator sends only the last 40 lines of a quiet terminal, with likely secr
 
 ## Orchestration and privacy (planned)
 
-The [control-plane design](orchestration.md) is planned, not implemented. Agents
-launched by Foom will receive read-only access to session metadata in their own
+The [control-plane design](orchestration.md) has an authentication and HTTP
+foundation; orchestration and agent tool attachment remain planned. Current agent
+launches receive a private credential for their own identity, with no mutation
+capabilities. Agents launched by Foom will receive read-only access to session metadata in their own
 repository. **Launch as Foom orchestrator** in a repository's menu will grant one
 agent permission to create worktrees and run up to four children in that repository.
 Children cannot orchestrate through Foom. Their sessions and actions remain visible;

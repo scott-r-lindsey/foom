@@ -54,7 +54,8 @@ export class TerminalManager {
     if (this.shuttingDown) throw new Error("Terminals are shutting down");
     const env: Record<string, string> = {};
     for (const [key, value] of Object.entries(process.env)) {
-      if (value !== undefined && !/^(npm_|ELECTRON_)/i.test(key)) env[key] = value;
+      if (value !== undefined && !/^(npm_|ELECTRON_|FOOM_|CLAUDECODE$)/i.test(key))
+        env[key] = value;
     }
     const shell = prepareShell(spec);
     let pty: IPty;

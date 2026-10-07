@@ -361,7 +361,9 @@ test.each(["win32", "linux"])(
     vi.stubEnv("SHELL", "");
     vi.stubEnv("npm_secret", "secret");
     vi.stubEnv("ELECTRON_RUN_AS_NODE", "1");
-    vi.stubEnv("FOOM_KEEP", "yes");
+    vi.stubEnv("FOOM_CONTROL_TOKEN", "parent-control");
+    vi.stubEnv("foom_token", "parent-hook");
+    vi.stubEnv("CLAUDECODE", "parent");
     mock.app.isPackaged = true;
     mock.spawn.mockImplementationOnce(() => {
       throw new Error("missing shell");
@@ -378,7 +380,9 @@ test.each(["win32", "linux"])(
     const options: unknown = mock.spawn.mock.calls[1]?.[2];
     if (typeof options !== "object" || !options || !("env" in options))
       throw new Error("Missing environment");
-    expect(options.env).toMatchObject({ FOOM_KEEP: "yes" });
+    expect(options.env).not.toHaveProperty("FOOM_CONTROL_TOKEN");
+    expect(options.env).not.toHaveProperty("foom_token");
+    expect(options.env).not.toHaveProperty("CLAUDECODE");
     expect(options.env).not.toHaveProperty("npm_secret");
     expect(options.env).not.toHaveProperty("ELECTRON_RUN_AS_NODE");
   },
