@@ -537,6 +537,7 @@ it.each([false, true])(
         tail: () => Promise.resolve([]),
       },
       verdicts: {
+        forget: vi.fn(),
         classify: (input) =>
           Promise.resolve({
             id: "exit",
