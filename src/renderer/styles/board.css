@@ -852,3 +852,8 @@
     animation: none;
   }
 }
+
+.worktree-removed {
+  color: var(--muted);
+  font-size: 11px;
+}

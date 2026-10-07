@@ -115,6 +115,17 @@ is not persisted. All terminal IPC remains ID-scoped and main-validated.
 
 The board starts empty. Shells and agents launch from a repository or checkout’s menu; **New worktree** is a repository action. `npm run start:samples` explicitly builds the development sample board. Normal builds omit its data, and Forge rebuilds without the sample flag before packaging, including when invoked directly. The renderer `<dialog>` New worktree form selects a repository, branch and detected agent or shell, and shows versions and hook availability. Repository paths come from main’s registry or native directory picker; main chooses worktree destinations and executables.
 
+Main's inventory watcher derives the common Git directory with `rev-parse`, validates
+its canonical path, and watches metadata directories for `HEAD`, `packed-refs`,
+`refs/heads` (including nested branch names) and linked `worktrees` metadata.
+Directory watches survive Git's atomic file replacements. Events debounce for
+300 ms, rebuild the directory subscriptions and reuse `workspace:changed`.
+Repository removal and workspace shutdown close subscriptions and timers. Watch
+errors close that repository's subscriptions; window focus refresh remains the
+fallback. Sidebar commands still re-read Git inventory and validate identity.
+The live board source marks sessions whose checkout is absent or prunable without
+changing their terminal state, capabilities or attachment.
+
 ## Renderer
 
 **Today:** The board uses React 19 with TSX and reads one typed source through `useSyncExternalStore`. Each stable tile mounts one imperative terminal controller through the source adapter and disposes xterm and subscriptions on unmount. Terminal attachment and measurement remain in the controller to preserve attachment ordering. Board focus and pane selection are independent view state; hovering or focusing a row previews its tail without selecting it. The source also supplies path-identified repositories and their complete Git worktree inventory, including empty worktrees and the main checkout, plus validated main-process navigation commands. `sidebar-model.ts` computes stable pin/active/idle sections, filtering, hidden attention counts and roll-ups. `sidebar-view.tsx` renders the tree (or flattened session column below 720px). Sidebar focus and location selection do not attach a terminal; only the board's presentation callback requests that from the tile controller. `row-menu.tsx` portals menus to the document body, positions them from the action button's viewport rectangle, and owns keyboard navigation and dismissal. `sidebar-preferences.ts` validates versioned localStorage metadata for pins, expansion and terminal-ID names; this metadata grants no process or filesystem capabilities. Sessions are not restored across application exit yet. Activity batches write brightness directly to each light; a separate clock updates wait labels without React commits. Activity goes directly from IPC to light styles without changing the React row snapshot.

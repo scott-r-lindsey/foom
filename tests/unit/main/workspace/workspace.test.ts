@@ -890,7 +890,7 @@ test("sidebar inventory includes empty trees and the actual shell; launches use 
       { kind: "launch", repository: repo.path, worktree: "/foreign", run: "shell" },
       () => Promise.resolve(true),
     ),
-  ).rejects.toThrow("unavailable");
+  ).rejects.toThrow("Worktree was removed");
   for (const unavailable of [
     { ...tree, locked: true },
     { ...tree, bare: true },
@@ -1028,7 +1028,7 @@ test("repository and external worktree removal confirm and protect the main chec
       { kind: "remove-worktree", repository: repo.path, worktree: repo.path },
       () => Promise.resolve(true),
     ),
-  ).rejects.toThrow("main checkout");
+  ).rejects.toThrow("Worktree was removed");
   vi.mocked(deps.worktrees.listWorktrees).mockResolvedValue([tree]);
   await workspace.sidebarCommand(
     { kind: "launch", repository: repo.path, worktree: tree.path, run: "shell" },
@@ -1526,3 +1526,45 @@ test("agent screens work without OSC and title evidence remains local to the lau
   expect(states.at(-1)?.signal).toBe("process:exit");
   await workspace.dispose();
 });
+
+test("refresh synchronizes registered watches without affecting terminals, and disposal stops notifications", async () => {
+  const watcher = { sync: vi.fn(), dispose: vi.fn() };
+  const onChange = vi.fn();
+  const kill = vi.fn<WorkspaceDependencies["terminals"]["kill"]>();
+  deps.terminals.kill = kill;
+  const workspace = new Workspace({ ...deps, watcher, onChange });
+  expect(watcher.sync).toHaveBeenCalledWith([repo]);
+  workspace.refresh();
+  expect(onChange).toHaveBeenCalledOnce();
+  expect(kill).not.toHaveBeenCalled();
+  await workspace.dispose();
+  workspace.refresh();
+  expect(watcher.dispose).toHaveBeenCalledOnce();
+  expect(onChange).toHaveBeenCalledOnce();
+});
+
+test.each(["shell", "claude", "remove"] as const)(
+  "rejects stale sidebar %s targets before confirmation or process operations",
+  async (run) => {
+    const kill = vi.fn<WorkspaceDependencies["terminals"]["kill"]>();
+    const create = vi.fn<WorkspaceDependencies["terminals"]["create"]>();
+    deps.terminals.kill = kill;
+    deps.terminals.create = create;
+    const workspace = new Workspace(deps);
+    vi.mocked(deps.worktrees.listWorktrees).mockResolvedValue([]);
+    const confirm = vi.fn(() => Promise.resolve(true));
+    await expect(
+      workspace.sidebarCommand(
+        run === "remove"
+          ? { kind: "remove-worktree", repository: repo.path, worktree: tree.path }
+          : { kind: "launch", repository: repo.path, worktree: tree.path, run },
+        confirm,
+      ),
+    ).rejects.toThrow("Worktree was removed");
+    expect(confirm).not.toHaveBeenCalled();
+    expect(create).not.toHaveBeenCalled();
+    expect(kill).not.toHaveBeenCalled();
+    expect(vi.mocked(deps.worktrees.removeWorktree)).not.toHaveBeenCalled();
+    await workspace.dispose();
+  },
+);

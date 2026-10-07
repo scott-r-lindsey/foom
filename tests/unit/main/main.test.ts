@@ -43,6 +43,7 @@ vi.mock("../../../src/main/workspace/workspace", () => ({
         },
       ],
     });
+    refresh = mock.workspace.refresh;
     quiet = mock.workspace.quiet;
     exited = mock.workspace.exited;
     input = mock.workspace.input;
@@ -96,6 +97,7 @@ const mock = vi.hoisted(() => {
   const window = {
     webContents: {
       getURL: () => "app://bundle/index.html",
+      isCrashed: vi.fn(() => false),
       send: vi.fn(),
       copy: vi.fn(),
       paste: vi.fn(),
@@ -170,6 +172,7 @@ const mock = vi.hoisted(() => {
   }
   const workspace = {
     deps: undefined as unknown,
+    refresh: vi.fn(),
     quiet: vi.fn(),
     exited: vi.fn(),
     input: vi.fn(),
@@ -326,6 +329,7 @@ beforeEach(() => {
   mock.packaged = false;
   mock.explicitProfile = false;
   mock.window.isMinimized.mockReturnValue(false);
+  mock.window.webContents.isCrashed.mockReturnValue(false);
   mock.terminals.runningCount = 0;
   mock.terminals.shutdown.mockResolvedValue();
   mock.workspace.dispose.mockResolvedValue();
@@ -1000,4 +1004,14 @@ test("packaged builds keep their default profile and identity", async () => {
     title: "Foom",
     webPreferences: { additionalArguments: [] },
   });
+});
+
+test("window focus refreshes external workspace inventory", async () => {
+  await import("../../../src/main/main");
+  await start();
+  mock.windowEvents.get("focus")?.({ preventDefault: vi.fn() });
+  expect(mock.workspace.refresh).toHaveBeenCalledOnce();
+  mock.window.webContents.isCrashed.mockReturnValue(true);
+  mock.windowEvents.get("focus")?.({ preventDefault: vi.fn() });
+  expect(mock.workspace.refresh).toHaveBeenCalledOnce();
 });

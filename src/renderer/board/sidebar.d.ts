@@ -5,8 +5,11 @@ export interface SidebarPreferences {
   expanded: Readonly<Record<string, boolean>>;
   names: Readonly<Record<string, string>>;
 }
+export interface SidebarWorktree extends Worktree {
+  removed?: boolean;
+}
 export interface SidebarRepository extends Repository {
-  worktrees: readonly Worktree[];
+  worktrees: readonly SidebarWorktree[];
 }
 export type SidebarLocation = { repository: string; worktree?: string };
 export interface SidebarTree {
@@ -16,7 +19,7 @@ export interface SidebarTree {
   pinned: boolean;
   rollup: BoardRow | undefined;
   worktrees: {
-    tree: Worktree;
+    tree: SidebarWorktree;
     expanded: boolean;
     rollup: BoardRow | undefined;
     sessions: readonly BoardRow[];

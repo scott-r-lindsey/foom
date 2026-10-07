@@ -350,3 +350,38 @@ test.each([false, true])(
     expect(view.getByRole("heading", { name: isDevelopment ? "foom dev" : "foom" })).toBeTruthy();
   },
 );
+
+test("removed checkouts keep neutral labelled sessions and close while hiding launch and restart actions", async () => {
+  const view = setup();
+  await act(async () => {
+    await Promise.resolve();
+  });
+  const rows = view.source.getSnapshot().map((row) => ({
+    ...row,
+    kind: "shell" as const,
+    agent: "shell",
+    exited: true,
+    worktreeRemoved: true,
+  }));
+  const source = {
+    ...view.source,
+    getSnapshot: () => rows,
+    getSidebar: () => [
+      { ...repository, worktrees: repository.worktrees.filter((tree) => tree.path === "/foom") },
+    ],
+  };
+  view.rerender(<Board source={source} />);
+  expect(view.getAllByText("Worktree removed").length).toBeGreaterThan(0);
+  expect(view.queryByRole("button", { name: "Actions for feature" })).toBeNull();
+  fireEvent.click(view.getByRole("button", { name: "feature" }));
+  expect(view.container.querySelector(".location-launchers")?.textContent).toContain(
+    "Worktree removed",
+  );
+  fireEvent.click(view.getByRole("button", { name: "Actions for Shell in feature" }));
+  expect(view.queryByRole("menuitem", { name: "Restart shell" })).toBeNull();
+  fireEvent.click(view.getByRole("menuitem", { name: "Close" }));
+  await act(async () => {
+    await Promise.resolve();
+  });
+  expect(view.command).toHaveBeenCalledWith({ kind: "close", id: "a" });
+});

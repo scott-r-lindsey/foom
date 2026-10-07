@@ -1,3 +1,4 @@
+import { InventoryWatch } from "./workspace/inventory-watch";
 import { TrustedDialog } from "./confirmations/trusted-dialog";
 import { selectProfile, clearParentHooks } from "./profile";
 import { interfaceThemeSource, resolveInterfaceTheme } from "../shared/interface-themes";
@@ -163,6 +164,12 @@ function createWindow(savedSize?: Size) {
   });
   const workspace: Workspace = new Workspace({
     worktrees,
+    watcher: new InventoryWatch(
+      (repository) => worktrees.watchPaths(repository),
+      () => {
+        workspace.refresh();
+      },
+    ),
     terminals,
     acknowledgeCodex: async () => {
       await settings.update({ codexNotifierAcknowledged: true });
@@ -186,6 +193,10 @@ function createWindow(savedSize?: Size) {
     (id) => terminals.owns(id),
     (content) => confirmations.request(content),
   );
+  window.on("focus", () => {
+    // A trusted dialog can return focus to a crashed board during quit.
+    if (!window.webContents.isCrashed()) workspace.refresh();
+  });
   const windowScale = attachWindowScale(
     window,
     (bounds) => screen.getDisplayMatching(bounds).workArea,

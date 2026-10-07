@@ -660,3 +660,23 @@ it("validates main, external and detached launch locations without acquiring own
   expect(await service.launchIdentity(repo, path)).not.toBe(identity);
   await expect(service.launchIdentity(repo, temporary)).rejects.toThrow("missing");
 });
+
+it("derives watch directories from common Git metadata, including linked and packed repositories", async () => {
+  const common = join(repo, ".git");
+  expect(await service.watchPaths(repo)).toEqual([
+    common,
+    join(common, "refs"),
+    join(common, "refs", "heads"),
+  ]);
+  await git("branch", "topic/nested/feature");
+  const linked = join(temporary, "linked");
+  await git("worktree", "add", linked, "topic/nested/feature");
+  await service.addRepository(linked);
+  const paths = await service.watchPaths(linked);
+  expect(paths).toEqual(await service.watchPaths(repo));
+  expect(paths).toContain(join(common, "refs", "heads", "topic", "nested"));
+  expect(paths).toContain(join(common, "worktrees", "linked"));
+  await git("pack-refs", "--all", "--prune");
+  expect(await service.watchPaths(repo)).toContain(common);
+  await expect(service.watchPaths(temporary)).rejects.toThrow("has not been added");
+});
