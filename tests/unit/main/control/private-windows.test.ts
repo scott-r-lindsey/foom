@@ -1,9 +1,10 @@
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, expect, it, vi } from "vitest";
 import {
   privateDirectory,
+  createPrivateFile,
   atomicPrivate,
   readDiscovery,
 } from "../../../../src/main/control/private-files";
@@ -43,6 +44,10 @@ it("uses a fixed DACL program with data-only paths and refuses ACL verification 
   };
   await atomicPrivate(directory, "discovery.json", metadata);
   expect(await readDiscovery(directory)).toEqual(metadata);
+  const refused = join(directory, "refused.json");
+  run.mockRejectedValueOnce(new Error("owner refused"));
+  await expect(createPrivateFile(refused)).rejects.toThrow("owner refused");
+  await expect(stat(refused)).rejects.toMatchObject({ code: "ENOENT" });
   run.mockRejectedValueOnce(new Error("DACL refused"));
   await expect(privateDirectory(root)).rejects.toThrow("DACL refused");
 });

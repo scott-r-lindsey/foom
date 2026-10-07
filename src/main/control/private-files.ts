@@ -4,6 +4,7 @@ import { lstat, mkdir, open, realpath, rename, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { promisify } from "node:util";
+import type { FileHandle } from "node:fs/promises";
 import { ControlError, exact, identifier, object } from "./validation";
 
 const execute = promisify(execFile);
@@ -21,12 +22,12 @@ if ($env:FOOM_PRIVATE_CREATE -eq '1') {
   $a.SetAccessRuleProtection($true,$false)
   foreach($r in $a.GetAccessRules($true,$true,[System.Security.Principal.SecurityIdentifier])) { [void]$a.RemoveAccessRuleSpecific($r) }
   $a.SetOwner($sid)
-  $r=[System.Security.AccessControl.FileSystemAccessRule]::new($sid,'FullControl','ContainerInherit,ObjectInherit','None','Allow')
+  $r=if ($directory) { [System.Security.AccessControl.FileSystemAccessRule]::new($sid,'FullControl','ContainerInherit,ObjectInherit','None','Allow') } else { [System.Security.AccessControl.FileSystemAccessRule]::new($sid,'FullControl','Allow') }
   $a.AddAccessRule($r)
-  [System.IO.Directory]::SetAccessControl($p,$a)
-  $a=[System.IO.Directory]::GetAccessControl($p)
+  if ($directory) { [System.IO.Directory]::SetAccessControl($p,$a) } else { [System.IO.File]::SetAccessControl($p,$a) }
+  $a=if ($directory) { [System.IO.Directory]::GetAccessControl($p) } else { [System.IO.File]::GetAccessControl($p) }
 }
-if ($directory -and !$a.AreAccessRulesProtected) { throw 'inherited directory access' }
+if (!$a.AreAccessRulesProtected) { throw 'inherited access' }
 if ($a.GetOwner([System.Security.Principal.SecurityIdentifier]).Value -ne $sid.Value) { throw 'owner' }
 $rules=$a.GetAccessRules($true,$true,[System.Security.Principal.SecurityIdentifier])
 foreach($r in $rules) {
@@ -35,15 +36,32 @@ foreach($r in $rules) {
 if ($rules.Count -eq 0) { throw 'access' }
 `;
 
+async function windowsAcl(path: string, create: boolean): Promise<void> {
+  await execute("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", aclScript], {
+    env: { ...process.env, FOOM_PRIVATE_PATH: path, FOOM_PRIVATE_CREATE: create ? "1" : "0" },
+    timeout: 5000,
+  });
+}
+
+/** An exclusive new file, including an explicit owner on elevated Windows tokens. */
+export async function createPrivateFile(path: string): Promise<FileHandle> {
+  const file = await open(path, "wx", 0o600);
+  try {
+    if (process.platform === "win32") await windowsAcl(path, true);
+    return file;
+  } catch (error) {
+    await file.close();
+    await rm(path, { force: true });
+    throw error;
+  }
+}
+
 export async function verifyPrivate(path: string, directory: boolean): Promise<void> {
   const info = await lstat(path);
   if (info.isSymbolicLink() || (directory ? !info.isDirectory() : !info.isFile()))
     throw new ControlError("unavailable");
   if (process.platform === "win32") {
-    await execute("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", aclScript], {
-      env: { ...process.env, FOOM_PRIVATE_PATH: path, FOOM_PRIVATE_CREATE: "0" },
-      timeout: 5000,
-    });
+    await windowsAcl(path, false);
   } else if (
     info.uid !== process.getuid?.() ||
     (info.mode & 0o777) !== (directory ? 0o700 : 0o600) ||
@@ -62,11 +80,7 @@ export async function privateDirectory(parent: string): Promise<string> {
   } catch (error) {
     if (!(error instanceof Error && "code" in error && error.code === "EEXIST")) throw error;
   }
-  if (created && process.platform === "win32")
-    await execute("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", aclScript], {
-      env: { ...process.env, FOOM_PRIVATE_PATH: directory, FOOM_PRIVATE_CREATE: "1" },
-      timeout: 5000,
-    });
+  if (created && process.platform === "win32") await windowsAcl(directory, true);
   await verifyPrivate(directory, true);
   return directory;
 }
@@ -78,7 +92,7 @@ export async function atomicPrivate(
 ): Promise<void> {
   await verifyPrivate(directory, true);
   const temporary = join(directory, `${randomUUID()}.tmp`);
-  const file = await open(temporary, "wx", 0o600);
+  const file = await createPrivateFile(temporary);
   try {
     await file.writeFile(JSON.stringify(value));
     await file.sync();

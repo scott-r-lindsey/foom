@@ -1,7 +1,7 @@
 import { constants } from "node:fs";
 import { lstat, open, readdir, readFile, rename, rm } from "node:fs/promises";
 import { join } from "node:path";
-import { atomicPrivate, verifyPrivate } from "./private-files";
+import { atomicPrivate, createPrivateFile, verifyPrivate } from "./private-files";
 import { ControlError, object } from "./validation";
 import type { StoredOperation } from "./types";
 
@@ -92,14 +92,19 @@ export class ControlStore {
         }
       }
     }
-    const file = await open(
-      current,
-      constants.O_WRONLY |
-        constants.O_APPEND |
-        constants.O_CREAT |
-        (process.platform === "win32" ? 0 : constants.O_NOFOLLOW),
-      0o600,
-    );
+    let file;
+    try {
+      file = await createPrivateFile(current);
+    } catch (error) {
+      if (!(error instanceof Error && "code" in error && error.code === "EEXIST")) throw error;
+      await verifyPrivate(current, false);
+      file = await open(
+        current,
+        constants.O_WRONLY |
+          constants.O_APPEND |
+          (process.platform === "win32" ? 0 : constants.O_NOFOLLOW),
+      );
+    }
     try {
       if (!(await file.stat()).isFile()) throw new ControlError("unavailable");
       await file.writeFile(json);
