@@ -27,6 +27,8 @@ export interface WorkspaceTerminal {
   attention: "hooks" | "evaluator";
   state: TerminalState | null;
   exited?: boolean;
+  /** Known bypass argument present at launch; does not infer global agent policy. */
+  bypass?: boolean;
 }
 
 export interface WorkspaceSnapshot {

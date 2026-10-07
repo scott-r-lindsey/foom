@@ -18,6 +18,9 @@ export interface Settings {
   /** Attach Foom's hooks per launch. Off means every agent uses the evaluator. */
   hooks: boolean;
   agents: Readonly<Record<AgentId, boolean>>;
+  agentArguments: Readonly<Record<AgentId, readonly string[]>>;
+  /** Main-owned acknowledgement; renderer save requests may not set this. */
+  agentBypassAcknowledged: Readonly<Record<AgentId, boolean>>;
   /** Default for new worktrees: Foom's folder, or next to the repository. */
   worktreeLocation: "root" | "adjacent";
   /** Only rules or a source that passed Run check is ever saved. */

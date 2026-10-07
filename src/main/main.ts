@@ -181,6 +181,20 @@ function createWindow(savedSize?: Size) {
   );
   const setup = new Setup({
     store: settings,
+    confirmBypass: async (agent) => {
+      const names = { claude: "Claude Code", codex: "Codex", agy: "Antigravity" };
+      const { response } = await dialog.showMessageBox(window, {
+        type: "question",
+        message: `Save bypass defaults for ${names[agent]}?`,
+        detail:
+          "A worktree is not a sandbox. With these arguments, the agent can act as you anywhere on the machine. These defaults apply to future launches from Foom.",
+        buttons: ["Cancel", "Save bypass defaults"],
+        defaultId: 0,
+        cancelId: 0,
+        noLink: true,
+      });
+      return response === 1;
+    },
     keys: new InferenceKeys(app.getPath("userData")),
     worktreeRoot: worktrees.worktreeRoot,
     code: {

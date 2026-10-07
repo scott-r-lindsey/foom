@@ -231,3 +231,34 @@
   flex-wrap: wrap;
   gap: 8px;
 }
+
+.agent-defaults {
+  margin-top: 28px;
+  display: grid;
+  gap: 14px;
+}
+.agent-defaults p {
+  color: var(--muted);
+}
+.agent-defaults label {
+  display: grid;
+  gap: 8px;
+}
+.agent-defaults textarea {
+  width: 100%;
+  resize: vertical;
+  padding: 10px;
+  color: var(--ink);
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  font-family: var(--font-mono);
+}
+.agent-defaults button {
+  justify-self: start;
+}
+.session-bypass {
+  color: var(--muted);
+  font-size: 10px;
+  white-space: nowrap;
+}

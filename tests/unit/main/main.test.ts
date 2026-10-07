@@ -869,6 +869,25 @@ test("fixed interface themes set the native base and exact background, even betw
   expect(mock.window.setBackgroundColor).toHaveBeenLastCalledWith("#f5f7fc");
 });
 
+test("bypass defaults use a main-owned, cancel-first disclosure", async () => {
+  await start();
+  mock.message.mockResolvedValueOnce({ response: 0 });
+  expect(await mock.setup.deps?.confirmBypass?.("claude")).toBe(false);
+  expect(mock.message).toHaveBeenLastCalledWith(
+    expect.anything(),
+    expect.objectContaining({
+      message: "Save bypass defaults for Claude Code?",
+      detail:
+        "A worktree is not a sandbox. With these arguments, the agent can act as you anywhere on the machine. These defaults apply to future launches from Foom.",
+      buttons: ["Cancel", "Save bypass defaults"],
+      defaultId: 0,
+      cancelId: 0,
+    }),
+  );
+  mock.message.mockResolvedValueOnce({ response: 1 });
+  expect(await mock.setup.deps?.confirmBypass?.("codex")).toBe(true);
+});
+
 test("selects dev userData before locking and before readiness", async () => {
   await start();
   expect(mock.setPath).toHaveBeenCalledWith("userData", join("/test/user-data", "Foom Dev"));

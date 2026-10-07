@@ -58,6 +58,7 @@ function setup(mainCheckout = false) {
       kind: "agent",
       agent: "claude",
       managed: true,
+      bypass: true,
       exited: false,
     },
   ]);
@@ -330,6 +331,14 @@ test("main-checkout session breadcrumbs identify the checkout rather than its br
   if (!session) throw new Error("Missing main-checkout session");
   fireEvent.click(session);
   expect(view.getByRole("heading", { name: "Foom › Main checkout › Claude Code" })).toBeTruthy();
+});
+
+test("bypass launches have a neutral glyph and text in the session row", () => {
+  const view = setup();
+  const badge = view.getByText("Bypass");
+  expect(badge.className).toBe("session-bypass");
+  expect(badge.closest(".board-row")?.getAttribute("aria-label")).toContain("Bypass");
+  expect(badge.querySelector('[aria-hidden="true"]')?.textContent).toBe("◇");
 });
 
 test.each([false, true])(

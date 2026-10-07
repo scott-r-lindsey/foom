@@ -1,3 +1,4 @@
+import { AgentDefaultArguments } from "./agent-default-arguments";
 import { InterfaceThemePicker } from "./interface-theme-picker";
 import { SoundControls } from "../sound/sound-controls";
 import { TerminalThemePicker } from "./terminal-theme-picker";
@@ -264,14 +265,24 @@ export function Preflight({
     content = <WelcomeStep headingRef={headingRef} go={go} />;
   } else if (step === 1) {
     content = (
-      <AgentsStep
-        headingRef={headingRef}
-        state={state}
-        report={report}
-        scanning={scanning}
-        scan={scan}
-        save={save}
-      />
+      <>
+        <AgentsStep
+          headingRef={headingRef}
+          state={state}
+          report={report}
+          scanning={scanning}
+          scan={scan}
+          save={save}
+        />
+        {settingsMode && (
+          <AgentDefaultArguments
+            defaults={state.settings.agentArguments}
+            save={async (agentArguments) => {
+              setState(await source.save({ agentArguments }));
+            }}
+          />
+        )}
+      </>
     );
   } else if (step === 2) {
     content = (
