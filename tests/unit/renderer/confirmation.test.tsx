@@ -25,6 +25,7 @@ test("focuses Cancel for every request, traps Tab, and renders untrusted content
     id: "one",
     title: "Remove <script>branch</script>?",
     changes: "?? <img src=x>\0",
+    detail: "<script>disclosure</script>",
     accept: "Discard 1 change and remove",
     theme: resolveInterfaceTheme("follow", false),
   };
@@ -33,6 +34,8 @@ test("focuses Cancel for every request, traps Tab, and renders untrusted content
   });
   expect(view.getByRole("alertdialog").textContent).toContain("<img src=x>");
   expect(view.container.querySelector("img")).toBeNull();
+  expect(view.getByText("<script>disclosure</script>")).toBeTruthy();
+  expect(view.container.querySelector("script")).toBeNull();
   const cancel = view.getByRole("button", { name: "Cancel" });
   const accept = view.getByRole("button", { name: request.accept });
   expect(document.activeElement).toBe(cancel);

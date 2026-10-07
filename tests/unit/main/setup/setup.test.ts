@@ -370,3 +370,67 @@ test("choosing a legacy appearance mode returns to Eclipse but size changes keep
       .interfaceTheme,
   ).toBe("deep-field");
 });
+
+test("confirms bypass once per agent, persists it and serializes concurrent saves", async () => {
+  const confirm = vi.fn(() => Promise.resolve(true));
+  const setup = new Setup({ ...deps, confirmBypass: confirm });
+  const agentArguments = { claude: ["--permission-mode", "bypassPermissions"], codex: [], agy: [] };
+  await Promise.all([setup.save({ agentArguments }), setup.save({ agentArguments })]);
+  expect(confirm).toHaveBeenCalledExactlyOnceWith("claude");
+  expect(settings.agentBypassAcknowledged.claude).toBe(true);
+  await setup.save({ agentArguments: { claude: [], codex: [], agy: [] } });
+  const reopened = new Setup({ ...deps, confirmBypass: confirm });
+  await reopened.save({
+    agentArguments: { ...agentArguments, agy: ["--dangerously-skip-permissions"] },
+  });
+  expect(confirm).toHaveBeenCalledTimes(2);
+  expect(confirm).toHaveBeenLastCalledWith("agy");
+});
+
+test("cannot forge acknowledgement and cancelled disclosure saves nothing", async () => {
+  const confirm = vi.fn(() => Promise.resolve(false));
+  const setup = new Setup({ ...deps, confirmBypass: confirm });
+  await expect(
+    setup.save({ agentBypassAcknowledged: { claude: true, codex: true, agy: true } }),
+  ).rejects.toThrow("confirmation dialog");
+  const patch = {
+    hooks: false,
+    agentArguments: { claude: [], codex: ["--dangerously-bypass-approvals-and-sandbox"], agy: [] },
+  };
+  await expect(setup.save(patch)).rejects.toThrow("cancelled");
+  expect(settings).toEqual(DEFAULT_SETTINGS);
+  await expect(new Setup(deps).save(patch)).rejects.toThrow("cancelled");
+  await setup.save({ hooks: false });
+  expect(settings.hooks).toBe(false);
+});
+
+test("failed persistence does not remember bypass acknowledgement", async () => {
+  const confirm = vi.fn(() => Promise.resolve(true));
+  const setup = new Setup({ ...deps, confirmBypass: confirm });
+  vi.mocked(deps.store.update).mockRejectedValueOnce(new Error("disk full"));
+  const patch = {
+    agentArguments: { claude: ["--dangerously-skip-permissions"], codex: [], agy: [] },
+  };
+  await expect(setup.save(patch)).rejects.toThrow("disk full");
+  expect(settings.agentBypassAcknowledged.claude).toBe(false);
+  await setup.save(patch);
+  expect(confirm).toHaveBeenCalledTimes(2);
+});
+
+test("Codex sandbox full access requires the same one-time acknowledgement as its bypass flag", async () => {
+  const confirm = vi.fn(() => Promise.resolve(false));
+  const setup = new Setup({ ...deps, confirmBypass: confirm });
+  const patch = {
+    agentArguments: { claude: [], codex: ["--sandbox", "danger-full-access"], agy: [] },
+  };
+  await expect(setup.save(patch)).rejects.toThrow("cancelled");
+  expect(confirm).toHaveBeenCalledExactlyOnceWith("codex");
+  expect(settings.agentBypassAcknowledged.codex).toBe(false);
+  confirm.mockResolvedValue(true);
+  await setup.save(patch);
+  await setup.save({
+    agentArguments: { ...patch.agentArguments, codex: ["-c", 'sandbox_mode="danger-full-access"'] },
+  });
+  expect(confirm).toHaveBeenCalledTimes(2);
+  expect(settings.agentBypassAcknowledged.codex).toBe(true);
+});

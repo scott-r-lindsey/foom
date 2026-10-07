@@ -13,6 +13,8 @@ export function setupState(
       setupComplete: false,
       hooks: true,
       agents: { claude: true, codex: true, agy: true },
+      agentArguments: { claude: [], codex: [], agy: [] },
+      agentBypassAcknowledged: { claude: false, codex: false, agy: false },
       worktreeLocation: "root",
       inference: { kind: "rules" },
       inferenceTimeoutMs: 5000,

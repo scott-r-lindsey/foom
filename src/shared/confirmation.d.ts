@@ -13,6 +13,7 @@ export interface ConfirmationClient {
 export interface DialogContent {
   title: string;
   accept: string;
+  detail?: string;
   changes?: string;
   sessions?: readonly { id: string; name: string; location: string; state: string }[];
 }

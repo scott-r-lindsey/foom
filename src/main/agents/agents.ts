@@ -1,3 +1,4 @@
+import { parseAgentArguments } from "./default-arguments";
 import { execFile } from "node:child_process";
 import { constants } from "node:fs";
 import { access, stat } from "node:fs/promises";
@@ -179,6 +180,7 @@ export class AgentService {
   private async start(
     request: AgentLaunch,
   ): Promise<{ id: string; attention: "hooks" | "evaluator" }> {
+    const defaults = parseAgentArguments(request.agent, request.defaultArguments ?? []);
     const trees = await this.worktrees.listWorktrees(request.repository);
     if (
       !trees.some(
@@ -211,7 +213,7 @@ export class AgentService {
           request.checkoutIdentity
       )
         throw new Error("Worktree has changed. Select it and try again.");
-      const args: string[] = agent.inline ? ["--no-alt-screen"] : [];
+      const args = [...defaults, ...(agent.inline ? ["--no-alt-screen"] : [])];
       if (binding) {
         if (agent.id === "claude") {
           const hook = [{ hooks: [{ type: "command", command: binding.claudeCommand }] }];

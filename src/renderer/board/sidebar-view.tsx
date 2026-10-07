@@ -221,7 +221,7 @@ export function Sidebar({
           data-kind={row.kind}
           data-state={row.state}
           tabIndex={row.id === selected ? 0 : -1}
-          aria-label={`${row.branch} · ${name} · ${light(row).label} · ${row.reason}`}
+          aria-label={`${row.branch} · ${name} · ${light(row).label} · ${row.reason}${row.bypass ? " · Bypass" : ""}`}
           ref={(element) => {
             if (element) buttons.current.set(row.id, element);
             else buttons.current.delete(row.id);
@@ -263,6 +263,11 @@ export function Sidebar({
             <span className="visually-hidden board-branch">{row.branch}</span>
             <span className="session-top">
               <span className="board-agent">{agentBadges[row.agent] ?? row.agent}</span>
+              {row.bypass && (
+                <span className="session-bypass" title="Launched with a bypass argument">
+                  <span aria-hidden="true">◇</span> Bypass
+                </span>
+              )}
               {tileNumbers?.has(row.id) && (
                 <span
                   className="tile-number"

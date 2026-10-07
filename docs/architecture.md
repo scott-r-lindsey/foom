@@ -239,9 +239,9 @@ Workspace callbacks pass a typed confirmation kind, with an exhaustive label map
 labels never depend on matching user-facing prose. Click-again only prevents
 misclicks: the board receives its nonce, so a compromised board can confirm after
 300 ms. It is not a trusted user-consent boundary. Data-discard and permission-widening
-actions must use the trusted window; a future bypass disclosure (#164/#167) must
-not use click-again. Integration with #167 must migrate its native bypass
-disclosure to this main-only `TrustedDialog` API.
+actions must use the trusted window. Saving bypass defaults (#164/#167) uses this
+main-only `TrustedDialog` API, preserves the full disclosure text and focuses
+Cancel by default; it never uses click-again.
 
 The board receives arm/end events through its source's `ConfirmationClient`.
 Menus and launch buttons keep only view state; pointer exit, focus movement and

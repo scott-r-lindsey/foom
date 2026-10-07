@@ -1,3 +1,5 @@
+import { hasBypassArgument } from "../agents/default-arguments";
+import type { AgentId } from "../../shared/agents";
 import { isRecent, scanCodeFolder, suggestCodeFolders } from "./code-scan";
 import { listLocalModels, probeInference } from "../evaluator/inference-probe";
 import { createInferenceSource } from "../evaluator/inference-source";
@@ -18,6 +20,7 @@ import type {
   RepositoryUpdate,
   ScanProgress,
   Settings,
+  SettingsPatch,
   SetupState,
 } from "../../shared/setup";
 import type { WorktreeService } from "../workspace/worktrees";
@@ -36,6 +39,7 @@ export interface SetupDependencies {
   worktreeRoot: string;
   /** Pushes hook and agent settings into the running services. */
   apply(settings: Settings): void;
+  confirmBypass?: (agent: AgentId) => Promise<boolean>;
   evaluator?: (config: InferenceConfig, timeoutMs: number) => Pick<ModelEvaluator, "evaluate">;
   probe?: (
     config: unknown,
@@ -69,6 +73,7 @@ const same = (a: InferenceConfig, b: InferenceConfig) => JSON.stringify(a) === J
 const QUICK_SCAN_FOLDERS = 5000;
 
 export class Setup {
+  private saving: Promise<unknown> = Promise.resolve();
   private readonly verified: InferenceConfig[] = [];
   private evaluator: Pick<ModelEvaluator, "evaluate">;
   private readonly build: NonNullable<SetupDependencies["evaluator"]>;
@@ -118,6 +123,14 @@ export class Setup {
 
   async save(value: unknown): Promise<SetupState> {
     const patch = parseSettingsPatch(value);
+    if (patch.agentBypassAcknowledged !== undefined)
+      throw new Error("Bypass acknowledgement belongs to Foom's confirmation dialog.");
+    const saving = this.saving.catch(() => undefined).then(() => this.savePatch(patch));
+    this.saving = saving;
+    return saving;
+  }
+
+  private async savePatch(patch: SettingsPatch): Promise<SetupState> {
     // Choosing System/Light/Dark explicitly returns to Eclipse. Size-only edits keep the theme.
     if (patch.colorMode !== undefined && patch.interfaceTheme === undefined)
       patch.interfaceTheme = "follow";
@@ -130,6 +143,17 @@ export class Setup {
       !this.verified.some((entry) => same(entry, inference))
     )
       throw new Error("Run check on this source before using it");
+    if (patch.agentArguments) {
+      const acknowledged = { ...before.agentBypassAcknowledged };
+      for (const agent of ["claude", "codex", "agy"] as const) {
+        if (hasBypassArgument(agent, patch.agentArguments[agent]) && !acknowledged[agent]) {
+          if (!(await this.deps.confirmBypass?.(agent)))
+            throw new Error("Default arguments were not saved. Bypass disclosure was cancelled.");
+          acknowledged[agent] = true;
+        }
+      }
+      patch.agentBypassAcknowledged = acknowledged;
+    }
     const settings = await this.deps.store.update(patch);
     if (
       !same(settings.inference, before.inference) ||

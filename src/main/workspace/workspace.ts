@@ -1,4 +1,5 @@
 import type { ConfirmWorkspace } from "../../shared/confirmation";
+import { EMPTY_AGENT_ARGUMENTS, hasBypassArgument } from "../agents/default-arguments";
 import { detectAgent } from "../evaluator/agent-rules";
 import type { AgentEvidence } from "../../shared/agent-detection";
 import { basename } from "node:path";
@@ -85,6 +86,7 @@ export class Workspace {
   private location: "root" | "adjacent" = "root";
   private acknowledged = false;
   private hooksEnabled = true;
+  private defaultArguments = EMPTY_AGENT_ARGUMENTS;
   private readonly busyWorktrees = new Set<string>();
   private readonly repositoryOperations = new Map<string, Set<symbol>>();
   private readonly removingRepositories = new Set<string>();
@@ -113,10 +115,11 @@ export class Workspace {
   /** Setup's choices apply to later launches; running agents keep theirs. */
   configure(
     settings: Pick<Settings, "hooks" | "agents"> &
-      Partial<Pick<Settings, "worktreeLocation" | "codexNotifierAcknowledged">>,
+      Partial<Pick<Settings, "worktreeLocation" | "codexNotifierAcknowledged" | "agentArguments">>,
   ): void {
     this.agents.setHooksEnabled(settings.hooks);
     this.hooksEnabled = settings.hooks;
+    this.defaultArguments = settings.agentArguments ?? EMPTY_AGENT_ARGUMENTS;
     this.enabled = settings.agents;
     this.location = settings.worktreeLocation ?? "root";
     this.acknowledged = settings.codexNotifierAcknowledged ?? false;
@@ -259,8 +262,10 @@ export class Workspace {
       const tree = (await this.deps.worktrees.listWorktrees(request.repository)).find(
         (entry) => entry.path === request.worktree,
       );
+      const defaultArguments = this.defaultArguments[request.agent];
       const result = await this.agents.launch({
         ...request,
+        defaultArguments,
         mainCheckout,
         sharedCheckout,
         ...(checkoutIdentity !== undefined ? { checkoutIdentity } : {}),
@@ -273,6 +278,7 @@ export class Workspace {
         worktree: request.worktree,
         branch: tree?.branch ?? null,
         attention: result.attention,
+        bypass: hasBypassArgument(request.agent, defaultArguments),
         state: null,
       });
       this.track(result.id);

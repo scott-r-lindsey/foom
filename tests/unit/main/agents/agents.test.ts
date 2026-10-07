@@ -426,3 +426,40 @@ it.each(["replaced", "locked"])(
     expect(create).toHaveBeenCalledOnce();
   },
 );
+
+it("prepends literal defaults to Foom's inline and hook flags", async () => {
+  help += "\n--no-alt-screen";
+  const defaults = ["--model", "model with spaces", "-c", "model_reasoning_effort=high"];
+  await service.launch({
+    ...request,
+    agent: "codex",
+    defaultArguments: defaults,
+    acknowledgeCodexNotifierReplacement: true,
+  });
+  expect(create.mock.calls[0]?.[0].args).toEqual([
+    ...defaults,
+    "--no-alt-screen",
+    "-c",
+    `notify=${JSON.stringify(binding.codexCommand)}`,
+  ]);
+});
+
+it("keeps empty defaults identical to existing launches and validates main-only arguments", async () => {
+  await service.launch({ ...request, defaultArguments: [] });
+  const original = create.mock.calls[0]?.[0].args;
+  service.release("terminal-id");
+  await service.launch(request);
+  expect(create.mock.calls[1]?.[0].args).toEqual(original);
+  service.release("terminal-id");
+  await expect(service.launch({ ...request, defaultArguments: ["--settings={}"] })).rejects.toThrow(
+    "reserved",
+  );
+  expect(create).toHaveBeenCalledTimes(2);
+});
+
+it("passes defaults unchanged without hooks", async () => {
+  service.setHooksEnabled(false);
+  const defaults = ["--mode", "plan", "literal ; $(nothing) with spaces"];
+  await service.launch({ ...request, agent: "agy", defaultArguments: defaults });
+  expect(create.mock.calls[0]?.[0].args).toEqual(defaults);
+});

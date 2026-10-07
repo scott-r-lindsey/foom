@@ -22,6 +22,8 @@ export interface AgentHooks {
   dispose(): void;
 }
 export interface AgentLaunch {
+  /** Validated defaults from main settings, never copied from a renderer launch request. */
+  readonly defaultArguments?: readonly string[];
   /** Main-only authorization; never copied from renderer payloads. */
   readonly mainCheckout?: boolean;
   /** Main-only identity of an explicitly selected existing checkout. */

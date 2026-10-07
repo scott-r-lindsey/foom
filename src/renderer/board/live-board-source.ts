@@ -100,6 +100,7 @@ export function createAppSource(): BoardSource {
         tail: [],
         ...known.get(entry.id),
         exited: entry.exited ?? exits.has(entry.id),
+        bypass: entry.bypass === true,
       });
     });
     // Keep surviving rows in place; append newly launched terminals.

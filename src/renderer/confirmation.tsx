@@ -48,6 +48,7 @@ export function ConfirmationPage() {
       >
         <h1 id="confirmation-title">{request.title}</h1>
         <div className="confirmation-content">
+          {request.detail !== undefined && <p>{request.detail}</p>}
           {request.changes !== undefined && (
             <pre aria-label="Uncommitted changes">
               {request.changes.split("\0").filter(Boolean).join("\n")}
