@@ -225,3 +225,44 @@ test("CLI uses real Git history, includes renamed source paths, and emits no ski
     rmSync(directory, { recursive: true, force: true });
   }
 });
+
+test("Linux preparation skips installed packages and bounds missing-package downloads", {
+  skip: process.platform === "win32",
+}, async () => {
+  const { readFileSync } = await import("node:fs");
+  const { spawnSync } = await import("node:child_process");
+  const workflow = readFileSync(new URL("../.github/workflows/ci.yml", import.meta.url), "utf8");
+  const step = workflow
+    .split("- name: Prepare Linux display and sandbox\n")[1]
+    .split("      # The full suite")[0];
+  const script = step.split("        run: |\n")[1].replace(/^ {10}/gm, "");
+  const stubs = `
+dpkg-query() {
+  if [[ "$*" == *xvfb && "$TEST_MISSING" == 1 ]]; then return 1; fi
+  printf 'install ok installed'
+}
+sudo() {
+  printf '%s\\n' "$*"
+  if [[ "$*" == *update && "$TEST_UPDATE_FAIL" == 1 ]]; then return 17; fi
+}
+`;
+  const run = (missing, failure = "0") =>
+    spawnSync("bash", ["-e", "-c", stubs + script], {
+      encoding: "utf8",
+      env: { ...process.env, TEST_MISSING: missing, TEST_UPDATE_FAIL: failure },
+    });
+  const installed = run("0");
+  assert.equal(installed.status, 0, installed.stderr);
+  assert.doesNotMatch(installed.stdout, /apt-get/);
+  assert.match(installed.stdout, /sysctl -w kernel.apparmor_restrict_unprivileged_userns=0/);
+  const missing = run("1");
+  assert.equal(missing.status, 0, missing.stderr);
+  assert.match(
+    missing.stdout,
+    /Acquire::Retries=1.*Acquire::http::Timeout=30.*Acquire::https::Timeout=30.*update/,
+  );
+  assert.match(missing.stdout, /install -y xvfb/);
+  const failure = run("1", "1");
+  assert.equal(failure.status, 17);
+  assert.doesNotMatch(failure.stdout, /install -y|sysctl/);
+});

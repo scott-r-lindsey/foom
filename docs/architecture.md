@@ -329,8 +329,9 @@ The profile's `control/` directory is private (0700/0600 on Unix; current-user
 DACL on Windows). Discovery contains only version, endpoint and instance ID;
 clients validate ownership, permissions, file type and the literal loopback endpoint.
 Clean shutdown removes discovery; the instance check rejects stale metadata.
-Windows ACL setup/verification uses a fixed PowerShell program with paths passed
-as environment data; failure refuses control initialization.
+Windows ACL setup/verification uses a fixed PowerShell program calling .NET ACL
+APIs directly, with paths passed as environment data. It does not autoload modules
+from an inherited PowerShell 7 `PSModulePath`; failure refuses control initialization.
 
 Operation intent and the hashed actor-scoped idempotency mapping are synced before
 returning a new reservation. Only `created: true` authorizes a future handler to

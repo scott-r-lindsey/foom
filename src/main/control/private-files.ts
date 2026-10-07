@@ -7,29 +7,32 @@ import { promisify } from "node:util";
 import { ControlError, exact, identifier, object } from "./validation";
 
 const execute = promisify(execFile);
-// Fixed program; paths are environment data. Protect the DACL and grant only the current SID.
+// Fixed .NET calls avoid PowerShell module autoloading (PSModulePath can come from pwsh 7).
+// Paths are environment data. Protect the DACL and grant only the current SID.
 const aclScript = `
 $ErrorActionPreference='Stop'
 $p=$env:FOOM_PRIVATE_PATH
-$item=Get-Item -LiteralPath $p -Force
-if ($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint) { throw 'reparse point' }
+$attributes=[System.IO.File]::GetAttributes($p)
+$directory=($attributes -band [System.IO.FileAttributes]::Directory) -ne 0
+if ($attributes -band [System.IO.FileAttributes]::ReparsePoint) { throw 'reparse point' }
 $sid=[System.Security.Principal.WindowsIdentity]::GetCurrent().User
-$a=Get-Acl -LiteralPath $p
+$a=if ($directory) { [System.IO.Directory]::GetAccessControl($p) } else { [System.IO.File]::GetAccessControl($p) }
 if ($env:FOOM_PRIVATE_CREATE -eq '1') {
   $a.SetAccessRuleProtection($true,$false)
-  foreach($r in @($a.Access)) { [void]$a.RemoveAccessRuleSpecific($r) }
+  foreach($r in $a.GetAccessRules($true,$true,[System.Security.Principal.SecurityIdentifier])) { [void]$a.RemoveAccessRuleSpecific($r) }
   $a.SetOwner($sid)
-  $r=New-Object System.Security.AccessControl.FileSystemAccessRule($sid,'FullControl','ContainerInherit,ObjectInherit','None','Allow')
+  $r=[System.Security.AccessControl.FileSystemAccessRule]::new($sid,'FullControl','ContainerInherit,ObjectInherit','None','Allow')
   $a.AddAccessRule($r)
-  Set-Acl -LiteralPath $p -AclObject $a
-  $a=Get-Acl -LiteralPath $p
+  [System.IO.Directory]::SetAccessControl($p,$a)
+  $a=[System.IO.Directory]::GetAccessControl($p)
 }
-if ($item.PSIsContainer -and !$a.AreAccessRulesProtected) { throw 'inherited directory access' }
+if ($directory -and !$a.AreAccessRulesProtected) { throw 'inherited directory access' }
 if ($a.GetOwner([System.Security.Principal.SecurityIdentifier]).Value -ne $sid.Value) { throw 'owner' }
-foreach($r in $a.Access) {
-  if ($r.IdentityReference.Translate([System.Security.Principal.SecurityIdentifier]).Value -ne $sid.Value) { throw 'access' }
+$rules=$a.GetAccessRules($true,$true,[System.Security.Principal.SecurityIdentifier])
+foreach($r in $rules) {
+  if ($r.IdentityReference.Value -ne $sid.Value) { throw 'access' }
 }
-if (@($a.Access).Count -eq 0) { throw 'access' }
+if ($rules.Count -eq 0) { throw 'access' }
 `;
 
 export async function verifyPrivate(path: string, directory: boolean): Promise<void> {
