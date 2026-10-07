@@ -13,51 +13,99 @@ const BYPASS: Record<AgentId, readonly string[]> = {
   agy: ["--dangerously-skip-permissions"],
 };
 
+const AGENT_NAMES: Record<AgentId, string> = {
+  claude: "Claude Code",
+  codex: "Codex",
+  agy: "Antigravity",
+};
+
+/** Read only Codex's invocation overrides; argv itself remains untouched. */
+function codexConfig(
+  arg: string,
+  next: string | undefined,
+): { key: string; value: string } | undefined {
+  const config =
+    arg === "-c" || arg === "--config"
+      ? next
+      : arg.startsWith("--config=")
+        ? arg.slice(9)
+        : arg.startsWith("-c")
+          ? arg.slice(2).replace(/^=/u, "")
+          : undefined;
+  if (config === undefined) return undefined;
+  const equals = config.indexOf("=");
+  return {
+    key: (equals < 0 ? config : config.slice(0, equals)).replace(/[\s"']/gu, ""),
+    value: equals < 0 ? "" : config.slice(equals + 1).trim(),
+  };
+}
+
+function codexFullAccess(arg: string, next: string | undefined): boolean {
+  if ((arg === "--sandbox" || arg === "-s") && next === "danger-full-access") return true;
+  if (
+    ["--sandbox=danger-full-access", "-s=danger-full-access", "-sdanger-full-access"].includes(arg)
+  )
+    return true;
+  const config = codexConfig(arg, next);
+  return (
+    config !== undefined &&
+    /(?:^|\.)sandbox_mode$/u.test(config.key) &&
+    /^(?:danger-full-access|"danger-full-access"|'danger-full-access')$/u.test(config.value)
+  );
+}
+
 export function hasBypassArgument(agent: AgentId, args: readonly string[]): boolean {
   return args.some(
     (arg, index) =>
       BYPASS[agent].includes(arg) ||
       (agent === "claude" &&
         arg === "--permission-mode" &&
-        args[index + 1] === "bypassPermissions"),
+        args[index + 1] === "bypassPermissions") ||
+      (agent === "codex" && codexFullAccess(arg, args[index + 1])),
   );
+}
+
+function argumentError(agent: AgentId, index: number, message: string): Error {
+  return new Error(`${AGENT_NAMES[agent]}, line ${String(index + 1)}: ${message}`);
 }
 
 /** Copy argv without trimming, splitting, quote interpretation, or shell expansion. */
 export function parseAgentArguments(agent: AgentId, value: unknown): readonly string[] {
   if (!Array.isArray(value) || value.length > 64)
-    throw new Error("Use at most 64 default arguments per agent.");
+    throw new Error(`${AGENT_NAMES[agent]}: use a list of at most 64 default arguments.`);
   const args: string[] = [];
-  for (const arg of value) {
+  for (const [index, arg] of value.entries()) {
     if (typeof arg !== "string" || arg.length === 0 || arg.length > 4096 || /\p{Cc}/u.test(arg))
-      throw new Error("Each argument must contain 1–4096 characters, with no control characters.");
+      throw argumentError(
+        agent,
+        index,
+        "Each argument must contain 1–4096 characters, with no control characters.",
+      );
     args.push(arg);
   }
   for (const [index, arg] of args.entries()) {
     if (arg === "--")
-      throw new Error("The -- argument would prevent Foom from attaching its flags.");
+      throw argumentError(
+        agent,
+        index,
+        "The -- argument would prevent Foom from attaching its flags.",
+      );
     if (arg === "--no-alt-screen" || arg.startsWith("--no-alt-screen="))
-      throw new Error("--no-alt-screen is reserved for Foom's terminal display.");
+      throw argumentError(agent, index, "--no-alt-screen is reserved for Foom's terminal display.");
     if (agent === "claude" && /^(?:--settings|--safe-mode|--bare)(?:=|$)/u.test(arg))
-      throw new Error(
-        "Claude --settings, --safe-mode and --bare are reserved to preserve Foom's hooks.",
+      throw argumentError(
+        agent,
+        index,
+        "--settings, --safe-mode and --bare are reserved to preserve Foom's hooks.",
       );
     if (agent !== "codex") continue;
-    const config =
-      arg === "-c" || arg === "--config"
-        ? args[index + 1]
-        : arg.startsWith("--config=")
-          ? arg.slice(9)
-          : arg.startsWith("-c")
-            ? arg.slice(2).replace(/^=/u, "")
-            : undefined;
-    if (config !== undefined) {
-      const key = config.split("=")[0]?.replace(/[\s"']/gu, "") ?? "";
-      if (/(?:^|\.)(?:notify|hooks)(?:\.|$)/u.test(key))
-        throw new Error(
-          "Codex notify and hooks configuration is reserved for Foom's attention detection.",
-        );
-    }
+    const config = codexConfig(arg, args[index + 1]);
+    if (config !== undefined && /(?:^|\.)(?:notify|hooks)(?:\.|$)/u.test(config.key))
+      throw argumentError(
+        agent,
+        index,
+        "Codex notify and hooks configuration is reserved for Foom's attention detection.",
+      );
   }
   return Object.freeze(args);
 }

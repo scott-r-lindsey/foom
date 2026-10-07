@@ -185,3 +185,46 @@ test("stores default argv and per-agent acknowledgement and migrates old profile
     parseSettingsPatch({ agentArguments: { claude: ["--settings"], codex: [], agy: [] } }),
   ).toThrow("reserved");
 });
+
+test.each([
+  { claude: ["--bare"], codex: ["--model", "saved model"], agy: ["--mode", "plan"] },
+  { claude: ["--settings={}"], codex: ["--model", "saved model"], agy: ["--mode", "plan"] },
+])(
+  "a newly reserved argument discards only that agent's stored defaults",
+  async (agentArguments) => {
+    const dir = await directory();
+    const settings = {
+      ...DEFAULT_SETTINGS,
+      setupComplete: true,
+      interfaceTheme: "moonlight",
+      inference: { kind: "openai", model: "saved-model" },
+      agentBypassAcknowledged: { claude: true, codex: true, agy: false },
+      agentArguments,
+    };
+    await writeFile(path.join(dir, "settings.json"), JSON.stringify({ version: 1, settings }));
+    const store = await SettingsStore.open(dir);
+    expect(store.get()).toEqual({ ...settings, agentArguments: { ...agentArguments, claude: [] } });
+    await store.update({ terminalFontSize: 16 });
+    expect((await SettingsStore.open(dir)).get()).toEqual(store.get());
+    expect(() => parseSettingsPatch({ agentArguments })).toThrow("reserved");
+  },
+);
+
+test.each([null, [], "invalid", { codex: ["--model", "x"], agy: [42] }])(
+  "malformed stored defaults preserve unrelated settings: %j",
+  async (agentArguments) => {
+    const dir = await directory();
+    await writeFile(
+      path.join(dir, "settings.json"),
+      JSON.stringify({
+        version: 1,
+        settings: { colorMode: "dark", setupComplete: true, agentArguments },
+      }),
+    );
+    const settings = (await SettingsStore.open(dir)).get();
+    expect(settings.colorMode).toBe("dark");
+    expect(settings.setupComplete).toBe(true);
+    expect(settings.agentArguments.claude).toEqual([]);
+    expect(settings.agentArguments.agy).toEqual([]);
+  },
+);

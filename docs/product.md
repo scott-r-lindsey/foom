@@ -235,7 +235,8 @@ at once and reports any refusal. A model source still requires a successful Run 
 Settings → Agents and hooks also provides default launch arguments for each supported
 agent, one argument per line, with an explicit Save default arguments action. Put flag
 values on separate lines. Spaces and quotes are literal, with no shell parsing or
-splitting. An empty editor uses the existing launch behavior. The user's agent policy
+splitting. LF and CRLF are accepted; trailing blank lines are ignored. Errors name
+the agent and line. An empty editor uses the existing launch behavior. The user's agent policy
 is their global config plus Foom defaults; Foom appends its own display and attention
 flags and never edits global config. Defaults affect future user launches only.
 
@@ -245,7 +246,10 @@ characters. Foom reserves Claude `--settings`, `--safe-mode` and `--bare`,
 these defaults cannot displace its attention flags. Saving a known bypass argument
 requires a main-owned disclosure once per agent: a worktree is not a sandbox, and
 the agent can act as the user anywhere on the machine. Cancelling leaves settings
-unchanged. Known bypass detection is a fixed table, not an effective-policy audit.
+unchanged. Codex `danger-full-access` sandbox flags and `sandbox_mode` overrides
+also count as bypass, even with approvals enabled. Known bypass detection is a
+fixed table, not an effective-policy audit. On load, an invalid agent's stored
+argument list is dropped without resetting other settings or other agents' lists.
 
 Appearance shares the preflight rail's System/Light/Dark and interface-size controls.
 Changing either view is reflected in the other without restarting.

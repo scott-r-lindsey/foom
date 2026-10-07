@@ -1,4 +1,8 @@
-import { EMPTY_AGENT_ARGUMENTS, parseAgentDefaults } from "../agents/default-arguments";
+import {
+  EMPTY_AGENT_ARGUMENTS,
+  parseAgentDefaults,
+  parseAgentArguments,
+} from "../agents/default-arguments";
 import { parseInterfaceTheme } from "../../shared/interface-themes";
 import { DEFAULT_SOUND, parseSoundSettings } from "../../shared/soundscapes";
 import { parseTerminalThemeChoice } from "../../shared/terminal-themes";
@@ -112,8 +116,24 @@ export class SettingsStore {
     const store = new SettingsStore(join(userData, "settings.json"));
     try {
       const state: unknown = JSON.parse(await readFile(store.file, "utf8"));
-      if (record(state) && state["version"] === 1 && record(state["settings"]))
-        store.settings = { ...DEFAULT_SETTINGS, ...parseSettingsPatch(state["settings"]) };
+      if (record(state) && state["version"] === 1 && record(state["settings"])) {
+        const { agentArguments, ...rest } = state["settings"];
+        const recovered = { ...EMPTY_AGENT_ARGUMENTS };
+        if (record(agentArguments)) {
+          for (const agent of AGENTS) {
+            try {
+              recovered[agent] = parseAgentArguments(agent, agentArguments[agent]);
+            } catch {
+              // A newer reserved-argument rule invalidates only this agent's defaults.
+            }
+          }
+        }
+        store.settings = {
+          ...DEFAULT_SETTINGS,
+          ...parseSettingsPatch(rest),
+          agentArguments: recovered,
+        };
+      }
     } catch {
       // Defaults.
     }

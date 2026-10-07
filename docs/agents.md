@@ -32,10 +32,15 @@ The table uses conventional CLI notation; in Settings, each flag and value occup
 its own line. All three help outputs advertise `--model`; Claude and Antigravity
 advertise `--effort`, while Codex accepts `-c` followed by
 `model_reasoning_effort="high"`. Values and quotes are passed unchanged as argv,
-not evaluated by a shell. Empty defaults preserve the prior launch behavior.
+not evaluated by a shell. LF and CRLF line endings are accepted; trailing empty
+lines are ignored. Interior empty lines remain errors, and validation identifies
+the agent and line. Empty defaults preserve the prior launch behavior.
 
 Settings stores arrays in main (maximum 64 arguments per agent, 1–4096 characters
 each, no control characters). User defaults precede Foom's own arguments.
+On profile load, an invalid or newly reserved list is discarded only for that
+agent; other agents' defaults and unrelated settings are retained. Save requests
+remain strict and reject the entire invalid patch.
 Claude `--settings` (including `=` form), `--safe-mode` and `--bare` are reserved
 to protect hooks (`--bare` skips hooks defined in settings and plugins).
 `--no-alt-screen` is reserved for Foom's display. Codex overrides whose key path sets `notify` or `hooks` are rejected, including `-c notify=…`,
@@ -44,6 +49,11 @@ also rejected because it would turn Foom's flags into positional arguments.
 
 The fixed bypass table includes the three Bypass flags above and Claude's
 `--permission-mode bypassPermissions` and `--permission-mode=bypassPermissions`.
+Codex `danger-full-access` also triggers disclosure and the badge: `--sandbox`
+or `-s` (separate, `=` or attached short value), and `-c`/`--config`
+`sandbox_mode` overrides (bare, single-quoted or double-quoted values). This is
+conservative: full filesystem access is flagged even when approvals are still
+required, and a later flag does not cancel the disclosure.
 The first save of any of those forms per agent requires a main-owned confirmation:
 a worktree is not a sandbox, and the agent can act as the user anywhere on the
 machine. A successful save persists that agent's acknowledgement; cancelling or
@@ -52,8 +62,9 @@ Rows show a neutral ◇ Bypass label based on the arguments at launch. This does
 infer policy from global settings or every possible combination of arguments.
 `--allow-dangerously-skip-permissions` alone does not enable bypass mode.
 
-Issue #128's trusted custom dialog has not landed, so disclosure currently uses
+PR #169 (issue #128) has not landed, so disclosure currently uses
 the existing parented native main-process confirmation with Cancel as the default.
+Whichever PR lands second must move `confirmBypass` to `TrustedDialog`.
 Orchestrator children are outside this feature's scope; see [orchestration](orchestration.md).
 
 ## Claude Code

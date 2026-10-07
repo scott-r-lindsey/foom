@@ -416,3 +416,21 @@ test("failed persistence does not remember bypass acknowledgement", async () => 
   await setup.save(patch);
   expect(confirm).toHaveBeenCalledTimes(2);
 });
+
+test("Codex sandbox full access requires the same one-time acknowledgement as its bypass flag", async () => {
+  const confirm = vi.fn(() => Promise.resolve(false));
+  const setup = new Setup({ ...deps, confirmBypass: confirm });
+  const patch = {
+    agentArguments: { claude: [], codex: ["--sandbox", "danger-full-access"], agy: [] },
+  };
+  await expect(setup.save(patch)).rejects.toThrow("cancelled");
+  expect(confirm).toHaveBeenCalledExactlyOnceWith("codex");
+  expect(settings.agentBypassAcknowledged.codex).toBe(false);
+  confirm.mockResolvedValue(true);
+  await setup.save(patch);
+  await setup.save({
+    agentArguments: { ...patch.agentArguments, codex: ["-c", 'sandbox_mode="danger-full-access"'] },
+  });
+  expect(confirm).toHaveBeenCalledTimes(2);
+  expect(settings.agentBypassAcknowledged.codex).toBe(true);
+});

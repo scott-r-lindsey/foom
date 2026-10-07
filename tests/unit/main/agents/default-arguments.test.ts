@@ -110,3 +110,50 @@ test.each<[AgentId, string[], boolean]>([
 ])("detects known bypass flags for %s %j", (agent, args, expected) => {
   expect(hasBypassArgument(agent, args)).toBe(expected);
 });
+
+test.each([
+  ["--sandbox", "danger-full-access"],
+  ["--sandbox=danger-full-access"],
+  ["-s", "danger-full-access"],
+  ["-s=danger-full-access"],
+  ["-sdanger-full-access"],
+  ["-c", 'sandbox_mode="danger-full-access"', "-c", 'approval_policy="never"'],
+  ["--config", "sandbox_mode='danger-full-access'"],
+  ['--config=sandbox_mode="danger-full-access"'],
+  ["-csandbox_mode=danger-full-access"],
+  ['-c=sandbox_mode="danger-full-access"'],
+  ["-c", ' sandbox_mode = "danger-full-access" '],
+  ["-c", '"sandbox_mode"="danger-full-access"'],
+  ["-c", 'profiles.full.sandbox_mode="danger-full-access"'],
+])("discloses Codex full-access spelling %j", (...args) => {
+  expect(hasBypassArgument("codex", args)).toBe(true);
+  expect(parseAgentArguments("codex", args)).toEqual(args);
+});
+
+test.each([
+  ["--sandbox", "workspace-write"],
+  ["-s", "read-only"],
+  ["--sandbox"],
+  ["-c", 'approval_policy="never"'],
+  ["-c", 'sandbox_mode="workspace-write"'],
+  ["-c", 'sandbox_mode="danger-full-access-extra"'],
+  ["-c", "sandbox_mode"],
+  ["-c", 'model="danger-full-access"'],
+  ["--config"],
+])("does not label restricted or unrelated settings as bypass %j", (...args) => {
+  expect(hasBypassArgument("codex", args)).toBe(false);
+});
+
+test("validation errors identify the agent and original argument line", () => {
+  expect(() => parseAgentArguments("claude", ["--model", "opus", ""])).toThrow(
+    "Claude Code, line 3:",
+  );
+  expect(() => parseAgentArguments("agy", ["--model", "x\ty"])).toThrow("Antigravity, line 2:");
+  expect(() => parseAgentArguments("codex", ["--model", "x", "--config=notify=[]"])).toThrow(
+    "Codex, line 3: Codex notify",
+  );
+  expect(() => parseAgentArguments("claude", ["--bare"])).toThrow(
+    "Claude Code, line 1: --settings",
+  );
+  expect(() => parseAgentArguments("agy", Array(65).fill("x"))).toThrow("Antigravity: use a list");
+});

@@ -3,6 +3,13 @@ import type { AgentId } from "../../shared/agents";
 import { AGENTS } from "./preflight";
 import { message } from "./preflight-evaluator";
 
+/** Keep interior lines for useful error locations; only trailing empty lines are ignored. */
+export function argumentLines(text: string): string[] {
+  const lines = text.split(/\r?\n/u);
+  while (lines.at(-1) === "") lines.pop();
+  return lines;
+}
+
 export function AgentDefaultArguments({
   defaults,
   save,
@@ -14,7 +21,7 @@ export function AgentDefaultArguments({
   const [saving, setSaving] = useState(false);
   const [status, setStatus] = useState("");
   const text = (agent: AgentId) => draft[agent] ?? defaults[agent].join("\n");
-  const argumentsFor = (agent: AgentId) => (text(agent) === "" ? [] : text(agent).split("\n"));
+  const argumentsFor = (agent: AgentId) => argumentLines(text(agent));
   return (
     <form
       className="agent-defaults"
@@ -43,9 +50,8 @@ export function AgentDefaultArguments({
     >
       <h3>Default launch arguments</h3>
       <p id="agent-defaults-help">
-        One argument per line, including each flag’s value on its own line. Spaces and quotes are
-        passed literally; do not add shell quotes. Leave empty to use your global agent config. Foom
-        adds its own terminal and attention flags after these defaults.
+        One argument per line; values on separate lines. Passed literally before Foom’s flags.
+        Trailing blank lines are ignored.
       </p>
       {AGENTS.map(({ id, name }) => (
         <label key={id}>

@@ -1,7 +1,10 @@
 // @vitest-environment jsdom
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
-import { AgentDefaultArguments } from "../../../../src/renderer/preflight/agent-default-arguments";
+import {
+  AgentDefaultArguments,
+  argumentLines,
+} from "../../../../src/renderer/preflight/agent-default-arguments";
 
 afterEach(cleanup);
 const empty = { claude: [], codex: [], agy: [] };
@@ -41,7 +44,7 @@ test("edits each agent as literal lines, waits for save, and clears a list", asy
   expect(claude).toHaveProperty("disabled", false);
 });
 
-test("keeps a refused draft for correction, reports errors, and preserves blank lines for validation", async () => {
+test("keeps a refused draft for correction, reports errors, and ignores trailing blank lines", async () => {
   const save = vi.fn().mockRejectedValue(new Error("Reserved argument"));
   render(<AgentDefaultArguments defaults={empty} save={save} />);
   const input = screen.getByLabelText("Codex default arguments");
@@ -50,8 +53,32 @@ test("keeps a refused draft for correction, reports errors, and preserves blank 
   await waitFor(() => {
     expect(screen.getByRole("status").textContent).toBe("Reserved argument");
   });
-  expect(save).toHaveBeenCalledWith({ ...empty, codex: ["--config=notify=[]", ""] });
+  expect(save).toHaveBeenCalledWith({ ...empty, codex: ["--config=notify=[]"] });
   expect(input).toHaveProperty("value", "--config=notify=[]\n");
   fireEvent.change(input, { target: { value: "--model\nx" } });
   expect(screen.getByRole("status").textContent).toBe("");
+});
+
+test.each([
+  ["--model\nopus\n\n", ["--model", "opus"]],
+  ["--model\r\nopus\r\n\r\n", ["--model", "opus"]],
+  ["\r\n\r\n", []],
+  ["", []],
+  ["--model\n\nopus\n", ["--model", "", "opus"]],
+  ["  literal spaces  \n'quotes'\n", ["  literal spaces  ", "'quotes'"]],
+  ["a\rb\n", ["a\rb"]],
+])("normalizes only line endings and trailing blank lines: %j", (text, expected) => {
+  expect(argumentLines(text)).toEqual(expected);
+});
+
+test("saves pasted Windows lines and a final Enter without changing argument contents", async () => {
+  const save = vi.fn(() => Promise.resolve());
+  render(<AgentDefaultArguments defaults={empty} save={save} />);
+  fireEvent.change(screen.getByLabelText("Claude Code default arguments"), {
+    target: { value: "--model\r\n  a model  \r\n\r\n" },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Save default arguments" }));
+  await waitFor(() => {
+    expect(save).toHaveBeenCalledWith({ ...empty, claude: ["--model", "  a model  "] });
+  });
 });

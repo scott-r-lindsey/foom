@@ -3824,6 +3824,7 @@ test("Settings persists literal agent defaults and discloses bypass once per age
   await expect(input).toBeVisible();
   await input.fill("--settings={}");
   await page.getByRole("button", { name: "Save default arguments", exact: true }).click();
+  await expect(page.locator(".agent-defaults [role=status]")).toContainText("Claude Code, line 1:");
   await expect(page.locator(".agent-defaults [role=status]")).toContainText("reserved");
   const args = [
     "--eval",
@@ -3833,7 +3834,7 @@ test("Settings persists literal agent defaults and discloses bypass once per age
     "$(not-a-command); &",
     "--dangerously-skip-permissions",
   ];
-  await input.fill(args.join("\n"));
+  await input.fill(`${args.join("\r\n")}\r\n\r\n`);
   await page.getByRole("button", { name: "Save default arguments", exact: true }).click();
   await expect(page.locator(".agent-defaults [role=status]")).toContainText("cancelled");
   assert.deepEqual(
