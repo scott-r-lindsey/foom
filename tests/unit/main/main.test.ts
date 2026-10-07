@@ -1,3 +1,4 @@
+import { join } from "node:path";
 import type { Settings } from "../../../src/shared/setup";
 import { setupState } from "../../fixtures/setup";
 import type { BrowserWindowConstructorOptions, Input } from "electron";
@@ -103,6 +104,9 @@ const mock = vi.hoisted(() => {
     isMaximized: vi.fn(() => false),
     isFullScreen: vi.fn(() => false),
     show: vi.fn(),
+    isMinimized: vi.fn(() => false),
+    restore: vi.fn(),
+    focus: vi.fn(),
     setBackgroundColor: vi.fn(),
     loadURL: vi.fn<(url: string) => Promise<void>>(),
   };
@@ -121,6 +125,9 @@ const mock = vi.hoisted(() => {
     isMaximized = window.isMaximized;
     isFullScreen = window.isFullScreen;
     show = window.show;
+    isMinimized = window.isMinimized;
+    restore = window.restore;
+    focus = window.focus;
     setBackgroundColor = window.setBackgroundColor;
     loadURL = window.loadURL;
     constructor(options: BrowserWindowConstructorOptions) {
@@ -193,6 +200,10 @@ const mock = vi.hoisted(() => {
     readyEvents,
     ready: vi.fn<() => Promise<void>>(),
     quit: vi.fn(),
+    lock: vi.fn(() => true),
+    setPath: vi.fn(),
+    packaged: false,
+    explicitProfile: false,
     registerSchemesAsPrivileged: vi.fn(),
     protocolHandle:
       vi.fn<
@@ -222,6 +233,12 @@ vi.mock("electron", () => ({
   },
   app: {
     whenReady: mock.ready,
+    get isPackaged() {
+      return mock.packaged;
+    },
+    commandLine: { hasSwitch: () => mock.explicitProfile },
+    setPath: mock.setPath,
+    requestSingleInstanceLock: mock.lock,
     getPath: () => "/test/user-data",
     quit: mock.quit,
     on: (name: string, handler: (event: { preventDefault(): void }) => void) => {
@@ -249,6 +266,10 @@ vi.mock("electron", () => ({
 beforeEach(() => {
   vi.resetModules();
   vi.clearAllMocks();
+  mock.lock.mockReturnValue(true);
+  mock.packaged = false;
+  mock.explicitProfile = false;
+  mock.window.isMinimized.mockReturnValue(false);
   mock.terminals.runningCount = 0;
   mock.terminals.shutdown.mockResolvedValue();
   mock.workspace.dispose.mockResolvedValue();
@@ -846,4 +867,59 @@ test("fixed interface themes set the native base and exact background, even betw
   mock.setup.deps?.apply(settings);
   expect(mock.theme.themeSource).toBe("light");
   expect(mock.window.setBackgroundColor).toHaveBeenLastCalledWith("#f5f7fc");
+});
+
+test("selects dev userData before locking and before readiness", async () => {
+  await start();
+  expect(mock.setPath).toHaveBeenCalledWith("userData", join("/test/user-data", "Foom Dev"));
+  expect(mock.setPath.mock.invocationCallOrder[0]).toBeLessThan(
+    mock.lock.mock.invocationCallOrder[0] ?? 0,
+  );
+  expect(mock.lock.mock.invocationCallOrder[0]).toBeLessThan(
+    mock.ready.mock.invocationCallOrder[0] ?? 0,
+  );
+  expect(mock.construct.mock.calls[0]?.[0]).toMatchObject({
+    title: "Foom Dev",
+    webPreferences: { additionalArguments: ["--foom-development"] },
+  });
+  const event = { preventDefault: vi.fn() };
+  mock.windowEvents.get("page-title-updated")?.(event);
+  expect(event.preventDefault).toHaveBeenCalledOnce();
+});
+
+test("duplicate launches exit without opening profile stores or shutdown writers", async () => {
+  mock.lock.mockReturnValue(false);
+  await start();
+  expect(mock.quit).toHaveBeenCalledOnce();
+  expect(mock.ready).not.toHaveBeenCalled();
+  expect(mock.openWorktrees).not.toHaveBeenCalled();
+  expect(mock.openSettings).not.toHaveBeenCalled();
+  expect(mock.saveWindowSize).not.toHaveBeenCalled();
+  expect(mock.appEvents.size).toBe(0);
+});
+
+test.each([false, true])(
+  "second launch reveals and focuses existing window (minimized: %s)",
+  async (minimized) => {
+    await start();
+    mock.window.show.mockClear();
+    mock.window.isMinimized.mockReturnValue(minimized);
+    mock.appEvents.get("second-instance")?.({ preventDefault: vi.fn() });
+    expect(mock.window.restore).toHaveBeenCalledTimes(minimized ? 1 : 0);
+    expect(mock.window.show).toHaveBeenCalledOnce();
+    expect(mock.window.focus).toHaveBeenCalledOnce();
+    mock.state.windows = [];
+    mock.appEvents.get("second-instance")?.({ preventDefault: vi.fn() });
+    expect(mock.window.focus).toHaveBeenCalledOnce();
+  },
+);
+
+test("packaged builds keep their default profile and identity", async () => {
+  mock.packaged = true;
+  await start();
+  expect(mock.setPath).not.toHaveBeenCalled();
+  expect(mock.construct.mock.calls[0]?.[0]).toMatchObject({
+    title: "Foom",
+    webPreferences: { additionalArguments: [] },
+  });
 });

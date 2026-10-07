@@ -23,6 +23,7 @@ export interface WorktreeSource {
 }
 /** Samples and the live source share rows, verdicts, activity batches and tails. */
 export interface BoardSource {
+  readonly isDevelopment?: boolean;
   isReady?: () => boolean;
   connect?: () => () => void;
   createView?: () => TerminalViewSource;

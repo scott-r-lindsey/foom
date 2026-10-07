@@ -24,6 +24,7 @@ import type { SetupApi } from "./setup";
 import type { WorkspaceApi } from "./workspace";
 
 export interface DesktopApi extends WorkspaceApi, SetupApi {
+  readonly isDevelopment: boolean;
   create(cols: number, rows: number): Promise<{ id: string; title: string }>;
   attach(id: string): Promise<void>;
   detach(id: string): Promise<void>;
