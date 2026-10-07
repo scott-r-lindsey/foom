@@ -59,6 +59,7 @@ export interface WorkspaceDependencies {
   verdicts: {
     classify(input: EvaluationInput): Promise<VerdictRecord>;
     commit(record: VerdictRecord): Promise<void>;
+    forget(terminalId: string): void;
     recordAction(terminalId: string, verdictId: string, action: VerdictAction): Promise<void>;
   };
   /** Started on the first launch that attaches hooks, then reused. */
@@ -608,6 +609,7 @@ export class Workspace {
     } catch {
       // A failed host has no screen. Exit codes and hooks still decide.
     }
+    const previousState = terminal.state;
     const checking = setTimeout(() => {
       if (!stale() && terminal.exitCode === undefined && !terminal.hook) {
         this.publish(id, terminal, {
@@ -635,16 +637,27 @@ export class Workspace {
         this.terminals.get(id) === terminal &&
         terminal.state?.state === "checking"
       ) {
-        this.publish(id, terminal, {
-          verdictId: null,
-          state: "working",
-          reason: "No completion or input request detected",
-          signal: "evaluation:finished",
-          confidence: 0.25,
-        });
+        if (previousState && !stale()) {
+          terminal.state = previousState;
+          this.deps.onState(previousState);
+        } else {
+          this.publish(id, terminal, {
+            verdictId: null,
+            state: "working",
+            reason: "No completion or input request detected",
+            signal: "evaluation:finished",
+            confidence: 0.25,
+          });
+        }
       }
     }
     if (stale()) return;
+    if (
+      terminal.state?.verdictId &&
+      terminal.state.state === record.verdict.state &&
+      terminal.state.signal === record.verdict.signal
+    )
+      return;
     let verdictId: string | null = record.id;
     try {
       await this.deps.verdicts.commit(record);
@@ -719,12 +732,15 @@ export class Workspace {
   /** Metadata is local evidence; parsing has drained before the host publishes it. */
   evidence(id: string, evidence: AgentEvidence): Promise<void> {
     const terminal = this.track(id);
-    const previousTitle = terminal.evidence?.title ?? "";
+    const previousEvidence = terminal.evidence ?? { title: "", progress: null };
     terminal.evidence = evidence;
     const { agent } = this.agentInput(id, terminal);
     // Unknown metadata and progress-only updates are not quiet signals. Keep them
     // for the next real quiet event rather than submitting an actively changing tail.
-    if (previousTitle === evidence.title || !agent || !detectAgent(agent, evidence, []))
+    if (previousEvidence.title === evidence.title || !agent) return Promise.resolve();
+    const previous = detectAgent(agent, previousEvidence, []);
+    const next = detectAgent(agent, evidence, []);
+    if (!next || (previous?.id === next.id && previous.state === next.state))
       return Promise.resolve();
     return this.quiet(id);
   }
@@ -771,6 +787,7 @@ export class Workspace {
     this.agents.release(id);
     this.launched.delete(id);
     this.terminals.delete(id);
+    this.deps.verdicts.forget(id);
     this.refresh();
   }
 
@@ -825,6 +842,7 @@ export class Workspace {
     if (this.closed) return;
     this.closed = true;
     this.deps.watcher?.dispose();
+    for (const id of this.terminals.keys()) this.deps.verdicts.forget(id);
     this.agents.dispose();
     this.hookKeys.clear();
     const receiver = this.receiver;

@@ -516,8 +516,11 @@ Failures reject and can be retried. The log contains fixed rule reasons and meta
 never tails, agent payloads, or keystrokes. The integration must handle write errors
 without blocking terminal operation. One service instance owns the file; feedback
 can address only verdicts issued by that instance, and historical records remain
-available on disk across restart. No automatic inference of ignored actions or log
-retention policy is implemented yet. The reusable fixture suite in
+available on disk across restart. Only the latest committed verdict per terminal
+accepts feedback; superseded and removed terminals’ entries are released. Workspace
+keeps the current verdict and ID when classification repeats its state and signal,
+including across transient Checking, while failed writes remain retryable. No automatic
+inference of ignored actions or log retention policy is implemented yet. The reusable fixture suite in
 `tests/fixtures/evaluator.ts` contains sanitized, representative terminal tails.
 
 Model calls get the last 40 lines, redacted, with a timeout. One-shot agent evaluators must not load repository instructions or use file, command, MCP, or other external tools to expand that input; a read-only sandbox alone does not enforce this boundary. Use another inference source or rules only when isolation cannot be enforced. A failure falls back to rules-only and never blocks the light.
@@ -680,9 +683,10 @@ The headless host listens to OSC 0/2 titles and parses OSC 9;4 progress without 
 view. It retains only sanitized titles (512 code units, no control/format chars)
 and bounded numeric progress. Changed metadata is emitted after queued parsing
 finishes, with a terminal ID. Main validates it, checks live session ownership and
-keeps it outside renderer IPC. Recognized title transitions request immediate
-evaluation; progress-only or unknown changes wait for normal quiet events, so they
-cannot trigger inference during streaming output. Existing generation/output guards discard stale results, exits stay
+keeps it outside renderer IPC. Title changes request immediate evaluation only when
+the detected rule or state changes. Spinner and blinking frames retain the latest
+evidence without evaluating; progress-only or unknown changes wait for normal quiet
+events, so they cannot trigger inference during streaming output. Existing generation/output guards discard stale results, exits stay
 final, and permission hooks stay sticky until a reply/dismissal.
 
 Screen matching uses the existing 40-line host tail, capped to 500 characters per
