@@ -493,3 +493,83 @@ describe("conversation resume", () => {
     expect(create).not.toHaveBeenCalled();
   });
 });
+
+it.each([true, false])(
+  "provisions control independently of hooks=%s and revokes on exit",
+  async (hooks) => {
+    const bindControl = vi.fn();
+    const disposeControl = vi.fn();
+    const control = vi.fn(() =>
+      Promise.resolve({
+        env: { FOOM_CONTROL_TOKEN: "control-secret", FOOM_SESSION: "control-session" },
+        bind: bindControl,
+        dispose: disposeControl,
+      }),
+    );
+    service = new AgentService({ listWorktrees, launchIdentity }, { create }, prepare, control);
+    service.setHooksEnabled(hooks);
+    await service.launch(request);
+    expect(control).toHaveBeenCalledWith(root, tree, hooks ? "session" : undefined);
+    expect(create.mock.calls.at(-1)?.[0].env).toMatchObject({
+      FOOM_CONTROL_TOKEN: "control-secret",
+      FOOM_SESSION: hooks ? "session" : "control-session",
+    });
+    expect(bindControl).toHaveBeenCalledWith("terminal-id");
+    service.release("terminal-id");
+    expect(disposeControl).toHaveBeenCalledTimes(1);
+  },
+);
+it.each(["spawn", "shutdown", "early-exit"])(
+  "revokes control on launch lifecycle race %s",
+  async (mode) => {
+    const disposeControl = vi.fn();
+    const bindControl = vi.fn();
+    const control = () => Promise.resolve({ env: {}, bind: bindControl, dispose: disposeControl });
+    const spawn = vi.fn(() => {
+      if (mode === "spawn") throw new Error("spawn failed");
+      if (mode === "shutdown") service.dispose();
+      if (mode === "early-exit") service.release("early");
+      return "early";
+    });
+    service = new AgentService(
+      { listWorktrees, launchIdentity },
+      { create: spawn },
+      prepare,
+      control,
+    );
+    if (mode === "early-exit") {
+      await expect(service.launch(request)).resolves.toHaveProperty("id", "early");
+      expect(disposeControl).toHaveBeenCalledTimes(1);
+      await expect(service.launch(request)).resolves.toHaveProperty("id", "early");
+    } else await expect(service.launch(request)).rejects.toThrow();
+    expect(disposeControl).toHaveBeenCalled();
+    expect(bindControl).not.toHaveBeenCalled();
+  },
+);
+it("revokes prepared hooks if control setup fails", async () => {
+  service = new AgentService({ listWorktrees, launchIdentity }, { create }, prepare, () =>
+    Promise.reject(new Error("control failed")),
+  );
+  await expect(service.launch(request)).rejects.toThrow("control failed");
+  expect(cleanup).toHaveBeenCalledTimes(1);
+});
+
+it("rotates control credentials when resuming the same terminal", async () => {
+  const first = { env: { FOOM_CONTROL_TOKEN: "first" }, bind: vi.fn(), dispose: vi.fn() };
+  const second = { env: { FOOM_CONTROL_TOKEN: "second" }, bind: vi.fn(), dispose: vi.fn() };
+  const control = vi.fn().mockResolvedValueOnce(first).mockResolvedValueOnce(second);
+  service = new AgentService({ listWorktrees, launchIdentity }, { create }, prepare, control);
+  await service.launch(request);
+  service.release("terminal-id");
+  expect(first.dispose).toHaveBeenCalledOnce();
+  await service.launch({ ...request, terminalId: "terminal-id", conversationId: "saved-id" });
+  expect(create.mock.calls.at(-1)?.[0]).toMatchObject({
+    id: "terminal-id",
+    env: { FOOM_CONTROL_TOKEN: "second" },
+  });
+  expect(second.bind).toHaveBeenCalledWith("terminal-id");
+  expect(second.dispose).not.toHaveBeenCalled();
+  service.release("terminal-id");
+  expect(second.dispose).toHaveBeenCalledOnce();
+  expect(first.dispose).toHaveBeenCalledOnce();
+});

@@ -1,4 +1,5 @@
 import { resumeArguments } from "./conversation";
+import type { ControlLaunch } from "../control/types";
 import { parseAgentArguments } from "./default-arguments";
 import { execFile } from "node:child_process";
 import { constants } from "node:fs";
@@ -128,12 +129,20 @@ export class AgentService {
   private closed = false;
   private readonly occupied = new Set<string>();
   private readonly launched = new Map<string, string>();
+  private readonly controls = new Map<string, ControlLaunch>();
+  private readonly earlyExits = new Set<string>();
+  private starting = 0;
   private readonly bindings = new Map<string, AgentHooks>();
 
   constructor(
     private readonly worktrees: Pick<WorktreeService, "listWorktrees" | "launchIdentity">,
     private readonly terminals: { create(spec: TerminalSpec): string | Promise<string> },
     private readonly prepareHooks?: (agent: AgentId) => Promise<AgentHooks>,
+    private readonly prepareControl?: (
+      repository: string,
+      worktree: string,
+      sessionId?: string,
+    ) => Promise<ControlLaunch>,
   ) {}
 
   private ensureOpen(): void {
@@ -169,12 +178,16 @@ export class AgentService {
     if (this.occupied.has(request.worktree) && !request.sharedCheckout)
       throw new Error("An agent is already running in this worktree");
     this.occupied.add(request.worktree);
+    this.starting++;
     try {
       return await this.start(request);
     } catch (error) {
       if (![...this.launched.values()].includes(request.worktree))
         this.occupied.delete(request.worktree);
       throw error;
+    } finally {
+      this.starting--;
+      if (this.starting === 0) this.earlyExits.clear();
     }
   }
 
@@ -210,7 +223,13 @@ export class AgentService {
         "Foom replaces your Codex notifier for this launch. Acknowledge this or disable hooks.",
       );
     const binding = attach ? await attach(agent.id) : undefined;
+    let control: ControlLaunch | undefined;
     try {
+      control = await this.prepareControl?.(
+        request.repository,
+        request.worktree,
+        binding?.env["FOOM_SESSION"],
+      );
       this.ensureOpen();
       if (
         request.checkoutIdentity !== undefined &&
@@ -237,16 +256,28 @@ export class AgentService {
         cwd: request.worktree,
         cols: request.cols,
         rows: request.rows,
-        env: { ...binding?.env, PATH: scan.path },
+        env: { ...control?.env, ...binding?.env, PATH: scan.path },
       });
       this.ensureOpen();
+      if (this.earlyExits.has(id)) {
+        if (![...this.launched.values()].includes(request.worktree))
+          this.occupied.delete(request.worktree);
+        control?.dispose();
+        binding?.dispose();
+        return { id, attention: binding ? "hooks" : "evaluator" };
+      }
       this.launched.set(id, request.worktree);
+      if (control) {
+        control.bind(id);
+        this.controls.set(id, control);
+      }
       if (binding) {
         this.bindings.set(id, binding);
         binding.bind?.(id);
       }
       return { id, attention: binding ? "hooks" : "evaluator" };
     } catch (error) {
+      control?.dispose();
       binding?.dispose();
       throw error;
     }
@@ -255,6 +286,9 @@ export class AgentService {
   /** Call on terminal exit/kill. Revokes this launch's receiver credentials. */
   release(id: string): void {
     const worktree = this.launched.get(id);
+    if (!worktree && this.starting > 0) this.earlyExits.add(id);
+    this.controls.get(id)?.dispose();
+    this.controls.delete(id);
     this.launched.delete(id);
     if (worktree && ![...this.launched.values()].includes(worktree)) this.occupied.delete(worktree);
     const binding = this.bindings.get(id);
