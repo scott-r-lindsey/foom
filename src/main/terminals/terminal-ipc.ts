@@ -1,3 +1,4 @@
+import type { AgentEvidence } from "../../shared/agent-detection";
 import { app, ipcMain } from "electron";
 import type { BrowserWindow, IpcMainEvent, IpcMainInvokeEvent, Event } from "electron";
 import { homedir } from "node:os";
@@ -7,6 +8,7 @@ import type { TerminalSpec, ShellState } from "../../shared/desktop";
 
 /** Lifecycle hooks for owned terminals; the workspace evaluates and releases from these. */
 export interface TerminalEvents {
+  onEvidence?(id: string, evidence: AgentEvidence): void;
   onShellState?(id: string, state: ShellState): void;
   onOutput?(id: string): void;
   onQuiet?(id: string): void;
@@ -46,6 +48,9 @@ export function attachTerminal(
       if (owned.has(id)) events.onExit?.(id, code);
     },
     {
+      onEvidence: (id, evidence) => {
+        if (owned.has(id)) events.onEvidence?.(id, evidence);
+      },
       onOutput: (id) => {
         if (owned.has(id)) events.onOutput?.(id);
       },

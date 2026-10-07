@@ -97,6 +97,7 @@ const desktop: DesktopApi = {
     confirm: (arm) => ipcRenderer.invoke("confirmation:confirm", arm.nonce, arm.target),
     cancel: () => ipcRenderer.invoke("confirmation:cancel"),
   },
+  isDevelopment: process.argv.includes("--foom-development"),
   onBoardCommand(callback) {
     const listener = (_event: IpcRendererEvent, command: unknown) => {
       if (

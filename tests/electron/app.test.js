@@ -506,6 +506,7 @@ test("terminal runs an interactive shell behind an isolated bridge", {
         process: "undefined",
         capabilities: [
           "confirmations",
+          "isDevelopment",
           "onBoardCommand",
           "create",
           "attach",
@@ -1282,7 +1283,7 @@ if (process.cwd().endsWith("finish-failed")) { console.log("Failed task"); setTi
 const settings = JSON.parse(args[args.indexOf("--settings") + 1]);
 const command = settings.hooks.PermissionRequest[0].hooks[0].command;
 const env = process.env;
-writeFileSync(process.env.FOOM_FAKE_CREDENTIALS, JSON.stringify({
+writeFileSync(process.env.TEST_FAKE_CREDENTIALS, JSON.stringify({
   url: env.FOOM_HOOK_URL, session: env.FOOM_SESSION, token: env.FOOM_TOKEN,
 }));
 process.stdout.write("FOOM_AGENT_READY\\r\\nContinue? (y/n) ");
@@ -1333,7 +1334,7 @@ test("launches an agent in a managed worktree and routes its attention signals",
     env: {
       HOME: path.join(root, "home"),
       PATH: `${bin}${path.delimiter}${process.env.PATH}`,
-      FOOM_FAKE_CREDENTIALS: credentials,
+      TEST_FAKE_CREDENTIALS: credentials,
     },
   }).finally(() => {
     // Chromium may still write user-data until the app cleanup hook has finished.
@@ -2403,7 +2404,7 @@ test("new worktree dialog launches by keyboard and confirms dirty removal", {
     env: {
       HOME: path.join(root, "home"),
       PATH: `${bin}${path.delimiter}${process.env.PATH}`,
-      FOOM_FAKE_CREDENTIALS: path.join(root, "fake-hook.json"),
+      TEST_FAKE_CREDENTIALS: path.join(root, "fake-hook.json"),
     },
   }).finally(() => {
     // Hooks run in registration order. Close Electron before deleting the second
@@ -2623,7 +2624,7 @@ test("external worktrees support independent shells and confirmed shared agents"
     env: {
       HOME: path.join(root, "home"),
       PATH: `${bin}${path.delimiter}${process.env.PATH}`,
-      FOOM_FAKE_CREDENTIALS: path.join(root, "fake-hook.json"),
+      TEST_FAKE_CREDENTIALS: path.join(root, "fake-hook.json"),
     },
   }).finally(() => {
     removeAfterApps(context, root);
@@ -2960,6 +2961,89 @@ else console.log('ARGS:' + JSON.stringify(process.argv.slice(2)));
       .poll(() => page.evaluate((id) => window.desktop.tail(id, 40), id))
       .toContain(supported ? 'ARGS:["--no-alt-screen"]' : "ARGS:[]");
   }
+});
+
+test("agent titles update hidden sidebar attention and route idle through evaluation", {
+  timeout: deadline(30000),
+  skip: process.platform === "win32" && "The fake CLI is a POSIX executable",
+}, async (context) => {
+  const { chmod } = require("node:fs/promises");
+  const root = await mkdtemp(path.join(tmpdir(), "foom-inline-"));
+  removeAfterApps(context, root);
+  const bin = path.join(root, "bin");
+  const repo = path.join(root, "repo");
+  const home = path.join(root, "home");
+  await Promise.all([mkdir(bin), mkdir(repo), mkdir(home)]);
+  const help = path.join(root, "help");
+  const cli = path.join(bin, "codex");
+  await writeFile(
+    cli,
+    `#!/usr/bin/env node
+const fs = require('node:fs');
+if (process.argv[2] === '--version') console.log('codex-cli 0.159.3');
+else if (process.argv[2] === '--help') console.log(fs.readFileSync(${JSON.stringify(help)}, 'utf8'));
+else {
+  process.stdin.setRawMode(true);
+  process.stdin.resume();
+  process.stdout.write('\\x1b]2;⠋ codex\\x07');
+  process.stdin.on('data', data => {
+    if (data.toString().includes('a')) process.stdout.write('\\x1b]2;Action Required | codex\\x07');
+    if (data.toString().includes('i')) process.stdout.write('\\x1b[2J\\x1b[HWhich file should I edit?\\x1b]2;codex\\x07');
+  });
+}
+`,
+  );
+  await chmod(cli, 0o755);
+  isolatedGit(["init", "-q", "-b", "main"], { cwd: repo });
+  isolatedGit(
+    [
+      "-c",
+      "user.name=Foom",
+      "-c",
+      "user.email=foom@example.com",
+      "commit",
+      "--allow-empty",
+      "-qm",
+      "init",
+    ],
+    { cwd: repo },
+  );
+  await writeFile(help, "--no-alt-screen");
+  const app = await launchApp(context, false, {
+    emptyBoard: true,
+    env: { HOME: home, PATH: `${bin}${path.delimiter}${process.env.PATH}` },
+  });
+  const page = await boardPage(app);
+  await app.evaluate(({ dialog }, repo) => {
+    dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [repo] });
+  }, repo);
+  const repository = await page.evaluate(() => window.desktop.addRepository());
+  assert.equal(repository.path, await realpath(repo));
+  await expect(page.getByRole("treeitem", { name: "repo", exact: true })).toBeVisible();
+  const id = await page.evaluate(async (repo) => {
+    await window.desktop.scanAgents(true);
+    const tree = await window.desktop.createWorktree(repo, "titles", "adjacent");
+    return (
+      await window.desktop.launchAgent({
+        agent: "codex",
+        repository: repo,
+        worktree: tree.path,
+        cols: 80,
+        rows: 24,
+      })
+    ).id;
+  }, repository.path);
+  const row = page.locator('.board-row[data-kind="agent"]');
+  await expect(row).toHaveAttribute("data-state", "working");
+  await expect(row).toContainText("rules:codex:osc_title_working");
+  await page.evaluate((id) => window.desktop.input(id, "a"), id);
+  await expect(row).toHaveAttribute("data-state", "needs_input");
+  await expect(row).toContainText("Approval requested");
+  await expect(row).toContainText("rules:codex:osc_title_blocked");
+  await page.evaluate((id) => window.desktop.input(id, "i"), id);
+  await expect(row).toHaveAttribute("data-state", "working");
+  await expect(row).toContainText("Agent turn ended; checking output");
+  await expect(row).toContainText("rules:codex:osc_title_idle");
 });
 
 test("Settings shares live preflight values, sizes the terminal and restores keyboard focus", async (context) => {
@@ -3890,4 +3974,77 @@ test("trusted quit dialog isolates answers, passes axe in both themes and surviv
     );
     await dialog.getByRole("button", { name: "Stop all and quit" }).click();
   });
+});
+
+test("profile lock focuses the first app, exits duplicates and permits another profile", {
+  timeout: deadline(45000),
+}, async (context) => {
+  const first = await launchApp(context, false, {
+    emptyBoard: true,
+    env: {
+      FOOM_SESSION: "parent-session",
+      FOOM_TOKEN: "parent-token",
+      FOOM_HOOK_URL: "http://127.0.0.1:1/hooks",
+      CLAUDECODE: "1",
+    },
+  });
+  const page = await boardPage(first);
+  await expect(page.locator(".dev-profile")).toHaveText("Dev");
+  assert.equal(
+    await first.evaluate(({ BrowserWindow }) =>
+      BrowserWindow.getAllWindows()
+        .find((window) => window.webContents.getURL() === "app://bundle/index.html")
+        .getTitle(),
+    ),
+    "Foom Dev",
+  );
+  assert.deepEqual(
+    await first.evaluate(() =>
+      Object.keys(process.env).filter((key) => key.startsWith("FOOM_") || key === "CLAUDECODE"),
+    ),
+    [],
+  );
+  const profile = await first.evaluate(({ app }) => app.getPath("userData"));
+  const second = await launchApp(context, false, { emptyBoard: true });
+  assert.notEqual(await second.evaluate(({ app }) => app.getPath("userData")), profile);
+  await first.evaluate(({ BrowserWindow }) => {
+    const window = BrowserWindow.getAllWindows().find(
+      (window) => window.webContents.getURL() === "app://bundle/index.html",
+    );
+    globalThis.duplicateFocused = false;
+    window.on("focus", () => {
+      globalThis.duplicateFocused = true;
+    });
+    window.hide();
+  });
+  const env = { ...process.env };
+  delete env.ELECTRON_RUN_AS_NODE;
+  let child;
+  let exited;
+  fixtureCleanup(context).apps.push(async () => {
+    if (child && child.exitCode === null && child.signalCode === null) child.kill();
+    await exited;
+  });
+  child = require("node:child_process").spawn(
+    require("electron"),
+    [path.join(__dirname, "../.."), `--user-data-dir=${profile}`],
+    { env, stdio: "ignore" },
+  );
+  exited = new Promise((resolve, reject) => {
+    child.once("error", reject);
+    child.once("exit", (code, signal) => resolve({ code, signal }));
+  });
+  fixtureCleanup(context).audit.add(child.pid);
+  await expect.poll(() => child.exitCode, { timeout: deadline(10000) }).toBe(0);
+  assert.deepEqual(await exited, { code: 0, signal: null });
+  await expect
+    .poll(() =>
+      first.evaluate(({ BrowserWindow }) => {
+        const window = BrowserWindow.getAllWindows().find(
+          (window) => window.webContents.getURL() === "app://bundle/index.html",
+        );
+        return globalThis.duplicateFocused && window.isVisible() && window.isFocused();
+      }),
+    )
+    .toBe(true);
 });

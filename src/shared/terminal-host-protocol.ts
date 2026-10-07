@@ -1,3 +1,4 @@
+import { isAgentEvidence } from "./agent-evidence";
 import { isTerminalTheme } from "./terminal-themes.js";
 import type { HostRequest, HostResponse } from "./terminal-host";
 
@@ -84,6 +85,8 @@ export function hostResponse(value: unknown): value is HostResponse {
     );
   if (!text(value["id"])) return false;
   switch (value["type"]) {
+    case "evidence":
+      return isAgentEvidence(value["evidence"]);
     case "shell-state": {
       const state = value["state"];
       return (

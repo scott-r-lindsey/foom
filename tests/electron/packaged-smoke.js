@@ -128,6 +128,9 @@ test("packaged utility host runs native PTYs with RunAsNode disabled", {
       })
       .toBe(true);
     page.setDefaultTimeout(deadline(15000));
+    await page.waitForFunction(() => window.desktop);
+    assert.equal(await page.evaluate(() => window.desktop.isDevelopment), false);
+    await expect(page.locator(".dev-profile")).toHaveCount(0);
     await expect
       .poll(async () =>
         (await page.evaluate(() => window.desktop.workspace())).repositories.map(

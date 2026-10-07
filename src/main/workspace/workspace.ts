@@ -1,3 +1,5 @@
+import { detectAgent } from "../evaluator/agent-rules";
+import type { AgentEvidence } from "../../shared/agent-detection";
 import { basename } from "node:path";
 import type { SidebarCommand, SidebarInventory } from "../../shared/workspace";
 import { AgentService } from "../agents/agents";
@@ -21,6 +23,7 @@ import type { WorktreeService } from "./worktrees";
 
 type Agents = Pick<AgentService, "scan" | "launch" | "release" | "dispose" | "setHooksEnabled">;
 type Terminal = {
+  evidence?: AgentEvidence;
   shellRunning?: boolean;
   exitCode?: number;
   hook?: HookSignal;
@@ -622,6 +625,7 @@ export class Workspace {
       record = await this.deps.verdicts.classify({
         terminalId: id,
         tail,
+        ...this.agentInput(id, terminal),
         ...(terminal.hook ? { hook: terminal.hook } : {}),
         ...(terminal.exitCode !== undefined ? { exitCode: terminal.exitCode } : {}),
       });
@@ -704,6 +708,26 @@ export class Workspace {
       signal: "process:output",
       confidence: 1,
     });
+  }
+
+  private agentInput(id: string, terminal: Terminal): Pick<EvaluationInput, "agent" | "evidence"> {
+    const agent = this.launched.get(id)?.agent;
+    return agent && agent !== "shell"
+      ? { agent, evidence: terminal.evidence ?? { title: "", progress: null } }
+      : {};
+  }
+
+  /** Metadata is local evidence; parsing has drained before the host publishes it. */
+  evidence(id: string, evidence: AgentEvidence): Promise<void> {
+    const terminal = this.track(id);
+    const previousTitle = terminal.evidence?.title ?? "";
+    terminal.evidence = evidence;
+    const { agent } = this.agentInput(id, terminal);
+    // Unknown metadata and progress-only updates are not quiet signals. Keep them
+    // for the next real quiet event rather than submitting an actively changing tail.
+    if (previousTitle === evidence.title || !agent || !detectAgent(agent, evidence, []))
+      return Promise.resolve();
+    return this.quiet(id);
   }
 
   /** Output went quiet. Live terminals only; an exit verdict is final. */

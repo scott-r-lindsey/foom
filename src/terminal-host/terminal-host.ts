@@ -11,6 +11,9 @@ const manager = new TerminalManager(
     send({ type: "exit", id, code });
   },
   {
+    onEvidence: (id, evidence) => {
+      send({ type: "evidence", id, evidence });
+    },
     onActivity: (entries) => {
       send({ type: "activity", entries });
     },

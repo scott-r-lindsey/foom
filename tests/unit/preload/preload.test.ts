@@ -448,3 +448,10 @@ test("a trusted dialog opening dismisses the board menu without exposing its ans
   off?.();
   expect(mock.removeListener).toHaveBeenCalledWith("confirmation:dialog", listener);
 });
+test.each([false, true])(
+  "exposes only the development flag from main's preload arguments (%s)",
+  async (development) => {
+    vi.spyOn(process, "argv", "get").mockReturnValue(development ? ["--foom-development"] : []);
+    expect((await bridge()).isDevelopment).toBe(development);
+  },
+);
