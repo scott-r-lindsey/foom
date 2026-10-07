@@ -120,10 +120,12 @@ test("packaged utility host runs native PTYs with RunAsNode disabled", {
       });
     });
     browser = await chromium.connectOverCDP(endpoint, { timeout: deadline(10000) });
-    const context = browser.contexts()[0];
     await expect
       .poll(() => {
-        page = context.pages().find((candidate) => candidate.url() === "app://bundle/index.html");
+        page = browser
+          .contexts()
+          .flatMap((context) => context.pages())
+          .find((candidate) => candidate.url() === "app://bundle/index.html");
         return Boolean(page);
       })
       .toBe(true);
@@ -206,6 +208,25 @@ test("packaged utility host runs native PTYs with RunAsNode disabled", {
   } catch (error) {
     failure = error;
     console.error("Packaged smoke failed:", error);
+    // Preserve startup evidence when the board never becomes a Playwright page.
+    // The trusted confirmation window can be the first CDP context/target.
+    console.error("Packaged startup stderr:", stderr);
+    console.error(
+      "Packaged CDP pages:",
+      browser?.contexts().map((context) => context.pages().map((candidate) => candidate.url())),
+    );
+    if (browser) {
+      const session = await browser.newBrowserCDPSession().catch(() => undefined);
+      if (session) {
+        try {
+          console.error("Packaged CDP targets:", await session.send("Target.getTargets"));
+        } catch (diagnosticError) {
+          console.error("Packaged target diagnostics failed:", diagnosticError);
+        } finally {
+          await session.detach().catch(() => {});
+        }
+      }
+    }
   } finally {
     try {
       await audit.capture();

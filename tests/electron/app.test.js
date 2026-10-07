@@ -1285,6 +1285,7 @@ const command = settings.hooks.PermissionRequest[0].hooks[0].command;
 const env = process.env;
 writeFileSync(process.env.TEST_FAKE_CREDENTIALS, JSON.stringify({
   url: env.FOOM_HOOK_URL, session: env.FOOM_SESSION, token: env.FOOM_TOKEN,
+  controlUrl: env.FOOM_CONTROL_URL, controlToken: env.FOOM_CONTROL_TOKEN, instanceId: env.FOOM_CONTROL_INSTANCE,
 }));
 process.stdout.write("FOOM_AGENT_READY\\r\\nContinue? (y/n) ");
 process.stdin.setRawMode(true);
@@ -1408,6 +1409,24 @@ test("launches an agent in a managed worktree and routes its attention signals",
   await expect(agentRow).toHaveAttribute("data-state", "needs_input");
   await expect(agentRow).toContainText("pattern:confirmation");
   const firstCredentials = JSON.parse(await readFile(credentials, "utf8"));
+  const controlRequest = (
+    token = firstCredentials.controlToken,
+    instanceId = firstCredentials.instanceId,
+  ) =>
+    fetch(firstCredentials.controlUrl, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ version: 1, instanceId, method: "whoami", params: {} }),
+    });
+  const identity = await controlRequest();
+  assert.equal(identity.status, 200);
+  const controlIdentity = (await identity.json()).result;
+  assert.equal(controlIdentity.terminalId, id);
+  assert.equal(controlIdentity.sessionId, firstCredentials.session);
+  assert.equal(controlIdentity.role, "agent");
+  assert.equal((await controlRequest(firstCredentials.token)).status, 401);
+  assert.equal((await controlRequest(firstCredentials.controlToken, "stale-instance")).status, 400);
+  assert.ok(!JSON.stringify(snapshot).includes(firstCredentials.controlToken));
   await page.evaluate(async (repository) => {
     const tree = await window.desktop.createWorktree(repository, "feature/newer", "adjacent");
     await window.desktop.launchAgent({
@@ -1489,6 +1508,7 @@ test("launches an agent in a managed worktree and routes its attention signals",
     body: JSON.stringify({ session_id: "fake-session", hook_event_name: "PermissionRequest" }),
   });
   assert.equal(replay.status, 401);
+  assert.equal((await controlRequest()).status, 401);
   await expect(agentRow).toHaveAttribute("data-state", "failed");
   await boardCommand(app, "B");
   for (const branch of ["finish-ok", "finish-failed"]) {

@@ -1532,6 +1532,28 @@ test("agent screens work without OSC and title evidence remains local to the lau
   await workspace.dispose();
 });
 
+test("starts control lazily once, retries failed initialization and closes independently of hooks", async () => {
+  const binding = { env: {}, bind: vi.fn(), dispose: vi.fn() };
+  const runtime = { prepare: vi.fn(() => binding), close: vi.fn(() => Promise.resolve()) };
+  const start = vi.fn(() => Promise.resolve(runtime));
+  start.mockRejectedValueOnce(new Error("private directory unavailable"));
+  let control: Parameters<NonNullable<WorkspaceDependencies["agents"]>>[1];
+  deps.agents = (_hooks, next) => {
+    control = next;
+    return agents;
+  };
+  deps.control = start;
+  const workspace = new Workspace(deps);
+  expect(start).not.toHaveBeenCalled();
+  if (!control) throw new Error("Expected launch registrar");
+  await expect(control(repo.path, tree.path)).rejects.toThrow("private directory unavailable");
+  await Promise.all([control(repo.path, tree.path, "hook-session"), control(repo.path, tree.path)]);
+  expect(start).toHaveBeenCalledTimes(2);
+  expect(runtime.prepare).toHaveBeenCalledWith(repo.path, tree.path, "hook-session");
+  await workspace.dispose();
+  expect(runtime.close).toHaveBeenCalledOnce();
+});
+
 test.each([
   { agent: "claude", titles: ["◐ Claude", "◓ Claude", "◑ Claude", "◒ Claude"] },
   { agent: "codex", titles: ["⠋ codex", "⠙ codex", "⠹ codex", "⠸ codex"] },
