@@ -1,3 +1,4 @@
+import type { WorkspaceDependencies } from "../../../src/main/workspace/workspace";
 import type { DialogContent } from "../../../src/shared/confirmation";
 vi.mock("../../../src/main/confirmations/trusted-dialog", () => ({
   TrustedDialog: class {
@@ -23,6 +24,7 @@ vi.mock("../../../src/main/terminals/terminal-ipc", () => ({
 }));
 vi.mock("../../../src/main/workspace/workspace", () => ({
   Workspace: class {
+    restore = async () => {};
     snapshot = () => ({
       terminals: [
         {
@@ -52,7 +54,7 @@ vi.mock("../../../src/main/workspace/workspace", () => ({
     configure = mock.workspace.configure;
     addRepository = mock.workspace.addRepository;
     removeRepository = mock.workspace.removeRepository;
-    constructor(deps: unknown) {
+    constructor(deps: WorkspaceDependencies) {
       mock.workspace.deps = deps;
     }
   },
@@ -169,7 +171,7 @@ const mock = vi.hoisted(() => {
     }
   }
   const workspace = {
-    deps: undefined as unknown,
+    deps: undefined as WorkspaceDependencies | undefined,
     quiet: vi.fn(),
     exited: vi.fn(),
     input: vi.fn(),
@@ -269,6 +271,7 @@ const mock = vi.hoisted(() => {
 vi.mock("electron", () => ({
   BrowserWindow: mock.BrowserWindow,
   nativeTheme: mock.theme,
+  clipboard: { writeText: vi.fn() },
   dialog: {
     showMessageBox: mock.message,
     showErrorBox: mock.errorBox,
@@ -1000,4 +1003,11 @@ test("packaged builds keep their default profile and identity", async () => {
     title: "Foom",
     webPreferences: { additionalArguments: [] },
   });
+});
+
+test("session ID copying uses the main clipboard capability", async () => {
+  await start();
+  const { clipboard } = await import("electron");
+  await mock.workspace.deps?.copyText?.("saved-session-id");
+  expect(vi.mocked(clipboard).writeText.mock.calls).toEqual([["saved-session-id"]]);
 });

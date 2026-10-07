@@ -350,3 +350,33 @@ test.each([false, true])(
     expect(view.getByRole("heading", { name: isDevelopment ? "foom dev" : "foom" })).toBeTruthy();
   },
 );
+
+test("exited agent menus expose only supported recorded conversations", async () => {
+  const view = setup();
+  await act(async () => {
+    await Promise.resolve();
+  });
+  act(() => {
+    view.base.update("a", { exited: true, state: "done", conversationId: "conversation-123" });
+  });
+  for (const [label, kind] of [
+    [/^Resume conversation/, "resume"],
+    ["Copy session ID", "copy-session-id"],
+    ["New conversation here", "new-conversation"],
+  ] as const) {
+    fireEvent.click(view.getByRole("button", { name: "Actions for Claude Code in feature" }));
+    expect(view.getByText("conversa…")).toBeTruthy();
+    await act(async () => {
+      fireEvent.click(view.getByRole("menuitem", { name: label }));
+      await Promise.resolve();
+    });
+    expect(view.command).toHaveBeenLastCalledWith({ kind, id: "a" });
+  }
+  act(() => {
+    view.base.update("a", { conversationId: undefined, agent: "agy" });
+  });
+  fireEvent.click(view.getByRole("button", { name: "Actions for Antigravity in feature" }));
+  expect(view.queryByRole("menuitem", { name: /^Resume/ })).toBeNull();
+  expect(view.queryByRole("menuitem", { name: "Copy session ID" })).toBeNull();
+  expect(view.getByRole("menuitem", { name: "New conversation here" })).toBeTruthy();
+});

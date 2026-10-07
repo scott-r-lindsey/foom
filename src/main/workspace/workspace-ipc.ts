@@ -55,7 +55,14 @@ function launchRequest(value: unknown): LaunchRequest {
 function sidebarCommand(value: unknown): SidebarCommand {
   if (!record(value)) throw new Error("Invalid sidebar command");
   const kind = value["kind"];
-  if (kind === "stop" || kind === "close" || kind === "restart") {
+  if (
+    kind === "stop" ||
+    kind === "close" ||
+    kind === "restart" ||
+    kind === "resume" ||
+    kind === "new-conversation" ||
+    kind === "copy-session-id"
+  ) {
     if (!text(value["id"])) throw new Error("Invalid terminal ID");
     return { kind, id: value["id"] };
   }
@@ -177,7 +184,8 @@ export function attachWorkspace(
       "workspace:sidebar-command",
       (value) => {
         const command = sidebarCommand(value);
-        if ("id" in command && !owns(command.id)) throw new Error("Unknown or foreign terminal ID");
+        if ("id" in command && !owns(command.id) && !workspace.ownsSession(command.id))
+          throw new Error("Unknown or foreign terminal ID");
         return workspace.sidebarCommand(command, confirmation(JSON.stringify(command)));
       },
     ],

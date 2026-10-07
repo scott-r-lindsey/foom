@@ -1601,3 +1601,181 @@ test("slow repeated classification preserves the verdict ID across Checking", as
     vi.useRealTimers();
   }
 });
+
+test("captures an ID, copies it and resumes in place, then starts a fresh conversation", async () => {
+  const copy = vi.fn();
+  deps.copyText = copy;
+  const workspace = await launched();
+  const key = await bound();
+  await workspace.hook({
+    terminalId: key,
+    action: "classify",
+    signal: "claude:Stop",
+    conversationId: "conversation-123",
+  });
+  expect(workspace.snapshot().terminals[0]?.conversationId).toBe("conversation-123");
+  await expect(
+    workspace.sidebarCommand({ kind: "resume", id: "t1" }, () => Promise.resolve(true)),
+  ).rejects.toThrow("still running");
+  await workspace.exited("t1", 0);
+  await workspace.sidebarCommand({ kind: "copy-session-id", id: "t1" }, () =>
+    Promise.resolve(true),
+  );
+  expect(copy).toHaveBeenCalledWith("conversation-123");
+  await workspace.sidebarCommand({ kind: "resume", id: "t1" }, () => Promise.resolve(true));
+  expect(agents.launch).toHaveBeenLastCalledWith(
+    expect.objectContaining({
+      terminalId: "t1",
+      conversationId: "conversation-123",
+      worktree: tree.path,
+      sharedCheckout: true,
+    }),
+  );
+  expect(workspace.snapshot().terminals).toHaveLength(1);
+  expect(workspace.snapshot().terminals[0]).toMatchObject({
+    id: "t1",
+    exited: false,
+    conversationId: "conversation-123",
+  });
+  await workspace.exited("t1", 1);
+  await workspace.sidebarCommand({ kind: "new-conversation", id: "t1" }, () =>
+    Promise.resolve(true),
+  );
+  expect(workspace.snapshot().terminals[0]?.conversationId).toBeUndefined();
+  await workspace.dispose();
+});
+
+test("missing IDs cannot resume or copy; failed launch keeps the saved row for retry", async () => {
+  const workspace = await launched();
+  await workspace.exited("t1", 0);
+  await expect(
+    workspace.sidebarCommand({ kind: "resume", id: "missing" }, () => Promise.resolve(true)),
+  ).rejects.toThrow("Unknown");
+  await expect(
+    workspace.sidebarCommand({ kind: "resume", id: "t1" }, () => Promise.resolve(true)),
+  ).rejects.toThrow("Invalid conversation");
+  await expect(
+    workspace.sidebarCommand({ kind: "copy-session-id", id: "t1" }, () => Promise.resolve(true)),
+  ).rejects.toThrow("No conversation");
+  agents.launch.mockRejectedValueOnce(new Error("not installed"));
+  await expect(
+    workspace.sidebarCommand({ kind: "new-conversation", id: "t1" }, () => Promise.resolve(true)),
+  ).rejects.toThrow("not installed");
+  expect(workspace.snapshot().terminals[0]).toMatchObject({
+    id: "t1",
+    exited: true,
+    dormant: true,
+  });
+  await workspace.sidebarCommand({ kind: "new-conversation", id: "t1" }, () =>
+    Promise.resolve(true),
+  );
+  expect(vi.mocked(deps.terminals, true).kill.mock.calls).toHaveLength(1);
+  expect(workspace.snapshot().terminals[0]?.exited).toBe(false);
+  await workspace.dispose();
+});
+
+test("restores metadata without PTYs, allows Resume and Close, and drains persistence", async () => {
+  const stored = {
+    id: "t1",
+    kind: "agent" as const,
+    agent: "claude" as const,
+    repository: repo.path,
+    worktree: tree.path,
+    branch: tree.branch,
+    attention: "evaluator" as const,
+    state: null,
+    dormant: true,
+    exited: true,
+    conversationId: "saved-123",
+  };
+  const save = vi.fn(() => Promise.resolve());
+  const flush = vi.fn(() => Promise.resolve());
+  deps.sessions = {
+    load: () => Promise.resolve([stored, { ...stored, id: "foreign", repository: "/unknown" }]),
+    save,
+    flush,
+  };
+  const workspace = new Workspace(deps);
+  await workspace.restore();
+  expect(workspace.ownsSession("t1")).toBe(true);
+  expect(workspace.ownsSession("foreign")).toBe(false);
+  expect(workspace.snapshot().terminals).toHaveLength(1);
+  expect(agents.launch).not.toHaveBeenCalled();
+  await workspace.sidebarCommand({ kind: "resume", id: "t1" }, () => Promise.resolve(true));
+  expect(vi.mocked(deps.terminals, true).kill.mock.calls).toHaveLength(0);
+  expect(save).toHaveBeenLastCalledWith([
+    expect.objectContaining({ id: "t1", conversationId: "saved-123" }),
+  ]);
+  await workspace.exited("t1", 0);
+  await workspace.sidebarCommand({ kind: "close", id: "t1" }, () => Promise.resolve(true));
+  expect(save).toHaveBeenLastCalledWith([]);
+  await workspace.dispose();
+  expect(flush).toHaveBeenCalledOnce();
+  const restored = new Workspace(deps);
+  await restored.restore();
+  vi.mocked(deps.terminals).kill.mockClear();
+  await restored.sidebarCommand({ kind: "close", id: "t1" }, () => Promise.resolve(true));
+  expect(vi.mocked(deps.terminals, true).kill.mock.calls).toHaveLength(0);
+  await restored.dispose();
+});
+
+test("captures only valid IDs, persists changes once, and keeps IDs out of evaluation", async () => {
+  const save = vi.fn(() => Promise.resolve());
+  deps.sessions = { load: () => Promise.resolve([]), save, flush: () => Promise.resolve() };
+  const workspace = await launched();
+  const key = await bound();
+  const signal = {
+    terminalId: key,
+    action: "needs_input" as const,
+    signal: "claude:PermissionRequest" as const,
+    conversationId: "saved-123",
+  };
+  await workspace.hook({ ...signal, conversationId: "--unsafe" });
+  expect(workspace.snapshot().terminals[0]?.conversationId).toBeUndefined();
+  await workspace.hook(signal);
+  await workspace.hook(signal);
+  expect(save).toHaveBeenCalledTimes(2);
+  expect(evaluated.at(-1)?.hook).toEqual({
+    terminalId: "t1",
+    action: "needs_input",
+    signal: "claude:PermissionRequest",
+  });
+  await workspace.dispose();
+});
+
+test("reports persistence failures without interrupting a terminal", async () => {
+  const error = new Error("disk unavailable");
+  const log = vi.spyOn(console, "error").mockImplementation(() => {});
+  deps.sessions = {
+    load: () => Promise.resolve([]),
+    save: () => Promise.reject(error),
+    flush: () => Promise.resolve(),
+  };
+  const workspace = await launched();
+  expect(log).toHaveBeenCalledWith("Unable to save sessions:", error);
+  expect(workspace.snapshot().terminals).toHaveLength(1);
+  await workspace.dispose();
+});
+
+test("reserving an exited row prevents Close or a second launch racing Resume", async () => {
+  const workspace = await launched();
+  await workspace.exited("t1", 0);
+  const pending = held<Launched>();
+  agents.launch.mockReturnValueOnce(pending.promise);
+  const restart = workspace.sidebarCommand({ kind: "new-conversation", id: "t1" }, () =>
+    Promise.resolve(true),
+  );
+  await vi.waitFor(() => {
+    expect(agents.launch).toHaveBeenCalledTimes(2);
+  });
+  await expect(
+    workspace.sidebarCommand({ kind: "close", id: "t1" }, () => Promise.resolve(true)),
+  ).rejects.toThrow("Session is busy");
+  await expect(
+    workspace.sidebarCommand({ kind: "new-conversation", id: "t1" }, () => Promise.resolve(true)),
+  ).rejects.toThrow("Session is busy");
+  pending.resolve({ id: "t1", attention: "hooks" });
+  await restart;
+  expect(workspace.snapshot().terminals[0]?.exited).toBe(false);
+  await workspace.dispose();
+});

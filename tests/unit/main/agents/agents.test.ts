@@ -463,3 +463,33 @@ it("passes defaults unchanged without hooks", async () => {
   await service.launch({ ...request, agent: "agy", defaultArguments: defaults });
   expect(create.mock.calls[0]?.[0].args).toEqual(defaults);
 });
+
+describe("conversation resume", () => {
+  it.each(["claude", "codex"] as const)(
+    "resumes %s with fresh per-launch hooks and the same terminal ID",
+    async (agent) => {
+      await service.launch({
+        ...request,
+        agent,
+        terminalId: "original",
+        conversationId: "conversation-123",
+        acknowledgeCodexNotifierReplacement: true,
+      });
+      const spec = create.mock.calls[0]?.[0];
+      expect(spec?.id).toBe("original");
+      expect(spec?.args.slice(0, 2)).toEqual([
+        agent === "claude" ? "--resume" : "resume",
+        "conversation-123",
+      ]);
+      expect(spec?.args).toContain(agent === "claude" ? "--settings" : "-c");
+      expect(prepare).toHaveBeenCalledWith(agent);
+    },
+  );
+  it("rejects malformed IDs before preparing hooks or creating a PTY", async () => {
+    await expect(service.launch({ ...request, conversationId: "--last" })).rejects.toThrow(
+      "Invalid conversation ID",
+    );
+    expect(prepare).not.toHaveBeenCalled();
+    expect(create).not.toHaveBeenCalled();
+  });
+});

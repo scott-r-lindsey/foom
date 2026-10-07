@@ -188,7 +188,30 @@ export function Sidebar({
                 },
                 null,
               ]
-            : []),
+            : [
+                ...(row.conversationId && (row.agent === "claude" || row.agent === "codex")
+                  ? [
+                      {
+                        label: "Resume conversation",
+                        hint: `${row.conversationId.slice(0, 8)}…`,
+                        run: () => command({ kind: "resume", id: row.id }),
+                      },
+                    ]
+                  : []),
+                {
+                  label: "New conversation here",
+                  run: () => command({ kind: "new-conversation", id: row.id }),
+                },
+                ...(row.conversationId
+                  ? [
+                      {
+                        label: "Copy session ID",
+                        run: () => command({ kind: "copy-session-id", id: row.id }),
+                      },
+                    ]
+                  : []),
+                null,
+              ]),
           {
             label: "Close",
             run: () => {

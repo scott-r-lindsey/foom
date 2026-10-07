@@ -4223,3 +4223,183 @@ test("profile lock focuses the first app, exits duplicates and permits another p
     )
     .toBe(true);
 });
+
+for (const agent of ["claude", "codex"]) {
+  test(`resumes exited ${agent} conversations in place after a Foom restart`, {
+    timeout: deadline(60_000),
+    skip: process.platform === "win32" && "The fake CLI is a POSIX executable",
+  }, async (context) => {
+    const { chmod } = require("node:fs/promises");
+    const root = await mkdtemp(path.join(tmpdir(), "foom-resume-"));
+    removeAfterApps(context, root);
+    const bin = path.join(root, "bin");
+    const repo = path.join(root, "repo");
+    const home = path.join(root, "home");
+    const profile = path.join(root, "profile");
+    const argvFile = path.join(root, "argv.json");
+    await Promise.all([mkdir(bin), mkdir(repo), mkdir(home)]);
+    isolatedGit(["init", "-q", "-b", "main", repo]);
+    isolatedGit([
+      "-C",
+      repo,
+      "-c",
+      "user.name=Foom",
+      "-c",
+      "user.email=foom@example.com",
+      "commit",
+      "--allow-empty",
+      "-qm",
+      "init",
+    ]);
+    const conversation = "0199abcd-1234-7890-abcd-123456789abc";
+    await writeFile(
+      path.join(bin, agent),
+      `#!/usr/bin/env node
+const { spawn } = require("node:child_process");
+const { writeFileSync } = require("node:fs");
+const args = process.argv.slice(2);
+const agent = ${JSON.stringify(agent)};
+if (args[0] === "--version") { console.log(agent === "claude" ? "2.1.300 (Claude Code)" : "codex-cli 0.160.1"); process.exit(0); }
+if (args[0] === "--help") { console.log("--settings <json> -c, --config <value> --no-alt-screen"); process.exit(0); }
+writeFileSync(process.env.TEST_ARGV, JSON.stringify({ args, cwd: process.cwd(), token: process.env.FOOM_TOKEN, pid: process.pid }));
+const resumed = args.includes("--resume") || args.includes("resume");
+if (resumed) {
+  console.log("RESUMED_CONVERSATION " + process.pid);
+  process.stdin.setRawMode(true);
+  process.stdin.on("data", () => process.exit(0));
+} else {
+  const payload = agent === "claude" ? { session_id: ${JSON.stringify(conversation)}, hook_event_name: "Stop" } : { "thread-id": ${JSON.stringify(conversation)}, "turn-id": "turn-1", type: "agent-turn-complete" };
+  let command, hookArgs, input;
+  if (agent === "claude") {
+    const settings = JSON.parse(args[args.indexOf("--settings") + 1]);
+    command = "sh"; hookArgs = ["-c", settings.hooks.Stop[0].hooks[0].command]; input = JSON.stringify(payload);
+  } else {
+    const notify = args.find(arg => arg.startsWith("notify="));
+    [command, ...hookArgs] = JSON.parse(notify.slice(7));
+    hookArgs.push(JSON.stringify(payload));
+  }
+  const hook = spawn(command, hookArgs, { stdio: ["pipe", "ignore", "inherit"] });
+  hook.stdin.end(input);
+  hook.on("exit", () => { console.log("AGENT_EXITED"); process.exit(0); });
+}
+`,
+    );
+    await chmod(path.join(bin, agent), 0o755);
+    const options = {
+      emptyBoard: true,
+      args: [`--user-data-dir=${profile}`],
+      env: { HOME: home, PATH: `${bin}${path.delimiter}${process.env.PATH}`, TEST_ARGV: argvFile },
+    };
+    const app = await launchApp(context, false, options);
+    const page = await boardPage(app);
+    await app.evaluate(({ dialog }, directory) => {
+      dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [directory] });
+    }, repo);
+    const id = await page.evaluate(async (agent) => {
+      const repository = await window.desktop.addRepository();
+      return window.desktop.startWorktree({
+        repository: repository.path,
+        branch: "resume-test",
+        run: agent,
+        acknowledgeCodexNotifierReplacement: true,
+      });
+    }, agent);
+    await expect
+      .poll(() =>
+        page.evaluate(
+          async (id) => (await window.desktop.workspace()).terminals.find((row) => row.id === id),
+          id,
+        ),
+      )
+      .toMatchObject({ exited: true, conversationId: conversation });
+    const firstLaunch = JSON.parse(await readFile(argvFile, "utf8"));
+    await expect
+      .poll(
+        async () =>
+          JSON.parse(await readFile(path.join(profile, "sessions.json"), "utf8"))[0]
+            ?.conversationId,
+      )
+      .toBe(conversation);
+    await quitAndWait(app, () =>
+      app.evaluate(({ BrowserWindow }) =>
+        BrowserWindow.getAllWindows()
+          .find((win) => win.webContents.getURL() === "app://bundle/index.html")
+          .close(),
+      ),
+    );
+    const restoredApp = await launchApp(context, false, options);
+    const restored = await boardPage(restoredApp);
+    await expect
+      .poll(() => restored.evaluate(async () => (await window.desktop.workspace()).terminals))
+      .toMatchObject([{ id, exited: true, dormant: true, conversationId: conversation }]);
+    const agentName = agent === "claude" ? "Claude Code" : "Codex";
+    await restored
+      .getByRole("button", { name: `Actions for ${agentName} in resume-test`, exact: true })
+      .click();
+    await restored.getByRole("menuitem", { name: "Copy session ID", exact: true }).click();
+    await expect
+      .poll(() => restoredApp.evaluate(({ clipboard }) => clipboard.readText()))
+      .toBe(conversation);
+    await restored
+      .getByRole("button", { name: `Actions for ${agentName} in resume-test`, exact: true })
+      .click();
+    await restored.getByRole("menuitem", { name: /^Resume conversation/ }).click();
+    await expect
+      .poll(() => restored.evaluate(async () => (await window.desktop.workspace()).terminals))
+      .toMatchObject([{ id, exited: false, conversationId: conversation }]);
+    await expect(restored.locator(".xterm-rows")).toContainText("RESUMED_CONVERSATION");
+    const resumedLaunch = JSON.parse(await readFile(argvFile, "utf8"));
+    await expect(restored.locator(".xterm-rows")).toContainText(
+      `RESUMED_CONVERSATION ${resumedLaunch.pid}`,
+    );
+    assert.deepEqual(resumedLaunch.args.slice(0, 2), [
+      agent === "claude" ? "--resume" : "resume",
+      conversation,
+    ]);
+    assert.equal(resumedLaunch.cwd, firstLaunch.cwd);
+    assert.notEqual(resumedLaunch.token, firstLaunch.token);
+    await expect(restored.locator(".xterm-helper-textarea")).toBeFocused();
+    await restored.locator(".xterm-helper-textarea").press("q");
+    await expect
+      .poll(() =>
+        restored.evaluate(async () => (await window.desktop.workspace()).terminals[0]?.exited),
+      )
+      .toBe(true);
+    await restored
+      .getByRole("button", { name: `Actions for ${agentName} in resume-test`, exact: true })
+      .click();
+    await restored.getByRole("menuitem", { name: /^Resume conversation/ }).click();
+    await expect
+      .poll(() =>
+        restored.evaluate(async () => (await window.desktop.workspace()).terminals[0]?.exited),
+      )
+      .toBe(false);
+    await expect
+      .poll(async () => JSON.parse(await readFile(argvFile, "utf8")).token)
+      .not.toBe(resumedLaunch.token);
+    const secondResume = JSON.parse(await readFile(argvFile, "utf8"));
+    await expect(restored.locator(".xterm-rows")).toContainText(
+      `RESUMED_CONVERSATION ${secondResume.pid}`,
+    );
+    await expect(restored.locator(".xterm-helper-textarea")).toBeFocused();
+    await restored.locator(".xterm-helper-textarea").press("q");
+    await expect
+      .poll(() =>
+        restored.evaluate(async () => (await window.desktop.workspace()).terminals[0]?.exited),
+      )
+      .toBe(true);
+    await restored
+      .getByRole("button", { name: `Actions for ${agentName} in resume-test`, exact: true })
+      .click();
+    await restored.getByRole("menuitem", { name: "Close", exact: true }).click();
+    await expect
+      .poll(() =>
+        restored.evaluate(async () => (await window.desktop.workspace()).terminals.length),
+      )
+      .toBe(0);
+    await expect
+      .poll(async () => JSON.parse(await readFile(path.join(profile, "sessions.json"), "utf8")))
+      .toEqual([]);
+    assert.equal(await realpath(resumedLaunch.cwd), resumedLaunch.cwd);
+  });
+}

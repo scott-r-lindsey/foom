@@ -241,6 +241,7 @@ export function attachTerminal(
       const id = await manager.create(spec);
       owned.add(id);
       running.set(id, { id, command: spec.command, cwd: spec.cwd });
+      if (!contents.isDestroyed()) contents.send("terminal:availability", [id], true, true);
       return id;
     },
     async kill(id) {

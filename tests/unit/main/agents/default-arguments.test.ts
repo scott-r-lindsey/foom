@@ -157,3 +157,21 @@ test("validation errors identify the agent and original argument line", () => {
   );
   expect(() => parseAgentArguments("agy", Array(65).fill("x"))).toThrow("Antigravity: use a list");
 });
+
+test.each([
+  ["claude", "--resume=other"],
+  ["claude", "--continue"],
+  ["claude", "-rOther"],
+  ["claude", "-c"],
+  ["claude", "--session-id"],
+  ["claude", "--fork-session"],
+  ["codex", "resume"],
+  ["codex", "fork"],
+  ["codex", "--last"],
+  ["codex", "--fork"],
+  ["agy", "--conversation"],
+  ["agy", "--continue"],
+  ["agy", "-c"],
+] as const)("reserves conversation selector %s %s", (agent, arg) => {
+  expect(() => parseAgentArguments(agent, [arg])).toThrow("Conversation selection");
+});

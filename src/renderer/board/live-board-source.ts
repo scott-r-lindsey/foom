@@ -78,6 +78,10 @@ export function createAppSource(): BoardSource {
     repositories = next.repositories.map((repo) => repo.name);
     const known = new Map(rows.map((row) => [row.id, row]));
     const live = next.terminals.map((entry): BoardRow => {
+      const previous = known.get(entry.id);
+      const version = entry.launchVersion ?? 0;
+      if (previous && (previous.launchVersion ?? 0) > version) return latest(previous);
+      if (previous && version > (previous.launchVersion ?? 0)) known.delete(entry.id);
       const previousState = states.get(entry.id);
       if (entry.state && (!previousState || entry.state.timestamp > previousState.timestamp))
         states.set(entry.id, entry.state);
@@ -92,15 +96,21 @@ export function createAppSource(): BoardSource {
           entry.repository,
         branch: entry.branch ?? "Detached HEAD",
         agent: entry.agent,
-        state: "working",
-        reason: "Running",
+        state: entry.dormant ? "quiet_ok" : "working",
+        reason: entry.dormant ? "Exited · saved session" : "Running",
         rate: rates.get(entry.id) ?? 0,
         waitingSince: 0,
         seen: false,
         tail: [],
         ...known.get(entry.id),
+        ...(entry.dormant
+          ? { state: "quiet_ok", reason: "Exited · saved session", seen: false }
+          : {}),
         exited: entry.exited ?? exits.has(entry.id),
         bypass: entry.bypass === true,
+        conversationId: entry.conversationId,
+        dormant: entry.dormant === true,
+        launchVersion: entry.launchVersion ?? 0,
       });
     });
     // Keep surviving rows in place; append newly launched terminals.
@@ -114,7 +124,7 @@ export function createAppSource(): BoardSource {
       })
       .concat([...incoming.values()]);
     for (const [id, owner] of owners) {
-      if (!rows.some((row) => row.id === id)) {
+      if (!rows.some((row) => row.id === id && !row.dormant)) {
         owner.release(id);
         owners.delete(id);
       }
@@ -207,12 +217,14 @@ export function createAppSource(): BoardSource {
     connect,
     createView: () => {
       const view = createTerminalView(scheduleView, owners, (id) =>
-        rows.some((row) => row.id === id),
+        rows.some((row) => row.id === id && !row.dormant),
       );
       return {
         ...view,
         open: (id) =>
-          id !== pendingShell && rows.some((row) => row.id === id) ? view.open(id) : view.hide(),
+          id !== pendingShell && rows.some((row) => row.id === id && !row.dormant)
+            ? view.open(id)
+            : view.hide(),
       };
     },
     confirmations: window.desktop.confirmations,
@@ -229,12 +241,32 @@ export function createAppSource(): BoardSource {
         publish();
         return;
       }
-      if (command.kind === "close" || command.kind === "restart") {
+      if (
+        command.kind === "close" ||
+        command.kind === "restart" ||
+        command.kind === "resume" ||
+        command.kind === "new-conversation"
+      ) {
         await owners.get(command.id)?.hide();
         owners.get(command.id)?.release(command.id);
         owners.delete(command.id);
       }
-      await window.desktop.sidebarCommand(command);
+      if (command.kind === "resume" || command.kind === "new-conversation") {
+        states.delete(command.id);
+        exits.delete(command.id);
+        rates.delete(command.id);
+        rows = rows.map((row) =>
+          row.id === command.id
+            ? { ...row, state: "working", reason: "Starting…", tail: [], seen: false }
+            : row,
+        );
+      }
+      try {
+        await window.desktop.sidebarCommand(command);
+      } finally {
+        if (command.kind === "resume" || command.kind === "new-conversation")
+          snapshot(await window.desktop.workspace());
+      }
       if (command.kind === "close") {
         rows = rows.filter((row) => row.id !== command.id);
         if (command.id === shellId) shellId = pendingShell;
@@ -287,7 +319,7 @@ export function createAppSource(): BoardSource {
       };
     },
     tail: (id) =>
-      id !== pendingShell && rows.some((row) => row.id === id)
+      id !== pendingShell && rows.some((row) => row.id === id && !row.dormant)
         ? window.desktop.tail(id, 40)
         : Promise.resolve([]),
     markSeen: (id) => {

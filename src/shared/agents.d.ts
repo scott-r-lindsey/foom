@@ -22,6 +22,8 @@ export interface AgentHooks {
   dispose(): void;
 }
 export interface AgentLaunch {
+  readonly terminalId?: string;
+  readonly conversationId?: string;
   /** Validated defaults from main settings, never copied from a renderer launch request. */
   readonly defaultArguments?: readonly string[];
   /** Main-only authorization; never copied from renderer payloads. */

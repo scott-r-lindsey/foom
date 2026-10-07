@@ -28,6 +28,11 @@ export interface WorkspaceTerminal {
   attention: "hooks" | "evaluator";
   state: TerminalState | null;
   exited?: boolean;
+  conversationId?: string;
+  /** No host screen exists for a restored or failed-to-relaunch session. */
+  dormant?: boolean;
+  /** Changes when an exited terminal is relaunched under the same ID. */
+  launchVersion?: number;
   /** Known bypass argument present at launch; does not infer global agent policy. */
   bypass?: boolean;
 }
@@ -97,4 +102,7 @@ export type SidebarCommand =
   | { kind: "remove-repository"; repository: string }
   | { kind: "stop"; id: string }
   | { kind: "close"; id: string }
-  | { kind: "restart"; id: string };
+  | { kind: "restart"; id: string }
+  | { kind: "resume"; id: string }
+  | { kind: "new-conversation"; id: string }
+  | { kind: "copy-session-id"; id: string };

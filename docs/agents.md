@@ -14,6 +14,31 @@ Discovery regression tests cover the baseline, Claude 2.1.285 / 2.2.0 / 3.0.0 an
 
 Only help/version, two synthetic model calls, and startup PTY behavior were tested locally. Notification timing, actual approval dialogs during tool use, password prompts, Windows, and macOS were not exercised. No global configuration was edited; normal CLI runtime state is separate from configuration. No repository content or real terminal tail was supplied to the model probes.
 
+## Resume exited conversations (#115)
+
+Checked installed CLI help on Linux on 2026-10-07: Claude Code supports
+`--resume <id>`; Codex supports `resume <SESSION_ID>`; Antigravity supports
+`--conversation <id>`. Foom offers Resume for Claude and Codex only: Antigravity
+has no verified invocation-scoped adapter for capturing its conversation ID.
+
+The authenticated receiver captures Claude `session_id` and Codex `thread-id`
+from supported hook/notify events. IDs must be 1–200 ASCII letters, digits,
+underscores or hyphens, starting with a letter or digit. Options, paths, whitespace,
+control characters and shell syntax are rejected. Each launch pins its first ID;
+mismatched subsequent events are rejected. IDs are local metadata, never model input.
+No transcript or agent runtime file is read. Codex notifies at turn completion;
+if it exits or updates before any notification, Foom cannot recover an unknown ID.
+Hooks-disabled launches likewise cannot capture an ID.
+
+Session metadata is saved privately in Foom's profile and restores as exited rows.
+Resume revalidates repository/worktree membership and identity, resolves the agent
+executable, and uses argument arrays with fresh per-launch hooks, current defaults
+and the existing shared-checkout/notifier confirmations. It preserves the terminal
+ID, row, name and checkout. New conversation clears the old ID only after launch
+succeeds. Copy session ID copies the full value. Close forgets Foom's record without
+removing the checkout or the agent's conversation. The CLI owns conversation retention;
+if it has removed a conversation, its resume error remains visible in the terminal.
+
 ## Default launch arguments (#164)
 
 Re-verified installed `--version` and `--help` on Linux on 2026-10-06:
@@ -46,6 +71,12 @@ to protect hooks (`--bare` skips hooks defined in settings and plugins).
 `--no-alt-screen` is reserved for Foom's display. Codex overrides whose key path sets `notify` or `hooks` are rejected, including `-c notify=…`,
 `--config=notify=…`, attached short forms and nested keys. The `--` terminator is
 also rejected because it would turn Foom's flags into positional arguments.
+
+Conversation selectors are reserved for Foom's session actions: Claude resume,
+continue, session-ID and fork-session flags; Codex `resume`/`fork` commands and
+`--last`/`--fork`; Antigravity conversation/continue flags. This prevents launch
+defaults from redirecting Resume or turning New conversation into a continuation.
+Other agent arguments retain the existing validation and literal argv behavior.
 
 The fixed bypass table includes the three Bypass flags above and Claude's
 `--permission-mode bypassPermissions` and `--permission-mode=bypassPermissions`.

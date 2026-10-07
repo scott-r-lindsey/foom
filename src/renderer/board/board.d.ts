@@ -5,6 +5,11 @@ export interface BoardRow {
   repositoryPath?: string;
   worktree?: string;
   exited?: boolean;
+  conversationId?: string | undefined;
+  /** No host screen exists for a restored or failed-to-relaunch session. */
+  dormant?: boolean;
+  /** Changes when an exited terminal is relaunched under the same ID. */
+  launchVersion?: number;
   /** Known bypass argument present at launch; does not infer global agent policy. */
   bypass?: boolean;
   kind: "sample" | "shell" | "agent";

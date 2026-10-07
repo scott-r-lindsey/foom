@@ -6,6 +6,7 @@ import type { CSSProperties } from "react";
 export interface RowAction {
   label: string;
   badge?: string;
+  hint?: string;
   run: () => void | Promise<void>;
 }
 /** A body portal escapes scrolling and stacking contexts; positioning remains viewport-relative. */
@@ -125,6 +126,7 @@ export function RowMenu({
               <span className="menu-label">
                 {selected === index && confirmation.arm ? confirmation.arm.label : action.label}
               </span>
+              {action.hint && <span className="menu-hint">{action.hint}</span>}
             </button>
           ) : (
             <hr key={`separator-${String(index)}`} />

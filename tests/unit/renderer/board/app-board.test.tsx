@@ -413,3 +413,67 @@ test("closing a local shell forgets its revoked ID and placeholder rows never at
   await source.shell?.restart();
   expect(mock.kill).not.toHaveBeenCalled();
 });
+
+test("restored sessions have no host view or tail and resuming clears previous exit evidence", async () => {
+  const source = createAppSource();
+  const disconnect = source.connect?.();
+  mock.workspace.mockResolvedValue({
+    repositories: [],
+    terminals: [{ ...agent("a"), exited: true, dormant: true, conversationId: "saved" }],
+  });
+  mock.changed?.();
+  await settle();
+  expect(source.getSnapshot()[0]).toMatchObject({
+    exited: true,
+    dormant: true,
+    conversationId: "saved",
+  });
+  expect(await source.tail("a")).toEqual([]);
+  expect(mock.tail).not.toHaveBeenCalled();
+  await source.createView?.().open("a");
+  expect(mock.open).not.toHaveBeenCalled();
+  mock.exit?.("a", 1);
+  mock.workspace.mockResolvedValue({
+    repositories: [],
+    terminals: [{ ...agent("a"), exited: false, conversationId: "saved" }],
+  });
+  await source.sidebarCommand?.({ kind: "resume", id: "a" });
+  expect(source.getSnapshot()[0]).toMatchObject({
+    exited: false,
+    dormant: false,
+    state: "working",
+    conversationId: "saved",
+  });
+  await source.createView?.().open("a");
+  expect(mock.open).toHaveBeenCalledWith("a");
+  mock.workspace.mockResolvedValue({
+    repositories: [],
+    terminals: [{ ...agent("a"), exited: false }],
+  });
+  await source.sidebarCommand?.({ kind: "new-conversation", id: "a" });
+  expect(source.getSnapshot()[0]?.conversationId).toBeUndefined();
+  disconnect?.();
+});
+
+test("an in-flight live snapshot cannot erase a newer process exit or roll back a relaunch", async () => {
+  const source = createAppSource();
+  const initial = { ...agent("a"), exited: false, launchVersion: 1 };
+  mock.workspace.mockResolvedValue({ repositories: [], terminals: [initial] });
+  const off = source.connect?.();
+  await settle();
+  mock.exit?.("a", 4);
+  mock.changed?.();
+  await settle();
+  expect(source.getSnapshot()[0]).toMatchObject({ exited: true, state: "failed" });
+  mock.workspace.mockResolvedValue({
+    repositories: [],
+    terminals: [{ ...initial, launchVersion: 2 }],
+  });
+  await source.sidebarCommand?.({ kind: "resume", id: "a" });
+  expect(source.getSnapshot()[0]).toMatchObject({ exited: false, launchVersion: 2 });
+  mock.workspace.mockResolvedValue({ repositories: [], terminals: [{ ...initial, exited: true }] });
+  mock.changed?.();
+  await settle();
+  expect(source.getSnapshot()[0]).toMatchObject({ exited: false, launchVersion: 2 });
+  off?.();
+});

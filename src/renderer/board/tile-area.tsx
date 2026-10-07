@@ -13,10 +13,12 @@ function TerminalView({
   view,
   session,
   active,
+  launchVersion,
 }: {
   view: TerminalViewSource;
   session: string | undefined;
   active: boolean;
+  launchVersion: number;
 }) {
   const status = useSyncExternalStore(view.subscribe, view.getSnapshot);
   const mount = useCallback(
@@ -25,7 +27,8 @@ function TerminalView({
   );
   useEffect(() => {
     void (active && session ? view.open(session) : view.hide());
-  }, [view, session, active]);
+    // A relaunch keeps its row ID but needs a fresh host attachment.
+  }, [view, session, active, launchVersion]);
   return (
     <>
       <span className="tile-status visually-hidden" role="status">
@@ -210,6 +213,7 @@ function Tile({
             view={view}
             session={row?.kind === "sample" ? undefined : row?.id}
             active={!inactive}
+            launchVersion={row?.launchVersion ?? 0}
           />
         </div>
       )}

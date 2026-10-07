@@ -55,8 +55,8 @@ to edit it; Enter or blur commits, Escape cancels, and an empty value restores t
 Rows launched with a known bypass argument also show a neutral ◇ Bypass label.
 This records launch flags, not inferred global agent policy; changing defaults does not
 change existing rows.
-Names persist as local UI metadata keyed by terminal ID. Terminal sessions themselves still
-live only as long as Foom; restoring agent conversations is tracked separately in #115.
+Names persist as local UI metadata keyed by terminal ID. Session rows and recorded
+conversation IDs survive Foom restarts as exited sessions; PTYs and screens do not.
 Hover or focus a session to peek without switching the pane. Click or press Enter to show
 its terminal and focus input, using the placement rules below. Needs you remains; Done and Failed dim once seen.
 
@@ -66,8 +66,19 @@ close it. Repository and worktree selection show breadcrumbs and location launch
 Repository launchers use the main checkout. Worktree launchers use the selected checkout,
 including worktrees created outside Foom and detached checkouts. Launchers name the user's shell and show only
 installed, enabled agents. New worktree opens the existing branch/agent dialog. A running
-session offers Stop; an exited session offers Close, plus Restart shell for shells. Close
-removes only the session, never the checkout. Worktree removal is available for linked checkouts created by any tool. It requires
+session offers Stop. An exited agent offers **Resume conversation** with a short ID hint
+when a validated Claude Code or Codex conversation ID was recorded, **New conversation
+here**, **Copy session ID** when an ID exists, then a separator and **Close**.
+Resume starts the same agent in the same checkout and row, with fresh per-launch hooks
+and current launch defaults. New conversation uses that row and checkout without a
+resume ID. Failed launches retain the saved conversation for retry. Copy uses the full ID.
+Antigravity has no verified ID capture adapter, so Resume is unavailable for it.
+An exited shell offers **Restart shell**, a separator and **Close**. Close removes the
+session and its stored record, never the checkout or the agent's own conversation files.
+Sessions restore without automatically launching agents. If no supported hook/notify event
+arrived before exit (including hooks-disabled launches), no conversation ID is available.
+
+Worktree removal is available for linked checkouts created by any tool. It requires
 confirmation, validates repository membership and worktree identity, and rechecks dirty
 files before deletion. The branch is kept; the main checkout cannot be removed. Repository removal forgets its
 registration, retains files and refuses while it has sessions or Foom-owned worktrees.
@@ -277,6 +288,12 @@ unchanged. Codex `danger-full-access` sandbox flags and `sandbox_mode` overrides
 also count as bypass, even with approvals enabled. Known bypass detection is a
 fixed table, not an effective-policy audit. On load, an invalid agent's stored
 argument list is dropped without resetting other settings or other agents' lists.
+
+Conversation selectors are reserved for Foom's session actions: Claude resume,
+continue, session-ID and fork-session flags; Codex `resume`/`fork` commands and
+`--last`/`--fork`; Antigravity conversation/continue flags. This prevents launch
+defaults from redirecting Resume or turning New conversation into a continuation.
+Other agent arguments retain the existing validation and literal argv behavior.
 
 Appearance shares the preflight rail's System/Light/Dark and interface-size controls.
 Changing either view is reflected in the other without restarting.
