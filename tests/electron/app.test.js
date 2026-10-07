@@ -2698,9 +2698,11 @@ test("external worktrees support independent shells and confirmed shared agents"
     assert.equal((await sharedSessions()).length, 3, "Cancel must not create an agent");
     await page.getByRole("button", { name: "Actions for agent", exact: true }).click();
     await page.getByRole("menuitem", { name: "Claude Code", exact: true }).click();
-    // The minimum elapsed time is the behavior under test.
+    const sharedArm = page.getByRole("menuitem", { name: "Click again for two agents here" });
+    await expect(sharedArm).toBeVisible();
+    // Measure the minimum interval from main's arm, not from the async launch request.
     await page.waitForTimeout(310);
-    await page.getByRole("menuitem", { name: "Click again for two agents here" }).click();
+    await sharedArm.click();
     await expect
       .poll(async () => (await sharedSessions()).filter((t) => t.kind === "agent").length)
       .toBe(2);
@@ -3890,6 +3892,8 @@ test("click-again repository removal rejects double clicks, cancels, expires and
   const repo = path.join(profile, "remove-fixture");
   await mkdir(repo);
   isolatedGit(["init", "-q", repo]);
+  const keptFile = path.join(repo, "keep.txt");
+  await writeFile(keptFile, "repository contents");
   await app.evaluate(({ dialog }, repo) => {
     dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [repo] });
   }, repo);
@@ -3912,7 +3916,11 @@ test("click-again repository removal rejects double clicks, cancels, expires and
   await page.waitForTimeout(310);
   await armed.click();
   await expect(actions).toHaveCount(0);
-  assert.equal(await realpath(repo), repo, "Repository files are kept");
+  assert.equal(
+    await readFile(keptFile, "utf8"),
+    "repository contents",
+    "Repository files are kept",
+  );
 });
 
 test("trusted quit dialog isolates answers, passes axe in both themes and survives a board crash", {
@@ -3999,11 +4007,22 @@ test("trusted quit dialog isolates answers, passes axe in both themes and surviv
       parent.setBounds(bounds);
     }, bounds);
   }
-  await app.evaluate(({ BrowserWindow }) =>
-    BrowserWindow.getAllWindows()
-      .find((window) => window.webContents.getURL() === "app://bundle/index.html")
-      .webContents.forcefullyCrashRenderer(),
-  );
+  const boardPid = await app.evaluate(({ BrowserWindow }) => {
+    const contents = BrowserWindow.getAllWindows().find(
+      (window) => window.webContents.getURL() === "app://bundle/index.html",
+    ).webContents;
+    globalThis.boardCrash = null;
+    contents.once("render-process-gone", (_event, details) => {
+      globalThis.boardCrash = { reason: details.reason, crashed: contents.isCrashed() };
+    });
+    return contents.getOSProcessId();
+  });
+  assert.ok(Number.isInteger(boardPid) && boardPid > 0, "Board renderer PID must be valid");
+  // Terminate only this test app's board renderer, then wait for main to observe the loss.
+  process.kill(boardPid);
+  await expect
+    .poll(() => app.evaluate(() => globalThis.boardCrash))
+    .toMatchObject({ crashed: true });
   await quitAndWait(app, async () => {
     await app.evaluate(({ app }) => app.quit());
     await expect(dialog.getByRole("alertdialog")).toHaveAccessibleName(

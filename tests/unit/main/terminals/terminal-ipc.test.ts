@@ -108,6 +108,7 @@ function fakePty() {
 let ptys: ReturnType<typeof fakePty>[];
 const frame = { url: "app://bundle/index.html" };
 const contents = {
+  getURL: () => frame.url,
   isCrashed: vi.fn(() => false),
   isDestroyed: () => false,
   mainFrame: frame,
@@ -152,6 +153,7 @@ let terminalControl: ReturnType<typeof attachTerminal>;
 const exited = vi.fn();
 beforeEach(() => {
   vi.clearAllMocks();
+  contents.isCrashed.mockReturnValue(false);
   ptys = [];
   mock.app.isPackaged = false;
   contents.send.mockImplementation((channel: string, ids: unknown, token: unknown) => {
@@ -1098,3 +1100,45 @@ test("headless titles and progress reach main only after parsing, without a view
     progress: { state: 1, value: 61 },
   });
 });
+
+test.each(["notification", "crash-state"])(
+  "activity ignores disposed frames via %s and resumes after reload",
+  async (signal) => {
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval", "performance"] });
+    const restoreFrame = () => {
+      Object.defineProperty(frame, "url", {
+        configurable: true,
+        writable: true,
+        value: "app://bundle/index.html",
+      });
+    };
+    try {
+      const id = await create();
+      output("Still running after the board crashes");
+      await invoke("tail", [id, 1]);
+      if (signal === "notification")
+        contents.on.mock.calls.find(([name]) => name === "render-process-gone")?.[1]();
+      else contents.isCrashed.mockReturnValue(true);
+      Object.defineProperty(frame, "url", {
+        configurable: true,
+        get() {
+          throw new Error("Render frame was disposed");
+        },
+      });
+      contents.send.mockClear();
+      expect(() => vi.advanceTimersByTime(100)).not.toThrow();
+      expect(contents.send).not.toHaveBeenCalled();
+      restoreFrame();
+      contents.isCrashed.mockReturnValue(false);
+      contents.on.mock.calls.find(([name]) => name === "did-finish-load")?.[1]();
+      vi.advanceTimersByTime(100);
+      expect(contents.send).toHaveBeenCalledWith("terminal:activity", [
+        expect.objectContaining({ id }),
+      ]);
+    } finally {
+      restoreFrame();
+      for (const terminal of ptys) terminal.emitExit();
+      vi.useRealTimers();
+    }
+  },
+);

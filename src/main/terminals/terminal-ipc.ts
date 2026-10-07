@@ -41,6 +41,7 @@ export function attachTerminal(
     event.senderFrame !== null &&
     event.senderFrame === event.sender.mainFrame &&
     event.senderFrame.url === "app://bundle/index.html";
+  let rendererAlive = true;
   const manager = new TerminalHostClient(
     (id, code) => {
       running.delete(id);
@@ -61,7 +62,14 @@ export function attachTerminal(
         if (owned.has(id)) events.onQuiet?.(id);
       },
       onActivity: (batch) => {
-        if (contents.isDestroyed() || contents.mainFrame.url !== "app://bundle/index.html") return;
+        // A crashed WebContents survives, but its WebFrameMain no longer does.
+        if (
+          !rendererAlive ||
+          contents.isDestroyed() ||
+          contents.isCrashed() ||
+          contents.getURL() !== "app://bundle/index.html"
+        )
+          return;
         const entries = batch.filter(({ id }) => owned.has(id));
         if (entries.length) contents.send("terminal:activity", entries);
       },
@@ -77,7 +85,6 @@ export function attachTerminal(
     cols <= 500 &&
     rows >= 2 &&
     rows <= 300;
-  let rendererAlive = true;
   const rendererLoaded = () => {
     rendererAlive = true;
   };
