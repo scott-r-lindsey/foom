@@ -1509,3 +1509,24 @@ test("snapshots bypass policy per launch and never accepts defaults from a rende
   expect(workspace.snapshot().terminals.find(({ id }) => id === "t2")?.bypass).toBe(false);
   await workspace.dispose();
 });
+
+test("agent screens work without OSC and title evidence remains local to the launched agent", async () => {
+  const workspace = await launched();
+  tails.set("t1", ["───", "Enter to confirm · Esc to cancel"]);
+  await workspace.quiet("t1");
+  expect(states.at(-1)?.signal).toBe("rules:claude:live_blocked_form");
+  await workspace.evidence("t1", { title: "✳ Claude Code", progress: { state: 0, value: null } });
+  expect(evaluated.at(-1)?.evidence?.title).toBe("✳ Claude Code");
+  await workspace.evidence("shell", { title: "Action Required", progress: null });
+  expect(evaluated.at(-1)?.terminalId).toBe("t1");
+  const count = evaluated.length;
+  await workspace.evidence("t1", { title: "✳ Claude Code", progress: { state: 1, value: 25 } });
+  await workspace.evidence("t1", { title: "unrecognized", progress: { state: 1, value: 50 } });
+  expect(evaluated).toHaveLength(count);
+  await workspace.quiet("t1");
+  expect(evaluated.at(-1)?.evidence?.progress).toEqual({ state: 1, value: 50 });
+  await workspace.exited("t1", 0);
+  await workspace.evidence("t1", { title: "busy", progress: null });
+  expect(states.at(-1)?.signal).toBe("process:exit");
+  await workspace.dispose();
+});

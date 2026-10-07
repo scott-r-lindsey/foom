@@ -1,3 +1,5 @@
+import { cleanTitle, parseProgress } from "../shared/agent-evidence";
+import type { AgentEvidence } from "../shared/agent-detection";
 import { prepareShell } from "./shell-integration";
 import type { TerminalTheme } from "../shared/terminal-theme";
 import { TerminalActivityMeter } from "./terminal-activity";
@@ -12,6 +14,8 @@ import type { TerminalTelemetry, TerminalSpec } from "../shared/desktop";
 
 type View = { token: string; send: (token: string, data: string) => void };
 type Session = {
+  evidence: AgentEvidence;
+  evidenceChanged: boolean;
   pty: IPty;
   screen: Terminal;
   serialize: SerializeAddon;
@@ -86,6 +90,8 @@ export class TerminalManager {
       if (!session.exited) pty.write(data);
     });
     const session: Session = {
+      evidence: { title: "", progress: null },
+      evidenceChanged: false,
       colors,
       pty,
       screen,
@@ -103,6 +109,25 @@ export class TerminalManager {
     this.sessions.set(id, session);
     this.activity.start(id);
     session.subscriptions = [
+      screen.onTitleChange((title) => {
+        const cleaned = cleanTitle(title);
+        if (session.evidence.title !== cleaned) {
+          session.evidence.title = cleaned;
+          session.evidenceChanged = true;
+        }
+      }),
+      screen.parser.registerOscHandler(9, (data) => {
+        const progress = parseProgress(data);
+        if (!progress) return false;
+        if (
+          session.evidence.progress?.state !== progress.state ||
+          session.evidence.progress.value !== progress.value
+        ) {
+          session.evidence.progress = progress;
+          session.evidenceChanged = true;
+        }
+        return true;
+      }),
       // The host is the response owner, whether or not a renderer is attached.
       screen.onData((data) => {
         if (!session.exited) pty.write(data);
@@ -120,6 +145,10 @@ export class TerminalManager {
           if (data) this.activity.parsed(id, this.readTail(session, 1).at(-1) ?? "");
           session.parserPending -= data.length;
           if (session.parserPending < 65536) session.parserBlocked = false;
+          if (session.parserPending === 0 && session.evidenceChanged && !session.exited) {
+            session.evidenceChanged = false;
+            this.events.onEvidence?.(id, { ...session.evidence });
+          }
           this.deliver(session, data);
           this.updateFlow(session);
         });

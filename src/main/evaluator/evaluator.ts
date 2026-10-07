@@ -1,3 +1,4 @@
+import { detectAgent } from "./agent-rules";
 import type { EvaluationInput, Verdict } from "../../shared/evaluator";
 
 function verdict(
@@ -20,6 +21,17 @@ export function evaluateRules(input: EvaluationInput): Verdict {
   if (input.hook?.terminalId === input.terminalId && input.hook.action === "needs_input") {
     return verdict("needs_input", "Agent requests permission", input.hook.signal, 1);
   }
+  const detected =
+    input.agent && input.evidence
+      ? detectAgent(input.agent, input.evidence, input.tail)
+      : undefined;
+  if (detected && (detected.state === "working" || detected.state === "blocked"))
+    return verdict(
+      detected.state === "blocked" ? "needs_input" : "working",
+      detected.reason,
+      `rules:${input.agent ?? ""}:${detected.id}`,
+      0.95,
+    );
   if (input.promptReturned === true) {
     return verdict("done", "Shell prompt returned", "process:prompt", 0.95);
   }
@@ -58,5 +70,7 @@ export function evaluateRules(input: EvaluationInput): Verdict {
   ) {
     return verdict("quiet_ok", "Server is listening", "pattern:server", 0.9);
   }
+  if (detected?.state === "idle")
+    return verdict("working", detected.reason, `rules:${input.agent ?? ""}:${detected.id}`, 0.25);
   return verdict("working", "No completion or input request detected", "rules:ambiguous", 0.25);
 }

@@ -1,3 +1,4 @@
+import type { AgentEvidence } from "./agent-detection";
 import type { BoardCommand } from "./board-command";
 export interface TerminalActivity {
   id: string;
@@ -5,6 +6,7 @@ export interface TerminalActivity {
 }
 export type ShellState = { phase: "running" } | { phase: "prompt"; exitCode: number };
 export interface TerminalTelemetry {
+  onEvidence?(id: string, evidence: AgentEvidence): void;
   onShellState?(id: string, state: ShellState): void;
   onOutput?(id: string): void;
   onActivity?(batch: TerminalActivity[]): void;
@@ -24,6 +26,7 @@ import type { SetupApi } from "./setup";
 import type { WorkspaceApi } from "./workspace";
 
 export interface DesktopApi extends WorkspaceApi, SetupApi {
+  readonly isDevelopment: boolean;
   create(cols: number, rows: number): Promise<{ id: string; title: string }>;
   attach(id: string): Promise<void>;
   detach(id: string): Promise<void>;

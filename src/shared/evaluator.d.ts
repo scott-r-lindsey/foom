@@ -1,3 +1,5 @@
+import type { AgentEvidence } from "./agent-detection";
+import type { AgentId } from "./agents";
 import type { HookSignal } from "./hooks";
 
 export type VerdictState = "needs_input" | "done" | "failed" | "quiet_ok" | "working";
@@ -9,6 +11,8 @@ export interface Verdict {
 }
 /** Main-process evidence. Prompt return must be observed, never guessed from tail text. */
 export interface EvaluationInput {
+  agent?: AgentId;
+  evidence?: AgentEvidence;
   terminalId: string;
   tail: readonly string[];
   hook?: HookSignal;

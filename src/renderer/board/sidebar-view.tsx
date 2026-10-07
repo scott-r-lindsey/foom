@@ -310,11 +310,12 @@ export function Sidebar({
   return (
     <aside className="sidebar-shell" data-compact={compact}>
       <header className="board-top">
-        <h1 className="wordmark" aria-label="foom">
+        <h1 className="wordmark" aria-label={source.isDevelopment ? "foom dev" : "foom"}>
           <span aria-hidden="true">
             fo
             <span className="wordmark-hole" />m
           </span>
+          {source.isDevelopment && <span className="dev-profile">Dev</span>}
         </h1>
         <p className="board-summary" role="status">
           {rows.filter((row) => row.state === "needs_input").length} need you ·{" "}

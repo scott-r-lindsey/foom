@@ -1,0 +1,46 @@
+{
+  "agent": "claude",
+  "version": "2.1.291",
+  "state": "question",
+  "platform": "linux",
+  "date": "2026-10-06",
+  "size": {
+    "cols": 110,
+    "rows": 32
+  },
+  "rules": ["live_question_form"],
+  "titles": [
+    "✳ Claude Code",
+    "◐ Claude Code",
+    "◐ UI test color choice",
+    "◑ UI test color choice",
+    "◐ UI test color choice",
+    "✳ UI test color choice"
+  ],
+  "progress": null,
+  "tail": [
+    "",
+    " ▐▛███▛█   Claude Code v2.1.291",
+    "▝▜██████▀  Opus 5.5 · [plan]",
+    " ▝▝   ▝▝   /scratch/agent",
+    "",
+    "▎ ※ [account notice redacted] · /claim-credit",
+    "  1 more notice hidden",
+    "",
+    "❯ Use AskUserQuestion to ask me to choose red or blue for this UI test. Do not inspect any files.",
+    "──────────────────────────────────────────────────────────────────────────────────────────────────────────────",
+    " ☐ Color",
+    "",
+    "Which color would you like for this UI test?",
+    "",
+    "❯ 1. Red",
+    "     Use red for the UI test.",
+    "  2. Blue",
+    "     Use blue for the UI test.",
+    "  3. Type something.",
+    "──────────────────────────────────────────────────────────────────────────────────────────────────────────────",
+    "  4. Chat about this",
+    "",
+    "Enter to select · ↑/↓ to navigate · Esc to cancel"
+  ]
+}

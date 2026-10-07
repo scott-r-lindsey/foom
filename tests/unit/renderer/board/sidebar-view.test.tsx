@@ -340,3 +340,13 @@ test("bypass launches have a neutral glyph and text in the session row", () => {
   expect(badge.closest(".board-row")?.getAttribute("aria-label")).toContain("Bypass");
   expect(badge.querySelector('[aria-hidden="true"]')?.textContent).toBe("◇");
 });
+
+test.each([false, true])(
+  "marks development builds with neutral sidebar text (%s)",
+  (isDevelopment) => {
+    const source = { ...createSampleSource([]), isDevelopment };
+    const view = render(<Board source={source} />);
+    expect(view.queryByText("Dev") !== null).toBe(isDevelopment);
+    expect(view.getByRole("heading", { name: isDevelopment ? "foom dev" : "foom" })).toBeTruthy();
+  },
+);

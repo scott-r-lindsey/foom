@@ -60,19 +60,24 @@ await cp(
   { recursive: true },
 );
 
-// Keep complete font licenses and glyph attributions in a single packaged notice,
-// as well as beside the font assets. No network or font conversion at build time.
-const fontNotices = ["src/shared/terminal-theme-LICENSE.txt"];
+// Aggregate the complete licenses and modification notices for bundled assets and
+// derived agent rules. Source reference checkouts are never packaged or read here.
+const thirdPartyNotices = [
+  "src/shared/terminal-theme-LICENSE.txt",
+  "src/main/evaluator/agent-rules/LICENSE.txt",
+];
 for await (const name of glob("src/renderer/fonts/*.txt", { cwd: root })) {
-  fontNotices.push(name);
+  thirdPartyNotices.push(name);
 }
-fontNotices.sort();
+thirdPartyNotices.sort();
 await writeFile(
   join(root, "build/THIRD_PARTY_NOTICES.txt"),
-  "Foom bundled font and terminal palette licenses and attributions\n\n" +
+  "Foom bundled third-party licenses and attributions\n\n" +
     (
       await Promise.all(
-        fontNotices.map(async (name) => `${name}\n\n${await readFile(join(root, name), "utf8")}`),
+        thirdPartyNotices.map(
+          async (name) => `${name}\n\n${await readFile(join(root, name), "utf8")}`,
+        ),
       )
     ).join("\n\n"),
 );

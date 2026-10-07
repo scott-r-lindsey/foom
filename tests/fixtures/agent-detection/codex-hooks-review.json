@@ -1,0 +1,27 @@
+{
+  "agent": "codex",
+  "version": "0.160.1",
+  "state": "hooks-review",
+  "platform": "linux",
+  "date": "2026-10-06",
+  "size": {
+    "cols": 110,
+    "rows": 32
+  },
+  "rules": [],
+  "titles": [],
+  "progress": null,
+  "tail": [
+    "",
+    "  Hooks need review",
+    "  1 hook is new or changed.",
+    "  Hooks can run outside the sandbox after you trust them.",
+    "",
+    "",
+    "› 1. Review hooks                                                                                             ",
+    "  2. Trust all and continue",
+    "  3. Continue without trusting (hooks won't run)",
+    "",
+    "  enter confirm · esc skip                                                                                    "
+  ]
+}

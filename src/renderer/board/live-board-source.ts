@@ -203,6 +203,7 @@ export function createAppSource(): BoardSource {
     };
   };
   return {
+    isDevelopment: window.desktop.isDevelopment,
     connect,
     createView: () => {
       const view = createTerminalView(scheduleView, owners, (id) =>
