@@ -55,6 +55,7 @@ const classify = vi.fn((input: EvaluationInput): Promise<VerdictRecord> => {
     verdict: evaluateRules(input),
   });
 });
+const forget = vi.fn<(id: string) => void>();
 const commit = vi.fn<(record: VerdictRecord) => Promise<void>>();
 const startReceiver = vi.fn(() => Promise.resolve(receiver));
 
@@ -67,6 +68,7 @@ beforeEach(() => {
   terminalTail.mockClear();
   classify.mockClear();
   commit.mockReset().mockResolvedValue();
+  forget.mockClear();
   startReceiver.mockClear();
   receiver = {
     register: vi.fn<(key: string, agent: HookAgent) => HookLaunch>(() => ({
@@ -105,6 +107,7 @@ beforeEach(() => {
       tail: terminalTail,
     },
     verdicts: {
+      forget,
       classify,
       commit,
       recordAction,
@@ -255,11 +258,11 @@ test("a permission hook stays in force across later quiet evaluations until a re
   expect(states.at(-1)).toMatchObject({ state: "needs_input", signal: "claude:PermissionRequest" });
   // The TUI's dialog doesn't match any text rule; the hook keeps the verdict.
   await workspace.quiet("t1");
-  expect(states.at(-1)).toMatchObject({ state: "needs_input", verdictId: "v2" });
+  expect(states.at(-1)).toMatchObject({ state: "needs_input", verdictId: "v1" });
 
   workspace.input("t1");
   expect(states.at(-1)).toMatchObject({ state: "working", verdictId: null, signal: "user:reply" });
-  expect(recordAction).toHaveBeenCalledWith("t1", "v2", "replied");
+  expect(recordAction).toHaveBeenCalledWith("t1", "v1", "replied");
   await workspace.quiet("t1");
   expect(evaluated.at(-1)?.hook).toBeUndefined();
   // Typing when nothing is waiting records nothing.
@@ -359,6 +362,7 @@ test("dismissal records feedback and clears attention; stale or ignored feedback
   await workspace.quiet("t1");
   await workspace.feedback("t1", "v1", "ignored");
   expect(states.at(-1)?.state).toBe("needs_input");
+  tails.set("t1", ["Password:"]);
   await workspace.quiet("t1");
   await workspace.feedback("t1", "v1", "dismissed");
   expect(states.at(-1)?.verdictId).toBe("v2");
@@ -453,7 +457,8 @@ test("an evaluation that was in flight during a reply can't restore attention", 
   const workspace = await launched();
   await workspace.quiet("t1");
   expect(states.at(-1)).toMatchObject({ state: "needs_input", verdictId: "v1" });
-  // The second evaluation classifies, then waits on its log write.
+  // A different signal classifies, then waits on its log write.
+  tails.set("t1", ["Password:"]);
   const write = held<undefined>();
   commit.mockReturnValueOnce(write.promise);
   const pending = workspace.quiet("t1");
@@ -1525,4 +1530,74 @@ test("agent screens work without OSC and title evidence remains local to the lau
   await workspace.evidence("t1", { title: "busy", progress: null });
   expect(states.at(-1)?.signal).toBe("process:exit");
   await workspace.dispose();
+});
+
+test.each([
+  { agent: "claude", titles: ["◐ Claude", "◓ Claude", "◑ Claude", "◒ Claude"] },
+  { agent: "codex", titles: ["⠋ codex", "⠙ codex", "⠹ codex", "⠸ codex"] },
+  { agent: "codex", titles: ["[ . ] Action Required", "[ ! ] Action Required"] },
+] as const)("$agent animated titles commit once: $titles", async ({ agent, titles }) => {
+  const workspace = new Workspace(deps);
+  await workspace.launch({ agent, repository: repo.path, worktree: tree.path, cols: 80, rows: 24 });
+  for (const title of [...titles, ...titles])
+    await workspace.evidence("t1", { title, progress: null });
+  expect(terminalTail).toHaveBeenCalledTimes(1);
+  expect(commit).toHaveBeenCalledTimes(1);
+  const state = states.at(-1);
+  await workspace.quiet("t1");
+  expect(evaluated.at(-1)?.evidence?.title).toBe(titles.at(-1));
+  expect(commit).toHaveBeenCalledTimes(1);
+  expect(states).toHaveLength(1);
+  expect(states.at(-1)).toBe(state);
+  await workspace.dispose();
+});
+
+test("working, blocked and idle title transitions each evaluate", async () => {
+  const workspace = new Workspace(deps);
+  await workspace.launch({
+    agent: "codex",
+    repository: repo.path,
+    worktree: tree.path,
+    cols: 80,
+    rows: 24,
+  });
+  tails.set("t1", []);
+  for (const title of ["⠋ codex", "[ ! ] Action Required", "codex", "⠙ codex"])
+    await workspace.evidence("t1", { title, progress: null });
+  expect(commit).toHaveBeenCalledTimes(4);
+  expect(states.map(({ signal }) => signal)).toEqual([
+    "rules:codex:osc_title_working",
+    "rules:codex:osc_title_blocked",
+    "rules:codex:osc_title_idle",
+    "rules:codex:osc_title_working",
+  ]);
+  workspace.removed("t1");
+  expect(forget).toHaveBeenCalledWith("t1");
+  await workspace.dispose();
+});
+
+test("slow repeated classification preserves the verdict ID across Checking", async () => {
+  vi.useFakeTimers();
+  try {
+    const workspace = new Workspace(deps);
+    await workspace.quiet("t1");
+    const original = states.at(-1);
+    const response = Promise.withResolvers<VerdictRecord>();
+    classify.mockReturnValueOnce(response.promise);
+    const pending = workspace.quiet("t1");
+    await vi.advanceTimersByTimeAsync(151);
+    expect(states.at(-1)?.state).toBe("checking");
+    response.resolve({
+      id: "duplicate",
+      terminalId: "t1",
+      timestamp: "later",
+      verdict: evaluateRules({ terminalId: "t1", tail: ["Continue? (y/n)"] }),
+    });
+    await pending;
+    expect(states.at(-1)).toBe(original);
+    expect(commit).toHaveBeenCalledTimes(1);
+    await workspace.dispose();
+  } finally {
+    vi.useRealTimers();
+  }
 });
