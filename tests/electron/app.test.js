@@ -4273,13 +4273,14 @@ test("external Git changes refresh inventory and retain sessions in removed work
     .poll(async () => (await page.evaluate(() => window.desktop.workspace())).terminals.length)
     .toBe(1);
   const terminal = await page.evaluate(async () => (await window.desktop.workspace()).terminals[0]);
-  // Windows holds a live process's cwd open. Move the shell while retaining its
-  // launch location, so the same test exercises removal on every platform.
+  // Windows locks the process cwd, which is separate from PowerShell's location.
+  // Move and verify both before removing the worktree, retaining the live session
+  // and its original launch location so every platform exercises the same behavior.
   const quoted = `'${repo.replaceAll("'", process.platform === "win32" ? "''" : "'\\''")}'`;
   const input =
     process.platform === "win32"
-      ? `Set-Location -LiteralPath ${quoted}; Write-Output ('moved-' + 'ready')\r`
-      : `cd ${quoted}; printf 'moved-%s\\n' ready\r`;
+      ? `$ErrorActionPreference = 'Stop'; Set-Location -LiteralPath ${quoted}; [System.IO.Directory]::SetCurrentDirectory((Get-Location).ProviderPath); if ([System.IO.Directory]::GetCurrentDirectory() -eq ${quoted}) { Write-Output ('moved-' + 'ready') } else { throw 'Process cwd did not move' }\r`
+      : `cd ${quoted} && printf 'moved-%s\\n' ready\r`;
   await page.evaluate(({ id, input }) => window.desktop.input(id, input), {
     id: terminal.id,
     input,
