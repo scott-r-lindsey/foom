@@ -3927,6 +3927,34 @@ test("trusted quit dialog isolates answers, passes axe in both themes and surviv
     await board.evaluate((colorMode) => window.desktop.saveSetup({ colorMode }), colorMode);
     await app.evaluate(({ app }) => app.quit());
     await expect(dialog.getByRole("alertdialog")).toBeVisible();
+    const bounds = await app.evaluate(({ BrowserWindow }) => {
+      const parent = BrowserWindow.getAllWindows().find(
+        (window) => window.webContents.getURL() === "app://bundle/index.html",
+      );
+      if (parent.isEnabled()) throw Error("Parent must be disabled during confirmation");
+      const bounds = parent.getBounds();
+      parent.setBounds({
+        ...bounds,
+        x: bounds.x + 10,
+        y: bounds.y + 10,
+        width: bounds.width - 20,
+        height: bounds.height - 20,
+      });
+      return bounds;
+    });
+    await expect
+      .poll(() =>
+        app.evaluate(({ BrowserWindow }) => {
+          const parent = BrowserWindow.getAllWindows().find(
+            (window) => window.webContents.getURL() === "app://bundle/index.html",
+          );
+          const child = BrowserWindow.getAllWindows().find(
+            (window) => window.webContents.getURL() === "app://confirmation/confirmation.html",
+          );
+          return JSON.stringify(parent.getBounds()) === JSON.stringify(child.getBounds());
+        }),
+      )
+      .toBe(true);
     const id = await dialog.evaluate(() => {
       let id;
       const off = window.confirmation.render((request) => {
@@ -3961,6 +3989,13 @@ test("trusted quit dialog isolates answers, passes axe in both themes and surviv
     await expect(dialog.getByRole("button", { name: "Cancel" })).toBeFocused();
     await dialog.keyboard.press("Escape");
     await expect(dialog.getByRole("alertdialog")).toHaveCount(0);
+    await app.evaluate(({ BrowserWindow }, bounds) => {
+      const parent = BrowserWindow.getAllWindows().find(
+        (window) => window.webContents.getURL() === "app://bundle/index.html",
+      );
+      if (!parent.isEnabled()) throw Error("Parent must be enabled after cancellation");
+      parent.setBounds(bounds);
+    }, bounds);
   }
   await app.evaluate(({ BrowserWindow }) =>
     BrowserWindow.getAllWindows()

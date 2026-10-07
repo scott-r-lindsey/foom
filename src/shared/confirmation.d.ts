@@ -24,3 +24,9 @@ export interface ConfirmationWindowApi {
   render(callback: (request: DialogRequest | null) => void): () => void;
   answer(id: string, accepted: boolean): void;
 }
+
+/** Main-only requests: click-again is misclick protection, not a trust boundary. */
+export type WorkspaceConfirmation =
+  | { kind: "remove" | "stop" | "shared-agent" | "notifier" }
+  | { kind: "dirty-worktree"; title: string; changes: string };
+export type ConfirmWorkspace = (request: WorkspaceConfirmation) => Promise<boolean>;

@@ -16,6 +16,7 @@ class FakeWindow extends EventEmitter {
   });
   removeMenu = vi.fn();
   setBounds = vi.fn();
+  setBackgroundColor = vi.fn();
   show = vi.fn();
   hide = vi.fn();
   focus = vi.fn();
@@ -38,11 +39,13 @@ vi.mock("electron", () => ({
 }));
 import { TrustedDialog } from "../../../../src/main/confirmations/trusted-dialog";
 const theme = resolveInterfaceTheme("follow", false);
-const parent = {
+const parent = Object.assign(new EventEmitter(), {
+  isEnabled: () => true,
+  setEnabled: vi.fn(),
   getBounds: () => ({ x: 10, y: 20, width: 800, height: 600 }),
   isDestroyed: vi.fn(() => false),
   focus: vi.fn(),
-};
+});
 const content = {
   title: "Remove branch?",
   accept: "Discard 1 change and remove",
@@ -78,13 +81,15 @@ beforeEach(() => {
   mock.ipc.clear();
   mock.load.mockResolvedValue();
   parent.isDestroyed.mockReturnValue(false);
+  parent.removeAllListeners();
 });
 test("prewarms an isolated sandbox, rejects foreign frames, forged IDs and malformed answers", async () => {
   const dialog = setup();
   expect(window().show).not.toHaveBeenCalled();
   expect(mock.construct).toHaveBeenCalledWith(
     expect.objectContaining({
-      modal: true,
+      modal: false,
+      transparent: false,
       frame: false,
       show: false,
       webPreferences: expect.objectContaining({
@@ -160,5 +165,28 @@ test("page failures and crashes cancel; a subsequent request prepares a fresh re
   const id = await shown();
   answer(id, true);
   await expect(next).resolves.toBe(true);
+  dialog.dispose();
+});
+test("tracks parent bounds and focus only while pending and restores input on cancellation", async () => {
+  const dialog = setup();
+  const pending = dialog.request(content);
+  await shown();
+  expect(parent.setEnabled).toHaveBeenLastCalledWith(false);
+  window().setBounds.mockClear();
+  window().focus.mockClear();
+  parent.emit("move");
+  parent.emit("resize");
+  parent.emit("focus");
+  expect(window().setBounds).toHaveBeenCalledTimes(2);
+  expect(window().setBounds).toHaveBeenLastCalledWith(parent.getBounds());
+  expect(window().focus).toHaveBeenCalledOnce();
+  window().emit("close", { preventDefault: vi.fn() });
+  await expect(pending).resolves.toBe(false);
+  expect(parent.setEnabled).toHaveBeenLastCalledWith(true);
+  expect(parent.listenerCount("move")).toBe(0);
+  expect(parent.listenerCount("resize")).toBe(0);
+  expect(parent.listenerCount("focus")).toBe(0);
+  parent.emit("resize");
+  expect(window().setBounds).toHaveBeenCalledTimes(2);
   dialog.dispose();
 });

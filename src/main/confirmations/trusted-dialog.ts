@@ -13,6 +13,7 @@ export class TrustedDialog {
   private pending: { id: string; resolve: (answer: boolean) => void } | undefined;
   private queue: Promise<unknown> = Promise.resolve();
   private disposed = false;
+  private parentEnabled = true;
   constructor(
     private readonly parent: BrowserWindow,
     private readonly session: Session,
@@ -40,9 +41,10 @@ export class TrustedDialog {
     const window = new BrowserWindow({
       ...this.parent.getBounds(),
       parent: this.parent,
-      modal: true,
+      modal: false,
       frame: false,
-      transparent: true,
+      transparent: false,
+      backgroundColor: this.theme().colors.bg,
       show: false,
       resizable: false,
       skipTaskbar: true,
@@ -97,7 +99,13 @@ export class TrustedDialog {
         this.pending = { id, resolve };
       });
       const request: DialogRequest = { ...content, id, theme: this.theme() };
-      window.setBounds(this.parent.getBounds());
+      this.parentEnabled = this.parent.isEnabled();
+      this.parent.setEnabled(false);
+      this.parent.on("move", this.syncBounds);
+      this.parent.on("resize", this.syncBounds);
+      this.parent.on("focus", this.focusDialog);
+      this.syncBounds();
+      window.setBackgroundColor(request.theme.colors.bg);
       window.webContents.send("confirmation:render", request);
       window.show();
       window.focus();
@@ -106,13 +114,25 @@ export class TrustedDialog {
     this.queue = result;
     return result;
   }
+  private readonly syncBounds = () => {
+    if (this.pending && !this.parent.isDestroyed()) this.window?.setBounds(this.parent.getBounds());
+  };
+  private readonly focusDialog = () => {
+    if (this.pending) this.window?.focus();
+  };
   private finish(accepted: boolean): void {
     const pending = this.pending;
     this.pending = undefined;
     if (!pending) return;
     this.window?.webContents.send("confirmation:render", null);
     this.window?.hide();
-    if (!this.parent.isDestroyed()) this.parent.focus();
+    this.parent.removeListener("move", this.syncBounds);
+    this.parent.removeListener("resize", this.syncBounds);
+    this.parent.removeListener("focus", this.focusDialog);
+    if (!this.parent.isDestroyed()) {
+      this.parent.setEnabled(this.parentEnabled);
+      this.parent.focus();
+    }
     // Leave Electron's native IPC/close callback before resuming shutdown work.
     setImmediate(() => {
       pending.resolve(accepted);

@@ -235,6 +235,14 @@ renderer loss revoke pending arming. Generation checks reject delayed preparatio
 after cancellation. Existing workspace locks, identity/status rechecks and launch
 validation remain in force while an operation awaits confirmation.
 
+Workspace callbacks pass a typed confirmation kind, with an exhaustive label map;
+labels never depend on matching user-facing prose. Click-again only prevents
+misclicks: the board receives its nonce, so a compromised board can confirm after
+300 ms. It is not a trusted user-consent boundary. Data-discard and permission-widening
+actions must use the trusted window; a future bypass disclosure (#164/#167) must
+not use click-again. Integration with #167 must migrate its native bypass
+disclosure to this main-only `TrustedDialog` API.
+
 The board receives arm/end events through its source's `ConfirmationClient`.
 Menus and launch buttons keep only view state; pointer exit, focus movement and
 unmount disarm main. A trusted-dialog notification closes a menu and restores its
@@ -243,11 +251,20 @@ armed labels without closing a menu on expiry. The legacy launch and removal IPC
 entry points use the same gate; a renderer-supplied force or shared-checkout flag
 cannot answer a confirmation.
 
-`main/confirmations/trusted-dialog.ts` preloads one hidden, frameless modal window.
+`main/confirmations/trusted-dialog.ts` deliberately preloads one hidden, frameless
+child window at startup. The extra renderer process lives for the app's lifetime:
+this trades memory for immediate confirmation even when the board has crashed or
+hung. Do not move its initialization into the board or lazy-load it on quit.
 A separate in-memory session and `app://confirmation/confirmation.html` origin
 isolate its renderer process from the board. The window covers the parent's bounds;
-its page centers a raised card over a translucent scrim, so dimming and quit approval
-do not need the board to render. Main serializes requests, supplies the current
+its page centers a raised card over an opaque theme-derived backdrop. It covers
+rather than composites the board, avoiding black transparent windows on Linux
+without a compositor. Native `modal` is false to avoid macOS sheet presentation;
+main disables parent input, redirects parent focus to the child, follows parent
+move/resize events while pending, then removes listeners and restores input and
+focus on dismissal. Positioning remains subject to window-manager restrictions
+(for example native Wayland). Quit approval does not need the board to render.
+Main serializes requests, supplies the current
 resolved theme and content, and gives each request a new ID. Its sandboxed preload
 exposes only request rendering and answering; it buffers the request until the page
 subscribes. `confirmation:answer` validates the exact window, top frame, URL,

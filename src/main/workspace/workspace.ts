@@ -1,3 +1,4 @@
+import type { ConfirmWorkspace } from "../../shared/confirmation";
 import { detectAgent } from "../evaluator/agent-rules";
 import type { AgentEvidence } from "../../shared/agent-detection";
 import { basename } from "node:path";
@@ -214,29 +215,19 @@ export class Workspace {
       throw error;
     }
   }
-  private async confirmAgentLaunch(
-    worktree: string,
-    confirm: (message: string, detail?: string, changes?: string) => Promise<boolean>,
-  ): Promise<boolean> {
+  private async confirmAgentLaunch(worktree: string, confirm: ConfirmWorkspace): Promise<boolean> {
     const active = [...this.launched.values()].some(
       (entry) =>
         entry.worktree === worktree &&
         entry.kind === "agent" &&
         this.terminals.get(entry.id)?.exitCode === undefined,
     );
-    return (
-      !active ||
-      confirm(
-        "Run another agent in this checkout?",
-        "An agent is already running here. They can change the same files.",
-      )
-    );
+    return !active || confirm({ kind: "shared-agent" });
   }
 
   async launch(
     request: LaunchRequest,
-    confirm: (message: string, detail?: string, changes?: string) => Promise<boolean> = () =>
-      Promise.resolve(false),
+    confirm: ConfirmWorkspace = () => Promise.resolve(false),
   ): Promise<{ id: string; attention: "hooks" | "evaluator" } | null> {
     return this.withRepository(request.repository, async () => {
       const tree = (await this.worktrees(request.repository)).find(
@@ -292,8 +283,7 @@ export class Workspace {
 
   async startWorktree(
     request: StartWorktreeRequest,
-    confirm: (message: string, detail?: string, changes?: string) => Promise<boolean> = () =>
-      Promise.resolve(false),
+    confirm: ConfirmWorkspace = () => Promise.resolve(false),
   ): Promise<string | null> {
     return this.withRepository(request.repository, async () => {
       // Lock the logical branch before any async operation, including creation.
@@ -433,10 +423,7 @@ export class Workspace {
     };
   }
 
-  async sidebarCommand(
-    command: SidebarCommand,
-    confirm: (message: string, detail?: string, changes?: string) => Promise<boolean>,
-  ): Promise<void> {
+  async sidebarCommand(command: SidebarCommand, confirm: ConfirmWorkspace): Promise<void> {
     if (this.closed) throw new Error("Workspace is closed");
     if (command.kind === "stop" || command.kind === "close" || command.kind === "restart") {
       const entry = this.launched.get(command.id);
@@ -444,7 +431,7 @@ export class Workspace {
         throw new Error("Unknown session");
       const exited = this.terminals.get(command.id)?.exitCode !== undefined;
       if (command.kind === "stop") {
-        if (!(await confirm("Stop session?"))) return;
+        if (!(await confirm({ kind: "stop" }))) return;
         await this.deps.terminals.stop(command.id);
         return;
       }
@@ -459,9 +446,7 @@ export class Workspace {
     }
     this.known(command.repository);
     if (command.kind === "remove-repository") {
-      return this.removeRepository(command.repository, () =>
-        confirm("Remove repository?", "The checkout and branches are kept."),
-      );
+      return this.removeRepository(command.repository, () => confirm({ kind: "remove" }));
     }
     if (command.kind === "launch") {
       await this.startExisting(command.repository, command.worktree, command.run, confirm);
@@ -473,7 +458,11 @@ export class Workspace {
     if (!tree || tree.path === command.repository)
       throw new Error("Worktree is missing or is the main checkout");
     await this.removeTree(command.repository, tree.path, tree.branch, (branch, changes) =>
-      confirm(`Remove ${branch}?`, undefined, changes),
+      confirm(
+        changes
+          ? { kind: "dirty-worktree", title: `Remove ${branch}?`, changes }
+          : { kind: "remove" },
+      ),
     );
     this.deps.onChange?.();
   }
@@ -482,7 +471,7 @@ export class Workspace {
     repository: string,
     worktree: string,
     run: AgentId | "shell",
-    confirm: (message: string, detail?: string, changes?: string) => Promise<boolean>,
+    confirm: ConfirmWorkspace,
   ): Promise<void> {
     return this.withRepository(repository, async () => {
       const tree = (await this.worktrees(repository)).find((item) => item.path === worktree);
@@ -502,13 +491,7 @@ export class Workspace {
             !this.acknowledged &&
             scan.agents.some((agent) => agent.id === "codex" && agent.hooks)
           ) {
-            if (
-              !(await confirm(
-                "Replace your Codex notifier for this launch?",
-                "Foom attaches its notifier for this invocation. Your global configuration stays unchanged.",
-              ))
-            )
-              return;
+            if (!(await confirm({ kind: "notifier" }))) return;
             await this.deps.acknowledgeCodex();
             this.acknowledged = true;
           }

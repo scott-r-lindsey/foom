@@ -1,5 +1,5 @@
 import { ConfirmationArming } from "../confirmations/arming";
-import type { DialogContent } from "../../shared/confirmation";
+import type { DialogContent, ConfirmWorkspace } from "../../shared/confirmation";
 import { dialog, ipcMain } from "electron";
 import type { BrowserWindow, IpcMainInvokeEvent } from "electron";
 import type { AgentId } from "../../shared/agents";
@@ -90,10 +90,17 @@ export function attachWorkspace(
     if (!contents.isDestroyed() && contents.mainFrame.url === APP_URL)
       contents.send("confirmation:armed", arm, accepted);
   });
-  const confirmation = (target: string) => {
+  const labels = {
+    remove: "Click again to remove",
+    stop: "Click again to stop",
+    "shared-agent": "Click again for two agents here",
+    notifier: "Click again to replace notifier",
+  } satisfies Record<Exclude<Parameters<ConfirmWorkspace>[0]["kind"], "dirty-worktree">, string>;
+  const confirmation = (target: string): ConfirmWorkspace => {
     const generation = arming.begin();
-    return (message: string, _detail?: string, changes?: string): Promise<boolean> => {
-      if (changes) {
+    return (request): Promise<boolean> => {
+      if (request.kind === "dirty-worktree") {
+        const { title, changes } = request;
         const records = changes.split("\0");
         let count = 0;
         for (let index = 0; index < records.length; index++) {
@@ -103,21 +110,16 @@ export function attachWorkspace(
           // Porcelain -z adds a second pathname for renames and copies.
           if (/[RC]/u.test(status.slice(0, 2))) index++;
         }
+        if (contents.isDestroyed() || contents.mainFrame.url !== APP_URL)
+          return Promise.resolve(false);
         contents.send("confirmation:dialog");
         return requestDialog({
-          title: message,
+          title,
           changes,
           accept: `Discard ${String(count)} ${count === 1 ? "change" : "changes"} and remove`,
         });
       }
-      const label = message.startsWith("Run another")
-        ? "Click again for two agents here"
-        : message.startsWith("Replace")
-          ? "Click again to replace notifier"
-          : message.startsWith("Stop")
-            ? "Click again to stop"
-            : "Click again to remove";
-      return arming.ask(generation, target, label);
+      return arming.ask(generation, target, labels[request.kind]);
     };
   };
   const disarm = () => {
@@ -162,7 +164,11 @@ export function attachWorkspace(
         if (!owns(id)) throw new Error("Unknown or foreign terminal ID");
         const confirm = confirmation(JSON.stringify(["remove", id]));
         return workspace.removeWorktree(id, (branch, changes) =>
-          confirm(`Remove ${branch}?`, undefined, changes),
+          confirm(
+            changes
+              ? { kind: "dirty-worktree", title: `Remove ${branch}?`, changes }
+              : { kind: "remove" },
+          ),
         );
       },
     ],
