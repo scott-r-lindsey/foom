@@ -68,6 +68,35 @@ ipcRenderer.on("terminal:flush-views", (_event, ids: unknown, token: unknown) =>
 });
 
 const desktop: DesktopApi = {
+  confirmations: {
+    onDialog(callback) {
+      const listener = () => {
+        callback();
+      };
+      ipcRenderer.on("confirmation:dialog", listener);
+      return () => {
+        ipcRenderer.removeListener("confirmation:dialog", listener);
+      };
+    },
+    subscribe(callback) {
+      const listener = (_event: IpcRendererEvent, value: unknown, accepted: unknown) => {
+        if (value === null) callback(null, accepted === true);
+        else if (
+          object(value) &&
+          typeof value["nonce"] === "string" &&
+          typeof value["target"] === "string" &&
+          typeof value["label"] === "string"
+        )
+          callback({ nonce: value["nonce"], target: value["target"], label: value["label"] });
+      };
+      ipcRenderer.on("confirmation:armed", listener);
+      return () => {
+        ipcRenderer.removeListener("confirmation:armed", listener);
+      };
+    },
+    confirm: (arm) => ipcRenderer.invoke("confirmation:confirm", arm.nonce, arm.target),
+    cancel: () => ipcRenderer.invoke("confirmation:cancel"),
+  },
   isDevelopment: process.argv.includes("--foom-development"),
   onBoardCommand(callback) {
     const listener = (_event: IpcRendererEvent, command: unknown) => {

@@ -1,3 +1,4 @@
+import type { ConfirmationClient } from "./confirmation";
 import type { AgentId, AgentInstallation } from "./agents";
 import type { VerdictAction, VerdictState } from "./evaluator";
 import type { Repository, Worktree } from "./worktrees";
@@ -59,6 +60,7 @@ export interface StartWorktreeRequest {
 }
 
 export interface WorkspaceApi {
+  confirmations: ConfirmationClient;
   sidebarInventory(): Promise<SidebarInventory>;
   sidebarCommand(command: SidebarCommand): Promise<void>;
   /** Null means the user cancelled the shared-agent confirmation. */

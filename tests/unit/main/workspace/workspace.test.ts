@@ -924,7 +924,7 @@ test("main checkout supports shells and confirms a second agent; cancellation cr
     expect.objectContaining({ mainCheckout: true, sharedCheckout: true }),
   );
   await workspace.sidebarCommand(command, confirm);
-  expect(confirm).toHaveBeenCalledWith("Run another agent in this checkout?", expect.any(String));
+  expect(confirm).toHaveBeenCalledWith({ kind: "shared-agent" });
   expect(agents.launch).toHaveBeenCalledTimes(1);
   confirm.mockResolvedValue(true);
   agents.launch.mockResolvedValue({ id: "t2", attention: "hooks" });
@@ -1020,8 +1020,7 @@ test("repository and external worktree removal confirm and protect the main chec
       confirm,
     );
     expect(confirm).toHaveBeenCalledWith(
-      "Remove feature?",
-      expect.stringContaining(changes ? "private.txt" : "branch is kept"),
+      changes ? { kind: "dirty-worktree", title: "Remove feature?", changes } : { kind: "remove" },
     );
   }
   await expect(
@@ -1310,10 +1309,7 @@ test.each(["sidebar", "dialog", "agent-ipc"] as const)(
     await launch();
     expect(confirm).not.toHaveBeenCalled();
     await launch();
-    expect(confirm).toHaveBeenCalledWith(
-      "Run another agent in this checkout?",
-      expect.stringContaining("same files"),
-    );
+    expect(confirm).toHaveBeenCalledWith({ kind: "shared-agent" });
     expect(agents.launch).toHaveBeenCalledTimes(1);
     confirm.mockResolvedValue(true);
     await launch();

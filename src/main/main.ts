@@ -1,3 +1,4 @@
+import { TrustedDialog } from "./confirmations/trusted-dialog";
 import { selectProfile, clearParentHooks } from "./profile";
 import { interfaceThemeSource, resolveInterfaceTheme } from "../shared/interface-themes";
 import { app, BrowserWindow, dialog, nativeTheme, net, protocol, screen, session } from "electron";
@@ -35,6 +36,9 @@ const APP_URL = "app://bundle/index.html";
 const rendererDirectory = path.join(__dirname, "../renderer");
 const assets = new Map([
   ["/index.html", "index.html"],
+  ["/confirmation.html", "confirmation.html"],
+  ["/confirmation.js", "confirmation.js"],
+  ["/confirmation.css", "confirmation.css"],
   ["/styles.css", "styles.css"],
   ["/tokens.css", "tokens.css"],
   ["/fonts/archivo-black.ttf", "fonts/archivo-black.ttf"],
@@ -173,7 +177,15 @@ function createWindow(savedSize?: Size) {
       workspaceIpc.sendState(state);
     },
   });
-  const workspaceIpc = attachWorkspace(window, workspace, (id) => terminals.owns(id));
+  const confirmations = new TrustedDialog(window, session.fromPartition("confirmation"), () =>
+    resolveInterfaceTheme(settings.get().interfaceTheme, nativeTheme.shouldUseDarkColors),
+  );
+  const workspaceIpc = attachWorkspace(
+    window,
+    workspace,
+    (id) => terminals.owns(id),
+    (content) => confirmations.request(content),
+  );
   const windowScale = attachWindowScale(
     window,
     (bounds) => screen.getDisplayMatching(bounds).workArea,
@@ -183,17 +195,12 @@ function createWindow(savedSize?: Size) {
     store: settings,
     confirmBypass: async (agent) => {
       const names = { claude: "Claude Code", codex: "Codex", agy: "Antigravity" };
-      const { response } = await dialog.showMessageBox(window, {
-        type: "question",
-        message: `Save bypass defaults for ${names[agent]}?`,
+      return confirmations.request({
+        title: `Save bypass defaults for ${names[agent]}?`,
         detail:
           "A worktree is not a sandbox. With these arguments, the agent can act as you anywhere on the machine. These defaults apply to future launches from Foom.",
-        buttons: ["Cancel", "Save bypass defaults"],
-        defaultId: 0,
-        cancelId: 0,
-        noLink: true,
+        accept: "Save bypass defaults",
       });
-      return response === 1;
     },
     keys: new InferenceKeys(app.getPath("userData")),
     worktreeRoot: worktrees.worktreeRoot,
@@ -228,6 +235,7 @@ function createWindow(savedSize?: Size) {
     windowScale.anchorAt(active ? screen.getCursorScreenPoint() : undefined);
   });
   window.once("closed", () => {
+    confirmations.dispose();
     setupIpc.dispose();
     workspaceIpc.dispose();
     void workspace.dispose();
@@ -240,17 +248,30 @@ function createWindow(savedSize?: Size) {
     try {
       const count = terminals.runningCount;
       if (count > 0) {
-        const { response } = await dialog.showMessageBox(window, {
-          type: "question",
-          title: "Quit Foom?",
-          message: `${String(count)} ${count === 1 ? "terminal is" : "terminals are"} still running. Quit anyway?`,
-          detail: "Quitting stops all terminals, including shells and servers.",
-          buttons: ["Cancel", "Quit"],
-          defaultId: 0,
-          cancelId: 0,
-          noLink: true,
+        const snapshot = workspace.snapshot();
+        const accepted = await confirmations.request({
+          title: `Quit with ${String(count)} ${count === 1 ? "terminal" : "terminals"} running?`,
+          accept: "Stop all and quit",
+          sessions: terminals.runningSessions().map((session) => {
+            const entry = snapshot.terminals.find((item) => item.id === session.id);
+            return {
+              id: session.id,
+              name:
+                entry?.agent === "claude"
+                  ? "Claude Code"
+                  : entry?.agent === "codex"
+                    ? "Codex"
+                    : entry?.agent === "agy"
+                      ? "Antigravity"
+                      : path.basename(session.command),
+              location: entry
+                ? `${path.basename(entry.repository)} › ${entry.branch ?? entry.worktree}`
+                : session.cwd,
+              state: entry?.state?.state ?? "quiet_ok",
+            };
+          }),
         });
-        if (response !== 1) return;
+        if (!accepted) return;
       }
       await terminals.shutdown();
       // Terminals have stopped: revoke every hook credential and stop listening.
@@ -260,6 +281,7 @@ function createWindow(savedSize?: Size) {
       } catch (error) {
         console.error("Unable to save the window size:", error);
       }
+      confirmations.dispose();
       quitting = true;
       // A resolved shutdown can resume inside a native close callback's microtask
       // checkpoint. Let that cancelled close unwind before asking Electron to quit.
@@ -273,7 +295,7 @@ function createWindow(savedSize?: Size) {
       quitPending = false;
     }
   };
-  // Keep the window and PTYs alive while the native confirmation is pending.
+  // Keep the window and PTYs alive while the trusted confirmation is pending.
   window.on("close", (event) => {
     if (!quitting) {
       event.preventDefault();
@@ -316,7 +338,9 @@ if (!ownsProfile) {
   app.quit();
 } else {
   app.on("second-instance", () => {
-    const window = BrowserWindow.getAllWindows()[0];
+    const window = BrowserWindow.getAllWindows().find(
+      (window) => window.webContents.getURL() === APP_URL,
+    );
     if (!window) return; // Startup will show the first window once it has loaded.
     if (window.isMinimized()) window.restore();
     window.show();
@@ -333,14 +357,33 @@ if (!ownsProfile) {
         settings.get().colorMode,
       );
       // Serve only known local assets; arbitrary filesystem access is never exposed.
-      protocol.handle("app", (request) => {
+      const assetHandler = (request: Request) => {
         const url = new URL(request.url);
-        const asset = url.host === "bundle" && assets.get(url.pathname);
+        const confirmationAsset = [
+          "/confirmation.html",
+          "/confirmation.js",
+          "/confirmation.css",
+        ].includes(url.pathname);
+        const allowed =
+          url.host === "bundle"
+            ? !confirmationAsset
+            : url.host === "confirmation" &&
+              (confirmationAsset ||
+                url.pathname === "/tokens.css" ||
+                url.pathname.startsWith("/fonts/"));
+        const asset = allowed && assets.get(url.pathname);
         if (request.method !== "GET" || !asset) {
           return new Response("Not found", { status: 404 });
         }
         return net.fetch(pathToFileURL(path.join(rendererDirectory, asset)).href);
+      };
+      protocol.handle("app", assetHandler);
+      const confirmationSession = session.fromPartition("confirmation");
+      confirmationSession.protocol.handle("app", assetHandler);
+      confirmationSession.setPermissionRequestHandler((_contents, _permission, callback) => {
+        callback(false);
       });
+      confirmationSession.setPermissionCheckHandler(() => false);
 
       session.defaultSession.setPermissionRequestHandler((_contents, _permission, callback) => {
         callback(false);

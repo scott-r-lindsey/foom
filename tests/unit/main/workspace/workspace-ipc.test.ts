@@ -1,3 +1,4 @@
+import type { ConfirmWorkspace } from "../../../../src/shared/confirmation";
 import { beforeEach, expect, test, vi } from "vitest";
 import type { BrowserWindow, IpcMainInvokeEvent } from "electron";
 import type { Workspace } from "../../../../src/main/workspace/workspace";
@@ -16,7 +17,13 @@ vi.mock("electron", () => ({
 import { attachWorkspace } from "../../../../src/main/workspace/workspace-ipc";
 
 const frame = { url: "app://bundle/index.html" };
-const contents = { isDestroyed: vi.fn(() => false), mainFrame: frame, send: vi.fn() };
+const contents = {
+  on: vi.fn(),
+  removeListener: vi.fn(),
+  isDestroyed: vi.fn(() => false),
+  mainFrame: frame,
+  send: vi.fn(),
+};
 const window = { webContents: contents } as unknown as BrowserWindow;
 const trusted = { sender: contents, senderFrame: frame } as unknown as IpcMainInvokeEvent;
 const workspace = {
@@ -33,6 +40,7 @@ const workspace = {
   launch: vi.fn((_request: unknown) => Promise.resolve({ id: "t1", attention: "evaluator" })),
   feedback: vi.fn(() => Promise.resolve()),
 };
+const requestDialog = vi.fn<() => Promise<boolean>>();
 const owns = vi.fn((id: string) => id === "t1");
 let attached: ReturnType<typeof attachWorkspace>;
 
@@ -40,7 +48,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   contents.isDestroyed.mockReturnValue(false);
   frame.url = "app://bundle/index.html";
-  attached = attachWorkspace(window, workspace as unknown as Workspace, owns);
+  attached = attachWorkspace(window, workspace as unknown as Workspace, owns, requestDialog);
 });
 
 function invoke(channel: string, args: unknown[] = [], event: unknown = trusted) {
@@ -52,6 +60,8 @@ function invoke(channel: string, args: unknown[] = [], event: unknown = trusted)
 test("rejects untrusted senders on every channel", () => {
   const channels = mock.handle.mock.calls.map(([name]) => name);
   expect(channels).toEqual([
+    "confirmation:confirm",
+    "confirmation:cancel",
     "workspace:start",
     "workspace:remove",
     "workspace:sidebar",
@@ -230,37 +240,29 @@ test("launch accepts names only and rejects malformed or injected payloads", asy
     expect(() => invoke("workspace:start", [bad])).toThrow("Invalid worktree launch");
 });
 
-test("removal requires a native confirmation naming dirty files, never a renderer force flag", async () => {
+test("dirty removal uses main's trusted dialog and rejects renderer force flags", async () => {
   expect(() => invoke("workspace:remove", [null])).toThrow("Invalid terminal ID");
-  mock.showMessageBox.mockResolvedValueOnce({ response: 0 });
+  expect(() => invoke("workspace:remove", ["foreign"])).toThrow("Unknown or foreign");
+  requestDialog.mockResolvedValueOnce(false);
   await expect(invoke("workspace:remove", ["t1", true])).resolves.toBe(false);
-  expect(mock.showMessageBox).toHaveBeenCalledWith(
-    window,
-    expect.objectContaining({
-      defaultId: 0,
-      cancelId: 0,
-      detail: expect.stringContaining("notes.txt") as unknown,
-    }),
-  );
-  mock.showMessageBox.mockResolvedValueOnce({ response: 1 });
-  workspace.removeWorktree.mockImplementationOnce((_id, confirm) => confirm("feature", ""));
+  expect(requestDialog).toHaveBeenCalledWith({
+    title: "Remove feature?",
+    changes: "?? notes.txt\0",
+    accept: "Discard 1 change and remove",
+  });
+  requestDialog.mockResolvedValueOnce(true);
   await expect(invoke("workspace:remove", ["t1"])).resolves.toBe(true);
-  expect(mock.showMessageBox).toHaveBeenLastCalledWith(
-    window,
-    expect.objectContaining({ detail: expect.stringContaining("branch is kept") as unknown }),
-  );
 });
 
 test("sidebar commands copy known fields, validate IDs and paths, and keep confirmations in main", async () => {
   const inventory = vi.fn(() => Promise.resolve({ repositories: [], shell: "zsh" }));
-  const command = vi.fn(
-    async (_value: unknown, confirm: (message: string, detail?: string) => Promise<boolean>) => {
-      expect(await confirm("Confirm", "Details")).toBe(true);
-      expect(await confirm("Confirm")).toBe(true);
-    },
-  );
+  const command = vi.fn(async (_value: unknown, confirm: ConfirmWorkspace) => {
+    expect(await confirm({ kind: "dirty-worktree", title: "Confirm", changes: "?? file\0" })).toBe(
+      true,
+    );
+  });
   Object.assign(workspace, { sidebarInventory: inventory, sidebarCommand: command });
-  mock.showMessageBox.mockResolvedValue({ response: 1 });
+  requestDialog.mockResolvedValue(true);
   await invoke("workspace:sidebar");
   expect(inventory).toHaveBeenCalledOnce();
   for (const value of [
@@ -288,4 +290,48 @@ test("sidebar commands copy known fields, validate IDs and paths, and keep confi
     { kind: "evil", repository: "/repo", worktree: "/tree" },
   ])
     expect(() => invoke("workspace:sidebar-command", [value])).toThrow();
+});
+
+test("dirty review counts a rename as one change while preserving both exact pathnames", async () => {
+  requestDialog.mockResolvedValue(false);
+  workspace.removeWorktree.mockImplementationOnce((_id, confirm) =>
+    confirm("feature", "R  new name\0old name\0?? extra\0"),
+  );
+  await invoke("workspace:remove", ["t1"]);
+  expect(requestDialog).toHaveBeenCalledWith({
+    title: "Remove feature?",
+    changes: "R  new name\0old name\0?? extra\0",
+    accept: "Discard 2 changes and remove",
+  });
+});
+test.each(["destroyed", "navigated"])(
+  "dirty preparation cancels if the board is %s",
+  async (state) => {
+    workspace.removeWorktree.mockImplementationOnce((_id, confirm) => {
+      if (state === "destroyed") contents.isDestroyed.mockReturnValue(true);
+      else frame.url = "app://foreign/index.html";
+      return confirm("feature", "?? file\0");
+    });
+    await expect(invoke("workspace:remove", ["t1"])).resolves.toBe(false);
+    expect(contents.send).not.toHaveBeenCalled();
+    expect(requestDialog).not.toHaveBeenCalled();
+  },
+);
+test.each([
+  ["remove", "Click again to remove"],
+  ["stop", "Click again to stop"],
+  ["shared-agent", "Click again for two agents here"],
+  ["notifier", "Click again to replace notifier"],
+] as const)("typed %s requests select their exact consequence", async (kind, label) => {
+  Object.assign(workspace, {
+    sidebarCommand: (_command: unknown, confirm: ConfirmWorkspace) => confirm({ kind }),
+  });
+  const pending = invoke("workspace:sidebar-command", [{ kind: "stop", id: "t1" }]);
+  expect(contents.send).toHaveBeenCalledWith(
+    "confirmation:armed",
+    expect.objectContaining({ label }),
+    undefined,
+  );
+  invoke("confirmation:cancel");
+  await expect(pending).resolves.toBe(false);
 });

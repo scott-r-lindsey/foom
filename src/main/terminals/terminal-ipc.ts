@@ -19,6 +19,7 @@ export interface TerminalEvents {
 
 export interface TerminalControl
   extends Pick<TerminalHostClient, "runningCount" | "shutdown" | "stop" | "setTheme"> {
+  runningSessions(): readonly { id: string; command: string; cwd: string }[];
   /** Main-only launch: the window may use the new terminal like one it created. */
   create(spec: TerminalSpec): Promise<string>;
   kill(id: string): Promise<void>;
@@ -34,13 +35,16 @@ export function attachTerminal(
   // Capture before BrowserWindow is destroyed; its getter throws during closed.
   const contents = window.webContents;
   const owned = new Set<string>();
+  const running = new Map<string, { id: string; command: string; cwd: string }>();
   const trusted = (event: IpcMainEvent | IpcMainInvokeEvent) =>
     event.sender === contents &&
     event.senderFrame !== null &&
     event.senderFrame === event.sender.mainFrame &&
     event.senderFrame.url === "app://bundle/index.html";
+  let rendererAlive = true;
   const manager = new TerminalHostClient(
     (id, code) => {
+      running.delete(id);
       if (!contents.isDestroyed()) contents.send("terminal:exit", id, code);
       if (owned.has(id)) events.onExit?.(id, code);
     },
@@ -58,7 +62,14 @@ export function attachTerminal(
         if (owned.has(id)) events.onQuiet?.(id);
       },
       onActivity: (batch) => {
-        if (contents.isDestroyed() || contents.mainFrame.url !== "app://bundle/index.html") return;
+        // A crashed WebContents survives, but its WebFrameMain no longer does.
+        if (
+          !rendererAlive ||
+          contents.isDestroyed() ||
+          contents.isCrashed() ||
+          contents.getURL() !== "app://bundle/index.html"
+        )
+          return;
         const entries = batch.filter(({ id }) => owned.has(id));
         if (entries.length) contents.send("terminal:activity", entries);
       },
@@ -74,6 +85,10 @@ export function attachTerminal(
     cols <= 500 &&
     rows >= 2 &&
     rows <= 300;
+  const rendererLoaded = () => {
+    rendererAlive = true;
+  };
+  contents.on("did-finish-load", rendererLoaded);
   let flushToken = 0;
   let pendingFlush: { token: number; ids: string[]; resolve: () => void } | undefined;
   const flushed = (event: IpcMainEvent, ids: unknown, token: unknown) => {
@@ -115,6 +130,7 @@ export function attachTerminal(
       rows,
     });
     owned.add(id);
+    running.set(id, { id, command, cwd });
     return { id, title: `${command} — ${cwd}` };
   });
   for (const operation of ["attach", "detach", "kill"] as const) {
@@ -129,6 +145,7 @@ export function attachTerminal(
       else {
         await manager.kill(id);
         owned.delete(id);
+        running.delete(id);
         if (!contents.isDestroyed()) contents.send("terminal:availability", [id], false);
         events.onRemoved?.(id);
       }
@@ -169,7 +186,12 @@ export function attachTerminal(
   const navigating = (_event: Event, _url: string, _inPlace: boolean, isMainFrame: boolean) => {
     if (isMainFrame) detachViews();
   };
-  contents.on("render-process-gone", detachViews);
+  const rendererGone = () => {
+    rendererAlive = false;
+    pendingFlush?.resolve();
+    detachViews();
+  };
+  contents.on("render-process-gone", rendererGone);
   contents.on("did-start-navigation", navigating);
   ipcMain.on("terminal:input", input);
   ipcMain.on("terminal:resize", resize);
@@ -194,7 +216,8 @@ export function attachTerminal(
   };
   app.on("will-quit", willQuit);
   window.once("closed", () => {
-    contents.removeListener("render-process-gone", detachViews);
+    contents.removeListener("render-process-gone", rendererGone);
+    contents.removeListener("did-finish-load", rendererLoaded);
     contents.removeListener("did-start-navigation", navigating);
     void manager.dispose();
     void manager
@@ -213,14 +236,17 @@ export function attachTerminal(
     ipcMain.removeListener("terminal:ack", acknowledge);
   });
   return {
+    runningSessions: () => [...running.values()],
     async create(spec) {
       const id = await manager.create(spec);
       owned.add(id);
+      running.set(id, { id, command: spec.command, cwd: spec.cwd });
       return id;
     },
     async kill(id) {
       await manager.kill(id);
       owned.delete(id);
+      running.delete(id);
       if (!contents.isDestroyed()) contents.send("terminal:availability", [id], false);
     },
     setTheme: (choice) => {
@@ -235,11 +261,13 @@ export function attachTerminal(
     async shutdown() {
       const ids = [...owned];
       // Stop queued renderer attachment work before stopping the native hosts.
-      if (!contents.isDestroyed()) contents.send("terminal:availability", ids, false);
+      if (!contents.isDestroyed() && rendererAlive)
+        contents.send("terminal:availability", ids, false);
       try {
-        if (!contents.isDestroyed()) await flushViews(ids);
+        if (!contents.isDestroyed() && rendererAlive) await flushViews(ids);
         await manager.shutdown();
         owned.clear();
+        running.clear();
       } catch (error) {
         // A failed quit leaves the window open and its capabilities valid.
         if (!contents.isDestroyed()) contents.send("terminal:availability", ids, true);

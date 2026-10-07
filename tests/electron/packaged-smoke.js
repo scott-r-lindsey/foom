@@ -121,7 +121,12 @@ test("packaged utility host runs native PTYs with RunAsNode disabled", {
     });
     browser = await chromium.connectOverCDP(endpoint, { timeout: deadline(10000) });
     const context = browser.contexts()[0];
-    page = context.pages()[0] || (await context.waitForEvent("page"));
+    await expect
+      .poll(() => {
+        page = context.pages().find((candidate) => candidate.url() === "app://bundle/index.html");
+        return Boolean(page);
+      })
+      .toBe(true);
     page.setDefaultTimeout(deadline(15000));
     await page.waitForFunction(() => window.desktop);
     assert.equal(await page.evaluate(() => window.desktop.isDevelopment), false);

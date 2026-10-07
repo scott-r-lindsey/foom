@@ -412,6 +412,42 @@ test("view flush acknowledgement runs after callbacks and validates its envelope
   expect(mock.send).toHaveBeenCalledExactlyOnceWith("terminal:views-flushed", ["one"], 1);
 });
 
+test("confirmation bridge copies only the arm, strips IPC events and never exposes dialog answers", async () => {
+  const api = await bridge();
+  const receive = vi.fn();
+  const off = api.confirmations.subscribe(receive);
+  const listener = mock.on.mock.calls[0]?.[1];
+  for (const value of [
+    undefined,
+    {},
+    { nonce: 1 },
+    { nonce: "n", target: 1 },
+    { nonce: "n", target: "t", label: 1 },
+  ])
+    listener?.({}, value);
+  const arm = { nonce: "n", target: "t", label: "Stop" };
+  listener?.({}, { ...arm, answer: true });
+  listener?.({}, null);
+  expect(receive.mock.calls).toEqual([[arm], [null, false]]);
+  await api.confirmations.confirm(arm);
+  await api.confirmations.cancel();
+  expect(mock.invoke).toHaveBeenCalledWith("confirmation:confirm", "n", "t");
+  expect(mock.invoke).toHaveBeenCalledWith("confirmation:cancel");
+  expect(api.confirmations).not.toHaveProperty("answer");
+  off();
+  expect(mock.removeListener).toHaveBeenCalledWith("confirmation:armed", listener);
+});
+
+test("a trusted dialog opening dismisses the board menu without exposing its answer", async () => {
+  const api = await bridge();
+  const close = vi.fn();
+  const off = api.confirmations.onDialog?.(close);
+  const listener = mock.on.mock.calls[0]?.[1];
+  listener?.({ sender: "ignored" });
+  expect(close).toHaveBeenCalledOnce();
+  off?.();
+  expect(mock.removeListener).toHaveBeenCalledWith("confirmation:dialog", listener);
+});
 test.each([false, true])(
   "exposes only the development flag from main's preload arguments (%s)",
   async (development) => {

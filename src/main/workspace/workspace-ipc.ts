@@ -1,3 +1,5 @@
+import { ConfirmationArming } from "../confirmations/arming";
+import type { DialogContent, ConfirmWorkspace } from "../../shared/confirmation";
 import { dialog, ipcMain } from "electron";
 import type { BrowserWindow, IpcMainInvokeEvent } from "electron";
 import type { AgentId } from "../../shared/agents";
@@ -76,6 +78,7 @@ export function attachWorkspace(
   window: BrowserWindow,
   workspace: Workspace,
   owns: (id: string) => boolean,
+  requestDialog: (content: DialogContent) => Promise<boolean>,
 ): { sendState(state: TerminalState): void; sendChanged(): void; dispose(): void } {
   const contents = window.webContents;
   const trusted = (event: IpcMainInvokeEvent) =>
@@ -83,19 +86,55 @@ export function attachWorkspace(
     event.senderFrame !== null &&
     event.senderFrame === event.sender.mainFrame &&
     event.senderFrame.url === APP_URL;
-  const confirm = async (message: string, detail?: string) => {
-    const result = await dialog.showMessageBox(window, {
-      type: "question",
-      message,
-      ...(detail ? { detail } : {}),
-      buttons: ["Cancel", "Continue"],
-      defaultId: 0,
-      cancelId: 0,
-      noLink: true,
-    });
-    return result.response === 1;
+  const arming = new ConfirmationArming((arm, accepted) => {
+    if (!contents.isDestroyed() && contents.mainFrame.url === APP_URL)
+      contents.send("confirmation:armed", arm, accepted);
+  });
+  const labels = {
+    remove: "Click again to remove",
+    stop: "Click again to stop",
+    "shared-agent": "Click again for two agents here",
+    notifier: "Click again to replace notifier",
+  } satisfies Record<Exclude<Parameters<ConfirmWorkspace>[0]["kind"], "dirty-worktree">, string>;
+  const confirmation = (target: string): ConfirmWorkspace => {
+    const generation = arming.begin();
+    return (request): Promise<boolean> => {
+      if (request.kind === "dirty-worktree") {
+        const { title, changes } = request;
+        const records = changes.split("\0");
+        let count = 0;
+        for (let index = 0; index < records.length; index++) {
+          const status = records[index];
+          if (!status) continue;
+          count++;
+          // Porcelain -z adds a second pathname for renames and copies.
+          if (/[RC]/u.test(status.slice(0, 2))) index++;
+        }
+        if (contents.isDestroyed() || contents.mainFrame.url !== APP_URL)
+          return Promise.resolve(false);
+        contents.send("confirmation:dialog");
+        return requestDialog({
+          title,
+          changes,
+          accept: `Discard ${String(count)} ${count === 1 ? "change" : "changes"} and remove`,
+        });
+      }
+      return arming.ask(generation, target, labels[request.kind]);
+    };
   };
+  const disarm = () => {
+    arming.cancel();
+  };
+  contents.on("did-start-navigation", disarm);
+  contents.on("render-process-gone", disarm);
   const handlers = new Map<string, (...args: unknown[]) => unknown>([
+    [
+      "confirmation:confirm",
+      (nonce, target) => {
+        arming.confirm(nonce, target);
+      },
+    ],
+    ["confirmation:cancel", disarm],
     [
       "workspace:start",
       (request) => {
@@ -114,7 +153,7 @@ export function attachWorkspace(
             run: request["run"],
             acknowledgeCodexNotifierReplacement: request["acknowledgeCodexNotifierReplacement"],
           },
-          confirm,
+          confirmation(JSON.stringify(request)),
         );
       },
     ],
@@ -122,21 +161,15 @@ export function attachWorkspace(
       "workspace:remove",
       (id) => {
         if (!text(id)) throw new Error("Invalid terminal ID");
-        return workspace.removeWorktree(id, async (branch, changes) => {
-          const result = await dialog.showMessageBox(window, {
-            type: "warning",
-            title: "Remove worktree",
-            message: `Remove ${branch}?`,
-            detail: changes
-              ? `Stop its terminals and permanently discard these uncommitted changes:\n${changes.split("\0").join("\n")}`
-              : "Stop its terminals and remove the worktree folder. The branch is kept.",
-            buttons: ["Cancel", changes ? "Discard changes and remove" : "Remove worktree"],
-            defaultId: 0,
-            cancelId: 0,
-            noLink: true,
-          });
-          return result.response === 1;
-        });
+        if (!owns(id)) throw new Error("Unknown or foreign terminal ID");
+        const confirm = confirmation(JSON.stringify(["remove", id]));
+        return workspace.removeWorktree(id, (branch, changes) =>
+          confirm(
+            changes
+              ? { kind: "dirty-worktree", title: `Remove ${branch}?`, changes }
+              : { kind: "remove" },
+          ),
+        );
       },
     ],
     ["workspace:sidebar", () => workspace.sidebarInventory()],
@@ -145,7 +178,7 @@ export function attachWorkspace(
       (value) => {
         const command = sidebarCommand(value);
         if ("id" in command && !owns(command.id)) throw new Error("Unknown or foreign terminal ID");
-        return workspace.sidebarCommand(command, confirm);
+        return workspace.sidebarCommand(command, confirmation(JSON.stringify(command)));
       },
     ],
     ["workspace:snapshot", () => workspace.snapshot()],
@@ -187,7 +220,13 @@ export function attachWorkspace(
         return workspace.scanAgents(refresh);
       },
     ],
-    ["agents:launch", (request) => workspace.launch(launchRequest(request), confirm)],
+    [
+      "agents:launch",
+      (request) => {
+        const launch = launchRequest(request);
+        return workspace.launch(launch, confirmation(JSON.stringify(launch)));
+      },
+    ],
     [
       "terminal:feedback",
       async (id, verdictId, next) => {
@@ -217,6 +256,9 @@ export function attachWorkspace(
       contents.send("terminal:state", state);
     },
     dispose() {
+      disarm();
+      contents.removeListener("did-start-navigation", disarm);
+      contents.removeListener("render-process-gone", disarm);
       for (const channel of handlers.keys()) ipcMain.removeHandler(channel);
     },
   };

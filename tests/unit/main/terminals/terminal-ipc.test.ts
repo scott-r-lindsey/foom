@@ -108,6 +108,8 @@ function fakePty() {
 let ptys: ReturnType<typeof fakePty>[];
 const frame = { url: "app://bundle/index.html" };
 const contents = {
+  getURL: () => frame.url,
+  isCrashed: vi.fn(() => false),
   isDestroyed: () => false,
   mainFrame: frame,
   send: vi.fn(),
@@ -151,6 +153,7 @@ let terminalControl: ReturnType<typeof attachTerminal>;
 const exited = vi.fn();
 beforeEach(() => {
   vi.clearAllMocks();
+  contents.isCrashed.mockReturnValue(false);
   ptys = [];
   mock.app.isPackaged = false;
   contents.send.mockImplementation((channel: string, ids: unknown, token: unknown) => {
@@ -1037,6 +1040,33 @@ test("an unresponsive renderer cannot block native shutdown indefinitely", async
   }
 });
 
+test("renderer loss releases an in-flight flush and a crashed board needs no acknowledgement", async () => {
+  const first = await create();
+  expect(terminalControl.runningSessions()).toEqual([expect.objectContaining({ id: first })]);
+  contents.send.mockImplementation(() => {});
+  const closing = terminalControl.shutdown();
+  contents.on.mock.calls.find(([name]) => name === "render-process-gone")?.[1]();
+  await closing;
+  expect(terminalControl.runningSessions()).toEqual([]);
+});
+test("a crashed board is skipped until a completed reload", async () => {
+  await create();
+  contents.on.mock.calls.find(([name]) => name === "render-process-gone")?.[1]();
+  contents.send.mockClear();
+  await terminalControl.shutdown();
+  expect(contents.send.mock.calls.some(([name]) => name === "terminal:flush-views")).toBe(false);
+});
+test("a reloaded board resumes the view acknowledgement protocol", async () => {
+  await create();
+  contents.on.mock.calls.find(([name]) => name === "render-process-gone")?.[1]();
+  contents.on.mock.calls.find(([name]) => name === "did-finish-load")?.[1]();
+  contents.send.mockImplementation((channel: string, ids: unknown, token: unknown) => {
+    if (channel === "terminal:flush-views") send("views-flushed", [ids, token]);
+  });
+  await terminalControl.shutdown();
+  expect(contents.send.mock.calls.some(([name]) => name === "terminal:flush-views")).toBe(true);
+});
+
 test("headless titles and progress reach main only after parsing, without a view", async () => {
   const onEvidence = vi.fn();
   terminalControl = attachTerminal(window as unknown as BrowserWindow, { onEvidence });
@@ -1070,3 +1100,45 @@ test("headless titles and progress reach main only after parsing, without a view
     progress: { state: 1, value: 61 },
   });
 });
+
+test.each(["notification", "crash-state"])(
+  "activity ignores disposed frames via %s and resumes after reload",
+  async (signal) => {
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval", "performance"] });
+    const restoreFrame = () => {
+      Object.defineProperty(frame, "url", {
+        configurable: true,
+        writable: true,
+        value: "app://bundle/index.html",
+      });
+    };
+    try {
+      const id = await create();
+      output("Still running after the board crashes");
+      await invoke("tail", [id, 1]);
+      if (signal === "notification")
+        contents.on.mock.calls.find(([name]) => name === "render-process-gone")?.[1]();
+      else contents.isCrashed.mockReturnValue(true);
+      Object.defineProperty(frame, "url", {
+        configurable: true,
+        get() {
+          throw new Error("Render frame was disposed");
+        },
+      });
+      contents.send.mockClear();
+      expect(() => vi.advanceTimersByTime(100)).not.toThrow();
+      expect(contents.send).not.toHaveBeenCalled();
+      restoreFrame();
+      contents.isCrashed.mockReturnValue(false);
+      contents.on.mock.calls.find(([name]) => name === "did-finish-load")?.[1]();
+      vi.advanceTimersByTime(100);
+      expect(contents.send).toHaveBeenCalledWith("terminal:activity", [
+        expect.objectContaining({ id }),
+      ]);
+    } finally {
+      restoreFrame();
+      for (const terminal of ptys) terminal.emitExit();
+      vi.useRealTimers();
+    }
+  },
+);
