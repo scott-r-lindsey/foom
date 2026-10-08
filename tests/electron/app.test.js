@@ -258,7 +258,8 @@ async function launchCheckoutShell(app, page) {
 async function launchApp(context, openShell = true, options = {}) {
   // CI prepares the binary separately. Direct runs also resolve it before the
   // Playwright launch deadline/audit, without downloading during test discovery.
-  const electronExecutable = require("electron");
+  // Do not supply executablePath: that skips Playwright's Electron loader.
+  require("electron");
   const cleanup = fixtureCleanup(context);
   cleanup.audit ??= await auditProcesses(context);
   const profile = await prepareProfile(options);
@@ -300,7 +301,6 @@ async function launchApp(context, openShell = true, options = {}) {
   delete env.ELECTRON_RUN_AS_NODE;
   const app = await electron
     .launch({
-      executablePath: electronExecutable,
       chromiumSandbox: true,
       colorScheme: null,
       timeout: deadline(15_000),
@@ -375,7 +375,7 @@ async function launchApp(context, openShell = true, options = {}) {
     } finally {
       clearTimeout(timer);
       // If graceful shutdown failed, fail the test and terminate the process tree.
-      // The worker watchdog remains armed in case a Playwright connection also hangs.
+      // The watchdog stays armed while teardown runs, but must not outlive it.
       if (child.exitCode === null && child.signalCode === null) {
         if (process.platform === "win32") {
           require("node:child_process").execFileSync(
@@ -387,6 +387,7 @@ async function launchApp(context, openShell = true, options = {}) {
           process.kill(-child.pid, "SIGKILL");
         }
       }
+      clearTimeout(watchdog);
     }
   });
   // The shell markup now arrives with React’s first commit.
