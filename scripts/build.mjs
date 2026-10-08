@@ -119,3 +119,5 @@ for (const [platform, extension] of [
     { mode: 0o755 },
   );
 }
+
+await import("./build-cli.mjs");

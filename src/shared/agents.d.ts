@@ -8,6 +8,7 @@ export interface AgentInstallation {
   readonly hooks: boolean;
   readonly agyPlugin?: AgyPluginStatus;
   readonly inline?: boolean;
+  readonly cliGuidance?: boolean;
   readonly review?: boolean;
   readonly mcp?: boolean;
   readonly mcpReason?: string;

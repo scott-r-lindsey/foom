@@ -52,6 +52,7 @@ vi.mock("../../../src/main/workspace/workspace", () => ({
         },
       ],
     });
+    initializeControl = mock.workspace.initializeControl;
     refresh = mock.workspace.refresh;
     quiet = mock.workspace.quiet;
     exited = mock.workspace.exited;
@@ -183,6 +184,7 @@ const mock = vi.hoisted(() => {
   }
   const workspace = {
     deps: undefined as WorkspaceDependencies | undefined,
+    initializeControl: vi.fn<() => Promise<void>>(() => Promise.resolve()),
     refresh: vi.fn(),
     quiet: vi.fn(),
     exited: vi.fn(),
@@ -1050,19 +1052,44 @@ test("window focus refreshes external workspace inventory", async () => {
   expect(mock.workspace.refresh).toHaveBeenCalledOnce();
 });
 
-test("control startup is lazy, uses the app profile and propagates initialization failures", async () => {
+test("control startup publishes private discovery and binds trusted pairing callbacks", async () => {
   const { ControlRuntime } = await import("../../../src/main/control/runtime");
   const error = new Error("Private profile unavailable");
   const startControl = vi.spyOn(ControlRuntime, "start").mockRejectedValueOnce(error);
+  mock.openWorktrees.mockResolvedValue({ worktreeRoot: "/trees", listRepositories: () => [] });
   try {
     await start();
     expect(startControl).not.toHaveBeenCalled();
     const control = mock.workspace.deps?.control;
     if (!control) throw new Error("Expected control startup capability");
     await expect(control()).rejects.toBe(error);
-    expect(startControl).toHaveBeenCalledExactlyOnceWith("/test/user-data", expect.any(Function));
+    expect(startControl).toHaveBeenCalledExactlyOnceWith(
+      "/test/user-data",
+      expect.any(Function),
+      expect.any(Object),
+    );
     expect(startControl.mock.calls[0]?.[1]?.()).toMatchObject([{ id: "t1" }, { id: "t2" }]);
+    expect(mock.workspace.initializeControl).toHaveBeenCalled();
+    const pairing = startControl.mock.calls[0]?.[2];
+    expect(pairing?.repository("/foreign")).toBeUndefined();
+    const { worktrees } = await import("../../../src/main/main");
+    vi.spyOn(worktrees, "listRepositories").mockReturnValue([{ path: "/repo", name: "Repo" }]);
+    expect(pairing?.repository("/repo")).toBe("/repo");
+    await pairing?.approve("/repo", "ABCD1234", new AbortController().signal);
+    expect(mock.message).toHaveBeenCalledWith(
+      expect.objectContaining({
+        title: "Pair this CLI with Foom?",
+      }),
+    );
   } finally {
     startControl.mockRestore();
   }
+});
+
+test("a discovery initialization failure leaves the main window usable", async () => {
+  mock.workspace.initializeControl.mockRejectedValueOnce(new Error("private profile"));
+  const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+  await start();
+  expect(warn).toHaveBeenCalledWith("Foom CLI discovery is unavailable.");
+  expect(mock.attachWorkspace).toHaveBeenCalled();
 });

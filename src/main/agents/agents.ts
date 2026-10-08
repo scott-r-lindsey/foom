@@ -1,4 +1,5 @@
 import { AgyPlugin } from "./agy-plugin";
+import { cliGuidance } from "./cli-launch";
 import { prepareMcpLaunch, supportsMcp } from "./mcp-launch";
 import { codexHookArguments } from "./codex-hooks";
 import { resumeArguments } from "./conversation";
@@ -109,6 +110,7 @@ async function detect(id: AgentId, path: string): Promise<AgentInstallation> {
       path: executable,
       version,
       hooks,
+      cliGuidance: id === "agy" && /(?:^|\s)--prompt-interactive(?:[ =,]|$)/mu.test(help),
       mcp: supportsMcp(id, version, help),
       mcpReason: supportsMcp(id, version, help)
         ? "Per-launch MCP supported; managed policy may deny attachment."
@@ -295,7 +297,7 @@ export class AgentService {
         throw new Error("Worktree has changed. Select it and try again.");
       const args = [
         ...resume,
-        ...defaults,
+        ...(control && agent.cliGuidance ? cliGuidance(defaults) : defaults),
         ...review,
         ...(agent.inline ? ["--no-alt-screen"] : []),
         ...(mcp?.args ?? []),
@@ -332,7 +334,13 @@ export class AgentService {
         cwd: request.worktree,
         cols: request.cols,
         rows: request.rows,
-        env: { ...control?.env, ...binding?.env, PATH: scan.path },
+        env: {
+          ...control?.env,
+          ...binding?.env,
+          PATH: control?.env["FOOM_CLI_DIRECTORY"]
+            ? `${control.env["FOOM_CLI_DIRECTORY"]}${delimiter}${scan.path}`
+            : scan.path,
+        },
       });
       this.ensureOpen();
       if (this.earlyExits.has(id)) {

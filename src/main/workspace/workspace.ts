@@ -145,6 +145,16 @@ export class Workspace {
   private enabled: Readonly<Record<AgentId, boolean>> = { claude: true, codex: true, agy: true };
   private readonly now: () => number;
 
+  /** Publish credential-free discovery for humans even before the first agent launch. */
+  async initializeControl(): Promise<void> {
+    if (this.closed || !this.deps.control) return;
+    this.control ??= this.deps.control().catch((error: unknown) => {
+      this.control = undefined;
+      throw error;
+    });
+    await this.control;
+  }
+
   constructor(private readonly deps: WorkspaceDependencies) {
     this.now = deps.now ?? Date.now;
     this.codexHooks = deps.codexHooks ?? new CodexHookStatus();
@@ -178,11 +188,10 @@ export class Workspace {
           worktree: string,
           sessionId?: string,
         ): Promise<ControlLaunch> => {
-          this.control ??= startControl().catch((error: unknown) => {
-            this.control = undefined;
-            throw error;
-          });
-          return (await this.control).prepare(repository, worktree, sessionId);
+          await this.initializeControl();
+          const control = await this.control;
+          if (!control) throw new Error("Control service unavailable");
+          return control.prepare(repository, worktree, sessionId);
         }
       : undefined;
     this.agents = deps.agents

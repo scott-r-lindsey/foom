@@ -156,7 +156,19 @@ async function createWindow(savedSize?: Size) {
     // Rules first, then whatever model tier setup has configured.
     verdicts: new VerdictLog(app.getPath("userData"), (input) => setup.classify(input)),
     control: () =>
-      ControlRuntime.start(app.getPath("userData"), () => workspace.snapshot().terminals),
+      ControlRuntime.start(app.getPath("userData"), () => workspace.snapshot().terminals, {
+        repository: (path) =>
+          worktrees.listRepositories().find((entry) => entry.path === path)?.path,
+        approve: (repository, code, signal) =>
+          confirmations.request(
+            {
+              title: "Pair this CLI with Foom?",
+              accept: "Grant read-only access for 10 minutes",
+              detail: `Check that code ${code} matches your CLI. This grants read-only session metadata for ${repository}. It cannot read terminal output or change sessions. The request expires after 60 seconds.`,
+            },
+            signal,
+          ),
+      }),
     receiver: () => HookReceiver.listen((signal) => void workspace.hook(signal)),
     onChange: () => {
       workspaceIpc.sendChanged();
@@ -174,6 +186,9 @@ async function createWindow(savedSize?: Size) {
   const confirmations = new TrustedDialog(window, session.fromPartition("confirmation"), () =>
     resolveInterfaceTheme(settings.get().interfaceTheme, nativeTheme.shouldUseDarkColors),
   );
+  void workspace.initializeControl().catch(() => {
+    console.warn("Foom CLI discovery is unavailable.");
+  });
   const workspaceIpc = attachWorkspace(
     window,
     workspace,

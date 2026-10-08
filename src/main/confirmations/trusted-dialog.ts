@@ -83,9 +83,9 @@ export class TrustedDialog {
       this.window = undefined;
     });
   }
-  request(content: DialogContent): Promise<boolean> {
+  request(content: DialogContent, signal?: AbortSignal): Promise<boolean> {
     const result = this.queue.then(async () => {
-      if (this.disposed || this.parent.isDestroyed()) return false;
+      if (this.disposed || this.parent.isDestroyed() || signal?.aborted) return false;
       this.prepare();
       try {
         await this.ready;
@@ -93,11 +93,15 @@ export class TrustedDialog {
         return false;
       }
       const window = this.window;
-      if (!window) return false;
+      if (!window || signal?.aborted) return false;
       const id = randomUUID();
       const answer = new Promise<boolean>((resolve) => {
         this.pending = { id, resolve };
       });
+      const cancel = () => {
+        if (this.pending?.id === id) this.finish(false);
+      };
+      signal?.addEventListener("abort", cancel, { once: true });
       const request: DialogRequest = { ...content, id, theme: this.theme() };
       this.parentEnabled = this.parent.isEnabled();
       this.parent.setEnabled(false);
@@ -109,7 +113,11 @@ export class TrustedDialog {
       window.webContents.send("confirmation:render", request);
       window.show();
       window.focus();
-      return answer;
+      try {
+        return await answer;
+      } finally {
+        signal?.removeEventListener("abort", cancel);
+      }
     });
     this.queue = result;
     return result;

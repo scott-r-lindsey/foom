@@ -4166,7 +4166,7 @@ test("recorded sounds refresh and preview user files while shell attention and c
   await page.locator(".board-row[data-kind='shell']").press("Enter");
   await expect(page.locator(".xterm-helper-textarea")).toBeFocused();
   await page.keyboard.type(
-    `${process.platform === "win32" ? "& " : ""}"${process.execPath}" "${path.join(__dirname, "input-probe.js")}" "${marker}"`,
+    `${process.platform === "win32" ? "& " : ""}"${process.execPath}" "${path.join(__dirname, "input-probe.js")}" "${marker}"; exit`,
   );
   await page.keyboard.press("Enter");
   // Capture its ID before Settings detaches the view and stops output delivery.
@@ -4209,14 +4209,9 @@ test("recorded sounds refresh and preview user files while shell attention and c
     .toEqual({ source: "user", file: "test-bell.wav" });
   await page.getByRole("button", { name: "Preview done", exact: true }).click();
   await expect.poll(() => page.evaluate(() => window.soundTones)).toEqual([0.25]);
-  // Exit the real PTY: process exit is a Done verdict on every supported shell/platform.
+  // The launch command queues exit after the probe, avoiding input before PowerShell
+  // has resumed. Process exit is a Done verdict on every supported platform.
   await page.evaluate(() => window.desktop.input(window.soundTerminal, "q"));
-  await expect
-    .poll(() =>
-      page.evaluate(async () => (await window.desktop.tail(window.soundTerminal, 40)).join("\n")),
-    )
-    .not.toContain("INPUT_READY");
-  await page.evaluate(() => window.desktop.input(window.soundTerminal, "exit\r"));
   await expect(page.locator(".board-row")).toHaveAttribute("data-state", "done");
   await page.waitForTimeout(2200);
   assert.deepEqual(await page.evaluate(() => window.soundTones), [0.25]);
@@ -5392,23 +5387,19 @@ test("merged cleanup deletes two worktrees and branches while preserving a skipp
     paths[branch] = tree.path;
   }
   await writeFile(path.join(paths.dirty, "keep.txt"), "must survive");
+  // Wait for the source to include the fresh eligibility result before opening its menu.
+  await expect
+    .poll(
+      async () =>
+        (await page.evaluate(() => window.desktop.sidebarInventory())).repositories[0]
+          ?.canDeleteMerged,
+    )
+    .toBe(true);
   await expect(
     page.getByRole("button", { name: "Actions for merged-two", exact: true }),
   ).toBeVisible();
-  const repositoryActions = page.getByRole("button", { name: "Actions for repo", exact: true });
-  const deleteMerged = page.getByRole("menuitem", { name: "Delete merged worktrees…" });
-  // Main's eligibility result can precede the renderer's inventory refresh. Menus
-  // capture their actions when opened, so observe the rendered action, reopening
-  // while the asynchronous scan is pending instead of racing a bridge snapshot.
-  await expect
-    .poll(async () => {
-      if ((await repositoryActions.getAttribute("aria-expanded")) === "true")
-        await repositoryActions.click();
-      await repositoryActions.click();
-      return deleteMerged.isVisible();
-    })
-    .toBe(true);
-  await deleteMerged.click();
+  await page.getByRole("button", { name: "Actions for repo", exact: true }).click();
+  await page.getByRole("menuitem", { name: "Delete merged worktrees…" }).click();
   const confirmation = await confirmationPage(app);
   await expect(confirmation.getByRole("list", { name: "Worktrees to delete" })).toHaveText(
     "merged-onemerged-two",
@@ -5601,4 +5592,24 @@ process.stdin.on('data', (data) => {
       ),
     )
     .toBe(true);
+});
+
+test("console pairing requires trusted approval and gives only read-only repository scope", {
+  timeout: deadline(45000),
+}, async (context) => {
+  const { assertCliPairing } = require("./cli-checks.js");
+  const app = await launchApp(context, false);
+  const page = await boardPage(app);
+  const profile = await app.evaluate(({ app }) => app.getPath("userData"));
+  const repository = await page.evaluate(
+    async () => (await window.desktop.workspace()).repositories[0].path,
+  );
+  const confirmation = await confirmationPage(app);
+  await assertCliPairing(
+    context,
+    path.join(__dirname, "../../build/console", process.platform === "win32" ? "foom.exe" : "foom"),
+    profile,
+    repository,
+    confirmation,
+  );
 });

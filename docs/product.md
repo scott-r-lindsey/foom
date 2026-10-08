@@ -302,7 +302,7 @@ The evaluator sends only the last 40 lines of a quiet terminal, with likely secr
 ## Orchestration and privacy (planned)
 
 The [control-plane design](orchestration.md) has an authentication and HTTP
-foundation and read-only MCP tools; orchestration remains planned. Current agent
+foundation, read-only MCP tools and a packaged console CLI; orchestration remains planned. Current agent
 launches receive a private credential for their own identity, with no mutation
 capabilities. Verified Claude Code and Codex releases launched by Foom receive read-only MCP access
 to session metadata in their own repository, independently of hooks. Unverified versions
@@ -313,6 +313,14 @@ Children cannot orchestrate through Foom. Their sessions and actions remain visi
 you can stop them or take over. Agents launched outside Foom receive no automatic
 access. Agent configuration is attached per launch, never installed globally or
 written into the repository.
+
+The packaged `foom` console can inspect session metadata. Agents launched by Foom
+use only their inherited repository scope. Humans and scripts request pairing with
+`--repository PATH`: compare the code in the CLI and Foom's trusted dialog, then
+grant read-only access for ten minutes. Pairing expires after 60 seconds and never
+grants terminal output, typing or mutation access. Credentials remain in memory.
+Optional `--install-cli` / `--uninstall-cli` commands manage only Foom-owned PATH
+setup; absolute-path use needs no installation. See [console usage](orchestration.md#console-helper-and-local-pairing-154).
 
 An orchestrator can request at most the last 40 lines of each child's terminal,
 with likely secrets redacted and each response capped at 16 KiB. These results may
