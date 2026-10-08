@@ -251,8 +251,10 @@ async function launchCheckoutShell(app, page) {
       ),
     )
     .toContain(repository);
-  await page.getByRole("button", { name: "Actions for shell-fixture", exact: true }).click();
-  await page.getByRole("menuitem", { name: /^Shell \(/ }).click();
+  // The first window can still be animating on a cold CI display. Keyboard
+  // activation exercises the menu without depending on pointer hit-test stability.
+  await page.getByRole("button", { name: "Actions for shell-fixture", exact: true }).press("Enter");
+  await page.getByRole("menuitem", { name: /^Shell \(/ }).press("Enter");
 }
 
 async function launchApp(context, openShell = true, options = {}) {
@@ -3881,8 +3883,10 @@ test("launching into full tiles replaces focus and empty tiles support mouse con
   const page = await boardPage(app);
   await page.emulateMedia({ reducedMotion: "reduce" });
   const original = (await page.evaluate(() => window.desktop.workspace())).terminals[0];
-  await page.getByRole("button", { name: "Actions for shell-fixture", exact: true }).click();
-  await page.getByRole("menuitem", { name: /^Shell \(/ }).click();
+  // The first window can still be animating on a cold CI display. Keyboard
+  // activation exercises the menu without depending on pointer hit-test stability.
+  await page.getByRole("button", { name: "Actions for shell-fixture", exact: true }).press("Enter");
+  await page.getByRole("menuitem", { name: /^Shell \(/ }).press("Enter");
   await expect(page.locator(".board-row")).toHaveCount(2);
   const sessions = (await page.evaluate(() => window.desktop.workspace())).terminals;
   const created = sessions.find((session) => session.id !== original.id);
@@ -4076,7 +4080,9 @@ test("recorded sounds refresh and preview user files while shell attention and c
       window.soundTerminal = id;
     });
   });
-  await page.locator(".xterm-helper-textarea").focus();
+  // Reload reattaches the terminal asynchronously. Use the board action that
+  // waits for attachment before focusing, instead of focusing its early markup.
+  await page.locator(".board-row[data-kind='shell']").press("Enter");
   await expect(page.locator(".xterm-helper-textarea")).toBeFocused();
   await page.keyboard.type(
     `${process.platform === "win32" ? "& " : ""}"${process.execPath}" "${path.join(__dirname, "input-probe.js")}" "${marker}"`,
@@ -4597,6 +4603,9 @@ if (resumed) {
       .getByRole("button", { name: `Actions for ${agentName} in resume-test`, exact: true })
       .click();
     await restored.getByRole("menuitem", { name: "Copy session ID", exact: true }).click();
+    // Clipboard writing finishes before the source's inventory refresh and menu
+    // dismissal. Wait for the completed UI action before opening it again.
+    await expect(restored.getByRole("menu", { name: "Actions", exact: true })).toHaveCount(0);
     await expect
       .poll(() => restoredApp.evaluate(({ clipboard }) => clipboard.readText()))
       .toBe(conversation);
@@ -4948,4 +4957,117 @@ test("neutral identity badges keep labels and geometry across themes and interfa
   }
   await page.evaluate(() => window.desktop.saveSetup({ interfaceScale: 100 }));
   await assertAccessible(page);
+});
+
+test("merged cleanup deletes two worktrees and branches while preserving a skipped checkout", {
+  timeout: deadline(60000),
+}, async (context) => {
+  const root = await realpath(await mkdtemp(path.join(tmpdir(), "foom-merged-")));
+  removeAfterApps(context, root);
+  const repo = path.join(root, "repo");
+  const home = path.join(root, "home");
+  await mkdir(repo);
+  await mkdir(home);
+  const git = (...args) =>
+    isolatedGit(["-c", "user.name=Test", "-c", "user.email=test@example.com", ...args], {
+      cwd: repo,
+    });
+  git("init", "-q", "-b", "main");
+  git("commit", "-q", "--allow-empty", "-m", "init");
+  const remote = path.join(root, "remote.git");
+  git("clone", "--bare", repo, remote);
+  git("remote", "add", "origin", remote);
+  const app = await launchApp(context, false, { emptyBoard: true, home });
+  const page = await boardPage(app);
+  await app.evaluate(({ dialog }, repo) => {
+    dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [repo] });
+  }, repo);
+  await page.getByRole("button", { name: "Add repository", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Actions for repo", exact: true })).toBeVisible();
+  const repository = await page.evaluate(
+    async () => (await window.desktop.workspace()).repositories[0].path,
+  );
+  const paths = {};
+  for (const branch of ["merged-one", "merged-two", "dirty"]) {
+    const tree = await page.evaluate(
+      ({ repo, branch }) => window.desktop.createWorktree(repo, branch, "adjacent"),
+      { repo: repository, branch },
+    );
+    paths[branch] = tree.path;
+  }
+  await writeFile(path.join(paths.dirty, "keep.txt"), "must survive");
+  // Wait for the source to include the fresh eligibility result before opening its menu.
+  await expect
+    .poll(
+      async () =>
+        (await page.evaluate(() => window.desktop.sidebarInventory())).repositories[0]
+          ?.canDeleteMerged,
+    )
+    .toBe(true);
+  await expect(
+    page.getByRole("button", { name: "Actions for merged-two", exact: true }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "Actions for repo", exact: true }).click();
+  await page.getByRole("menuitem", { name: "Delete merged worktrees…" }).click();
+  const confirmation = await confirmationPage(app);
+  await expect(confirmation.getByRole("list", { name: "Worktrees to delete" })).toHaveText(
+    "merged-onemerged-two",
+  );
+  await expect(confirmation.getByRole("list", { name: "Skipped worktrees" })).toContainText(
+    "dirtyuncommitted changes",
+  );
+  await expect(confirmation.getByRole("button", { name: "Cancel" })).toBeFocused();
+  await confirmation.screenshot({ path: path.join(tmpdir(), "foom-122-confirmation.png") });
+  const results = await new AxeBuilder({ page: confirmation }).setLegacyMode().analyze();
+  assert.deepEqual(
+    results.violations.filter((v) => ["serious", "critical"].includes(v.impact)),
+    [],
+  );
+  await confirmation.getByRole("button", { name: "Cancel" }).click();
+  assert.ok((git("branch", "--list", "merged-one") || "").includes("merged-one"));
+  await page.getByRole("button", { name: "Actions for repo", exact: true }).click();
+  await page.getByRole("menuitem", { name: "Delete merged worktrees…" }).click();
+  await expect(confirmation.getByRole("button", { name: "Delete", exact: true })).toBeVisible();
+  await confirmation.getByRole("button", { name: "Delete", exact: true }).click();
+  await expect
+    .poll(
+      async () =>
+        (await page.evaluate((repository) => window.desktop.worktrees(repository), repository))
+          .length,
+    )
+    .toBe(2);
+  for (const branch of ["merged-one", "merged-two"]) {
+    await assert.rejects(realpath(paths[branch]), { code: "ENOENT" });
+    await expect.poll(() => git("branch", "--list", branch).toString().trim()).toBe("");
+  }
+  assert.equal(await readFile(path.join(paths.dirty, "keep.txt"), "utf8"), "must survive");
+  assert.ok(git("branch", "--list", "dirty").includes("dirty"));
+});
+
+test("shell fixture starts through keyboard while startup layout moves", {
+  timeout: deadline(45000),
+}, async (context) => {
+  const app = await launchApp(context, false, { emptyBoard: true });
+  const page = await boardPage(app);
+  await page.evaluate(() => {
+    window.fixtureMoving = true;
+    let frame = 0;
+    const move = () => {
+      frame++;
+      for (const button of document.querySelectorAll(".row-actions"))
+        button.style.transform = `translateX(${frame % 2 ? 4 : 0}px)`;
+      if (window.fixtureMoving) requestAnimationFrame(move);
+    };
+    move();
+  });
+  try {
+    await launchCheckoutShell(app, page);
+    await expect(page.locator(".board-row[data-kind='shell']")).toBeVisible();
+    await page.locator(".board-row[data-kind='shell']").press("Enter");
+    await expect(page.locator(".xterm-helper-textarea")).toBeFocused();
+  } finally {
+    await page.evaluate(() => {
+      window.fixtureMoving = false;
+    });
+  }
 });
