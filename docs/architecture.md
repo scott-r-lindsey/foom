@@ -684,7 +684,8 @@ so restored files take effect without a restart. The renderer decodes IPC bytes 
 fall back to the default and report a reason, never rewriting saved choices.
 
 The sound controller subscribes to board and setup sources. Activity bypasses React
-and mixes logarithmically into one capped loop. A 100 ms clock settles verdicts for
+and mixes logarithmically into one capped loop. Plain shell rows and exited sessions
+are excluded from the activity mix; shell verdict alerts remain unchanged. A 100 ms clock settles verdicts for
 one second, spaces alerts by two seconds, gives attention priority and repeats
 outstanding attention every two minutes. State changes, removal and disposal cancel
 reminders; repeated verdict IDs do not restart them. The focused tile is muted while

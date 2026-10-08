@@ -154,7 +154,7 @@ export function SoundControls({
           </label>
           {picker("working")}
           <p className="preflight-note">
-            Volume follows total output. Quiet terminals are silent. Off by default.
+            Volume follows agent output. Plain shells and quiet agents are silent. Off by default.
           </p>
         </section>
         <section className="sound-panel" aria-label="Alerts">

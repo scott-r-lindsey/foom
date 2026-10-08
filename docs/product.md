@@ -300,8 +300,9 @@ High Contrast provides at least 7:1 text contrast and stronger borders.
 
 Settings → Sound offers a separate recording picker and preview for Working, Done,
 Needs you and Refusal. Built-in and user files appear together, named from their
-filenames. Working is off at 15% by default; its loop follows total terminal output
-with the existing capped logarithmic mix, and quiet terminals are silent. Alerts
+filenames. Working is off at 15% by default; its loop follows agent output
+with the existing capped logarithmic mix. Plain shells do not contribute to Working
+sound; their Done and Needs you alerts remain available. Quiet agents are silent. Alerts
 cover Done, Needs you and Refusal and default to on at 50%. Each decoded recording
 gets bounded loudness normalization so volume choices remain useful across files.
 

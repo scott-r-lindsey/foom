@@ -3890,6 +3890,11 @@ test("recorded sounds refresh user files, preview the saved choice and play atte
   const app = await launchApp(context, true, { env: { HOME: root, USERPROFILE: root } });
   const page = await boardPage(app);
   await installSoundSink(page);
+  // Working audio is enabled, but this plain shell must contribute no loop.
+  await page.evaluate(async () => {
+    const { settings } = await window.desktop.setupState();
+    await window.desktop.saveSetup({ sound: { ...settings.sound, working: true } });
+  });
   await page.evaluate(() => {
     window.soundTerminal = undefined;
     window.desktop.onData((id) => {

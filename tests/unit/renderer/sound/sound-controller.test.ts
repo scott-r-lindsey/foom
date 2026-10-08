@@ -128,7 +128,10 @@ test("mutes the focused terminal, consumes completion and postpones attention af
   f.dispose();
 });
 test("applies mute and volumes, mixes activity, removes closed sessions and unsubscribes", async () => {
-  const f = await fixture();
+  const f = await fixture(Promise.resolve(setupState()), [
+    { ...row("a"), kind: "agent", agent: "Codex" },
+    row("b"),
+  ]);
   f.source.setActivity("a", 1000);
   f.source.setActivity("unknown", 99999);
   f.settings({
@@ -206,4 +209,29 @@ test("refusal is immediate, independent of debounce, and respects switches and d
   f.dispose();
   f.dispose.refuse();
   expect(f.sink.alert).toHaveBeenCalledTimes(3);
+});
+
+test("working audio excludes shell output while mixing active agents and tracking kind changes", async () => {
+  const f = await fixture(Promise.resolve(setupState()), [
+    { ...row("shell"), rate: 50000 },
+    { ...row("agent"), kind: "agent", agent: "Codex", rate: 100 },
+  ]);
+  f.settings({ ...DEFAULT_SOUND, working: true });
+  expect(f.sink.working).toHaveBeenLastCalledWith(activityIntensity([100]), 0.15);
+  f.source.setActivity("shell", 100000);
+  f.source.setActivity("agent", 200);
+  vi.advanceTimersByTime(100);
+  expect(f.sink.working).toHaveBeenLastCalledWith(activityIntensity([200]), 0.15);
+  f.source.update("agent", { kind: "shell" });
+  f.source.setActivity("agent", 50000);
+  vi.advanceTimersByTime(100);
+  expect(f.sink.working).toHaveBeenLastCalledWith(0, 0.15);
+  f.source.update("shell", { kind: "agent", agent: "Claude", rate: 300 });
+  vi.advanceTimersByTime(100);
+  expect(f.sink.working).toHaveBeenLastCalledWith(activityIntensity([300]), 0.15);
+  f.source.update("shell", { exited: true });
+  f.source.setActivity("shell", 50000);
+  vi.advanceTimersByTime(100);
+  expect(f.sink.working).toHaveBeenLastCalledWith(0, 0.15);
+  f.dispose();
 });

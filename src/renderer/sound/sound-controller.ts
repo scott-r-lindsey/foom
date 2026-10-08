@@ -44,7 +44,7 @@ export function createSoundController(
       const previous = verdicts.get(row.id);
       if (!previous || previous.state !== row.state)
         verdicts.set(row.id, { state: row.state, since: now(), next: now() + SETTLE_MS });
-      if (row.exited) rates.set(row.id, 0);
+      if (row.exited || row.kind === "shell") rates.delete(row.id);
       else if (!rates.has(row.id)) rates.set(row.id, row.rate);
     }
   };
@@ -84,7 +84,7 @@ export function createSoundController(
   updateRows();
   const offRows = source.subscribe(updateRows);
   const offActivity = source.subscribeActivity((batch) => {
-    for (const { id, rate } of batch) if (verdicts.has(id)) rates.set(id, rate);
+    for (const { id, rate } of batch) if (rates.has(id)) rates.set(id, rate);
   });
   const offSetup = setup.subscribe((state) => {
     settingsRevision++;
