@@ -367,3 +367,57 @@ test("resuming in the same row reattaches its existing controller without remoun
   expect(views[0]?.open.mock.calls.length).toBe(opens + 1);
   expect(views[0]?.mount.mock.calls.length).toBe(mounts);
 });
+
+test("menu presets and Dock navigation use the same board placement and report view state", async () => {
+  const { screen, source, send } = setup();
+  let navigate: ((id: string) => void) | undefined;
+  const setView = vi.fn().mockResolvedValue(undefined);
+  const dispose = vi.fn();
+  source.appMenu = {
+    platform: "darwin",
+    setView,
+    commands: vi.fn().mockResolvedValue([]),
+    execute: vi.fn().mockResolvedValue(undefined),
+    onOpen: () => () => {},
+    onSession: (callback) => {
+      navigate = callback;
+      return dispose;
+    },
+  };
+  screen.rerender(<Board source={{ ...source }} />);
+  for (const [command, count] of [
+    ["preset-columns", 2],
+    ["preset-rows", 2],
+    ["preset-grid", 4],
+    ["preset-main2", 3],
+    ["preset-main3", 4],
+    ["preset-one", 1],
+  ] as const) {
+    send(command);
+    expect(screen.container.querySelectorAll(".terminal-tile")).toHaveLength(count);
+  }
+  send("maximize");
+  expect(setView).toHaveBeenLastCalledWith({ available: true, maximized: true, tiles: 1 });
+  act(() => {
+    navigate?.("missing");
+    navigate?.(source.getSnapshot()[1]?.id ?? "missing");
+  });
+  expect(screen.container.querySelectorAll(".terminal-tile")).toHaveLength(1);
+  expect(screen.getByRole("region", { name: /Tile 1:/ }).textContent).toContain(
+    source.getSnapshot()[1]?.repository,
+  );
+  send("new-worktree");
+  expect(setView).toHaveBeenLastCalledWith(expect.objectContaining({ available: false }));
+  const error = vi.spyOn(console, "error").mockImplementation(() => {});
+  setView.mockRejectedValueOnce(new Error("offline"));
+  screen.rerender(<Board source={{ ...source }} inactive />);
+  await act(async () => {
+    await Promise.resolve();
+  });
+  expect(error).toHaveBeenCalledWith("Unable to update menu state:", expect.any(Error));
+  act(() => {
+    navigate?.(source.getSnapshot()[0]?.id ?? "missing");
+  });
+  screen.unmount();
+  expect(dispose).toHaveBeenCalled();
+});

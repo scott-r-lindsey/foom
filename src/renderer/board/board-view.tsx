@@ -297,6 +297,11 @@ export function Board({
         if (inactive || launching) return;
         if (command === "settings") {
           onSettings?.();
+        } else if (command === "new-worktree") {
+          if (!settingsOpen) {
+            setLaunchRepository(undefined);
+            setLaunching(true);
+          }
         } else if (command === "sidebar") {
           const button = selected ? buttonsRef.current.get(selected) : undefined;
           (button ?? sidebarRef.current)?.focus();
@@ -305,7 +310,24 @@ export function Board({
           if (next) open(next, true);
         } else if (!settingsOpen) {
           const current = layoutRef.current;
-          if (command.startsWith("tile-")) {
+          if (
+            command === "preset-one" ||
+            command === "preset-columns" ||
+            command === "preset-rows" ||
+            command === "preset-grid" ||
+            command === "preset-main2" ||
+            command === "preset-main3"
+          ) {
+            const presets = {
+              "preset-one": "one",
+              "preset-columns": "columns",
+              "preset-rows": "rows",
+              "preset-grid": "grid",
+              "preset-main2": "main2",
+              "preset-main3": "main3",
+            } as const;
+            changeLayout(preset(current, presets[command]));
+          } else if (command.startsWith("tile-")) {
             const tile = leaves(current.tree)[Number(command.slice(5)) - 1];
             if (tile) {
               setFocusRequest((value) => value + 1);
@@ -350,6 +372,29 @@ export function Board({
       tileAction,
       changeLayout,
     ],
+  );
+  useEffect(() => {
+    void source.appMenu
+      ?.setView({
+        available: !inactive && !launching && !settingsOpen,
+        maximized: Boolean(layout.maximized),
+        tiles: leaves(layout.tree).length,
+      })
+      .catch((error: unknown) => {
+        console.error("Unable to update menu state:", error);
+      });
+  }, [source, inactive, launching, settingsOpen, layout]);
+  useEffect(
+    () =>
+      source.appMenu?.onSession((id) => {
+        if (inactive || launching) return;
+        const row = source.getSnapshot().find((row) => row.id === id);
+        if (row) {
+          onCloseSettings?.();
+          open(row, true);
+        }
+      }),
+    [source, inactive, launching, open, onCloseSettings],
   );
   return (
     <main className="board-home" aria-label="Board" hidden={inactive} inert={inactive}>

@@ -98,12 +98,43 @@ const desktop: DesktopApi = {
     cancel: () => ipcRenderer.invoke("confirmation:cancel"),
   },
   isDevelopment: process.argv.includes("--foom-development"),
+  appMenu: {
+    platform: process.platform,
+    setView: (state) => ipcRenderer.invoke("app-menu:view", state),
+    commands: () => ipcRenderer.invoke("app-menu:list"),
+    execute: (id) => ipcRenderer.invoke("app-menu:execute", id),
+    onOpen(callback) {
+      const listener = () => {
+        callback();
+      };
+      ipcRenderer.on("app-menu:open", listener);
+      return () => {
+        ipcRenderer.removeListener("app-menu:open", listener);
+      };
+    },
+    onSession(callback) {
+      const listener = (_event: IpcRendererEvent, id: unknown) => {
+        if (typeof id === "string" && id.length > 0 && id.length <= 256) callback(id);
+      };
+      ipcRenderer.on("app-menu:session", listener);
+      return () => {
+        ipcRenderer.removeListener("app-menu:session", listener);
+      };
+    },
+  },
   onBoardCommand(callback) {
     const listener = (_event: IpcRendererEvent, command: unknown) => {
       if (
         command === "sidebar" ||
         command === "next-waiting" ||
         command === "settings" ||
+        command === "new-worktree" ||
+        command === "preset-one" ||
+        command === "preset-columns" ||
+        command === "preset-rows" ||
+        command === "preset-grid" ||
+        command === "preset-main2" ||
+        command === "preset-main3" ||
         command === "maximize" ||
         command === "left" ||
         command === "right" ||

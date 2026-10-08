@@ -459,3 +459,46 @@ test.each([false, true])(
     expect((await bridge()).isDevelopment).toBe(development);
   },
 );
+
+test("application menu bridge forwards IDs and strips events from validated session navigation", async () => {
+  const api = await bridge();
+  mock.invoke.mockResolvedValue([]);
+  await api.appMenu.commands();
+  await api.appMenu.execute("settings");
+  await api.appMenu.setView({ available: true, maximized: false, tiles: 1 });
+  expect(mock.invoke).toHaveBeenCalledWith("app-menu:execute", "settings");
+  const open = vi.fn();
+  const session = vi.fn();
+  const offOpen = api.appMenu.onOpen(open);
+  const offSession = api.appMenu.onSession(session);
+  const opening = mock.on.mock.calls.find(([channel]) => channel === "app-menu:open")?.[1];
+  const navigate = mock.on.mock.calls.find(([channel]) => channel === "app-menu:session")?.[1];
+  opening?.({});
+  for (const value of [null, 1, "", "x".repeat(257), "one"]) navigate?.({}, value);
+  expect(open.mock.calls).toEqual([[]]);
+  expect(session.mock.calls).toEqual([["one"]]);
+  offOpen();
+  offSession();
+  expect(mock.removeListener).toHaveBeenCalledWith("app-menu:session", navigate);
+});
+
+test("preload accepts menu board commands and rejects unknown values", async () => {
+  const api = await bridge();
+  const callback = vi.fn();
+  const off = api.onBoardCommand(callback);
+  const listener = mock.on.mock.calls.find(([name]) => name === "board:command")?.[1];
+  for (const command of [
+    "new-worktree",
+    "preset-one",
+    "preset-columns",
+    "preset-rows",
+    "preset-grid",
+    "preset-main2",
+    "preset-main3",
+  ])
+    listener?.({}, command);
+  listener?.({}, "reload");
+  listener?.({}, {});
+  expect(callback).toHaveBeenCalledTimes(7);
+  off();
+});

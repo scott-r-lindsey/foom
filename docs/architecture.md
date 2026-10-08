@@ -202,7 +202,7 @@ Every channel checks the sender (the owning window, the main frame, `app://bundl
 
 | Channel | Direction | Payload |
 |---|---|---|
-| `board:command` | main → renderer | `sidebar` / `next-waiting` / `settings`; preload rejects unknown commands, covered boards and modal launchers ignore them |
+| `board:command` | main → renderer | registry board actions (including tile presets and new worktree); preload rejects unknown commands, covered boards and modal launchers ignore them |
 | `terminal:create` | renderer → main (invoke) | `cols`, `rows` → `{ id, title }` |
 | `terminal:attach` / `terminal:detach` | renderer → main | `id` → snapshot via `terminal:data` on attach |
 | `terminal:kill` | renderer → main (invoke) | `id` |
@@ -722,12 +722,35 @@ or unmount. The CSP and preload capabilities are unchanged.
 
 ## Board shortcut definitions
 
-`main/window/appearance.ts` defines board command IDs, labels and physical keys in
-`BOARD_COMMANDS`. Direct bindings and the per-window tile leader resolve from that
-list. Windows/Linux use Ctrl+Shift+Space followed by an unmodified tile key within
-two seconds; blur cancels the pending leader. Unmatched keys pass through. macOS
-keeps its Command bindings. The full application menu and its integration with
-this list remain #135.
+`main/window/commands.ts` owns the command registry: IDs, labels, platform
+bindings, enabled/checked state, native roles and actions. `app-menu.ts` projects
+this registry to the macOS menu and the sandboxed renderer's menu data. Main owns
+one `before-input-event` dispatcher; native accelerators are display-only
+(`registerAccelerator: false`). Windows/Linux have no native application menu.
+The existing two-second Ctrl+Shift+Space tile leader resolves from the registry;
+blur, timeout and unmatched input cancel it. Alt alone and F10 open the wordmark
+menu. Plain Ctrl letters and numbers reach the terminal.
+
+The `app-menu:list`, `app-menu:execute` and `app-menu:view` invoke handlers accept
+only the owning window's trusted top-level frame. Execute accepts an existing,
+enabled command ID; it never accepts code, URLs, paths or arbitrary terminal IDs.
+View accepts bounded tile counts and booleans solely for presentation availability
+and the maximize checkmark. The board source exposes this small typed capability.
+The renderer reuses RowMenu's keyboard navigation, portal and dismissal behavior.
+Menu selection and native shortcuts dispatch identical main-owned actions.
+Application-menu actions dismiss before dispatch, independently of row-action
+confirmation cancellation. They restore the previous focus and selection first,
+so native editing targets the original input; navigation commands then own their
+destination focus. Escape continues to return focus to the wordmark.
+Development commands are omitted when packaged; packaged webContents also set
+`devTools: false`. Quit and Close Window go through the existing confirmed shutdown.
+
+`attention-badge.ts` derives attention counts from main's workspace snapshot on
+inventory and verdict changes. Windows overlays are generated BGRA bitmaps;
+macOS gets a Dock badge and a menu whose waiting-session callbacks carry main-owned
+terminal IDs. The validated preload notification selects an existing board row.
+Linux uses `app.setBadgeCount`, which is a no-op on unsupported desktops. Renderer
+activity rates never determine badge counts.
 
 Terminal view operations recheck current inventory when queued work executes.
 The validated `terminal:availability` notification carries terminal IDs in a batch.

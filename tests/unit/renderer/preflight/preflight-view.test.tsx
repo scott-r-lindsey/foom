@@ -600,7 +600,7 @@ test("appearance applies at once, follows shortcuts from main, and stays within 
   });
   expect(screen.getByText("80%")).toBeTruthy();
   expect(button("Smaller")).toHaveProperty("disabled", true);
-  expect(screen.getByText("Ctrl+Shift+= / − · Ctrl+0")).toBeTruthy();
+  expect(screen.getByText("Ctrl+Shift+= / − / 0")).toBeTruthy();
   // If main refuses a change, its own settings come back.
   source.save.mockRejectedValueOnce(new Error("Disk full"));
   fireEvent.click(button("Larger"));
