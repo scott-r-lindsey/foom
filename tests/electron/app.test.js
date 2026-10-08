@@ -601,6 +601,7 @@ test("terminal runs an interactive shell behind an isolated bridge", {
         node: "undefined",
         process: "undefined",
         capabilities: [
+          "windows",
           "sounds",
           "confirmations",
           "isDevelopment",
@@ -886,7 +887,36 @@ for (const action of ["close", "quit", "shortcut"]) {
     timeout: deadline(45_000),
   }, async (context) => {
     const app = await launchApp(context);
-    const page = await boardPage(app);
+    let page = await boardPage(app);
+    if (action === "close" && process.platform === "darwin") {
+      await page.evaluate(() => window.desktop.appMenu.execute("close-window"));
+      await expect.poll(() => page.isClosed()).toBe(true);
+      assert.equal(app.process().exitCode, null);
+      await expect
+        .poll(() =>
+          app.evaluate(({ Menu }) => {
+            const menu = Menu.getApplicationMenu();
+            return ["new-window", "quit"].map((id) => {
+              const item = menu.getMenuItemById(id);
+              return {
+                enabled: item.enabled,
+                accelerator: item.accelerator,
+                registered: item.registerAccelerator,
+              };
+            });
+          }),
+        )
+        .toEqual([
+          { enabled: true, accelerator: "Command+N", registered: true },
+          { enabled: true, accelerator: "Command+Q", registered: true },
+        ]);
+      await app.evaluate(({ app }) => app.emit("activate"));
+      page = await boardPage(app);
+      await expect
+        .poll(async () => (await page.evaluate(() => window.desktop.workspace())).terminals.length)
+        .toBe(1);
+      await page.locator(".session-name").click();
+    }
     await page.waitForFunction(
       () => !/Starting|Unable/.test(document.querySelector(".tile-status").textContent),
     );
@@ -900,42 +930,46 @@ for (const action of ["close", "quit", "shortcut"]) {
       process.platform === "win32"
         ? 'Write-Output ("QUIT_PID:" + $PID)'
         : "printf 'QUIT_%s:%s\\n' PID $$";
-    await page.locator(".xterm-helper-textarea").focus();
-    await page.keyboard.type(command);
-    await page.keyboard.press("Enter");
-    await page.waitForFunction(() => /QUIT_PID:\d+/.test(window.quitOutput));
-    const firstPid = await page.evaluate(() =>
-      Number(window.quitOutput.match(/QUIT_PID:(\d+)/)[1]),
+    // A reopened board can report a running session before its view attaches.
+    // Query the app-owned PTY without racing keyboard input against attachment.
+    const first = await page.evaluate(
+      async () => (await window.desktop.workspace()).terminals[0].id,
     );
-    const second = await page.evaluate(async () => {
-      const { id } = await window.desktop.create(80, 24);
-      window.secondOutput = "";
-      window.desktop.onData((terminal, token, data) => {
-        if (terminal === id) {
-          window.secondOutput += data;
-          window.desktop.acknowledge(id, token, data.length);
-        }
-      });
-      await window.desktop.attach(id);
-      return id;
+    await page.evaluate(({ id, command }) => window.desktop.input(id, command + "\r"), {
+      id: first,
+      command,
     });
+    await expect
+      .poll(() => page.evaluate((id) => window.desktop.tail(id, 40), first))
+      .toEqual(expect.arrayContaining([expect.stringMatching(/QUIT_PID:\d+/)]));
+    const firstPid = await page.evaluate(
+      async (id) =>
+        Number((await window.desktop.tail(id, 40)).join("\n").match(/QUIT_PID:(\d+)/)[1]),
+      first,
+    );
+    const second = await page.evaluate(async () => (await window.desktop.create(80, 24)).id);
     await page.evaluate(({ id, command }) => window.desktop.input(id, command + "\r"), {
       id: second,
       command,
     });
-    await page.waitForFunction(() => /QUIT_PID:\d+/.test(window.secondOutput));
-    const secondPid = await page.evaluate(() =>
-      Number(window.secondOutput.match(/QUIT_PID:(\d+)/)[1]),
+    // This terminal deliberately has no tile. Its headless screen and PTY must
+    // keep running, without acquiring a renderer view outside the board layout.
+    await expect
+      .poll(() => page.evaluate((id) => window.desktop.tail(id, 40), second))
+      .toEqual(expect.arrayContaining([expect.stringMatching(/QUIT_PID:\d+/)]));
+    const secondPid = await page.evaluate(
+      async (id) =>
+        Number((await window.desktop.tail(id, 40)).join("\n").match(/QUIT_PID:(\d+)/)[1]),
+      second,
     );
-    await page.evaluate((id) => window.desktop.detach(id), second);
     const requestQuit = () =>
       app.evaluate(({ app, BrowserWindow }, method) => {
         const window = BrowserWindow.getAllWindows().find(
           (window) => window.webContents.getURL() === "app://bundle/index.html",
         );
         setTimeout(() => {
-          if (method === "close") window.close();
-          else if (method === "quit") app.quit();
+          if (method === "close" && process.platform !== "darwin") window.close();
+          else if (method === "quit" || method === "close") app.quit();
           else {
             window.focus();
             window.webContents.sendInputEvent({
@@ -1012,11 +1046,13 @@ test("closing with an exited terminal quits without confirmation", {
     };
   });
   await quitAndWait(app, () =>
-    app.evaluate(({ BrowserWindow }) =>
-      BrowserWindow.getAllWindows()
-        .find((window) => window.webContents.getURL() === "app://bundle/index.html")
-        .close(),
-    ),
+    app.evaluate(({ app, BrowserWindow }) => {
+      if (process.platform === "darwin") app.quit();
+      else
+        BrowserWindow.getAllWindows()
+          .find((window) => window.webContents.getURL() === "app://bundle/index.html")
+          .close();
+    }),
   );
 });
 
@@ -3637,6 +3673,10 @@ test("sidebar menus escape the scroll area, stay in the window and launch from a
   await bottom.click();
   const menu = page.getByRole("menu", { name: "Actions" });
   await expect(menu).toBeVisible();
+  // Visibility begins during the opening transform; measure the settled menu.
+  await menu.evaluate((element) =>
+    Promise.all(element.getAnimations({ subtree: true }).map((animation) => animation.finished)),
+  );
   const box = await menu.boundingBox();
   const anchor = await bottom.boundingBox();
   assert.ok(box && anchor);
@@ -3644,6 +3684,7 @@ test("sidebar menus escape the scroll area, stay in the window and launch from a
   assert.ok(box.x >= anchor.x + anchor.width, "menu opens to the right over the pane");
   assert.ok(
     box.y >= 0 && box.y + box.height <= viewport.height && box.x + box.width <= viewport.width,
+    JSON.stringify({ box, anchor, viewport }),
   );
   assert.equal(await menu.evaluate((element) => element.closest(".board-list")), null);
   await assertAccessible(page);
@@ -3882,7 +3923,9 @@ test("tiles build irregular layouts, preserve views, refuse full placement and r
   await expect(tiles.nth(2)).toContainText("Shell");
   assert.equal(
     await page.evaluate(
-      () => JSON.parse(localStorage.getItem("foom.tiles.v1")).tree.second.second.session,
+      () =>
+        JSON.parse(localStorage.getItem(`foom.tiles.v1.${window.desktop.windows.id}`)).tree.second
+          .second.session,
     ),
     sessions[2].id,
   );
@@ -3930,7 +3973,11 @@ test("tiles build irregular layouts, preserve views, refuse full placement and r
   await boardCommand(app, "N");
   await expect(page.locator(".xterm-helper-textarea").first()).toBeFocused();
   assert.equal(
-    await page.evaluate(() => JSON.parse(localStorage.getItem("foom.tiles.v1")).tree.first.session),
+    await page.evaluate(
+      () =>
+        JSON.parse(localStorage.getItem(`foom.tiles.v1.${window.desktop.windows.id}`)).tree.first
+          .session,
+    ),
     sessions[3].id,
   );
   await page.getByRole("button", { name: "Hide session", exact: true }).first().click();
@@ -3953,10 +4000,15 @@ test("tiles build irregular layouts, preserve views, refuse full placement and r
       .length,
     4,
   );
-  const persisted = await page.evaluate(() => localStorage.getItem("foom.tiles.v1"));
+  const persisted = await page.evaluate(() =>
+    localStorage.getItem(`foom.tiles.v1.${window.desktop.windows.id}`),
+  );
   await page.reload();
   await expect(tiles).toHaveCount(3);
-  assert.equal(await page.evaluate(() => localStorage.getItem("foom.tiles.v1")), persisted);
+  assert.equal(
+    await page.evaluate(() => localStorage.getItem(`foom.tiles.v1.${window.desktop.windows.id}`)),
+    persisted,
+  );
 });
 
 test("launching into full tiles replaces focus and empty tiles support mouse controls", async (context) => {
@@ -3973,7 +4025,13 @@ test("launching into full tiles replaces focus and empty tiles support mouse con
   const created = sessions.find((session) => session.id !== original.id);
   assert.ok(created);
   await expect
-    .poll(() => page.evaluate(() => JSON.parse(localStorage.getItem("foom.tiles.v1")).tree.session))
+    .poll(() =>
+      page.evaluate(
+        () =>
+          JSON.parse(localStorage.getItem(`foom.tiles.v1.${window.desktop.windows.id}`)).tree
+            .session,
+      ),
+    )
     .toBe(created.id);
   await expect(page.locator('.board-row[data-refused="true"]')).toHaveCount(0);
   await expect(page.locator(".xterm-helper-textarea").first()).toBeFocused();
@@ -4662,13 +4720,7 @@ if (resumed) {
             ?.conversationId,
       )
       .toBe(conversation);
-    await quitAndWait(app, () =>
-      app.evaluate(({ BrowserWindow }) =>
-        BrowserWindow.getAllWindows()
-          .find((win) => win.webContents.getURL() === "app://bundle/index.html")
-          .close(),
-      ),
-    );
+    await quitAndWait(app, () => app.evaluate(({ app }) => app.quit()));
     const restoredApp = await launchApp(context, false, options);
     const restored = await boardPage(restoredApp);
     await expect
@@ -4848,7 +4900,7 @@ test("application menu uses the command registry and supports native keyboard ac
   const page = await boardPage(app);
   const commands = await page.evaluate(() => window.desktop.appMenu.commands());
   assert.ok(commands.some((item) => item.id === "reload"));
-  assert.equal(commands.find((item) => item.id === "new-window").enabled, false);
+  assert.equal(commands.find((item) => item.id === "new-window").enabled, true);
   if (process.platform === "darwin") {
     const labels = await app.evaluate(({ Menu }) =>
       Menu.getApplicationMenu().items.map((item) => item.label),
@@ -4898,7 +4950,7 @@ test("application menu uses the command registry and supports native keyboard ac
   );
   await assertAccessible(page);
   await page.screenshot({ path: "test-results/application-menu.png", animations: "disabled" });
-  await expect(page.getByRole("menuitem", { name: "New Window", exact: true })).toBeDisabled();
+  await expect(page.getByRole("menuitem", { name: /^New Window/ })).toBeEnabled();
   await page.keyboard.press("End");
   await expect(page.getByRole("menuitem", { name: /Toggle Developer Tools/ })).toBeFocused();
   await page.keyboard.press("Home");
@@ -5036,7 +5088,8 @@ test("tile drag drops replace, split every edge, swap and move without reattachm
         page.locator('.terminal-tile[data-focused="true"] .xterm-helper-textarea'),
       ).toBeFocused();
   };
-  const saved = () => page.evaluate(() => localStorage.getItem("foom.tiles.v1"));
+  const saved = () =>
+    page.evaluate(() => localStorage.getItem(`foom.tiles.v1.${window.desktop.windows.id}`));
   const initial = await saved();
   await drag(rows.nth(1), tiles.first(), 0.5, 0.5, true);
   assert.equal(await saved(), initial);
@@ -5460,6 +5513,142 @@ test("shell fixture starts through keyboard while startup layout moves", {
     await page.evaluate(() => {
       window.fixtureMoving = false;
     });
+  }
+});
+
+test("multiple windows share sessions, keep views exclusive and retain terminals on close", {
+  timeout: deadline(60000),
+}, async (context) => {
+  const app = await launchApp(context);
+  const first = await boardPage(app);
+  await expect(first.locator(".terminal-tile[data-empty=false]")).toHaveCount(1);
+  const original = (await first.evaluate(() => window.desktop.workspace())).terminals[0].id;
+  await first.evaluate(() => window.desktop.appMenu.execute("new-window"));
+  let second;
+  await expect
+    .poll(() => {
+      second = app
+        .windows()
+        .find((page) => page !== first && page.url() === "app://bundle/index.html");
+      return Boolean(second);
+    })
+    .toBe(true);
+  await expect(
+    second.getByRole("button", { name: "Actions for shell-fixture", exact: true }),
+  ).toBeVisible();
+  await second
+    .getByRole("button", { name: "Actions for shell-fixture", exact: true })
+    .press("Enter");
+  await second.getByRole("menuitem", { name: /^Shell \(/ }).press("Enter");
+  await expect(second.locator(".terminal-tile[data-empty=false]")).toHaveCount(1);
+  await expect
+    .poll(async () => (await first.evaluate(() => window.desktop.workspace())).terminals.length)
+    .toBe(2);
+  await expect(second.getByLabel("Shown in another window", { exact: true })).toHaveCount(1);
+  assert.equal(await second.evaluate((id) => window.desktop.windows.select(id), original), false);
+  await expect.poll(() => first.evaluate(() => document.hasFocus())).toBe(true);
+  assert.equal(
+    await second.evaluate(async (id) => {
+      try {
+        await window.desktop.attach(id);
+        return "attached";
+      } catch {
+        return "rejected";
+      }
+    }, original),
+    "rejected",
+  );
+  await first.getByRole("button", { name: "Split right", exact: true }).click();
+  await first
+    .getByRole("button", { name: "Actions for shell-fixture", exact: true })
+    .press("Enter");
+  await first.getByRole("menuitem", { name: /^Shell \(/ }).press("Enter");
+  await expect(first.locator(".terminal-tile[data-empty=false]")).toHaveCount(2);
+  const firstLayout = () =>
+    first.evaluate(() =>
+      JSON.parse(localStorage.getItem(`foom.tiles.v1.${window.desktop.windows.id}`)),
+    );
+  const beforeSelection = await firstLayout();
+  assert.equal(await second.evaluate((id) => window.desktop.windows.select(id), original), false);
+  await expect.poll(async () => (await firstLayout()).focused).toBe(beforeSelection.tree.first.id);
+  assert.deepEqual((await firstLayout()).tree, beforeSelection.tree);
+  await assertAccessible(first);
+  await assertAccessible(second);
+  await first
+    .locator(".terminal-tile[data-focused=true]")
+    .getByRole("button", { name: "Move to new window", exact: true })
+    .press("Enter");
+  await expect
+    .poll(() => app.windows().filter((page) => page.url() === "app://bundle/index.html").length)
+    .toBe(3);
+  const third = app
+    .windows()
+    .find((page) => page !== first && page !== second && page.url() === "app://bundle/index.html");
+  await expect(third.locator(".terminal-tile[data-empty=false]")).toHaveCount(1);
+  await expect(first.locator(".terminal-tile[data-empty=false]")).toHaveCount(1);
+  await third.evaluate(() => window.desktop.appMenu.execute("close-window"));
+  await expect.poll(() => third.isClosed()).toBe(true);
+  const sessions = await first.evaluate(() => window.desktop.workspace());
+  assert.equal(sessions.terminals.find((item) => item.id === original).exited, false);
+  assert.equal(await first.evaluate((id) => window.desktop.windows.select(id), original), true);
+  await assertAccessible(first);
+  await assertAccessible(second);
+});
+
+test("multiple windows restore independent layouts, bounds and interface size", {
+  timeout: deadline(60000),
+}, async (context) => {
+  const profile = await mkdtemp(path.join(tmpdir(), "foom-window-restore-"));
+  removeAfterApps(context, profile);
+  const options = { args: [`--user-data-dir=${profile}`], emptyBoard: true };
+  const app = await launchApp(context, false, options);
+  const first = await boardPage(app);
+  await first.getByRole("button", { name: "Two side by side", exact: true }).click();
+  await first.evaluate(() => window.desktop.saveSetup({ interfaceScale: 110 }));
+  await first.evaluate(() => window.desktop.appMenu.execute("new-window"));
+  let second;
+  await expect
+    .poll(() => {
+      second = app
+        .windows()
+        .find((page) => page !== first && page.url() === "app://bundle/index.html");
+      return Boolean(second);
+    })
+    .toBe(true);
+  await second.getByRole("button", { name: "One and two", exact: true }).click();
+  await second.evaluate(() => window.desktop.saveSetup({ interfaceScale: 90 }));
+  assert.equal(
+    (await first.evaluate(() => window.desktop.setupState())).settings.interfaceScale,
+    110,
+  );
+  const firstId = await first.evaluate(() => window.desktop.windows.id);
+  const secondId = await second.evaluate(() => window.desktop.windows.id);
+  await expect(first.locator(".terminal-tile")).toHaveCount(2);
+  await expect(second.locator(".terminal-tile")).toHaveCount(3);
+  await quitAndWait(app, () => app.evaluate(({ app }) => app.quit()));
+  const placements = JSON.parse(await readFile(path.join(profile, "windows.json"), "utf8"));
+  assert.equal(placements.length, 2);
+  assert.deepEqual(
+    placements.map((item) => item.scale),
+    [110, 90],
+  );
+  const restored = await launchApp(context, false, options);
+  await expect
+    .poll(
+      () => restored.windows().filter((page) => page.url() === "app://bundle/index.html").length,
+    )
+    .toBe(2);
+  for (const page of restored
+    .windows()
+    .filter((page) => page.url() === "app://bundle/index.html")) {
+    const id = await page.evaluate(() => window.desktop.windows.id);
+    assert.ok(id === firstId || id === secondId);
+    await expect(page.locator(".terminal-tile")).toHaveCount(id === firstId ? 2 : 3);
+    assert.equal(
+      (await page.evaluate(() => window.desktop.setupState())).settings.interfaceScale,
+      id === firstId ? 110 : 90,
+    );
+    await assertAccessible(page);
   }
 });
 

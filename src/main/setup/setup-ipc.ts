@@ -1,3 +1,4 @@
+import type { WindowIpc } from "../window/window-ipc";
 import { ipcMain } from "electron";
 import type { BrowserWindow, IpcMainInvokeEvent } from "electron";
 import { nextScale } from "../window/appearance";
@@ -18,6 +19,7 @@ export function attachSetup(
    * + and − buttons: true before, false after. Shortcuts don't call it.
    */
   pointerZoom: (active: boolean) => void = () => undefined,
+  ipc: WindowIpc = ipcMain,
 ): { dispose(): void; zoom(direction: ZoomDirection): Promise<void> } {
   const contents = window.webContents;
   const trusted = (event: IpcMainInvokeEvent) =>
@@ -86,13 +88,13 @@ export function attachSetup(
     ],
   ]);
   for (const [channel, handler] of handlers)
-    ipcMain.handle(channel, (event, ...args: unknown[]) => {
+    ipc.handle(channel, (event, ...args: unknown[]) => {
       if (!trusted(event)) throw new Error("Untrusted IPC sender");
       return handler(...args);
     });
   return {
     dispose() {
-      for (const channel of handlers.keys()) ipcMain.removeHandler(channel);
+      for (const channel of handlers.keys()) ipc.removeHandler(channel);
     },
     /** A zoom shortcut: save the next scale and tell the renderer what changed. */
     async zoom(direction) {

@@ -283,11 +283,12 @@ export function pruneSessions(layout: TileLayout, sessions: ReadonlySet<string>)
       : { ...node, first: prune(node.first), second: prune(node.second) };
   return { ...layout, tree: prune(layout.tree) };
 }
-export function saveLayout(storage: Pick<Storage, "setItem">, layout: TileLayout): void {
-  storage.setItem(
-    TILE_STORAGE,
-    JSON.stringify({ version: 1, tree: layout.tree, focused: layout.focused }),
-  );
+export function saveLayout(
+  storage: Pick<Storage, "setItem">,
+  layout: TileLayout,
+  key = TILE_STORAGE,
+): void {
+  storage.setItem(key, JSON.stringify({ version: 1, tree: layout.tree, focused: layout.focused }));
 }
 
 /** Swap whole leaves, preserving their controllers and session assignments. */
@@ -346,4 +347,20 @@ export function dropZone(x: number, y: number): DropZone {
   if (edge === x) return "left";
   if (edge === 1 - x) return "right";
   return edge === y ? "up" : "down";
+}
+
+/** Consume the pre-multiwindow layout once; later windows start independently. */
+export function loadLayout(
+  storage: Pick<Storage, "getItem" | "setItem" | "removeItem">,
+  key = TILE_STORAGE,
+): TileLayout {
+  let raw = storage.getItem(key);
+  if (raw === null && key !== TILE_STORAGE) {
+    raw = storage.getItem(TILE_STORAGE);
+    if (raw !== null) {
+      storage.setItem(key, raw);
+      storage.removeItem(TILE_STORAGE);
+    }
+  }
+  return restoreLayout(raw);
 }

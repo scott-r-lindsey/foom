@@ -40,7 +40,7 @@ test.each(["linux", "win32", "darwin"])(
     expect(calls.board).toHaveBeenCalledWith("preset-grid");
     expect(calls.zoom).toHaveBeenCalledWith("reset");
     expect(calls.native).toHaveBeenCalledWith("quit");
-    expect(calls.native).not.toHaveBeenCalledWith("new-window");
+    expect(calls.native).toHaveBeenCalledWith("new-window");
     expect(
       projectCommands(commands).every((item) => !("run" in item) && !("bindings" in item)),
     ).toBe(true);

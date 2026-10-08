@@ -124,7 +124,7 @@ export function createCommands(
       section,
       bindings,
       shortcut: bindings[0] ? shortcutLabel(bindings[0]) : "",
-      enabled: id !== "new-window",
+      enabled: true,
       run,
       ...(role ? { role } : {}),
     });
@@ -157,15 +157,7 @@ export function createCommands(
     );
   }
   add("quit", "Quit Foom", "Foom", [chord("KeyQ")]);
-  add("new-window", "New Window", "File", [chord("KeyN", !mac)]);
-  // Ctrl+Shift+N is already Longest waiting; New Window remains disabled without a binding.
-  if (!mac) {
-    const entry = commands.find((item) => item.id === "new-window");
-    if (entry) {
-      entry.bindings = [];
-      entry.shortcut = "";
-    }
-  }
+  add("new-window", "New Window", "File", [chord(mac ? "KeyN" : "KeyO", !mac)]);
   add("new-worktree", "New Worktree…", "File", [chord("KeyT")], () => {
     actions.board("new-worktree");
   });

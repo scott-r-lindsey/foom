@@ -434,3 +434,17 @@ test("Codex sandbox full access requires the same one-time acknowledgement as it
   expect(confirm).toHaveBeenCalledTimes(2);
   expect(settings.agentBypassAcknowledged.codex).toBe(true);
 });
+
+test("classification adopts settings saved by another window before evaluating", async () => {
+  const setup = new Setup(deps);
+  settings = {
+    ...settings,
+    inference: { kind: "rules" },
+    inferenceTimeoutMs: settings.inferenceTimeoutMs + 1000,
+  };
+  await setup.classify({ terminalId: "t", tail: [] });
+  expect(built.at(-1)).toEqual([settings.inference, settings.inferenceTimeoutMs]);
+  const count = built.length;
+  await setup.classify({ terminalId: "t", tail: [] });
+  expect(built).toHaveLength(count);
+});

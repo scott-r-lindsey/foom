@@ -1,3 +1,4 @@
+import type { WindowAudioState } from "../../shared/windows";
 import { AgentBadge } from "./agent-badge";
 import { ConfirmationButton } from "./confirmation-button";
 import { TileArea } from "./tile-area";
@@ -5,6 +6,7 @@ import {
   TILE_STORAGE,
   restoreLayout,
   saveLayout,
+  loadLayout,
   leaves,
   placeSession,
   preset,
@@ -61,6 +63,8 @@ export function Board({
   settingsView?: ReactNode;
   onCloseSettings?: () => void;
 }) {
+  const storageKey = source.windows ? `${TILE_STORAGE}.${source.windows.id}` : TILE_STORAGE;
+  const [otherViews, setOtherViews] = useState<ReadonlySet<string>>(() => new Set());
   const [drag, setDrag] = useState<TileDrag>();
   const [removeError, setRemoveError] = useState("");
   const settingsOpen = Boolean(settingsView);
@@ -69,22 +73,25 @@ export function Board({
   useEffect(() => source.connect?.(), [source]);
   const [layout, setLayout] = useState(() => {
     try {
-      return restoreLayout(localStorage.getItem(TILE_STORAGE));
+      return loadLayout(localStorage, storageKey);
     } catch {
       return restoreLayout(null);
     }
   });
   const layoutRef = useRef(layout);
   const [focusRequest, setFocusRequest] = useState(0);
-  const changeLayout = useCallback((next: TileLayout) => {
-    layoutRef.current = next;
-    setLayout(next);
-    try {
-      saveLayout(localStorage, next);
-    } catch {
-      setRemoveError("Unable to save tile layout.");
-    }
-  }, []);
+  const changeLayout = useCallback(
+    (next: TileLayout) => {
+      layoutRef.current = next;
+      setLayout(next);
+      try {
+        saveLayout(localStorage, next, storageKey);
+      } catch {
+        setRemoveError("Unable to save tile layout.");
+      }
+    },
+    [storageKey],
+  );
   useEffect(() => {
     if (source.isReady && !source.isReady()) return;
     const current = layoutRef.current;
@@ -97,12 +104,68 @@ export function Board({
       layoutRef.current = next;
       setLayout(next);
       try {
-        saveLayout(localStorage, next);
+        saveLayout(localStorage, next, storageKey);
       } catch {
         setRemoveError("Unable to save tile layout.");
       }
     }
-  }, [source, rows]);
+  }, [source, rows, storageKey]);
+  useEffect(() => {
+    const api = source.windows;
+    if (!api) return;
+    let active = true;
+    const changed = (entries: { id: string; window: number }[]) => {
+      if (active)
+        setOtherViews(
+          new Set(entries.filter((entry) => entry.window !== 0).map((entry) => entry.id)),
+        );
+    };
+    const off = api.onChanged(changed);
+    const removed = api.onRemoved((id) => {
+      const ids = new Set(
+        leaves(layoutRef.current.tree).flatMap((tile) =>
+          tile.session && tile.session !== id ? [tile.session] : [],
+        ),
+      );
+      changeLayout(pruneSessions(layoutRef.current, ids));
+    });
+    void api
+      .snapshot()
+      .then(changed)
+      .catch(() => {});
+    return () => {
+      active = false;
+      off();
+      removed();
+    };
+  }, [source, changeLayout]);
+  const reservationRef = useRef<
+    { source: BoardSource; layout: TileLayout; ids: string } | undefined
+  >(undefined);
+  useEffect(() => {
+    if (!source.windows || (source.isReady && !source.isReady())) return;
+    const current = layout;
+    const ids = leaves(current.tree).flatMap((tile) =>
+      tile.session && rows.some((row) => row.id === tile.session) ? [tile.session] : [],
+    );
+    const previous = reservationRef.current;
+    const key = JSON.stringify(ids);
+    if (previous?.source === source && previous.layout === current && previous.ids === key) return;
+    // State/activity updates publish new row objects, not a new set of views.
+    // Reconcile only when the layout or its known session IDs actually change.
+    const reservation = { source, layout: current, ids: key };
+    reservationRef.current = reservation;
+    void source.windows
+      .sync(ids)
+      .then((accepted) => {
+        if (layoutRef.current === current && ids.some((id) => !accepted.includes(id)))
+          changeLayout(pruneSessions(current, new Set(accepted)));
+      })
+      .catch(() => {
+        if (reservationRef.current === reservation) reservationRef.current = undefined;
+        setRemoveError("Unable to reserve terminal views.");
+      });
+  }, [source, rows, layout, changeLayout]);
   const [refused, setRefused] = useState<string>();
   useEffect(() => {
     if (!refused) return;
@@ -168,22 +231,62 @@ export function Board({
   const focusedSession = leaves(layout.tree).find((tile) => tile.id === layout.focused)?.session;
   const focusedRow = rows.find((row) => row.id === focusedSession);
   const displayedId = focusedRow?.kind === "sample" ? undefined : focusedRow?.id;
+  const [audioEnabled, setAudioEnabled] = useState(() => !source.windows?.audio);
+  const sharedSoundFocusRef = useRef<string | undefined>(undefined);
   const soundControllerRef = useRef<ReturnType<typeof createSoundController>>(undefined);
   const soundFocusRef = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    const audio = source.windows?.audio;
+    if (!audio) return;
+    let current = true,
+      changed = false;
+    const update = (state: WindowAudioState) => {
+      if (!current) return;
+      sharedSoundFocusRef.current = state.focusedId ?? undefined;
+      setAudioEnabled(state.enabled);
+    };
+    const off = audio.onChanged((state) => {
+      changed = true;
+      update(state);
+    });
+    const offRefuse = audio.onRefuse(() => {
+      soundControllerRef.current?.refuse();
+    });
+    void audio
+      .state()
+      .then((state) => {
+        if (!changed) update(state);
+      })
+      .catch(() => {});
+    return () => {
+      current = false;
+      off();
+      offRefuse();
+    };
+  }, [source]);
+  useEffect(() => {
+    const audio = source.windows?.audio;
+    if (!audio) return;
+    void audio.focus(paneInactive || location ? null : (displayedId ?? null)).catch(() => {});
+  }, [source, paneInactive, location, displayedId]);
   useLayoutEffect(() => {
     soundFocusRef.current = paneInactive || location ? undefined : displayedId;
   }, [paneInactive, location, displayedId]);
   useEffect(() => {
-    if (!soundSetup) return;
+    if (!soundSetup || !audioEnabled) return;
     const controller = createSoundController(source, soundSetup, createAudioSink(), () =>
-      document.hasFocus() ? soundFocusRef.current : undefined,
+      source.windows?.audio
+        ? sharedSoundFocusRef.current
+        : document.hasFocus()
+          ? soundFocusRef.current
+          : undefined,
     );
     soundControllerRef.current = controller;
     return () => {
       controller();
       soundControllerRef.current = undefined;
     };
-  }, [source, soundSetup]);
+  }, [source, soundSetup, audioEnabled]);
   const peekRow = rows.find((row) => row.id === peek?.id);
   const sidebarRef = useRef<HTMLElement>(null);
   useEffect(() => {
@@ -244,33 +347,57 @@ export function Board({
   }, [paneInactive, selected]);
   const open = useCallback(
     (row: BoardRow, replace = false) => {
-      const next = placeSession(layoutRef.current, row.id, replace);
-      if (!next) {
-        soundControllerRef.current?.refuse();
-        setRefused(row.id);
-        return;
-      }
-      layoutRef.current = next;
-      setLayout(next);
-      try {
-        saveLayout(localStorage, next);
-      } catch {
-        setRemoveError("Unable to save tile layout.");
-      }
-      setFocusRequest((value) => value + 1);
-      setRefused(undefined);
-      setSelection(row.id);
-      setLocation(undefined);
-      revealRef.current?.(row);
-      setPeek(undefined);
-      setTail([]);
-      // Selecting a row asks for terminal input focus, rather than Escape restoration.
-      wasInactiveRef.current = false;
-      onCloseSettings?.();
-      source.markSeen(row.id);
+      const present = () => {
+        const next = placeSession(layoutRef.current, row.id, replace);
+        if (!next) {
+          if (soundControllerRef.current) soundControllerRef.current.refuse();
+          else void source.windows?.audio?.refuse().catch(() => {});
+          setRefused(row.id);
+          return;
+        }
+        layoutRef.current = next;
+        setLayout(next);
+        try {
+          saveLayout(localStorage, next, storageKey);
+        } catch {
+          setRemoveError("Unable to save tile layout.");
+        }
+        setFocusRequest((value) => value + 1);
+        setRefused(undefined);
+        setSelection(row.id);
+        setLocation(undefined);
+        revealRef.current?.(row);
+        setPeek(undefined);
+        setTail([]);
+        // Selecting a row asks for terminal input focus, rather than Escape restoration.
+        wasInactiveRef.current = false;
+        onCloseSettings?.();
+        source.markSeen(row.id);
+      };
+      if (source.windows) {
+        void source.windows
+          .select(row.id)
+          .then((selected) => {
+            if (selected) present();
+          })
+          .catch(() => {
+            setRemoveError("Unable to select terminal window.");
+          });
+      } else present();
     },
-    [source, onCloseSettings],
+    [source, onCloseSettings, storageKey],
   );
+  const initialSessionOpenedRef = useRef(false);
+  useEffect(() => {
+    const id = source.windows?.initialSession;
+    const row = rows.find((row) => row.id === id);
+    if (!initialSessionOpenedRef.current && row) {
+      initialSessionOpenedRef.current = true;
+      void Promise.resolve().then(() => {
+        open(row, true);
+      });
+    }
+  }, [source, rows, open]);
   const command = (value: SidebarCommand) => {
     setRemoveError("");
     const before = new Set(source.getSnapshot().map((row) => row.id));
@@ -423,7 +550,8 @@ export function Board({
         const row = source.getSnapshot().find((row) => row.id === id);
         if (row) {
           onCloseSettings?.();
-          open(row, true);
+          const visible = leaves(layoutRef.current.tree).some((tile) => tile.session === row.id);
+          open(row, !visible);
         }
       }),
     [source, inactive, launching, open, onCloseSettings],
@@ -482,6 +610,7 @@ export function Board({
       <div className="board-workspace">
         <Sidebar
           source={source}
+          otherViews={otherViews}
           tileNumbers={
             new Map(
               leaves(layout.tree).flatMap((tile, index) =>
@@ -645,7 +774,15 @@ export function Board({
             preferences={preferences}
             inactive={paneInactive || Boolean(location)}
             action={(tile, action) => {
-              if (action === "restart") {
+              if (action === "popout") {
+                const session = leaves(layoutRef.current.tree).find(
+                  (item) => item.id === tile,
+                )?.session;
+                if (session)
+                  void source.windows?.popout(session).catch(() => {
+                    setRemoveError("Unable to move session to a new window.");
+                  });
+              } else if (action === "restart") {
                 const session = leaves(layoutRef.current.tree).find(
                   (item) => item.id === tile,
                 )?.session;

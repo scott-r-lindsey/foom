@@ -1,3 +1,9 @@
+import type { WindowPlacement } from "../../../src/main/window/window-placement";
+vi.mock("../../../src/main/window/window-placement", () => ({
+  loadPlacements: mock.loadPlacements,
+  savePlacements: mock.savePlacements,
+  placeWindow: (value: unknown) => value,
+}));
 vi.mock("../../../src/main/agents/codex-hook-status", () => ({
   CodexHookStatus: class {
     load = async () => {};
@@ -9,10 +15,14 @@ import type { WorkspaceDependencies } from "../../../src/main/workspace/workspac
 import type { DialogContent } from "../../../src/shared/confirmation";
 vi.mock("../../../src/main/confirmations/trusted-dialog", () => ({
   TrustedDialog: class {
-    constructor(_parent: unknown, _session: unknown, theme: () => unknown) {
+    request: (content: unknown) => Promise<boolean>;
+    constructor(parent: unknown, _session: unknown, theme: () => unknown) {
       theme();
+      this.request = async (content: unknown) => {
+        mock.confirmParent(parent);
+        return (await mock.message(content)).response === 1;
+      };
     }
-    request = async (content: unknown) => (await mock.message(content)).response === 1;
     dispose = vi.fn();
   },
 }));
@@ -24,7 +34,12 @@ import type { Setup } from "../../../src/main/setup/setup";
 import { beforeEach, expect, test, vi } from "vitest";
 
 vi.mock("../../../src/main/terminals/terminal-ipc", () => ({
-  attachTerminal: (_window: unknown, events: Record<string, (...args: never[]) => void>) => {
+  attachTerminal: (
+    _window: unknown,
+    events: Record<string, (...args: never[]) => void>,
+    allow: (contents: unknown, id: string) => boolean,
+  ) => {
+    mock.allowView = allow;
     mock.terminalEvents = events;
     return mock.terminals;
   },
@@ -52,6 +67,10 @@ vi.mock("../../../src/main/workspace/workspace", () => ({
         },
       ],
     });
+    output = mock.workspace.output;
+    evidence = mock.workspace.evidence;
+    shellState = mock.workspace.shellState;
+    ownsSession = mock.workspace.ownsSession;
     initializeControl = mock.workspace.initializeControl;
     refresh = mock.workspace.refresh;
     quiet = mock.workspace.quiet;
@@ -84,6 +103,7 @@ vi.mock("../../../src/main/window/window-state", () => ({
 vi.mock("../../../src/main/setup/setup", () => ({
   Setup: class {
     classify = mock.setup.classify;
+    state = () => Promise.resolve({ settings: mock.settingsStore.get() });
     constructor(deps: ConstructorParameters<typeof Setup>[0]) {
       mock.setup.deps = deps;
     }
@@ -106,9 +126,11 @@ const mock = vi.hoisted(() => {
   const readyEvents = new Map<string, () => void>();
   const window = {
     webContents: {
+      mainFrame: { url: "app://bundle/index.html" },
       removeListener: vi.fn(),
       getURL: () => "app://bundle/index.html",
       isCrashed: vi.fn(() => false),
+      isDestroyed: vi.fn(() => false),
       send: vi.fn(),
       copy: vi.fn(),
       paste: vi.fn(),
@@ -137,7 +159,16 @@ const mock = vi.hoisted(() => {
       );
     }),
     on: vi.fn((name: string, handler: (event: { preventDefault(): void }) => void) => {
-      windowEvents.set(name, handler);
+      const previous = windowEvents.get(name);
+      windowEvents.set(
+        name,
+        previous
+          ? (event) => {
+              previous(event);
+              handler(event);
+            }
+          : handler,
+      );
     }),
     removeMenu: vi.fn(),
     getNormalBounds: vi.fn(() => ({ x: 0, y: 0, width: 1100, height: 800 })),
@@ -148,6 +179,9 @@ const mock = vi.hoisted(() => {
     isMaximized: vi.fn(() => false),
     isFullScreen: vi.fn(() => false),
     show: vi.fn(),
+    isFocused: vi.fn(() => true),
+    close: vi.fn(),
+    destroy: vi.fn(),
     isMinimized: vi.fn(() => false),
     restore: vi.fn(),
     focus: vi.fn(),
@@ -157,6 +191,11 @@ const mock = vi.hoisted(() => {
   const state = { windows: [window] };
   const construct = vi.fn<(options: BrowserWindowConstructorOptions) => void>();
   class BrowserWindow {
+    id = instances.length + 1;
+    close = window.close;
+    destroy = window.destroy;
+    isFocused = window.isFocused;
+    maximize = vi.fn();
     webContents = window.webContents;
     once = window.once;
     on = window.on;
@@ -176,14 +215,22 @@ const mock = vi.hoisted(() => {
     setBackgroundColor = window.setBackgroundColor;
     loadURL = window.loadURL;
     constructor(options: BrowserWindowConstructorOptions) {
+      if (this.id > 1)
+        this.webContents = { ...window.webContents, mainFrame: { url: "app://bundle/index.html" } };
+      instances.push(this);
       construct(options);
     }
     static getAllWindows() {
       return state.windows;
     }
   }
+  const instances: BrowserWindow[] = [];
   const workspace = {
     deps: undefined as WorkspaceDependencies | undefined,
+    output: vi.fn(),
+    evidence: vi.fn(),
+    shellState: vi.fn(),
+    ownsSession: vi.fn(() => true),
     initializeControl: vi.fn<() => Promise<void>>(() => Promise.resolve()),
     refresh: vi.fn(),
     quiet: vi.fn(),
@@ -208,6 +255,9 @@ const mock = vi.hoisted(() => {
   };
   return {
     terminals: {
+      dispose: vi.fn(() => Promise.resolve()),
+      addWindow: vi.fn(),
+      detachView: vi.fn(),
       runningSessions: () => [
         { id: "t1", command: "claude", cwd: "/tree" },
         { id: "t2", command: "bash", cwd: "/tree2" },
@@ -218,6 +268,7 @@ const mock = vi.hoisted(() => {
       shutdown: vi.fn<() => Promise<void>>(),
       owns: vi.fn<(id: string) => boolean>(),
     },
+    allowView: (_contents: unknown, _id: string): boolean => false,
     terminalEvents: {},
     workspace,
     ipc,
@@ -232,6 +283,9 @@ const mock = vi.hoisted(() => {
     setup,
     setupIpc: { dispose: vi.fn(), zoom: vi.fn<(direction: string) => Promise<void>>() },
     attachSetup: vi.fn<(...args: unknown[]) => unknown>(),
+    loadPlacements: vi.fn<() => Promise<WindowPlacement[]>>(() => Promise.resolve([])),
+    savePlacements: vi.fn(() => Promise.resolve()),
+    instances,
     loadWindowSize: vi.fn<() => Promise<{ width: number; height: number } | undefined>>(),
     saveWindowSize: vi.fn<() => Promise<void>>(),
     openSettings: vi.fn<() => Promise<unknown>>(),
@@ -251,6 +305,7 @@ const mock = vi.hoisted(() => {
       on: vi.fn<(name: string, handler: () => void) => void>(),
       removeListener: vi.fn(),
     },
+    confirmParent: vi.fn(),
     message: vi.fn<(content?: unknown) => Promise<{ response: number }>>(),
     errorBox: vi.fn(),
     openDialog: vi.fn<() => Promise<{ canceled: boolean; filePaths: string[] }>>(),
@@ -320,8 +375,9 @@ vi.mock("electron", () => ({
   },
   net: { fetch: mock.fetch },
   screen: {
-    getPrimaryDisplay: () => ({ workArea: { x: 0, y: 0, width: 1920, height: 1080 } }),
-    getDisplayMatching: () => ({ workArea: { x: 0, y: 0, width: 1920, height: 1080 } }),
+    getAllDisplays: () => [{ id: 1, workArea: { x: 0, y: 0, width: 1920, height: 1080 } }],
+    getPrimaryDisplay: () => ({ id: 1, workArea: { x: 0, y: 0, width: 1920, height: 1080 } }),
+    getDisplayMatching: () => ({ id: 1, workArea: { x: 0, y: 0, width: 1920, height: 1080 } }),
     getCursorScreenPoint: () => ({ x: 1000, y: 700 }),
   },
   session: {
@@ -348,10 +404,13 @@ vi.mock("electron", () => ({
 beforeEach(() => {
   vi.resetModules();
   vi.clearAllMocks();
+  mock.instances.length = 0;
+  mock.loadPlacements.mockResolvedValue([]);
   mock.lock.mockReturnValue(true);
   mock.packaged = false;
   mock.explicitProfile = false;
   mock.window.isMinimized.mockReturnValue(false);
+  mock.window.isFocused.mockReturnValue(true);
   mock.window.webContents.isCrashed.mockReturnValue(false);
   mock.terminals.runningCount = 0;
   mock.terminals.shutdown.mockResolvedValue();
@@ -486,18 +545,18 @@ test("denies requested and checked permissions", async () => {
   expect(mock.permissionCheck.mock.calls[0]?.[0]()).toBe(false);
 });
 
-test("does not recreate a window on activation", async () => {
+test("registers activation to reopen a window", async () => {
   await start();
-  expect(mock.appEvents.has("activate")).toBe(false);
+  expect(mock.appEvents.has("activate")).toBe(true);
 });
 
 test.each(["darwin", "linux", "win32"] as const)(
-  "quits after the last window closes on %s",
+  "last-window policy follows %s",
   async (platform) => {
     vi.spyOn(process, "platform", "get").mockReturnValue(platform);
     await start();
     mock.appEvents.get("window-all-closed")?.({ preventDefault: vi.fn() });
-    expect(mock.quit).toHaveBeenCalledOnce();
+    expect(mock.quit).toHaveBeenCalledTimes(platform === "darwin" ? 0 : 1);
   },
 );
 
@@ -506,8 +565,10 @@ test("quits with a diagnostic if the document cannot load", async () => {
   const log = vi.spyOn(console, "error").mockImplementation(() => {});
   mock.window.loadURL.mockRejectedValue(error);
   await start();
-  expect(log).toHaveBeenCalledWith("Unable to load the application:", error);
-  expect(mock.quit).toHaveBeenCalledOnce();
+  await vi.waitFor(() => {
+    expect(log).toHaveBeenCalledWith("Unable to load the application:", error);
+    expect(mock.quit).toHaveBeenCalledOnce();
+  });
 });
 
 test("quits with a diagnostic if startup fails", async () => {
@@ -692,7 +753,8 @@ test.each([
       ...input,
     });
     expect(event.preventDefault).toHaveBeenCalledOnce();
-    expect(mock.quit).toHaveBeenCalledOnce();
+    if (input.key === "w" || input.key === "F4") expect(mock.window.close).toHaveBeenCalledOnce();
+    else expect(mock.quit).toHaveBeenCalledOnce();
   },
 );
 
@@ -712,8 +774,6 @@ test("defers an already-idle quit until the native close callback has unwound", 
   await start();
   const event = { preventDefault: vi.fn() };
   mock.windowEvents.get("close")?.(event);
-  await Promise.resolve();
-  expect(mock.terminals.shutdown).toHaveBeenCalledOnce();
   expect(mock.quit).not.toHaveBeenCalled();
   await vi.waitFor(() => {
     expect(mock.quit).toHaveBeenCalledOnce();
@@ -722,7 +782,9 @@ test("defers an already-idle quit until the native close callback has unwound", 
 
 test("reveals a loaded board even without a hidden-window paint and does not show it twice", async () => {
   await start();
-  expect(mock.window.show).toHaveBeenCalledOnce();
+  await vi.waitFor(() => {
+    expect(mock.window.show).toHaveBeenCalledOnce();
+  });
   mock.readyEvents.get("ready-to-show")?.();
   expect(mock.window.show).toHaveBeenCalledOnce();
 });
@@ -769,7 +831,7 @@ test("routes terminal events, hook signals and state through the workspace", asy
   expect(owns("a")).toBe(true);
   mock.readyEvents.get("closed")?.();
   expect(mock.ipc.dispose).toHaveBeenCalledOnce();
-  expect(mock.workspace.dispose).toHaveBeenCalledOnce();
+  expect(mock.workspace.dispose).not.toHaveBeenCalled();
   expect(mock.setupIpc.dispose).toHaveBeenCalledOnce();
 });
 
@@ -781,7 +843,7 @@ test("setup owns the settings, applies them to the workspace, and classifies ver
     worktreeRoot: string;
     apply(settings: unknown): void;
   };
-  expect(deps.store).toBe(mock.settingsStore);
+  expect(deps.store).not.toBe(mock.settingsStore);
   expect(deps.worktreeRoot).toBe("/home/.foom/worktrees");
   // The saved mode and scale apply before the window exists.
   expect(mock.construct.mock.calls[0]?.[0].webPreferences?.zoomFactor).toBe(1.2);
@@ -991,7 +1053,9 @@ test("selects dev userData before locking and before readiness", async () => {
   );
   expect(mock.construct.mock.calls[0]?.[0]).toMatchObject({
     title: "Foom Dev",
-    webPreferences: { additionalArguments: ["--foom-development"] },
+    webPreferences: {
+      additionalArguments: ["--foom-development", expect.stringMatching(/^--foom-window-id=/)],
+    },
   });
   const event = { preventDefault: vi.fn() };
   mock.windowEvents.get("page-title-updated")?.(event);
@@ -1029,10 +1093,11 @@ test("packaged builds keep their default profile and identity", async () => {
   mock.packaged = true;
   await start();
   expect(mock.setPath).not.toHaveBeenCalled();
-  expect(mock.construct.mock.calls[0]?.[0]).toMatchObject({
-    title: "Foom",
-    webPreferences: { additionalArguments: [], devTools: false },
-  });
+  expect(mock.construct.mock.calls[0]?.[0]?.title).toBe("Foom");
+  expect(mock.construct.mock.calls[0]?.[0]?.webPreferences?.devTools).toBe(false);
+  expect(mock.construct.mock.calls[0]?.[0]?.webPreferences?.additionalArguments).toEqual([
+    expect.stringMatching(/^--foom-window-id=/),
+  ]);
 });
 
 test("session ID copying uses the main clipboard capability", async () => {
@@ -1081,15 +1146,273 @@ test("control startup publishes private discovery and binds trusted pairing call
         title: "Pair this CLI with Foom?",
       }),
     );
+    await newWindow();
+    const second = mock.instances[1];
+    if (!second) throw new Error("Missing second board");
+    mock.window.isFocused.mockReturnValue(false);
+    second.isFocused = vi.fn(() => true);
+    await pairing?.approve("/repo", "NEXT1234", new AbortController().signal);
+    expect(mock.confirmParent).toHaveBeenLastCalledWith(second);
+    mock.readyEvents.get("closed")?.();
+    const cancelled = new AbortController();
+    cancelled.abort();
+    await expect(pairing?.approve("/repo", "STOP1234", cancelled.signal)).resolves.toBe(false);
+    expect(mock.instances).toHaveLength(2);
+    await pairing?.approve("/repo", "OPEN1234", new AbortController().signal);
+    expect(mock.instances).toHaveLength(3);
+    expect(mock.confirmParent).toHaveBeenLastCalledWith(mock.instances[2]);
+    mock.readyEvents.get("closed")?.();
+    const opening = new AbortController();
+    mock.window.loadURL.mockImplementationOnce(() => {
+      opening.abort();
+      return Promise.resolve();
+    });
+    await expect(pairing?.approve("/repo", "LATE1234", opening.signal)).resolves.toBe(false);
+    expect(mock.confirmParent).toHaveBeenCalledTimes(3);
   } finally {
     startControl.mockRestore();
   }
+});
+
+async function invokeWindow(index: number, channel: string, ...args: unknown[]) {
+  const { ipcMain } = await import("electron");
+  const window = mock.instances[index];
+  const handler = vi.mocked(ipcMain).handle.mock.calls.find(([name]) => name === channel)?.[1];
+  if (!window || !handler) throw new Error(`Missing window or handler: ${channel}`);
+  return handler(
+    {
+      sender: window.webContents,
+      senderFrame: window.webContents.mainFrame,
+    } as unknown as Parameters<typeof handler>[0],
+    ...args,
+  ) as unknown;
+}
+async function newWindow() {
+  const count = mock.instances.length;
+  await invokeWindow(0, "app-menu:execute", "new-window");
+  await vi.waitFor(() => {
+    expect(mock.instances).toHaveLength(count + 1);
+  });
+}
+
+test("new windows share one workspace and route reservations, focus and popout independently", async () => {
+  await start();
+  await newWindow();
+  expect(mock.terminals.addWindow).toHaveBeenCalledOnce();
+  expect(mock.openWorktrees).toHaveBeenCalledOnce();
+  expect(await invokeWindow(0, "windows:sync", ["t1"])).toEqual(["t1"]);
+  expect(await invokeWindow(1, "windows:sync", ["t1", "t2"])).toEqual(["t2"]);
+  expect(await invokeWindow(0, "windows:views")).toEqual([
+    { id: "t1", window: 0 },
+    { id: "t2", window: 2 },
+  ]);
+  expect(await invokeWindow(1, "windows:select", "t1")).toBe(false);
+  expect(mock.window.focus).toHaveBeenCalled();
+  expect(mock.allowView({}, "t3")).toBe(false);
+  expect(mock.allowView(mock.instances[1]?.webContents, "t1")).toBe(false);
+  expect(mock.allowView(mock.instances[1]?.webContents, "t2")).toBe(true);
+  await invokeWindow(0, "windows:popout", "t1");
+  expect(mock.instances).toHaveLength(3);
+  expect(mock.terminals.detachView).toHaveBeenCalledWith("t1", mock.instances[0]?.webContents);
+  expect(mock.construct.mock.calls[2]?.[0].webPreferences?.additionalArguments).toContain(
+    "--foom-initial-session=t1",
+  );
+  await invokeWindow(1, "windows:sync", []);
+  expect(mock.terminals.detachView).toHaveBeenCalledWith("t2", mock.instances[1]?.webContents);
+  expect(await invokeWindow(2, "windows:audio-state")).toMatchObject({ enabled: false });
+  await invokeWindow(2, "windows:audio-focus", "t1");
+  mock.workspace.deps?.onChange?.();
+  expect(mock.ipc.sendChanged).toHaveBeenCalledTimes(3);
+});
+
+test("restores separate window identities, scales and maximization, keeping expanded bounds on screen", async () => {
+  mock.loadPlacements.mockResolvedValue([
+    {
+      id: "first",
+      display: 1,
+      bounds: { x: 1850, y: 1000, width: 50, height: 50 },
+      maximized: true,
+      scale: 150,
+    },
+    {
+      id: "second",
+      display: 1,
+      bounds: { x: 20, y: 30, width: 1200, height: 900 },
+      maximized: false,
+      scale: 90,
+    },
+  ]);
+  await start();
+  await vi.waitFor(() => {
+    expect(mock.instances).toHaveLength(2);
+  });
+  expect(mock.instances[0]?.maximize).toHaveBeenCalledOnce();
+  expect(mock.construct.mock.calls[0]?.[0]).toMatchObject({
+    x: 570,
+    y: 120,
+    width: 1350,
+    height: 960,
+  });
+  expect(mock.construct.mock.calls[1]?.[0].webPreferences?.zoomFactor).toBe(0.9);
+  const store = mock.setup.deps?.store;
+  expect(store?.get().interfaceScale).toBe(90);
+  await store?.update({ interfaceScale: 100, colorMode: "light" });
+  expect(mock.settingsStore.update).toHaveBeenLastCalledWith({ colorMode: "light" });
+  expect(store?.get().interfaceScale).toBe(100);
+  await store?.update({ colorMode: "dark" });
+  expect(store?.get().interfaceScale).toBe(100);
+  quitting();
+  await vi.waitFor(() => {
+    expect(mock.quit).toHaveBeenCalledOnce();
+  });
+  expect(mock.savePlacements).toHaveBeenCalledWith("/test/user-data", [
+    expect.objectContaining({ id: "first", scale: 150 }),
+    expect.objectContaining({ id: "second", scale: 100 }),
+  ]);
+});
+
+test("macOS closing the last window retains app services and activation opens another board", async () => {
+  vi.spyOn(process, "platform", "get").mockReturnValue("darwin");
+  await start();
+  const event = { preventDefault: vi.fn() };
+  mock.windowEvents.get("close")?.(event);
+  expect(event.preventDefault).not.toHaveBeenCalled();
+  mock.readyEvents.get("closed")?.();
+  expect(mock.terminals.shutdown).not.toHaveBeenCalled();
+  expect(mock.workspace.dispose).not.toHaveBeenCalled();
+  await vi.waitFor(() => {
+    expect(mock.savePlacements).toHaveBeenCalledWith("/test/user-data", []);
+  });
+  mock.appEvents.get("activate")?.(event);
+  await vi.waitFor(() => {
+    expect(mock.instances).toHaveLength(2);
+  });
+  expect(mock.terminals.addWindow).toHaveBeenCalledOnce();
+  mock.appEvents.get("activate")?.(event);
+  await Promise.resolve();
+  expect(mock.instances).toHaveLength(2);
+});
+
+test("quit without a board reopens a parent for the running-session confirmation", async () => {
+  await start();
+  mock.readyEvents.get("closed")?.();
+  mock.terminals.runningCount = 1;
+  quitting();
+  await vi.waitFor(() => {
+    expect(mock.message).toHaveBeenCalledOnce();
+  });
+  expect(mock.instances).toHaveLength(2);
+  expect(mock.terminals.shutdown).not.toHaveBeenCalled();
+});
+
+test("failed placement saves do not stop quit, and a later save can recover", async () => {
+  const error = new Error("Read only profile");
+  const log = vi.spyOn(console, "error").mockImplementation(() => {});
+  mock.savePlacements.mockRejectedValueOnce(error);
+  await start();
+  mock.readyEvents.get("closed")?.();
+  await vi.waitFor(() => {
+    expect(log).toHaveBeenCalledWith("Unable to save windows:", error);
+  });
+  quitting();
+  await vi.waitFor(() => {
+    expect(mock.quit).toHaveBeenCalledOnce();
+  });
+  expect(mock.savePlacements).toHaveBeenCalledTimes(2);
+});
+
+test("reports failed New Window loads and lets a subsequent window open", async () => {
+  await start();
+  const error = new Error("Unable to load board");
+  const log = vi.spyOn(console, "error").mockImplementation(() => {});
+  mock.window.loadURL.mockRejectedValueOnce(error);
+  await newWindow();
+  await vi.waitFor(() => {
+    expect(log).toHaveBeenCalledWith("Unable to open window:", error);
+  });
+  await newWindow();
+  expect(mock.terminals.addWindow).toHaveBeenCalledTimes(2);
+});
+
+test("app attention reveals the owning board, including minimized and windowless cases", async () => {
+  const { updateAttention } = await import("../../../src/main/window/attention-badge");
+  await start();
+  await newWindow();
+  await invokeWindow(1, "windows:sync", ["t1"]);
+  const reveal = vi.mocked(updateAttention).mock.lastCall?.[3];
+  if (!reveal) throw new Error("Missing attention action");
+  mock.window.isMinimized.mockReturnValue(true);
+  reveal("t1");
+  await vi.waitFor(() => {
+    expect(mock.window.webContents.send).toHaveBeenCalledWith("app-menu:session", "t1");
+  });
+  expect(mock.window.restore).toHaveBeenCalled();
+  reveal("unshown");
+  await vi.waitFor(() => {
+    expect(mock.window.webContents.send).toHaveBeenCalledWith("app-menu:session", "unshown");
+  });
+  mock.readyEvents.get("closed")?.();
+  const reopen = vi.mocked(updateAttention).mock.lastCall?.[3];
+  reopen?.("t1");
+  await vi.waitFor(() => {
+    expect(mock.instances).toHaveLength(3);
+  });
+  expect(mock.construct.mock.calls[2]?.[0].webPreferences?.additionalArguments).toContain(
+    "--foom-initial-session=t1",
+  );
+});
+
+test("routes output, evidence and shell state into app-owned workspace", async () => {
+  await start();
+  const events = mock.terminalEvents as {
+    onOutput(id: string): void;
+    onEvidence(id: string, evidence: unknown): void;
+    onShellState(id: string, state: unknown): void;
+  };
+  events.onOutput("t1");
+  events.onEvidence("t1", { text: "untrusted" });
+  events.onShellState("t1", "ready");
+  expect(mock.workspace.output).toHaveBeenCalledWith("t1");
+  expect(mock.workspace.evidence).toHaveBeenCalledWith("t1", { text: "untrusted" });
+  expect(mock.workspace.shellState).toHaveBeenCalledWith("t1", "ready");
+});
+
+test("concurrent windowless quit requests share one parent and recover from a failed load", async () => {
+  await start();
+  mock.readyEvents.get("closed")?.();
+  const error = new Error("Board failed to load");
+  const log = vi.spyOn(console, "error").mockImplementation(() => {});
+  mock.window.loadURL.mockRejectedValueOnce(error);
+  quitting();
+  quitting();
+  await vi.waitFor(() => {
+    expect(mock.errorBox).toHaveBeenCalledOnce();
+  });
+  expect(mock.instances).toHaveLength(2);
+  expect(log).toHaveBeenCalledWith("Unable to quit the application:", error);
+  expect(mock.terminals.shutdown).not.toHaveBeenCalled();
+  quitting();
+  await vi.waitFor(() => {
+    expect(mock.quit).toHaveBeenCalledOnce();
+  });
+});
+
+test("Windows attention refresh updates every live window so prior overlays clear", async () => {
+  vi.spyOn(process, "platform", "get").mockReturnValue("win32");
+  const { updateAttention } = await import("../../../src/main/window/attention-badge");
+  await start();
+  await newWindow();
+  vi.mocked(updateAttention).mockClear();
+  mock.workspace.deps?.onChange?.();
+  expect(vi.mocked(updateAttention).mock.calls.map((call) => call[0])).toEqual(mock.instances);
 });
 
 test("a discovery initialization failure leaves the main window usable", async () => {
   mock.workspace.initializeControl.mockRejectedValueOnce(new Error("private profile"));
   const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
   await start();
-  expect(warn).toHaveBeenCalledWith("Foom CLI discovery is unavailable.");
+  await vi.waitFor(() => {
+    expect(warn).toHaveBeenCalledWith("Foom CLI discovery is unavailable.");
+  });
   expect(mock.attachWorkspace).toHaveBeenCalled();
 });

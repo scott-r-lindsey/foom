@@ -1,3 +1,4 @@
+import type { WindowView, WindowAudioState } from "../shared/windows";
 import type { ExecutionTransition } from "../shared/execution";
 import { contextBridge, ipcRenderer } from "electron";
 import type { IpcRendererEvent } from "electron";
@@ -95,7 +96,87 @@ ipcRenderer.on("terminal:flush-views", (_event, ids: unknown, token: unknown) =>
   });
 });
 
+function windowViews(value: unknown): value is WindowView[] {
+  return (
+    Array.isArray(value) &&
+    value.length <= 8192 &&
+    value.every(
+      (item: unknown) =>
+        object(item) &&
+        typeof item["id"] === "string" &&
+        item["id"].length <= 200 &&
+        typeof item["window"] === "number" &&
+        Number.isSafeInteger(item["window"]),
+    )
+  );
+}
+function audioState(value: unknown): value is WindowAudioState {
+  return (
+    object(value) &&
+    typeof value["enabled"] === "boolean" &&
+    (value["focusedId"] === null ||
+      (typeof value["focusedId"] === "string" && value["focusedId"].length <= 200))
+  );
+}
+const windowArgument = (name: string) =>
+  process.argv.find((arg) => arg.startsWith(`--foom-${name}=`))?.split("=")[1];
 const desktop: DesktopApi = {
+  windows: {
+    audio: {
+      state: async () => {
+        const value: unknown = await ipcRenderer.invoke("windows:audio-state");
+        return audioState(value) ? value : { enabled: false, focusedId: null };
+      },
+      focus: (id) => ipcRenderer.invoke("windows:audio-focus", id),
+      refuse: () => ipcRenderer.invoke("windows:refuse"),
+      onChanged: (callback) => {
+        const listener = (_event: IpcRendererEvent, value: unknown) => {
+          if (audioState(value)) callback(value);
+        };
+        ipcRenderer.on("windows:audio", listener);
+        return () => {
+          ipcRenderer.removeListener("windows:audio", listener);
+        };
+      },
+      onRefuse: (callback) => {
+        const listener = () => {
+          callback();
+        };
+        ipcRenderer.on("windows:refuse", listener);
+        return () => {
+          ipcRenderer.removeListener("windows:refuse", listener);
+        };
+      },
+    },
+    id: windowArgument("window-id") ?? "main",
+    number: Number(windowArgument("window-number") ?? 0),
+    initialSession: windowArgument("initial-session"),
+    sync: (ids) => ipcRenderer.invoke("windows:sync", ids),
+    select: (id) => ipcRenderer.invoke("windows:select", id),
+    popout: (id) => ipcRenderer.invoke("windows:popout", id),
+    snapshot: async () => {
+      const value: unknown = await ipcRenderer.invoke("windows:views");
+      return windowViews(value) ? value : [];
+    },
+    onChanged: (callback) => {
+      const listener = (_event: IpcRendererEvent, value: unknown) => {
+        if (windowViews(value)) callback(value);
+      };
+      ipcRenderer.on("windows:changed", listener);
+      return () => {
+        ipcRenderer.removeListener("windows:changed", listener);
+      };
+    },
+    onRemoved: (callback) => {
+      const listener = (_event: IpcRendererEvent, id: unknown) => {
+        if (typeof id === "string" && id.length > 0 && id.length <= 200) callback(id);
+      };
+      ipcRenderer.on("windows:removed", listener);
+      return () => {
+        ipcRenderer.removeListener("windows:removed", listener);
+      };
+    },
+  },
   sounds: {
     onChange(callback) {
       const listener = () => {

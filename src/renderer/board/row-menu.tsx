@@ -48,7 +48,9 @@ export function RowMenu({
     const button = anchor.getBoundingClientRect();
     if (placement === "below")
       menu.style.maxHeight = `${String(Math.max(80, window.innerHeight - button.bottom - 16))}px`;
-    const bounds = menu.getBoundingClientRect();
+    // Opening animations transform the border box; placement needs its final
+    // layout size or the expanded menu can extend beyond the window edge.
+    const bounds = { width: menu.offsetWidth, height: menu.offsetHeight };
     const top = Math.max(
       8,
       Math.min(

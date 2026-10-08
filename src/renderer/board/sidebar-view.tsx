@@ -61,6 +61,7 @@ export function Sidebar({
   options,
   footer,
   tileNumbers,
+  otherViews,
   refused,
   clearRefusal,
 }: {
@@ -82,6 +83,7 @@ export function Sidebar({
   command: (command: SidebarCommand) => Promise<void>;
   options: LaunchOptions | undefined;
   footer: ReactNode;
+  otherViews?: ReadonlySet<string>;
   tileNumbers?: ReadonlyMap<string, { number: number; focused: boolean }>;
   refused?: string | undefined;
   clearRefusal?: () => void;
@@ -339,6 +341,15 @@ export function Sidebar({
               {row.bypass && (
                 <span className="session-bypass" title="Launched with a bypass argument">
                   <span aria-hidden="true">◇</span> Bypass
+                </span>
+              )}
+              {otherViews?.has(row.id) && (
+                <span
+                  className="tile-number"
+                  aria-label="Shown in another window"
+                  title="Shown in another window"
+                >
+                  ▣
                 </span>
               )}
               {tileNumbers?.has(row.id) && (

@@ -3,7 +3,7 @@ import { afterEach, expect, test, vi } from "vitest";
 import { act, cleanup, fireEvent, render } from "@testing-library/react";
 import { RowMenu } from "../../../../src/renderer/board/row-menu";
 afterEach(cleanup);
-test("menu escapes its anchor, fits the viewport, navigates and restores focus on Escape", () => {
+test("menu uses untransformed dimensions to fit the viewport, navigates and restores focus on Escape", () => {
   const anchor = document.createElement("button");
   document.body.append(anchor);
   const close = vi.fn();
@@ -16,9 +16,11 @@ test("menu escapes its anchor, fits the viewport, navigates and restores focus o
     bottom: 720,
     right: 290,
     width: 220,
-    height: 200,
+    height: 192,
     toJSON: () => ({}),
   });
+  const height = vi.spyOn(HTMLElement.prototype, "offsetHeight", "get").mockReturnValue(200);
+  const width = vi.spyOn(HTMLElement.prototype, "offsetWidth", "get").mockReturnValue(220);
   const view = render(
     <RowMenu
       anchor={anchor}
@@ -48,6 +50,8 @@ test("menu escapes its anchor, fits the viewport, navigates and restores focus o
   fireEvent.click(view.getByRole("menuitem", { name: "Pin" }));
   expect(run).toHaveBeenCalledOnce();
   rect.mockRestore();
+  height.mockRestore();
+  width.mockRestore();
   anchor.remove();
 });
 test("outside pointer, tree scroll and resize close, while menu and anchor interactions do not", () => {

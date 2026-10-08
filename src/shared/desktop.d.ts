@@ -1,3 +1,4 @@
+import type { WindowsApi } from "./windows";
 import type { SoundApi } from "./sound";
 import type { AppMenuApi } from "./app-menu";
 import type { AgentEvidence } from "./agent-detection";
@@ -30,6 +31,7 @@ import type { SetupApi } from "./setup";
 import type { WorkspaceApi } from "./workspace";
 
 export interface DesktopApi extends WorkspaceApi, SetupApi {
+  windows?: WindowsApi;
   sounds: SoundApi;
   readonly isDevelopment: boolean;
   readonly appMenu: AppMenuApi;
