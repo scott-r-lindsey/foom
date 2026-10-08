@@ -69,7 +69,8 @@ function sidebarCommand(value: unknown): SidebarCommand {
   }
   if (!text(value["repository"])) throw new Error("Invalid repository");
   const repository = value["repository"];
-  if (kind === "remove-repository") return { kind, repository };
+  if (kind === "remove-repository" || kind === "delete-merged-worktrees")
+    return { kind, repository };
   if (!text(value["worktree"])) throw new Error("Invalid worktree");
   const worktree = value["worktree"];
   if (kind === "remove-worktree") return { kind, repository, worktree };
@@ -108,10 +109,23 @@ export function attachWorkspace(
     stop: "Click again to stop",
     "shared-agent": "Click again for two agents here",
     notifier: "Click again to replace notifier",
-  } satisfies Record<Exclude<Parameters<ConfirmWorkspace>[0]["kind"], "dirty-worktree">, string>;
+  } satisfies Record<
+    Exclude<Parameters<ConfirmWorkspace>[0]["kind"], "dirty-worktree" | "merged-worktrees">,
+    string
+  >;
   const confirmation = (target: string): ConfirmWorkspace => {
     const generation = arming.begin();
     return (request): Promise<boolean> => {
+      if (request.kind === "merged-worktrees") {
+        if (contents.isDestroyed() || contents.mainFrame.url !== APP_URL)
+          return Promise.resolve(false);
+        contents.send("confirmation:dialog");
+        return requestDialog({
+          title: "Delete merged worktrees?",
+          accept: "Delete",
+          worktrees: request.worktrees,
+        });
+      }
       if (request.kind === "dirty-worktree") {
         const { title, changes } = request;
         const records = changes.split("\0");

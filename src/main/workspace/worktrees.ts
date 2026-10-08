@@ -16,7 +16,8 @@ async function git(cwd: string, args: string[]): Promise<string> {
   );
   const { stdout } = await execute("git", args, {
     cwd,
-    env,
+    env: { ...env, GIT_TERMINAL_PROMPT: "0" },
+    timeout: 30_000,
     encoding: "utf8",
     maxBuffer: 16 * 1024 * 1024,
   });
@@ -342,15 +343,29 @@ export class WorktreeService {
       throw new Error("Worktree has been replaced. Review it and try again.");
   }
 
+  // Background status reads must not refresh/write the index while removal is
+  // deleting per-worktree Git metadata. --no-optional-locks keeps them read-only.
   async changes(repositoryPath: string, path: string, identity?: string): Promise<string> {
     if (identity !== undefined) {
       await this.checkRemovalIdentity(repositoryPath, path, identity);
-      return git(path, ["status", "--porcelain=v1", "-z", "--untracked-files=all"]);
+      return git(path, [
+        "--no-optional-locks",
+        "status",
+        "--porcelain=v1",
+        "-z",
+        "--untracked-files=all",
+      ]);
     }
     const trees = await this.listWorktrees(repositoryPath);
     if (!trees.some((tree) => tree.path === path && tree.managed && !tree.prunable && !tree.locked))
       throw new Error("Worktree is not managed by Foom or is locked");
-    return git(path, ["status", "--porcelain=v1", "-z", "--untracked-files=all"]);
+    return git(path, [
+      "--no-optional-locks",
+      "status",
+      "--porcelain=v1",
+      "-z",
+      "--untracked-files=all",
+    ]);
   }
 
   async createWorktree(
@@ -399,6 +414,71 @@ export class WorktreeService {
     });
     await this.save();
     return path;
+  }
+
+  private readonly mergeDefaults = new Map<string, { time: number; result: Promise<string> }>();
+
+  /** Inventory shares a recent fetch; destructive actions always fetch again. */
+  async mergedDefault(repository: string, refresh = false): Promise<string> {
+    this.repository(repository);
+    const cached = this.mergeDefaults.get(repository);
+    if (!refresh && cached && Date.now() - cached.time < 60_000) return cached.result;
+    const result = this.fetchDefault(repository);
+    this.mergeDefaults.set(repository, { time: Date.now(), result });
+    return result;
+  }
+
+  private async fetchDefault(repository: string): Promise<string> {
+    const remotes = (await git(repository, ["remote"])).trim().split("\n").filter(Boolean);
+    const remote = remotes.includes("origin")
+      ? "origin"
+      : remotes.length === 1
+        ? remotes[0]
+        : undefined;
+    if (!remote || remote.startsWith("-")) throw new Error("No unambiguous repository remote");
+    try {
+      await git(repository, ["fetch", "--prune", "--", remote]);
+      const advertised = await git(repository, ["ls-remote", "--symref", "--", remote, "HEAD"]);
+      const ref = /^ref: (refs\/heads\/[^\n\t]+)\tHEAD$/mu.exec(advertised)?.[1];
+      const head = /^([a-f0-9]{40,64})\tHEAD$/mu.exec(advertised)?.[1];
+      if (!ref || !head) throw new Error("Remote default branch is unavailable");
+      await this.validateBranch(repository, ref.slice("refs/heads/".length));
+      // Fetch explicitly as well: a custom fetch refspec may omit the default branch.
+      await git(repository, ["fetch", "--no-write-fetch-head", "--", remote, ref]);
+      return (await git(repository, ["rev-parse", "--verify", `${head}^{commit}`])).trim();
+    } catch (error) {
+      throw new Error(
+        `Cannot check merged worktrees: fetch failed. ${error instanceof Error ? error.message : String(error)}`,
+        { cause: error },
+      );
+    }
+  }
+
+  async mergedCommit(repository: string, tree: Worktree, base: string): Promise<boolean> {
+    if (!tree.branch || !tree.head) return false;
+    await this.validateBranch(repository, tree.branch);
+    if (!/^[a-f0-9]{40,64}$/u.test(base) || !/^[a-f0-9]{40,64}$/u.test(tree.head))
+      throw new Error("Invalid commit ID");
+    const defaultTree = (await git(repository, ["rev-parse", `${base}^{tree}`])).trim();
+    try {
+      return (
+        (await git(repository, ["merge-tree", "--write-tree", base, tree.head])).trim() ===
+        defaultTree
+      );
+    } catch {
+      // Conflicts, unrelated histories and unsupported Git versions never authorize deletion.
+      return false;
+    }
+  }
+
+  async deleteMergedBranch(repository: string, branch: string, head: string): Promise<void> {
+    await this.validateBranch(repository, branch);
+    if (!/^[a-f0-9]{40,64}$/u.test(head)) throw new Error("Invalid commit ID");
+    if ((await this.listWorktrees(repository)).some((tree) => tree.branch === branch))
+      throw new Error("Branch is checked out; kept its local ref");
+    // Compare-and-delete atomically, unlike branch -D's unconditional ref deletion.
+    // This also removes squash-merged refs without an ancestry-based merged check.
+    await git(repository, ["update-ref", "--no-deref", "-d", `refs/heads/${branch}`, head]);
   }
 
   async removeWorktree(

@@ -32,9 +32,11 @@ test("every approved recording has complete provenance, the expected checksum an
     expect(notices).toContain(entry.author);
     const bytes = await readFile(join(root, entry.file));
     const kind = SOUND_KINDS.find((kind) => entry.file.startsWith(`${kind}/`));
-    expect(await library.read({ kind, source: "builtin", file: entry.file.split("/")[1] })).toEqual(
-      { bytes: new Uint8Array(bytes) },
-    );
+    const result = await library.read({ kind, source: "builtin", file: entry.file.split("/")[1] });
+    if ("error" in result) throw new Error(result.error);
+    // Keep exact byte equality without a JavaScript deep comparison of every
+    // audio sample, which can exhaust the test deadline on a loaded CI runner.
+    expect(Buffer.from(result.bytes).equals(bytes)).toBe(true);
     size += bytes.length;
     expect(createHash("sha256").update(bytes).digest("hex")).toBe(entry.sha256);
     expect(matchesSoundHeader(entry.file, bytes)).toBe(true);

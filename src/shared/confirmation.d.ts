@@ -14,6 +14,7 @@ export interface DialogContent {
   title: string;
   accept: string;
   detail?: string;
+  worktrees?: readonly { branch: string; reason?: string }[];
   changes?: string;
   sessions?: readonly { id: string; name: string; location: string; state: string }[];
 }
@@ -29,5 +30,6 @@ export interface ConfirmationWindowApi {
 /** Main-only requests: click-again is misclick protection, not a trust boundary. */
 export type WorkspaceConfirmation =
   | { kind: "remove" | "stop" | "shared-agent" | "notifier" }
+  | { kind: "merged-worktrees"; worktrees: readonly { branch: string; reason?: string }[] }
   | { kind: "dirty-worktree"; title: string; changes: string };
 export type ConfirmWorkspace = (request: WorkspaceConfirmation) => Promise<boolean>;

@@ -54,6 +54,27 @@ export function ConfirmationPage() {
               {request.changes.split("\0").filter(Boolean).join("\n")}
             </pre>
           )}
+          {request.worktrees && (
+            <>
+              <ul aria-label="Worktrees to delete">
+                {request.worktrees
+                  .filter((item) => !item.reason)
+                  .map((item) => (
+                    <li key={item.branch}>{item.branch}</li>
+                  ))}
+              </ul>
+              <ul aria-label="Skipped worktrees" className="confirmation-skipped">
+                {request.worktrees
+                  .filter((item) => item.reason)
+                  .map((item) => (
+                    <li key={item.branch}>
+                      <span>{item.branch}</span>
+                      <span className="confirmation-location">{item.reason}</span>
+                    </li>
+                  ))}
+              </ul>
+            </>
+          )}
           {request.sessions && (
             <ul>
               {request.sessions.map((item) => (
