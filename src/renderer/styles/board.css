@@ -477,7 +477,7 @@
   display: flex;
   align-items: flex-start;
   gap: 8px;
-  padding: 6px 4px;
+  padding: 5px 4px;
   margin: 0;
   border: 0;
   border-radius: 4px;
@@ -494,7 +494,7 @@
   flex: 0 0 8px;
   width: 8px;
   height: 8px;
-  margin-top: 5px;
+  margin-top: 6px;
 }
 .session-lines {
   flex: 1;
@@ -517,11 +517,20 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  font: 9px var(--font-mono);
+  flex: 0 0 auto;
+  box-sizing: border-box;
+  min-width: 24px;
+  height: 20px;
+  padding: 2px 4px;
+  font: 600 11px / 16px var(--font-mono);
   color: var(--badge-ink);
   background: var(--badge-fill);
   border-radius: 3px;
-  padding: 2px 4px;
+}
+.board-agent > span {
+  min-width: 16px;
+  height: 16px;
+  text-align: center;
 }
 .board-wait {
   font: 10px var(--font-mono);
@@ -700,10 +709,6 @@
 .row-menu button:hover .menu-label,
 .row-menu button:focus-visible .menu-label {
   transform: translateX(3px);
-}
-.row-menu button:hover .board-agent,
-.row-menu button:focus-visible .board-agent {
-  box-shadow: 0 0 9px color-mix(in srgb, var(--accent) 45%, transparent);
 }
 .row-menu hr {
   border: 0;
