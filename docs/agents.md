@@ -405,9 +405,12 @@ without blocking the agent. The receiver authenticates each launch,
 pins conversation identity, and discards all fields except the fixed event and
 validated completion facts. Antigravity conversation resumption remains unavailable.
 
-Windows real-CLI timing and plugin trust behavior have not yet been measured.
-Native synthetic adapter tests exercise the Windows command path in CI; they are
-not a substitute for that outstanding real-client probe.
+Native Windows tests exercise `cmd /c`, Windows PowerShell, inherited credentials,
+literal UTF-8 stdin and detached reporting. The first CI run caught use of
+`ProcessStartInfo.StandardInputEncoding`, which Windows PowerShell's .NET Framework
+does not provide; the observer now writes UTF-8 bytes to the child's input stream.
+Real Windows CLI timing and plugin trust behavior remain unmeasured; the real-client
+measurements above are Linux-only.
 
 ## Read-only review launches (#114)
 

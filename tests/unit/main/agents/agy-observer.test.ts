@@ -112,17 +112,18 @@ test("native shell delivers literal untrusted stdin, permits stop, and survives 
 });
 
 test("observer exits before an unresponsive HTTP receiver finishes", async () => {
-  let received: (() => void) | undefined;
-  const requestSeen = new Promise<void>((resolve) => {
-    received = resolve;
-  });
+  const payload = JSON.stringify({ conversationId: "session", output: "é 🌑 $(exit 99) `exit`" });
+  let received: string | undefined;
   let disconnected = false;
   const server = createServer((request) => {
     request.socket.on("close", () => {
       disconnected = true;
     });
-    request.resume();
-    received?.();
+    const chunks: Buffer[] = [];
+    request.on("data", (chunk: Buffer) => chunks.push(chunk));
+    request.on("end", () => {
+      received = Buffer.concat(chunks).toString("utf8");
+    });
   });
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   const address = server.address();
@@ -137,10 +138,15 @@ test("observer exits before an unresponsive HTTP receiver finishes", async () =>
         FOOM_TOKEN: "token",
       },
       "PreInvocation",
-      '{"conversationId":"session"}',
+      payload,
     );
     expect(JSON.parse(result.stdout)).toEqual({});
-    await requestSeen;
+    await vi.waitFor(
+      () => {
+        expect(received).toBe(payload);
+      },
+      { timeout: 3000 },
+    );
     expect(disconnected).toBe(false);
     // The parent has returned while the server still has not sent any response.
     expect(result.stderr).toBe("");

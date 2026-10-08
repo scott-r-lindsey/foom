@@ -90,10 +90,13 @@ try {
   $start.RedirectStandardInput = $true
   $start.RedirectStandardOutput = $true
   $start.RedirectStandardError = $true
-  $start.StandardInputEncoding = New-Object System.Text.UTF8Encoding($false)
   $child = [System.Diagnostics.Process]::Start($start)
   try {
-    $child.StandardInput.Write($buffer, 0, $count)
+    # Windows PowerShell uses .NET Framework, without StandardInputEncoding.
+    # Write UTF-8 bytes directly instead of the default StreamWriter encoding.
+    $payload = [System.Text.Encoding]::UTF8.GetBytes($buffer, 0, $count)
+    $child.StandardInput.BaseStream.Write($payload, 0, $payload.Length)
+    $child.StandardInput.BaseStream.Flush()
     $child.StandardInput.Close()
   } finally { $child.Dispose() }
 } catch { }
