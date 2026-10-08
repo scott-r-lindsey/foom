@@ -625,6 +625,7 @@ test("terminal runs an interactive shell behind an isolated bridge", {
           "addRepository",
           "worktrees",
           "createWorktree",
+          "changeAgyPlugin",
           "scanAgents",
           "launchAgent",
           "setupState",
@@ -5649,6 +5650,137 @@ test("multiple windows restore independent layouts, bounds and interface size", 
     );
     await assertAccessible(page);
   }
+});
+
+test("Antigravity plugin disclosure installs and removes an observer that reports lifecycle", {
+  timeout: deadline(60_000),
+  skip:
+    process.platform === "win32" &&
+    "Fake CLI is POSIX; Windows cmd/PowerShell observer runs in native unit integration",
+}, async (context) => {
+  const root = await mkdtemp(path.join(tmpdir(), "foom-agy-plugin-"));
+  removeAfterApps(context, root);
+  const bin = path.join(root, "bin");
+  const home = path.join(root, "home");
+  const repo = path.join(root, "repository");
+  await Promise.all([bin, home, repo].map((directory) => mkdir(directory)));
+  const fake = `#!${process.execPath}
+const fs = require('node:fs');
+const path = require('node:path');
+const {execFile} = require('node:child_process');
+const args = process.argv.slice(2);
+const directory = path.join(require('node:os').homedir(), '.gemini/config/plugins/foom');
+if (args[0] === '--version') { console.log('1.3.1'); process.exit(0); }
+if (args[0] === '--help') { console.log('Antigravity CLI'); process.exit(0); }
+if (args[0] === 'plugin') {
+  if (args[1] === 'list') console.log(JSON.stringify({imports: fs.existsSync(directory) ? [{name:'foom'}] : []}));
+  else if (args[1] === 'install') { fs.mkdirSync(path.dirname(directory), {recursive:true}); fs.cpSync(args[2], directory, {recursive:true}); }
+  else if (args[1] === 'uninstall' && args[2] === 'foom') fs.rmSync(directory, {recursive:true, force:true});
+  else process.exit(2);
+  process.exit(0);
+}
+const spec = JSON.parse(fs.readFileSync(path.join(directory,'hooks.json'),'utf8'))['foom-observer-v1'];
+process.stdin.setRawMode(true);
+process.stdin.resume();
+console.log('AGY_READY');
+process.stdin.on('data', (data) => {
+  const key = data.toString();
+  if (key === 'q') process.exit(0);
+  const event = key === 'w' ? 'PreInvocation' : 'Stop';
+  const child = execFile('sh', ['-c', spec[event][0].command], {cwd:directory}, (error, stdout, stderr) => {
+    if (error || stdout.trim() !== '{}' || stderr) process.exit(4);
+    console.log('OBSERVER_RETURNED_' + event);
+  });
+  child.stdin.end(JSON.stringify({conversationId:'fake-agy-session', terminationReason:key === 'f' ? 'error' : 'NO_TOOL_CALL', fullyIdle:true, transcriptPath:'/must-not-read'}));
+});
+`;
+  await writeFile(path.join(bin, "agy"), fake, { mode: 0o755 });
+  isolatedGit(["init", "-q", "-b", "main"], { cwd: repo });
+  isolatedGit(
+    [
+      "-c",
+      "user.name=Foom",
+      "-c",
+      "user.email=foom@example.com",
+      "commit",
+      "-q",
+      "--allow-empty",
+      "-m",
+      "init",
+    ],
+    { cwd: repo },
+  );
+  const app = await launchApp(context, false, {
+    env: { HOME: home, PATH: `${bin}${path.delimiter}${process.env.PATH}` },
+  });
+  const page = await boardPage(app);
+  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  await page.getByRole("button", { name: "Agents and hooks", exact: true }).click();
+  await expect(page.getByText("Not installed", { exact: true })).toBeVisible();
+  await expect(page.getByText(/They report working and turn-end signals/u)).toBeVisible();
+  await page.getByRole("button", { name: "Install Foom plugin" }).click();
+  await expect(page.getByText("Installed", { exact: true })).toBeVisible();
+  await assertAccessible(page);
+  await app.evaluate(({ dialog }, directory) => {
+    dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [directory] });
+  }, repo);
+  const id = await page.evaluate(async () => {
+    window.agyTransitions = [];
+    window.desktop.onExecution((event) => window.agyTransitions.push(event));
+    const repository = await window.desktop.addRepository();
+    const tree = await window.desktop.createWorktree(repository.path, "feature/agy", "adjacent");
+    const launch = await window.desktop.launchAgent({
+      agent: "agy",
+      repository: repository.path,
+      worktree: tree.path,
+      cols: 80,
+      rows: 24,
+    });
+    return launch.id;
+  });
+  await expect
+    .poll(() => page.evaluate((id) => window.desktop.tail(id, 10), id))
+    .toContain("AGY_READY");
+  await page.evaluate((id) => window.desktop.input(id, "w"), id);
+  await expect.poll(() => page.evaluate(() => window.agyTransitions.at(-1)?.to)).toBe("working");
+  await page.evaluate((id) => window.desktop.input(id, "s"), id);
+  await expect.poll(() => page.evaluate(() => window.agyTransitions.at(-1)?.to)).toBe("idle");
+  await expect
+    .poll(() =>
+      page.evaluate(
+        async (id) =>
+          (await window.desktop.workspace()).terminals.find((terminal) => terminal.id === id)?.state
+            ?.state,
+        id,
+      ),
+    )
+    .toBe("done");
+  await page.evaluate((id) => window.desktop.input(id, "w"), id);
+  await expect.poll(() => page.evaluate(() => window.agyTransitions.at(-1)?.to)).toBe("working");
+  await page.evaluate((id) => window.desktop.input(id, "f"), id);
+  await expect
+    .poll(() =>
+      page.evaluate(
+        async (id) =>
+          (await window.desktop.workspace()).terminals.find((terminal) => terminal.id === id)?.state
+            ?.state,
+        id,
+      ),
+    )
+    .toBe("failed");
+  await page.getByRole("button", { name: "Remove Foom plugin" }).click();
+  await expect(page.getByText("Not installed", { exact: true })).toBeVisible();
+  await page.evaluate((id) => window.desktop.input(id, "q"), id);
+  await expect
+    .poll(() =>
+      page.evaluate(
+        async (id) =>
+          (await window.desktop.workspace()).terminals.find((terminal) => terminal.id === id)
+            ?.exited,
+        id,
+      ),
+    )
+    .toBe(true);
 });
 
 test("console pairing requires trusted approval and gives only read-only repository scope", {

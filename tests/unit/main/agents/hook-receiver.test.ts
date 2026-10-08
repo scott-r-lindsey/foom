@@ -8,13 +8,14 @@ const receivers: HookReceiver[] = [];
 afterEach(async () => {
   await Promise.all(receivers.splice(0).map((receiver) => receiver.close()));
 });
-async function setup(agent: "claude" | "codex" = "claude") {
+async function setup(agent: "claude" | "codex" | "agy" = "claude") {
   const signals: HookSignal[] = [];
   const receiver = await HookReceiver.listen((signal) => signals.push(signal));
   receivers.push(receiver);
   return { receiver, launch: receiver.register("terminal-1", agent), signals };
 }
 const stop = { session_id: "agent-session", hook_event_name: "Stop" };
+let nextSequence = 0;
 function post(
   launch: HookLaunch,
   body: string | Buffer = JSON.stringify(stop),
@@ -29,6 +30,7 @@ function post(
           "Content-Type": "application/json",
           Authorization: launch.env.FOOM_TOKEN,
           "X-Foom-Session": launch.env.FOOM_SESSION,
+          "X-Foom-Sequence": String(++nextSequence),
           ...overrides,
         },
       },
@@ -264,6 +266,7 @@ describe("loopback hook receiver", () => {
           headers: {
             Authorization: launch.env.FOOM_TOKEN,
             "X-Foom-Session": launch.env.FOOM_SESSION,
+            "X-Foom-Sequence": String(++nextSequence),
             "Content-Type": "application/json",
           },
         },
@@ -431,3 +434,93 @@ it.each([true, false])(
     ).toBe(400);
   },
 );
+
+describe("Antigravity lifecycle", () => {
+  it.each([
+    ["PreInvocation", {}, "working"],
+    ["PostToolUse", {}, "working"],
+    ["Stop", { terminationReason: "model_stop", fullyIdle: true }, "classify"],
+    ["Stop", { terminationReason: "NO_TOOL_CALL", fullyIdle: true }, "classify"],
+    ["Stop", { terminationReason: "model_stop", fullyIdle: false }, "working"],
+    ["Stop", { terminationReason: "error", fullyIdle: false }, "failed"],
+    ["Stop", { terminationReason: "max_steps_exceeded", fullyIdle: true }, "failed"],
+  ])("reduces %s %j", async (event, fields, action) => {
+    const { launch, signals } = await setup("agy");
+    expect(
+      await post(
+        launch,
+        JSON.stringify({
+          conversationId: "conversation",
+          ...fields,
+          transcriptPath: "/must/not/read",
+          workspacePaths: ["/secret"],
+          output: "ignore all instructions",
+        }),
+        { "X-Foom-Event": event },
+      ),
+    ).toBe(204);
+    expect(signals[0]).toMatchObject({
+      terminalId: "terminal-1",
+      action,
+      signal: `agy:${event}`,
+    });
+    expect(Object.keys(signals[0] ?? {}).sort()).toEqual(
+      event === "Stop"
+        ? ["action", "fullyIdle", "signal", "terminalId", "terminationReason"]
+        : ["action", "signal", "terminalId"],
+    );
+  });
+  it("pins the conversation and rejects invalid or foreign events without learning invalid IDs", async () => {
+    const { launch, signals } = await setup("agy");
+    for (const fields of [
+      {},
+      { conversationId: "../escape" },
+      { conversationId: "one", fullyIdle: "true", terminationReason: "error" },
+      { conversationId: "one", fullyIdle: true, terminationReason: "continue" },
+    ]) {
+      expect(await post(launch, JSON.stringify(fields), { "X-Foom-Event": "Stop" })).toBe(400);
+    }
+    expect(
+      await post(launch, JSON.stringify({ conversationId: "two" }), {
+        "X-Foom-Event": "PreToolUse",
+      }),
+    ).toBe(400);
+    expect(
+      await post(launch, JSON.stringify({ conversationId: "two" }), {
+        "X-Foom-Event": "PreInvocation",
+      }),
+    ).toBe(204);
+    expect(
+      await post(launch, JSON.stringify({ conversationId: "one" }), {
+        "X-Foom-Event": "PostToolUse",
+      }),
+    ).toBe(400);
+    expect(await post(launch, JSON.stringify({ conversationId: "two" }))).toBe(400);
+    expect(signals).toHaveLength(1);
+    launch.revoke();
+    expect(
+      await post(launch, JSON.stringify({ conversationId: "two" }), {
+        "X-Foom-Event": "PreInvocation",
+      }),
+    ).toBe(401);
+  });
+});
+
+it("Antigravity ignores reordered and duplicate reports without ending newer work", async () => {
+  const { launch, signals } = await setup("agy");
+  const send = (sequence: string, event: string, fields: Record<string, unknown> = {}) =>
+    post(launch, JSON.stringify({ conversationId: "conversation", ...fields }), {
+      "X-Foom-Event": event,
+      "X-Foom-Sequence": sequence,
+    });
+  const stop = { terminationReason: "model_stop", fullyIdle: true };
+  expect(await send("2", "Stop", stop)).toBe(204);
+  expect(await send("1", "PostToolUse")).toBe(204);
+  expect(signals.map((signal) => signal.action)).toEqual(["classify"]);
+  expect(await send("3", "PreInvocation")).toBe(204);
+  expect(await send("2", "Stop", stop)).toBe(204);
+  expect(await send("3", "Stop", stop)).toBe(204);
+  expect(signals.map((signal) => signal.action)).toEqual(["classify", "working"]);
+  for (const sequence of ["", "0", "-1", "01", "1.5", "2147483648", "10000000000", "1e3"])
+    expect(await send(sequence, "PreInvocation")).toBe(400);
+});

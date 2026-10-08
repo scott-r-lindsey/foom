@@ -10,6 +10,7 @@ type Session = {
   agent: HookAgent;
   digest: Buffer;
   agentId?: string;
+  sequence?: number;
   completedTurns?: Set<string>;
 };
 
@@ -25,8 +26,56 @@ function identifier(value: unknown): value is string {
   return typeof value === "string" && /^[a-zA-Z0-9_-]{1,200}$/.test(value);
 }
 
-function reduceEvent(session: Session, value: unknown): HookSignal | undefined {
+function reduceEvent(
+  session: Session,
+  value: unknown,
+  event?: string | string[],
+  sequenceHeader?: string | string[],
+): HookSignal | undefined {
   if (!record(value)) throw new Error("Invalid event");
+  if (session.agent === "agy") {
+    if (typeof sequenceHeader !== "string" || !/^[1-9][0-9]{0,9}$/.test(sequenceHeader))
+      throw new Error("Invalid observer sequence");
+    const sequence = Number(sequenceHeader);
+    if (sequence > 2147483647) throw new Error("Invalid observer sequence");
+    const agentId = value["conversationId"];
+    if (!conversationId(agentId) || (session.agentId !== undefined && session.agentId !== agentId))
+      throw new Error("Invalid agent session");
+    if (event !== "PreInvocation" && event !== "PostToolUse" && event !== "Stop")
+      throw new Error("Invalid Antigravity event");
+    let terminationReason: HookSignal["terminationReason"];
+    let fullyIdle: boolean | undefined;
+    if (event === "Stop") {
+      const reason = value["terminationReason"];
+      if (
+        reason !== "model_stop" &&
+        reason !== "NO_TOOL_CALL" &&
+        reason !== "max_steps_exceeded" &&
+        reason !== "error"
+      )
+        throw new Error("Invalid termination reason");
+      if (typeof value["fullyIdle"] !== "boolean") throw new Error("Invalid idle state");
+      terminationReason = reason === "NO_TOOL_CALL" ? "model_stop" : reason;
+      fullyIdle = value["fullyIdle"];
+    }
+    if (session.sequence !== undefined && sequence <= session.sequence) return;
+    session.sequence = sequence;
+    session.agentId = agentId;
+    return {
+      terminalId: session.terminalId,
+      signal: `agy:${event}`,
+      action:
+        event !== "Stop"
+          ? "working"
+          : terminationReason !== "model_stop"
+            ? "failed"
+            : fullyIdle === false
+              ? "working"
+              : "classify",
+      ...(terminationReason === undefined ? {} : { terminationReason }),
+      ...(fullyIdle === undefined ? {} : { fullyIdle }),
+    };
+  }
   const lifecycle = session.agent === "codex" && value["hook_event_name"] !== undefined;
   const agentId =
     session.agent === "claude" || lifecycle ? value["session_id"] : value["thread-id"];
@@ -243,7 +292,12 @@ export class HookReceiver {
         const value: unknown = JSON.parse(
           new TextDecoder("utf-8", { fatal: true }).decode(Buffer.concat(chunks)),
         );
-        signal = reduceEvent(session, value);
+        signal = reduceEvent(
+          session,
+          value,
+          request.headers["x-foom-event"],
+          request.headers["x-foom-sequence"],
+        );
       } catch {
         end(400);
         return;

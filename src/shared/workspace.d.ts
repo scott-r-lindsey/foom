@@ -1,3 +1,4 @@
+import type { AgyPluginAction } from "./agy-plugin";
 import type { ExecutionSnapshot, ExecutionTransition } from "./execution";
 import type { ConfirmationClient } from "./confirmation";
 import type { AgentId, AgentInstallation } from "./agents";
@@ -88,6 +89,7 @@ export interface WorkspaceApi {
     location: "root" | "adjacent",
   ): Promise<Worktree>;
   scanAgents(refresh: boolean): Promise<AgentReport>;
+  changeAgyPlugin(action: AgyPluginAction): Promise<AgentReport>;
   /** Null means the user cancelled the shared-agent confirmation. */
   launchAgent(
     request: LaunchRequest,

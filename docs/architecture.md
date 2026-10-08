@@ -390,7 +390,7 @@ Git commands have a 30-second process deadline.
 
 **Today:** `src/main/agents/agents.ts` provides a main-only `AgentService`, following the worktree service's integration boundary. `scan()` resolves PATH with the account's login shell (`-ilc`, a fixed printf program with NUL delimiters), then probes each resolved executable with bounded `--version` and `--help` calls. It retains full version strings. Shell failures report a warning and use inherited PATH; Windows uses inherited PATH and native executables. Relative and empty PATH components are ignored. Windows batch/PowerShell wrappers are not executed through a command shell; installations exposing only those wrappers currently need a native executable on PATH.
 
-Stable Claude Code releases at or above 2.1.284 and Codex releases at or above 0.155.1 enable hooks only when help includes the complete `--settings` or `-c` flag respectively. There is no maximum version. Unparseable versions, prerelease/custom suffixes, missing flags, failed probes, Antigravity, disabled hooks, and an unavailable receiver use output evaluation. Calling `scan()` again replaces discovery results. Codex receives `--no-alt-screen` only when its help lists the complete flag, independently of hook support or the hooks setting. Inline output stays in normal scrollback for wheel scrolling, peek and evaluator tails; a failed or unsupported probe leaves launch arguments unchanged. Launch uses a resolved executable and argument array through a terminal creation capability (including the asynchronous utility-host client), with the resolved PATH added to its scrubbed environment. Legacy agent launch requires ownership. Sidebar launch authorizes any selected checkout in the registered repository, including external and detached worktrees, without adopting it. Main captures the canonical checkout identity before confirmations or agent scanning; the agent service revalidates it after hook preparation, immediately before spawning. Shells revalidate immediately before spawning too. Validation checks current Git membership and common Git directory, rejects redirected, bare, locked and prunable worktrees, and detects replacement during confirmation. The identity is a main-only launch capability; IPC never copies it from renderer requests. All checkouts permit multiple sessions. Sidebar, New worktree and legacy agent launch paths use a main-owned confirmation before launching an agent alongside any running agent in that checkout. Shells and exited agents do not trigger the warning. Cancellation creates no session. Main grants the shared-launch capability only after checking for active agents under the launch lock; renderer-supplied flags cannot bypass confirmation. Launch and removal locks cover confirmation and spawning. Repository registration is reserved before any asynchronous launch or worktree creation, including legacy launch IPC. Repository removal in both the sidebar and Settings refuses pending operations and tracked sessions; its exclusive guard spans confirmation and deregistration and blocks new launches until it settles. Each session retains independent hooks and verdicts. Sidebar `review` commands accept only Claude or Codex IDs. Under the same checkout
+Stable Claude Code releases at or above 2.1.284 and Codex releases at or above 0.155.1 enable hooks only when help includes the complete `--settings` or `-c` flag respectively. There is no maximum version. Unparseable versions, prerelease/custom suffixes, missing flags, failed probes, disabled hooks, and an unavailable receiver use output evaluation. Calling `scan()` again replaces discovery results. Codex receives `--no-alt-screen` only when its help lists the complete flag, independently of hook support or the hooks setting. Inline output stays in normal scrollback for wheel scrolling, peek and evaluator tails; a failed or unsupported probe leaves launch arguments unchanged. Launch uses a resolved executable and argument array through a terminal creation capability (including the asynchronous utility-host client), with the resolved PATH added to its scrubbed environment. Legacy agent launch requires ownership. Sidebar launch authorizes any selected checkout in the registered repository, including external and detached worktrees, without adopting it. Main captures the canonical checkout identity before confirmations or agent scanning; the agent service revalidates it after hook preparation, immediately before spawning. Shells revalidate immediately before spawning too. Validation checks current Git membership and common Git directory, rejects redirected, bare, locked and prunable worktrees, and detects replacement during confirmation. The identity is a main-only launch capability; IPC never copies it from renderer requests. All checkouts permit multiple sessions. Sidebar, New worktree and legacy agent launch paths use a main-owned confirmation before launching an agent alongside any running agent in that checkout. Shells and exited agents do not trigger the warning. Cancellation creates no session. Main grants the shared-launch capability only after checking for active agents under the launch lock; renderer-supplied flags cannot bypass confirmation. Launch and removal locks cover confirmation and spawning. Repository registration is reserved before any asynchronous launch or worktree creation, including legacy launch IPC. Repository removal in both the sidebar and Settings refuses pending operations and tracked sessions; its exclusive guard spans confirmation and deregistration and blocks new launches until it settles. Each session retains independent hooks and verdicts. Sidebar `review` commands accept only Claude or Codex IDs. Under the same checkout
 lock, main requires a different live agent in that checkout and applies the existing
 shared-agent and notifier confirmations. The agent service refuses review when its
 help probe lacks the required flags. Review ignores ordinary Foom argument defaults,
@@ -403,7 +403,7 @@ verdicts or execution state. It describes launch policy, not live CLI mode track
 
 `setHooksEnabled(false)` disables hook attachment for subsequent launches. A main-process integration supplies a fresh `AgentHooks` binding per launch, with a Claude stdin adapter command, a Codex argv adapter command, session credentials, and a cleanup callback. Claude settings attach prompt, tool, Stop, PermissionRequest, and Notification observer hooks as inline JSON in `--settings`; Codex 0.161+ receives stable lifecycle definitions and keeps `-c notify=[...]` until completion hooks are observed working. Older supported Codex versions receive notify only. No settings files are created in the user's HOME or workspace. Codex notifier fallback requires `acknowledgeCodexNotifierReplacement` after the UI discloses that the user's notifier is replaced for this invocation. Confirmed lifecycle hooks remove that override and disclosure on later launches. `release(terminalId)` must be called on exit/kill to revoke credentials and free the worktree; `dispose()` releases all bindings during shutdown after terminals are stopped. Spawn failures clean up immediately.
 
-`src/main/workspace/workspace.ts` connects these services in main. It scans once and reuses the result until a refresh, starts the hook receiver on the first launch that attaches hooks, and closes it after terminals stop on quit. `src/main/agents/hook-launch.ts` writes each launch's adapter script to its own `mkdtemp` directory (mode 0700), registers receiver credentials under a random key, and maps that key to the terminal ID once it exists (`AgentHooks.bind`). Exit, kill, and shutdown release the launch: credentials are revoked, the directory is deleted, and the worktree is free again. Antigravity launches without hooks. Preflight's settings reach the workspace through `configure`: the hooks setting calls `setHooksEnabled`, and launching an agent that preflight turned off is refused. Launched agents and worktree shells appear immediately in stable repository groups on the board. The New worktree form discloses Codex notifier replacement before the first hooked Codex launch; main persists `codexNotifierAcknowledged` in settings and reuses it for later launches.
+`src/main/workspace/workspace.ts` connects these services in main. It scans once and reuses the result until a refresh, starts the hook receiver on the first launch that attaches hooks, and closes it after terminals stop on quit. `src/main/agents/hook-launch.ts` writes each launch's adapter script to its own `mkdtemp` directory (mode 0700), registers receiver credentials under a random key, and maps that key to the terminal ID once it exists (`AgentHooks.bind`). Exit, kill, and shutdown release the launch: credentials are revoked, the directory is deleted, and the worktree is free again. Antigravity uses a separately installed opt-in observer plugin; only its Foom launches receive fresh hook credentials. Preflight's settings reach the workspace through `configure`: the hooks setting calls `setHooksEnabled`, and launching an agent that preflight turned off is refused. Launched agents and worktree shells appear immediately in stable repository groups on the board. The New worktree form discloses Codex notifier replacement before the first hooked Codex launch; main persists `codexNotifierAcknowledged` in settings and reuses it for later launches.
 
 ## Control plane
 
@@ -628,11 +628,11 @@ Repositories come from the user's code folder (one, saved as `codeFolder`). Main
 
 ## Agent signals
 
-Foom attaches its hooks per launch and never edits the user's own config:
+Claude and Codex hooks attach per launch. Antigravity has an explicit opt-in plugin exception:
 
 - Claude Code: `claude --settings <inline-json>` with Stop, PermissionRequest, and Notification hooks; JSON arrives on stdin. Permission notifications may be delayed, and Stop means a response ended, not necessarily task success.
 - Codex: `codex -c notify=[...]`; JSON arrives as an argument. The external callback reports turn completion, not approval requests, and replaces the effective notify command for that launch.
-- Antigravity: output evaluator only for now. Hooks and headless mode exist, but an invocation-scoped hook attachment was not verified.
+- Antigravity: Settings discloses and installs the static Foom observer with `agy plugin install <bundled-directory>`. Remove uses `agy plugin uninstall foom`; enable uses `agy plugin enable foom`. All calls use resolved executables, argument arrays, bounded output and deadlines. No direct global configuration writes occur. Without the plugin, launch uses output evaluation.
 
 See [agent research](agents.md) for versions, payloads, local probes, sources, and remaining verification. Completion events trigger classification; they do not unconditionally set Done. Echo-off alone is not a password signal: all three tested CLIs disabled echo at startup.
 
@@ -963,7 +963,7 @@ is reused. Revoked hook capabilities cannot address that invocation.
 | --- | --- | --- | --- |
 | Claude | Per-launch UserPromptSubmit/PreToolUse observer hooks; half-circle title | PermissionRequest hook; live screen forms | Stop hook; star title |
 | Codex | Trusted per-launch UserPromptSubmit/PreToolUse/PostToolUse hooks; braille spinner title | PermissionRequest hook; Action Required title | Stop hook; fallback turn-complete notify; plain title |
-| Antigravity | No supported signal yet | Screen rules | No supported signal yet |
+| Antigravity | Opt-in PreInvocation/PostToolUse observers | Screen rules | Fully idle Stop; error/step-limit Stop is failure |
 
 Evidence precedence is: process exit; lifecycle hooks (including Codex); active permission hooks; agent-specific
 blocked forms/titles; agent working titles; generic shell patterns; model fallback.
@@ -989,8 +989,8 @@ lifecycle observers with trust granted only in Codex. Once startup, prompt and S
 are observed, later launches preserve the user's notifier. Codex idle titles without
 Stop stay neutral after lifecycle hooks have been observed, including Esc interrupts.
 Older/unreviewed installations keep the turn-complete notify fallback.
-Antigravity lifecycle hooks remain deferred to #178; no global agent configuration
-is changed. Observer hooks emit no permission decision.
+Antigravity lifecycle hooks use the opt-in #178 plugin; Claude and Codex global configuration
+is unchanged. Observer hooks emit no permission decision.
 
 Turn end stops Working immediately, independently of asynchronous classification.
 Classification checks attention and failure evidence before announcing completion;
@@ -1024,3 +1024,30 @@ updates so an older terminal cannot overwrite a newer result. Setup exposes thes
 observations and directs users to Codex's `/hooks`; no Foom control grants trust or
 reopens review. The [probe and limitations](agents.md#stable-codex-lifecycle-observers-181)
 record real Linux timing and the outstanding Windows real-CLI probe.
+
+
+### Antigravity plugin ownership
+
+`agy-plugin.ts` owns status and serializes explicit install/update/enable/remove
+operations. It reads at most 64 KiB from fixed Antigravity metadata paths because
+`plugin list` omits version and enabled state. Unrecognized or unreadable metadata
+is unavailable, never permission to overwrite. The sandboxed bridge accepts exactly
+one enumerated operation on `agents:agy-plugin`; main validates the owning top frame
+and chooses the executable and bundled directory. Settings and preflight share the
+same disclosure and controls. No credentials, arbitrary commands, paths or plugin
+names come from the renderer. CLI errors become fixed Foom messages.
+
+The build ships the plugin outside ASAR under `build/observers/foom`. Versioned
+metadata enables an update offer without silently changing an installation. Launch
+adds credentials only when hooks are enabled and the installed plugin is active.
+A private temporary per-launch counter orders background reports; it contains no
+credentials and is removed with the launch binding. Observers allocate a sequence
+under an exclusive local lock before starting transport. Main ignores duplicate or
+older sequence numbers, including a delayed Stop from before newer progress.
+A validated fully idle Stop recovers the turn identity if its working report was
+overtaken, then classifies the current tail; questions and failures still win.
+The observer sends fixed event and sequence headers with stdin JSON; the receiver validates them
+against the Antigravity launch, pins `conversationId`, and emits only event/action,
+terminal ID and enumerated Stop facts. It never exposes an Antigravity conversation
+ID for Resume. See the [probe record](agents.md#opt-in-antigravity-lifecycle-plugin-178)
+for the documented-versus-observed Stop spelling and remaining platform verification.

@@ -1,11 +1,16 @@
-export type HookAgent = "claude" | "codex";
+export type HookAgent = "claude" | "codex" | "agy";
 
 /** Reduced evidence only: no agent text, paths, prompts, or credentials. */
 export interface HookSignal {
   terminalId: string;
   conversationId?: string;
-  action: "classify" | "needs_input" | "working" | "ready";
+  action: "classify" | "needs_input" | "working" | "ready" | "failed";
+  terminationReason?: "model_stop" | "max_steps_exceeded" | "error";
+  fullyIdle?: boolean;
   signal:
+    | "agy:PreInvocation"
+    | "agy:PostToolUse"
+    | "agy:Stop"
     | "claude:UserPromptSubmit"
     | "claude:PreToolUse"
     | "claude:Stop"

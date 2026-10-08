@@ -100,6 +100,12 @@ await copyFile(
 
 await cp(join(root, "src/sounds"), join(root, "build/sounds"), { recursive: true });
 
+const { agyPluginFiles } = await import("../build/main/agents/agy-observer.js");
+await mkdir(join(root, "build/observers/foom"), { recursive: true });
+for (const [name, source] of Object.entries(agyPluginFiles(process.platform))) {
+  await writeFile(join(root, "build/observers/foom", name), source, { mode: 0o755 });
+}
+
 // Native interpreters need real files outside ASAR, at a stable installation path.
 const { codexObserverSource } = await import("../build/main/agents/codex-hooks.js");
 await mkdir(join(root, "build/observers"), { recursive: true });

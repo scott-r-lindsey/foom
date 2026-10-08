@@ -272,6 +272,17 @@ export function Preflight({
           report={report}
           scanning={scanning}
           scan={scan}
+          changePlugin={async (action) => {
+            setScanning(true);
+            setError("");
+            try {
+              setReport(await source.changeAgyPlugin(action));
+            } catch (caught) {
+              setError(message(caught));
+            } finally {
+              setScanning(false);
+            }
+          }}
           save={save}
         />
         {settingsMode && (
