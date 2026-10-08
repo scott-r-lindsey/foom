@@ -256,6 +256,9 @@ async function launchCheckoutShell(app, page) {
 }
 
 async function launchApp(context, openShell = true, options = {}) {
+  // CI prepares the binary separately. Direct runs also resolve it before the
+  // Playwright launch deadline/audit, without downloading during test discovery.
+  const electronExecutable = require("electron");
   const cleanup = fixtureCleanup(context);
   cleanup.audit ??= await auditProcesses(context);
   const profile = await prepareProfile(options);
@@ -266,14 +269,42 @@ async function launchApp(context, openShell = true, options = {}) {
     process.exit(1);
   }, deadline(90_000));
   watchdog.unref();
+  let entry = path.join(__dirname, "../..");
+  if (options.home) {
+    // Electron resolves home from native OS APIs on macOS/Windows, not HOME.
+    // A fixture package sets it before application modules construct services.
+    const fixture = await mkdtemp(path.join(tmpdir(), "foom-entry-"));
+    removeAfterApps(context, fixture);
+    const manifest = JSON.parse(await readFile(path.join(entry, "package.json"), "utf8"));
+    await writeFile(
+      path.join(fixture, "package.json"),
+      JSON.stringify({
+        name: manifest.name,
+        productName: manifest.productName,
+        version: manifest.version,
+        main: "bootstrap.cjs",
+      }),
+    );
+    await writeFile(
+      path.join(fixture, "bootstrap.cjs"),
+      [
+        'const { app } = require("electron");',
+        `app.setPath("home", ${JSON.stringify(options.home)});`,
+        `app.setAppPath(${JSON.stringify(entry)});`,
+        `require(${JSON.stringify(path.join(entry, "build/main/main.js"))});`,
+      ].join("\n"),
+    );
+    entry = fixture;
+  }
   const env = { ...process.env, ...options.env };
   delete env.ELECTRON_RUN_AS_NODE;
   const app = await electron
     .launch({
+      executablePath: electronExecutable,
       chromiumSandbox: true,
       colorScheme: null,
       timeout: deadline(15_000),
-      args: [path.join(__dirname, "../.."), ...profile.args],
+      args: [entry, ...profile.args],
       env,
     })
     .catch((error) => {
@@ -3971,7 +4002,14 @@ test("recorded sounds refresh and preview user files while shell attention and c
   const root = await mkdtemp(path.join(tmpdir(), "foom-sound-"));
   removeAfterApps(context, root);
   const marker = path.join(root, "keys");
-  const app = await launchApp(context, true, { env: { HOME: root, USERPROFILE: root } });
+  // Deliberately differ from Electron's home, proving the fixture does not rely
+  // on the environment override that only worked on Linux.
+  const shellHome = path.join(root, "shell-home");
+  await mkdir(shellHome);
+  const app = await launchApp(context, true, {
+    home: root,
+    env: { HOME: shellHome, USERPROFILE: shellHome },
+  });
   const page = await boardPage(app);
   await installSoundSink(page);
   // Working audio is enabled, but this plain shell must contribute no loop.
