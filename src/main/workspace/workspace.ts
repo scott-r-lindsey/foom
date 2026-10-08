@@ -1,3 +1,5 @@
+import type { AgyPluginAction } from "../../shared/agy-plugin";
+import { AgyPlugin } from "../agents/agy-plugin";
 import { CodexHookStatus } from "../agents/codex-hook-status";
 import { codexObserverCommand } from "../agents/codex-hooks";
 import { createHash } from "node:crypto";
@@ -117,6 +119,7 @@ export class Workspace {
   private readonly executionListeners = new Set<(event: ExecutionTransition) => void>();
   private readonly launched = new Map<string, WorkspaceTerminal>();
   private readonly terminals = new Map<string, Terminal>();
+  private readonly agyPlugin = new AgyPlugin();
   private readonly hookKeys = new Map<string, string>();
   private readonly queues = new Map<string, Promise<void>>();
   private control: Promise<Pick<ControlRuntime, "prepare" | "close">> | undefined;
@@ -147,7 +150,6 @@ export class Workspace {
     this.codexHooks = deps.codexHooks ?? new CodexHookStatus();
     deps.watcher?.sync(deps.worktrees.listRepositories());
     const prepare = async (agent: AgentId): Promise<AgentHooks> => {
-      if (agent === "agy") throw new Error("Antigravity hooks are not supported");
       // A receiver that failed to start is retried on the next launch.
       this.receiver ??= deps.receiver().catch((error: unknown) => {
         this.receiver = undefined;
@@ -185,7 +187,7 @@ export class Workspace {
       : undefined;
     this.agents = deps.agents
       ? deps.agents(prepare, prepareControl)
-      : new AgentService(deps.worktrees, deps.terminals, prepare, prepareControl);
+      : new AgentService(deps.worktrees, deps.terminals, prepare, prepareControl, this.agyPlugin);
   }
 
   /** Setup's choices apply to later launches; running agents keep theirs. */
@@ -328,6 +330,19 @@ export class Workspace {
       throw error;
     }
   }
+  async changeAgyPlugin(action: AgyPluginAction): Promise<AgentReport> {
+    const report = await this.scanAgents(true);
+    const executable = report.agents.find((agent) => agent.id === "agy")?.path;
+    if (!executable) throw new Error("Antigravity is not installed");
+    try {
+      await this.agyPlugin.change(executable, action);
+    } finally {
+      this.scanned = undefined;
+    }
+    this.deps.onChange?.();
+    return this.scanAgents(true);
+  }
+
   private async confirmAgentLaunch(worktree: string, confirm: ConfirmWorkspace): Promise<boolean> {
     const active = [...this.launched.values()].some(
       (entry) =>
@@ -940,7 +955,8 @@ export class Workspace {
     const entry = this.launched.get(id);
     return (
       entry?.attention === "hooks" &&
-      (entry.agent === "claude" ||
+      (entry.agent === "agy" ||
+        entry.agent === "claude" ||
         (entry.agent === "codex" && this.track(id).codexPromptTurn !== undefined))
     );
   }
@@ -1302,7 +1318,10 @@ export class Workspace {
         health.codexPromptTurn = this.execution(id).snapshot().turn;
       return Promise.resolve();
     }
-    if (signal.action === "needs_input") {
+    if (signal.action === "failed") {
+      this.track(id).hook = { terminalId: id, action: signal.action, signal: signal.signal };
+      this.transition(id, "idle", "hook");
+    } else if (signal.action === "needs_input") {
       delete this.track(id).permissionReply;
       delete this.track(id).permissionProgress;
       delete this.track(id).dismissedAttention;
@@ -1313,7 +1332,8 @@ export class Workspace {
       const turn = terminal.execution?.snapshot().turn;
       if (
         turn &&
-        (signal.signal === "claude:Stop" ||
+        (signal.signal === "agy:Stop" ||
+          signal.signal === "claude:Stop" ||
           signal.signal === "codex:Stop" ||
           signal.signal === "codex:agent-turn-complete")
       )

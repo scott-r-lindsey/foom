@@ -107,6 +107,7 @@ function fake(initial: SetupState, scan: AgentReport = all) {
     models: vi.fn((_endpoint: string) =>
       Promise.resolve<ModelList>({ ok: true, models: ["qwen3:8b"], server: "Ollama 0.32.14" }),
     ),
+    changeAgyPlugin: vi.fn(() => Promise.resolve(scan)),
     scanAgents: vi.fn((_refresh: boolean) => Promise.resolve(scan)),
     repositories: vi.fn(() => Promise.resolve([...repositories])),
     subscribe: vi.fn((listener: (next: SetupState) => void) => {

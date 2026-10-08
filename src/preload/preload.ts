@@ -303,6 +303,7 @@ const desktop: DesktopApi = {
   worktrees: (repository) => ipcRenderer.invoke("workspace:worktrees", repository),
   createWorktree: (repository, branch, location) =>
     ipcRenderer.invoke("workspace:create-worktree", repository, branch, location),
+  changeAgyPlugin: (action) => ipcRenderer.invoke("agents:agy-plugin", action),
   scanAgents: (refresh) => ipcRenderer.invoke("agents:scan", refresh),
   launchAgent: (request) => ipcRenderer.invoke("agents:launch", request),
   setupState: () => ipcRenderer.invoke("setup:state"),

@@ -249,6 +249,21 @@ export function attachWorkspace(
       },
     ],
     [
+      "agents:agy-plugin",
+      (...args) => {
+        const [action] = args;
+        if (
+          args.length !== 1 ||
+          (action !== "install" &&
+            action !== "update" &&
+            action !== "remove" &&
+            action !== "enable")
+        )
+          throw new Error("Invalid plugin request");
+        return workspace.changeAgyPlugin(action);
+      },
+    ],
+    [
       "agents:launch",
       (request) => {
         const launch = launchRequest(request);

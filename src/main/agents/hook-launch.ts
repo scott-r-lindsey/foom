@@ -30,6 +30,25 @@ export async function prepareHookLaunch(
   scratch = tmpdir(),
   execute = promisify(execFile),
 ): Promise<AgentHooks> {
+  if (agent === "agy") {
+    const key = randomUUID();
+    const launch = receiver.register(key, agent);
+    let disposed = false;
+    return {
+      claudeCommand: "",
+      codexCommand: [],
+      env: launch.env,
+      bind: (terminalId) => {
+        if (!disposed) bind(key, terminalId);
+      },
+      dispose: () => {
+        if (disposed) return;
+        disposed = true;
+        launch.revoke();
+        bind(key, undefined);
+      },
+    };
+  }
   const windows = platform === "win32";
   const adapter = hookAdapter(agent, windows ? "win32" : "posix");
   // mkdtemp creates the directory with mode 0700, so other users can't swap the script.

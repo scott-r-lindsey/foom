@@ -1,3 +1,5 @@
+import { AgyPluginControl } from "./agy-plugin-control";
+import type { AgyPluginAction } from "../../shared/agy-plugin";
 import type { SetupState } from "../../shared/setup";
 import type { AgentReport } from "../../shared/workspace";
 import type { StepHeading, StepActions } from "./preflight-step.d";
@@ -41,8 +43,10 @@ export function AgentsStep({
   scanning,
   scan,
   save,
+  changePlugin,
 }: StepHeading &
   StepActions & {
+    changePlugin: (action: AgyPluginAction) => Promise<void>;
     state: SetupState;
     report: AgentReport | undefined;
     scanning: boolean;
@@ -100,6 +104,9 @@ export function AgentsStep({
               >
                 {agent ? "Found" : scanning || !report ? "Looking…" : "Not found"}
               </span>
+              {agent?.agyPlugin && (
+                <AgyPluginControl status={agent.agyPlugin} busy={scanning} change={changePlugin} />
+              )}
               {agent && how ? (
                 <div className="agent-meta">
                   <span className="badge" data-known={String(Boolean(agent.version))}>
@@ -157,8 +164,9 @@ export function AgentsStep({
           <b>Attach Foom's hooks when it launches an agent</b>
           <small>
             Passed per launch (<code>claude --settings</code>, <code>codex -c notify=…</code>). Your
-            own config files are never edited. Turn this off and every agent falls back to the
-            evaluator.
+            own config files are never edited for these agents. Antigravity uses the optional plugin
+            above with credentials supplied only per launch. Turn this off and every agent falls
+            back to the evaluator.
           </small>
         </span>
       </label>

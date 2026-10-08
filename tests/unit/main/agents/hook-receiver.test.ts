@@ -8,7 +8,7 @@ const receivers: HookReceiver[] = [];
 afterEach(async () => {
   await Promise.all(receivers.splice(0).map((receiver) => receiver.close()));
 });
-async function setup(agent: "claude" | "codex" = "claude") {
+async function setup(agent: "claude" | "codex" | "agy" = "claude") {
   const signals: HookSignal[] = [];
   const receiver = await HookReceiver.listen((signal) => signals.push(signal));
   receivers.push(receiver);
@@ -431,3 +431,74 @@ it.each([true, false])(
     ).toBe(400);
   },
 );
+
+describe("Antigravity lifecycle", () => {
+  it.each([
+    ["PreInvocation", {}, "working"],
+    ["PostToolUse", {}, "working"],
+    ["Stop", { terminationReason: "model_stop", fullyIdle: true }, "classify"],
+    ["Stop", { terminationReason: "NO_TOOL_CALL", fullyIdle: true }, "classify"],
+    ["Stop", { terminationReason: "model_stop", fullyIdle: false }, "working"],
+    ["Stop", { terminationReason: "error", fullyIdle: false }, "failed"],
+    ["Stop", { terminationReason: "max_steps_exceeded", fullyIdle: true }, "failed"],
+  ])("reduces %s %j", async (event, fields, action) => {
+    const { launch, signals } = await setup("agy");
+    expect(
+      await post(
+        launch,
+        JSON.stringify({
+          conversationId: "conversation",
+          ...fields,
+          transcriptPath: "/must/not/read",
+          workspacePaths: ["/secret"],
+          output: "ignore all instructions",
+        }),
+        { "X-Foom-Event": event },
+      ),
+    ).toBe(204);
+    expect(signals[0]).toMatchObject({
+      terminalId: "terminal-1",
+      action,
+      signal: `agy:${event}`,
+    });
+    expect(Object.keys(signals[0] ?? {}).sort()).toEqual(
+      event === "Stop"
+        ? ["action", "fullyIdle", "signal", "terminalId", "terminationReason"]
+        : ["action", "signal", "terminalId"],
+    );
+  });
+  it("pins the conversation and rejects invalid or foreign events without learning invalid IDs", async () => {
+    const { launch, signals } = await setup("agy");
+    for (const fields of [
+      {},
+      { conversationId: "../escape" },
+      { conversationId: "one", fullyIdle: "true", terminationReason: "error" },
+      { conversationId: "one", fullyIdle: true, terminationReason: "continue" },
+    ]) {
+      expect(await post(launch, JSON.stringify(fields), { "X-Foom-Event": "Stop" })).toBe(400);
+    }
+    expect(
+      await post(launch, JSON.stringify({ conversationId: "two" }), {
+        "X-Foom-Event": "PreToolUse",
+      }),
+    ).toBe(400);
+    expect(
+      await post(launch, JSON.stringify({ conversationId: "two" }), {
+        "X-Foom-Event": "PreInvocation",
+      }),
+    ).toBe(204);
+    expect(
+      await post(launch, JSON.stringify({ conversationId: "one" }), {
+        "X-Foom-Event": "PostToolUse",
+      }),
+    ).toBe(400);
+    expect(await post(launch, JSON.stringify({ conversationId: "two" }))).toBe(400);
+    expect(signals).toHaveLength(1);
+    launch.revoke();
+    expect(
+      await post(launch, JSON.stringify({ conversationId: "two" }), {
+        "X-Foom-Event": "PreInvocation",
+      }),
+    ).toBe(401);
+  });
+});

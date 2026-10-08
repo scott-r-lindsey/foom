@@ -395,7 +395,7 @@ test("a failed reply record is logged, not thrown into the input path", async ()
   });
 });
 
-test("hook preparation starts the receiver once, retries a failed start, and refuses agy", async () => {
+test("hook preparation starts the receiver once, retries a failed start, and gives agy per-launch credentials", async () => {
   const workspace = new Workspace(deps);
   startReceiver.mockRejectedValueOnce(new Error("port"));
   await expect(prepare?.("claude")).rejects.toThrow("port");
@@ -404,7 +404,9 @@ test("hook preparation starts the receiver once, retries a failed start, and ref
   expect(startReceiver).toHaveBeenCalledTimes(2);
   expect(first?.claudeCommand).toMatch(/^sh '.*claude\.sh'$/u);
   expect(second?.codexCommand.at(-1)).toMatch(/codex\.sh$/u);
-  await expect(prepare?.("agy")).rejects.toThrow("Antigravity hooks are not supported");
+  const agy = await prepare?.("agy");
+  expect(agy?.env["FOOM_TOKEN"]).toBeDefined();
+  agy?.dispose();
   first?.dispose();
   second?.dispose();
   await workspace.dispose();

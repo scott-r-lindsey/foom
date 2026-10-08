@@ -1,3 +1,4 @@
+import type { AgyPluginStatus } from "./agy-plugin";
 export type CodexHookState = "not-reviewed" | "trusted" | "declined" | "outdated";
 export type AgentId = "claude" | "codex" | "agy";
 export interface AgentInstallation {
@@ -5,6 +6,7 @@ export interface AgentInstallation {
   readonly path: string | null;
   readonly version: string | null;
   readonly hooks: boolean;
+  readonly agyPlugin?: AgyPluginStatus;
   readonly inline?: boolean;
   readonly mcp?: boolean;
   readonly mcpReason?: string;
