@@ -348,9 +348,9 @@ Stable Claude Code releases at or above 2.1.284 and Codex releases at or above 0
 **Foundation implemented in #152.** `main/control/` owns the service, launch grants,
 versioned HTTP adapter, private discovery, operation records and audit storage.
 The workspace starts it lazily on the first agent launch, even when hooks are off.
-All current launches receive the immutable `agent` role. The only exposed methods
-are `whoami` and actor-scoped `operation_status` (the latter requires a main-issued
-orchestrator grant, which has no user launch path yet). Unknown methods, role/force
+All current launches receive the immutable `agent` role. The exposed methods
+are `whoami`, `sessions`, `session_state` and actor-scoped `operation_status`
+(the latter requires a main-issued orchestrator grant, which has no user launch path yet). Unknown methods, role/force
 flags and unknown fields fail closed. No orchestration mutations are exposed.
 
 `POST /control/v1` requires `Authorization: Bearer <token>` and a JSON envelope
@@ -392,10 +392,38 @@ indeterminate, then retires old-generation deduplication files. It never restore
 authority or replays actions. Mutation handlers, trusted dialog wiring, visibility
 and takeover must ship together in later issues.
 
+**Read-only MCP implemented in #153.** `POST /mcp` uses the same authentication,
+body/header/connection limits and service authorization as the versioned endpoint.
+It negotiates MCP 2025-03-26, 2025-06-18 or 2025-11-25, returns JSON responses and
+binds one random protocol session to each live principal. Reinitializing replaces
+that principal's old protocol session; DELETE terminates it. GET authenticates and
+validates the session before returning 405 (no SSE stream). Revocation is rechecked
+at dispatch. Only `whoami`, `sessions` and `session_state` are listed or callable
+through MCP; hidden orchestration methods are refused even by direct invocation.
+
+The service reads a main-owned workspace snapshot, never a terminal tail. Sessions
+are repository-scoped, paginated by the preceding terminal ID and limited to 100
+rows. Foreign/missing IDs and cursors return the same not-found response. Names are
+redacted before a 160-character bound; oversized names are suppressed. Locations
+are opaque path hashes rather than raw paths. Results carry fixed state reasons,
+opaque revisions derived from launch, execution and verdict state, and conservative
+`unknown` attention provenance for Needs you. Current execution overrides stale
+evaluator verdicts, as on the board. Display names are branch/worktree labels, not
+renderer-only custom names.
+Whoami returns the same opaque location identities and bounded worktree label.
+
+Agent discovery reports MCP support independently of hooks. Verified exact CLI
+releases receive a random server name: Claude gets a private temporary MCP JSON file
+with environment expansion, Codex gets an additive `-c` server table referencing the
+bearer environment variable. Tokens never enter argv or files. Exit, early exit,
+spawn/attachment failure and shutdown dispose attachments and revoke credentials.
+Managed policy may refuse attachment in the client; no settings are weakened.
+See the [real-client probe record](orchestration.md#read-only-mcp-implementation-verification-153).
+
 **Remaining target from #119.** See [orchestration research](orchestration.md) for
-per-agent evidence and follow-ups #153–#157. MCP attachment, repository session
-metadata, the packaged console helper and pairing remain future work. Existing
-terminal ownership, utility-host parsing and renderer boundaries remain in force.
+per-agent evidence and follow-ups #154–#157. The packaged console helper, pairing
+and orchestration remain future work. Existing terminal ownership, utility-host
+parsing and renderer boundaries remain in force.
 
 Main owns one control service over the workspace, agent, evaluator and terminal-host
 services. A loopback Streamable HTTP MCP adapter and a versioned HTTP CLI adapter

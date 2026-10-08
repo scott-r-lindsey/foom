@@ -436,6 +436,9 @@ test("terminal runs an interactive shell behind an isolated bridge", {
   try {
     const page = await boardPage(app);
     console.info("Window opened");
+    // The hidden confirmation window can be the first CDP target on a cold
+    // display. Activate the board before testing xterm painting and selection.
+    await page.bringToFront();
     await page.waitForLoadState("domcontentloaded");
     assert.equal(await page.title(), "Foom");
     await page.waitForFunction(
@@ -451,6 +454,8 @@ test("terminal runs an interactive shell behind an isolated bridge", {
     });
     const input = page.locator(".xterm-helper-textarea");
     await input.focus();
+    // IPC output can arrive while Chromium is between animation frames during startup.
+    // Poll it from the test process rather than using waitForFunction's rAF default.
     // The output marker is not present in the echoed command itself.
     const command =
       process.platform === "win32"
@@ -458,7 +463,9 @@ test("terminal runs an interactive shell behind an isolated bridge", {
         : "printf 'FOOM_%s\\n' SHELL_OK";
     await page.keyboard.type(command);
     await page.keyboard.press("Enter");
-    await page.waitForFunction(() => window.terminalOutput.includes("FOOM_SHELL_OK"));
+    await expect
+      .poll(() => page.evaluate(() => window.terminalOutput.includes("FOOM_SHELL_OK")))
+      .toBe(true);
     console.info("Shell command returned");
     if (process.platform === "linux" || process.platform === "win32") {
       // Select real xterm output with the mouse, then use the native clipboard shortcuts.
@@ -498,17 +505,23 @@ test("terminal runs an interactive shell behind an isolated bridge", {
       await input.focus();
       await shortcut("V");
       await page.keyboard.press("Enter");
-      await page.waitForFunction(() => window.terminalOutput.includes("FOOM_PASTE_OK"));
+      await expect
+        .poll(() => page.evaluate(() => window.terminalOutput.includes("FOOM_PASTE_OK")))
+        .toBe(true);
       console.info(`Copy/paste shortcuts passed on ${process.platform}`);
     }
     if (process.platform !== "win32") {
       const readSize = async (label) => {
         await page.keyboard.type(`printf 'SIZE_%s:' ${label}; stty size`);
         await page.keyboard.press("Enter");
-        await page.waitForFunction(
-          (name) => new RegExp(`SIZE_${name}:\\d+ \\d+`).test(window.terminalOutput),
-          label,
-        );
+        await expect
+          .poll(() =>
+            page.evaluate(
+              (name) => new RegExp(`SIZE_${name}:\\d+ \\d+`).test(window.terminalOutput),
+              label,
+            ),
+          )
+          .toBe(true);
         return page.evaluate(
           (name) =>
             window.terminalOutput
@@ -561,16 +574,22 @@ test("terminal runs an interactive shell behind an isolated bridge", {
         "test -t 0 && test -t 1 && stty size >/dev/null && printf 'FOOM_%s\\n' TTY_OK",
       );
       await page.keyboard.press("Enter");
-      await page.waitForFunction(() => window.terminalOutput.includes("FOOM_TTY_OK"));
+      await expect
+        .poll(() => page.evaluate(() => window.terminalOutput.includes("FOOM_TTY_OK")))
+        .toBe(true);
       // exec keeps one process, so once the marker prints, sleep is the foreground job that
       // receives Ctrl+C. Pressing it earlier can signal the shell before sleep starts.
       await page.keyboard.type("sh -c 'printf \"FOOM_%s\\n\" SLEEPING; exec sleep 30'");
       await page.keyboard.press("Enter");
-      await page.waitForFunction(() => window.terminalOutput.includes("FOOM_SLEEPING"));
+      await expect
+        .poll(() => page.evaluate(() => window.terminalOutput.includes("FOOM_SLEEPING")))
+        .toBe(true);
       await page.keyboard.press("Control+c");
       await page.keyboard.type("printf 'FOOM_%s\\n' INTERRUPTED");
       await page.keyboard.press("Enter");
-      await page.waitForFunction(() => window.terminalOutput.includes("FOOM_INTERRUPTED"));
+      await expect
+        .poll(() => page.evaluate(() => window.terminalOutput.includes("FOOM_INTERRUPTED")))
+        .toBe(true);
     }
     assert.deepEqual(
       await page.evaluate(() => ({
@@ -638,7 +657,9 @@ test("terminal runs an interactive shell behind an isolated bridge", {
     const probeCommand = `${process.platform === "win32" ? "& " : ""}"${process.execPath}" "${path.join(__dirname, "protocol-probe.js")}"`;
     await page.keyboard.type(probeCommand);
     await page.keyboard.press("Enter");
-    await page.waitForFunction(() => window.terminalOutput.includes("PROTOCOL_OK"));
+    await expect
+      .poll(() => page.evaluate(() => window.terminalOutput.includes("PROTOCOL_OK")))
+      .toBe(true);
     await page.waitForFunction(() =>
       window.activityBatches.some((batch) =>
         batch.some(({ id, rate }) => typeof id === "string" && rate > 0),
@@ -730,11 +751,14 @@ test("terminal runs an interactive shell behind an isolated bridge", {
       await window.desktop.create(80, 24);
     });
   } catch (error) {
-    const pages = app.windows();
-    if (pages[0])
+    const page = app.windows().find((page) => page.url() === "app://bundle/index.html");
+    if (page)
       console.error(
         "Terminal failure state:",
-        await pages[0].evaluate(() => ({
+        await page.evaluate(() => ({
+          visibility: document.visibilityState,
+          focused: document.hasFocus(),
+          rows: [...document.querySelectorAll(".xterm-rows > div")].map((row) => row.textContent),
           viewport: { width: innerWidth, height: innerHeight },
           terminal: document.querySelector(".xterm-screen")?.getBoundingClientRect().toJSON(),
           status: document.querySelector(".tile-status")?.textContent,
@@ -1521,6 +1545,57 @@ test("launches an agent in a managed worktree and routes its attention signals",
   assert.equal((await controlRequest(firstCredentials.token)).status, 401);
   assert.equal((await controlRequest(firstCredentials.controlToken, "stale-instance")).status, 400);
   assert.ok(!JSON.stringify(snapshot).includes(firstCredentials.controlToken));
+  const mcpUrl = firstCredentials.controlUrl.replace("/control/v1", "/mcp");
+  let mcpSession;
+  const mcpRequest = (message) =>
+    fetch(mcpUrl, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${firstCredentials.controlToken}`,
+        "Content-Type": "application/json",
+        Accept: "application/json, text/event-stream",
+        ...(mcpSession
+          ? { "Mcp-Session-Id": mcpSession, "Mcp-Protocol-Version": "2025-11-25" }
+          : {}),
+      },
+      body: JSON.stringify({ jsonrpc: "2.0", ...message }),
+    });
+  const initialized = await mcpRequest({
+    id: 1,
+    method: "initialize",
+    params: {
+      protocolVersion: "2025-11-25",
+      capabilities: {},
+      clientInfo: { name: "electron-test", version: "1" },
+    },
+  });
+  assert.equal(initialized.status, 200);
+  mcpSession = initialized.headers.get("mcp-session-id");
+  assert.ok(mcpSession);
+  assert.equal((await mcpRequest({ method: "notifications/initialized" })).status, 202);
+  const listed = await (
+    await mcpRequest({ id: 2, method: "tools/list", params: { _meta: { progressToken: 1 } } })
+  ).json();
+  assert.deepEqual(
+    listed.result.tools.map((tool) => tool.name),
+    ["whoami", "sessions", "session_state"],
+  );
+  const metadata = await (
+    await mcpRequest({ id: 3, method: "tools/call", params: { name: "sessions", arguments: {} } })
+  ).json();
+  assert.ok(metadata.result.structuredContent.sessions.some((row) => row.id === id));
+  for (const row of metadata.result.structuredContent.sessions) {
+    assert.equal(row.reason, row.state);
+    assert.equal("output" in row, false);
+    assert.equal("conversationId" in row, false);
+    assert.equal("signal" in row, false);
+  }
+  assert.ok(!JSON.stringify(metadata).includes(firstCredentials.controlToken));
+  const forbidden = await (
+    await mcpRequest({ id: 4, method: "tools/call", params: { name: "tail", arguments: { id } } })
+  ).json();
+  assert.equal(forbidden.result.isError, true);
+
   await page.evaluate(async (repository) => {
     const tree = await window.desktop.createWorktree(repository, "feature/newer", "adjacent");
     await window.desktop.launchAgent({
@@ -1627,6 +1702,7 @@ test("launches an agent in a managed worktree and routes its attention signals",
   });
   assert.equal(replay.status, 401);
   assert.equal((await controlRequest()).status, 401);
+  assert.equal((await mcpRequest({ id: 5, method: "tools/list" })).status, 401);
   await expect(agentRow).toHaveAttribute("data-state", "failed");
   await boardCommand(app, "B");
   for (const branch of ["finish-ok", "finish-failed"]) {
@@ -5151,6 +5227,7 @@ process.stdin.on('data', data => {
 test("neutral identity badges keep labels and geometry across themes and interface scales", async (context) => {
   const app = await launchApp(context);
   const page = await boardPage(app);
+  const basePixelRatio = await page.evaluate(() => window.devicePixelRatio);
   const row = page.locator('.board-row[data-kind="shell"]');
   await expect(row).toBeVisible();
   await row.press("F2");
@@ -5164,6 +5241,13 @@ test("neutral identity badges keep labels and geometry across themes and interfa
         (interfaceScale) => window.desktop.saveSetup({ interfaceScale }),
         interfaceScale,
       );
+      // Saving settings acknowledges main; Chromium applies zoom asynchronously.
+      // Observe the renderer's actual zoom before checking geometry or advancing again.
+      await expect
+        .poll(() => page.evaluate(() => window.devicePixelRatio), {
+          message: `${colorScheme} theme at ${interfaceScale}% renderer zoom`,
+        })
+        .toBeCloseTo((basePixelRatio * interfaceScale) / 100, 5);
       await row.focus();
       const peek = page.getByRole("complementary", { name: "Terminal peek" });
       await expect(peek).toBeVisible();
@@ -5172,29 +5256,35 @@ test("neutral identity badges keep labels and geometry across themes and interfa
       const badge = row.locator(".board-agent");
       await expect(badge).toHaveText(">_");
       await expect(badge).toBeVisible();
-      // Zoom updates settle asynchronously; wait for the expected geometry.
       await expect
-        .poll(async () => {
-          const heights = await badge.evaluate((element) => [
-            parseFloat(getComputedStyle(element).height),
-            parseFloat(getComputedStyle(element.firstElementChild).height),
-          ]);
-          return Math.max(Math.abs(heights[0] - 20), Math.abs(heights[1] - 16));
-        })
+        .poll(
+          () =>
+            badge.evaluate((element) =>
+              Math.max(
+                Math.abs(parseFloat(getComputedStyle(element).height) - 20),
+                Math.abs(parseFloat(getComputedStyle(element.firstElementChild).height) - 16),
+              ),
+            ),
+          { message: `${colorScheme} badge geometry at ${interfaceScale}%` },
+        )
         .toBeLessThan(0.1);
-      assert.ok(
-        await badge.evaluate((element) => {
-          const style = getComputedStyle(element);
-          return (
-            element.clientWidth >= element.scrollWidth &&
-            style.backgroundColor ===
-              getComputedStyle(document.querySelector(".tile-title .board-agent"))
-                .backgroundColor &&
-            style.fontFamily.includes("Geist Mono") &&
-            element.querySelectorAll("img, svg").length === 0
-          );
-        }),
-      );
+      await expect
+        .poll(
+          () =>
+            badge.evaluate((element) => {
+              const style = getComputedStyle(element);
+              return (
+                element.clientWidth >= element.scrollWidth &&
+                style.backgroundColor ===
+                  getComputedStyle(document.querySelector(".tile-title .board-agent"))
+                    .backgroundColor &&
+                style.fontFamily.includes("Geist Mono") &&
+                element.querySelectorAll("img, svg").length === 0
+              );
+            }),
+          { message: `${colorScheme} badge layout and styling at ${interfaceScale}%` },
+        )
+        .toBe(true);
       if (process.env.FOOM_SCREENSHOTS && [80, 100, 150].includes(interfaceScale))
         await page.screenshot({
           path: path.join(

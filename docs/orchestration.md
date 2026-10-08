@@ -3,8 +3,8 @@
 Research for [#119](https://github.com/scott-r-lindsey/foom/issues/119), checked
 2026-10-05 on Linux. This document specifies the complete target. The security and
 HTTP foundation is implemented in #152; see the [current architecture](architecture.md#control-plane)
-for its exposed methods and storage contract. MCP, CLI packaging/pairing and
-orchestration actions remain follow-up work. The original #119 research changed no
+for its exposed methods and storage contract. Read-only MCP is implemented in #153;
+CLI packaging/pairing and orchestration actions remain follow-up work. The original #119 research changed no
 application code.
 
 ## Decision
@@ -397,3 +397,27 @@ mode switches, stale proposals, duplicate delivery, takeover and loop limits;
 current PTY adapters must remain unable to auto-send. Before shipping the CLI:
 packaged Linux, macOS and Windows console tests with no system Node, stale discovery,
 wrong file ownership, pairing expiry and PATH installation/uninstallation.
+
+### Read-only MCP implementation verification (#153)
+
+`node scripts/probe-mcp.mjs` exercises the real CLI clients against Foom's production
+HTTP adapter and a synthetic loopback model endpoint. It uses temporary profiles,
+synthetic identity only, and no provider credentials or external model requests.
+Set `FOOM_CLAUDE_EXECUTABLE` / `FOOM_CODEX_EXECUTABLE` to select an installed binary.
+The script requires Linux and `bwrap`; administrator refusal is tested with private
+mounts at the clients' system-policy locations, never edits to the host's `/etc`.
+
+Verified on Linux: Claude Code **2.1.293**, Codex **0.161.0**. Both initialize,
+list, and call `whoami` with environment-sourced bearer authentication, retain an
+existing user-configured server, and refuse servers under a synthetic managed
+allowlist denying all MCP. The probe checks the existing server definition is
+preserved. Claude may update its own temporary profile bookkeeping. Codex sends
+`_meta.progressToken` on listing; the adapter accepts protocol metadata without
+passing it to the control service. Hook settings are independent of MCP attachment.
+
+Attachment is enabled only for these exact releases with the appropriate help flag;
+other versions and Antigravity report unverified attachment. Expanding this set
+requires repeating the probe. Managed policy is still enforced by the client and
+can deny an otherwise supported attachment; Foom does not override that policy.
+Windows/macOS real-client policy probes remain unverified. The packaged CLI fallback
+remains #154; this change does not promise a fallback executable before it exists.
