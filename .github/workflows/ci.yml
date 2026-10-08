@@ -153,6 +153,13 @@ jobs:
         # Electron 44 can download lazily on require; keep network setup outside
         # the first Playwright launch deadline and the desktop test budget.
         run: node -e "require('electron')"
+      - name: Prepare Windows PowerShell runtime
+        if: runner.os == 'Windows' && matrix.shard != '2/2'
+        timeout-minutes: 3
+        # Run 37728101831: first native probe exhausted 8s; the next complete
+        # policy/transport case took 5.4s. Warm runtime startup separately from
+        # bounded hook/policy assertions, without retries or relaxed probe limits.
+        run: powershell.exe -NoProfile -NonInteractive -Command "exit 0"
       - name: Test hooks and control storage with native OS tools
         if: matrix.shard != '2/2'
         # Cold PowerShell probes compete for startup when these files run together.
