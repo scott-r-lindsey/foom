@@ -1,4 +1,13 @@
-import type { TileLayout, TileLeaf, TileNode, TilePreset, TileRect, TileSplit } from "./tiles.d";
+import type {
+  TileDrag,
+  DropZone,
+  TileLayout,
+  TileLeaf,
+  TileNode,
+  TilePreset,
+  TileRect,
+  TileSplit,
+} from "./tiles.d";
 const id = () => crypto.randomUUID();
 export const newTile = (): TileLeaf => ({ kind: "tile", id: id(), session: null });
 export const initialLayout = (): TileLayout => {
@@ -279,4 +288,62 @@ export function saveLayout(storage: Pick<Storage, "setItem">, layout: TileLayout
     TILE_STORAGE,
     JSON.stringify({ version: 1, tree: layout.tree, focused: layout.focused }),
   );
+}
+
+/** Swap whole leaves, preserving their controllers and session assignments. */
+export function swapTiles(layout: TileLayout, from: string, to: string): TileLayout {
+  const tiles = leaves(layout.tree);
+  const a = tiles.find((tile) => tile.id === from);
+  const b = tiles.find((tile) => tile.id === to);
+  if (!a || !b || a === b) return layout;
+  const swap = (node: TileNode): TileNode =>
+    node.id === from
+      ? b
+      : node.id === to
+        ? a
+        : node.kind === "tile"
+          ? node
+          : { ...node, first: swap(node.first), second: swap(node.second) };
+  return { ...layout, tree: swap(layout.tree), focused: from, maximized: null };
+}
+
+/** Drops are atomic: refused splits never remove their source. */
+export function dropTile(
+  layout: TileLayout,
+  drag: TileDrag,
+  target: string,
+  zone: DropZone,
+): TileLayout {
+  const tiles = leaves(layout.tree);
+  const destination = tiles.find((tile) => tile.id === target);
+  const origin = tiles.find((tile) =>
+    drag.kind === "tile" ? tile.id === drag.id : tile.session === drag.id,
+  );
+  if (!destination || origin === destination || (drag.kind === "tile" && !origin)) return layout;
+  if (zone === "center") {
+    if (drag.kind === "tile") return swapTiles(layout, drag.id, target);
+    return placeSession({ ...layout, focused: target }, drag.id, true) ?? layout;
+  }
+  const base = drag.kind === "tile" ? closeTile({ ...layout, focused: drag.id }) : layout;
+  const added = splitTile(
+    { ...base, focused: target },
+    zone === "left" || zone === "right" ? "horizontal" : "vertical",
+  );
+  if (added.tree === base.tree) return layout;
+  const fresh = leaves(added.tree).find((tile) => tile.id === added.focused);
+  if (!fresh) return layout;
+  const moving = drag.kind === "tile" && origin ? origin : { ...fresh, session: drag.id };
+  let tree = update(added.tree, fresh.id, () => moving);
+  if (drag.kind === "session" && origin)
+    tree = update(tree, origin.id, () => ({ ...origin, session: null }));
+  const result = { tree, focused: moving.id, maximized: null };
+  return zone === "left" || zone === "up" ? swapTiles(result, moving.id, target) : result;
+}
+
+export function dropZone(x: number, y: number): DropZone {
+  const edge = Math.min(x, 1 - x, y, 1 - y);
+  if (edge >= 0.25) return "center";
+  if (edge === x) return "left";
+  if (edge === 1 - x) return "right";
+  return edge === y ? "up" : "down";
 }

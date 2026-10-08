@@ -187,6 +187,10 @@ const desktop: DesktopApi = {
         command === "split-down" ||
         command === "close-tile" ||
         command === "hide-session" ||
+        command === "swap-left" ||
+        command === "swap-right" ||
+        command === "swap-up" ||
+        command === "swap-down" ||
         command === "tile-1" ||
         command === "tile-2" ||
         command === "tile-3" ||

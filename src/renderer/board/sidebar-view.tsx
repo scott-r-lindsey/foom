@@ -250,6 +250,8 @@ export function Sidebar({
           role="treeitem"
           aria-selected={!location && selected === row.id}
           className="board-row"
+          draggable
+          data-drag-session={row.id}
           data-refused={refused === row.id}
           onAnimationEnd={clearRefusal}
           data-nav

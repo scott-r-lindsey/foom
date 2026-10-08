@@ -28,6 +28,14 @@ export const BOARD_COMMANDS = [
   ).map(([id, label, code]) => ({ id, label, code, shift: true, alt: true, leader: true })),
   ...(
     [
+      ["swap-left", "Swap with left tile", "ArrowLeft"],
+      ["swap-right", "Swap with right tile", "ArrowRight"],
+      ["swap-up", "Swap with tile above", "ArrowUp"],
+      ["swap-down", "Swap with tile below", "ArrowDown"],
+    ] as const
+  ).map(([id, label, code]) => ({ id, label, code, shift: false, alt: true, leader: true })),
+  ...(
+    [
       "tile-1",
       "tile-2",
       "tile-3",
@@ -125,7 +133,7 @@ export function createCommands(
   for (const entry of BOARD_COMMANDS) {
     const binding: Binding =
       !mac && entry.leader
-        ? { code: entry.code, leader: true }
+        ? { code: entry.code, leader: true, shift: entry.id.startsWith("swap-") }
         : { ...chord(entry.code, entry.id === "settings" ? !mac : entry.shift), alt: entry.alt };
     add(
       entry.id,

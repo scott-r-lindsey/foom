@@ -1,10 +1,10 @@
 import { AgentBadge } from "./agent-badge";
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
-import type { CSSProperties } from "react";
+import type { CSSProperties, DragEvent } from "react";
 import type { BoardSource } from "./board-source.d";
 import type { BoardRow } from "./board.d";
 import type { SidebarPreferences } from "./sidebar.d";
-import type { TileLayout, TileLeaf, TileRect, TileSplit } from "./tiles.d";
+import type { TileDrag, DropZone, TileLayout, TileLeaf, TileRect, TileSplit } from "./tiles.d";
 import type { TerminalViewSource } from "../terminal/terminal-view-source.d";
 import { light } from "./board";
 import {
@@ -14,7 +14,7 @@ import {
   rowWorktree,
   agentBadges,
 } from "./sidebar-model";
-import { rectangles, resizeSplit } from "./tiles";
+import { rectangles, resizeSplit, dropTile, dropZone } from "./tiles";
 
 function TerminalView({
   view,
@@ -132,7 +132,7 @@ function Tile({
         }
       }}
     >
-      <header className="tile-title">
+      <header className="tile-title" draggable>
         {row && (
           <>
             <h2 className="visually-hidden">{`${row.repository} › ${rowWorktree(row) === rowRepository(row) ? "Main checkout" : row.branch} › ${sessionName(row, preferences)}`}</h2>
@@ -303,6 +303,9 @@ function Gutter({
   );
 }
 export function TileArea({
+  drag,
+  endDrag,
+  dropLayout,
   source,
   layout,
   setLayout,
@@ -312,6 +315,9 @@ export function TileArea({
   focusRequest,
   action,
 }: {
+  drag?: TileDrag | undefined;
+  endDrag: () => void;
+  dropLayout: (next: TileLayout) => void;
   source: BoardSource;
   layout: TileLayout;
   setLayout: (next: TileLayout) => void;
@@ -324,9 +330,101 @@ export function TileArea({
     action: "right" | "down" | "maximize" | "hide" | "close" | "restart",
   ) => void;
 }) {
+  const [lastPreview, setLastPreview] = useState<{
+    tile: string;
+    zone: DropZone;
+    drag: TileDrag;
+  }>();
+  const preview = lastPreview?.drag === drag ? lastPreview : undefined;
   const geometry = rectangles(layout.tree);
+  const targetAt = (event: DragEvent<HTMLDivElement>) => {
+    if (
+      !drag ||
+      inactive ||
+      !(event.target instanceof Element) ||
+      (drag.kind === "session" && !rows.some((row) => row.id === drag.id))
+    )
+      return;
+    const tile = event.target.closest<HTMLElement>("[data-tile]");
+    const id = tile?.dataset["tile"];
+    if (!tile || !id) return;
+    const bounds = tile.getBoundingClientRect();
+    if (!bounds.width || !bounds.height) return;
+    return {
+      drag,
+      tile: id,
+      zone: dropZone(
+        (event.clientX - bounds.left) / bounds.width,
+        (event.clientY - bounds.top) / bounds.height,
+      ),
+    };
+  };
   return (
-    <div className="tile-area" aria-label="Terminal tiles" hidden={inactive}>
+    <div
+      className="tile-area"
+      aria-label="Terminal tiles"
+      hidden={inactive}
+      onDragOver={(event) => {
+        const target = targetAt(event);
+        if (!target) return;
+        event.preventDefault();
+        event.dataTransfer.dropEffect = "move";
+        setLastPreview(target);
+      }}
+      onDragLeave={(event) => {
+        if (
+          !(event.relatedTarget instanceof Node) ||
+          !event.currentTarget.contains(event.relatedTarget)
+        )
+          setLastPreview(undefined);
+      }}
+      onDrop={(event) => {
+        const target = targetAt(event);
+        if (target && drag) {
+          event.preventDefault();
+          const next = dropTile(layout, drag, target.tile, target.zone);
+          if (next !== layout) dropLayout(next);
+        }
+        setLastPreview(undefined);
+        endDrag();
+      }}
+    >
+      <span className="visually-hidden" role="status">
+        {drag
+          ? preview
+            ? `Drop ${preview.zone === "center" ? (drag.kind === "tile" ? "to swap" : "to replace session") : `to split ${preview.zone}`} on tile ${String(geometry.tiles.findIndex(({ tile }) => tile.id === preview.tile) + 1)}. Escape cancels.`
+            : "Drag to a tile center to replace or swap, or an edge to split. Escape cancels."
+          : ""}
+      </span>
+      {drag && preview && (
+        <div
+          className="tile-drop-preview"
+          data-zone={preview.zone}
+          style={position(
+            (() => {
+              const rect = geometry.tiles.find(({ tile }) => tile.id === preview.tile)?.rect ?? {
+                x: 0,
+                y: 0,
+                width: 0,
+                height: 0,
+              };
+              const area = layout.maximized ? { x: 0, y: 0, width: 100, height: 100 } : rect;
+              return {
+                x: area.x + (preview.zone === "right" ? area.width / 2 : 0),
+                y: area.y + (preview.zone === "down" ? area.height / 2 : 0),
+                width: area.width / (preview.zone === "left" || preview.zone === "right" ? 2 : 1),
+                height: area.height / (preview.zone === "up" || preview.zone === "down" ? 2 : 1),
+              };
+            })(),
+          )}
+        >
+          {preview.zone === "center"
+            ? drag.kind === "tile"
+              ? "Swap tiles"
+              : "Replace session"
+            : `Split ${preview.zone}`}
+        </div>
+      )}
       {geometry.tiles.map(({ tile, rect }, index) => (
         <Tile
           key={tile.id}
