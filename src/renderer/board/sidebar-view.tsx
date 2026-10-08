@@ -155,6 +155,39 @@ export function Sidebar({
         });
       },
     }));
+  const reviewers = (location: SidebarLocation): RowAction[] =>
+    (options?.agents ?? []).flatMap((agent) => {
+      if (
+        (agent.id !== "claude" && agent.id !== "codex") ||
+        !agent.path ||
+        !agent.review ||
+        !options?.enabled[agent.id] ||
+        !rows.some(
+          (row) =>
+            rowRepository(row) === location.repository &&
+            rowWorktree(row) === location.worktree &&
+            row.kind === "agent" &&
+            !row.exited &&
+            row.agent !== agent.id,
+        )
+      )
+        return [];
+      const run = agent.id;
+      return [
+        {
+          label: `Review with ${agentNames.get(run) ?? run}`,
+          hint: "read-only",
+          badge: agentBadges.get(run) ?? run,
+          run: () =>
+            command({
+              kind: "review",
+              repository: location.repository,
+              worktree: location.worktree ?? location.repository,
+              run,
+            }),
+        },
+      ];
+    });
   const actions = (id: string, name: string, items: (RowAction | null)[]) => (
     <button
       className="row-actions"
@@ -648,6 +681,7 @@ export function Sidebar({
                                   {!worktree.removed &&
                                     actions(wid, name, [
                                       ...launchers(target),
+                                      ...reviewers(target),
                                       ...(!main && !worktree.bare
                                         ? [
                                             null,
