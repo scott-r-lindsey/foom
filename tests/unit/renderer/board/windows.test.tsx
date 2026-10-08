@@ -173,3 +173,19 @@ test("foreign-window navigation focuses an existing tile without replacing eithe
   expect(saved.focused).toBe(leaves(layout.tree)[0]?.id);
   expect(view.container.querySelectorAll(".terminal-tile[data-empty=false]")).toHaveLength(2);
 });
+
+test("terminal state updates do not reconcile an unchanged view layout", async () => {
+  const id = sampleRows(0)[0]?.id;
+  if (!id) throw new Error("Missing session");
+  const f = fixture(id);
+  render(<Board source={f.source} />);
+  await waitFor(() => {
+    expect(f.windows.sync).toHaveBeenCalledWith([id]);
+  });
+  f.windows.sync.mockClear();
+  await act(async () => {
+    f.source.update(id, { state: "working", reason: "New output" });
+    await Promise.resolve();
+  });
+  expect(f.windows.sync).not.toHaveBeenCalled();
+});

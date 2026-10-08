@@ -139,12 +139,22 @@ export function Board({
       removed();
     };
   }, [source, changeLayout]);
+  const reservationRef = useRef<
+    { source: BoardSource; layout: TileLayout; ids: string } | undefined
+  >(undefined);
   useEffect(() => {
     if (!source.windows || (source.isReady && !source.isReady())) return;
     const current = layout;
     const ids = leaves(current.tree).flatMap((tile) =>
       tile.session && rows.some((row) => row.id === tile.session) ? [tile.session] : [],
     );
+    const previous = reservationRef.current;
+    const key = JSON.stringify(ids);
+    if (previous?.source === source && previous.layout === current && previous.ids === key) return;
+    // State/activity updates publish new row objects, not a new set of views.
+    // Reconcile only when the layout or its known session IDs actually change.
+    const reservation = { source, layout: current, ids: key };
+    reservationRef.current = reservation;
     void source.windows
       .sync(ids)
       .then((accepted) => {
@@ -152,6 +162,7 @@ export function Board({
           changeLayout(pruneSessions(current, new Set(accepted)));
       })
       .catch(() => {
+        if (reservationRef.current === reservation) reservationRef.current = undefined;
         setRemoveError("Unable to reserve terminal views.");
       });
   }, [source, rows, layout, changeLayout]);

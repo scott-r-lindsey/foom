@@ -891,21 +891,24 @@ for (const action of ["close", "quit", "shortcut"]) {
       await page.evaluate(() => window.desktop.appMenu.execute("close-window"));
       await expect.poll(() => page.isClosed()).toBe(true);
       assert.equal(app.process().exitCode, null);
-      const shortcuts = await app.evaluate(({ Menu }) => {
-        const menu = Menu.getApplicationMenu();
-        return ["new-window", "quit"].map((id) => {
-          const item = menu.getMenuItemById(id);
-          return {
-            enabled: item.enabled,
-            accelerator: item.accelerator,
-            registered: item.registerAccelerator,
-          };
-        });
-      });
-      assert.deepEqual(shortcuts, [
-        { enabled: true, accelerator: "Command+N", registered: true },
-        { enabled: true, accelerator: "Command+Q", registered: true },
-      ]);
+      await expect
+        .poll(() =>
+          app.evaluate(({ Menu }) => {
+            const menu = Menu.getApplicationMenu();
+            return ["new-window", "quit"].map((id) => {
+              const item = menu.getMenuItemById(id);
+              return {
+                enabled: item.enabled,
+                accelerator: item.accelerator,
+                registered: item.registerAccelerator,
+              };
+            });
+          }),
+        )
+        .toEqual([
+          { enabled: true, accelerator: "Command+N", registered: true },
+          { enabled: true, accelerator: "Command+Q", registered: true },
+        ]);
       await app.evaluate(({ app }) => app.emit("activate"));
       page = await boardPage(app);
       await expect
@@ -4711,13 +4714,7 @@ if (resumed) {
             ?.conversationId,
       )
       .toBe(conversation);
-    await quitAndWait(app, () =>
-      app.evaluate(({ BrowserWindow }) =>
-        BrowserWindow.getAllWindows()
-          .find((win) => win.webContents.getURL() === "app://bundle/index.html")
-          .close(),
-      ),
-    );
+    await quitAndWait(app, () => app.evaluate(({ app }) => app.quit()));
     const restoredApp = await launchApp(context, false, options);
     const restored = await boardPage(restoredApp);
     await expect
