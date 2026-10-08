@@ -427,3 +427,66 @@ test.each(["shell", "agent"] as const)(
     expect(view.command).toHaveBeenCalledWith({ kind: "close", id: "a" });
   },
 );
+
+test.each([
+  ["claude", "CC", "Claude Code"],
+  ["codex", "CX", "Codex"],
+  ["agy", "AG", "Antigravity"],
+  ["Claude Code", "CC", "Claude Code"],
+  ["Codex", "CX", "Codex"],
+  ["Antigravity", "AG", "Antigravity"],
+  ["future-agent", "?", "future-agent"],
+  ["constructor", "?", "constructor"],
+  ["__proto__", "?", "__proto__"],
+  ["", "?", "Unknown agent"],
+  ["shell", ">_", "Shell (zsh)"],
+  ["Shell", ">_", "Shell (zsh)"],
+])("%s retains identity after rename without loading artwork", async (agent, mark, identity) => {
+  const view = setup();
+  await act(async () => {
+    await Promise.resolve();
+  });
+  act(() => {
+    view.base.update("a", { agent });
+  });
+  const row = view.container.querySelector(".board-row");
+  if (!row) throw Error("Missing session");
+  fireEvent.keyDown(row, { key: "F2" });
+  fireEvent.change(view.getByLabelText("Session name"), { target: { value: "Build helper" } });
+  fireEvent.keyDown(view.getByLabelText("Session name"), { key: "Enter" });
+  expect(row.getAttribute("aria-label")).toContain(`Build helper · ${identity}`);
+  expect(row.querySelector(".board-agent")?.textContent).toBe(mark);
+  expect(row.querySelector(".board-agent")?.getAttribute("aria-hidden")).toBe("true");
+  expect(row.querySelector(".board-agent img, .board-agent svg")).toBeNull();
+  const light = row.querySelector(".board-light");
+  fireEvent.focus(row);
+  expect(view.getByRole("complementary", { name: "Terminal peek" }).textContent).toContain(
+    identity,
+  );
+  fireEvent.blur(row);
+  fireEvent.mouseEnter(row);
+  expect(view.getByRole("complementary", { name: "Terminal peek" }).textContent).toContain(
+    identity,
+  );
+  expect(row.querySelector(".board-light")).toBe(light);
+  fireEvent.click(row);
+  expect(view.container.querySelector(".tile-title .board-agent")?.textContent).toBe(mark);
+});
+
+test("shell kind keeps the generic glyph and detected name even with another program identity", async () => {
+  const view = setup();
+  await act(async () => {
+    await Promise.resolve();
+  });
+  act(() => {
+    view.base.update("a", { kind: "shell", agent: "bash" });
+  });
+  const row = view.container.querySelector(".board-row");
+  if (!row) throw Error("Missing session");
+  expect(row.querySelector(".board-agent")?.textContent).toBe(">_");
+  expect(row.getAttribute("aria-label")).toContain("Shell (zsh)");
+  fireEvent.click(row);
+  expect(view.container.querySelector(".tile-title .board-agent")?.textContent).toBe(">_");
+  view.rerender(<Board source={{ ...view.source, shellName: () => "" }} />);
+  expect(row.getAttribute("aria-label")).toContain(" · Shell · ");
+});

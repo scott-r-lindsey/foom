@@ -4877,6 +4877,7 @@ test("tile drag drops replace, split every edge, swap and move without reattachm
   await rows.nth(0).click();
   const tiles = page.locator(".terminal-tile");
   const drag = async (source, target, x, y, cancel = false) => {
+    const before = await saved();
     const from = await source.boundingBox(),
       to = await target.boundingBox();
     assert.ok(from && to);
@@ -4893,6 +4894,10 @@ test("tile drag drops replace, split every edge, swap and move without reattachm
     if (cancel) await page.keyboard.press("Escape");
     await page.mouse.up();
     await expect(page.locator(".tile-drop-preview")).toHaveCount(0);
+    if (!cancel && before !== (await saved()))
+      await expect(
+        page.locator('.terminal-tile[data-focused="true"] .xterm-helper-textarea'),
+      ).toBeFocused();
   };
   const saved = () => page.evaluate(() => localStorage.getItem("foom.tiles.v1"));
   const initial = await saved();
@@ -4983,4 +4988,59 @@ test("tile drag drops replace, split every edge, swap and move without reattachm
     true,
   );
   await page.screenshot({ path: path.join(tmpdir(), "foom-133-tiles.png") });
+});
+
+test("neutral identity badges keep labels and geometry across themes and interface scales", async (context) => {
+  const app = await launchApp(context);
+  const page = await boardPage(app);
+  const row = page.locator('.board-row[data-kind="shell"]');
+  await expect(row).toBeVisible();
+  await row.press("F2");
+  await page.getByRole("textbox", { name: "Session name" }).fill("Build helper");
+  await page.getByRole("textbox", { name: "Session name" }).press("Enter");
+  await expect(row).toHaveAccessibleName(/Build helper · Shell \(.+\)/);
+  for (const colorScheme of ["light", "dark"]) {
+    await page.emulateMedia({ colorScheme, reducedMotion: "reduce" });
+    for (const interfaceScale of [80, 90, 100, 110, 120, 130, 140, 150]) {
+      await page.evaluate(
+        (interfaceScale) => window.desktop.saveSetup({ interfaceScale }),
+        interfaceScale,
+      );
+      await row.focus();
+      const peek = page.getByRole("complementary", { name: "Terminal peek" });
+      await expect(peek).toBeVisible();
+      await expect(peek.getByRole("heading")).toHaveText(/^Shell \(.+\) · /);
+      await expect(row).toHaveAccessibleName(/Build helper · Shell \(.+\)/);
+      const badge = row.locator(".board-agent");
+      await expect(badge).toHaveText(">_");
+      await expect(badge).toBeVisible();
+      const heights = await badge.evaluate((element) => [
+        parseFloat(getComputedStyle(element).height),
+        parseFloat(getComputedStyle(element.firstElementChild).height),
+      ]);
+      assert.ok(Math.abs(heights[0] - 20) < 0.1 && Math.abs(heights[1] - 16) < 0.1);
+      assert.ok(
+        await badge.evaluate((element) => {
+          const style = getComputedStyle(element);
+          return (
+            element.clientWidth >= element.scrollWidth &&
+            style.backgroundColor ===
+              getComputedStyle(document.querySelector(".tile-title .board-agent"))
+                .backgroundColor &&
+            style.fontFamily.includes("Geist Mono") &&
+            element.querySelectorAll("img, svg").length === 0
+          );
+        }),
+      );
+      if (process.env.FOOM_SCREENSHOTS && [80, 100, 150].includes(interfaceScale))
+        await page.screenshot({
+          path: path.join(
+            __dirname,
+            `../../test-results/badges-${colorScheme}-${interfaceScale}.png`,
+          ),
+        });
+    }
+  }
+  await page.evaluate(() => window.desktop.saveSetup({ interfaceScale: 100 }));
+  await assertAccessible(page);
 });

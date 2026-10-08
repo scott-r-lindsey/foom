@@ -480,16 +480,27 @@ test("title drags and keyboard swaps keep controllers attached; Escape and outsi
   drag(a.querySelector("header") ?? a, b, 50, 90);
   expect(counts()).toEqual(before);
   const saved = localStorage.getItem(TILE_STORAGE);
+  const focusCounts = () => views.map((view) => view.focus.mock.calls.length);
+  const beforeCancel = focusCounts();
   fireEvent.dragStart(row(2), { dataTransfer: transfer });
   fireEvent.dragOver(b, { dataTransfer: transfer, clientX: 50, clientY: 50 });
   expect(screen.container.querySelector(".tile-drop-preview")?.textContent).toBe("Replace session");
   fireEvent.keyDown(b, { key: "Escape" });
   fireEvent.drop(b, { dataTransfer: transfer, clientX: 50, clientY: 50 });
   expect(localStorage.getItem(TILE_STORAGE)).toBe(saved);
+  expect(focusCounts()).toEqual(beforeCancel);
   drag(row(2), b);
+  expect(document.activeElement).toBe(b);
   expect(views[1]?.open).toHaveBeenLastCalledWith("check");
   drag(row(3), b, 10, 50);
   expect(screen.container.querySelectorAll(".terminal-tile")).toHaveLength(3);
+  expect(document.activeElement).toBe(
+    screen.container.querySelector('.terminal-tile[data-focused="true"]'),
+  );
+  expect(views[2]?.focus).toHaveBeenCalledOnce();
+  const beforeNoop = focusCounts();
+  drag(b.querySelector("header") ?? b, b);
+  expect(focusCounts()).toEqual(beforeNoop);
   fireEvent.dragStart(screen.getAllByRole("button", { name: "Split right" })[0] ?? document.body, {
     dataTransfer: transfer,
   });

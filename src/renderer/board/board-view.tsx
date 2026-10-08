@@ -1,3 +1,4 @@
+import { AgentBadge } from "./agent-badge";
 import { ConfirmationButton } from "./confirmation-button";
 import { TileArea } from "./tile-area";
 import {
@@ -23,7 +24,13 @@ import { readPreferences, writePreferences, renameSession } from "./sidebar-pref
 import type { SidebarLocation } from "./sidebar.d";
 import type { SidebarCommand } from "../../shared/workspace";
 import type { LaunchOptions } from "./board-source.d";
-import { repositoryKey, worktreeKey, rowRepository, rowWorktree } from "./sidebar-model";
+import {
+  sessionIdentity,
+  repositoryKey,
+  worktreeKey,
+  rowRepository,
+  rowWorktree,
+} from "./sidebar-model";
 import { WorktreeDialog } from "./worktree-dialog";
 import {
   useCallback,
@@ -603,9 +610,7 @@ export function Board({
                         });
                       }}
                     >
-                      <span className="board-agent" aria-hidden="true">
-                        {action.badge}
-                      </span>
+                      <AgentBadge mark={action.badge} />
                       {action.label}
                     </ConfirmationButton>
                   ))
@@ -624,6 +629,10 @@ export function Board({
             </>
           )}
           <TileArea
+            dropLayout={(next) => {
+              changeLayout(next);
+              setFocusRequest((value) => value + 1);
+            }}
             drag={drag}
             endDrag={() => {
               setDrag(undefined);
@@ -645,7 +654,9 @@ export function Board({
             }}
           />
           <aside className="board-peek" aria-label="Terminal peek" hidden={!peekRow}>
-            <h2>{peekRow && `${peekRow.agent} · ${peekRow.branch}`}</h2>
+            <h2>
+              {peekRow && `${sessionIdentity(peekRow, source.shellName?.())} · ${peekRow.branch}`}
+            </h2>
             <pre>{tail.join("\n")}</pre>
           </aside>
         </section>
