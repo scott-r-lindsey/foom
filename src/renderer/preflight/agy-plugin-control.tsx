@@ -18,9 +18,9 @@ export function AgyPluginControl({
   change: (action: AgyPluginAction) => Promise<void>;
 }) {
   return (
-    <div className="preflight-sub">
+    <section className="agy-plugin preflight-sub" aria-label="Antigravity lifecycle plugin">
       <p>
-        Foom lifecycle plugin: <strong>{labels[status.state]}</strong>
+        Antigravity lifecycle plugin: <strong>{labels[status.state]}</strong>
       </p>
       <p>
         Install adds Foom's observation hooks to Antigravity's user plugin directory (
@@ -71,6 +71,6 @@ export function AgyPluginControl({
           )}
         </div>
       )}
-    </div>
+    </section>
   );
 }

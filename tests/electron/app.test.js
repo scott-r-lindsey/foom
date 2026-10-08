@@ -624,6 +624,7 @@ test("terminal runs an interactive shell behind an isolated bridge", {
           "addRepository",
           "worktrees",
           "createWorktree",
+          "changeAgyPlugin",
           "scanAgents",
           "launchAgent",
           "setupState",

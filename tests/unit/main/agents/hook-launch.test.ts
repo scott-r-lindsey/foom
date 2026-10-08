@@ -219,10 +219,12 @@ test.skipIf(process.platform !== "win32").each(["claude", "codex"] as const)(
   30000,
 );
 
-test("Antigravity binds and revokes credentials without writing per-launch configuration", async () => {
+test("Antigravity binds and revokes credentials with only a private ordering counter", async () => {
   const bind = vi.fn();
   const hooks = await prepareHookLaunch(receiver, "agy", bind, "linux", scratch);
-  expect(await readdir(scratch)).toEqual([]);
+  const order = hooks.env["FOOM_HOOK_ORDER"];
+  if (!order) throw new Error("Missing ordering path");
+  expect(await readFile(order, "utf8")).toBe("0");
   expect(hooks.claudeCommand).toBe("");
   expect(hooks.codexCommand).toEqual([]);
   expect(receiver.register).toHaveBeenCalledWith(expect.any(String), "agy");

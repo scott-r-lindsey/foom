@@ -86,7 +86,8 @@ here**, **Copy session ID** when an ID exists, then a separator and **Close**.
 Resume starts the same agent in the same checkout and row, with fresh per-launch hooks
 and current launch defaults. New conversation uses that row and checkout without a
 resume ID. Failed launches retain the saved conversation for retry. Copy uses the full ID.
-Antigravity has no verified ID capture adapter, so Resume is unavailable for it.
+Antigravity conversation IDs are pinned for hook validation but not retained for resumption,
+so Resume remains unavailable for it.
 An exited shell offers **Restart shell**, a separator and **Close**. Close removes the
 session and its stored record, never the checkout or the agent's own conversation files.
 Sessions restore without automatically launching agents. If no supported hook/notify event
@@ -277,7 +278,7 @@ Focus follows the moved tile.
 
 Checks run from cheapest and most certain to least:
 
-1. **Agent signals**: Claude Code and trusted Codex lifecycle hooks, with Codex `notify` as the fallback, attached per launch. These report specific events, not necessarily task completion; a finished response can still ask a question. See [agent research](agents.md).
+1. **Agent signals**: Claude Code and trusted Codex lifecycle hooks, with Codex `notify` as the fallback, attached per launch, plus the explicitly installed Antigravity observer plugin. These report specific events, not necessarily task completion; a finished response can still ask a question. See [agent research](agents.md).
 2. **Local agent UI signals**: capture-backed terminal title and screen rules. Idle is evidence for classification, never Done by itself. Process exit remains final and permission hooks take precedence.
 3. **Process facts**: exit code, the shell prompt returning, echo changes only with corroborating prompt context (agent TUIs also disable echo during ordinary operation; this may not be detectable on Windows).
 4. **Text patterns** in the tail: `(y/n)`, `Password:`, `Press Enter`.
@@ -334,7 +335,7 @@ initial prompts. It retains at most 30 days and five 10 MiB files and can be cle
 
 Setup is a preflight countdown:
 
-1. **Agents** (T-4): detect the supported CLIs on PATH and show each one's attention signal. One setting controls whether Foom attaches hooks per launch.
+1. **Agents** (T-4): detect the supported CLIs on PATH and show each one's attention signal. One setting controls whether Foom supplies hooks and credentials per launch. Antigravity also offers an explicit plugin install with its location, behavior and removal disclosed; Settings shows installed, outdated or disabled status and offers update, enable and removal.
 2. **Repositories** (T-3): "Where do you keep your code?" Foom suggests common code folders that hold repositories, with a count for each, or you choose one. It scans that folder and lists its Git repositories, with the ones worked on in the last 30 days checked.
 3. **Worktrees** (T-2): choose where new worktrees live: Foom's folder (`~/.foom/worktrees`, the default) or next to each repository.
 4. **Evaluator** (T-1): pick an inference source and test it on a sample.

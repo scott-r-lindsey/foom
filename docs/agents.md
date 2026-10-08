@@ -378,6 +378,8 @@ A real synthetic `--print` turn (“Reply with exactly OK. Do not use tools.”)
 completed in 2.46 seconds. PreInvocation arrived first, Stop 2.43 seconds later.
 Both received the three FOOM launch environment variables, and both returned `{}`.
 The turn completed successfully, establishing that an empty Stop result allows stopping.
+A repeat with the bundled detached observer and ordering counter completed in 1.96 seconds;
+PreInvocation and Stop arrived with sequence numbers 1 and 2.
 The observer recorded only field names and lifecycle metadata, never model output,
 workspace paths or transcript contents.
 
@@ -395,7 +397,11 @@ variables its observer returns `{}` without reading stdin or contacting Foom.
 With credentials it returns `{}` first, bounds stdin, and starts an independent
 one-second transport. POSIX uses sh/curl; Windows uses PowerShell launched through
 `cmd /c`, with a detached transport process and redirected standard handles.
-Handlers have a three-second deadline. The receiver authenticates each launch,
+Handlers have a three-second deadline. A private per-launch counter contains only
+an integer, never credentials; observers allocate its sequence before detaching.
+The receiver ignores duplicate or older reports so a delayed working event cannot
+undo Stop and an old Stop cannot end a newer turn. Counter failure drops the report
+without blocking the agent. The receiver authenticates each launch,
 pins conversation identity, and discards all fields except the fixed event and
 validated completion facts. Antigravity conversation resumption remains unavailable.
 

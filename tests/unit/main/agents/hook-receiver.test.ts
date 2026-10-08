@@ -15,6 +15,7 @@ async function setup(agent: "claude" | "codex" | "agy" = "claude") {
   return { receiver, launch: receiver.register("terminal-1", agent), signals };
 }
 const stop = { session_id: "agent-session", hook_event_name: "Stop" };
+let nextSequence = 0;
 function post(
   launch: HookLaunch,
   body: string | Buffer = JSON.stringify(stop),
@@ -29,6 +30,7 @@ function post(
           "Content-Type": "application/json",
           Authorization: launch.env.FOOM_TOKEN,
           "X-Foom-Session": launch.env.FOOM_SESSION,
+          "X-Foom-Sequence": String(++nextSequence),
           ...overrides,
         },
       },
@@ -264,6 +266,7 @@ describe("loopback hook receiver", () => {
           headers: {
             Authorization: launch.env.FOOM_TOKEN,
             "X-Foom-Session": launch.env.FOOM_SESSION,
+            "X-Foom-Sequence": String(++nextSequence),
             "Content-Type": "application/json",
           },
         },
@@ -501,4 +504,23 @@ describe("Antigravity lifecycle", () => {
       }),
     ).toBe(401);
   });
+});
+
+it("Antigravity ignores reordered and duplicate reports without ending newer work", async () => {
+  const { launch, signals } = await setup("agy");
+  const send = (sequence: string, event: string, fields: Record<string, unknown> = {}) =>
+    post(launch, JSON.stringify({ conversationId: "conversation", ...fields }), {
+      "X-Foom-Event": event,
+      "X-Foom-Sequence": sequence,
+    });
+  const stop = { terminationReason: "model_stop", fullyIdle: true };
+  expect(await send("2", "Stop", stop)).toBe(204);
+  expect(await send("1", "PostToolUse")).toBe(204);
+  expect(signals.map((signal) => signal.action)).toEqual(["classify"]);
+  expect(await send("3", "PreInvocation")).toBe(204);
+  expect(await send("2", "Stop", stop)).toBe(204);
+  expect(await send("3", "Stop", stop)).toBe(204);
+  expect(signals.map((signal) => signal.action)).toEqual(["classify", "working"]);
+  for (const sequence of ["", "0", "-1", "01", "1.5", "2147483648", "10000000000", "1e3"])
+    expect(await send(sequence, "PreInvocation")).toBe(400);
 });

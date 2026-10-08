@@ -52,6 +52,7 @@ export function AgentsStep({
     scanning: boolean;
     scan: (refresh: boolean) => Promise<void>;
   }) {
+  const agy = found(report, "agy");
   return (
     <>
       <p className="preflight-eyebrow">T-4 · Agents</p>
@@ -104,9 +105,6 @@ export function AgentsStep({
               >
                 {agent ? "Found" : scanning || !report ? "Looking…" : "Not found"}
               </span>
-              {agent?.agyPlugin && (
-                <AgyPluginControl status={agent.agyPlugin} busy={scanning} change={changePlugin} />
-              )}
               {agent && how ? (
                 <div className="agent-meta">
                   <span className="badge" data-known={String(Boolean(agent.version))}>
@@ -143,6 +141,9 @@ export function AgentsStep({
           );
         })}
       </ul>
+      {agy?.agyPlugin && (
+        <AgyPluginControl status={agy.agyPlugin} busy={scanning} change={changePlugin} />
+      )}
       <button
         type="button"
         disabled={scanning}

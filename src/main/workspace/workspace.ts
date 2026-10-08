@@ -1350,6 +1350,16 @@ export class Workspace {
         health.codexPromptTurn = this.execution(id).snapshot().turn;
       return Promise.resolve();
     }
+    // A fully idle Stop proves a turn ran even when its background start report
+    // was overtaken. Recover the turn identity before classifying completion.
+    if (
+      signal.signal === "agy:Stop" &&
+      signal.action === "classify" &&
+      signal.terminationReason === "model_stop" &&
+      signal.fullyIdle === true &&
+      this.execution(id).snapshot().phase !== "working"
+    )
+      this.transition(id, "working", "hook");
     if (signal.action === "failed") {
       this.track(id).hook = { terminalId: id, action: signal.action, signal: signal.signal };
       this.transition(id, "idle", "hook");

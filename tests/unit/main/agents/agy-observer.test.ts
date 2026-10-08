@@ -18,6 +18,7 @@ async function fixture() {
   await mkdir(dir, { recursive: true });
   for (const [name, source] of Object.entries(agyPluginFiles(process.platform)))
     await writeFile(join(dir, name), source);
+  await writeFile(join(dir, "order"), "0");
   return dir;
 }
 function run(dir: string, env: NodeJS.ProcessEnv, event: string, input?: string) {
@@ -29,7 +30,12 @@ function run(dir: string, env: NodeJS.ProcessEnv, event: string, input?: string)
     const child = execFile(
       windows ? "cmd.exe" : "sh",
       windows ? ["/d", "/s", "/c", command] : ["-c", command],
-      { cwd: dir, env, timeout: 5000, windowsVerbatimArguments: windows },
+      {
+        cwd: dir,
+        env: { ...env, FOOM_HOOK_ORDER: join(dir, "order") },
+        timeout: 5000,
+        windowsVerbatimArguments: windows,
+      },
       (error, stdout, stderr) => {
         if (error) reject(new Error("Observer failed", { cause: error }));
         else resolve({ stdout, stderr });
@@ -110,7 +116,11 @@ test("observer exits before an unresponsive HTTP receiver finishes", async () =>
   const requestSeen = new Promise<void>((resolve) => {
     received = resolve;
   });
+  let disconnected = false;
   const server = createServer((request) => {
+    request.socket.on("close", () => {
+      disconnected = true;
+    });
     request.resume();
     received?.();
   });
@@ -131,6 +141,7 @@ test("observer exits before an unresponsive HTTP receiver finishes", async () =>
     );
     expect(JSON.parse(result.stdout)).toEqual({});
     await requestSeen;
+    expect(disconnected).toBe(false);
     // The parent has returned while the server still has not sent any response.
     expect(result.stderr).toBe("");
   } finally {

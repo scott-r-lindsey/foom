@@ -970,7 +970,13 @@ names come from the renderer. CLI errors become fixed Foom messages.
 The build ships the plugin outside ASAR under `build/observers/foom`. Versioned
 metadata enables an update offer without silently changing an installation. Launch
 adds credentials only when hooks are enabled and the installed plugin is active.
-The observer sends a fixed event header with stdin JSON; the receiver validates it
+A private temporary per-launch counter orders background reports; it contains no
+credentials and is removed with the launch binding. Observers allocate a sequence
+under an exclusive local lock before starting transport. Main ignores duplicate or
+older sequence numbers, including a delayed Stop from before newer progress.
+A validated fully idle Stop recovers the turn identity if its working report was
+overtaken, then classifies the current tail; questions and failures still win.
+The observer sends fixed event and sequence headers with stdin JSON; the receiver validates them
 against the Antigravity launch, pins `conversationId`, and emits only event/action,
 terminal ID and enumerated Stop facts. It never exposes an Antigravity conversation
 ID for Resume. See the [probe record](agents.md#opt-in-antigravity-lifecycle-plugin-178)

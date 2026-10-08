@@ -30,38 +30,19 @@ export async function prepareHookLaunch(
   scratch = tmpdir(),
   execute = promisify(execFile),
 ): Promise<AgentHooks> {
-  if (agent === "agy") {
-    const key = randomUUID();
-    const launch = receiver.register(key, agent);
-    let disposed = false;
-    return {
-      claudeCommand: "",
-      codexCommand: [],
-      env: launch.env,
-      bind: (terminalId) => {
-        if (!disposed) bind(key, terminalId);
-      },
-      dispose: () => {
-        if (disposed) return;
-        disposed = true;
-        launch.revoke();
-        bind(key, undefined);
-      },
-    };
-  }
   const windows = platform === "win32";
-  const adapter = hookAdapter(agent, windows ? "win32" : "posix");
+  const adapter = agent === "agy" ? undefined : hookAdapter(agent, windows ? "win32" : "posix");
   // mkdtemp creates the directory with mode 0700, so other users can't swap the script.
   const directory = await mkdtemp(join(scratch, "foom-hooks-"));
-  const script = join(directory, `${agent}${adapter.extension}`);
+  const script = join(directory, `${agent}${adapter?.extension ?? ".order"}`);
   let launch: HookLaunch | undefined;
   try {
-    await writeFile(script, adapter.source, { mode: 0o700, flag: "wx" });
+    await writeFile(script, adapter?.source ?? "0", { mode: 0o700, flag: "wx" });
     const command = windows ? "powershell.exe" : "sh";
     const args = windows
       ? ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", script]
       : [script];
-    if (windows) {
+    if (windows && adapter) {
       try {
         // Exercise this generated file before promising hooks. Group Policy can
         // override the process-only policy; never change persistent user settings.
@@ -77,11 +58,13 @@ export async function prepareHookLaunch(
     let disposed = false;
     return {
       // Claude runs hook commands through a shell; Codex receives an argument array.
-      claudeCommand: windows
-        ? `powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "${script}"`
-        : `sh ${quote(script)}`,
-      codexCommand: [command, ...args],
-      env: launch.env,
+      claudeCommand: !adapter
+        ? ""
+        : windows
+          ? `powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "${script}"`
+          : `sh ${quote(script)}`,
+      codexCommand: adapter ? [command, ...args] : [],
+      env: { ...launch.env, ...(!adapter ? { FOOM_HOOK_ORDER: script } : {}) },
       bind: (terminalId) => {
         if (!disposed) bind(key, terminalId);
       },

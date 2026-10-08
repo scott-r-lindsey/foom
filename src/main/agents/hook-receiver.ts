@@ -10,6 +10,7 @@ type Session = {
   agent: HookAgent;
   digest: Buffer;
   agentId?: string;
+  sequence?: number;
   completedTurns?: Set<string>;
 };
 
@@ -29,9 +30,14 @@ function reduceEvent(
   session: Session,
   value: unknown,
   event?: string | string[],
+  sequenceHeader?: string | string[],
 ): HookSignal | undefined {
   if (!record(value)) throw new Error("Invalid event");
   if (session.agent === "agy") {
+    if (typeof sequenceHeader !== "string" || !/^[1-9][0-9]{0,9}$/.test(sequenceHeader))
+      throw new Error("Invalid observer sequence");
+    const sequence = Number(sequenceHeader);
+    if (sequence > 2147483647) throw new Error("Invalid observer sequence");
     const agentId = value["conversationId"];
     if (!conversationId(agentId) || (session.agentId !== undefined && session.agentId !== agentId))
       throw new Error("Invalid agent session");
@@ -52,6 +58,8 @@ function reduceEvent(
       terminationReason = reason === "NO_TOOL_CALL" ? "model_stop" : reason;
       fullyIdle = value["fullyIdle"];
     }
+    if (session.sequence !== undefined && sequence <= session.sequence) return;
+    session.sequence = sequence;
     session.agentId = agentId;
     return {
       terminalId: session.terminalId,
@@ -284,7 +292,12 @@ export class HookReceiver {
         const value: unknown = JSON.parse(
           new TextDecoder("utf-8", { fatal: true }).decode(Buffer.concat(chunks)),
         );
-        signal = reduceEvent(session, value, request.headers["x-foom-event"]);
+        signal = reduceEvent(
+          session,
+          value,
+          request.headers["x-foom-event"],
+          request.headers["x-foom-sequence"],
+        );
       } catch {
         end(400);
         return;

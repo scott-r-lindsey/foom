@@ -83,3 +83,17 @@
 .badge[data-known="false"] .badge-value {
   font-style: italic;
 }
+
+.agy-plugin {
+  margin: 16px 0;
+  padding: 12px 16px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  overflow-wrap: anywhere;
+}
+.agy-plugin p {
+  margin: 0 0 10px;
+}
+.agy-plugin .preflight-actions {
+  margin: 0;
+}

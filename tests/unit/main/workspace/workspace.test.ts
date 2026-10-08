@@ -2746,3 +2746,43 @@ test("review rejects stale targets and the same agent without starting anything"
   ).rejects.toThrow("No other agent");
   expect(agents.launch).toHaveBeenCalledTimes(1);
 });
+
+test("fully idle Antigravity Stop recovers a turn whose working report was overtaken", async () => {
+  agents.scan.mockResolvedValue({
+    ...scan,
+    agents: [{ id: "agy", path: "/bin/agy", version: "1.3.1", hooks: true, reason: "installed" }],
+  });
+  const workspace = new Workspace(deps);
+  await workspace.launch({
+    agent: "agy",
+    repository: repo.path,
+    worktree: tree.path,
+    cols: 80,
+    rows: 24,
+  });
+  const hooks = await prepare?.("agy");
+  hooks?.bind?.("t1");
+  const key = receiver.register.mock.calls.at(-1)?.[0];
+  if (!key) throw new Error("No key");
+  const stop = {
+    terminalId: key,
+    action: "classify",
+    signal: "agy:Stop",
+    terminationReason: "model_stop",
+    fullyIdle: true,
+  } as const;
+  try {
+    tails.set("t1", ["plain answer"]);
+    await workspace.hook(stop);
+    expect(states.at(-1)?.state).toBe("done");
+    expect(workspace.snapshot().terminals[0]?.execution).toMatchObject({ phase: "idle", turn: 1 });
+    await workspace.hook(stop);
+    expect(workspace.snapshot().terminals[0]?.execution).toMatchObject({ phase: "idle", turn: 2 });
+    tails.set("t1", ["Continue? (y/n)"]);
+    await workspace.hook(stop);
+    expect(states.at(-1)?.state).toBe("needs_input");
+  } finally {
+    hooks?.dispose();
+    await workspace.dispose();
+  }
+});
