@@ -8,6 +8,8 @@ import type { Repository, Worktree } from "./worktrees";
  * actions and for verdicts that couldn't be stored.
  */
 export interface TerminalState {
+  /** Confirmed agent execution, independent of terminal output and attention verdict. */
+  agentWorking?: boolean;
   id: string;
   verdictId: string | null;
   state: VerdictState | "checking";

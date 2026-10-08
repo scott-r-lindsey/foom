@@ -284,7 +284,7 @@ test("terminal state events are validated and can be unsubscribed", async () => 
     timestamp: 5,
   };
   handler?.({}, state);
-  handler?.({}, { ...state, verdictId: "v1" });
+  handler?.({}, { ...state, verdictId: "v1", agentWorking: true });
   for (const bad of [
     null,
     [],
@@ -295,9 +295,13 @@ test("terminal state events are validated and can be unsubscribed", async () => 
     { ...state, signal: 0 },
     { ...state, confidence: "high" },
     { ...state, timestamp: "now" },
+    { ...state, agentWorking: "yes" },
   ])
     handler?.({}, bad);
-  expect(callback.mock.calls).toEqual([[state], [{ ...state, verdictId: "v1" }]]);
+  expect(callback.mock.calls).toEqual([
+    [state],
+    [{ ...state, verdictId: "v1", agentWorking: true }],
+  ]);
   off();
   expect(mock.removeListener).toHaveBeenCalledWith("terminal:state", handler);
 });

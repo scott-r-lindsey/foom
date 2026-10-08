@@ -305,13 +305,16 @@ Needs you retains its halo, Failed its square light, and all states their labels
 High Contrast provides at least 7:1 text contrast and stronger borders.
 
 Settings → Sound offers Hard drive and Soft drive soundscapes. Both synthesize
-seek chatter and a spinning hum from total terminal output, with a capped mix;
-quiet terminals are silent. Working sound is off by default, with a separate
+seek chatter and a spinning hum only for agents with detected active execution,
+with a capped mix. Silent thinking keeps a low hum; output adjusts its intensity.
+Shell output, startup without execution evidence, idle redraws and waiting agents
+are silent. Working sound is off by default, with a separate
 volume (15% initially). Alerts are on at 50%: Done is one short beep and Needs you
 has a reserved two-beep cadence. Needs you repeats every two minutes until replied
-to or dismissed. The terminal in the focused tile of the focused window does not alert;
-Settings and preflight hide that terminal and allow its alerts again. Completion
-observed while muted is not replayed. Attention reminders resume after two minutes
+to or dismissed. Completion sounds even for the focused terminal, so it can summon
+you back. Needs-you reminders remain suppressed for the focused terminal;
+Settings and preflight allow those reminders again. Completion observed while
+explicitly muted is not replayed. Attention reminders resume after two minutes
 away from its view or after unmuting.
 
 Verdicts must settle for one second before sounding. Simultaneous alerts play
@@ -337,3 +340,8 @@ Done or Failed according to its exit code. Editing the next command preserves th
 result until execution starts. Other shells use output patterns and process exit.
 Checking appears for evaluations lasting longer than 150 ms. Rules-only mode keeps
 ambiguous output Working; it cannot determine arbitrary agent completion from silence.
+A completion hook or an observed active-to-idle transition establishes a finished
+agent turn. Requests and failures take precedence; otherwise the turn is Done,
+even if inference is unavailable. An initial idle title alone is not completion.
+Execution audio currently relies on supported agent title rules; an unsupported
+or missing signal stays silent rather than treating output as proof of work.

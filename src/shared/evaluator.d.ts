@@ -18,6 +18,8 @@ export interface EvaluationInput {
   hook?: HookSignal;
   exitCode?: number;
   promptReturned?: boolean;
+  /** Main observed a completion hook or an active turn becoming idle. */
+  turnEnded?: boolean;
 }
 export type VerdictAction = "replied" | "dismissed" | "ignored";
 export interface VerdictRecord {

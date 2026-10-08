@@ -45,6 +45,7 @@ export function createAppSource(): BoardSource {
   };
   const stateRow = (row: BoardRow, state: TerminalState): BoardRow => ({
     ...row,
+    agentWorking: state.agentWorking === true,
     rate: rates.get(row.id) ?? row.rate,
     state: state.state,
     reason: `${state.reason} · ${state.signal}`,

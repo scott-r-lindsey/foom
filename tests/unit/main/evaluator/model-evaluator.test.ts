@@ -117,3 +117,27 @@ it.each([
 ])("rejects invalid limits %s, %s", (timeout, concurrency) => {
   expect(() => new ModelEvaluator(undefined, timeout, concurrency)).toThrow();
 });
+
+it("uses confirmed turn end when no request is detected, including inference failure", async () => {
+  const input = { terminalId: "agent", tail: ["Finished."], turnEnded: true };
+  expect(await new ModelEvaluator().evaluate(input)).toMatchObject({ state: "done" });
+  const complete = vi.fn().mockRejectedValueOnce(new Error("offline"));
+  const model = new ModelEvaluator({ complete });
+  expect(await model.evaluate(input)).toMatchObject({ state: "done" });
+  for (const state of ["working", "quiet_ok", "needs_input", "failed"] as const) {
+    complete.mockResolvedValueOnce(JSON.stringify({ state, confidence: 0.95 }));
+    expect(await model.evaluate(input)).toMatchObject({
+      state: state === "working" || state === "quiet_ok" ? "done" : state,
+    });
+  }
+  expect(await model.evaluate({ ...input, tail: ["Continue? (y/n)"] })).toMatchObject({
+    state: "needs_input",
+  });
+  expect(await model.evaluate({ ...input, tail: ["Which file should I edit?"] })).toMatchObject({
+    state: "needs_input",
+  });
+  expect(
+    await model.evaluate({ ...input, tail: ["Listening on http://localhost:3000"] }),
+  ).toMatchObject({ state: "done" });
+  expect(await model.evaluate({ ...input, exitCode: 1 })).toMatchObject({ state: "failed" });
+});

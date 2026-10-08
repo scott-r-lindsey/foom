@@ -271,7 +271,7 @@ test("a permission hook stays in force across later quiet evaluations until a re
   expect(recordAction).toHaveBeenCalledOnce();
 });
 
-test("completion hooks classify without forcing attention; unknown keys are ignored", async () => {
+test("completion hooks supply turn-end evidence; unknown keys are ignored", async () => {
   const workspace = await launched();
   const hooks = await prepare?.("claude");
   hooks?.bind?.("t1");
@@ -279,7 +279,8 @@ test("completion hooks classify without forcing attention; unknown keys are igno
   tails.set("t1", ["All done."]);
   await workspace.hook({ terminalId: key, action: "classify", signal: "claude:Stop" });
   expect(evaluated[0]?.hook).toBeUndefined();
-  expect(states.at(-1)?.state).toBe("working");
+  expect(evaluated[0]?.turnEnded).toBe(true);
+  expect(states.at(-1)).toMatchObject({ state: "done", agentWorking: false });
   await workspace.hook({
     terminalId: "nobody",
     action: "needs_input",
@@ -1632,7 +1633,7 @@ test("working, blocked and idle title transitions each evaluate", async () => {
   expect(states.map(({ signal }) => signal)).toEqual([
     "rules:codex:osc_title_working",
     "rules:codex:osc_title_blocked",
-    "rules:codex:osc_title_idle",
+    "rules:turn-ended",
     "rules:codex:osc_title_working",
   ]);
   workspace.removed("t1");
@@ -1664,4 +1665,64 @@ test("slow repeated classification preserves the verdict ID across Checking", as
   } finally {
     vi.useRealTimers();
   }
+});
+
+test("agent execution survives silence, stops at idle and does not restart on redraw", async () => {
+  const workspace = await launched();
+  tails.set("t1", []);
+  await workspace.evidence("t1", { title: "✳ Claude", progress: null });
+  expect(evaluated.at(-1)?.turnEnded).toBeUndefined();
+  expect(states.at(-1)?.agentWorking).toBe(false);
+  await workspace.evidence("t1", { title: "◐ Claude", progress: null });
+  expect(states.at(-1)).toMatchObject({ state: "working", agentWorking: true });
+  await workspace.quiet("t1");
+  expect(states.at(-1)?.agentWorking).toBe(true);
+  await workspace.evidence("t1", { title: "✳ Claude", progress: null });
+  expect(states.at(-1)).toMatchObject({ state: "done", agentWorking: false });
+  const count = states.length;
+  workspace.output("t1");
+  await workspace.quiet("t1");
+  expect(states).toHaveLength(count);
+  workspace.input("t1");
+  await workspace.evidence("t1", { title: "◓ Claude", progress: null });
+  expect(states.at(-1)).toMatchObject({ state: "working", agentWorking: true });
+  await workspace.exited("t1", 0);
+  expect(states.at(-1)?.agentWorking).toBe(false);
+  await workspace.dispose();
+});
+
+test("a permission hook beats turn completion and redraws", async () => {
+  const workspace = await launched();
+  const hooks = await prepare?.("claude");
+  hooks?.bind?.("t1");
+  const key = receiver.register.mock.calls[0]?.[0] ?? "";
+  await workspace.evidence("t1", { title: "◐ Claude", progress: null });
+  await workspace.hook({
+    terminalId: key,
+    action: "needs_input",
+    signal: "claude:PermissionRequest",
+  });
+  await workspace.hook({ terminalId: key, action: "classify", signal: "claude:Stop" });
+  workspace.output("t1");
+  await workspace.quiet("t1");
+  expect(states.at(-1)).toMatchObject({ state: "needs_input", agentWorking: false });
+  await workspace.dispose();
+});
+
+test("work resumes after a permission reply even when the working title did not change", async () => {
+  const workspace = await launched();
+  const hooks = await prepare?.("claude");
+  hooks?.bind?.("t1");
+  const key = receiver.register.mock.calls[0]?.[0] ?? "";
+  await workspace.evidence("t1", { title: "◐ Claude", progress: null });
+  await workspace.hook({
+    terminalId: key,
+    action: "needs_input",
+    signal: "claude:PermissionRequest",
+  });
+  expect(states.at(-1)?.agentWorking).toBe(false);
+  workspace.input("t1");
+  await workspace.quiet("t1");
+  expect(states.at(-1)).toMatchObject({ state: "working", agentWorking: true });
+  await workspace.dispose();
 });

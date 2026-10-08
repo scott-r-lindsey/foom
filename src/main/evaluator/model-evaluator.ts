@@ -25,8 +25,20 @@ export class ModelEvaluator {
 
   async evaluate(input: EvaluationInput): Promise<Verdict> {
     const rules = evaluateRules(input);
-    if (!(rules.signal.startsWith("rules:") && rules.confidence === 0.25)) return rules;
-    return (await this.check(input.tail, rules)).verdict;
+    const result =
+      rules.signal.startsWith("rules:") && rules.confidence === 0.25
+        ? (await this.check(input.tail, rules)).verdict
+        : rules;
+    // Turn-end evidence is local. The model only decides whether the last screen
+    // contains a request/failure; it cannot extend a turn that has already ended.
+    return input.turnEnded && (result.state === "working" || result.state === "quiet_ok")
+      ? {
+          state: "done",
+          reason: "Agent turn finished",
+          signal: "rules:turn-ended",
+          confidence: 0.95,
+        }
+      : result;
   }
 
   /** Setup's Run check deliberately exercises inference even for an obvious sample. */

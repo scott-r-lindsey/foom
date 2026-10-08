@@ -13,6 +13,7 @@ function object(value: unknown): value is Record<string, unknown> {
 function terminalState(value: unknown): value is TerminalState {
   return (
     object(value) &&
+    (value["agentWorking"] === undefined || typeof value["agentWorking"] === "boolean") &&
     typeof value["id"] === "string" &&
     (value["verdictId"] === null || typeof value["verdictId"] === "string") &&
     states.includes(String(value["state"])) &&

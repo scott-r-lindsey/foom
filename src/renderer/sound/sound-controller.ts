@@ -42,7 +42,7 @@ export function createSoundController(
       }
     for (const row of rows) {
       const previous = verdicts.get(row.id);
-      if (!previous || previous.state !== row.state)
+      if (row.state !== "checking" && (!previous || previous.state !== row.state))
         verdicts.set(row.id, { state: row.state, since: now(), next: now() + SETTLE_MS });
       if (row.exited) rates.set(row.id, 0);
       else if (!rates.has(row.id)) rates.set(row.id, row.rate);
@@ -59,13 +59,26 @@ export function createSoundController(
     const time = now();
     const scape = resolveSoundscape(settings.soundscape);
     sink.working(
-      settings.working ? activityIntensity([...rates.values()]) : 0,
+      settings.working
+        ? activityIntensity(
+            source
+              .getSnapshot()
+              .filter((row) => row.kind === "agent" && row.agentWorking === true && !row.exited)
+              .map((row) => Math.max(100, rates.get(row.id) ?? 0)),
+          )
+        : 0,
       settings.workingVolume,
       scape,
     );
     const due = [...verdicts.entries()].filter(([id, verdict]) => {
       if (verdict.state !== "done" && verdict.state !== "needs_input") return false;
-      if (id === focused() || !settings.alerts || settings.alertVolume === 0) {
+      if (source.getSnapshot().some((row) => row.id === id && row.state === "checking"))
+        return false;
+      if (
+        (verdict.state === "needs_input" && id === focused()) ||
+        !settings.alerts ||
+        settings.alertVolume === 0
+      ) {
         // Do not replay a completion later; attention can remind after leaving its view.
         verdict.next = verdict.state === "done" ? Infinity : time + REPEAT_MS;
         return false;

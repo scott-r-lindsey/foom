@@ -62,7 +62,7 @@ test("board uses the displayed terminal and window focus for muting and disposes
   expect(sink.dispose).toHaveBeenCalledOnce();
 });
 
-test("only the focused tile is muted while other visible tiles can alert", async () => {
+test("completion sounds in every tile while focused attention remains muted", async () => {
   vi.useFakeTimers();
   localStorage.clear();
   vi.spyOn(document, "hasFocus").mockReturnValue(true);
@@ -99,21 +99,21 @@ test("only the focused tile is muted while other visible tiles can alert", async
     source.update("b", { state: "done" });
     vi.advanceTimersByTime(1200);
   });
-  expect(sink.alert).not.toHaveBeenCalled();
+  expect(sink.alert).toHaveBeenCalledOnce();
   act(() => {
     source.update("a", { state: "done" });
-    vi.advanceTimersByTime(1200);
+    vi.advanceTimersByTime(2100);
   });
-  expect(sink.alert).toHaveBeenCalledOnce();
+  expect(sink.alert).toHaveBeenCalledTimes(2);
   fireEvent.click(first);
   act(() => {
     source.update("a", { state: "needs_input" });
     vi.advanceTimersByTime(2100);
   });
-  expect(sink.alert).toHaveBeenCalledOnce();
+  expect(sink.alert).toHaveBeenCalledTimes(2);
   act(() => {
     source.update("b", { state: "needs_input" });
     vi.advanceTimersByTime(1200);
   });
-  expect(sink.alert).toHaveBeenCalledTimes(2);
+  expect(sink.alert).toHaveBeenCalledTimes(3);
 });

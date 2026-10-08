@@ -508,7 +508,9 @@ See [agent research](agents.md) for versions, payloads, local probes, sources, a
 
 Requests POST JSON to `/hooks`, with `X-Foom-Session` and `Authorization` containing the launch session and raw token. Tokens contain 256 random bits; comparison uses constant-time equality of fixed-length SHA-256 digests, including for unknown sessions. The listener rejects browser origins and nonliteral Host headers, limits headers to 8 KiB and bodies to 64 KiB (including chunked requests), caps connections, and times out stalled requests. It checks revocation again before delivery. Unknown/revoked sessions and incorrect tokens all receive 401. Unsupported events are acknowledged without changing state; malformed events receive 400.
 
-The first supported event pins the agent session/thread ID for that launch. Subsequent events must match; Codex also requires a turn ID. Only `{ terminalId, action, signal }` escapes the receiver. PermissionRequest and `permission_prompt` produce `needs_input`; Stop, `idle_prompt`, and Codex `agent-turn-complete` produce `classify`. No event directly sets Done. Agent text, paths, tool inputs, and Codex `input-messages` are discarded, never logged, executed, or forwarded to the evaluator. Classification still uses only the redacted terminal tail.
+The first supported event pins the agent session/thread ID for that launch. Subsequent events must match; Codex also requires a turn ID. Only `{ terminalId, action, signal }` escapes the receiver. PermissionRequest and `permission_prompt` produce `needs_input`; Stop, `idle_prompt`, and Codex `agent-turn-complete` produce `classify`. Stop and agent-turn-complete record local turn-end evidence; idle_prompt alone does not.
+No event bypasses request/failure classification. After that classification,
+confirmed turn end falls back to Done rather than ambiguous Working. Agent text, paths, tool inputs, and Codex `input-messages` are discarded, never logged, executed, or forwarded to the evaluator. Classification still uses only the redacted terminal tail.
 
 The hook command cannot run Node from the packaged app because the RunAsNode fuse is disabled. `src/main/agents/hook-adapters.ts` supplies distinct observer scripts for Claude stdin and Codex's final JSON argument: POSIX `sh` plus `curl`, and Windows PowerShell plus `Invoke-WebRequest`. The launcher writes the returned source to a private launch directory, invokes POSIX files with `sh` or Windows files with `powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File`, supplies the launch environment, and removes the files afterward. On Windows it first runs the generated script in probe mode; a missing interpreter or enforced policy that blocks the script rejects launch with an error and cleans up the script. The execution policy applies only to that PowerShell invocation; user and machine settings are unchanged. Codex's configured notify argument array must end at the script's configured arguments so the CLI can append its JSON argument. Payloads remain data throughout; scripts emit no output or approval decisions, have a three-second HTTP timeout, and exit successfully even when the receiver is unavailable. Per-launch settings and notify attachment, tool availability checks, and notifier-replacement disclosure belong to #12.
 
@@ -532,8 +534,8 @@ replaced evaluator still in flight are published, not discarded. See
 A permission hook (`needs_input`) stays in force across later quiet evaluations, because
 agent dialogs rarely match a text rule. It clears when the user types into the terminal
 (recorded as `replied`, with a `working` state and `user:reply` signal) or sends
-`dismissed` feedback (`quiet_ok`, `user:dismissed`). Completion hooks only trigger an
-evaluation. Opening a terminal is not a reply. The board exposes dismissal as **Not attention**.
+`dismissed` feedback (`quiet_ok`, `user:dismissed`). Completion hooks record turn-end
+evidence and trigger evaluation, preserving permission priority. Opening a terminal is not a reply. The board exposes dismissal as **Not attention**.
 
 Only input the user produced counts as typing. xterm also sends focus reports, answers
 to terminal queries (cursor position, device attributes, colors), and mouse releases,
@@ -543,8 +545,10 @@ wheel-generated cursor keys carry a validated wheel origin through the preload b
 real arrow keys still count as replies. A reply or dismissal also
 invalidates evaluations and hook signals that were already in flight, so older
 evidence can't restore attention the user just cleared. Exit verdicts are exempt. Host output events also invalidate pending screen-based
-classifications, including with no attached view, and return screen-based attention
-to Working without recording reply feedback. Permission hooks remain authoritative.
+classifications, including with no attached view. Without tracked agent execution,
+output returns screen-based attention to Working without recording reply feedback.
+For tracked agents, output cannot override execution/turn-end evidence. Permission
+hooks remain authoritative.
 
 A verdict is published even if the log can't store it. It then has a null
 `verdictId`: a reply still clears it without recording anything, and
@@ -552,12 +556,14 @@ A verdict is published even if the log can't store it. It then has a null
 
 A known exit is final, including when an older permission hook arrives afterward.
 For a live terminal, a matching permission hook takes precedence over an observed
-shell-prompt return and text patterns. Completion hooks only request classification.
+shell-prompt return and text patterns. Completion hooks supply turn-end evidence
+while still requesting classification for questions or failures.
 Prompt return must be supplied as a process fact, never inferred from `$` or `>` in
 output. Echo-off is not an independent input. Text rules inspect only the last
 nonblank line of the last 40 host-provided plain-text lines, recognize explicit
 confirmation/password/Enter prompts, test-runner failure summaries, and listening
-server URLs. Other quiet tails remain `working` with low confidence. Historical
+server URLs, plus question-shaped final lines when a turn has ended. Other quiet
+tails remain `working` with low confidence unless turn-end evidence establishes Done. Historical
 prompts followed by more output do not request attention.
 
 `VerdictLog.evaluate` (or `classify` then `commit`) appends a timestamped verdict with a unique ID and terminal ID
@@ -682,13 +688,27 @@ soundscape files yet. The existing validated setup IPC and atomic settings store
 persistence, with default sound settings for profiles that predate this feature.
 
 The renderer's sound controller subscribes to the board source and setup source.
-Activity bypasses React and is mixed logarithmically into one capped working sound.
+Main tracks agent execution separately from output and verdicts. Supported working
+titles start execution; blocked/idle titles and authenticated completion/permission
+hooks stop it. Active-to-idle transitions and completion hooks supply a main-only
+turnEnded fact to evaluation. Requests/failures take precedence; otherwise finished
+turns resolve to Done, including inference failure. Explicit question-shaped final
+lines are checked locally. Initial idle alone never establishes completion. Input
+invalidates completed-turn evidence; output alone cannot restart detected execution.
+Only the boolean agentWorking crosses validated state IPC into the board source;
+execution metadata and hook payloads never enter model prompts.
+
+Activity bypasses React. The mixer includes only non-exited agent rows with
+agentWorking=true, with a minimum rate of 100 for quiet thinking and logarithmic
+output modulation. Shell output and unknown execution states stay silent.
 A 100 ms clock settles verdicts for one second, spaces alerts by at least two seconds,
 coalesces simultaneous alerts (attention takes priority), and repeats outstanding
 attention every two minutes. State changes, removal and disposal cancel pending
 reminders; repeated verdict IDs in the same state do not restart a reminder.
-The focused tile’s terminal is muted when the document has focus, excluding Settings,
-preflight and location views. Muted completion is consumed, not queued for later.
+Completion alerts are independent of focus. The focused tile suppresses only
+needs-you reminders when the document has focus, excluding Settings, preflight
+and location views. Explicitly muted completion is consumed, not queued for later.
+Checking pauses alert delivery without resetting an already announced completion.
 Settings must load before any audio is produced; later settings events take precedence
 over a pending initial load. No terminal text or keystrokes enter the audio layer.
 

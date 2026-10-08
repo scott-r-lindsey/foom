@@ -25,7 +25,10 @@ export function evaluateRules(input: EvaluationInput): Verdict {
     input.agent && input.evidence
       ? detectAgent(input.agent, input.evidence, input.tail)
       : undefined;
-  if (detected && (detected.state === "working" || detected.state === "blocked"))
+  if (
+    detected &&
+    ((detected.state === "working" && !input.turnEnded) || detected.state === "blocked")
+  )
     return verdict(
       detected.state === "blocked" ? "needs_input" : "working",
       detected.reason,
@@ -70,6 +73,9 @@ export function evaluateRules(input: EvaluationInput): Verdict {
   ) {
     return verdict("quiet_ok", "Server is listening", "pattern:server", 0.9);
   }
+  if (input.turnEnded && /^.{1,500}\?$/u.test(last))
+    return verdict("needs_input", "Agent asks a question", "pattern:agent-question", 0.9);
+  if (input.turnEnded) return verdict("done", "Agent turn finished", "rules:turn-ended", 0.25);
   if (detected?.state === "idle")
     return verdict("working", detected.reason, `rules:${input.agent ?? ""}:${detected.id}`, 0.25);
   return verdict("working", "No completion or input request detected", "rules:ambiguous", 0.25);

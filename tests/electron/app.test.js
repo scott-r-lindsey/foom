@@ -3015,6 +3015,8 @@ else {
   process.stdout.write('\\x1b]2;⠋ codex\\x07');
   process.stdin.on('data', data => {
     if (data.toString().includes('a')) process.stdout.write('\\x1b]2;Action Required | codex\\x07');
+    if (data.toString().includes('w')) process.stdout.write('\\x1b]2;⠋ codex\\x07');
+    if (data.toString().includes('d')) process.stdout.write('\\x1b[2J\\x1b[HFinished.\\x1b]2;codex\\x07');
     if (data.toString().includes('i')) process.stdout.write('\\x1b[2J\\x1b[HWhich file should I edit?\\x1b]2;codex\\x07');
   });
 }
@@ -3068,9 +3070,30 @@ else {
   await expect(row).toContainText("Approval requested");
   await expect(row).toContainText("rules:codex:osc_title_blocked");
   await page.evaluate((id) => window.desktop.input(id, "i"), id);
+  await expect(row).toContainText("Agent asks a question");
+  await expect(row).toHaveAttribute("data-state", "needs_input");
+  await page.evaluate((id) => window.desktop.input(id, "w"), id);
   await expect(row).toHaveAttribute("data-state", "working");
-  await expect(row).toContainText("Agent turn ended; checking output");
-  await expect(row).toContainText("rules:codex:osc_title_idle");
+  await expect
+    .poll(() =>
+      page.evaluate(
+        async () =>
+          (await window.desktop.workspace()).terminals.find((entry) => entry.kind === "agent").state
+            .agentWorking,
+      ),
+    )
+    .toBe(true);
+  await page.evaluate((id) => window.desktop.input(id, "d"), id);
+  await expect(row).toHaveAttribute("data-state", "done");
+  await expect
+    .poll(() =>
+      page.evaluate(
+        async () =>
+          (await window.desktop.workspace()).terminals.find((entry) => entry.kind === "agent").state
+            .agentWorking,
+      ),
+    )
+    .toBe(false);
 });
 
 test("Settings shares live preflight values, sizes the terminal and restores keyboard focus", async (context) => {
@@ -3895,9 +3918,20 @@ test("soundscape sends one attention cadence and one completion to a fake audio 
       page.evaluate(async () => (await window.desktop.tail(window.soundTerminal, 40)).join("\n")),
     )
     .not.toContain("INPUT_READY");
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("region", { name: "Settings" })).toBeHidden();
+  await app.evaluate(({ BrowserWindow }) =>
+    BrowserWindow.getAllWindows()
+      .find((window) => window.webContents.getURL() === "app://bundle/index.html")
+      .focus(),
+  );
+  await page.locator(".xterm-helper-textarea").focus();
+  await expect.poll(() => page.evaluate(() => document.hasFocus())).toBe(true);
   await page.evaluate(() => window.desktop.input(window.soundTerminal, "exit\r"));
   await expect(page.locator(".board-row")).toHaveAttribute("data-state", "done");
   await expect.poll(() => page.evaluate(() => window.soundTones)).toEqual([880, 880, 660]);
+  await boardCommand(app, ",", false);
+  await page.getByRole("button", { name: "Sound", exact: true }).click();
   await page.getByLabel("Alerts on", { exact: true }).uncheck();
   await expect
     .poll(() =>

@@ -1,5 +1,6 @@
 export type BoardState = "working" | "checking" | "needs_input" | "done" | "failed" | "quiet_ok";
 export interface BoardRow {
+  agentWorking?: boolean;
   id: string;
   managed?: boolean;
   repositoryPath?: string;

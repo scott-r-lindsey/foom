@@ -16,10 +16,11 @@ beforeEach(() => {
 afterEach(() => vi.useRealTimers());
 const row = (id: string): BoardRow => ({
   id,
-  kind: "shell",
+  kind: "agent",
+  agentWorking: true,
   repository: "repo",
   branch: "main",
-  agent: "Shell",
+  agent: "claude",
   state: "working",
   reason: "",
   rate: 0,
@@ -103,14 +104,15 @@ test("debounces close verdicts without losing a settled completion", async () =>
   expect(f.sink.alert).toHaveBeenCalledTimes(2);
   f.dispose();
 });
-test("mutes the focused terminal, consumes completion and postpones attention after leaving", async () => {
+test("announces focused completion once but postpones focused attention reminders", async () => {
   const f = await fixture();
   f.focus("a");
   f.source.update("a", { state: "done" });
   vi.advanceTimersByTime(1000);
   f.focus();
   vi.advanceTimersByTime(REPEAT_MS);
-  expect(f.sink.alert).not.toHaveBeenCalled();
+  expect(f.sink.alert).toHaveBeenCalledExactlyOnceWith("done", 0.5, SOUNDSCAPES.drive);
+  f.sink.alert.mockClear();
   f.focus("a");
   f.source.update("a", { state: "needs_input" });
   vi.advanceTimersByTime(1000);
@@ -132,7 +134,11 @@ test("applies mute and volumes, mixes activity, removes closed sessions and unsu
     alerts: false,
     soundscape: "soft",
   });
-  expect(f.sink.working).toHaveBeenLastCalledWith(activityIntensity([1000]), 0.2, SOUNDSCAPES.soft);
+  expect(f.sink.working).toHaveBeenLastCalledWith(
+    activityIntensity([1000, 100]),
+    0.2,
+    SOUNDSCAPES.soft,
+  );
   f.source.update("b", { state: "needs_input" });
   vi.advanceTimersByTime(2000);
   expect(f.sink.alert).not.toHaveBeenCalled();
@@ -181,4 +187,42 @@ test("waits for settings, ignores stale loads, handles failure and disposal duri
   finish?.(setupState());
   await Promise.resolve();
   expect(late.sink.working).not.toHaveBeenCalled();
+});
+
+test("only confirmed working agents contribute, including silent thinking", async () => {
+  const f = await fixture(Promise.resolve(setupState()), [
+    { ...row("a"), rate: 0 },
+    { ...row("b"), kind: "shell", rate: 50000 },
+    { ...row("c"), agentWorking: false, rate: 50000 },
+  ]);
+  f.settings({ ...DEFAULT_SOUND, working: true });
+  expect(f.sink.working).toHaveBeenLastCalledWith(
+    activityIntensity([100]),
+    0.15,
+    SOUNDSCAPES.drive,
+  );
+  for (const state of ["needs_input", "done", "quiet_ok"] as const) {
+    f.source.update("a", { state, agentWorking: false });
+    f.source.setActivity("a", 50000);
+    vi.advanceTimersByTime(100);
+    expect(f.sink.working).toHaveBeenLastCalledWith(0, 0.15, SOUNDSCAPES.drive);
+  }
+  f.source.update("a", { state: "working", agentWorking: true, exited: true });
+  f.source.setActivity("a", 50000);
+  vi.advanceTimersByTime(100);
+  expect(f.sink.working).toHaveBeenLastCalledWith(0, 0.15, SOUNDSCAPES.drive);
+  f.dispose();
+});
+
+test("checking does not replay an already announced completion", async () => {
+  const f = await fixture();
+  f.source.update("a", { state: "done", agentWorking: false });
+  vi.advanceTimersByTime(1000);
+  expect(f.sink.alert).toHaveBeenCalledOnce();
+  f.source.update("a", { state: "checking" });
+  vi.advanceTimersByTime(2000);
+  f.source.update("a", { state: "done" });
+  vi.advanceTimersByTime(2000);
+  expect(f.sink.alert).toHaveBeenCalledOnce();
+  f.dispose();
 });

@@ -28,6 +28,9 @@ import type { WorktreeService } from "./worktrees";
 
 type Agents = Pick<AgentService, "scan" | "launch" | "release" | "dispose" | "setHooksEnabled">;
 type Terminal = {
+  agentWorking?: boolean;
+  turnActive?: boolean;
+  turnEnded?: boolean;
   evidence?: AgentEvidence;
   shellRunning?: boolean;
   exitCode?: number;
@@ -606,7 +609,17 @@ export class Workspace {
   }
 
   private publish(id: string, terminal: Terminal, state: Omit<TerminalState, "id" | "timestamp">) {
-    terminal.state = { id, ...state, timestamp: this.now() };
+    terminal.state = {
+      id,
+      ...state,
+      timestamp: this.now(),
+      ...(terminal.agentWorking === undefined
+        ? {}
+        : {
+            agentWorking:
+              terminal.agentWorking && (state.state === "working" || state.state === "checking"),
+          }),
+    };
     this.deps.onState(terminal.state);
   }
 
@@ -648,6 +661,7 @@ export class Workspace {
       record = await this.deps.verdicts.classify({
         terminalId: id,
         tail,
+        ...(terminal.turnEnded ? { turnEnded: true } : {}),
         ...this.agentInput(id, terminal),
         ...(terminal.hook ? { hook: terminal.hook } : {}),
         ...(terminal.exitCode !== undefined ? { exitCode: terminal.exitCode } : {}),
@@ -674,6 +688,17 @@ export class Workspace {
       }
     }
     if (stale()) return;
+    if (
+      this.launched.get(id)?.kind === "agent" &&
+      record.verdict.state === "working" &&
+      record.verdict.confidence >= 0.9 &&
+      record.verdict.signal.startsWith("rules:") &&
+      !terminal.turnEnded &&
+      !terminal.hook
+    ) {
+      terminal.agentWorking = true;
+      terminal.turnActive = true;
+    }
     if (
       terminal.state?.verdictId &&
       terminal.state.state === record.verdict.state &&
@@ -732,6 +757,7 @@ export class Workspace {
       terminal.exitCode !== undefined ||
       terminal.hook ||
       terminal.shellRunning === false ||
+      (this.launched.get(id)?.kind === "agent" && terminal.agentWorking !== undefined) ||
       terminal.state?.state === "working"
     )
       return;
@@ -764,6 +790,17 @@ export class Workspace {
     const next = detectAgent(agent, evidence, []);
     if (!next || (previous?.id === next.id && previous.state === next.state))
       return Promise.resolve();
+    if (next.state === "working") {
+      terminal.agentWorking = true;
+      terminal.turnActive = true;
+      terminal.turnEnded = false;
+    } else if (next.state === "idle" || next.state === "blocked") {
+      terminal.agentWorking = false;
+      if (next.state === "idle" && terminal.turnActive) {
+        terminal.turnEnded = true;
+        terminal.turnActive = false;
+      }
+    }
     return this.quiet(id);
   }
 
@@ -786,8 +823,15 @@ export class Workspace {
       // A reply since the hook fired already answered it.
       if (terminal.exitCode !== undefined || terminal.generation !== generation) return;
       // A permission request stays in force until the user replies or dismisses it;
-      // completion hooks only request classification.
-      if (signal.action === "needs_input") terminal.hook = { ...signal, terminalId: id };
+      // Completion ends execution, but classification still checks for requests.
+      if (signal.action === "needs_input") {
+        terminal.agentWorking = false;
+        terminal.hook = { ...signal, terminalId: id };
+      } else if (signal.signal === "claude:Stop" || signal.signal === "codex:agent-turn-complete") {
+        terminal.agentWorking = false;
+        terminal.turnActive = false;
+        terminal.turnEnded = true;
+      }
       await this.evaluate(id, terminal, generation);
     });
   }
@@ -799,6 +843,7 @@ export class Workspace {
     return this.enqueue(id, async (terminal) => {
       if (terminal.exitCode !== undefined) return;
       terminal.exitCode = code;
+      terminal.agentWorking = false;
       delete terminal.hook;
       await this.evaluate(id, terminal);
     });
@@ -822,6 +867,7 @@ export class Workspace {
     const terminal = this.terminals.get(id);
     if (!terminal) return;
     terminal.generation += 1;
+    terminal.turnEnded = false;
     delete terminal.hook;
     const state = terminal.state;
     if (state?.state !== "needs_input") return;
