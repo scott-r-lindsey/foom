@@ -1,3 +1,4 @@
+import { AgyPlugin } from "./agy-plugin";
 import { cliGuidance } from "./cli-launch";
 import { prepareMcpLaunch, supportsMcp } from "./mcp-launch";
 import { codexHookArguments } from "./codex-hooks";
@@ -164,6 +165,7 @@ export class AgentService {
       worktree: string,
       sessionId?: string,
     ) => Promise<ControlLaunch>,
+    private readonly agyPlugin = new AgyPlugin(),
   ) {}
 
   private ensureOpen(): void {
@@ -176,7 +178,22 @@ export class AgentService {
 
   async scan(): Promise<AgentScan> {
     const resolved = await loginPath();
-    const agents = await Promise.all(ids.map((id) => detect(id, resolved.path)));
+    const agents = await Promise.all(
+      ids.map(async (id) => {
+        const agent = await detect(id, resolved.path);
+        if (id !== "agy" || !agent.path) return agent;
+        const agyPlugin = await this.agyPlugin.status(agent.path);
+        return {
+          ...agent,
+          agyPlugin,
+          hooks: agyPlugin.state === "installed" || agyPlugin.state === "outdated",
+          reason:
+            agyPlugin.state === "installed" || agyPlugin.state === "outdated"
+              ? "Opt-in Foom plugin installed."
+              : "Plugin unavailable or disabled; using output evaluation.",
+        };
+      }),
+    );
     const result = Object.freeze({
       ...resolved,
       agents: Object.freeze(agents.map((agent) => Object.freeze(agent))),
@@ -300,7 +317,7 @@ export class AgentService {
               },
             }),
           );
-        } else {
+        } else if (agent.id === "codex") {
           if (agent.codexLifecycle && binding.codexHookCommand)
             args.push(...codexHookArguments(binding.codexHookCommand));
           if (notify) args.push("-c", `notify=${JSON.stringify(binding.codexCommand)}`);

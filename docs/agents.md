@@ -179,7 +179,7 @@ The tested `agy --help` includes `-p`/`--print`, JSON and stream-JSON output, `-
 
 Hooks also exist: `PreToolUse`, `PostToolUse`, `PreInvocation`, `PostInvocation`, and `Stop`. Stop receives JSON on stdin with `executionNum`, `terminationReason`, optional `error`, `fullyIdle`, and common conversation/workspace metadata. Documented installation locations are workspace `.agents/hooks.json`, global configuration, or installed plugins. No Notification event or per-launch settings/hook flag was established by the docs or installed help. [Lifecycle hooks](https://www.antigravity.google/docs/hooks/)
 
-Recommendation: keep output evaluation until a supported invocation-scoped hook mechanism is verified. Do not install a plugin or write workspace/global hook files merely to attach Foom. Headless support alone does not add Antigravity to the product's inference-source choices; tool isolation and end-to-end behavior remain unverified.
+The opt-in lifecycle plugin in #178 is the scoped exception to invocation-only attachment. Foom never installs it silently or writes Antigravity configuration directly; Settings calls the plugin CLI after explicit disclosure. Headless support alone does not add Antigravity to the product's inference-source choices; tool isolation and end-to-end behavior remain unverified.
 
 Interactive permission prompts cover actions requiring a grant, depending on rules and sandbox settings. Treat those as Needs you. Foom never adds `--dangerously-skip-permissions` itself; users may explicitly save it as a default after the bypass disclosure. Exact prompt text is not a stable interface. [Permissions](https://www.antigravity.google/docs/permissions/)
 
@@ -359,6 +359,61 @@ invalidates that observation. Late events from older launches cannot overwrite a
 newer launch's health. If hooks subsequently fail, title rules remain available in
 the current launch; later launches restore notify and its existing disclosure.
 No user or repository Codex configuration, plugins or trust entries are edited.
+
+
+## Opt-in Antigravity lifecycle plugin (#178)
+
+Linux probe on 2026-10-08, installed Antigravity **1.3.1**. All plugin mutations
+ran with a disposable HOME and XDG directories beneath the development worktree;
+the user's global configuration was unchanged. `agy plugin install <directory>`
+copied `plugin.json`, `hooks.json` and observer files into
+`~/.gemini/config/plugins/foom`. No trust prompt appeared. `plugin uninstall foom`
+removed that installation; `plugin disable foom` changed the CLI-owned enabled
+preference. `plugin list` returned JSON with `imports` (or `No imported plugins.`),
+but omitted plugin version and enabled state. Foom therefore reads bounded, fixed
+manifest/config paths for status and uses argument-array CLI calls for all changes.
+It refuses to replace or remove an unrecognized plugin named `foom`.
+
+A real synthetic `--print` turn (“Reply with exactly OK. Do not use tools.”)
+completed in 2.46 seconds. PreInvocation arrived first, Stop 2.43 seconds later.
+Both received the three FOOM launch environment variables, and both returned `{}`.
+The turn completed successfully, establishing that an empty Stop result allows stopping.
+A repeat with the bundled detached observer and ordering counter completed in 1.96 seconds;
+PreInvocation and Stop arrived with sequence numbers 1 and 2.
+The observer recorded only field names and lifecycle metadata, never model output,
+workspace paths or transcript contents.
+
+The embedded guide differs from observed behavior: its Stop example says
+`terminationReason: "model_stop"`, but 1.3.1 sent **`"NO_TOOL_CALL"`** with
+`fullyIdle: true`. The receiver accepts that measured alias and normalizes it to
+`model_stop`; it also validates the documented `error` and `max_steps_exceeded`
+values. Unknown values fail closed. An error or step limit is failure evidence;
+a model stop completes only when fully idle. Background work keeps Working.
+PreInvocation and PostToolUse establish Working; screen rules still detect blocking.
+No PreToolUse or permission-decision handler is registered.
+
+The bundled versioned plugin contains no credentials. Without all three launch
+variables its observer returns `{}` without reading stdin or contacting Foom.
+With credentials it returns `{}` first, bounds stdin, and starts an independent
+one-second transport. POSIX uses sh/curl; Windows uses PowerShell launched through
+`cmd /c`, with a detached transport process and redirected standard handles.
+Handlers have a three-second deadline. A private per-launch counter contains only
+an integer, never credentials; observers allocate its sequence before detaching.
+The receiver ignores duplicate or older reports so a delayed working event cannot
+undo Stop and an old Stop cannot end a newer turn. Counter failure drops the report
+without blocking the agent. The receiver authenticates each launch,
+pins conversation identity, and discards all fields except the fixed event and
+validated completion facts. Antigravity conversation resumption remains unavailable.
+
+Native Windows tests exercise `cmd /c`, Windows PowerShell, inherited credentials,
+literal UTF-8 stdin and detached reporting. The first CI run caught use of
+`ProcessStartInfo.StandardInputEncoding`, which Windows PowerShell's .NET Framework
+does not provide; the observer now writes UTF-8 bytes to the child's input stream.
+The unresponsive-receiver case also caught inherited PowerShell host handles keeping
+the caller pipes open. The worker uses an explicit native handle allowlist containing
+only its input pipe and NUL output, so it cannot inherit the agent's output handles.
+Real Windows CLI timing and plugin trust behavior remain unmeasured; the real-client
+measurements above are Linux-only.
 
 ## Read-only review launches (#114)
 

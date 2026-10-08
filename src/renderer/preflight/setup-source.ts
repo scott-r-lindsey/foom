@@ -11,6 +11,7 @@ export function createSetupSource(): SetupSource {
       desktop.checkInference(id, config, timeoutMs, onUpdate),
     cancel: (id) => desktop.cancelInferenceCheck(id),
     models: (endpoint) => desktop.localModels(endpoint),
+    changeAgyPlugin: (action) => desktop.changeAgyPlugin(action),
     scanAgents: (refresh) => desktop.scanAgents(refresh),
     repositories: async () => (await desktop.workspace()).repositories,
     subscribe: (listener) => desktop.onSetupChange(listener),

@@ -1,3 +1,4 @@
+import { AgyPlugin } from "../../../../src/main/agents/agy-plugin";
 import { CodexHookStatus } from "../../../../src/main/agents/codex-hook-status";
 import type { ConfirmWorkspace } from "../../../../src/shared/confirmation";
 import type { ExecutionTransition } from "../../../../src/shared/execution";
@@ -395,7 +396,7 @@ test("a failed reply record is logged, not thrown into the input path", async ()
   });
 });
 
-test("hook preparation starts the receiver once, retries a failed start, and refuses agy", async () => {
+test("hook preparation starts the receiver once, retries a failed start, and gives agy per-launch credentials", async () => {
   const workspace = new Workspace(deps);
   startReceiver.mockRejectedValueOnce(new Error("port"));
   await expect(prepare?.("claude")).rejects.toThrow("port");
@@ -404,7 +405,9 @@ test("hook preparation starts the receiver once, retries a failed start, and ref
   expect(startReceiver).toHaveBeenCalledTimes(2);
   expect(first?.claudeCommand).toMatch(/^sh '.*claude\.sh'$/u);
   expect(second?.codexCommand.at(-1)).toMatch(/codex\.sh$/u);
-  await expect(prepare?.("agy")).rejects.toThrow("Antigravity hooks are not supported");
+  const agy = await prepare?.("agy");
+  expect(agy?.env["FOOM_TOKEN"]).toBeDefined();
+  agy?.dispose();
   first?.dispose();
   second?.dispose();
   await workspace.dispose();
@@ -2607,6 +2610,86 @@ test("one slow remote does not delay another repository's inventory or eligibili
   await workspace.dispose();
 });
 
+test("plugin operations resolve the CLI in main and invalidate discovery on both success and failure", async () => {
+  const workspace = new Workspace(deps);
+  const change = vi.spyOn(AgyPlugin.prototype, "change").mockResolvedValue();
+  try {
+    await expect(workspace.changeAgyPlugin("install")).rejects.toThrow(
+      "Antigravity is not installed",
+    );
+    agents.scan.mockResolvedValue({
+      ...scan,
+      agents: [
+        {
+          id: "agy",
+          path: "/resolved/agy",
+          version: "1.3.1",
+          hooks: false,
+          reason: "plugin missing",
+        },
+      ],
+    });
+    await workspace.changeAgyPlugin("install");
+    expect(change).toHaveBeenCalledWith("/resolved/agy", "install");
+    change.mockRejectedValueOnce(new Error("CLI failed"));
+    await expect(workspace.changeAgyPlugin("remove")).rejects.toThrow("CLI failed");
+    const count = agents.scan.mock.calls.length;
+    await workspace.scanAgents(false);
+    expect(agents.scan).toHaveBeenCalledTimes(count + 1);
+  } finally {
+    change.mockRestore();
+    await workspace.dispose();
+  }
+});
+
+test("Antigravity completion and failure evidence survives quiet output, clears on progress and is revoked on disposal", async () => {
+  agents.scan.mockResolvedValue({
+    ...scan,
+    agents: [{ id: "agy", path: "/bin/agy", version: "1.3.1", hooks: true, reason: "installed" }],
+  });
+  const workspace = new Workspace(deps);
+  await workspace.launch({
+    agent: "agy",
+    repository: repo.path,
+    worktree: tree.path,
+    cols: 80,
+    rows: 24,
+  });
+  const hooks = await prepare?.("agy");
+  hooks?.bind?.("t1");
+  const key = receiver.register.mock.calls.at(-1)?.[0];
+  if (!key) throw new Error("No hook key");
+  tails.set("t1", ["plain text"]);
+  await workspace.hook({ terminalId: key, action: "working", signal: "agy:PreInvocation" });
+  await workspace.hook({
+    terminalId: key,
+    action: "classify",
+    signal: "agy:Stop",
+    terminationReason: "model_stop",
+    fullyIdle: true,
+  });
+  expect(states.at(-1)?.state).toBe("done");
+  await workspace.hook({ terminalId: key, action: "working", signal: "agy:PostToolUse" });
+  await workspace.hook({
+    terminalId: key,
+    action: "failed",
+    signal: "agy:Stop",
+    terminationReason: "error",
+    fullyIdle: false,
+  });
+  expect(states.at(-1)?.state).toBe("failed");
+  await workspace.quiet("t1");
+  expect(states.at(-1)?.state).toBe("failed");
+  await workspace.hook({ terminalId: key, action: "working", signal: "agy:PreInvocation" });
+  await workspace.quiet("t1");
+  expect(states.at(-1)?.state).toBe("working");
+  hooks?.dispose();
+  const count = states.length;
+  await workspace.hook({ terminalId: key, action: "failed", signal: "agy:Stop" });
+  expect(states).toHaveLength(count);
+  await workspace.dispose();
+});
+
 test("review uses another live agent, isolates verdicts and retains read-only mode on relaunch", async () => {
   const workspace = await launched();
   agents.launch.mockResolvedValue({ id: "reviewer", attention: "hooks" });
@@ -2662,4 +2745,44 @@ test("review rejects stale targets and the same agent without starting anything"
     workspace.sidebarCommand({ ...command, run: "codex" }, () => Promise.resolve(true)),
   ).rejects.toThrow("No other agent");
   expect(agents.launch).toHaveBeenCalledTimes(1);
+});
+
+test("fully idle Antigravity Stop recovers a turn whose working report was overtaken", async () => {
+  agents.scan.mockResolvedValue({
+    ...scan,
+    agents: [{ id: "agy", path: "/bin/agy", version: "1.3.1", hooks: true, reason: "installed" }],
+  });
+  const workspace = new Workspace(deps);
+  await workspace.launch({
+    agent: "agy",
+    repository: repo.path,
+    worktree: tree.path,
+    cols: 80,
+    rows: 24,
+  });
+  const hooks = await prepare?.("agy");
+  hooks?.bind?.("t1");
+  const key = receiver.register.mock.calls.at(-1)?.[0];
+  if (!key) throw new Error("No key");
+  const stop = {
+    terminalId: key,
+    action: "classify",
+    signal: "agy:Stop",
+    terminationReason: "model_stop",
+    fullyIdle: true,
+  } as const;
+  try {
+    tails.set("t1", ["plain answer"]);
+    await workspace.hook(stop);
+    expect(states.at(-1)?.state).toBe("done");
+    expect(workspace.snapshot().terminals[0]?.execution).toMatchObject({ phase: "idle", turn: 1 });
+    await workspace.hook(stop);
+    expect(workspace.snapshot().terminals[0]?.execution).toMatchObject({ phase: "idle", turn: 2 });
+    tails.set("t1", ["Continue? (y/n)"]);
+    await workspace.hook(stop);
+    expect(states.at(-1)?.state).toBe("needs_input");
+  } finally {
+    hooks?.dispose();
+    await workspace.dispose();
+  }
 });

@@ -37,6 +37,7 @@ const workspace = {
   addRepository: vi.fn((path: string) => Promise.resolve({ path, name: "app" })),
   worktrees: vi.fn(() => Promise.resolve([])),
   createWorktree: vi.fn(() => Promise.resolve({ path: "/t" })),
+  changeAgyPlugin: vi.fn(() => Promise.resolve({ warning: null, agents: [] })),
   scanAgents: vi.fn(() => Promise.resolve({ warning: null, agents: [] })),
   launch: vi.fn((_request: unknown) => Promise.resolve({ id: "t1", attention: "evaluator" })),
   feedback: vi.fn(() => Promise.resolve()),
@@ -72,6 +73,7 @@ test("rejects untrusted senders on every channel", () => {
     "workspace:worktrees",
     "workspace:create-worktree",
     "agents:scan",
+    "agents:agy-plugin",
     "agents:launch",
     "terminal:feedback",
   ]);
@@ -371,3 +373,19 @@ test.each(["trusted", "destroyed", "navigated"])(
     else expect(requestDialog).not.toHaveBeenCalled();
   },
 );
+
+test("Antigravity plugin IPC accepts only one fixed operation, never paths or CLI arguments", async () => {
+  for (const action of ["install", "update", "enable", "remove"]) {
+    await invoke("agents:agy-plugin", [action]);
+    expect(workspace.changeAgyPlugin).toHaveBeenLastCalledWith(action);
+  }
+  for (const args of [
+    [],
+    ["install", "/untrusted/plugin"],
+    ["uninstall"],
+    [{ action: "install" }],
+    [null],
+    ["install;touch bad"],
+  ])
+    expect(() => invoke("agents:agy-plugin", args)).toThrow("Invalid plugin request");
+});

@@ -21,6 +21,13 @@ export function evaluateRules(input: EvaluationInput): Verdict {
   if (input.hook?.terminalId === input.terminalId && input.hook.action === "needs_input") {
     return verdict("needs_input", "Agent requests permission", input.hook.signal, 1);
   }
+  if (input.hook?.terminalId === input.terminalId && input.hook.action === "failed")
+    return verdict(
+      "failed",
+      "Agent execution ended with an error or step limit",
+      input.hook.signal,
+      1,
+    );
   const detected =
     input.agent && input.evidence
       ? detectAgent(input.agent, input.evidence, input.tail)
