@@ -738,6 +738,10 @@ View accepts bounded tile counts and booleans solely for presentation availabili
 and the maximize checkmark. The board source exposes this small typed capability.
 The renderer reuses RowMenu's keyboard navigation, portal and dismissal behavior.
 Menu selection and native shortcuts dispatch identical main-owned actions.
+Application-menu actions dismiss before dispatch, independently of row-action
+confirmation cancellation. They restore the previous focus and selection first,
+so native editing targets the original input; navigation commands then own their
+destination focus. Escape continues to return focus to the wordmark.
 Development commands are omitted when packaged; packaged webContents also set
 `devTools: false`. Quit and Close Window go through the existing confirmed shutdown.
 

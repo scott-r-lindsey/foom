@@ -19,7 +19,10 @@ export function RowMenu({
   confirmations,
   placement = "right",
   label = "Actions",
+  onAction,
 }: {
+  /** Overrides confirmation handling; the caller owns dismissal, focus and dispatch. */
+  onAction?: (action: RowAction) => void;
   placement?: "right" | "below";
   label?: string;
   anchor: HTMLButtonElement;
@@ -123,6 +126,10 @@ export function RowMenu({
               onPointerLeave={confirmation.cancel}
               onBlur={confirmation.cancel}
               onClick={() => {
+                if (onAction) {
+                  onAction(action);
+                  return;
+                }
                 if (confirmation.pending && selected !== index) {
                   confirmation.cancel();
                   return;

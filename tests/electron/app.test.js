@@ -4564,9 +4564,12 @@ test("application menu uses the command registry and supports native keyboard ac
       }, keyCode);
     await expect(filter).toHaveValue("");
     const paste = () =>
-      app.evaluate(({ Menu, BrowserWindow }) => {
-        const item = Menu.getApplicationMenu().getMenuItemById("paste");
-        item.click(item, BrowserWindow.getFocusedWindow(), {});
+      app.evaluate(({ Menu }) => {
+        // macOS roles execute natively; MenuItem.click() intentionally skips them.
+        // https://github.com/electron/electron/blob/v44.4.5/lib/browser/api/menu-item-roles.ts
+        if (Menu.getApplicationMenu().getMenuItemById("paste").role !== "paste")
+          throw new Error("Missing Paste role");
+        Menu.sendActionToFirstResponder("paste:");
       });
     await paste();
     await expect(filter).toHaveValue("menu edit probe");
@@ -4619,4 +4622,58 @@ test("application menu uses the command registry and supports native keyboard ac
     await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].isMenuBarVisible()),
     false,
   );
+});
+
+test("application menu restores the edit target and selection before Paste", {
+  timeout: deadline(45000),
+  skip: process.platform === "darwin",
+}, async (context) => {
+  const app = await launchApp(context);
+  const page = await boardPage(app);
+  const filter = page.getByRole("textbox", { name: "Filter repositories and sessions" });
+  await filter.fill("before");
+  await filter.evaluate((input) => input.setSelectionRange(2, 5));
+  await app.evaluate(({ clipboard }) => clipboard.writeText("AFTER"));
+  await page.getByRole("button", { name: "Foom menu" }).click();
+  await page.getByRole("menuitem", { name: /^Paste/ }).click();
+  await expect(filter).toHaveValue("beAFTERe");
+  await expect(filter).toBeFocused();
+  await expect(page.getByRole("menu", { name: "Foom" })).toHaveCount(0);
+  await filter.evaluate((input) => input.setSelectionRange(2, 7));
+  await app.evaluate(({ clipboard }) => clipboard.writeText("STALE"));
+  await page.getByRole("button", { name: "Foom menu" }).click();
+  await page.getByRole("menuitem", { name: /^Copy/ }).click();
+  await expect.poll(() => app.evaluate(({ clipboard }) => clipboard.readText())).toBe("AFTER");
+  await expect(filter).toBeFocused();
+  await filter.fill("");
+  const input = page.locator(".xterm-helper-textarea");
+  await input.focus();
+  const command =
+    process.platform === "win32"
+      ? 'Write-Output ("MENU_" + "PASTE_TARGET")'
+      : "printf 'MENU_%s\\n' PASTE_TARGET";
+  await app.evaluate(({ clipboard }, text) => clipboard.writeText(text), command);
+  await page.getByRole("button", { name: "Foom menu" }).click();
+  await page.getByRole("menuitem", { name: /^Paste/ }).click();
+  await expect(input).toBeFocused();
+  await page.keyboard.press("Enter");
+  await expect(page.locator(".xterm-rows")).toContainText("MENU_PASTE_TARGET");
+});
+
+test("application menu closes before focus commands and keeps their destination focused", {
+  timeout: deadline(45000),
+  skip: process.platform === "darwin",
+}, async (context) => {
+  const app = await launchApp(context);
+  const page = await boardPage(app);
+  const menu = page.getByRole("menu", { name: "Foom" });
+  const trigger = page.getByRole("button", { name: "Foom menu" });
+  await trigger.click();
+  await page.getByRole("menuitem", { name: /^Focus sidebar/ }).click();
+  await expect(menu).toHaveCount(0);
+  await expect(page.locator(".board-row")).toBeFocused();
+  await trigger.click();
+  await page.getByRole("menuitem", { name: /^Focus tile 1 / }).click();
+  await expect(menu).toHaveCount(0);
+  await expect(page.locator(".xterm-helper-textarea")).toBeFocused();
 });

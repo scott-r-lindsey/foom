@@ -62,11 +62,12 @@ test("wordmark opens a menu below it, skips disabled actions and restores keyboa
     expect(f.api.execute).toHaveBeenCalledWith("maximize");
     expect(screen.queryByRole("menu")).toBeNull();
   });
-  expect(document.activeElement).toBe(button);
+  expect(document.activeElement).not.toBe(button);
   act(f.open);
   await screen.findByRole("menu");
   fireEvent.keyDown(screen.getByRole("menu"), { key: "Escape" });
   expect(screen.queryByRole("menu")).toBeNull();
+  expect(document.activeElement).toBe(button);
   fireEvent.click(button);
   await screen.findByRole("menu");
   fireEvent.click(button);
@@ -94,6 +95,108 @@ test("macOS and sources without a menu keep the wordmark; failed or stale loads 
   view.unmount();
   await act(async () => {
     resolve([]);
+    await Promise.resolve();
+  });
+  expect(screen.queryByRole("menu")).toBeNull();
+});
+
+test("restores the original input selection before dispatch and reports command failures", async () => {
+  const f = fixture();
+  const view = render(
+    <>
+      <input aria-label="Edit target" defaultValue="before" />
+      <AppMenu api={f.api} />
+    </>,
+  );
+  const input = screen.getByRole<HTMLInputElement>("textbox");
+  input.focus();
+  input.setSelectionRange(2, 5, "backward");
+  const trigger = screen.getByRole("button", { name: "Foom menu" });
+  expect(fireEvent.pointerDown(trigger, { button: 0 })).toBe(false);
+  expect(fireEvent.pointerDown(trigger, { button: 2 })).toBe(true);
+  fireEvent.click(trigger);
+  await screen.findByRole("menu");
+  // A second keyboard open must not replace the saved target with a menu button.
+  act(f.open);
+  await act(async () => {
+    await Promise.resolve();
+  });
+  input.setSelectionRange(0, 0);
+  vi.mocked(f.api.execute).mockImplementation(() => {
+    expect(document.activeElement).toBe(input);
+    expect([input.selectionStart, input.selectionEnd, input.selectionDirection]).toEqual([
+      2,
+      5,
+      "backward",
+    ]);
+    return Promise.reject(new Error("Unavailable command"));
+  });
+  fireEvent.click(screen.getByRole("menuitem", { name: /Settings/ }));
+  expect(screen.queryByRole("menu")).toBeNull();
+  await screen.findByRole("alert");
+  expect(document.activeElement).toBe(input);
+  view.unmount();
+});
+test("dismisses before asynchronous focus-changing actions and never refocuses the wordmark", async () => {
+  const f = fixture();
+  render(
+    <>
+      <textarea aria-label="Terminal" />
+      <button type="button">Sidebar row</button>
+      <AppMenu api={f.api} />
+    </>,
+  );
+  const terminal = screen.getByRole<HTMLTextAreaElement>("textbox");
+  terminal.focus();
+  act(f.open);
+  await screen.findByRole("menu");
+  let finish = () => {};
+  vi.mocked(f.api.execute).mockImplementation(() => {
+    screen.getByRole("button", { name: "Sidebar row" }).focus();
+    return new Promise<void>((resolve) => {
+      finish = resolve;
+    });
+  });
+  fireEvent.click(screen.getByRole("menuitemcheckbox"));
+  expect(screen.queryByRole("menu")).toBeNull();
+  expect(document.activeElement?.textContent).toBe("Sidebar row");
+  await act(async () => {
+    finish();
+    await Promise.resolve();
+  });
+  expect(document.activeElement?.textContent).toBe("Sidebar row");
+});
+test("restores document selections and tolerates an edit target removed while the menu is open", async () => {
+  const f = fixture();
+  const target = document.createElement("div");
+  target.tabIndex = 0;
+  target.textContent = "selected terminal output";
+  document.body.append(target);
+  render(<AppMenu api={f.api} />);
+  target.focus();
+  const range = document.createRange();
+  range.selectNodeContents(target);
+  const selection = window.getSelection();
+  selection?.removeAllRanges();
+  selection?.addRange(range);
+  act(f.open);
+  await screen.findByRole("menu");
+  selection?.removeAllRanges();
+  vi.mocked(f.api.execute).mockImplementation(() => {
+    expect(document.activeElement).toBe(target);
+    expect(selection?.toString()).toBe("selected terminal output");
+    return Promise.resolve();
+  });
+  fireEvent.click(screen.getByRole("menuitemcheckbox"));
+  await act(async () => {
+    await Promise.resolve();
+  });
+  act(f.open);
+  await screen.findByRole("menu");
+  target.remove();
+  vi.mocked(f.api.execute).mockResolvedValue(undefined);
+  fireEvent.click(screen.getByRole("menuitemcheckbox"));
+  await act(async () => {
     await Promise.resolve();
   });
   expect(screen.queryByRole("menu")).toBeNull();
