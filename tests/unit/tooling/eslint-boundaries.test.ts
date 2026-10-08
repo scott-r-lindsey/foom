@@ -18,6 +18,10 @@ function lint(file: string, code: string) {
 }
 
 test.each([
+  ["cli/example.ts", 'import "../main/main";'],
+  ["cli/example.ts", 'import "electron";'],
+  ["node-common/example.ts", 'import "electron";'],
+  ["renderer/example.ts", 'import "../node-common/private-files";'],
   ["renderer/board/example.ts", 'import { Workspace } from "../../main/workspace/workspace";'],
   ["renderer/example.ts", 'export * from "../main/setup/settings";'],
   ["renderer/example.ts", 'import("../terminal-host/terminal-manager");'],
@@ -42,6 +46,8 @@ test.each([
 test.each([
   ["renderer/example.ts", 'import { TerminalColors } from "../shared/terminal-colors";'],
   ["renderer/example.ts", 'import { Board } from "./board/board-view";'],
+  ["cli/example.ts", 'import "../node-common/private-files";'],
+  ["main/example.ts", 'import "../node-common/private-files";'],
   ["main/example.ts", 'import { app } from "electron";'],
   ["main/example.ts", 'import { readFile } from "node:fs/promises";'],
   ["terminal-host/example.ts", 'import { Terminal } from "@xterm/headless";'],

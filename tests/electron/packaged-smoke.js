@@ -178,6 +178,28 @@ test("packaged utility host runs native PTYs with RunAsNode disabled", {
         ),
       )
       .toContain(repository);
+    const { assertCliPairing } = require("./cli-checks.js");
+    let confirmation;
+    await expect
+      .poll(() => {
+        confirmation = browser
+          .contexts()
+          .flatMap((context) => context.pages())
+          .find((candidate) => candidate.url() === "app://confirmation/confirmation.html");
+        return Boolean(confirmation);
+      })
+      .toBe(true);
+    await assertCliPairing(
+      context,
+      path.join(
+        resources,
+        "app.asar.unpacked/build/console",
+        process.platform === "win32" ? "foom.exe" : "foom",
+      ),
+      profile,
+      repository,
+      confirmation,
+    );
     const sounds = await page.evaluate(async () => {
       const context = new AudioContext();
       try {
@@ -397,4 +419,139 @@ test("packaged utility host runs native PTYs with RunAsNode disabled", {
     }
   }
   if (failure) throw failure;
+});
+
+test("packaged console helper runs without Node from relocated Unicode paths", async (context) => {
+  const { copyFileSync, chmodSync } = require("node:fs");
+  const { createHash } = require("node:crypto");
+  const root = path.join(__dirname, "../..", "out", `Foom-${process.platform}-${process.arch}`);
+  const resources =
+    process.platform === "darwin"
+      ? path.join(root, "Foom.app/Contents/Resources")
+      : path.join(root, "resources");
+  const directory = path.join(resources, "app.asar.unpacked/build/console");
+  const name = process.platform === "win32" ? "foom.exe" : "foom";
+  const helper = path.join(directory, name);
+  const manifest = JSON.parse(readFileSync(path.join(directory, "manifest.json"), "utf8"));
+  assert.equal(manifest.sha256, createHash("sha256").update(readFileSync(helper)).digest("hex"));
+  assert.match(manifest.node, /^24\./);
+  assert.ok(readFileSync(path.join(directory, "NODE-LICENSE.txt"), "utf8").includes("Node.js"));
+  const scratch = mkdtempSync(path.join(tmpdir(), "foom console 日本語 "));
+  context.after(() => rmSync(scratch, { recursive: true, force: true }));
+  const moved = path.join(scratch, name);
+  copyFileSync(helper, moved);
+  chmodSync(moved, 0o755);
+  const env = { ...process.env, PATH: scratch, NODE_OPTIONS: "--require=/foom-must-not-load-code" };
+  const { spawnSync } = require("node:child_process");
+  for (const executable of [helper, moved]) {
+    const version = spawnSync(executable, ["--version", "--json"], {
+      env,
+      encoding: "utf8",
+      timeout: deadline(5000),
+    });
+    assert.equal(version.status, 0, version.stderr);
+    assert.equal(version.stderr, "");
+    assert.deepEqual(JSON.parse(version.stdout), { version: manifest.version, protocol: 1 });
+    const invalid = spawnSync(executable, ["--unknown", "--json"], {
+      env,
+      encoding: "utf8",
+      timeout: deadline(5000),
+    });
+    assert.equal(invalid.status, 2);
+    assert.equal(invalid.stdout, "");
+    assert.deepEqual(JSON.parse(invalid.stderr), { error: "invalid_request" });
+  }
+});
+
+test("packaged CLI PATH setup is explicit, non-clobbering and reversible", async (context) => {
+  const { copyFileSync, chmodSync, readlinkSync, renameSync } = require("node:fs");
+  const { spawnSync } = require("node:child_process");
+  const root = path.join(__dirname, "../..", "out", `Foom-${process.platform}-${process.arch}`);
+  const resources =
+    process.platform === "darwin"
+      ? path.join(root, "Foom.app/Contents/Resources")
+      : path.join(root, "resources");
+  const name = process.platform === "win32" ? "foom.exe" : "foom";
+  const scratch = realpathSync.native(mkdtempSync(path.join(tmpdir(), "foom PATH 日本語 ")));
+  context.after(() => rmSync(scratch, { recursive: true, force: true }));
+  const helper = path.join(scratch, name);
+  copyFileSync(path.join(resources, "app.asar.unpacked/build/console", name), helper);
+  chmodSync(helper, 0o755);
+  const bin = path.join(scratch, "bin");
+  mkdirSync(bin);
+  const env = {
+    ...process.env,
+    PATH:
+      process.platform === "win32"
+        ? process.env.SystemRoot +
+          "\\System32;" +
+          process.env.SystemRoot +
+          "\\System32\\WindowsPowerShell\\v1.0"
+        : bin,
+  };
+  for (const key of Object.keys(env)) if (key.toUpperCase().startsWith("FOOM_")) delete env[key];
+  const run = (...args) =>
+    spawnSync(helper, args, { env, encoding: "utf8", timeout: deadline(10000), windowsHide: true });
+  if (process.platform === "win32") {
+    const powershell = path.join(
+      process.env.SystemRoot,
+      "System32/WindowsPowerShell/v1.0/powershell.exe",
+    );
+    const readPath = () =>
+      execFileSync(
+        powershell,
+        [
+          "-NoProfile",
+          "-NonInteractive",
+          "-Command",
+          "[Console]::OutputEncoding=[System.Text.Encoding]::UTF8; [Environment]::GetEnvironmentVariable('Path','User')",
+        ],
+        { encoding: "utf8" },
+      ).trimEnd();
+    const before = readPath();
+    try {
+      const installed = run("--install-cli");
+      assert.equal(installed.status, 0, installed.stderr);
+      assert.ok(readPath().split(";").includes(scratch));
+      assert.notEqual(run("--install-cli").status, 0);
+      const moved = `${scratch} moved`;
+      context.after(() => rmSync(moved, { recursive: true, force: true }));
+      renameSync(scratch, moved);
+      const removed = spawnSync(path.join(moved, name), ["--uninstall-cli"], {
+        env,
+        encoding: "utf8",
+        timeout: deadline(15000),
+        windowsHide: true,
+      });
+      assert.equal(removed.status, 0, removed.stderr);
+      assert.equal(readPath(), before);
+    } finally {
+      // Test-only recovery, even on assertion failure; production removes only owned entries.
+      execFileSync(
+        powershell,
+        [
+          "-NoProfile",
+          "-NonInteractive",
+          "-Command",
+          "[Environment]::SetEnvironmentVariable('Path',$env:FOOM_TEST_PATH,'User')",
+        ],
+        { env: { ...process.env, FOOM_TEST_PATH: before } },
+      );
+    }
+  } else {
+    const installed = run("--install-cli", bin);
+    assert.equal(installed.status, 0, installed.stderr);
+    assert.equal(readlinkSync(path.join(bin, "foom")), helper);
+    assert.notEqual(run("--install-cli", bin).status, 0);
+    const moved = path.join(scratch, "moved");
+    renameSync(helper, moved);
+    assert.ok(spawnSync(path.join(bin, "foom"), ["--version"], { env }).error);
+    const removed = spawnSync(moved, ["--uninstall-cli", bin], {
+      env,
+      encoding: "utf8",
+      timeout: deadline(5000),
+    });
+    assert.equal(removed.status, 0, removed.stderr);
+    assert.equal(existsSync(path.join(bin, "foom")), false);
+  }
 });

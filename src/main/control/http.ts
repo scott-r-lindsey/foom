@@ -1,3 +1,5 @@
+import { Pairing } from "./pairing";
+import type { PairingOptions } from "./types";
 import { ControlMcp } from "./mcp";
 import { createServer } from "node:http";
 import type { IncomingMessage, ServerResponse } from "node:http";
@@ -13,10 +15,15 @@ export class ControlHttp {
       this.receive(request, response);
     },
   );
+  private readonly pairing: Pairing | undefined;
   private readonly mcp: ControlMcp;
   private origin = "";
   private closed = false;
-  private constructor(private readonly service: ControlService) {
+  private constructor(
+    private readonly service: ControlService,
+    options?: PairingOptions,
+  ) {
+    this.pairing = options ? new Pairing(service, options) : undefined;
     this.mcp = new ControlMcp(service);
     this.server.maxConnections = 32;
     this.server.requestTimeout = 5000;
@@ -24,8 +31,8 @@ export class ControlHttp {
     this.server.timeout = 5000;
     this.server.keepAliveTimeout = 1000;
   }
-  static async listen(service: ControlService): Promise<ControlHttp> {
-    const http = new ControlHttp(service);
+  static async listen(service: ControlService, options?: PairingOptions): Promise<ControlHttp> {
+    const http = new ControlHttp(service, options);
     await new Promise<void>((resolve, reject) => {
       http.server.once("error", reject);
       http.server.listen(0, "127.0.0.1", () => {
@@ -44,6 +51,7 @@ export class ControlHttp {
   async close(): Promise<void> {
     if (this.closed) return;
     this.closed = true;
+    this.pairing?.close();
     this.service.close();
     await this.service.operations.drain();
     await new Promise<void>((resolve, reject) => {
@@ -70,6 +78,10 @@ export class ControlHttp {
       request.socket.remoteAddress !== "127.0.0.1"
     ) {
       end(403, { error: "forbidden" });
+      return;
+    }
+    if (request.url === "/control/v1/pair" && request.method === "POST" && this.pairing) {
+      this.pairing.receive(request, response);
       return;
     }
     const mcp = request.url === "/mcp";
