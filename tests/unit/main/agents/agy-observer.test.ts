@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { promisify } from "node:util";
@@ -107,17 +107,19 @@ test.each(["FOOM_HOOK_URL", "FOOM_SESSION", "FOOM_TOKEN"])(
   },
 );
 
-test("native shell delivers literal untrusted stdin, permits stop, and survives a dead receiver", async () => {
-  const signals: HookSignal[] = [];
-  const receiver = await HookReceiver.listen((signal) => signals.push(signal));
-  try {
-    const dir = await fixture();
-    const launch = receiver.register("terminal", "agy");
-    const env = { ...process.env, ...launch.env };
-    for (const event of ["PreInvocation", "PostToolUse", "Stop"]) {
+test.each(["PreInvocation", "PostToolUse", "Stop"])(
+  "native shell delivers literal untrusted %s data and returns an empty result",
+  async (event) => {
+    const signals: HookSignal[] = [];
+    const receiver = await HookReceiver.listen((signal) => signals.push(signal));
+    try {
+      const dir = await fixture();
+      // Exercise persisted sequence advancement across a decimal-width change.
+      await writeFile(join(dir, "order"), "9");
+      const launch = receiver.register("terminal", "agy");
       const result = await run(
         dir,
-        env,
+        { ...process.env, ...launch.env },
         event,
         JSON.stringify({
           conversationId: "session",
@@ -128,20 +130,30 @@ test("native shell delivers literal untrusted stdin, permits stop, and survives 
       );
       expect(JSON.parse(result.stdout)).toEqual({});
       expect(result.stderr).toBe("");
+      expect(await readFile(join(dir, "order"), "utf8")).toBe("10");
       await vi.waitFor(
         () => {
           expect(signals.at(-1)?.signal).toBe(`agy:${event}`);
         },
         {
-          timeout: 5000,
+          timeout: 3000,
         },
       );
+    } finally {
+      await receiver.close();
     }
-    await receiver.close();
-    expect(JSON.parse((await run(dir, env, "Stop", "{}")).stdout)).toEqual({});
-  } finally {
-    await receiver.close();
-  }
+  },
+);
+
+test("native shell returns an empty result after the receiver is gone", async () => {
+  const receiver = await HookReceiver.listen(() => undefined);
+  const launch = receiver.register("terminal", "agy");
+  await receiver.close();
+  expect(
+    JSON.parse(
+      (await run(await fixture(), { ...process.env, ...launch.env }, "Stop", "{}")).stdout,
+    ),
+  ).toEqual({});
 });
 
 test("observer exits before an unresponsive HTTP receiver finishes", async () => {
