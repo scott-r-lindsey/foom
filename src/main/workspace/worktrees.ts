@@ -1,3 +1,4 @@
+import { inventoryWatchPaths } from "./inventory-watch";
 import { randomUUID } from "node:crypto";
 import { execFile } from "node:child_process";
 import { lstat, mkdir, readFile, realpath, rename, rm, rmdir, writeFile } from "node:fs/promises";
@@ -223,6 +224,19 @@ export class WorktreeService {
     const repository = this.repositories.get(path);
     if (!repository) throw new Error("Repository has not been added");
     return repository;
+  }
+
+  async watchPaths(repositoryPath: string): Promise<readonly string[]> {
+    this.repository(repositoryPath);
+    const output = await git(repositoryPath, [
+      "rev-parse",
+      "--path-format=absolute",
+      "--git-common-dir",
+    ]);
+    const common = output.slice(0, -1);
+    validatePath(common);
+    if (!isAbsolute(common)) throw new Error("Invalid Git common directory");
+    return inventoryWatchPaths(await realpath(common));
   }
 
   async listWorktrees(repositoryPath: string): Promise<readonly Worktree[]> {

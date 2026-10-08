@@ -78,6 +78,9 @@ export function createAppSource(): BoardSource {
     repositories = next.repositories.map((repo) => repo.name);
     const known = new Map(rows.map((row) => [row.id, row]));
     const live = next.terminals.map((entry): BoardRow => {
+      const checkout = sidebar
+        .find((repo) => repo.path === entry.repository)
+        ?.worktrees.find((tree) => tree.path === entry.worktree);
       const previousState = states.get(entry.id);
       if (entry.state && (!previousState || entry.state.timestamp > previousState.timestamp))
         states.set(entry.id, entry.state);
@@ -90,7 +93,6 @@ export function createAppSource(): BoardSource {
         repository:
           next.repositories.find((repo) => repo.path === entry.repository)?.name ??
           entry.repository,
-        branch: entry.branch ?? "Detached HEAD",
         agent: entry.agent,
         state: "working",
         reason: "Running",
@@ -99,6 +101,8 @@ export function createAppSource(): BoardSource {
         seen: false,
         tail: [],
         ...known.get(entry.id),
+        branch: (checkout ? checkout.branch : entry.branch) ?? "Detached HEAD",
+        worktreeRemoved: !checkout || checkout.prunable,
         exited: entry.exited ?? exits.has(entry.id),
         bypass: entry.bypass === true,
       });

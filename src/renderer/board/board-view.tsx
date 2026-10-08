@@ -462,25 +462,41 @@ export function Board({
                 </h2>
               </div>
               <div className="location-launchers">
-                {launcherActions(options, source.shellName?.()).map((action) => (
-                  <ConfirmationButton
-                    client={source.confirmations}
-                    key={action.label}
-                    action={() => {
-                      return command({
-                        kind: "launch",
-                        repository: location.repository,
-                        worktree: location.worktree ?? location.repository,
-                        run: action.run,
-                      });
-                    }}
-                  >
-                    <span className="board-agent" aria-hidden="true">
-                      {action.badge}
-                    </span>
-                    {action.label}
-                  </ConfirmationButton>
-                ))}
+                {location.worktree &&
+                source.getSidebar &&
+                !source
+                  .getSidebar()
+                  .some(
+                    (repo) =>
+                      repo.path === location.repository &&
+                      repo.worktrees.some(
+                        (tree) => tree.path === location.worktree && !tree.prunable,
+                      ),
+                  ) ? (
+                  <span className="worktree-removed">
+                    <span aria-hidden="true">⊘</span> Worktree removed
+                  </span>
+                ) : (
+                  launcherActions(options, source.shellName?.()).map((action) => (
+                    <ConfirmationButton
+                      client={source.confirmations}
+                      key={action.label}
+                      action={() => {
+                        return command({
+                          kind: "launch",
+                          repository: location.repository,
+                          worktree: location.worktree ?? location.repository,
+                          run: action.run,
+                        });
+                      }}
+                    >
+                      <span className="board-agent" aria-hidden="true">
+                        {action.badge}
+                      </span>
+                      {action.label}
+                    </ConfirmationButton>
+                  ))
+                )}
                 {source.worktrees && (
                   <button
                     type="button"

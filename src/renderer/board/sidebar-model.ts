@@ -46,7 +46,7 @@ export function rowRepository(row: BoardRow): string {
 export function rowWorktree(row: BoardRow): string {
   return row.worktree ?? `${rowRepository(row)}/${row.branch}`;
 }
-/** Fill only sample/local locations; real repositories include main's complete Git inventory. */
+/** Retain locations with sessions even when Git no longer lists their checkout. */
 export function sidebarRepositories(
   rows: readonly BoardRow[],
   registered: readonly SidebarRepository[],
@@ -68,6 +68,7 @@ export function sidebarRepositories(
             locked: false,
             prunable: false,
             managed: Boolean(row.managed),
+            removed: row.worktreeRemoved === true,
           },
         ],
       });

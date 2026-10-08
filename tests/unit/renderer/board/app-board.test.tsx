@@ -413,3 +413,43 @@ test("closing a local shell forgets its revoked ID and placeholder rows never at
   await source.shell?.restart();
   expect(mock.kill).not.toHaveBeenCalled();
 });
+
+test("inventory refresh marks missing checkout sessions without losing state or views and clears the mark on return", async () => {
+  const entry = agent("external", verdict("external"));
+  const repository = { path: entry.repository, name: "app" };
+  const tree = {
+    path: entry.worktree,
+    branch: "external",
+    head: "abc",
+    bare: false,
+    locked: false,
+    prunable: false,
+    managed: false,
+  };
+  const inventory = vi
+    .spyOn(window.desktop, "sidebarInventory")
+    .mockResolvedValue({ repositories: [{ ...repository, worktrees: [tree] }], shell: "bash" });
+  mock.workspace.mockResolvedValue({ repositories: [repository], terminals: [entry] });
+  const source = createAppSource();
+  const disconnect = source.connect?.();
+  await settle();
+  expect(source.getSnapshot()[0]?.worktreeRemoved).toBe(false);
+  inventory.mockResolvedValue({ repositories: [{ ...repository, worktrees: [] }], shell: "bash" });
+  mock.changed?.();
+  await settle();
+  expect(source.getSnapshot()[0]).toMatchObject({
+    id: entry.id,
+    worktreeRemoved: true,
+    state: "needs_input",
+  });
+  expect(mock.kill).not.toHaveBeenCalled();
+  expect(mock.hide).not.toHaveBeenCalled();
+  inventory.mockResolvedValue({
+    repositories: [{ ...repository, worktrees: [tree] }],
+    shell: "bash",
+  });
+  mock.changed?.();
+  await settle();
+  expect(source.getSnapshot()[0]?.worktreeRemoved).toBe(false);
+  disconnect?.();
+});

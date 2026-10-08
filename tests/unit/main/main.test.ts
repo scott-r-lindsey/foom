@@ -1,3 +1,4 @@
+import type { WorkspaceDependencies } from "../../../src/main/workspace/workspace";
 import type { DialogContent } from "../../../src/shared/confirmation";
 vi.mock("../../../src/main/confirmations/trusted-dialog", () => ({
   TrustedDialog: class {
@@ -43,6 +44,7 @@ vi.mock("../../../src/main/workspace/workspace", () => ({
         },
       ],
     });
+    refresh = mock.workspace.refresh;
     quiet = mock.workspace.quiet;
     exited = mock.workspace.exited;
     input = mock.workspace.input;
@@ -52,7 +54,7 @@ vi.mock("../../../src/main/workspace/workspace", () => ({
     configure = mock.workspace.configure;
     addRepository = mock.workspace.addRepository;
     removeRepository = mock.workspace.removeRepository;
-    constructor(deps: unknown) {
+    constructor(deps: WorkspaceDependencies) {
       mock.workspace.deps = deps;
     }
   },
@@ -96,6 +98,7 @@ const mock = vi.hoisted(() => {
   const window = {
     webContents: {
       getURL: () => "app://bundle/index.html",
+      isCrashed: vi.fn(() => false),
       send: vi.fn(),
       copy: vi.fn(),
       paste: vi.fn(),
@@ -169,7 +172,8 @@ const mock = vi.hoisted(() => {
     }
   }
   const workspace = {
-    deps: undefined as unknown,
+    deps: undefined as WorkspaceDependencies | undefined,
+    refresh: vi.fn(),
     quiet: vi.fn(),
     exited: vi.fn(),
     input: vi.fn(),
@@ -326,6 +330,7 @@ beforeEach(() => {
   mock.packaged = false;
   mock.explicitProfile = false;
   mock.window.isMinimized.mockReturnValue(false);
+  mock.window.webContents.isCrashed.mockReturnValue(false);
   mock.terminals.runningCount = 0;
   mock.terminals.shutdown.mockResolvedValue();
   mock.workspace.dispose.mockResolvedValue();
@@ -1000,4 +1005,30 @@ test("packaged builds keep their default profile and identity", async () => {
     title: "Foom",
     webPreferences: { additionalArguments: [] },
   });
+});
+
+test("window focus refreshes external workspace inventory", async () => {
+  await import("../../../src/main/main");
+  await start();
+  mock.windowEvents.get("focus")?.({ preventDefault: vi.fn() });
+  expect(mock.workspace.refresh).toHaveBeenCalledOnce();
+  mock.window.webContents.isCrashed.mockReturnValue(true);
+  mock.windowEvents.get("focus")?.({ preventDefault: vi.fn() });
+  expect(mock.workspace.refresh).toHaveBeenCalledOnce();
+});
+
+test("control startup is lazy, uses the app profile and propagates initialization failures", async () => {
+  const { ControlRuntime } = await import("../../../src/main/control/runtime");
+  const error = new Error("Private profile unavailable");
+  const startControl = vi.spyOn(ControlRuntime, "start").mockRejectedValueOnce(error);
+  try {
+    await start();
+    expect(startControl).not.toHaveBeenCalled();
+    const control = mock.workspace.deps?.control;
+    if (!control) throw new Error("Expected control startup capability");
+    await expect(control()).rejects.toBe(error);
+    expect(startControl).toHaveBeenCalledExactlyOnceWith("/test/user-data");
+  } finally {
+    startControl.mockRestore();
+  }
 });
