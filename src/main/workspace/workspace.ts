@@ -1,3 +1,5 @@
+import { CodexHookStatus } from "../agents/codex-hook-status";
+import { codexObserverCommand } from "../agents/codex-hooks";
 import { createHash } from "node:crypto";
 import { AgentExecution } from "../agents/execution";
 import type { ExecutionPhase, ExecutionSource, ExecutionTransition } from "../../shared/execution";
@@ -34,6 +36,10 @@ import type { WorktreeService } from "./worktrees";
 type Agents = Pick<AgentService, "scan" | "launch" | "release" | "dispose" | "setHooksEnabled">;
 type Terminal = {
   execution?: AgentExecution;
+  codexHealthLaunch?: number;
+  codexPrompt?: boolean;
+  codexStarted?: boolean;
+  codexStopped?: boolean;
   completedTurn?: number;
   interrupted?: boolean;
   actionVerdict?: string;
@@ -52,6 +58,7 @@ type Terminal = {
 };
 
 export interface WorkspaceDependencies {
+  codexHooks?: CodexHookStatus;
   worktrees: Pick<
     WorktreeService,
     | "listRepositories"
@@ -102,6 +109,7 @@ export interface WorkspaceDependencies {
  */
 export class Workspace {
   private readonly agents: Agents;
+  private readonly codexHooks: CodexHookStatus;
   private launchSequence = 0;
   private readonly executionListeners = new Set<(event: ExecutionTransition) => void>();
   private readonly launched = new Map<string, WorkspaceTerminal>();
@@ -125,6 +133,7 @@ export class Workspace {
 
   constructor(private readonly deps: WorkspaceDependencies) {
     this.now = deps.now ?? Date.now;
+    this.codexHooks = deps.codexHooks ?? new CodexHookStatus();
     deps.watcher?.sync(deps.worktrees.listRepositories());
     const prepare = async (agent: AgentId): Promise<AgentHooks> => {
       if (agent === "agy") throw new Error("Antigravity hooks are not supported");
@@ -133,12 +142,21 @@ export class Workspace {
         this.receiver = undefined;
         throw error;
       });
-      return prepareHookLaunch(await this.receiver, agent, (key, terminalId) => {
+      const healthLaunch = agent === "codex" ? this.codexHooks.begin() : undefined;
+      const binding = await prepareHookLaunch(await this.receiver, agent, (key, terminalId) => {
         if (terminalId) {
           this.hookKeys.set(key, terminalId);
           this.execution(terminalId);
+          if (healthLaunch !== undefined) this.track(terminalId).codexHealthLaunch = healthLaunch;
         } else this.hookKeys.delete(key);
       });
+      return agent === "codex"
+        ? {
+            ...binding,
+            codexHookCommand: codexObserverCommand(),
+            codexNotify: this.codexHooks.get() !== "trusted",
+          }
+        : binding;
     };
     const startControl = deps.control;
     const prepareControl = startControl
@@ -287,7 +305,12 @@ export class Workspace {
     this.scanned ??= this.agents.scan();
     try {
       const { warning, agents } = await this.scanned;
-      return { warning, agents };
+      return {
+        warning,
+        agents: agents.map((agent) =>
+          agent.codexLifecycle ? { ...agent, codexHookState: this.codexHooks.get() } : agent,
+        ),
+      };
     } catch (error) {
       this.scanned = undefined;
       throw error;
@@ -623,7 +646,9 @@ export class Workspace {
             run === "codex" &&
             this.hooksEnabled &&
             !this.acknowledged &&
-            scan.agents.some((agent) => agent.id === "codex" && agent.hooks)
+            scan.agents.some(
+              (agent) => agent.id === "codex" && agent.hooks && agent.codexHookState !== "trusted",
+            )
           ) {
             if (!(await confirm({ kind: "notifier" }))) return;
             await this.deps.acknowledgeCodex();
@@ -730,15 +755,28 @@ export class Workspace {
     if (
       phase === "idle" &&
       event.from === "working" &&
-      (source === "hook" || !this.claudeCompletionHook(id))
+      (source === "hook" || !this.completionHook(id))
     )
       terminal.completedTurn = event.turn;
+    if (
+      phase === "idle" &&
+      event.from === "working" &&
+      source !== "hook" &&
+      this.launched.get(id)?.agent === "codex" &&
+      !terminal.codexStarted &&
+      !terminal.codexPrompt &&
+      this.codexHooks.get() === "trusted"
+    )
+      this.codexHooks.set("declined", terminal.codexHealthLaunch);
     if (phase === "exited" && event.from === "working") terminal.interrupted = true;
   }
 
-  private claudeCompletionHook(id: string): boolean {
+  private completionHook(id: string): boolean {
     const entry = this.launched.get(id);
-    return entry?.agent === "claude" && entry.attention === "hooks";
+    return (
+      entry?.attention === "hooks" &&
+      (entry.agent === "claude" || (entry.agent === "codex" && this.track(id).codexPrompt === true))
+    );
   }
 
   private track(id: string): Terminal {
@@ -814,6 +852,17 @@ export class Workspace {
       tail = await this.deps.terminals.tail(id, 40);
     } catch {
       // A failed host has no screen. Exit codes and hooks still decide.
+    }
+    if (
+      this.launched.get(id)?.agent === "codex" &&
+      terminal.exitCode === undefined &&
+      terminal.codexHealthLaunch !== undefined &&
+      tail.slice(-20).some((line) => line.includes("Hooks need review"))
+    ) {
+      this.codexHooks.set(
+        ["trusted", "outdated"].includes(this.codexHooks.get()) ? "outdated" : "not-reviewed",
+        terminal.codexHealthLaunch,
+      );
     }
     const previousState = terminal.state;
     const checking = setTimeout(() => {
@@ -908,7 +957,7 @@ export class Workspace {
         };
       } else if (
         execution.phase === "idle" &&
-        this.claudeCompletionHook(id) &&
+        this.completionHook(id) &&
         terminal.completedTurn !== execution.turn &&
         record.verdict.state !== "failed"
       ) {
@@ -1063,6 +1112,26 @@ export class Workspace {
       this.deps.onChange?.();
     }
     if (this.track(id).exitCode !== undefined) return Promise.resolve();
+    const health = this.track(id);
+    if (signal.signal === "codex:SessionStart") {
+      health.codexStarted = true;
+      return Promise.resolve();
+    }
+    if (signal.signal === "codex:UserPromptSubmit") {
+      health.codexPrompt = true;
+      health.codexStopped = false;
+    }
+    if (signal.signal === "codex:Stop") {
+      health.codexStopped = true;
+      if (health.codexStarted && health.codexPrompt)
+        this.codexHooks.set("trusted", health.codexHealthLaunch);
+    }
+    if (signal.signal === "codex:agent-turn-complete") {
+      if (!health.codexStarted && !health.codexPrompt)
+        this.codexHooks.set("declined", health.codexHealthLaunch);
+      // Stop is authoritative; do not classify the same turn twice through notify.
+      if (health.codexStopped) return Promise.resolve();
+    }
     if (signal.action === "working") {
       this.track(id).generation++;
       this.transition(id, "working", "hook");
@@ -1077,7 +1146,8 @@ export class Workspace {
     } else if (signal.signal !== "claude:idle_prompt") {
       const terminal = this.track(id);
       const turn = terminal.execution?.snapshot().turn;
-      if (turn && signal.signal === "claude:Stop") terminal.completedTurn = turn;
+      if (turn && (signal.signal === "claude:Stop" || signal.signal === "codex:Stop"))
+        terminal.completedTurn = turn;
       this.transition(id, "idle", "hook");
     }
     const { generation } = this.track(id);
@@ -1198,6 +1268,7 @@ export class Workspace {
         if (receiver) await (await receiver.catch(() => undefined))?.close();
       } finally {
         await this.deps.sessions?.flush();
+        await this.codexHooks.flush();
       }
     }
   }

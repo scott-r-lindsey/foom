@@ -1,3 +1,4 @@
+import { codexHookArguments } from "./codex-hooks";
 import { resumeArguments } from "./conversation";
 import type { ControlLaunch } from "../control/types";
 import { parseAgentArguments } from "./default-arguments";
@@ -106,6 +107,10 @@ async function detect(id: AgentId, path: string): Promise<AgentInstallation> {
       path: executable,
       version,
       hooks,
+      ...(id === "codex" &&
+      meetsMinimum(version, /^codex-cli (0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/u, [0, 161, 0])
+        ? { codexLifecycle: true }
+        : {}),
       inline: id === "codex" && /(?:^|\s)--no-alt-screen(?:[ =,]|$)/mu.test(help),
       reason: hooks
         ? "Per-launch hooks supported."
@@ -218,11 +223,15 @@ export class AgentService {
     if (!agent?.path)
       throw new Error(`${request.agent} is not installed. Rescan after installing it.`);
     const attach = this.hooksEnabled && agent.hooks && this.prepareHooks;
-    if (attach && agent.id === "codex" && !request.acknowledgeCodexNotifierReplacement)
+    const binding = attach ? await attach(agent.id) : undefined;
+    const notify =
+      !agent.codexLifecycle || !binding?.codexHookCommand || binding.codexNotify !== false;
+    if (attach && agent.id === "codex" && notify && !request.acknowledgeCodexNotifierReplacement) {
+      binding?.dispose();
       throw new Error(
         "Foom replaces your Codex notifier for this launch. Acknowledge this or disable hooks.",
       );
-    const binding = attach ? await attach(agent.id) : undefined;
+    }
     let control: ControlLaunch | undefined;
     try {
       control = await this.prepareControl?.(
@@ -254,7 +263,9 @@ export class AgentService {
             }),
           );
         } else {
-          args.push("-c", `notify=${JSON.stringify(binding.codexCommand)}`);
+          if (agent.codexLifecycle && binding.codexHookCommand)
+            args.push(...codexHookArguments(binding.codexHookCommand));
+          if (notify) args.push("-c", `notify=${JSON.stringify(binding.codexCommand)}`);
         }
       }
       const id = await this.terminals.create({

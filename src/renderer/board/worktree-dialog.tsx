@@ -58,7 +58,9 @@ export function WorktreeDialog({
     options?.hooks &&
     run === "codex" &&
     !options.acknowledged &&
-    options.agents.some((agent) => agent.id === "codex" && agent.hooks);
+    options.agents.some(
+      (agent) => agent.id === "codex" && agent.hooks && agent.codexHookState !== "trusted",
+    );
   return (
     <dialog
       ref={dialogRef}

@@ -241,7 +241,7 @@ but no progress-only rule is shipped without capture evidence. No title or progr
 is sent to inference. Rules are packaged JSON, never downloaded or supplied by a CLI.
 Matched signals are `rules:<agent>:<rule-id>`; reasons are authored by Foom.
 
-**Codex notifier decision:** retain the invocation-only `notify` override and its
+**Codex notifier decision at #161 (superseded for confirmed lifecycle hooks by #181 below):** retain the invocation-only `notify` override and its
 existing disclosure. One Linux version's title captures do not prove dependable
 turn completion across supported installations, interrupts, reconnects and user
 TUI configuration. An idle title can also mean initial readiness or a question,
@@ -258,3 +258,103 @@ unattended attachment would require a trust workflow. Foom does not bypass hook
 trust or write user/project hook configuration. A verified
 invocation-scoped adapter can replace the notifier separately; this change retains
 the established adapter.
+
+## Stable Codex lifecycle observers (#181)
+
+Probed on Linux with **codex-cli 0.161.0**, 2026-10-07/08. The test used an empty
+scratch workspace and a private Codex state directory bind-mounted over the normal
+state directory with Bubblewrap. The ordinary user's config and trust entries were
+never exposed for writing. Codex's own `/hooks` screen granted trust in that disposable
+profile; no trust hashes were written by the probe or by Foom. The observer recorded
+only event names, field names, timestamps, a synthetic environment marker and the
+conversation ID. It never opened a transcript or saved prompts/tool inputs.
+
+The invocation attached each event with a separate argument pair:
+
+```text
+-c 'hooks.SessionStart=[{hooks=[{type="command",command="python3 /scratch/observe.py"}]}]'
+```
+
+The same definition was used for UserPromptSubmit, PreToolUse, PermissionRequest,
+PostToolUse and Stop. Production uses the bundled native observer and a three-second
+hook timeout, not Python. The [official hook contract](https://learn.chatgpt.com/docs/hooks)
+describes review through `/hooks` and trust bound to the current definition.
+
+### Measured trust and lifecycle behavior
+
+- Trust **persists for identical `-c` definitions**. After reviewing SessionStart,
+  the next launch requested review for only the five newly attached events. After
+  reviewing those, a subsequent `codex resume <id>` needed no review.
+- Codex wrote state keys shaped like
+  `/<session-flags>/config.toml:session_start:0:0`, with a `sha256:` trusted hash.
+  Identical commands attached to different events had different hashes. Adding
+  `timeout=3` to the six previously trusted definitions made all six need review.
+  Editing only the observer's file contents did **not** invalidate trust. These
+  observations establish event/definition sensitivity and exclude script contents;
+  they do not reverse-engineer Codex's complete hash serialization. Foom does not
+  compute or depend on that private hash algorithm.
+- Environment data reached the observer and was absent from the definition. A Foom
+  reinstall at a different path changes the command and needs review. A same-path
+  update preserves trust only while the definition stays identical. **Bump the
+  observer filename version when its behavior changes** so the user can review it.
+- SessionStart ran just before the **first submitted prompt**, rather than while
+  the initial input box was idle. UserPromptSubmit followed it. A real `printf`
+  turn produced PreToolUse, PostToolUse, then Stop. Startup health must not use an
+  arbitrary timer while the user has not submitted anything.
+- With `-a on-request`, a harmless escalation request produced PreToolUse followed
+  by PermissionRequest while the approval screen waited. The silent observer did
+  not approve it. Esc interrupted that turn, returned an idle title, and produced
+  **no Stop**. An earlier probe with the default never-approval policy rejected
+  escalation before an approval dialog; it is not evidence for PermissionRequest.
+- Resume retained the conversation ID and produced SessionStart/UserPromptSubmit
+  when the next prompt was submitted. The same environment marker reached it.
+- Choosing **Continue without trusting** allowed a real text-only turn to finish
+  with normal working/idle titles and **no observer callbacks**. The helper's event
+  log remained unchanged. Foom must keep its existing notify/title fallback.
+
+The Windows command form is a fixed `powershell.exe -NoProfile -NonInteractive
+-ExecutionPolicy Bypass -EncodedCommand <base64>` invocation. The UTF-16LE encoded
+program invokes the quoted installed `.ps1` path with a fixed `codex` argument.
+Encoding protects spaces, apostrophes and `$` in installation paths through both
+cmd.exe and PowerShell command parsing; it contains no credentials. Native Windows
+unit integration tests execute that command through cmd.exe, with stdin and the
+real receiver, and exercise missing-variable and stopped-receiver behavior.
+**The real Codex Windows TUI was not available on this Linux host**; its trust and
+approval timing remains a platform verification limitation. The PR requests full
+platform CI, which can validate the native adapter but cannot replace that real-CLI
+probe. No plugin fallback is needed: per-launch trust persisted in the Linux probe.
+
+### Shipping behavior
+
+Stable releases from 0.161.0 attach these six observers per launch. Older supported
+Codex releases keep notify only. The generated scripts live at fixed installed
+`build/observers/codex-v1.sh` / `.ps1` paths, unpacked beside ASAR in packaged apps.
+Their definitions contain no launch paths, ports, tokens or session IDs. The scripts
+exit silently before reading stdin when any of FOOM_HOOK_URL, FOOM_SESSION or
+FOOM_TOKEN is absent. Reporting has a one-second transport timeout and never emits
+permission decisions. Foom never passes the hook-trust bypass flag, and rejects it
+in saved launch defaults.
+
+The receiver authenticates the launch, pins `session_id` (shared with notify's
+`thread-id`), validates event-specific fields and discards prompt text, tool inputs,
+outputs and transcript paths. SessionStart records readiness without ending a turn;
+UserPromptSubmit/PreToolUse/PostToolUse mean Working, PermissionRequest means Blocked,
+and Stop ends the turn for classification. Once lifecycle hooks are observed, a
+plain idle title without Stop stops Working but cannot announce successful completion.
+
+Agent setup shows **Not reviewed**, **Trusted · observed working**, **Declined or
+unavailable**, or **Outdated**, with `/hooks` instructions. These are Foom health
+observations, not a read of Codex's trust database: absence cannot distinguish a
+user declining from disabling hooks or a broken transport. A matching review screen
+or an observed turn without startup/prompt hooks explains the fallback. Foom never
+opens review, grants trust, retries launches, or types `/hooks` for the user.
+
+Only a launch that reports SessionStart, UserPromptSubmit and Stop establishes
+working completion hooks. Later launches omit the notify override and its disclosure;
+the establishing launch keeps its already-attached fallback. Duplicate notify after
+Stop does not classify again. A private `codex-hook-health.json` in **Foom's profile**
+persists only a definition fingerprint and health state. A changed definition
+invalidates that observation. Late events from older launches cannot overwrite a
+newer launch's health. If hooks subsequently fail, title rules remain available in
+the current launch; later launches restore notify and its existing disclosure.
+No user or repository Codex configuration, plugins or trust entries are edited.

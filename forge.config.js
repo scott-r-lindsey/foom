@@ -14,7 +14,7 @@ module.exports = {
     packageAfterPrune: require("./scripts/package-conpty.cjs"),
   },
   packagerConfig: {
-    asar: { unpackDir: "**/node_modules/node-pty/**" },
+    asar: { unpack: "**/build/observers/*", unpackDir: "**/node_modules/node-pty/**" },
     executableName: "foom",
     appBundleId: "com.foom.desktop",
     // Include production dependencies; native PTY binaries and helpers must live outside ASAR.

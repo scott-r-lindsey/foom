@@ -98,6 +98,12 @@ export function parseAgentArguments(agent: AgentId, value: unknown): readonly st
         index,
         "--settings, --safe-mode and --bare are reserved to preserve Foom's hooks.",
       );
+    if (agent === "codex" && /^--dangerously-bypass-hook-trust(?:=|$)/u.test(arg))
+      throw argumentError(
+        agent,
+        index,
+        "Hook trust must be granted in Codex, never bypassed by Foom.",
+      );
     const conversationOption =
       agent === "claude"
         ? /^(?:--resume|--continue|--session-id|--fork-session)(?:=|$)|^-[rc]/u.test(arg)

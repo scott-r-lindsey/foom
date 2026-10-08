@@ -4,7 +4,7 @@ export type HookAgent = "claude" | "codex";
 export interface HookSignal {
   terminalId: string;
   conversationId?: string;
-  action: "classify" | "needs_input" | "working";
+  action: "classify" | "needs_input" | "working" | "ready";
   signal:
     | "claude:UserPromptSubmit"
     | "claude:PreToolUse"
@@ -12,6 +12,12 @@ export interface HookSignal {
     | "claude:PermissionRequest"
     | "claude:permission_prompt"
     | "claude:idle_prompt"
+    | "codex:SessionStart"
+    | "codex:UserPromptSubmit"
+    | "codex:PreToolUse"
+    | "codex:PermissionRequest"
+    | "codex:PostToolUse"
+    | "codex:Stop"
     | "codex:agent-turn-complete";
 }
 
