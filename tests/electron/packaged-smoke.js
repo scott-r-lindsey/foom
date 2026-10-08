@@ -143,7 +143,9 @@ test("packaged utility host runs native PTYs with RunAsNode disabled", {
       })
       .toBe(true);
     page.setDefaultTimeout(deadline(15000));
-    await page.waitForFunction(() => window.desktop);
+    // Bridge initialization is independent of the first native window paint.
+    // Packaged macOS can withhold animation frames during CDP attachment.
+    await page.waitForFunction(() => window.desktop, undefined, { polling: 100 });
     assert.equal(await page.evaluate(() => window.desktop.isDevelopment), false);
     await expect(page.locator(".dev-profile")).toHaveCount(0);
     await expect
@@ -280,6 +282,29 @@ test("packaged utility host runs native PTYs with RunAsNode disabled", {
     // Preserve startup evidence when the board never becomes a Playwright page.
     // The trusted confirmation window can be the first CDP context/target.
     console.error("Packaged startup stderr:", stderr);
+    if (page) {
+      let timer;
+      try {
+        console.error(
+          "Packaged renderer startup state:",
+          await Promise.race([
+            page.evaluate(() => ({
+              ready: document.readyState,
+              visibility: document.visibilityState,
+              bridge: typeof window.desktop,
+              title: document.title,
+            })),
+            new Promise((resolve) => {
+              timer = setTimeout(() => resolve("Renderer did not answer"), deadline(1000));
+            }),
+          ]),
+        );
+      } catch (diagnosticError) {
+        console.error("Packaged renderer diagnostics failed:", diagnosticError);
+      } finally {
+        clearTimeout(timer);
+      }
+    }
     console.error(
       "Packaged CDP pages:",
       browser?.contexts().map((context) => context.pages().map((candidate) => candidate.url())),
