@@ -100,10 +100,21 @@ test("packaged utility host runs native PTYs with RunAsNode disabled", {
   env.USERPROFILE = profile;
   const audit = await auditProcesses(context);
   context.after(() => audit.finish());
-  const child = spawn(executable, ["--remote-debugging-port=0", `--user-data-dir=${profile}`], {
-    env,
-    stdio: ["ignore", "ignore", "pipe"],
-  });
+  // Match Playwright's development launcher on macOS: this disposable smoke
+  // profile stores no credentials and must not open an interactive Keychain dialog.
+  // Packaging fuses, sandboxing and the shipped app configuration remain intact.
+  const child = spawn(
+    executable,
+    [
+      "--remote-debugging-port=0",
+      `--user-data-dir=${profile}`,
+      ...(process.platform === "darwin" ? ["--use-mock-keychain"] : []),
+    ],
+    {
+      env,
+      stdio: ["ignore", "ignore", "pipe"],
+    },
+  );
   audit.add(child.pid);
   let browser;
   let page;

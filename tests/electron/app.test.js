@@ -4462,12 +4462,14 @@ for (const agent of ["claude", "codex"]) {
       path.join(bin, agent),
       `#!/usr/bin/env node
 const { spawn } = require("node:child_process");
-const { writeFileSync } = require("node:fs");
+const { writeFileSync, renameSync } = require("node:fs");
 const args = process.argv.slice(2);
 const agent = ${JSON.stringify(agent)};
 if (args[0] === "--version") { console.log(agent === "claude" ? "2.1.300 (Claude Code)" : "codex-cli 0.160.1"); process.exit(0); }
 if (args[0] === "--help") { console.log("--settings <json> -c, --config <value> --no-alt-screen"); process.exit(0); }
-writeFileSync(process.env.TEST_ARGV, JSON.stringify({ args, cwd: process.cwd(), token: process.env.FOOM_TOKEN, pid: process.pid }));
+const record = process.env.TEST_ARGV + "." + process.pid + ".tmp";
+writeFileSync(record, JSON.stringify({ args, cwd: process.cwd(), token: process.env.FOOM_TOKEN, pid: process.pid }));
+renameSync(record, process.env.TEST_ARGV);
 const resumed = args.includes("--resume") || args.includes("resume");
 if (resumed) {
   console.log("RESUMED_CONVERSATION " + process.pid);
