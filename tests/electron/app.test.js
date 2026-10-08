@@ -251,8 +251,10 @@ async function launchCheckoutShell(app, page) {
       ),
     )
     .toContain(repository);
-  await page.getByRole("button", { name: "Actions for shell-fixture", exact: true }).click();
-  await page.getByRole("menuitem", { name: /^Shell \(/ }).click();
+  // The first window can still be animating on a cold CI display. Keyboard
+  // activation exercises the menu without depending on pointer hit-test stability.
+  await page.getByRole("button", { name: "Actions for shell-fixture", exact: true }).press("Enter");
+  await page.getByRole("menuitem", { name: /^Shell \(/ }).press("Enter");
 }
 
 async function launchApp(context, openShell = true, options = {}) {
@@ -3829,8 +3831,10 @@ test("launching into full tiles replaces focus and empty tiles support mouse con
   const page = await boardPage(app);
   await page.emulateMedia({ reducedMotion: "reduce" });
   const original = (await page.evaluate(() => window.desktop.workspace())).terminals[0];
-  await page.getByRole("button", { name: "Actions for shell-fixture", exact: true }).click();
-  await page.getByRole("menuitem", { name: /^Shell \(/ }).click();
+  // The first window can still be animating on a cold CI display. Keyboard
+  // activation exercises the menu without depending on pointer hit-test stability.
+  await page.getByRole("button", { name: "Actions for shell-fixture", exact: true }).press("Enter");
+  await page.getByRole("menuitem", { name: /^Shell \(/ }).press("Enter");
   await expect(page.locator(".board-row")).toHaveCount(2);
   const sessions = (await page.evaluate(() => window.desktop.workspace())).terminals;
   const created = sessions.find((session) => session.id !== original.id);
@@ -4982,8 +4986,36 @@ test("merged cleanup deletes two worktrees and branches while preserving a skipp
     .toBe(2);
   for (const branch of ["merged-one", "merged-two"]) {
     await assert.rejects(realpath(paths[branch]), { code: "ENOENT" });
-    assert.equal(git("branch", "--list", branch).toString().trim(), "");
+    await expect.poll(() => git("branch", "--list", branch).toString().trim()).toBe("");
   }
   assert.equal(await readFile(path.join(paths.dirty, "keep.txt"), "utf8"), "must survive");
   assert.ok(git("branch", "--list", "dirty").includes("dirty"));
+});
+
+test("shell fixture starts through keyboard while startup layout moves", {
+  timeout: deadline(45000),
+}, async (context) => {
+  const app = await launchApp(context, false, { emptyBoard: true });
+  const page = await boardPage(app);
+  await page.evaluate(() => {
+    window.fixtureMoving = true;
+    let frame = 0;
+    const move = () => {
+      frame++;
+      for (const button of document.querySelectorAll(".row-actions"))
+        button.style.transform = `translateX(${frame % 2 ? 4 : 0}px)`;
+      if (window.fixtureMoving) requestAnimationFrame(move);
+    };
+    move();
+  });
+  try {
+    await launchCheckoutShell(app, page);
+    await expect(page.locator(".board-row[data-kind='shell']")).toBeVisible();
+    await page.locator(".board-row[data-kind='shell']").press("Enter");
+    await expect(page.locator(".xterm-helper-textarea")).toBeFocused();
+  } finally {
+    await page.evaluate(() => {
+      window.fixtureMoving = false;
+    });
+  }
 });

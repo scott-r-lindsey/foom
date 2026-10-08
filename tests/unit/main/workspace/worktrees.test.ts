@@ -10,6 +10,7 @@ import {
   rm,
   symlink,
   writeFile,
+  utimes,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -879,3 +880,31 @@ it.each(["untracked", "commit"])(
     }
   },
 );
+
+it("status inspection never refreshes the index during concurrent cleanup", async () => {
+  const path = await service.createWorktree(repo, "status-read");
+  const tracked = join(path, "tracked.txt");
+  await writeFile(tracked, "unchanged content");
+  await execute("git", ["add", "."], { cwd: path });
+  await execute(
+    "git",
+    ["-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "-m", "tracked"],
+    { cwd: path },
+  );
+  const { stdout } = await execute(
+    "git",
+    ["rev-parse", "--path-format=absolute", "--git-path", "index"],
+    { cwd: path },
+  );
+  const index = stdout.trim();
+  const before = await readFile(index);
+  const later = new Date(Date.now() + 2000);
+  await utimes(tracked, later, later);
+  expect(await service.changes(repo, path)).toBe("");
+  const identity = await service.removalIdentity(repo, path);
+  expect(await service.changes(repo, path, identity)).toBe("");
+  expect(await readFile(index)).toEqual(before);
+  // Establish that ordinary status would write the stale stat cache in this fixture.
+  await execute("git", ["status", "--porcelain=v1"], { cwd: path });
+  expect(await readFile(index)).not.toEqual(before);
+});

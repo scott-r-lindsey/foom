@@ -312,7 +312,9 @@ Sidebar inventory never awaits remote merge checks. Main caches eligibility for
 one minute, starts a background scan for a new local worktree/session inventory
 or an expired result, and emits a workspace change when it finishes. Matching
 in-flight scans are shared; superseded scans, removed repositories and disposed
-workspaces cannot publish late results. Cleanup still fetches afresh.
+workspaces cannot publish late results. Git status reads use `--no-optional-locks`
+so index refreshes cannot race deletion of per-worktree metadata. Cleanup still
+fetches afresh.
 
 Merged cleanup uses the same removal sequence with an additional main-owned
 revalidation callback. Candidate path, filesystem identity, branch and commit

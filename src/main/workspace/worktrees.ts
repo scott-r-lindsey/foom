@@ -343,15 +343,29 @@ export class WorktreeService {
       throw new Error("Worktree has been replaced. Review it and try again.");
   }
 
+  // Background status reads must not refresh/write the index while removal is
+  // deleting per-worktree Git metadata. --no-optional-locks keeps them read-only.
   async changes(repositoryPath: string, path: string, identity?: string): Promise<string> {
     if (identity !== undefined) {
       await this.checkRemovalIdentity(repositoryPath, path, identity);
-      return git(path, ["status", "--porcelain=v1", "-z", "--untracked-files=all"]);
+      return git(path, [
+        "--no-optional-locks",
+        "status",
+        "--porcelain=v1",
+        "-z",
+        "--untracked-files=all",
+      ]);
     }
     const trees = await this.listWorktrees(repositoryPath);
     if (!trees.some((tree) => tree.path === path && tree.managed && !tree.prunable && !tree.locked))
       throw new Error("Worktree is not managed by Foom or is locked");
-    return git(path, ["status", "--porcelain=v1", "-z", "--untracked-files=all"]);
+    return git(path, [
+      "--no-optional-locks",
+      "status",
+      "--porcelain=v1",
+      "-z",
+      "--untracked-files=all",
+    ]);
   }
 
   async createWorktree(
