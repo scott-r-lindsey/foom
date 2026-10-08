@@ -353,3 +353,81 @@ it("deduplicates Codex notifications within each launch with bounded turn histor
   await post(next, payload("first"));
   expect(signals).toHaveLength(130);
 });
+
+it.each([
+  ["SessionStart", "ready"],
+  ["UserPromptSubmit", "working"],
+  ["PreToolUse", "working"],
+  ["PermissionRequest", "needs_input"],
+  ["PostToolUse", "working"],
+  ["Stop", "classify"],
+])("validates, pins and reduces Codex %s", async (event, action) => {
+  const { launch, signals } = await setup("codex");
+  const payload = {
+    hook_event_name: event,
+    session_id: "codex-session",
+    turn_id: "turn",
+    source: "resume",
+    tool_name: "Bash",
+    stop_hook_active: false,
+    prompt: "SECRET",
+    tool_input: { command: "SECRET" },
+    transcript_path: "/never-read",
+  };
+  expect(await post(launch, JSON.stringify(payload))).toBe(204);
+  expect(signals).toEqual([
+    {
+      terminalId: "terminal-1",
+      conversationId: "codex-session",
+      action,
+      signal: `codex:${event}`,
+    },
+  ]);
+  expect(await post(launch, JSON.stringify({ ...payload, session_id: "other" }))).toBe(400);
+  expect(await post(launch, JSON.stringify({ ...payload, session_id: "--bad" }))).toBe(400);
+});
+
+it.each([
+  { hook_event_name: "SessionStart", source: "unknown" },
+  { hook_event_name: "Stop", stop_hook_active: "false", turn_id: "t" },
+  { hook_event_name: "Stop", stop_hook_active: false },
+  { hook_event_name: "PreToolUse", turn_id: "t" },
+  { hook_event_name: "PermissionRequest", turn_id: "t", tool_name: "" },
+  { hook_event_name: "PostToolUse", turn_id: "t", tool_name: "x".repeat(201) },
+  { hook_event_name: "UserPromptSubmit", turn_id: [] },
+  { hook_event_name: null },
+])("rejects malformed Codex lifecycle payload %#", async (payload) => {
+  const { launch, signals } = await setup("codex");
+  expect(await post(launch, JSON.stringify({ session_id: "codex-session", ...payload }))).toBe(400);
+  expect(signals).toEqual([]);
+});
+
+it("ignores unknown Codex lifecycle events without pinning their session", async () => {
+  const { launch, signals } = await setup("codex");
+  expect(
+    await post(launch, JSON.stringify({ session_id: "ignored", hook_event_name: "FutureEvent" })),
+  ).toBe(204);
+  expect(
+    await post(
+      launch,
+      JSON.stringify({ session_id: "real", hook_event_name: "UserPromptSubmit", turn_id: "t" }),
+    ),
+  ).toBe(204);
+  expect(signals).toHaveLength(1);
+});
+
+it.each([true, false])(
+  "Codex notify and lifecycle share session pinning (lifecycle first: %s)",
+  async (lifecycleFirst) => {
+    const { launch, signals } = await setup("codex");
+    const lifecycle = { session_id: "same", hook_event_name: "UserPromptSubmit", turn_id: "turn" };
+    const notify = { "thread-id": "same", "turn-id": "turn", type: "agent-turn-complete" };
+    const payloads = lifecycleFirst ? [lifecycle, notify] : [notify, lifecycle];
+    for (const payload of payloads) expect(await post(launch, JSON.stringify(payload))).toBe(204);
+    expect(signals).toHaveLength(2);
+    expect(await post(launch, JSON.stringify({ ...lifecycle, session_id: "other" }))).toBe(400);
+    expect(
+      await post(launch, JSON.stringify({ ...notify, "thread-id": "other", "turn-id": "another" })),
+    ).toBe(400);
+  },
+);

@@ -1,3 +1,4 @@
+export type CodexHookState = "not-reviewed" | "trusted" | "declined" | "outdated";
 export type AgentId = "claude" | "codex" | "agy";
 export interface AgentInstallation {
   readonly id: AgentId;
@@ -7,6 +8,8 @@ export interface AgentInstallation {
   readonly inline?: boolean;
   readonly mcp?: boolean;
   readonly mcpReason?: string;
+  readonly codexLifecycle?: boolean;
+  readonly codexHookState?: CodexHookState;
   readonly reason: string;
 }
 export interface AgentScan {
@@ -18,6 +21,8 @@ export interface AgentScan {
 export interface AgentHooks {
   readonly claudeCommand: string;
   readonly codexCommand: readonly string[];
+  readonly codexHookCommand?: string;
+  readonly codexNotify?: boolean;
   readonly env: Readonly<Record<string, string>>;
   /** Called once the launch has a terminal ID, before any hook can matter. */
   bind?(terminalId: string): void;

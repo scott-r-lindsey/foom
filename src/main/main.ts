@@ -1,3 +1,5 @@
+import { join } from "node:path";
+import { CodexHookStatus } from "./agents/codex-hook-status";
 import { SoundLibrary } from "./sounds/library";
 import { attachSounds } from "./sounds/ipc";
 import { attachAppMenu } from "./window/app-menu";
@@ -134,7 +136,10 @@ async function createWindow(savedSize?: Size) {
       workspace.removed(id);
     },
   });
+  const codexHooks = new CodexHookStatus(join(app.getPath("userData"), "codex-hook-health.json"));
+  await codexHooks.load();
   const workspace: Workspace = new Workspace({
+    codexHooks,
     worktrees,
     watcher: new InventoryWatch(
       (repository) => worktrees.watchPaths(repository),

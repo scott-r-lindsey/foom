@@ -99,3 +99,17 @@ await copyFile(
 );
 
 await cp(join(root, "src/sounds"), join(root, "build/sounds"), { recursive: true });
+
+// Native interpreters need real files outside ASAR, at a stable installation path.
+const { codexObserverSource } = await import("../build/main/agents/codex-hooks.js");
+await mkdir(join(root, "build/observers"), { recursive: true });
+for (const [platform, extension] of [
+  ["posix", "sh"],
+  ["win32", "ps1"],
+]) {
+  await writeFile(
+    join(root, `build/observers/codex-v1.${extension}`),
+    codexObserverSource(platform),
+    { mode: 0o755 },
+  );
+}

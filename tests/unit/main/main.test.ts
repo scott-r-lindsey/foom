@@ -1,3 +1,8 @@
+vi.mock("../../../src/main/agents/codex-hook-status", () => ({
+  CodexHookStatus: class {
+    load = async () => {};
+  },
+}));
 vi.mock("../../../src/main/sounds/ipc", () => ({ attachSounds: vi.fn(() => vi.fn()) }));
 vi.mock("../../../src/main/window/attention-badge", () => ({ updateAttention: vi.fn() }));
 import type { WorkspaceDependencies } from "../../../src/main/workspace/workspace";
