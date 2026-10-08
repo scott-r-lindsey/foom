@@ -123,6 +123,14 @@ export class Workspace {
   private readonly busyWorktrees = new Set<string>();
   private readonly repositoryOperations = new Map<string, Set<symbol>>();
   private readonly removingRepositories = new Set<string>();
+  private readonly mergeEligibility = new Map<
+    string,
+    {
+      key: string;
+      expires: number;
+      result: { canDeleteMerged: boolean; mergedError?: string };
+    }
+  >();
   private enabled: Readonly<Record<AgentId, boolean>> = { claude: true, codex: true, agy: true };
   private readonly now: () => number;
 
@@ -259,6 +267,7 @@ export class Workspace {
       if (confirm && !(await confirm())) return;
       checkSessions();
       await this.deps.worktrees.removeRepository(repository);
+      this.mergeEligibility.delete(repository);
       this.refresh();
     } finally {
       this.removingRepositories.delete(repository);
@@ -531,8 +540,8 @@ export class Workspace {
     return undefined;
   }
 
-  private async mergedPlan(repository: string, refresh: boolean) {
-    const trees = await this.worktrees(repository);
+  private async mergedPlan(repository: string, refresh: boolean, inventory?: readonly Worktree[]) {
+    const trees = inventory ?? (await this.worktrees(repository));
     if (!trees.some((tree) => tree.managed)) return [];
     const base = await this.deps.worktrees.mergedDefault(repository, refresh);
     return Promise.all(
@@ -630,21 +639,48 @@ export class Workspace {
     });
   }
 
+  /** Never let remote discovery hold up local inventory or session publication. */
+  private cachedMergeEligibility(repository: string, worktrees: readonly Worktree[]) {
+    if (this.closed || !worktrees.some((tree) => tree.managed)) {
+      this.mergeEligibility.delete(repository);
+      return { canDeleteMerged: false };
+    }
+    const key = JSON.stringify(worktrees.map((tree) => [tree, this.sessionSkip(tree.path)]));
+    const cached = this.mergeEligibility.get(repository);
+    if (cached?.key === key && this.now() < cached.expires) return cached.result;
+    const entry = { key, expires: Number.POSITIVE_INFINITY, result: { canDeleteMerged: false } };
+    this.mergeEligibility.set(repository, entry);
+    const publish = (result: { canDeleteMerged: boolean; mergedError?: string }) => {
+      // A newer inventory, repository removal or shutdown supersedes this scan.
+      if (this.closed || this.mergeEligibility.get(repository) !== entry) return;
+      entry.result = result;
+      entry.expires = this.now() + 60_000;
+      this.deps.onChange?.();
+    };
+    void this.mergedPlan(repository, false, worktrees).then(
+      (plan) => {
+        publish({ canDeleteMerged: plan.some((item) => !item.reason) });
+      },
+      (error: unknown) => {
+        publish({
+          canDeleteMerged: false,
+          mergedError: error instanceof Error ? error.message : String(error),
+        });
+      },
+    );
+    return entry.result;
+  }
+
   async sidebarInventory(): Promise<SidebarInventory> {
     return {
       repositories: await Promise.all(
         this.deps.worktrees.listRepositories().map(async (repository) => {
           const worktrees = await this.worktrees(repository.path);
-          try {
-            const plan = await this.mergedPlan(repository.path, false);
-            return { ...repository, worktrees, canDeleteMerged: plan.some((item) => !item.reason) };
-          } catch (error) {
-            return {
-              ...repository,
-              worktrees,
-              mergedError: error instanceof Error ? error.message : String(error),
-            };
-          }
+          return {
+            ...repository,
+            worktrees,
+            ...this.cachedMergeEligibility(repository.path, worktrees),
+          };
         }),
       ),
       shell:
@@ -1314,6 +1350,7 @@ export class Workspace {
   async dispose(): Promise<void> {
     if (this.closed) return;
     this.closed = true;
+    this.mergeEligibility.clear();
     this.executionListeners.clear();
     this.deps.watcher?.dispose();
     for (const id of this.terminals.keys()) this.deps.verdicts.forget(id);

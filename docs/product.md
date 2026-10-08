@@ -60,7 +60,11 @@ the window gains focus. Sessions in a removed checkout stay alive and show a neu
 **⊘ Worktree removed** label. New launches and restarts there are unavailable; Stop
 and Close still work. The checkout row disappears when its last session closes.
 
-Session rows show a light, letter agent badge, name, wait and reason. Double-click the name
+Session rows show a light, neutral CC / CX / AG badge (or `>_` for shells), name,
+wait and reason. Unknown identities use `?`. Badges share a 20px-high slot with a
+16px visual target; no vendor artwork is bundled. The full agent name or detected
+shell name remains in the accessible row name and hover/focus preview after renaming.
+Double-click the name
 to edit it; Enter or blur commits, Escape cancels, and an empty value restores the default.
 Rows launched with a known bypass argument also show a neutral ◇ Bypass label.
 This records launch flags, not inferred global agent policy; changing defaults does not
@@ -107,8 +111,9 @@ when at least one Foom-managed worktree is eligible. Foom fetches the remote
 branch is merged when `git merge-tree --write-tree <default> <branch>` produces
 the default branch's tree: merging it would change nothing. This works for merge,
 squash and rebase merges without GitHub access. A failed fetch refuses cleanup;
-Foom never falls back to a stale default branch. Inventory shares a fetch for up
-to one minute; the action always fetches afresh.
+Foom never falls back to a stale default branch. Local inventory returns immediately;
+background cleanup eligibility is cached for up to one minute and published when
+ready. The action always fetches afresh.
 
 The trusted dialog lists candidate branches, then skipped checkouts with short
 reasons, and offers **Delete** and **Cancel**. Main checkouts, unmanaged, locked,

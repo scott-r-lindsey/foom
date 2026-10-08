@@ -4024,7 +4024,9 @@ test("recorded sounds refresh and preview user files while shell attention and c
       window.soundTerminal = id;
     });
   });
-  await page.locator(".xterm-helper-textarea").focus();
+  // Reload reattaches the terminal asynchronously. Use the board action that
+  // waits for attachment before focusing, instead of focusing its early markup.
+  await page.locator(".board-row[data-kind='shell']").press("Enter");
   await expect(page.locator(".xterm-helper-textarea")).toBeFocused();
   await page.keyboard.type(
     `${process.platform === "win32" ? "& " : ""}"${process.execPath}" "${path.join(__dirname, "input-probe.js")}" "${marker}"`,
@@ -4545,6 +4547,9 @@ if (resumed) {
       .getByRole("button", { name: `Actions for ${agentName} in resume-test`, exact: true })
       .click();
     await restored.getByRole("menuitem", { name: "Copy session ID", exact: true }).click();
+    // Clipboard writing finishes before the source's inventory refresh and menu
+    // dismissal. Wait for the completed UI action before opening it again.
+    await expect(restored.getByRole("menu", { name: "Actions", exact: true })).toHaveCount(0);
     await expect
       .poll(() => restoredApp.evaluate(({ clipboard }) => clipboard.readText()))
       .toBe(conversation);
@@ -4843,6 +4848,61 @@ test("application menu closes before focus commands and keeps their destination 
   await expect(page.locator(".xterm-helper-textarea")).toBeFocused();
 });
 
+test("neutral identity badges keep labels and geometry across themes and interface scales", async (context) => {
+  const app = await launchApp(context);
+  const page = await boardPage(app);
+  const row = page.locator('.board-row[data-kind="shell"]');
+  await expect(row).toBeVisible();
+  await row.press("F2");
+  await page.getByRole("textbox", { name: "Session name" }).fill("Build helper");
+  await page.getByRole("textbox", { name: "Session name" }).press("Enter");
+  await expect(row).toHaveAccessibleName(/Build helper · Shell \(.+\)/);
+  for (const colorScheme of ["light", "dark"]) {
+    await page.emulateMedia({ colorScheme, reducedMotion: "reduce" });
+    for (const interfaceScale of [80, 90, 100, 110, 120, 130, 140, 150]) {
+      await page.evaluate(
+        (interfaceScale) => window.desktop.saveSetup({ interfaceScale }),
+        interfaceScale,
+      );
+      await row.focus();
+      const peek = page.getByRole("complementary", { name: "Terminal peek" });
+      await expect(peek).toBeVisible();
+      await expect(peek.getByRole("heading")).toHaveText(/^Shell \(.+\) · /);
+      await expect(row).toHaveAccessibleName(/Build helper · Shell \(.+\)/);
+      const badge = row.locator(".board-agent");
+      await expect(badge).toHaveText(">_");
+      await expect(badge).toBeVisible();
+      const heights = await badge.evaluate((element) => [
+        parseFloat(getComputedStyle(element).height),
+        parseFloat(getComputedStyle(element.firstElementChild).height),
+      ]);
+      assert.ok(Math.abs(heights[0] - 20) < 0.1 && Math.abs(heights[1] - 16) < 0.1);
+      assert.ok(
+        await badge.evaluate((element) => {
+          const style = getComputedStyle(element);
+          return (
+            element.clientWidth >= element.scrollWidth &&
+            style.backgroundColor ===
+              getComputedStyle(document.querySelector(".tile-title .board-agent"))
+                .backgroundColor &&
+            style.fontFamily.includes("Geist Mono") &&
+            element.querySelectorAll("img, svg").length === 0
+          );
+        }),
+      );
+      if (process.env.FOOM_SCREENSHOTS && [80, 100, 150].includes(interfaceScale))
+        await page.screenshot({
+          path: path.join(
+            __dirname,
+            `../../test-results/badges-${colorScheme}-${interfaceScale}.png`,
+          ),
+        });
+    }
+  }
+  await page.evaluate(() => window.desktop.saveSetup({ interfaceScale: 100 }));
+  await assertAccessible(page);
+});
+
 test("merged cleanup deletes two worktrees and branches while preserving a skipped checkout", {
   timeout: deadline(60000),
 }, async (context) => {
@@ -4867,17 +4927,27 @@ test("merged cleanup deletes two worktrees and branches while preserving a skipp
     dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [repo] });
   }, repo);
   await page.getByRole("button", { name: "Add repository", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Actions for repo", exact: true })).toBeVisible();
+  const repository = await page.evaluate(
+    async () => (await window.desktop.workspace()).repositories[0].path,
+  );
   const paths = {};
   for (const branch of ["merged-one", "merged-two", "dirty"]) {
     const tree = await page.evaluate(
       ({ repo, branch }) => window.desktop.createWorktree(repo, branch, "adjacent"),
-      { repo, branch },
+      { repo: repository, branch },
     );
     paths[branch] = tree.path;
   }
   await writeFile(path.join(paths.dirty, "keep.txt"), "must survive");
   // Wait for the source to include the fresh eligibility result before opening its menu.
-  await page.evaluate(() => window.desktop.sidebarInventory());
+  await expect
+    .poll(
+      async () =>
+        (await page.evaluate(() => window.desktop.sidebarInventory())).repositories[0]
+          ?.canDeleteMerged,
+    )
+    .toBe(true);
   await expect(
     page.getByRole("button", { name: "Actions for merged-two", exact: true }),
   ).toBeVisible();
@@ -4906,7 +4976,8 @@ test("merged cleanup deletes two worktrees and branches while preserving a skipp
   await expect
     .poll(
       async () =>
-        (await page.evaluate((repository) => window.desktop.worktrees(repository), repo)).length,
+        (await page.evaluate((repository) => window.desktop.worktrees(repository), repository))
+          .length,
     )
     .toBe(2);
   for (const branch of ["merged-one", "merged-two"]) {

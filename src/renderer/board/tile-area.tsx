@@ -1,3 +1,4 @@
+import { AgentBadge } from "./agent-badge";
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import type { CSSProperties } from "react";
 import type { BoardSource } from "./board-source.d";
@@ -6,7 +7,13 @@ import type { SidebarPreferences } from "./sidebar.d";
 import type { TileLayout, TileLeaf, TileRect, TileSplit } from "./tiles.d";
 import type { TerminalViewSource } from "../terminal/terminal-view-source.d";
 import { light } from "./board";
-import { sessionName, rowRepository, rowWorktree, agentBadges } from "./sidebar-model";
+import {
+  sessionIdentity,
+  sessionName,
+  rowRepository,
+  rowWorktree,
+  agentBadges,
+} from "./sidebar-model";
 import { rectangles, resizeSplit } from "./tiles";
 
 function TerminalView({
@@ -136,11 +143,13 @@ function Tile({
               role="img"
               aria-label={light(row).label}
             />
-            <span className="board-agent">{agentBadges[row.agent] ?? row.agent}</span>
+            <AgentBadge mark={row.kind === "shell" ? ">_" : agentBadges.get(row.agent)} />
             <span className="tile-location" title={`${row.repository} › ${row.branch}`}>
               {row.repository} › {row.branch}
             </span>
-            <span className="tile-name">{sessionName(row, preferences)}</span>
+            <span className="tile-name" title={sessionIdentity(row, source.shellName?.())}>
+              {sessionName(row, preferences)}
+            </span>
           </>
         )}
         <span className="tile-number">{number}</span>

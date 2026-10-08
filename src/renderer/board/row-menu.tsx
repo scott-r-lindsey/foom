@@ -1,3 +1,4 @@
+import { AgentBadge } from "./agent-badge";
 import { useConfirmation } from "./use-confirmation";
 import type { ConfirmationClient } from "../../shared/confirmation";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
@@ -141,11 +142,7 @@ export function RowMenu({
                 });
               }}
             >
-              {action.badge && (
-                <span className="board-agent" aria-hidden="true">
-                  {action.badge}
-                </span>
-              )}
+              {action.badge && <AgentBadge mark={action.badge} />}
               <span className="menu-label">
                 {selected === index && confirmation.arm ? confirmation.arm.label : action.label}
               </span>

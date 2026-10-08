@@ -2145,7 +2145,9 @@ test("merged cleanup lists every skip rule and continues after a changed candida
   vi.mocked(deps.worktrees.mergedCommit).mockImplementation((_repo, tree) =>
     Promise.resolve(tree.path !== unmerged.path),
   );
-  expect((await workspace.sidebarInventory()).repositories[0]?.canDeleteMerged).toBe(true);
+  await expect
+    .poll(async () => (await workspace.sidebarInventory()).repositories[0]?.canDeleteMerged)
+    .toBe(true);
   const confirm = vi.fn<ConfirmWorkspace>(() => {
     vi.mocked(deps.worktrees.listWorktrees).mockResolvedValue([tree, { ...changed, head: "new" }]);
     return Promise.resolve(true);
@@ -2235,7 +2237,9 @@ test("merged cleanup cancels, refuses stale fetches and hides ineligible invento
     }),
   ).rejects.toThrow("fetch failed");
   expect(deps.worktrees.removeWorktree).not.toHaveBeenCalled();
-  expect((await workspace.sidebarInventory()).repositories[0]?.mergedError).toBe("fetch failed");
+  await expect
+    .poll(async () => (await workspace.sidebarInventory()).repositories[0]?.mergedError)
+    .toBe("fetch failed");
   await workspace.dispose();
 });
 
@@ -2301,5 +2305,141 @@ test("a session launched during confirmation is skipped", async () => {
     ),
   ).rejects.toThrow("running");
   expect(deps.worktrees.removeWorktree).not.toHaveBeenCalled();
+  await workspace.dispose();
+});
+
+test("local inventory and launches proceed while a remote check is pending; completion publishes once", async () => {
+  let complete: (base: string) => void = () => undefined;
+  const pending = new Promise<string>((resolve) => {
+    complete = resolve;
+  });
+  vi.mocked(deps.worktrees.mergedDefault).mockReturnValue(pending);
+  vi.mocked(deps.worktrees.mergedCommit).mockResolvedValue(true);
+  const changed = vi.fn();
+  deps.onChange = changed;
+  let now = 0;
+  deps.now = () => now;
+  const workspace = new Workspace(deps);
+  const inventory = await workspace.sidebarInventory();
+  expect(inventory.repositories).toEqual([{ ...repo, worktrees: [tree], canDeleteMerged: false }]);
+  await workspace.sidebarInventory();
+  expect(deps.worktrees.mergedDefault).toHaveBeenCalledOnce();
+  expect(changed).not.toHaveBeenCalled();
+  // A foreground shell launch is independent of the pending remote check.
+  await workspace.sidebarCommand(
+    { kind: "launch", repository: repo.path, worktree: tree.path, run: "shell" },
+    () => Promise.resolve(true),
+  );
+  expect(workspace.snapshot().terminals).toHaveLength(1);
+  await workspace.exited("t1", 0);
+  changed.mockClear();
+  complete("base");
+  await vi.waitFor(() => {
+    expect(changed).toHaveBeenCalledOnce();
+  });
+  expect((await workspace.sidebarInventory()).repositories[0]?.canDeleteMerged).toBe(true);
+  expect(deps.worktrees.mergedDefault).toHaveBeenCalledOnce();
+  now = 60_001;
+  expect((await workspace.sidebarInventory()).repositories[0]?.canDeleteMerged).toBe(false);
+  await vi.waitFor(() => {
+    expect(changed).toHaveBeenCalledTimes(2);
+  });
+  expect((await workspace.sidebarInventory()).repositories[0]?.canDeleteMerged).toBe(true);
+  expect(deps.worktrees.mergedDefault).toHaveBeenCalledTimes(2);
+  await workspace.dispose();
+});
+
+test.each([new Error("offline"), "offline"])(
+  "background fetch failures publish status without rejecting inventory: %s",
+  async (error) => {
+    let fail: (error: unknown) => void = () => undefined;
+    vi.mocked(deps.worktrees.mergedDefault).mockReturnValue(
+      new Promise((_resolve, reject) => {
+        fail = reject;
+      }),
+    );
+    const changed = vi.fn();
+    deps.onChange = changed;
+    const workspace = new Workspace(deps);
+    expect((await workspace.sidebarInventory()).repositories[0]?.mergedError).toBeUndefined();
+    fail(error);
+    await vi.waitFor(() => {
+      expect(changed).toHaveBeenCalledOnce();
+    });
+    expect((await workspace.sidebarInventory()).repositories[0]).toMatchObject({
+      canDeleteMerged: false,
+      mergedError: "offline",
+    });
+    await workspace.sidebarInventory();
+    expect(deps.worktrees.mergedDefault).toHaveBeenCalledOnce();
+    await workspace.dispose();
+  },
+);
+
+test.each(["new inventory", "unmanaged", "removed", "disposed"])(
+  "a pending eligibility result is discarded after %s",
+  async (change) => {
+    let complete: (base: string) => void = () => undefined;
+    const pending = new Promise<string>((resolve) => {
+      complete = resolve;
+    });
+    vi.mocked(deps.worktrees.mergedDefault).mockReturnValueOnce(pending);
+    vi.mocked(deps.worktrees.mergedCommit).mockResolvedValue(true);
+    const changed = vi.fn();
+    deps.onChange = changed;
+    const workspace = new Workspace(deps);
+    await workspace.sidebarInventory();
+    if (change === "new inventory") {
+      vi.mocked(deps.worktrees.listWorktrees).mockResolvedValue([{ ...tree, head: "new" }]);
+      vi.mocked(deps.worktrees.mergedDefault).mockRejectedValue(new Error("new fetch failed"));
+      await workspace.sidebarInventory();
+      await vi.waitFor(() => {
+        expect(changed).toHaveBeenCalledOnce();
+      });
+    }
+    if (change === "unmanaged") {
+      vi.mocked(deps.worktrees.listWorktrees).mockResolvedValue([{ ...tree, managed: false }]);
+      await workspace.sidebarInventory();
+    }
+    if (change === "removed") await workspace.removeRepository(repo.path);
+    if (change === "disposed") await workspace.dispose();
+    changed.mockClear();
+    complete("base");
+    // A sentinel after containment proves the discarded scan completed.
+    await vi.waitFor(() => {
+      expect(deps.worktrees.mergedCommit).toHaveBeenCalled();
+    });
+    expect(changed).not.toHaveBeenCalled();
+    if (change === "new inventory")
+      expect((await workspace.sidebarInventory()).repositories[0]?.mergedError).toBe(
+        "new fetch failed",
+      );
+    if (change === "disposed")
+      expect((await workspace.sidebarInventory()).repositories[0]?.canDeleteMerged).toBe(false);
+    await workspace.dispose();
+  },
+);
+
+test("one slow remote does not delay another repository's inventory or eligibility", async () => {
+  const other = { path: "/other", name: "other" };
+  vi.mocked(deps.worktrees.listRepositories).mockReturnValue([repo, other]);
+  let complete: (base: string) => void = () => undefined;
+  const pending = new Promise<string>((resolve) => {
+    complete = resolve;
+  });
+  vi.mocked(deps.worktrees.mergedDefault).mockImplementation((repository) =>
+    repository === repo.path ? pending : Promise.resolve("base"),
+  );
+  vi.mocked(deps.worktrees.mergedCommit).mockResolvedValue(true);
+  const workspace = new Workspace(deps);
+  expect((await workspace.sidebarInventory()).repositories).toHaveLength(2);
+  await expect
+    .poll(async () => (await workspace.sidebarInventory()).repositories[1]?.canDeleteMerged)
+    .toBe(true);
+  expect((await workspace.sidebarInventory()).repositories[0]?.canDeleteMerged).toBe(false);
+  complete("base");
+  await expect
+    .poll(async () => (await workspace.sidebarInventory()).repositories[0]?.canDeleteMerged)
+    .toBe(true);
   await workspace.dispose();
 });

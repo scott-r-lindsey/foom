@@ -683,6 +683,11 @@ it("derives watch directories from common Git metadata, including linked and pac
 });
 
 describe("merged worktree containment", () => {
+  beforeEach(async () => {
+    // Do not let a developer's global identity conceal missing fixture arguments.
+    await git("config", "user.name", "");
+    await git("config", "user.email", "");
+  });
   async function commit(cwd: string, message: string) {
     await execute("git", ["add", "."], { cwd });
     await execute(
@@ -724,7 +729,15 @@ describe("merged worktree containment", () => {
           "merge",
         );
       if (mode === "squash" || mode === "reverted") {
-        await git("merge", "--squash", "feature");
+        await git(
+          "-c",
+          "user.name=Test",
+          "-c",
+          "user.email=test@example.com",
+          "merge",
+          "--squash",
+          "feature",
+        );
         await commit(repo, "squash");
         if (mode === "reverted")
           await git(
