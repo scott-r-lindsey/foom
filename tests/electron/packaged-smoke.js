@@ -472,7 +472,7 @@ test("packaged CLI PATH setup is explicit, non-clobbering and reversible", async
       ? path.join(root, "Foom.app/Contents/Resources")
       : path.join(root, "resources");
   const name = process.platform === "win32" ? "foom.exe" : "foom";
-  const scratch = mkdtempSync(path.join(tmpdir(), "foom PATH 日本語 "));
+  const scratch = realpathSync.native(mkdtempSync(path.join(tmpdir(), "foom PATH 日本語 ")));
   context.after(() => rmSync(scratch, { recursive: true, force: true }));
   const helper = path.join(scratch, name);
   copyFileSync(path.join(resources, "app.asar.unpacked/build/console", name), helper);
@@ -504,7 +504,7 @@ test("packaged CLI PATH setup is explicit, non-clobbering and reversible", async
           "-NoProfile",
           "-NonInteractive",
           "-Command",
-          "[Environment]::GetEnvironmentVariable('Path','User')",
+          "[Console]::OutputEncoding=[System.Text.Encoding]::UTF8; [Environment]::GetEnvironmentVariable('Path','User')",
         ],
         { encoding: "utf8" },
       ).trimEnd();
@@ -514,7 +514,15 @@ test("packaged CLI PATH setup is explicit, non-clobbering and reversible", async
       assert.equal(installed.status, 0, installed.stderr);
       assert.ok(readPath().split(";").includes(scratch));
       assert.notEqual(run("--install-cli").status, 0);
-      const removed = run("--uninstall-cli");
+      const moved = `${scratch} moved`;
+      context.after(() => rmSync(moved, { recursive: true, force: true }));
+      renameSync(scratch, moved);
+      const removed = spawnSync(path.join(moved, name), ["--uninstall-cli"], {
+        env,
+        encoding: "utf8",
+        timeout: deadline(15000),
+        windowsHide: true,
+      });
       assert.equal(removed.status, 0, removed.stderr);
       assert.equal(readPath(), before);
     } finally {

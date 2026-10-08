@@ -439,7 +439,9 @@ agents and human CLI grants cannot query orchestration operations. Responses use
 stable `{result}` / `{error}` envelopes; `--json` also makes offline output JSON.
 Exit status is 0 for success, 2 for usage/schema errors, 3 for authentication or
 scope denial, and 4 for unavailable services, capacity, not-found or I/O errors.
-No exception text or credentials are printed.
+No exception text or credentials are printed. Responses are bounded to 256 KiB,
+including full 100-session pages with Unicode names; pairing responses are limited
+to 4 KiB.
 
 Human invocations add `--repository ABSOLUTE_REGISTERED_PATH` and optionally
 `--profile ABSOLUTE_PROFILE_PATH` (needed for Foom Dev or custom profiles). Without
@@ -461,7 +463,9 @@ ownership record; `--uninstall-cli /absolute/bin` removes only the recorded link
 including a stale link after moving the ZIP. Existing commands and changed links
 are refused. Foom does not edit shell startup files. On Windows, invoke the helper
 by absolute path with `--install-cli` to add its dedicated directory to the user's
-PATH; `--uninstall-cli` removes only its recorded entry. New shells are required.
+PATH; `--uninstall-cli` removes only its recorded entry, including the old entry
+after moving the installation. Both actions broadcast the Windows environment
+change so newly opened shells can inherit it. Existing shells must be reopened.
 Unrelated PATH entries and registry value kind are retained. Foom-launched agents
 get a process-local PATH addition independently of human installation. Antigravity
 with `--prompt-interactive` support receives CLI guidance composed with initial

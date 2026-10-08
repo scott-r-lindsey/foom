@@ -1,8 +1,19 @@
-import { mkdtemp, mkdir, writeFile, readlink, readFile, rm, symlink } from "node:fs/promises";
+import {
+  mkdtemp,
+  mkdir,
+  writeFile,
+  readlink,
+  readFile,
+  rm,
+  symlink,
+  rename,
+} from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, expect, it, vi } from "vitest";
-const calls = vi.hoisted(() => ({ execute: vi.fn() }));
+const calls = vi.hoisted(() => ({
+  execute: vi.fn<(file: string, args: string[], options: unknown) => void>(),
+}));
 vi.mock("node:child_process", () => ({
   execFile: (
     file: string,
@@ -88,7 +99,13 @@ it("uses a fixed Windows registry program with path data in the environment", as
       env: { PATH: `${root};`, FOOM_CLI_DIRECTORY: bin, FOOM_CLI_REMOVE: "0" },
     }),
   );
-  await installCli(helper, bin, true, {}, "win32");
+  const script: unknown = calls.execute.mock.calls.at(-1)?.[1]?.[3];
+  expect(script).toEqual(expect.stringContaining("SendMessageTimeout"));
+  expect(script).toEqual(expect.stringContaining("'Environment',2,2000"));
+  const moved = join(root, "moved 日本語");
+  await rename(bin, moved);
+  await installCli(join(moved, "foom.exe"), moved, true, {}, "win32");
+  await rename(moved, bin);
   expect(calls.execute).toHaveBeenLastCalledWith(
     "powershell.exe",
     expect.any(Array),

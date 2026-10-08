@@ -1,12 +1,23 @@
 import { execFile } from "node:child_process";
 import { lstat, readFile, readlink, realpath, rm, symlink, writeFile } from "node:fs/promises";
-import { delimiter, dirname, isAbsolute, join } from "node:path";
+import { delimiter, dirname, basename, isAbsolute, join } from "node:path";
 import { promisify } from "node:util";
-import { ControlError, object } from "../node-common/control-validation";
+import { ControlError, exact, object } from "../node-common/control-validation";
 
 const execute = promisify(execFile);
 const windowsPath = `
 $ErrorActionPreference='Stop'
+# Load the Windows PowerShell built-in explicitly; inherited pwsh module paths are untrusted.
+Import-Module ($PSHOME+'\\Modules\\Microsoft.PowerShell.Utility\\Microsoft.PowerShell.Utility.psd1')
+Microsoft.PowerShell.Utility\\Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+public static class FoomEnvironment {
+  [DllImport("user32.dll", CharSet=CharSet.Unicode)]
+  public static extern IntPtr SendMessageTimeout(IntPtr window, uint message,
+    UIntPtr parameter, string value, uint flags, uint timeout, out UIntPtr result);
+}
+'@
 $p=$env:FOOM_CLI_DIRECTORY
 $k=[Microsoft.Win32.Registry]::CurrentUser.CreateSubKey('Environment')
 try {
@@ -23,6 +34,8 @@ try {
   $kind=if ($k.GetValueNames() -contains 'Path') { $k.GetValueKind('Path') } else { [Microsoft.Win32.RegistryValueKind]::ExpandString }
   $k.SetValue('Path',$new,$kind)
 } finally { $k.Dispose() }
+[UIntPtr]$result=[UIntPtr]::Zero
+[void][FoomEnvironment]::SendMessageTimeout([IntPtr]0xffff,0x1a,[UIntPtr]::Zero,'Environment',2,2000,[ref]$result)
 `;
 
 /** Explicit CLI setup only. No shell startup files, global agent config, or overwrites. */
@@ -40,9 +53,11 @@ export async function installCli(
   const destination = join(bin, name);
   const record = join(bin, ".foom-cli-install.json");
   if (remove) {
-    if (!(await lstat(record)).isFile() || (await lstat(record)).isSymbolicLink())
+    const info = await lstat(record);
+    if (!info.isFile() || info.isSymbolicLink() || info.size > 4096)
       throw new ControlError("conflict");
     const value = object(JSON.parse(await readFile(record, "utf8")));
+    exact(value, ["version", "target"]);
     if (
       value["version"] !== 1 ||
       typeof value["target"] !== "string" ||
@@ -50,10 +65,11 @@ export async function installCli(
     )
       throw new ControlError("conflict");
     if (platform === "win32") {
-      if (value["target"] !== join(bin, name)) throw new ControlError("conflict");
+      if (basename(value["target"]) !== name) throw new ControlError("conflict");
       await execute("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", windowsPath], {
-        env: { ...env, FOOM_CLI_DIRECTORY: bin, FOOM_CLI_REMOVE: "1" },
-        timeout: 5000,
+        env: { ...env, FOOM_CLI_DIRECTORY: dirname(value["target"]), FOOM_CLI_REMOVE: "1" },
+        timeout: 10000,
+        windowsHide: true,
       });
     } else {
       if (
@@ -86,7 +102,8 @@ export async function installCli(
     if (platform === "win32")
       await execute("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", windowsPath], {
         env: { ...env, FOOM_CLI_DIRECTORY: bin, FOOM_CLI_REMOVE: "0" },
-        timeout: 5000,
+        timeout: 10000,
+        windowsHide: true,
       });
     else await symlink(target, destination);
   } catch (error) {

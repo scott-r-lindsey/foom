@@ -150,11 +150,41 @@ it("bounds replies, refuses redirects and malformed JSON, and does not print ser
   };
   try {
     expect(await call(connection, command(["whoami"]))).toEqual({});
+    const root = await mkdtemp(join(tmpdir(), "foom-pair-errors-"));
+    scratch.push(root);
+    await atomicPrivate(await privateDirectory(root), "discovery.json", {
+      version: 1,
+      endpoint: connection.endpoint,
+      instanceId: connection.instanceId,
+    });
+    for (const error of ["capacity", "not_found", "invalid_request", "forbidden", "SECRET"]) {
+      data = `${JSON.stringify({ error })}\n`;
+      await expect(pair(root, root, () => {})).rejects.toThrow(
+        error === "SECRET" ? "unavailable" : error,
+      );
+    }
+
+    const sessions = Array.from({ length: 100 }, (_, index) => ({
+      id: String(index),
+      name: "日本語".repeat(53),
+      repository: "a".repeat(64),
+      worktree: "b".repeat(64),
+      revision: "c".repeat(64),
+      state: "quiet_ok",
+      reason: "quiet_ok",
+      agent: "claude",
+      untrusted: true,
+      attentionKind: null,
+    }));
+    data = JSON.stringify({ result: { sessions } });
+    expect(Buffer.byteLength(data)).toBeGreaterThan(65536);
+    expect(await call(connection, command(["sessions"]))).toEqual({ sessions });
+
     for (const value of ["{", "{}", '{"unexpected":true}', '{"error":"SECRET raw exception"}']) {
       data = value;
       await expect(call(connection, command(["whoami"]))).rejects.toThrow();
     }
-    data = "x".repeat(65537);
+    data = "x".repeat(262145);
     await expect(call(connection, command(["whoami"]))).rejects.toThrow("unavailable");
     data = '{"result":{}}';
     status = 302;

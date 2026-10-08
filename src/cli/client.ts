@@ -74,7 +74,7 @@ export function exchange(
         res.setEncoding("utf8");
         res.on("data", (chunk: string) => {
           size += Buffer.byteLength(chunk);
-          if (size > 65536) {
+          if (size > (onLine ? 4096 : 262144)) {
             reject(new ControlError("unavailable"));
             req.destroy();
             return;
@@ -137,6 +137,19 @@ export function exchange(
   });
 }
 
+function serverError(value: unknown): ControlError {
+  const codes = [
+    "invalid_request",
+    "unauthorized",
+    "forbidden",
+    "not_found",
+    "conflict",
+    "capacity",
+    "unavailable",
+  ] as const;
+  return new ControlError(codes.find((code) => code === value) ?? "unavailable");
+}
+
 export async function call(connection: Connection, command: Command): Promise<unknown> {
   const value = object(
     await exchange(
@@ -147,16 +160,7 @@ export async function call(connection: Connection, command: Command): Promise<un
   );
   exact(value, ["result", "error"]);
   if (typeof value["error"] === "string") {
-    const codes = [
-      "invalid_request",
-      "unauthorized",
-      "forbidden",
-      "not_found",
-      "conflict",
-      "capacity",
-      "unavailable",
-    ] as const;
-    throw new ControlError(codes.find((code) => code === value["error"]) ?? "unavailable");
+    throw serverError(value["error"]);
   }
   if (!("result" in value)) throw new ControlError("invalid_request");
   return value["result"];
@@ -184,7 +188,7 @@ export async function pair(
     (line) => {
       const value = object(line);
       exact(value, ["pairing", "grant", "error"]);
-      if (value["error"] !== undefined) throw new ControlError("forbidden");
+      if (value["error"] !== undefined) throw serverError(value["error"]);
       if (value["pairing"] && !announced) {
         const pairing = object(value["pairing"]);
         if (typeof pairing["code"] !== "string" || !/^[A-F0-9]{8}$/u.test(pairing["code"]))

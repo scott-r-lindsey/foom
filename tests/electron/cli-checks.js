@@ -1,8 +1,12 @@
 const assert = require("node:assert/strict");
+const { existsSync } = require("node:fs");
+const { join } = require("node:path");
 const { spawn } = require("node:child_process");
 const { deadline, expect } = require("./test-policy.js");
 
 async function assertCliPairing(context, executable, profile, repository, confirmation) {
+  // Control startup publishes discovery only after native ownership checks finish.
+  await expect.poll(() => existsSync(join(profile, "control", "discovery.json"))).toBe(true);
   const env = { ...process.env };
   for (const key of Object.keys(env))
     if (key.toUpperCase().startsWith("FOOM_") || key === "NODE_OPTIONS") delete env[key];

@@ -88,7 +88,12 @@ export async function execute(
           if (Buffer.byteLength(buffer) > 65536) throw new ControlError("invalid_request");
           let index = buffer.indexOf("\n");
           while (index >= 0) {
-            const value: unknown = JSON.parse(buffer.slice(0, index));
+            let value: unknown;
+            try {
+              value = JSON.parse(buffer.slice(0, index));
+            } catch {
+              throw new ControlError("invalid_request");
+            }
             buffer = buffer.slice(index + 1);
             if (
               !Array.isArray(value) ||

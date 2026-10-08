@@ -80,6 +80,7 @@ it("rejects malformed persistent input and emits fixed errors without raw except
     ["x".repeat(65537)],
     ["[3]\n"],
     ["{}\n"],
+    ["{\n"],
     ['["whoami"]'],
     ['["unknown"]\n'],
   ])

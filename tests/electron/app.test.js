@@ -4165,7 +4165,7 @@ test("recorded sounds refresh and preview user files while shell attention and c
   await page.locator(".board-row[data-kind='shell']").press("Enter");
   await expect(page.locator(".xterm-helper-textarea")).toBeFocused();
   await page.keyboard.type(
-    `${process.platform === "win32" ? "& " : ""}"${process.execPath}" "${path.join(__dirname, "input-probe.js")}" "${marker}"`,
+    `${process.platform === "win32" ? "& " : ""}"${process.execPath}" "${path.join(__dirname, "input-probe.js")}" "${marker}"; exit`,
   );
   await page.keyboard.press("Enter");
   // Capture its ID before Settings detaches the view and stops output delivery.
@@ -4208,14 +4208,9 @@ test("recorded sounds refresh and preview user files while shell attention and c
     .toEqual({ source: "user", file: "test-bell.wav" });
   await page.getByRole("button", { name: "Preview done", exact: true }).click();
   await expect.poll(() => page.evaluate(() => window.soundTones)).toEqual([0.25]);
-  // Exit the real PTY: process exit is a Done verdict on every supported shell/platform.
+  // The launch command queues exit after the probe, avoiding input before PowerShell
+  // has resumed. Process exit is a Done verdict on every supported platform.
   await page.evaluate(() => window.desktop.input(window.soundTerminal, "q"));
-  await expect
-    .poll(() =>
-      page.evaluate(async () => (await window.desktop.tail(window.soundTerminal, 40)).join("\n")),
-    )
-    .not.toContain("INPUT_READY");
-  await page.evaluate(() => window.desktop.input(window.soundTerminal, "exit\r"));
   await expect(page.locator(".board-row")).toHaveAttribute("data-state", "done");
   await page.waitForTimeout(2200);
   assert.deepEqual(await page.evaluate(() => window.soundTones), [0.25]);
