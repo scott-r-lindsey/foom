@@ -451,6 +451,8 @@ test("terminal runs an interactive shell behind an isolated bridge", {
     });
     const input = page.locator(".xterm-helper-textarea");
     await input.focus();
+    // IPC output can arrive while Chromium is between animation frames during startup.
+    // Poll it from the test process rather than using waitForFunction's rAF default.
     // The output marker is not present in the echoed command itself.
     const command =
       process.platform === "win32"
@@ -458,7 +460,9 @@ test("terminal runs an interactive shell behind an isolated bridge", {
         : "printf 'FOOM_%s\\n' SHELL_OK";
     await page.keyboard.type(command);
     await page.keyboard.press("Enter");
-    await page.waitForFunction(() => window.terminalOutput.includes("FOOM_SHELL_OK"));
+    await expect
+      .poll(() => page.evaluate(() => window.terminalOutput.includes("FOOM_SHELL_OK")))
+      .toBe(true);
     console.info("Shell command returned");
     if (process.platform === "linux" || process.platform === "win32") {
       // Select real xterm output with the mouse, then use the native clipboard shortcuts.
@@ -498,17 +502,23 @@ test("terminal runs an interactive shell behind an isolated bridge", {
       await input.focus();
       await shortcut("V");
       await page.keyboard.press("Enter");
-      await page.waitForFunction(() => window.terminalOutput.includes("FOOM_PASTE_OK"));
+      await expect
+        .poll(() => page.evaluate(() => window.terminalOutput.includes("FOOM_PASTE_OK")))
+        .toBe(true);
       console.info(`Copy/paste shortcuts passed on ${process.platform}`);
     }
     if (process.platform !== "win32") {
       const readSize = async (label) => {
         await page.keyboard.type(`printf 'SIZE_%s:' ${label}; stty size`);
         await page.keyboard.press("Enter");
-        await page.waitForFunction(
-          (name) => new RegExp(`SIZE_${name}:\\d+ \\d+`).test(window.terminalOutput),
-          label,
-        );
+        await expect
+          .poll(() =>
+            page.evaluate(
+              (name) => new RegExp(`SIZE_${name}:\\d+ \\d+`).test(window.terminalOutput),
+              label,
+            ),
+          )
+          .toBe(true);
         return page.evaluate(
           (name) =>
             window.terminalOutput
@@ -561,16 +571,22 @@ test("terminal runs an interactive shell behind an isolated bridge", {
         "test -t 0 && test -t 1 && stty size >/dev/null && printf 'FOOM_%s\\n' TTY_OK",
       );
       await page.keyboard.press("Enter");
-      await page.waitForFunction(() => window.terminalOutput.includes("FOOM_TTY_OK"));
+      await expect
+        .poll(() => page.evaluate(() => window.terminalOutput.includes("FOOM_TTY_OK")))
+        .toBe(true);
       // exec keeps one process, so once the marker prints, sleep is the foreground job that
       // receives Ctrl+C. Pressing it earlier can signal the shell before sleep starts.
       await page.keyboard.type("sh -c 'printf \"FOOM_%s\\n\" SLEEPING; exec sleep 30'");
       await page.keyboard.press("Enter");
-      await page.waitForFunction(() => window.terminalOutput.includes("FOOM_SLEEPING"));
+      await expect
+        .poll(() => page.evaluate(() => window.terminalOutput.includes("FOOM_SLEEPING")))
+        .toBe(true);
       await page.keyboard.press("Control+c");
       await page.keyboard.type("printf 'FOOM_%s\\n' INTERRUPTED");
       await page.keyboard.press("Enter");
-      await page.waitForFunction(() => window.terminalOutput.includes("FOOM_INTERRUPTED"));
+      await expect
+        .poll(() => page.evaluate(() => window.terminalOutput.includes("FOOM_INTERRUPTED")))
+        .toBe(true);
     }
     assert.deepEqual(
       await page.evaluate(() => ({
@@ -638,7 +654,9 @@ test("terminal runs an interactive shell behind an isolated bridge", {
     const probeCommand = `${process.platform === "win32" ? "& " : ""}"${process.execPath}" "${path.join(__dirname, "protocol-probe.js")}"`;
     await page.keyboard.type(probeCommand);
     await page.keyboard.press("Enter");
-    await page.waitForFunction(() => window.terminalOutput.includes("PROTOCOL_OK"));
+    await expect
+      .poll(() => page.evaluate(() => window.terminalOutput.includes("PROTOCOL_OK")))
+      .toBe(true);
     await page.waitForFunction(() =>
       window.activityBatches.some((batch) =>
         batch.some(({ id, rate }) => typeof id === "string" && rate > 0),
@@ -4907,6 +4925,7 @@ test("application menu closes before focus commands and keeps their destination 
 test("neutral identity badges keep labels and geometry across themes and interface scales", async (context) => {
   const app = await launchApp(context);
   const page = await boardPage(app);
+  const basePixelRatio = await page.evaluate(() => window.devicePixelRatio);
   const row = page.locator('.board-row[data-kind="shell"]');
   await expect(row).toBeVisible();
   await row.press("F2");
@@ -4920,6 +4939,13 @@ test("neutral identity badges keep labels and geometry across themes and interfa
         (interfaceScale) => window.desktop.saveSetup({ interfaceScale }),
         interfaceScale,
       );
+      // Saving settings acknowledges main; Chromium applies zoom asynchronously.
+      // Observe the renderer's actual zoom before checking geometry or advancing again.
+      await expect
+        .poll(() => page.evaluate(() => window.devicePixelRatio), {
+          message: `${colorScheme} theme at ${interfaceScale}% renderer zoom`,
+        })
+        .toBeCloseTo((basePixelRatio * interfaceScale) / 100, 5);
       await row.focus();
       const peek = page.getByRole("complementary", { name: "Terminal peek" });
       await expect(peek).toBeVisible();
@@ -4928,24 +4954,35 @@ test("neutral identity badges keep labels and geometry across themes and interfa
       const badge = row.locator(".board-agent");
       await expect(badge).toHaveText(">_");
       await expect(badge).toBeVisible();
-      const heights = await badge.evaluate((element) => [
-        parseFloat(getComputedStyle(element).height),
-        parseFloat(getComputedStyle(element.firstElementChild).height),
-      ]);
-      assert.ok(Math.abs(heights[0] - 20) < 0.1 && Math.abs(heights[1] - 16) < 0.1);
-      assert.ok(
-        await badge.evaluate((element) => {
-          const style = getComputedStyle(element);
-          return (
-            element.clientWidth >= element.scrollWidth &&
-            style.backgroundColor ===
-              getComputedStyle(document.querySelector(".tile-title .board-agent"))
-                .backgroundColor &&
-            style.fontFamily.includes("Geist Mono") &&
-            element.querySelectorAll("img, svg").length === 0
-          );
-        }),
-      );
+      await expect
+        .poll(
+          () =>
+            badge.evaluate((element) =>
+              Math.max(
+                Math.abs(parseFloat(getComputedStyle(element).height) - 20),
+                Math.abs(parseFloat(getComputedStyle(element.firstElementChild).height) - 16),
+              ),
+            ),
+          { message: `${colorScheme} badge geometry at ${interfaceScale}%` },
+        )
+        .toBeLessThan(0.1);
+      await expect
+        .poll(
+          () =>
+            badge.evaluate((element) => {
+              const style = getComputedStyle(element);
+              return (
+                element.clientWidth >= element.scrollWidth &&
+                style.backgroundColor ===
+                  getComputedStyle(document.querySelector(".tile-title .board-agent"))
+                    .backgroundColor &&
+                style.fontFamily.includes("Geist Mono") &&
+                element.querySelectorAll("img, svg").length === 0
+              );
+            }),
+          { message: `${colorScheme} badge layout and styling at ${interfaceScale}%` },
+        )
+        .toBe(true);
       if (process.env.FOOM_SCREENSHOTS && [80, 100, 150].includes(interfaceScale))
         await page.screenshot({
           path: path.join(
