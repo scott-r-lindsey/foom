@@ -863,3 +863,26 @@ test("Settings saves agent defaults through its source and retains the saved sta
     ).toBeTruthy();
   });
 });
+
+test.each([
+  ["not-reviewed", "Not reviewed"],
+  ["trusted", "Trusted · observed working"],
+  ["declined", "Declined or unavailable"],
+  ["outdated", "Outdated · review needed"],
+] as const)("Codex setup explains %s without granting trust", async (codexHookState, label) => {
+  const source = fake(
+    setupState(),
+    report({ ...installation("codex"), codexLifecycle: true, codexHookState }),
+  );
+  render(<Preflight source={source} initial={setupState()} onLaunched={vi.fn()} />);
+  fireEvent.click(button("Start preflight"));
+  await screen.findByText(
+    (_, element) =>
+      element?.tagName === "P" && element.textContent.includes(`Codex hooks: ${label}`),
+  );
+  expect(screen.getByText("/hooks")).toBeTruthy();
+  expect(screen.queryByRole("button", { name: /trust|approve/i })).toBeNull();
+  expect(screen.queryByRole("button", { name: "Notify" }) !== null).toBe(
+    codexHookState !== "trusted",
+  );
+});

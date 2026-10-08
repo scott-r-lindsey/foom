@@ -265,13 +265,14 @@ describe("launch", () => {
     await expect(service.launch({ ...request, agent: "codex" })).rejects.toThrow(
       "replaces your Codex notifier",
     );
-    expect(prepare).not.toHaveBeenCalled();
+    expect(cleanup).toHaveBeenCalledOnce();
+    expect(create).not.toHaveBeenCalled();
     await service.launch({ ...request, agent: "codex", acknowledgeCodexNotifierReplacement: true });
     expect(create).toHaveBeenCalledWith(
       expect.objectContaining({ args: ["-c", `notify=${JSON.stringify(binding.codexCommand)}`] }),
     );
     service.dispose();
-    expect(cleanup).toHaveBeenCalledOnce();
+    expect(cleanup).toHaveBeenCalledTimes(2);
   });
   it("disables all attachment with the setting and never hooks Antigravity", async () => {
     service.setHooksEnabled(false);
@@ -574,4 +575,39 @@ it("rotates control credentials when resuming the same terminal", async () => {
   service.release("terminal-id");
   expect(second.dispose).toHaveBeenCalledOnce();
   expect(first.dispose).toHaveBeenCalledOnce();
+});
+
+it.each([true, false])(
+  "Codex lifecycle launch preserves the notifier when observed trust is %s",
+  async (trusted) => {
+    const old = versions.codex;
+    versions.codex = "codex-cli 0.161.0";
+    prepare.mockResolvedValueOnce({
+      ...binding,
+      codexHookCommand: "sh '/stable/observer.sh' codex",
+      codexNotify: !trusted,
+    });
+    try {
+      await service.launch({
+        ...request,
+        agent: "codex",
+        acknowledgeCodexNotifierReplacement: !trusted,
+      });
+      const args = create.mock.calls[0]?.[0].args ?? [];
+      expect(args.filter((arg) => arg.startsWith("hooks."))).toHaveLength(6);
+      expect(args.some((arg) => arg.startsWith("notify="))).toBe(!trusted);
+      expect(args.join(" ")).not.toContain("--dangerously-bypass-hook-trust");
+      expect(args.join(" ")).not.toContain("secret");
+    } finally {
+      versions.codex = old;
+      service.dispose();
+    }
+  },
+);
+
+it("does not suppress the notifier when lifecycle hooks cannot be attached", async () => {
+  prepare.mockResolvedValueOnce({ ...binding, codexNotify: false });
+  await expect(service.launch({ ...request, agent: "codex" })).rejects.toThrow(
+    "replaces your Codex notifier",
+  );
 });

@@ -27,12 +27,51 @@ function identifier(value: unknown): value is string {
 
 function reduceEvent(session: Session, value: unknown): HookSignal | undefined {
   if (!record(value)) throw new Error("Invalid event");
-  const agentId = session.agent === "claude" ? value["session_id"] : value["thread-id"];
+  const lifecycle = session.agent === "codex" && value["hook_event_name"] !== undefined;
+  const agentId =
+    session.agent === "claude" || lifecycle ? value["session_id"] : value["thread-id"];
   if (!conversationId(agentId) || (session.agentId !== undefined && session.agentId !== agentId))
     throw new Error("Invalid agent session");
   let signal: HookSignal["signal"];
   let action: HookSignal["action"] = "classify";
-  if (session.agent === "codex") {
+  if (lifecycle) {
+    switch (value["hook_event_name"]) {
+      case "SessionStart":
+        if (
+          typeof value["source"] !== "string" ||
+          !["startup", "resume", "clear", "compact"].includes(value["source"])
+        )
+          throw new Error("Invalid startup source");
+        signal = "codex:SessionStart";
+        action = "ready";
+        break;
+      case "UserPromptSubmit":
+      case "PreToolUse":
+      case "PostToolUse":
+        signal = `codex:${value["hook_event_name"]}`;
+        action = "working";
+        break;
+      case "PermissionRequest":
+        signal = "codex:PermissionRequest";
+        action = "needs_input";
+        break;
+      case "Stop":
+        if (typeof value["stop_hook_active"] !== "boolean") throw new Error("Invalid stop");
+        signal = "codex:Stop";
+        break;
+      default:
+        if (typeof value["hook_event_name"] !== "string") throw new Error("Invalid hook");
+        return;
+    }
+    if (action !== "ready" && !identifier(value["turn_id"])) throw new Error("Invalid turn");
+    if (
+      ["codex:PreToolUse", "codex:PostToolUse", "codex:PermissionRequest"].includes(signal) &&
+      (typeof value["tool_name"] !== "string" ||
+        value["tool_name"].length === 0 ||
+        value["tool_name"].length > 200)
+    )
+      throw new Error("Invalid tool");
+  } else if (session.agent === "codex") {
     if (!identifier(value["turn-id"]) || typeof value["type"] !== "string")
       throw new Error("Invalid turn");
     if (value["type"] !== "agent-turn-complete") return;

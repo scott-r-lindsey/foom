@@ -110,6 +110,22 @@ export function AgentsStep({
                     {SIGNALS[how]}
                     {note && <span>{note}</span>}
                   </Tooltip>
+                  {agent.codexHookState && (
+                    <p className="preflight-sub">
+                      Codex hooks:{" "}
+                      {agent.codexHookState === "not-reviewed"
+                        ? "Not reviewed"
+                        : agent.codexHookState === "trusted"
+                          ? "Trusted · observed working"
+                          : agent.codexHookState === "outdated"
+                            ? "Outdated · review needed"
+                            : "Declined or unavailable · no hooks received"}
+                      . Use <code>/hooks</code> in a Foom-launched Codex session to review or
+                      disable Foom's observers. Only Codex grants trust.
+                      {agent.codexHookState !== "trusted" &&
+                        " Foom keeps title detection and its notifier fallback."}
+                    </p>
+                  )}
                 </div>
               ) : (
                 <p className="preflight-sub">
