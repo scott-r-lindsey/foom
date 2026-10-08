@@ -1,3 +1,4 @@
+import type { ExecutionSnapshot } from "../../shared/execution";
 import { createTerminalView } from "../terminal/terminal-view-source";
 import type { SidebarRepository } from "./sidebar.d";
 import type { createShell } from "../terminal/shell-controller";
@@ -39,6 +40,16 @@ export function createAppSource(): BoardSource {
   const activityListeners = new Set<(batch: readonly TerminalActivity[]) => void>();
   // Live events can arrive before their launch snapshot. Keep snapshot evidence
   // separate so replacing an old snapshot never discards those newer events.
+  const executions = new Map<string, ExecutionSnapshot>();
+  const acceptExecution = (next: ExecutionSnapshot) => {
+    const old = executions.get(next.terminalId);
+    if (
+      !old ||
+      next.launch > old.launch ||
+      (next.launch === old.launch && next.revision > old.revision)
+    )
+      executions.set(next.terminalId, next);
+  };
   const states = new Map<string, TerminalState>();
   const snapshotStates = new Map<string, TerminalState>();
   const exits = new Map<string, number>();
@@ -60,10 +71,52 @@ export function createAppSource(): BoardSource {
         : 0,
     seen: row.state === state.state && row.verdictId === state.verdictId ? row.seen : false,
   });
-  const latest = (row: BoardRow): BoardRow => {
-    const event = states.get(row.id);
-    const saved = snapshotStates.get(row.id);
-    const state = event && (!saved || event.timestamp >= saved.timestamp) ? event : saved;
+  const currentState = (id: string): TerminalState | undefined => {
+    const execution = executions.get(id);
+    const current = (state: TerminalState | undefined) =>
+      !execution ||
+      (state?.execution?.launch === execution.launch &&
+        state.execution.revision === execution.revision);
+    const event = states.get(id);
+    const saved = snapshotStates.get(id);
+    const live = current(event) ? event : undefined;
+    const snapshot = current(saved) ? saved : undefined;
+    return live && (!snapshot || live.timestamp >= snapshot.timestamp) ? live : snapshot;
+  };
+  const executionRow = (row: BoardRow): BoardRow => {
+    const execution = executions.get(row.id);
+    if (!execution) return row;
+    const currentVerdict = currentState(row.id) !== undefined;
+    const state =
+      execution.phase === "working"
+        ? "working"
+        : execution.phase === "blocked"
+          ? currentVerdict
+            ? row.state
+            : "needs_input"
+          : (execution.phase === "starting" || execution.phase === "idle") &&
+              (!currentVerdict || row.state === "working" || row.state === "checking")
+            ? "quiet_ok"
+            : row.state;
+    return {
+      ...row,
+      execution,
+      state,
+      reason:
+        currentVerdict || execution.phase === "exited"
+          ? row.reason
+          : {
+              starting: "Waiting for agent activity",
+              idle: "Agent turn ended; checking result",
+              working: "Agent is working",
+              blocked: "Agent needs input",
+            }[execution.phase],
+      waitingSince: state === "needs_input" ? row.waitingSince || Date.now() : 0,
+    };
+  };
+  const latest = (row: BoardRow): BoardRow => executionRow(latestVerdict(row));
+  const latestVerdict = (row: BoardRow): BoardRow => {
+    const state = currentState(row.id);
     const code = exits.get(row.id);
     if (code !== undefined && state?.state !== "done" && state?.state !== "failed")
       return {
@@ -98,6 +151,7 @@ export function createAppSource(): BoardSource {
       const checkout = sidebar
         .find((repo) => repo.path === entry.repository)
         ?.worktrees.find((tree) => tree.path === entry.worktree);
+      if (entry.execution) acceptExecution(entry.execution);
       if (entry.state) snapshotStates.set(entry.id, entry.state);
       else snapshotStates.delete(entry.id);
       return latest({
@@ -110,7 +164,7 @@ export function createAppSource(): BoardSource {
           next.repositories.find((repo) => repo.path === entry.repository)?.name ??
           entry.repository,
         agent: entry.agent,
-        state: entry.dormant ? "quiet_ok" : "working",
+        state: entry.dormant || entry.kind === "agent" ? "quiet_ok" : "working",
         reason: entry.dormant ? "Exited · saved session" : "Running",
         rate: rates.get(entry.id) ?? 0,
         waitingSince: 0,
@@ -232,7 +286,23 @@ export function createAppSource(): BoardSource {
       );
       publish();
     });
+    const offExecution = window.desktop.onExecution((event) => {
+      acceptExecution(event);
+      rows = rows.map((row) => (row.id === event.terminalId ? latest(row) : row));
+      publish();
+    });
     const offState = window.desktop.onState((state) => {
+      if (state.execution) {
+        const current = executions.get(state.id);
+        if (
+          current &&
+          (state.execution.launch < current.launch ||
+            (state.execution.launch === current.launch &&
+              state.execution.revision < current.revision))
+        )
+          return;
+        acceptExecution(state.execution);
+      }
       states.set(state.id, state);
       rows = rows.map((row) => (row.id === state.id ? latest(row) : row));
       publish();
@@ -252,6 +322,7 @@ export function createAppSource(): BoardSource {
       offWorkspace();
       offAvailability();
       offState();
+      offExecution();
       offExit();
       offActivity();
     };

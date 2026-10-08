@@ -25,13 +25,15 @@ export function evaluateRules(input: EvaluationInput): Verdict {
     input.agent && input.evidence
       ? detectAgent(input.agent, input.evidence, input.tail)
       : undefined;
-  if (detected && (detected.state === "working" || detected.state === "blocked"))
+  if (detected?.state === "blocked")
     return verdict(
-      detected.state === "blocked" ? "needs_input" : "working",
+      "needs_input",
       detected.reason,
       `rules:${input.agent ?? ""}:${detected.id}`,
       0.95,
     );
+  if (detected?.state === "working")
+    return verdict("working", detected.reason, `rules:${input.agent ?? ""}:${detected.id}`, 0.95);
   if (input.promptReturned === true) {
     return verdict("done", "Shell prompt returned", "process:prompt", 0.95);
   }

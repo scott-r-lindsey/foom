@@ -1,5 +1,7 @@
+import type { ExecutionSnapshot } from "../../shared/execution";
 export type BoardState = "working" | "checking" | "needs_input" | "done" | "failed" | "quiet_ok";
 export interface BoardRow {
+  execution?: ExecutionSnapshot | undefined;
   id: string;
   managed?: boolean;
   repositoryPath?: string;

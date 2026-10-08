@@ -65,6 +65,17 @@ test("packaged utility host runs native PTYs with RunAsNode disabled", {
       readFileSync(path.join(__dirname, "../../src/renderer/fonts", name)),
     );
   }
+  const soundManifest = JSON.parse(
+    readFileSync(path.join(__dirname, "../../src/sounds/manifest.json"), "utf8"),
+  );
+  for (const entry of soundManifest)
+    assert.deepEqual(
+      extractFile(archive, path.join("build/sounds", entry.file)),
+      readFileSync(path.join(__dirname, "../../src/sounds", entry.file)),
+    );
+  assert.ok(
+    notices.includes(readFileSync(path.join(__dirname, "../../src/sounds/NOTICES.txt"), "utf8")),
+  );
   const wire = await getCurrentFuseWire(executable);
   assert.equal(wire[FuseV1Options.RunAsNode], 48, "RunAsNode fuse is disabled");
   const env = { ...process.env };
@@ -85,12 +96,25 @@ test("packaged utility host runs native PTYs with RunAsNode disabled", {
     path.join(profile, "worktrees.json"),
     JSON.stringify({ version: 1, repositories: [repository], managed: [] }),
   );
+  env.HOME = profile;
+  env.USERPROFILE = profile;
   const audit = await auditProcesses(context);
   context.after(() => audit.finish());
-  const child = spawn(executable, ["--remote-debugging-port=0", `--user-data-dir=${profile}`], {
-    env,
-    stdio: ["ignore", "ignore", "pipe"],
-  });
+  // Match Playwright's development launcher on macOS: this disposable smoke
+  // profile stores no credentials and must not open an interactive Keychain dialog.
+  // Packaging fuses, sandboxing and the shipped app configuration remain intact.
+  const child = spawn(
+    executable,
+    [
+      "--remote-debugging-port=0",
+      `--user-data-dir=${profile}`,
+      ...(process.platform === "darwin" ? ["--use-mock-keychain"] : []),
+    ],
+    {
+      env,
+      stdio: ["ignore", "ignore", "pipe"],
+    },
+  );
   audit.add(child.pid);
   let browser;
   let page;
@@ -130,7 +154,9 @@ test("packaged utility host runs native PTYs with RunAsNode disabled", {
       })
       .toBe(true);
     page.setDefaultTimeout(deadline(15000));
-    await page.waitForFunction(() => window.desktop);
+    // Bridge initialization is independent of the first native window paint.
+    // Packaged macOS can withhold animation frames during CDP attachment.
+    await page.waitForFunction(() => window.desktop, undefined, { polling: 100 });
     assert.equal(await page.evaluate(() => window.desktop.isDevelopment), false);
     await expect(page.locator(".dev-profile")).toHaveCount(0);
     await expect
@@ -140,6 +166,37 @@ test("packaged utility host runs native PTYs with RunAsNode disabled", {
         ),
       )
       .toContain(repository);
+    const sounds = await page.evaluate(async () => {
+      const context = new AudioContext();
+      try {
+        const entries = (await window.desktop.sounds.list()).filter(
+          (entry) => entry.source === "builtin",
+        );
+        const decoded = [];
+        for (const entry of entries) {
+          if (entry.error) throw Error(entry.file + ": " + entry.error);
+          const result = await window.desktop.sounds.read({
+            kind: entry.kind,
+            source: entry.source,
+            file: entry.file,
+          });
+          if (result.error) throw Error(entry.file + ": " + result.error);
+          const buffer = await context.decodeAudioData(new Uint8Array(result.bytes).buffer);
+          decoded.push({ file: entry.kind + "/" + entry.file, duration: buffer.duration });
+        }
+        return decoded;
+      } finally {
+        await context.close();
+      }
+    });
+    assert.equal(sounds.length, soundManifest.length);
+    for (const entry of soundManifest)
+      assert.ok(
+        Math.abs(sounds.find((sound) => sound.file === entry.file).duration - entry.duration) <
+          0.001,
+        entry.file,
+      );
+    console.info("Packaged recordings loaded and decoded");
     console.info("Packaged repository restored");
     await page.getByRole("button", { name: "Actions for repo", exact: true }).click();
     const packagedCommands = await page.evaluate(() => window.desktop.appMenu.commands());
@@ -236,6 +293,29 @@ test("packaged utility host runs native PTYs with RunAsNode disabled", {
     // Preserve startup evidence when the board never becomes a Playwright page.
     // The trusted confirmation window can be the first CDP context/target.
     console.error("Packaged startup stderr:", stderr);
+    if (page) {
+      let timer;
+      try {
+        console.error(
+          "Packaged renderer startup state:",
+          await Promise.race([
+            page.evaluate(() => ({
+              ready: document.readyState,
+              visibility: document.visibilityState,
+              bridge: typeof window.desktop,
+              title: document.title,
+            })),
+            new Promise((resolve) => {
+              timer = setTimeout(() => resolve("Renderer did not answer"), deadline(1000));
+            }),
+          ]),
+        );
+      } catch (diagnosticError) {
+        console.error("Packaged renderer diagnostics failed:", diagnosticError);
+      } finally {
+        clearTimeout(timer);
+      }
+    }
     console.error(
       "Packaged CDP pages:",
       browser?.contexts().map((context) => context.pages().map((candidate) => candidate.url())),

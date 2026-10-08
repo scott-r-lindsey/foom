@@ -1,3 +1,4 @@
+import type { ExecutionTransition } from "../shared/execution";
 import { contextBridge, ipcRenderer } from "electron";
 import type { IpcRendererEvent } from "electron";
 import type { DesktopApi, TerminalActivity } from "../shared/desktop";
@@ -19,7 +20,34 @@ function terminalState(value: unknown): value is TerminalState {
     typeof value["reason"] === "string" &&
     typeof value["signal"] === "string" &&
     typeof value["confidence"] === "number" &&
-    typeof value["timestamp"] === "number"
+    typeof value["timestamp"] === "number" &&
+    (value["execution"] === undefined || executionSnapshot(value["execution"]))
+  );
+}
+
+function executionSnapshot(value: unknown): boolean {
+  return (
+    object(value) &&
+    typeof value["terminalId"] === "string" &&
+    value["terminalId"].length > 0 &&
+    value["terminalId"].length <= 200 &&
+    ["starting", "idle", "working", "blocked", "exited"].includes(String(value["phase"])) &&
+    ["launch", "revision", "turn"].every(
+      (key) =>
+        typeof value[key] === "number" && Number.isSafeInteger(value[key]) && value[key] >= 0,
+    )
+  );
+}
+
+function executionTransition(value: unknown): value is ExecutionTransition {
+  if (!object(value) || !executionSnapshot(value)) return false;
+  return (
+    ["launch", "hook", "title", "screen", "exit"].includes(String(value["source"])) &&
+    ["starting", "idle", "working", "blocked", "exited"].includes(String(value["from"])) &&
+    value["phase"] === value["to"] &&
+    value["from"] !== value["to"] &&
+    typeof value["at"] === "number" &&
+    Number.isFinite(value["at"])
   );
 }
 
@@ -68,6 +96,21 @@ ipcRenderer.on("terminal:flush-views", (_event, ids: unknown, token: unknown) =>
 });
 
 const desktop: DesktopApi = {
+  sounds: {
+    onChange(callback) {
+      const listener = () => {
+        callback();
+      };
+      ipcRenderer.on("sound:changed", listener);
+      return () => {
+        ipcRenderer.removeListener("sound:changed", listener);
+      };
+    },
+    list: () => ipcRenderer.invoke("sound:list"),
+    read: (request) => ipcRenderer.invoke("sound:read", request),
+    openFolder: () => ipcRenderer.invoke("sound:open-folder"),
+    notices: () => ipcRenderer.invoke("sound:notices"),
+  },
   confirmations: {
     onDialog(callback) {
       const listener = () => {
@@ -303,6 +346,15 @@ const desktop: DesktopApi = {
   },
   async feedback(id, verdictId, action) {
     await ipcRenderer.invoke("terminal:feedback", id, verdictId, action);
+  },
+  onExecution(callback) {
+    const listener = (_event: IpcRendererEvent, event: unknown) => {
+      if (executionTransition(event)) callback(event);
+    };
+    ipcRenderer.on("agent:execution", listener);
+    return () => {
+      ipcRenderer.removeListener("agent:execution", listener);
+    };
   },
   onState(callback) {
     const listener = (_event: IpcRendererEvent, state: unknown) => {

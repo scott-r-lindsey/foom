@@ -1,3 +1,4 @@
+import type { ExecutionTransition } from "../../shared/execution";
 import { ConfirmationArming } from "../confirmations/arming";
 import type { DialogContent, ConfirmWorkspace } from "../../shared/confirmation";
 import { dialog, ipcMain } from "electron";
@@ -86,7 +87,12 @@ export function attachWorkspace(
   workspace: Workspace,
   owns: (id: string) => boolean,
   requestDialog: (content: DialogContent) => Promise<boolean>,
-): { sendState(state: TerminalState): void; sendChanged(): void; dispose(): void } {
+): {
+  sendExecution(event: ExecutionTransition): void;
+  sendState(state: TerminalState): void;
+  sendChanged(): void;
+  dispose(): void;
+} {
   const contents = window.webContents;
   const trusted = (event: IpcMainInvokeEvent) =>
     event.sender === contents &&
@@ -255,6 +261,10 @@ export function attachWorkspace(
       return handler(...args);
     });
   return {
+    sendExecution(event) {
+      if (!contents.isDestroyed() && contents.mainFrame.url === APP_URL && owns(event.terminalId))
+        contents.send("agent:execution", event);
+    },
     sendChanged() {
       if (!contents.isDestroyed() && contents.mainFrame.url === APP_URL)
         contents.send("workspace:changed");

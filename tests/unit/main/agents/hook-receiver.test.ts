@@ -307,3 +307,49 @@ describe("loopback hook receiver", () => {
     await expect(post(launch)).rejects.toThrow();
   });
 });
+
+it("reduces observer hooks to working evidence without forwarding tool inputs or prompts", async () => {
+  const { launch, signals } = await setup();
+  for (const hook_event_name of ["UserPromptSubmit", "PreToolUse"]) {
+    expect(
+      await post(
+        launch,
+        JSON.stringify({
+          ...stop,
+          hook_event_name,
+          prompt: "private",
+          tool_input: { command: "secret" },
+        }),
+      ),
+    ).toBe(204);
+  }
+  expect(signals).toEqual([
+    {
+      terminalId: "terminal-1",
+      action: "working",
+      signal: "claude:UserPromptSubmit",
+      conversationId: "agent-session",
+    },
+    {
+      terminalId: "terminal-1",
+      action: "working",
+      signal: "claude:PreToolUse",
+      conversationId: "agent-session",
+    },
+  ]);
+});
+
+it("deduplicates Codex notifications within each launch with bounded turn history", async () => {
+  const { receiver, launch, signals } = await setup("codex");
+  const payload = (turn: string) =>
+    JSON.stringify({ "thread-id": "conversation", "turn-id": turn, type: "agent-turn-complete" });
+  await post(launch, payload("first"));
+  await post(launch, payload("first"));
+  expect(signals).toHaveLength(1);
+  for (let i = 0; i < 128; i++) await post(launch, payload(`turn-${String(i)}`));
+  await post(launch, payload("turn-127"));
+  expect(signals).toHaveLength(129);
+  const next = receiver.register("terminal-1", "codex");
+  await post(next, payload("first"));
+  expect(signals).toHaveLength(130);
+});

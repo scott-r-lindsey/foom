@@ -1,3 +1,4 @@
+import type { SoundApi } from "./sound";
 import type { AppMenuApi } from "./app-menu";
 import type { AgentEvidence } from "./agent-detection";
 import type { BoardCommand } from "./board-command";
@@ -29,6 +30,7 @@ import type { SetupApi } from "./setup";
 import type { WorkspaceApi } from "./workspace";
 
 export interface DesktopApi extends WorkspaceApi, SetupApi {
+  sounds: SoundApi;
   readonly isDevelopment: boolean;
   readonly appMenu: AppMenuApi;
   create(cols: number, rows: number): Promise<{ id: string; title: string }>;

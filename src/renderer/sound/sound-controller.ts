@@ -1,5 +1,5 @@
 import type { AudioSink, SoundSettings } from "../../shared/sound";
-import { DEFAULT_SOUND, resolveSoundscape } from "../../shared/soundscapes";
+import { DEFAULT_SOUND } from "../../shared/sounds";
 import type { BoardSource } from "../board/board-source";
 import type { BoardRow } from "../board/board.d";
 import type { SetupSource } from "../preflight/setup-source.d";
@@ -8,16 +8,7 @@ export const SETTLE_MS = 1000;
 export const DEBOUNCE_MS = 2000;
 export const REPEAT_MS = 120_000;
 
-/** A logarithmic mix: ten busy terminals cannot become ten times as loud. */
-export function activityIntensity(rates: readonly number[]): number {
-  const total = rates.reduce(
-    (sum, rate) => sum + (Number.isFinite(rate) && rate > 0 ? rate : 0),
-    0,
-  );
-  return Math.min(1, Math.log1p(total) / Math.log1p(50_000));
-}
-
-/** No terminal text enters audio. Only state, IDs, rates and the visible terminal matter. */
+/** One steady voice for active agents. Terminal output never enters audio. */
 export function createSoundController(
   source: BoardSource,
   setup: Pick<SetupSource, "state" | "subscribe">,
@@ -30,44 +21,72 @@ export function createSoundController(
   let loaded = false;
   let settingsRevision = 0;
   let lastAlert = -Infinity;
-  const rates = new Map<string, number>();
-  const verdicts = new Map<string, { state: BoardRow["state"]; since: number; next: number }>();
+  const working = new Set<string>();
+  const consumed = new Map<string, string>();
+  const verdicts = new Map<
+    string,
+    { state: BoardRow["state"]; since: number; next: number; key: string }
+  >();
   const updateRows = () => {
-    const rows = source.getSnapshot();
+    const rows = source.getSnapshot().filter((row) => row.kind !== "shell");
     const ids = new Set(rows.map((row) => row.id));
     for (const id of verdicts.keys())
       if (!ids.has(id)) {
         verdicts.delete(id);
-        rates.delete(id);
+        working.delete(id);
+        consumed.delete(id);
       }
     for (const row of rows) {
       const previous = verdicts.get(row.id);
-      if (!previous || previous.state !== row.state)
-        verdicts.set(row.id, { state: row.state, since: now(), next: now() + SETTLE_MS });
-      if (row.exited) rates.set(row.id, 0);
-      else if (!rates.has(row.id)) rates.set(row.id, row.rate);
+      const key = row.execution
+        ? `${String(row.execution.launch)}:${String(row.execution.turn)}`
+        : "";
+      if (!previous || previous.state !== row.state || previous.key !== key) {
+        const silent =
+          row.kind === "agent" &&
+          row.state === "done" &&
+          (!previous ||
+            row.execution?.phase !== "idle" ||
+            row.execution.turn === 0 ||
+            consumed.get(row.id) === key);
+        if (silent) consumed.set(row.id, key);
+        verdicts.set(row.id, {
+          state: row.state,
+          since: now(),
+          next: silent ? Infinity : now() + SETTLE_MS,
+          key,
+        });
+      }
+      if (
+        !row.exited &&
+        ((row.kind === "agent" && row.execution?.phase === "working") ||
+          (row.kind === "sample" && row.state === "working"))
+      )
+        working.add(row.id);
+      else working.delete(row.id);
     }
   };
   const apply = (next: SoundSettings) => {
     loaded = true;
     settings = next;
+    sink.configure(settings.choices);
     if (!settings.alerts || settings.alertVolume === 0) sink.silenceAlerts();
     tick();
   };
   const tick = () => {
     if (!loaded) return;
     const time = now();
-    const scape = resolveSoundscape(settings.soundscape);
-    sink.working(
-      settings.working ? activityIntensity([...rates.values()]) : 0,
-      settings.workingVolume,
-      scape,
-    );
+    sink.working(settings.working && working.size > 0 ? 1 : 0, settings.workingVolume);
     const due = [...verdicts.entries()].filter(([id, verdict]) => {
       if (verdict.state !== "done" && verdict.state !== "needs_input") return false;
-      if (id === focused() || !settings.alerts || settings.alertVolume === 0) {
+      if (
+        (verdict.state === "needs_input" && id === focused()) ||
+        !settings.alerts ||
+        settings.alertVolume === 0
+      ) {
         // Do not replay a completion later; attention can remind after leaving its view.
         verdict.next = verdict.state === "done" ? Infinity : time + REPEAT_MS;
+        if (verdict.state === "done") consumed.set(id, verdict.key);
         return false;
       }
       return time - verdict.since >= SETTLE_MS && time >= verdict.next;
@@ -75,19 +94,17 @@ export function createSoundController(
     if (!due.length || time - lastAlert < DEBOUNCE_MS) return;
     // One mixed alert for a burst. Attention wins when both kinds arrive together.
     sink.alert(
-      due.some(([, entry]) => entry.state === "needs_input") ? "needsYou" : "done",
+      due.some(([, entry]) => entry.state === "needs_input") ? "needs-you" : "done",
       settings.alertVolume,
-      scape,
     );
     lastAlert = time;
-    for (const [, verdict] of due)
+    for (const [id, verdict] of due) {
       verdict.next = verdict.state === "needs_input" ? time + REPEAT_MS : Infinity;
+      if (verdict.state === "done") consumed.set(id, verdict.key);
+    }
   };
   updateRows();
   const offRows = source.subscribe(updateRows);
-  const offActivity = source.subscribeActivity((batch) => {
-    for (const { id, rate } of batch) if (verdicts.has(id)) rates.set(id, rate);
-  });
   const offSetup = setup.subscribe((state) => {
     settingsRevision++;
     apply(state.settings.sound);
@@ -102,12 +119,15 @@ export function createSoundController(
     },
   );
   const timer = setInterval(tick, 100);
-  return () => {
+  const dispose = () => {
     disposed = true;
     clearInterval(timer);
     offRows();
-    offActivity();
     offSetup();
     sink.dispose();
   };
+  dispose.refuse = () => {
+    if (loaded && !disposed && settings.alerts) sink.alert("refusal", settings.alertVolume);
+  };
+  return dispose;
 }

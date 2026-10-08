@@ -9,6 +9,49 @@ async function boardPage(app) {
   return page;
 }
 
+// Real decoding with a silent output sink: observe the selected recording without speaker output.
+async function installSoundSink(page) {
+  await page.addInitScript(() => {
+    const Decoder = window.AudioContext;
+    window.soundTones = [];
+    window.soundDecoded = 0;
+    window.AudioContext = class {
+      decoder = new Decoder();
+      currentTime = 0;
+      state = "running";
+      destination = {};
+      async decodeAudioData(bytes) {
+        const buffer = await this.decoder.decodeAudioData(bytes);
+        window.soundDecoded++;
+        return buffer;
+      }
+      createGain() {
+        return {
+          gain: { setValueAtTime() {}, setTargetAtTime() {} },
+          connect() {},
+          disconnect() {},
+        };
+      }
+      createBufferSource() {
+        return {
+          buffer: null,
+          connect() {},
+          disconnect() {},
+          start() {
+            window.soundTones.push(this.buffer.duration);
+          },
+          stop() {},
+        };
+      }
+      close() {
+        return this.decoder.close();
+      }
+    };
+  });
+  await page.reload();
+  await page.waitForFunction(() => window.soundDecoded >= 4);
+}
+
 async function confirmationPage(app) {
   let page;
   await expect
@@ -213,6 +256,10 @@ async function launchCheckoutShell(app, page) {
 }
 
 async function launchApp(context, openShell = true, options = {}) {
+  // CI prepares the binary separately. Direct runs also resolve it before the
+  // Playwright launch deadline/audit, without downloading during test discovery.
+  // Do not supply executablePath: that skips Playwright's Electron loader.
+  require("electron");
   const cleanup = fixtureCleanup(context);
   cleanup.audit ??= await auditProcesses(context);
   const profile = await prepareProfile(options);
@@ -223,6 +270,33 @@ async function launchApp(context, openShell = true, options = {}) {
     process.exit(1);
   }, deadline(90_000));
   watchdog.unref();
+  let entry = path.join(__dirname, "../..");
+  if (options.home) {
+    // Electron resolves home from native OS APIs on macOS/Windows, not HOME.
+    // A fixture package sets it before application modules construct services.
+    const fixture = await mkdtemp(path.join(tmpdir(), "foom-entry-"));
+    removeAfterApps(context, fixture);
+    const manifest = JSON.parse(await readFile(path.join(entry, "package.json"), "utf8"));
+    await writeFile(
+      path.join(fixture, "package.json"),
+      JSON.stringify({
+        name: manifest.name,
+        productName: manifest.productName,
+        version: manifest.version,
+        main: "bootstrap.cjs",
+      }),
+    );
+    await writeFile(
+      path.join(fixture, "bootstrap.cjs"),
+      [
+        'const { app } = require("electron");',
+        `app.setPath("home", ${JSON.stringify(options.home)});`,
+        `app.setAppPath(${JSON.stringify(entry)});`,
+        `require(${JSON.stringify(path.join(entry, "build/main/main.js"))});`,
+      ].join("\n"),
+    );
+    entry = fixture;
+  }
   const env = { ...process.env, ...options.env };
   delete env.ELECTRON_RUN_AS_NODE;
   const app = await electron
@@ -230,7 +304,7 @@ async function launchApp(context, openShell = true, options = {}) {
       chromiumSandbox: true,
       colorScheme: null,
       timeout: deadline(15_000),
-      args: [path.join(__dirname, "../.."), ...profile.args],
+      args: [entry, ...profile.args],
       env,
     })
     .catch((error) => {
@@ -301,7 +375,7 @@ async function launchApp(context, openShell = true, options = {}) {
     } finally {
       clearTimeout(timer);
       // If graceful shutdown failed, fail the test and terminate the process tree.
-      // The worker watchdog remains armed in case a Playwright connection also hangs.
+      // The watchdog stays armed while teardown runs, but must not outlive it.
       if (child.exitCode === null && child.signalCode === null) {
         if (process.platform === "win32") {
           require("node:child_process").execFileSync(
@@ -313,6 +387,7 @@ async function launchApp(context, openShell = true, options = {}) {
           process.kill(-child.pid, "SIGKILL");
         }
       }
+      clearTimeout(watchdog);
     }
   });
   // The shell markup now arrives with React’s first commit.
@@ -505,6 +580,7 @@ test("terminal runs an interactive shell behind an isolated bridge", {
         node: "undefined",
         process: "undefined",
         capabilities: [
+          "sounds",
           "confirmations",
           "isDevelopment",
           "appMenu",
@@ -541,6 +617,7 @@ test("terminal runs an interactive shell behind an isolated bridge", {
           "applyRepositories",
           "onSetupChange",
           "feedback",
+          "onExecution",
           "onState",
           "onData",
           "onTerminalAvailability",
@@ -1300,11 +1377,20 @@ process.stdin.on("data", (key) => {
     const hook = spawn("sh", ["-c", command], { stdio: ["pipe", "ignore", "ignore"] });
     hook.stdin.end(JSON.stringify({ session_id: "fake-session", hook_event_name: "PermissionRequest" }));
   } else if (input === "f") {
+    const start = spawn("sh", ["-c", settings.hooks.UserPromptSubmit[0].hooks[0].command], { stdio: ["pipe", "ignore", "ignore"] });
+    start.stdin.end(JSON.stringify({ session_id: "fake-session", hook_event_name: "UserPromptSubmit" }));
     let count = 0;
     const timer = setInterval(() => {
       process.stdout.write("Working " + "x".repeat(1000) + "\\r\\n");
       if (++count === 50) { clearInterval(timer); process.stdout.write("Continue? (y/n) "); }
     }, 50);
+  } else if (input === "a") {
+    process.stdout.write("\\x1b[2J\\x1b[HRunning approved command\\r\\n\\x1b]0;◐ Claude Code\\x07");
+  } else if (input === "e") {
+    process.stdout.write("\\x1b[2J\\x1b[HReady\\r\\n\\x1b]0;✳ Claude Code\\x07");
+  } else if (input === "s") {
+    const stop = spawn("sh", ["-c", settings.hooks.Stop[0].hooks[0].command], { stdio: ["pipe", "ignore", "ignore"] });
+    stop.stdin.end(JSON.stringify({ session_id: "fake-session", hook_event_name: "Stop" }));
   } else if (input === "q") {
     process.exit(3);
   }
@@ -1351,6 +1437,8 @@ test("launches an agent in a managed worktree and routes its attention signals",
   }, repo);
   const setup = await page.evaluate(async () => {
     window.foomStates = [];
+    window.foomExecutions = [];
+    window.desktop.onExecution((event) => window.foomExecutions.push(event));
     window.desktop.onState((state) => window.foomStates.push(state));
     const repository = await window.desktop.addRepository();
     const tree = await window.desktop.createWorktree(repository.path, "feature/fake", "adjacent");
@@ -1479,22 +1567,46 @@ test("launches an agent in a managed worktree and routes its attention signals",
     )
     .toBeGreaterThan(0.9);
   await expect(agentRow).toHaveAttribute("data-state", "needs_input");
-  // Typing is the reply; then the agent's hook asks for permission.
+  // Typing records feedback; the agent hook establishes the permission request.
   await page.keyboard.type("y");
   await expect
     .poll(async () => (await latest())?.signal, { timeout: deadline(10000) })
     .toBe("claude:PermissionRequest");
   assert.ok(
-    (await page.evaluate(() => window.foomStates.map((s) => s.signal))).includes("user:reply"),
+    !(await page.evaluate(() => window.foomStates.map((s) => s.signal))).includes("user:reply"),
   );
   // Later quiet evaluations keep the permission request in force.
   await page.waitForTimeout(2500);
   assert.equal((await latest()).state, "needs_input");
 
-  // Not attention clears it and records feedback.
+  // Dismissal clears attention but does not establish resumed execution.
   await page.getByRole("button", { name: "Not attention", exact: true }).click();
   await expect(agentRow).toHaveAttribute("data-state", "quiet_ok");
   assert.equal((await latest()).signal, "user:dismissed");
+  assert.equal((await latest()).execution.phase, "blocked");
+
+  // Approval followed by a fresh working title resumes the same turn; input alone
+  // never did. A title-only end (Esc) is neutral until the authoritative Stop.
+  await page.evaluate((terminal) => window.desktop.input(terminal, "a"), id);
+  await expect(agentRow).toHaveAttribute("data-state", "working");
+  await page.evaluate((terminal) => window.desktop.input(terminal, "e"), id);
+  await expect(agentRow).toHaveAttribute("data-state", "quiet_ok");
+  await page.evaluate((terminal) => window.desktop.input(terminal, "s"), id);
+  await expect(agentRow).toHaveAttribute("data-state", "done");
+  const transitions = await page.evaluate(
+    (terminal) => window.foomExecutions.filter((event) => event.terminalId === terminal),
+    id,
+  );
+  assert.ok(transitions.some((event) => event.to === "working" && event.source === "hook"));
+  assert.deepEqual(
+    transitions.slice(-2).map(({ from, to, source }) => ({ from, to, source })),
+    [
+      { from: "blocked", to: "working", source: "title" },
+      { from: "working", to: "idle", source: "title" },
+    ],
+  );
+  assert.equal(transitions.at(-1).turn, transitions.at(-2).turn);
+  assert.ok(transitions.every((event) => Number.isFinite(event.at) && event.from !== event.to));
 
   // Exit is final and revokes the launch's hook credentials.
   const hook = firstCredentials;
@@ -2177,7 +2289,12 @@ test("first run goes from no agents to go, launches by keyboard, and can be repl
     terminalFontSize: 14,
     terminalTheme: "follow",
     sound: {
-      soundscape: "drive",
+      choices: {
+        working: { source: "builtin", file: "seagate-read-write.ogg" },
+        done: { source: "builtin", file: "typewriter-bell.ogg" },
+        "needs-you": { source: "builtin", file: "bicycle-bell.ogg" },
+        refusal: { source: "builtin", file: "lip-pop.ogg" },
+      },
       working: false,
       workingVolume: 0.15,
       alerts: true,
@@ -2788,6 +2905,8 @@ test("persistent sidebar keeps Escape in the PTY and routes keyboard navigation"
   await writeFile(marker, "");
   const app = await launchApp(context);
   const page = await boardPage(app);
+  await page.locator(".xterm-helper-textarea").focus();
+  await expect(page.locator(".xterm-helper-textarea")).toBeFocused();
   await page.keyboard.type(
     `${process.platform === "win32" ? "& " : ""}"${process.execPath}" "${path.join(__dirname, "input-probe.js")}" "${marker}"`,
   );
@@ -3010,7 +3129,7 @@ else console.log('ARGS:' + JSON.stringify(process.argv.slice(2)));
   }
 });
 
-test("agent titles update hidden sidebar attention and route idle through evaluation", {
+test("agent hooks and titles publish execution transitions independently of terminal output", {
   timeout: deadline(30000),
   skip: process.platform === "win32" && "The fake CLI is a POSIX executable",
 }, async (context) => {
@@ -3034,6 +3153,12 @@ else {
   process.stdin.resume();
   process.stdout.write('\\x1b]2;⠋ codex\\x07');
   process.stdin.on('data', data => {
+    if (data.toString().includes('w')) process.stdout.write('\\x1b[2J\\x1b[H\\x1b]2;⠙ codex\\x07');
+    if (data.toString().includes('n')) {
+      const command = JSON.parse(process.argv.find(arg => arg.startsWith('notify=')).slice(7));
+      require('node:child_process').spawnSync(command[0], [...command.slice(1), JSON.stringify({ type: 'agent-turn-complete', 'thread-id': 'fake-thread', 'turn-id': 'fake-turn' })]);
+      process.stdout.write('NOTIFIED\\n');
+    }
     if (data.toString().includes('a')) process.stdout.write('\\x1b]2;Action Required | codex\\x07');
     if (data.toString().includes('i')) process.stdout.write('\\x1b[2J\\x1b[HWhich file should I edit?\\x1b]2;codex\\x07');
   });
@@ -3055,7 +3180,7 @@ else {
     ],
     { cwd: repo },
   );
-  await writeFile(help, "--no-alt-screen");
+  await writeFile(help, "--no-alt-screen -c, --config <value>");
   const app = await launchApp(context, false, {
     emptyBoard: true,
     env: { HOME: home, PATH: `${bin}${path.delimiter}${process.env.PATH}` },
@@ -3067,12 +3192,17 @@ else {
   const repository = await page.evaluate(() => window.desktop.addRepository());
   assert.equal(repository.path, await realpath(repo));
   await expect(page.getByRole("treeitem", { name: "repo", exact: true })).toBeVisible();
+  await page.evaluate(() => {
+    window.executionEvents = [];
+    window.desktop.onExecution((event) => window.executionEvents.push(event));
+  });
   const id = await page.evaluate(async (repo) => {
     await window.desktop.scanAgents(true);
     const tree = await window.desktop.createWorktree(repo, "titles", "adjacent");
     return (
       await window.desktop.launchAgent({
         agent: "codex",
+        acknowledgeCodexNotifierReplacement: true,
         repository: repo,
         worktree: tree.path,
         cols: 80,
@@ -3088,9 +3218,23 @@ else {
   await expect(row).toContainText("Approval requested");
   await expect(row).toContainText("rules:codex:osc_title_blocked");
   await page.evaluate((id) => window.desktop.input(id, "i"), id);
-  await expect(row).toHaveAttribute("data-state", "working");
+  await expect(row).toHaveAttribute("data-state", "quiet_ok");
   await expect(row).toContainText("Agent turn ended; checking output");
   await expect(row).toContainText("rules:codex:osc_title_idle");
+  await page.evaluate((id) => window.desktop.input(id, "w"), id);
+  await expect(row).toHaveAttribute("data-state", "working");
+  await page.evaluate((id) => window.desktop.input(id, "n"), id);
+  await expect(row).toHaveAttribute("data-state", "done");
+  const events = await page.evaluate(() => window.executionEvents);
+  assert.deepEqual(
+    events.map((event) => event.to),
+    ["working", "blocked", "idle", "working", "idle"],
+  );
+  assert.equal(events.at(-1).source, "hook");
+  assert.equal(events.at(-1).turn, 2);
+  assert.ok(
+    events.every((event) => event.terminalId === id && !("tail" in event) && !("prompt" in event)),
+  );
 });
 
 test("Settings shares live preflight values, sizes the terminal and restores keyboard focus", async (context) => {
@@ -3542,6 +3686,7 @@ test("tiles build irregular layouts, preserve views, refuse full placement and r
     removeAfterApps(context, root);
   });
   const page = await boardPage(app);
+  await installSoundSink(page);
   await app.evaluate(({ dialog, BrowserWindow }, repo) => {
     dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [repo] });
     BrowserWindow.getAllWindows()
@@ -3590,8 +3735,15 @@ test("tiles build irregular layouts, preserve views, refuse full placement and r
     await page.evaluate(() => window.tileElements[0] === document.querySelector(".terminal-tile")),
     true,
   );
+  await page.evaluate(() => {
+    window.soundTones = [];
+  });
   await rows.nth(3).click();
   await expect(rows.nth(3)).toHaveAttribute("data-refused", "true");
+  await expect.poll(() => page.evaluate(() => window.soundTones.length)).toBe(1);
+  assert.ok((await page.evaluate(() => window.soundTones[0])) <= 0.3);
+  await rows.nth(3).click();
+  await expect.poll(() => page.evaluate(() => window.soundTones.length)).toBe(2);
   await expect(tiles.nth(2)).toContainText("Shell");
   assert.equal(
     await page.evaluate(
@@ -3845,56 +3997,35 @@ test("every interface theme applies live to native chrome and passes axe on boar
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
 });
 
-test("soundscape sends one attention cadence and one completion to a fake audio sink", {
+test("recorded sounds refresh and preview user files while shell attention and completion stay silent", {
   timeout: deadline(45000),
 }, async (context) => {
   const root = await mkdtemp(path.join(tmpdir(), "foom-sound-"));
   removeAfterApps(context, root);
   const marker = path.join(root, "keys");
-  const app = await launchApp(context);
+  // Deliberately differ from Electron's home, proving the fixture does not rely
+  // on the environment override that only worked on Linux.
+  const shellHome = path.join(root, "shell-home");
+  await mkdir(shellHome);
+  const app = await launchApp(context, true, {
+    home: root,
+    env: { HOME: shellHome, USERPROFILE: shellHome },
+  });
   const page = await boardPage(app);
+  await installSoundSink(page);
+  // Working audio is enabled, but this plain shell must contribute no loop.
+  await page.evaluate(async () => {
+    const { settings } = await window.desktop.setupState();
+    await window.desktop.saveSetup({ sound: { ...settings.sound, working: true } });
+  });
   await page.evaluate(() => {
-    window.soundTones = [];
-    window.AudioContext = class {
-      currentTime = 0;
-      state = "running";
-      destination = {};
-      createGain() {
-        return {
-          gain: {
-            setValueAtTime() {},
-            linearRampToValueAtTime() {},
-            exponentialRampToValueAtTime() {},
-          },
-          connect() {},
-          disconnect() {},
-        };
-      }
-      createOscillator() {
-        let frequency;
-        return {
-          frequency: {
-            setValueAtTime(value) {
-              frequency = value;
-            },
-          },
-          connect() {},
-          disconnect() {},
-          start() {
-            window.soundTones.push(frequency);
-          },
-          stop() {},
-        };
-      }
-      close() {
-        return Promise.resolve();
-      }
-    };
     window.soundTerminal = undefined;
     window.desktop.onData((id) => {
       window.soundTerminal = id;
     });
   });
+  await page.locator(".xterm-helper-textarea").focus();
+  await expect(page.locator(".xterm-helper-textarea")).toBeFocused();
   await page.keyboard.type(
     `${process.platform === "win32" ? "& " : ""}"${process.execPath}" "${path.join(__dirname, "input-probe.js")}" "${marker}"`,
   );
@@ -3905,9 +4036,40 @@ test("soundscape sends one attention cadence and one completion to a fake audio 
   await boardCommand(app, ",", process.platform !== "darwin");
   await page.getByRole("button", { name: "Sound", exact: true }).click();
   await expect(page.locator(".board-row")).toHaveAttribute("data-state", "needs_input");
-  await expect.poll(() => page.evaluate(() => window.soundTones)).toEqual([880, 880]);
+  // Silence must persist past the alert settling/debounce window.
+  await page.waitForTimeout(2200);
+  assert.deepEqual(await page.evaluate(() => window.soundTones), []);
   await assertAccessible(page);
-  assert.deepEqual(await page.evaluate(() => window.soundTones), [880, 880]);
+  const home = await app.evaluate(({ app }) => app.getPath("home"));
+  assert.equal(await realpath(home), await realpath(root));
+  const sample = Buffer.alloc(44 + 8000); // 0.25 s mono PCM, 16 kHz
+  sample.write("RIFF");
+  sample.writeUInt32LE(sample.length - 8, 4);
+  sample.write("WAVEfmt ", 8);
+  sample.writeUInt32LE(16, 16);
+  sample.writeUInt16LE(1, 20);
+  sample.writeUInt16LE(1, 22);
+  sample.writeUInt32LE(16000, 24);
+  sample.writeUInt32LE(32000, 28);
+  sample.writeUInt16LE(2, 32);
+  sample.writeUInt16LE(16, 34);
+  sample.write("data", 36);
+  sample.writeUInt32LE(8000, 40);
+  for (let i = 0; i < 4000; i++)
+    sample.writeInt16LE(Math.round(2000 * Math.sin(i * 0.2)), 44 + i * 2);
+  await writeFile(path.join(home, ".foom/config/sounds/done/test-bell.wav"), sample);
+  await expect(page.getByRole("option", { name: "Test bell", exact: true })).toHaveCount(0);
+  await page.getByRole("button", { name: "Terminal", exact: true }).click();
+  await page.getByRole("button", { name: "Sound", exact: true }).click();
+  await page.screenshot({ path: path.join(__dirname, "../../test-results/sound-settings.png") });
+  await page.getByLabel("Done sound", { exact: true }).selectOption("user:test-bell.wav");
+  await expect
+    .poll(() =>
+      page.evaluate(async () => (await window.desktop.setupState()).settings.sound.choices.done),
+    )
+    .toEqual({ source: "user", file: "test-bell.wav" });
+  await page.getByRole("button", { name: "Preview done", exact: true }).click();
+  await expect.poll(() => page.evaluate(() => window.soundTones)).toEqual([0.25]);
   // Exit the real PTY: process exit is a Done verdict on every supported shell/platform.
   await page.evaluate(() => window.desktop.input(window.soundTerminal, "q"));
   await expect
@@ -3917,7 +4079,8 @@ test("soundscape sends one attention cadence and one completion to a fake audio 
     .not.toContain("INPUT_READY");
   await page.evaluate(() => window.desktop.input(window.soundTerminal, "exit\r"));
   await expect(page.locator(".board-row")).toHaveAttribute("data-state", "done");
-  await expect.poll(() => page.evaluate(() => window.soundTones)).toEqual([880, 880, 660]);
+  await page.waitForTimeout(2200);
+  assert.deepEqual(await page.evaluate(() => window.soundTones), [0.25]);
   await page.getByLabel("Alerts on", { exact: true }).uncheck();
   await expect
     .poll(() =>
@@ -4299,12 +4462,14 @@ for (const agent of ["claude", "codex"]) {
       path.join(bin, agent),
       `#!/usr/bin/env node
 const { spawn } = require("node:child_process");
-const { writeFileSync } = require("node:fs");
+const { writeFileSync, renameSync } = require("node:fs");
 const args = process.argv.slice(2);
 const agent = ${JSON.stringify(agent)};
 if (args[0] === "--version") { console.log(agent === "claude" ? "2.1.300 (Claude Code)" : "codex-cli 0.160.1"); process.exit(0); }
 if (args[0] === "--help") { console.log("--settings <json> -c, --config <value> --no-alt-screen"); process.exit(0); }
-writeFileSync(process.env.TEST_ARGV, JSON.stringify({ args, cwd: process.cwd(), token: process.env.FOOM_TOKEN, pid: process.pid }));
+const record = process.env.TEST_ARGV + "." + process.pid + ".tmp";
+writeFileSync(record, JSON.stringify({ args, cwd: process.cwd(), token: process.env.FOOM_TOKEN, pid: process.pid }));
+renameSync(record, process.env.TEST_ARGV);
 const resumed = args.includes("--resume") || args.includes("resume");
 if (resumed) {
   console.log("RESUMED_CONVERSATION " + process.pid);

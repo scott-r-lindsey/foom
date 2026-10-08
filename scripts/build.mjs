@@ -64,6 +64,7 @@ await cp(
 // derived agent rules. Source reference checkouts are never packaged or read here.
 const thirdPartyNotices = [
   "src/shared/terminal-theme-LICENSE.txt",
+  "src/sounds/NOTICES.txt",
   "src/main/evaluator/agent-rules/LICENSE.txt",
 ];
 for await (const name of glob("src/renderer/fonts/*.txt", { cwd: root })) {
@@ -96,3 +97,5 @@ await copyFile(
   join(root, "src/renderer/styles/confirmation.css"),
   join(root, "build/renderer/confirmation.css"),
 );
+
+await cp(join(root, "src/sounds"), join(root, "build/sounds"), { recursive: true });

@@ -241,6 +241,8 @@ describe("launch", () => {
           "--settings",
           JSON.stringify({
             hooks: {
+              UserPromptSubmit: [{ hooks: [{ type: "command", command: binding.claudeCommand }] }],
+              PreToolUse: [{ hooks: [{ type: "command", command: binding.claudeCommand }] }],
               Stop: [{ hooks: [{ type: "command", command: binding.claudeCommand }] }],
               PermissionRequest: [{ hooks: [{ type: "command", command: binding.claudeCommand }] }],
               Notification: [{ hooks: [{ type: "command", command: binding.claudeCommand }] }],

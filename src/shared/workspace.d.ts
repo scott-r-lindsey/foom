@@ -1,3 +1,4 @@
+import type { ExecutionSnapshot, ExecutionTransition } from "./execution";
 import type { ConfirmationClient } from "./confirmation";
 import type { AgentId, AgentInstallation } from "./agents";
 import type { VerdictAction, VerdictState } from "./evaluator";
@@ -8,6 +9,7 @@ import type { Repository, Worktree } from "./worktrees";
  * actions and for verdicts that couldn't be stored.
  */
 export interface TerminalState {
+  execution?: ExecutionSnapshot | undefined;
   id: string;
   verdictId: string | null;
   state: VerdictState | "checking";
@@ -19,6 +21,7 @@ export interface TerminalState {
 
 /** A terminal Foom launched in a managed worktree. Paths identify; the renderer never picks them. */
 export interface WorkspaceTerminal {
+  execution?: ExecutionSnapshot | undefined;
   id: string;
   kind: "agent" | "shell";
   agent: AgentId | "shell";
@@ -89,6 +92,7 @@ export interface WorkspaceApi {
   ): Promise<{ id: string; attention: "hooks" | "evaluator" } | null>;
   /** Pass null only for the current verdict when it couldn't be stored. */
   feedback(id: string, verdictId: string | null, action: VerdictAction): Promise<void>;
+  onExecution(callback: (event: ExecutionTransition) => void): () => void;
   onState(callback: (state: TerminalState) => void): () => void;
 }
 

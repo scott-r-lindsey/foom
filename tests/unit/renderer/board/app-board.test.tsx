@@ -1,3 +1,4 @@
+import type { ExecutionTransition } from "../../../../src/shared/execution";
 // @vitest-environment jsdom
 import { act, cleanup, fireEvent, render } from "@testing-library/react";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
@@ -9,6 +10,7 @@ import { createAppSource } from "../../../../src/renderer/board/live-board-sourc
 import { App } from "../../../../src/renderer/app";
 import { installation, report, setupState } from "../../../fixtures/setup";
 const mock = vi.hoisted(() => ({
+  execution: undefined as ((event: ExecutionTransition) => void) | undefined,
   command: undefined as ((command: BoardCommand) => void) | undefined,
   state: undefined as ((state: TerminalState) => void) | undefined,
   changed: undefined as (() => void) | undefined,
@@ -105,6 +107,13 @@ beforeEach(() => {
   Object.defineProperty(window, "desktop", {
     configurable: true,
     value: {
+      sounds: {
+        list: () => Promise.resolve([]),
+        read: () => Promise.resolve({ error: "unavailable" }),
+        onChange: () => () => {},
+        openFolder: async () => {},
+        notices: () => Promise.resolve(""),
+      },
       setupState: mock.setupState,
       onSetupChange: () => () => {},
       codeSuggestions: () => Promise.resolve([]),
@@ -136,6 +145,10 @@ beforeEach(() => {
         listener: (id: string, available: boolean, reset?: boolean) => void,
       ) => {
         mock.availability = listener;
+        return mock.off;
+      },
+      onExecution: (listener: (event: ExecutionTransition) => void) => {
+        mock.execution = listener;
         return mock.off;
       },
       onState: (listener: (state: TerminalState) => void) => {
@@ -228,7 +241,7 @@ test("source connects independently of views, reconciles events, preserves order
   off();
   offActivity();
   disconnect?.();
-  expect(mock.off).toHaveBeenCalledTimes(5);
+  expect(mock.off).toHaveBeenCalledTimes(6);
 });
 test("late snapshots and disconnected refreshes cannot undo newer inventory or verdicts", async () => {
   const source = createAppSource();
@@ -550,7 +563,7 @@ test.each(["snapshot", "state", "exit"] as const)(
     await resuming;
     expect(source.getSnapshot()[0]).toMatchObject({
       launchVersion: 1,
-      state: evidence === "state" ? "needs_input" : evidence === "exit" ? "failed" : "working",
+      state: evidence === "state" ? "needs_input" : evidence === "exit" ? "failed" : "quiet_ok",
       exited: evidence === "exit",
     });
     off?.();
@@ -625,5 +638,93 @@ test("a failed replacement after host reset restores the saved dormant record", 
     state: "quiet_ok",
     conversationId: "saved",
   });
+  off?.();
+});
+
+test("execution overlays verdicts, rejects stale events, and waits for each turn's result", async () => {
+  const initial = { terminalId: "a", launch: 1, revision: 0, turn: 0, phase: "starting" as const };
+  mock.workspace.mockResolvedValue({
+    repositories: [],
+    terminals: [{ ...agent("a"), execution: initial }, agent("b")],
+  });
+  const source = createAppSource();
+  const off = source.connect?.();
+  await settle();
+  const current = () => source.getSnapshot().find((row) => row.id === "a");
+  expect(current()?.state).toBe("quiet_ok");
+  const working: ExecutionTransition = {
+    ...initial,
+    revision: 1,
+    turn: 1,
+    phase: "working",
+    from: "starting",
+    to: "working",
+    source: "title",
+    at: 10,
+  };
+  mock.execution?.(working);
+  expect(current()?.state).toBe("working");
+  mock.state?.({ ...verdict("a"), execution: working, state: "working" });
+  const idle: ExecutionTransition = {
+    ...working,
+    revision: 2,
+    phase: "idle",
+    from: "working",
+    to: "idle",
+    at: 20,
+  };
+  mock.execution?.(idle);
+  expect(current()?.state).toBe("quiet_ok");
+  mock.state?.({ ...verdict("a", 200), execution: working, state: "done" });
+  expect(current()?.state).toBe("quiet_ok");
+  mock.workspace.mockResolvedValue({
+    repositories: [],
+    terminals: [
+      {
+        ...agent("a", { ...verdict("a", 9000), execution: working, state: "done" }),
+        execution: working,
+      },
+    ],
+  });
+  mock.changed?.();
+  await settle();
+  mock.state?.({ ...verdict("a", 201), execution: idle, state: "done" });
+  expect(current()?.state).toBe("done");
+  mock.execution?.(working);
+  expect(current()?.execution?.revision).toBe(2);
+  mock.workspace.mockResolvedValue({
+    repositories: [],
+    terminals: [
+      { ...agent("a", { ...verdict("a", 300), execution: idle, state: "done" }), execution: idle },
+      agent("b"),
+    ],
+  });
+  mock.changed?.();
+  await settle();
+  expect(current()?.state).toBe("done");
+  const blocked: ExecutionTransition = {
+    ...idle,
+    revision: 3,
+    phase: "blocked",
+    from: "idle",
+    to: "blocked",
+    source: "screen",
+  };
+  mock.execution?.(blocked);
+  expect(current()?.state).toBe("needs_input");
+  const resumed: ExecutionTransition = { ...working, launch: 2 };
+  mock.execution?.(resumed);
+  mock.state?.({ ...verdict("a", 500), execution: blocked });
+  expect(current()?.state).toBe("working");
+  mock.execution?.({
+    ...resumed,
+    revision: 2,
+    from: "working",
+    to: "exited",
+    phase: "exited",
+    source: "exit",
+  });
+  mock.exit?.("a", 1);
+  expect(current()?.state).toBe("failed");
   off?.();
 });

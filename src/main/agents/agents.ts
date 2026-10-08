@@ -243,7 +243,15 @@ export class AgentService {
           const hook = [{ hooks: [{ type: "command", command: binding.claudeCommand }] }];
           args.push(
             "--settings",
-            JSON.stringify({ hooks: { Stop: hook, PermissionRequest: hook, Notification: hook } }),
+            JSON.stringify({
+              hooks: {
+                UserPromptSubmit: hook,
+                PreToolUse: hook,
+                Stop: hook,
+                PermissionRequest: hook,
+                Notification: hook,
+              },
+            }),
           );
         } else {
           args.push("-c", `notify=${JSON.stringify(binding.codexCommand)}`);

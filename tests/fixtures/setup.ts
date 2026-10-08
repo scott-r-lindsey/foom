@@ -1,4 +1,4 @@
-import { DEFAULT_SOUND } from "../../src/shared/soundscapes";
+import { DEFAULT_SOUND } from "../../src/shared/sounds";
 import type { AgentInstallation } from "../../src/shared/agents";
 import type { Settings, SetupState } from "../../src/shared/setup";
 import type { AgentReport } from "../../src/shared/workspace";

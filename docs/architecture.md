@@ -550,22 +550,15 @@ only by default) and replaces it when preflight saves a new source. Results from
 replaced evaluator still in flight are published, not discarded. See
 [inference service usage and benchmarking](inference.md).
 
-A permission hook (`needs_input`) stays in force across later quiet evaluations, because
-agent dialogs rarely match a text rule. It clears when the user types into the terminal
-(recorded as `replied`, with a `working` state and `user:reply` signal) or sends
-`dismissed` feedback (`quiet_ok`, `user:dismissed`). Completion hooks only trigger an
-evaluation. Opening a terminal is not a reply. The board exposes dismissal as **Not attention**.
-
-Only input the user produced counts as typing. xterm also sends focus reports, answers
-to terminal queries (cursor position, device attributes, colors), and mouse releases,
-motion and wheel events through the input channel. Those still reach the PTY but are
-not replies; `src/main/terminals/terminal-reports.ts` separates them. Alternate-screen
-wheel-generated cursor keys carry a validated wheel origin through the preload bridge;
-real arrow keys still count as replies. A reply or dismissal also
-invalidates evaluations and hook signals that were already in flight, so older
-evidence can't restore attention the user just cleared. Exit verdicts are exempt. Host output events also invalidate pending screen-based
-classifications, including with no attached view, and return screen-based attention
-to Working without recording reply feedback. Permission hooks remain authoritative.
+A permission hook (`needs_input`) stays in force across later quiet evaluations.
+For agents, typing records reply feedback but does not establish resumed execution;
+neither typing nor dismissal overrides lifecycle evidence. Dismissal still clears the
+attention indicator and reminders; it does not start Working audio. A later working hook
+releases an explicit permission blocker. Opening a terminal is not a reply.
+Shell reply/dismissal behavior remains separate: replies mark Working and dismissal
+marks Quiet. Terminal-generated reports are filtered by `terminal-reports.ts`.
+New lifecycle transitions invalidate asynchronous classifications. Host output
+invalidates pending screen classifications but never establishes agent execution.
 
 A verdict is published even if the log can't store it. It then has a null
 `verdictId`: a reply still clears it without recording anything, and
@@ -690,35 +683,55 @@ input-to-render probes on another terminal, plus final flood byte counts. The
 fixture uses the DOM renderer and retains sandboxing. Measurements are machine-
 and workload-specific; record the report and interpretation in the PR rather
 than treating frame timings as portable pass/fail thresholds.
-## Soundscapes
+## Recorded sounds
 
-`shared/sound.d.ts` defines version 1 soundscape data: a name, working synthesis
-parameters (`hum` and `seek` in Hz, `density` in seeks per second at full activity),
-and `done`/`needsYou` tones (`frequency` in Hz, `duration`/`gap` in seconds, `count`).
-`shared/soundscapes.ts` validates exact keys, finite bounded parameters and a reserved
-attention cadence (two or three separated beeps; Done is always one). No sample URLs,
-code or arbitrary Web Audio graphs are accepted. Settings stores a built-in ID or
-this portable object, ready for the future Foom-config loader; it does not read user
-soundscape files yet. The existing validated setup IPC and atomic settings store own
-persistence, with default sound settings for profiles that predate this feature.
+`shared/sound.d.ts` defines four kinds and path-free `{source, file}` choices.
+`shared/sounds.ts` validates exact keys, filename syntax, switches, finite volume
+bounds and distinct Needs you choices. Only settings loaded from disk can migrate
+the former `soundscape` property; IPC accepts the new format. Migration preserves
+switches and volumes. The existing setup IPC and atomic store persist choices.
 
-The renderer's sound controller subscribes to the board source and setup source.
-Activity bypasses React and is mixed logarithmically into one capped working sound.
-A 100 ms clock settles verdicts for one second, spaces alerts by at least two seconds,
-coalesces simultaneous alerts (attention takes priority), and repeats outstanding
-attention every two minutes. State changes, removal and disposal cancel pending
-reminders; repeated verdict IDs in the same state do not restart a reminder.
-The focused tile’s terminal is muted when the document has focus, excluding Settings,
-preflight and location views. Muted completion is consumed, not queued for later.
-Settings must load before any audio is produced; later settings events take precedence
-over a pending initial load. No terminal text or keystrokes enter the audio layer.
+`main/sounds/library.ts` creates `~/.foom/config/sounds/{working,done,needs-you,refusal}`
+and merges its catalogs with read-only `build/sounds/` inside the packaged resources.
+The build copies the approved OGG/Opus recordings, manifest and notices; notices also
+feed `build/THIRD_PARTY_NOTICES.txt`. Settings exposes sound credits until the About
+screen (#96) consumes the shared notices. The manifest records original authors,
+URLs, CC0 licenses, retrieval dates, source and derivative checksums, and edits.
 
-`renderer/sound/web-audio.ts` synthesizes a single hum with brief randomized seek
-pulses and a separate bounded alert voice. It creates AudioContext lazily, attempts
-resume when suspended, ramps gain and closes the context on disposal. Audio device
-unavailability leaves terminals and visual status operational. Settings previews
-last at most two seconds and dispose their timers and audio nodes on replacement
-or unmount. The CSP and preload capabilities are unchanged.
+`sound:list` and `sound:read` validate the main window's top-level sender and exact
+argument counts. Read requests contain only kind/source/filename. Main accepts direct
+regular files, rejects hidden/overlong/unsafe filenames and out-of-folder symlinks,
+checks extension against header, and bounds each folder to 100 files. Working files
+are capped at 8 MB; others at 2 MB. User reads use an inspected descriptor, bounded
+allocation and directory/name rechecks. `sound:open-folder` calls `shell.openPath`
+only on the fixed main-owned folder; `sound:notices` reads a fixed bundled file.
+No arbitrary filesystem capability, URLs, Node APIs or CSP exceptions reach the renderer.
+
+Opening Sound lists folders again and emits `sound:changed`, refreshing cached choices
+so restored files take effect without a restart. The renderer decodes IPC bytes with
+`decodeAudioData`, validates durations (Working 1–30 s, Done/Needs you ≤1.5 s, Refusal
+≤0.3 s), and measures RMS and peak. Gain targets −25 dBFS RMS, capped at 4× and a
+−6 dBFS peak; silence stays silent and nonfinite samples fail. Invalid selections
+fall back to the default and report a reason, never rewriting saved choices.
+
+The sound controller subscribes to board and setup sources. It reads main-owned
+execution metadata, never output rates. One steady loop at the selected volume
+plays while any agent is working; shells and exited sessions are excluded. Shell rows
+are also excluded from verdict alerts, so command completion and shell prompts stay silent. A 100 ms clock settles verdicts for
+one second, spaces alerts by two seconds, gives attention priority and repeats
+outstanding attention every two minutes. State changes, removal and disposal cancel
+reminders; repeated verdict IDs do not restart them. Attention is muted in the focused tile while the document has focus, excluding
+Settings, preflight and location views. Completion remains audible when focused and
+is deduplicated by launch and turn; initial readiness and restored verdicts are silent. Muted
+completion is consumed. Settings must load before sound; later settings events take
+precedence over a pending initial load. No terminal text enters audio.
+
+`renderer/sound/web-audio.ts` owns one loop, one verdict voice and an independent
+Refusal voice. A refused placement calls Refusal immediately, obeying Alerts and its
+volume without verdict settling or debounce. Context resume, gain ramps, asynchronous
+decode cancellation and cleanup are owned here. Audio failure leaves terminals and
+visual status operational. Settings previews stop on replacement/unmount and after
+five seconds for Working (two seconds for other kinds). No synthesis remains.
 
 ## Board shortcut definitions
 
@@ -784,7 +797,8 @@ keeps it outside renderer IPC. Title changes request immediate evaluation only w
 the detected rule or state changes. Spinner and blinking frames retain the latest
 evidence without evaluating; progress-only or unknown changes wait for normal quiet
 events, so they cannot trigger inference during streaming output. Existing generation/output guards discard stale results, exits stay
-final, and permission hooks stay sticky until a reply/dismissal.
+final. Permission hooks persist until a working hook, or a reply followed by fresh
+working title evidence and no matching agent permission form; dismissal only hides attention.
 
 Screen matching uses the existing 40-line host tail, capped to 500 characters per
 line, and only the bottom nonempty lines or text after the last horizontal divider.
@@ -796,6 +810,56 @@ way to interrupt a running JavaScript regex. No matcher can type into a terminal
 
 Working and blocked rules produce fixed reasons and `rules:<agent>:<rule-id>` signals.
 Idle evidence has low confidence and continues through generic rules and the model,
-never directly to Done. With rules-only inference it stays Working with a turn-ended
-reason. Model requests still contain only the existing redacted 40-line tail; titles,
+never directly to Done. Workspace execution promotes an ambiguous result to Done
+only after a recorded working-to-idle transition; Claude with hooks additionally
+requires Stop, so title-only interrupts stay neutral. Initial readiness stays neutral. Model requests still contain only the existing redacted 40-line tail; titles,
 progress, files, diffs, keystrokes and manifest content are never added to that input.
+
+
+## Agent execution
+
+`main/agents/execution.ts` owns an independent machine per agent invocation:
+`starting`, `idle`, `working`, `blocked`, `exited`. Shell command markers remain
+separate. Output, keyboard input, focus and feedback never prove agent execution.
+Main subscriptions and validated `agent:execution` IPC receive transitions only,
+with terminal ID, launch identity, turn number, revision, from/to, source and time.
+Workspace snapshots hydrate the current state; the renderer rejects older launch
+or revision evidence. Resume creates a new invocation even when the terminal ID
+is reused. Revoked hook capabilities cannot address that invocation.
+
+| Agent | Working | Blocked | Idle |
+| --- | --- | --- | --- |
+| Claude | Per-launch UserPromptSubmit/PreToolUse observer hooks; half-circle title | PermissionRequest hook; live screen forms | Stop hook; star title |
+| Codex | Braille spinner title | Action Required title | Turn-complete notify; plain title |
+| Antigravity | No supported signal yet | Screen rules | No supported signal yet |
+
+Evidence precedence is: process exit; active permission hooks; agent-specific
+blocked forms/titles; agent working titles; generic shell patterns; model fallback.
+A blocked agent form wins over a simultaneous working title, but generic password,
+yes/no and Enter strings do not override supported agent working evidence.
+
+Hooks are strongest evidence. An explicit permission hook survives spinner frames
+until a working hook proves progress, or user input is followed by a fresh working
+title and classification finds no agent-specific permission form. Input alone and
+dismissal never resume execution. A new permission hook resets that reply evidence.
+Screen blockers beat working titles during
+classification; later positive progress supersedes stale screen evidence only after
+classification verifies the current screen no longer requests attention. Repeated
+spinner frames can trigger this recovery while blocked. Dismissal is tracked
+separately from execution against a digest of the attention signal and screen;
+unchanged evaluations stay quiet. Changed attention evidence, a new permission
+hook, or a lifecycle transition invalidates that dismissal. Idle
+titles may end a turn started by a hook (including Claude Esc, which lacks Stop).
+With Claude hooks attached, a title-only turn end stays Quiet: Stop is required
+before reporting Done, including when Stop arrives after the idle title. Without
+hooks, title-only completion remains heuristic. Codex uses title rules and the
+existing turn-complete notify adapter only; a Codex hook migration is separate.
+Antigravity lifecycle hooks remain deferred to #178; no global agent configuration
+is changed. Observer hooks emit no permission decision.
+
+Turn end stops Working immediately, independently of asynchronous classification.
+Classification checks attention and failure evidence before announcing completion;
+Needs input moves execution to blocked. A first idle is readiness, never completion.
+Working-to-exited is failure even with exit code zero. A newer execution revision
+invalidates in-flight classification. The board overlays execution on verdicts so
+silent thinking remains Working and unsupported execution stays neutral.

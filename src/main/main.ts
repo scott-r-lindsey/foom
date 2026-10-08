@@ -1,3 +1,5 @@
+import { SoundLibrary } from "./sounds/library";
+import { attachSounds } from "./sounds/ipc";
 import { attachAppMenu } from "./window/app-menu";
 import { updateAttention } from "./window/attention-badge";
 import { InventoryWatch } from "./workspace/inventory-watch";
@@ -98,7 +100,16 @@ async function createWindow(savedSize?: Size) {
     );
   };
   nativeTheme.on("updated", updateBackground);
+  const soundIpc = attachSounds(
+    window,
+    new SoundLibrary(
+      path.join(__dirname, "../sounds"),
+      path.join(app.getPath("home"), ".foom/config/sounds"),
+    ),
+    path.join(__dirname, "../sounds/NOTICES.txt"),
+  );
   window.once("closed", () => {
+    soundIpc();
     nativeTheme.removeListener("updated", updateBackground);
   });
 
@@ -144,6 +155,9 @@ async function createWindow(savedSize?: Size) {
     onChange: () => {
       workspaceIpc.sendChanged();
       updateAttention(window, workspace.snapshot(), appMenu.newWindow);
+    },
+    onExecution: (event) => {
+      workspaceIpc.sendExecution(event);
     },
     onState: (state) => {
       workspaceIpc.sendState(state);

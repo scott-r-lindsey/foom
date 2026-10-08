@@ -1,3 +1,4 @@
+vi.mock("../../../src/main/sounds/ipc", () => ({ attachSounds: vi.fn(() => vi.fn()) }));
 vi.mock("../../../src/main/window/attention-badge", () => ({ updateAttention: vi.fn() }));
 import type { WorkspaceDependencies } from "../../../src/main/workspace/workspace";
 import type { DialogContent } from "../../../src/shared/confirmation";
@@ -188,7 +189,12 @@ const mock = vi.hoisted(() => {
     addRepository: vi.fn(),
     removeRepository: vi.fn(),
   };
-  const ipc = { sendChanged: vi.fn(), sendState: vi.fn(), dispose: vi.fn() };
+  const ipc = {
+    sendExecution: vi.fn(),
+    sendChanged: vi.fn(),
+    sendState: vi.fn(),
+    dispose: vi.fn(),
+  };
   const setup = {
     deps: undefined as ConstructorParameters<typeof Setup>[0] | undefined,
     classify: vi.fn(),
@@ -733,6 +739,7 @@ test("routes terminal events, hook signals and state through the workspace", asy
 
   const deps = mock.workspace.deps as {
     receiver(): Promise<unknown>;
+    onExecution(event: unknown): void;
     onState(state: unknown): void;
     onChange(): void;
     acknowledgeCodex(): Promise<void>;
@@ -740,6 +747,8 @@ test("routes terminal events, hook signals and state through the workspace", asy
   await deps.acknowledgeCodex();
   deps.onChange();
   expect(mock.ipc.sendChanged).toHaveBeenCalledOnce();
+  deps.onExecution({ terminalId: "a" });
+  expect(mock.ipc.sendExecution).toHaveBeenCalledWith({ terminalId: "a" });
   deps.onState({ id: "a" });
   expect(mock.ipc.sendState).toHaveBeenCalledWith({ id: "a" });
   mock.listen.mockResolvedValue("receiver");

@@ -4,8 +4,10 @@ export type HookAgent = "claude" | "codex";
 export interface HookSignal {
   terminalId: string;
   conversationId?: string;
-  action: "classify" | "needs_input";
+  action: "classify" | "needs_input" | "working";
   signal:
+    | "claude:UserPromptSubmit"
+    | "claude:PreToolUse"
     | "claude:Stop"
     | "claude:PermissionRequest"
     | "claude:permission_prompt"

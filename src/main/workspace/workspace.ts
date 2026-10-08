@@ -1,3 +1,6 @@
+import { createHash } from "node:crypto";
+import { AgentExecution } from "../agents/execution";
+import type { ExecutionPhase, ExecutionSource, ExecutionTransition } from "../../shared/execution";
 import { conversationId, resumeArguments } from "../agents/conversation";
 import type { SessionStore } from "./session-store";
 import type { InventoryWatch } from "./inventory-watch";
@@ -5,7 +8,7 @@ import type { ControlLaunch } from "../control/types";
 import type { ControlRuntime } from "../control/runtime";
 import type { ConfirmWorkspace } from "../../shared/confirmation";
 import { EMPTY_AGENT_ARGUMENTS, hasBypassArgument } from "../agents/default-arguments";
-import { detectAgent } from "../evaluator/agent-rules";
+import { detectAgent, ruleRegion } from "../evaluator/agent-rules";
 import type { AgentEvidence } from "../../shared/agent-detection";
 import { basename } from "node:path";
 import type { SidebarCommand, SidebarInventory } from "../../shared/workspace";
@@ -30,10 +33,18 @@ import type { WorktreeService } from "./worktrees";
 
 type Agents = Pick<AgentService, "scan" | "launch" | "release" | "dispose" | "setHooksEnabled">;
 type Terminal = {
+  execution?: AgentExecution;
+  completedTurn?: number;
+  interrupted?: boolean;
+  actionVerdict?: string;
+  attentionKey?: string;
+  dismissedAttention?: string;
   evidence?: AgentEvidence;
   shellRunning?: boolean;
   exitCode?: number;
   hook?: HookSignal;
+  permissionReply?: boolean;
+  permissionProgress?: boolean;
   state: TerminalState | null;
   /** Bumped by replies and dismissals; evaluations that began earlier are discarded. */
   generation: number;
@@ -70,6 +81,7 @@ export interface WorkspaceDependencies {
   control?: () => Promise<Pick<ControlRuntime, "prepare" | "close">>;
   /** Started on the first launch that attaches hooks, then reused. */
   receiver: () => Promise<HookRegistrar & { close(): Promise<void> }>;
+  onExecution?(event: ExecutionTransition): void;
   onState(state: TerminalState): void;
   onChange?(): void;
   watcher?: Pick<InventoryWatch, "sync" | "dispose">;
@@ -90,6 +102,8 @@ export interface WorkspaceDependencies {
  */
 export class Workspace {
   private readonly agents: Agents;
+  private launchSequence = 0;
+  private readonly executionListeners = new Set<(event: ExecutionTransition) => void>();
   private readonly launched = new Map<string, WorkspaceTerminal>();
   private readonly terminals = new Map<string, Terminal>();
   private readonly hookKeys = new Map<string, string>();
@@ -120,8 +134,10 @@ export class Workspace {
         throw error;
       });
       return prepareHookLaunch(await this.receiver, agent, (key, terminalId) => {
-        if (terminalId) this.hookKeys.set(key, terminalId);
-        else this.hookKeys.delete(key);
+        if (terminalId) {
+          this.hookKeys.set(key, terminalId);
+          this.execution(terminalId);
+        } else this.hookKeys.delete(key);
       });
     };
     const startControl = deps.control;
@@ -180,6 +196,9 @@ export class Workspace {
       repositories: this.deps.worktrees.listRepositories(),
       terminals: [...this.launched.values()].map((entry) => ({
         ...entry,
+        ...(this.terminals.get(entry.id)?.execution
+          ? { execution: this.terminals.get(entry.id)?.execution?.snapshot() }
+          : {}),
         state: this.terminals.get(entry.id)?.state ?? null,
         exited: entry.dormant === true || this.terminals.get(entry.id)?.exitCode !== undefined,
       })),
@@ -353,7 +372,10 @@ export class Workspace {
         bypass: hasBypassArgument(request.agent, defaultArguments),
         state: null,
       });
-      this.track(result.id);
+      const tracked = this.track(result.id);
+      const execution = this.execution(result.id);
+      if (tracked.exitCode !== undefined) execution.transition("exited", "exit");
+      else if (tracked.evidence) void this.evidence(result.id, tracked.evidence, true);
       this.persist();
       this.refresh();
       return result;
@@ -669,6 +691,56 @@ export class Workspace {
     });
   }
 
+  subscribeExecution(listener: (event: ExecutionTransition) => void): () => void {
+    this.executionListeners.add(listener);
+    return () => {
+      this.executionListeners.delete(listener);
+    };
+  }
+
+  private execution(id: string): AgentExecution {
+    const terminal = this.track(id);
+    terminal.execution ??= new AgentExecution(
+      id,
+      ++this.launchSequence,
+      (event) => {
+        terminal.generation++;
+        this.deps.onExecution?.(event);
+        for (const listener of this.executionListeners) listener(event);
+      },
+      this.now,
+    );
+    return terminal.execution;
+  }
+
+  private transition(id: string, phase: ExecutionPhase, source: ExecutionSource): void {
+    const terminal = this.track(id);
+    const event = this.execution(id).transition(phase, source, terminal.permissionProgress);
+    if (!event) return;
+    if (phase !== "blocked") {
+      delete terminal.attentionKey;
+      delete terminal.dismissedAttention;
+    }
+    if (phase === "working") {
+      delete terminal.hook;
+      delete terminal.permissionReply;
+      delete terminal.permissionProgress;
+      delete terminal.completedTurn;
+    }
+    if (
+      phase === "idle" &&
+      event.from === "working" &&
+      (source === "hook" || !this.claudeCompletionHook(id))
+    )
+      terminal.completedTurn = event.turn;
+    if (phase === "exited" && event.from === "working") terminal.interrupted = true;
+  }
+
+  private claudeCompletionHook(id: string): boolean {
+    const entry = this.launched.get(id);
+    return entry?.agent === "claude" && entry.attention === "hooks";
+  }
+
   private track(id: string): Terminal {
     let terminal = this.terminals.get(id);
     if (!terminal) {
@@ -697,7 +769,28 @@ export class Workspace {
   }
 
   private publish(id: string, terminal: Terminal, state: Omit<TerminalState, "id" | "timestamp">) {
-    terminal.state = { id, ...state, timestamp: this.now() };
+    const phase = terminal.execution?.snapshot().phase;
+    const dismissed =
+      terminal.dismissedAttention !== undefined &&
+      terminal.dismissedAttention === terminal.attentionKey;
+    const resolved =
+      phase === "blocked" && dismissed
+        ? "quiet_ok"
+        : phase === "working" && state.state !== "needs_input"
+          ? "working"
+          : phase === "blocked" && state.signal !== "user:dismissed"
+            ? "needs_input"
+            : (phase === "idle" || phase === "starting") &&
+                (state.state === "working" || state.state === "checking")
+              ? "quiet_ok"
+              : state.state;
+    terminal.state = {
+      id,
+      ...state,
+      ...(terminal.execution ? { execution: terminal.execution.snapshot() } : {}),
+      state: resolved,
+      timestamp: this.now(),
+    };
     this.deps.onState(terminal.state);
   }
 
@@ -713,7 +806,7 @@ export class Workspace {
       this.terminals.get(id) !== terminal ||
       (generation !== undefined && generation !== terminal.generation) ||
       (terminal.exitCode === undefined &&
-        !terminal.hook &&
+        (!terminal.hook || terminal.permissionProgress) &&
         outputVersion !== terminal.outputVersion);
     if (stale()) return;
     let tail: string[] = [];
@@ -740,7 +833,7 @@ export class Workspace {
         terminalId: id,
         tail,
         ...this.agentInput(id, terminal),
-        ...(terminal.hook ? { hook: terminal.hook } : {}),
+        ...(terminal.hook && !terminal.permissionProgress ? { hook: terminal.hook } : {}),
         ...(terminal.exitCode !== undefined ? { exitCode: terminal.exitCode } : {}),
       });
     } finally {
@@ -765,10 +858,88 @@ export class Workspace {
       }
     }
     if (stale()) return;
+    const execution = terminal.execution?.snapshot();
+    const agentInput = this.agentInput(id, terminal);
+    const detected =
+      agentInput.agent && agentInput.evidence
+        ? detectAgent(agentInput.agent, agentInput.evidence, tail)
+        : undefined;
+    if (execution && terminal.exitCode === undefined) {
+      if (record.verdict.state === "needs_input") {
+        // Compare the attention evidence, not verdict IDs or animated title frames.
+        const attentionEvidence =
+          terminal.hook && !terminal.permissionProgress
+            ? ""
+            : record.verdict.signal.startsWith("pattern:")
+              ? tail.findLast((line) => line.trim().length > 0)?.trim()
+              : detected?.state === "blocked" && detected.region !== "title" && agentInput.evidence
+                ? ruleRegion(detected, agentInput.evidence, tail)
+                : tail;
+        terminal.attentionKey = createHash("sha256")
+          .update(JSON.stringify([record.verdict.signal, attentionEvidence]))
+          .digest("hex");
+        if (terminal.dismissedAttention !== terminal.attentionKey)
+          delete terminal.dismissedAttention;
+        this.transition(
+          id,
+          "blocked",
+          terminal.hook && !terminal.permissionProgress ? "hook" : "screen",
+        );
+      } else if (
+        execution.phase === "blocked" &&
+        record.verdict.state === "working" &&
+        detected?.state === "working" &&
+        record.verdict.signal === `rules:${agentInput.agent ?? ""}:${detected.id}`
+      ) {
+        this.transition(id, "working", "title");
+      } else if (
+        execution.phase === "idle" &&
+        terminal.completedTurn === execution.turn &&
+        record.verdict.state === "working"
+      ) {
+        record = {
+          ...record,
+          verdict: {
+            state: "done",
+            reason: "Agent turn completed",
+            signal: "execution:completed",
+            confidence: 0.95,
+          },
+        };
+      } else if (
+        execution.phase === "idle" &&
+        this.claudeCompletionHook(id) &&
+        terminal.completedTurn !== execution.turn &&
+        record.verdict.state !== "failed"
+      ) {
+        record = {
+          ...record,
+          verdict: {
+            state: "quiet_ok",
+            reason: "Turn ended without a completion hook",
+            signal: "execution:idle",
+            confidence: 0.95,
+          },
+        };
+      }
+    }
+    if (terminal.interrupted)
+      record = {
+        ...record,
+        verdict: {
+          state: "failed",
+          reason: "Agent exited during a turn",
+          signal: "execution:interrupted",
+          confidence: 1,
+        },
+      };
+    // A blocker transition above is part of this evaluation, not stale evidence.
+    generation = terminal.generation;
     if (
       terminal.state?.verdictId &&
       terminal.state.state === record.verdict.state &&
-      terminal.state.signal === record.verdict.signal
+      terminal.state.signal === record.verdict.signal &&
+      terminal.state.execution?.revision === terminal.execution?.snapshot().revision
     )
       return;
     let verdictId: string | null = record.id;
@@ -820,6 +991,8 @@ export class Workspace {
     const terminal = this.track(id);
     terminal.outputVersion += 1;
     if (
+      terminal.execution !== undefined ||
+      this.launched.get(id)?.kind === "agent" ||
       terminal.exitCode !== undefined ||
       terminal.hook ||
       terminal.shellRunning === false ||
@@ -843,18 +1016,26 @@ export class Workspace {
   }
 
   /** Metadata is local evidence; parsing has drained before the host publishes it. */
-  evidence(id: string, evidence: AgentEvidence): Promise<void> {
+  evidence(id: string, evidence: AgentEvidence, initial = false): Promise<void> {
     const terminal = this.track(id);
     const previousEvidence = terminal.evidence ?? { title: "", progress: null };
     terminal.evidence = evidence;
     const { agent } = this.agentInput(id, terminal);
     // Unknown metadata and progress-only updates are not quiet signals. Keep them
     // for the next real quiet event rather than submitting an actively changing tail.
-    if (previousEvidence.title === evidence.title || !agent) return Promise.resolve();
+    if ((!initial && previousEvidence.title === evidence.title) || !agent) return Promise.resolve();
     const previous = detectAgent(agent, previousEvidence, []);
     const next = detectAgent(agent, evidence, []);
-    if (!next || (previous?.id === next.id && previous.state === next.state))
+    if (terminal.permissionReply && next?.state === "working") terminal.permissionProgress = true;
+    const resuming =
+      terminal.execution?.snapshot().phase === "blocked" && next?.state === "working";
+    if (
+      !next ||
+      (!initial && !resuming && previous?.id === next.id && previous.state === next.state)
+    )
       return Promise.resolve();
+    // A spinner must not override a prompt still present on the screen.
+    if (next.state !== "unknown" && !resuming) this.transition(id, next.state, "title");
     return this.quiet(id);
   }
 
@@ -881,13 +1062,29 @@ export class Workspace {
       this.persist();
       this.deps.onChange?.();
     }
-    // A bound key means the terminal exists, even if launch() hasn't returned yet.
+    if (this.track(id).exitCode !== undefined) return Promise.resolve();
+    if (signal.action === "working") {
+      this.track(id).generation++;
+      this.transition(id, "working", "hook");
+      return Promise.resolve();
+    }
+    if (signal.action === "needs_input") {
+      delete this.track(id).permissionReply;
+      delete this.track(id).permissionProgress;
+      delete this.track(id).dismissedAttention;
+      this.track(id).hook = { terminalId: id, action: signal.action, signal: signal.signal };
+      this.transition(id, "blocked", "hook");
+    } else if (signal.signal !== "claude:idle_prompt") {
+      const terminal = this.track(id);
+      const turn = terminal.execution?.snapshot().turn;
+      if (turn && signal.signal === "claude:Stop") terminal.completedTurn = turn;
+      this.transition(id, "idle", "hook");
+    }
     const { generation } = this.track(id);
     return this.enqueue(id, async (terminal) => {
-      // A reply since the hook fired already answered it.
+      // A newer lifecycle transition invalidates this queued classification.
       if (terminal.exitCode !== undefined || terminal.generation !== generation) return;
-      // A permission request stays in force until the user replies or dismisses it;
-      // completion hooks only request classification.
+      // Explicit permission persists until supported execution evidence resumes work.
       if (signal.action === "needs_input")
         terminal.hook = { terminalId: id, action: signal.action, signal: signal.signal };
       await this.evaluate(id, terminal, generation);
@@ -897,7 +1094,8 @@ export class Workspace {
   /** Exit verdicts ignore replies: the process is gone, so its exit always stands. */
   exited(id: string, code: number): Promise<void> {
     this.agents.release(id);
-    this.track(id);
+    const current = this.track(id);
+    if (current.execution) this.transition(id, "exited", "exit");
     return this.enqueue(id, async (terminal) => {
       if (terminal.exitCode !== undefined) return;
       terminal.exitCode = code;
@@ -918,23 +1116,30 @@ export class Workspace {
 
   /**
    * The user typed into the terminal (terminal-generated reports are filtered out
-   * before this). Pending evaluations and permission hooks are now out of date, and
-   * the first keystroke after a request for input counts as the reply.
+   * before this). Record reply feedback once. For agents, lifecycle evidence alone
+   * establishes resumed execution; shells retain their reply behavior.
    */
   input(id: string): void {
     const terminal = this.terminals.get(id);
     if (!terminal) return;
-    terminal.generation += 1;
-    delete terminal.hook;
+    if (terminal.hook?.action === "needs_input") {
+      terminal.permissionReply = true;
+    }
+    if (!terminal.execution) {
+      terminal.generation += 1;
+      delete terminal.hook;
+    }
     const state = terminal.state;
     if (state?.state !== "needs_input") return;
-    this.clear(id, terminal, "replied");
-    if (state.verdictId)
+    if (!terminal.execution) this.clear(id, terminal, "replied");
+    if (state.verdictId && state.verdictId !== terminal.actionVerdict) {
+      terminal.actionVerdict = state.verdictId;
       void this.deps.verdicts
         .recordAction(id, state.verdictId, "replied")
         .catch((error: unknown) => {
           console.error("Unable to record reply:", error);
         });
+    }
   }
 
   /** A null `verdictId` refers to a current verdict that couldn't be stored. */
@@ -942,13 +1147,26 @@ export class Workspace {
     const terminal = this.terminals.get(id);
     if (!terminal) throw new Error("Unknown terminal");
     const current = () => terminal.state !== null && terminal.state.verdictId === verdictId;
-    if (verdictId !== null) await this.deps.verdicts.recordAction(id, verdictId, action);
-    else if (!current() || terminal.state?.signal.startsWith("user:"))
+    if (verdictId !== null) {
+      const previousAction = terminal.actionVerdict;
+      terminal.actionVerdict = verdictId;
+      try {
+        await this.deps.verdicts.recordAction(id, verdictId, action);
+      } catch (error) {
+        if (terminal.actionVerdict === verdictId) {
+          if (previousAction === undefined) delete terminal.actionVerdict;
+          else terminal.actionVerdict = previousAction;
+        }
+        throw error;
+      }
+    } else if (!current() || terminal.state?.signal.startsWith("user:"))
       throw new Error("Invalid verdict feedback");
     // A newer verdict may have arrived while the action was being recorded.
     if (action === "ignored" || !current()) return;
     terminal.generation += 1;
-    delete terminal.hook;
+    if (!terminal.execution) delete terminal.hook;
+    if (action === "dismissed" && terminal.attentionKey !== undefined)
+      terminal.dismissedAttention = terminal.attentionKey;
     this.clear(id, terminal, action);
   }
 
@@ -966,6 +1184,7 @@ export class Workspace {
   async dispose(): Promise<void> {
     if (this.closed) return;
     this.closed = true;
+    this.executionListeners.clear();
     this.deps.watcher?.dispose();
     for (const id of this.terminals.keys()) this.deps.verdicts.forget(id);
     this.agents.dispose();

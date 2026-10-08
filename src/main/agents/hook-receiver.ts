@@ -5,7 +5,13 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import type { HookAgent, HookLaunch, HookSignal } from "../../shared/hooks";
 
 export const MAX_HOOK_BYTES = 64 * 1024;
-type Session = { terminalId: string; agent: HookAgent; digest: Buffer; agentId?: string };
+type Session = {
+  terminalId: string;
+  agent: HookAgent;
+  digest: Buffer;
+  agentId?: string;
+  completedTurns?: Set<string>;
+};
 
 function digest(token: string): Buffer {
   return createHash("sha256").update(token).digest();
@@ -30,9 +36,25 @@ function reduceEvent(session: Session, value: unknown): HookSignal | undefined {
     if (!identifier(value["turn-id"]) || typeof value["type"] !== "string")
       throw new Error("Invalid turn");
     if (value["type"] !== "agent-turn-complete") return;
+    const turn = value["turn-id"];
+    session.completedTurns ??= new Set();
+    if (session.completedTurns.has(turn)) return;
+    session.completedTurns.add(turn);
+    if (session.completedTurns.size > 128) {
+      const oldest = session.completedTurns.values().next().value;
+      if (oldest !== undefined) session.completedTurns.delete(oldest);
+    }
     signal = "codex:agent-turn-complete";
   } else {
     switch (value["hook_event_name"]) {
+      case "UserPromptSubmit":
+        signal = "claude:UserPromptSubmit";
+        action = "working";
+        break;
+      case "PreToolUse":
+        signal = "claude:PreToolUse";
+        action = "working";
+        break;
       case "Stop":
         signal = "claude:Stop";
         break;

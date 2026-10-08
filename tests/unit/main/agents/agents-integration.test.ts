@@ -102,7 +102,13 @@ it.skipIf(process.platform === "win32")(
       const settings: unknown = JSON.parse(spec?.args[1] ?? "null");
       const hook = [{ hooks: [{ type: "command", command: claudeCommand }] }];
       expect(settings).toEqual({
-        hooks: { Stop: hook, PermissionRequest: hook, Notification: hook },
+        hooks: {
+          UserPromptSubmit: hook,
+          PreToolUse: hook,
+          Stop: hook,
+          PermissionRequest: hook,
+          Notification: hook,
+        },
       });
       const result = await new Promise<{ code: number | null; output: string }>(
         (resolve, reject) => {

@@ -1,28 +1,36 @@
-export interface Tone {
-  frequency: number;
-  duration: number;
-  gap: number;
-  count: number;
+export type SoundKind = "working" | "done" | "needs-you" | "refusal";
+export interface SoundChoice {
+  source: "builtin" | "user";
+  file: string;
 }
-/** Versioned, sample-free synthesis data, suitable for a user configuration file. */
-export interface Soundscape {
-  version: 1;
-  name: string;
-  working: { hum: number; seek: number; density: number };
-  done: Tone;
-  needsYou: Tone;
-}
+export type SoundChoices = Record<SoundKind, SoundChoice>;
 export interface SoundSettings {
-  soundscape: "drive" | "soft" | Soundscape;
+  choices: SoundChoices;
   working: boolean;
   workingVolume: number;
   alerts: boolean;
   alertVolume: number;
 }
-export type AlertSound = "done" | "needsYou";
+export type AlertSound = Exclude<SoundKind, "working">;
+export interface SoundRequest extends SoundChoice {
+  kind: SoundKind;
+}
+export interface SoundEntry extends SoundRequest {
+  name: string;
+  error?: string;
+}
+export type SoundRead = { bytes: Uint8Array } | { error: string };
+export interface SoundApi {
+  onChange(callback: () => void): () => void;
+  list(): Promise<SoundEntry[]>;
+  read(request: SoundRequest): Promise<SoundRead>;
+  openFolder(): Promise<void>;
+  notices(): Promise<string>;
+}
 export interface AudioSink {
-  working(intensity: number, volume: number, scape: Soundscape): void;
-  alert(kind: AlertSound, volume: number, scape: Soundscape): void;
+  configure(choices: SoundChoices): void;
+  working(intensity: number, volume: number): void;
+  alert(kind: AlertSound, volume: number): void;
   silenceAlerts(): void;
   dispose(): void;
 }
