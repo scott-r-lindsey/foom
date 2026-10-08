@@ -13,6 +13,7 @@ import {
   splitTile,
   initialLayout,
   saveLayout,
+  placeSession,
 } from "../../../../src/renderer/board/tiles";
 afterEach(() => {
   cleanup();
@@ -135,4 +136,40 @@ test("existing profiles migrate their split layout once, without copying it into
   expect(loadLayout(localStorage, `${TILE_STORAGE}.first`)).toEqual(original);
   expect(leaves(loadLayout(localStorage, `${TILE_STORAGE}.second`).tree)).toHaveLength(1);
   expect(leaves(loadLayout(localStorage).tree)).toHaveLength(1);
+});
+
+test("foreign-window navigation focuses an existing tile without replacing either session", async () => {
+  const f = fixture();
+  const a = f.rows[0],
+    b = f.rows[1];
+  if (!a || !b) throw new Error("Missing sessions");
+  const first = placeSession(initialLayout(), a.id);
+  if (!first) throw new Error("Missing first tile");
+  const layout = placeSession(splitTile(first, "horizontal"), b.id);
+  if (!layout) throw new Error("Missing second tile");
+  saveLayout(localStorage, layout, `${TILE_STORAGE}.test-window`);
+  let navigate: ((id: string) => void) | undefined;
+  const source = {
+    ...f.source,
+    appMenu: {
+      platform: "darwin" as const,
+      setView: vi.fn(() => Promise.resolve()),
+      commands: vi.fn(() => Promise.resolve([])),
+      execute: vi.fn(() => Promise.resolve()),
+      onOpen: () => () => {},
+      onSession: (callback: (id: string) => void) => {
+        navigate = callback;
+        return () => {};
+      },
+    },
+  };
+  const view = render(<Board source={source} />);
+  await act(async () => {
+    navigate?.(a.id);
+    await Promise.resolve();
+  });
+  const saved = loadLayout(localStorage, `${TILE_STORAGE}.test-window`);
+  expect(saved.tree).toEqual(layout.tree);
+  expect(saved.focused).toBe(leaves(layout.tree)[0]?.id);
+  expect(view.container.querySelectorAll(".terminal-tile[data-empty=false]")).toHaveLength(2);
 });

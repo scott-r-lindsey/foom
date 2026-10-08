@@ -539,7 +539,8 @@ export function Board({
         const row = source.getSnapshot().find((row) => row.id === id);
         if (row) {
           onCloseSettings?.();
-          open(row, true);
+          const visible = leaves(layoutRef.current.tree).some((tile) => tile.session === row.id);
+          open(row, !visible);
         }
       }),
     [source, inactive, launching, open, onCloseSettings],

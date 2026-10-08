@@ -5550,9 +5550,26 @@ test("multiple windows share sessions, keep views exclusive and retain terminals
     }, original),
     "rejected",
   );
+  await first.getByRole("button", { name: "Split right", exact: true }).click();
+  await first
+    .getByRole("button", { name: "Actions for shell-fixture", exact: true })
+    .press("Enter");
+  await first.getByRole("menuitem", { name: /^Shell \(/ }).press("Enter");
+  await expect(first.locator(".terminal-tile[data-empty=false]")).toHaveCount(2);
+  const firstLayout = () =>
+    first.evaluate(() =>
+      JSON.parse(localStorage.getItem(`foom.tiles.v1.${window.desktop.windows.id}`)),
+    );
+  const beforeSelection = await firstLayout();
+  assert.equal(await second.evaluate((id) => window.desktop.windows.select(id), original), false);
+  await expect.poll(async () => (await firstLayout()).focused).toBe(beforeSelection.tree.first.id);
+  assert.deepEqual((await firstLayout()).tree, beforeSelection.tree);
   await assertAccessible(first);
   await assertAccessible(second);
-  await first.getByRole("button", { name: "Move to new window", exact: true }).press("Enter");
+  await first
+    .locator(".terminal-tile[data-focused=true]")
+    .getByRole("button", { name: "Move to new window", exact: true })
+    .press("Enter");
   await expect
     .poll(() => app.windows().filter((page) => page.url() === "app://bundle/index.html").length)
     .toBe(3);
@@ -5560,7 +5577,7 @@ test("multiple windows share sessions, keep views exclusive and retain terminals
     .windows()
     .find((page) => page !== first && page !== second && page.url() === "app://bundle/index.html");
   await expect(third.locator(".terminal-tile[data-empty=false]")).toHaveCount(1);
-  await expect(first.locator(".terminal-tile[data-empty=false]")).toHaveCount(0);
+  await expect(first.locator(".terminal-tile[data-empty=false]")).toHaveCount(1);
   await third.evaluate(() => window.desktop.appMenu.execute("close-window"));
   await expect.poll(() => third.isClosed()).toBe(true);
   const sessions = await first.evaluate(() => window.desktop.workspace());
