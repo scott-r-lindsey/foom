@@ -64,6 +64,9 @@ export interface WorkspaceDependencies {
     | "launchIdentity"
     | "removeWorktree"
     | "removeRepository"
+    | "mergedDefault"
+    | "mergedCommit"
+    | "deleteMergedBranch"
   >;
   terminals: {
     create(spec: TerminalSpec): Promise<string>;
@@ -470,6 +473,7 @@ export class Workspace {
     worktree: string,
     branch: string | null,
     confirm: (branch: string, changes: string) => Promise<boolean>,
+    revalidate?: () => Promise<void>,
   ): Promise<boolean> {
     const entry = { repository, worktree, branch };
     const key = `${entry.repository}\0${entry.branch ?? ""}`;
@@ -495,6 +499,7 @@ export class Workspace {
         (await this.deps.worktrees.changes(entry.repository, entry.worktree, identity)) !== changes
       )
         throw new Error("Worktree changes have changed. Review them and try again.");
+      await revalidate?.();
       await this.deps.worktrees.removeWorktree(
         entry.repository,
         entry.worktree,
@@ -511,13 +516,136 @@ export class Workspace {
     }
   }
 
+  private sessionSkip(worktree: string): string | undefined {
+    const sessions = [...this.launched.values()].filter((item) => item.worktree === worktree);
+    if (sessions.some((item) => this.terminals.get(item.id)?.exitCode === undefined))
+      return "running";
+    if (
+      sessions.some(
+        (item) =>
+          (item.agent === "claude" || item.agent === "codex") &&
+          conversationId(item.conversationId),
+      )
+    )
+      return "resumable conversation";
+    return undefined;
+  }
+
+  private async mergedPlan(repository: string, refresh: boolean) {
+    const trees = await this.worktrees(repository);
+    if (!trees.some((tree) => tree.managed)) return [];
+    const base = await this.deps.worktrees.mergedDefault(repository, refresh);
+    return Promise.all(
+      trees.map(async (tree) => {
+        let reason: string | undefined;
+        if (tree.path === repository || tree.bare) reason = "main checkout";
+        else if (!tree.managed) reason = "not managed by Foom";
+        else if (tree.locked || tree.prunable || !tree.branch) reason = "unavailable";
+        else reason = this.sessionSkip(tree.path);
+        if (!reason) {
+          try {
+            if (await this.deps.worktrees.changes(repository, tree.path))
+              reason = "uncommitted changes";
+            else if (!(await this.deps.worktrees.mergedCommit(repository, tree, base)))
+              reason = "not merged";
+          } catch {
+            reason = "unavailable";
+          }
+        }
+        return { tree, reason };
+      }),
+    );
+  }
+
+  private async deleteMerged(repository: string, confirm: ConfirmWorkspace): Promise<void> {
+    return this.withRepository(repository, async () => {
+      const plan = await this.mergedPlan(repository, true);
+      const candidates = plan.filter((item) => !item.reason);
+      if (!candidates.length) throw new Error("No merged worktrees can be deleted");
+      const identities = new Map(
+        await Promise.all(
+          candidates.map(
+            async ({ tree }) =>
+              [
+                tree.path,
+                await this.deps.worktrees.removalIdentity(repository, tree.path),
+              ] as const,
+          ),
+        ),
+      );
+      if (
+        !(await confirm({
+          kind: "merged-worktrees",
+          worktrees: plan.map(({ tree, reason }) => ({
+            branch: tree.branch ?? tree.path,
+            ...(reason ? { reason } : {}),
+          })),
+        }))
+      )
+        return;
+      // A failed fresh fetch refuses the entire action before any removal.
+      const base = await this.deps.worktrees.mergedDefault(repository, true);
+      const skipped: string[] = [];
+      for (const { tree } of candidates) {
+        const revalidate = async () => {
+          const current = (await this.worktrees(repository)).find(
+            (item) => item.path === tree.path,
+          );
+          if (
+            !current?.managed ||
+            current.branch !== tree.branch ||
+            current.head !== tree.head ||
+            (await this.deps.worktrees.removalIdentity(repository, tree.path)) !==
+              identities.get(tree.path)
+          )
+            throw new Error("worktree changed");
+          const reason = this.sessionSkip(tree.path);
+          if (reason) throw new Error(reason);
+          if (await this.deps.worktrees.changes(repository, tree.path))
+            throw new Error("uncommitted changes");
+          if (!(await this.deps.worktrees.mergedCommit(repository, current, base)))
+            throw new Error("not merged");
+        };
+        try {
+          await this.removeTree(
+            repository,
+            tree.path,
+            tree.branch,
+            async () => {
+              await revalidate();
+              return true;
+            },
+            revalidate,
+          );
+          if (tree.branch && tree.head)
+            await this.deps.worktrees.deleteMergedBranch(repository, tree.branch, tree.head);
+        } catch (error) {
+          skipped.push(
+            `${tree.branch ?? tree.path}: ${error instanceof Error ? error.message : String(error)}`,
+          );
+        }
+      }
+      this.refresh();
+      if (skipped.length) throw new Error(`Skipped: ${skipped.join("; ")}`);
+    });
+  }
+
   async sidebarInventory(): Promise<SidebarInventory> {
     return {
       repositories: await Promise.all(
-        this.deps.worktrees.listRepositories().map(async (repository) => ({
-          ...repository,
-          worktrees: await this.worktrees(repository.path),
-        })),
+        this.deps.worktrees.listRepositories().map(async (repository) => {
+          const worktrees = await this.worktrees(repository.path);
+          try {
+            const plan = await this.mergedPlan(repository.path, false);
+            return { ...repository, worktrees, canDeleteMerged: plan.some((item) => !item.reason) };
+          } catch (error) {
+            return {
+              ...repository,
+              worktrees,
+              mergedError: error instanceof Error ? error.message : String(error),
+            };
+          }
+        }),
       ),
       shell:
         process.platform === "win32"
@@ -577,6 +705,8 @@ export class Workspace {
       return;
     }
     this.known(command.repository);
+    if (command.kind === "delete-merged-worktrees")
+      return this.deleteMerged(command.repository, confirm);
     if (command.kind === "remove-repository") {
       return this.removeRepository(command.repository, () => confirm({ kind: "remove" }));
     }

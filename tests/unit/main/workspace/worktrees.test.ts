@@ -681,3 +681,188 @@ it("derives watch directories from common Git metadata, including linked and pac
   expect(await service.watchPaths(repo)).toContain(common);
   await expect(service.watchPaths(temporary)).rejects.toThrow("has not been added");
 });
+
+describe("merged worktree containment", () => {
+  async function commit(cwd: string, message: string) {
+    await execute("git", ["add", "."], { cwd });
+    await execute(
+      "git",
+      ["-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "-m", message],
+      { cwd },
+    );
+  }
+  async function remote() {
+    const remote = join(temporary, "remote.git");
+    await git("clone", "--bare", repo, remote);
+    await git("remote", "add", "origin", remote);
+    return remote;
+  }
+  async function feature() {
+    const path = await service.createWorktree(repo, "feature");
+    await writeFile(join(path, "feature.txt"), "feature\n");
+    await commit(path, "feature");
+    const tree = (await service.listWorktrees(repo)).find((tree) => tree.path === path);
+    if (!tree) throw new Error("Missing fixture");
+    return tree;
+  }
+  it.each(["merge", "squash", "rebase", "unmerged", "reverted"])(
+    "detects %s content using real Git",
+    async (mode) => {
+      const tree = await feature();
+      await writeFile(join(repo, "other.txt"), "default change\n");
+      await commit(repo, "default change");
+      if (mode === "merge")
+        await git(
+          "-c",
+          "user.name=Test",
+          "-c",
+          "user.email=test@example.com",
+          "merge",
+          "--no-ff",
+          "feature",
+          "-m",
+          "merge",
+        );
+      if (mode === "squash" || mode === "reverted") {
+        await git("merge", "--squash", "feature");
+        await commit(repo, "squash");
+        if (mode === "reverted")
+          await git(
+            "-c",
+            "user.name=Test",
+            "-c",
+            "user.email=test@example.com",
+            "revert",
+            "--no-edit",
+            "HEAD",
+          );
+      }
+      if (mode === "rebase")
+        await git(
+          "-c",
+          "user.name=Test",
+          "-c",
+          "user.email=test@example.com",
+          "cherry-pick",
+          "feature",
+        );
+      await remote();
+      const base = await service.mergedDefault(repo, true);
+      expect(await service.mergedCommit(repo, tree, base)).toBe(
+        mode !== "unmerged" && mode !== "reverted",
+      );
+      expect(await service.mergedCommit(repo, { ...tree, branch: null }, base)).toBe(false);
+      await expect(service.mergedCommit(repo, tree, "--bad")).rejects.toThrow("Invalid commit");
+      await expect(service.mergedCommit(repo, { ...tree, head: "bad" }, base)).rejects.toThrow(
+        "Invalid commit",
+      );
+    },
+  );
+  it("rejects conflicts and deletes only an unchanged, unchecked-out local branch", async () => {
+    const tree = await feature();
+    await writeFile(join(repo, "feature.txt"), "different\n");
+    await commit(repo, "conflict");
+    await remote();
+    expect(await service.mergedCommit(repo, tree, await service.mergedDefault(repo))).toBe(false);
+    if (!tree.head) throw new Error("Missing head");
+    await expect(service.deleteMergedBranch(repo, "feature", tree.head)).rejects.toThrow(
+      "checked out",
+    );
+    await service.removeWorktree(repo, tree.path);
+    await git("branch", "-f", "feature", "main");
+    await expect(service.deleteMergedBranch(repo, "feature", tree.head)).rejects.toThrow();
+    expect(await git("branch", "--list", "feature")).toContain("feature");
+    await git("branch", "-f", "feature", tree.head);
+    await service.deleteMergedBranch(repo, "feature", tree.head);
+    expect(await git("branch", "--list", "feature")).toBe("");
+    await expect(service.deleteMergedBranch(repo, "feature", "--bad")).rejects.toThrow(
+      "Invalid commit",
+    );
+    const main = (await git("rev-parse", "main")).trim();
+    await git("symbolic-ref", "refs/heads/alias", "refs/heads/main");
+    await service.deleteMergedBranch(repo, "alias", main);
+    expect((await git("rev-parse", "main")).trim()).toBe(main);
+  });
+  it("fetches the advertised default, shares inventory fetches and refuses failed refreshes", async () => {
+    await expect(service.mergedDefault(repo)).rejects.toThrow("remote");
+    const upstream = await remote();
+    const base = await service.mergedDefault(repo, true);
+    await git("remote", "set-url", "origin", join(temporary, "missing"));
+    expect(await service.mergedDefault(repo)).toBe(base);
+    await expect(service.mergedDefault(repo, true)).rejects.toThrow("fetch failed");
+    await git("remote", "set-url", "origin", upstream);
+    await git("branch", "next");
+    await git("push", "origin", "next");
+    await execute("git", ["symbolic-ref", "HEAD", "refs/heads/next"], { cwd: upstream });
+    expect(await service.mergedDefault(repo, true)).toBe(base);
+    await git("remote", "rename", "origin", "upstream");
+    expect(await service.mergedDefault(repo, true)).toBe(base);
+    await git("remote", "add", "second", upstream);
+    await expect(service.mergedDefault(repo, true)).rejects.toThrow("unambiguous");
+    await git("remote", "remove", "second");
+    await execute("git", ["symbolic-ref", "HEAD", "refs/heads/missing"], { cwd: upstream });
+    await expect(service.mergedDefault(repo, true)).rejects.toThrow("default branch");
+  });
+});
+
+it.each(["untracked", "commit"])(
+  "merged cleanup preserves a real worktree gaining %s after confirmation",
+  async (change) => {
+    const tree = await service.createWorktree(repo, "changed");
+    const removed = await service.createWorktree(repo, "safe");
+    const upstream = join(temporary, "remote.git");
+    await git("clone", "--bare", repo, upstream);
+    await git("remote", "add", "origin", upstream);
+    const workspace = new Workspace({
+      worktrees: service,
+      terminals: {
+        create: () => Promise.reject(new Error("No launch expected")),
+        kill: () => Promise.resolve(),
+        stop: () => Promise.resolve(),
+        tail: () => Promise.resolve([]),
+      },
+      verdicts: {
+        forget: vi.fn(),
+        classify: () => Promise.reject(new Error("No verdict expected")),
+        commit: () => Promise.resolve(),
+        recordAction: () => Promise.resolve(),
+      },
+      receiver: () => Promise.reject(new Error("No hooks expected")),
+      onState: () => {},
+      acknowledgeCodex: () => Promise.resolve(),
+    });
+    try {
+      await expect(
+        workspace.sidebarCommand(
+          { kind: "delete-merged-worktrees", repository: repo },
+          async () => {
+            await writeFile(join(tree, "new.txt"), "must survive");
+            if (change === "commit") {
+              await execute("git", ["add", "."], { cwd: tree });
+              await execute(
+                "git",
+                [
+                  "-c",
+                  "user.name=Test",
+                  "-c",
+                  "user.email=test@example.com",
+                  "commit",
+                  "-m",
+                  "new work",
+                ],
+                { cwd: tree },
+              );
+            }
+            return true;
+          },
+        ),
+      ).rejects.toThrow("Skipped: changed:");
+      expect(await readFile(join(tree, "new.txt"), "utf8")).toBe("must survive");
+      expect(await git("branch", "--list", "changed")).toContain("changed");
+      await expect(realpath(removed)).rejects.toThrow();
+      expect(await git("branch", "--list", "safe")).toBe("");
+    } finally {
+      await workspace.dispose();
+    }
+  },
+);

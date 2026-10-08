@@ -97,12 +97,17 @@ export interface WorkspaceApi {
 }
 
 export interface SidebarInventory {
-  repositories: readonly (Repository & { worktrees: readonly Worktree[] })[];
+  repositories: readonly (Repository & {
+    worktrees: readonly Worktree[];
+    canDeleteMerged?: boolean;
+    mergedError?: string;
+  })[];
   shell: string;
 }
 export type SidebarCommand =
   | { kind: "launch"; repository: string; worktree: string; run: AgentId | "shell" }
   | { kind: "remove-worktree"; repository: string; worktree: string }
+  | { kind: "delete-merged-worktrees"; repository: string }
   | { kind: "remove-repository"; repository: string }
   | { kind: "stop"; id: string }
   | { kind: "close"; id: string }

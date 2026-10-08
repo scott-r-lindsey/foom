@@ -427,3 +427,34 @@ test.each(["shell", "agent"] as const)(
     expect(view.command).toHaveBeenCalledWith({ kind: "close", id: "a" });
   },
 );
+
+test("merged cleanup appears only when eligible, below repository removal", async () => {
+  repository.canDeleteMerged = true;
+  repository.mergedError = "Fetch failed";
+  const view = setup();
+  await act(async () => {
+    await Promise.resolve();
+  });
+  fireEvent.click(view.getByRole("button", { name: "Actions for Foom" }));
+  const items = view.getAllByRole("menuitem");
+  const removal = items.findIndex((item) => item.textContent === "Remove repository…");
+  expect(items[removal + 1]?.textContent).toBe("Delete merged worktrees…");
+  expect(view.getByRole("menuitem", { name: "Fetch failed" }).hasAttribute("disabled")).toBe(true);
+  await act(async () => {
+    fireEvent.click(view.getByRole("menuitem", { name: "Delete merged worktrees…" }));
+    await Promise.resolve();
+  });
+  expect(view.command).toHaveBeenCalledWith({
+    kind: "delete-merged-worktrees",
+    repository: "/foom",
+  });
+  delete repository.canDeleteMerged;
+  delete repository.mergedError;
+  view.unmount();
+  const hidden = setup();
+  await act(async () => {
+    await Promise.resolve();
+  });
+  fireEvent.click(hidden.getByRole("button", { name: "Actions for Foom" }));
+  expect(hidden.queryByRole("menuitem", { name: "Delete merged worktrees…" })).toBeNull();
+});

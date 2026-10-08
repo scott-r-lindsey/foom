@@ -99,6 +99,26 @@ names. ⌘⇧B on macOS or Ctrl+Shift+B elsewhere focuses the sidebar; arrow key
 its filter and expanding its ancestors. Other terminal keys, including Escape, remain input.
 Settings and the six tile preset icons stay at the bottom of the sidebar. Launch actions live in repository and checkout menus. An empty sidebar labels its starting action **Add repository**.
 
+### Delete merged worktrees
+
+The repository menu offers **Delete merged worktrees…** below Remove repository
+when at least one Foom-managed worktree is eligible. Foom fetches the remote
+(`origin`, or the sole remote) and resolves its advertised default branch. A
+branch is merged when `git merge-tree --write-tree <default> <branch>` produces
+the default branch's tree: merging it would change nothing. This works for merge,
+squash and rebase merges without GitHub access. A failed fetch refuses cleanup;
+Foom never falls back to a stale default branch. Inventory shares a fetch for up
+to one minute; the action always fetches afresh.
+
+The trusted dialog lists candidate branches, then skipped checkouts with short
+reasons, and offers **Delete** and **Cancel**. Main checkouts, unmanaged, locked,
+prunable or detached worktrees, running sessions, dirty/untracked files and
+exited resumable Claude/Codex conversations are retained. After confirmation,
+Foom fetches again, revalidates each candidate before and after stopping its
+exited terminal resources, then uses the existing safe removal path. Changed
+worktrees are skipped and reported while others continue. The local branch is
+also removed only if it still points to the exact checked commit.
+
 ## Application menu and attention badge
 
 Foom owns its menu and shortcuts. On Windows and Linux, click the sidebar's
