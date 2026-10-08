@@ -1,5 +1,8 @@
 import { expect, test } from "vitest";
 import {
+  dropTile,
+  swapTiles,
+  dropZone,
   initialLayout,
   leaves,
   splitTile,
@@ -224,4 +227,70 @@ test("closing a nested tile focuses the first leaf of its replacement sibling", 
     expect(next.maximized).toBeNull();
     expect(leaves(next.tree)).not.toContain(target);
   }
+});
+
+test.each(["left", "right", "up", "down"] as const)(
+  "session drop splits %s and visible sessions move only once",
+  (zone) => {
+    const start = place(initialLayout(), "a");
+    const next = dropTile(start, { kind: "session", id: "b" }, start.focused, zone);
+    const sessions = leaves(next.tree).map((tile) => tile.session);
+    expect(sessions).toEqual(zone === "left" || zone === "up" ? ["b", "a"] : ["a", "b"]);
+    expect(next.tree).toMatchObject({
+      direction: zone === "left" || zone === "right" ? "horizontal" : "vertical",
+      ratio: 0.5,
+    });
+    const again = dropTile(next, { kind: "session", id: "b" }, start.focused, zone);
+    expect(leaves(again.tree).filter((tile) => tile.session === "b")).toHaveLength(1);
+    expect(leaves(again.tree).filter((tile) => tile.session === null)).toHaveLength(1);
+  },
+);
+test("center drops replace sessions, swap identities, and reject vanished or self targets", () => {
+  const start = place(initialLayout(), "a");
+  const next = dropTile(start, { kind: "session", id: "b" }, start.focused, "center");
+  expect(leaves(next.tree).map((tile) => tile.session)).toEqual(["b"]);
+  const pair = place(splitTile(start, "horizontal"), "b");
+  const swapped = dropTile(pair, { kind: "tile", id: start.focused }, pair.focused, "center");
+  expect(leaves(swapped.tree)).toEqual(leaves(pair.tree).reverse());
+  expect(swapped.focused).toBe(start.focused);
+  for (const [from, to] of [
+    ["absent", pair.focused],
+    [pair.focused, "absent"],
+    [pair.focused, pair.focused],
+  ]) {
+    expect(swapTiles(pair, from ?? "", to ?? "")).toBe(pair);
+    expect(dropTile(pair, { kind: "tile", id: from ?? "" }, to ?? "", "left")).toBe(pair);
+  }
+});
+test.each(["left", "right", "up", "down"] as const)(
+  "tile move %s collapses the old parent and keeps every leaf",
+  (zone) => {
+    const start = preset(initialLayout(), "main3");
+    const original = leaves(start.tree);
+    const from = original[2],
+      to = original[0];
+    if (!from || !to) throw new Error("fixture");
+    const moved = dropTile(start, { kind: "tile", id: from.id }, to.id, zone);
+    expect(new Set(leaves(moved.tree))).toEqual(new Set(original));
+    expect(moved.focused).toBe(from.id);
+    expect(restoreLayout(JSON.stringify({ version: 1, ...moved }))).toEqual(moved);
+  },
+);
+test("a depth-limited drop is atomic, including moving an existing tile", () => {
+  let layout = initialLayout();
+  for (let i = 0; i < 64; i++) layout = splitTile(layout, "vertical");
+  expect(dropTile(layout, { kind: "session", id: "new" }, layout.focused, "down")).toBe(layout);
+  const outer = splitTile({ ...layout, focused: leaves(layout.tree)[0]?.id ?? "" }, "horizontal");
+  expect(dropTile(outer, { kind: "tile", id: outer.focused }, layout.focused, "down")).toBe(outer);
+});
+test("drop zones choose the nearest edge with an unambiguous center", () => {
+  expect(
+    [
+      [0.5, 0.5],
+      [0.1, 0.5],
+      [0.9, 0.5],
+      [0.5, 0.1],
+      [0.5, 0.9],
+    ].map(([x, y]) => dropZone(x ?? 0, y ?? 0)),
+  ).toEqual(["center", "left", "right", "up", "down"]);
 });

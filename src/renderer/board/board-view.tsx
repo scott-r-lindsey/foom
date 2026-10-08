@@ -13,8 +13,9 @@ import {
   hideSession,
   pruneSessions,
   neighbor,
+  swapTiles,
 } from "./tiles";
-import type { TileLayout, TilePreset } from "./tiles.d";
+import type { TileDrag, TileLayout, TilePreset } from "./tiles.d";
 import type { SetupSource } from "../preflight/setup-source.d";
 import { createSoundController } from "../sound/sound-controller";
 import { createAudioSink } from "../sound/web-audio";
@@ -60,6 +61,7 @@ export function Board({
   settingsView?: ReactNode;
   onCloseSettings?: () => void;
 }) {
+  const [drag, setDrag] = useState<TileDrag>();
   const [removeError, setRemoveError] = useState("");
   const settingsOpen = Boolean(settingsView);
   const paneInactive = inactive || settingsOpen;
@@ -341,6 +343,22 @@ export function Board({
               "preset-main3": "main3",
             } as const;
             changeLayout(preset(current, presets[command]));
+          } else if (
+            command === "swap-left" ||
+            command === "swap-right" ||
+            command === "swap-up" ||
+            command === "swap-down"
+          ) {
+            const direction = {
+              "swap-left": "left",
+              "swap-right": "right",
+              "swap-up": "up",
+              "swap-down": "down",
+            } as const;
+            changeLayout(
+              swapTiles(current, current.focused, neighbor(current, direction[command])),
+            );
+            setFocusRequest((value) => value + 1);
           } else if (command.startsWith("tile-")) {
             const tile = leaves(current.tree)[Number(command.slice(5)) - 1];
             if (tile) {
@@ -411,7 +429,46 @@ export function Board({
     [source, inactive, launching, open, onCloseSettings],
   );
   return (
-    <main className="board-home" aria-label="Board" hidden={inactive} inert={inactive}>
+    <main
+      className="board-home"
+      aria-label="Board"
+      hidden={inactive}
+      inert={inactive}
+      onDragStart={(event) => {
+        if (
+          paneInactive ||
+          launching ||
+          !(event.target instanceof HTMLElement) ||
+          event.target.closest("button, input")
+        ) {
+          event.preventDefault();
+          return;
+        }
+        const session =
+          event.target.closest<HTMLElement>("[data-drag-session]")?.dataset["dragSession"];
+        const tile = event.target
+          .closest<HTMLElement>(".tile-title")
+          ?.closest<HTMLElement>("[data-tile]")?.dataset["tile"];
+        if (!session && !tile) {
+          event.preventDefault();
+          return;
+        }
+        event.dataTransfer.effectAllowed = "move";
+        event.dataTransfer.setData("text/plain", "Foom tile");
+        setPeek(undefined);
+        setDrag(session ? { kind: "session", id: session } : { kind: "tile", id: tile ?? "" });
+      }}
+      onDragEnd={() => {
+        setDrag(undefined);
+      }}
+      onKeyDownCapture={(event) => {
+        if (drag && event.key === "Escape") {
+          event.preventDefault();
+          event.stopPropagation();
+          setDrag(undefined);
+        }
+      }}
+    >
       {launching && source.worktrees && (
         <WorktreeDialog
           source={source.worktrees}
@@ -572,6 +629,14 @@ export function Board({
             </>
           )}
           <TileArea
+            dropLayout={(next) => {
+              changeLayout(next);
+              setFocusRequest((value) => value + 1);
+            }}
+            drag={drag}
+            endDrag={() => {
+              setDrag(undefined);
+            }}
             source={source}
             layout={layout}
             focusRequest={focusRequest}

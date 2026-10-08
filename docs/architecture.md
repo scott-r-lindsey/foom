@@ -88,12 +88,17 @@ Tests live outside `src/`; production compilation excludes them. Coverage still 
 
 Each leaf of the split tree owns one persistent xterm controller. Sidebar selection
 is independent of presentation. `tiles.ts` implements immutable split, close,
-placement, preset, geometry and restore operations. `tile-area.tsx` renders the
+placement, drop-to-split, whole-leaf swap/move, preset, geometry and restore operations. `tile-area.tsx` renders the
 leaves as a flat, keyed sibling list positioned by tree rectangles, rather than
 nesting React components under splits. Changing parent splits therefore never
 remounts surviving leaves. Presets retain the focused session first, then occupied
 leaves and empty leaves in tree order; maximize changes rectangles and opacity
 without changing attachments. Each attached terminal retains its own PTY size.
+Drag origins come only from local sidebar/title-bar gestures; external drag payloads
+are never interpreted. Drop-time inventory and tree lookups reject stale origins
+and targets. Edge drops obey the same depth and leaf limits as ordinary splits;
+refusal leaves the original tree intact. Whole-leaf swaps and moves preserve the
+keyed controllers and their terminal attachments.
 
 `terminal-view-source.ts` creates passive controllers (no process launch) through
 the board source. Workspace subscriptions belong to `BoardSource.connect`, not an

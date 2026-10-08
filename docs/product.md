@@ -245,8 +245,18 @@ are unchanged. The main-process command list drives menus and shortcut handling.
 Plain terminal control keys remain terminal input. The split tree, ratios, leaf
 identities, focus and assigned session IDs persist as local view preferences.
 Maximize is temporary. On restart, unavailable sessions leave empty tiles; terminal
-sessions themselves are not restored. Drag-and-drop placement and rearrangement
-are deferred to #133; pop-out windows and WebGL are separate future work.
+sessions themselves are not restored. Pop-out windows and WebGL are separate future work.
+
+Drag a sidebar session onto a tile center to replace its session (the previous
+session keeps running hidden), or onto one of its four edges to split it in half.
+Drag a title bar onto another tile center to swap whole tiles, or onto an edge to
+move that tile there, collapsing its old parent. Tile moves and swaps preserve
+terminal views and attachments. A labelled, outlined preview shows the destination;
+a live region announces it. Escape cancels the drag.
+
+Swap with the nearest tile using Command+Alt+arrow on macOS, or the tile leader
+then Shift+arrow on Windows/Linux. The View menu exposes the same four commands.
+Focus follows the moved tile.
 
 ## The evaluator
 

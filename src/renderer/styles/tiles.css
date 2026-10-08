@@ -211,3 +211,18 @@
     animation: none;
   }
 }
+
+.tile-title[draggable="true"] {
+  cursor: grab;
+}
+.tile-drop-preview {
+  position: absolute;
+  z-index: 10;
+  pointer-events: none;
+  display: grid;
+  place-items: center;
+  border: 3px dashed var(--accent);
+  background: color-mix(in srgb, var(--surface) 90%, transparent);
+  color: var(--ink);
+  font-weight: 600;
+}
