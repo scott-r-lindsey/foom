@@ -121,8 +121,11 @@ its canonical path, and watches metadata directories for `HEAD`, `packed-refs`,
 Directory watches survive Git's atomic file replacements. Events debounce for
 300 ms, rebuild the directory subscriptions and reuse `workspace:changed`.
 Repository removal and workspace shutdown close subscriptions and timers. Watch
-errors close that repository's subscriptions; window focus refresh remains the
-fallback. Sidebar commands still re-read Git inventory and validate identity.
+errors close only the affected subscription and schedule a debounced refresh,
+preserving healthy parent/sibling watches and pending rebuilds (Windows reports
+an error when a watched directory is deleted). Errors alone do not retry watches.
+Discovery/setup failures close the repository's subscriptions; window focus
+refresh remains the fallback. Sidebar commands still re-read Git inventory and validate identity.
 The live board source marks sessions whose checkout is absent or prunable without
 changing their terminal state, capabilities or attachment.
 

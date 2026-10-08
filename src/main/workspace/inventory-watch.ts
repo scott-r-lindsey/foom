@@ -89,20 +89,34 @@ export class InventoryWatch {
       if (!current()) return;
       for (const handle of entry.handles) handle.close();
       entry.handles = [];
+      let rebuild = false;
+      const schedule = (discover: boolean) => {
+        if (!current() || entry.failed) return;
+        rebuild ||= discover;
+        clearTimeout(entry.timer);
+        entry.timer = setTimeout(() => {
+          const publish = () => {
+            if (!this.closed && this.entries.get(path) === entry && !entry.failed) this.changed();
+          };
+          // Rebuild first so changes during discovery are included in the refresh.
+          if (rebuild) void this.arm(path, entry).then(publish);
+          else publish();
+        }, 300);
+      };
       for (const target of paths) {
         const handle = this.watchPath(target, () => {
-          if (!current() || entry.failed) return;
-          clearTimeout(entry.timer);
-          entry.timer = setTimeout(() => {
-            // Rebuild first, then refresh: changes during async discovery must
-            // be reflected even while the previous subscriptions are superseded.
-            void this.arm(path, entry).then(() => {
-              if (!this.closed && this.entries.get(path) === entry && !entry.failed) this.changed();
-            });
-          }, 300);
+          schedule(true);
         });
         entry.handles.push(handle);
-        handle.on("error", fail);
+        handle.on("error", () => {
+          if (!current() || !entry.handles.includes(handle)) return;
+          // Windows reports EPERM when a watched directory is deleted. Retain
+          // parent/sibling watches and any pending rebuild; an error alone only
+          // refreshes inventory, so persistent failures cannot cause retry loops.
+          handle.close();
+          entry.handles = entry.handles.filter((candidate) => candidate !== handle);
+          schedule(false);
+        });
       }
     } catch {
       fail();

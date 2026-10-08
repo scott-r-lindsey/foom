@@ -56,7 +56,7 @@ test("debounces bursts, rebuilds watches, and disposes removed repositories and 
   expect(f.paths).toHaveBeenCalledTimes(2);
 });
 
-test.each(["event", "throw", "paths"])(
+test.each(["throw", "paths"])(
   "watch %s errors close handles and leave focus refresh as the backstop",
   async (failure) => {
     const f = fixture();
@@ -68,7 +68,6 @@ test.each(["event", "throw", "paths"])(
     f.watcher.sync([{ path: "/repo" }]);
     await Promise.resolve();
     f.handles[0]?.change();
-    if (failure === "event") f.handles[0]?.error();
     await vi.runAllTimersAsync();
     expect(f.changed).toHaveBeenCalledOnce();
     f.watcher.sync([{ path: "/repo" }]);
@@ -77,6 +76,47 @@ test.each(["event", "throw", "paths"])(
     f.watcher.dispose();
   },
 );
+
+test.each(["before", "after"])(
+  "a deleted-directory error %s a parent event preserves the debounced rebuild",
+  async (order) => {
+    const f = fixture();
+    f.watcher.sync([{ path: "/repo" }]);
+    await Promise.resolve();
+    f.paths.mockResolvedValue(["/git"]);
+    if (order === "before") f.handles[1]?.error();
+    f.handles[0]?.change();
+    if (order === "after") f.handles[1]?.error();
+    expect(f.handles[0]?.close).not.toHaveBeenCalled();
+    expect(f.handles[1]?.close).toHaveBeenCalledOnce();
+    expect(f.changed).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(300);
+    expect(f.paths).toHaveBeenCalledTimes(2);
+    expect(f.changed).toHaveBeenCalledOnce();
+    expect(f.handles[1]?.close).toHaveBeenCalledOnce();
+    f.handles[2]?.change();
+    await vi.advanceTimersByTimeAsync(300);
+    expect(f.changed).toHaveBeenCalledTimes(2);
+    f.watcher.dispose();
+  },
+);
+
+test("watch errors alone refresh after settling without retries or closing healthy watches", async () => {
+  const f = fixture();
+  f.watcher.sync([{ path: "/repo" }]);
+  await Promise.resolve();
+  f.handles[1]?.error();
+  f.handles[1]?.error();
+  await vi.advanceTimersByTimeAsync(299);
+  expect(f.changed).not.toHaveBeenCalled();
+  await vi.advanceTimersByTimeAsync(1);
+  expect(f.changed).toHaveBeenCalledOnce();
+  expect(f.handles[0]?.close).not.toHaveBeenCalled();
+  expect(f.handles[1]?.close).toHaveBeenCalledOnce();
+  await vi.runAllTimersAsync();
+  expect(f.paths).toHaveBeenCalledOnce();
+  f.watcher.dispose();
+});
 
 test.each(["remove", "dispose"])(
   "does not install watches after %s during path discovery",
