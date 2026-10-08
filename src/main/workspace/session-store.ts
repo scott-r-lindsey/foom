@@ -32,9 +32,15 @@ export function readSessions(value: unknown): WorkspaceTerminal[] {
       throw new Error("Invalid session");
     if (agent !== "claude" && agent !== "codex" && agent !== "agy" && agent !== "shell")
       throw new Error("Invalid agent");
+    if (
+      data["readOnly"] !== undefined &&
+      (typeof data["readOnly"] !== "boolean" || (agent !== "claude" && agent !== "codex"))
+    )
+      throw new Error("Invalid review mode");
     ids.add(id);
     return {
       id,
+      ...(data["readOnly"] === true ? { readOnly: true } : {}),
       agent,
       repository,
       worktree,
@@ -64,13 +70,14 @@ export class SessionStore {
   }
   save(entries: readonly WorkspaceTerminal[]): Promise<void> {
     const data = JSON.stringify(
-      entries.map(({ id, agent, repository, worktree, branch, conversationId }) => ({
+      entries.map(({ id, agent, repository, worktree, branch, conversationId, readOnly }) => ({
         id,
         agent,
         repository,
         worktree,
         branch,
         conversationId,
+        readOnly,
       })),
     );
     const next = this.pending
