@@ -82,44 +82,88 @@ try {
     $count += $read
   }
   if ($count -gt 65536) { exit 0 }
-  # Process.Start on .NET Framework inherits every inheritable handle, not just
-  # the redirected worker streams. Keep the caller's pipes out of the worker.
+  # .NET Framework Process.Start inherits unrelated PowerShell host handles.
+  # Give the worker an explicit handle allowlist: its stdin and NUL only.
   Add-Type -TypeDefinition @'
 using System;
 using System.ComponentModel;
 using System.Runtime.InteropServices;
-public static class FoomObserverHandles {
-  [DllImport("kernel32.dll", SetLastError = true)]
-  private static extern IntPtr GetStdHandle(int handle);
-  [DllImport("kernel32.dll", SetLastError = true)]
-  private static extern bool SetHandleInformation(IntPtr handle, uint mask, uint flags);
-  public static void Isolate() {
-    foreach (int stream in new int[] { -10, -11, -12 }) {
-      IntPtr handle = GetStdHandle(stream);
-      if (handle != IntPtr.Zero && handle != new IntPtr(-1) && !SetHandleInformation(handle, 1, 0))
-        throw new Win32Exception(Marshal.GetLastWin32Error());
+using System.Text;
+public static class FoomObserverTransport {
+  [StructLayout(LayoutKind.Sequential)]
+  private struct Security { public int Size; public IntPtr Descriptor; public int Inherit; }
+  [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+  private struct Startup {
+    public int Size;
+    public string Reserved, Desktop, Title;
+    public int X, Y, Width, Height, XChars, YChars, Fill, Flags;
+    public short Show, ReservedSize;
+    public IntPtr ReservedData, Input, Output, Error;
+  }
+  [StructLayout(LayoutKind.Sequential)]
+  private struct Extended { public Startup Startup; public IntPtr Attributes; }
+  [StructLayout(LayoutKind.Sequential)]
+  private struct Child { public IntPtr Process, Thread; public int ProcessId, ThreadId; }
+  [DllImport("kernel32.dll", SetLastError=true)]
+  private static extern bool CreatePipe(out IntPtr read, out IntPtr write, ref Security security, int size);
+  [DllImport("kernel32.dll", CharSet=CharSet.Unicode, SetLastError=true)]
+  private static extern IntPtr CreateFile(string name, uint access, int share, ref Security security, int creation, int flags, IntPtr template);
+  [DllImport("kernel32.dll", SetLastError=true)]
+  private static extern bool InitializeProcThreadAttributeList(IntPtr list, int count, int flags, ref IntPtr size);
+  [DllImport("kernel32.dll", SetLastError=true)]
+  private static extern bool UpdateProcThreadAttribute(IntPtr list, uint flags, IntPtr attribute, IntPtr value, IntPtr size, IntPtr previous, IntPtr returned);
+  [DllImport("kernel32.dll")]
+  private static extern void DeleteProcThreadAttributeList(IntPtr list);
+  [DllImport("kernel32.dll", CharSet=CharSet.Unicode, SetLastError=true)]
+  private static extern bool CreateProcess(string application, StringBuilder command, IntPtr processSecurity, IntPtr threadSecurity, bool inherit, uint flags, IntPtr environment, string directory, ref Extended startup, out Child child);
+  [DllImport("kernel32.dll", SetLastError=true)]
+  private static extern bool WriteFile(IntPtr file, byte[] bytes, int count, out int written, IntPtr overlapped);
+  [DllImport("kernel32.dll")]
+  private static extern bool CloseHandle(IntPtr handle);
+  private static void Check(bool result) { if (!result) throw new Win32Exception(Marshal.GetLastWin32Error()); }
+  private static void Close(IntPtr handle) { if (handle != IntPtr.Zero && handle != new IntPtr(-1)) CloseHandle(handle); }
+  public static void Send(string executable, string script, string eventName, int sequence, byte[] payload) {
+    IntPtr input = IntPtr.Zero, writer = IntPtr.Zero, output = IntPtr.Zero;
+    IntPtr list = IntPtr.Zero, handles = IntPtr.Zero;
+    bool initialized = false;
+    try {
+      Security security = new Security { Size = Marshal.SizeOf(typeof(Security)), Inherit = 1 };
+      Check(CreatePipe(out input, out writer, ref security, 0));
+      output = CreateFile("NUL", 0x40000000, 3, ref security, 3, 0, IntPtr.Zero);
+      Check(output != new IntPtr(-1));
+      IntPtr size = IntPtr.Zero;
+      InitializeProcThreadAttributeList(IntPtr.Zero, 1, 0, ref size);
+      list = Marshal.AllocHGlobal(size);
+      Check(InitializeProcThreadAttributeList(list, 1, 0, ref size));
+      initialized = true;
+      handles = Marshal.AllocHGlobal(2 * IntPtr.Size);
+      Marshal.WriteIntPtr(handles, 0, input);
+      Marshal.WriteIntPtr(handles, IntPtr.Size, output);
+      Check(UpdateProcThreadAttribute(list, 0, new IntPtr(0x20002), handles, new IntPtr(2 * IntPtr.Size), IntPtr.Zero, IntPtr.Zero));
+      Extended startup = new Extended {
+        Startup = new Startup { Size = Marshal.SizeOf(typeof(Extended)), Flags = 0x100, Input = input, Output = output, Error = output },
+        Attributes = list
+      };
+      // Windows paths cannot contain quotes; eventName is a fixed enum and sequence an integer.
+      StringBuilder command = new StringBuilder("\\"" + executable + "\\" -NoProfile -NonInteractive -ExecutionPolicy Bypass -File \\"" + script + "\\" " + eventName + " " + sequence);
+      Child child;
+      Check(CreateProcess(executable, command, IntPtr.Zero, IntPtr.Zero, true, 0x08080000, IntPtr.Zero, null, ref startup, out child));
+      Close(child.Process);
+      Close(child.Thread);
+      int written;
+      Check(WriteFile(writer, payload, payload.Length, out written, IntPtr.Zero));
+      if (written != payload.Length) throw new InvalidOperationException("Incomplete observer input");
+    } finally {
+      Close(input); Close(writer); Close(output);
+      if (initialized) DeleteProcThreadAttributeList(list);
+      if (list != IntPtr.Zero) Marshal.FreeHGlobal(list);
+      if (handles != IntPtr.Zero) Marshal.FreeHGlobal(handles);
     }
   }
 }
 '@
-  [FoomObserverHandles]::Isolate()
-  $start = New-Object System.Diagnostics.ProcessStartInfo
-  $start.FileName = 'powershell.exe'
-  $start.Arguments = '-NoProfile -NonInteractive -ExecutionPolicy Bypass -File "' + $PSScriptRoot + '\\send.ps1" ' + $args[0] + ' ' + $sequence
-  $start.UseShellExecute = $false
-  $start.CreateNoWindow = $true
-  $start.RedirectStandardInput = $true
-  $start.RedirectStandardOutput = $true
-  $start.RedirectStandardError = $true
-  $child = [System.Diagnostics.Process]::Start($start)
-  try {
-    # Windows PowerShell uses .NET Framework, without StandardInputEncoding.
-    # Write UTF-8 bytes directly instead of the default StreamWriter encoding.
-    $payload = [System.Text.Encoding]::UTF8.GetBytes($buffer, 0, $count)
-    $child.StandardInput.BaseStream.Write($payload, 0, $payload.Length)
-    $child.StandardInput.BaseStream.Flush()
-    $child.StandardInput.Close()
-  } finally { $child.Dispose() }
+  $payload = [System.Text.Encoding]::UTF8.GetBytes($buffer, 0, $count)
+  [FoomObserverTransport]::Send(($PSHOME + '\\powershell.exe'), ($PSScriptRoot + '\\send.ps1'), $args[0], $sequence, $payload)
 } catch { }
 exit 0
 `,

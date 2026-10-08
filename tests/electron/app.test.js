@@ -5392,19 +5392,23 @@ test("merged cleanup deletes two worktrees and branches while preserving a skipp
     paths[branch] = tree.path;
   }
   await writeFile(path.join(paths.dirty, "keep.txt"), "must survive");
-  // Wait for the source to include the fresh eligibility result before opening its menu.
-  await expect
-    .poll(
-      async () =>
-        (await page.evaluate(() => window.desktop.sidebarInventory())).repositories[0]
-          ?.canDeleteMerged,
-    )
-    .toBe(true);
   await expect(
     page.getByRole("button", { name: "Actions for merged-two", exact: true }),
   ).toBeVisible();
-  await page.getByRole("button", { name: "Actions for repo", exact: true }).click();
-  await page.getByRole("menuitem", { name: "Delete merged worktrees…" }).click();
+  const repositoryActions = page.getByRole("button", { name: "Actions for repo", exact: true });
+  const deleteMerged = page.getByRole("menuitem", { name: "Delete merged worktrees…" });
+  // Main's eligibility result can precede the renderer's inventory refresh. Menus
+  // capture their actions when opened, so observe the rendered action, reopening
+  // while the asynchronous scan is pending instead of racing a bridge snapshot.
+  await expect
+    .poll(async () => {
+      if ((await repositoryActions.getAttribute("aria-expanded")) === "true")
+        await repositoryActions.click();
+      await repositoryActions.click();
+      return deleteMerged.isVisible();
+    })
+    .toBe(true);
+  await deleteMerged.click();
   const confirmation = await confirmationPage(app);
   await expect(confirmation.getByRole("list", { name: "Worktrees to delete" })).toHaveText(
     "merged-onemerged-two",

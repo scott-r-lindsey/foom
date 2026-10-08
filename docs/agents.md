@@ -409,9 +409,9 @@ Native Windows tests exercise `cmd /c`, Windows PowerShell, inherited credential
 literal UTF-8 stdin and detached reporting. The first CI run caught use of
 `ProcessStartInfo.StandardInputEncoding`, which Windows PowerShell's .NET Framework
 does not provide; the observer now writes UTF-8 bytes to the child's input stream.
-The unresponsive-receiver case also caught inherited caller output handles keeping
-the parent pipes open. Before spawning the redirected worker, the observer clears
-inheritance on its own standard handles so the worker cannot delay the agent's EOF.
+The unresponsive-receiver case also caught inherited PowerShell host handles keeping
+the caller pipes open. The worker uses an explicit native handle allowlist containing
+only its input pipe and NUL output, so it cannot inherit the agent's output handles.
 Real Windows CLI timing and plugin trust behavior remain unmeasured; the real-client
 measurements above are Linux-only.
 
