@@ -1,12 +1,11 @@
 name: CI
 
-# Windows and macOS minutes cost 2× and 10× Linux. Pull requests run Linux only;
-# label one `full-ci` to add Windows and macOS. Pushes to main, nightly runs (when
-# main changed) and manual runs validate every platform. Draft pull requests skip
-# CI until they are marked ready for review.
+# Every pull request push, drafts included, validates Linux, Windows and macOS so
+# platform failures surface while the work is in progress. A newer push cancels
+# the branch's previous run. Nightly runs validate main only when it changed.
 on:
   pull_request:
-    types: [opened, synchronize, reopened, ready_for_review, labeled]
+    types: [opened, synchronize, reopened]
   push:
     branches: [main]
   schedule:
@@ -22,22 +21,38 @@ permissions:
   contents: read
 
 concurrency:
-  # Manual runs and unrelated label events must not cancel a run in progress.
-  group: ci-${{ github.workflow }}-${{ (github.event_name == 'workflow_dispatch' || (github.event.action == 'labeled' && github.event.label.name != 'full-ci')) && github.run_id || github.ref }}
+  # Manual runs must not cancel a run in progress.
+  group: ci-${{ github.workflow }}-${{ github.event_name == 'workflow_dispatch' && github.run_id || github.ref }}
   cancel-in-progress: true
 
 env:
   HUSKY: '0'
 
 jobs:
-  checks:
-    name: Static checks and change detection
-    if: github.event_name != 'pull_request' || (!github.event.pull_request.draft && (github.event.action != 'labeled' || github.event.label.name == 'full-ci'))
+  # Desktop jobs need only this fast job, so they start alongside static checks.
+  changes:
+    name: Change detection
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    timeout-minutes: 5
     outputs:
       desktop_required: ${{ steps.changes.outputs.desktop_required }}
       desktop_matrix: ${{ steps.changes.outputs.desktop_matrix }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version-file: .nvmrc
+      - name: Detect changes requiring desktop validation
+        id: changes
+        run: node scripts/ci-changes.mjs
+
+  checks:
+    name: Static checks
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
@@ -53,15 +68,11 @@ jobs:
       - run: npm run typecheck
       - run: npm run audit
       - run: npm run test:ci
-      - name: Detect changes requiring desktop validation
-        id: changes
-        run: node scripts/ci-changes.mjs
       - name: Check committed whitespace
         run: git show --format= --check HEAD
 
   unit:
     name: Unit tests and coverage
-    if: github.event_name != 'pull_request' || (!github.event.pull_request.draft && (github.event.action != 'labeled' || github.event.label.name == 'full-ci'))
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
@@ -129,14 +140,14 @@ jobs:
 
   desktop:
     name: Electron (${{ matrix.os }}, ${{ matrix.shard }})
-    needs: [checks, unit]
-    if: needs.checks.outputs.desktop_required == 'true'
+    needs: [changes]
+    if: needs.changes.outputs.desktop_required == 'true'
     runs-on: ${{ matrix.os }}
     timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
-        include: ${{ fromJSON(needs.checks.outputs.desktop_matrix) }}
+        include: ${{ fromJSON(needs.changes.outputs.desktop_matrix) }}
     env:
       FOOM_ELECTRON_SHARD: ${{ matrix.shard }}
     steps:
@@ -230,18 +241,20 @@ jobs:
 
   quality:
     name: Quality gate
-    if: always() && (github.event_name != 'pull_request' || (!github.event.pull_request.draft && (github.event.action != 'labeled' || github.event.label.name == 'full-ci')))
-    needs: [checks, unit, desktop]
+    if: always()
+    needs: [changes, checks, unit, desktop]
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
       - name: Require every check to pass
         env:
+          CHANGES: ${{ needs.changes.result }}
           CHECKS: ${{ needs.checks.result }}
           UNIT: ${{ needs.unit.result }}
           DESKTOP: ${{ needs.desktop.result }}
-          DESKTOP_REQUIRED: ${{ needs.checks.outputs.desktop_required }}
+          DESKTOP_REQUIRED: ${{ needs.changes.outputs.desktop_required }}
         run: |
+          test "$CHANGES" = success
           test "$CHECKS" = success
           test "$UNIT" = success
           case "$DESKTOP_REQUIRED:$DESKTOP" in
