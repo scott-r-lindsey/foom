@@ -1,7 +1,8 @@
 import { execFile } from "node:child_process";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
+import { promisify } from "node:util";
 import { createServer } from "node:http";
 import { afterEach, expect, test, vi } from "vitest";
 import { agyPluginFiles } from "../../../../src/main/agents/agy-observer";
@@ -10,7 +11,39 @@ import type { HookSignal } from "../../../../src/shared/hooks";
 
 const directories: string[] = [];
 afterEach(async () => {
-  await Promise.all(directories.splice(0).map((dir) => rm(dir, { recursive: true, force: true })));
+  for (const dir of directories.splice(0)) {
+    if (process.platform === "win32") {
+      // Detached workers may still be exiting after the parent returns. Observe
+      // their real process lifetime before deleting scripts/current directories.
+      const { stdout } = await promisify(execFile)(
+        "powershell.exe",
+        [
+          "-NoProfile",
+          "-NonInteractive",
+          "-Command",
+          "Get-CimInstance Win32_Process -Filter \"Name = 'powershell.exe'\" | Where-Object { $_.CommandLine -and $_.CommandLine.Contains($env:FOOM_OBSERVER_TEST_DIRECTORY) } | ForEach-Object { $_.ProcessId }",
+        ],
+        { env: { ...process.env, FOOM_OBSERVER_TEST_DIRECTORY: basename(dir) }, timeout: 5000 },
+      );
+      for (const value of stdout.trim().split(/\s+/u).filter(Boolean)) {
+        const pid = Number(value);
+        if (!Number.isSafeInteger(pid) || pid <= 0) throw new Error("Invalid observer worker PID");
+        await vi.waitFor(
+          () => {
+            try {
+              process.kill(pid, 0);
+            } catch (error) {
+              if (error instanceof Error && "code" in error && error.code === "ESRCH") return;
+              throw error;
+            }
+            throw new Error(`Observer worker ${String(pid)} did not exit`);
+          },
+          { timeout: 5000 },
+        );
+      }
+    }
+    await rm(dir, { recursive: true, force: true });
+  }
 });
 async function fixture() {
   const dir = await mkdtemp(join(tmpdir(), "foom agy's $observer-"));
