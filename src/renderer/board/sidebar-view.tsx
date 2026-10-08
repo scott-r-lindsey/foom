@@ -535,6 +535,29 @@ export function Sidebar({
                               });
                             },
                           },
+                          ...(repo.repository.canDeleteMerged
+                            ? [
+                                null,
+                                {
+                                  label: "Delete merged worktrees…",
+                                  run: () =>
+                                    command({
+                                      kind: "delete-merged-worktrees",
+                                      repository: repo.repository.path,
+                                    }),
+                                },
+                              ]
+                            : []),
+                          ...(repo.repository.mergedError
+                            ? [
+                                null,
+                                {
+                                  label: repo.repository.mergedError,
+                                  disabled: true,
+                                  run: () => undefined,
+                                },
+                              ]
+                            : []),
                         ])}
                       </div>
                       {repo.expanded && (

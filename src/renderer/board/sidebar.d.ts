@@ -9,6 +9,8 @@ export interface SidebarWorktree extends Worktree {
   removed?: boolean;
 }
 export interface SidebarRepository extends Repository {
+  canDeleteMerged?: boolean;
+  mergedError?: string;
   worktrees: readonly SidebarWorktree[];
 }
 export type SidebarLocation = { repository: string; worktree?: string };

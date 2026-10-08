@@ -270,6 +270,7 @@ test("sidebar commands copy known fields, validate IDs and paths, and keep confi
     { kind: "launch", repository: "/repo", worktree: "/tree", run: "shell" },
     { kind: "launch", repository: "/repo", worktree: "/tree", run: "claude" },
     { kind: "remove-repository", repository: "/repo" },
+    { kind: "delete-merged-worktrees", repository: "/repo" },
     { kind: "remove-worktree", repository: "/repo", worktree: "/tree" },
     { kind: "stop", id: "t1" },
     { kind: "close", id: "t1" },
@@ -339,3 +340,30 @@ test.each([
   invoke("confirmation:cancel");
   await expect(pending).resolves.toBe(false);
 });
+
+test.each(["trusted", "destroyed", "navigated"])(
+  "merged cleanup uses the trusted dialog with a %s board",
+  async (state) => {
+    const worktrees = [{ branch: "merged" }, { branch: "kept", reason: "running" }];
+    Object.assign(workspace, {
+      sidebarCommand: (_command: unknown, confirm: ConfirmWorkspace) => {
+        if (state === "destroyed") contents.isDestroyed.mockReturnValue(true);
+        if (state === "navigated") frame.url = "app://foreign/index.html";
+        return confirm({ kind: "merged-worktrees", worktrees });
+      },
+    });
+    requestDialog.mockResolvedValue(true);
+    await expect(
+      invoke("workspace:sidebar-command", [
+        { kind: "delete-merged-worktrees", repository: "/repo" },
+      ]),
+    ).resolves.toBe(state === "trusted");
+    if (state === "trusted")
+      expect(requestDialog).toHaveBeenCalledWith({
+        title: "Delete merged worktrees?",
+        accept: "Delete",
+        worktrees,
+      });
+    else expect(requestDialog).not.toHaveBeenCalled();
+  },
+);
