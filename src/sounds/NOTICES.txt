@@ -1,0 +1,126 @@
+Foom recorded sounds
+
+All recordings are CC0 1.0 Universal.
+https://creativecommons.org/publicdomain/zero/1.0/
+
+Auditioned derivatives of Freesound HQ MP3 previews, encoded as mono Opus.
+Source hashes and exact edits are in manifest.json.
+
+working/seagate-read-write.ogg
+1TB Seagate HDD Writing or Reading Sounds — madaesthetic1082
+https://freesound.org/people/madaesthetic1082/sounds/829473/
+CC0-1.0: https://creativecommons.org/publicdomain/zero/1.0/
+Retrieved 2026-10-04; Mono excerpt; 150 ms wrap crossfade (rotates the loop start by 150 ms). RMS gain adjustment targeting -25 dBFS, capped at +12 dB and -6 dBFS peak before encoding; Opus 64 kbps.
+SHA-256: cb43042863c43aa99cb3f5ab0376cf7ac18df79d7fe7d71ff783d904b8a341e1
+
+working/quiet-computer.ogg
+d0 gentle Computer hum with hard drive access — dav0r
+https://freesound.org/people/dav0r/sounds/381258/
+CC0-1.0: https://creativecommons.org/publicdomain/zero/1.0/
+Retrieved 2026-10-04; Mono excerpt; 150 ms wrap crossfade; loop begins 150 ms into the selected source interval. RMS gain adjustment targeting -25 dBFS, capped at +12 dB and -6 dBFS peak before encoding. Opus 64 kbps.
+SHA-256: 9927ec406e516ed941cbf4a65c0d0fffbf16acea785361e08ccef12fc238b41d
+
+done/typewriter-bell.ogg
+Typewriter Bell.wav — ramsamba
+https://freesound.org/people/ramsamba/sounds/318687/
+CC0-1.0: https://creativecommons.org/publicdomain/zero/1.0/
+Retrieved 2026-10-04; Mono excerpt; 2 ms attack fade and 80 ms tail fade. RMS gain adjustment targeting -25 dBFS, capped at +12 dB and -6 dBFS peak before encoding; Opus 64 kbps.
+SHA-256: 87e6459344c3a73d9bbb671980cdc08aab1bde7b25fc3137dd4a972d00d2902b
+
+done/wine-glass-clink.ogg
+wine glass clink — fleurescence
+https://freesound.org/people/fleurescence/sounds/573157/
+CC0-1.0: https://creativecommons.org/publicdomain/zero/1.0/
+Retrieved 2026-10-04; Mono excerpt; 2 ms attack fade and 80 ms tail fade. RMS gain adjustment targeting -25 dBFS, capped at +12 dB and -6 dBFS peak before encoding; Opus 64 kbps.
+SHA-256: 958a9d9288631d73cb6704b630bd8b8fd157281b87285e0f0da19e10cae56848
+
+needs-you/bicycle-bell.ogg
+Bike Bell.wav — bsumusictech
+https://freesound.org/people/bsumusictech/sounds/81875/
+CC0-1.0: https://creativecommons.org/publicdomain/zero/1.0/
+Retrieved 2026-10-04; Mono excerpt; 2 ms attack fade and 80 ms tail fade. RMS gain adjustment targeting -25 dBFS, capped at +12 dB and -6 dBFS peak before encoding; Opus 64 kbps.
+SHA-256: 4b0695216207c42a402f87b1d3556cca6ce4235e9a1b79dcfaaf80d746c61832
+
+needs-you/wooden-door-taps.ogg
+Door Knock - 42.wav — Ligidium
+https://freesound.org/people/Ligidium/sounds/193873/
+CC0-1.0: https://creativecommons.org/publicdomain/zero/1.0/
+Retrieved 2026-10-04; Mono excerpt; 2 ms attack fade and 80 ms tail fade. RMS gain adjustment targeting -25 dBFS, capped at +12 dB and -6 dBFS peak before encoding; Opus 64 kbps.
+SHA-256: bcf148dada30f653ac9ed54a8d79bfb0eb5038248eac40694526eebc44fbc202
+
+refusal/lip-pop.ogg
+Pop sound — deraj
+https://freesound.org/people/deraj/sounds/202230/
+CC0-1.0: https://creativecommons.org/publicdomain/zero/1.0/
+Retrieved 2026-10-04; Mono excerpt; 2 ms attack fade and 15 ms tail fade. RMS gain adjustment targeting -25 dBFS, capped at +12 dB and -6 dBFS peak before encoding; Opus 64 kbps.
+SHA-256: d0bcc2f0e763c571e075bc1aa5b74724ca872743a2ae302b3bc77abc8a9d5d1e
+
+refusal/mechanical-buzzer.ogg
+A Berlin Door Bell.flac — qubodup
+https://freesound.org/people/qubodup/sounds/183995/
+CC0-1.0: https://creativecommons.org/publicdomain/zero/1.0/
+Retrieved 2026-10-04; Mono excerpt; 2 ms attack fade and 15 ms tail fade. RMS gain adjustment targeting -25 dBFS, capped at +12 dB and -6 dBFS peak before encoding; Opus 64 kbps.
+SHA-256: ee0826b04ae340522b0d29795e627504d543be85f09c8fa17eda8450ea57122a
+
+working/teletype.ogg
+R20-17-Teletype Machine.wav — craigsmith
+https://freesound.org/people/craigsmith/sounds/483336/
+CC0-1.0: https://creativecommons.org/publicdomain/zero/1.0/
+Retrieved 2026-10-07; Mono excerpt; 150 ms wrap crossfade; loop begins 150 ms into the selected source interval. RMS gain adjustment targeting -25 dBFS, capped at +12 dB and -6 dBFS peak before encoding. Opus 64 kbps.
+SHA-256: 2cccecf4eb51394bc23aa5507cb72089300cbbf455c173d60810b29b37e5fe77
+
+working/portable-typewriter.ogg
+Typewriter 170428_1482.wav — megashroom
+https://freesound.org/people/megashroom/sounds/390343/
+CC0-1.0: https://creativecommons.org/publicdomain/zero/1.0/
+Retrieved 2026-10-07; Mono excerpt; 150 ms wrap crossfade; loop begins 150 ms into the selected source interval. RMS gain adjustment targeting -25 dBFS, capped at +12 dB and -6 dBFS peak before encoding. Opus 64 kbps.
+SHA-256: bc406e562a87791e5b474499a71a78541bf95bee04c2d607858da057b434cc00
+
+working/cinema-projector.ogg
+Cinema-Projector.wav — Dr. Macak
+https://freesound.org/people/Dr.%20Macak/sounds/253758/
+CC0-1.0: https://creativecommons.org/publicdomain/zero/1.0/
+Retrieved 2026-10-07; Mono excerpt; 150 ms wrap crossfade; loop begins 150 ms into the selected source interval. RMS gain adjustment targeting -25 dBFS, capped at +12 dB and -6 dBFS peak before encoding. Opus 64 kbps.
+SHA-256: 0d22088e87669b85de39b791843565611f4396fd8c89a14ff6c901af9d79d5d3
+
+done/soft-kalimba.ogg
+F3 soft - kalimba — hollandm
+https://freesound.org/people/hollandm/sounds/691799/
+CC0-1.0: https://creativecommons.org/publicdomain/zero/1.0/
+Retrieved 2026-10-07; Mono excerpt; 2 ms attack and 80 ms tail fades. RMS gain adjustment targeting -25 dBFS, capped at +12 dB and -6 dBFS peak before encoding. Opus 64 kbps.
+SHA-256: 5d4d57f615aaf3bad661b93597f3acdc6aed74a3d96ec31e7c975f08ec40ab2d
+
+done/toy-glockenspiel.ogg
+Glock-C4.wav — hollandm
+https://freesound.org/people/hollandm/sounds/693344/
+CC0-1.0: https://creativecommons.org/publicdomain/zero/1.0/
+Retrieved 2026-10-07; Mono excerpt; 2 ms attack and 80 ms tail fades. RMS gain adjustment targeting -25 dBFS, capped at +12 dB and -6 dBFS peak before encoding. Opus 64 kbps.
+SHA-256: 5cc165e4d25d3d48578b49859b645d0f68aef4f9d7ffbc6e5cdaff47c79d05bd
+
+needs-you/service-bell.ogg
+Desk Bell — ChrisGrundlingh
+https://freesound.org/people/ChrisGrundlingh/sounds/765637/
+CC0-1.0: https://creativecommons.org/publicdomain/zero/1.0/
+Retrieved 2026-10-07; Mono excerpt; 2 ms attack and 80 ms tail fades. RMS gain adjustment targeting -25 dBFS, capped at +12 dB and -6 dBFS peak before encoding. Opus 64 kbps.
+SHA-256: 29856c9343d9726ded74a6134533069f892076876f611d1727bb7a16969371e8
+
+needs-you/triangle-taps.ogg
+Triangle_Open_04 — cabled_mess
+https://freesound.org/people/cabled_mess/sounds/349504/
+CC0-1.0: https://creativecommons.org/publicdomain/zero/1.0/
+Retrieved 2026-10-07; Mono recording excerpt, repeated at 0 and 420 ms; each hit has 2 ms attack and 80 ms tail fades. No synthesized tones. RMS gain adjustment targeting -25 dBFS, capped at +12 dB and -6 dBFS peak before encoding. Opus 64 kbps.
+SHA-256: 6c2b6f73ed3cbc911c71697435933b64f129f4b916bf1df4668d19e79fd2047c
+
+refusal/wooden-clave.ogg
+Claves (claves_mf.wav) — sgossner
+https://freesound.org/people/sgossner/sounds/375641/
+CC0-1.0: https://creativecommons.org/publicdomain/zero/1.0/
+Retrieved 2026-10-07; Mono excerpt; 2 ms attack and 15 ms tail fades. RMS gain adjustment targeting -25 dBFS, capped at +12 dB and -6 dBFS peak before encoding. Opus 64 kbps.
+SHA-256: c8db9eb84fa8c4e1b6140d1a28c1d30f837a9ab0fb38c9724c2de224951ce507
+
+refusal/projector-button.ogg
+Projector Button Push.wav — GreekIrish
+https://freesound.org/people/GreekIrish/sounds/254713/
+CC0-1.0: https://creativecommons.org/publicdomain/zero/1.0/
+Retrieved 2026-10-07; Mono excerpt; 2 ms attack and 15 ms tail fades. RMS gain adjustment targeting -25 dBFS, capped at +12 dB and -6 dBFS peak before encoding. Opus 64 kbps.
+SHA-256: bed282901168c3dd69dc54e630cf88cf010f4f48c4bf6c04239f3281b505dab6

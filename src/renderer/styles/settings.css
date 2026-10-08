@@ -226,10 +226,23 @@
   width: 100%;
   accent-color: var(--accent);
 }
-.sound-previews {
-  display: flex;
-  flex-wrap: wrap;
+.sound-picker,
+.sound-panel .preflight-field {
+  display: grid;
   gap: 8px;
+}
+.sound-picker {
+  justify-items: start;
+}
+.sound-picker .preflight-field,
+.sound-picker select {
+  width: 100%;
+  min-width: 0;
+}
+.sound-credits {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 12px;
 }
 
 .agent-defaults {

@@ -159,15 +159,21 @@ export function Board({
   const focusedSession = leaves(layout.tree).find((tile) => tile.id === layout.focused)?.session;
   const focusedRow = rows.find((row) => row.id === focusedSession);
   const displayedId = focusedRow?.kind === "sample" ? undefined : focusedRow?.id;
+  const soundControllerRef = useRef<ReturnType<typeof createSoundController>>(undefined);
   const soundFocusRef = useRef<string | undefined>(undefined);
   useLayoutEffect(() => {
     soundFocusRef.current = paneInactive || location ? undefined : displayedId;
   }, [paneInactive, location, displayedId]);
   useEffect(() => {
     if (!soundSetup) return;
-    return createSoundController(source, soundSetup, createAudioSink(), () =>
+    const controller = createSoundController(source, soundSetup, createAudioSink(), () =>
       document.hasFocus() ? soundFocusRef.current : undefined,
     );
+    soundControllerRef.current = controller;
+    return () => {
+      controller();
+      soundControllerRef.current = undefined;
+    };
   }, [source, soundSetup]);
   const peekRow = rows.find((row) => row.id === peek?.id);
   const sidebarRef = useRef<HTMLElement>(null);
@@ -231,6 +237,7 @@ export function Board({
     (row: BoardRow, replace = false) => {
       const next = placeSession(layoutRef.current, row.id, replace);
       if (!next) {
+        soundControllerRef.current?.refuse();
         setRefused(row.id);
         return;
       }

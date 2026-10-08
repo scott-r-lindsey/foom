@@ -652,35 +652,52 @@ input-to-render probes on another terminal, plus final flood byte counts. The
 fixture uses the DOM renderer and retains sandboxing. Measurements are machine-
 and workload-specific; record the report and interpretation in the PR rather
 than treating frame timings as portable pass/fail thresholds.
-## Soundscapes
+## Recorded sounds
 
-`shared/sound.d.ts` defines version 1 soundscape data: a name, working synthesis
-parameters (`hum` and `seek` in Hz, `density` in seeks per second at full activity),
-and `done`/`needsYou` tones (`frequency` in Hz, `duration`/`gap` in seconds, `count`).
-`shared/soundscapes.ts` validates exact keys, finite bounded parameters and a reserved
-attention cadence (two or three separated beeps; Done is always one). No sample URLs,
-code or arbitrary Web Audio graphs are accepted. Settings stores a built-in ID or
-this portable object, ready for the future Foom-config loader; it does not read user
-soundscape files yet. The existing validated setup IPC and atomic settings store own
-persistence, with default sound settings for profiles that predate this feature.
+`shared/sound.d.ts` defines four kinds and path-free `{source, file}` choices.
+`shared/sounds.ts` validates exact keys, filename syntax, switches, finite volume
+bounds and distinct Needs you choices. Only settings loaded from disk can migrate
+the former `soundscape` property; IPC accepts the new format. Migration preserves
+switches and volumes. The existing setup IPC and atomic store persist choices.
 
-The renderer's sound controller subscribes to the board source and setup source.
-Activity bypasses React and is mixed logarithmically into one capped working sound.
-A 100 ms clock settles verdicts for one second, spaces alerts by at least two seconds,
-coalesces simultaneous alerts (attention takes priority), and repeats outstanding
-attention every two minutes. State changes, removal and disposal cancel pending
-reminders; repeated verdict IDs in the same state do not restart a reminder.
-The focused tile’s terminal is muted when the document has focus, excluding Settings,
-preflight and location views. Muted completion is consumed, not queued for later.
-Settings must load before any audio is produced; later settings events take precedence
-over a pending initial load. No terminal text or keystrokes enter the audio layer.
+`main/sounds/library.ts` creates `~/.foom/config/sounds/{working,done,needs-you,refusal}`
+and merges its catalogs with read-only `build/sounds/` inside the packaged resources.
+The build copies the approved OGG/Opus recordings, manifest and notices; notices also
+feed `build/THIRD_PARTY_NOTICES.txt`. Settings exposes sound credits until the About
+screen (#96) consumes the shared notices. The manifest records original authors,
+URLs, CC0 licenses, retrieval dates, source and derivative checksums, and edits.
 
-`renderer/sound/web-audio.ts` synthesizes a single hum with brief randomized seek
-pulses and a separate bounded alert voice. It creates AudioContext lazily, attempts
-resume when suspended, ramps gain and closes the context on disposal. Audio device
-unavailability leaves terminals and visual status operational. Settings previews
-last at most two seconds and dispose their timers and audio nodes on replacement
-or unmount. The CSP and preload capabilities are unchanged.
+`sound:list` and `sound:read` validate the main window's top-level sender and exact
+argument counts. Read requests contain only kind/source/filename. Main accepts direct
+regular files, rejects hidden/overlong/unsafe filenames and out-of-folder symlinks,
+checks extension against header, and bounds each folder to 100 files. Working files
+are capped at 8 MB; others at 2 MB. User reads use an inspected descriptor, bounded
+allocation and directory/name rechecks. `sound:open-folder` calls `shell.openPath`
+only on the fixed main-owned folder; `sound:notices` reads a fixed bundled file.
+No arbitrary filesystem capability, URLs, Node APIs or CSP exceptions reach the renderer.
+
+Opening Sound lists folders again and emits `sound:changed`, refreshing cached choices
+so restored files take effect without a restart. The renderer decodes IPC bytes with
+`decodeAudioData`, validates durations (Working 1–30 s, Done/Needs you ≤1.5 s, Refusal
+≤0.3 s), and measures RMS and peak. Gain targets −25 dBFS RMS, capped at 4× and a
+−6 dBFS peak; silence stays silent and nonfinite samples fail. Invalid selections
+fall back to the default and report a reason, never rewriting saved choices.
+
+The sound controller subscribes to board and setup sources. Activity bypasses React
+and mixes logarithmically into one capped loop. A 100 ms clock settles verdicts for
+one second, spaces alerts by two seconds, gives attention priority and repeats
+outstanding attention every two minutes. State changes, removal and disposal cancel
+reminders; repeated verdict IDs do not restart them. The focused tile is muted while
+the document has focus, excluding Settings, preflight and location views. Muted
+completion is consumed. Settings must load before sound; later settings events take
+precedence over a pending initial load. No terminal text enters audio.
+
+`renderer/sound/web-audio.ts` owns one loop, one verdict voice and an independent
+Refusal voice. A refused placement calls Refusal immediately, obeying Alerts and its
+volume without verdict settling or debounce. Context resume, gain ramps, asynchronous
+decode cancellation and cleanup are owned here. Audio failure leaves terminals and
+visual status operational. Settings previews stop on replacement/unmount and after
+five seconds for Working (two seconds for other kinds). No synthesis remains.
 
 ## Board shortcut definitions
 

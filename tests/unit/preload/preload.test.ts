@@ -455,3 +455,26 @@ test.each([false, true])(
     expect((await bridge()).isDevelopment).toBe(development);
   },
 );
+
+test("sound capabilities send only typed requests and unsubscribe refresh events", async () => {
+  const api = await bridge();
+  mock.invoke.mockResolvedValue(undefined);
+  await api.sounds.list();
+  const request = { kind: "done", source: "user", file: "bell.wav" } as const;
+  await api.sounds.read(request);
+  await api.sounds.openFolder();
+  await api.sounds.notices();
+  expect(mock.invoke.mock.calls).toEqual([
+    ["sound:list"],
+    ["sound:read", request],
+    ["sound:open-folder"],
+    ["sound:notices"],
+  ]);
+  const changed = vi.fn();
+  const off = api.sounds.onChange(changed);
+  const handler = mock.on.mock.calls.find(([channel]) => channel === "sound:changed")?.[1];
+  handler?.({});
+  expect(changed).toHaveBeenCalledWith();
+  off();
+  expect(mock.removeListener).toHaveBeenCalledWith("sound:changed", handler);
+});

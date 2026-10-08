@@ -14,7 +14,13 @@ test("board uses the displayed terminal and window focus for muting and disposes
   vi.useFakeTimers();
   localStorage.clear();
   const focused = vi.spyOn(document, "hasFocus").mockReturnValue(true);
-  const sink = { working: vi.fn(), alert: vi.fn(), silenceAlerts: vi.fn(), dispose: vi.fn() };
+  const sink = {
+    configure: vi.fn(),
+    working: vi.fn(),
+    alert: vi.fn(),
+    silenceAlerts: vi.fn(),
+    dispose: vi.fn(),
+  };
   vi.spyOn(audio, "createAudioSink").mockReturnValue(sink);
   const source = createSampleSource([
     {
@@ -66,7 +72,13 @@ test("only the focused tile is muted while other visible tiles can alert", async
   vi.useFakeTimers();
   localStorage.clear();
   vi.spyOn(document, "hasFocus").mockReturnValue(true);
-  const sink = { working: vi.fn(), alert: vi.fn(), silenceAlerts: vi.fn(), dispose: vi.fn() };
+  const sink = {
+    configure: vi.fn(),
+    working: vi.fn(),
+    alert: vi.fn(),
+    silenceAlerts: vi.fn(),
+    dispose: vi.fn(),
+  };
   vi.spyOn(audio, "createAudioSink").mockReturnValue(sink);
   const source = createSampleSource(
     ["a", "b"].map((id) => ({

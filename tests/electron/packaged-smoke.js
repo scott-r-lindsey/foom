@@ -65,6 +65,17 @@ test("packaged utility host runs native PTYs with RunAsNode disabled", {
       readFileSync(path.join(__dirname, "../../src/renderer/fonts", name)),
     );
   }
+  const soundManifest = JSON.parse(
+    readFileSync(path.join(__dirname, "../../src/sounds/manifest.json"), "utf8"),
+  );
+  for (const entry of soundManifest)
+    assert.deepEqual(
+      extractFile(archive, path.join("build/sounds", entry.file)),
+      readFileSync(path.join(__dirname, "../../src/sounds", entry.file)),
+    );
+  assert.ok(
+    notices.includes(readFileSync(path.join(__dirname, "../../src/sounds/NOTICES.txt"), "utf8")),
+  );
   const wire = await getCurrentFuseWire(executable);
   assert.equal(wire[FuseV1Options.RunAsNode], 48, "RunAsNode fuse is disabled");
   const env = { ...process.env };
@@ -85,6 +96,8 @@ test("packaged utility host runs native PTYs with RunAsNode disabled", {
     path.join(profile, "worktrees.json"),
     JSON.stringify({ version: 1, repositories: [repository], managed: [] }),
   );
+  env.HOME = profile;
+  env.USERPROFILE = profile;
   const audit = await auditProcesses(context);
   context.after(() => audit.finish());
   const child = spawn(executable, ["--remote-debugging-port=0", `--user-data-dir=${profile}`], {
@@ -140,6 +153,37 @@ test("packaged utility host runs native PTYs with RunAsNode disabled", {
         ),
       )
       .toContain(repository);
+    const sounds = await page.evaluate(async () => {
+      const context = new AudioContext();
+      try {
+        const entries = (await window.desktop.sounds.list()).filter(
+          (entry) => entry.source === "builtin",
+        );
+        const decoded = [];
+        for (const entry of entries) {
+          if (entry.error) throw Error(entry.file + ": " + entry.error);
+          const result = await window.desktop.sounds.read({
+            kind: entry.kind,
+            source: entry.source,
+            file: entry.file,
+          });
+          if (result.error) throw Error(entry.file + ": " + result.error);
+          const buffer = await context.decodeAudioData(new Uint8Array(result.bytes).buffer);
+          decoded.push({ file: entry.kind + "/" + entry.file, duration: buffer.duration });
+        }
+        return decoded;
+      } finally {
+        await context.close();
+      }
+    });
+    assert.equal(sounds.length, soundManifest.length);
+    for (const entry of soundManifest)
+      assert.ok(
+        Math.abs(sounds.find((sound) => sound.file === entry.file).duration - entry.duration) <
+          0.001,
+        entry.file,
+      );
+    console.info("Packaged recordings loaded and decoded");
     console.info("Packaged repository restored");
     await page.getByRole("button", { name: "Actions for repo", exact: true }).click();
     await page.getByRole("menuitem", { name: /^Shell \(/ }).click();

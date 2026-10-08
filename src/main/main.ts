@@ -1,3 +1,5 @@
+import { SoundLibrary } from "./sounds/library";
+import { attachSounds } from "./sounds/ipc";
 import { ControlRuntime } from "./control/runtime";
 import { TrustedDialog } from "./confirmations/trusted-dialog";
 import { selectProfile, clearParentHooks } from "./profile";
@@ -98,7 +100,16 @@ function createWindow(savedSize?: Size) {
     );
   };
   nativeTheme.on("updated", updateBackground);
+  const soundIpc = attachSounds(
+    window,
+    new SoundLibrary(
+      path.join(__dirname, "../sounds"),
+      path.join(app.getPath("home"), ".foom/config/sounds"),
+    ),
+    path.join(__dirname, "../sounds/NOTICES.txt"),
+  );
   window.once("closed", () => {
+    soundIpc();
     nativeTheme.removeListener("updated", updateBackground);
   });
 

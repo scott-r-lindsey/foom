@@ -4,7 +4,7 @@ import {
   parseAgentArguments,
 } from "../agents/default-arguments";
 import { parseInterfaceTheme } from "../../shared/interface-themes";
-import { DEFAULT_SOUND, parseSoundSettings } from "../../shared/soundscapes";
+import { DEFAULT_SOUND, migrateSoundSettings, parseSoundSettings } from "../../shared/sounds";
 import { parseTerminalThemeChoice } from "../../shared/terminal-themes";
 import { randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
@@ -117,7 +117,7 @@ export class SettingsStore {
     try {
       const state: unknown = JSON.parse(await readFile(store.file, "utf8"));
       if (record(state) && state["version"] === 1 && record(state["settings"])) {
-        const { agentArguments, ...rest } = state["settings"];
+        const { agentArguments, sound, ...rest } = state["settings"];
         const recovered = { ...EMPTY_AGENT_ARGUMENTS };
         if (record(agentArguments)) {
           for (const agent of AGENTS) {
@@ -131,6 +131,7 @@ export class SettingsStore {
         store.settings = {
           ...DEFAULT_SETTINGS,
           ...parseSettingsPatch(rest),
+          sound: sound === undefined ? DEFAULT_SOUND : migrateSoundSettings(sound),
           agentArguments: recovered,
         };
       }

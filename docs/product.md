@@ -116,8 +116,7 @@ These actions, including applying a preset, never stop a terminal. Hidden sessio
 Clicking a visible session focuses its tile. A hidden session fills the focused
 tile if empty, otherwise the first empty tile in tree order. When all tiles are
 full, nothing is replaced: the sidebar row briefly shakes (disabled with reduced
-motion). A dedicated refusal sound is not yet available; soundscapes currently
-cover working, completion and attention.
+motion). Refusal plays immediately on each refused click when Alerts is enabled.
 
 Launching a session fills the focused empty tile, then the first empty tile, or
 replaces the focused tile when all tiles are full. Its previous session becomes
@@ -299,21 +298,40 @@ Every theme keeps amber for Needs you, magenta for Failed, and violet for activi
 Needs you retains its halo, Failed its square light, and all states their labels.
 High Contrast provides at least 7:1 text contrast and stronger borders.
 
-Settings → Sound offers Hard drive and Soft drive soundscapes. Both synthesize
-seek chatter and a spinning hum from total terminal output, with a capped mix;
-quiet terminals are silent. Working sound is off by default, with a separate
-volume (15% initially). Alerts are on at 50%: Done is one short beep and Needs you
-has a reserved two-beep cadence. Needs you repeats every two minutes until replied
-to or dismissed. The terminal in the focused tile of the focused window does not alert;
-Settings and preflight hide that terminal and allow its alerts again. Completion
-observed while muted is not replayed. Attention reminders resume after two minutes
-away from its view or after unmuting.
+Settings → Sound offers a separate recording picker and preview for Working, Done,
+Needs you and Refusal. Built-in and user files appear together, named from their
+filenames. Working is off at 15% by default; its loop follows total terminal output
+with the existing capped logarithmic mix, and quiet terminals are silent. Alerts
+cover Done, Needs you and Refusal and default to on at 50%. Each decoded recording
+gets bounded loudness normalization so volume choices remain useful across files.
 
-Verdicts must settle for one second before sounding. Simultaneous alerts play
-once, with Needs you taking precedence over Done; alerts are at least two seconds
-apart. Each sound has a preview, using its selected volume even when switched off.
-Sound choices, switches and volumes persist. Sound supplements the visual state;
-it never clears or replaces it.
+Needs you repeats every two minutes until replied to or dismissed. The terminal in
+the focused tile of the focused window does not alert; Settings and preflight hide
+that terminal and allow its alerts again. Completion observed while muted is not
+replayed. Attention reminders resume after two minutes away or after unmuting.
+Verdicts settle for one second before sounding. Simultaneous alerts play once, with
+Needs you taking precedence; verdict alerts are at least two seconds apart.
+Refusal plays immediately on each refused placement, independently of that debounce.
+Reduced motion disables the refusal shake, not its sound. Visual status always stays on.
+
+**Open sounds folder** opens `~/.foom/config/sounds/` in the file manager. Add files
+to `working/`, `done/`, `needs-you/` or `refusal/`, then reopen Settings → Sound to
+refresh. There is no import dialog. Supported files are OGG, Opus, WAV, FLAC and MP3;
+only direct regular files with valid headers are accepted. Working files are at most
+8 MB and 1–30 seconds; other files are at most 2 MB, with Done/Needs you up to 1.5
+seconds and Refusal up to 0.3 seconds. Each folder lists at most 100 eligible files.
+Hidden files, subfolders, names over 100 characters and links outside their kind
+folder are rejected.
+
+Choices persist as a source and filename, never a path. Missing or invalid choices
+fall back to the built-in default with a reason beside the picker, without replacing
+the saved choice; restoring the file and reopening Sound restores playback. Needs
+you cannot select the same source/filename as Done or Refusal. Old soundscape settings
+migrate while preserving switches and volumes. Previews use the selected volume even
+when switched off; Working previews stop after five seconds. Sound credits are in
+Settings → Sound and packaged third-party notices, ready for the future About screen
+(#96). The 17 built-in CC0 recordings include drive chatter, teletype, typewriter,
+projector, bells, percussion and short refusal sounds.
 
 ## Quitting
 

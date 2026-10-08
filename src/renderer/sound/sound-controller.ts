@@ -1,5 +1,5 @@
 import type { AudioSink, SoundSettings } from "../../shared/sound";
-import { DEFAULT_SOUND, resolveSoundscape } from "../../shared/soundscapes";
+import { DEFAULT_SOUND } from "../../shared/sounds";
 import type { BoardSource } from "../board/board-source";
 import type { BoardRow } from "../board/board.d";
 import type { SetupSource } from "../preflight/setup-source.d";
@@ -51,17 +51,16 @@ export function createSoundController(
   const apply = (next: SoundSettings) => {
     loaded = true;
     settings = next;
+    sink.configure(settings.choices);
     if (!settings.alerts || settings.alertVolume === 0) sink.silenceAlerts();
     tick();
   };
   const tick = () => {
     if (!loaded) return;
     const time = now();
-    const scape = resolveSoundscape(settings.soundscape);
     sink.working(
       settings.working ? activityIntensity([...rates.values()]) : 0,
       settings.workingVolume,
-      scape,
     );
     const due = [...verdicts.entries()].filter(([id, verdict]) => {
       if (verdict.state !== "done" && verdict.state !== "needs_input") return false;
@@ -75,9 +74,8 @@ export function createSoundController(
     if (!due.length || time - lastAlert < DEBOUNCE_MS) return;
     // One mixed alert for a burst. Attention wins when both kinds arrive together.
     sink.alert(
-      due.some(([, entry]) => entry.state === "needs_input") ? "needsYou" : "done",
+      due.some(([, entry]) => entry.state === "needs_input") ? "needs-you" : "done",
       settings.alertVolume,
-      scape,
     );
     lastAlert = time;
     for (const [, verdict] of due)
@@ -102,7 +100,7 @@ export function createSoundController(
     },
   );
   const timer = setInterval(tick, 100);
-  return () => {
+  const dispose = () => {
     disposed = true;
     clearInterval(timer);
     offRows();
@@ -110,4 +108,8 @@ export function createSoundController(
     offSetup();
     sink.dispose();
   };
+  dispose.refuse = () => {
+    if (loaded && !disposed && settings.alerts) sink.alert("refusal", settings.alertVolume);
+  };
+  return dispose;
 }

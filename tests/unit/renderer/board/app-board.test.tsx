@@ -102,6 +102,13 @@ beforeEach(() => {
   Object.defineProperty(window, "desktop", {
     configurable: true,
     value: {
+      sounds: {
+        list: () => Promise.resolve([]),
+        read: () => Promise.resolve({ error: "unavailable" }),
+        onChange: () => () => {},
+        openFolder: async () => {},
+        notices: () => Promise.resolve(""),
+      },
       setupState: mock.setupState,
       onSetupChange: () => () => {},
       codeSuggestions: () => Promise.resolve([]),

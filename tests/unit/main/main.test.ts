@@ -1,3 +1,4 @@
+vi.mock("../../../src/main/sounds/ipc", () => ({ attachSounds: vi.fn(() => vi.fn()) }));
 import type { DialogContent } from "../../../src/shared/confirmation";
 vi.mock("../../../src/main/confirmations/trusted-dialog", () => ({
   TrustedDialog: class {

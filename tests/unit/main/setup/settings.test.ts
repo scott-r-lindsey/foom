@@ -150,12 +150,11 @@ test("interface themes persist, preserve legacy modes and reject invalid portabl
   expect(() => parseSettingsPatch({ interfaceTheme: { colors: { bg: "url(x)" } } })).toThrow();
 });
 
-test("sound mutes, volumes and portable soundscape persist after reopening", async () => {
+test("sound choices, mutes and volumes persist after reopening", async () => {
   const dir = await directory();
   const store = await SettingsStore.open(dir);
   const sound = {
     ...DEFAULT_SETTINGS.sound,
-    soundscape: "soft" as const,
     working: true,
     alerts: false,
     workingVolume: 0.3,
@@ -228,3 +227,41 @@ test.each([null, [], "invalid", { codex: ["--model", "x"], agy: [42] }])(
     expect(settings.agentArguments.agy).toEqual([]);
   },
 );
+
+test("legacy soundscape migrates on disk without changing switches or volumes", async () => {
+  const dir = await directory();
+  await writeFile(
+    path.join(dir, "settings.json"),
+    JSON.stringify({
+      version: 1,
+      settings: {
+        sound: {
+          soundscape: "soft",
+          working: true,
+          workingVolume: 0.23,
+          alerts: false,
+          alertVolume: 0.42,
+        },
+      },
+    }),
+  );
+  const store = await SettingsStore.open(dir);
+  expect(store.get().sound).toEqual({
+    ...DEFAULT_SETTINGS.sound,
+    working: true,
+    workingVolume: 0.23,
+    alerts: false,
+    alertVolume: 0.42,
+  });
+  expect(() =>
+    parseSettingsPatch({
+      sound: {
+        soundscape: "soft",
+        working: true,
+        workingVolume: 0.23,
+        alerts: false,
+        alertVolume: 0.42,
+      },
+    }),
+  ).toThrow();
+});

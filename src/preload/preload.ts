@@ -68,6 +68,21 @@ ipcRenderer.on("terminal:flush-views", (_event, ids: unknown, token: unknown) =>
 });
 
 const desktop: DesktopApi = {
+  sounds: {
+    onChange(callback) {
+      const listener = () => {
+        callback();
+      };
+      ipcRenderer.on("sound:changed", listener);
+      return () => {
+        ipcRenderer.removeListener("sound:changed", listener);
+      };
+    },
+    list: () => ipcRenderer.invoke("sound:list"),
+    read: (request) => ipcRenderer.invoke("sound:read", request),
+    openFolder: () => ipcRenderer.invoke("sound:open-folder"),
+    notices: () => ipcRenderer.invoke("sound:notices"),
+  },
   confirmations: {
     onDialog(callback) {
       const listener = () => {

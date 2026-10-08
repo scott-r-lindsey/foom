@@ -7,7 +7,7 @@ import {
   createSoundController,
   REPEAT_MS,
 } from "../../../../src/renderer/sound/sound-controller";
-import { DEFAULT_SOUND, SOUNDSCAPES } from "../../../../src/shared/soundscapes";
+import { DEFAULT_SOUND } from "../../../../src/shared/sounds";
 import { setupState } from "../../../fixtures/setup";
 beforeEach(() => {
   vi.useFakeTimers();
@@ -34,7 +34,13 @@ async function fixture(
   let focus: string | undefined;
   let settingsChanged: ((state: SetupState) => void) | undefined;
   const source = createSampleSource(initialRows);
-  const sink = { working: vi.fn(), alert: vi.fn(), silenceAlerts: vi.fn(), dispose: vi.fn() };
+  const sink = {
+    configure: vi.fn(),
+    working: vi.fn(),
+    alert: vi.fn(),
+    silenceAlerts: vi.fn(),
+    dispose: vi.fn(),
+  };
   const unsubscribe = vi.fn();
   const dispose = createSoundController(
     source,
@@ -78,7 +84,7 @@ test("settles flapping transitions, groups simultaneous alerts and repeats unans
   f.source.update("a", { state: "done" });
   f.source.update("b", { state: "needs_input" });
   vi.advanceTimersByTime(1000);
-  expect(f.sink.alert).toHaveBeenCalledExactlyOnceWith("needsYou", 0.5, SOUNDSCAPES.drive);
+  expect(f.sink.alert).toHaveBeenCalledExactlyOnceWith("needs-you", 0.5);
   f.source.update("b", { reason: "same state, new verdict", verdictId: "next" });
   vi.advanceTimersByTime(REPEAT_MS - 100);
   expect(f.sink.alert).toHaveBeenCalledTimes(1);
@@ -95,7 +101,7 @@ test("debounces close verdicts without losing a settled completion", async () =>
   const f = await fixture();
   f.source.update("a", { state: "done" });
   vi.advanceTimersByTime(1000);
-  expect(f.sink.alert).toHaveBeenCalledExactlyOnceWith("done", 0.5, SOUNDSCAPES.drive);
+  expect(f.sink.alert).toHaveBeenCalledExactlyOnceWith("done", 0.5);
   f.source.update("b", { state: "done" });
   vi.advanceTimersByTime(1000);
   expect(f.sink.alert).toHaveBeenCalledTimes(1);
@@ -130,9 +136,8 @@ test("applies mute and volumes, mixes activity, removes closed sessions and unsu
     working: true,
     workingVolume: 0.2,
     alerts: false,
-    soundscape: "soft",
   });
-  expect(f.sink.working).toHaveBeenLastCalledWith(activityIntensity([1000]), 0.2, SOUNDSCAPES.soft);
+  expect(f.sink.working).toHaveBeenLastCalledWith(activityIntensity([1000]), 0.2);
   f.source.update("b", { state: "needs_input" });
   vi.advanceTimersByTime(2000);
   expect(f.sink.alert).not.toHaveBeenCalled();
@@ -145,7 +150,7 @@ test("applies mute and volumes, mixes activity, removes closed sessions and unsu
   f.source.getSnapshot = () => [];
   f.source.update("a", { state: "failed" });
   vi.advanceTimersByTime(REPEAT_MS);
-  expect(f.sink.working).toHaveBeenLastCalledWith(0, 0.15, SOUNDSCAPES.drive);
+  expect(f.sink.working).toHaveBeenLastCalledWith(0, 0.15);
   expect(f.sink.alert).toHaveBeenCalledOnce();
   f.dispose();
   f.sink.working.mockClear();
@@ -181,4 +186,24 @@ test("waits for settings, ignores stale loads, handles failure and disposal duri
   finish?.(setupState());
   await Promise.resolve();
   expect(late.sink.working).not.toHaveBeenCalled();
+});
+
+test("refusal is immediate, independent of debounce, and respects switches and disposal", async () => {
+  const f = await fixture();
+  f.source.update("a", { state: "done" });
+  vi.advanceTimersByTime(1000);
+  f.dispose.refuse();
+  f.dispose.refuse();
+  expect(f.sink.alert.mock.calls.map((call) => String(call[0]))).toEqual([
+    "done",
+    "refusal",
+    "refusal",
+  ]);
+  f.settings({ ...DEFAULT_SOUND, alerts: false });
+  f.dispose.refuse();
+  expect(f.sink.alert).toHaveBeenCalledTimes(3);
+  f.settings();
+  f.dispose();
+  f.dispose.refuse();
+  expect(f.sink.alert).toHaveBeenCalledTimes(3);
 });
