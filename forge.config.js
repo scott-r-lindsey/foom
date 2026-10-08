@@ -10,11 +10,23 @@ module.exports = {
         [require("node:path").join(__dirname, "scripts/build.mjs")],
         { cwd: __dirname, stdio: "inherit" },
       );
+      require("node:child_process").execFileSync(
+        process.execPath,
+        [require("node:path").join(__dirname, "scripts/build-cli.mjs")],
+        { cwd: __dirname, stdio: "inherit" },
+      );
+    },
+    // The helper is a console Node SEA, never Electron's GUI executable.
+    packageAfterCopy: async (_config, buildPath) => {
+      await require("node:fs/promises").rm(require("node:path").join(buildPath, "build/sea"), {
+        recursive: true,
+        force: true,
+      });
     },
     packageAfterPrune: require("./scripts/package-conpty.cjs"),
   },
   packagerConfig: {
-    asar: { unpack: "**/build/observers/*", unpackDir: "**/node_modules/node-pty/**" },
+    asar: { unpack: "**/build/{observers,console}/*", unpackDir: "**/node_modules/node-pty/**" },
     executableName: "foom",
     appBundleId: "com.foom.desktop",
     // Include production dependencies; native PTY binaries and helpers must live outside ASAR.

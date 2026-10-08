@@ -398,3 +398,45 @@ test("packaged utility host runs native PTYs with RunAsNode disabled", {
   }
   if (failure) throw failure;
 });
+
+test("packaged console helper runs without Node from relocated Unicode paths", async (context) => {
+  const { copyFileSync, chmodSync } = require("node:fs");
+  const { createHash } = require("node:crypto");
+  const root = path.join(__dirname, "../..", "out", `Foom-${process.platform}-${process.arch}`);
+  const resources =
+    process.platform === "darwin"
+      ? path.join(root, "Foom.app/Contents/Resources")
+      : path.join(root, "resources");
+  const directory = path.join(resources, "app.asar.unpacked/build/console");
+  const name = process.platform === "win32" ? "foom.exe" : "foom";
+  const helper = path.join(directory, name);
+  const manifest = JSON.parse(readFileSync(path.join(directory, "manifest.json"), "utf8"));
+  assert.equal(manifest.sha256, createHash("sha256").update(readFileSync(helper)).digest("hex"));
+  assert.match(manifest.node, /^24\./);
+  assert.ok(readFileSync(path.join(directory, "NODE-LICENSE.txt"), "utf8").includes("Node.js"));
+  const scratch = mkdtempSync(path.join(tmpdir(), "foom console 日本語 "));
+  context.after(() => rmSync(scratch, { recursive: true, force: true }));
+  const moved = path.join(scratch, name);
+  copyFileSync(helper, moved);
+  chmodSync(moved, 0o755);
+  const env = { ...process.env, PATH: scratch, NODE_OPTIONS: "--require=/foom-must-not-load-code" };
+  const { spawnSync } = require("node:child_process");
+  for (const executable of [helper, moved]) {
+    const version = spawnSync(executable, ["--version", "--json"], {
+      env,
+      encoding: "utf8",
+      timeout: deadline(5000),
+    });
+    assert.equal(version.status, 0, version.stderr);
+    assert.equal(version.stderr, "");
+    assert.deepEqual(JSON.parse(version.stdout), { version: manifest.version, protocol: 1 });
+    const invalid = spawnSync(executable, ["--unknown", "--json"], {
+      env,
+      encoding: "utf8",
+      timeout: deadline(5000),
+    });
+    assert.equal(invalid.status, 2);
+    assert.equal(invalid.stdout, "");
+    assert.deepEqual(JSON.parse(invalid.stderr), { error: "invalid_request" });
+  }
+});
