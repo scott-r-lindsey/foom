@@ -3659,6 +3659,10 @@ test("sidebar menus escape the scroll area, stay in the window and launch from a
   await bottom.click();
   const menu = page.getByRole("menu", { name: "Actions" });
   await expect(menu).toBeVisible();
+  // Visibility begins during the opening transform; measure the settled menu.
+  await menu.evaluate((element) =>
+    Promise.all(element.getAnimations({ subtree: true }).map((animation) => animation.finished)),
+  );
   const box = await menu.boundingBox();
   const anchor = await bottom.boundingBox();
   assert.ok(box && anchor);
@@ -3666,6 +3670,7 @@ test("sidebar menus escape the scroll area, stay in the window and launch from a
   assert.ok(box.x >= anchor.x + anchor.width, "menu opens to the right over the pane");
   assert.ok(
     box.y >= 0 && box.y + box.height <= viewport.height && box.x + box.width <= viewport.width,
+    JSON.stringify({ box, anchor, viewport }),
   );
   assert.equal(await menu.evaluate((element) => element.closest(".board-list")), null);
   await assertAccessible(page);
