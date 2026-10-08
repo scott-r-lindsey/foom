@@ -39,6 +39,8 @@ export interface WorkspaceTerminal {
   launchVersion?: number;
   /** Known bypass argument present at launch; does not infer global agent policy. */
   bypass?: boolean;
+  /** Launched for review with invocation-scoped read-only flags. */
+  readOnly?: boolean;
 }
 
 export interface WorkspaceSnapshot {
@@ -107,6 +109,7 @@ export interface SidebarInventory {
   shell: string;
 }
 export type SidebarCommand =
+  | { kind: "review"; repository: string; worktree: string; run: "claude" | "codex" }
   | { kind: "launch"; repository: string; worktree: string; run: AgentId | "shell" }
   | { kind: "remove-worktree"; repository: string; worktree: string }
   | { kind: "delete-merged-worktrees"; repository: string }

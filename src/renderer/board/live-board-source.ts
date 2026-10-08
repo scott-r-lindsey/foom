@@ -114,7 +114,12 @@ export function createAppSource(): BoardSource {
       waitingSince: state === "needs_input" ? row.waitingSince || Date.now() : 0,
     };
   };
-  const latest = (row: BoardRow): BoardRow => executionRow(latestVerdict(row));
+  const latest = (row: BoardRow): BoardRow => {
+    const next = executionRow(latestVerdict(row));
+    return next.readOnly && !next.reason.startsWith("Reviewing read-only · ")
+      ? { ...next, reason: `Reviewing read-only · ${next.reason}` }
+      : next;
+  };
   const latestVerdict = (row: BoardRow): BoardRow => {
     const state = currentState(row.id);
     const code = exits.get(row.id);
@@ -178,6 +183,7 @@ export function createAppSource(): BoardSource {
         worktreeRemoved: !checkout || checkout.prunable,
         exited: entry.exited ?? exits.has(entry.id),
         bypass: entry.bypass === true,
+        readOnly: entry.readOnly === true,
         conversationId: entry.conversationId,
         dormant: entry.dormant === true,
         launchVersion: entry.launchVersion ?? 0,

@@ -75,3 +75,17 @@ test("corrupt and oversized files are ignored; failed writes can be retried", as
   await store.save([]);
   expect(await store.load()).toEqual([]);
 });
+
+test("persists review policy and rejects malformed review metadata", async () => {
+  const { store } = await setup();
+  const entries = readSessions([{ ...record, readOnly: true }]);
+  await store.save(entries);
+  expect(await store.load()).toEqual(entries);
+  expect(entries[0]?.readOnly).toBe(true);
+  expect(readSessions([{ ...record, readOnly: false }])[0]?.readOnly).toBeUndefined();
+  for (const value of ["true", 1, null])
+    expect(() => readSessions([{ ...record, readOnly: value }])).toThrow("Invalid review mode");
+  expect(() =>
+    readSessions([{ ...record, agent: "shell", conversationId: undefined, readOnly: true }]),
+  ).toThrow("Invalid review mode");
+});

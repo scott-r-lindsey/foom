@@ -15,6 +15,8 @@ export interface BoardRow {
   worktreeRemoved?: boolean;
   /** Known bypass argument present at launch; does not infer global agent policy. */
   bypass?: boolean;
+  /** Launched for review with invocation-scoped read-only flags. */
+  readOnly?: boolean;
   kind: "sample" | "shell" | "agent";
   repository: string;
   branch: string;

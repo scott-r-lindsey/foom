@@ -402,3 +402,21 @@ validated completion facts. Antigravity conversation resumption remains unavaila
 Windows real-CLI timing and plugin trust behavior have not yet been measured.
 Native synthetic adapter tests exercise the Windows command path in CI; they are
 not a substitute for that outstanding real-client probe.
+
+## Read-only review launches (#114)
+
+Checked 2026-10-08 against installed CLI help and the official
+[Claude CLI reference](https://code.claude.com/docs/en/cli-reference),
+[Claude permission modes](https://code.claude.com/docs/en/permission-modes), and
+[Codex CLI reference](https://learn.chatgpt.com/docs/developer-commands?surface=cli).
+Claude uses `--permission-mode plan`; Codex uses `--sandbox read-only` and
+`-c approval_policy="never"`. Foom gates each action on complete help flags and
+mode names, and refuses an unsupported launch. Ordinary Foom argument defaults
+are omitted, including prompts, permission switches and profiles. No global
+configuration is edited. Per-session hooks remain attached when supported.
+
+Plan mode limits source edits through Claude's permission system; it is not a
+filesystem sandbox, and approved shell commands or configured integrations may
+have side effects. Codex's sandbox applies to local tool execution, not external
+integrations. Both interactive CLIs let users change permissions after launch;
+Foom's reason label records how it launched the session, not subsequent mode changes.
