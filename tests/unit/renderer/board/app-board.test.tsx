@@ -13,6 +13,9 @@ const mock = vi.hoisted(() => ({
   state: undefined as ((state: TerminalState) => void) | undefined,
   changed: undefined as (() => void) | undefined,
   exit: undefined as ((id: string, code: number) => void) | undefined,
+  availability: undefined as
+    | ((id: string, available: boolean, reset?: boolean) => void)
+    | undefined,
   activity: undefined as ((batch: TerminalActivity[]) => void) | undefined,
   workspace: vi.fn<() => Promise<WorkspaceSnapshot>>(),
   create: vi.fn<() => Promise<{ id: string; title: string }>>(),
@@ -129,6 +132,12 @@ beforeEach(() => {
         mock.changed = listener;
         return mock.off;
       },
+      onTerminalAvailability: (
+        listener: (id: string, available: boolean, reset?: boolean) => void,
+      ) => {
+        mock.availability = listener;
+        return mock.off;
+      },
       onState: (listener: (state: TerminalState) => void) => {
         mock.state = listener;
         return mock.off;
@@ -219,7 +228,7 @@ test("source connects independently of views, reconciles events, preserves order
   off();
   offActivity();
   disconnect?.();
-  expect(mock.off).toHaveBeenCalledTimes(4);
+  expect(mock.off).toHaveBeenCalledTimes(5);
 });
 test("late snapshots and disconnected refreshes cannot undo newer inventory or verdicts", async () => {
   const source = createAppSource();
@@ -547,3 +556,74 @@ test.each(["snapshot", "state", "exit"] as const)(
     off?.();
   },
 );
+
+test.each(["state", "exit"] as const)(
+  "host replacement drops late old events but retains new %s",
+  async (event) => {
+    const old = { ...agent("a"), exited: true, launchVersion: 1 };
+    mock.workspace.mockResolvedValue({ repositories: [], terminals: [old] });
+    const source = createAppSource();
+    const off = source.connect?.();
+    await settle();
+    const pending = Promise.withResolvers<undefined>();
+    mock.sidebarCommand.mockReturnValueOnce(pending.promise);
+    const resuming = source.sidebarCommand?.({ kind: "resume", id: "a" });
+    await settle();
+    mock.state?.({ ...verdict("a", 200), state: "done" });
+    mock.exit?.("a", 0);
+    mock.availability?.("a", false);
+    mock.availability?.("a", true); // Failed-shutdown restore is not a new launch.
+    expect(source.getSnapshot()[0]?.launchVersion).toBe(1);
+    mock.availability?.("a", true, true);
+    expect(source.getSnapshot()[0]).toMatchObject({
+      state: "working",
+      exited: false,
+      launchVersion: 2,
+    });
+    if (event === "state") mock.state?.(verdict("a", 300));
+    else mock.exit?.("a", 2);
+    mock.changed?.(); // An old in-flight snapshot arrives after the new event.
+    await settle();
+    mock.workspace.mockResolvedValue({
+      repositories: [],
+      terminals: [{ ...agent("a"), launchVersion: 2, exited: false }],
+    });
+    pending.resolve(undefined);
+    await resuming;
+    expect(source.getSnapshot()[0]).toMatchObject({
+      state: event === "state" ? "needs_input" : "failed",
+      launchVersion: 2,
+    });
+    off?.();
+  },
+);
+
+test("a failed replacement after host reset restores the saved dormant record", async () => {
+  const saved = {
+    ...agent("a"),
+    exited: true,
+    dormant: true,
+    launchVersion: 1,
+    conversationId: "saved",
+  };
+  mock.workspace.mockResolvedValue({ repositories: [], terminals: [saved] });
+  const source = createAppSource();
+  const off = source.connect?.();
+  await settle();
+  mock.sidebarCommand.mockImplementationOnce(() => {
+    mock.availability?.("a", true, true);
+    mock.state?.(verdict("a", 300));
+    return Promise.reject(new Error("launch failed"));
+  });
+  await expect(source.sidebarCommand?.({ kind: "resume", id: "a" })).rejects.toThrow(
+    "launch failed",
+  );
+  expect(source.getSnapshot()[0]).toMatchObject({
+    exited: true,
+    dormant: true,
+    launchVersion: 1,
+    state: "quiet_ok",
+    conversationId: "saved",
+  });
+  off?.();
+});
