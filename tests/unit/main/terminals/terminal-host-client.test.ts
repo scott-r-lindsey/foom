@@ -345,3 +345,16 @@ test("agent evidence is delivered only for live owned sessions", async () => {
   child.emit("message", { type: "evidence", id, evidence });
   expect(onEvidence).toHaveBeenCalledOnce();
 });
+
+test("reuses only a removed session ID and rejects malformed or occupied IDs", async () => {
+  const id = await create();
+  await expect(client.create({ ...spec, id })).rejects.toThrow("occupied");
+  await expect(client.create({ ...spec, id: "bad id" })).rejects.toThrow("Invalid");
+  child.emit("message", { type: "exit", id, code: 0 });
+  const killing = client.kill(id);
+  child.reply();
+  await killing;
+  const resumed = client.create({ ...spec, id });
+  child.reply();
+  expect(await resumed).toBe(id);
+});

@@ -85,6 +85,7 @@ describe("OS hook adapters", () => {
         expect(signals).toEqual([
           {
             terminalId: "terminal",
+            conversationId: agent === "claude" ? "session" : "thread",
             action: agent === "claude" ? "needs_input" : "classify",
             signal: agent === "claude" ? "claude:PermissionRequest" : "codex:agent-turn-complete",
           },

@@ -1,3 +1,5 @@
+import { conversationId, resumeArguments } from "../agents/conversation";
+import type { SessionStore } from "./session-store";
 import type { InventoryWatch } from "./inventory-watch";
 import type { ControlLaunch } from "../control/types";
 import type { ControlRuntime } from "../control/runtime";
@@ -72,6 +74,8 @@ export interface WorkspaceDependencies {
   onChange?(): void;
   watcher?: Pick<InventoryWatch, "sync" | "dispose">;
   acknowledgeCodex(): Promise<void>;
+  sessions?: Pick<SessionStore, "load" | "save" | "flush">;
+  copyText?(text: string): void | Promise<void>;
   agents?: (
     prepare: (agent: AgentId) => Promise<AgentHooks>,
     control?: (repository: string, worktree: string, sessionId?: string) => Promise<ControlLaunch>,
@@ -98,6 +102,7 @@ export class Workspace {
   private acknowledged = false;
   private hooksEnabled = true;
   private defaultArguments = EMPTY_AGENT_ARGUMENTS;
+  private readonly busySessions = new Set<string>();
   private readonly busyWorktrees = new Set<string>();
   private readonly repositoryOperations = new Map<string, Set<symbol>>();
   private readonly removingRepositories = new Set<string>();
@@ -151,13 +156,32 @@ export class Workspace {
     this.acknowledged = settings.codexNotifierAcknowledged ?? false;
   }
 
+  async restore(): Promise<void> {
+    for (const entry of (await this.deps.sessions?.load()) ?? []) {
+      if (!this.deps.worktrees.listRepositories().some((repo) => repo.path === entry.repository))
+        continue;
+      this.launched.set(entry.id, entry);
+      this.track(entry.id).exitCode = -1;
+    }
+  }
+
+  ownsSession(id: string): boolean {
+    return this.launched.has(id);
+  }
+
+  private persist(): void {
+    void this.deps.sessions?.save([...this.launched.values()]).catch((error: unknown) => {
+      console.error("Unable to save sessions:", error);
+    });
+  }
+
   snapshot(): WorkspaceSnapshot {
     return {
       repositories: this.deps.worktrees.listRepositories(),
       terminals: [...this.launched.values()].map((entry) => ({
         ...entry,
         state: this.terminals.get(entry.id)?.state ?? null,
-        exited: this.terminals.get(entry.id)?.exitCode !== undefined,
+        exited: entry.dormant === true || this.terminals.get(entry.id)?.exitCode !== undefined,
       })),
     };
   }
@@ -285,6 +309,7 @@ export class Workspace {
     mainCheckout = false,
     sharedCheckout = false,
     checkoutIdentity?: string,
+    replacement?: { id: string; conversationId?: string },
   ): Promise<{ id: string; attention: "hooks" | "evaluator" }> {
     return this.withRepository(request.repository, async () => {
       if (!this.enabled[request.agent]) throw new Error("This agent is turned off in preflight");
@@ -298,11 +323,23 @@ export class Workspace {
       const result = await this.agents.launch({
         ...request,
         defaultArguments,
+        ...(replacement
+          ? {
+              terminalId: replacement.id,
+              ...(replacement.conversationId === undefined
+                ? {}
+                : { conversationId: replacement.conversationId }),
+            }
+          : {}),
         mainCheckout,
         sharedCheckout,
         ...(checkoutIdentity !== undefined ? { checkoutIdentity } : {}),
       });
+      const launchVersion = replacement
+        ? (this.launched.get(replacement.id)?.launchVersion ?? 0) + 1
+        : undefined;
       this.launched.set(result.id, {
+        ...(launchVersion === undefined ? {} : { launchVersion }),
         id: result.id,
         kind: "agent",
         agent: request.agent,
@@ -310,10 +347,14 @@ export class Workspace {
         worktree: request.worktree,
         branch: tree?.branch ?? null,
         attention: result.attention,
+        ...(replacement?.conversationId === undefined
+          ? {}
+          : { conversationId: replacement.conversationId }),
         bypass: hasBypassArgument(request.agent, defaultArguments),
         state: null,
       });
       this.track(result.id);
+      this.persist();
       this.refresh();
       return result;
     });
@@ -384,6 +425,7 @@ export class Workspace {
           state: null,
         });
         this.track(id);
+        this.persist();
         this.refresh();
         return id;
       } finally {
@@ -423,6 +465,7 @@ export class Workspace {
         (item) => item.worktree === entry.worktree,
       );
       for (const item of entries) {
+        if (item.dormant) continue;
         await this.deps.terminals.stop(item.id);
         await this.exited(item.id, -1);
       }
@@ -437,7 +480,7 @@ export class Workspace {
         identity,
       );
       for (const item of entries) {
-        await this.deps.terminals.kill(item.id);
+        if (!item.dormant) await this.deps.terminals.kill(item.id);
         this.removed(item.id);
       }
       return true;
@@ -463,6 +506,35 @@ export class Workspace {
 
   async sidebarCommand(command: SidebarCommand, confirm: ConfirmWorkspace): Promise<void> {
     if (this.closed) throw new Error("Workspace is closed");
+    if ("id" in command && this.busySessions.has(command.id)) throw new Error("Session is busy");
+    if (
+      command.kind === "resume" ||
+      command.kind === "new-conversation" ||
+      command.kind === "copy-session-id"
+    ) {
+      const entry = this.launched.get(command.id);
+      if (!entry || entry.agent === "shell") throw new Error("Unknown agent session");
+      if (this.terminals.get(entry.id)?.exitCode === undefined)
+        throw new Error("Session is still running");
+      if (command.kind === "copy-session-id") {
+        if (!conversationId(entry.conversationId)) throw new Error("No conversation ID recorded");
+        await this.deps.copyText?.(entry.conversationId);
+        return;
+      }
+      if (command.kind === "resume") resumeArguments(entry.agent, entry.conversationId);
+      this.busySessions.add(entry.id);
+      try {
+        await this.startExisting(entry.repository, entry.worktree, entry.agent, confirm, {
+          id: entry.id,
+          ...(command.kind === "resume" && entry.conversationId !== undefined
+            ? { conversationId: entry.conversationId }
+            : {}),
+        });
+      } finally {
+        this.busySessions.delete(entry.id);
+      }
+      return;
+    }
     if (command.kind === "stop" || command.kind === "close" || command.kind === "restart") {
       const entry = this.launched.get(command.id);
       if (!entry && command.kind !== "stop" && command.kind !== "close")
@@ -478,7 +550,7 @@ export class Workspace {
         if (!entry || entry.kind !== "shell") throw new Error("Only shells can restart");
         await this.startExisting(entry.repository, entry.worktree, "shell", confirm);
       }
-      await this.deps.terminals.kill(command.id);
+      if (!entry?.dormant) await this.deps.terminals.kill(command.id);
       this.removed(command.id);
       return;
     }
@@ -511,6 +583,7 @@ export class Workspace {
     worktree: string,
     run: AgentId | "shell",
     confirm: ConfirmWorkspace,
+    replacement?: { id: string; conversationId?: string },
   ): Promise<void> {
     return this.withRepository(repository, async () => {
       const tree = (await this.worktrees(repository)).find((item) => item.path === worktree);
@@ -534,19 +607,36 @@ export class Workspace {
             await this.deps.acknowledgeCodex();
             this.acknowledged = true;
           }
-          await this.launchAgent(
-            {
-              agent: run,
-              repository,
-              worktree,
-              cols: 80,
-              rows: 24,
-              acknowledgeCodexNotifierReplacement: this.acknowledged,
-            },
-            worktree === repository,
-            true,
-            identity,
-          );
+          if (replacement) {
+            const old = this.launched.get(replacement.id);
+            if (!old || this.terminals.get(old.id)?.exitCode === undefined)
+              throw new Error("Session is no longer exited");
+            await this.queues.get(old.id);
+            if (!old.dormant) await this.deps.terminals.kill(old.id);
+            old.dormant = true;
+            this.terminals.delete(old.id);
+            this.deps.verdicts.forget(old.id);
+          }
+          try {
+            await this.launchAgent(
+              {
+                agent: run,
+                repository,
+                worktree,
+                cols: 80,
+                rows: 24,
+                acknowledgeCodexNotifierReplacement: this.acknowledged,
+              },
+              worktree === repository,
+              true,
+              identity,
+              replacement,
+            );
+          } catch (error) {
+            if (replacement) this.track(replacement.id).exitCode = -1;
+            this.deps.onChange?.();
+            throw error;
+          }
         } else {
           if ((await this.deps.worktrees.launchIdentity(repository, worktree)) !== identity)
             throw new Error("Worktree has changed. Select it and try again.");
@@ -570,6 +660,7 @@ export class Workspace {
             state: null,
           });
           this.track(id);
+          this.persist();
           this.refresh();
         }
       } finally {
@@ -780,6 +871,16 @@ export class Workspace {
   hook(signal: HookSignal): Promise<void> {
     const id = this.hookKeys.get(signal.terminalId);
     if (!id) return Promise.resolve();
+    const entry = this.launched.get(id);
+    if (
+      entry &&
+      conversationId(signal.conversationId) &&
+      entry.conversationId !== signal.conversationId
+    ) {
+      entry.conversationId = signal.conversationId;
+      this.persist();
+      this.deps.onChange?.();
+    }
     // A bound key means the terminal exists, even if launch() hasn't returned yet.
     const { generation } = this.track(id);
     return this.enqueue(id, async (terminal) => {
@@ -787,7 +888,8 @@ export class Workspace {
       if (terminal.exitCode !== undefined || terminal.generation !== generation) return;
       // A permission request stays in force until the user replies or dismisses it;
       // completion hooks only request classification.
-      if (signal.action === "needs_input") terminal.hook = { ...signal, terminalId: id };
+      if (signal.action === "needs_input")
+        terminal.hook = { terminalId: id, action: signal.action, signal: signal.signal };
       await this.evaluate(id, terminal, generation);
     });
   }
@@ -808,6 +910,7 @@ export class Workspace {
   removed(id: string): void {
     this.agents.release(id);
     this.launched.delete(id);
+    this.persist();
     this.terminals.delete(id);
     this.deps.verdicts.forget(id);
     this.refresh();
@@ -872,7 +975,11 @@ export class Workspace {
       this.hookKeys.clear();
       const receiver = this.receiver;
       this.receiver = undefined;
-      if (receiver) await (await receiver.catch(() => undefined))?.close();
+      try {
+        if (receiver) await (await receiver.catch(() => undefined))?.close();
+      } finally {
+        await this.deps.sessions?.flush();
+      }
     }
   }
 }

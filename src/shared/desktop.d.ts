@@ -13,6 +13,8 @@ export interface TerminalTelemetry {
   onQuiet?(id: string): void;
 }
 export interface TerminalSpec {
+  /** Main-selected ID when replacing an exited session. Never accepted from renderer launch data. */
+  id?: string;
   /** Main opts interactive shells into invocation-scoped lifecycle integration. */
   shellIntegration?: boolean;
   command: string;
@@ -38,6 +40,8 @@ export interface DesktopApi extends WorkspaceApi, SetupApi {
   onBoardCommand(callback: (command: BoardCommand) => void): () => void;
   onActivity(callback: (batch: TerminalActivity[]) => void): () => void;
   onData(callback: (id: string, token: string, data: string) => void): () => void;
-  onTerminalAvailability(callback: (id: string, available: boolean) => void): () => void;
+  onTerminalAvailability(
+    callback: (id: string, available: boolean, reset?: boolean) => void,
+  ): () => void;
   onExit(callback: (id: string, code: number) => void): () => void;
 }

@@ -81,8 +81,18 @@ describe("loopback hook receiver", () => {
       ),
     ).toBe(204);
     expect(signals).toEqual([
-      { terminalId: "terminal-1", action: "classify", signal: "claude:Stop" },
-      { terminalId: "terminal-2", action: "needs_input", signal: "claude:PermissionRequest" },
+      {
+        terminalId: "terminal-1",
+        conversationId: "agent-session",
+        action: "classify",
+        signal: "claude:Stop",
+      },
+      {
+        terminalId: "terminal-2",
+        conversationId: "agent-session",
+        action: "needs_input",
+        signal: "claude:PermissionRequest",
+      },
     ]);
   });
 
@@ -107,6 +117,7 @@ describe("loopback hook receiver", () => {
           : [
               {
                 terminalId: "terminal-1",
+                conversationId: "agent-session",
                 action: notification_type === "permission_prompt" ? "needs_input" : "classify",
                 signal: `claude:${notification_type}`,
               },
@@ -126,7 +137,12 @@ describe("loopback hook receiver", () => {
     };
     expect(await post(launch, JSON.stringify(event))).toBe(204);
     expect(signals).toEqual([
-      { terminalId: "terminal-1", action: "classify", signal: "codex:agent-turn-complete" },
+      {
+        terminalId: "terminal-1",
+        conversationId: "thread-1",
+        action: "classify",
+        signal: "codex:agent-turn-complete",
+      },
     ]);
     expect(await post(launch, JSON.stringify({ ...event, "thread-id": "thread-2" }))).toBe(400);
     expect(await post(launch, JSON.stringify({ ...event, "turn-id": null }))).toBe(400);

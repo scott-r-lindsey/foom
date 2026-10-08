@@ -27,6 +27,7 @@ const contents = {
 const window = { webContents: contents } as unknown as BrowserWindow;
 const trusted = { sender: contents, senderFrame: frame } as unknown as IpcMainInvokeEvent;
 const workspace = {
+  ownsSession: vi.fn((id: string) => id === "restored"),
   startWorktree: vi.fn(() => Promise.resolve("t1")),
   removeWorktree: vi.fn(
     (_id: string, confirm: (branch: string, changes: string) => Promise<boolean>) =>
@@ -273,9 +274,12 @@ test("sidebar commands copy known fields, validate IDs and paths, and keep confi
     { kind: "stop", id: "t1" },
     { kind: "close", id: "t1" },
     { kind: "restart", id: "t1" },
+    { kind: "resume", id: "restored" },
+    { kind: "new-conversation", id: "t1" },
+    { kind: "copy-session-id", id: "restored" },
   ]) {
     await invoke("workspace:sidebar-command", [
-      { ...value, executable: "/evil", sharedCheckout: true },
+      { ...value, executable: "/evil", sharedCheckout: true, conversationId: "forged" },
     ]);
     expect(command).toHaveBeenLastCalledWith(value, expect.any(Function));
   }

@@ -135,6 +135,7 @@ it.skipIf(process.platform === "win32")(
       expect(signals).toEqual([
         {
           terminalId: "real-probe-terminal",
+          conversationId: "synthetic-session",
           action: "needs_input",
           signal: "claude:PermissionRequest",
         },

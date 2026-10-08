@@ -390,7 +390,11 @@ test("removal notifications validate IDs and strip event objects", async () => {
   for (const ids of [null, 42, [""], ["x".repeat(201)], ["owned", 42]]) handler?.({}, ids, false);
   handler?.({}, ["owned"], false);
   handler?.({}, ["owned"], "invalid");
-  expect(removed.mock.calls).toEqual([["owned", false]]);
+  handler?.({}, ["owned"], true, true);
+  expect(removed.mock.calls).toEqual([
+    ["owned", false],
+    ["owned", true, true],
+  ]);
   off();
   expect(mock.removeListener).toHaveBeenCalledWith("terminal:availability", handler);
 });

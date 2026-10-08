@@ -98,6 +98,18 @@ export function parseAgentArguments(agent: AgentId, value: unknown): readonly st
         index,
         "--settings, --safe-mode and --bare are reserved to preserve Foom's hooks.",
       );
+    const conversationOption =
+      agent === "claude"
+        ? /^(?:--resume|--continue|--session-id|--fork-session)(?:=|$)|^-[rc]/u.test(arg)
+        : agent === "codex"
+          ? /^(?:--last|--fork)(?:=|$)/u.test(arg) || arg === "resume" || arg === "fork"
+          : /^(?:--conversation|--continue)(?:=|$)|^-c/u.test(arg);
+    if (conversationOption)
+      throw argumentError(
+        agent,
+        index,
+        "Conversation selection is reserved for Foom's session actions.",
+      );
     if (agent !== "codex") continue;
     const config = codexConfig(arg, args[index + 1]);
     if (config !== undefined && /(?:^|\.)(?:notify|hooks)(?:\.|$)/u.test(config.key))

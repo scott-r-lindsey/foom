@@ -293,12 +293,21 @@ const desktop: DesktopApi = {
     };
   },
   onTerminalAvailability(callback) {
-    const listener = (_event: IpcRendererEvent, ids: unknown, available: unknown) => {
+    const listener = (
+      _event: IpcRendererEvent,
+      ids: unknown,
+      available: unknown,
+      reset?: unknown,
+    ) => {
       if (!Array.isArray(ids) || typeof available !== "boolean") return;
       const values: unknown[] = ids;
       if (!values.every((id) => typeof id === "string" && id.length > 0 && id.length <= 200))
         return;
-      for (const id of values) if (typeof id === "string") callback(id, available);
+      for (const id of values)
+        if (typeof id === "string") {
+          if (reset === true) callback(id, available, true);
+          else callback(id, available);
+        }
     };
     ipcRenderer.on("terminal:availability", listener);
     return () => {

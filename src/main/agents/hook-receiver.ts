@@ -1,3 +1,4 @@
+import { conversationId } from "./conversation";
 import { createHash, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import { createServer } from "node:http";
 import type { IncomingMessage, ServerResponse } from "node:http";
@@ -21,7 +22,7 @@ function identifier(value: unknown): value is string {
 function reduceEvent(session: Session, value: unknown): HookSignal | undefined {
   if (!record(value)) throw new Error("Invalid event");
   const agentId = session.agent === "claude" ? value["session_id"] : value["thread-id"];
-  if (!identifier(agentId) || (session.agentId !== undefined && session.agentId !== agentId))
+  if (!conversationId(agentId) || (session.agentId !== undefined && session.agentId !== agentId))
     throw new Error("Invalid agent session");
   let signal: HookSignal["signal"];
   let action: HookSignal["action"] = "classify";
@@ -53,7 +54,7 @@ function reduceEvent(session: Session, value: unknown): HookSignal | undefined {
     }
   }
   session.agentId = agentId;
-  return { terminalId: session.terminalId, action, signal };
+  return { terminalId: session.terminalId, action, signal, conversationId: agentId };
 }
 
 /** Main-only launch capability. Payloads are never logged or passed to consumers. */

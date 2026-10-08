@@ -260,6 +260,10 @@ export function Board({
     const before = new Set(source.getSnapshot().map((row) => row.id));
     return (source.sidebarCommand?.(value) ?? Promise.resolve())
       .then(() => {
+        if (value.kind === "resume" || value.kind === "new-conversation") {
+          const resumed = source.getSnapshot().find((row) => row.id === value.id && !row.exited);
+          if (resumed) open(resumed, true);
+        }
         if (value.kind === "launch" || value.kind === "restart") {
           const created = source.getSnapshot().find((row) => !before.has(row.id));
           if (created) {

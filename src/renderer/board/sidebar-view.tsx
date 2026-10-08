@@ -178,17 +178,48 @@ export function Sidebar({
       row.exited ?? (row.kind === "sample" && (row.state === "done" || row.state === "failed"));
     const items: (RowAction | null)[] = exited
       ? [
-          ...(row.kind === "shell" && !row.worktreeRemoved
-            ? [
-                {
-                  label: "Restart shell",
-                  run: () => {
-                    return command({ kind: "restart", id: row.id });
+          ...(row.kind === "shell"
+            ? row.worktreeRemoved
+              ? []
+              : [
+                  {
+                    label: "Restart shell",
+                    run: () => {
+                      return command({ kind: "restart", id: row.id });
+                    },
                   },
-                },
+                  null,
+                ]
+            : [
+                ...(!row.worktreeRemoved &&
+                row.conversationId &&
+                (row.agent === "claude" || row.agent === "codex")
+                  ? [
+                      {
+                        label: "Resume conversation",
+                        hint: `${row.conversationId.slice(0, 8)}…`,
+                        run: () => command({ kind: "resume", id: row.id }),
+                      },
+                    ]
+                  : []),
+                ...(!row.worktreeRemoved
+                  ? [
+                      {
+                        label: "New conversation here",
+                        run: () => command({ kind: "new-conversation", id: row.id }),
+                      },
+                    ]
+                  : []),
+                ...(row.conversationId
+                  ? [
+                      {
+                        label: "Copy session ID",
+                        run: () => command({ kind: "copy-session-id", id: row.id }),
+                      },
+                    ]
+                  : []),
                 null,
-              ]
-            : []),
+              ]),
           {
             label: "Close",
             run: () => {
