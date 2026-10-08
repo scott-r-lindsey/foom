@@ -79,7 +79,7 @@ const mock = vi.hoisted(() => {
     onInput: vi.fn<(callback: (data: string) => void) => void>(),
     onData: vi.fn<(callback: (id: string, token: string, data: string) => void) => () => void>(),
     onTerminalAvailability:
-      vi.fn<(callback: (id: string, available: boolean) => void) => () => void>(),
+      vi.fn<(callback: (id: string, available: boolean, reset?: boolean) => void) => () => void>(),
     onExit: vi.fn<(callback: (id: string, code: number) => void) => () => void>(),
     create: vi.fn<(cols: number, rows: number) => Promise<{ id: string; title: string }>>(),
     attach: vi.fn(),
@@ -1020,5 +1020,20 @@ test("failed shutdown restores the previous view unless the user changed selecti
   availability?.("one", true);
   await Promise.resolve();
   expect(mock.attach).toHaveBeenLastCalledWith("two");
+  controller.dispose();
+});
+
+test("a fresh incarnation of an exited terminal discards its old exit state", async () => {
+  const update = vi.fn();
+  const controller = createShell(document.createElement("div"), update, false);
+  await controller.open("agent-a");
+  mock.onExit.mock.calls[0]?.[0]("agent-a", 7);
+  await controller.hide();
+  mock.onTerminalAvailability.mock.calls[0]?.[0]("agent-a", false);
+  mock.onTerminalAvailability.mock.calls[0]?.[0]("agent-a", true, true);
+  await controller.open("agent-a");
+  expect(update).toHaveBeenLastCalledWith(
+    expect.objectContaining({ state: "quiet_ok", status: "Terminal" }),
+  );
   controller.dispose();
 });

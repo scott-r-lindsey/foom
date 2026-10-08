@@ -25,8 +25,8 @@ test("board uses the displayed terminal and window focus for muting and disposes
   const source = createSampleSource([
     {
       id: "a",
-      kind: "shell",
-      agent: "Shell",
+      kind: "agent",
+      agent: "Claude",
       repository: "Local",
       branch: "Shell",
       state: "working",
@@ -60,7 +60,10 @@ test("board uses the displayed terminal and window focus for muting and disposes
     <Board source={source} soundSetup={soundSetup} settingsView={<div>Settings</div>} />,
   );
   act(() => {
-    source.update("a", { state: "done" });
+    source.update("a", {
+      state: "done",
+      execution: { terminalId: "a", launch: 1, revision: 2, turn: 1, phase: "idle" },
+    });
     vi.advanceTimersByTime(2100);
   });
   expect(sink.alert).toHaveBeenCalledTimes(2);
@@ -68,7 +71,7 @@ test("board uses the displayed terminal and window focus for muting and disposes
   expect(sink.dispose).toHaveBeenCalledOnce();
 });
 
-test("only the focused tile is muted while other visible tiles can alert", async () => {
+test("completion is audible in the focused tile while focused attention is muted", async () => {
   vi.useFakeTimers();
   localStorage.clear();
   vi.spyOn(document, "hasFocus").mockReturnValue(true);
@@ -83,8 +86,8 @@ test("only the focused tile is muted while other visible tiles can alert", async
   const source = createSampleSource(
     ["a", "b"].map((id) => ({
       id,
-      kind: "shell",
-      agent: "Shell",
+      kind: "agent",
+      agent: "Claude",
       repository: "Local",
       branch: id,
       state: "working",
@@ -108,24 +111,30 @@ test("only the focused tile is muted while other visible tiles can alert", async
   fireEvent.click(view.getByRole("button", { name: "Split right" }));
   fireEvent.click(second);
   act(() => {
-    source.update("b", { state: "done" });
-    vi.advanceTimersByTime(1200);
-  });
-  expect(sink.alert).not.toHaveBeenCalled();
-  act(() => {
-    source.update("a", { state: "done" });
+    source.update("b", {
+      state: "done",
+      execution: { terminalId: "b", launch: 1, revision: 2, turn: 1, phase: "idle" },
+    });
     vi.advanceTimersByTime(1200);
   });
   expect(sink.alert).toHaveBeenCalledOnce();
+  act(() => {
+    source.update("a", {
+      state: "done",
+      execution: { terminalId: "a", launch: 1, revision: 2, turn: 1, phase: "idle" },
+    });
+    vi.advanceTimersByTime(2200);
+  });
+  expect(sink.alert).toHaveBeenCalledTimes(2);
   fireEvent.click(first);
   act(() => {
     source.update("a", { state: "needs_input" });
     vi.advanceTimersByTime(2100);
   });
-  expect(sink.alert).toHaveBeenCalledOnce();
+  expect(sink.alert).toHaveBeenCalledTimes(2);
   act(() => {
     source.update("b", { state: "needs_input" });
     vi.advanceTimersByTime(1200);
   });
-  expect(sink.alert).toHaveBeenCalledTimes(2);
+  expect(sink.alert).toHaveBeenCalledTimes(3);
 });

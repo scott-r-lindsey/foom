@@ -1,10 +1,17 @@
+import { conversationId } from "./conversation";
 import { createHash, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import { createServer } from "node:http";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import type { HookAgent, HookLaunch, HookSignal } from "../../shared/hooks";
 
 export const MAX_HOOK_BYTES = 64 * 1024;
-type Session = { terminalId: string; agent: HookAgent; digest: Buffer; agentId?: string };
+type Session = {
+  terminalId: string;
+  agent: HookAgent;
+  digest: Buffer;
+  agentId?: string;
+  completedTurns?: Set<string>;
+};
 
 function digest(token: string): Buffer {
   return createHash("sha256").update(token).digest();
@@ -21,7 +28,7 @@ function identifier(value: unknown): value is string {
 function reduceEvent(session: Session, value: unknown): HookSignal | undefined {
   if (!record(value)) throw new Error("Invalid event");
   const agentId = session.agent === "claude" ? value["session_id"] : value["thread-id"];
-  if (!identifier(agentId) || (session.agentId !== undefined && session.agentId !== agentId))
+  if (!conversationId(agentId) || (session.agentId !== undefined && session.agentId !== agentId))
     throw new Error("Invalid agent session");
   let signal: HookSignal["signal"];
   let action: HookSignal["action"] = "classify";
@@ -29,9 +36,25 @@ function reduceEvent(session: Session, value: unknown): HookSignal | undefined {
     if (!identifier(value["turn-id"]) || typeof value["type"] !== "string")
       throw new Error("Invalid turn");
     if (value["type"] !== "agent-turn-complete") return;
+    const turn = value["turn-id"];
+    session.completedTurns ??= new Set();
+    if (session.completedTurns.has(turn)) return;
+    session.completedTurns.add(turn);
+    if (session.completedTurns.size > 128) {
+      const oldest = session.completedTurns.values().next().value;
+      if (oldest !== undefined) session.completedTurns.delete(oldest);
+    }
     signal = "codex:agent-turn-complete";
   } else {
     switch (value["hook_event_name"]) {
+      case "UserPromptSubmit":
+        signal = "claude:UserPromptSubmit";
+        action = "working";
+        break;
+      case "PreToolUse":
+        signal = "claude:PreToolUse";
+        action = "working";
+        break;
       case "Stop":
         signal = "claude:Stop";
         break;
@@ -53,7 +76,7 @@ function reduceEvent(session: Session, value: unknown): HookSignal | undefined {
     }
   }
   session.agentId = agentId;
-  return { terminalId: session.terminalId, action, signal };
+  return { terminalId: session.terminalId, action, signal, conversationId: agentId };
 }
 
 /** Main-only launch capability. Payloads are never logged or passed to consumers. */

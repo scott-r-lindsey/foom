@@ -81,8 +81,18 @@ describe("loopback hook receiver", () => {
       ),
     ).toBe(204);
     expect(signals).toEqual([
-      { terminalId: "terminal-1", action: "classify", signal: "claude:Stop" },
-      { terminalId: "terminal-2", action: "needs_input", signal: "claude:PermissionRequest" },
+      {
+        terminalId: "terminal-1",
+        conversationId: "agent-session",
+        action: "classify",
+        signal: "claude:Stop",
+      },
+      {
+        terminalId: "terminal-2",
+        conversationId: "agent-session",
+        action: "needs_input",
+        signal: "claude:PermissionRequest",
+      },
     ]);
   });
 
@@ -107,6 +117,7 @@ describe("loopback hook receiver", () => {
           : [
               {
                 terminalId: "terminal-1",
+                conversationId: "agent-session",
                 action: notification_type === "permission_prompt" ? "needs_input" : "classify",
                 signal: `claude:${notification_type}`,
               },
@@ -126,7 +137,12 @@ describe("loopback hook receiver", () => {
     };
     expect(await post(launch, JSON.stringify(event))).toBe(204);
     expect(signals).toEqual([
-      { terminalId: "terminal-1", action: "classify", signal: "codex:agent-turn-complete" },
+      {
+        terminalId: "terminal-1",
+        conversationId: "thread-1",
+        action: "classify",
+        signal: "codex:agent-turn-complete",
+      },
     ]);
     expect(await post(launch, JSON.stringify({ ...event, "thread-id": "thread-2" }))).toBe(400);
     expect(await post(launch, JSON.stringify({ ...event, "turn-id": null }))).toBe(400);
@@ -290,4 +306,50 @@ describe("loopback hook receiver", () => {
     expect(() => receiver.register("terminal", "claude")).toThrow("closed");
     await expect(post(launch)).rejects.toThrow();
   });
+});
+
+it("reduces observer hooks to working evidence without forwarding tool inputs or prompts", async () => {
+  const { launch, signals } = await setup();
+  for (const hook_event_name of ["UserPromptSubmit", "PreToolUse"]) {
+    expect(
+      await post(
+        launch,
+        JSON.stringify({
+          ...stop,
+          hook_event_name,
+          prompt: "private",
+          tool_input: { command: "secret" },
+        }),
+      ),
+    ).toBe(204);
+  }
+  expect(signals).toEqual([
+    {
+      terminalId: "terminal-1",
+      action: "working",
+      signal: "claude:UserPromptSubmit",
+      conversationId: "agent-session",
+    },
+    {
+      terminalId: "terminal-1",
+      action: "working",
+      signal: "claude:PreToolUse",
+      conversationId: "agent-session",
+    },
+  ]);
+});
+
+it("deduplicates Codex notifications within each launch with bounded turn history", async () => {
+  const { receiver, launch, signals } = await setup("codex");
+  const payload = (turn: string) =>
+    JSON.stringify({ "thread-id": "conversation", "turn-id": turn, type: "agent-turn-complete" });
+  await post(launch, payload("first"));
+  await post(launch, payload("first"));
+  expect(signals).toHaveLength(1);
+  for (let i = 0; i < 128; i++) await post(launch, payload(`turn-${String(i)}`));
+  await post(launch, payload("turn-127"));
+  expect(signals).toHaveLength(129);
+  const next = receiver.register("terminal-1", "codex");
+  await post(next, payload("first"));
+  expect(signals).toHaveLength(130);
 });

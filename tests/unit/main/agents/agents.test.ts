@@ -241,6 +241,8 @@ describe("launch", () => {
           "--settings",
           JSON.stringify({
             hooks: {
+              UserPromptSubmit: [{ hooks: [{ type: "command", command: binding.claudeCommand }] }],
+              PreToolUse: [{ hooks: [{ type: "command", command: binding.claudeCommand }] }],
               Stop: [{ hooks: [{ type: "command", command: binding.claudeCommand }] }],
               PermissionRequest: [{ hooks: [{ type: "command", command: binding.claudeCommand }] }],
               Notification: [{ hooks: [{ type: "command", command: binding.claudeCommand }] }],
@@ -464,6 +466,36 @@ it("passes defaults unchanged without hooks", async () => {
   expect(create.mock.calls[0]?.[0].args).toEqual(defaults);
 });
 
+describe("conversation resume", () => {
+  it.each(["claude", "codex"] as const)(
+    "resumes %s with fresh per-launch hooks and the same terminal ID",
+    async (agent) => {
+      await service.launch({
+        ...request,
+        agent,
+        terminalId: "original",
+        conversationId: "conversation-123",
+        acknowledgeCodexNotifierReplacement: true,
+      });
+      const spec = create.mock.calls[0]?.[0];
+      expect(spec?.id).toBe("original");
+      expect(spec?.args.slice(0, 2)).toEqual([
+        agent === "claude" ? "--resume" : "resume",
+        "conversation-123",
+      ]);
+      expect(spec?.args).toContain(agent === "claude" ? "--settings" : "-c");
+      expect(prepare).toHaveBeenCalledWith(agent);
+    },
+  );
+  it("rejects malformed IDs before preparing hooks or creating a PTY", async () => {
+    await expect(service.launch({ ...request, conversationId: "--last" })).rejects.toThrow(
+      "Invalid conversation ID",
+    );
+    expect(prepare).not.toHaveBeenCalled();
+    expect(create).not.toHaveBeenCalled();
+  });
+});
+
 it.each([true, false])(
   "provisions control independently of hooks=%s and revokes on exit",
   async (hooks) => {
@@ -522,4 +554,24 @@ it("revokes prepared hooks if control setup fails", async () => {
   );
   await expect(service.launch(request)).rejects.toThrow("control failed");
   expect(cleanup).toHaveBeenCalledTimes(1);
+});
+
+it("rotates control credentials when resuming the same terminal", async () => {
+  const first = { env: { FOOM_CONTROL_TOKEN: "first" }, bind: vi.fn(), dispose: vi.fn() };
+  const second = { env: { FOOM_CONTROL_TOKEN: "second" }, bind: vi.fn(), dispose: vi.fn() };
+  const control = vi.fn().mockResolvedValueOnce(first).mockResolvedValueOnce(second);
+  service = new AgentService({ listWorktrees, launchIdentity }, { create }, prepare, control);
+  await service.launch(request);
+  service.release("terminal-id");
+  expect(first.dispose).toHaveBeenCalledOnce();
+  await service.launch({ ...request, terminalId: "terminal-id", conversationId: "saved-id" });
+  expect(create.mock.calls.at(-1)?.[0]).toMatchObject({
+    id: "terminal-id",
+    env: { FOOM_CONTROL_TOKEN: "second" },
+  });
+  expect(second.bind).toHaveBeenCalledWith("terminal-id");
+  expect(second.dispose).not.toHaveBeenCalled();
+  service.release("terminal-id");
+  expect(second.dispose).toHaveBeenCalledOnce();
+  expect(first.dispose).toHaveBeenCalledOnce();
 });

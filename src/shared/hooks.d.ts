@@ -3,8 +3,11 @@ export type HookAgent = "claude" | "codex";
 /** Reduced evidence only: no agent text, paths, prompts, or credentials. */
 export interface HookSignal {
   terminalId: string;
-  action: "classify" | "needs_input";
+  conversationId?: string;
+  action: "classify" | "needs_input" | "working";
   signal:
+    | "claude:UserPromptSubmit"
+    | "claude:PreToolUse"
     | "claude:Stop"
     | "claude:PermissionRequest"
     | "claude:permission_prompt"

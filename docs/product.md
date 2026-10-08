@@ -17,11 +17,11 @@ The target is about 10 concurrent agents. Supported agents are Claude Code (`cla
 The light carries two separate signals.
 
 - **Motion is activity.** Brightness follows the terminal's real output rate. It pulses, but it never strobes: keep it under 3 Hz and respect reduced-motion settings.
-- **Color is the evaluator's verdict.** It changes only when the evaluator decides something.
+- **Color is execution and attention state.** Agent lifecycle signals establish Working; the evaluator classifies attention and results.
 
 | State | Light | Meaning |
 |---|---|---|
-| Working | Brand violet, brightness follows output | Output is arriving |
+| Working | Brand violet, brightness follows output | Agent is executing, or a shell command is running |
 | Checking | Brand violet, slow breathing | Output stopped; the evaluator is running |
 | Needs you | Amber, steady, with a halo | Waiting for input or approval |
 | Done | Green | Finished successfully |
@@ -29,7 +29,7 @@ The light carries two separate signals.
 | Quiet | Dim neutral | Quiet but fine (dev server, long install) |
 
 - Done and Failed dim once the user has looked at them.
-- Needs you clears when the user replies or dismisses it. Screen-based attention also clears when output resumes; permission-hook attention stays until a reply or dismissal. Opening the terminal doesn't clear it.
+- Agent Needs you clears when supported evidence shows execution resumed, or when the user dismisses attention. Typing and terminal output alone do not prove resumed execution. Shell attention retains reply/output behavior. Opening a terminal never clears attention.
 - Failed uses a square light, so the state never depends on color alone.
 - Every verdict carries a one-line reason and the signal that produced it, for example `Wants to edit src/main/main.ts · pattern: (y/n)`.
 
@@ -50,13 +50,18 @@ have a branch icon. Pins and repository/worktree expansion choices persist.
 Repositories with running sessions start expanded; idle repositories start collapsed.
 With one repository, everything starts expanded.
 
+External Git worktree and branch changes refresh the sidebar automatically and when
+the window gains focus. Sessions in a removed checkout stay alive and show a neutral
+**⊘ Worktree removed** label. New launches and restarts there are unavailable; Stop
+and Close still work. The checkout row disappears when its last session closes.
+
 Session rows show a light, letter agent badge, name, wait and reason. Double-click the name
 to edit it; Enter or blur commits, Escape cancels, and an empty value restores the default.
 Rows launched with a known bypass argument also show a neutral ◇ Bypass label.
 This records launch flags, not inferred global agent policy; changing defaults does not
 change existing rows.
-Names persist as local UI metadata keyed by terminal ID. Terminal sessions themselves still
-live only as long as Foom; restoring agent conversations is tracked separately in #115.
+Names persist as local UI metadata keyed by terminal ID. Session rows and recorded
+conversation IDs survive Foom restarts as exited sessions; PTYs and screens do not.
 Hover or focus a session to peek without switching the pane. Click or press Enter to show
 its terminal and focus input, using the placement rules below. Needs you remains; Done and Failed dim once seen.
 
@@ -66,8 +71,19 @@ close it. Repository and worktree selection show breadcrumbs and location launch
 Repository launchers use the main checkout. Worktree launchers use the selected checkout,
 including worktrees created outside Foom and detached checkouts. Launchers name the user's shell and show only
 installed, enabled agents. New worktree opens the existing branch/agent dialog. A running
-session offers Stop; an exited session offers Close, plus Restart shell for shells. Close
-removes only the session, never the checkout. Worktree removal is available for linked checkouts created by any tool. It requires
+session offers Stop. An exited agent offers **Resume conversation** with a short ID hint
+when a validated Claude Code or Codex conversation ID was recorded, **New conversation
+here**, **Copy session ID** when an ID exists, then a separator and **Close**.
+Resume starts the same agent in the same checkout and row, with fresh per-launch hooks
+and current launch defaults. New conversation uses that row and checkout without a
+resume ID. Failed launches retain the saved conversation for retry. Copy uses the full ID.
+Antigravity has no verified ID capture adapter, so Resume is unavailable for it.
+An exited shell offers **Restart shell**, a separator and **Close**. Close removes the
+session and its stored record, never the checkout or the agent's own conversation files.
+Sessions restore without automatically launching agents. If no supported hook/notify event
+arrived before exit (including hooks-disabled launches), no conversation ID is available.
+
+Worktree removal is available for linked checkouts created by any tool. It requires
 confirmation, validates repository membership and worktree identity, and rechecks dirty
 files before deletion. The branch is kept; the main checkout cannot be removed. Repository removal forgets its
 registration, retains files and refuses while it has sessions or Foom-owned worktrees.
@@ -279,6 +295,12 @@ also count as bypass, even with approvals enabled. Known bypass detection is a
 fixed table, not an effective-policy audit. On load, an invalid agent's stored
 argument list is dropped without resetting other settings or other agents' lists.
 
+Conversation selectors are reserved for Foom's session actions: Claude resume,
+continue, session-ID and fork-session flags; Codex `resume`/`fork` commands and
+`--last`/`--fork`; Antigravity conversation/continue flags. This prevents launch
+defaults from redirecting Resume or turning New conversation into a continuation.
+Other agent arguments retain the existing validation and literal argv behavior.
+
 Appearance shares the preflight rail's System/Light/Dark and interface-size controls.
 Changing either view is reflected in the other without restarting.
 
@@ -300,15 +322,20 @@ High Contrast provides at least 7:1 text contrast and stronger borders.
 
 Settings → Sound offers a separate recording picker and preview for Working, Done,
 Needs you and Refusal. Built-in and user files appear together, named from their
-filenames. Working is off at 15% by default; its loop follows agent output
-with the existing capped logarithmic mix. Plain shells do not contribute to Working
-sound; their Done and Needs you alerts remain available. Quiet agents are silent. Alerts
+filenames. Working is off at 15% by default. One steady loop plays at the selected
+volume while at least one agent is executing, including silent thinking and tool use.
+More agents do not increase its volume. Completion of one agent leaves the loop
+running for others. Plain shells produce no automatic sounds, including command completion and attention alerts.
+Starting, idle, blocked and exited agents are silent. Unsupported agent versions stay
+neutral until Foom receives supported lifecycle evidence. Alerts
 cover Done, Needs you and Refusal and default to on at 50%. Each decoded recording
 gets bounded loudness normalization so volume choices remain useful across files.
 
-Needs you repeats every two minutes until replied to or dismissed. The terminal in
-the focused tile of the focused window does not alert; Settings and preflight hide
-that terminal and allow its alerts again. Completion observed while muted is not
+Needs you repeats every two minutes until the agent resumes or attention is dismissed.
+Typing alone does not prove an agent has resumed. Shell replies still clear attention. Needs you is muted in
+the focused tile of the focused window; Settings and preflight hide
+that terminal and allow attention alerts again. Done plays once per completed agent
+turn, including in the focused tile. Initial readiness is not a completion. Completion observed while muted is not
 replayed. Attention reminders resume after two minutes away or after unmuting.
 Verdicts settle for one second before sounding. Simultaneous alerts play once, with
 Needs you taking precedence; verdict alerts are at least two seconds apart.
@@ -349,5 +376,6 @@ Shell status currently follows command start and completion in Bash 4.4+: an ini
 prompt is Quiet (“Shell is ready”), a command is Working, and return to the prompt is
 Done or Failed according to its exit code. Editing the next command preserves that
 result until execution starts. Other shells use output patterns and process exit.
-Checking appears for evaluations lasting longer than 150 ms. Rules-only mode keeps
-ambiguous output Working; it cannot determine arbitrary agent completion from silence.
+Shell evaluations lasting longer than 150 ms show Checking. Agent Working follows
+lifecycle evidence, never silence or output volume. A supported turn-end signal
+stops Working immediately; classification determines the result.

@@ -1,3 +1,4 @@
+import type { ExecutionTransition } from "../../../../src/shared/execution";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import type { AgentHooks, AgentId, AgentLaunch, AgentScan } from "../../../../src/shared/agents";
 import type { EvaluationInput, VerdictRecord } from "../../../../src/shared/evaluator";
@@ -156,6 +157,7 @@ test("launches into a known repository and lists the terminal with its branch", 
         bypass: false,
         state: null,
         exited: false,
+        execution: { terminalId: "t1", launch: 1, revision: 0, turn: 0, phase: "starting" },
       },
     ],
   });
@@ -241,7 +243,7 @@ test("quiet terminals are evaluated from their tail and reported", async () => {
   ]);
 });
 
-test("a permission hook stays in force across later quiet evaluations until a reply", async () => {
+test("a permission hook stays in force across later quiet evaluations until positive execution evidence", async () => {
   const workspace = await launched();
   const hooks = await prepare?.("claude");
   if (!hooks?.bind) throw new Error("Missing hooks");
@@ -261,7 +263,8 @@ test("a permission hook stays in force across later quiet evaluations until a re
   expect(states.at(-1)).toMatchObject({ state: "needs_input", verdictId: "v1" });
 
   workspace.input("t1");
-  expect(states.at(-1)).toMatchObject({ state: "working", verdictId: null, signal: "user:reply" });
+  expect(states.at(-1)?.state).toBe("needs_input");
+  await workspace.hook({ terminalId: key, action: "working", signal: "claude:PreToolUse" });
   expect(recordAction).toHaveBeenCalledWith("t1", "v1", "replied");
   await workspace.quiet("t1");
   expect(evaluated.at(-1)?.hook).toBeUndefined();
@@ -279,7 +282,7 @@ test("completion hooks classify without forcing attention; unknown keys are igno
   tails.set("t1", ["All done."]);
   await workspace.hook({ terminalId: key, action: "classify", signal: "claude:Stop" });
   expect(evaluated[0]?.hook).toBeUndefined();
-  expect(states.at(-1)?.state).toBe("working");
+  expect(states.at(-1)?.state).toBe("quiet_ok");
   await workspace.hook({
     terminalId: "nobody",
     action: "needs_input",
@@ -358,7 +361,7 @@ test("removal forgets the terminal and releases its launch", async () => {
 });
 
 test("dismissal records feedback and clears attention; stale or ignored feedback doesn't", async () => {
-  const workspace = await launched();
+  const workspace = new Workspace(deps);
   await workspace.quiet("t1");
   await workspace.feedback("t1", "v1", "ignored");
   expect(states.at(-1)?.state).toBe("needs_input");
@@ -378,7 +381,7 @@ test("dismissal records feedback and clears attention; stale or ignored feedback
 
 test("a failed reply record is logged, not thrown into the input path", async () => {
   const error = vi.spyOn(console, "error").mockImplementation(() => {});
-  const workspace = await launched();
+  const workspace = new Workspace(deps);
   await workspace.quiet("t1");
   recordAction.mockRejectedValueOnce(new Error("disk full"));
   workspace.input("t1");
@@ -454,7 +457,7 @@ async function bound(): Promise<string> {
 }
 
 test("an evaluation that was in flight during a reply can't restore attention", async () => {
-  const workspace = await launched();
+  const workspace = new Workspace(deps);
   await workspace.quiet("t1");
   expect(states.at(-1)).toMatchObject({ state: "needs_input", verdictId: "v1" });
   // A different signal classifies, then waits on its log write.
@@ -486,7 +489,7 @@ test("an evaluation that was in flight during a reply can't restore attention", 
   expect(commit).toHaveBeenCalledTimes(3);
 });
 
-test("a reply before the first permission verdict answers the hook", async () => {
+test("a reply before the first permission verdict does not answer the hook", async () => {
   const workspace = await launched();
   const key = await bound();
   tails.set("t1", ["╭ Allow Bash(npm test)? ╮"]);
@@ -506,16 +509,16 @@ test("a reply before the first permission verdict answers the hook", async () =>
   workspace.input("t1");
   screen.resolve(["╭ Allow Bash(npm test)? ╮"]);
   await Promise.all([first, second]);
-  expect(states).toEqual([]);
+  expect(states.at(-1)?.state).toBe("needs_input");
   expect(recordAction).not.toHaveBeenCalled();
   await workspace.quiet("t1");
-  expect(evaluated.at(-1)?.hook).toBeUndefined();
-  expect(states.at(-1)?.state).toBe("working");
+  expect(evaluated.at(-1)?.hook).toMatchObject({ action: "needs_input" });
+  expect(states.at(-1)?.state).toBe("needs_input");
 });
 
 test("a verdict that can't be stored is still reported, with no feedback target", async () => {
   const error = vi.spyOn(console, "error").mockImplementation(() => {});
-  const workspace = await launched();
+  const workspace = new Workspace(deps);
   commit.mockRejectedValue(new Error("disk full"));
   await workspace.quiet("t1");
   expect(error).toHaveBeenCalledWith("Unable to record verdict:", expect.any(Error));
@@ -824,15 +827,14 @@ test("resumed output discards deferred inference before publication or logging",
     },
   });
   await pending;
-  expect(states.at(-1)).toMatchObject({ state: "working", signal: "process:output" });
+  expect(states).toEqual([]);
   expect(commit).not.toHaveBeenCalled();
   await workspace.quiet("t1");
   expect(states.at(-1)?.state).toBe("needs_input");
   workspace.output("t1");
   expect(states.at(-1)).toMatchObject({
-    state: "working",
-    signal: "process:output",
-    verdictId: null,
+    state: "needs_input",
+    signal: "pattern:confirmation",
   });
   const count = states.length;
   workspace.output("t1");
@@ -895,7 +897,7 @@ test("sidebar inventory includes empty trees and the actual shell; launches use 
       { kind: "launch", repository: repo.path, worktree: "/foreign", run: "shell" },
       () => Promise.resolve(true),
     ),
-  ).rejects.toThrow("unavailable");
+  ).rejects.toThrow("Worktree was removed");
   for (const unavailable of [
     { ...tree, locked: true },
     { ...tree, bare: true },
@@ -1033,7 +1035,7 @@ test("repository and external worktree removal confirm and protect the main chec
       { kind: "remove-worktree", repository: repo.path, worktree: repo.path },
       () => Promise.resolve(true),
     ),
-  ).rejects.toThrow("main checkout");
+  ).rejects.toThrow("Worktree was removed");
   vi.mocked(deps.worktrees.listWorktrees).mockResolvedValue([tree]);
   await workspace.sidebarCommand(
     { kind: "launch", repository: repo.path, worktree: tree.path, run: "shell" },
@@ -1532,6 +1534,48 @@ test("agent screens work without OSC and title evidence remains local to the lau
   await workspace.dispose();
 });
 
+test("refresh synchronizes registered watches without affecting terminals, and disposal stops notifications", async () => {
+  const watcher = { sync: vi.fn(), dispose: vi.fn() };
+  const onChange = vi.fn();
+  const kill = vi.fn<WorkspaceDependencies["terminals"]["kill"]>();
+  deps.terminals.kill = kill;
+  const workspace = new Workspace({ ...deps, watcher, onChange });
+  expect(watcher.sync).toHaveBeenCalledWith([repo]);
+  workspace.refresh();
+  expect(onChange).toHaveBeenCalledOnce();
+  expect(kill).not.toHaveBeenCalled();
+  await workspace.dispose();
+  workspace.refresh();
+  expect(watcher.dispose).toHaveBeenCalledOnce();
+  expect(onChange).toHaveBeenCalledOnce();
+});
+
+test.each(["shell", "claude", "remove"] as const)(
+  "rejects stale sidebar %s targets before confirmation or process operations",
+  async (run) => {
+    const kill = vi.fn<WorkspaceDependencies["terminals"]["kill"]>();
+    const create = vi.fn<WorkspaceDependencies["terminals"]["create"]>();
+    deps.terminals.kill = kill;
+    deps.terminals.create = create;
+    const workspace = new Workspace(deps);
+    vi.mocked(deps.worktrees.listWorktrees).mockResolvedValue([]);
+    const confirm = vi.fn(() => Promise.resolve(true));
+    await expect(
+      workspace.sidebarCommand(
+        run === "remove"
+          ? { kind: "remove-worktree", repository: repo.path, worktree: tree.path }
+          : { kind: "launch", repository: repo.path, worktree: tree.path, run },
+        confirm,
+      ),
+    ).rejects.toThrow("Worktree was removed");
+    expect(confirm).not.toHaveBeenCalled();
+    expect(create).not.toHaveBeenCalled();
+    expect(kill).not.toHaveBeenCalled();
+    expect(vi.mocked(deps.worktrees.removeWorktree)).not.toHaveBeenCalled();
+    await workspace.dispose();
+  },
+);
+
 test("starts control lazily once, retries failed initialization and closes independently of hooks", async () => {
   const binding = { env: {}, bind: vi.fn(), dispose: vi.fn() };
   const runtime = { prepare: vi.fn(() => binding), close: vi.fn(() => Promise.resolve()) };
@@ -1559,6 +1603,7 @@ test.each([
   { agent: "codex", titles: ["⠋ codex", "⠙ codex", "⠹ codex", "⠸ codex"] },
   { agent: "codex", titles: ["[ . ] Action Required", "[ ! ] Action Required"] },
 ] as const)("$agent animated titles commit once: $titles", async ({ agent, titles }) => {
+  tails.set("t1", ["Agent output"]);
   const workspace = new Workspace(deps);
   await workspace.launch({ agent, repository: repo.path, worktree: tree.path, cols: 80, rows: 24 });
   for (const title of [...titles, ...titles])
@@ -1622,4 +1667,364 @@ test("slow repeated classification preserves the verdict ID across Checking", as
   } finally {
     vi.useRealTimers();
   }
+});
+
+test("captures an ID, copies it and resumes in place, then starts a fresh conversation", async () => {
+  const copy = vi.fn();
+  deps.copyText = copy;
+  const workspace = await launched();
+  const key = await bound();
+  await workspace.hook({
+    terminalId: key,
+    action: "classify",
+    signal: "claude:Stop",
+    conversationId: "conversation-123",
+  });
+  expect(workspace.snapshot().terminals[0]?.conversationId).toBe("conversation-123");
+  await expect(
+    workspace.sidebarCommand({ kind: "resume", id: "t1" }, () => Promise.resolve(true)),
+  ).rejects.toThrow("still running");
+  await workspace.exited("t1", 0);
+  await workspace.sidebarCommand({ kind: "copy-session-id", id: "t1" }, () =>
+    Promise.resolve(true),
+  );
+  expect(copy).toHaveBeenCalledWith("conversation-123");
+  await workspace.sidebarCommand({ kind: "resume", id: "t1" }, () => Promise.resolve(true));
+  expect(agents.launch).toHaveBeenLastCalledWith(
+    expect.objectContaining({
+      terminalId: "t1",
+      conversationId: "conversation-123",
+      worktree: tree.path,
+      sharedCheckout: true,
+    }),
+  );
+  expect(workspace.snapshot().terminals).toHaveLength(1);
+  expect(workspace.snapshot().terminals[0]).toMatchObject({
+    id: "t1",
+    exited: false,
+    conversationId: "conversation-123",
+  });
+  await workspace.exited("t1", 1);
+  await workspace.sidebarCommand({ kind: "new-conversation", id: "t1" }, () =>
+    Promise.resolve(true),
+  );
+  expect(workspace.snapshot().terminals[0]?.conversationId).toBeUndefined();
+  await workspace.dispose();
+});
+
+test("missing IDs cannot resume or copy; failed launch keeps the saved row for retry", async () => {
+  const workspace = await launched();
+  await workspace.exited("t1", 0);
+  await expect(
+    workspace.sidebarCommand({ kind: "resume", id: "missing" }, () => Promise.resolve(true)),
+  ).rejects.toThrow("Unknown");
+  await expect(
+    workspace.sidebarCommand({ kind: "resume", id: "t1" }, () => Promise.resolve(true)),
+  ).rejects.toThrow("Invalid conversation");
+  await expect(
+    workspace.sidebarCommand({ kind: "copy-session-id", id: "t1" }, () => Promise.resolve(true)),
+  ).rejects.toThrow("No conversation");
+  agents.launch.mockRejectedValueOnce(new Error("not installed"));
+  await expect(
+    workspace.sidebarCommand({ kind: "new-conversation", id: "t1" }, () => Promise.resolve(true)),
+  ).rejects.toThrow("not installed");
+  expect(workspace.snapshot().terminals[0]).toMatchObject({
+    id: "t1",
+    exited: true,
+    dormant: true,
+  });
+  await workspace.sidebarCommand({ kind: "new-conversation", id: "t1" }, () =>
+    Promise.resolve(true),
+  );
+  expect(vi.mocked(deps.terminals, true).kill.mock.calls).toHaveLength(1);
+  expect(workspace.snapshot().terminals[0]?.exited).toBe(false);
+  await workspace.dispose();
+});
+
+test("restores metadata without PTYs, allows Resume and Close, and drains persistence", async () => {
+  const stored = {
+    id: "t1",
+    kind: "agent" as const,
+    agent: "claude" as const,
+    repository: repo.path,
+    worktree: tree.path,
+    branch: tree.branch,
+    attention: "evaluator" as const,
+    state: null,
+    dormant: true,
+    exited: true,
+    conversationId: "saved-123",
+  };
+  const save = vi.fn(() => Promise.resolve());
+  const flush = vi.fn(() => Promise.resolve());
+  deps.sessions = {
+    load: () => Promise.resolve([stored, { ...stored, id: "foreign", repository: "/unknown" }]),
+    save,
+    flush,
+  };
+  const workspace = new Workspace(deps);
+  await workspace.restore();
+  expect(workspace.ownsSession("t1")).toBe(true);
+  expect(workspace.ownsSession("foreign")).toBe(false);
+  expect(workspace.snapshot().terminals).toHaveLength(1);
+  expect(agents.launch).not.toHaveBeenCalled();
+  await workspace.sidebarCommand({ kind: "resume", id: "t1" }, () => Promise.resolve(true));
+  expect(vi.mocked(deps.terminals, true).kill.mock.calls).toHaveLength(0);
+  expect(save).toHaveBeenLastCalledWith([
+    expect.objectContaining({ id: "t1", conversationId: "saved-123" }),
+  ]);
+  await workspace.exited("t1", 0);
+  await workspace.sidebarCommand({ kind: "close", id: "t1" }, () => Promise.resolve(true));
+  expect(save).toHaveBeenLastCalledWith([]);
+  await workspace.dispose();
+  expect(flush).toHaveBeenCalledOnce();
+  const restored = new Workspace(deps);
+  await restored.restore();
+  vi.mocked(deps.terminals).kill.mockClear();
+  await restored.sidebarCommand({ kind: "close", id: "t1" }, () => Promise.resolve(true));
+  expect(vi.mocked(deps.terminals, true).kill.mock.calls).toHaveLength(0);
+  await restored.dispose();
+});
+
+test("captures only valid IDs, persists changes once, and keeps IDs out of evaluation", async () => {
+  const save = vi.fn(() => Promise.resolve());
+  deps.sessions = { load: () => Promise.resolve([]), save, flush: () => Promise.resolve() };
+  const workspace = await launched();
+  const key = await bound();
+  const signal = {
+    terminalId: key,
+    action: "needs_input" as const,
+    signal: "claude:PermissionRequest" as const,
+    conversationId: "saved-123",
+  };
+  await workspace.hook({ ...signal, conversationId: "--unsafe" });
+  expect(workspace.snapshot().terminals[0]?.conversationId).toBeUndefined();
+  await workspace.hook(signal);
+  await workspace.hook(signal);
+  expect(save).toHaveBeenCalledTimes(2);
+  expect(evaluated.at(-1)?.hook).toEqual({
+    terminalId: "t1",
+    action: "needs_input",
+    signal: "claude:PermissionRequest",
+  });
+  await workspace.dispose();
+});
+
+test("reports persistence failures without interrupting a terminal", async () => {
+  const error = new Error("disk unavailable");
+  const log = vi.spyOn(console, "error").mockImplementation(() => {});
+  deps.sessions = {
+    load: () => Promise.resolve([]),
+    save: () => Promise.reject(error),
+    flush: () => Promise.resolve(),
+  };
+  const workspace = await launched();
+  expect(log).toHaveBeenCalledWith("Unable to save sessions:", error);
+  expect(workspace.snapshot().terminals).toHaveLength(1);
+  await workspace.dispose();
+});
+
+test("reserving an exited row prevents Close or a second launch racing Resume", async () => {
+  const workspace = await launched();
+  await workspace.exited("t1", 0);
+  const pending = held<Launched>();
+  agents.launch.mockReturnValueOnce(pending.promise);
+  const restart = workspace.sidebarCommand({ kind: "new-conversation", id: "t1" }, () =>
+    Promise.resolve(true),
+  );
+  await vi.waitFor(() => {
+    expect(agents.launch).toHaveBeenCalledTimes(2);
+  });
+  await expect(
+    workspace.sidebarCommand({ kind: "close", id: "t1" }, () => Promise.resolve(true)),
+  ).rejects.toThrow("Session is busy");
+  await expect(
+    workspace.sidebarCommand({ kind: "new-conversation", id: "t1" }, () => Promise.resolve(true)),
+  ).rejects.toThrow("Session is busy");
+  pending.resolve({ id: "t1", attention: "hooks" });
+  await restart;
+  expect(workspace.snapshot().terminals[0]?.exited).toBe(false);
+  await workspace.dispose();
+});
+
+test("execution is immediate, independent across agents, and conclusions wait for classification", async () => {
+  const workspace = await launched();
+  const key = await bound();
+  const events: ExecutionTransition[] = [];
+  const off = workspace.subscribeExecution((event) => events.push(event));
+  tails.set("t1", ["All done."]);
+  await workspace.evidence("t1", { title: "✳ Ready", progress: null });
+  expect(workspace.snapshot().terminals[0]?.state?.state).toBe("quiet_ok");
+  expect(events.at(-1)).toMatchObject({ from: "starting", to: "idle", turn: 0 });
+  await workspace.hook({ terminalId: key, action: "working", signal: "claude:UserPromptSubmit" });
+  expect(events.at(-1)).toMatchObject({ to: "working", turn: 1 });
+  workspace.output("t1");
+  workspace.input("t1");
+  expect(workspace.snapshot().terminals[0]?.execution?.phase).toBe("working");
+  const response = held<VerdictRecord>();
+  classify.mockReturnValueOnce(response.promise);
+  const ending = workspace.hook({ terminalId: key, action: "classify", signal: "claude:Stop" });
+  expect(events.at(-1)).toMatchObject({ from: "working", to: "idle", turn: 1 });
+  await vi.waitFor(() => {
+    expect(classify).toHaveBeenCalledTimes(2);
+  });
+  response.resolve({
+    id: "end",
+    terminalId: "t1",
+    timestamp: "now",
+    verdict: { state: "working", signal: "rules:ambiguous", reason: "Ambiguous", confidence: 0.25 },
+  });
+  await ending;
+  expect(states.at(-1)?.state).toBe("done");
+  const count = events.length;
+  await workspace.evidence("t1", { title: "✳ Finished", progress: null });
+  expect(events).toHaveLength(count);
+  await workspace.hook({ terminalId: key, action: "working", signal: "claude:UserPromptSubmit" });
+  await workspace.exited("t1", 0);
+  expect(states.at(-1)?.state).toBe("failed");
+  expect(events.at(-1)?.to).toBe("exited");
+  off();
+  await workspace.dispose();
+});
+
+test("an old classification cannot stop a newer turn; blocking screens outrank working titles", async () => {
+  const workspace = await launched();
+  const key = await bound();
+  const response = held<VerdictRecord>();
+  classify.mockReturnValueOnce(response.promise);
+  const pending = workspace.quiet("t1");
+  await vi.waitFor(() => {
+    expect(classify).toHaveBeenCalledOnce();
+  });
+  await workspace.hook({ terminalId: key, action: "working", signal: "claude:UserPromptSubmit" });
+  response.resolve({
+    id: "old",
+    terminalId: "t1",
+    timestamp: "now",
+    verdict: { state: "needs_input", signal: "old", reason: "old", confidence: 1 },
+  });
+  await pending;
+  expect(commit).not.toHaveBeenCalled();
+  expect(workspace.snapshot().terminals[0]?.execution?.phase).toBe("working");
+  tails.set("t1", ["────────────────────────────", "esc to cancel", "enter to confirm"]);
+  await workspace.evidence("t1", { title: "◐ Working", progress: null });
+  expect(workspace.snapshot().terminals[0]?.execution?.phase).toBe("blocked");
+  workspace.input("t1");
+  await workspace.feedback("t1", states.at(-1)?.verdictId ?? null, "dismissed");
+  expect(workspace.snapshot().terminals[0]?.execution?.phase).toBe("blocked");
+  await workspace.dispose();
+});
+
+test("consecutive hook-only turns publish fresh completion verdicts and spinner frames do not add turns", async () => {
+  const workspace = await launched();
+  const key = await bound();
+  tails.set("t1", ["Finished"]);
+  for (const turn of [1, 2]) {
+    await workspace.hook({ terminalId: key, action: "working", signal: "claude:UserPromptSubmit" });
+    await workspace.hook({ terminalId: key, action: "classify", signal: "claude:Stop" });
+    expect(states.at(-1)).toMatchObject({ state: "done", execution: { turn, phase: "idle" } });
+  }
+  expect(states.filter((state) => state.state === "done")).toHaveLength(2);
+  await workspace.evidence("t1", { title: "◐ Thinking", progress: null });
+  const snapshot = workspace.snapshot().terminals[0]?.execution;
+  await workspace.evidence("t1", { title: "◓ Thinking", progress: null });
+  expect(workspace.snapshot().terminals[0]?.execution).toEqual(snapshot);
+  await workspace.evidence("t1", { title: "✳ Idle after Esc", progress: null });
+  expect(workspace.snapshot().terminals[0]?.execution?.phase).toBe("idle");
+  await workspace.dispose();
+});
+
+test("input during an agent dismissal records no second action and failed feedback can be retried", async () => {
+  const workspace = await launched();
+  await workspace.quiet("t1");
+  const write = held<undefined>();
+  recordAction.mockReturnValueOnce(write.promise);
+  const dismissing = workspace.feedback("t1", "v1", "dismissed");
+  workspace.input("t1");
+  expect(recordAction).toHaveBeenCalledTimes(1);
+  write.resolve(undefined);
+  await dismissing;
+  recordAction.mockRejectedValueOnce(new Error("disk"));
+  await expect(workspace.feedback("t1", "v1", "dismissed")).rejects.toThrow("disk");
+  workspace.input("t1");
+  expect(recordAction).toHaveBeenCalledTimes(2);
+  await workspace.dispose();
+});
+
+test("screen blockers clear on verified progress, including subsequent spinner frames", async () => {
+  const workspace = await launched();
+  await workspace.evidence("t1", { title: "◐ Working", progress: null });
+  expect(workspace.snapshot().terminals[0]?.execution?.phase).toBe("blocked");
+  await workspace.evidence("t1", { title: "◓ Working", progress: null });
+  expect(workspace.snapshot().terminals[0]?.execution?.phase).toBe("blocked");
+  tails.set("t1", ["Making progress"]);
+  await workspace.evidence("t1", { title: "◑ Working", progress: null });
+  expect(states.at(-1)).toMatchObject({
+    state: "working",
+    execution: { phase: "working", turn: 1 },
+  });
+  tails.set("t1", ["Continue? (y/n)"]);
+  await workspace.quiet("t1");
+  tails.set("t1", ["Making progress"]);
+  await workspace.quiet("t1");
+  expect(states.at(-1)).toMatchObject({
+    state: "working",
+    execution: { phase: "working", turn: 1 },
+  });
+  await workspace.dispose();
+});
+
+test("ambiguous output and spinners cannot clear an explicit permission hook", async () => {
+  const workspace = await launched();
+  const key = await bound();
+  await workspace.hook({
+    terminalId: key,
+    action: "needs_input",
+    signal: "claude:PermissionRequest",
+  });
+  tails.set("t1", ["Making progress"]);
+  await workspace.evidence("t1", { title: "◐ Working", progress: null });
+  await workspace.evidence("t1", { title: "◓ Working", progress: null });
+  expect(states.at(-1)?.state).toBe("needs_input");
+  expect(workspace.snapshot().terminals[0]?.execution?.phase).toBe("blocked");
+  await workspace.dispose();
+});
+
+test("dismissal survives unchanged evaluations and spinner frames until fresh screen attention", async () => {
+  const workspace = await launched();
+  await workspace.evidence("t1", { title: "◐ Working", progress: null });
+  await workspace.feedback("t1", states.at(-1)?.verdictId ?? null, "dismissed");
+  await workspace.quiet("t1");
+  tails.set("t1", ["Unrelated progress", "Continue? (y/n)"]);
+  await workspace.evidence("t1", { title: "◓ Working", progress: null });
+  expect(states.at(-1)).toMatchObject({ state: "quiet_ok", execution: { phase: "blocked" } });
+  tails.set("t1", ["Delete files? (y/n)"]);
+  await workspace.quiet("t1");
+  expect(states.at(-1)?.state).toBe("needs_input");
+  await workspace.feedback("t1", states.at(-1)?.verdictId ?? null, "dismissed");
+  tails.set("t1", ["Making progress"]);
+  await workspace.quiet("t1");
+  expect(states.at(-1)?.state).toBe("working");
+  tails.set("t1", ["Delete files? (y/n)"]);
+  await workspace.quiet("t1");
+  expect(states.at(-1)?.state).toBe("needs_input");
+  await workspace.dispose();
+});
+
+test("dismissed hook attention stays quiet until a new permission event", async () => {
+  const workspace = await launched();
+  const key = await bound();
+  const signal: HookSignal = {
+    terminalId: key,
+    action: "needs_input",
+    signal: "claude:PermissionRequest",
+  };
+  await workspace.hook(signal);
+  await workspace.feedback("t1", states.at(-1)?.verdictId ?? null, "dismissed");
+  tails.set("t1", ["Unrelated output"]);
+  await workspace.quiet("t1");
+  expect(states.at(-1)?.state).toBe("quiet_ok");
+  await workspace.hook(signal);
+  expect(states.at(-1)?.state).toBe("needs_input");
+  await workspace.dispose();
 });

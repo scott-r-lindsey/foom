@@ -1,3 +1,4 @@
+import type { ExecutionTransition } from "../../shared/execution";
 import { ConfirmationArming } from "../confirmations/arming";
 import type { DialogContent, ConfirmWorkspace } from "../../shared/confirmation";
 import { dialog, ipcMain } from "electron";
@@ -55,7 +56,14 @@ function launchRequest(value: unknown): LaunchRequest {
 function sidebarCommand(value: unknown): SidebarCommand {
   if (!record(value)) throw new Error("Invalid sidebar command");
   const kind = value["kind"];
-  if (kind === "stop" || kind === "close" || kind === "restart") {
+  if (
+    kind === "stop" ||
+    kind === "close" ||
+    kind === "restart" ||
+    kind === "resume" ||
+    kind === "new-conversation" ||
+    kind === "copy-session-id"
+  ) {
     if (!text(value["id"])) throw new Error("Invalid terminal ID");
     return { kind, id: value["id"] };
   }
@@ -79,7 +87,12 @@ export function attachWorkspace(
   workspace: Workspace,
   owns: (id: string) => boolean,
   requestDialog: (content: DialogContent) => Promise<boolean>,
-): { sendState(state: TerminalState): void; sendChanged(): void; dispose(): void } {
+): {
+  sendExecution(event: ExecutionTransition): void;
+  sendState(state: TerminalState): void;
+  sendChanged(): void;
+  dispose(): void;
+} {
   const contents = window.webContents;
   const trusted = (event: IpcMainInvokeEvent) =>
     event.sender === contents &&
@@ -177,7 +190,8 @@ export function attachWorkspace(
       "workspace:sidebar-command",
       (value) => {
         const command = sidebarCommand(value);
-        if ("id" in command && !owns(command.id)) throw new Error("Unknown or foreign terminal ID");
+        if ("id" in command && !owns(command.id) && !workspace.ownsSession(command.id))
+          throw new Error("Unknown or foreign terminal ID");
         return workspace.sidebarCommand(command, confirmation(JSON.stringify(command)));
       },
     ],
@@ -247,6 +261,10 @@ export function attachWorkspace(
       return handler(...args);
     });
   return {
+    sendExecution(event) {
+      if (!contents.isDestroyed() && contents.mainFrame.url === APP_URL && owns(event.terminalId))
+        contents.send("agent:execution", event);
+    },
     sendChanged() {
       if (!contents.isDestroyed() && contents.mainFrame.url === APP_URL)
         contents.send("workspace:changed");

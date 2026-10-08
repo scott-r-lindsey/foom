@@ -158,7 +158,7 @@ test("exit and hooks beat agent rules; idle still reaches only the tail model", 
     }),
   ).toMatchObject({ signal: "claude:PermissionRequest" });
   expect(evaluateRules({ ...input, evidence: { title: "⠋ codex", progress: null } })).toMatchObject(
-    { state: "working", confidence: 0.95 },
+    { state: "needs_input", confidence: 0.95 },
   );
   const complete = vi.fn().mockResolvedValue('{"state":"needs_input","confidence":0.9}');
   const model = new ModelEvaluator({ complete });

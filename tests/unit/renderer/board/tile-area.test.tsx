@@ -350,3 +350,20 @@ test.each(["full", "focused empty", "first empty"] as const)(
     if (mode === "first empty") expect(views[1]?.open).toHaveBeenLastCalledWith("build");
   },
 );
+
+test("resuming in the same row reattaches its existing controller without remounting", async () => {
+  const { row, data, views } = setup();
+  await act(async () => {
+    fireEvent.click(row(0));
+    await Promise.resolve();
+  });
+  const id = data.getSnapshot()[0]?.id;
+  if (!id) throw new Error("Missing fixture session");
+  const mounts = views[0]?.mount.mock.calls.length;
+  const opens = views[0]?.open.mock.calls.length ?? 0;
+  act(() => {
+    data.update(id, { launchVersion: 1 });
+  });
+  expect(views[0]?.open.mock.calls.length).toBe(opens + 1);
+  expect(views[0]?.mount.mock.calls.length).toBe(mounts);
+});

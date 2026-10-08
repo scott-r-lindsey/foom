@@ -1,4 +1,5 @@
 vi.mock("../../../src/main/sounds/ipc", () => ({ attachSounds: vi.fn(() => vi.fn()) }));
+import type { WorkspaceDependencies } from "../../../src/main/workspace/workspace";
 import type { DialogContent } from "../../../src/shared/confirmation";
 vi.mock("../../../src/main/confirmations/trusted-dialog", () => ({
   TrustedDialog: class {
@@ -24,6 +25,7 @@ vi.mock("../../../src/main/terminals/terminal-ipc", () => ({
 }));
 vi.mock("../../../src/main/workspace/workspace", () => ({
   Workspace: class {
+    restore = async () => {};
     snapshot = () => ({
       terminals: [
         {
@@ -44,6 +46,7 @@ vi.mock("../../../src/main/workspace/workspace", () => ({
         },
       ],
     });
+    refresh = mock.workspace.refresh;
     quiet = mock.workspace.quiet;
     exited = mock.workspace.exited;
     input = mock.workspace.input;
@@ -53,7 +56,7 @@ vi.mock("../../../src/main/workspace/workspace", () => ({
     configure = mock.workspace.configure;
     addRepository = mock.workspace.addRepository;
     removeRepository = mock.workspace.removeRepository;
-    constructor(deps: unknown) {
+    constructor(deps: WorkspaceDependencies) {
       mock.workspace.deps = deps;
     }
   },
@@ -97,6 +100,7 @@ const mock = vi.hoisted(() => {
   const window = {
     webContents: {
       getURL: () => "app://bundle/index.html",
+      isCrashed: vi.fn(() => false),
       send: vi.fn(),
       copy: vi.fn(),
       paste: vi.fn(),
@@ -170,7 +174,8 @@ const mock = vi.hoisted(() => {
     }
   }
   const workspace = {
-    deps: undefined as unknown,
+    deps: undefined as WorkspaceDependencies | undefined,
+    refresh: vi.fn(),
     quiet: vi.fn(),
     exited: vi.fn(),
     input: vi.fn(),
@@ -181,7 +186,12 @@ const mock = vi.hoisted(() => {
     addRepository: vi.fn(),
     removeRepository: vi.fn(),
   };
-  const ipc = { sendChanged: vi.fn(), sendState: vi.fn(), dispose: vi.fn() };
+  const ipc = {
+    sendExecution: vi.fn(),
+    sendChanged: vi.fn(),
+    sendState: vi.fn(),
+    dispose: vi.fn(),
+  };
   const setup = {
     deps: undefined as ConstructorParameters<typeof Setup>[0] | undefined,
     classify: vi.fn(),
@@ -270,6 +280,7 @@ const mock = vi.hoisted(() => {
 vi.mock("electron", () => ({
   BrowserWindow: mock.BrowserWindow,
   nativeTheme: mock.theme,
+  clipboard: { writeText: vi.fn() },
   dialog: {
     showMessageBox: mock.message,
     showErrorBox: mock.errorBox,
@@ -327,6 +338,7 @@ beforeEach(() => {
   mock.packaged = false;
   mock.explicitProfile = false;
   mock.window.isMinimized.mockReturnValue(false);
+  mock.window.webContents.isCrashed.mockReturnValue(false);
   mock.terminals.runningCount = 0;
   mock.terminals.shutdown.mockResolvedValue();
   mock.workspace.dispose.mockResolvedValue();
@@ -717,6 +729,7 @@ test("routes terminal events, hook signals and state through the workspace", asy
 
   const deps = mock.workspace.deps as {
     receiver(): Promise<unknown>;
+    onExecution(event: unknown): void;
     onState(state: unknown): void;
     onChange(): void;
     acknowledgeCodex(): Promise<void>;
@@ -724,6 +737,8 @@ test("routes terminal events, hook signals and state through the workspace", asy
   await deps.acknowledgeCodex();
   deps.onChange();
   expect(mock.ipc.sendChanged).toHaveBeenCalledOnce();
+  deps.onExecution({ terminalId: "a" });
+  expect(mock.ipc.sendExecution).toHaveBeenCalledWith({ terminalId: "a" });
   deps.onState({ id: "a" });
   expect(mock.ipc.sendState).toHaveBeenCalledWith({ id: "a" });
   mock.listen.mockResolvedValue("receiver");
@@ -1001,4 +1016,37 @@ test("packaged builds keep their default profile and identity", async () => {
     title: "Foom",
     webPreferences: { additionalArguments: [] },
   });
+});
+
+test("session ID copying uses the main clipboard capability", async () => {
+  await start();
+  const { clipboard } = await import("electron");
+  await mock.workspace.deps?.copyText?.("saved-session-id");
+  expect(vi.mocked(clipboard).writeText.mock.calls).toEqual([["saved-session-id"]]);
+});
+
+test("window focus refreshes external workspace inventory", async () => {
+  await import("../../../src/main/main");
+  await start();
+  mock.windowEvents.get("focus")?.({ preventDefault: vi.fn() });
+  expect(mock.workspace.refresh).toHaveBeenCalledOnce();
+  mock.window.webContents.isCrashed.mockReturnValue(true);
+  mock.windowEvents.get("focus")?.({ preventDefault: vi.fn() });
+  expect(mock.workspace.refresh).toHaveBeenCalledOnce();
+});
+
+test("control startup is lazy, uses the app profile and propagates initialization failures", async () => {
+  const { ControlRuntime } = await import("../../../src/main/control/runtime");
+  const error = new Error("Private profile unavailable");
+  const startControl = vi.spyOn(ControlRuntime, "start").mockRejectedValueOnce(error);
+  try {
+    await start();
+    expect(startControl).not.toHaveBeenCalled();
+    const control = mock.workspace.deps?.control;
+    if (!control) throw new Error("Expected control startup capability");
+    await expect(control()).rejects.toBe(error);
+    expect(startControl).toHaveBeenCalledExactlyOnceWith("/test/user-data");
+  } finally {
+    startControl.mockRestore();
+  }
 });

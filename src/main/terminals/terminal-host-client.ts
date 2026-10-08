@@ -148,7 +148,9 @@ export class TerminalHostClient {
 
   async create(spec: TerminalSpec): Promise<string> {
     if (this.shuttingDown) throw new Error("Terminals are shutting down");
-    const id = randomUUID();
+    const id = spec.id ?? randomUUID();
+    if (!/^[a-zA-Z0-9_-]{1,200}$/u.test(id) || this.sessions.has(id))
+      throw new Error("Invalid or occupied terminal ID");
     this.sessions.set(id, { alive: true, available: true });
     try {
       await this.request({

@@ -390,7 +390,11 @@ test("removal notifications validate IDs and strip event objects", async () => {
   for (const ids of [null, 42, [""], ["x".repeat(201)], ["owned", 42]]) handler?.({}, ids, false);
   handler?.({}, ["owned"], false);
   handler?.({}, ["owned"], "invalid");
-  expect(removed.mock.calls).toEqual([["owned", false]]);
+  handler?.({}, ["owned"], true, true);
+  expect(removed.mock.calls).toEqual([
+    ["owned", false],
+    ["owned", true, true],
+  ]);
   off();
   expect(mock.removeListener).toHaveBeenCalledWith("terminal:availability", handler);
 });
@@ -477,4 +481,42 @@ test("sound capabilities send only typed requests and unsubscribe refresh events
   expect(changed).toHaveBeenCalledWith();
   off();
   expect(mock.removeListener).toHaveBeenCalledWith("sound:changed", handler);
+});
+
+test("execution transitions validate metadata and unsubscribe without exposing IPC events", async () => {
+  const api = await bridge();
+  const callback = vi.fn();
+  const off = api.onExecution(callback);
+  const handler = mock.on.mock.calls[0]?.[1];
+  const event = {
+    terminalId: "agent",
+    launch: 1,
+    revision: 2,
+    turn: 1,
+    from: "working",
+    to: "idle",
+    phase: "idle",
+    source: "hook",
+    at: 10,
+  };
+  handler?.({}, event);
+  for (const invalid of [
+    null,
+    {},
+    { ...event, terminalId: "" },
+    { ...event, terminalId: "x".repeat(201) },
+    { ...event, launch: -1 },
+    { ...event, revision: Infinity },
+    { ...event, turn: 0.5 },
+    { ...event, phase: "fake" },
+    { ...event, from: "idle" },
+    { ...event, to: "working" },
+    { ...event, from: "fake" },
+    { ...event, source: "output" },
+    { ...event, at: NaN },
+  ])
+    handler?.({}, invalid);
+  expect(callback).toHaveBeenCalledExactlyOnceWith(event);
+  off();
+  expect(mock.removeListener).toHaveBeenCalledWith("agent:execution", handler);
 });

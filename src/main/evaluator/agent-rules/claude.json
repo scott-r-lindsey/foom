@@ -9,7 +9,7 @@
     {
       "id": "live_blocked_form",
       "state": "blocked",
-      "priority": 980,
+      "priority": 1200,
       "region": "after_horizontal_rule",
       "match": {
         "contains": ["esc to cancel", "enter to confirm"]
@@ -20,7 +20,7 @@
     {
       "id": "live_question_form",
       "state": "blocked",
-      "priority": 980,
+      "priority": 1200,
       "region": "after_horizontal_rule",
       "match": {
         "contains": ["esc to cancel", "enter to select", "↑/↓ to navigate"]

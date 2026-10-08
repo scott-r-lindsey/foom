@@ -584,6 +584,7 @@ test("terminal runs an interactive shell behind an isolated bridge", {
           "applyRepositories",
           "onSetupChange",
           "feedback",
+          "onExecution",
           "onState",
           "onData",
           "onTerminalAvailability",
@@ -938,6 +939,9 @@ test("closing with an exited terminal quits without confirmation", {
     expected: nativeTheme.shouldUseDarkColors ? "#05040A" : "#F3F0FA",
   }));
   assert.equal(background.actual, background.expected);
+  // A created PTY is not yet a ready PowerShell prompt on a cold Windows runner.
+  if (process.platform === "win32")
+    await expect.poll(() => page.locator(".xterm-rows").innerText()).toMatch(/PS [\s\S]*>/);
   await page.locator(".xterm-helper-textarea").focus();
   await page.keyboard.type("exit");
   await page.keyboard.press("Enter");
@@ -1340,6 +1344,8 @@ process.stdin.on("data", (key) => {
     const hook = spawn("sh", ["-c", command], { stdio: ["pipe", "ignore", "ignore"] });
     hook.stdin.end(JSON.stringify({ session_id: "fake-session", hook_event_name: "PermissionRequest" }));
   } else if (input === "f") {
+    const start = spawn("sh", ["-c", settings.hooks.UserPromptSubmit[0].hooks[0].command], { stdio: ["pipe", "ignore", "ignore"] });
+    start.stdin.end(JSON.stringify({ session_id: "fake-session", hook_event_name: "UserPromptSubmit" }));
     let count = 0;
     const timer = setInterval(() => {
       process.stdout.write("Working " + "x".repeat(1000) + "\\r\\n");
@@ -1519,22 +1525,23 @@ test("launches an agent in a managed worktree and routes its attention signals",
     )
     .toBeGreaterThan(0.9);
   await expect(agentRow).toHaveAttribute("data-state", "needs_input");
-  // Typing is the reply; then the agent's hook asks for permission.
+  // Typing records feedback; the agent hook establishes the permission request.
   await page.keyboard.type("y");
   await expect
     .poll(async () => (await latest())?.signal, { timeout: deadline(10000) })
     .toBe("claude:PermissionRequest");
   assert.ok(
-    (await page.evaluate(() => window.foomStates.map((s) => s.signal))).includes("user:reply"),
+    !(await page.evaluate(() => window.foomStates.map((s) => s.signal))).includes("user:reply"),
   );
   // Later quiet evaluations keep the permission request in force.
   await page.waitForTimeout(2500);
   assert.equal((await latest()).state, "needs_input");
 
-  // Not attention clears it and records feedback.
+  // Dismissal clears attention but does not establish resumed execution.
   await page.getByRole("button", { name: "Not attention", exact: true }).click();
   await expect(agentRow).toHaveAttribute("data-state", "quiet_ok");
   assert.equal((await latest()).signal, "user:dismissed");
+  assert.equal((await latest()).execution.phase, "blocked");
 
   // Exit is final and revokes the launch's hook credentials.
   const hook = firstCredentials;
@@ -3038,7 +3045,7 @@ else console.log('ARGS:' + JSON.stringify(process.argv.slice(2)));
   }
 });
 
-test("agent titles update hidden sidebar attention and route idle through evaluation", {
+test("agent hooks and titles publish execution transitions independently of terminal output", {
   timeout: deadline(30000),
   skip: process.platform === "win32" && "The fake CLI is a POSIX executable",
 }, async (context) => {
@@ -3062,6 +3069,12 @@ else {
   process.stdin.resume();
   process.stdout.write('\\x1b]2;⠋ codex\\x07');
   process.stdin.on('data', data => {
+    if (data.toString().includes('w')) process.stdout.write('\\x1b[2J\\x1b[H\\x1b]2;⠙ codex\\x07');
+    if (data.toString().includes('n')) {
+      const command = JSON.parse(process.argv.find(arg => arg.startsWith('notify=')).slice(7));
+      require('node:child_process').spawnSync(command[0], [...command.slice(1), JSON.stringify({ type: 'agent-turn-complete', 'thread-id': 'fake-thread', 'turn-id': 'fake-turn' })]);
+      process.stdout.write('NOTIFIED\\n');
+    }
     if (data.toString().includes('a')) process.stdout.write('\\x1b]2;Action Required | codex\\x07');
     if (data.toString().includes('i')) process.stdout.write('\\x1b[2J\\x1b[HWhich file should I edit?\\x1b]2;codex\\x07');
   });
@@ -3083,7 +3096,7 @@ else {
     ],
     { cwd: repo },
   );
-  await writeFile(help, "--no-alt-screen");
+  await writeFile(help, "--no-alt-screen -c, --config <value>");
   const app = await launchApp(context, false, {
     emptyBoard: true,
     env: { HOME: home, PATH: `${bin}${path.delimiter}${process.env.PATH}` },
@@ -3095,12 +3108,17 @@ else {
   const repository = await page.evaluate(() => window.desktop.addRepository());
   assert.equal(repository.path, await realpath(repo));
   await expect(page.getByRole("treeitem", { name: "repo", exact: true })).toBeVisible();
+  await page.evaluate(() => {
+    window.executionEvents = [];
+    window.desktop.onExecution((event) => window.executionEvents.push(event));
+  });
   const id = await page.evaluate(async (repo) => {
     await window.desktop.scanAgents(true);
     const tree = await window.desktop.createWorktree(repo, "titles", "adjacent");
     return (
       await window.desktop.launchAgent({
         agent: "codex",
+        acknowledgeCodexNotifierReplacement: true,
         repository: repo,
         worktree: tree.path,
         cols: 80,
@@ -3116,9 +3134,23 @@ else {
   await expect(row).toContainText("Approval requested");
   await expect(row).toContainText("rules:codex:osc_title_blocked");
   await page.evaluate((id) => window.desktop.input(id, "i"), id);
-  await expect(row).toHaveAttribute("data-state", "working");
+  await expect(row).toHaveAttribute("data-state", "quiet_ok");
   await expect(row).toContainText("Agent turn ended; checking output");
   await expect(row).toContainText("rules:codex:osc_title_idle");
+  await page.evaluate((id) => window.desktop.input(id, "w"), id);
+  await expect(row).toHaveAttribute("data-state", "working");
+  await page.evaluate((id) => window.desktop.input(id, "n"), id);
+  await expect(row).toHaveAttribute("data-state", "done");
+  const events = await page.evaluate(() => window.executionEvents);
+  assert.deepEqual(
+    events.map((event) => event.to),
+    ["working", "blocked", "idle", "working", "idle"],
+  );
+  assert.equal(events.at(-1).source, "hook");
+  assert.equal(events.at(-1).turn, 2);
+  assert.ok(
+    events.every((event) => event.terminalId === id && !("tail" in event) && !("prompt" in event)),
+  );
 });
 
 test("Settings shares live preflight values, sizes the terminal and restores keyboard focus", async (context) => {
@@ -3881,7 +3913,7 @@ test("every interface theme applies live to native chrome and passes axe on boar
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
 });
 
-test("recorded sounds refresh user files, preview the saved choice and play attention and completion", {
+test("recorded sounds refresh and preview user files while shell attention and completion stay silent", {
   timeout: deadline(45000),
 }, async (context) => {
   const root = await mkdtemp(path.join(tmpdir(), "foom-sound-"));
@@ -3913,9 +3945,10 @@ test("recorded sounds refresh user files, preview the saved choice and play atte
   await boardCommand(app, ",", false);
   await page.getByRole("button", { name: "Sound", exact: true }).click();
   await expect(page.locator(".board-row")).toHaveAttribute("data-state", "needs_input");
-  await expect.poll(() => page.evaluate(() => window.soundTones.length)).toBe(1);
+  // Silence must persist past the alert settling/debounce window.
+  await page.waitForTimeout(2200);
+  assert.deepEqual(await page.evaluate(() => window.soundTones), []);
   await assertAccessible(page);
-  assert.ok(Math.abs((await page.evaluate(() => window.soundTones[0])) - 1.4) < 0.001);
   const home = await app.evaluate(({ app }) => app.getPath("home"));
   assert.equal(await realpath(home), await realpath(root));
   const sample = Buffer.alloc(44 + 8000); // 0.25 s mono PCM, 16 kHz
@@ -3945,7 +3978,7 @@ test("recorded sounds refresh user files, preview the saved choice and play atte
     )
     .toEqual({ source: "user", file: "test-bell.wav" });
   await page.getByRole("button", { name: "Preview done", exact: true }).click();
-  await expect.poll(() => page.evaluate(() => window.soundTones)).toEqual([1.4, 0.25]);
+  await expect.poll(() => page.evaluate(() => window.soundTones)).toEqual([0.25]);
   // Exit the real PTY: process exit is a Done verdict on every supported shell/platform.
   await page.evaluate(() => window.desktop.input(window.soundTerminal, "q"));
   await expect
@@ -3955,7 +3988,8 @@ test("recorded sounds refresh user files, preview the saved choice and play atte
     .not.toContain("INPUT_READY");
   await page.evaluate(() => window.desktop.input(window.soundTerminal, "exit\r"));
   await expect(page.locator(".board-row")).toHaveAttribute("data-state", "done");
-  await expect.poll(() => page.evaluate(() => window.soundTones)).toEqual([1.4, 0.25, 0.25]);
+  await page.waitForTimeout(2200);
+  assert.deepEqual(await page.evaluate(() => window.soundTones), [0.25]);
   await page.getByLabel("Alerts on", { exact: true }).uncheck();
   await expect
     .poll(() =>
@@ -4303,4 +4337,276 @@ test("profile lock focuses the first app, exits duplicates and permits another p
       }),
     )
     .toBe(true);
+});
+
+for (const agent of ["claude", "codex"]) {
+  test(`resumes exited ${agent} conversations in place after a Foom restart`, {
+    timeout: deadline(60_000),
+    skip: process.platform === "win32" && "The fake CLI is a POSIX executable",
+  }, async (context) => {
+    const { chmod } = require("node:fs/promises");
+    const root = await mkdtemp(path.join(tmpdir(), "foom-resume-"));
+    removeAfterApps(context, root);
+    const bin = path.join(root, "bin");
+    const repo = path.join(root, "repo");
+    const home = path.join(root, "home");
+    const profile = path.join(root, "profile");
+    const argvFile = path.join(root, "argv.json");
+    await Promise.all([mkdir(bin), mkdir(repo), mkdir(home)]);
+    isolatedGit(["init", "-q", "-b", "main", repo]);
+    isolatedGit([
+      "-C",
+      repo,
+      "-c",
+      "user.name=Foom",
+      "-c",
+      "user.email=foom@example.com",
+      "commit",
+      "--allow-empty",
+      "-qm",
+      "init",
+    ]);
+    const conversation = "0199abcd-1234-7890-abcd-123456789abc";
+    await writeFile(
+      path.join(bin, agent),
+      `#!/usr/bin/env node
+const { spawn } = require("node:child_process");
+const { writeFileSync } = require("node:fs");
+const args = process.argv.slice(2);
+const agent = ${JSON.stringify(agent)};
+if (args[0] === "--version") { console.log(agent === "claude" ? "2.1.300 (Claude Code)" : "codex-cli 0.160.1"); process.exit(0); }
+if (args[0] === "--help") { console.log("--settings <json> -c, --config <value> --no-alt-screen"); process.exit(0); }
+writeFileSync(process.env.TEST_ARGV, JSON.stringify({ args, cwd: process.cwd(), token: process.env.FOOM_TOKEN, pid: process.pid }));
+const resumed = args.includes("--resume") || args.includes("resume");
+if (resumed) {
+  console.log("RESUMED_CONVERSATION " + process.pid);
+  process.stdin.setRawMode(true);
+  process.stdin.on("data", () => process.exit(0));
+} else {
+  const payload = agent === "claude" ? { session_id: ${JSON.stringify(conversation)}, hook_event_name: "Stop" } : { "thread-id": ${JSON.stringify(conversation)}, "turn-id": "turn-1", type: "agent-turn-complete" };
+  let command, hookArgs, input;
+  if (agent === "claude") {
+    const settings = JSON.parse(args[args.indexOf("--settings") + 1]);
+    command = "sh"; hookArgs = ["-c", settings.hooks.Stop[0].hooks[0].command]; input = JSON.stringify(payload);
+  } else {
+    const notify = args.find(arg => arg.startsWith("notify="));
+    [command, ...hookArgs] = JSON.parse(notify.slice(7));
+    hookArgs.push(JSON.stringify(payload));
+  }
+  const hook = spawn(command, hookArgs, { stdio: ["pipe", "ignore", "inherit"] });
+  hook.stdin.end(input);
+  hook.on("exit", () => { console.log("AGENT_EXITED"); process.exit(0); });
+}
+`,
+    );
+    await chmod(path.join(bin, agent), 0o755);
+    const options = {
+      emptyBoard: true,
+      args: [`--user-data-dir=${profile}`],
+      env: { HOME: home, PATH: `${bin}${path.delimiter}${process.env.PATH}`, TEST_ARGV: argvFile },
+    };
+    const app = await launchApp(context, false, options);
+    const page = await boardPage(app);
+    await app.evaluate(({ dialog }, directory) => {
+      dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [directory] });
+    }, repo);
+    const id = await page.evaluate(async (agent) => {
+      const repository = await window.desktop.addRepository();
+      return window.desktop.startWorktree({
+        repository: repository.path,
+        branch: "resume-test",
+        run: agent,
+        acknowledgeCodexNotifierReplacement: true,
+      });
+    }, agent);
+    await expect
+      .poll(() =>
+        page.evaluate(
+          async (id) => (await window.desktop.workspace()).terminals.find((row) => row.id === id),
+          id,
+        ),
+      )
+      .toMatchObject({ exited: true, conversationId: conversation });
+    const firstLaunch = JSON.parse(await readFile(argvFile, "utf8"));
+    await expect
+      .poll(
+        async () =>
+          JSON.parse(await readFile(path.join(profile, "sessions.json"), "utf8"))[0]
+            ?.conversationId,
+      )
+      .toBe(conversation);
+    await quitAndWait(app, () =>
+      app.evaluate(({ BrowserWindow }) =>
+        BrowserWindow.getAllWindows()
+          .find((win) => win.webContents.getURL() === "app://bundle/index.html")
+          .close(),
+      ),
+    );
+    const restoredApp = await launchApp(context, false, options);
+    const restored = await boardPage(restoredApp);
+    await expect
+      .poll(() => restored.evaluate(async () => (await window.desktop.workspace()).terminals))
+      .toMatchObject([{ id, exited: true, dormant: true, conversationId: conversation }]);
+    const agentName = agent === "claude" ? "Claude Code" : "Codex";
+    await restored
+      .getByRole("button", { name: `Actions for ${agentName} in resume-test`, exact: true })
+      .click();
+    await restored.getByRole("menuitem", { name: "Copy session ID", exact: true }).click();
+    await expect
+      .poll(() => restoredApp.evaluate(({ clipboard }) => clipboard.readText()))
+      .toBe(conversation);
+    await restored
+      .getByRole("button", { name: `Actions for ${agentName} in resume-test`, exact: true })
+      .click();
+    await restored.getByRole("menuitem", { name: /^Resume conversation/ }).click();
+    await expect
+      .poll(() => restored.evaluate(async () => (await window.desktop.workspace()).terminals))
+      .toMatchObject([{ id, exited: false, conversationId: conversation }]);
+    await expect(restored.locator(".xterm-rows")).toContainText("RESUMED_CONVERSATION");
+    const resumedLaunch = JSON.parse(await readFile(argvFile, "utf8"));
+    await expect(restored.locator(".xterm-rows")).toContainText(
+      `RESUMED_CONVERSATION ${resumedLaunch.pid}`,
+    );
+    assert.deepEqual(resumedLaunch.args.slice(0, 2), [
+      agent === "claude" ? "--resume" : "resume",
+      conversation,
+    ]);
+    assert.equal(resumedLaunch.cwd, firstLaunch.cwd);
+    assert.notEqual(resumedLaunch.token, firstLaunch.token);
+    await expect(restored.locator(".xterm-helper-textarea")).toBeFocused();
+    await restored.locator(".xterm-helper-textarea").press("q");
+    await expect
+      .poll(() =>
+        restored.evaluate(async () => (await window.desktop.workspace()).terminals[0]?.exited),
+      )
+      .toBe(true);
+    await restored
+      .getByRole("button", { name: `Actions for ${agentName} in resume-test`, exact: true })
+      .click();
+    await restored.getByRole("menuitem", { name: /^Resume conversation/ }).click();
+    await expect
+      .poll(() =>
+        restored.evaluate(async () => (await window.desktop.workspace()).terminals[0]?.exited),
+      )
+      .toBe(false);
+    await expect
+      .poll(async () => JSON.parse(await readFile(argvFile, "utf8")).token)
+      .not.toBe(resumedLaunch.token);
+    const secondResume = JSON.parse(await readFile(argvFile, "utf8"));
+    await expect(restored.locator(".xterm-rows")).toContainText(
+      `RESUMED_CONVERSATION ${secondResume.pid}`,
+    );
+    await expect(restored.locator(".xterm-helper-textarea")).toBeFocused();
+    await restored.locator(".xterm-helper-textarea").press("q");
+    await expect
+      .poll(() =>
+        restored.evaluate(async () => (await window.desktop.workspace()).terminals[0]?.exited),
+      )
+      .toBe(true);
+    await restored
+      .getByRole("button", { name: `Actions for ${agentName} in resume-test`, exact: true })
+      .click();
+    await restored.getByRole("menuitem", { name: "Close", exact: true }).click();
+    await expect
+      .poll(() =>
+        restored.evaluate(async () => (await window.desktop.workspace()).terminals.length),
+      )
+      .toBe(0);
+    await expect
+      .poll(async () => JSON.parse(await readFile(path.join(profile, "sessions.json"), "utf8")))
+      .toEqual([]);
+    assert.equal(await realpath(resumedLaunch.cwd), resumedLaunch.cwd);
+  });
+}
+test("external Git changes refresh inventory and retain sessions in removed worktrees", {
+  timeout: deadline(45000),
+}, async (context) => {
+  const root = await realpath(await mkdtemp(path.join(tmpdir(), "foom-inventory-watch-")));
+  removeAfterApps(context, root);
+  const repo = path.join(root, "repo");
+  const external = path.join(root, "external");
+  await mkdir(repo);
+  const git = (...args) =>
+    isolatedGit(["-c", "user.name=Test", "-c", "user.email=test@example.com", ...args], {
+      cwd: repo,
+    });
+  git("init", "-q", "-b", "main");
+  git("commit", "--allow-empty", "-qm", "init");
+  const app = await launchApp(context, false, { emptyBoard: true });
+  const page = await boardPage(app);
+  page.on("console", (message) => {
+    if (message.type() === "error") context.diagnostic(`Inventory renderer: ${message.text()}`);
+  });
+  await app.evaluate(({ dialog }, repo) => {
+    dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [repo] });
+  }, repo);
+  await page.getByRole("button", { name: "Add repository", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Main checkout", exact: true })).toBeVisible();
+  git("worktree", "add", "-b", "topic/external", external);
+  const actions = page.getByRole("button", { name: "Actions for topic/external", exact: true });
+  await actions.click();
+  await page.getByRole("menuitem", { name: /^Shell \(/ }).click();
+  await expect
+    .poll(async () => (await page.evaluate(() => window.desktop.workspace())).terminals.length)
+    .toBe(1);
+  const terminal = await page.evaluate(async () => (await window.desktop.workspace()).terminals[0]);
+  // Windows locks the process cwd, which is separate from PowerShell's location.
+  // Move and verify both before removing the worktree, retaining the live session
+  // and its original launch location so every platform exercises the same behavior.
+  const quoted = `'${repo.replaceAll("'", process.platform === "win32" ? "''" : "'\\''")}'`;
+  const input =
+    process.platform === "win32"
+      ? `$ErrorActionPreference = 'Stop'; Set-Location -LiteralPath ${quoted}; [System.IO.Directory]::SetCurrentDirectory((Get-Location).ProviderPath); if ([System.IO.Directory]::GetCurrentDirectory() -eq ${quoted}) { Write-Output ('moved-' + 'ready') } else { throw 'Process cwd did not move' }\r`
+      : `cd ${quoted} && printf 'moved-%s\\n' ready\r`;
+  await page.evaluate(({ id, input }) => window.desktop.input(id, input), {
+    id: terminal.id,
+    input,
+  });
+  await expect
+    .poll(() => page.evaluate((id) => window.desktop.tail(id, 40), terminal.id))
+    .toContain("moved-ready");
+  git("worktree", "remove", external);
+  const session = page.locator(".board-row").filter({ hasText: "Worktree removed" });
+  try {
+    await expect(session).toHaveCount(1);
+  } catch (error) {
+    console.error(
+      "Inventory after external removal",
+      JSON.stringify(
+        await page.evaluate(async () => ({
+          workspace: await window.desktop.workspace(),
+          inventory: await window.desktop.sidebarInventory(),
+        })),
+      ),
+    );
+    console.error("Board after external removal", await page.locator("body").innerText());
+    throw error;
+  }
+  await expect(actions).toHaveCount(0);
+  assert.equal((await page.evaluate(() => window.desktop.workspace())).terminals[0].exited, false);
+  await page.getByRole("button", { name: "topic/external", exact: true }).click();
+  await expect(page.locator(".location-launchers")).toContainText("Worktree removed");
+  await assert.rejects(
+    page.evaluate(
+      ({ repository, worktree }) =>
+        window.desktop.sidebarCommand({ kind: "launch", repository, worktree, run: "shell" }),
+      { repository: repo, worktree: external },
+    ),
+    /Worktree was removed/,
+  );
+  git("checkout", "-b", "topic/renamed");
+  await expect(page.locator(".tree-checkout-branch")).toHaveText("topic/renamed");
+  // Focus is an independent backstop, including after the watcher has failed.
+  await app.evaluate(({ BrowserWindow }) => {
+    BrowserWindow.getAllWindows()
+      .find((window) => window.webContents.getURL() === "app://bundle/index.html")
+      .emit("focus");
+  });
+  await page.evaluate((id) => window.desktop.input(id, "exit\r"), terminal.id);
+  await expect
+    .poll(async () => (await page.evaluate(() => window.desktop.workspace())).terminals[0].exited)
+    .toBe(true);
+  await page.evaluate((id) => window.desktop.sidebarCommand({ kind: "close", id }), terminal.id);
+  await expect(session).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "topic/external", exact: true })).toHaveCount(0);
 });

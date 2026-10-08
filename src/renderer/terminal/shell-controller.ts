@@ -105,7 +105,8 @@ export function createShell(
     controls();
   };
   let suspended: { id: string; request: number } | undefined;
-  const offRemoved = window.desktop.onTerminalAvailability((id, available) => {
+  const offRemoved = window.desktop.onTerminalAvailability((id, available, reset) => {
+    if (reset) exits.delete(id);
     if (available) {
       removed.delete(id);
       if (suspended?.id === id) {

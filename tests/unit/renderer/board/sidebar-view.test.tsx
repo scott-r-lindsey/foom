@@ -350,3 +350,80 @@ test.each([false, true])(
     expect(view.getByRole("heading", { name: isDevelopment ? "foom dev" : "foom" })).toBeTruthy();
   },
 );
+
+test("exited agent menus expose only supported recorded conversations", async () => {
+  const view = setup();
+  await act(async () => {
+    await Promise.resolve();
+  });
+  act(() => {
+    view.base.update("a", { exited: true, state: "done", conversationId: "conversation-123" });
+  });
+  for (const [label, kind] of [
+    [/^Resume conversation/, "resume"],
+    ["Copy session ID", "copy-session-id"],
+    ["New conversation here", "new-conversation"],
+  ] as const) {
+    fireEvent.click(view.getByRole("button", { name: "Actions for Claude Code in feature" }));
+    expect(view.getByText("conversa…")).toBeTruthy();
+    await act(async () => {
+      fireEvent.click(view.getByRole("menuitem", { name: label }));
+      await Promise.resolve();
+    });
+    expect(view.command).toHaveBeenLastCalledWith({ kind, id: "a" });
+  }
+  act(() => {
+    view.base.update("a", { conversationId: undefined, agent: "agy" });
+  });
+  fireEvent.click(view.getByRole("button", { name: "Actions for Antigravity in feature" }));
+  expect(view.queryByRole("menuitem", { name: /^Resume/ })).toBeNull();
+  expect(view.queryByRole("menuitem", { name: "Copy session ID" })).toBeNull();
+  expect(view.getByRole("menuitem", { name: "New conversation here" })).toBeTruthy();
+});
+
+test.each(["shell", "agent"] as const)(
+  "removed checkouts retain %s sessions without launch actions",
+  async (kind) => {
+    const view = setup();
+    await act(async () => {
+      await Promise.resolve();
+    });
+    const rows = view.source.getSnapshot().map((row) => ({
+      ...row,
+      kind,
+      agent: kind === "shell" ? "shell" : "claude",
+      conversationId: kind === "agent" ? "saved-conversation" : undefined,
+      exited: true,
+      worktreeRemoved: true,
+    }));
+    const source = {
+      ...view.source,
+      getSnapshot: () => rows,
+      getSidebar: () => [
+        { ...repository, worktrees: repository.worktrees.filter((tree) => tree.path === "/foom") },
+      ],
+    };
+    view.rerender(<Board source={source} />);
+    expect(view.getAllByText("Worktree removed").length).toBeGreaterThan(0);
+    expect(view.queryByRole("button", { name: "Actions for feature" })).toBeNull();
+    fireEvent.click(view.getByRole("button", { name: "feature" }));
+    expect(view.container.querySelector(".location-launchers")?.textContent).toContain(
+      "Worktree removed",
+    );
+    fireEvent.click(
+      view.getByRole("button", {
+        name: `Actions for ${kind === "shell" ? "Shell" : "Claude Code"} in feature`,
+      }),
+    );
+    expect(view.queryByRole("menuitem", { name: "Restart shell" })).toBeNull();
+    expect(view.queryByRole("menuitem", { name: /^Resume conversation/ })).toBeNull();
+    expect(view.queryByRole("menuitem", { name: "New conversation here" })).toBeNull();
+    if (kind === "agent")
+      expect(view.getByRole("menuitem", { name: "Copy session ID" })).toBeTruthy();
+    fireEvent.click(view.getByRole("menuitem", { name: "Close" }));
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(view.command).toHaveBeenCalledWith({ kind: "close", id: "a" });
+  },
+);

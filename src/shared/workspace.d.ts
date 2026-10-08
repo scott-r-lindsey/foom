@@ -1,3 +1,4 @@
+import type { ExecutionSnapshot, ExecutionTransition } from "./execution";
 import type { ConfirmationClient } from "./confirmation";
 import type { AgentId, AgentInstallation } from "./agents";
 import type { VerdictAction, VerdictState } from "./evaluator";
@@ -8,6 +9,7 @@ import type { Repository, Worktree } from "./worktrees";
  * actions and for verdicts that couldn't be stored.
  */
 export interface TerminalState {
+  execution?: ExecutionSnapshot | undefined;
   id: string;
   verdictId: string | null;
   state: VerdictState | "checking";
@@ -19,6 +21,7 @@ export interface TerminalState {
 
 /** A terminal Foom launched in a managed worktree. Paths identify; the renderer never picks them. */
 export interface WorkspaceTerminal {
+  execution?: ExecutionSnapshot | undefined;
   id: string;
   kind: "agent" | "shell";
   agent: AgentId | "shell";
@@ -28,6 +31,11 @@ export interface WorkspaceTerminal {
   attention: "hooks" | "evaluator";
   state: TerminalState | null;
   exited?: boolean;
+  conversationId?: string;
+  /** No host screen exists for a restored or failed-to-relaunch session. */
+  dormant?: boolean;
+  /** Changes when an exited terminal is relaunched under the same ID. */
+  launchVersion?: number;
   /** Known bypass argument present at launch; does not infer global agent policy. */
   bypass?: boolean;
 }
@@ -84,6 +92,7 @@ export interface WorkspaceApi {
   ): Promise<{ id: string; attention: "hooks" | "evaluator" } | null>;
   /** Pass null only for the current verdict when it couldn't be stored. */
   feedback(id: string, verdictId: string | null, action: VerdictAction): Promise<void>;
+  onExecution(callback: (event: ExecutionTransition) => void): () => void;
   onState(callback: (state: TerminalState) => void): () => void;
 }
 
@@ -97,4 +106,7 @@ export type SidebarCommand =
   | { kind: "remove-repository"; repository: string }
   | { kind: "stop"; id: string }
   | { kind: "close"; id: string }
-  | { kind: "restart"; id: string };
+  | { kind: "restart"; id: string }
+  | { kind: "resume"; id: string }
+  | { kind: "new-conversation"; id: string }
+  | { kind: "copy-session-id"; id: string };

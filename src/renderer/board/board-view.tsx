@@ -267,6 +267,10 @@ export function Board({
     const before = new Set(source.getSnapshot().map((row) => row.id));
     return (source.sidebarCommand?.(value) ?? Promise.resolve())
       .then(() => {
+        if (value.kind === "resume" || value.kind === "new-conversation") {
+          const resumed = source.getSnapshot().find((row) => row.id === value.id && !row.exited);
+          if (resumed) open(resumed, true);
+        }
         if (value.kind === "launch" || value.kind === "restart") {
           const created = source.getSnapshot().find((row) => !before.has(row.id));
           if (created) {
@@ -469,25 +473,41 @@ export function Board({
                 </h2>
               </div>
               <div className="location-launchers">
-                {launcherActions(options, source.shellName?.()).map((action) => (
-                  <ConfirmationButton
-                    client={source.confirmations}
-                    key={action.label}
-                    action={() => {
-                      return command({
-                        kind: "launch",
-                        repository: location.repository,
-                        worktree: location.worktree ?? location.repository,
-                        run: action.run,
-                      });
-                    }}
-                  >
-                    <span className="board-agent" aria-hidden="true">
-                      {action.badge}
-                    </span>
-                    {action.label}
-                  </ConfirmationButton>
-                ))}
+                {location.worktree &&
+                source.getSidebar &&
+                !source
+                  .getSidebar()
+                  .some(
+                    (repo) =>
+                      repo.path === location.repository &&
+                      repo.worktrees.some(
+                        (tree) => tree.path === location.worktree && !tree.prunable,
+                      ),
+                  ) ? (
+                  <span className="worktree-removed">
+                    <span aria-hidden="true">⊘</span> Worktree removed
+                  </span>
+                ) : (
+                  launcherActions(options, source.shellName?.()).map((action) => (
+                    <ConfirmationButton
+                      client={source.confirmations}
+                      key={action.label}
+                      action={() => {
+                        return command({
+                          kind: "launch",
+                          repository: location.repository,
+                          worktree: location.worktree ?? location.repository,
+                          run: action.run,
+                        });
+                      }}
+                    >
+                      <span className="board-agent" aria-hidden="true">
+                        {action.badge}
+                      </span>
+                      {action.label}
+                    </ConfirmationButton>
+                  ))
+                )}
                 {source.worktrees && (
                   <button
                     type="button"

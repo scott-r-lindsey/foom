@@ -25,9 +25,9 @@ export function evaluateRules(input: EvaluationInput): Verdict {
     input.agent && input.evidence
       ? detectAgent(input.agent, input.evidence, input.tail)
       : undefined;
-  if (detected && (detected.state === "working" || detected.state === "blocked"))
+  if (detected?.state === "blocked")
     return verdict(
-      detected.state === "blocked" ? "needs_input" : "working",
+      "needs_input",
       detected.reason,
       `rules:${input.agent ?? ""}:${detected.id}`,
       0.95,
@@ -70,6 +70,8 @@ export function evaluateRules(input: EvaluationInput): Verdict {
   ) {
     return verdict("quiet_ok", "Server is listening", "pattern:server", 0.9);
   }
+  if (detected?.state === "working")
+    return verdict("working", detected.reason, `rules:${input.agent ?? ""}:${detected.id}`, 0.95);
   if (detected?.state === "idle")
     return verdict("working", detected.reason, `rules:${input.agent ?? ""}:${detected.id}`, 0.25);
   return verdict("working", "No completion or input request detected", "rules:ambiguous", 0.25);

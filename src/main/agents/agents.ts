@@ -1,3 +1,4 @@
+import { resumeArguments } from "./conversation";
 import type { ControlLaunch } from "../control/types";
 import { parseAgentArguments } from "./default-arguments";
 import { execFile } from "node:child_process";
@@ -194,6 +195,10 @@ export class AgentService {
     request: AgentLaunch,
   ): Promise<{ id: string; attention: "hooks" | "evaluator" }> {
     const defaults = parseAgentArguments(request.agent, request.defaultArguments ?? []);
+    const resume =
+      request.conversationId === undefined
+        ? []
+        : resumeArguments(request.agent, request.conversationId);
     const trees = await this.worktrees.listWorktrees(request.repository);
     if (
       !trees.some(
@@ -232,19 +237,28 @@ export class AgentService {
           request.checkoutIdentity
       )
         throw new Error("Worktree has changed. Select it and try again.");
-      const args = [...defaults, ...(agent.inline ? ["--no-alt-screen"] : [])];
+      const args = [...resume, ...defaults, ...(agent.inline ? ["--no-alt-screen"] : [])];
       if (binding) {
         if (agent.id === "claude") {
           const hook = [{ hooks: [{ type: "command", command: binding.claudeCommand }] }];
           args.push(
             "--settings",
-            JSON.stringify({ hooks: { Stop: hook, PermissionRequest: hook, Notification: hook } }),
+            JSON.stringify({
+              hooks: {
+                UserPromptSubmit: hook,
+                PreToolUse: hook,
+                Stop: hook,
+                PermissionRequest: hook,
+                Notification: hook,
+              },
+            }),
           );
         } else {
           args.push("-c", `notify=${JSON.stringify(binding.codexCommand)}`);
         }
       }
       const id = await this.terminals.create({
+        ...(request.terminalId === undefined ? {} : { id: request.terminalId }),
         command: agent.path,
         args,
         cwd: request.worktree,

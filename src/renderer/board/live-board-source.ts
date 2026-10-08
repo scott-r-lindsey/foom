@@ -1,3 +1,4 @@
+import type { ExecutionSnapshot } from "../../shared/execution";
 import { createTerminalView } from "../terminal/terminal-view-source";
 import type { SidebarRepository } from "./sidebar.d";
 import type { createShell } from "../terminal/shell-controller";
@@ -37,7 +38,20 @@ export function createAppSource(): BoardSource {
   let shellId = pendingShell;
   const listeners = new Set<() => void>();
   const activityListeners = new Set<(batch: readonly TerminalActivity[]) => void>();
+  // Live events can arrive before their launch snapshot. Keep snapshot evidence
+  // separate so replacing an old snapshot never discards those newer events.
+  const executions = new Map<string, ExecutionSnapshot>();
+  const acceptExecution = (next: ExecutionSnapshot) => {
+    const old = executions.get(next.terminalId);
+    if (
+      !old ||
+      next.launch > old.launch ||
+      (next.launch === old.launch && next.revision > old.revision)
+    )
+      executions.set(next.terminalId, next);
+  };
   const states = new Map<string, TerminalState>();
+  const snapshotStates = new Map<string, TerminalState>();
   const exits = new Map<string, number>();
   const rates = new Map<string, number>();
   const publish = () => {
@@ -57,8 +71,52 @@ export function createAppSource(): BoardSource {
         : 0,
     seen: row.state === state.state && row.verdictId === state.verdictId ? row.seen : false,
   });
-  const latest = (row: BoardRow): BoardRow => {
-    const state = states.get(row.id);
+  const currentState = (id: string): TerminalState | undefined => {
+    const execution = executions.get(id);
+    const current = (state: TerminalState | undefined) =>
+      !execution ||
+      (state?.execution?.launch === execution.launch &&
+        state.execution.revision === execution.revision);
+    const event = states.get(id);
+    const saved = snapshotStates.get(id);
+    const live = current(event) ? event : undefined;
+    const snapshot = current(saved) ? saved : undefined;
+    return live && (!snapshot || live.timestamp >= snapshot.timestamp) ? live : snapshot;
+  };
+  const executionRow = (row: BoardRow): BoardRow => {
+    const execution = executions.get(row.id);
+    if (!execution) return row;
+    const currentVerdict = currentState(row.id) !== undefined;
+    const state =
+      execution.phase === "working"
+        ? "working"
+        : execution.phase === "blocked"
+          ? currentVerdict
+            ? row.state
+            : "needs_input"
+          : (execution.phase === "starting" || execution.phase === "idle") &&
+              (!currentVerdict || row.state === "working" || row.state === "checking")
+            ? "quiet_ok"
+            : row.state;
+    return {
+      ...row,
+      execution,
+      state,
+      reason:
+        currentVerdict || execution.phase === "exited"
+          ? row.reason
+          : {
+              starting: "Waiting for agent activity",
+              idle: "Agent turn ended; checking result",
+              working: "Agent is working",
+              blocked: "Agent needs input",
+            }[execution.phase],
+      waitingSince: state === "needs_input" ? row.waitingSince || Date.now() : 0,
+    };
+  };
+  const latest = (row: BoardRow): BoardRow => executionRow(latestVerdict(row));
+  const latestVerdict = (row: BoardRow): BoardRow => {
+    const state = currentState(row.id);
     const code = exits.get(row.id);
     if (code !== undefined && state?.state !== "done" && state?.state !== "failed")
       return {
@@ -73,14 +131,29 @@ export function createAppSource(): BoardSource {
       ? { ...stateRow(row, state), exited: code !== undefined || row.exited === true }
       : { ...row, rate: rates.get(row.id) ?? row.rate };
   };
-  const snapshot = (next: WorkspaceSnapshot) => {
+  const snapshot = (next: WorkspaceSnapshot, settledReplacement?: string) => {
     loaded = true;
     repositories = next.repositories.map((repo) => repo.name);
     const known = new Map(rows.map((row) => [row.id, row]));
     const live = next.terminals.map((entry): BoardRow => {
-      const previousState = states.get(entry.id);
-      if (entry.state && (!previousState || entry.state.timestamp > previousState.timestamp))
-        states.set(entry.id, entry.state);
+      const previous = known.get(entry.id);
+      const version = entry.launchVersion ?? 0;
+      if (previous && (previous.launchVersion ?? 0) > version) {
+        if (entry.id !== settledReplacement) return latest(previous);
+        // A failure after host creation can retain the old saved record. The
+        // snapshot explicitly requested after settlement is authoritative.
+        states.delete(entry.id);
+        exits.delete(entry.id);
+        rates.delete(entry.id);
+        known.delete(entry.id);
+      }
+      if (previous && version > (previous.launchVersion ?? 0)) known.delete(entry.id);
+      const checkout = sidebar
+        .find((repo) => repo.path === entry.repository)
+        ?.worktrees.find((tree) => tree.path === entry.worktree);
+      if (entry.execution) acceptExecution(entry.execution);
+      if (entry.state) snapshotStates.set(entry.id, entry.state);
+      else snapshotStates.delete(entry.id);
       return latest({
         id: entry.id,
         kind: entry.kind,
@@ -90,17 +163,24 @@ export function createAppSource(): BoardSource {
         repository:
           next.repositories.find((repo) => repo.path === entry.repository)?.name ??
           entry.repository,
-        branch: entry.branch ?? "Detached HEAD",
         agent: entry.agent,
-        state: "working",
-        reason: "Running",
+        state: entry.dormant || entry.kind === "agent" ? "quiet_ok" : "working",
+        reason: entry.dormant ? "Exited · saved session" : "Running",
         rate: rates.get(entry.id) ?? 0,
         waitingSince: 0,
         seen: false,
         tail: [],
         ...known.get(entry.id),
+        ...(entry.dormant
+          ? { state: "quiet_ok", reason: "Exited · saved session", seen: false }
+          : {}),
+        branch: (checkout ? checkout.branch : entry.branch) ?? "Detached HEAD",
+        worktreeRemoved: !checkout || checkout.prunable,
         exited: entry.exited ?? exits.has(entry.id),
         bypass: entry.bypass === true,
+        conversationId: entry.conversationId,
+        dormant: entry.dormant === true,
+        launchVersion: entry.launchVersion ?? 0,
       });
     });
     // Keep surviving rows in place; append newly launched terminals.
@@ -114,7 +194,7 @@ export function createAppSource(): BoardSource {
       })
       .concat([...incoming.values()]);
     for (const [id, owner] of owners) {
-      if (!rows.some((row) => row.id === id)) {
+      if (!rows.some((row) => row.id === id && !row.dormant)) {
         owner.release(id);
         owners.delete(id);
       }
@@ -179,7 +259,50 @@ export function createAppSource(): BoardSource {
       }
     };
     const offWorkspace = window.desktop.onWorkspaceChange(() => void refresh());
+    // Main publishes reset after revoking the old host and before forwarding
+    // replacement events. Old snapshots must not cross this launch boundary.
+    const offAvailability = window.desktop.onTerminalAvailability((id, available, reset) => {
+      if (!available || !reset) return;
+      states.delete(id);
+      snapshotStates.delete(id);
+      exits.delete(id);
+      rates.delete(id);
+      rows = rows.map((row) =>
+        row.id === id
+          ? {
+              ...row,
+              launchVersion: (row.launchVersion ?? 0) + 1,
+              state: "working",
+              reason: "Starting…",
+              exited: false,
+              dormant: false,
+              verdictId: null,
+              waitingSince: 0,
+              rate: 0,
+              tail: [],
+              seen: false,
+            }
+          : row,
+      );
+      publish();
+    });
+    const offExecution = window.desktop.onExecution((event) => {
+      acceptExecution(event);
+      rows = rows.map((row) => (row.id === event.terminalId ? latest(row) : row));
+      publish();
+    });
     const offState = window.desktop.onState((state) => {
+      if (state.execution) {
+        const current = executions.get(state.id);
+        if (
+          current &&
+          (state.execution.launch < current.launch ||
+            (state.execution.launch === current.launch &&
+              state.execution.revision < current.revision))
+        )
+          return;
+        acceptExecution(state.execution);
+      }
       states.set(state.id, state);
       rows = rows.map((row) => (row.id === state.id ? latest(row) : row));
       publish();
@@ -197,7 +320,9 @@ export function createAppSource(): BoardSource {
     return () => {
       disposed = true;
       offWorkspace();
+      offAvailability();
       offState();
+      offExecution();
       offExit();
       offActivity();
     };
@@ -207,12 +332,14 @@ export function createAppSource(): BoardSource {
     connect,
     createView: () => {
       const view = createTerminalView(scheduleView, owners, (id) =>
-        rows.some((row) => row.id === id),
+        rows.some((row) => row.id === id && !row.dormant),
       );
       return {
         ...view,
         open: (id) =>
-          id !== pendingShell && rows.some((row) => row.id === id) ? view.open(id) : view.hide(),
+          id !== pendingShell && rows.some((row) => row.id === id && !row.dormant)
+            ? view.open(id)
+            : view.hide(),
       };
     },
     confirmations: window.desktop.confirmations,
@@ -229,12 +356,33 @@ export function createAppSource(): BoardSource {
         publish();
         return;
       }
-      if (command.kind === "close" || command.kind === "restart") {
+      if (
+        command.kind === "close" ||
+        command.kind === "restart" ||
+        command.kind === "resume" ||
+        command.kind === "new-conversation"
+      ) {
         await owners.get(command.id)?.hide();
         owners.get(command.id)?.release(command.id);
         owners.delete(command.id);
       }
-      await window.desktop.sidebarCommand(command);
+      if (command.kind === "resume" || command.kind === "new-conversation") {
+        states.delete(command.id);
+        snapshotStates.delete(command.id);
+        exits.delete(command.id);
+        rates.delete(command.id);
+        rows = rows.map((row) =>
+          row.id === command.id
+            ? { ...row, state: "working", reason: "Starting…", tail: [], seen: false }
+            : row,
+        );
+      }
+      try {
+        await window.desktop.sidebarCommand(command);
+      } finally {
+        if (command.kind === "resume" || command.kind === "new-conversation")
+          snapshot(await window.desktop.workspace(), command.id);
+      }
       if (command.kind === "close") {
         rows = rows.filter((row) => row.id !== command.id);
         if (command.id === shellId) shellId = pendingShell;
@@ -287,7 +435,7 @@ export function createAppSource(): BoardSource {
       };
     },
     tail: (id) =>
-      id !== pendingShell && rows.some((row) => row.id === id)
+      id !== pendingShell && rows.some((row) => row.id === id && !row.dormant)
         ? window.desktop.tail(id, 40)
         : Promise.resolve([]),
     markSeen: (id) => {

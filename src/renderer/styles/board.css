@@ -852,3 +852,14 @@
     animation: none;
   }
 }
+
+.menu-hint {
+  color: var(--muted);
+  font-family: var(--font-mono);
+  margin-left: auto;
+}
+
+.worktree-removed {
+  color: var(--muted);
+  font-size: 11px;
+}

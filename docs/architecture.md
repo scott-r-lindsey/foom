@@ -115,9 +115,26 @@ is not persisted. All terminal IPC remains ID-scoped and main-validated.
 
 The board starts empty. Shells and agents launch from a repository or checkout’s menu; **New worktree** is a repository action. `npm run start:samples` explicitly builds the development sample board. Normal builds omit its data, and Forge rebuilds without the sample flag before packaging, including when invoked directly. The renderer `<dialog>` New worktree form selects a repository, branch and detected agent or shell, and shows versions and hook availability. Repository paths come from main’s registry or native directory picker; main chooses worktree destinations and executables.
 
+Main's inventory watcher derives the common Git directory with `rev-parse`, validates
+its canonical path, and watches metadata directories for `HEAD`, `packed-refs`,
+`refs/heads` (including nested branch names) and linked `worktrees` metadata.
+Directory watches survive Git's atomic file replacements. Events debounce for
+300 ms with a one-second maximum wait, rebuild the directory subscriptions and
+reuse `workspace:changed`. The maximum wait prevents continuous rename events
+from deleted Windows directories from starving refresh. Rebuilds close old
+handles before discovery to stop that event stream.
+Repository removal and workspace shutdown close subscriptions and timers. Watch
+errors close only the affected subscription and schedule a debounced refresh,
+preserving healthy parent/sibling watches and pending rebuilds (Windows reports
+an error when a watched directory is deleted). Errors alone do not retry watches.
+Discovery/setup failures close the repository's subscriptions; window focus
+refresh remains the fallback. Sidebar commands still re-read Git inventory and validate identity.
+The live board source marks sessions whose checkout is absent or prunable without
+changing their terminal state, capabilities or attachment.
+
 ## Renderer
 
-**Today:** The board uses React 19 with TSX and reads one typed source through `useSyncExternalStore`. Each stable tile mounts one imperative terminal controller through the source adapter and disposes xterm and subscriptions on unmount. Terminal attachment and measurement remain in the controller to preserve attachment ordering. Board focus and pane selection are independent view state; hovering or focusing a row previews its tail without selecting it. The source also supplies path-identified repositories and their complete Git worktree inventory, including empty worktrees and the main checkout, plus validated main-process navigation commands. `sidebar-model.ts` computes stable pin/active/idle sections, filtering, hidden attention counts and roll-ups. `sidebar-view.tsx` renders the tree (or flattened session column below 720px). Sidebar focus and location selection do not attach a terminal; only the board's presentation callback requests that from the tile controller. `row-menu.tsx` portals menus to the document body, positions them from the action button's viewport rectangle, and owns keyboard navigation and dismissal. `sidebar-preferences.ts` validates versioned localStorage metadata for pins, expansion and terminal-ID names; this metadata grants no process or filesystem capabilities. Sessions are not restored across application exit yet. Activity batches write brightness directly to each light; a separate clock updates wait labels without React commits. Activity goes directly from IPC to light styles without changing the React row snapshot.
+**Today:** The board uses React 19 with TSX and reads one typed source through `useSyncExternalStore`. Each stable tile mounts one imperative terminal controller through the source adapter and disposes xterm and subscriptions on unmount. Terminal attachment and measurement remain in the controller to preserve attachment ordering. Board focus and pane selection are independent view state; hovering or focusing a row previews its tail without selecting it. The source also supplies path-identified repositories and their complete Git worktree inventory, including empty worktrees and the main checkout, plus validated main-process navigation commands. `sidebar-model.ts` computes stable pin/active/idle sections, filtering, hidden attention counts and roll-ups. `sidebar-view.tsx` renders the tree (or flattened session column below 720px). Sidebar focus and location selection do not attach a terminal; only the board's presentation callback requests that from the tile controller. `row-menu.tsx` portals menus to the document body, positions them from the action button's viewport rectangle, and owns keyboard navigation and dismissal. `sidebar-preferences.ts` validates versioned localStorage metadata for pins, expansion and terminal-ID names; this metadata grants no process or filesystem capabilities. Session metadata restores as exited rows across application exit; PTYs and screens are not restored. Activity batches write brightness directly to each light; a separate clock updates wait labels without React commits. Activity goes directly from IPC to light styles without changing the React row snapshot.
 
 - **React 19 with TSX**, bundled by esbuild as a production build (`process.env.NODE_ENV` defined). No other UI framework, component kit, or CSS-in-JS. Styles are plain CSS using the tokens in `tokens.css`.
 - **The renderer holds view state only.** Terminal, verdict, and worktree truth lives in main and arrives through `window.desktop`. Components don't call the bridge directly; they read from one board data-source interface shaped like the IPC contract. A sample source serves explicit development builds and tests; the app uses the live source.
@@ -491,9 +508,30 @@ See [agent research](agents.md) for versions, payloads, local probes, sources, a
 
 Requests POST JSON to `/hooks`, with `X-Foom-Session` and `Authorization` containing the launch session and raw token. Tokens contain 256 random bits; comparison uses constant-time equality of fixed-length SHA-256 digests, including for unknown sessions. The listener rejects browser origins and nonliteral Host headers, limits headers to 8 KiB and bodies to 64 KiB (including chunked requests), caps connections, and times out stalled requests. It checks revocation again before delivery. Unknown/revoked sessions and incorrect tokens all receive 401. Unsupported events are acknowledged without changing state; malformed events receive 400.
 
-The first supported event pins the agent session/thread ID for that launch. Subsequent events must match; Codex also requires a turn ID. Only `{ terminalId, action, signal }` escapes the receiver. PermissionRequest and `permission_prompt` produce `needs_input`; Stop, `idle_prompt`, and Codex `agent-turn-complete` produce `classify`. No event directly sets Done. Agent text, paths, tool inputs, and Codex `input-messages` are discarded, never logged, executed, or forwarded to the evaluator. Classification still uses only the redacted terminal tail.
+The first supported event pins the agent session/thread ID for that launch. Subsequent events must match; Codex also requires a turn ID. Only `{ terminalId, action, signal, conversationId }` escapes the receiver. The validated conversation ID is saved locally by Workspace and is not forwarded into evaluation. PermissionRequest and `permission_prompt` produce `needs_input`; Stop, `idle_prompt`, and Codex `agent-turn-complete` produce `classify`. No event directly sets Done. Agent text, paths, tool inputs, and Codex `input-messages` are discarded, never logged, executed, or forwarded to the evaluator. Classification still uses only the redacted terminal tail.
 
 The hook command cannot run Node from the packaged app because the RunAsNode fuse is disabled. `src/main/agents/hook-adapters.ts` supplies distinct observer scripts for Claude stdin and Codex's final JSON argument: POSIX `sh` plus `curl`, and Windows PowerShell plus `Invoke-WebRequest`. The launcher writes the returned source to a private launch directory, invokes POSIX files with `sh` or Windows files with `powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File`, supplies the launch environment, and removes the files afterward. On Windows it first runs the generated script in probe mode; a missing interpreter or enforced policy that blocks the script rejects launch with an error and cleans up the script. The execution policy applies only to that PowerShell invocation; user and machine settings are unchanged. Codex's configured notify argument array must end at the script's configured arguments so the CLI can append its JSON argument. Payloads remain data throughout; scripts emit no output or approval decisions, have a three-second HTTP timeout, and exit successfully even when the receiver is unavailable. Per-launch settings and notify attachment, tool availability checks, and notifier-replacement disclosure belong to #12.
+
+## Saved conversations
+
+Main writes ordered, atomic replacements of private `sessions.json` in the active
+profile. It stores terminal ID, agent, registered repository, worktree, branch and
+validated conversation ID only. Loading validates bounded records and rejects
+malformed IDs, paths, agents and duplicate terminal IDs. Unregistered repositories
+are omitted. Restored records grant sidebar actions only, never a host capability;
+views do not attach or request tails until a successful explicit relaunch.
+
+Resume and New conversation retain the terminal ID. Main drains the previous
+terminal's evaluation queue, removes its exited host screen and launches a fresh
+PTY under that ID after the usual worktree/confirmation checks. An existing live
+host ID cannot be reused. The renderer hides/releases the old view before the
+command; the ID-scoped availability event carries an optional reset marker on
+creation so controllers discard old exit state. A launch version in the board
+snapshot reattaches surviving tile controllers without remounting xterm. Failed launches leave the saved
+record dormant and retryable. Close deletes the record, without touching Git.
+All terminal-ID sidebar commands validate the sender and ownership in either the
+host or main's restored inventory. Copy uses main's clipboard capability and the
+stored ID, never caller-provided clipboard text. Shutdown drains pending writes.
 
 ## Evaluator pipeline
 
@@ -512,22 +550,15 @@ only by default) and replaces it when preflight saves a new source. Results from
 replaced evaluator still in flight are published, not discarded. See
 [inference service usage and benchmarking](inference.md).
 
-A permission hook (`needs_input`) stays in force across later quiet evaluations, because
-agent dialogs rarely match a text rule. It clears when the user types into the terminal
-(recorded as `replied`, with a `working` state and `user:reply` signal) or sends
-`dismissed` feedback (`quiet_ok`, `user:dismissed`). Completion hooks only trigger an
-evaluation. Opening a terminal is not a reply. The board exposes dismissal as **Not attention**.
-
-Only input the user produced counts as typing. xterm also sends focus reports, answers
-to terminal queries (cursor position, device attributes, colors), and mouse releases,
-motion and wheel events through the input channel. Those still reach the PTY but are
-not replies; `src/main/terminals/terminal-reports.ts` separates them. Alternate-screen
-wheel-generated cursor keys carry a validated wheel origin through the preload bridge;
-real arrow keys still count as replies. A reply or dismissal also
-invalidates evaluations and hook signals that were already in flight, so older
-evidence can't restore attention the user just cleared. Exit verdicts are exempt. Host output events also invalidate pending screen-based
-classifications, including with no attached view, and return screen-based attention
-to Working without recording reply feedback. Permission hooks remain authoritative.
+A permission hook (`needs_input`) stays in force across later quiet evaluations.
+For agents, typing records reply feedback but does not establish resumed execution;
+neither typing nor dismissal overrides lifecycle evidence. Dismissal still clears the
+attention indicator and reminders; it does not start Working audio. A later working hook
+releases an explicit permission blocker. Opening a terminal is not a reply.
+Shell reply/dismissal behavior remains separate: replies mark Working and dismissal
+marks Quiet. Terminal-generated reports are filtered by `terminal-reports.ts`.
+New lifecycle transitions invalidate asynchronous classifications. Host output
+invalidates pending screen classifications but never establishes agent execution.
 
 A verdict is published even if the log can't store it. It then has a null
 `verdictId`: a reply still clears it without recording anything, and
@@ -683,13 +714,15 @@ so restored files take effect without a restart. The renderer decodes IPC bytes 
 −6 dBFS peak; silence stays silent and nonfinite samples fail. Invalid selections
 fall back to the default and report a reason, never rewriting saved choices.
 
-The sound controller subscribes to board and setup sources. Activity bypasses React
-and mixes logarithmically into one capped loop. Plain shell rows and exited sessions
-are excluded from the activity mix; shell verdict alerts remain unchanged. A 100 ms clock settles verdicts for
+The sound controller subscribes to board and setup sources. It reads main-owned
+execution metadata, never output rates. One steady loop at the selected volume
+plays while any agent is working; shells and exited sessions are excluded. Shell rows
+are also excluded from verdict alerts, so command completion and shell prompts stay silent. A 100 ms clock settles verdicts for
 one second, spaces alerts by two seconds, gives attention priority and repeats
 outstanding attention every two minutes. State changes, removal and disposal cancel
-reminders; repeated verdict IDs do not restart them. The focused tile is muted while
-the document has focus, excluding Settings, preflight and location views. Muted
+reminders; repeated verdict IDs do not restart them. Attention is muted in the focused tile while the document has focus, excluding
+Settings, preflight and location views. Completion remains audible when focused and
+is deduplicated by launch and turn; initial readiness and restored verdicts are silent. Muted
 completion is consumed. Settings must load before sound; later settings events take
 precedence over a pending initial load. No terminal text enters audio.
 
@@ -753,6 +786,44 @@ way to interrupt a running JavaScript regex. No matcher can type into a terminal
 
 Working and blocked rules produce fixed reasons and `rules:<agent>:<rule-id>` signals.
 Idle evidence has low confidence and continues through generic rules and the model,
-never directly to Done. With rules-only inference it stays Working with a turn-ended
-reason. Model requests still contain only the existing redacted 40-line tail; titles,
+never directly to Done. Workspace execution promotes an ambiguous result to Done
+only after a recorded working-to-idle transition; initial readiness stays neutral. Model requests still contain only the existing redacted 40-line tail; titles,
 progress, files, diffs, keystrokes and manifest content are never added to that input.
+
+
+## Agent execution
+
+`main/agents/execution.ts` owns an independent machine per agent invocation:
+`starting`, `idle`, `working`, `blocked`, `exited`. Shell command markers remain
+separate. Output, keyboard input, focus and feedback never prove agent execution.
+Main subscriptions and validated `agent:execution` IPC receive transitions only,
+with terminal ID, launch identity, turn number, revision, from/to, source and time.
+Workspace snapshots hydrate the current state; the renderer rejects older launch
+or revision evidence. Resume creates a new invocation even when the terminal ID
+is reused. Revoked hook capabilities cannot address that invocation.
+
+| Agent | Working | Blocked | Idle |
+| --- | --- | --- | --- |
+| Claude | Per-launch UserPromptSubmit/PreToolUse observer hooks; half-circle title | PermissionRequest hook; live screen forms | Stop hook; star title |
+| Codex | Braille spinner title | Action Required title | Turn-complete notify; plain title |
+| Antigravity | No supported signal yet | Screen rules | No supported signal yet |
+
+Hooks are strongest evidence. An explicit permission hook survives spinner frames
+until a working hook proves progress. Screen blockers beat working titles during
+classification; later positive progress supersedes stale screen evidence only after
+classification verifies the current screen no longer requests attention. Repeated
+spinner frames can trigger this recovery while blocked. Dismissal is tracked
+separately from execution against a digest of the attention signal and screen;
+unchanged evaluations stay quiet. Changed attention evidence, a new permission
+hook, or a lifecycle transition invalidates that dismissal. Idle
+titles may end a turn started by a hook (including Claude Esc, which lacks Stop).
+A title alone does not distinguish successful completion from an interrupted turn.
+Antigravity lifecycle hooks remain deferred to #178; no global agent configuration
+is changed. Observer hooks emit no permission decision.
+
+Turn end stops Working immediately, independently of asynchronous classification.
+Classification checks attention and failure evidence before announcing completion;
+Needs input moves execution to blocked. A first idle is readiness, never completion.
+Working-to-exited is failure even with exit code zero. A newer execution revision
+invalidates in-flight classification. The board overlays execution on verdicts so
+silent thinking remains Working and unsupported execution stays neutral.

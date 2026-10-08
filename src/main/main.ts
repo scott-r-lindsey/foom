@@ -1,5 +1,6 @@
 import { SoundLibrary } from "./sounds/library";
 import { attachSounds } from "./sounds/ipc";
+import { InventoryWatch } from "./workspace/inventory-watch";
 import { ControlRuntime } from "./control/runtime";
 import { TrustedDialog } from "./confirmations/trusted-dialog";
 import { selectProfile, clearParentHooks } from "./profile";
@@ -7,6 +8,8 @@ import { interfaceThemeSource, resolveInterfaceTheme } from "../shared/interface
 import { app, BrowserWindow, dialog, nativeTheme, net, protocol, screen, session } from "electron";
 import { WorktreeService } from "./workspace/worktrees";
 import { attachTerminal } from "./terminals/terminal-ipc";
+import { clipboard } from "electron";
+import { SessionStore } from "./workspace/session-store";
 import { HookReceiver } from "./agents/hook-receiver";
 import { VerdictLog } from "./evaluator/verdict-log";
 import { Workspace } from "./workspace/workspace";
@@ -58,7 +61,7 @@ protocol.registerSchemesAsPrivileged([
   { scheme: "app", privileges: { standard: true, secure: true, supportFetchAPI: true } },
 ]);
 
-function createWindow(savedSize?: Size) {
+async function createWindow(savedSize?: Size) {
   // Use most of the display while respecting the saved interface scale minimum.
   const scale = settings.get().interfaceScale;
   const area = screen.getPrimaryDisplay().workArea;
@@ -175,7 +178,15 @@ function createWindow(savedSize?: Size) {
   });
   const workspace: Workspace = new Workspace({
     worktrees,
+    watcher: new InventoryWatch(
+      (repository) => worktrees.watchPaths(repository),
+      () => {
+        workspace.refresh();
+      },
+    ),
     terminals,
+    sessions: new SessionStore(app.getPath("userData")),
+    copyText: (text) => clipboard.writeText(text),
     acknowledgeCodex: async () => {
       await settings.update({ codexNotifierAcknowledged: true });
     },
@@ -186,10 +197,14 @@ function createWindow(savedSize?: Size) {
     onChange: () => {
       workspaceIpc.sendChanged();
     },
+    onExecution: (event) => {
+      workspaceIpc.sendExecution(event);
+    },
     onState: (state) => {
       workspaceIpc.sendState(state);
     },
   });
+  await workspace.restore();
   const confirmations = new TrustedDialog(window, session.fromPartition("confirmation"), () =>
     resolveInterfaceTheme(settings.get().interfaceTheme, nativeTheme.shouldUseDarkColors),
   );
@@ -199,6 +214,10 @@ function createWindow(savedSize?: Size) {
     (id) => terminals.owns(id),
     (content) => confirmations.request(content),
   );
+  window.on("focus", () => {
+    // A trusted dialog can return focus to a crashed board during quit.
+    if (!window.webContents.isCrashed()) workspace.refresh();
+  });
   const windowScale = attachWindowScale(
     window,
     (bounds) => screen.getDisplayMatching(bounds).workArea,
@@ -403,7 +422,7 @@ if (!ownsProfile) {
       });
       session.defaultSession.setPermissionCheckHandler(() => false);
 
-      createWindow(await loadWindowSize(app.getPath("userData")));
+      await createWindow(await loadWindowSize(app.getPath("userData")));
     })
     .catch((error: unknown) => {
       console.error("Unable to start the application:", error);

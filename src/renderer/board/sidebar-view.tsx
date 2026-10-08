@@ -179,16 +179,47 @@ export function Sidebar({
     const items: (RowAction | null)[] = exited
       ? [
           ...(row.kind === "shell"
-            ? [
-                {
-                  label: "Restart shell",
-                  run: () => {
-                    return command({ kind: "restart", id: row.id });
+            ? row.worktreeRemoved
+              ? []
+              : [
+                  {
+                    label: "Restart shell",
+                    run: () => {
+                      return command({ kind: "restart", id: row.id });
+                    },
                   },
-                },
+                  null,
+                ]
+            : [
+                ...(!row.worktreeRemoved &&
+                row.conversationId &&
+                (row.agent === "claude" || row.agent === "codex")
+                  ? [
+                      {
+                        label: "Resume conversation",
+                        hint: `${row.conversationId.slice(0, 8)}…`,
+                        run: () => command({ kind: "resume", id: row.id }),
+                      },
+                    ]
+                  : []),
+                ...(!row.worktreeRemoved
+                  ? [
+                      {
+                        label: "New conversation here",
+                        run: () => command({ kind: "new-conversation", id: row.id }),
+                      },
+                    ]
+                  : []),
+                ...(row.conversationId
+                  ? [
+                      {
+                        label: "Copy session ID",
+                        run: () => command({ kind: "copy-session-id", id: row.id }),
+                      },
+                    ]
+                  : []),
                 null,
-              ]
-            : []),
+              ]),
           {
             label: "Close",
             run: () => {
@@ -221,7 +252,7 @@ export function Sidebar({
           data-kind={row.kind}
           data-state={row.state}
           tabIndex={row.id === selected ? 0 : -1}
-          aria-label={`${row.branch} · ${name} · ${light(row).label} · ${row.reason}${row.bypass ? " · Bypass" : ""}`}
+          aria-label={`${row.branch} · ${name} · ${light(row).label} · ${row.reason}${row.bypass ? " · Bypass" : ""}${row.worktreeRemoved ? " · Worktree removed" : ""}`}
           ref={(element) => {
             if (element) buttons.current.set(row.id, element);
             else buttons.current.delete(row.id);
@@ -291,6 +322,11 @@ export function Sidebar({
                 <span className="board-wait">{waitTime(row, now)}</span>
               )}
             </span>
+            {row.worktreeRemoved && (
+              <span className="worktree-removed">
+                <span aria-hidden="true">⊘</span> Worktree removed
+              </span>
+            )}
             <span className="board-reason" title={row.reason}>
               <Highlight text={row.reason} filter={filter} />
             </span>
@@ -580,24 +616,30 @@ export function Sidebar({
                                       </span>
                                     </span>
                                   </button>
+                                  {worktree.removed && (
+                                    <span className="worktree-removed">
+                                      <span aria-hidden="true">⊘</span> Worktree removed
+                                    </span>
+                                  )}
                                   {!expanded && roll(rollup)}
-                                  {actions(wid, name, [
-                                    ...launchers(target),
-                                    ...(!main && !worktree.bare
-                                      ? [
-                                          null,
-                                          {
-                                            label: "Remove worktree…",
-                                            run: () => {
-                                              return command({
-                                                kind: "remove-worktree",
-                                                ...target,
-                                              });
+                                  {!worktree.removed &&
+                                    actions(wid, name, [
+                                      ...launchers(target),
+                                      ...(!main && !worktree.bare
+                                        ? [
+                                            null,
+                                            {
+                                              label: "Remove worktree…",
+                                              run: () => {
+                                                return command({
+                                                  kind: "remove-worktree",
+                                                  ...target,
+                                                });
+                                              },
                                             },
-                                          },
-                                        ]
-                                      : []),
-                                  ])}
+                                          ]
+                                        : []),
+                                    ])}
                                 </div>
                                 {expanded && <div role="group">{sessions.map(session)}</div>}
                               </div>
