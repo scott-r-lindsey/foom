@@ -20,20 +20,11 @@ export function requiresDesktop(paths) {
   );
 }
 
+/** Every run, including draft pull requests, validates all three platforms. */
 export const allPlatforms = ["ubuntu-24.04", "windows-2025", "macos-15"];
-export const fullCiLabel = "full-ci";
 
-/** Windows and macOS minutes cost 2× and 10× Linux, so pull requests run them on request. */
-export function desktopPlatforms(eventName, event) {
-  if (eventName !== "pull_request") return allPlatforms;
-  const labels = event.pull_request?.labels;
-  return Array.isArray(labels) && labels.some((label) => label?.name === fullCiLabel)
-    ? allPlatforms
-    : ["ubuntu-24.04"];
-}
-
-/** Only selected platforms get jobs; Windows runs two disjoint test shards. */
-export function desktopMatrix(platforms) {
+/** Windows runs two disjoint test shards. */
+export function desktopMatrix(platforms = allPlatforms) {
   return platforms.flatMap((os) =>
     (os === "windows-2025" ? ["1/2", "2/2"] : ["1/1"]).map((shard) => ({ os, shard })),
   );
@@ -70,14 +61,13 @@ export function detectDesktop(
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const event = JSON.parse(readFileSync(process.env.GITHUB_EVENT_PATH, "utf8"));
   const required = detectDesktop(process.env.GITHUB_EVENT_NAME, event);
-  const platforms = desktopPlatforms(process.env.GITHUB_EVENT_NAME, event);
   appendFileSync(
     process.env.GITHUB_OUTPUT,
-    `desktop_required=${required}\ndesktop_platforms=${JSON.stringify(platforms)}\ndesktop_matrix=${JSON.stringify(desktopMatrix(platforms))}\n`,
+    `desktop_required=${required}\ndesktop_matrix=${JSON.stringify(desktopMatrix())}\n`,
   );
   console.log(
     required
-      ? `Desktop validation required on ${platforms.join(", ")}.`
+      ? `Desktop validation required on ${allPlatforms.join(", ")}.`
       : "No desktop-relevant changes; desktop validation skipped.",
   );
 }
