@@ -1,3 +1,4 @@
+import { AgentBadge } from "./agent-badge";
 import { AppMenu } from "./app-menu";
 import { useCallback, useEffect, useLayoutEffect, useState } from "react";
 import type { RefObject, ReactNode, CSSProperties } from "react";
@@ -10,6 +11,7 @@ import {
   buildSidebar,
   repositoryKey,
   sessionName,
+  sessionIdentity,
   sidebarRepositories,
   worktreeKey,
   rowRepository,
@@ -32,8 +34,8 @@ export function launcherActions(
     ...(options?.agents
       .filter((agent) => agent.path && options.enabled[agent.id])
       .map((agent) => ({
-        label: agentNames[agent.id] ?? agent.id,
-        badge: agentBadges[agent.id] ?? "",
+        label: agentNames.get(agent.id) ?? agent.id,
+        badge: agentBadges.get(agent.id) ?? agent.id,
         run: agent.id,
       })) ?? []),
     { label: shell ? `Shell (${shell})` : "Shell", badge: ">_", run: "shell" },
@@ -175,6 +177,7 @@ export function Sidebar({
   );
   const session = (row: BoardRow) => {
     const name = sessionName(row, preferences);
+    const identity = sessionIdentity(row, source.shellName?.());
     const exited =
       row.exited ?? (row.kind === "sample" && (row.state === "done" || row.state === "failed"));
     const items: (RowAction | null)[] = exited
@@ -230,7 +233,7 @@ export function Sidebar({
         ]
       : [
           {
-            label: `Stop ${row.kind === "shell" ? "shell" : (agentNames[row.agent] ?? row.agent)}`,
+            label: `Stop ${row.kind === "shell" ? "shell" : (agentNames.get(row.agent) ?? row.agent)}`,
             run: () => {
               return command({ kind: "stop", id: row.id });
             },
@@ -253,7 +256,7 @@ export function Sidebar({
           data-kind={row.kind}
           data-state={row.state}
           tabIndex={row.id === selected ? 0 : -1}
-          aria-label={`${row.branch} · ${name} · ${light(row).label} · ${row.reason}${row.bypass ? " · Bypass" : ""}${row.worktreeRemoved ? " · Worktree removed" : ""}`}
+          aria-label={`${row.branch} · ${name}${name === identity ? "" : ` · ${identity}`} · ${light(row).label} · ${row.reason}${row.bypass ? " · Bypass" : ""}${row.worktreeRemoved ? " · Worktree removed" : ""}`}
           ref={(element) => {
             if (element) buttons.current.set(row.id, element);
             else buttons.current.delete(row.id);
@@ -294,7 +297,7 @@ export function Sidebar({
           <span className="session-lines">
             <span className="visually-hidden board-branch">{row.branch}</span>
             <span className="session-top">
-              <span className="board-agent">{agentBadges[row.agent] ?? row.agent}</span>
+              <AgentBadge mark={row.kind === "shell" ? ">_" : agentBadges.get(row.agent)} />
               {row.bypass && (
                 <span className="session-bypass" title="Launched with a bypass argument">
                   <span aria-hidden="true">◇</span> Bypass

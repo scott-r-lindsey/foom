@@ -883,8 +883,11 @@ Main stores observed health in `codex-hook-health.json` in Foom's profile, never
 Codex state. A fingerprint of the six definitions invalidates cached health when the
 installed observer path/version changes. Only observed startup + prompt + Stop
 permits later launches to omit `notify` and its disclosure. A review screen or missing
-startup/prompt callbacks within an observed turn restores the fallback for subsequent
-launches. Current sessions continue with title/screen rules. Newer launches own health
+prompt callbacks in the current execution turn restores the fallback for subsequent
+launches. Prompt and Stop observations are scoped to execution turns: notify is
+ignored only when Stop completed that same turn. An attached notify fallback can
+complete later turns even when their lifecycle callbacks disappear; title-only ends
+stay neutral after lifecycle hooks have been observed. Newer launches own health
 updates so an older terminal cannot overwrite a newer result. Setup exposes these
 observations and directs users to Codex's `/hooks`; no Foom control grants trust or
 reopens review. The [probe and limitations](agents.md#stable-codex-lifecycle-observers-181)

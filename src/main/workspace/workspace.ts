@@ -37,9 +37,9 @@ type Agents = Pick<AgentService, "scan" | "launch" | "release" | "dispose" | "se
 type Terminal = {
   execution?: AgentExecution;
   codexHealthLaunch?: number;
-  codexPrompt?: boolean;
+  codexPromptTurn?: number;
   codexStarted?: boolean;
-  codexStopped?: boolean;
+  codexStoppedTurn?: number;
   completedTurn?: number;
   interrupted?: boolean;
   actionVerdict?: string;
@@ -763,8 +763,7 @@ export class Workspace {
       event.from === "working" &&
       source !== "hook" &&
       this.launched.get(id)?.agent === "codex" &&
-      !terminal.codexStarted &&
-      !terminal.codexPrompt &&
+      terminal.codexPromptTurn !== event.turn &&
       this.codexHooks.get() === "trusted"
     )
       this.codexHooks.set("declined", terminal.codexHealthLaunch);
@@ -775,7 +774,8 @@ export class Workspace {
     const entry = this.launched.get(id);
     return (
       entry?.attention === "hooks" &&
-      (entry.agent === "claude" || (entry.agent === "codex" && this.track(id).codexPrompt === true))
+      (entry.agent === "claude" ||
+        (entry.agent === "codex" && this.track(id).codexPromptTurn !== undefined))
     );
   }
 
@@ -1117,24 +1117,23 @@ export class Workspace {
       health.codexStarted = true;
       return Promise.resolve();
     }
-    if (signal.signal === "codex:UserPromptSubmit") {
-      health.codexPrompt = true;
-      health.codexStopped = false;
-    }
+    const turn = this.execution(id).snapshot().turn;
     if (signal.signal === "codex:Stop") {
-      health.codexStopped = true;
-      if (health.codexStarted && health.codexPrompt)
+      health.codexStoppedTurn = turn;
+      if (health.codexStarted && health.codexPromptTurn === turn)
         this.codexHooks.set("trusted", health.codexHealthLaunch);
     }
     if (signal.signal === "codex:agent-turn-complete") {
-      if (!health.codexStarted && !health.codexPrompt)
+      if (health.codexPromptTurn !== turn)
         this.codexHooks.set("declined", health.codexHealthLaunch);
       // Stop is authoritative; do not classify the same turn twice through notify.
-      if (health.codexStopped) return Promise.resolve();
+      if (health.codexStoppedTurn === turn) return Promise.resolve();
     }
     if (signal.action === "working") {
       this.track(id).generation++;
       this.transition(id, "working", "hook");
+      if (signal.signal === "codex:UserPromptSubmit")
+        health.codexPromptTurn = this.execution(id).snapshot().turn;
       return Promise.resolve();
     }
     if (signal.action === "needs_input") {
@@ -1146,7 +1145,12 @@ export class Workspace {
     } else if (signal.signal !== "claude:idle_prompt") {
       const terminal = this.track(id);
       const turn = terminal.execution?.snapshot().turn;
-      if (turn && (signal.signal === "claude:Stop" || signal.signal === "codex:Stop"))
+      if (
+        turn &&
+        (signal.signal === "claude:Stop" ||
+          signal.signal === "codex:Stop" ||
+          signal.signal === "codex:agent-turn-complete")
+      )
         terminal.completedTurn = turn;
       this.transition(id, "idle", "hook");
     }

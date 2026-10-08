@@ -346,13 +346,14 @@ Agent setup shows **Not reviewed**, **Trusted · observed working**, **Declined 
 unavailable**, or **Outdated**, with `/hooks` instructions. These are Foom health
 observations, not a read of Codex's trust database: absence cannot distinguish a
 user declining from disabling hooks or a broken transport. A matching review screen
-or an observed turn without startup/prompt hooks explains the fallback. Foom never
+or an observed turn without its prompt hook explains the fallback. Foom never
 opens review, grants trust, retries launches, or types `/hooks` for the user.
 
 Only a launch that reports SessionStart, UserPromptSubmit and Stop establishes
 working completion hooks. Later launches omit the notify override and its disclosure;
 the establishing launch keeps its already-attached fallback. Duplicate notify after
-Stop does not classify again. A private `codex-hook-health.json` in **Foom's profile**
+Stop does not classify that same execution turn again. A later turn without prompt
+callbacks restores fallback health and can still complete through an attached notify. A private `codex-hook-health.json` in **Foom's profile**
 persists only a definition fingerprint and health state. A changed definition
 invalidates that observation. Late events from older launches cannot overwrite a
 newer launch's health. If hooks subsequently fail, title rules remain available in

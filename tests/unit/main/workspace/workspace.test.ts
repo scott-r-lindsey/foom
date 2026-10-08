@@ -2236,3 +2236,40 @@ test.each([true, false])(
     }
   },
 );
+
+test.each(["notify", "idle-then-notify", "idle-only"])(
+  "Codex restores fallback after a verified turn when later callbacks disappear: %s",
+  async (completion) => {
+    const { workspace, hooks, key } = await codexWorkspace();
+    const send = (signal: HookSignal["signal"], action: HookSignal["action"]) =>
+      workspace.hook({ terminalId: key, signal, action });
+    try {
+      tails.set("t1", ["Complete."]);
+      await send("codex:SessionStart", "ready");
+      await send("codex:UserPromptSubmit", "working");
+      await send("codex:Stop", "classify");
+      expect((await workspace.scanAgents(false)).agents[0]?.codexHookState).toBe("trusted");
+      const count = classify.mock.calls.length;
+      await send("codex:agent-turn-complete", "classify");
+      expect(classify).toHaveBeenCalledTimes(count);
+
+      await workspace.evidence("t1", { title: "⠋ Working", progress: null });
+      expect(workspace.snapshot().terminals[0]?.execution?.turn).toBe(2);
+      if (completion !== "notify") {
+        await workspace.evidence("t1", { title: "Ready", progress: null });
+        expect(states.at(-1)?.state).toBe("quiet_ok");
+      }
+      if (completion !== "idle-only") {
+        await send("codex:agent-turn-complete", "classify");
+        expect(states.at(-1)?.state).toBe("done");
+      }
+      expect((await workspace.scanAgents(false)).agents[0]?.codexHookState).toBe("declined");
+      const next = await prepare?.("codex");
+      expect(next?.codexNotify).toBe(true);
+      next?.dispose();
+    } finally {
+      hooks.dispose();
+      await workspace.dispose();
+    }
+  },
+);
