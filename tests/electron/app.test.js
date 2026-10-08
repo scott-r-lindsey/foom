@@ -4842,3 +4842,145 @@ test("application menu closes before focus commands and keeps their destination 
   await expect(menu).toHaveCount(0);
   await expect(page.locator(".xterm-helper-textarea")).toBeFocused();
 });
+
+test("tile drag drops replace, split every edge, swap and move without reattachment; keyboard swaps and Escape", {
+  timeout: deadline(60000),
+}, async (context) => {
+  const root = await realpath(await mkdtemp(path.join(tmpdir(), "foom-drag-")));
+  removeAfterApps(context, root);
+  const repo = path.join(root, "repo");
+  await mkdir(repo);
+  isolatedGit(["init", "-q", repo]);
+  const app = await launchApp(context, false, { emptyBoard: true });
+  const page = await boardPage(app);
+  await app.evaluate(({ dialog, BrowserWindow }, repo) => {
+    dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [repo] });
+    BrowserWindow.getAllWindows()
+      .find((window) => window.webContents.getURL() === "app://bundle/index.html")
+      .setSize(1500, 900);
+  }, repo);
+  await page.getByRole("button", { name: "Add repository", exact: true }).click();
+  await expect
+    .poll(async () => (await page.evaluate(() => window.desktop.workspace())).repositories.length)
+    .toBe(1);
+  await page.evaluate(async (repo) => {
+    for (let i = 0; i < 3; i++)
+      await window.desktop.sidebarCommand({
+        kind: "launch",
+        repository: repo,
+        worktree: repo,
+        run: "shell",
+      });
+  }, repo);
+  const rows = page.locator(".board-row");
+  await expect(rows).toHaveCount(3);
+  await rows.nth(0).click();
+  const tiles = page.locator(".terminal-tile");
+  const drag = async (source, target, x, y, cancel = false) => {
+    const from = await source.boundingBox(),
+      to = await target.boundingBox();
+    assert.ok(from && to);
+    await page.mouse.move(from.x + 10, from.y + from.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(to.x + to.width * x, to.y + to.height * y, { steps: 12 });
+    await expect(page.locator(".tile-drop-preview")).toBeVisible();
+    await expect(page.locator(".tile-drop-preview")).toHaveCSS("border-top-style", "dashed");
+    const theme = await page
+      .locator("html")
+      .evaluate((element) => getComputedStyle(element).colorScheme);
+    await page.screenshot({ path: path.join(tmpdir(), `foom-133-preview-${theme}.png`) });
+    await expect(page.locator('.tile-area > [role="status"]')).toContainText("Escape cancels");
+    if (cancel) await page.keyboard.press("Escape");
+    await page.mouse.up();
+    await expect(page.locator(".tile-drop-preview")).toHaveCount(0);
+  };
+  const saved = () => page.evaluate(() => localStorage.getItem("foom.tiles.v1"));
+  const initial = await saved();
+  await drag(rows.nth(1), tiles.first(), 0.5, 0.5, true);
+  assert.equal(await saved(), initial);
+  await drag(rows.nth(1), tiles.first(), 0.5, 0.5);
+  const ids = await rows.evaluateAll((rows) => rows.map((row) => row.dataset.dragSession));
+  assert.equal(JSON.parse(await saved()).tree.session, ids[1]);
+  for (const [zone, x, y, theme] of [
+    ["left", 0.1, 0.5, "light"],
+    ["right", 0.9, 0.5, "dark"],
+    ["up", 0.5, 0.1, "light"],
+    ["down", 0.5, 0.9, "dark"],
+  ]) {
+    await page.emulateMedia({ colorScheme: theme, reducedMotion: "reduce" });
+    await expect(page.locator("html")).toHaveCSS("color-scheme", theme);
+    await page.getByRole("button", { name: "One", exact: true }).click();
+    await drag(rows.nth(1), tiles.first(), 0.5, 0.5);
+    await drag(rows.nth(2), tiles.first(), x, y);
+    await expect(tiles).toHaveCount(2);
+    const tree = JSON.parse(await saved()).tree;
+    assert.equal(tree.direction, zone === "left" || zone === "right" ? "horizontal" : "vertical");
+    assert.equal((zone === "left" || zone === "up" ? tree.first : tree.second).session, ids[2]);
+    // Restore the other session for the next edge's source/target pair.
+    await drag(rows.nth(1), tiles.first(), 0.5, 0.5);
+  }
+  await page.getByRole("button", { name: "Two side by side", exact: true }).click();
+  await rows.nth(0).click();
+  await page.evaluate(() => {
+    window.dragTiles = [...document.querySelectorAll(".terminal-tile")];
+    window.dragXterms = [...document.querySelectorAll(".xterm")];
+    window.dragTokens = new Map();
+    window.desktop.onData((id, token) => window.dragTokens.set(id, token));
+  });
+  const sessions = (await page.evaluate(() => window.desktop.workspace())).terminals;
+  const pulse = async () => {
+    await page.evaluate(() => window.dragTokens.clear());
+    for (const session of sessions)
+      await page.evaluate((id) => window.desktop.input(id, "echo DRAG_TOKEN\r"), session.id);
+    await expect.poll(() => page.evaluate(() => window.dragTokens.size)).toBe(2);
+  };
+  await pulse();
+  const tokens = await page.evaluate(() => [...window.dragTokens].sort());
+  await drag(tiles.first().locator(".tile-title"), tiles.nth(1), 0.5, 0.5);
+  assert.equal(
+    await page.evaluate(
+      () => document.querySelectorAll(".terminal-tile")[1] === window.dragTiles[0],
+    ),
+    true,
+  );
+  for (const [x, y] of [
+    [0.1, 0.5],
+    [0.9, 0.5],
+    [0.5, 0.1],
+    [0.5, 0.9],
+  ]) {
+    const moving = page.locator(
+      `[data-tile="${await page.evaluate(() => window.dragTiles[0].dataset.tile)}"]`,
+    );
+    const other = page.locator(
+      `[data-tile="${await page.evaluate(() => window.dragTiles[1].dataset.tile)}"]`,
+    );
+    await drag(moving.locator(".tile-title"), other, x, y);
+  }
+  await app.evaluate(({ BrowserWindow }) => {
+    const contents = BrowserWindow.getAllWindows().find(
+      (window) => window.webContents.getURL() === "app://bundle/index.html",
+    ).webContents;
+    if (process.platform !== "darwin")
+      for (const type of ["keyDown", "keyUp"])
+        contents.sendInputEvent({ type, keyCode: "Space", modifiers: ["control", "shift"] });
+    for (const type of ["keyDown", "keyUp"])
+      contents.sendInputEvent({
+        type,
+        keyCode: "Up",
+        modifiers: process.platform === "darwin" ? ["meta", "alt"] : ["shift"],
+      });
+  });
+  await expect
+    .poll(() =>
+      page.evaluate(() => document.querySelector(".terminal-tile") === window.dragTiles[0]),
+    )
+    .toBe(true);
+  await pulse();
+  assert.deepEqual(await page.evaluate(() => [...window.dragTokens].sort()), tokens);
+  assert.equal(
+    await page.evaluate(() => window.dragXterms.every((node) => node.isConnected)),
+    true,
+  );
+  await page.screenshot({ path: path.join(tmpdir(), "foom-133-tiles.png") });
+});

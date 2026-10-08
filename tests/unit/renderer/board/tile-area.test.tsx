@@ -421,3 +421,81 @@ test("menu presets and Dock navigation use the same board placement and report v
   screen.unmount();
   expect(dispose).toHaveBeenCalled();
 });
+
+test("title drags and keyboard swaps keep controllers attached; Escape and outside drags cannot change layout", async () => {
+  const { screen, click, send, views, row } = setup();
+  click(0);
+  send("split-right");
+  click(1);
+  await act(async () => {});
+  const tiles = [...screen.container.querySelectorAll<HTMLElement>(".terminal-tile")];
+  const a = tiles[0],
+    b = tiles[1];
+  if (!a || !b) throw new Error("tiles");
+  const counts = () =>
+    views.map((view) => [
+      view.open.mock.calls.length,
+      view.hide.mock.calls.length,
+      view.mount.mock.calls.length,
+    ]);
+  const before = counts();
+  vi.spyOn(a, "getBoundingClientRect").mockReturnValue({
+    left: 0,
+    top: 0,
+    width: 100,
+    height: 100,
+    x: 0,
+    y: 0,
+    right: 100,
+    bottom: 100,
+    toJSON: () => ({}),
+  });
+  vi.spyOn(b, "getBoundingClientRect").mockReturnValue({
+    left: 0,
+    top: 0,
+    width: 100,
+    height: 100,
+    x: 0,
+    y: 0,
+    right: 100,
+    bottom: 100,
+    toJSON: () => ({}),
+  });
+  const transfer = { setData: vi.fn(), effectAllowed: "", dropEffect: "" };
+  const drag = (source: Element, target: Element, x = 50, y = 50) => {
+    fireEvent.dragStart(source, { dataTransfer: transfer });
+    fireEvent.dragOver(target, { dataTransfer: transfer, clientX: x, clientY: y });
+    fireEvent.drop(target, { dataTransfer: transfer, clientX: x, clientY: y });
+    fireEvent.dragEnd(source);
+  };
+  // jsdom does not implement DragEvent coordinates.
+  vi.stubGlobal("DragEvent", MouseEvent);
+  drag(a.querySelector("header") ?? a, b);
+  expect([...screen.container.querySelectorAll(".terminal-tile")]).toEqual([b, a]);
+  send("swap-left");
+  expect([...screen.container.querySelectorAll(".terminal-tile")]).toEqual([a, b]);
+  send("swap-right");
+  send("swap-up");
+  send("swap-down");
+  drag(a.querySelector("header") ?? a, b, 50, 90);
+  expect(counts()).toEqual(before);
+  const saved = localStorage.getItem(TILE_STORAGE);
+  fireEvent.dragStart(row(2), { dataTransfer: transfer });
+  fireEvent.dragOver(b, { dataTransfer: transfer, clientX: 50, clientY: 50 });
+  expect(screen.container.querySelector(".tile-drop-preview")?.textContent).toBe("Replace session");
+  fireEvent.keyDown(b, { key: "Escape" });
+  fireEvent.drop(b, { dataTransfer: transfer, clientX: 50, clientY: 50 });
+  expect(localStorage.getItem(TILE_STORAGE)).toBe(saved);
+  drag(row(2), b);
+  expect(views[1]?.open).toHaveBeenLastCalledWith("check");
+  drag(row(3), b, 10, 50);
+  expect(screen.container.querySelectorAll(".terminal-tile")).toHaveLength(3);
+  fireEvent.dragStart(screen.getAllByRole("button", { name: "Split right" })[0] ?? document.body, {
+    dataTransfer: transfer,
+  });
+  fireEvent.dragStart(screen.container.querySelector(".tile-area") ?? document.body, {
+    dataTransfer: transfer,
+  });
+  fireEvent.dragOver(document.body, { dataTransfer: transfer });
+  vi.unstubAllGlobals();
+});
