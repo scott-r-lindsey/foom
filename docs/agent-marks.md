@@ -103,16 +103,23 @@ the existing font notices. No shell-specific artwork is selected or cleared by
 this note: the shell's software license alone is insufficient evidence about a
 separate logo. Use text such as `Shell (zsh)` for all four shells.
 
-For a newly supported agent, use a plain two-letter label and its full name. Any
-other program runs as a plain terminal (see [product](product.md)) and gets the
-shell's `>_`, so there is no unknown-agent badge. The labels are Foom's
-abbreviations: don't style them into imitation logos or use them in Foom's own
-branding.
+Implementation in #117 selects **no third-party artwork**. CC / CX / AG are UI
+shorthand, and shells use literal `>_` in bundled Geist Mono, covered by the
+existing font notices. No image licenses or generated notices are added.
 
-Use the badge size from the sidebar mockup
-([`docs/mockups/sidebar.html`](mockups/sidebar.html), #113): 20×15px in session
-rows and 22×17px in menus and the empty pane, two characters of 9px Geist Mono
-semibold. A future mark must fit that slot without making rows taller.
+Unknown identities use `?` in the same slot, with their plain identity (or
+“Unknown agent”) in the accessible row name and hover/focus preview. Newly
+supported agents should receive a readable plain label and full name. Other
+programs launched in a shell retain `>_` and the detected shell name. Renaming a
+session never replaces its identity in the accessible row name or preview.
+
+The shared badge uses a **20px-high slot**, a **16px visual target**, at least
+24px width and 11px Geist Mono semibold. This supersedes the mockup's older
+20×15px row badges and 22×17px menu badges. Rows, tile headers, menus and launch
+buttons share the same component. The full identity appears in the sidebar's
+existing hover/focus preview; shell launch labels and previews include the
+detected shell name. Missing or withdrawn artwork must retain this text fallback
+without moving the separate status light.
 Use the existing badge fill/ink tokens. Keep the status light separate: no amber,
 magenta, status tinting or animated identity mark. Include the full agent name in
 the row's accessible name and a hover/focus label when it is otherwise absent.

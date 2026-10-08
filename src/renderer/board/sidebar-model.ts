@@ -9,24 +9,30 @@ const ranks: Record<BoardState, number> = {
   done: 2,
   quiet_ok: 1,
 };
-export const agentNames: Readonly<Record<string, string>> = {
-  claude: "Claude Code",
-  codex: "Codex",
-  agy: "Antigravity",
-  shell: "Shell",
-};
-export const agentBadges: Readonly<Record<string, string>> = {
-  claude: "CC",
-  "Claude Code": "CC",
-  codex: "CX",
-  Codex: "CX",
-  agy: "AG",
-  Antigravity: "AG",
-  shell: ">_",
-  Shell: ">_",
-};
+export const agentNames: ReadonlyMap<string, string> = new Map([
+  ["claude", "Claude Code"],
+  ["codex", "Codex"],
+  ["agy", "Antigravity"],
+  ["shell", "Shell"],
+]);
+export const agentBadges: ReadonlyMap<string, string> = new Map([
+  ["claude", "CC"],
+  ["Claude Code", "CC"],
+  ["codex", "CX"],
+  ["Codex", "CX"],
+  ["agy", "AG"],
+  ["Antigravity", "AG"],
+  ["shell", ">_"],
+  ["Shell", ">_"],
+]);
+/** Keep identity independent of the editable session name. */
+export function sessionIdentity(row: BoardRow, shell: string | undefined): string {
+  if (row.kind === "shell" || row.agent === "shell" || row.agent === "Shell")
+    return shell ? `Shell (${shell})` : "Shell";
+  return agentNames.get(row.agent) || row.agent || "Unknown agent";
+}
 export function sessionName(row: BoardRow, preferences: SidebarPreferences): string {
-  return preferences.names[row.id] || agentNames[row.agent] || row.agent;
+  return preferences.names[row.id] || agentNames.get(row.agent) || row.agent;
 }
 export function rollup(rows: readonly BoardRow[]): BoardRow | undefined {
   return rows.reduce<BoardRow | undefined>(
