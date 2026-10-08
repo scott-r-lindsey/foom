@@ -292,7 +292,7 @@ exposes only request rendering and answering; it buffers the request until the p
 subscribes. `confirmation:answer` validates the exact window, top frame, URL,
 request ID and boolean. Board frames, stale IDs and malformed answers are ignored.
 Closing, renderer failure and disposal cancel. A failed window is recreated for
-the next request. This main-only content API can later serve #122 and #119.
+the next request. This main-only content API also serves merged-worktree cleanup and can later serve #119.
 
 The trusted session denies permissions and navigation, blocks new windows and
 webviews, and serves only its page, script, styles and bundled fonts. Context
@@ -312,6 +312,26 @@ Git runs in main through `execFile` with argument arrays, never through a shell.
 **Today:** `src/main/workspace/worktrees.ts` provides the main-process `WorktreeService`, independently of the UI and IPC. Add a repository before listing or modifying its worktrees. It canonicalizes repository paths, lists NUL-delimited Git records, checks out existing branches or creates new ones, and delegates dirty/locked removal checks to Git. Force allows dirty removal but does not override locks or target validation. Direct service removal still requires ownership unless main supplies a worktree identity captured for explicit confirmation. Adjacent trees use `<repo>-<branch>` (branch slashes create subdirectories). Creation checks resolved parent directories against the allowed root and rejects existing destinations. Ownership records the device, inode, and birth time of the worktree directory, its `.git` file, and its resolved Git metadata directory. Listing and removal revalidate that identity; missing or replaced entries permanently invalidate ownership, including for forced removal. Removal rejects redirected paths. `removeRepository` forgets a repository, but refuses while Foom owns worktrees in it, so their ownership records aren't dropped. These checks do not provide isolation against another local process concurrently replacing filesystem entries.
 
 At startup, main opens the service with `WorktreeService.open(app.getPath("userData"))`. Repository registration and ownership are stored in versioned `worktrees.json` using a private temporary file and atomic rename; writes are serialized within the service. Startup validates the untrusted state, rechecks repository paths, allowed roots, Git membership, and filesystem identity, and drops stale or redirected entries. Corrupt or unsupported state grants no ownership and does not block startup. Registration, creation, removal, and ownership invalidation await persistence; write failures are reported to the caller. The synchronous constructor remains available for an explicitly in-memory service. The renderer reaches it through the `workspace:*` channels. `workspace:start` validates the branch in main and creates or reuses an owned worktree at the configured location. A failed launch leaves the owned worktree available for retry with the same branch. `workspace:remove` takes a terminal ID; sidebar removal takes a registered repository and worktree path. Main validates Git membership, canonical paths and locks, excludes the main checkout (including when a linked checkout is registered as the repository), captures filesystem identity, and requests click-again for a clean checkout or a trusted dialog naming uncommitted changes from NUL-delimited Git status. Cancellation preserves the terminal and files. Main rechecks identity and status after confirmation, stops the worktree’s terminals and waits for native exit, then rechecks identity and status again before removing the directory; the branch is kept. Changed files require a fresh review. A refusal retains the exited terminal screen and capability for inspection, restart, or another removal attempt. Capabilities are revoked only after successful removal. Dirty removal is authorized only by that confirmation, never by a renderer force flag. Failed removal leaves the row available for retry. Operations on the same repository/branch are serialized. State assumes a single application service writer; it is not a security boundary against a local process able to forge the entire state file. External removal does not adopt the worktree. Worktrees are never adopted just because they appear under the configured root. Repositories sharing a basename share a destination namespace; a collision fails without overwriting the existing directory.
+
+Sidebar inventory never awaits remote merge checks. Main caches eligibility for
+one minute, starts a background scan for a new local worktree/session inventory
+or an expired result, and emits a workspace change when it finishes. Matching
+in-flight scans are shared; superseded scans, removed repositories and disposed
+workspaces cannot publish late results. Git status reads use `--no-optional-locks`
+so index refreshes cannot race deletion of per-worktree metadata. Cleanup still
+fetches afresh.
+
+Merged cleanup uses the same removal sequence with an additional main-owned
+revalidation callback. Candidate path, filesystem identity, branch and commit
+are captured before the trusted dialog. Both revalidation passes check ownership,
+session eligibility, clean status and `merge-tree` containment against a freshly
+fetched default commit. A failed post-confirmation fetch prevents every removal.
+Local branch removal uses `update-ref --no-deref -d <ref> <expected-commit>` for atomic
+compare-and-delete, providing forced deletion for squash merges without the
+check/delete race of `branch -D`. It refuses branches checked out elsewhere.
+As with ordinary removal, this does not isolate concurrent filesystem mutations
+by external local processes. Fetches disable interactive credential prompts and
+Git commands have a 30-second process deadline.
 
 ## Agent discovery and launch
 
