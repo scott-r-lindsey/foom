@@ -929,12 +929,22 @@ for (const action of ["close", "quit", "shortcut"]) {
       process.platform === "win32"
         ? 'Write-Output ("QUIT_PID:" + $PID)'
         : "printf 'QUIT_%s:%s\\n' PID $$";
-    await page.locator(".xterm-helper-textarea").focus();
-    await page.keyboard.type(command);
-    await page.keyboard.press("Enter");
-    await page.waitForFunction(() => /QUIT_PID:\d+/.test(window.quitOutput));
-    const firstPid = await page.evaluate(() =>
-      Number(window.quitOutput.match(/QUIT_PID:(\d+)/)[1]),
+    // A reopened board can report a running session before its view attaches.
+    // Query the app-owned PTY without racing keyboard input against attachment.
+    const first = await page.evaluate(
+      async () => (await window.desktop.workspace()).terminals[0].id,
+    );
+    await page.evaluate(({ id, command }) => window.desktop.input(id, command + "\r"), {
+      id: first,
+      command,
+    });
+    await expect
+      .poll(() => page.evaluate((id) => window.desktop.tail(id, 40), first))
+      .toEqual(expect.arrayContaining([expect.stringMatching(/QUIT_PID:\d+/)]));
+    const firstPid = await page.evaluate(
+      async (id) =>
+        Number((await window.desktop.tail(id, 40)).join("\n").match(/QUIT_PID:(\d+)/)[1]),
+      first,
     );
     const second = await page.evaluate(async () => (await window.desktop.create(80, 24)).id);
     await page.evaluate(({ id, command }) => window.desktop.input(id, command + "\r"), {
