@@ -516,3 +516,34 @@ test("inventory refresh marks missing checkout sessions without losing state or 
   expect(source.getSnapshot()[0]?.worktreeRemoved).toBe(false);
   disconnect?.();
 });
+
+test.each(["snapshot", "state", "exit"] as const)(
+  "resume drops old snapshot verdicts while preserving new %s evidence",
+  async (evidence) => {
+    const old = { ...agent("a", { ...verdict("a"), state: "done" as const }), exited: true };
+    mock.workspace.mockResolvedValue({ repositories: [], terminals: [old] });
+    const source = createAppSource();
+    const off = source.connect?.();
+    await settle();
+    const pending = Promise.withResolvers<undefined>();
+    mock.sidebarCommand.mockReturnValueOnce(pending.promise);
+    const resuming = source.sidebarCommand?.({ kind: "resume", id: "a" });
+    await settle();
+    mock.changed?.();
+    await settle();
+    if (evidence === "state") mock.state?.(verdict("a", 200));
+    if (evidence === "exit") mock.exit?.("a", 3);
+    mock.workspace.mockResolvedValue({
+      repositories: [],
+      terminals: [{ ...agent("a"), launchVersion: 1, exited: false }],
+    });
+    pending.resolve(undefined);
+    await resuming;
+    expect(source.getSnapshot()[0]).toMatchObject({
+      launchVersion: 1,
+      state: evidence === "state" ? "needs_input" : evidence === "exit" ? "failed" : "working",
+      exited: evidence === "exit",
+    });
+    off?.();
+  },
+);

@@ -37,7 +37,10 @@ export function createAppSource(): BoardSource {
   let shellId = pendingShell;
   const listeners = new Set<() => void>();
   const activityListeners = new Set<(batch: readonly TerminalActivity[]) => void>();
+  // Live events can arrive before their launch snapshot. Keep snapshot evidence
+  // separate so replacing an old snapshot never discards those newer events.
   const states = new Map<string, TerminalState>();
+  const snapshotStates = new Map<string, TerminalState>();
   const exits = new Map<string, number>();
   const rates = new Map<string, number>();
   const publish = () => {
@@ -58,7 +61,9 @@ export function createAppSource(): BoardSource {
     seen: row.state === state.state && row.verdictId === state.verdictId ? row.seen : false,
   });
   const latest = (row: BoardRow): BoardRow => {
-    const state = states.get(row.id);
+    const event = states.get(row.id);
+    const saved = snapshotStates.get(row.id);
+    const state = event && (!saved || event.timestamp >= saved.timestamp) ? event : saved;
     const code = exits.get(row.id);
     if (code !== undefined && state?.state !== "done" && state?.state !== "failed")
       return {
@@ -85,9 +90,8 @@ export function createAppSource(): BoardSource {
       const checkout = sidebar
         .find((repo) => repo.path === entry.repository)
         ?.worktrees.find((tree) => tree.path === entry.worktree);
-      const previousState = states.get(entry.id);
-      if (entry.state && (!previousState || entry.state.timestamp > previousState.timestamp))
-        states.set(entry.id, entry.state);
+      if (entry.state) snapshotStates.set(entry.id, entry.state);
+      else snapshotStates.delete(entry.id);
       return latest({
         id: entry.id,
         kind: entry.kind,
@@ -257,6 +261,7 @@ export function createAppSource(): BoardSource {
       }
       if (command.kind === "resume" || command.kind === "new-conversation") {
         states.delete(command.id);
+        snapshotStates.delete(command.id);
         exits.delete(command.id);
         rates.delete(command.id);
         rows = rows.map((row) =>
