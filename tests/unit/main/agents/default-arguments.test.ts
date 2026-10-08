@@ -175,3 +175,12 @@ test.each([
 ] as const)("reserves conversation selector %s %s", (agent, arg) => {
   expect(() => parseAgentArguments(agent, [arg])).toThrow("Conversation selection");
 });
+
+test.each(["--dangerously-bypass-hook-trust", "--dangerously-bypass-hook-trust=true"])(
+  "rejects %s rather than bypassing Codex hook review",
+  (arg) => {
+    expect(() => parseAgentArguments("codex", [arg])).toThrow(
+      "Hook trust must be granted in Codex",
+    );
+  },
+);

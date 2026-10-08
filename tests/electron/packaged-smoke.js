@@ -45,6 +45,18 @@ test("packaged utility host runs native PTYs with RunAsNode disabled", {
       ? path.join(root, "Foom.app", "Contents", "Resources")
       : path.join(root, "resources");
   const archive = path.join(resources, "app.asar");
+  for (const name of ["codex-v1.sh", "codex-v1.ps1"]) {
+    const observer = path.join(resources, "app.asar.unpacked", "build", "observers", name);
+    assert.ok(
+      existsSync(observer),
+      `${name} must be readable by a native interpreter outside ASAR`,
+    );
+    assert.equal(
+      readFileSync(observer, "utf8"),
+      readFileSync(path.join(__dirname, "../../build/observers", name), "utf8"),
+    );
+  }
+
   const notices = extractFile(archive, path.join("build", "THIRD_PARTY_NOTICES.txt")).toString();
   for (const name of [
     "hack-LICENSE.txt",

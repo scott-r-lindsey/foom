@@ -21,7 +21,7 @@ export const AGENTS: readonly { id: AgentId; name: string; command: string }[] =
 
 /** What each signal means, for the tag's tooltip. */
 export const SIGNALS = {
-  hooks: "Claude Code's hooks tell Foom the moment it stops or asks for permission.",
+  hooks: "Observer hooks tell Foom when an agent works, stops or asks for permission.",
   notify: "Codex runs Foom's notifier each time a turn completes.",
   evaluator: "Foom reads the agent's output when it goes quiet and decides what it means.",
 } as const;
@@ -80,7 +80,7 @@ export function readyAgents(
 /** How this agent will tell Foom it needs attention. */
 export function signal(agent: AgentInstallation, hooks: boolean): "hooks" | "notify" | "evaluator" {
   if (!hooks || !agent.hooks) return "evaluator";
-  return agent.id === "codex" ? "notify" : "hooks";
+  return agent.id === "codex" && agent.codexHookState !== "trusted" ? "notify" : "hooks";
 }
 
 export function inferenceSummary(config: InferenceConfig): string {

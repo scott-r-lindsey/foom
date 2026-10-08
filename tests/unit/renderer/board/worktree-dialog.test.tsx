@@ -206,3 +206,18 @@ test("a shared-agent launch stays armed in the form and pointer exit or Escape c
   });
   expect(close).toHaveBeenCalledOnce();
 });
+
+test("a trusted Codex observer removes the notifier disclosure from new worktrees", async () => {
+  vi.spyOn(source, "load").mockResolvedValue({
+    ...options,
+    agents: [{ ...installation("codex"), codexLifecycle: true, codexHookState: "trusted" }],
+  });
+  const screen = await mount();
+  fireEvent.change(screen.getByLabelText("Branch"), { target: { value: "trusted" } });
+  fireEvent.change(screen.getByLabelText("Run"), { target: { value: "codex" } });
+  expect(screen.queryByRole("checkbox")).toBeNull();
+  expect(screen.getByRole("button", { name: "Create and start" })).toHaveProperty(
+    "disabled",
+    false,
+  );
+});

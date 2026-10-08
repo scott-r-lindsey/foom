@@ -9,6 +9,9 @@
   gap: 6px 10px;
   align-items: center;
 }
+.agent-meta .preflight-sub {
+  flex-basis: 100%;
+}
 .agent-title {
   display: flex;
   flex-wrap: wrap;
