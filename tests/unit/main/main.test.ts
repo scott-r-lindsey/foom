@@ -15,10 +15,14 @@ import type { WorkspaceDependencies } from "../../../src/main/workspace/workspac
 import type { DialogContent } from "../../../src/shared/confirmation";
 vi.mock("../../../src/main/confirmations/trusted-dialog", () => ({
   TrustedDialog: class {
-    constructor(_parent: unknown, _session: unknown, theme: () => unknown) {
+    request: (content: unknown) => Promise<boolean>;
+    constructor(parent: unknown, _session: unknown, theme: () => unknown) {
       theme();
+      this.request = async (content: unknown) => {
+        mock.confirmParent(parent);
+        return (await mock.message(content)).response === 1;
+      };
     }
-    request = async (content: unknown) => (await mock.message(content)).response === 1;
     dispose = vi.fn();
   },
 }));
@@ -67,6 +71,7 @@ vi.mock("../../../src/main/workspace/workspace", () => ({
     evidence = mock.workspace.evidence;
     shellState = mock.workspace.shellState;
     ownsSession = mock.workspace.ownsSession;
+    initializeControl = mock.workspace.initializeControl;
     refresh = mock.workspace.refresh;
     quiet = mock.workspace.quiet;
     exited = mock.workspace.exited;
@@ -226,6 +231,7 @@ const mock = vi.hoisted(() => {
     evidence: vi.fn(),
     shellState: vi.fn(),
     ownsSession: vi.fn(() => true),
+    initializeControl: vi.fn<() => Promise<void>>(() => Promise.resolve()),
     refresh: vi.fn(),
     quiet: vi.fn(),
     exited: vi.fn(),
@@ -299,6 +305,7 @@ const mock = vi.hoisted(() => {
       on: vi.fn<(name: string, handler: () => void) => void>(),
       removeListener: vi.fn(),
     },
+    confirmParent: vi.fn(),
     message: vi.fn<(content?: unknown) => Promise<{ response: number }>>(),
     errorBox: vi.fn(),
     openDialog: vi.fn<() => Promise<{ canceled: boolean; filePaths: string[] }>>(),
@@ -403,6 +410,7 @@ beforeEach(() => {
   mock.packaged = false;
   mock.explicitProfile = false;
   mock.window.isMinimized.mockReturnValue(false);
+  mock.window.isFocused.mockReturnValue(true);
   mock.window.webContents.isCrashed.mockReturnValue(false);
   mock.terminals.runningCount = 0;
   mock.terminals.shutdown.mockResolvedValue();
@@ -1109,18 +1117,58 @@ test("window focus refreshes external workspace inventory", async () => {
   expect(mock.workspace.refresh).toHaveBeenCalledOnce();
 });
 
-test("control startup is lazy, uses the app profile and propagates initialization failures", async () => {
+test("control startup publishes private discovery and binds trusted pairing callbacks", async () => {
   const { ControlRuntime } = await import("../../../src/main/control/runtime");
   const error = new Error("Private profile unavailable");
   const startControl = vi.spyOn(ControlRuntime, "start").mockRejectedValueOnce(error);
+  mock.openWorktrees.mockResolvedValue({ worktreeRoot: "/trees", listRepositories: () => [] });
   try {
     await start();
     expect(startControl).not.toHaveBeenCalled();
     const control = mock.workspace.deps?.control;
     if (!control) throw new Error("Expected control startup capability");
     await expect(control()).rejects.toBe(error);
-    expect(startControl).toHaveBeenCalledExactlyOnceWith("/test/user-data", expect.any(Function));
+    expect(startControl).toHaveBeenCalledExactlyOnceWith(
+      "/test/user-data",
+      expect.any(Function),
+      expect.any(Object),
+    );
     expect(startControl.mock.calls[0]?.[1]?.()).toMatchObject([{ id: "t1" }, { id: "t2" }]);
+    expect(mock.workspace.initializeControl).toHaveBeenCalled();
+    const pairing = startControl.mock.calls[0]?.[2];
+    expect(pairing?.repository("/foreign")).toBeUndefined();
+    const { worktrees } = await import("../../../src/main/main");
+    vi.spyOn(worktrees, "listRepositories").mockReturnValue([{ path: "/repo", name: "Repo" }]);
+    expect(pairing?.repository("/repo")).toBe("/repo");
+    await pairing?.approve("/repo", "ABCD1234", new AbortController().signal);
+    expect(mock.message).toHaveBeenCalledWith(
+      expect.objectContaining({
+        title: "Pair this CLI with Foom?",
+      }),
+    );
+    await newWindow();
+    const second = mock.instances[1];
+    if (!second) throw new Error("Missing second board");
+    mock.window.isFocused.mockReturnValue(false);
+    second.isFocused = vi.fn(() => true);
+    await pairing?.approve("/repo", "NEXT1234", new AbortController().signal);
+    expect(mock.confirmParent).toHaveBeenLastCalledWith(second);
+    mock.readyEvents.get("closed")?.();
+    const cancelled = new AbortController();
+    cancelled.abort();
+    await expect(pairing?.approve("/repo", "STOP1234", cancelled.signal)).resolves.toBe(false);
+    expect(mock.instances).toHaveLength(2);
+    await pairing?.approve("/repo", "OPEN1234", new AbortController().signal);
+    expect(mock.instances).toHaveLength(3);
+    expect(mock.confirmParent).toHaveBeenLastCalledWith(mock.instances[2]);
+    mock.readyEvents.get("closed")?.();
+    const opening = new AbortController();
+    mock.window.loadURL.mockImplementationOnce(() => {
+      opening.abort();
+      return Promise.resolve();
+    });
+    await expect(pairing?.approve("/repo", "LATE1234", opening.signal)).resolves.toBe(false);
+    expect(mock.confirmParent).toHaveBeenCalledTimes(3);
   } finally {
     startControl.mockRestore();
   }
@@ -1357,4 +1405,14 @@ test("Windows attention refresh updates every live window so prior overlays clea
   vi.mocked(updateAttention).mockClear();
   mock.workspace.deps?.onChange?.();
   expect(vi.mocked(updateAttention).mock.calls.map((call) => call[0])).toEqual(mock.instances);
+});
+
+test("a discovery initialization failure leaves the main window usable", async () => {
+  mock.workspace.initializeControl.mockRejectedValueOnce(new Error("private profile"));
+  const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+  await start();
+  await vi.waitFor(() => {
+    expect(warn).toHaveBeenCalledWith("Foom CLI discovery is unavailable.");
+  });
+  expect(mock.attachWorkspace).toHaveBeenCalled();
 });

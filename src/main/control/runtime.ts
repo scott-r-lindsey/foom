@@ -6,7 +6,7 @@ import { ControlHttp } from "./http";
 import { Operations } from "./operations";
 import { ControlStore } from "./store";
 import { atomicPrivate, privateDirectory } from "./private-files";
-import type { ControlLaunch } from "./types";
+import type { ControlLaunch, PairingOptions } from "./types";
 
 /** Lazy app-owned endpoint. Startup failure never leaves published credentials or a listener. */
 export class ControlRuntime {
@@ -18,6 +18,7 @@ export class ControlRuntime {
   static async start(
     userData: string,
     source?: () => readonly WorkspaceTerminal[],
+    pairing?: PairingOptions,
   ): Promise<ControlRuntime> {
     const directory = await privateDirectory(userData);
     const store = new ControlStore(directory);
@@ -29,7 +30,7 @@ export class ControlRuntime {
       },
     );
     const service = new ControlService(operations, source);
-    const http = await ControlHttp.listen(service);
+    const http = await ControlHttp.listen(service, pairing);
     try {
       await atomicPrivate(directory, "discovery.json", {
         version: 1,
@@ -44,7 +45,17 @@ export class ControlRuntime {
   }
   prepare(repository: string, worktree: string, sessionId?: string): ControlLaunch {
     const launch = this.service.prepare(repository, worktree, "agent", null, sessionId);
-    return { ...launch, env: { ...launch.env, FOOM_CONTROL_URL: this.http.endpoint } };
+    return {
+      ...launch,
+      env: {
+        ...launch.env,
+        FOOM_CONTROL_URL: this.http.endpoint,
+        FOOM_CLI_DIRECTORY: join(__dirname, "../../console").replace(
+          "app.asar",
+          "app.asar.unpacked",
+        ),
+      },
+    };
   }
   async close(): Promise<void> {
     await this.http.close();
