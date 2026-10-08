@@ -69,7 +69,7 @@ const mock = vi.hoisted(() => {
     fonts: vi.fn<() => Promise<FontFace[]>>(),
     open: vi.fn(),
     loadAddon: vi.fn(),
-    write: vi.fn<(data: string, done: () => void) => void>(),
+    write: vi.fn<(data: string, done?: () => void) => void>(),
     reset: vi.fn(),
     focus: vi.fn(),
     dispose: vi.fn(),
@@ -161,7 +161,7 @@ beforeEach(() => {
   mock.attach.mockResolvedValue(undefined);
   mock.detach.mockResolvedValue(undefined);
   mock.write.mockImplementation((_data, done) => {
-    done();
+    done?.();
   });
   document.documentElement.style.setProperty("--bg", "#05040A");
   document.documentElement.style.setProperty("--ink", "#F4EFFF");
@@ -185,7 +185,7 @@ test("starts at fitted dimensions, routes input/output, resizes and disposes", a
   mock.write.mockImplementation(() => {});
   mock.onData.mock.calls[0]?.[0]("one", "view", "hello");
   expect(mock.acknowledge).not.toHaveBeenCalled();
-  mock.write.mock.calls[0]?.[1]();
+  mock.write.mock.calls[0]?.[1]?.();
   expect(mock.acknowledge).toHaveBeenCalledWith("one", "view", 5);
   mock.resizeCallback.mock.calls[0]?.[0]();
   expect(mock.resize).toHaveBeenCalledWith("one", 80, 24);
@@ -453,7 +453,7 @@ test("drains pending writes before resetting and attaching a fresh snapshot", as
   expect(mock.reset).not.toHaveBeenCalled();
   expect(mock.attach).toHaveBeenCalledOnce();
   await settle(() => {
-    mock.write.mock.calls.at(-1)?.[1]();
+    mock.write.mock.calls.at(-1)?.[1]?.();
   });
   await waitFor(() => {
     expect(button?.disabled).toBe(false);
@@ -572,7 +572,7 @@ test("unmount while draining never resets or attaches a disposed terminal", asyn
   expect(mock.write).toHaveBeenCalledWith("", expect.any(Function));
   cleanup();
   await settle(() => {
-    mock.write.mock.calls.at(-1)?.[1]();
+    mock.write.mock.calls.at(-1)?.[1]?.();
   });
   expect(mock.reset).not.toHaveBeenCalled();
   expect(mock.attach).not.toHaveBeenCalled();
@@ -1035,5 +1035,60 @@ test("a fresh incarnation of an exited terminal discards its old exit state", as
   expect(update).toHaveBeenLastCalledWith(
     expect.objectContaining({ state: "quiet_ok", status: "Terminal" }),
   );
+  controller.dispose();
+});
+
+test("exit disables input and hides the cursor across snapshots, reopening and restart", async () => {
+  const controller = createShell(document.createElement("div"), vi.fn());
+  await waitFor(() => {
+    expect(mock.focus).toHaveBeenCalled();
+  });
+  const exit = mock.onExit.mock.calls[0]?.[0];
+  const data = mock.onData.mock.calls[0]?.[0];
+  const input = mock.onInput.mock.calls[0]?.[0];
+  exit?.("one", 0);
+  expect(mock.options.disableStdin).toBe(true);
+  expect(mock.options.cursorBlink).toBe(false);
+  expect(mock.write).toHaveBeenLastCalledWith("\x1b[?25l");
+  input?.("ignored");
+  mock.wheel.mock.calls[0]?.[0](new WheelEvent("wheel", { deltaY: 1, deltaMode: 1 }));
+  expect(mock.input).not.toHaveBeenCalled();
+  data?.("one", "final", "last output\x1b[?25h");
+  expect(mock.write).toHaveBeenLastCalledWith(
+    "last output\x1b[?25h\x1b[?25l",
+    expect.any(Function),
+  );
+  expect(mock.acknowledge).toHaveBeenLastCalledWith("one", "final", 17);
+  await controller.hide();
+  await controller.open("one");
+  expect(mock.options.disableStdin).toBe(true);
+  expect(mock.options.cursorBlink).toBe(false);
+  mock.create.mockResolvedValue({ id: "two", title: "bash" });
+  await controller.restart();
+  expect(mock.options.disableStdin).toBe(false);
+  expect(mock.options.cursorBlink).toBe(true);
+  input?.("working");
+  expect(mock.input).toHaveBeenLastCalledWith("two", "working");
+  controller.dispose();
+});
+
+test("a newly mounted view knows an already exited session and can switch to a live one", async () => {
+  const controller = createShell(
+    document.createElement("div"),
+    vi.fn(),
+    false,
+    undefined,
+    false,
+    false,
+    () => true,
+    (id) => id === "old",
+  );
+  await controller.open("old");
+  expect(mock.options.disableStdin).toBe(true);
+  expect(mock.options.cursorBlink).toBe(false);
+  expect(mock.write).toHaveBeenLastCalledWith("\x1b[?25l");
+  await controller.open("live");
+  expect(mock.options.disableStdin).toBe(false);
+  expect(mock.options.cursorBlink).toBe(true);
   controller.dispose();
 });

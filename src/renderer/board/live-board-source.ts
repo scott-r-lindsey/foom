@@ -338,8 +338,11 @@ export function createAppSource(): BoardSource {
     isDevelopment: window.desktop.isDevelopment,
     connect,
     createView: () => {
-      const view = createTerminalView(scheduleView, owners, (id) =>
-        rows.some((row) => row.id === id && !row.dormant),
+      const view = createTerminalView(
+        scheduleView,
+        owners,
+        (id) => rows.some((row) => row.id === id && !row.dormant),
+        (id) => rows.some((row) => row.id === id && row.exited === true),
       );
       return {
         ...view,

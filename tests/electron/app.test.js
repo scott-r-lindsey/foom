@@ -739,11 +739,27 @@ test("terminal runs an interactive shell behind an isolated bridge", {
     await page.keyboard.type("exit");
     await page.keyboard.press("Enter");
     await page.getByRole("status").filter({ hasText: "Shell exited" }).waitFor();
+    await expect(input).toHaveAttribute("readonly", "");
+    await expect(page.locator(".xterm-cursor")).toHaveCount(0);
+    // Focusing the retained output must not revive the cursor.
+    await input.focus();
+    await expect(page.locator(".xterm-cursor")).toHaveCount(0);
     console.info("Shell exited");
     await page.getByRole("button", { name: "Restart shell" }).click();
     await page.waitForFunction(
       () => !/Starting|exited|Unable/.test(document.querySelector(".tile-status").textContent),
     );
+    await expect(input).not.toHaveAttribute("readonly", "");
+    await input.focus();
+    await page.keyboard.type(
+      process.platform === "win32"
+        ? 'Write-Output ("RESTART_" + "INPUT_OK")'
+        : "printf 'RESTART_%s\\n' INPUT_OK",
+    );
+    await page.keyboard.press("Enter");
+    await expect
+      .poll(() => page.evaluate(() => window.terminalOutput.includes("RESTART_INPUT_OK")))
+      .toBe(true);
     console.info("Shell restarted");
     // Quit with fresh, detached PTYs as well as the restarted visible shell. Native
     // exit callbacks must finish before Electron tears down its Node environment.
