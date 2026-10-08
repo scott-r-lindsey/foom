@@ -188,6 +188,13 @@ owner. Closing the owner elects another board. Refusal requests reach that owner
 Attention badges derive from the shared workspace once, including when macOS has
 no board windows. Dock selection locates the existing view or opens a new window.
 
+Existing single-window tile layouts migrate once from `foom.tiles.v1` into the
+first window’s namespace. Subsequent windows start with independent layouts.
+With no macOS windows, an app-only native menu retains New Window and Quit
+accelerators and has no callbacks into a destroyed board. Windows taskbar
+overlays use the same app-level count on every live window so none retain stale
+attention after focus changes.
+
 Quit is app-scoped, inventories all running PTYs, and parents its trusted dialog
 to the focused board. It flushes every live renderer, stops PTYs, drains workspace
 persistence, and disposes the terminal host before exiting. Cancellation and failed
@@ -318,9 +325,11 @@ entry points use the same gate; a renderer-supplied force or shared-checkout fla
 cannot answer a confirmation.
 
 `main/confirmations/trusted-dialog.ts` deliberately preloads one hidden, frameless
-child window at startup. The extra renderer process lives for the app's lifetime:
-this trades memory for immediate confirmation even when the board has crashed or
-hung. Do not move its initialization into the board or lazy-load it on quit.
+child window for each board at creation. Each extra renderer process lives until
+its parent board closes: this trades memory for immediate confirmation even when
+the board has crashed or hung. Do not move its initialization into the renderer or
+lazy-load it on quit. With no macOS boards, quit opens a board and its trusted
+child before asking for confirmation.
 A separate in-memory session and `app://confirmation/confirmation.html` origin
 isolate its renderer process from the board. The window covers the parent's bounds;
 its page centers a raised card over an opaque theme-derived backdrop. It covers

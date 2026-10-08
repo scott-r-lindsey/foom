@@ -1309,6 +1309,9 @@ test("app attention reveals the owning board, including minimized and windowless
   await vi.waitFor(() => {
     expect(mock.instances).toHaveLength(3);
   });
+  expect(mock.construct.mock.calls[2]?.[0].webPreferences?.additionalArguments).toContain(
+    "--foom-initial-session=t1",
+  );
 });
 
 test("routes output, evidence and shell state into app-owned workspace", async () => {
@@ -1324,4 +1327,34 @@ test("routes output, evidence and shell state into app-owned workspace", async (
   expect(mock.workspace.output).toHaveBeenCalledWith("t1");
   expect(mock.workspace.evidence).toHaveBeenCalledWith("t1", { text: "untrusted" });
   expect(mock.workspace.shellState).toHaveBeenCalledWith("t1", "ready");
+});
+
+test("concurrent windowless quit requests share one parent and recover from a failed load", async () => {
+  await start();
+  mock.readyEvents.get("closed")?.();
+  const error = new Error("Board failed to load");
+  const log = vi.spyOn(console, "error").mockImplementation(() => {});
+  mock.window.loadURL.mockRejectedValueOnce(error);
+  quitting();
+  quitting();
+  await vi.waitFor(() => {
+    expect(mock.errorBox).toHaveBeenCalledOnce();
+  });
+  expect(mock.instances).toHaveLength(2);
+  expect(log).toHaveBeenCalledWith("Unable to quit the application:", error);
+  expect(mock.terminals.shutdown).not.toHaveBeenCalled();
+  quitting();
+  await vi.waitFor(() => {
+    expect(mock.quit).toHaveBeenCalledOnce();
+  });
+});
+
+test("Windows attention refresh updates every live window so prior overlays clear", async () => {
+  vi.spyOn(process, "platform", "get").mockReturnValue("win32");
+  const { updateAttention } = await import("../../../src/main/window/attention-badge");
+  await start();
+  await newWindow();
+  vi.mocked(updateAttention).mockClear();
+  mock.workspace.deps?.onChange?.();
+  expect(vi.mocked(updateAttention).mock.calls.map((call) => call[0])).toEqual(mock.instances);
 });

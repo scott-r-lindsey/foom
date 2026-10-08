@@ -6,6 +6,7 @@ import {
   TILE_STORAGE,
   restoreLayout,
   saveLayout,
+  loadLayout,
   leaves,
   placeSession,
   preset,
@@ -72,7 +73,7 @@ export function Board({
   useEffect(() => source.connect?.(), [source]);
   const [layout, setLayout] = useState(() => {
     try {
-      return restoreLayout(localStorage.getItem(storageKey));
+      return loadLayout(localStorage, storageKey);
     } catch {
       return restoreLayout(null);
     }

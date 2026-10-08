@@ -36,7 +36,7 @@ vi.mock("electron", () => ({
     removeHandler: (name: string) => mock.handlers.delete(name),
   },
 }));
-import { attachAppMenu } from "../../../../src/main/window/app-menu";
+import { attachAppMenu, showWindowlessMenu } from "../../../../src/main/window/app-menu";
 afterEach(() => {
   vi.restoreAllMocks();
   vi.clearAllMocks();
@@ -62,6 +62,7 @@ function fixture(platform: NodeJS.Platform = "linux") {
   const window = Object.assign(new EventEmitter(), {
     webContents: contents,
     removeMenu: vi.fn(),
+    isFocused: vi.fn(() => true),
     minimize: vi.fn(),
     isMaximized: vi.fn(() => false),
     maximize: vi.fn(),
@@ -204,4 +205,38 @@ test("packaged execution rejects developer commands and validates view state bef
   f.invoke("view", { available: false, maximized: false, tiles: 1 });
   expect(() => f.invoke("execute", "maximize")).toThrow("Unavailable");
   f.attached.dispose();
+});
+
+test("a background macOS board cannot replace the focused window's native menu", () => {
+  const f = fixture("darwin");
+  mock.menu.mockClear();
+  f.window.isFocused.mockReturnValue(false);
+  f.invoke("view", { available: true, maximized: false, tiles: 2 });
+  expect(mock.menu).not.toHaveBeenCalled();
+  f.window.isFocused.mockReturnValue(true);
+  f.window.emit("focus");
+  expect(mock.menu).toHaveBeenCalledOnce();
+});
+
+test("windowless macOS menu keeps native New Window and Quit accelerators without stale board callbacks", () => {
+  const open = vi.fn();
+  showWindowlessMenu(open);
+  const sections: MenuItemConstructorOptions[] = mock.menu.mock
+    .lastCall?.[0] as MenuItemConstructorOptions[];
+  const items = sections.flatMap((section) =>
+    Array.isArray(section.submenu) ? section.submenu : [],
+  );
+  expect(items.map((item) => item.label)).toEqual(["About Foom", "Quit Foom", "New Window"]);
+  for (const item of items) item.click?.({} as Electron.MenuItem, undefined, {});
+  expect(mock.about).toHaveBeenCalledOnce();
+  expect(mock.quit).toHaveBeenCalledOnce();
+  expect(open).toHaveBeenCalledOnce();
+  expect(
+    items
+      .filter((item) => item.accelerator)
+      .map((item) => [item.accelerator, item.registerAccelerator]),
+  ).toEqual([
+    ["Command+Q", true],
+    ["Command+N", true],
+  ]);
 });

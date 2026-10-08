@@ -348,3 +348,19 @@ export function dropZone(x: number, y: number): DropZone {
   if (edge === 1 - x) return "right";
   return edge === y ? "up" : "down";
 }
+
+/** Consume the pre-multiwindow layout once; later windows start independently. */
+export function loadLayout(
+  storage: Pick<Storage, "getItem" | "setItem" | "removeItem">,
+  key = TILE_STORAGE,
+): TileLayout {
+  let raw = storage.getItem(key);
+  if (raw === null && key !== TILE_STORAGE) {
+    raw = storage.getItem(TILE_STORAGE);
+    if (raw !== null) {
+      storage.setItem(key, raw);
+      storage.removeItem(TILE_STORAGE);
+    }
+  }
+  return restoreLayout(raw);
+}

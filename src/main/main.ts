@@ -11,7 +11,7 @@ import { join } from "node:path";
 import { CodexHookStatus } from "./agents/codex-hook-status";
 import { SoundLibrary } from "./sounds/library";
 import { attachSounds } from "./sounds/ipc";
-import { attachAppMenu } from "./window/app-menu";
+import { attachAppMenu, showWindowlessMenu } from "./window/app-menu";
 import { updateAttention } from "./window/attention-badge";
 import { InventoryWatch } from "./workspace/inventory-watch";
 import { ControlRuntime } from "./control/runtime";
@@ -111,14 +111,19 @@ const saveWindows = () => {
 const attention = () => {
   const entry =
     [...windows.values()].find(({ window }) => window.isFocused()) ?? windows.values().next().value;
-  if (newWindowCommand)
-    updateAttention(entry?.window, workspace.snapshot(), newWindowCommand, (id) => {
+  if (!newWindowCommand) return;
+  const targets = process.platform === "win32" ? [...windows.values()] : [entry];
+  const snapshot = workspace.snapshot();
+  for (const current of targets)
+    updateAttention(current?.window, snapshot, newWindowCommand, (id) => {
       void (async () => {
         const owner = views.owner(id);
         const target =
-          (owner === undefined ? undefined : windows.get(owner)?.window) ??
-          entry?.window ??
-          (await createWindow());
+          (owner === undefined ? undefined : windows.get(owner)?.window) ?? entry?.window;
+        if (!target) {
+          await createWindow(undefined, undefined, id);
+          return;
+        }
         if (target.isMinimized()) target.restore();
         target.show();
         target.focus();
@@ -427,6 +432,7 @@ async function buildWindow(savedSize?: Size, saved?: WindowPlacement, initialSes
     setupIpc.dispose();
     workspaceIpc.dispose();
     windows.delete(window.id);
+    if (!windows.size && process.platform === "darwin") showWindowlessMenu(openWindow);
     disposeViews();
     disposeAudio();
     attention();
@@ -469,23 +475,30 @@ async function buildWindow(savedSize?: Size, saved?: WindowPlacement, initialSes
   publishViews();
   return window;
 }
-async function requestQuit() {
+let quitRequest: Promise<void> | undefined;
+function requestQuit(): Promise<void> {
+  quitRequest ??= performQuit().finally(() => {
+    quitRequest = undefined;
+  });
+  return quitRequest;
+}
+async function performQuit() {
   if (!initialized) {
     quitting = true;
     app.quit();
     return;
   }
-  let entry =
-    [...windows.values()].find(({ window }) => window.isFocused()) ?? windows.values().next().value;
-  if (!entry) {
-    await createWindow();
-    entry = windows.values().next().value;
-  }
-  if (!entry) return;
-  const { window, confirmations } = entry;
-  if (quitPending) return;
-  quitPending = true;
   try {
+    let entry =
+      [...windows.values()].find(({ window }) => window.isFocused()) ??
+      windows.values().next().value;
+    if (!entry) {
+      await createWindow();
+      entry = windows.values().next().value;
+    }
+    if (!entry) return;
+    const { window, confirmations } = entry;
+    quitPending = true;
     const count = terminals.runningCount;
     if (count > 0) {
       const snapshot = workspace.snapshot();

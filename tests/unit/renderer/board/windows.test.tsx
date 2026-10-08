@@ -5,7 +5,15 @@ import type { WindowsApi, WindowView } from "../../../../src/shared/windows";
 import { Board } from "../../../../src/renderer/board/board-view";
 import { createSampleSource } from "../../../../src/renderer/board/sample-board-source";
 import { sampleRows } from "../../../../src/renderer/board/sample-rows";
-import { TILE_STORAGE, restoreLayout, leaves } from "../../../../src/renderer/board/tiles";
+import {
+  TILE_STORAGE,
+  restoreLayout,
+  leaves,
+  loadLayout,
+  splitTile,
+  initialLayout,
+  saveLayout,
+} from "../../../../src/renderer/board/tiles";
 afterEach(() => {
   cleanup();
   localStorage.clear();
@@ -117,4 +125,14 @@ test("opens the popout's initial session once inventory arrives and reports oper
     await Promise.resolve();
   });
   expect(view.getByRole("alert").textContent).toContain("Unable to reserve");
+});
+
+test("existing profiles migrate their split layout once, without copying it into later windows", () => {
+  const original = splitTile(initialLayout(), "vertical");
+  saveLayout(localStorage, original);
+  expect(loadLayout(localStorage, `${TILE_STORAGE}.first`)).toEqual(original);
+  expect(localStorage.getItem(TILE_STORAGE)).toBeNull();
+  expect(loadLayout(localStorage, `${TILE_STORAGE}.first`)).toEqual(original);
+  expect(leaves(loadLayout(localStorage, `${TILE_STORAGE}.second`).tree)).toHaveLength(1);
+  expect(leaves(loadLayout(localStorage).tree)).toHaveLength(1);
 });

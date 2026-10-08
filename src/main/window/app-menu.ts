@@ -104,6 +104,9 @@ export function attachAppMenu(
     copyright: "Licensed under Apache-2.0",
   });
   const refresh = () => {
+    // Background boards also publish layout/settings state. Their commands must
+    // never replace the native menu belonging to the focused macOS window.
+    if (process.platform === "darwin" && !window.isFocused()) return;
     Menu.setApplicationMenu(
       process.platform === "darwin" ? Menu.buildFromTemplate(nativeMenu(commands)) : null,
     );
@@ -179,4 +182,45 @@ export function attachAppMenu(
       ipc.removeHandler("app-menu:execute");
     },
   };
+}
+
+/** Native accelerators remain available when macOS has no board to receive keys. */
+export function showWindowlessMenu(openWindow: () => void): void {
+  Menu.setApplicationMenu(
+    Menu.buildFromTemplate([
+      {
+        label: "Foom",
+        submenu: [
+          {
+            id: "about",
+            label: "About Foom",
+            click: () => {
+              app.showAboutPanel();
+            },
+          },
+          {
+            id: "quit",
+            label: "Quit Foom",
+            accelerator: "Command+Q",
+            registerAccelerator: true,
+            click: () => {
+              app.quit();
+            },
+          },
+        ],
+      },
+      {
+        label: "File",
+        submenu: [
+          {
+            id: "new-window",
+            label: "New Window",
+            accelerator: "Command+N",
+            registerAccelerator: true,
+            click: openWindow,
+          },
+        ],
+      },
+    ]),
+  );
 }
