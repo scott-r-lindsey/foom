@@ -82,6 +82,27 @@ try {
     $count += $read
   }
   if ($count -gt 65536) { exit 0 }
+  # Process.Start on .NET Framework inherits every inheritable handle, not just
+  # the redirected worker streams. Keep the caller's pipes out of the worker.
+  Add-Type -TypeDefinition @'
+using System;
+using System.ComponentModel;
+using System.Runtime.InteropServices;
+public static class FoomObserverHandles {
+  [DllImport("kernel32.dll", SetLastError = true)]
+  private static extern IntPtr GetStdHandle(int handle);
+  [DllImport("kernel32.dll", SetLastError = true)]
+  private static extern bool SetHandleInformation(IntPtr handle, uint mask, uint flags);
+  public static void Isolate() {
+    foreach (int stream in new int[] { -10, -11, -12 }) {
+      IntPtr handle = GetStdHandle(stream);
+      if (handle != IntPtr.Zero && handle != new IntPtr(-1) && !SetHandleInformation(handle, 1, 0))
+        throw new Win32Exception(Marshal.GetLastWin32Error());
+    }
+  }
+}
+'@
+  [FoomObserverHandles]::Isolate()
   $start = New-Object System.Diagnostics.ProcessStartInfo
   $start.FileName = 'powershell.exe'
   $start.Arguments = '-NoProfile -NonInteractive -ExecutionPolicy Bypass -File "' + $PSScriptRoot + '\\send.ps1" ' + $args[0] + ' ' + $sequence
