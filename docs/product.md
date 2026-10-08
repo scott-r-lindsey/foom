@@ -94,6 +94,37 @@ names. ⌘⇧B on macOS or Ctrl+Shift+B elsewhere focuses the sidebar; arrow key
 its filter and expanding its ancestors. Other terminal keys, including Escape, remain input.
 Settings and the six tile preset icons stay at the bottom of the sidebar. Launch actions live in repository and checkout menus. An empty sidebar labels its starting action **Add repository**.
 
+## Application menu and attention badge
+
+Foom owns its menu and shortcuts. On Windows and Linux, click the sidebar's
+**foom** wordmark, press Alt alone, or press F10 to open the application menu
+below the wordmark. Arrows, Home/End, Enter and Escape navigate it; disabled
+items are skipped and Escape returns focus to the wordmark. The native menu bar
+is absent, including after Alt. The menu uses the same surface and motion as
+row actions, with a scrollable list on short windows.
+
+On macOS, the native menu bar contains Foom (About, Settings, Hide, Hide Others,
+Quit), File (New Window, New Worktree, Close Window), standard Edit roles, View
+(tile actions and presets, interface size, sidebar and longest waiting), Window
+(Minimize, Zoom, Bring All to Front and windows), and Help (licenses and GitHub).
+Windows/Linux flatten the applicable sections into the wordmark menu. New Window
+is disabled until multi-window support exists. About uses the native About panel;
+Licenses links to the source; the consolidated license screen remains #96.
+
+Foom commands use Command on macOS or Ctrl+Shift on Windows/Linux; plain Ctrl
+letters remain terminal input. Settings is Command+, or Ctrl+Shift+,; Quit is
+Command+Q or Ctrl+Shift+Q; New Worktree is Command+T or Ctrl+Shift+T. Alt+F4 and
+Command+W use the existing quit confirmation. Interface actual size uses
+Command+0 or Ctrl+Shift+0. Edit roles retain native macOS text-field behavior.
+Reload, Force Reload and Toggle Developer Tools exist only in development builds.
+Packaged windows disable DevTools and provide no reload/developer commands or shortcuts.
+
+The app icon counts only sessions that **need you**, including hidden sessions,
+and clears at zero. macOS uses the Dock badge; Windows uses a taskbar overlay
+with an accessible count description (the compact image caps at 99); Linux uses
+the desktop badge API where supported. The macOS Dock menu lists waiting sessions;
+clicking one reveals it in the focused tile without clearing its attention state.
+
 ## Confirmations
 
 Repository removal, clean worktree removal and stopping a session use click-again
@@ -178,8 +209,7 @@ press the second key within two seconds. Escape cancels it; an unmatched key
 cancels and reaches the terminal. Window blur also cancels. These bindings avoid
 Ctrl+Alt (AltGr) and GNOME's Ctrl+Alt+Shift+arrow workspace commands. Plain Ctrl+1–9
 now remain terminal input, including Ctrl+2–8 terminal encodings. macOS bindings
-are unchanged. The board command list is shared by shortcut handling; application
-menu integration is tracked in #135.
+are unchanged. The main-process command list drives menus and shortcut handling.
 
 Plain terminal control keys remain terminal input. The split tree, ratios, leaf
 identities, focus and assigned session IDs persist as local view preferences.
@@ -264,11 +294,11 @@ Short steps center vertically. Content changes
 re-center over 180 milliseconds (immediately with reduced motion). Back, Continue and
 Launch stay in a footer at the bottom of the window, outside the scrolling content.
 
-The rail also holds **Appearance**: System, Light or Dark, and the interface size (80–150%; the window grows and shrinks with it while the screen has room, around the pointer when you click + or − or scroll over the percentage, so what you pointed at stays under it; also ⌘ +/−/0 on macOS or Ctrl+Shift+=/− and Ctrl+0 elsewhere). Terminal font size is separate and lives in Settings → Terminal. A model source is used only after it passes Run check. Launch opens the board. The board starts empty. A repository’s **New worktree** action launches an agent or shell in a managed worktree; checkout menus launch sessions in an existing checkout. Sample sessions are available only in an explicit development build. After first run, **Settings** on the board edits the saved choices.
+The rail also holds **Appearance**: System, Light or Dark, and the interface size (80–150%; the window grows and shrinks with it while the screen has room, around the pointer when you click + or − or scroll over the percentage, so what you pointed at stays under it; also ⌘ +/−/0 on macOS or Ctrl+Shift+=/−/0 elsewhere). Terminal font size is separate and lives in Settings → Terminal. A model source is used only after it passes Run check. Launch opens the board. The board starts empty. A repository’s **New worktree** action launches an agent or shell in a managed worktree; checkout menus launch sessions in an existing checkout. Sample sessions are available only in an explicit development build. After first run, **Settings** on the board edits the saved choices.
 
 ## Settings
 
-Open **Settings** from the board, or press ⌘, on macOS and Ctrl+, elsewhere.
+Open **Settings** from the board, or press ⌘, on macOS and Ctrl+Shift+, elsewhere.
 It replaces the terminal tiles beside the persistent sidebar in the same window.
 Esc returns to the tiles and restores the same focused sidebar row.
 Selecting a terminal in the sidebar also leaves Settings; terminals keep running throughout.

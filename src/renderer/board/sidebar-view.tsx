@@ -1,3 +1,4 @@
+import { AppMenu } from "./app-menu";
 import { useCallback, useEffect, useLayoutEffect, useState } from "react";
 import type { RefObject, ReactNode, CSSProperties } from "react";
 import type { BoardSource, LaunchOptions } from "./board-source.d";
@@ -346,13 +347,7 @@ export function Sidebar({
   return (
     <aside className="sidebar-shell" data-compact={compact}>
       <header className="board-top">
-        <h1 className="wordmark" aria-label={source.isDevelopment ? "foom dev" : "foom"}>
-          <span aria-hidden="true">
-            fo
-            <span className="wordmark-hole" />m
-          </span>
-          {source.isDevelopment && <span className="dev-profile">Dev</span>}
-        </h1>
+        <AppMenu api={source.appMenu} development={source.isDevelopment} />
         <p className="board-summary" role="status">
           {rows.filter((row) => row.state === "needs_input").length} need you ·{" "}
           {rows.filter((row) => row.state === "working" || row.state === "checking").length} working

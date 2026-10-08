@@ -507,6 +507,7 @@ test("terminal runs an interactive shell behind an isolated bridge", {
         capabilities: [
           "confirmations",
           "isDevelopment",
+          "appMenu",
           "onBoardCommand",
           "create",
           "attach",
@@ -836,7 +837,7 @@ for (const action of ["close", "quit", "shortcut"]) {
             window.webContents.sendInputEvent({
               type: "keyDown",
               keyCode: "Q",
-              modifiers: [process.platform === "darwin" ? "meta" : "control"],
+              modifiers: process.platform === "darwin" ? ["meta"] : ["control", "shift"],
             });
           }
         }, 50);
@@ -1672,7 +1673,12 @@ async function tabTo(page, name, accessibleName = name) {
   const target = page.getByRole("button", { name: accessibleName, exact: true });
   await expect(target).toBeVisible();
   await expect(target).toBeEnabled();
-  for (let step = 0; step < 40; step++) {
+  const tabStops = await page
+    .locator(
+      'button:visible:not(:disabled), input:visible:not(:disabled), select:visible:not(:disabled), textarea:visible:not(:disabled), [tabindex="0"]:visible',
+    )
+    .count();
+  for (let step = 0; step <= tabStops; step++) {
     await page.keyboard.press("Tab");
     const label = await page.evaluate(() => document.activeElement?.textContent?.trim());
     if (label === name) return;
@@ -2351,7 +2357,7 @@ test("appearance switches light and dark, and zoom shortcuts resize the interfac
   await expect.poll(size).toEqual(grown);
   await page.getByRole("button", { name: "Larger" }).click();
   await expect.poll(zoom).toBeCloseTo(1.2);
-  await press("0", false);
+  await press("0", true);
   await expect.poll(zoom).toBeCloseTo(1);
   await page.getByText("100%").waitFor();
   // And returns to exactly its starting size.
@@ -2442,7 +2448,12 @@ test("new worktree dialog launches by keyboard and confirms dirty removal", {
     // Wait for the async add to release the disabled fieldset before sending Tab.
     await expect(page.locator(`#${id}`)).toBeVisible();
     await expect(page.locator(`#${id}`)).toBeEnabled();
-    for (let step = 0; step < 40; step++) {
+    const tabStops = await page
+      .locator(
+        'button:visible:not(:disabled), input:visible:not(:disabled), select:visible:not(:disabled), textarea:visible:not(:disabled), [tabindex="0"]:visible',
+      )
+      .count();
+    for (let step = 0; step <= tabStops; step++) {
       await page.keyboard.press(reverse ? "Shift+Tab" : "Tab");
       if ((await page.evaluate(() => document.activeElement?.id)) === id) return;
     }
@@ -2786,6 +2797,15 @@ test("persistent sidebar keeps Escape in the PTY and routes keyboard navigation"
   await expect(page.locator(".board-row")).toHaveAttribute("data-state", "needs_input");
   await page.keyboard.press("Escape");
   await expect.poll(() => readFile(marker, "utf8")).toContain("1b\n");
+  for (const [key, hex] of [
+    ["c", "03"],
+    ["w", "17"],
+    ["d", "04"],
+    ["q", "11"],
+  ]) {
+    await page.keyboard.press(`Control+${key}`);
+    await expect.poll(() => readFile(marker, "utf8")).toContain(hex);
+  }
   await page.keyboard.press("Control+b");
   await page.keyboard.press("Control+n");
   await expect.poll(() => readFile(marker, "utf8")).toContain("02");
@@ -3085,7 +3105,7 @@ test("Settings shares live preflight values, sizes the terminal and restores key
   }, root);
   const page = await boardPage(app);
   const shortcut = async () => {
-    await boardCommand(app, ",", false);
+    await boardCommand(app, ",", process.platform !== "darwin");
     // Native input dispatch returns before React makes Settings interactive.
     // Wait before sending Tab, which otherwise still goes to the terminal.
     await expect(page.getByRole("region", { name: "Settings" })).toBeVisible();
@@ -3763,7 +3783,7 @@ test("every interface theme applies live to native chrome and passes axe on boar
     ["midnight-indigo", "Midnight Indigo", "dark", "#101027"],
   ];
   for (const [id, name, base, background] of choices) {
-    await boardCommand(app, ",", false);
+    await boardCommand(app, ",", process.platform !== "darwin");
     await page.getByRole("button", { name: "Themes", exact: true }).click();
     await page.getByRole("button", { name, exact: true }).click();
     await expect(page.getByRole("button", { name, exact: true })).toHaveAttribute(
@@ -3797,7 +3817,7 @@ test("every interface theme applies live to native chrome and passes axe on boar
     await expect(page.locator(".tile-terminal")).toBeVisible();
     await assertAccessible(page);
   }
-  await boardCommand(app, ",", false);
+  await boardCommand(app, ",", process.platform !== "darwin");
   await page.getByRole("button", { name: "Themes", exact: true }).click();
   await page.getByRole("button", { name: /^System/ }).click();
   await expect
@@ -3882,7 +3902,7 @@ test("soundscape sends one attention cadence and one completion to a fake audio 
   // Capture its ID before Settings detaches the view and stops output delivery.
   await page.waitForFunction(() => typeof window.soundTerminal === "string");
   // Hide the terminal before its verdict settles; settings keeps the source subscribed.
-  await boardCommand(app, ",", false);
+  await boardCommand(app, ",", process.platform !== "darwin");
   await page.getByRole("button", { name: "Sound", exact: true }).click();
   await expect(page.locator(".board-row")).toHaveAttribute("data-state", "needs_input");
   await expect.poll(() => page.evaluate(() => window.soundTones)).toEqual([880, 880]);
@@ -4517,4 +4537,86 @@ test("external Git changes refresh inventory and retain sessions in removed work
   await page.evaluate((id) => window.desktop.sidebarCommand({ kind: "close", id }), terminal.id);
   await expect(session).toHaveCount(0);
   await expect(page.getByRole("button", { name: "topic/external", exact: true })).toHaveCount(0);
+});
+
+test("application menu uses the command registry and supports native keyboard access", {
+  timeout: deadline(45000),
+}, async (context) => {
+  const app = await launchApp(context);
+  const page = await boardPage(app);
+  const commands = await page.evaluate(() => window.desktop.appMenu.commands());
+  assert.ok(commands.some((item) => item.id === "reload"));
+  assert.equal(commands.find((item) => item.id === "new-window").enabled, false);
+  if (process.platform === "darwin") {
+    const labels = await app.evaluate(({ Menu }) =>
+      Menu.getApplicationMenu().items.map((item) => item.label),
+    );
+    assert.deepEqual(labels, ["Foom", "File", "Edit", "View", "Window", "Help", "Developer"]);
+    const filter = page.getByRole("textbox", { name: "Filter repositories and sessions" });
+    await filter.fill("menu edit probe");
+    for (const keyCode of ["A", "X"])
+      await app.evaluate(({ BrowserWindow }, keyCode) => {
+        const window = BrowserWindow.getAllWindows().find(
+          (window) => window.webContents.getURL() === "app://bundle/index.html",
+        );
+        for (const type of ["keyDown", "keyUp"])
+          window.webContents.sendInputEvent({ type, keyCode, modifiers: ["meta"] });
+      }, keyCode);
+    await expect(filter).toHaveValue("");
+    const paste = () =>
+      app.evaluate(({ Menu, BrowserWindow }) => {
+        const item = Menu.getApplicationMenu().getMenuItemById("paste");
+        item.click(item, BrowserWindow.getFocusedWindow(), {});
+      });
+    await paste();
+    await expect(filter).toHaveValue("menu edit probe");
+    await filter.fill("");
+    await page.locator(".session-name").dblclick();
+    await paste();
+    await expect(page.getByRole("textbox", { name: "Session name", exact: true })).toHaveValue(
+      "menu edit probe",
+    );
+    await page.keyboard.press("Escape");
+    return;
+  }
+  assert.equal(await app.evaluate(({ Menu }) => Menu.getApplicationMenu()), null);
+  const trigger = page.getByRole("button", { name: "Foom menu" });
+  await trigger.click();
+  const menu = page.getByRole("menu", { name: "Foom" });
+  await expect(menu).toBeVisible();
+  await page.evaluate(() =>
+    Promise.all(
+      Array.from(document.querySelectorAll(".row-menu, .row-menu button")).flatMap((element) =>
+        element.getAnimations().map((animation) => animation.finished),
+      ),
+    ),
+  );
+  await assertAccessible(page);
+  await page.screenshot({ path: "test-results/application-menu.png", animations: "disabled" });
+  await expect(page.getByRole("menuitem", { name: "New Window", exact: true })).toBeDisabled();
+  await page.keyboard.press("End");
+  await expect(page.getByRole("menuitem", { name: /Toggle Developer Tools/ })).toBeFocused();
+  await page.keyboard.press("Home");
+  await expect(page.getByRole("menuitem", { name: "About Foom", exact: true })).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(menu).not.toBeVisible();
+  await expect(trigger).toBeFocused();
+  for (const key of ["F10", "Alt"]) {
+    await app.evaluate(({ BrowserWindow }, keyCode) => {
+      const window = BrowserWindow.getAllWindows().find(
+        (window) => window.webContents.getURL() === "app://bundle/index.html",
+      );
+      window.focus();
+      for (const type of ["keyDown", "keyUp"]) window.webContents.sendInputEvent({ type, keyCode });
+    }, key);
+    await expect(menu).toBeVisible();
+    await page.keyboard.press("ArrowDown");
+    await page.keyboard.press("Enter");
+    await expect(page.getByRole("heading", { name: "Settings", exact: true })).toBeVisible();
+    await page.getByRole("button", { name: "Back to terminal · Esc" }).click();
+  }
+  assert.equal(
+    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].isMenuBarVisible()),
+    false,
+  );
 });
