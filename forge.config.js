@@ -10,11 +10,6 @@ module.exports = {
         [require("node:path").join(__dirname, "scripts/build.mjs")],
         { cwd: __dirname, stdio: "inherit" },
       );
-      require("node:child_process").execFileSync(
-        process.execPath,
-        [require("node:path").join(__dirname, "scripts/build-cli.mjs")],
-        { cwd: __dirname, stdio: "inherit" },
-      );
     },
     // The helper is a console Node SEA, never Electron's GUI executable.
     packageAfterCopy: async (_config, buildPath) => {

@@ -6,6 +6,7 @@ export interface AgentInstallation {
   readonly version: string | null;
   readonly hooks: boolean;
   readonly inline?: boolean;
+  readonly cliGuidance?: boolean;
   readonly mcp?: boolean;
   readonly mcpReason?: string;
   readonly codexLifecycle?: boolean;

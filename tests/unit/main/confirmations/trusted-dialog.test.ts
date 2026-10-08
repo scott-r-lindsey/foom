@@ -190,3 +190,15 @@ test("tracks parent bounds and focus only while pending and restores input on ca
   expect(window().setBounds).toHaveBeenCalledTimes(2);
   dialog.dispose();
 });
+
+test("pairing deadlines dismiss active dialogs and cannot approve queued expired requests", async () => {
+  const dialog = setup();
+  const controller = new AbortController();
+  const pending = dialog.request(content, controller.signal);
+  const id = await shown();
+  controller.abort();
+  answer(id, true);
+  expect(await pending).toBe(false);
+  expect(await dialog.request(content, controller.signal)).toBe(false);
+  dialog.dispose();
+});

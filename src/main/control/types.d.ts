@@ -1,4 +1,4 @@
-export type Role = "agent" | "orchestrator";
+export type Role = "agent" | "orchestrator" | "cli";
 export interface Principal {
   readonly generation: string;
   readonly sessionId: string;
@@ -38,4 +38,9 @@ export interface StoredOperation {
   readonly key: string;
   readonly fingerprint: string;
   readonly operation: Operation;
+}
+
+export interface PairingOptions {
+  repository(path: string): string | undefined;
+  approve(repository: string, code: string, signal: AbortSignal): Promise<boolean>;
 }

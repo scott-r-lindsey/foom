@@ -3,7 +3,15 @@ import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const sourceRoot = fileURLToPath(new URL("../src/", import.meta.url));
-const processes = new Set(["main", "terminal-host", "preload", "renderer", "shared"]);
+const processes = new Set([
+  "main",
+  "terminal-host",
+  "preload",
+  "renderer",
+  "shared",
+  "cli",
+  "node-common",
+]);
 const nodeModules = new Set(builtinModules.map((name) => name.replace(/^node:/, "")));
 
 function owner(filename) {
@@ -35,13 +43,24 @@ export const processBoundaries = {
       const name = source.value;
       const local = name.startsWith(".") || isAbsolute(name);
       const to = local ? owner(resolve(dirname(filename), name)) : undefined;
-      if (to && to !== from && to !== "shared") {
+      if (
+        to &&
+        to !== from &&
+        to !== "shared" &&
+        !(to === "node-common" && (from === "main" || from === "cli"))
+      ) {
         context.report({ node, messageId: "boundary", data: { from, to } });
         return;
       }
       if (from === "preload" && !typeOnly && name !== "electron") {
         context.report({ node, messageId: "preload" });
         return;
+      }
+      if (
+        (from === "cli" || from === "node-common") &&
+        /^(electron|node-pty|@xterm\/headless)(\/|$)/.test(name)
+      ) {
+        context.report({ node, messageId: "browser", data: { from, module: name } });
       }
       if (
         (from === "renderer" || from === "shared") &&

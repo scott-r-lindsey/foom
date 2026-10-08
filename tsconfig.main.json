@@ -12,6 +12,7 @@
     "src/terminal-host/**/*.ts",
     "src/preload/**/*.ts",
     "src/shared/**/*.ts",
-    "src/cli/**/*.ts"
+    "src/cli/**/*.ts",
+    "src/node-common/**/*.ts"
   ]
 }

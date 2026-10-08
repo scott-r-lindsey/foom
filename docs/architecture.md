@@ -78,7 +78,7 @@ Within those features:
 - `board.ts` contains production board helpers. `sample-rows.ts` holds development fixture rows and is imported only by the sample source and tests.
 - `styles/styles.css` is an ordered import manifest for base, board/terminal, preflight, inference check, appearance, welcome, welcome animation, repository picker, layout overrides, tooltips, agent cards and worktree dialog styles. The build bundles it into the existing `styles.css` asset; there are no runtime imports or new asset permissions. Keep the import order: the later preflight/layout/card rules intentionally follow the base feature rules.
 
-The `foom/process-boundaries` ESLint rule checks static imports, re-exports, literal dynamic imports and `require` calls. Process-owned code may depend on its own process and shared modules. Shared modules cannot depend on process-owned code. Renderer and shared modules cannot import Node, Electron, node-pty or headless xterm. The sandboxed preload may import Electron at runtime and shared declarations as types; adding another runtime dependency requires an explicit boundary and loader design change.
+The `foom/process-boundaries` ESLint rule checks static imports, re-exports, literal dynamic imports and `require` calls. Process-owned code may depend on its own process and shared modules. Shared modules cannot depend on process-owned code. Only main and the console may import `node-common` utilities; the console cannot import main, Electron or terminal-host policy. Renderer and shared modules cannot import Node, Electron, node-pty or headless xterm. The sandboxed preload may import Electron at runtime and shared declarations as types; adding another runtime dependency requires an explicit boundary and loader design change.
 
 Tests live outside `src/`; production compilation excludes them. Coverage still includes every executable source file regardless of its directory. The build emits main at `build/main/main.js`, preload at `build/preload/preload.js`, and the host at `build/terminal-host/terminal-host.js`. Renderer TypeScript is type-checked without emitting; esbuild produces the browser bundle. This prevents the renderer compiler from overwriting main’s CommonJS shared modules with unbundled ES modules. Renderer asset URLs remain unchanged.
 
@@ -139,7 +139,7 @@ changing their terminal state, capabilities or attachment.
 
 ## Renderer
 
-**Today:** The board uses React 19 with TSX and reads one typed source through `useSyncExternalStore`. Each stable tile mounts one imperative terminal controller through the source adapter and disposes xterm and subscriptions on unmount. Terminal attachment and measurement remain in the controller to preserve attachment ordering. Board focus and pane selection are independent view state; hovering or focusing a row previews its tail without selecting it. The source also supplies path-identified repositories and their complete Git worktree inventory, including empty worktrees and the main checkout, plus validated main-process navigation commands. `sidebar-model.ts` computes stable pin/active/idle sections, filtering, hidden attention counts and roll-ups. `sidebar-view.tsx` renders the tree (or flattened session column below 720px). Sidebar focus and location selection do not attach a terminal; only the board's presentation callback requests that from the tile controller. `row-menu.tsx` portals menus to the document body, positions them from the action button's viewport rectangle, and owns keyboard navigation and dismissal. `sidebar-preferences.ts` validates versioned localStorage metadata for pins, expansion and terminal-ID names; this metadata grants no process or filesystem capabilities. Session metadata restores as exited rows across application exit; PTYs and screens are not restored. Activity batches write brightness directly to each light; a separate clock updates wait labels without React commits. Activity goes directly from IPC to light styles without changing the React row snapshot.
+**Today:** The board uses React 19 with TSX and reads one typed source through `useSyncExternalStore`. Each stable tile mounts one imperative terminal controller through the source adapter and disposes xterm and subscriptions on unmount. Terminal attachment and measurement remain in the controller to preserve attachment ordering. Board focus and pane selection are independent view state; hovering or focusing a row previews its tail without selecting it. The source also supplies path-identified repositories and their complete Git worktree inventory, including empty worktrees and the main checkout, plus validated main-process navigation commands. `sidebar-model.ts` computes stable pin/active/idle sections, filtering, hidden attention counts and roll-ups. `sidebar-view.tsx` renders the tree (or flattened session column below 720px). Sidebar focus and location selection do not attach a terminal; only the board's presentation callback requests that from the tile controller. Open row menus derive actions from current source data so delayed eligibility updates are visible without reopening. `row-menu.tsx` portals menus to the document body, positions them from the action button's viewport rectangle, and owns keyboard navigation and dismissal. `sidebar-preferences.ts` validates versioned localStorage metadata for pins, expansion and terminal-ID names; this metadata grants no process or filesystem capabilities. Session metadata restores as exited rows across application exit; PTYs and screens are not restored. Activity batches write brightness directly to each light; a separate clock updates wait labels without React commits. Activity goes directly from IPC to light styles without changing the React row snapshot.
 
 - **React 19 with TSX**, bundled by esbuild as a production build (`process.env.NODE_ENV` defined). No other UI framework, component kit, or CSS-in-JS. Styles are plain CSS using the tokens in `tokens.css`.
 - **The renderer holds view state only.** Terminal, verdict, and worktree truth lives in main and arrives through `window.desktop`. Components don't call the bridge directly; they read from one board data-source interface shaped like the IPC contract. A sample source serves explicit development builds and tests; the app uses the live source.
@@ -347,7 +347,7 @@ Stable Claude Code releases at or above 2.1.284 and Codex releases at or above 0
 
 **Foundation implemented in #152.** `main/control/` owns the service, launch grants,
 versioned HTTP adapter, private discovery, operation records and audit storage.
-The workspace starts it lazily on the first agent launch, even when hooks are off.
+The workspace starts it when the window is composed so human pairing is available before an agent launches. A failed startup leaves the window usable and can retry on agent launch.
 All current launches receive the immutable `agent` role. The exposed methods
 are `whoami`, `sessions`, `session_state` and actor-scoped `operation_status`
 (the latter requires a main-issued orchestrator grant, which has no user launch path yet). Unknown methods, role/force
@@ -420,9 +420,23 @@ spawn/attachment failure and shutdown dispose attachments and revoke credentials
 Managed policy may refuse attachment in the client; no settings are weakened.
 See the [real-client probe record](orchestration.md#read-only-mcp-implementation-verification-153).
 
+**Console helper and pairing implemented in #154.** `src/cli/` bundles as a Node 24
+console SEA; `src/node-common/` supplies bounded private discovery and validators
+to both console and main, without exposing Node to renderer/shared browser code.
+An exact protocol and instance envelope routes online commands to the same service.
+A separate `/control/v1/pair` endpoint accepts no bearer credentials, rejects browser
+origins and nonliteral hosts, bounds bodies to 4 KiB, and holds the response while
+the trusted main-owned dialog reviews a matching code. Reviews expire after 60
+seconds and support cancellation while queued or visible. Repository membership is
+checked before and after review. A `cli` principal has read-only metadata scope,
+a ten-minute deadline checked on every call, memory-only token delivery, and an
+explicit release operation unavailable to agents. Pairing is single-pending,
+rate-limited to one request per ten seconds and bounded to four live grants.
+See [console usage and PATH ownership](orchestration.md#console-helper-and-local-pairing-154).
+Offline config validation remains reserved for #84; no config mutation is exposed.
+
 **Remaining target from #119.** See [orchestration research](orchestration.md) for
-per-agent evidence and follow-ups #154–#157. The packaged console helper, pairing
-and orchestration remain future work. Existing terminal ownership, utility-host
+per-agent evidence and follow-ups #155–#157. Orchestration remains future work. Existing terminal ownership, utility-host
 parsing and renderer boundaries remain in force.
 
 Main owns one control service over the workspace, agent, evaluator and terminal-host

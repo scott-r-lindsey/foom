@@ -92,7 +92,6 @@ export function Sidebar({
   const [menu, setMenu] = useState<{
     id: string;
     anchor: HTMLButtonElement;
-    actions: (RowAction | null)[];
   }>();
   useLayoutEffect(() => {
     revealRef.current = (row) => {
@@ -155,26 +154,30 @@ export function Sidebar({
         });
       },
     }));
-  const actions = (id: string, name: string, items: (RowAction | null)[]) => (
-    <button
-      className="row-actions"
-      type="button"
-      aria-label={`Actions for ${name}`}
-      aria-haspopup="menu"
-      aria-expanded={menu?.id === id}
-      onClick={(event) => {
-        event.stopPropagation();
-        peek();
-        setMenu(menu?.id === id ? undefined : { id, anchor: event.currentTarget, actions: items });
-      }}
-    >
-      <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor" aria-hidden="true">
-        <circle cx="3" cy="7" r="1.3" />
-        <circle cx="7" cy="7" r="1.3" />
-        <circle cx="11" cy="7" r="1.3" />
-      </svg>
-    </button>
-  );
+  const currentActions = new Map<string, (RowAction | null)[]>();
+  const actions = (id: string, name: string, items: (RowAction | null)[]) => {
+    currentActions.set(id, items);
+    return (
+      <button
+        className="row-actions"
+        type="button"
+        aria-label={`Actions for ${name}`}
+        aria-haspopup="menu"
+        aria-expanded={menu?.id === id}
+        onClick={(event) => {
+          event.stopPropagation();
+          peek();
+          setMenu(menu?.id === id ? undefined : { id, anchor: event.currentTarget });
+        }}
+      >
+        <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor" aria-hidden="true">
+          <circle cx="3" cy="7" r="1.3" />
+          <circle cx="7" cy="7" r="1.3" />
+          <circle cx="11" cy="7" r="1.3" />
+        </svg>
+      </button>
+    );
+  };
   const session = (row: BoardRow) => {
     const name = sessionName(row, preferences);
     const identity = sessionIdentity(row, source.shellName?.());
@@ -681,7 +684,7 @@ export function Sidebar({
         <RowMenu
           confirmations={source.confirmations}
           anchor={menu.anchor}
-          actions={menu.actions}
+          actions={currentActions.get(menu.id) ?? []}
           close={closeMenu}
         />
       )}

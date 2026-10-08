@@ -689,3 +689,32 @@ it("does not suppress the notifier when lifecycle hooks cannot be attached", asy
     "replaces your Codex notifier",
   );
 });
+
+it("launches Antigravity with a process-local CLI PATH and composed initial guidance", async () => {
+  help += "\n--prompt-interactive <prompt>";
+  const inheritedPath = process.env["PATH"];
+  service = new AgentService({ listWorktrees, launchIdentity }, { create }, prepare, () =>
+    Promise.resolve({
+      env: {
+        FOOM_CLI_DIRECTORY: join(root, "console 日本語"),
+        FOOM_CONTROL_TOKEN: "control-secret",
+      },
+      bind: vi.fn(),
+      dispose: vi.fn(),
+    }),
+  );
+  await service.launch({
+    ...request,
+    agent: "agy",
+    defaultArguments: ["--prompt-interactive", "literal $(text)"],
+  });
+  const spec = create.mock.calls.at(-1)?.[0];
+  expect(spec?.args).toEqual([
+    "--prompt-interactive",
+    expect.stringContaining("literal $(text)\n\nFoom"),
+  ]);
+  expect(spec?.env?.["PATH"]).toContain(join(root, "console 日本語"));
+  expect(spec?.args.join(" ")).not.toContain("control-secret");
+  expect(process.env["PATH"]).toBe(inheritedPath);
+  expect(prepareMcpLaunch).not.toHaveBeenCalled();
+});

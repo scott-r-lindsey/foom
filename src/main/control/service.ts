@@ -16,7 +16,13 @@ export class ControlService {
   readonly instanceId = randomUUID();
   private readonly grants = new Map<
     string,
-    { digest: Buffer; principal: Principal | null; calls: number }
+    {
+      digest: Buffer;
+      principal: Principal | null;
+      calls: number;
+      expiresAt?: number;
+      timer?: ReturnType<typeof setTimeout>;
+    }
   >();
   private readonly unknown = digest(randomBytes(32).toString("hex"));
   private closed = false;
@@ -40,7 +46,7 @@ export class ControlService {
       ![repository, worktree].every(
         (path) => isAbsolute(path) && path.length <= 4096 && !/\p{Cc}/u.test(path),
       ) ||
-      !["agent", "orchestrator"].includes(role)
+      !["agent", "orchestrator", "cli"].includes(role)
     )
       throw new ControlError("invalid_request");
     if (parentId !== null) identifier(parentId);
@@ -72,9 +78,28 @@ export class ControlService {
       dispose: () => {
         if (this.grants.get(generation) === grant && grant.principal)
           this.operations.revoke(grant.principal);
+        clearTimeout(this.grants.get(generation)?.timer);
         this.grants.delete(generation);
       },
     };
+  }
+
+  grantCli(repository: string): { token: string; expiresAt: number } {
+    if ([...this.grants.values()].filter((grant) => grant.principal?.role === "cli").length >= 4)
+      throw new ControlError("capacity");
+    const launch = this.prepare(repository, repository, "cli");
+    launch.bind(randomUUID());
+    const token = launch.env["FOOM_CONTROL_TOKEN"] ?? "";
+    const actor = this.authenticate(token);
+    const grant = this.grants.get(actor.generation);
+    if (!grant) throw new ControlError("unauthorized");
+    const expiresAt = Date.now() + 600000;
+    grant.expiresAt = expiresAt;
+    grant.timer = setTimeout(() => {
+      launch.dispose();
+    }, 600000);
+    grant.timer.unref();
+    return { token, expiresAt };
   }
 
   authenticate(token: string): Principal {
@@ -86,11 +111,16 @@ export class ControlService {
     }
     timingSafeEqual(candidate, this.unknown);
     if (!found) throw new ControlError("unauthorized");
+    this.assertActive(found);
     return found;
   }
 
   assertActive(actor: Principal): void {
-    if (this.grants.get(actor.generation)?.principal !== actor)
+    const grant = this.grants.get(actor.generation);
+    if (
+      grant?.principal !== actor ||
+      (grant.expiresAt !== undefined && Date.now() >= grant.expiresAt)
+    )
       throw new ControlError("unauthorized");
   }
 
@@ -126,6 +156,13 @@ export class ControlService {
       throw new ControlError("invalid_request");
     const params = object(request["params"]);
     switch (request["method"]) {
+      case "release_cli": {
+        exact(params, []);
+        if (actor.role !== "cli") throw new ControlError("forbidden");
+        clearTimeout(this.grants.get(actor.generation)?.timer);
+        this.grants.delete(actor.generation);
+        return { released: true };
+      }
       case "whoami":
         exact(params, []);
         return {
@@ -154,8 +191,10 @@ export class ControlService {
 
   close(): void {
     this.closed = true;
-    for (const grant of this.grants.values())
+    for (const grant of this.grants.values()) {
+      clearTimeout(grant.timer);
       if (grant.principal) this.operations.revoke(grant.principal);
+    }
     this.grants.clear();
   }
 }

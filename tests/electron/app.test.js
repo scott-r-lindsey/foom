@@ -5410,3 +5410,23 @@ test("shell fixture starts through keyboard while startup layout moves", {
     });
   }
 });
+
+test("console pairing requires trusted approval and gives only read-only repository scope", {
+  timeout: deadline(45000),
+}, async (context) => {
+  const { assertCliPairing } = require("./cli-checks.js");
+  const app = await launchApp(context, false);
+  const page = await boardPage(app);
+  const profile = await app.evaluate(({ app }) => app.getPath("userData"));
+  const repository = await page.evaluate(
+    async () => (await window.desktop.workspace()).repositories[0].path,
+  );
+  const confirmation = await confirmationPage(app);
+  await assertCliPairing(
+    context,
+    path.join(__dirname, "../../build/console", process.platform === "win32" ? "foom.exe" : "foom"),
+    profile,
+    repository,
+    confirmation,
+  );
+});

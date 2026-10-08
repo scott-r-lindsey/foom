@@ -421,3 +421,54 @@ requires repeating the probe. Managed policy is still enforced by the client and
 can deny an otherwise supported attachment; Foom does not override that policy.
 Windows/macOS real-client policy probes remain unverified. The packaged CLI fallback
 remains #154; this change does not promise a fallback executable before it exists.
+
+### Console helper and local pairing (#154)
+
+`foom` is a Node 24 SEA under `resources/app.asar.unpacked/build/console/`
+(`Contents/Resources/` on macOS), separate from Electron's executable. ZIP users
+can call its absolute path. `--version --json` reports application and protocol
+versions; Node's runtime notices and a SHA-256/version manifest accompany it.
+The build bundles only console and shared Node utilities, injects the SEA on the
+build platform, disables runtime argument extension (including `NODE_OPTIONS`),
+and ad-hoc signs the macOS helper. Electron's fuses remain unchanged.
+
+Online commands are `whoami`, `sessions [--limit N] [--cursor ID]`,
+`session-state ID`, and `operation-status --operation-id ID` (or
+`--idempotency-key KEY`). Main's existing API decides authorization; ordinary
+agents and human CLI grants cannot query orchestration operations. Responses use
+stable `{result}` / `{error}` envelopes; `--json` also makes offline output JSON.
+Exit status is 0 for success, 2 for usage/schema errors, 3 for authentication or
+scope denial, and 4 for unavailable services, capacity, not-found or I/O errors.
+No exception text or credentials are printed.
+
+Human invocations add `--repository ABSOLUTE_REGISTERED_PATH` and optionally
+`--profile ABSOLUTE_PROFILE_PATH` (needed for Foom Dev or custom profiles). Without
+inherited credentials, Foom displays the same eight-hex-digit code as the console
+in its trusted confirmation window. Approval grants only repository session metadata
+for ten minutes. The request expires after 60 seconds; disconnect, shutdown,
+rejection and removed registration refuse it. One request can await review,
+requests are spaced by ten seconds, and at most four human grants are live.
+The token is delivered over the pending connection, held only in console memory,
+and released on completion or expiry. Discovery has no credentials. Ordinary
+commands pair for one invocation; `foom pair --repository PATH --json` keeps one
+process open and reads JSON argv arrays, one per line, for scripts or interactive
+use, for example `["sessions","--limit","10"]`. No shell or arbitrary program is
+executed. Any inherited session scope, including invalid or partial credentials,
+prevents a fallback to pairing or another profile.
+
+On Unix, `foom --install-cli /absolute/bin` creates an exclusive symlink and an
+ownership record; `--uninstall-cli /absolute/bin` removes only the recorded link,
+including a stale link after moving the ZIP. Existing commands and changed links
+are refused. Foom does not edit shell startup files. On Windows, invoke the helper
+by absolute path with `--install-cli` to add its dedicated directory to the user's
+PATH; `--uninstall-cli` removes only its recorded entry. New shells are required.
+Unrelated PATH entries and registry value kind are retained. Foom-launched agents
+get a process-local PATH addition independently of human installation. Antigravity
+with `--prompt-interactive` support receives CLI guidance composed with initial
+prompt data; no MCP configuration is installed.
+
+`--validate-config PATH` is reserved for #84's offline, non-executing schemas.
+Until those schemas ship, it returns `config_schema_unavailable` and exit 2,
+without reading the path, pairing, opening a window, or accessing profile data.
+#84's earlier Electron-based console recipe is superseded by this standalone
+helper; its validation schemas and config-only capabilities remain #84's work.

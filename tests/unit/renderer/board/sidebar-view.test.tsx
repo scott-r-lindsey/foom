@@ -521,3 +521,22 @@ test("merged cleanup appears only when eligible, below repository removal", asyn
   fireEvent.click(hidden.getByRole("button", { name: "Actions for Foom" }));
   expect(hidden.queryByRole("menuitem", { name: "Delete merged worktrees…" })).toBeNull();
 });
+
+test("open menus receive eligibility published after opening", async () => {
+  const view = setup();
+  await act(async () => {
+    await Promise.resolve();
+  });
+  fireEvent.click(view.getByRole("button", { name: "Actions for Foom" }));
+  expect(view.queryByRole("menuitem", { name: "Delete merged worktrees…" })).toBeNull();
+  repository.canDeleteMerged = true;
+  act(() => {
+    view.base.update("a", { state: "quiet_ok" });
+  });
+  expect(view.getByRole("menuitem", { name: "Delete merged worktrees…" })).toBeTruthy();
+  delete repository.canDeleteMerged;
+  act(() => {
+    view.base.update("a", { state: "working" });
+  });
+  expect(view.queryByRole("menuitem", { name: "Delete merged worktrees…" })).toBeNull();
+});
