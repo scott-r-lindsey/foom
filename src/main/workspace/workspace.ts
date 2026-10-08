@@ -43,6 +43,8 @@ type Terminal = {
   shellRunning?: boolean;
   exitCode?: number;
   hook?: HookSignal;
+  permissionReply?: boolean;
+  permissionProgress?: boolean;
   state: TerminalState | null;
   /** Bumped by replies and dismissals; evaluations that began earlier are discarded. */
   generation: number;
@@ -713,7 +715,7 @@ export class Workspace {
 
   private transition(id: string, phase: ExecutionPhase, source: ExecutionSource): void {
     const terminal = this.track(id);
-    const event = this.execution(id).transition(phase, source);
+    const event = this.execution(id).transition(phase, source, terminal.permissionProgress);
     if (!event) return;
     if (phase !== "blocked") {
       delete terminal.attentionKey;
@@ -721,10 +723,22 @@ export class Workspace {
     }
     if (phase === "working") {
       delete terminal.hook;
+      delete terminal.permissionReply;
+      delete terminal.permissionProgress;
       delete terminal.completedTurn;
     }
-    if (phase === "idle" && event.from === "working") terminal.completedTurn = event.turn;
+    if (
+      phase === "idle" &&
+      event.from === "working" &&
+      (source === "hook" || !this.claudeCompletionHook(id))
+    )
+      terminal.completedTurn = event.turn;
     if (phase === "exited" && event.from === "working") terminal.interrupted = true;
+  }
+
+  private claudeCompletionHook(id: string): boolean {
+    const entry = this.launched.get(id);
+    return entry?.agent === "claude" && entry.attention === "hooks";
   }
 
   private track(id: string): Terminal {
@@ -792,7 +806,7 @@ export class Workspace {
       this.terminals.get(id) !== terminal ||
       (generation !== undefined && generation !== terminal.generation) ||
       (terminal.exitCode === undefined &&
-        !terminal.hook &&
+        (!terminal.hook || terminal.permissionProgress) &&
         outputVersion !== terminal.outputVersion);
     if (stale()) return;
     let tail: string[] = [];
@@ -819,7 +833,7 @@ export class Workspace {
         terminalId: id,
         tail,
         ...this.agentInput(id, terminal),
-        ...(terminal.hook ? { hook: terminal.hook } : {}),
+        ...(terminal.hook && !terminal.permissionProgress ? { hook: terminal.hook } : {}),
         ...(terminal.exitCode !== undefined ? { exitCode: terminal.exitCode } : {}),
       });
     } finally {
@@ -853,19 +867,24 @@ export class Workspace {
     if (execution && terminal.exitCode === undefined) {
       if (record.verdict.state === "needs_input") {
         // Compare the attention evidence, not verdict IDs or animated title frames.
-        const attentionEvidence = terminal.hook
-          ? ""
-          : record.verdict.signal.startsWith("pattern:")
-            ? tail.findLast((line) => line.trim().length > 0)?.trim()
-            : detected?.state === "blocked" && detected.region !== "title" && agentInput.evidence
-              ? ruleRegion(detected, agentInput.evidence, tail)
-              : tail;
+        const attentionEvidence =
+          terminal.hook && !terminal.permissionProgress
+            ? ""
+            : record.verdict.signal.startsWith("pattern:")
+              ? tail.findLast((line) => line.trim().length > 0)?.trim()
+              : detected?.state === "blocked" && detected.region !== "title" && agentInput.evidence
+                ? ruleRegion(detected, agentInput.evidence, tail)
+                : tail;
         terminal.attentionKey = createHash("sha256")
           .update(JSON.stringify([record.verdict.signal, attentionEvidence]))
           .digest("hex");
         if (terminal.dismissedAttention !== terminal.attentionKey)
           delete terminal.dismissedAttention;
-        this.transition(id, "blocked", terminal.hook ? "hook" : "screen");
+        this.transition(
+          id,
+          "blocked",
+          terminal.hook && !terminal.permissionProgress ? "hook" : "screen",
+        );
       } else if (
         execution.phase === "blocked" &&
         record.verdict.state === "working" &&
@@ -884,6 +903,21 @@ export class Workspace {
             state: "done",
             reason: "Agent turn completed",
             signal: "execution:completed",
+            confidence: 0.95,
+          },
+        };
+      } else if (
+        execution.phase === "idle" &&
+        this.claudeCompletionHook(id) &&
+        terminal.completedTurn !== execution.turn &&
+        record.verdict.state !== "failed"
+      ) {
+        record = {
+          ...record,
+          verdict: {
+            state: "quiet_ok",
+            reason: "Turn ended without a completion hook",
+            signal: "execution:idle",
             confidence: 0.95,
           },
         };
@@ -992,6 +1026,7 @@ export class Workspace {
     if ((!initial && previousEvidence.title === evidence.title) || !agent) return Promise.resolve();
     const previous = detectAgent(agent, previousEvidence, []);
     const next = detectAgent(agent, evidence, []);
+    if (terminal.permissionReply && next?.state === "working") terminal.permissionProgress = true;
     const resuming =
       terminal.execution?.snapshot().phase === "blocked" && next?.state === "working";
     if (
@@ -1034,10 +1069,15 @@ export class Workspace {
       return Promise.resolve();
     }
     if (signal.action === "needs_input") {
+      delete this.track(id).permissionReply;
+      delete this.track(id).permissionProgress;
       delete this.track(id).dismissedAttention;
       this.track(id).hook = { terminalId: id, action: signal.action, signal: signal.signal };
       this.transition(id, "blocked", "hook");
     } else if (signal.signal !== "claude:idle_prompt") {
+      const terminal = this.track(id);
+      const turn = terminal.execution?.snapshot().turn;
+      if (turn && signal.signal === "claude:Stop") terminal.completedTurn = turn;
       this.transition(id, "idle", "hook");
     }
     const { generation } = this.track(id);
@@ -1082,6 +1122,9 @@ export class Workspace {
   input(id: string): void {
     const terminal = this.terminals.get(id);
     if (!terminal) return;
+    if (terminal.hook?.action === "needs_input") {
+      terminal.permissionReply = true;
+    }
     if (!terminal.execution) {
       terminal.generation += 1;
       delete terminal.hook;

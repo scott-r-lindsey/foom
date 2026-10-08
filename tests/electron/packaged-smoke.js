@@ -186,6 +186,31 @@ test("packaged utility host runs native PTYs with RunAsNode disabled", {
     console.info("Packaged recordings loaded and decoded");
     console.info("Packaged repository restored");
     await page.getByRole("button", { name: "Actions for repo", exact: true }).click();
+    const packagedCommands = await page.evaluate(() => window.desktop.appMenu.commands());
+    assert.ok(
+      !packagedCommands.some((item) => ["reload", "force-reload", "devtools"].includes(item.id)),
+    );
+    for (const id of ["reload", "force-reload", "devtools"]) {
+      assert.equal(
+        await page.evaluate(async (id) => {
+          try {
+            await window.desktop.appMenu.execute(id);
+            return false;
+          } catch {
+            return true;
+          }
+        }, id),
+        true,
+      );
+    }
+    await page.evaluate(() => {
+      window.packagedReloadSentinel = true;
+    });
+    for (const key of process.platform === "darwin"
+      ? ["Meta+r", "Meta+Shift+r", "Meta+Shift+i"]
+      : ["Control+r", "Control+Shift+r", "Control+Shift+i", "F5", "F12"])
+      await page.keyboard.press(key);
+    assert.equal(await page.evaluate(() => window.packagedReloadSentinel), true);
     await page.getByRole("menuitem", { name: /^Shell \(/ }).click();
     await page.waitForFunction(
       () =>
@@ -284,7 +309,7 @@ test("packaged utility host runs native PTYs with RunAsNode disabled", {
         }, standalone)
         .catch(() => {});
       await page?.keyboard
-        .press(process.platform === "darwin" ? "Meta+q" : "Control+q")
+        .press(process.platform === "darwin" ? "Meta+q" : "Control+Shift+q")
         .catch(() => {});
       await browser?.close();
       if (child.exitCode === null && child.signalCode === null) {

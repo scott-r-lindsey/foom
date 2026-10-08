@@ -202,7 +202,7 @@ Every channel checks the sender (the owning window, the main frame, `app://bundl
 
 | Channel | Direction | Payload |
 |---|---|---|
-| `board:command` | main → renderer | `sidebar` / `next-waiting` / `settings`; preload rejects unknown commands, covered boards and modal launchers ignore them |
+| `board:command` | main → renderer | registry board actions (including tile presets and new worktree); preload rejects unknown commands, covered boards and modal launchers ignore them |
 | `terminal:create` | renderer → main (invoke) | `cols`, `rows` → `{ id, title }` |
 | `terminal:attach` / `terminal:detach` | renderer → main | `id` → snapshot via `terminal:data` on attach |
 | `terminal:kill` | renderer → main (invoke) | `id` |
@@ -735,12 +735,35 @@ five seconds for Working (two seconds for other kinds). No synthesis remains.
 
 ## Board shortcut definitions
 
-`main/window/appearance.ts` defines board command IDs, labels and physical keys in
-`BOARD_COMMANDS`. Direct bindings and the per-window tile leader resolve from that
-list. Windows/Linux use Ctrl+Shift+Space followed by an unmodified tile key within
-two seconds; blur cancels the pending leader. Unmatched keys pass through. macOS
-keeps its Command bindings. The full application menu and its integration with
-this list remain #135.
+`main/window/commands.ts` owns the command registry: IDs, labels, platform
+bindings, enabled/checked state, native roles and actions. `app-menu.ts` projects
+this registry to the macOS menu and the sandboxed renderer's menu data. Main owns
+one `before-input-event` dispatcher; native accelerators are display-only
+(`registerAccelerator: false`). Windows/Linux have no native application menu.
+The existing two-second Ctrl+Shift+Space tile leader resolves from the registry;
+blur, timeout and unmatched input cancel it. Alt alone and F10 open the wordmark
+menu. Plain Ctrl letters and numbers reach the terminal.
+
+The `app-menu:list`, `app-menu:execute` and `app-menu:view` invoke handlers accept
+only the owning window's trusted top-level frame. Execute accepts an existing,
+enabled command ID; it never accepts code, URLs, paths or arbitrary terminal IDs.
+View accepts bounded tile counts and booleans solely for presentation availability
+and the maximize checkmark. The board source exposes this small typed capability.
+The renderer reuses RowMenu's keyboard navigation, portal and dismissal behavior.
+Menu selection and native shortcuts dispatch identical main-owned actions.
+Application-menu actions dismiss before dispatch, independently of row-action
+confirmation cancellation. They restore the previous focus and selection first,
+so native editing targets the original input; navigation commands then own their
+destination focus. Escape continues to return focus to the wordmark.
+Development commands are omitted when packaged; packaged webContents also set
+`devTools: false`. Quit and Close Window go through the existing confirmed shutdown.
+
+`attention-badge.ts` derives attention counts from main's workspace snapshot on
+inventory and verdict changes. Windows overlays are generated BGRA bitmaps;
+macOS gets a Dock badge and a menu whose waiting-session callbacks carry main-owned
+terminal IDs. The validated preload notification selects an existing board row.
+Linux uses `app.setBadgeCount`, which is a no-op on unsupported desktops. Renderer
+activity rates never determine badge counts.
 
 Terminal view operations recheck current inventory when queued work executes.
 The validated `terminal:availability` notification carries terminal IDs in a batch.
@@ -774,7 +797,8 @@ keeps it outside renderer IPC. Title changes request immediate evaluation only w
 the detected rule or state changes. Spinner and blinking frames retain the latest
 evidence without evaluating; progress-only or unknown changes wait for normal quiet
 events, so they cannot trigger inference during streaming output. Existing generation/output guards discard stale results, exits stay
-final, and permission hooks stay sticky until a reply/dismissal.
+final. Permission hooks persist until a working hook, or a reply followed by fresh
+working title evidence and no matching agent permission form; dismissal only hides attention.
 
 Screen matching uses the existing 40-line host tail, capped to 500 characters per
 line, and only the bottom nonempty lines or text after the last horizontal divider.
@@ -787,7 +811,8 @@ way to interrupt a running JavaScript regex. No matcher can type into a terminal
 Working and blocked rules produce fixed reasons and `rules:<agent>:<rule-id>` signals.
 Idle evidence has low confidence and continues through generic rules and the model,
 never directly to Done. Workspace execution promotes an ambiguous result to Done
-only after a recorded working-to-idle transition; initial readiness stays neutral. Model requests still contain only the existing redacted 40-line tail; titles,
+only after a recorded working-to-idle transition; Claude with hooks additionally
+requires Stop, so title-only interrupts stay neutral. Initial readiness stays neutral. Model requests still contain only the existing redacted 40-line tail; titles,
 progress, files, diffs, keystrokes and manifest content are never added to that input.
 
 
@@ -808,8 +833,16 @@ is reused. Revoked hook capabilities cannot address that invocation.
 | Codex | Braille spinner title | Action Required title | Turn-complete notify; plain title |
 | Antigravity | No supported signal yet | Screen rules | No supported signal yet |
 
+Evidence precedence is: process exit; active permission hooks; agent-specific
+blocked forms/titles; agent working titles; generic shell patterns; model fallback.
+A blocked agent form wins over a simultaneous working title, but generic password,
+yes/no and Enter strings do not override supported agent working evidence.
+
 Hooks are strongest evidence. An explicit permission hook survives spinner frames
-until a working hook proves progress. Screen blockers beat working titles during
+until a working hook proves progress, or user input is followed by a fresh working
+title and classification finds no agent-specific permission form. Input alone and
+dismissal never resume execution. A new permission hook resets that reply evidence.
+Screen blockers beat working titles during
 classification; later positive progress supersedes stale screen evidence only after
 classification verifies the current screen no longer requests attention. Repeated
 spinner frames can trigger this recovery while blocked. Dismissal is tracked
@@ -817,7 +850,10 @@ separately from execution against a digest of the attention signal and screen;
 unchanged evaluations stay quiet. Changed attention evidence, a new permission
 hook, or a lifecycle transition invalidates that dismissal. Idle
 titles may end a turn started by a hook (including Claude Esc, which lacks Stop).
-A title alone does not distinguish successful completion from an interrupted turn.
+With Claude hooks attached, a title-only turn end stays Quiet: Stop is required
+before reporting Done, including when Stop arrives after the idle title. Without
+hooks, title-only completion remains heuristic. Codex uses title rules and the
+existing turn-complete notify adapter only; a Codex hook migration is separate.
 Antigravity lifecycle hooks remain deferred to #178; no global agent configuration
 is changed. Observer hooks emit no permission decision.
 

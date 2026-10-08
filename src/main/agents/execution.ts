@@ -21,12 +21,23 @@ export class AgentExecution {
   snapshot(): ExecutionSnapshot {
     return { ...this.current };
   }
-  transition(to: ExecutionPhase, source: ExecutionSource): ExecutionTransition | undefined {
+  transition(
+    to: ExecutionPhase,
+    source: ExecutionSource,
+    permissionReply = false,
+  ): ExecutionTransition | undefined {
     const from = this.current.phase;
     if (from === "exited") return;
-    // A title spinner cannot answer an explicit permission request. A later
-    // working hook proves progress; screen blockers may be superseded by titles.
-    if (from === "blocked" && to === "working" && this.blocker === "hook" && source !== "hook")
+    // A title alone cannot answer an explicit permission request. The caller
+    // verifies a reply followed by fresh title evidence and a cleared screen.
+    // Working hooks prove progress without a reply.
+    if (
+      from === "blocked" &&
+      to === "working" &&
+      this.blocker === "hook" &&
+      source !== "hook" &&
+      !permissionReply
+    )
       return;
     if (to === "blocked") this.blocker = source;
     if (to === from) return;

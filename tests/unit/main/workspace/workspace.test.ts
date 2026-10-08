@@ -1953,6 +1953,7 @@ test("input during an agent dismissal records no second action and failed feedba
 
 test("screen blockers clear on verified progress, including subsequent spinner frames", async () => {
   const workspace = await launched();
+  tails.set("t1", ["───", "Continue?", "enter to confirm · esc to cancel"]);
   await workspace.evidence("t1", { title: "◐ Working", progress: null });
   expect(workspace.snapshot().terminals[0]?.execution?.phase).toBe("blocked");
   await workspace.evidence("t1", { title: "◓ Working", progress: null });
@@ -1963,7 +1964,7 @@ test("screen blockers clear on verified progress, including subsequent spinner f
     state: "working",
     execution: { phase: "working", turn: 1 },
   });
-  tails.set("t1", ["Continue? (y/n)"]);
+  tails.set("t1", ["───", "Continue?", "enter to confirm · esc to cancel"]);
   await workspace.quiet("t1");
   tails.set("t1", ["Making progress"]);
   await workspace.quiet("t1");
@@ -1992,20 +1993,21 @@ test("ambiguous output and spinners cannot clear an explicit permission hook", a
 
 test("dismissal survives unchanged evaluations and spinner frames until fresh screen attention", async () => {
   const workspace = await launched();
+  tails.set("t1", ["───", "Continue?", "enter to confirm · esc to cancel"]);
   await workspace.evidence("t1", { title: "◐ Working", progress: null });
   await workspace.feedback("t1", states.at(-1)?.verdictId ?? null, "dismissed");
   await workspace.quiet("t1");
-  tails.set("t1", ["Unrelated progress", "Continue? (y/n)"]);
+  tails.set("t1", ["Unrelated progress", "───", "Continue?", "enter to confirm · esc to cancel"]);
   await workspace.evidence("t1", { title: "◓ Working", progress: null });
   expect(states.at(-1)).toMatchObject({ state: "quiet_ok", execution: { phase: "blocked" } });
-  tails.set("t1", ["Delete files? (y/n)"]);
+  tails.set("t1", ["───", "Delete files?", "enter to confirm · esc to cancel"]);
   await workspace.quiet("t1");
   expect(states.at(-1)?.state).toBe("needs_input");
   await workspace.feedback("t1", states.at(-1)?.verdictId ?? null, "dismissed");
   tails.set("t1", ["Making progress"]);
   await workspace.quiet("t1");
   expect(states.at(-1)?.state).toBe("working");
-  tails.set("t1", ["Delete files? (y/n)"]);
+  tails.set("t1", ["───", "Delete files?", "enter to confirm · esc to cancel"]);
   await workspace.quiet("t1");
   expect(states.at(-1)?.state).toBe("needs_input");
   await workspace.dispose();
@@ -2026,5 +2028,84 @@ test("dismissed hook attention stays quiet until a new permission event", async 
   expect(states.at(-1)?.state).toBe("quiet_ok");
   await workspace.hook(signal);
   expect(states.at(-1)?.state).toBe("needs_input");
+  await workspace.dispose();
+});
+
+test("permission approval needs fresh working evidence and a cleared agent form", async () => {
+  const workspace = await launched();
+  const key = await bound();
+  await workspace.hook({ terminalId: key, action: "working", signal: "claude:UserPromptSubmit" });
+  await workspace.hook({
+    terminalId: key,
+    action: "needs_input",
+    signal: "claude:PermissionRequest",
+  });
+  tails.set("t1", ["───", "enter to confirm · esc to cancel"]);
+  workspace.input("t1");
+  await workspace.quiet("t1");
+  expect(states.at(-1)?.state).toBe("needs_input");
+  await workspace.evidence("t1", { title: "◐ Claude Code", progress: null });
+  expect(states.at(-1)?.state).toBe("needs_input");
+  tails.set("t1", ["Bash(npm test)", "Running…"]);
+  await workspace.evidence("t1", { title: "◓ Claude Code", progress: null });
+  expect(states.at(-1)).toMatchObject({
+    state: "working",
+    execution: { phase: "working", turn: 1 },
+  });
+  await workspace.hook({
+    terminalId: key,
+    action: "needs_input",
+    signal: "claude:PermissionRequest",
+  });
+  await workspace.evidence("t1", { title: "◑ Claude Code", progress: null });
+  expect(states.at(-1)?.state).toBe("needs_input");
+  await workspace.dispose();
+});
+
+test.each(["Password:", "Continue? (y/n)", "Press Enter"])(
+  "working agent titles outrank generic text: %s",
+  async (line) => {
+    const workspace = await launched();
+    const events: ExecutionTransition[] = [];
+    workspace.subscribeExecution((event) => events.push(event));
+    tails.set("t1", [line]);
+    for (const frame of ["◐", "◓", "◑", "◒"]) {
+      await workspace.evidence("t1", { title: `${frame} Claude Code`, progress: null });
+      await workspace.quiet("t1");
+    }
+    expect(events.map(({ to }) => to)).toEqual(["working"]);
+    expect(states.at(-1)?.state).toBe("working");
+    await workspace.dispose();
+  },
+);
+
+test("Claude title-only turn ends stay neutral, then a late Stop completes once", async () => {
+  const workspace = await launched();
+  const key = await bound();
+  tails.set("t1", ["Ready"]);
+  await workspace.hook({ terminalId: key, action: "working", signal: "claude:UserPromptSubmit" });
+  await workspace.evidence("t1", { title: "✳ Claude Code", progress: null });
+  expect(states.at(-1)).toMatchObject({ state: "quiet_ok", execution: { phase: "idle" } });
+  await workspace.hook({ terminalId: key, action: "classify", signal: "claude:Stop" });
+  expect(states.at(-1)?.state).toBe("done");
+  await workspace.hook({ terminalId: key, action: "classify", signal: "claude:Stop" });
+  expect(states.filter(({ state }) => state === "done")).toHaveLength(1);
+  await workspace.dispose();
+});
+
+test("identical dismissed prompt alerts again in a later turn", async () => {
+  const workspace = await launched();
+  const key = await bound();
+  for (const turn of [1, 2]) {
+    await workspace.hook({ terminalId: key, action: "working", signal: "claude:UserPromptSubmit" });
+    tails.set("t1", ["───", "Same question", "enter to confirm · esc to cancel"]);
+    await workspace.quiet("t1");
+    expect(states.at(-1)).toMatchObject({ state: "needs_input", execution: { turn } });
+    await workspace.feedback("t1", states.at(-1)?.verdictId ?? null, "dismissed");
+    await workspace.quiet("t1");
+    expect(states.at(-1)?.state).toBe("quiet_ok");
+    tails.set("t1", ["Finished"]);
+    await workspace.hook({ terminalId: key, action: "classify", signal: "claude:Stop" });
+  }
   await workspace.dispose();
 });

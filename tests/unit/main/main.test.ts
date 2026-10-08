@@ -1,4 +1,5 @@
 vi.mock("../../../src/main/sounds/ipc", () => ({ attachSounds: vi.fn(() => vi.fn()) }));
+vi.mock("../../../src/main/window/attention-badge", () => ({ updateAttention: vi.fn() }));
 import type { WorkspaceDependencies } from "../../../src/main/workspace/workspace";
 import type { DialogContent } from "../../../src/shared/confirmation";
 vi.mock("../../../src/main/confirmations/trusted-dialog", () => ({
@@ -99,6 +100,7 @@ const mock = vi.hoisted(() => {
   const readyEvents = new Map<string, () => void>();
   const window = {
     webContents: {
+      removeListener: vi.fn(),
       getURL: () => "app://bundle/index.html",
       isCrashed: vi.fn(() => false),
       send: vi.fn(),
@@ -152,6 +154,7 @@ const mock = vi.hoisted(() => {
     webContents = window.webContents;
     once = window.once;
     on = window.on;
+    removeListener = vi.fn();
     removeMenu = window.removeMenu;
     getBounds = window.getBounds;
     getNormalBounds = window.getNormalBounds;
@@ -278,6 +281,8 @@ const mock = vi.hoisted(() => {
   };
 });
 vi.mock("electron", () => ({
+  ipcMain: { handle: vi.fn(), removeHandler: vi.fn() },
+  Menu: { setApplicationMenu: vi.fn(), buildFromTemplate: vi.fn() },
   BrowserWindow: mock.BrowserWindow,
   nativeTheme: mock.theme,
   clipboard: { writeText: vi.fn() },
@@ -287,6 +292,8 @@ vi.mock("electron", () => ({
     showOpenDialog: mock.openDialog,
   },
   app: {
+    getVersion: () => "0.1.0",
+    setAboutPanelOptions: vi.fn(),
     whenReady: mock.ready,
     get isPackaged() {
       return mock.packaged;
@@ -511,6 +518,7 @@ test.each(["c", "C", "v", "V"])("handles Ctrl+Shift+%s without a menu", async (k
   mock.windowEvents.get("before-input-event")?.(event, {
     type: "keyDown",
     key,
+    code: `Key${key.toUpperCase()}`,
     control: true,
     shift: true,
     alt: false,
@@ -527,13 +535,14 @@ test.each<Partial<ShortcutInput>>([
   { shift: false },
   { alt: true },
   { meta: true },
-  { key: "w" },
+  { key: "w", code: "KeyW" },
 ])("leaves other keys to the terminal (%j)", async (overrides) => {
   await start();
   const event = { preventDefault: vi.fn() };
   mock.windowEvents.get("before-input-event")?.(event, {
     type: "keyDown",
     key: "c",
+    code: "KeyC",
     control: true,
     shift: true,
     alt: false,
@@ -671,7 +680,8 @@ test.each([
     const event = { preventDefault: vi.fn() };
     mock.windowEvents.get("before-input-event")?.(event, {
       type: "keyDown",
-      shift: false,
+      shift: platform === "linux",
+      code: input.key === "F4" ? "F4" : `Key${input.key.toUpperCase()}`,
       ...input,
     });
     expect(event.preventDefault).toHaveBeenCalledOnce();
@@ -852,9 +862,9 @@ test("zoom shortcuts change the interface size instead of reaching the terminal"
   }
   const log = vi.spyOn(console, "error").mockImplementation(() => {});
   mock.setupIpc.zoom.mockRejectedValueOnce(new Error("disk full"));
-  key({ code: "Digit0", key: "0", shift: false });
+  key({ code: "Digit0", key: "0", shift: process.platform !== "darwin" });
   await vi.waitFor(() => {
-    expect(log).toHaveBeenCalledWith("Unable to change the interface size:", expect.any(Error));
+    expect(log).toHaveBeenCalledWith("Unable to change interface size:", expect.any(Error));
   });
 });
 
@@ -1014,7 +1024,7 @@ test("packaged builds keep their default profile and identity", async () => {
   expect(mock.setPath).not.toHaveBeenCalled();
   expect(mock.construct.mock.calls[0]?.[0]).toMatchObject({
     title: "Foom",
-    webPreferences: { additionalArguments: [] },
+    webPreferences: { additionalArguments: [], devTools: false },
   });
 });
 

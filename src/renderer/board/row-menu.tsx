@@ -5,6 +5,8 @@ import { createPortal } from "react-dom";
 import type { CSSProperties } from "react";
 export interface RowAction {
   label: string;
+  disabled?: boolean;
+  checked?: boolean | undefined;
   badge?: string;
   hint?: string;
   run: () => void | Promise<void>;
@@ -15,7 +17,14 @@ export function RowMenu({
   actions,
   close,
   confirmations,
+  placement = "right",
+  label = "Actions",
+  onAction,
 }: {
+  /** Overrides confirmation handling; the caller owns dismissal, focus and dispatch. */
+  onAction?: (action: RowAction) => void;
+  placement?: "right" | "below";
+  label?: string;
   anchor: HTMLButtonElement;
   actions: readonly (RowAction | null)[];
   close: () => void;
@@ -36,16 +45,24 @@ export function RowMenu({
     const menu = ref.current;
     if (!menu) return;
     const button = anchor.getBoundingClientRect();
+    if (placement === "below")
+      menu.style.maxHeight = `${String(Math.max(80, window.innerHeight - button.bottom - 16))}px`;
     const bounds = menu.getBoundingClientRect();
-    const top = Math.max(8, Math.min(button.top, window.innerHeight - bounds.height - 8));
+    const top = Math.max(
+      8,
+      Math.min(
+        placement === "below" ? button.bottom + 8 : button.top,
+        window.innerHeight - bounds.height - 8,
+      ),
+    );
     menu.style.top = `${String(top)}px`;
-    menu.style.left = `${String(Math.max(8, Math.min(button.right + 10, window.innerWidth - bounds.width - 8)))}px`;
+    menu.style.left = `${String(Math.max(8, Math.min(placement === "below" ? button.left : button.right + 10, window.innerWidth - bounds.width - 8)))}px`;
     menu.style.setProperty(
       "--notch",
       `${String(Math.max(12, Math.min(bounds.height - 12, button.top + button.height / 2 - top)))}px`,
     );
-    menu.querySelector<HTMLButtonElement>("[role=menuitem]")?.focus();
-  }, [anchor]);
+    menu.querySelector<HTMLButtonElement>("button:not(:disabled)")?.focus();
+  }, [anchor, placement]);
   useEffect(() => {
     const outside = (event: PointerEvent) => {
       if (
@@ -70,12 +87,12 @@ export function RowMenu({
   return createPortal(
     <div
       ref={ref}
-      className="row-menu"
+      className={`row-menu${placement === "below" ? " app-menu" : ""}`}
       role="menu"
-      aria-label="Actions"
+      aria-label={label}
       onKeyDown={(event) => {
         const items = Array.from(
-          event.currentTarget.querySelectorAll<HTMLButtonElement>("[role=menuitem]"),
+          event.currentTarget.querySelectorAll<HTMLButtonElement>("button:not(:disabled)"),
         );
         const index = items.findIndex((item) => item === document.activeElement);
         if (event.key === "Escape" || event.key === "Tab") {
@@ -101,12 +118,18 @@ export function RowMenu({
             <button
               key={action.label}
               type="button"
-              role="menuitem"
+              role={action.checked === undefined ? "menuitem" : "menuitemcheckbox"}
+              aria-checked={action.checked}
+              disabled={action.disabled}
               style={{ "--item": index } as CSSProperties}
               data-armed={(selected === index && Boolean(confirmation.arm)) || undefined}
               onPointerLeave={confirmation.cancel}
               onBlur={confirmation.cancel}
               onClick={() => {
+                if (onAction) {
+                  onAction(action);
+                  return;
+                }
                 if (confirmation.pending && selected !== index) {
                   confirmation.cancel();
                   return;

@@ -32,6 +32,8 @@ export function evaluateRules(input: EvaluationInput): Verdict {
       `rules:${input.agent ?? ""}:${detected.id}`,
       0.95,
     );
+  if (detected?.state === "working")
+    return verdict("working", detected.reason, `rules:${input.agent ?? ""}:${detected.id}`, 0.95);
   if (input.promptReturned === true) {
     return verdict("done", "Shell prompt returned", "process:prompt", 0.95);
   }
@@ -70,8 +72,6 @@ export function evaluateRules(input: EvaluationInput): Verdict {
   ) {
     return verdict("quiet_ok", "Server is listening", "pattern:server", 0.9);
   }
-  if (detected?.state === "working")
-    return verdict("working", detected.reason, `rules:${input.agent ?? ""}:${detected.id}`, 0.95);
   if (detected?.state === "idle")
     return verdict("working", detected.reason, `rules:${input.agent ?? ""}:${detected.id}`, 0.25);
   return verdict("working", "No completion or input request detected", "rules:ambiguous", 0.25);

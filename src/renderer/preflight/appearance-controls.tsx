@@ -12,7 +12,7 @@ const WHEEL_STEP = 50;
 // Mirrors SCALES in src/main/window/appearance.ts, which main validates against.
 const SCALES = [80, 90, 100, 110, 120, 130, 140, 150];
 const shortcutHint = () =>
-  navigator.platform.startsWith("Mac") ? "⌘ + / − / 0" : "Ctrl+Shift+= / − · Ctrl+0";
+  navigator.platform.startsWith("Mac") ? "⌘ + / − / 0" : "Ctrl+Shift+= / − / 0";
 
 /** Light or dark, and the interface size. Both apply at once and are saved. */
 export function AppearanceControls({

@@ -863,3 +863,34 @@
   color: var(--muted);
   font-size: 11px;
 }
+
+.wordmark-menu {
+  font: inherit;
+  color: inherit;
+  border: 0;
+  background: transparent;
+  padding: 0;
+  cursor: pointer;
+}
+.app-menu {
+  min-width: min(360px, calc(100vw - 16px));
+  max-height: calc(100vh - 24px);
+  overflow-y: auto;
+}
+.app-menu::before,
+.app-menu::after {
+  display: none;
+}
+.row-menu button:disabled {
+  opacity: 0.5;
+  cursor: default;
+  color: var(--muted);
+  animation: none;
+}
+.row-menu [aria-checked="true"] .menu-label::before {
+  content: "✓ ";
+}
+.app-menu .row-menu-items {
+  max-height: none;
+  overflow: visible;
+}

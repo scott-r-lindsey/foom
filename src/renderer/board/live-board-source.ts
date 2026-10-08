@@ -421,6 +421,7 @@ export function createAppSource(): BoardSource {
     },
     getSnapshot: () => rows,
     getRepositories: () => repositories,
+    appMenu: window.desktop.appMenu,
     subscribeCommands: (listener) => window.desktop.onBoardCommand(listener),
     subscribe: (listener) => {
       listeners.add(listener);

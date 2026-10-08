@@ -1,5 +1,7 @@
 import { SoundLibrary } from "./sounds/library";
 import { attachSounds } from "./sounds/ipc";
+import { attachAppMenu } from "./window/app-menu";
+import { updateAttention } from "./window/attention-badge";
 import { InventoryWatch } from "./workspace/inventory-watch";
 import { ControlRuntime } from "./control/runtime";
 import { TrustedDialog } from "./confirmations/trusted-dialog";
@@ -18,13 +20,7 @@ import { InferenceKeys } from "./evaluator/inference-keys";
 import { SettingsStore } from "./setup/settings";
 import { Setup } from "./setup/setup";
 import { attachSetup } from "./setup/setup-ipc";
-import {
-  initialSize,
-  MINIMUM_SIZE,
-  scaledSize,
-  zoomShortcut,
-  createBoardShortcuts,
-} from "./window/appearance";
+import { initialSize, MINIMUM_SIZE, scaledSize } from "./window/appearance";
 import { loadWindowSize, saveWindowSize } from "./window/window-state";
 import type { Size } from "./window/appearance";
 import { attachWindowScale } from "./window/window-scale";
@@ -86,6 +82,7 @@ async function createWindow(savedSize?: Size) {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
+      devTools: !app.isPackaged,
       additionalArguments: app.isPackaged ? [] : ["--foom-development"],
       webviewTag: false,
     },
@@ -116,46 +113,7 @@ async function createWindow(savedSize?: Size) {
     nativeTheme.removeListener("updated", updateBackground);
   });
 
-  // Terminal control keys (for example Ctrl+W in vim) must reach the PTY.
-  window.removeMenu();
-  const boardShortcuts = createBoardShortcuts(process.platform);
-  window.on("blur", boardShortcuts.reset);
-  window.webContents.on("before-input-event", (event, input) => {
-    const key = input.key.toLowerCase();
-    const quitShortcut =
-      process.platform === "darwin"
-        ? input.meta && !input.control && !input.alt && (key === "w" || key === "q")
-        : !input.meta &&
-          ((input.control && !input.alt && key === "q") ||
-            (input.alt && !input.control && key === "f4"));
-    if (input.type === "keyDown" && !input.shift && quitShortcut) {
-      event.preventDefault();
-      app.quit();
-      return;
-    }
-    const { handled, command } = boardShortcuts.handle(input);
-    if (handled) {
-      event.preventDefault();
-      if (command) window.webContents.send("board:command", command);
-      return;
-    }
-    const zoom = zoomShortcut(input, process.platform);
-    if (zoom) {
-      event.preventDefault();
-      setupIpc.zoom(zoom).catch((error: unknown) => {
-        console.error("Unable to change the interface size:", error);
-      });
-      return;
-    }
-    if (input.type !== "keyDown" || !input.control || !input.shift || input.alt || input.meta) {
-      return;
-    }
-    if (key === "c" || key === "v") {
-      event.preventDefault();
-      if (key === "c") window.webContents.copy();
-      else window.webContents.paste();
-    }
-  });
+  const appMenu = attachAppMenu(window, (direction) => setupIpc.zoom(direction));
   // Terminal events and state updates only arrive after both objects exist.
   const terminals = attachTerminal(window, {
     onOutput: (id) => {
@@ -196,12 +154,14 @@ async function createWindow(savedSize?: Size) {
     receiver: () => HookReceiver.listen((signal) => void workspace.hook(signal)),
     onChange: () => {
       workspaceIpc.sendChanged();
+      updateAttention(window, workspace.snapshot(), appMenu.newWindow);
     },
     onExecution: (event) => {
       workspaceIpc.sendExecution(event);
     },
     onState: (state) => {
       workspaceIpc.sendState(state);
+      updateAttention(window, workspace.snapshot(), appMenu.newWindow);
     },
   });
   await workspace.restore();
@@ -266,7 +226,9 @@ async function createWindow(savedSize?: Size) {
   const setupIpc = attachSetup(window, setup, (active) => {
     windowScale.anchorAt(active ? screen.getCursorScreenPoint() : undefined);
   });
+  updateAttention(window, workspace.snapshot(), appMenu.newWindow);
   window.once("closed", () => {
+    appMenu.dispose();
     confirmations.dispose();
     setupIpc.dispose();
     workspaceIpc.dispose();
