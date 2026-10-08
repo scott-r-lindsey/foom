@@ -1,6 +1,6 @@
 # Product
 
-Foom is a desktop workspace for running many coding agents at once, each in its own git worktree and terminal. Its job is to route your attention. Terminals can stay hidden or share the workspace in tiles; Foom tells you which one needs you.
+Foom is a desktop workspace for running many coding agents at once, in git worktrees with one terminal per session. Its job is to route your attention. Terminals can stay hidden or share the workspace in tiles; Foom tells you which one needs you.
 
 The target is about 10 concurrent agents. Supported agents are Claude Code (`claude`), Codex (`codex`), and Antigravity (`agy`). Any other CLI runs as a plain terminal, watched by the evaluator.
 
@@ -91,6 +91,21 @@ An exited shell offers **Restart shell**, a separator and **Close**. Close remov
 session and its stored record, never the checkout or the agent's own conversation files.
 Sessions restore without automatically launching agents. If no supported hook/notify event
 arrived before exit (including hooks-disabled launches), no conversation ID is available.
+
+A checkout with a running agent offers **Review with Claude Code** or **Review with
+Codex** for the other installed, enabled agent when its CLI advertises the required
+review flags. Review starts alongside the author, with the usual shared-agent confirmation.
+Claude starts in plan permission mode; Codex starts with a read-only sandbox and
+no approval escalation. A fixed prompt asks for findings without editing files.
+Review launches skip Foom's ordinary default arguments so they cannot override
+these flags. Hooks remain per launch; user configuration files are never edited.
+The reason line includes **Reviewing read-only** alongside the current verdict.
+Resume and New conversation retain the review launch policy, including after an
+app restart. This label records launch policy: Foom cannot detect a user changing
+modes inside the agent. Claude's plan mode is a CLI permission mode, not an OS
+filesystem sandbox; user-approved commands and external integrations still obey
+that CLI's policy. Use ordinary launch actions for editing or a shell running tests.
+Every session keeps its own light, hooks and verdicts.
 
 Worktree removal is available for linked checkouts created by any tool. It requires
 confirmation, validates repository membership and worktree identity, and rechecks dirty

@@ -718,3 +718,64 @@ it("launches Antigravity with a process-local CLI PATH and composed initial guid
   expect(process.env["PATH"]).toBe(inheritedPath);
   expect(prepareMcpLaunch).not.toHaveBeenCalled();
 });
+
+describe("read-only review", () => {
+  it.each(["claude", "codex"] as const)(
+    "pins %s review arguments independently of defaults and hooks",
+    async (agent) => {
+      help += "\n--permission-mode <mode> plan\n--sandbox <mode> read-only";
+      const scan = await service.scan();
+      expect(scan.agents.find((entry) => entry.id === agent)?.review).toBe(true);
+      await service.launch({
+        ...request,
+        agent,
+        readOnly: true,
+        acknowledgeCodexNotifierReplacement: true,
+        defaultArguments:
+          agent === "claude"
+            ? ["--permission-mode", "acceptEdits", "do edits"]
+            : ["--sandbox", "workspace-write", "-c", 'sandbox_mode="danger-full-access"'],
+      });
+      const args = create.mock.calls[0]?.[0].args;
+      expect(args?.slice(0, agent === "claude" ? 2 : 4)).toEqual(
+        agent === "claude"
+          ? ["--permission-mode", "plan"]
+          : ["--sandbox", "read-only", "-c", 'approval_policy="never"'],
+      );
+      expect(args).not.toContain("acceptEdits");
+      expect(args).not.toContain("workspace-write");
+      expect(args).toContain(
+        agent === "claude" ? "--settings" : `notify=${JSON.stringify(binding.codexCommand)}`,
+      );
+      expect(args?.at(-1)).toContain("Review the current worktree changes");
+      service.release("terminal-id");
+      service.setHooksEnabled(false);
+      await service.launch({ ...request, agent, readOnly: true, conversationId: "saved-session" });
+      expect(create.mock.lastCall?.[0].args).toEqual(
+        agent === "claude"
+          ? ["--resume", "saved-session", "--permission-mode", "plan"]
+          : ["resume", "saved-session", "--sandbox", "read-only", "-c", 'approval_policy="never"'],
+      );
+    },
+  );
+  it.each(["claude", "codex", "agy"] as const)(
+    "fails closed for unsupported %s review",
+    async (agent) => {
+      await expect(service.launch({ ...request, agent, readOnly: true })).rejects.toThrow(
+        "Read-only review is unavailable",
+      );
+      expect(create).not.toHaveBeenCalled();
+      expect(prepare).not.toHaveBeenCalled();
+    },
+  );
+  it.each([
+    "--permission-mode-extra plan",
+    "--sandbox-extra read-only -c",
+    "--sandbox read-only",
+    "--sandbox workspace-write -c",
+  ])("does not accept incomplete help: %s", async (probe) => {
+    help = probe;
+    const scan = await service.scan();
+    expect(scan.agents.every((agent) => !agent.review)).toBe(true);
+  });
+});

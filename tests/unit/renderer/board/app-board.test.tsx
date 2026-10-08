@@ -728,3 +728,36 @@ test("execution overlays verdicts, rejects stale events, and waits for each turn
   expect(current()?.state).toBe("failed");
   off?.();
 });
+
+test("review reason survives verdicts, refresh and exit without changing another session", async () => {
+  mock.workspace.mockResolvedValue({
+    repositories: [],
+    terminals: [agent("author"), { ...agent("review"), readOnly: true, worktree: "/code/author" }],
+  });
+  const source = createAppSource();
+  const disconnect = source.connect?.();
+  await settle();
+  expect(source.getSnapshot().find((row) => row.id === "review")?.reason).toContain(
+    "Reviewing read-only",
+  );
+  mock.state?.(verdict("review"));
+  expect(source.getSnapshot().find((row) => row.id === "review")?.reason).toBe(
+    "Reviewing read-only · Continue? · pattern:confirmation",
+  );
+  mock.changed?.();
+  await settle();
+  expect(
+    source
+      .getSnapshot()
+      .find((row) => row.id === "review")
+      ?.reason.match(/Reviewing read-only/gu),
+  ).toHaveLength(1);
+  mock.exit?.("review", 0);
+  expect(source.getSnapshot().find((row) => row.id === "review")?.reason).toContain(
+    "Reviewing read-only · Process exited",
+  );
+  expect(source.getSnapshot().find((row) => row.id === "author")?.reason).not.toContain(
+    "read-only",
+  );
+  disconnect?.();
+});

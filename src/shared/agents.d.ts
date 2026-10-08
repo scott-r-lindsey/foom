@@ -7,6 +7,7 @@ export interface AgentInstallation {
   readonly hooks: boolean;
   readonly inline?: boolean;
   readonly cliGuidance?: boolean;
+  readonly review?: boolean;
   readonly mcp?: boolean;
   readonly mcpReason?: string;
   readonly codexLifecycle?: boolean;
@@ -30,6 +31,7 @@ export interface AgentHooks {
   dispose(): void;
 }
 export interface AgentLaunch {
+  readonly readOnly?: boolean;
   readonly terminalId?: string;
   readonly conversationId?: string;
   /** Validated defaults from main settings, never copied from a renderer launch request. */

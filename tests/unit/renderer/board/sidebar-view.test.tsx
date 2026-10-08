@@ -44,7 +44,7 @@ const load = () =>
     hooks: true,
     acknowledged: true,
   });
-function setup(mainCheckout = false) {
+function setup(mainCheckout = false, review = false) {
   const original = sampleRows(0)[0];
   if (!original) throw Error("fixture");
   const base = createSampleSource([
@@ -70,7 +70,16 @@ function setup(mainCheckout = false) {
     shellName: () => "zsh",
     sidebarCommand: command,
     worktrees: {
-      load,
+      load: review
+        ? async () => ({
+            ...(await load()),
+            agents: [
+              { ...installation("codex"), review: true },
+              { ...installation("claude"), review: true },
+              { ...installation("agy"), review: true },
+            ],
+          })
+        : load,
       addRepository: add,
       start: () => Promise.resolve(),
       remove: () => Promise.resolve(true),
@@ -539,4 +548,29 @@ test("open menus receive eligibility published after opening", async () => {
     view.base.update("a", { state: "working" });
   });
   expect(view.queryByRole("menuitem", { name: "Delete merged worktrees…" })).toBeNull();
+});
+
+test("worktree reviews offer the other installed agent and disappear for exited sessions", async () => {
+  const view = setup(false, true);
+  await act(async () => {
+    await Promise.resolve();
+  });
+  fireEvent.click(view.getByRole("button", { name: "Actions for feature" }));
+  expect(view.queryByRole("menuitem", { name: /Review with Claude/ })).toBeNull();
+  expect(view.queryByRole("menuitem", { name: /Review with Antigravity/ })).toBeNull();
+  await act(async () => {
+    fireEvent.click(view.getByRole("menuitem", { name: /Review with Codex/ }));
+    await Promise.resolve();
+  });
+  expect(view.command).toHaveBeenLastCalledWith({
+    kind: "review",
+    repository: "/foom",
+    worktree: "/tree",
+    run: "codex",
+  });
+  act(() => {
+    view.base.update("a", { exited: true });
+  });
+  fireEvent.click(view.getByRole("button", { name: "Actions for feature" }));
+  expect(view.queryByRole("menuitem", { name: /Review with/ })).toBeNull();
 });
