@@ -10,6 +10,7 @@ export interface BoardRow {
   dormant?: boolean;
   /** Changes when an exited terminal is relaunched under the same ID. */
   launchVersion?: number;
+  worktreeRemoved?: boolean;
   /** Known bypass argument present at launch; does not infer global agent policy. */
   bypass?: boolean;
   kind: "sample" | "shell" | "agent";

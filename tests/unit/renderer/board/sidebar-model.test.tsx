@@ -238,3 +238,13 @@ test("single-click opens the name after the double-click interval, while rename 
   view.unmount();
   vi.useRealTimers();
 });
+
+test("retains missing checkout rows as removed only while sessions remain", () => {
+  const session = { ...row("orphan", "/repo"), worktree: "/deleted", worktreeRemoved: true };
+  const repositories = sidebarRepositories([session], [repo("/repo")]);
+  expect(repositories[0]?.worktrees[1]).toMatchObject({ path: "/deleted", removed: true });
+  expect(
+    buildSidebar([session], repositories, emptyPreferences(), "").tree[0]?.worktrees[1]?.sessions,
+  ).toEqual([session]);
+  expect(sidebarRepositories([], [repo("/repo")])[0]?.worktrees).toHaveLength(1);
+});

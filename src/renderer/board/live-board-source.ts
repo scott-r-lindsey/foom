@@ -82,6 +82,9 @@ export function createAppSource(): BoardSource {
       const version = entry.launchVersion ?? 0;
       if (previous && (previous.launchVersion ?? 0) > version) return latest(previous);
       if (previous && version > (previous.launchVersion ?? 0)) known.delete(entry.id);
+      const checkout = sidebar
+        .find((repo) => repo.path === entry.repository)
+        ?.worktrees.find((tree) => tree.path === entry.worktree);
       const previousState = states.get(entry.id);
       if (entry.state && (!previousState || entry.state.timestamp > previousState.timestamp))
         states.set(entry.id, entry.state);
@@ -94,7 +97,6 @@ export function createAppSource(): BoardSource {
         repository:
           next.repositories.find((repo) => repo.path === entry.repository)?.name ??
           entry.repository,
-        branch: entry.branch ?? "Detached HEAD",
         agent: entry.agent,
         state: entry.dormant ? "quiet_ok" : "working",
         reason: entry.dormant ? "Exited · saved session" : "Running",
@@ -106,6 +108,8 @@ export function createAppSource(): BoardSource {
         ...(entry.dormant
           ? { state: "quiet_ok", reason: "Exited · saved session", seen: false }
           : {}),
+        branch: (checkout ? checkout.branch : entry.branch) ?? "Detached HEAD",
+        worktreeRemoved: !checkout || checkout.prunable,
         exited: entry.exited ?? exits.has(entry.id),
         bypass: entry.bypass === true,
         conversationId: entry.conversationId,

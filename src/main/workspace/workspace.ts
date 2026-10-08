@@ -1,5 +1,6 @@
 import { conversationId, resumeArguments } from "../agents/conversation";
 import type { SessionStore } from "./session-store";
+import type { InventoryWatch } from "./inventory-watch";
 import type { ControlLaunch } from "../control/types";
 import type { ControlRuntime } from "../control/runtime";
 import type { ConfirmWorkspace } from "../../shared/confirmation";
@@ -71,6 +72,7 @@ export interface WorkspaceDependencies {
   receiver: () => Promise<HookRegistrar & { close(): Promise<void> }>;
   onState(state: TerminalState): void;
   onChange?(): void;
+  watcher?: Pick<InventoryWatch, "sync" | "dispose">;
   acknowledgeCodex(): Promise<void>;
   sessions?: Pick<SessionStore, "load" | "save" | "flush">;
   copyText?(text: string): void | Promise<void>;
@@ -109,6 +111,7 @@ export class Workspace {
 
   constructor(private readonly deps: WorkspaceDependencies) {
     this.now = deps.now ?? Date.now;
+    deps.watcher?.sync(deps.worktrees.listRepositories());
     const prepare = async (agent: AgentId): Promise<AgentHooks> => {
       if (agent === "agy") throw new Error("Antigravity hooks are not supported");
       // A receiver that failed to start is retried on the next launch.
@@ -185,8 +188,14 @@ export class Workspace {
 
   async addRepository(path: string): Promise<Repository> {
     const repository = await this.deps.worktrees.addRepository(path);
-    this.deps.onChange?.();
+    this.refresh();
     return repository;
+  }
+
+  refresh(): void {
+    if (this.closed) return;
+    this.deps.watcher?.sync(this.deps.worktrees.listRepositories());
+    this.deps.onChange?.();
   }
 
   private known(repository: string): void {
@@ -228,7 +237,7 @@ export class Workspace {
       if (confirm && !(await confirm())) return;
       checkSessions();
       await this.deps.worktrees.removeRepository(repository);
-      this.deps.onChange?.();
+      this.refresh();
     } finally {
       this.removingRepositories.delete(repository);
     }
@@ -346,7 +355,7 @@ export class Workspace {
       });
       this.track(result.id);
       this.persist();
-      this.deps.onChange?.();
+      this.refresh();
       return result;
     });
   }
@@ -417,7 +426,7 @@ export class Workspace {
         });
         this.track(id);
         this.persist();
-        this.deps.onChange?.();
+        this.refresh();
         return id;
       } finally {
         this.busyWorktrees.delete(key);
@@ -556,7 +565,8 @@ export class Workspace {
     const tree = (await this.worktrees(command.repository)).find(
       (item) => item.path === command.worktree,
     );
-    if (!tree || tree.path === command.repository)
+    if (!tree) throw new Error("Worktree was removed. Choose another checkout.");
+    if (tree.path === command.repository)
       throw new Error("Worktree is missing or is the main checkout");
     await this.removeTree(command.repository, tree.path, tree.branch, (branch, changes) =>
       confirm(
@@ -565,7 +575,7 @@ export class Workspace {
           : { kind: "remove" },
       ),
     );
-    this.deps.onChange?.();
+    this.refresh();
   }
 
   private async startExisting(
@@ -577,8 +587,8 @@ export class Workspace {
   ): Promise<void> {
     return this.withRepository(repository, async () => {
       const tree = (await this.worktrees(repository)).find((item) => item.path === worktree);
-      if (!tree || tree.bare || tree.prunable || tree.locked)
-        throw new Error("Worktree is unavailable");
+      if (!tree) throw new Error("Worktree was removed. Choose another checkout.");
+      if (tree.bare || tree.prunable || tree.locked) throw new Error("Worktree is unavailable");
       const key = `${repository}\0${tree.branch ?? ""}`;
       if (this.busyWorktrees.has(key)) throw new Error("This worktree is busy");
       this.busyWorktrees.add(key);
@@ -651,7 +661,7 @@ export class Workspace {
           });
           this.track(id);
           this.persist();
-          this.deps.onChange?.();
+          this.refresh();
         }
       } finally {
         this.busyWorktrees.delete(key);
@@ -903,7 +913,7 @@ export class Workspace {
     this.persist();
     this.terminals.delete(id);
     this.deps.verdicts.forget(id);
-    this.deps.onChange?.();
+    this.refresh();
   }
 
   /**
@@ -956,6 +966,7 @@ export class Workspace {
   async dispose(): Promise<void> {
     if (this.closed) return;
     this.closed = true;
+    this.deps.watcher?.dispose();
     for (const id of this.terminals.keys()) this.deps.verdicts.forget(id);
     this.agents.dispose();
     try {

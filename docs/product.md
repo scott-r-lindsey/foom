@@ -50,6 +50,11 @@ have a branch icon. Pins and repository/worktree expansion choices persist.
 Repositories with running sessions start expanded; idle repositories start collapsed.
 With one repository, everything starts expanded.
 
+External Git worktree and branch changes refresh the sidebar automatically and when
+the window gains focus. Sessions in a removed checkout stay alive and show a neutral
+**⊘ Worktree removed** label. New launches and restarts there are unavailable; Stop
+and Close still work. The checkout row disappears when its last session closes.
+
 Session rows show a light, letter agent badge, name, wait and reason. Double-click the name
 to edit it; Enter or blur commits, Escape cancels, and an empty value restores the default.
 Rows launched with a known bypass argument also show a neutral ◇ Bypass label.

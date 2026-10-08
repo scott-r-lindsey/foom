@@ -894,6 +894,9 @@ test("closing with an exited terminal quits without confirmation", {
     expected: nativeTheme.shouldUseDarkColors ? "#05040A" : "#F3F0FA",
   }));
   assert.equal(background.actual, background.expected);
+  // A created PTY is not yet a ready PowerShell prompt on a cold Windows runner.
+  if (process.platform === "win32")
+    await expect.poll(() => page.locator(".xterm-rows").innerText()).toMatch(/PS [\s\S]*>/);
   await page.locator(".xterm-helper-textarea").focus();
   await page.keyboard.type("exit");
   await page.keyboard.press("Enter");
@@ -4423,3 +4426,95 @@ if (resumed) {
     assert.equal(await realpath(resumedLaunch.cwd), resumedLaunch.cwd);
   });
 }
+test("external Git changes refresh inventory and retain sessions in removed worktrees", {
+  timeout: deadline(45000),
+}, async (context) => {
+  const root = await realpath(await mkdtemp(path.join(tmpdir(), "foom-inventory-watch-")));
+  removeAfterApps(context, root);
+  const repo = path.join(root, "repo");
+  const external = path.join(root, "external");
+  await mkdir(repo);
+  const git = (...args) =>
+    isolatedGit(["-c", "user.name=Test", "-c", "user.email=test@example.com", ...args], {
+      cwd: repo,
+    });
+  git("init", "-q", "-b", "main");
+  git("commit", "--allow-empty", "-qm", "init");
+  const app = await launchApp(context, false, { emptyBoard: true });
+  const page = await boardPage(app);
+  page.on("console", (message) => {
+    if (message.type() === "error") context.diagnostic(`Inventory renderer: ${message.text()}`);
+  });
+  await app.evaluate(({ dialog }, repo) => {
+    dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [repo] });
+  }, repo);
+  await page.getByRole("button", { name: "Add repository", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Main checkout", exact: true })).toBeVisible();
+  git("worktree", "add", "-b", "topic/external", external);
+  const actions = page.getByRole("button", { name: "Actions for topic/external", exact: true });
+  await actions.click();
+  await page.getByRole("menuitem", { name: /^Shell \(/ }).click();
+  await expect
+    .poll(async () => (await page.evaluate(() => window.desktop.workspace())).terminals.length)
+    .toBe(1);
+  const terminal = await page.evaluate(async () => (await window.desktop.workspace()).terminals[0]);
+  // Windows locks the process cwd, which is separate from PowerShell's location.
+  // Move and verify both before removing the worktree, retaining the live session
+  // and its original launch location so every platform exercises the same behavior.
+  const quoted = `'${repo.replaceAll("'", process.platform === "win32" ? "''" : "'\\''")}'`;
+  const input =
+    process.platform === "win32"
+      ? `$ErrorActionPreference = 'Stop'; Set-Location -LiteralPath ${quoted}; [System.IO.Directory]::SetCurrentDirectory((Get-Location).ProviderPath); if ([System.IO.Directory]::GetCurrentDirectory() -eq ${quoted}) { Write-Output ('moved-' + 'ready') } else { throw 'Process cwd did not move' }\r`
+      : `cd ${quoted} && printf 'moved-%s\\n' ready\r`;
+  await page.evaluate(({ id, input }) => window.desktop.input(id, input), {
+    id: terminal.id,
+    input,
+  });
+  await expect
+    .poll(() => page.evaluate((id) => window.desktop.tail(id, 40), terminal.id))
+    .toContain("moved-ready");
+  git("worktree", "remove", external);
+  const session = page.locator(".board-row").filter({ hasText: "Worktree removed" });
+  try {
+    await expect(session).toHaveCount(1);
+  } catch (error) {
+    console.error(
+      "Inventory after external removal",
+      JSON.stringify(
+        await page.evaluate(async () => ({
+          workspace: await window.desktop.workspace(),
+          inventory: await window.desktop.sidebarInventory(),
+        })),
+      ),
+    );
+    console.error("Board after external removal", await page.locator("body").innerText());
+    throw error;
+  }
+  await expect(actions).toHaveCount(0);
+  assert.equal((await page.evaluate(() => window.desktop.workspace())).terminals[0].exited, false);
+  await page.getByRole("button", { name: "topic/external", exact: true }).click();
+  await expect(page.locator(".location-launchers")).toContainText("Worktree removed");
+  await assert.rejects(
+    page.evaluate(
+      ({ repository, worktree }) =>
+        window.desktop.sidebarCommand({ kind: "launch", repository, worktree, run: "shell" }),
+      { repository: repo, worktree: external },
+    ),
+    /Worktree was removed/,
+  );
+  git("checkout", "-b", "topic/renamed");
+  await expect(page.locator(".tree-checkout-branch")).toHaveText("topic/renamed");
+  // Focus is an independent backstop, including after the watcher has failed.
+  await app.evaluate(({ BrowserWindow }) => {
+    BrowserWindow.getAllWindows()
+      .find((window) => window.webContents.getURL() === "app://bundle/index.html")
+      .emit("focus");
+  });
+  await page.evaluate((id) => window.desktop.input(id, "exit\r"), terminal.id);
+  await expect
+    .poll(async () => (await page.evaluate(() => window.desktop.workspace())).terminals[0].exited)
+    .toBe(true);
+  await page.evaluate((id) => window.desktop.sidebarCommand({ kind: "close", id }), terminal.id);
+  await expect(session).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "topic/external", exact: true })).toHaveCount(0);
+});

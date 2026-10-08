@@ -380,3 +380,50 @@ test("exited agent menus expose only supported recorded conversations", async ()
   expect(view.queryByRole("menuitem", { name: "Copy session ID" })).toBeNull();
   expect(view.getByRole("menuitem", { name: "New conversation here" })).toBeTruthy();
 });
+
+test.each(["shell", "agent"] as const)(
+  "removed checkouts retain %s sessions without launch actions",
+  async (kind) => {
+    const view = setup();
+    await act(async () => {
+      await Promise.resolve();
+    });
+    const rows = view.source.getSnapshot().map((row) => ({
+      ...row,
+      kind,
+      agent: kind === "shell" ? "shell" : "claude",
+      conversationId: kind === "agent" ? "saved-conversation" : undefined,
+      exited: true,
+      worktreeRemoved: true,
+    }));
+    const source = {
+      ...view.source,
+      getSnapshot: () => rows,
+      getSidebar: () => [
+        { ...repository, worktrees: repository.worktrees.filter((tree) => tree.path === "/foom") },
+      ],
+    };
+    view.rerender(<Board source={source} />);
+    expect(view.getAllByText("Worktree removed").length).toBeGreaterThan(0);
+    expect(view.queryByRole("button", { name: "Actions for feature" })).toBeNull();
+    fireEvent.click(view.getByRole("button", { name: "feature" }));
+    expect(view.container.querySelector(".location-launchers")?.textContent).toContain(
+      "Worktree removed",
+    );
+    fireEvent.click(
+      view.getByRole("button", {
+        name: `Actions for ${kind === "shell" ? "Shell" : "Claude Code"} in feature`,
+      }),
+    );
+    expect(view.queryByRole("menuitem", { name: "Restart shell" })).toBeNull();
+    expect(view.queryByRole("menuitem", { name: /^Resume conversation/ })).toBeNull();
+    expect(view.queryByRole("menuitem", { name: "New conversation here" })).toBeNull();
+    if (kind === "agent")
+      expect(view.getByRole("menuitem", { name: "Copy session ID" })).toBeTruthy();
+    fireEvent.click(view.getByRole("menuitem", { name: "Close" }));
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(view.command).toHaveBeenCalledWith({ kind: "close", id: "a" });
+  },
+);
