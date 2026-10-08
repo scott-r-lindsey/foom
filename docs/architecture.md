@@ -119,7 +119,10 @@ Main's inventory watcher derives the common Git directory with `rev-parse`, vali
 its canonical path, and watches metadata directories for `HEAD`, `packed-refs`,
 `refs/heads` (including nested branch names) and linked `worktrees` metadata.
 Directory watches survive Git's atomic file replacements. Events debounce for
-300 ms, rebuild the directory subscriptions and reuse `workspace:changed`.
+300 ms with a one-second maximum wait, rebuild the directory subscriptions and
+reuse `workspace:changed`. The maximum wait prevents continuous rename events
+from deleted Windows directories from starving refresh. Rebuilds close old
+handles before discovery to stop that event stream.
 Repository removal and workspace shutdown close subscriptions and timers. Watch
 errors close only the affected subscription and schedule a debounced refresh,
 preserving healthy parent/sibling watches and pending rebuilds (Windows reports

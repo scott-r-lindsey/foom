@@ -77,6 +77,28 @@ test.each(["throw", "paths"])(
   },
 );
 
+test("a continuous deleted-directory event stream cannot starve inventory refresh", async () => {
+  const f = fixture();
+  f.watcher.sync([{ path: "/repo" }]);
+  await Promise.resolve();
+  f.paths.mockResolvedValue(["/git"]);
+  for (let elapsed = 0; elapsed < 1000; elapsed += 100) {
+    expect(f.changed).not.toHaveBeenCalled();
+    f.handles[1]?.change();
+    await vi.advanceTimersByTimeAsync(100);
+  }
+  expect(f.changed).toHaveBeenCalledOnce();
+  expect(f.paths).toHaveBeenCalledTimes(2);
+  expect(f.handles[1]?.close).toHaveBeenCalledOnce();
+  f.handles[1]?.change();
+  await vi.runAllTimersAsync();
+  expect(f.changed).toHaveBeenCalledOnce();
+  f.handles[2]?.change();
+  await vi.advanceTimersByTimeAsync(300);
+  expect(f.changed).toHaveBeenCalledTimes(2);
+  f.watcher.dispose();
+});
+
 test.each(["before", "after"])(
   "a deleted-directory error %s a parent event preserves the debounced rebuild",
   async (order) => {

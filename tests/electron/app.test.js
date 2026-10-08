@@ -4262,35 +4262,9 @@ test("external Git changes refresh inventory and retain sessions in removed work
   git("init", "-q", "-b", "main");
   git("commit", "--allow-empty", "-qm", "init");
   const app = await launchApp(context, false, { emptyBoard: true });
-  await app.evaluate(() => {
-    const fs = process.getBuiltinModule("fs");
-    const original = fs.watch;
-    globalThis.inventoryTrace = [];
-    const record = (entry) => {
-      if (globalThis.inventoryTrace.length < 500)
-        globalThis.inventoryTrace.push({ time: Date.now(), ...entry });
-    };
-    fs.watch = (...args) => {
-      const handle = original(...args);
-      record({ kind: "open", path: String(args[0]) });
-      handle.on("change", (event, name) => record({ kind: event, name, path: String(args[0]) }));
-      handle.on("error", (error) =>
-        record({ kind: "error", message: error.message, path: String(args[0]) }),
-      );
-      handle.on("close", () => record({ kind: "close", path: String(args[0]) }));
-      return handle;
-    };
-  });
   const page = await boardPage(app);
   page.on("console", (message) => {
     if (message.type() === "error") context.diagnostic(`Inventory renderer: ${message.text()}`);
-  });
-  await page.evaluate(() => {
-    globalThis.inventoryNotifications = [];
-    window.desktop.onWorkspaceChange(() => {
-      if (globalThis.inventoryNotifications.length < 500)
-        globalThis.inventoryNotifications.push(Date.now());
-    });
   });
   await app.evaluate(({ dialog }, repo) => {
     dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [repo] });
@@ -4331,13 +4305,8 @@ test("external Git changes refresh inventory and retain sessions in removed work
         await page.evaluate(async () => ({
           workspace: await window.desktop.workspace(),
           inventory: await window.desktop.sidebarInventory(),
-          notifications: globalThis.inventoryNotifications,
         })),
       ),
-    );
-    console.error(
-      "Inventory watch events",
-      JSON.stringify(await app.evaluate(() => globalThis.inventoryTrace)),
     );
     console.error("Board after external removal", await page.locator("body").innerText());
     throw error;

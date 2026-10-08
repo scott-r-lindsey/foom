@@ -32,6 +32,7 @@ type WatchHandle = { close(): void; on(event: "error", callback: () => void): un
 type Entry = {
   handles: WatchHandle[];
   timer?: ReturnType<typeof setTimeout>;
+  maxTimer?: ReturnType<typeof setTimeout>;
   revision: number;
   failed: boolean;
 };
@@ -69,6 +70,7 @@ export class InventoryWatch {
   private close(entry: Entry): void {
     entry.revision++;
     clearTimeout(entry.timer);
+    clearTimeout(entry.maxTimer);
     for (const handle of entry.handles) handle.close();
     entry.handles = [];
   }
@@ -85,23 +87,33 @@ export class InventoryWatch {
       this.changed();
     };
     try {
-      const paths = await this.paths(path);
-      if (!current()) return;
+      // Release deleted-directory handles before discovery: Windows can keep
+      // reporting rename events for them until they are closed.
       for (const handle of entry.handles) handle.close();
       entry.handles = [];
+      const paths = await this.paths(path);
+      if (!current()) return;
       let rebuild = false;
+      const flush = () => {
+        clearTimeout(entry.timer);
+        clearTimeout(entry.maxTimer);
+        delete entry.timer;
+        delete entry.maxTimer;
+        const publish = () => {
+          if (!this.closed && this.entries.get(path) === entry && !entry.failed) this.changed();
+        };
+        // Rebuild first so changes during discovery are included in the refresh.
+        if (rebuild) void this.arm(path, entry).then(publish);
+        else publish();
+      };
       const schedule = (discover: boolean) => {
         if (!current() || entry.failed) return;
         rebuild ||= discover;
         clearTimeout(entry.timer);
-        entry.timer = setTimeout(() => {
-          const publish = () => {
-            if (!this.closed && this.entries.get(path) === entry && !entry.failed) this.changed();
-          };
-          // Rebuild first so changes during discovery are included in the refresh.
-          if (rebuild) void this.arm(path, entry).then(publish);
-          else publish();
-        }, 300);
+        entry.timer = setTimeout(flush, 300);
+        // A deleted directory can produce a continuous Windows rename stream.
+        // Never let incoming events postpone refresh indefinitely.
+        entry.maxTimer ??= setTimeout(flush, 1000);
       };
       for (const target of paths) {
         const handle = this.watchPath(target, () => {
