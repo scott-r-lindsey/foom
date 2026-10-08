@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { SerializeAddon } from "@xterm/addon-serialize";
 import type { TerminalTelemetry, TerminalSpec } from "../../../../src/shared/desktop";
-import type { BrowserWindow, IpcMainEvent, IpcMainInvokeEvent } from "electron";
+import type { BrowserWindow, WebContents, IpcMainEvent, IpcMainInvokeEvent } from "electron";
 const mock = vi.hoisted(() => ({
   handle:
     vi.fn<
@@ -172,6 +172,7 @@ afterEach(async () => {
   manager.dispose();
   window.once.mock.calls[0]?.[1]();
   await manager.waitForExit();
+  await terminalControl.dispose();
   vi.unstubAllEnvs();
 });
 
@@ -410,15 +411,16 @@ test("renderer loss detaches paused views without terminating the PTY", async ()
   await expect(invoke("attach", [foreign])).rejects.toThrow("Unknown or foreign");
 });
 
-test("window shutdown disposes sessions without accessing the destroyed window", async () => {
+test("window closure releases views but retains app-owned sessions", async () => {
   await create();
   vi.spyOn(window, "webContents", "get").mockImplementation(() => {
     throw new Error("Object has been destroyed");
   });
   expect(() => window.once.mock.calls[0]?.[1]()).not.toThrow();
-  expect(pty().kill).toHaveBeenCalledOnce();
+  expect(pty().kill).not.toHaveBeenCalled();
+  expect(terminalControl.runningCount).toBe(1);
   expect(contents.removeListener).toHaveBeenCalledWith("render-process-gone", expect.any(Function));
-  expect(mock.removeHandler).toHaveBeenCalledWith("terminal:create");
+  expect(mock.removeHandler).not.toHaveBeenCalled();
 });
 
 test("snapshot failure rejects attachment without leaving a partial live view", async () => {
@@ -1146,3 +1148,82 @@ test.each(["notification", "crash-state"])(
     }
   },
 );
+
+test("two windows share app terminals but cannot steal, resize, type into or detach another view", async () => {
+  const secondFrame = { url: "app://bundle/index.html" };
+  const secondContents = {
+    ...contents,
+    mainFrame: secondFrame,
+    send: vi.fn(),
+    on: vi.fn(),
+    removeListener: vi.fn(),
+  };
+  const secondWindow = {
+    webContents: secondContents,
+    once: vi.fn<(name: string, callback: () => void) => void>(),
+  };
+  const secondEvent = {
+    sender: secondContents,
+    senderFrame: secondFrame,
+  } as unknown as IpcMainInvokeEvent & IpcMainEvent;
+  terminalControl.addWindow(secondWindow as unknown as BrowserWindow);
+  expect(() => {
+    terminalControl.addWindow(secondWindow as unknown as BrowserWindow);
+  }).toThrow("already registered");
+  const a = await create();
+  const b = await terminalControl.create(spec);
+  await invoke("attach", [a]);
+  await invoke("attach", [b], secondEvent);
+  await expect(invoke("attach", [a], secondEvent)).rejects.toThrow("another window");
+  const writes = pty().write.mock.calls.length;
+  const resizes = pty().resize.mock.calls.length;
+  send("input", [a, "foreign"], secondEvent);
+  send("resize", [a, 99, 33], secondEvent);
+  send("ack", [a, "token", 1], secondEvent);
+  await invoke("detach", [a], secondEvent);
+  expect(pty().write).toHaveBeenCalledTimes(writes);
+  expect(pty().resize).toHaveBeenCalledTimes(resizes);
+  output("first window still receives output");
+  await terminalControl.tail(a, 1);
+  expect(contents.send).toHaveBeenCalledWith(
+    "terminal:data",
+    a,
+    expect.any(String),
+    expect.stringContaining("first window"),
+  );
+  secondWindow.once.mock.calls[0]?.[1]();
+  expect(terminalControl.runningCount).toBe(2);
+  expect(pty(1).kill).not.toHaveBeenCalled();
+  await expect(invoke("attach", [b], secondEvent)).rejects.toThrow("Untrusted");
+  await invoke("attach", [b]);
+  terminalControl.detachView(b, secondContents as unknown as WebContents);
+  output("still attached", 1);
+  await terminalControl.tail(b, 1);
+  expect(contents.send).toHaveBeenCalledWith(
+    "terminal:data",
+    b,
+    expect.any(String),
+    "still attached",
+  );
+  terminalControl.detachView(b, contents as unknown as WebContents);
+});
+
+test("a failed snapshot releases the view for a different window", async () => {
+  const id = await create();
+  const serialize = vi.spyOn(SerializeAddon.prototype, "serialize").mockImplementationOnce(() => {
+    throw new Error("snapshot failed");
+  });
+  await expect(invoke("attach", [id])).rejects.toThrow();
+  serialize.mockRestore();
+  const secondFrame = { url: "app://bundle/index.html" };
+  const secondContents = { ...contents, mainFrame: secondFrame };
+  terminalControl.addWindow({
+    webContents: secondContents,
+    once: vi.fn(),
+  } as unknown as BrowserWindow);
+  const secondEvent = {
+    sender: secondContents,
+    senderFrame: secondFrame,
+  } as unknown as IpcMainInvokeEvent & IpcMainEvent;
+  await expect(invoke("attach", [id], secondEvent)).resolves.toBeUndefined();
+});

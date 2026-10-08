@@ -78,7 +78,7 @@ function Tile({
   inactive: boolean;
   focusRequest: number;
   select: () => void;
-  action: (action: "right" | "down" | "maximize" | "hide" | "close" | "restart") => void;
+  action: (action: "right" | "down" | "maximize" | "hide" | "close" | "restart" | "popout") => void;
 }) {
   const [view] = useState(() => source.createView?.());
   const [error, setError] = useState("");
@@ -160,10 +160,15 @@ function Tile({
               ["down", "Split down", "⬒"],
               ["maximize", maximized ? "Restore tile" : "Maximize tile", "□"],
               ["hide", "Hide session", "−"],
+              ["popout", "Move to new window", "↗"],
               ["close", "Close tile", "×"],
             ] as const
           )
-            .filter(([key]) => row || (key !== "maximize" && key !== "hide"))
+            .filter(([key]) =>
+              key === "popout"
+                ? Boolean(row && source.windows)
+                : row || (key !== "maximize" && key !== "hide"),
+            )
             .map(([key, label, icon]) => (
               <button
                 key={key}
@@ -327,7 +332,7 @@ export function TileArea({
   focusRequest: number;
   action: (
     tile: string,
-    action: "right" | "down" | "maximize" | "hide" | "close" | "restart",
+    action: "right" | "down" | "maximize" | "hide" | "close" | "restart" | "popout",
   ) => void;
 }) {
   const [lastPreview, setLastPreview] = useState<{

@@ -1,3 +1,12 @@
+import { WindowAudio } from "./window/window-audio";
+import type { Command } from "./window/commands";
+import { attachWindowViews } from "./window/window-views-ipc";
+import { randomUUID } from "node:crypto";
+import { WindowIpcRouter } from "./window/window-ipc";
+import { TerminalViews } from "./window/terminal-views";
+import { loadPlacements, savePlacements, placeWindow } from "./window/window-placement";
+import type { WindowPlacement } from "./window/window-placement";
+import type { EvaluationInput, Verdict } from "../shared/evaluator";
 import { join } from "node:path";
 import { CodexHookStatus } from "./agents/codex-hook-status";
 import { SoundLibrary } from "./sounds/library";
@@ -59,13 +68,98 @@ protocol.registerSchemesAsPrivileged([
   { scheme: "app", privileges: { standard: true, secure: true, supportFetchAPI: true } },
 ]);
 
-async function createWindow(savedSize?: Size) {
+const router = new WindowIpcRouter();
+const views = new TerminalViews();
+const audio = new WindowAudio();
+let terminals: ReturnType<typeof attachTerminal>;
+let workspace: Workspace;
+let classify: (input: EvaluationInput) => Promise<Verdict>;
+let newWindowCommand: Command | undefined;
+let initialized = false;
+let windowQueue: Promise<unknown> = Promise.resolve();
+let quitting = false;
+let quitPending = false;
+let savingWindows = Promise.resolve();
+const windows = new Map<
+  number,
+  {
+    window: BrowserWindow;
+    placement(): WindowPlacement;
+    confirmations: TrustedDialog;
+    workspaceIpc: ReturnType<typeof attachWorkspace>;
+    setup: Setup;
+    updateBackground(): void;
+    appMenu: ReturnType<typeof attachAppMenu>;
+  }
+>();
+const publishViews = () => {
+  const snapshot = views.snapshot();
+  for (const { window } of windows.values())
+    if (!window.webContents.isDestroyed())
+      window.webContents.send(
+        "windows:changed",
+        snapshot.map((view) => ({ ...view, window: view.window === window.id ? 0 : view.window })),
+      );
+};
+const saveWindows = () => {
+  const placements = [...windows.values()].map((entry) => entry.placement());
+  savingWindows = savingWindows
+    .catch(() => undefined)
+    .then(() => savePlacements(app.getPath("userData"), placements));
+  return savingWindows;
+};
+const attention = () => {
+  const entry =
+    [...windows.values()].find(({ window }) => window.isFocused()) ?? windows.values().next().value;
+  if (newWindowCommand)
+    updateAttention(entry?.window, workspace.snapshot(), newWindowCommand, (id) => {
+      void (async () => {
+        const owner = views.owner(id);
+        const target =
+          (owner === undefined ? undefined : windows.get(owner)?.window) ??
+          entry?.window ??
+          (await createWindow());
+        if (target.isMinimized()) target.restore();
+        target.show();
+        target.focus();
+        target.webContents.send("app-menu:session", id);
+      })().catch((error: unknown) => {
+        console.error("Unable to reveal waiting session:", error);
+      });
+    });
+};
+function createWindow(
+  savedSize?: Size,
+  saved?: WindowPlacement,
+  initialSession?: string,
+): Promise<BrowserWindow> {
+  const next = windowQueue
+    .catch(() => undefined)
+    .then(() => buildWindow(savedSize, saved, initialSession));
+  windowQueue = next;
+  return next;
+}
+async function buildWindow(savedSize?: Size, saved?: WindowPlacement, initialSession?: string) {
+  if (quitting || quitPending || windows.size >= 32)
+    throw new Error("Unable to open another window");
+  const placement = saved
+    ? placeWindow(saved, screen.getAllDisplays(), screen.getPrimaryDisplay())
+    : undefined;
+  const windowId = placement?.id ?? randomUUID();
   // Use most of the display while respecting the saved interface scale minimum.
-  const scale = settings.get().interfaceScale;
-  const area = screen.getPrimaryDisplay().workArea;
-  const size = initialSize(scale, area, savedSize);
+  let scale = placement?.scale ?? settings.get().interfaceScale;
+  const area = placement
+    ? screen.getDisplayMatching(placement.bounds).workArea
+    : screen.getPrimaryDisplay().workArea;
+  const size = initialSize(scale, area, placement?.bounds ?? savedSize);
   const minimum = scaledSize(MINIMUM_SIZE, scale, area);
   const window = new BrowserWindow({
+    ...(placement
+      ? {
+          x: Math.max(area.x, Math.min(placement.bounds.x, area.x + area.width - size.width)),
+          y: Math.max(area.y, Math.min(placement.bounds.y, area.y + area.height - size.height)),
+        }
+      : {}),
     width: size.width,
     height: size.height,
     minWidth: minimum.width,
@@ -85,11 +179,27 @@ async function createWindow(savedSize?: Size) {
       nodeIntegration: false,
       sandbox: true,
       devTools: !app.isPackaged,
-      additionalArguments: app.isPackaged ? [] : ["--foom-development"],
+      additionalArguments: [
+        ...(app.isPackaged ? [] : ["--foom-development"]),
+        `--foom-window-id=${windowId}`,
+        ...(initialSession ? [`--foom-initial-session=${initialSession}`] : []),
+      ],
       webviewTag: false,
     },
   });
 
+  const ipc = router.forWindow(window.webContents);
+  if (placement?.maximized) window.maximize();
+  if (initialSession) {
+    const owner = views.owner(initialSession);
+    const previous = owner === undefined ? undefined : windows.get(owner)?.window;
+    if (previous) {
+      terminals.detachView(initialSession, previous.webContents);
+      views.release(initialSession, previous.id);
+      previous.webContents.send("windows:removed", initialSession);
+    }
+    views.claim(initialSession, window.id);
+  }
   // Keep the development identity when the document publishes its title.
   window.on("page-title-updated", (event) => {
     event.preventDefault();
@@ -109,68 +219,90 @@ async function createWindow(savedSize?: Size) {
       path.join(app.getPath("home"), ".foom/config/sounds"),
     ),
     path.join(__dirname, "../sounds/NOTICES.txt"),
+    ipc,
   );
   window.once("closed", () => {
     soundIpc();
     nativeTheme.removeListener("updated", updateBackground);
   });
 
-  const appMenu = attachAppMenu(window, (direction) => setupIpc.zoom(direction));
+  const openWindow = () => {
+    void createWindow().catch((error: unknown) => {
+      console.error("Unable to open window:", error);
+    });
+  };
+  const appMenu = attachAppMenu(window, (direction) => setupIpc.zoom(direction), ipc, openWindow);
+  newWindowCommand = appMenu.newWindow;
   // Terminal events and state updates only arrive after both objects exist.
-  const terminals = attachTerminal(window, {
-    onOutput: (id) => {
-      workspace.output(id);
-    },
-    onEvidence: (id, evidence) => {
-      void workspace.evidence(id, evidence);
-    },
-    onQuiet: (id) => void workspace.quiet(id),
-    onShellState: (id, state) => {
-      workspace.shellState(id, state);
-    },
-    onExit: (id, code) => void workspace.exited(id, code),
-    onInput: (id) => {
-      workspace.input(id);
-    },
-    onRemoved: (id) => {
-      workspace.removed(id);
-    },
-  });
-  const codexHooks = new CodexHookStatus(join(app.getPath("userData"), "codex-hook-health.json"));
-  await codexHooks.load();
-  const workspace: Workspace = new Workspace({
-    codexHooks,
-    worktrees,
-    watcher: new InventoryWatch(
-      (repository) => worktrees.watchPaths(repository),
-      () => {
-        workspace.refresh();
+  if (!initialized)
+    terminals = attachTerminal(
+      window,
+      {
+        onOutput: (id) => {
+          workspace.output(id);
+        },
+        onEvidence: (id, evidence) => {
+          void workspace.evidence(id, evidence);
+        },
+        onQuiet: (id) => void workspace.quiet(id),
+        onShellState: (id, state) => {
+          workspace.shellState(id, state);
+        },
+        onExit: (id, code) => void workspace.exited(id, code),
+        onInput: (id) => {
+          workspace.input(id);
+        },
+        onRemoved: (id) => {
+          workspace.removed(id);
+        },
       },
-    ),
-    terminals,
-    sessions: new SessionStore(app.getPath("userData")),
-    copyText: (text) => clipboard.writeText(text),
-    acknowledgeCodex: async () => {
-      await settings.update({ codexNotifierAcknowledged: true });
-    },
-    // Rules first, then whatever model tier setup has configured.
-    verdicts: new VerdictLog(app.getPath("userData"), (input) => setup.classify(input)),
-    control: () =>
-      ControlRuntime.start(app.getPath("userData"), () => workspace.snapshot().terminals),
-    receiver: () => HookReceiver.listen((signal) => void workspace.hook(signal)),
-    onChange: () => {
-      workspaceIpc.sendChanged();
-      updateAttention(window, workspace.snapshot(), appMenu.newWindow);
-    },
-    onExecution: (event) => {
-      workspaceIpc.sendExecution(event);
-    },
-    onState: (state) => {
-      workspaceIpc.sendState(state);
-      updateAttention(window, workspace.snapshot(), appMenu.newWindow);
-    },
-  });
-  await workspace.restore();
+      (contents, id) => {
+        const entry = [...windows.values()].find((entry) => entry.window.webContents === contents);
+        if (!entry) return false;
+        const accepted = views.claim(id, entry.window.id);
+        if (accepted) publishViews();
+        return accepted;
+      },
+    );
+  else terminals.addWindow(window);
+  if (!initialized) {
+    const codexHooks = new CodexHookStatus(join(app.getPath("userData"), "codex-hook-health.json"));
+    await codexHooks.load();
+    workspace = new Workspace({
+      codexHooks,
+      worktrees,
+      watcher: new InventoryWatch(
+        (repository) => worktrees.watchPaths(repository),
+        () => {
+          workspace.refresh();
+        },
+      ),
+      terminals,
+      sessions: new SessionStore(app.getPath("userData")),
+      copyText: (text) => clipboard.writeText(text),
+      acknowledgeCodex: async () => {
+        await settings.update({ codexNotifierAcknowledged: true });
+      },
+      // Rules first, then whatever model tier setup has configured.
+      verdicts: new VerdictLog(app.getPath("userData"), (input) => classify(input)),
+      control: () =>
+        ControlRuntime.start(app.getPath("userData"), () => workspace.snapshot().terminals),
+      receiver: () => HookReceiver.listen((signal) => void workspace.hook(signal)),
+      onChange: () => {
+        for (const entry of windows.values()) entry.workspaceIpc.sendChanged();
+        attention();
+      },
+      onExecution: (event) => {
+        for (const entry of windows.values()) entry.workspaceIpc.sendExecution(event);
+      },
+      onState: (state) => {
+        for (const entry of windows.values()) entry.workspaceIpc.sendState(state);
+        attention();
+      },
+    });
+    await workspace.restore();
+    initialized = true;
+  }
   const confirmations = new TrustedDialog(window, session.fromPartition("confirmation"), () =>
     resolveInterfaceTheme(settings.get().interfaceTheme, nativeTheme.shouldUseDarkColors),
   );
@@ -179,6 +311,7 @@ async function createWindow(savedSize?: Size) {
     workspace,
     (id) => terminals.owns(id),
     (content) => confirmations.request(content),
+    ipc,
   );
   window.on("focus", () => {
     // A trusted dialog can return focus to a crashed board during quit.
@@ -190,7 +323,15 @@ async function createWindow(savedSize?: Size) {
     scale,
   );
   const setup = new Setup({
-    store: settings,
+    store: {
+      get: () => ({ ...settings.get(), interfaceScale: scale }),
+      update: async (patch) => {
+        const { interfaceScale, ...shared } = patch;
+        const next = await settings.update(shared);
+        if (interfaceScale !== undefined) scale = interfaceScale;
+        return { ...next, interfaceScale: scale };
+      },
+    },
     confirmBypass: async (agent) => {
       const names = { claude: "Claude Code", codex: "Codex", agy: "Antigravity" };
       return confirmations.request({
@@ -226,84 +367,77 @@ async function createWindow(savedSize?: Size) {
       // Resize first: the page then zooms into a window that already fits it.
       windowScale.apply(next.interfaceScale);
       window.webContents.setZoomFactor(next.interfaceScale / 100);
+      // Each setup owns its scan/probe state; persisted choices are shared.
+      queueMicrotask(() => {
+        classify = setup.classify;
+        for (const entry of windows.values()) {
+          entry.updateBackground();
+          void entry.setup
+            .state()
+            .then((state) => {
+              if (!entry.window.webContents.isDestroyed())
+                entry.window.webContents.send("setup:changed", state);
+            })
+            .catch((error: unknown) => {
+              console.error("Unable to refresh settings:", error);
+            });
+        }
+      });
     },
   });
   // A click on + or − grows the window from the pointer, so the button stays under it.
-  const setupIpc = attachSetup(window, setup, (active) => {
-    windowScale.anchorAt(active ? screen.getCursorScreenPoint() : undefined);
+  classify = setup.classify;
+  const setupIpc = attachSetup(
+    window,
+    setup,
+    (active) => {
+      windowScale.anchorAt(active ? screen.getCursorScreenPoint() : undefined);
+    },
+    ipc,
+  );
+  windows.set(window.id, {
+    window,
+    confirmations,
+    workspaceIpc,
+    setup,
+    updateBackground,
+    appMenu,
+    placement: () => ({
+      id: windowId,
+      display: screen.getDisplayMatching(window.getNormalBounds()).id,
+      bounds: window.getNormalBounds(),
+      maximized: window.isMaximized(),
+      scale,
+    }),
   });
-  updateAttention(window, workspace.snapshot(), appMenu.newWindow);
+  const disposeAudio = audio.attach(window, ipc, (id) => views.owner(id) === window.id);
+  const disposeViews = attachWindowViews(window, ipc, views, {
+    knows: (id) => terminals.owns(id) || workspace.ownsSession(id),
+    find: (id) => windows.get(id)?.window,
+    detach: (id) => {
+      terminals.detachView(id, window.webContents);
+    },
+    publish: publishViews,
+    popout: (id) => createWindow(undefined, undefined, id),
+  });
+  attention();
   window.once("closed", () => {
     appMenu.dispose();
     confirmations.dispose();
     setupIpc.dispose();
     workspaceIpc.dispose();
-    void workspace.dispose();
-  });
-  let quitting = false;
-  let quitPending = false;
-  const requestQuit = async () => {
-    if (quitPending) return;
-    quitPending = true;
-    try {
-      const count = terminals.runningCount;
-      if (count > 0) {
-        const snapshot = workspace.snapshot();
-        const accepted = await confirmations.request({
-          title: `Quit with ${String(count)} ${count === 1 ? "terminal" : "terminals"} running?`,
-          accept: "Stop all and quit",
-          sessions: terminals.runningSessions().map((session) => {
-            const entry = snapshot.terminals.find((item) => item.id === session.id);
-            return {
-              id: session.id,
-              name:
-                entry?.agent === "claude"
-                  ? "Claude Code"
-                  : entry?.agent === "codex"
-                    ? "Codex"
-                    : entry?.agent === "agy"
-                      ? "Antigravity"
-                      : path.basename(session.command),
-              location: entry
-                ? `${path.basename(entry.repository)} › ${entry.branch ?? entry.worktree}`
-                : session.cwd,
-              state: entry?.state?.state ?? "quiet_ok",
-            };
-          }),
-        });
-        if (!accepted) return;
-      }
-      await terminals.shutdown();
-      // Terminals have stopped: revoke every hook credential and stop listening.
-      await workspace.dispose();
-      try {
-        await saveWindowSize(app.getPath("userData"), window.getNormalBounds());
-      } catch (error) {
-        console.error("Unable to save the window size:", error);
-      }
-      confirmations.dispose();
-      quitting = true;
-      // A resolved shutdown can resume inside a native close callback's microtask
-      // checkpoint. Let that cancelled close unwind before asking Electron to quit.
-      setImmediate(() => {
-        app.quit();
+    windows.delete(window.id);
+    disposeViews();
+    disposeAudio();
+    attention();
+    if (!quitting)
+      void saveWindows().catch((error: unknown) => {
+        console.error("Unable to save windows:", error);
       });
-    } catch (error) {
-      console.error("Unable to quit the application:", error);
-      dialog.showErrorBox("Unable to quit Foom", "Could not stop all terminals. Please try again.");
-    } finally {
-      quitPending = false;
-    }
-  };
-  // Keep the window and PTYs alive while the trusted confirmation is pending.
-  window.on("close", (event) => {
-    if (!quitting) {
-      event.preventDefault();
-      void requestQuit();
-    }
   });
-  app.on("before-quit", (event) => {
-    if (!quitting) {
+  window.on("close", (event) => {
+    if (quitting) return;
+    if (quitPending || (windows.size === 1 && process.platform !== "darwin")) {
       event.preventDefault();
       void requestQuit();
     }
@@ -324,19 +458,104 @@ async function createWindow(savedSize?: Size) {
     window.show();
   };
   window.once("ready-to-show", show);
-  window
-    .loadURL(APP_URL)
-    .then(show)
-    .catch((error: unknown) => {
-      console.error("Unable to load the application:", error);
+  try {
+    await window.loadURL(APP_URL);
+    show();
+  } catch (error) {
+    console.error("Unable to load the application:", error);
+    window.destroy();
+    throw error;
+  }
+  publishViews();
+  return window;
+}
+async function requestQuit() {
+  if (!initialized) {
+    quitting = true;
+    app.quit();
+    return;
+  }
+  let entry =
+    [...windows.values()].find(({ window }) => window.isFocused()) ?? windows.values().next().value;
+  if (!entry) {
+    await createWindow();
+    entry = windows.values().next().value;
+  }
+  if (!entry) return;
+  const { window, confirmations } = entry;
+  if (quitPending) return;
+  quitPending = true;
+  try {
+    const count = terminals.runningCount;
+    if (count > 0) {
+      const snapshot = workspace.snapshot();
+      const accepted = await confirmations.request({
+        title: `Quit with ${String(count)} ${count === 1 ? "terminal" : "terminals"} running?`,
+        accept: "Stop all and quit",
+        sessions: terminals.runningSessions().map((session) => {
+          const entry = snapshot.terminals.find((item) => item.id === session.id);
+          return {
+            id: session.id,
+            name:
+              entry?.agent === "claude"
+                ? "Claude Code"
+                : entry?.agent === "codex"
+                  ? "Codex"
+                  : entry?.agent === "agy"
+                    ? "Antigravity"
+                    : path.basename(session.command),
+            location: entry
+              ? `${path.basename(entry.repository)} › ${entry.branch ?? entry.worktree}`
+              : session.cwd,
+            state: entry?.state?.state ?? "quiet_ok",
+          };
+        }),
+      });
+      if (!accepted) return;
+    }
+    await saveWindows().catch((error: unknown) => {
+      console.error("Unable to save windows:", error);
+    });
+    await terminals.shutdown();
+    // Terminals have stopped: revoke every hook credential and stop listening.
+    await workspace.dispose();
+    await terminals.dispose();
+    try {
+      await saveWindowSize(app.getPath("userData"), window.getNormalBounds());
+    } catch (error) {
+      console.error("Unable to save the window size:", error);
+    }
+    for (const current of windows.values()) current.confirmations.dispose();
+    quitting = true;
+    // A resolved shutdown can resume inside a native close callback's microtask
+    // checkpoint. Let that cancelled close unwind before asking Electron to quit.
+    setImmediate(() => {
       app.quit();
     });
+  } catch (error) {
+    console.error("Unable to quit the application:", error);
+    dialog.showErrorBox("Unable to quit Foom", "Could not stop all terminals. Please try again.");
+  } finally {
+    quitPending = false;
+  }
 }
 
 if (!ownsProfile) {
   // Do not initialize persistence, sessions, IPC, or shutdown writers in the loser.
   app.quit();
 } else {
+  app.on("before-quit", (event) => {
+    if (!quitting) {
+      event.preventDefault();
+      void requestQuit();
+    }
+  });
+  app.on("activate", () => {
+    if (!windows.size)
+      void createWindow().catch((error: unknown) => {
+        console.error("Unable to open window:", error);
+      });
+  });
   app.on("second-instance", () => {
     const window = BrowserWindow.getAllWindows().find(
       (window) => window.webContents.getURL() === APP_URL,
@@ -390,7 +609,10 @@ if (!ownsProfile) {
       });
       session.defaultSession.setPermissionCheckHandler(() => false);
 
-      await createWindow(await loadWindowSize(app.getPath("userData")));
+      const placements = await loadPlacements(app.getPath("userData"));
+      if (placements.length)
+        for (const placement of placements) await createWindow(undefined, placement);
+      else await createWindow(await loadWindowSize(app.getPath("userData")));
     })
     .catch((error: unknown) => {
       console.error("Unable to start the application:", error);
@@ -398,6 +620,6 @@ if (!ownsProfile) {
     });
 
   app.on("window-all-closed", () => {
-    app.quit();
+    if (process.platform !== "darwin") app.quit();
   });
 }

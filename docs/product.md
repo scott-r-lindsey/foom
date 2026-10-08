@@ -153,7 +153,7 @@ Quit), File (New Window, New Worktree, Close Window), standard Edit roles, View
 (tile actions and presets, interface size, sidebar and longest waiting), Window
 (Minimize, Zoom, Bring All to Front and windows), and Help (licenses and GitHub).
 Windows/Linux flatten the applicable sections into the wordmark menu. New Window
-is disabled until multi-window support exists. About uses the native About panel;
+uses Command+N on macOS and Ctrl+Shift+O on Windows/Linux. About uses the native About panel;
 Licenses links to the source; the consolidated license screen remains #96.
 
 Foom commands use Command on macOS or Ctrl+Shift on Windows/Linux; plain Ctrl
@@ -219,11 +219,11 @@ shortcut places that session in the focused tile and hides
 its previous occupant. If the waiting session was in another tile, that tile empties.
 
 Title bars show the state light, agent badge, location, session name and tile number.
-Location text shrinks first. Split right, Split down, Maximize, Hide session and
+Location text shrinks first. Split right, Split down, Maximize, Move to new window, Hide session and
 Close tile controls appear on hover or focus. Empty tiles are dashed outlines with
 a transparent title bar showing the tile number and Split right, Split down and
 Close tile controls on hover or focus. Their bodies have no copy or launch buttons;
-Maximize and Hide session are omitted. Focus uses a violet border and brighter
+Maximize, Move to new window and Hide session are omitted. Focus uses a violet border and brighter
 occupied title bar; Needs you uses an amber border that takes
 precedence, with a labelled, haloed light as a second state cue.
 
@@ -260,7 +260,7 @@ are unchanged. The main-process command list drives menus and shortcut handling.
 Plain terminal control keys remain terminal input. The split tree, ratios, leaf
 identities, focus and assigned session IDs persist as local view preferences.
 Maximize is temporary. On restart, unavailable sessions leave empty tiles; terminal
-sessions themselves are not restored. Pop-out windows and WebGL are separate future work.
+PTYs and screens are not restored. WebGL remains separate future work.
 
 Drag a sidebar session onto a tile center to replace its session (the previous
 session keeps running hidden), or onto one of its four edges to split it in half.
@@ -450,12 +450,33 @@ Settings → Sound and packaged third-party notices, ready for the future About 
 (#96). The 17 built-in CC0 recordings include drive chatter, teletype, typewriter,
 projector, bells, percussion and short refusal sounds.
 
-## Quitting
+## Windows and quitting
 
-Closing the window quits Foom on every platform, including macOS. The close button,
-⌘W and ⌘Q on macOS, and Alt+F4 and Ctrl+Q elsewhere use the same quit path.
-If any terminal is running, Foom asks for confirmation; Cancel keeps everything running.
-Quitting stops every PTY before the app exits. Terminals live exactly as long as the app.
+New Window opens another full sidebar and an independent tile layout. A tile's
+**Move to new window** control moves that session into a new window. Each terminal
+belongs to the app and can occupy only one tile across all windows. A neutral ▣
+marker labels sessions shown in another window; selecting one brings that window
+forward and focuses its tile. Sidebar tile numbers always refer to the current
+window. The longest-waiting shortcut starts from the current window and focuses
+another window when that session is already shown there.
+
+Closing a window hides its sessions without stopping their PTYs. On macOS, closing
+the last window leaves Foom running; Dock activation opens another window. On
+Windows and Linux, closing the last window requests quit. Quit from any window
+stops the entire app and uses the focused window's trusted confirmation. Other
+trusted dialogs attach to the window that requested them.
+
+Each window saves its display, normal bounds, maximized state, interface size and
+tile tree. At launch Foom restores those windows. Missing displays fall back to the
+primary display and bounds are clamped to its work area. Sessions restore as exited
+rows and never restart automatically. Closing a window removes it from the saved
+window set. Interface size is independent per window; other settings are shared.
+The attention badge counts sessions once for the app. One window plays app sounds,
+with attention suppression following the focused terminal in any window.
+
+If any terminal is running, quit asks for confirmation; Cancel keeps everything
+running. Quitting stops every PTY before the app exits. Terminals live exactly as
+long as the app.
 
 ## Mockups
 

@@ -334,6 +334,7 @@ export function createAppSource(): BoardSource {
     };
   };
   return {
+    ...(window.desktop.windows ? { windows: window.desktop.windows } : {}),
     isDevelopment: window.desktop.isDevelopment,
     connect,
     createView: () => {

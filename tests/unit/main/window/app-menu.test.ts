@@ -67,6 +67,7 @@ function fixture(platform: NodeJS.Platform = "linux") {
     maximize: vi.fn(),
     unmaximize: vi.fn(),
     show: vi.fn(),
+    close: vi.fn(),
   });
   const zoom = vi.fn<() => Promise<void>>().mockResolvedValue();
   const attached = attachAppMenu(window as unknown as BrowserWindow, zoom);
@@ -88,7 +89,7 @@ test("validates each sender and command ID, projects data only and disposes hand
   f.frame.url = "https://evil.test";
   expect(() => f.invoke("list")).toThrow("Untrusted");
   f.frame.url = "app://bundle/index.html";
-  for (const id of [null, {}, "missing", "new-window"])
+  for (const id of [null, {}, "missing"])
     expect(() => f.invoke("execute", id)).toThrow("Unavailable");
   expect(f.invoke("list")).toEqual(
     expect.arrayContaining([expect.objectContaining({ id: "quit", enabled: true })]),
@@ -127,7 +128,8 @@ test("dispatches native actions, zoom failures and keyboard gestures", async () 
   ])
     f.invoke("execute", id);
   await Promise.resolve();
-  expect(mock.quit).toHaveBeenCalledTimes(2);
+  expect(mock.quit).toHaveBeenCalledOnce();
+  expect(f.window.close).toHaveBeenCalledOnce();
   expect(mock.about).toHaveBeenCalledOnce();
   expect(mock.external).toHaveBeenCalledWith("https://github.com/scott-r-lindsey/foom");
   expect(f.contents.send).toHaveBeenCalledWith("board:command", "sidebar");

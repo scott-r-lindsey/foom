@@ -1,3 +1,4 @@
+import type { WindowIpc } from "./window-ipc";
 import { app, Menu, dialog, ipcMain, shell } from "electron";
 import type { BrowserWindow, IpcMainInvokeEvent } from "electron";
 import { createCommands, createShortcuts, nativeMenu, projectCommands } from "./commands";
@@ -7,12 +8,19 @@ import type { ZoomDirection } from "./appearance";
 export function attachAppMenu(
   window: BrowserWindow,
   zoom: (direction: ZoomDirection) => Promise<void>,
+  ipc: WindowIpc = ipcMain,
+  openWindow: () => void = () => undefined,
 ) {
   const contents = window.webContents;
   const native = (id: string) => {
     switch (id) {
-      case "quit":
+      case "new-window":
+        openWindow();
+        break;
       case "close-window":
+        window.close();
+        break;
+      case "quit":
         app.quit();
         break;
       case "about":
@@ -102,7 +110,8 @@ export function attachAppMenu(
     if (process.platform !== "darwin") window.removeMenu();
   };
   refresh();
-  ipcMain.handle("app-menu:view", (event, state: unknown) => {
+  window.on("focus", refresh);
+  ipc.handle("app-menu:view", (event, state: unknown) => {
     trusted(event);
     if (
       typeof state !== "object" ||
@@ -147,11 +156,11 @@ export function attachAppMenu(
     )
       throw new Error("Untrusted app menu sender");
   };
-  ipcMain.handle("app-menu:list", (event) => {
+  ipc.handle("app-menu:list", (event) => {
     trusted(event);
     return projectCommands(commands);
   });
-  ipcMain.handle("app-menu:execute", (event, id: unknown) => {
+  ipc.handle("app-menu:execute", (event, id: unknown) => {
     trusted(event);
     const command = typeof id === "string" && commands.find((command) => command.id === id);
     if (!command || !command.enabled) throw new Error("Unavailable app command");
@@ -164,9 +173,10 @@ export function attachAppMenu(
     dispose() {
       contents.removeListener("before-input-event", beforeInput);
       window.removeListener("blur", shortcuts.reset);
-      ipcMain.removeHandler("app-menu:view");
-      ipcMain.removeHandler("app-menu:list");
-      ipcMain.removeHandler("app-menu:execute");
+      window.removeListener("focus", refresh);
+      ipc.removeHandler("app-menu:view");
+      ipc.removeHandler("app-menu:list");
+      ipc.removeHandler("app-menu:execute");
     },
   };
 }

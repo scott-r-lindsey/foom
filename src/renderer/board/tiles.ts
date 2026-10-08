@@ -283,11 +283,12 @@ export function pruneSessions(layout: TileLayout, sessions: ReadonlySet<string>)
       : { ...node, first: prune(node.first), second: prune(node.second) };
   return { ...layout, tree: prune(layout.tree) };
 }
-export function saveLayout(storage: Pick<Storage, "setItem">, layout: TileLayout): void {
-  storage.setItem(
-    TILE_STORAGE,
-    JSON.stringify({ version: 1, tree: layout.tree, focused: layout.focused }),
-  );
+export function saveLayout(
+  storage: Pick<Storage, "setItem">,
+  layout: TileLayout,
+  key = TILE_STORAGE,
+): void {
+  storage.setItem(key, JSON.stringify({ version: 1, tree: layout.tree, focused: layout.focused }));
 }
 
 /** Swap whole leaves, preserving their controllers and session assignments. */

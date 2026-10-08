@@ -76,6 +76,7 @@ export class Setup {
   private saving: Promise<unknown> = Promise.resolve();
   private readonly verified: InferenceConfig[] = [];
   private evaluator: Pick<ModelEvaluator, "evaluate">;
+  private evaluatorSettings: Pick<Settings, "inference" | "inferenceTimeoutMs">;
   private readonly build: NonNullable<SetupDependencies["evaluator"]>;
   private readonly probe: NonNullable<SetupDependencies["probe"]>;
   private readonly checks = new Map<string, AbortController>();
@@ -102,12 +103,23 @@ export class Setup {
           signal,
         ));
     const settings = deps.store.get();
+    this.evaluatorSettings = settings;
     this.evaluator = this.build(settings.inference, settings.inferenceTimeoutMs);
     deps.apply(settings);
   }
 
   /** The verdict log's classifier: rules first, then the configured model tier. */
-  readonly classify = (input: EvaluationInput): Promise<Verdict> => this.evaluator.evaluate(input);
+  readonly classify = (input: EvaluationInput): Promise<Verdict> => {
+    const settings = this.deps.store.get();
+    if (
+      !same(settings.inference, this.evaluatorSettings.inference) ||
+      settings.inferenceTimeoutMs !== this.evaluatorSettings.inferenceTimeoutMs
+    ) {
+      this.evaluator = this.build(settings.inference, settings.inferenceTimeoutMs);
+      this.evaluatorSettings = settings;
+    }
+    return this.evaluator.evaluate(input);
+  };
 
   async state(): Promise<SetupState> {
     const entries = await Promise.all(
@@ -156,10 +168,11 @@ export class Setup {
     }
     const settings = await this.deps.store.update(patch);
     if (
-      !same(settings.inference, before.inference) ||
-      settings.inferenceTimeoutMs !== before.inferenceTimeoutMs
+      !same(settings.inference, this.evaluatorSettings.inference) ||
+      settings.inferenceTimeoutMs !== this.evaluatorSettings.inferenceTimeoutMs
     )
       this.evaluator = this.build(settings.inference, settings.inferenceTimeoutMs);
+    this.evaluatorSettings = settings;
     this.deps.apply(settings);
     return this.state();
   }

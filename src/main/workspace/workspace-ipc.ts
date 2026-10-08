@@ -1,3 +1,4 @@
+import type { WindowIpc } from "../window/window-ipc";
 import type { ExecutionTransition } from "../../shared/execution";
 import { ConfirmationArming } from "../confirmations/arming";
 import type { DialogContent, ConfirmWorkspace } from "../../shared/confirmation";
@@ -90,6 +91,7 @@ export function attachWorkspace(
   workspace: Workspace,
   owns: (id: string) => boolean,
   requestDialog: (content: DialogContent) => Promise<boolean>,
+  ipc: WindowIpc = ipcMain,
 ): {
   sendExecution(event: ExecutionTransition): void;
   sendState(state: TerminalState): void;
@@ -272,7 +274,7 @@ export function attachWorkspace(
     ],
   ]);
   for (const [channel, handler] of handlers)
-    ipcMain.handle(channel, (event, ...args: unknown[]) => {
+    ipc.handle(channel, (event, ...args: unknown[]) => {
       if (!trusted(event)) throw new Error("Untrusted IPC sender");
       return handler(...args);
     });
@@ -293,7 +295,7 @@ export function attachWorkspace(
       disarm();
       contents.removeListener("did-start-navigation", disarm);
       contents.removeListener("render-process-gone", disarm);
-      for (const channel of handlers.keys()) ipcMain.removeHandler(channel);
+      for (const channel of handlers.keys()) ipc.removeHandler(channel);
     },
   };
 }

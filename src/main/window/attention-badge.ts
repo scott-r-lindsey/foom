@@ -43,14 +43,15 @@ export function badgePixels(count: number): Buffer {
   return pixels;
 }
 export function updateAttention(
-  window: BrowserWindow,
+  window: BrowserWindow | undefined,
   snapshot: WorkspaceSnapshot,
   newWindow: Command,
+  focusSession?: (id: string) => void,
 ) {
   const waiting = snapshot.terminals.filter((terminal) => terminal.state?.state === "needs_input");
   const count = waiting.length;
   if (process.platform === "win32")
-    window.setOverlayIcon(
+    window?.setOverlayIcon(
       count ? nativeImage.createFromBitmap(badgePixels(count), { width: 32, height: 32 }) : null,
       count ? `${String(count)} ${count === 1 ? "session needs" : "sessions need"} you` : "",
     );
@@ -67,6 +68,11 @@ export function updateAttention(
         ...waiting.map((terminal) => ({
           label: `${terminal.agent} · ${terminal.branch ?? terminal.worktree}`,
           click: () => {
+            if (focusSession) {
+              focusSession(terminal.id);
+              return;
+            }
+            if (!window) return;
             if (window.isMinimized()) window.restore();
             window.show();
             window.focus();

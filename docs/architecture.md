@@ -109,7 +109,7 @@ current attachment. Within each controller, switching still serializes detach,
 drain, reset, fit and attach. Settings detaches views without destroying their
 controllers. Hidden terminals keep consuming output in the host.
 
-Versioned `foom.tiles.v1` localStorage metadata stores the tree, ratios, leaf IDs,
+Versioned `foom.tiles.v1.<window-id>` localStorage metadata stores the tree, ratios, leaf IDs,
 focus and terminal assignments. Restore validates untrusted JSON with size, depth,
 node-count and uniqueness bounds; ratios clamp to 15–85%. Split construction
 shares the restore limits of 256 leaves and 64 levels, so every constructed tree
@@ -150,9 +150,53 @@ changing their terminal state, capabilities or attachment.
 - **Coverage and lint globs include `.tsx`.** A component outside them would silently skip the per-file thresholds or the renderer import restrictions.
 - The CSP doesn't change. React needs no `eval`.
 
+## Multiple windows
+
+Main constructs one workspace, terminal host client, hook receiver, session store,
+control runtime and evaluator route for the app. Window creation is serialized.
+`window-ipc.ts` routes invoke channels by registered WebContents and validates the
+top frame and exact app page before dispatch; each capability retains its payload
+validation. Unknown windows and confirmation renderers cannot use board channels.
+Closing a board unregisters only its own routes and disposes its trusted dialog,
+setup IPC and menu listeners. It never disposes the workspace or terminal host.
+
+`terminal-views.ts` holds app-wide view reservations. ID-only `windows:sync` reserves
+up to 256 known sessions for one window and returns accepted IDs. Another window's
+reservation cannot be replaced. Removing a reservation detaches that window's old
+host stream before another window can attach. Settings may detach a stream while
+retaining its reservation. `windows:select` focuses an existing foreign view;
+`windows:popout` requires a reservation in the requesting window. Main transfers
+that reservation and detaches the old stream before opening the new view. A failed
+window load releases its reservations; the terminal remains available in sidebars.
+Terminal input, resize, acknowledgements and detach cannot act on another window's
+attached stream. Host generations continue to reject delayed output acknowledgements.
+
+`window-placement.ts` validates and atomically persists the window set in private
+`windows.json`. Each record has a stable random ID, display ID, normal bounds,
+maximized flag and interface scale. Restore clamps geometry to a connected display,
+falling back to the primary. The preload receives only its window ID and optional
+pop-out terminal ID as main-generated arguments; it receives no profile paths.
+Each window uses its ID to namespace validated localStorage tile metadata. The
+legacy size file remains a fallback for the first window. Global settings retain
+one writer; window-specific wrappers keep interface scale separate. Setup scans,
+checks and confirmations stay local to their requesting window. Classification
+refreshes its evaluator when another window changes the shared source.
+
+`window-audio.ts` elects one board to play app sounds. Validated view IDs describe
+focus; main combines them with native focus and publishes suppression to the audio
+owner. Closing the owner elects another board. Refusal requests reach that owner.
+Attention badges derive from the shared workspace once, including when macOS has
+no board windows. Dock selection locates the existing view or opens a new window.
+
+Quit is app-scoped, inventories all running PTYs, and parents its trusted dialog
+to the focused board. It flushes every live renderer, stops PTYs, drains workspace
+persistence, and disposes the terminal host before exiting. Cancellation and failed
+shutdown retain sessions and windows. macOS activation recreates a board after the
+last one closes; Windows/Linux route the last close through confirmed quit.
+
 ## Terminals
 
-**Today:** `src/terminal-host/terminal-host.ts` runs `TerminalManager` in an Electron utility process, owning independent PTYs and headless screens by ID. `src/main/terminals/terminal-host-client.ts` brokers asynchronous operations in main over the parent port; it never imports node-pty or headless xterm. `src/main/terminals/terminal-ipc.ts` grants the app window access only to the terminals it created. The renderer starts on an empty board, with no PTY until a launch is requested. Selecting a row places its session in an available tile or focuses its existing tile; Esc remains terminal input. Hiding or closing a tile, removing it through a preset, or entering Settings detaches the stream without stopping the shell. Placing another terminal in an empty tile or returning from Settings drains pending renderer writes, resets the display, fits the visible grid, and restores a fresh host snapshot before continuing the live stream. Input and resize events are suppressed while hidden or changing attachment. The manager and ID-scoped bridge support multiple concurrent sessions; the board consumes live worktree and verdict data. Closing the window requests application quit on every platform. Running terminals require confirmation; cancellation preserves the window and sessions. Confirmed quit stops each PTY and waits for its exit before disposing sessions and closing the window. On Unix, a PTY that ignores graceful termination receives a force-kill after one second. Windows uses ConPTY termination without Unix signals; once a termination request succeeds, shutdown and retries only drain its native exit callback, because closing a ConPTY handle twice can crash the host. A throwing termination request remains retryable. Failure to exit within five seconds leaves the app open with an error so quitting can be retried. Detached sessions continue running; navigation or a renderer crash automatically detaches views. PTY termination requests retain their process handles and exit subscriptions even after a terminal is removed from the board. Confirmed quit applies the same graceful termination and force-kill deadlines to these removed processes and waits for their pending native exits before closing the window; the `will-quit` barrier remains a final safeguard against native callbacks racing Node teardown on Windows.
+**Today:** `src/terminal-host/terminal-host.ts` runs `TerminalManager` in an Electron utility process, owning independent PTYs and headless screens by ID. `src/main/terminals/terminal-host-client.ts` brokers asynchronous operations in main over the parent port; it never imports node-pty or headless xterm. `src/main/terminals/terminal-ipc.ts` grants registered app windows access to app-owned terminals and enforces exclusive attachments. The renderer starts on an empty board, with no PTY until a launch is requested. Selecting a row places its session in an available tile or focuses its existing tile; Esc remains terminal input. Hiding or closing a tile, removing it through a preset, or entering Settings detaches the stream without stopping the shell. Placing another terminal in an empty tile or returning from Settings drains pending renderer writes, resets the display, fits the visible grid, and restores a fresh host snapshot before continuing the live stream. Input and resize events are suppressed while hidden or changing attachment. The manager and ID-scoped bridge support multiple concurrent sessions; the board consumes live worktree and verdict data. Closing a window detaches its views; the last window requests quit on Windows/Linux and keeps the app alive on macOS. Running terminals require confirmation; cancellation preserves the window and sessions. Confirmed quit stops each PTY and waits for its exit before disposing sessions and closing the window. On Unix, a PTY that ignores graceful termination receives a force-kill after one second. Windows uses ConPTY termination without Unix signals; once a termination request succeeds, shutdown and retries only drain its native exit callback, because closing a ConPTY handle twice can crash the host. A throwing termination request remains retryable. Failure to exit within five seconds leaves the app open with an error so quitting can be retried. Detached sessions continue running; navigation or a renderer crash automatically detaches views. PTY termination requests retain their process handles and exit subscriptions even after a terminal is removed from the board. Confirmed quit applies the same graceful termination and force-kill deadlines to these removed processes and waits for their pending native exits before closing the window; the `will-quit` barrier remains a final safeguard against native callbacks racing Node teardown on Windows.
 
 - Each terminal has an ID, a PTY, and a headless xterm instance (`@xterm/headless`) that always consumes output. It holds the screen and scrollback, so a hidden agent never stalls.
 - The host forwards headless xterm protocol responses to the PTY while it is alive, independent of attachment. Views suppress the corresponding device-attribute, status, mode, and status-string query handlers so each query has exactly one response owner. Keyboard, paste, and mouse input remain renderer input; attachment changes never transfer query ownership.
@@ -203,7 +247,7 @@ retain xterm's handling. Input still passes through the selected terminal's ID-s
 
 ## IPC contract
 
-Every channel checks the sender (the owning window, the main frame, `app://bundle/index.html`) and validates every payload at runtime. Every terminal-scoped message carries a terminal ID. Creation returns the new ID; it accepts only dimensions, with shell and working directory selected in main. The future worktree launch specification above remains a main-only capability.
+Every channel checks the sender (a registered app window, its main frame, `app://bundle/index.html`) and validates every payload at runtime. Every terminal-scoped message carries a terminal ID. Creation returns the new ID; it accepts only dimensions, with shell and working directory selected in main. The future worktree launch specification above remains a main-only capability.
 
 | Channel | Direction | Payload |
 |---|---|---|
@@ -240,7 +284,7 @@ Every channel checks the sender (the owning window, the main frame, `app://bundl
 | `setup:models` | renderer → main (invoke) | local endpoint → `{ ok, models, server }` or `{ ok: false, failure, message }` |
 | `setup:changed` | main → renderer | setup state after a successful settings save or zoom shortcut |
 
-The renderer names repositories and worktrees only by paths main returned, and agents by ID. Main copies the known launch fields, checks the repository is registered and the checkout is authorized for that launch, and resolves the executable itself. A launched terminal belongs to the window like one it created.
+The renderer names repositories and worktrees only by paths main returned, and agents by ID. Main copies the known launch fields, checks the repository is registered and the checkout is authorized for that launch, and resolves the executable itself. A launched terminal belongs to the app; only its view is window-scoped.
 
 ## Confirmations
 
@@ -542,7 +586,7 @@ The renderer shows preflight until setup is complete; subsequent configuration l
 
 Settings opens beside the persistent sidebar with the board button or ⌘/Ctrl+,.
 Main reserves the shortcut through the existing validated `board:command` channel.
-There is still one window and one trusted IPC sender. The board keeps its terminal
+Each registered window has its own trusted IPC sender and setup coordinator. The board keeps its terminal
 controllers mounted but detaches and hides their views while Settings is open. Esc
 restores sidebar row focus after the terminal has reattached; selecting a sidebar
 terminal closes Settings. The shared setup coordinator renders the same Agents,
@@ -603,7 +647,7 @@ States: `needs_input`, `done`, `failed`, `quiet_ok`, `working`.
 
 **Today:** `src/main/evaluator/evaluator.ts` supplies the pure main-process `evaluateRules` classifier,
 and `src/main/evaluator/verdict-log.ts` supplies `VerdictLog`. `Workspace` runs them for every terminal
-the window owns, including the shell: on quiet, on a hook signal, and on exit. Each
+the app owns, including shells: on quiet, on a hook signal, and on exit. Each
 evaluation reads the last 40 host lines and runs in order per terminal, so a slow one
 can't overwrite a newer verdict; a failure is logged and the next one still runs. The
 result goes out on `terminal:state` and into the verdict log. The verdict log classifies
@@ -818,7 +862,7 @@ confirmation cancellation. They restore the previous focus and selection first,
 so native editing targets the original input; navigation commands then own their
 destination focus. Escape continues to return focus to the wordmark.
 Development commands are omitted when packaged; packaged webContents also set
-`devTools: false`. Quit and Close Window go through the existing confirmed shutdown.
+`devTools: false`. Quit goes through the app-level confirmed shutdown; Close Window hides its views unless it is the last Windows/Linux window.
 
 `attention-badge.ts` derives attention counts from main's workspace snapshot on
 inventory and verdict changes. Windows overlays are generated BGRA bitmaps;

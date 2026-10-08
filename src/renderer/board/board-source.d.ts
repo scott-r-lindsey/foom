@@ -1,3 +1,4 @@
+import type { WindowsApi } from "../../shared/windows";
 import type { AppMenuApi } from "../../shared/app-menu";
 import type { ConfirmationClient } from "../../shared/confirmation";
 import type { BoardCommand } from "../../shared/board-command";
@@ -26,6 +27,7 @@ export interface WorktreeSource {
 }
 /** Samples and the live source share rows, verdicts, activity batches and tails. */
 export interface BoardSource {
+  windows?: WindowsApi;
   appMenu?: AppMenuApi;
   confirmations?: ConfirmationClient;
   readonly isDevelopment?: boolean;

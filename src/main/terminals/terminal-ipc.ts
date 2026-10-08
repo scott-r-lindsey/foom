@@ -1,6 +1,6 @@
 import type { AgentEvidence } from "../../shared/agent-detection";
 import { app, ipcMain } from "electron";
-import type { BrowserWindow, IpcMainEvent, IpcMainInvokeEvent, Event } from "electron";
+import type { BrowserWindow, WebContents, IpcMainEvent, IpcMainInvokeEvent, Event } from "electron";
 import { homedir } from "node:os";
 import { TerminalHostClient } from "./terminal-host-client";
 import { isReply } from "./terminal-reports";
@@ -31,21 +31,35 @@ export interface TerminalControl
 export function attachTerminal(
   window: BrowserWindow,
   events: TerminalEvents = {},
-): TerminalControl {
+  allowView: (contents: WebContents, id: string) => boolean = () => true,
+) {
+  const windows = new Map<
+    WebContents,
+    { alive: boolean; dispose(): void; flush(ids: string[]): Promise<void> }
+  >();
+  const attached = new Map<string, WebContents>();
+  const broadcast = (channel: string, ...args: unknown[]) => {
+    for (const [contents, state] of windows)
+      if (
+        state.alive &&
+        !contents.isDestroyed() &&
+        !contents.isCrashed() &&
+        contents.getURL() === "app://bundle/index.html"
+      )
+        contents.send(channel, ...args);
+  };
   // Capture before BrowserWindow is destroyed; its getter throws during closed.
-  const contents = window.webContents;
   const owned = new Set<string>();
   const running = new Map<string, { id: string; command: string; cwd: string }>();
   const trusted = (event: IpcMainEvent | IpcMainInvokeEvent) =>
-    event.sender === contents &&
+    windows.has(event.sender) &&
     event.senderFrame !== null &&
     event.senderFrame === event.sender.mainFrame &&
     event.senderFrame.url === "app://bundle/index.html";
-  let rendererAlive = true;
   const manager = new TerminalHostClient(
     (id, code) => {
       running.delete(id);
-      if (!contents.isDestroyed()) contents.send("terminal:exit", id, code);
+      broadcast("terminal:exit", id, code);
       if (owned.has(id)) events.onExit?.(id, code);
     },
     {
@@ -62,16 +76,8 @@ export function attachTerminal(
         if (owned.has(id)) events.onQuiet?.(id);
       },
       onActivity: (batch) => {
-        // A crashed WebContents survives, but its WebFrameMain no longer does.
-        if (
-          !rendererAlive ||
-          contents.isDestroyed() ||
-          contents.isCrashed() ||
-          contents.getURL() !== "app://bundle/index.html"
-        )
-          return;
         const entries = batch.filter(({ id }) => owned.has(id));
-        if (entries.length) contents.send("terminal:activity", entries);
+        if (entries.length) broadcast("terminal:activity", entries);
       },
     },
   );
@@ -85,34 +91,6 @@ export function attachTerminal(
     cols <= 500 &&
     rows >= 2 &&
     rows <= 300;
-  const rendererLoaded = () => {
-    rendererAlive = true;
-  };
-  contents.on("did-finish-load", rendererLoaded);
-  let flushToken = 0;
-  let pendingFlush: { token: number; ids: string[]; resolve: () => void } | undefined;
-  const flushed = (event: IpcMainEvent, ids: unknown, token: unknown) => {
-    if (!trusted(event) || !pendingFlush || token !== pendingFlush.token || !Array.isArray(ids))
-      return;
-    if (
-      ids.length === pendingFlush.ids.length &&
-      ids.every((id, index) => id === pendingFlush?.ids[index])
-    )
-      pendingFlush.resolve();
-  };
-  ipcMain.on("terminal:views-flushed", flushed);
-  const flushViews = (ids: string[]) =>
-    new Promise<void>((resolve) => {
-      const done = () => {
-        clearTimeout(timer);
-        pendingFlush = undefined;
-        resolve();
-      };
-      // A crashed/unresponsive renderer must not prevent native process cleanup.
-      const timer = setTimeout(done, 3000);
-      pendingFlush = { token: ++flushToken, ids, resolve: done };
-      contents.send("terminal:flush-views", ids, flushToken);
-    });
   const handlers = new Map<string, (event: IpcMainInvokeEvent, ...args: unknown[]) => unknown>();
   handlers.set("terminal:create", async (event, cols, rows) => {
     if (!trusted(event)) throw new Error("Untrusted IPC sender");
@@ -137,16 +115,33 @@ export function attachTerminal(
     handlers.set(`terminal:${operation}`, async (event, id) => {
       if (!trusted(event)) throw new Error("Untrusted IPC sender");
       if (!validId(id)) throw new Error("Unknown or foreign terminal ID");
-      if (operation === "attach")
-        await manager.attach(id, (token, data) => {
-          contents.send("terminal:data", id, token, data);
-        });
-      else if (operation === "detach") manager.detach(id);
-      else {
+      if (operation === "attach") {
+        if (!allowView(event.sender, id))
+          throw new Error("Terminal view belongs to another window");
+        const owner = attached.get(id);
+        if (owner && owner !== event.sender)
+          throw new Error("Terminal view belongs to another window");
+        attached.set(id, event.sender);
+        try {
+          await manager.attach(id, (token, data) => {
+            if (attached.get(id) === event.sender && windows.has(event.sender))
+              event.sender.send("terminal:data", id, token, data);
+          });
+        } catch (error) {
+          if (attached.get(id) === event.sender) attached.delete(id);
+          throw error;
+        }
+      } else if (operation === "detach") {
+        if (attached.get(id) === event.sender) {
+          attached.delete(id);
+          manager.detach(id);
+        }
+      } else {
         await manager.kill(id);
         owned.delete(id);
         running.delete(id);
-        if (!contents.isDestroyed()) contents.send("terminal:availability", [id], false);
+        attached.delete(id);
+        broadcast("terminal:availability", [id], false);
         events.onRemoved?.(id);
       }
     });
@@ -161,7 +156,13 @@ export function attachTerminal(
   for (const [channel, handler] of handlers) ipcMain.handle(channel, handler);
   const input = (event: IpcMainEvent, id: unknown, data: unknown, origin: unknown) => {
     if (origin !== undefined && origin !== "wheel") return;
-    if (trusted(event) && validId(id) && typeof data === "string" && data.length <= 65536) {
+    if (
+      trusted(event) &&
+      validId(id) &&
+      (!attached.has(id) || attached.get(id) === event.sender) &&
+      typeof data === "string" &&
+      data.length <= 65536
+    ) {
       manager.write(id, data);
       if (origin !== "wheel" && isReply(data)) events.onInput?.(id);
     }
@@ -170,6 +171,7 @@ export function attachTerminal(
     if (
       trusted(event) &&
       validId(id) &&
+      (!attached.has(id) || attached.get(id) === event.sender) &&
       size(cols, rows) &&
       typeof cols === "number" &&
       typeof rows === "number"
@@ -177,22 +179,83 @@ export function attachTerminal(
       manager.resize(id, cols, rows);
   };
   const acknowledge = (event: IpcMainEvent, id: unknown, token: unknown, count: unknown) => {
-    if (trusted(event) && validId(id) && typeof token === "string" && typeof count === "number")
+    if (
+      trusted(event) &&
+      validId(id) &&
+      attached.get(id) === event.sender &&
+      typeof token === "string" &&
+      typeof count === "number"
+    )
       manager.acknowledge(id, token, count);
   };
-  const detachViews = () => {
-    for (const id of owned) manager.detach(id);
+  const addWindow = (window: BrowserWindow) => {
+    const contents = window.webContents;
+    if (windows.has(contents)) throw new Error("Window already registered");
+    let flushToken = 0;
+    let pendingFlush: { token: number; ids: string[]; resolve(): void } | undefined;
+    const detachViews = () => {
+      for (const [id, owner] of attached)
+        if (owner === contents) {
+          attached.delete(id);
+          manager.detach(id);
+        }
+    };
+    const rendererLoaded = () => {
+      state.alive = true;
+    };
+    const rendererGone = () => {
+      state.alive = false;
+      pendingFlush?.resolve();
+      detachViews();
+    };
+    const navigating = (_event: Event, _url: string, _inPlace: boolean, isMainFrame: boolean) => {
+      if (isMainFrame) detachViews();
+    };
+    const flushed = (event: IpcMainEvent, ids: unknown, token: unknown) => {
+      if (
+        !trusted(event) ||
+        event.sender !== contents ||
+        !pendingFlush ||
+        token !== pendingFlush.token ||
+        !Array.isArray(ids)
+      )
+        return;
+      if (
+        ids.length === pendingFlush.ids.length &&
+        ids.every((id, index) => id === pendingFlush?.ids[index])
+      )
+        pendingFlush.resolve();
+    };
+    const state = {
+      alive: true,
+      flush: (ids: string[]) =>
+        new Promise<void>((resolve) => {
+          const done = () => {
+            clearTimeout(timer);
+            pendingFlush = undefined;
+            resolve();
+          };
+          const timer = setTimeout(done, 3000);
+          pendingFlush = { token: ++flushToken, ids, resolve: done };
+          contents.send("terminal:flush-views", ids, flushToken);
+        }),
+      dispose: () => {
+        windows.delete(contents);
+        rendererGone();
+        contents.removeListener("render-process-gone", rendererGone);
+        contents.removeListener("did-finish-load", rendererLoaded);
+        contents.removeListener("did-start-navigation", navigating);
+        ipcMain.removeListener("terminal:views-flushed", flushed);
+      },
+    };
+    windows.set(contents, state);
+    contents.on("render-process-gone", rendererGone);
+    contents.on("did-finish-load", rendererLoaded);
+    contents.on("did-start-navigation", navigating);
+    ipcMain.on("terminal:views-flushed", flushed);
+    window.once("closed", state.dispose);
   };
-  const navigating = (_event: Event, _url: string, _inPlace: boolean, isMainFrame: boolean) => {
-    if (isMainFrame) detachViews();
-  };
-  const rendererGone = () => {
-    rendererAlive = false;
-    pendingFlush?.resolve();
-    detachViews();
-  };
-  contents.on("render-process-gone", rendererGone);
-  contents.on("did-start-navigation", navigating);
+  addWindow(window);
   ipcMain.on("terminal:input", input);
   ipcMain.on("terminal:resize", resize);
   ipcMain.on("terminal:ack", acknowledge);
@@ -215,63 +278,66 @@ export function attachTerminal(
       });
   };
   app.on("will-quit", willQuit);
-  window.once("closed", () => {
-    contents.removeListener("render-process-gone", rendererGone);
-    contents.removeListener("did-finish-load", rendererLoaded);
-    contents.removeListener("did-start-navigation", navigating);
-    void manager.dispose();
-    void manager
-      .waitForExit()
-      .then(() => {
-        app.removeListener("will-quit", willQuit);
-      })
-      .catch((error: unknown) => {
-        console.error("Unable to finish terminal shutdown:", error);
-      });
+  const dispose = async () => {
+    for (const state of windows.values()) state.dispose();
     for (const channel of handlers.keys()) ipcMain.removeHandler(channel);
-    ipcMain.removeListener("terminal:views-flushed", flushed);
-    pendingFlush?.resolve();
     ipcMain.removeListener("terminal:input", input);
     ipcMain.removeListener("terminal:resize", resize);
     ipcMain.removeListener("terminal:ack", acknowledge);
-  });
+    await manager.dispose();
+    await manager.waitForExit();
+    app.removeListener("will-quit", willQuit);
+  };
   return {
+    detachView: (id: string, contents: WebContents) => {
+      if (attached.get(id) === contents) {
+        attached.delete(id);
+        manager.detach(id);
+      }
+    },
+    addWindow,
+    dispose,
     runningSessions: () => [...running.values()],
-    async create(spec) {
+    async create(spec: TerminalSpec) {
       const id = await manager.create(spec);
       owned.add(id);
       running.set(id, { id, command: spec.command, cwd: spec.cwd });
-      if (!contents.isDestroyed()) contents.send("terminal:availability", [id], true, true);
+      broadcast("terminal:availability", [id], true, true);
       return id;
     },
-    async kill(id) {
+    async kill(id: string) {
       await manager.kill(id);
       owned.delete(id);
       running.delete(id);
-      if (!contents.isDestroyed()) contents.send("terminal:availability", [id], false);
+      attached.delete(id);
+      broadcast("terminal:availability", [id], false);
     },
-    setTheme: (choice) => {
+    setTheme: (choice: Parameters<TerminalControl["setTheme"]>[0]) => {
       manager.setTheme(choice);
     },
-    stop: (id) => manager.stop(id),
-    tail: (id, lines) => manager.tail(id, lines),
-    owns: (id) => owned.has(id),
+    stop: (id: string) => manager.stop(id),
+    tail: (id: string, lines: number) => manager.tail(id, lines),
+    owns: (id: string) => owned.has(id),
     get runningCount() {
       return manager.runningCount;
     },
     async shutdown() {
       const ids = [...owned];
       // Stop queued renderer attachment work before stopping the native hosts.
-      if (!contents.isDestroyed() && rendererAlive)
-        contents.send("terminal:availability", ids, false);
+      broadcast("terminal:availability", ids, false);
       try {
-        if (!contents.isDestroyed() && rendererAlive) await flushViews(ids);
+        await Promise.all(
+          [...windows]
+            .filter(([contents, state]) => state.alive && !contents.isDestroyed())
+            .map(([, state]) => state.flush(ids)),
+        );
         await manager.shutdown();
+        attached.clear();
         owned.clear();
         running.clear();
       } catch (error) {
         // A failed quit leaves the window open and its capabilities valid.
-        if (!contents.isDestroyed()) contents.send("terminal:availability", ids, true);
+        broadcast("terminal:availability", ids, true);
         throw error;
       }
     },
