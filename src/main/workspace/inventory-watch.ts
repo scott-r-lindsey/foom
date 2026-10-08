@@ -118,7 +118,8 @@ export class InventoryWatch {
           schedule(false);
         });
       }
-    } catch {
+    } catch (error) {
+      console.error("Unable to watch Git inventory; window focus will refresh it:", error);
       fail();
     }
   }

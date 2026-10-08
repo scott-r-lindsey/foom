@@ -4260,6 +4260,9 @@ test("external Git changes refresh inventory and retain sessions in removed work
   git("commit", "--allow-empty", "-qm", "init");
   const app = await launchApp(context, false, { emptyBoard: true });
   const page = await boardPage(app);
+  page.on("console", (message) => {
+    if (message.type() === "error") context.diagnostic(`Inventory renderer: ${message.text()}`);
+  });
   await app.evaluate(({ dialog }, repo) => {
     dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [repo] });
   }, repo);
@@ -4290,7 +4293,19 @@ test("external Git changes refresh inventory and retain sessions in removed work
     .toContain("moved-ready");
   git("worktree", "remove", external);
   const session = page.locator(".board-row").filter({ hasText: "Worktree removed" });
-  await expect(session).toHaveCount(1);
+  try {
+    await expect(session).toHaveCount(1);
+  } catch (error) {
+    console.error(
+      "Inventory after external removal",
+      await page.evaluate(async () => ({
+        workspace: await window.desktop.workspace(),
+        inventory: await window.desktop.sidebarInventory(),
+      })),
+    );
+    console.error("Board after external removal", await page.locator("body").innerText());
+    throw error;
+  }
   await expect(actions).toHaveCount(0);
   assert.equal((await page.evaluate(() => window.desktop.workspace())).terminals[0].exited, false);
   await page.getByRole("button", { name: "topic/external", exact: true }).click();
