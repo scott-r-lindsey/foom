@@ -887,3 +887,25 @@ test.each([
     codexHookState !== "trusted",
   );
 });
+
+test("agent setup waits for explicit plugin installation, refreshes status and reports failed changes", async () => {
+  const source = fake(setupState());
+  const notInstalled = report({ ...installation("agy"), agyPlugin: { state: "not-installed" } });
+  const installed = report({
+    ...installation("agy"),
+    agyPlugin: { state: "installed", version: 1 },
+  });
+  source.scanAgents.mockResolvedValue(notInstalled);
+  source.changeAgyPlugin.mockResolvedValue(installed);
+  render(<Preflight source={source} initial={setupState()} onLaunched={vi.fn()} />);
+  fireEvent.click(button("Start preflight"));
+  await screen.findByRole("button", { name: "Install Foom plugin" });
+  expect(source.changeAgyPlugin).not.toHaveBeenCalled();
+  fireEvent.click(button("Install Foom plugin"));
+  await screen.findByRole("button", { name: "Remove Foom plugin" });
+  expect(source.changeAgyPlugin).toHaveBeenCalledWith("install");
+  source.changeAgyPlugin.mockRejectedValueOnce(new Error("Plugin command failed"));
+  fireEvent.click(button("Remove Foom plugin"));
+  await screen.findByText("Plugin command failed");
+  expect(button("Remove Foom plugin")).toHaveProperty("disabled", false);
+});

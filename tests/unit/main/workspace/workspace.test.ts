@@ -1,3 +1,4 @@
+import { AgyPlugin } from "../../../../src/main/agents/agy-plugin";
 import { CodexHookStatus } from "../../../../src/main/agents/codex-hook-status";
 import type { ConfirmWorkspace } from "../../../../src/shared/confirmation";
 import type { ExecutionTransition } from "../../../../src/shared/execution";
@@ -2606,5 +2607,85 @@ test("one slow remote does not delay another repository's inventory or eligibili
   await expect
     .poll(async () => (await workspace.sidebarInventory()).repositories[0]?.canDeleteMerged)
     .toBe(true);
+  await workspace.dispose();
+});
+
+test("plugin operations resolve the CLI in main and invalidate discovery on both success and failure", async () => {
+  const workspace = new Workspace(deps);
+  const change = vi.spyOn(AgyPlugin.prototype, "change").mockResolvedValue();
+  try {
+    await expect(workspace.changeAgyPlugin("install")).rejects.toThrow(
+      "Antigravity is not installed",
+    );
+    agents.scan.mockResolvedValue({
+      ...scan,
+      agents: [
+        {
+          id: "agy",
+          path: "/resolved/agy",
+          version: "1.3.1",
+          hooks: false,
+          reason: "plugin missing",
+        },
+      ],
+    });
+    await workspace.changeAgyPlugin("install");
+    expect(change).toHaveBeenCalledWith("/resolved/agy", "install");
+    change.mockRejectedValueOnce(new Error("CLI failed"));
+    await expect(workspace.changeAgyPlugin("remove")).rejects.toThrow("CLI failed");
+    const count = agents.scan.mock.calls.length;
+    await workspace.scanAgents(false);
+    expect(agents.scan).toHaveBeenCalledTimes(count + 1);
+  } finally {
+    change.mockRestore();
+    await workspace.dispose();
+  }
+});
+
+test("Antigravity completion and failure evidence survives quiet output, clears on progress and is revoked on disposal", async () => {
+  agents.scan.mockResolvedValue({
+    ...scan,
+    agents: [{ id: "agy", path: "/bin/agy", version: "1.3.1", hooks: true, reason: "installed" }],
+  });
+  const workspace = new Workspace(deps);
+  await workspace.launch({
+    agent: "agy",
+    repository: repo.path,
+    worktree: tree.path,
+    cols: 80,
+    rows: 24,
+  });
+  const hooks = await prepare?.("agy");
+  hooks?.bind?.("t1");
+  const key = receiver.register.mock.calls.at(-1)?.[0];
+  if (!key) throw new Error("No hook key");
+  tails.set("t1", ["plain text"]);
+  await workspace.hook({ terminalId: key, action: "working", signal: "agy:PreInvocation" });
+  await workspace.hook({
+    terminalId: key,
+    action: "classify",
+    signal: "agy:Stop",
+    terminationReason: "model_stop",
+    fullyIdle: true,
+  });
+  expect(states.at(-1)?.state).toBe("done");
+  await workspace.hook({ terminalId: key, action: "working", signal: "agy:PostToolUse" });
+  await workspace.hook({
+    terminalId: key,
+    action: "failed",
+    signal: "agy:Stop",
+    terminationReason: "error",
+    fullyIdle: false,
+  });
+  expect(states.at(-1)?.state).toBe("failed");
+  await workspace.quiet("t1");
+  expect(states.at(-1)?.state).toBe("failed");
+  await workspace.hook({ terminalId: key, action: "working", signal: "agy:PreInvocation" });
+  await workspace.quiet("t1");
+  expect(states.at(-1)?.state).toBe("working");
+  hooks?.dispose();
+  const count = states.length;
+  await workspace.hook({ terminalId: key, action: "failed", signal: "agy:Stop" });
+  expect(states).toHaveLength(count);
   await workspace.dispose();
 });

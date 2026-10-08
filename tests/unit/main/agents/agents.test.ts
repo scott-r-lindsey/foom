@@ -1,3 +1,4 @@
+import { AgyPlugin } from "../../../../src/main/agents/agy-plugin";
 import { ChildProcess, execFile } from "node:child_process";
 import { statSync } from "node:fs";
 import { access, stat } from "node:fs/promises";
@@ -689,3 +690,26 @@ it("does not suppress the notifier when lifecycle hooks cannot be attached", asy
     "replaces your Codex notifier",
   );
 });
+
+it.each(["not-installed", "installed", "outdated", "disabled", "unavailable"] as const)(
+  "Antigravity %s plugins gate launch credentials without adding agent arguments",
+  async (state) => {
+    const status = vi.spyOn(AgyPlugin.prototype, "status").mockResolvedValue({ state });
+    try {
+      const scan = await service.scan();
+      expect(scan.agents.find((agent) => agent.id === "agy")?.agyPlugin).toEqual({ state });
+      const active = state === "installed" || state === "outdated";
+      const result = await service.launch({ ...request, agent: "agy" });
+      expect(result.attention).toBe(active ? "hooks" : "evaluator");
+      expect(create.mock.calls[0]?.[0].args).toEqual([]);
+      expect(create.mock.calls[0]?.[0].env?.["FOOM_TOKEN"]).toBe(active ? "secret" : undefined);
+      service.release(result.id);
+      service.setHooksEnabled(false);
+      await service.launch({ ...request, agent: "agy" });
+      expect(create.mock.calls[1]?.[0].env?.["FOOM_TOKEN"]).toBeUndefined();
+    } finally {
+      service.dispose();
+      status.mockRestore();
+    }
+  },
+);
