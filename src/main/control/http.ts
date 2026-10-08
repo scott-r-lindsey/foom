@@ -1,3 +1,4 @@
+import { ControlMcp } from "./mcp";
 import { createServer } from "node:http";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import type { ControlService } from "./service";
@@ -12,9 +13,11 @@ export class ControlHttp {
       this.receive(request, response);
     },
   );
+  private readonly mcp: ControlMcp;
   private origin = "";
   private closed = false;
   private constructor(private readonly service: ControlService) {
+    this.mcp = new ControlMcp(service);
     this.server.maxConnections = 32;
     this.server.requestTimeout = 5000;
     this.server.headersTimeout = 5000;
@@ -52,8 +55,9 @@ export class ControlHttp {
     });
   }
   private receive(request: IncomingMessage, response: ServerResponse): void {
-    const end = (status: number, result: unknown): void => {
+    const end = (status: number, result?: unknown, sessionId?: string): void => {
       response.writeHead(status, {
+        ...(sessionId ? { "Mcp-Session-Id": sessionId } : {}),
         Connection: "close",
         "Cache-Control": "no-store",
         "Content-Type": "application/json",
@@ -68,7 +72,8 @@ export class ControlHttp {
       end(403, { error: "forbidden" });
       return;
     }
-    if (request.url !== "/control/v1" || request.method !== "POST") {
+    const mcp = request.url === "/mcp";
+    if (!mcp && (request.url !== "/control/v1" || request.method !== "POST")) {
       end(404, { error: "not_found" });
       return;
     }
@@ -86,6 +91,25 @@ export class ControlHttp {
       return;
     }
     response.once("close", release);
+    if (mcp) {
+      try {
+        this.mcp.transport(actor, request.headers, request.method ?? "");
+      } catch (error) {
+        end(error instanceof ControlError && error.code === "not_found" ? 404 : 400, {
+          error: "invalid_request",
+        });
+        return;
+      }
+      if (request.method !== "POST") {
+        end(request.method === "DELETE" ? 204 : 405);
+        return;
+      }
+      const accept = request.headers.accept ?? "";
+      if (!accept.includes("application/json") || !accept.includes("text/event-stream")) {
+        end(406, { error: "invalid_request" });
+        return;
+      }
+    }
     if (request.headers["content-type"]?.split(";")[0]?.trim() !== "application/json") {
       end(415, { error: "invalid_request" });
       return;
@@ -116,7 +140,10 @@ export class ControlHttp {
         const value: unknown = JSON.parse(
           new TextDecoder("utf-8", { fatal: true }).decode(Buffer.concat(chunks)),
         );
-        end(200, { result: this.service.dispatch(actor, value) });
+        if (mcp) {
+          const result = this.mcp.dispatch(actor, request.headers, value);
+          end(result.status, result.body, result.sessionId);
+        } else end(200, { result: this.service.dispatch(actor, value) });
       } catch (error) {
         const code = error instanceof ControlError ? error.code : "invalid_request";
         end(

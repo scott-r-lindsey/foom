@@ -1,4 +1,5 @@
-import { join } from "node:path";
+import { locationId, metadataName } from "../../../../src/main/control/metadata";
+import { basename, join } from "node:path";
 import { tmpdir } from "node:os";
 import { describe, expect, it, vi } from "vitest";
 import { ControlService } from "../../../../src/main/control/service";
@@ -37,7 +38,10 @@ describe("control identity and capability checks", () => {
     expect(Object.isFrozen(actor)).toBe(true);
     expect(service.dispatch(actor, request("whoami"))).toEqual({
       ...actor,
-      capabilities: ["whoami", "operation_status"],
+      repository: locationId(actor.repository),
+      worktree: locationId(actor.worktree),
+      name: metadataName(basename(actor.worktree)),
+      capabilities: ["whoami", "sessions", "session_state", "operation_status"],
     });
     expect(JSON.stringify(service.dispatch(actor, request("whoami")))).not.toContain(token);
     expect(() => {
@@ -61,7 +65,7 @@ describe("control identity and capability checks", () => {
     const reader = service.authenticate(fresh.env["FOOM_CONTROL_TOKEN"] ?? "");
     expect(service.dispatch(reader, request("whoami"))).toMatchObject({
       role: "agent",
-      capabilities: ["whoami"],
+      capabilities: ["whoami", "sessions", "session_state"],
     });
     expect(() =>
       service.dispatch(reader, request("operation_status", { operationId: "id" })),
@@ -118,7 +122,7 @@ describe("control identity and capability checks", () => {
     const { service, actor, request } = fixture();
     for (const params of [{ role: "orchestrator" }, { force: true }, null, []])
       expect(() => service.dispatch(actor, request("whoami", params))).toThrow("invalid_request");
-    for (const method of ["launch", "reply", "stop", "sessions", "unknown"])
+    for (const method of ["launch", "reply", "stop", "unknown"])
       expect(() => service.dispatch(actor, request(method))).toThrow("forbidden");
     expect(() => service.prepare("relative", repo)).toThrow("invalid_request");
     expect(() => service.prepare(repo, `${repo}\0`)).toThrow("invalid_request");

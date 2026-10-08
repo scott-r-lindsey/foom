@@ -1,3 +1,4 @@
+import type { WorkspaceTerminal } from "../../shared/workspace";
 import { rm } from "node:fs/promises";
 import { join } from "node:path";
 import { ControlService } from "./service";
@@ -14,7 +15,10 @@ export class ControlRuntime {
     readonly service: ControlService,
     private readonly http: ControlHttp,
   ) {}
-  static async start(userData: string): Promise<ControlRuntime> {
+  static async start(
+    userData: string,
+    source?: () => readonly WorkspaceTerminal[],
+  ): Promise<ControlRuntime> {
     const directory = await privateDirectory(userData);
     const store = new ControlStore(directory);
     await store.recover();
@@ -24,7 +28,7 @@ export class ControlRuntime {
         service.assertActive(actor);
       },
     );
-    const service = new ControlService(operations);
+    const service = new ControlService(operations, source);
     const http = await ControlHttp.listen(service);
     try {
       await atomicPrivate(directory, "discovery.json", {

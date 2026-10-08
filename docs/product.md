@@ -249,10 +249,12 @@ The evaluator sends only the last 40 lines of a quiet terminal, with likely secr
 ## Orchestration and privacy (planned)
 
 The [control-plane design](orchestration.md) has an authentication and HTTP
-foundation; orchestration and agent tool attachment remain planned. Current agent
+foundation and read-only MCP tools; orchestration remains planned. Current agent
 launches receive a private credential for their own identity, with no mutation
-capabilities. Agents launched by Foom will receive read-only access to session metadata in their own
-repository. **Launch as Foom orchestrator** in a repository's menu will grant one
+capabilities. Verified Claude Code and Codex releases launched by Foom receive read-only MCP access
+to session metadata in their own repository, independently of hooks. Unverified versions
+and Antigravity do not attach MCP; managed client policy may deny attachment. These tools
+never return terminal output. **Launch as Foom orchestrator** in a repository's menu will grant one
 agent permission to create worktrees and run up to four children in that repository.
 Children cannot orchestrate through Foom. Their sessions and actions remain visible;
 you can stop them or take over. Agents launched outside Foom receive no automatic

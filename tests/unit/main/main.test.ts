@@ -1055,7 +1055,8 @@ test("control startup is lazy, uses the app profile and propagates initializatio
     const control = mock.workspace.deps?.control;
     if (!control) throw new Error("Expected control startup capability");
     await expect(control()).rejects.toBe(error);
-    expect(startControl).toHaveBeenCalledExactlyOnceWith("/test/user-data");
+    expect(startControl).toHaveBeenCalledExactlyOnceWith("/test/user-data", expect.any(Function));
+    expect(startControl.mock.calls[0]?.[1]?.()).toMatchObject([{ id: "t1" }, { id: "t2" }]);
   } finally {
     startControl.mockRestore();
   }

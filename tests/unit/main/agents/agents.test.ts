@@ -4,6 +4,8 @@ import { access, stat } from "node:fs/promises";
 import { homedir, userInfo } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type * as McpLaunch from "../../../../src/main/agents/mcp-launch";
+import { prepareMcpLaunch } from "../../../../src/main/agents/mcp-launch";
 import { AgentService, loginPath } from "../../../../src/main/agents/agents";
 import type { TerminalSpec } from "../../../../src/shared/desktop";
 import type { AgentHooks, AgentLaunch } from "../../../../src/shared/agents";
@@ -22,6 +24,10 @@ vi.mock("node:child_process", async (original) => {
   });
   return { ...actual, execFile: mocked };
 });
+vi.mock("../../../../src/main/agents/mcp-launch", async (original) => ({
+  ...(await original<typeof McpLaunch>()),
+  prepareMcpLaunch: vi.fn(),
+}));
 vi.mock("node:fs/promises", () => ({ access: vi.fn(), stat: vi.fn() }));
 vi.mock("node:os", () => ({
   homedir: vi.fn(() => "/home/test"),
@@ -574,4 +580,61 @@ it("rotates control credentials when resuming the same terminal", async () => {
   service.release("terminal-id");
   expect(second.dispose).toHaveBeenCalledOnce();
   expect(first.dispose).toHaveBeenCalledOnce();
+});
+
+it.each([true, false])(
+  "attaches MCP independently of hooks=%s and disposes on exit",
+  async (hooks) => {
+    const previous = versions.claude;
+    versions.claude = "2.1.293 (Claude Code)";
+    help += "\n--mcp-config <file>";
+    const dispose = vi.fn();
+    vi.mocked(prepareMcpLaunch).mockResolvedValue({
+      args: ["--mcp-config", "/private/mcp.json"],
+      dispose,
+    });
+    service = new AgentService({ listWorktrees, launchIdentity }, { create }, prepare, () =>
+      Promise.resolve({
+        env: { FOOM_CONTROL_URL: "http://127.0.0.1:1234/control/v1" },
+        bind: vi.fn(),
+        dispose: vi.fn(),
+      }),
+    );
+    service.setHooksEnabled(hooks);
+    try {
+      expect((await service.scan()).agents[0]?.mcp).toBe(true);
+      await service.launch(request);
+      expect(create.mock.calls.at(-1)?.[0].args).toContain("--mcp-config");
+      service.release("terminal-id");
+      expect(dispose).toHaveBeenCalledOnce();
+    } finally {
+      versions.claude = previous;
+    }
+  },
+);
+it.each(["denied", "spawn", "early-exit"])("cleans MCP launch on %s", async (mode) => {
+  const previous = versions.claude;
+  versions.claude = "2.1.293 (Claude Code)";
+  help += "\n--mcp-config <file>";
+  const dispose = vi.fn();
+  const revoke = vi.fn();
+  if (mode === "denied") vi.mocked(prepareMcpLaunch).mockRejectedValueOnce(new Error("denied"));
+  else vi.mocked(prepareMcpLaunch).mockResolvedValue({ args: [], dispose });
+  const spawn = () => {
+    if (mode === "spawn") throw new Error("spawn");
+    service.release("early");
+    return "early";
+  };
+  service = new AgentService({ listWorktrees, launchIdentity }, { create: spawn }, prepare, () =>
+    Promise.resolve({ env: {}, bind: vi.fn(), dispose: revoke }),
+  );
+  try {
+    if (mode === "early-exit") await service.launch(request);
+    else await expect(service.launch(request)).rejects.toThrow(mode);
+    expect(revoke).toHaveBeenCalled();
+    expect(cleanup).toHaveBeenCalled();
+    if (mode !== "denied") expect(dispose).toHaveBeenCalled();
+  } finally {
+    versions.claude = previous;
+  }
 });

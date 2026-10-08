@@ -150,7 +150,8 @@ async function createWindow(savedSize?: Size) {
     },
     // Rules first, then whatever model tier setup has configured.
     verdicts: new VerdictLog(app.getPath("userData"), (input) => setup.classify(input)),
-    control: () => ControlRuntime.start(app.getPath("userData")),
+    control: () =>
+      ControlRuntime.start(app.getPath("userData"), () => workspace.snapshot().terminals),
     receiver: () => HookReceiver.listen((signal) => void workspace.hook(signal)),
     onChange: () => {
       workspaceIpc.sendChanged();

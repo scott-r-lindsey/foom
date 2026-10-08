@@ -1,4 +1,7 @@
 import { createHash, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
+import { locationId, metadataName, SessionMetadata } from "./metadata";
+import { basename } from "node:path";
+import type { WorkspaceTerminal } from "../../shared/workspace";
 import { isAbsolute } from "node:path";
 import { ControlError, exact, identifier, object } from "./validation";
 import type { ControlLaunch, Principal, Role } from "./types";
@@ -17,7 +20,13 @@ export class ControlService {
   >();
   private readonly unknown = digest(randomBytes(32).toString("hex"));
   private closed = false;
-  constructor(readonly operations: Operations) {}
+  private readonly metadata: SessionMetadata;
+  constructor(
+    readonly operations: Operations,
+    source: () => readonly WorkspaceTerminal[] = () => [],
+  ) {
+    this.metadata = new SessionMetadata(source);
+  }
 
   prepare(
     repository: string,
@@ -121,8 +130,20 @@ export class ControlService {
         exact(params, []);
         return {
           ...actor,
-          capabilities: actor.role === "orchestrator" ? ["whoami", "operation_status"] : ["whoami"],
+          repository: locationId(actor.repository),
+          worktree: locationId(actor.worktree),
+          name: metadataName(basename(actor.worktree)),
+          capabilities:
+            actor.role === "orchestrator"
+              ? ["whoami", "sessions", "session_state", "operation_status"]
+              : ["whoami", "sessions", "session_state"],
         };
+      case "sessions":
+      case "session_state": {
+        const result = this.metadata.read(actor, request["method"], params);
+        this.assertActive(actor);
+        return result;
+      }
       case "operation_status":
         if (actor.role !== "orchestrator") throw new ControlError("forbidden");
         return this.operations.lookup(actor, params);

@@ -1519,6 +1519,57 @@ test("launches an agent in a managed worktree and routes its attention signals",
   assert.equal((await controlRequest(firstCredentials.token)).status, 401);
   assert.equal((await controlRequest(firstCredentials.controlToken, "stale-instance")).status, 400);
   assert.ok(!JSON.stringify(snapshot).includes(firstCredentials.controlToken));
+  const mcpUrl = firstCredentials.controlUrl.replace("/control/v1", "/mcp");
+  let mcpSession;
+  const mcpRequest = (message) =>
+    fetch(mcpUrl, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${firstCredentials.controlToken}`,
+        "Content-Type": "application/json",
+        Accept: "application/json, text/event-stream",
+        ...(mcpSession
+          ? { "Mcp-Session-Id": mcpSession, "Mcp-Protocol-Version": "2025-11-25" }
+          : {}),
+      },
+      body: JSON.stringify({ jsonrpc: "2.0", ...message }),
+    });
+  const initialized = await mcpRequest({
+    id: 1,
+    method: "initialize",
+    params: {
+      protocolVersion: "2025-11-25",
+      capabilities: {},
+      clientInfo: { name: "electron-test", version: "1" },
+    },
+  });
+  assert.equal(initialized.status, 200);
+  mcpSession = initialized.headers.get("mcp-session-id");
+  assert.ok(mcpSession);
+  assert.equal((await mcpRequest({ method: "notifications/initialized" })).status, 202);
+  const listed = await (
+    await mcpRequest({ id: 2, method: "tools/list", params: { _meta: { progressToken: 1 } } })
+  ).json();
+  assert.deepEqual(
+    listed.result.tools.map((tool) => tool.name),
+    ["whoami", "sessions", "session_state"],
+  );
+  const metadata = await (
+    await mcpRequest({ id: 3, method: "tools/call", params: { name: "sessions", arguments: {} } })
+  ).json();
+  assert.ok(metadata.result.structuredContent.sessions.some((row) => row.id === id));
+  for (const row of metadata.result.structuredContent.sessions) {
+    assert.equal(row.reason, row.state);
+    assert.equal("output" in row, false);
+    assert.equal("conversationId" in row, false);
+    assert.equal("signal" in row, false);
+  }
+  assert.ok(!JSON.stringify(metadata).includes(firstCredentials.controlToken));
+  const forbidden = await (
+    await mcpRequest({ id: 4, method: "tools/call", params: { name: "tail", arguments: { id } } })
+  ).json();
+  assert.equal(forbidden.result.isError, true);
+
   await page.evaluate(async (repository) => {
     const tree = await window.desktop.createWorktree(repository, "feature/newer", "adjacent");
     await window.desktop.launchAgent({
@@ -1625,6 +1676,7 @@ test("launches an agent in a managed worktree and routes its attention signals",
   });
   assert.equal(replay.status, 401);
   assert.equal((await controlRequest()).status, 401);
+  assert.equal((await mcpRequest({ id: 5, method: "tools/list" })).status, 401);
   await expect(agentRow).toHaveAttribute("data-state", "failed");
   await boardCommand(app, "B");
   for (const branch of ["finish-ok", "finish-failed"]) {

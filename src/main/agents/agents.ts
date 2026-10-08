@@ -1,3 +1,4 @@
+import { prepareMcpLaunch, supportsMcp } from "./mcp-launch";
 import { resumeArguments } from "./conversation";
 import type { ControlLaunch } from "../control/types";
 import { parseAgentArguments } from "./default-arguments";
@@ -106,6 +107,10 @@ async function detect(id: AgentId, path: string): Promise<AgentInstallation> {
       path: executable,
       version,
       hooks,
+      mcp: supportsMcp(id, version, help),
+      mcpReason: supportsMcp(id, version, help)
+        ? "Per-launch MCP supported; managed policy may deny attachment."
+        : "Unverified per-launch MCP support; attachment unavailable.",
       inline: id === "codex" && /(?:^|\s)--no-alt-screen(?:[ =,]|$)/mu.test(help),
       reason: hooks
         ? "Per-launch hooks supported."
@@ -129,6 +134,7 @@ export class AgentService {
   private closed = false;
   private readonly occupied = new Set<string>();
   private readonly launched = new Map<string, string>();
+  private readonly mcpBindings = new Map<string, { dispose(): void }>();
   private readonly controls = new Map<string, ControlLaunch>();
   private readonly earlyExits = new Set<string>();
   private starting = 0;
@@ -224,12 +230,15 @@ export class AgentService {
       );
     const binding = attach ? await attach(agent.id) : undefined;
     let control: ControlLaunch | undefined;
+    let mcp: Awaited<ReturnType<typeof prepareMcpLaunch>> | undefined;
     try {
       control = await this.prepareControl?.(
         request.repository,
         request.worktree,
         binding?.env["FOOM_SESSION"],
       );
+      if (control && agent.mcp)
+        mcp = await prepareMcpLaunch(agent.id, control.env["FOOM_CONTROL_URL"] ?? "");
       this.ensureOpen();
       if (
         request.checkoutIdentity !== undefined &&
@@ -237,7 +246,12 @@ export class AgentService {
           request.checkoutIdentity
       )
         throw new Error("Worktree has changed. Select it and try again.");
-      const args = [...resume, ...defaults, ...(agent.inline ? ["--no-alt-screen"] : [])];
+      const args = [
+        ...resume,
+        ...defaults,
+        ...(agent.inline ? ["--no-alt-screen"] : []),
+        ...(mcp?.args ?? []),
+      ];
       if (binding) {
         if (agent.id === "claude") {
           const hook = [{ hooks: [{ type: "command", command: binding.claudeCommand }] }];
@@ -270,11 +284,13 @@ export class AgentService {
       if (this.earlyExits.has(id)) {
         if (![...this.launched.values()].includes(request.worktree))
           this.occupied.delete(request.worktree);
+        mcp?.dispose();
         control?.dispose();
         binding?.dispose();
         return { id, attention: binding ? "hooks" : "evaluator" };
       }
       this.launched.set(id, request.worktree);
+      if (mcp) this.mcpBindings.set(id, mcp);
       if (control) {
         control.bind(id);
         this.controls.set(id, control);
@@ -285,6 +301,7 @@ export class AgentService {
       }
       return { id, attention: binding ? "hooks" : "evaluator" };
     } catch (error) {
+      mcp?.dispose();
       control?.dispose();
       binding?.dispose();
       throw error;
@@ -295,6 +312,8 @@ export class AgentService {
   release(id: string): void {
     const worktree = this.launched.get(id);
     if (!worktree && this.starting > 0) this.earlyExits.add(id);
+    this.mcpBindings.get(id)?.dispose();
+    this.mcpBindings.delete(id);
     this.controls.get(id)?.dispose();
     this.controls.delete(id);
     this.launched.delete(id);
