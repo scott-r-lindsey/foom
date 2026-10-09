@@ -1,37 +1,11 @@
+import { matchesSoundHeader, soundSizeLimit, SOUND_FILE_LIMIT } from "../../shared/sound-files";
+export { matchesSoundHeader, soundSizeLimit } from "../../shared/sound-files";
 import { constants } from "node:fs";
 import { lstat, mkdir, open, opendir, realpath, readFile, readdir } from "node:fs/promises";
-import { dirname, extname, join } from "node:path";
+import { dirname, join } from "node:path";
 import type { SoundEntry, SoundKind, SoundRead, SoundRequest } from "../../shared/sound";
 import { parseSoundRequest, SOUND_KINDS, soundName, validSoundFile } from "../../shared/sounds";
 
-export function soundSizeLimit(kind: SoundKind): number {
-  return (kind === "working" ? 8 : 2) * 1024 * 1024;
-}
-export function matchesSoundHeader(file: string, bytes: Buffer): boolean {
-  const starts = (text: string, at = 0) => bytes.toString("ascii", at, at + text.length) === text;
-  switch (extname(file).toLowerCase()) {
-    case ".wav":
-      return starts("RIFF") && starts("WAVE", 8);
-    case ".flac":
-      return starts("fLaC");
-    case ".ogg":
-      return (
-        starts("OggS") &&
-        (bytes.includes(Buffer.from("OpusHead")) || bytes.includes(Buffer.from("\x01vorbis")))
-      );
-    case ".opus":
-      return starts("OggS") && bytes.includes(Buffer.from("OpusHead"));
-    case ".mp3":
-      return (
-        (starts("ID3") && [2, 3, 4].includes(bytes[3] ?? 0)) ||
-        (bytes[0] === 0xff &&
-          ((bytes[1] ?? 0) & 0xe6) === 0xe2 &&
-          ((bytes[2] ?? 0) & 0xf0) !== 0xf0)
-      );
-    default:
-      return false;
-  }
-}
 /** All paths stay in main. Bounded reads use the inspected open descriptor, not a second open. */
 export class SoundLibrary {
   constructor(
@@ -120,7 +94,7 @@ export class SoundLibrary {
       for await (const entry of entries) {
         if (validSoundFile(entry.name) && (entry.isFile() || entry.isSymbolicLink()))
           result.push(entry.name);
-        if (result.length === 100) break;
+        if (result.length === SOUND_FILE_LIMIT) break;
       }
     } catch {
       /* An unavailable folder is an empty catalog; selected files still explain fallback. */
