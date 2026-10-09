@@ -6152,6 +6152,11 @@ test("legacy inference profiles upgrade without evaluator controls or stored key
   );
   for (const provider of ["anthropic", "openai", "google"])
     await writeFile(path.join(root, `inference-${provider}.key`), Buffer.from([0, 128, 255]));
+  const temporary = path.join(
+    root,
+    "inference-openai.key.12345678-1234-4234-8234-123456789abc.tmp",
+  );
+  await writeFile(temporary, Buffer.from([0, 128, 255]));
   const app = await launchApp(context, false, {
     args: [`--user-data-dir=${root}`],
     emptyBoard: true,
@@ -6167,6 +6172,7 @@ test("legacy inference profiles upgrade without evaluator controls or stored key
     await assert.rejects(readFile(path.join(root, `inference-${provider}.key`)), {
       code: "ENOENT",
     });
+  await assert.rejects(readFile(temporary), { code: "ENOENT" });
   assert.doesNotMatch(await readFile(path.join(root, "settings.json"), "utf8"), /inference/);
   assert.deepEqual(
     await page.evaluate(() =>
@@ -6181,7 +6187,7 @@ test("legacy inference profiles upgrade without evaluator controls or stored key
   await page.reload();
   await page.getByRole("button", { name: "Start preflight" }).waitFor();
   await expect(
-    page.getByRole("navigation", { name: "Preflight steps" }).getByRole("button"),
+    page.getByRole("navigation", { name: "Preflight steps" }).locator("ol").getByRole("button"),
   ).toHaveCount(5);
   await expect(page.getByText(/Evaluator|Run check|API key/)).toHaveCount(0);
 });

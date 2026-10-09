@@ -6,7 +6,7 @@ import {
 import { isConfigSetting, parseConfigSettings } from "../../shared/config-settings";
 import { DEFAULT_SOUND, migrateSoundSettings } from "../../shared/sounds";
 import { randomUUID } from "node:crypto";
-import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { mkdir, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
 import { dirname, isAbsolute, join } from "node:path";
 import type { AgentId } from "../../shared/agents";
 import type { Settings, SettingsPatch } from "../../shared/setup";
@@ -86,9 +86,18 @@ export class SettingsStore {
 
   /** Missing, corrupt or unsupported state starts from defaults, so setup runs again. */
   static async open(userData: string): Promise<SettingsStore> {
-    // Remove ciphertext without decrypting it or depending on OS key storage.
-    for (const provider of ["anthropic", "openai", "google"])
-      await rm(join(userData, `inference-${provider}.key`), { force: true });
+    // Remove ciphertext, including interrupted atomic writes, without decrypting it.
+    const files = await readdir(userData).catch((error: unknown) => {
+      if (error instanceof Error && "code" in error && error.code === "ENOENT") return [];
+      throw error;
+    });
+    const temporaryKey =
+      /^inference-(?:anthropic|openai|google)\.key\.[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.tmp$/;
+    const keys = [
+      ...["anthropic", "openai", "google"].map((provider) => `inference-${provider}.key`),
+      ...files.filter((file) => temporaryKey.test(file)),
+    ];
+    for (const file of keys) await rm(join(userData, file), { force: true });
     const store = new SettingsStore(join(userData, "settings.json"));
     let migrated = false;
     try {

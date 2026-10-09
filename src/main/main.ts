@@ -347,7 +347,7 @@ async function buildWindow(savedSize?: Size, saved?: WindowPlacement, initialSes
       acknowledgeCodex: async () => {
         await settings.update({ codexNotifierAcknowledged: true });
       },
-      // Rules first, then whatever model tier setup has configured.
+      // Local rules classify each terminal; the log stores verdict metadata only.
       verdicts: new VerdictLog(app.getPath("userData")),
       control: () =>
         ControlRuntime.start(app.getPath("userData"), () => workspace.snapshot().terminals, {

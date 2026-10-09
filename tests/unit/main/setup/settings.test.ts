@@ -278,20 +278,29 @@ test("legacy sources and limits are dropped and ciphertext is removed idempotent
         setupComplete: true,
         hooks: false,
         interfaceScale: 120,
+        inference: { kind: "openai", model: "saved-model" },
         inferenceTimeoutMs: 15000,
       },
     }),
   );
   for (const provider of ["anthropic", "openai", "google"])
     await writeFile(path.join(dir, `inference-${provider}.key`), Buffer.from([0, 128, 255]));
-  await writeFile(path.join(dir, "unrelated.key"), "keep");
+  const temporary = "inference-openai.key.12345678-1234-4234-8234-123456789abc.tmp";
+  await writeFile(path.join(dir, temporary), Buffer.from([0, 128, 255]));
+  const unrelated = [
+    "unrelated.key",
+    "inference-openai.key.not-a-uuid.tmp",
+    "inference-other.key.12345678-1234-4234-8234-123456789abc.tmp",
+  ];
+  for (const file of unrelated) await writeFile(path.join(dir, file), "keep");
   for (let attempt = 0; attempt < 2; attempt++) {
     const store = await SettingsStore.open(dir);
     expect(store.get()).toMatchObject({ setupComplete: true, hooks: false, interfaceScale: 120 });
     expect(store.get()).not.toHaveProperty("inference");
     expect(store.get()).not.toHaveProperty("inferenceTimeoutMs");
     expect(await readdir(dir)).toEqual(expect.arrayContaining(["settings.json", "unrelated.key"]));
-    expect((await readdir(dir)).filter((name) => name.startsWith("inference-"))).toEqual([]);
+    expect((await readdir(dir)).sort()).toEqual(["settings.json", ...unrelated].sort());
+    for (const file of unrelated) expect(await readFile(path.join(dir, file), "utf8")).toBe("keep");
     expect(await readFile(file, "utf8")).not.toContain("inference");
   }
   for (const patch of [{ inference: { kind: "rules" } }, { inferenceTimeoutMs: 5000 }])
@@ -305,4 +314,12 @@ test("key cleanup fails closed without recursively deleting unexpected directori
   await writeFile(path.join(unexpected, "keep"), "keep");
   await expect(SettingsStore.open(dir)).rejects.toThrow();
   expect(await readFile(path.join(unexpected, "keep"), "utf8")).toBe("keep");
+});
+
+test("key migration reports unreadable profile directories", async () => {
+  const dir = await directory();
+  const file = path.join(dir, "not-a-directory");
+  await writeFile(file, "keep");
+  await expect(SettingsStore.open(file)).rejects.toThrow();
+  expect(await readFile(file, "utf8")).toBe("keep");
 });

@@ -790,7 +790,8 @@ Use Electron `safeStorage` for any secret Foom stores; never store plaintext or 
 secrets to the renderer. Foom sends no terminal content to models or network services.
 On profile load, `SettingsStore` drops legacy `inference` and `inferenceTimeoutMs`
 fields and atomically saves the migrated settings. It deletes the three fixed
-`inference-{anthropic,openai,google}.key` ciphertext files without decrypting them.
+`inference-{anthropic,openai,google}.key` ciphertext files and strictly UUID-named
+temporary key files left by interrupted writes, without decrypting them. Unrelated files are preserved.
 Cleanup is idempotent and does not require OS encryption to be available; deletion
 errors fail startup instead of silently retaining secrets. Removed setup key/probe
 IPC channels have no handlers, and inference fields remain invalid in IPC patches.
