@@ -108,7 +108,8 @@ test("completion is audible in the focused tile while focused attention is muted
   const second = rows[1];
   if (!first || !second) throw Error("Missing terminal rows");
   fireEvent.click(first);
-  fireEvent.click(view.getByRole("button", { name: "Split right" }));
+  fireEvent.click(view.getByRole("button", { name: "Tile 1 menu" }));
+  fireEvent.click(view.getByRole("menuitem", { name: "Split right" }));
   fireEvent.click(second);
   act(() => {
     source.update("b", {

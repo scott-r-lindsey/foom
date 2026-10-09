@@ -76,8 +76,9 @@ test("foreign selection focuses its owner while local selection persists a per-w
   expect(
     leaves(restoreLayout(localStorage.getItem(`${TILE_STORAGE}.test-window`)).tree)[0]?.session,
   ).toBe(f.rows[0].id);
+  fireEvent.click(view.getByRole("button", { name: "Tile 1 menu" }));
   await act(async () => {
-    fireEvent.click(view.getByRole("button", { name: "Move to new window" }));
+    fireEvent.click(view.getByRole("menuitem", { name: "Move to new window" }));
     await Promise.resolve();
   });
   expect(f.windows.popout).toHaveBeenCalledWith(f.rows[0].id);
@@ -101,8 +102,9 @@ test("opens the popout's initial session once inventory arrives and reports oper
   });
   expect(f.windows.select).toHaveBeenCalledOnce();
   f.windows.popout.mockRejectedValueOnce(new Error("load failed"));
+  fireEvent.click(view.getByRole("button", { name: "Tile 1 menu" }));
   await act(async () => {
-    fireEvent.click(view.getByRole("button", { name: "Move to new window" }));
+    fireEvent.click(view.getByRole("menuitem", { name: "Move to new window" }));
     await Promise.resolve();
   });
   expect(view.getByRole("alert").textContent).toContain("Unable to move");
@@ -115,8 +117,9 @@ test("opens the popout's initial session once inventory arrives and reports oper
   });
   expect(view.getByRole("alert").textContent).toContain("Unable to select");
   f.windows.sync.mockResolvedValueOnce([]);
+  fireEvent.click(view.getByRole("button", { name: "Tile 1 menu" }));
   await act(async () => {
-    fireEvent.click(view.getByRole("button", { name: "Split right" }));
+    fireEvent.click(view.getByRole("menuitem", { name: "Split right" }));
     await Promise.resolve();
   });
   expect(view.container.querySelectorAll(".terminal-tile[data-empty=false]")).toHaveLength(0);

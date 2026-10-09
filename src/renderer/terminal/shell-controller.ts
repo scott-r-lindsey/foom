@@ -159,6 +159,9 @@ export function createShell(
   const resize = () => {
     if (!attached || busy) return;
     fit.fit();
+    view.cols = terminal.cols;
+    view.rows = terminal.rows;
+    publish();
     fontResizePending = false;
     if (activeId) window.desktop.resize(activeId, terminal.cols, terminal.rows);
   };
@@ -209,6 +212,9 @@ export function createShell(
     updateTheme();
     visibility(true);
     fit.fit();
+    view.cols = terminal.cols;
+    view.rows = terminal.rows;
+    publish();
     fontResizePending = false;
     window.desktop.resize(id, terminal.cols, terminal.rows);
     await window.desktop.attach(id);
@@ -257,6 +263,9 @@ export function createShell(
       // The view must be visible to measure the initial grid.
       container.hidden = false;
       fit.fit();
+      view.cols = terminal.cols;
+      view.rows = terminal.rows;
+      publish();
       const created = await window.desktop.create(terminal.cols, terminal.rows);
       if (isDisposed()) {
         await window.desktop.kill(created.id);

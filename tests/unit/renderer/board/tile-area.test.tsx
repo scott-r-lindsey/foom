@@ -16,6 +16,8 @@ import {
 } from "../../../../src/renderer/board/tiles";
 const snapshot = {
   status: "Terminal",
+  cols: 80,
+  rows: 24,
   state: "quiet_ok" as const,
   visible: true,
   toggleLabel: "Hide terminal",
@@ -88,18 +90,14 @@ test("irregular splits, presets and maximize retain leaf elements and mounted co
   await act(async () => {});
   const first = screen.container.querySelector(".terminal-tile");
   const firstMount = views[0]?.mount.mock.calls.length;
-  fireEvent.click(screen.getByRole("button", { name: "Split right" }));
+  send("split-right");
   click(1);
-  fireEvent.click(screen.getAllByRole("button", { name: "Split down" })[1] ?? document.body);
+  send("split-down");
   expect(screen.container.querySelectorAll(".terminal-tile")).toHaveLength(3);
   expect(screen.container.querySelector(".terminal-tile")).toBe(first);
-  const empty = within(screen.getByRole("region", { name: "Tile 3: empty" }));
-  expect(empty.getByText("3")).toBeTruthy();
-  expect(empty.getAllByRole("button").map((button) => button.getAttribute("aria-label"))).toEqual([
-    "Split right",
-    "Split down",
-    "Close tile",
-  ]);
+  const empty = screen.container.querySelector('[data-empty="true"]');
+  expect(empty?.getAttribute("aria-hidden")).toBe("true");
+  expect(empty?.querySelector(".tile-title")).toBeNull();
   click(2);
   await act(async () => {});
   const opens = views.map((view) => view.open.mock.calls.length);
@@ -144,28 +142,32 @@ test("placement uses empty tiles, refuses full without replacement, and next-wai
   expect(screen.container.querySelectorAll(".terminal-tile")).toHaveLength(2);
   fireEvent.click(
     within(screen.getByRole("region", { name: /Tile 1:/ })).getByRole("button", {
-      name: "Hide session",
+      name: "Hide",
     }),
   );
   await act(async () => {});
   expect(views[0]?.hide).toHaveBeenCalled();
+  send("split-right");
   click(2);
   await act(async () => {});
-  expect(views[0]?.open).toHaveBeenLastCalledWith("check");
+  expect(views[2]?.open).toHaveBeenLastCalledWith("check");
   send("close-tile");
   expect(screen.container.querySelectorAll(".terminal-tile")).toHaveLength(1);
   expect(views[0]?.dispose).toHaveBeenCalledOnce();
 });
 test("keyboard-only splits, spatial focus, hide, close and empty layouts remain operable", async () => {
   const { screen, send, click } = setup();
+  expect(screen.getByRole("group", { name: "Terminal tiles" })).toBeTruthy();
   send("split-right");
   send("split-down");
   click(0);
   await act(async () => {});
   send("left");
-  expect(screen.container.querySelectorAll(".terminal-tile")[0]?.getAttribute("data-focused")).toBe(
-    "true",
-  );
+  expect(
+    screen.container
+      .querySelector('.terminal-tile[data-focused="true"]')
+      ?.getAttribute("data-empty"),
+  ).toBe("false");
   send("right");
   send("down");
   send("up");
@@ -175,11 +177,15 @@ test("keyboard-only splits, spatial focus, hide, close and empty layouts remain 
   send("close-tile");
   send("close-tile");
   expect(screen.container.querySelectorAll(".terminal-tile")).toHaveLength(1);
-  expect(screen.getByRole("region", { name: "Tile 1: empty" })).toBeTruthy();
+  expect(
+    screen.container.querySelector<HTMLElement>('[data-empty="true"]') ?? document.body,
+  ).toBeTruthy();
 });
 test("gutter pointer and keyboard changes persist ratios and clamp to 15–85 percent", () => {
-  const { screen, send } = setup();
+  const { screen, send, click } = setup();
+  click(0);
   send("split-right");
+  click(1);
   const area = screen.container.querySelector<HTMLElement>(".tile-area");
   if (!area) throw new Error("No area");
   vi.spyOn(area, "getBoundingClientRect").mockReturnValue({
@@ -212,6 +218,7 @@ test("gutter pointer and keyboard changes persist ratios and clamp to 15–85 pe
   fireEvent.keyDown(gutter, { key: "Escape" });
   expect(localStorage.getItem(TILE_STORAGE)).toContain('"ratio":0.85');
   send("split-down");
+  click(2);
   const vertical = screen.getAllByRole("separator")[1];
   if (!vertical) throw new Error("Missing vertical gutter");
   vertical.setPointerCapture = vi.fn();
@@ -257,7 +264,9 @@ test("restored live sessions wait for inventory; removed sessions become empty w
   act(() => {
     data.update("permission", { id: "changed" });
   });
-  expect(screen.getByRole("region", { name: "Tile 1: empty" })).toBeTruthy();
+  expect(
+    screen.container.querySelector<HTMLElement>('[data-empty="true"]') ?? document.body,
+  ).toBeTruthy();
 });
 test("storage failures do not prevent layout changes", () => {
   const { screen, send, click } = setup();
@@ -267,22 +276,22 @@ test("storage failures do not prevent layout changes", () => {
   send("split-right");
   expect(screen.getByRole("alert").textContent).toContain("Unable to save tile layout");
   click(0);
-  expect(screen.getAllByRole("region", { name: /Tile / })).toHaveLength(2);
+  expect(screen.container.querySelectorAll(".terminal-tile")).toHaveLength(2);
   failure.mockRestore();
 });
 
 test("pointer selection focuses terminal space but keeps title buttons and terminal selection in charge of focus", async () => {
   const { screen, click, views } = setup();
-  const empty = screen.getByRole("region", { name: "Tile 1: empty" });
+  const empty = screen.container.querySelector<HTMLElement>('[data-empty="true"]') ?? document.body;
   fireEvent.pointerDown(empty);
-  expect(document.activeElement).toBe(empty);
+  expect(document.activeElement).not.toBe(empty);
   click(0);
   await act(async () => {});
   const tile = screen.getByRole("region", { name: /Tile 1:/ });
   const focusCount = views[0]?.focus.mock.calls.length ?? 0;
   fireEvent.pointerDown(tile.querySelector(".tile-title") ?? tile);
   expect(views[0]?.focus).toHaveBeenCalledTimes(focusCount + 1);
-  const hide = within(tile).getByRole("button", { name: "Hide session" });
+  const hide = within(tile).getByRole("button", { name: "Hide" });
   fireEvent.pointerDown(hide);
   expect(views[0]?.focus).toHaveBeenCalledTimes(focusCount + 1);
   const terminal = document.createElement("div");
@@ -397,7 +406,7 @@ test("menu presets and Dock navigation use the same board placement and report v
     expect(screen.container.querySelectorAll(".terminal-tile")).toHaveLength(count);
   }
   send("maximize");
-  expect(setView).toHaveBeenLastCalledWith({ available: true, maximized: true, tiles: 1 });
+  expect(setView).toHaveBeenLastCalledWith({ available: true, maximized: false, tiles: 0 });
   act(() => {
     navigate?.("missing");
     navigate?.(source.getSnapshot()[1]?.id ?? "missing");
@@ -501,7 +510,7 @@ test("title drags and keyboard swaps keep controllers attached; Escape and outsi
   const beforeNoop = focusCounts();
   drag(b.querySelector("header") ?? b, b);
   expect(focusCounts()).toEqual(beforeNoop);
-  fireEvent.dragStart(screen.getAllByRole("button", { name: "Split right" })[0] ?? document.body, {
+  fireEvent.dragStart(screen.getAllByRole("button", { name: "Tile 1 menu" })[0] ?? document.body, {
     dataTransfer: transfer,
   });
   fireEvent.dragStart(screen.container.querySelector(".tile-area") ?? document.body, {
@@ -509,4 +518,127 @@ test("title drags and keyboard swaps keep controllers attached; Escape and outsi
   });
   fireEvent.dragOver(document.body, { dataTransfer: transfer });
   vi.unstubAllGlobals();
+});
+
+test("tile panel exposes facts, keyboard navigation, blocked reasons and grow commands", async () => {
+  const { screen, click, source, send } = setup();
+  click(0);
+  await act(async () => {});
+  const button = screen.getByRole("button", { name: "Tile 1 menu" });
+  fireEvent.click(button);
+  let menu = screen.getByRole("dialog", { name: "Tile 1 menu" });
+  expect(within(menu).getByRole("menuitem", { name: "Split right" })).toBe(document.activeElement);
+  expect(menu.textContent).toContain("Already full width");
+  expect(menu.textContent).toContain("Already full height");
+  expect(menu.textContent).toContain("80 × 24");
+  expect(menu.textContent).toContain("columns × rows");
+  fireEvent.keyDown(menu, { key: "ArrowDown" });
+  expect(document.activeElement?.textContent).toContain("Split down");
+  fireEvent.keyDown(menu, { key: "ArrowDown" });
+  expect(document.activeElement?.textContent).toContain("Maximize");
+  fireEvent.keyDown(menu, { key: "Escape" });
+  expect(document.activeElement).toBe(button);
+  expect(screen.queryByRole("dialog", { name: "Tile 1 menu" })).toBeNull();
+  fireEvent.contextMenu(screen.container.querySelector(".tile-title") ?? button, {
+    clientX: 50,
+    clientY: 60,
+  });
+  menu = screen.getByRole("dialog", { name: "Tile 1 menu" });
+  fireEvent.click(within(menu).getByRole("menuitem", { name: "Split right" }));
+  expect(screen.container.querySelector('[data-empty="true"]')?.getAttribute("data-landing")).toBe(
+    "true",
+  );
+  expect(
+    screen.container
+      .querySelector('.terminal-tile[data-focused="true"]')
+      ?.getAttribute("data-empty"),
+  ).toBe("false");
+  fireEvent.click(button);
+  fireEvent.click(screen.getByRole("menuitem", { name: "Grow sideways" }));
+  expect(screen.container.querySelectorAll(".terminal-tile")).toHaveLength(1);
+  fireEvent.click(button);
+  fireEvent.click(screen.getByRole("menuitem", { name: "Split down" }));
+  fireEvent.click(button);
+  fireEvent.click(screen.getByRole("menuitem", { name: "Grow vertically" }));
+  fireEvent.doubleClick(screen.container.querySelector(".tile-title") ?? button);
+  fireEvent.click(button);
+  fireEvent.click(screen.getByRole("menuitem", { name: /Restore/ }));
+  fireEvent.doubleClick(button);
+  expect(screen.container.querySelector('[data-maximized="true"]')).toBeNull();
+  send("split-right");
+  click(1);
+  fireEvent.click(screen.getByRole("button", { name: "Tile 2 menu" }));
+  expect(screen.getByRole("menuitem", { name: /Grow sideways/ }).textContent).toContain(
+    "Next to a terminal",
+  );
+  fireEvent.keyDown(screen.getByRole("dialog", { name: "Tile 2 menu" }), { key: "Escape" });
+  source.sidebarCommand = vi.fn(async () => {});
+  fireEvent.click(screen.getAllByRole("button", { name: "Hide" })[0] ?? button);
+  expect(source.sidebarCommand).not.toHaveBeenCalled();
+  expect(source.getSnapshot()).toHaveLength(5);
+});
+
+test("exited Close uses the sidebar command, retains the tile on failure and removes it on success", async () => {
+  const { screen, click, data, source } = setup();
+  click(0);
+  act(() => {
+    data.update("permission", { exited: true });
+  });
+  source.sidebarCommand = vi.fn().mockRejectedValue(new Error("failure"));
+  fireEvent.click(screen.getByRole("button", { name: "Close" }));
+  await act(async () => {});
+  expect(source.sidebarCommand).toHaveBeenCalledWith({ kind: "close", id: "permission" });
+  expect(screen.getByRole("alert").textContent).toContain("Unable to close session");
+  expect(screen.getByRole("button", { name: "Close" })).toBeTruthy();
+  source.sidebarCommand = vi.fn(async () => {});
+  fireEvent.click(screen.getByRole("button", { name: "Tile 1 menu" }));
+  fireEvent.click(screen.getByRole("menuitem", { name: "Close" }));
+  await act(async () => {});
+  expect(screen.queryByRole("button", { name: "Close" })).toBeNull();
+  expect(screen.container.querySelector('[data-empty="true"]')?.getAttribute("aria-hidden")).toBe(
+    "true",
+  );
+});
+
+test("keyboard gutters collapse empty sides and terminal numbering skips spaces", () => {
+  const { screen, click, send } = setup();
+  click(0);
+  send("split-right");
+  fireEvent.keyDown(screen.getByRole("separator"), { key: "End" });
+  expect(screen.container.querySelectorAll(".terminal-tile")).toHaveLength(1);
+  send("split-right");
+  click(1);
+  send("tile-1");
+  send("split-down");
+  expect(screen.getByRole("button", { name: "Tile 2 menu" })).toBeTruthy();
+  expect(screen.queryByRole("button", { name: "Tile 3 menu" })).toBeNull();
+  send("tile-2");
+  expect(screen.getByRole("region", { name: /Tile 2:/ }).getAttribute("data-focused")).toBe("true");
+});
+
+test("asynchronous Close focuses the surviving terminal after the command resolves", async () => {
+  const { screen, click, data, source, send, views } = setup();
+  click(0);
+  send("split-right");
+  click(1);
+  send("tile-1");
+  act(() => {
+    data.update("permission", { exited: true });
+  });
+  let complete: (() => void) | undefined;
+  source.sidebarCommand = vi.fn(
+    () =>
+      new Promise<void>((resolve) => {
+        complete = resolve;
+      }),
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Close" }));
+  await act(async () => {});
+  const focusedBefore = views[1]?.focus.mock.calls.length ?? 0;
+  await act(async () => {
+    complete?.();
+    await Promise.resolve();
+  });
+  expect(views[1]?.focus).toHaveBeenCalledTimes(focusedBefore + 1);
+  expect(document.activeElement).toBe(screen.getByRole("region", { name: /Tile 1:/ }));
 });

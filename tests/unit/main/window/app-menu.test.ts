@@ -190,11 +190,13 @@ test("packaged execution rejects developer commands and validates view state bef
     { available: true },
     { available: true, maximized: false },
     { available: true, maximized: false, tiles: "1" },
-    { available: true, maximized: false, tiles: 0 },
+    { available: true, maximized: false, tiles: -1 },
     { available: true, maximized: false, tiles: 257 },
     { available: true, maximized: false, tiles: 1.5 },
   ])
     expect(() => f.invoke("view", state)).toThrow("Invalid");
+  f.invoke("view", { available: true, maximized: false, tiles: 0 });
+  expect(() => f.invoke("execute", "tile-1")).toThrow("Unavailable");
   f.invoke("view", { available: true, maximized: true, tiles: 2 });
   expect(f.invoke("list")).toEqual(
     expect.arrayContaining([

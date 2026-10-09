@@ -87,12 +87,22 @@ Tests live outside `src/`; production compilation excludes them. Coverage still 
 
 Each leaf of the split tree owns one persistent xterm controller. Sidebar selection
 is independent of presentation. `tiles.ts` implements immutable split, close,
-placement, drop-to-split, whole-leaf swap/move, preset, geometry and restore operations. `tile-area.tsx` renders the
+placement, grow, space collapse, drop-to-split, whole-leaf swap/move, preset, geometry and restore operations. `tile-area.tsx` renders the
 leaves as a flat, keyed sibling list positioned by tree rectangles, rather than
 nesting React components under splits. Changing parent splits therefore never
 remounts surviving leaves. Presets retain the focused session first, then occupied
 leaves and empty leaves in tree order; maximize changes rectangles and opacity
-without changing attachments. Each attached terminal retains its own PTY size.
+without changing attachments. Empty leaves render as aria-hidden spaces without
+chrome or DOM focus. Split preserves terminal focus and records the newest space's
+ID as the landing spot; terminal-only tree order supplies numbers and navigation.
+Grow walks to the nearest split on its axis and rejects any occupied sibling.
+Gutters clamp occupied sides to 15–85%; empty sides can reach zero and collapse
+on pointer release or keyboard commit past 8%/92%. Each attached terminal retains
+its own PTY size. The controller publishes fitted columns/rows with its view
+snapshot for tile panel facts; terminal output and activity stay outside React.
+Tile panels reuse the sidebar panel's portal, keyboard navigation and styling.
+Hide removes the leaf without stopping its session; exited-only Close uses the
+existing validated sidebar command and retains the view if that command fails.
 Drag origins come only from local sidebar/title-bar gestures; external drag payloads
 are never interpreted. Drop-time inventory and tree lookups reject stale origins
 and targets. Edge drops obey the same depth and leaf limits as ordinary splits;
@@ -109,7 +119,8 @@ drain, reset, fit and attach. Settings detaches views without destroying their
 controllers. Hidden terminals keep consuming output in the host.
 
 Versioned `foom.tiles.v1.<window-id>` localStorage metadata stores the tree, ratios, leaf IDs,
-focus and terminal assignments. Restore validates untrusted JSON with size, depth,
+focus, optional landing-space ID and terminal assignments. The version stays at 1;
+existing empty tiles restore as spaces. Restore validates untrusted JSON with size, depth,
 node-count and uniqueness bounds; ratios clamp to 15–85%. Split construction
 shares the restore limits of 256 leaves and 64 levels, so every constructed tree
 can be restored. Missing sessions are
@@ -200,7 +211,7 @@ last one closes; Windows/Linux route the last close through confirmed quit.
 
 ## Terminals
 
-**Today:** `src/terminal-host/terminal-host.ts` runs `TerminalManager` in an Electron utility process, owning independent PTYs and headless screens by ID. `src/main/terminals/terminal-host-client.ts` brokers asynchronous operations in main over the parent port; it never imports node-pty or headless xterm. `src/main/terminals/terminal-ipc.ts` grants registered app windows access to app-owned terminals and enforces exclusive attachments. The renderer starts on an empty board, with no PTY until a launch is requested. Selecting a row places its session in an available tile or focuses its existing tile; Esc remains terminal input. Hiding or closing a tile, removing it through a preset, or entering Settings detaches the stream without stopping the shell. Placing another terminal in an empty tile or returning from Settings drains pending renderer writes, resets the display, fits the visible grid, and restores a fresh host snapshot before continuing the live stream. Input and resize events are suppressed while hidden or changing attachment. The manager and ID-scoped bridge support multiple concurrent sessions; the board consumes live worktree and verdict data. Closing a window detaches its views; the last window requests quit on Windows/Linux and keeps the app alive on macOS. Running terminals require confirmation; cancellation preserves the window and sessions. Confirmed quit stops each PTY and waits for its exit before disposing sessions and closing the window. On Unix, a PTY that ignores graceful termination receives a force-kill after one second. Windows uses ConPTY termination without Unix signals; once a termination request succeeds, shutdown and retries only drain its native exit callback, because closing a ConPTY handle twice can crash the host. A throwing termination request remains retryable. Failure to exit within five seconds leaves the app open with an error so quitting can be retried. Detached sessions continue running; navigation or a renderer crash automatically detaches views. PTY termination requests retain their process handles and exit subscriptions even after a terminal is removed from the board. Confirmed quit applies the same graceful termination and force-kill deadlines to these removed processes and waits for their pending native exits before closing the window; the `will-quit` barrier remains a final safeguard against native callbacks racing Node teardown on Windows.
+**Today:** `src/terminal-host/terminal-host.ts` runs `TerminalManager` in an Electron utility process, owning independent PTYs and headless screens by ID. `src/main/terminals/terminal-host-client.ts` brokers asynchronous operations in main over the parent port; it never imports node-pty or headless xterm. `src/main/terminals/terminal-ipc.ts` grants registered app windows access to app-owned terminals and enforces exclusive attachments. The renderer starts on an empty board, with no PTY until a launch is requested. Selecting a row places its session in an available tile or focuses its existing tile; Esc remains terminal input. Hiding a tile, removing it through a preset, or entering Settings detaches the stream without stopping the shell. Placing another terminal in an empty tile or returning from Settings drains pending renderer writes, resets the display, fits the visible grid, and restores a fresh host snapshot before continuing the live stream. Input and resize events are suppressed while hidden or changing attachment. The manager and ID-scoped bridge support multiple concurrent sessions; the board consumes live worktree and verdict data. Closing a window detaches its views; the last window requests quit on Windows/Linux and keeps the app alive on macOS. Running terminals require confirmation; cancellation preserves the window and sessions. Confirmed quit stops each PTY and waits for its exit before disposing sessions and closing the window. On Unix, a PTY that ignores graceful termination receives a force-kill after one second. Windows uses ConPTY termination without Unix signals; once a termination request succeeds, shutdown and retries only drain its native exit callback, because closing a ConPTY handle twice can crash the host. A throwing termination request remains retryable. Failure to exit within five seconds leaves the app open with an error so quitting can be retried. Detached sessions continue running; navigation or a renderer crash automatically detaches views. PTY termination requests retain their process handles and exit subscriptions even after a terminal is removed from the board. Confirmed quit applies the same graceful termination and force-kill deadlines to these removed processes and waits for their pending native exits before closing the window; the `will-quit` barrier remains a final safeguard against native callbacks racing Node teardown on Windows.
 
 - Each terminal has an ID, a PTY, and a headless xterm instance (`@xterm/headless`) that always consumes output. It holds the screen and scrollback, so a hidden agent never stalls.
 - The host forwards headless xterm protocol responses to the PTY while it is alive, independent of attachment. Views suppress the corresponding device-attribute, status, mode, and status-string query handlers so each query has exactly one response owner. Keyboard, paste, and mouse input remain renderer input; attachment changes never transfer query ownership.

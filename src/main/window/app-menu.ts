@@ -126,7 +126,7 @@ export function attachAppMenu(
       !("tiles" in state) ||
       typeof state.tiles !== "number" ||
       !Number.isInteger(state.tiles) ||
-      state.tiles < 1 ||
+      state.tiles < 0 ||
       state.tiles > 256
     )
       throw new Error("Invalid menu view state");

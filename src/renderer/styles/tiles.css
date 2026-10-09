@@ -226,3 +226,25 @@
   color: var(--ink);
   font-weight: 600;
 }
+.terminal-tile[data-landing="true"] {
+  background: color-mix(in srgb, var(--highlight) 5%, transparent);
+  border-color: color-mix(in srgb, var(--highlight) 40%, var(--line));
+}
+.terminal-tile[data-collapsing="true"] {
+  opacity: 0.35;
+}
+.command-reason {
+  display: block;
+  margin-top: 3px;
+  font-size: 10px;
+  color: var(--muted);
+}
+.sidebar-panel.app-menu .panel-facts {
+  min-width: 0;
+}
+.sidebar-panel.app-menu::before {
+  display: none;
+}
+.sidebar-panel.app-menu .panel-sub {
+  display: block;
+}

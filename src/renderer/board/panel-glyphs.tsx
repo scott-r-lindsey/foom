@@ -2,6 +2,13 @@ import { AgentBadge } from "./agent-badge";
 
 /** Command glyphs say what a command does; paths match docs/mockups/sidebar-panels.html. */
 const commandPaths = {
+  right: <path d="M2 2h12v12H2zM8 2v12M10 8h3M11 6l2 2-2 2" />,
+  down: <path d="M2 2h12v12H2zM2 8h12M8 10v3M6 11l2 2 2-2" />,
+  growx: <path d="M5 3h6v10H5zM1 8h4M11 8h4M3 6L1 8l2 2M13 6l2 2-2 2" />,
+  growy: <path d="M3 5h10v6H3zM8 1v4M8 11v4M6 3l2-2 2 2M6 13l2 2 2-2" />,
+  maximize: <path d="M6 2H2v4M10 2h4v4M2 10v4h4M14 10v4h-4" />,
+  popout: <path d="M8 3H2v11h11V8M8 2h6v6M14 2L7 9" />,
+  hide: <path d="M3 8h10" />,
   trash: <path d="M3 4.5h10M6.5 4.5V3h3v1.5M4.5 4.5l.7 8.5h5.6l.7-8.5M7 7v4M9 7v4" />,
   stop: <rect className="glyph-solid" x="4.5" y="4.5" width="7" height="7" rx="1.2" />,
   close: <path d="M4.5 4.5l7 7M11.5 4.5l-7 7" />,

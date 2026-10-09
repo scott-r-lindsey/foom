@@ -216,38 +216,53 @@ it collects input and does not grant destructive approval.
 
 The layout is a binary split tree. Each leaf is a tile with a stable identity and
 at most one session; each split has a horizontal or vertical direction and a ratio.
-Split right and Split down add an empty tile. Close tile gives its sibling the
-space and focuses the first tile in that sibling. Hide session empties the tile.
-These actions, including applying a preset, never stop a terminal. Hidden sessions keep running and retain their sidebar lights.
+Split right and Split down add empty space, keep focus in the original terminal,
+and make the newest space the landing spot. Hide removes a terminal's tile and gives
+its sibling the room; the session keeps running in the sidebar. For exited sessions,
+Close removes the tile and closes the session through the sidebar command. Tile
+chrome never stops a running process. Presets also leave hidden sessions running.
 
-Clicking a visible session focuses its tile. A hidden session fills the focused
-tile if empty, otherwise the first empty tile in tree order. When all tiles are
+Clicking a visible session focuses its tile. A hidden session fills the newest
+space (the landing spot), otherwise the first empty space in tree order. When all tiles are
 full, nothing is replaced: the sidebar row briefly shakes (disabled with reduced
 motion). Refusal plays immediately on each refused click when Alerts is enabled.
 
-Launching a session fills the focused empty tile, then the first empty tile, or
+Launching a session fills the landing spot, then the first empty space, or
 replaces the focused tile when all tiles are full. Its previous session becomes
 hidden and keeps running. Restart replaces the focused tile. The longest-waiting
 shortcut places that session in the focused tile and hides
 its previous occupant. If the waiting session was in another tile, that tile empties.
 
-Title bars show the state light, agent badge, location, session name and tile number.
-Location text shrinks first. Split right, Split down, Maximize, Move to new window, Hide session and
-Close tile controls appear on hover or focus. Empty tiles are dashed outlines with
-a transparent title bar showing the tile number and Split right, Split down and
-Close tile controls on hover or focus. Their bodies have no copy or launch buttons;
-Maximize, Move to new window and Hide session are omitted. Focus uses a violet border and brighter
-occupied title bar; Needs you uses an amber border that takes
-precedence, with a labelled, haloed light as a second state cue.
+Title bars show the state light, agent badge, location and session name, followed by
+an always-visible tile number with a chevron ("Tile N menu"). Maximize/Restore and
+Hide (running) or Close (exited) appear on hover, focus, or the focused tile.
+Double-clicking the title bar toggles maximize. Right-click opens the same tile
+panel at the pointer. The panel matches the sidebar panels: commands on the left,
+state and reason, live columns × rows, location and agent facts on the right.
+Commands are Split right/down, Grow sideways/vertically, Maximize/Restore, Move to
+new window when available, and Hide/Close. Grow absorbs the other side of the
+nearest split on its axis only if it contains no terminals. Disabled reasons are
+"Next to a terminal" or "Already full width" / "Already full height". The first
+enabled command receives focus; arrow keys navigate enabled commands; Escape
+returns focus to the tile menu button.
 
-Tiles are numbered in tree order and share their numbers with the sidebar. The
-focused tile's number is highlighted. Presets are One, Two side by side, Two
+Empty space is a dashed outline with no title bar, number or focus, hidden from
+accessibility navigation. The landing spot has a faint highlight. Sidebar placement
+fills it and focuses the terminal; dropping onto any empty space fills that space.
+Focus uses the highlight border and brighter occupied title bar; Needs you uses an
+amber border that takes precedence and a labelled, haloed light.
+
+Only terminals are numbered, in tree order, including sidebar numbers and number
+shortcuts. The focused tile's number is highlighted. Presets are One, Two side by side, Two
 stacked, Two by two, One and two, and One and three. They keep the focused session
 first, then other occupied leaves in tree order, then empty leaves. Existing leaves keep
 their views; additional leaves start empty, and sessions that no longer fit hide.
 
-Gutters drag between 15% and 85%. Focus a gutter and use its axis's arrow keys to
-resize by five percentage points; Home and End select the limits. Maximize expands
+Between two terminal-containing sides, gutters stay between 15% and 85%.
+An all-space side has no minimum. Below 8% (or above 92% for the second side),
+space previews collapse and is removed on release. Focus a gutter and use its
+axis's arrow keys to resize by five percentage points; Home/End select the limits
+and collapse an empty side. Keyboard changes commit immediately. Maximize expands
 one tile from its own position while the others fade and stay mounted and attached.
 Restoring returns to the saved split geometry. Reduced motion disables movement
 and refusal animation.
