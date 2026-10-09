@@ -5980,6 +5980,14 @@ test("custom theme files appear live, update selected colors and retain rejected
   };
   await writeFile(terminalFile, JSON.stringify(terminalTheme));
   await page.getByRole("button", { name: "Live terminal", exact: true }).click();
+  const choicesBounds = await page.getByRole("group", { name: "Terminal colors" }).boundingBox();
+  const previewBounds = await page.getByLabel("Terminal theme preview").boundingBox();
+  assert.ok(choicesBounds && previewBounds);
+  assert.ok(previewBounds.x > choicesBounds.x, "terminal preview stays beside the picker");
+  assert.ok(
+    Math.abs(previewBounds.y - choicesBounds.y) < 2,
+    "preview and picker share the top row",
+  );
   await expect(page.getByLabel("Terminal theme preview")).toHaveCSS(
     "background-color",
     "rgb(40, 42, 54)",

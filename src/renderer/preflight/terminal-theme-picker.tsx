@@ -33,31 +33,33 @@ export function TerminalThemePicker({
   const theme = resolveTerminalTheme(settings.terminalTheme, dark, catalog);
   return (
     <div className="terminal-theme-settings">
-      <div className="terminal-theme-choices" role="group" aria-label="Terminal colors">
-        {[...terminalThemeOptions, ...(catalog?.terminal ?? [])].map((option) => {
-          const palette = resolveTerminalTheme(option.id, dark, catalog);
-          return (
-            <button
-              type="button"
-              key={option.id}
-              aria-pressed={settings.terminalTheme === option.id}
-              onClick={() => {
-                onChange({ terminalTheme: option.id });
-              }}
-            >
-              {option.name}
-              <span className="terminal-theme-strip" aria-hidden="true">
-                <i style={{ backgroundColor: palette.background }} />
-                {ansiNames.slice(1, 8).map((name) => (
-                  <i key={name} style={{ backgroundColor: palette[name] }} />
-                ))}
-              </span>
-            </button>
-          );
-        })}
-        {typeof settings.terminalTheme !== "string" && <p>Custom theme</p>}
+      <div className="terminal-theme-picker-column">
+        <div className="terminal-theme-choices" role="group" aria-label="Terminal colors">
+          {[...terminalThemeOptions, ...(catalog?.terminal ?? [])].map((option) => {
+            const palette = resolveTerminalTheme(option.id, dark, catalog);
+            return (
+              <button
+                type="button"
+                key={option.id}
+                aria-pressed={settings.terminalTheme === option.id}
+                onClick={() => {
+                  onChange({ terminalTheme: option.id });
+                }}
+              >
+                {option.name}
+                <span className="terminal-theme-strip" aria-hidden="true">
+                  <i style={{ backgroundColor: palette.background }} />
+                  {ansiNames.slice(1, 8).map((name) => (
+                    <i key={name} style={{ backgroundColor: palette[name] }} />
+                  ))}
+                </span>
+              </button>
+            );
+          })}
+          {typeof settings.terminalTheme !== "string" && <p>Custom theme</p>}
+        </div>
+        <ThemeFilesStatus catalog={catalog} kind="terminal-theme" openFolder={openFolder} />
       </div>
-      <ThemeFilesStatus catalog={catalog} kind="terminal-theme" openFolder={openFolder} />
       <pre
         className="settings-terminal-preview"
         aria-label="Terminal theme preview"
