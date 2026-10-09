@@ -1,0 +1,654 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Foom Sidebar Panels</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo+Black&family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&display=swap">
+<style>
+/* Sidebar panels: every row (home shell, repository, checkout, worktree, session) opens one
+   panel to the right of the sidebar. Facts on top, the row's commands below.
+   Colors are the brand tokens from src/renderer/styles/tokens.css. */
+:root {
+  --bg: #f3f0fa; --surface: #e9e4f5; --line: #ddd6ee; --ink: #14101f; --muted: #625a7a;
+  --accent: #5b2bd9; --accent-deep: #3b1a99; --attention: #d98200; --attention-ink: #8c5000;
+  --done: #13804a; --done-ink: #0e6b3c; --failed: #d6166e; --failed-ink: #b0105a;
+  --idle: #b9b0d3; --badge: #4a4263; --badge-ink: #f4efff; --lift: #ffffff;
+  --shadow: rgba(40, 20, 90, .28);
+  --term-bg: #05040a; --term-ink: #f4efff; --term-dim: #6a6188; --term-acc: #c08bff;
+  --display: "Archivo Black", sans-serif;
+  --sans: "Geist", system-ui, sans-serif; --mono: "Geist Mono", ui-monospace, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #05040a; --surface: #0d0a17; --line: #251d3f; --ink: #f4efff; --muted: #9d93bd;
+    --accent: #9b6bff; --accent-deep: #7a3cff; --attention: #ffb23e; --attention-ink: #ffb23e;
+    --done: #6fe0a3; --done-ink: #6fe0a3; --failed: #ff2e88; --failed-ink: #ff2e88;
+    --idle: #4a4263; --badge: #3a3060; --badge-ink: #f4efff; --lift: #f4efff;
+    --shadow: rgba(0, 0, 0, .85);
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #05040a; --surface: #0d0a17; --line: #251d3f; --ink: #f4efff; --muted: #9d93bd;
+  --accent: #9b6bff; --accent-deep: #7a3cff; --attention: #ffb23e; --attention-ink: #ffb23e;
+  --done: #6fe0a3; --done-ink: #6fe0a3; --failed: #ff2e88; --failed-ink: #ff2e88;
+  --idle: #4a4263; --badge: #3a3060; --badge-ink: #f4efff; --lift: #f4efff;
+  --shadow: rgba(0, 0, 0, .85);
+  color-scheme: dark;
+}
+/* Everything else derives from the 19 theme colors, so every interface theme (and a custom one)
+   gets raised surfaces and tints without new theme keys. */
+:root {
+  --highlight: var(--accent);
+  --highlight-deep: var(--accent-deep);
+  --select: color-mix(in srgb, var(--highlight) 18%, var(--surface));
+  --halo: color-mix(in srgb, var(--attention) 25%, transparent);
+  --raised-top: color-mix(in srgb, var(--surface) 92%, var(--lift));
+  --raised-bottom: var(--surface);
+  --raised-line: color-mix(in srgb, var(--highlight) 25%, var(--line));
+  --raised-hover: color-mix(in srgb, var(--highlight) 12%, var(--raised-top));
+  /* Panel color: 1 vivid, .5 subtle, 0 plain. Scales decoration only; status chips keep their color. */
+  --tint: 1;
+  --chip-line: 32%;
+}
+:root[data-tint="subtle"] { --tint: .5; }
+:root[data-tint="plain"] { --tint: 0; }
+/* High Contrast and the OS "increase contrast" setting win over the preference: no decoration,
+   full-strength chip outlines. */
+:root[data-contrast="more"] { --tint: 0; --chip-line: 100%; }
+@media (prefers-contrast: more) { :root, :root[data-tint] { --tint: 0; --chip-line: 100%; } }
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; }
+body { background: var(--bg); color: var(--ink); font: 13px/1.4 var(--sans); }
+button, input, select { font: inherit; color: inherit; }
+button { cursor: pointer; }
+:focus-visible { outline: 2px solid var(--highlight); outline-offset: 1px; }
+/* The app is a desktop window; narrow viewers scroll it inside this frame. */
+.frame { height: 100%; overflow-x: auto; }
+.app { display: flex; height: 100%; min-width: 1100px; overflow: hidden; }
+
+/* Sidebar */
+.side { position: relative; z-index: 2; width: 300px; flex-shrink: 0; display: flex; flex-direction: column; background: var(--surface); border-right: 1px solid var(--line); }
+.head { display: flex; align-items: baseline; justify-content: space-between; padding: 16px 14px 10px; }
+.head b { font: 22px var(--display); font-weight: 400; color: var(--accent); }
+.head span { font: 11px var(--mono); color: var(--muted); }
+.tools { display: flex; gap: 6px; padding: 0 10px 10px; }
+.filter { flex: 1; display: flex; align-items: center; gap: 6px; height: 32px; padding: 0 8px; background: var(--bg); border: 1px solid var(--line); border-radius: 6px; color: var(--muted); }
+.filter input { flex: 1; min-width: 0; height: 28px; background: transparent; border: 0; outline: none; color: var(--ink); }
+.add { flex-shrink: 0; width: 32px; height: 32px; padding: 0; background: var(--bg); border: 1px solid var(--line); border-radius: 6px; font-size: 16px; }
+.tree { flex: 1; min-height: 0; overflow-y: auto; padding: 0 6px 10px; scrollbar-width: thin; scrollbar-color: var(--line) transparent; }
+.sep { height: 1px; margin: 8px; background: var(--line); }
+.row { position: relative; display: flex; align-items: center; gap: 2px; border-radius: 6px; }
+.row.sel { background: var(--select); }
+.row.peek:not(.sel) { background: color-mix(in srgb, var(--select) 55%, transparent); }
+.row.home, .row.repo { height: 30px; padding: 0 4px 0 2px; }
+.row.wt { height: 28px; padding: 0 4px 0 16px; }
+.row.term { align-items: flex-start; }
+.row.term.dim { opacity: .65; }
+.chev { flex-shrink: 0; width: 20px; height: 22px; padding: 0; background: transparent; border: 0; color: var(--muted); font-size: 11px; }
+.name { flex: 1; min-width: 0; display: flex; align-items: center; gap: 6px; height: 26px; padding: 0; background: transparent; border: 0; text-align: left; }
+.name > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.repo .name { font-weight: 600; }
+.home .name { font: 500 12.5px var(--mono); }
+.home .name small { font: 11px var(--mono); color: var(--muted); }
+.wt .name { font: 12.5px var(--mono); }
+.icon { flex-shrink: 0; stroke: var(--muted); fill: none; }
+.count { flex-shrink: 0; padding: 0 4px; font: 11px var(--mono); color: var(--muted); }
+.light { flex-shrink: 0; width: 8px; height: 8px; border-radius: 50%; background: var(--idle); }
+.light.needs { background: var(--attention); box-shadow: 0 0 0 4px var(--halo); }
+.light.working { background: var(--accent); box-shadow: 0 0 8px var(--accent); }
+.light.done { background: var(--done); }
+.light.failed { background: var(--failed); border-radius: 2px; }
+.roll { margin-right: 4px; }
+.session { flex: 1; min-width: 0; display: flex; gap: 8px; align-items: flex-start; padding: 6px 4px 6px 40px; background: transparent; border: 0; text-align: left; }
+.home-term .session { padding-left: 24px; }
+.session .light { margin-top: 4px; width: 9px; height: 9px; }
+.lines { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.top { display: flex; align-items: center; gap: 6px; font: 12px var(--mono); }
+.tile-no { margin-left: auto; min-width: 16px; height: 16px; padding: 0 4px; display: inline-grid; place-items: center; border: 1px solid var(--line); border-radius: 4px; font: 10px var(--mono); color: var(--muted); }
+.reason { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; color: var(--muted); }
+.reason.needs { color: var(--attention-ink); }
+.reason.done { color: var(--done-ink); }
+.reason.failed { color: var(--failed-ink); }
+/* One badge everywhere (docs/agent-marks.md): 20px slot, 24px minimum width, 11px Geist Mono semibold. */
+.badge { flex-shrink: 0; min-width: 24px; height: 20px; padding: 0 4px; display: inline-flex; align-items: center; justify-content: center; border-radius: 4px; background: var(--badge); color: var(--badge-ink); font: 600 11px var(--mono); }
+.foot { display: flex; gap: 4px; padding: 10px 10px 12px; border-top: 1px solid var(--line); }
+.foot button { flex: 1; height: 32px; background: transparent; border: 1px solid transparent; border-radius: 6px; color: var(--muted); }
+
+/* The ⋯ button: on hover, focus, selection, or while its panel is open. */
+.act { flex-shrink: 0; width: 24px; height: 24px; padding: 0; display: grid; place-items: center; background: transparent; border: 1px solid var(--line); border-radius: 5px; color: var(--muted); opacity: 0; transition: opacity 120ms ease, background-color 120ms ease, border-color 120ms ease; }
+.term .act { margin: 5px 4px 0 0; }
+.row:hover .act, .row:focus-within .act, .row.sel .act, .row.peek .act { opacity: 1; }
+.act:hover { background: var(--select); color: var(--ink); }
+.act[aria-expanded="true"] { background: var(--select); border-color: var(--highlight); color: var(--ink); }
+
+/* The panel: right of its row, over the tiles, pointing back at the row. */
+.panel { position: absolute; z-index: 30; width: 720px; padding: 4px; background: linear-gradient(180deg, var(--raised-top), var(--raised-bottom)); border: 1px solid var(--raised-line); border-radius: 10px; box-shadow: 0 1px 0 rgba(255, 255, 255, .05) inset, 0 22px 48px -12px var(--shadow), 0 8px 16px -8px var(--shadow), 0 0 28px -8px color-mix(in srgb, var(--highlight) calc(40% * var(--tint)), transparent); transform-origin: 0 var(--n); animation: panel-in 160ms cubic-bezier(.2, .8, .2, 1) both; }
+.panel::before { content: ""; position: absolute; left: -6px; top: calc(var(--n) - 5px); width: 10px; height: 10px; background: var(--raised-top); border-left: 1px solid var(--raised-line); border-bottom: 1px solid var(--raised-line); transform: rotate(45deg); }
+.panel[data-pinned="true"] { border-color: color-mix(in srgb, var(--highlight) 55%, var(--raised-line)); }
+.panel { overflow: visible; }
+/* The header is a tinted band with an accent hairline; the command rail is a shade deeper than the facts. */
+.p-head { position: relative; display: flex; align-items: center; gap: 10px; padding: 12px 16px; border-bottom: 1px solid var(--line); border-radius: 7px 7px 0 0; background: linear-gradient(100deg, color-mix(in srgb, var(--highlight) calc(20% * var(--tint)), transparent), color-mix(in srgb, var(--highlight) calc(6% * var(--tint)), transparent) 55%, transparent); }
+.p-head::before { content: ""; position: absolute; left: 0; right: 0; top: 0; height: 2px; border-radius: 7px 7px 0 0; background: linear-gradient(90deg, var(--highlight), var(--highlight-deep) 45%, transparent); opacity: var(--tint); }
+.p-mark { flex-shrink: 0; width: 32px; height: 32px; display: grid; place-items: center; border-radius: 8px; background: color-mix(in srgb, var(--highlight) calc(16% * var(--tint)), var(--raised-top)); border: 1px solid color-mix(in srgb, var(--highlight) calc(10% + 25% * var(--tint)), var(--line)); box-shadow: 0 0 14px -4px color-mix(in srgb, var(--highlight) calc(70% * var(--tint)), transparent); }
+.p-mark .icon { stroke: var(--highlight); width: 14px; height: 14px; }
+.p-kind { padding: 2px 8px; border-radius: 999px; background: color-mix(in srgb, var(--highlight) calc(12% * var(--tint)), transparent); color: color-mix(in srgb, var(--highlight) calc(100% * var(--tint)), var(--muted)); }
+.chip { display: inline-flex; align-items: center; gap: 5px; padding: 0 7px; height: 19px; border-radius: 999px; vertical-align: 1px; font: 11.5px var(--mono); white-space: nowrap; background: color-mix(in srgb, var(--tone) calc(14% * var(--tint)), transparent); border: 1px solid color-mix(in srgb, var(--tone) var(--chip-line), transparent); color: var(--tone-ink); }
+.chip .light { width: 7px; height: 7px; box-shadow: none; }
+.chip.neutral { --tone: var(--muted); --tone-ink: var(--ink); }
+.chip.info { --tone: var(--highlight); --tone-ink: var(--highlight); }
+/* Working is a status, so it keeps the brand accent in every theme, like the working light. */
+.chip.working { --tone: var(--accent); --tone-ink: var(--accent); }
+.chip.done { --tone: var(--done); --tone-ink: var(--done-ink); }
+.chip.needs { --tone: var(--attention); --tone-ink: var(--attention-ink); }
+.chip.failed { --tone: var(--failed); --tone-ink: var(--failed-ink); }
+.hash { color: var(--highlight); }
+/* Actions on the left, facts on the right. */
+.p-body { display: grid; grid-template-columns: 248px minmax(0, 1fr); }
+.p-actions { display: flex; flex-direction: column; gap: 1px; padding: 8px 8px 8px 4px; border-right: 1px solid var(--line); border-radius: 0 0 0 7px; background: linear-gradient(180deg, color-mix(in srgb, var(--highlight) calc(7% * var(--tint)), transparent), color-mix(in srgb, var(--highlight) calc(3% * var(--tint)), transparent)); }
+.p-actions hr { width: calc(100% - 12px); }
+.p-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+/* Session names rename in place: click the name. */
+button.p-title { padding: 0 4px; margin-left: -4px; height: 22px; background: transparent; border: 1px solid transparent; border-radius: 4px; text-align: left; cursor: text; }
+button.p-title:hover { border-color: var(--line); background: var(--bg); }
+.p-rename { flex: 1; min-width: 0; height: 22px; padding: 0 4px; margin-left: -4px; background: var(--bg); border: 1px solid var(--highlight); border-radius: 4px; font: 500 13px var(--mono); outline: none; }
+.p-title.mono { font: 500 13px var(--mono); }
+.p-kind { flex-shrink: 0; font: 11px var(--mono); color: var(--muted); }
+.facts { display: grid; grid-template-columns: 100px minmax(0, 1fr); align-content: start; gap: 9px 16px; margin: 0; padding: 14px 18px 16px 20px; }
+.facts dt { padding-top: 2px; font-size: 12px; color: var(--muted); }
+.facts dd { margin: 0; min-width: 0; font: 12.5px/1.5 var(--mono); overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
+.facts dd .sub { color: var(--muted); }
+.facts dd.needs { color: var(--attention-ink); }
+.facts dd.failed { color: var(--failed-ink); }
+.facts dd.done { color: var(--done-ink); }
+.facts dd.working { color: var(--accent); }
+.copy { display: inline; padding: 0; background: transparent; border: 0; border-bottom: 1px dotted var(--muted); text-align: left; font: inherit; overflow-wrap: anywhere; }
+.copy:hover { color: var(--highlight); border-bottom-color: var(--highlight); }
+.copy[data-copied]::after { content: " copied"; color: var(--muted); font-family: var(--sans); font-size: 11px; }
+.flag { display: inline-block; padding: 1px 6px; border-radius: 4px; background: var(--ink); color: var(--bg); font: 600 10.5px var(--mono); letter-spacing: .06em; text-transform: uppercase; }
+.panel hr { height: 1px; margin: 4px 6px; border: 0; background: var(--line); }
+.item { position: relative; display: flex; align-items: center; gap: 10px; width: 100%; height: 34px; padding: 0 12px; background: transparent; border: 0; border-radius: 6px; text-align: left; transition: background-color 120ms ease; animation: item-in 200ms cubic-bezier(.2, .8, .2, 1) both; animation-delay: calc(var(--d) * 22ms + 50ms); }
+.item::before { content: ""; position: absolute; left: 0; top: 8px; bottom: 8px; width: 2px; border-radius: 2px; background: var(--highlight); transform: scaleY(0); transition: transform 160ms cubic-bezier(.2, .8, .2, 1); }
+.item:hover, .item:focus-visible { background: var(--raised-hover); outline: none; }
+.item:hover::before, .item:focus-visible::before { transform: scaleY(1); }
+.item .label { transition: transform 160ms cubic-bezier(.2, .8, .2, 1); }
+.item:hover .label, .item:focus-visible .label { transform: translateX(3px); }
+.item .badge { transition: background-color 160ms ease, box-shadow 160ms ease; }
+/* Every command has a leading mark: an agent badge or a glyph that says what it does. */
+.glyph { flex-shrink: 0; width: 24px; display: grid; place-items: center; color: var(--muted); }
+.glyph svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round; }
+.glyph svg .solid { fill: currentColor; stroke: none; }
+.item:hover .glyph, .item:focus-visible .glyph { color: var(--ink); }
+/* Hover lights the letter badge: deep accent fill and a glow. Official artwork, when a mark ships,
+   keeps its own colors (docs/agent-marks.md); the glow then sits on the slot behind it. */
+.item:hover .badge, .item:focus-visible .badge { background: var(--highlight-deep); box-shadow: 0 0 10px color-mix(in srgb, var(--highlight) 60%, transparent); }
+.item .hint { margin-left: auto; font: 11px var(--mono); color: var(--muted); }
+@keyframes panel-in { from { opacity: 0; transform: translateX(-8px) scale(.96); } }
+@keyframes item-in { from { opacity: 0; transform: translateX(-6px); } }
+
+/* Tiles: terminals stay dark in both modes. */
+.tiles { flex: 1; min-width: 0; display: grid; grid-template-columns: 1fr 1fr; gap: 6px; padding: 6px; background: var(--line); }
+.tile { min-width: 0; display: flex; flex-direction: column; overflow: hidden; border-radius: 6px; background: var(--term-bg); }
+.tile header { display: flex; align-items: center; gap: 8px; height: 30px; padding: 0 10px; background: var(--surface); font: 12px var(--mono); color: var(--muted); }
+.tile header b { font-weight: 400; color: var(--ink); }
+.tile header .tile-no { margin-left: auto; }
+.tile pre { flex: 1; margin: 0; padding: 12px 14px; overflow: hidden; color: var(--term-ink); font: 13px/1.5 "Hack Nerd Font Mono", "Geist Mono", monospace; }
+.t-dim { color: var(--term-dim); } .t-acc { color: var(--term-acc); }
+
+/* Mockup controls, not part of the design. */
+.mock { position: fixed; right: 12px; bottom: 12px; z-index: 50; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; max-width: calc(100vw - 24px); }
+.mock button, .mock select { height: 30px; padding: 0 10px; background: var(--bg); border: 1px dashed var(--line); border-radius: 6px; color: var(--muted); font-size: 12px; }
+.mock span { font-size: 12px; color: var(--muted); }
+@media (prefers-reduced-motion: reduce) {
+  .panel, .item { animation: none; }
+  .act, .item, .item::before, .item .label, .item .badge { transition: none; }
+}
+</style>
+</head>
+<body>
+<div class="frame">
+<div class="app">
+  <nav class="side" id="side" aria-label="Sessions">
+    <div class="head"><b>foom</b><span role="status">1 needs you · 3 working</span></div>
+    <div class="tools">
+      <label class="filter">
+        <svg class="icon" width="14" height="14" viewBox="0 0 14 14" stroke-width="1.5" aria-hidden="true"><circle cx="6" cy="6" r="4.2"/><path d="M9.2 9.2L12.5 12.5"/></svg>
+        <input type="text" id="filter" placeholder="Filter" aria-label="Filter repositories, worktrees and sessions">
+      </label>
+      <button type="button" class="add" aria-label="Add repository">+</button>
+    </div>
+    <div class="tree" id="tree" role="tree" aria-label="Sessions"></div>
+    <div class="foot"><button type="button">Settings</button></div>
+    <div id="panel-slot"></div>
+  </nav>
+  <main class="tiles" aria-label="Tiles">
+    <section class="tile"><header><span class="light needs" aria-label="Needs you"></span><b>foom › feat/sidebar-panels › Claude Code</b><span class="tile-no">1</span></header>
+<pre><span class="t-acc">●</span> I'll move the launch items from the repository menu
+  to the main checkout row.
+
+  Edit src/renderer/board/sidebar-view.tsx
+  <span class="t-dim">│</span> 552 -  ...launchers({ repository: repo.repository.path }),
+
+  Apply this edit?
+  <span class="t-acc">❯ 1. Yes</span>
+    2. No, explain what to change</pre></section>
+    <section class="tile"><header><span class="light working" aria-label="Working"></span><b>foom › codex/issue-154 › Codex</b><span class="tile-no">2</span></header>
+<pre><span class="t-dim">•</span> Running npm run test:electron
+
+  <span class="t-dim">✓ packaged foom CLI pairs with a running app</span>
+  <span class="t-dim">✓ pairing refuses a second unconfirmed client</span>
+  <span class="t-acc">⠙</span> CLI reports a closed app</pre></section>
+  </main>
+</div>
+</div>
+<div class="mock">
+  <span>Hover a row for 0.4 s, or click ⋯ to pin.</span>
+  <select id="jump" aria-label="Mockup: pin a panel">
+    <option value="">Mockup: pin a panel…</option>
+  </select>
+  <select id="theme" aria-label="Mockup: interface theme"></select>
+  <select id="tint" aria-label="Mockup: panel color">
+    <option value="vivid">Panel color: Vivid</option>
+    <option value="subtle">Panel color: Subtle</option>
+    <option value="plain">Panel color: Plain</option>
+  </select>
+</div>
+<script>
+const AGENT = { claude: ["Claude Code", "CC"], codex: ["Codex", "CX"], agy: ["Antigravity", "AG"], shell: ["bash", ">_"] };
+const STATE = { needs: "Needs you", working: "Working", done: "Done", failed: "Failed", quiet: "Quiet" };
+let next = 20;
+const S = (agent, light, reason, info) => ({ id: "s" + next++, agent, light, reason, ...info });
+
+const home = {
+  path: "/home/slindsey", shell: "/bin/bash", version: "GNU bash 5.2.21",
+  sessions: [S("shell", "quiet", "htop · quiet", { started: "09:12 · 5 h 20 min", tile: "Hidden", cwd: "~" })],
+};
+const repos = [
+  { name: "foom", path: "/var/www/html/scott/foom", remote: "origin · github.com/scott-r-lindsey/foom", def: "main · fetched 2 min ago", pinned: true, open: true,
+    wts: [
+      { main: true, branch: "main", path: "/var/www/html/scott/foom", status: ["Clean"], upstream: "↓3 behind origin/main", merged: null, created: "Repository",
+        commit: ["cfceee6", "Merge pull request #189 from scott-r-lindsey/codex/issue-136", "2 h ago"],
+        sessions: [S("shell", "working", "npm start · Foom Dev", { started: "14:31 · 9 min", tile: "Hidden", cwd: "/var/www/html/scott/foom" })] },
+      { branch: "feat/sidebar-panels", path: "~/.foom/worktrees/foom/feat-sidebar-panels", status: ["2 changed"], upstream: "Not pushed", merged: ["No · 1 commit not in main"], created: "Foom",
+        commit: ["4be19a0", "Show worktree facts in the row panel", "6 min ago"],
+        sessions: [S("claude", "needs", "Wants to edit src/renderer/board/sidebar-view.tsx · hook", { wait: "4m", started: "14:02 · 38 min", tile: "1 · this window", flags: ["--permission-mode default"], conversation: "9f3c2e71-0b8a-4c55-a1d0-6e2f8b9c4d13" })] },
+      { branch: "codex/issue-154", path: "/var/www/html/scott/foom-154", status: ["3 changed · 1 untracked"], upstream: "↑2 unpushed", merged: ["No · 6 commits not in main"], created: "Elsewhere",
+        commit: ["a91d7c2", "Pair the packaged CLI through an explicit prompt", "18 min ago"],
+        sessions: [
+          S("codex", "working", "Running npm run test:electron · hook", { started: "13:10 · 1 h 30 min", tile: "2 · this window", flags: ["--dangerously-bypass-approvals-and-sandbox"], bypass: true, version: "0.161.0", conversation: "01a10df5-c902-7d90-9784-c74e8b0bd3b7" }),
+          S("shell", "working", "vitest --watch · activity", { started: "14:20 · 20 min", tile: "Hidden", cwd: "/var/www/html/scott/foom-154" }),
+        ] },
+      { detached: "746a342", path: "/tmp/foom-pr180-review", status: ["1 changed", "tests/electron/app.test.js"], upstream: "None", merged: ["Yes · content is in main", "done"], created: "Elsewhere",
+        commit: ["746a342", "Add application command menus and needs-you badges", "1 day ago"], sessions: [] },
+      { branch: "codex/issue-122", path: "/var/www/html/scott/foom-122", status: ["Clean"], upstream: "In sync", merged: ["Yes · merged as #183", "done"], created: "Elsewhere",
+        commit: ["7a64574", "Merge latest main with merged-worktree cleanup", "1 day ago"],
+        sessions: [S("claude", "done", "Exited · conversation saved", { exited: "0 at 12:40 · ran 52 min", tile: "Hidden", conversation: "c4b7e2d9-3a18-4f6e-9d02-8e5f1b6a7c30" })] },
+    ] },
+  { name: "eclipse-site", path: "/var/www/html/scott/eclipse-site", remote: "origin · github.com/scott-r-lindsey/eclipse-site", def: "main · fetched 1 h ago", open: false,
+    wts: [
+      { main: true, branch: "main", path: "/var/www/html/scott/eclipse-site", status: ["Clean"], upstream: "In sync", merged: null, created: "Repository", commit: ["e03b1f9", "Tighten hero spacing", "3 days ago"], sessions: [] },
+      { branch: "chore/deps", path: "~/.foom/worktrees/eclipse-site/chore-deps", status: ["Clean"], upstream: "↑1 unpushed", merged: ["No · 1 commit not in main"], created: "Foom", commit: ["2c88d10", "Update Astro to 5.4", "40 min ago"],
+        sessions: [S("codex", "failed", "Exited 1 · npm test failed", { exited: "1 at 13:58 · ran 6 min", tile: "Hidden", version: "0.161.0", conversation: "77e0b3c1-d2a4-4e9f-8b15-0c6d9a2f4e88" })] },
+    ] },
+  { name: "infra", path: "/var/www/html/scott/infra", remote: "origin · github.com/scott-r-lindsey/infra", def: "main · fetch failed: network unreachable", open: false,
+    wts: [{ main: true, branch: "main", path: "/var/www/html/scott/infra", status: ["Clean"], upstream: "Unknown", merged: null, created: "Repository", commit: ["91fe2aa", "Pin Terraform providers", "2 weeks ago"], sessions: [] }] },
+];
+
+const view = { homeOpen: true, selected: "", peek: "", pinned: "", copied: "", renaming: "" };
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+const RANK = { needs: 5, failed: 4, working: 3, done: 2, quiet: 1 };
+const brightest = (ss) => ss.reduce((b, s) => (!b || RANK[s.light] > RANK[b.light] ? s : b), null);
+const allSessions = (repo) => repo.wts.flatMap((w) => w.sessions);
+const dots = '<svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor" aria-hidden="true"><circle cx="3" cy="7" r="1.3"/><circle cx="7" cy="7" r="1.3"/><circle cx="11" cy="7" r="1.3"/></svg>';
+const ICON = {
+  checkout: '<svg class="icon" width="11" height="11" viewBox="0 0 12 12" stroke-width="1.2" aria-label="Main checkout"><path d="M1.5 3h3.2l1 1.2h4.8v5.3h-9z"/></svg>',
+  worktree: '<svg class="icon" width="11" height="11" viewBox="0 0 12 12" stroke-width="1.2" aria-hidden="true"><circle cx="3" cy="2.5" r="1.3"/><circle cx="3" cy="9.5" r="1.3"/><circle cx="9" cy="4" r="1.3"/><path d="M3 3.8v4.4M9 5.3c0 2-3 1.7-5.6 3.3"/></svg>',
+  detached: '<svg class="icon" width="11" height="11" viewBox="0 0 12 12" stroke-width="1.2" aria-label="Detached"><circle cx="6" cy="6" r="2.2"/><path d="M.5 6h3.3M8.2 6h3.3"/></svg>',
+};
+const cmd = (label, badge, hint, glyph) => ({ label, badge: badge || "", hint: hint || "", glyph: glyph || "" });
+const GLYPH = {
+  trash: '<path d="M3 4.5h10M6.5 4.5V3h3v1.5M4.5 4.5l.7 8.5h5.6l.7-8.5M7 7v4M9 7v4"/>',
+  stop: '<rect class="solid" x="4.5" y="4.5" width="7" height="7" rx="1.2"/>',
+  close: '<path d="M4.5 4.5l7 7M11.5 4.5l-7 7"/>',
+  unlist: '<circle cx="8" cy="8" r="5.5"/><path d="M5.5 8h5"/>',
+  restart: '<path d="M12.5 8a4.5 4.5 0 1 1-1.4-3.3M11.5 2.5v2.5H9"/>',
+  resume: '<path class="solid" d="M5.5 3.8l6.2 4.2-6.2 4.2z"/>',
+  plus: '<path d="M8 3.5v9M3.5 8h9"/>',
+  copy: '<path d="M5.5 5.5h7v7h-7zM3.5 10.5v-7h7"/>',
+  branch: '<circle cx="4.5" cy="3.5" r="1.5"/><circle cx="4.5" cy="12.5" r="1.5"/><circle cx="11.5" cy="5" r="1.5"/><path d="M4.5 5v6M11.5 6.5c0 2.6-4 2.3-6.4 4.6"/>',
+  pin: '<path d="M6 2.5h4M7 2.5v4L4.5 9h7L9 6.5v-4M8 9v4.5"/>',
+};
+const SEP = { sep: true };
+const launchers = () => [cmd("Claude Code", "CC"), cmd("Codex", "CX"), cmd("Antigravity", "AG"), cmd("Shell (bash)", ">_")];
+const wtName = (w) => (w.detached ? w.detached : w.branch);
+
+/* Every row the tree shows, with the panel it opens. */
+function rowsOf() {
+  const rows = [];
+  rows.push({ kind: "home", id: "home", panel: homePanel });
+  if (view.homeOpen) for (const s of home.sessions) rows.push({ kind: "term", home: true, id: s.id, s, where: "~", panel: () => sessionPanel(s, "~") });
+  rows.push({ kind: "sep" });
+  for (const repo of repos) {
+    rows.push({ kind: "repo", id: "r:" + repo.name, repo, panel: () => repoPanel(repo) });
+    if (!repo.open) continue;
+    repo.wts.forEach((w, i) => {
+      rows.push({ kind: "wt", id: "w:" + repo.name + ":" + i, repo, w, panel: () => worktreePanel(repo, w) });
+      for (const s of w.sessions) rows.push({ kind: "term", id: s.id, s, where: repo.name + " › " + wtName(w), panel: () => sessionPanel(s, repo.name + " › " + wtName(w)) });
+    });
+  }
+  return rows;
+}
+
+/* Facts carry state as tinted chips: accent for information, green for settled, amber only for
+   needs-you and magenta only for failures. */
+const chip = (text, tone, dot) => `<span class="chip ${tone || "neutral"}">${dot ? `<span class="light ${dot}" aria-hidden="true"></span>` : ""}${esc(text)}</span>`;
+const stateChip = (s) => chip(STATE[s.light], s.light === "quiet" ? "neutral" : s.light, s.light);
+function homePanel() {
+  const running = home.sessions.filter((s) => !s.exited).length;
+  return {
+    badge: ">_", title: "bash", mono: true, kind: "Home shell",
+    facts: [["Directory", copy(home.path)], ["Shell", esc(home.shell) + ' <span class="sub">' + esc(home.version) + "</span>"], ["Sessions", chip(running + " running", "working")]],
+    commands: [cmd("New shell", ">_", "~")],
+  };
+}
+function repoPanel(repo) {
+  const ss = allSessions(repo);
+  const by = ["needs", "working", "done", "failed"].map((k) => [k, ss.filter((s) => s.light === k).length]).filter(([, n]) => n);
+  const merged = repo.wts.filter((w) => w.merged && w.merged[1] === "done").length;
+  const fetchFailed = repo.def.includes("failed");
+  const [branch, fetched] = repo.def.split(" · ");
+  return {
+    title: repo.name, kind: "Repository",
+    facts: [
+      ["Path", copy(repo.path)],
+      ["Remote", esc(repo.remote)],
+      ["Default", esc(branch) + " " + (fetchFailed ? chip(fetched, "failed") : '<span class="sub">· ' + esc(fetched) + "</span>")],
+      ["Worktrees", repo.wts.length - 1 + " " + chip(repo.wts.filter((w) => w.created === "Foom").length + " by Foom", "neutral") + (merged ? " " + chip(merged + " merged", "done") : "")],
+      ["Sessions", by.length ? by.map(([k, n]) => chip(n + " " + STATE[k].toLowerCase(), k, k)).join(" ") : '<span class="sub">None</span>'],
+    ],
+    commands: [
+      cmd("New worktree…", "", "", "branch"), SEP,
+      { ...cmd(repo.pinned ? "Unpin" : "Pin to top", "", "", "pin"), run: () => { repo.pinned = !repo.pinned; } },
+      SEP,
+      ...(merged ? [cmd("Delete merged worktrees…", "", String(merged), "trash")] : []),
+      cmd("Remove from Foom…", "", "keeps files", "unlist"),
+    ],
+  };
+}
+function worktreePanel(repo, w) {
+  const quiet = ["In sync", "None", "Unknown"].includes(w.upstream);
+  const facts = [
+    w.detached
+      ? ["HEAD", chip("Detached", "neutral") + ' at <span class="hash">' + esc(w.detached) + "</span>"]
+      : ["Branch", esc(w.branch) + (w.main ? " " + chip("default", "neutral") : "")],
+    ["Path", copy(w.path)],
+    ["Changes", (w.status[0] === "Clean" ? chip("Clean", "done") : chip(w.status[0], "info")) + (w.status[1] ? '<br><span class="sub">' + esc(w.status[1]) + "</span>" : "")],
+    ["Upstream", quiet ? '<span class="sub">' + esc(w.upstream) + "</span>" : chip(w.upstream, "info")],
+  ];
+  if (w.merged) facts.push(["Merged", w.merged[1] === "done" ? chip(w.merged[0], "done") : chip(w.merged[0], "neutral")]);
+  if (!w.main) facts.push(["Created by", chip(w.created, w.created === "Foom" ? "info" : "neutral")]);
+  facts.push(["Last commit", '<span class="hash">' + esc(w.commit[0]) + "</span> " + esc(w.commit[1]) + ' <span class="sub">· ' + esc(w.commit[2]) + "</span>"]);
+  return {
+    icon: w.main ? ICON.checkout : w.detached ? ICON.detached : ICON.worktree,
+    title: w.main ? "Main checkout" : wtName(w), mono: !w.main, kind: w.main ? repo.name : "Worktree",
+    facts,
+    commands: [...launchers(), ...(w.main ? [] : [SEP, cmd("Delete worktree…", "", "", "trash")])],
+  };
+}
+function sessionPanel(s, where) {
+  const [agentName, badge] = AGENT[s.agent];
+  const shell = s.agent === "shell";
+  const facts = [["Location", esc(where)]];
+  if (!shell) facts.push(["Agent", esc(agentName) + (s.version ? ' <span class="sub">' + esc(s.version) + "</span>" : "")]);
+  facts.push(["State", stateChip(s) + ' <span class="sub">' + esc(s.reason.split(" · ")[0]) + "</span>"]);
+  if (s.wait) facts.push(["Waiting", chip(s.wait, "needs")]);
+  if (s.flags) facts.push(["Launch", (s.bypass ? '<span class="flag">Bypass</span> ' : "") + s.flags.map(esc).join(" ")]);
+  facts.push(s.exited ? ["Exit", s.light === "failed" ? chip(s.exited, "failed") : chip(s.exited, "done")] : ["Started", esc(s.started)]);
+  facts.push(["Tile", s.tile.startsWith("Hidden") ? '<span class="sub">Hidden</span>' : chip(s.tile, "info")]);
+  if (s.conversation) facts.push(["Conversation", copy(s.conversation)]);
+  const commands = s.exited
+    ? shell
+      ? [cmd("Restart shell", "", "", "restart"), SEP, cmd("Close", "", "", "close")]
+      : [cmd("Resume conversation", "", s.conversation.slice(0, 4) + "…", "resume"), cmd("New conversation here", "", "", "plus"), cmd("Copy session ID", "", "", "copy"), SEP, cmd("Close", "", "", "close")]
+    : [cmd("Stop " + (shell ? "shell" : agentName), "", "", "stop")];
+  return { badge, title: s.name || (shell ? "bash" : agentName), mono: true, kind: shell ? "Shell" : "Session", rename: s, facts, commands };
+}
+function copy(text) {
+  return `<button type="button" class="copy" data-copy="${esc(text)}"${view.copied === text ? " data-copied" : ""} title="Copy">${esc(text)}</button>`;
+}
+
+function act(r, label) {
+  const open = view.pinned === r.id || view.peek === r.id;
+  return `<button type="button" class="act" data-act="${esc(r.id)}" aria-haspopup="dialog" aria-expanded="${open}" aria-label="Details and actions for ${esc(label)}">${dots}</button>`;
+}
+function light(s, extra) {
+  return s ? `<span class="light ${s.light} ${extra || ""}" role="img" aria-label="${STATE[s.light]}"></span>` : "";
+}
+function rowHtml(r) {
+  if (r.kind === "sep") return '<div class="sep" role="separator"></div>';
+  const cls = (view.selected === r.id ? " sel" : "") + (view.peek === r.id || view.pinned === r.id ? " peek" : "");
+  const attrs = `data-row="${esc(r.id)}"`;
+  if (r.kind === "home")
+    return `<div class="row home${cls}" ${attrs} role="treeitem" aria-expanded="${view.homeOpen}">
+      <button type="button" class="chev" data-toggle="home" aria-label="${view.homeOpen ? "Collapse" : "Expand"} home shells">${view.homeOpen ? "▾" : "▸"}</button>
+      <button type="button" class="name" data-launch-home title="Open a shell in ~"><span class="badge" aria-hidden="true">&gt;_</span><span>bash <small>~</small></span></button>
+      ${view.homeOpen ? "" : light(brightest(home.sessions), "roll")}${act(r, "home shells")}</div>`;
+  if (r.kind === "repo") {
+    const ss = allSessions(r.repo);
+    return `<div class="row repo${cls}" ${attrs} role="treeitem" aria-expanded="${r.repo.open}">
+      <button type="button" class="chev" data-toggle="${esc(r.id)}" aria-label="${r.repo.open ? "Collapse" : "Expand"} ${esc(r.repo.name)}">${r.repo.open ? "▾" : "▸"}</button>
+      <button type="button" class="name" data-select="${esc(r.id)}"><span>${esc(r.repo.name)}</span>${r.repo.pinned ? '<svg class="icon" width="11" height="11" viewBox="0 0 12 12" stroke-width="1.3" aria-label="Pinned"><path d="M4 1.5h4M5 1.5v3.5L3 7h6L7 5V1.5M6 7v4"/></svg>' : ""}</button>
+      ${r.repo.open ? "" : light(brightest(ss)) + `<span class="count">${r.repo.wts.length}</span>`}${act(r, r.repo.name)}</div>`;
+  }
+  if (r.kind === "wt") {
+    const w = r.w;
+    const icon = w.main ? ICON.checkout : w.detached ? ICON.detached : ICON.worktree;
+    const label = w.main ? `<span>${esc(w.branch)}</span>` : `<span>${esc(wtName(w))}</span>`;
+    return `<div class="row wt${cls}" ${attrs} role="treeitem">
+      <span class="chev" aria-hidden="true">${w.sessions.length ? "▾" : ""}</span>
+      <button type="button" class="name" data-select="${esc(r.id)}" aria-label="${w.main ? "Main checkout, " + esc(w.branch) : w.detached ? "Detached at " + esc(w.detached) : esc(w.branch)}">${icon}${label}</button>${act(r, w.main ? "main checkout" : wtName(w))}</div>`;
+  }
+  const s = r.s;
+  const name = s.name || (s.agent === "shell" ? "bash" : AGENT[s.agent][0]);
+  const tile = s.tile.startsWith("Hidden") ? "" : `<span class="tile-no" aria-label="Tile ${s.tile[0]}">${esc(s.tile[0])}</span>`;
+  return `<div class="row term${r.home ? " home-term" : ""}${s.light === "done" ? " dim" : ""}${cls}" ${attrs} role="treeitem">
+    <button type="button" class="session" data-select="${esc(r.id)}">
+      ${light(s)}
+      <span class="lines"><span class="top"><span class="badge" aria-hidden="true">${esc(AGENT[s.agent][1])}</span><span>${esc(name)}</span>${tile}</span>
+      <span class="reason ${s.light}">${esc(s.reason)}</span></span>
+    </button>${act(r, name + " in " + r.where)}</div>`;
+}
+
+function panelHtml(r) {
+  const p = r.panel();
+  let d = 0;
+  const title = p.rename
+    ? view.renaming === r.id
+      ? `<input class="p-rename" id="p-rename" aria-label="Session name" value="${esc(p.title)}">`
+      : `<button type="button" class="p-title mono" id="p-title" data-rename title="Rename">${esc(p.title)}</button>`
+    : `<span class="p-title${p.mono ? " mono" : ""}" id="p-title">${esc(p.title)}</span>`;
+  const head = `<div class="p-head"><span class="p-mark">${p.badge ? `<span class="badge" aria-hidden="true">${esc(p.badge)}</span>` : p.icon || ""}</span>${title}<span class="p-kind">${esc(p.kind)}</span></div>`;
+  const facts = `<dl class="facts">${p.facts.map(([k, v, tone]) => `<dt>${esc(k)}</dt><dd class="${tone || ""}">${v}</dd>`).join("")}</dl>`;
+  const cmds = p.commands.map((c, i) => (c.sep ? "<hr>" : `<button type="button" class="item" data-cmd="${i}" style="--d:${d++}">${c.badge ? `<span class="badge" aria-hidden="true">${esc(c.badge)}</span>` : `<span class="glyph" aria-hidden="true">${c.glyph ? `<svg viewBox="0 0 16 16">${GLYPH[c.glyph]}</svg>` : ""}</span>`}<span class="label">${esc(c.label)}</span><span class="hint">${esc(c.hint)}</span></button>`)).join("");
+  return `<div class="panel" id="panel" role="dialog" aria-labelledby="p-title" data-pinned="${view.pinned === r.id}" style="visibility:hidden">${head}<div class="p-body"><div class="p-actions">${cmds}</div>${facts}</div></div>`;
+}
+
+let rows = [];
+function render() {
+  rows = rowsOf();
+  document.getElementById("tree").innerHTML = rows.map(rowHtml).join("");
+  renderPanel();
+}
+/* The panel re-renders alone so hovering never rebuilds the rows under the pointer. */
+function renderPanel() {
+  const id = view.pinned || view.peek;
+  const r = rows.find((row) => row.id === id);
+  document.querySelectorAll(".row").forEach((el) => el.classList.toggle("peek", el.dataset.row === id));
+  document.querySelectorAll(".act").forEach((el) => el.setAttribute("aria-expanded", String(el.dataset.act === id)));
+  const slot = document.getElementById("panel-slot");
+  slot.innerHTML = r ? panelHtml(r) : "";
+  if (r) place(id);
+}
+function place(id) {
+  const panel = document.getElementById("panel");
+  const row = document.querySelector(`.row[data-row="${CSS.escape(id)}"]`);
+  if (!panel || !row) return;
+  const side = document.getElementById("side").getBoundingClientRect();
+  const b = row.getBoundingClientRect();
+  const anchor = b.top - side.top + Math.min(b.height, 30) / 2;
+  const y = Math.max(8, Math.min(anchor - 22, side.height - panel.offsetHeight - 8));
+  panel.style.width = Math.min(720, window.innerWidth - side.right - 24) + "px";
+  panel.style.left = side.width + 8 + "px";
+  panel.style.top = y + "px";
+  panel.style.setProperty("--n", anchor - y + "px");
+  panel.style.visibility = "visible";
+}
+
+/* Hover intent: open after 400 ms at rest; close 250 ms after the pointer leaves row and panel. */
+let openTimer = 0, closeTimer = 0;
+const side = document.getElementById("side");
+side.addEventListener("mouseover", (event) => {
+  if (event.target.closest("#panel")) { clearTimeout(closeTimer); return; }
+  const row = event.target.closest(".row[data-row]");
+  clearTimeout(openTimer);
+  if (!row) {
+    if (view.peek && !view.pinned) { clearTimeout(closeTimer); closeTimer = setTimeout(() => { view.peek = ""; renderPanel(); }, 250); }
+    return;
+  }
+  clearTimeout(closeTimer);
+  if (view.pinned || view.peek === row.dataset.row) return;
+  openTimer = setTimeout(() => { view.peek = row.dataset.row; renderPanel(); }, view.peek ? 120 : 400);
+});
+side.addEventListener("mouseleave", () => {
+  clearTimeout(openTimer);
+  if (view.pinned) return;
+  closeTimer = setTimeout(() => { view.peek = ""; renderPanel(); }, 250);
+});
+side.addEventListener("click", (event) => {
+  const el = event.target.closest("[data-act],[data-toggle],[data-select],[data-cmd],[data-copy],[data-launch-home],[data-rename]");
+  if (!el) return;
+  event.stopPropagation();
+  clearTimeout(openTimer);
+  if (el.dataset.act) { pin(view.pinned === el.dataset.act ? "" : el.dataset.act); return; }
+  if ("rename" in el.dataset) {
+    view.pinned = view.pinned || view.peek;
+    view.peek = "";
+    view.renaming = view.pinned;
+    renderPanel();
+    const input = document.getElementById("p-rename");
+    input.focus();
+    input.select();
+    return;
+  }
+  if (el.dataset.copy) {
+    const text = el.dataset.copy;
+    Promise.resolve(navigator.clipboard?.writeText(text)).catch(() => undefined);
+    view.copied = text;
+    renderPanel();
+    setTimeout(() => { if (view.copied === text) { view.copied = ""; renderPanel(); } }, 1200);
+    return;
+  }
+  if (el.dataset.cmd) {
+    const r = rows.find((row) => row.id === (view.pinned || view.peek));
+    const c = r.panel().commands[Number(el.dataset.cmd)];
+    if (c.run) c.run();
+    if (c.label === "New shell") launchHome();
+    view.pinned = view.peek = "";
+    return render();
+  }
+  if ("launchHome" in el.dataset) return launchHome();
+  if (el.dataset.toggle === "home") view.homeOpen = !view.homeOpen;
+  else if (el.dataset.toggle) { const repo = repos.find((x) => "r:" + x.name === el.dataset.toggle); repo.open = !repo.open; }
+  if (el.dataset.select) view.selected = el.dataset.select;
+  view.peek = view.pinned = "";
+  render();
+});
+/* Right-click pins the same panel; so do Enter on ⋯ and Shift+F10. */
+side.addEventListener("contextmenu", (event) => {
+  const row = event.target.closest(".row[data-row]");
+  if (!row) return;
+  event.preventDefault();
+  pin(row.dataset.row);
+});
+/* Enter or leaving the field keeps the name; Esc cancels; an empty name restores the default. */
+function finishRename(keep) {
+  const input = document.getElementById("p-rename");
+  const r = rows.find((row) => row.id === view.renaming);
+  if (!input || !r) return;
+  if (keep) r.panel().rename.name = input.value.trim() || undefined;
+  view.renaming = "";
+  render();
+}
+side.addEventListener("keydown", (event) => {
+  if (event.target.id !== "p-rename") return;
+  if (event.key === "Enter") finishRename(true);
+  if (event.key === "Escape") { event.stopPropagation(); finishRename(false); }
+});
+side.addEventListener("focusout", (event) => { if (event.target.id === "p-rename" && view.renaming) setTimeout(() => finishRename(true)); });
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape") pin("");
+  if (event.key === "F10" && event.shiftKey) {
+    const row = document.activeElement?.closest(".row[data-row]");
+    if (row) { event.preventDefault(); pin(row.dataset.row); }
+  }
+});
+document.addEventListener("click", (event) => { if (view.pinned && !event.target.closest("#side, .mock")) pin(""); });
+document.getElementById("tree").addEventListener("scroll", () => pin(""));
+window.addEventListener("resize", renderPanel);
+function pin(id) {
+  view.pinned = id;
+  view.peek = "";
+  renderPanel();
+  if (id) document.querySelector("#panel .item")?.focus({ preventScroll: true });
+}
+function launchHome() {
+  const s = S("shell", "quiet", "bash · quiet", { started: "just now", tile: "Hidden", cwd: "~" });
+  home.sessions.push(s);
+  view.homeOpen = true;
+  view.selected = s.id;
+  view.peek = view.pinned = "";
+  render();
+}
+
+/* Mockup controls. */
+const jump = document.getElementById("jump");
+const examples = [
+  ["home", "Home shell (bash)"], ["r:foom", "Repository"], ["w:foom:0", "Main checkout"], ["w:foom:2", "Worktree (dirty, not merged)"],
+  ["w:foom:3", "Detached worktree"], ["w:foom:4", "Worktree (merged)"], [repos[0].wts[2].sessions[0].id, "Session: Codex working, bypass"],
+  [repos[0].wts[1].sessions[0].id, "Session: Claude needs you"], [repos[0].wts[4].sessions[0].id, "Session: exited, resumable"], [home.sessions[0].id, "Session: home shell"],
+];
+jump.insertAdjacentHTML("beforeend", examples.map(([id, label]) => `<option value="${esc(id)}">${esc(label)}</option>`).join(""));
+jump.addEventListener("change", () => { pin(jump.value); jump.value = ""; });
+/* The app's interface themes (src/shared/interface-themes.ts). "Follow system" picks Eclipse Light or Dark. */
+const THEMES = {"eclipse-light":{"name":"Eclipse Light","base":"light","c":{"bg":"#f3f0fa","surface":"#e9e4f5","line":"#ddd6ee","ink":"#14101f","muted":"#625a7a","accent":"#5b2bd9","accent-deep":"#3b1a99","attention":"#d98200","attention-ink":"#8c5000","done":"#13804a","done-ink":"#0e6b3c","failed":"#d6166e","failed-ink":"#b0105a","hole":"#06050b","space-ink":"#f4efff","badge-label-fill":"#4a4263","badge-label-ink":"#f4efff","badge-fill":"#d6cfe9","badge-ink":"#14101f","highlight":"#5b2bd9","highlight-deep":"#3b1a99"}},"eclipse-dark":{"name":"Eclipse Dark","base":"dark","c":{"bg":"#05040a","surface":"#0d0a17","line":"#251d3f","ink":"#f4efff","muted":"#9d93bd","accent":"#9b6bff","accent-deep":"#7a3cff","attention":"#ffb23e","attention-ink":"#ffb23e","done":"#6fe0a3","done-ink":"#6fe0a3","failed":"#ff2e88","failed-ink":"#ff2e88","hole":"#06050b","space-ink":"#f4efff","badge-label-fill":"#3a3060","badge-label-ink":"#f4efff","badge-fill":"#1c1632","badge-ink":"#f4efff","highlight":"#9b6bff","highlight-deep":"#7a3cff"}},"high-contrast":{"name":"High Contrast","base":"dark","c":{"bg":"#000000","surface":"#080808","line":"#8c8996","ink":"#ffffff","muted":"#c9c4d9","accent":"#b9a0ff","accent-deep":"#9b6bff","attention":"#ffc466","attention-ink":"#ffc466","done":"#86f2b4","done-ink":"#86f2b4","failed":"#ff80b8","failed-ink":"#ff80b8","hole":"#06050b","space-ink":"#f4efff","badge-label-fill":"#272232","badge-label-ink":"#ffffff","badge-fill":"#17141e","badge-ink":"#ffffff","highlight":"#b9a0ff","highlight-deep":"#9b6bff"}},"deep-field":{"name":"Deep Field","base":"dark","c":{"bg":"#080f1e","surface":"#111b2f","line":"#344260","ink":"#edf1ff","muted":"#a5b0cc","accent":"#b39aff","accent-deep":"#9569f5","attention":"#ffb23e","attention-ink":"#ffb23e","done":"#6fe0a3","done-ink":"#6fe0a3","failed":"#ff65a8","failed-ink":"#ff65a8","hole":"#06050b","space-ink":"#f4efff","badge-label-fill":"#313b58","badge-label-ink":"#edf1ff","badge-fill":"#202b43","badge-ink":"#edf1ff","highlight":"#6cc7ff","highlight-deep":"#2d7fb8"}},"graphite":{"name":"Graphite","base":"dark","c":{"bg":"#18181b","surface":"#242428","line":"#484850","ink":"#f1f1f5","muted":"#b0afb8","accent":"#bca5ff","accent-deep":"#9165f0","attention":"#ffb23e","attention-ink":"#ffb23e","done":"#6fe0a3","done-ink":"#6fe0a3","failed":"#ff65a8","failed-ink":"#ff65a8","hole":"#06050b","space-ink":"#f4efff","badge-label-fill":"#45454f","badge-label-ink":"#f1f1f5","badge-fill":"#303035","badge-ink":"#f1f1f5","highlight":"#9fb1c7","highlight-deep":"#5d6f85"}},"midnight-indigo":{"name":"Midnight Indigo","base":"dark","c":{"bg":"#101027","surface":"#1b1b39","line":"#41416a","ink":"#f1efff","muted":"#b6b3d7","accent":"#b69bff","accent-deep":"#9265ef","attention":"#ffb23e","attention-ink":"#ffb23e","done":"#6fe0a3","done-ink":"#6fe0a3","failed":"#ff65a8","failed-ink":"#ff65a8","hole":"#06050b","space-ink":"#f4efff","badge-label-fill":"#3b3b61","badge-label-ink":"#f1efff","badge-fill":"#292947","badge-ink":"#f1efff","highlight":"#b69bff","highlight-deep":"#9265ef"}},"moonlight":{"name":"Moonlight","base":"light","c":{"bg":"#f5f7fc","surface":"#e9edf5","line":"#ccd2df","ink":"#182133","muted":"#536079","accent":"#5836c2","accent-deep":"#3b218e","attention":"#d98200","attention-ink":"#8c5000","done":"#13804a","done-ink":"#0e6b3c","failed":"#d6166e","failed-ink":"#b0105a","hole":"#06050b","space-ink":"#f4efff","badge-label-fill":"#414d65","badge-label-ink":"#f5f7fc","badge-fill":"#d9dfed","badge-ink":"#182133","highlight":"#2f5fbf","highlight-deep":"#1f3f86"}}};
+const themeSelect = document.getElementById("theme");
+themeSelect.innerHTML = '<option value="">Theme: follow system</option>' + Object.entries(THEMES).map(([id, t]) => `<option value="${id}">Theme: ${esc(t.name)}</option>`).join("");
+const root = document.documentElement;
+themeSelect.addEventListener("change", () => {
+  const t = THEMES[themeSelect.value];
+  for (const key of Object.keys(THEMES["eclipse-light"].c)) root.style.removeProperty("--" + key);
+  /* Highlight is the theme's decoration color; working and the wordmark keep the brand accent. */
+  root.style.removeProperty("--badge");
+  root.style.removeProperty("--badge-ink");
+  delete root.dataset.contrast;
+  if (!t) { delete root.dataset.theme; return renderPanel(); }
+  root.dataset.theme = t.base;
+  for (const [key, value] of Object.entries(t.c)) root.style.setProperty("--" + key, value);
+  root.style.setProperty("--badge", t.c["badge-label-fill"]);
+  root.style.setProperty("--badge-ink", t.c["badge-label-ink"]);
+  if (themeSelect.value === "high-contrast") root.dataset.contrast = "more";
+  renderPanel();
+});
+document.getElementById("tint").addEventListener("change", (event) => {
+  if (event.target.value === "vivid") delete root.dataset.tint;
+  else root.dataset.tint = event.target.value;
+});
+render();
+view.pinned = "w:foom:2";
+renderPanel();
+</script>
+</body>
+</html>
