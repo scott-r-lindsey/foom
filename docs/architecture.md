@@ -46,7 +46,7 @@ src/
     terminals/        # terminal IPC capabilities and utility-process client
     workspace/        # workspace coordination, worktree service and IPC
     agents/           # CLI discovery, launch and invocation-scoped hooks
-    evaluator/        # rules, model transport/probe, redaction, keys and verdict log
+    evaluator/        # local rules, tail redaction and verdict log
     setup/            # settings, repository discovery and setup IPC
   terminal-host/      # utility-process entry, PTYs, headless screens and activity
   preload/            # sandboxed window.desktop bridge
@@ -73,10 +73,9 @@ The browser-safe `shared/terminal-colors.ts` runs in both the host and renderer;
 
 Within those features:
 
-- `preflight-view.tsx` coordinates navigation, scans, persistence, errors, heading focus and launch. Welcome, agents, repositories, worktrees and readiness render in their own `*-step.tsx` modules; they receive state and actions from the coordinator. The welcome step shows instead of tells: `welcome-noise.tsx` tiles ten made-up terminals like a window manager, then folds them into ten lights, one of which needs you. `welcome-noise-output.ts` generates their output: colored, bursty, with streamed prose and per-agent status lines, and each light follows its own terminal's output rate. It is decorative (`aria-hidden`) and shows its final frame under reduced motion. Evaluator controls remain in `preflight-evaluator.tsx`.
-- `inference-probe.ts` orchestrates Run check and model discovery. `probe-stream.ts` decodes bounded streamed events, `probe-errors.ts` maps transport/provider failures to Foom's messages, and `probe-response.ts` reads bounded response bodies. Shared probe types live in `probe.d.ts`.
+- `preflight-view.tsx` coordinates navigation, scans, persistence, errors, heading focus and launch. Welcome, agents, repositories, worktrees and readiness render in their own `*-step.tsx` modules; they receive state and actions from the coordinator. The welcome step shows instead of tells: `welcome-noise.tsx` tiles ten made-up terminals like a window manager, then folds them into ten lights, one of which needs you. `welcome-noise-output.ts` generates their output: colored, bursty, with streamed prose and per-agent status lines, and each light follows its own terminal's output rate. It is decorative (`aria-hidden`) and shows its final frame under reduced motion.
 - `board.ts` contains production board helpers. `sample-rows.ts` holds development fixture rows and is imported only by the sample source and tests.
-- `styles/styles.css` is an ordered import manifest for base, board/terminal, preflight, inference check, appearance, welcome, welcome animation, repository picker, layout overrides, tooltips, agent cards and worktree dialog styles. The build bundles it into the existing `styles.css` asset; there are no runtime imports or new asset permissions. Keep the import order: the later preflight/layout/card rules intentionally follow the base feature rules.
+- `styles/styles.css` is an ordered import manifest for base, board/terminal, preflight, appearance, welcome, welcome animation, repository picker, layout overrides, tooltips, agent cards and worktree dialog styles. The build bundles it into the existing `styles.css` asset; there are no runtime imports or new asset permissions. Keep the import order: the later preflight/layout/card rules intentionally follow the base feature rules.
 
 The `foom/process-boundaries` ESLint rule checks static imports, re-exports, literal dynamic imports and `require` calls. Process-owned code may depend on its own process and shared modules. Shared modules cannot depend on process-owned code. Only main and the console may import `node-common` utilities; the console cannot import main, Electron or terminal-host policy. Renderer and shared modules cannot import Node, Electron, node-pty or headless xterm. The sandboxed preload may import Electron at runtime and shared declarations as types; adding another runtime dependency requires an explicit boundary and loader design change.
 
@@ -178,9 +177,7 @@ falling back to the primary. The preload receives only its window ID and optiona
 pop-out terminal ID as main-generated arguments; it receives no profile paths.
 Each window uses its ID to namespace validated localStorage tile metadata. The
 legacy size file remains a fallback for the first window. Global settings retain
-one writer; window-specific wrappers keep interface scale separate. Setup scans,
-checks and confirmations stay local to their requesting window. Classification
-refreshes its evaluator when another window changes the shared source.
+one writer; window-specific wrappers keep interface scale separate. Setup scans and confirmations stay local to their requesting window. Classification uses the shared local rules.
 
 `window-audio.ts` elects one board to play app sounds. Validated view IDs describe
 focus; main combines them with native focus and publishes suppression to the audio
@@ -285,13 +282,8 @@ Every channel checks the sender (a registered app window, its main frame, `app:/
 | `workspace:remove` | renderer → main (invoke) | terminal ID → boolean; main owns confirmation and dirty-file inspection |
 | `agents:scan` | renderer → main (invoke) | `refresh` → `{ warning, agents }` (no PATH) |
 | `agents:launch` | renderer → main (invoke) | `{ agent, repository, worktree, cols, rows, acknowledgeCodexNotifierReplacement? }` → `{ id, attention }` or null on cancellation |
-| `setup:state` | renderer → main (invoke) | → `{ settings, keys, secureStorage, worktreeRoot }`; `keys` says only which providers have a stored key |
-| `setup:save` | renderer → main (invoke) | settings patch (known fields only) → state; a model source must have passed `setup:check` |
-| `setup:set-key` / `setup:remove-key` | renderer → main (invoke) | provider, key / provider → state; keys are never returned |
-| `setup:check` | renderer → main (invoke) | check ID, inference source, time limit → `{ ok, failure?, message, verdict?, timings, request, reply, thinking }` |
-| `setup:check-progress` | main → renderer | check ID, `{ kind: "step", event }` or `{ kind: "stream", thinking, reply }`; the preload validates the shape |
-| `setup:check-cancel` | renderer → main (invoke) | check ID |
-| `setup:models` | renderer → main (invoke) | local endpoint → `{ ok, models, server }` or `{ ok: false, failure, message }` |
+| `setup:state` | renderer → main (invoke) | → `{ settings, themes?, worktreeRoot }` |
+| `setup:save` | renderer → main (invoke) | settings patch (known fields only) → state |
 | `setup:changed` | main → renderer | setup state after a successful settings save or zoom shortcut |
 
 The renderer names repositories and worktrees only by paths main returned, and agents by ID. Main copies the known launch fields, checks the repository is registered and the checkout is authorized for that launch, and resolves the executable itself. A launched terminal belongs to the app; only its view is window-scoped.
@@ -580,7 +572,7 @@ outside Foom-launched agents requires explicit, expiring in-app pairing; private
 discovery files contain endpoint metadata, never a reusable human credential.
 Same-OS-user processes are not isolated by these bearer capabilities or worktrees.
 
-Agent output, hooks, model verdicts and names are untrusted data. `tail` authorizes
+Agent output, hooks and names are untrusted data. `tail` authorizes
 only an orchestrator's children, reads the host screen, applies evaluator redaction,
 and returns at most 40 lines and 16 KiB with revision and untrusted-data metadata.
 No files, diffs, transcripts, keystrokes or raw hook payloads are read for the API.
@@ -636,8 +628,6 @@ Theme IDs are checked syntactically, without opening any other file or profile.
 | `agentBypassAcknowledged` | Records human consent to bypass mode |
 | `codexNotifierAcknowledged` | Records human consent to notifier replacement |
 | `setupComplete` | Records human setup progress |
-| `inference` | Contains provider endpoints and URLs |
-| `inferenceTimeoutMs` | Changes evaluator behavior; remains in Settings |
 | `codeFolder`, `worktreeLocation` | Select filesystem paths or placement |
 
 Excluded keys report `unknown-key` at their fixed `$.<key>` path. Arbitrary unknown
@@ -645,9 +635,9 @@ property names are never echoed. The allowlist applies even when an excluded val
 is null, false or otherwise harmless in isolation.
 
 
-**Today:** First run is the preflight countdown from [product](product.md#first-run). `src/main/setup/settings.ts` stores versioned `settings.json` in user data: whether setup is complete, the hooks setting, which agents are turned on, the default worktree location, and the inference source. Writes are atomic (private temporary file, then rename) and serialized; a failed write leaves the settings unchanged. Missing, corrupt or unsupported files start from defaults, so preflight runs again. Every patch, from IPC or disk, is validated field by field and unknown fields are rejected.
+**Today:** First run is the preflight countdown from [product](product.md#first-run). `src/main/setup/settings.ts` stores versioned `settings.json` in user data: whether setup is complete, the hooks setting, which agents are turned on, the default worktree location, and appearance and sound choices. Writes are atomic (private temporary file, then rename) and serialized; a failed write leaves the settings unchanged. Missing, corrupt or unsupported files start from defaults, so preflight runs again. Every patch, from IPC or disk, is validated field by field and unknown fields are rejected.
 
-`src/main/setup/setup.ts` applies the settings to the running app at startup and on each save, owns the key store and the app's model evaluator, and runs Run check. A model source can be saved only if it is already saved or passed a check in this session; storing or removing a provider's key invalidates that provider's checks. A cloud check without a stored key fails at its first step. The Evaluator step asks a local endpoint for its models as the URL is typed, offers them as suggestions for the model field, and says when the named model isn't among them.
+`src/main/setup/setup.ts` applies the settings to the running app at startup and on each save, and coordinates repository scanning. Legacy inference fields are discarded only when loading a profile; IPC patches still reject them.
 
 Appearance lives in Settings and the preflight rail through the same `AppearanceControls` component and applies at once. `colorMode` (system, light or dark) sets `nativeTheme.themeSource` for Eclipse; fixed interface themes supply their own base. Main applies the source before the window is created at startup, so the CSS (`prefers-color-scheme`), the window background and terminals using Follow interface all follow it; changing the resolved terminal palette resets colors a program set in the terminal; fixed terminal themes ignore interface changes. `interfaceScale` (80–150% in steps of 10) is Chromium zoom: the window starts with it as `zoomFactor` and later changes use `setZoomFactor`. The window resizes with it in both directions (`src/main/window/window-scale.ts`): main remembers the window's size at 100% and sets the window to that size times the scale, capped to the display's usable area and moved back on screen if needed, so zooming in and back out restores the same size. A resize by the user sets a new size at 100%. On first launch, the window uses 60% of the primary display’s usable width and height. After a successful quit, main saves every window's normal bounds, display, maximized state and interface scale in `windows.json` in user data and restores them on connected displays, clamped to the current work area and minimum. The legacy `window-size.json` remains a fallback for the first window. Missing or invalid saved geometry uses the first-launch size. The minimum size (900 × 640 at 100%) scales too. Maximized and full-screen windows keep their size. Tiling window managers may ignore the resize; zoom still applies. Main handles the zoom keys before the terminal sees them: ⌘ =, − and 0 on macOS, and Ctrl+Shift+= / Ctrl+Shift+− and Ctrl+0 elsewhere, because plain Ctrl+− is readline's undo. A shortcut saves the new scale and sends `setup:changed` so preflight's controls follow. `terminalFontSize` is a separate validated integer setting (10–32 CSS pixels, default 14). Each mounted terminal controller reads it before its initial attachment, subscribes to `setup:changed`, and updates xterm options. Visible attachments refit and send an ID-scoped resize; hidden views use the new size on their next attachment. Disposal removes the subscription.
 
@@ -738,7 +728,7 @@ stored ID, never caller-provided clipboard text. Shutdown drains pending writes.
 
 ## Evaluator pipeline
 
-`quiet` or parsed metadata event → process exit → permission hook → per-agent title/progress/screen rules → shell facts and generic text patterns → model (if configured) → verdict `{ state, reason, signal, confidence }` → `terminal:state` and the verdict log.
+`quiet` or parsed metadata event → process exit → permission hook → per-agent title/progress/screen rules → shell facts and generic text patterns → verdict `{ state, reason, signal, confidence }` → `terminal:state` and the verdict log.
 
 States: `needs_input`, `done`, `failed`, `quiet_ok`, `working`.
 
@@ -747,11 +737,7 @@ and `src/main/evaluator/verdict-log.ts` supplies `VerdictLog`. `Workspace` runs 
 the app owns, including shells: on quiet, on a hook signal, and on exit. Each
 evaluation reads the last 40 host lines and runs in order per terminal, so a slow one
 can't overwrite a newer verdict; a failure is logged and the next one still runs. The
-result goes out on `terminal:state` and into the verdict log. The verdict log classifies
-through `Setup`, which holds the app's one `ModelEvaluator` for the saved source (rules
-only by default) and replaces it when preflight saves a new source. Results from a
-replaced evaluator still in flight are published, not discarded. See
-[inference service usage and benchmarking](inference.md).
+result goes out on `terminal:state` and into the verdict log.
 
 A permission hook (`needs_input`) stays in force across later quiet evaluations.
 For agents, typing records reply feedback but does not establish resumed execution;
@@ -789,69 +775,31 @@ can address only verdicts issued by that instance, and historical records remain
 available on disk across restart. Only the latest committed verdict per terminal
 accepts feedback; superseded and removed terminals’ entries are released. Workspace
 keeps the current verdict and ID when classification repeats its state and signal,
-including across transient Checking, while failed writes remain retryable. No automatic
+while failed writes remain retryable. No automatic
 inference of ignored actions or log retention policy is implemented yet. The reusable fixture suite in
 `tests/fixtures/evaluator.ts` contains sanitized, representative terminal tails.
 
-Model calls get the last 40 lines, redacted, with a timeout. One-shot agent evaluators must not load repository instructions or use file, command, MCP, or other external tools to expand that input; a read-only sandbox alone does not enforce this boundary. Use another inference source or rules only when isolation cannot be enforced. A failure falls back to rules-only and never blocks the light.
-
-The model service has a time limit set in preflight (1–30 seconds, five by default)
-and two concurrent calls by default (hard maximum four). Saturated calls use rules
-immediately; there is no waiting queue or retry. A timed-out transport keeps its slot
-until it settles so even a transport that ignores cancellation cannot exceed the limit.
-
-Run check (`src/main/evaluator/inference-probe.ts`) is separate from classification and shows its
-work. It runs one stage at a time and reports each stage to the renderer as it starts
-and ends: reading the key (cloud), a TCP connection to the endpoint, then for local
-endpoints identifying the server (`/api/version` for Ollama), finding the model in
-`/models`, and whether Ollama already has it in memory (`/api/ps`). It then sends the
-fixed sample with streaming on, reports thinking chunks and reply text as they arrive
-(at most ten updates a second), and parses the verdict. It has the same time limit,
-and a timeout names the stage that was running. Starting a new check or editing the
-source cancels the one in progress. Leaving the Evaluator step also cancels its check
-and ignores any late result, so it cannot replace a source chosen afterward.
-
-Failures are reported in Foom's own words from a fixed set: connection refused,
-unreachable, DNS, TLS, connect timeout, missing key, rejected key (401/403), model not
-found (404, or absent from the model list, with `ollama pull` for Ollama), no quota
-left, rate limit (429), server error (5xx), other HTTP status, timeout, truncated or
-refused reply, and a reply that isn't the requested JSON. Node error codes and HTTP
-status numbers may be shown. From a provider's error body, Run check reads only the
-machine-readable code (`error.code`, `error.type` or `error.status`) and uses it only
-if it is on a fixed list, such as OpenAI's `insufficient_quota`, which shares 429
-with rate limits. The code picks a message Foom wrote; the body's text is never shown
-or logged. Because the check sends only
-the fixed sample, its Details may show the exact request (URL, parameters and prompt,
-never credentials) and the model's raw reply as inert text, capped at 4,096
-characters. Classification of real terminals shows neither.
-Model JSON must contain exactly a known state and finite confidence in [0, 1]. It may
-arrive wrapped in one Markdown code fence, as chat models often send it; nothing else
-may surround it.
-Reasons and signal names are generated locally, never copied from model output.
-HTTP responses are bounded to 64 KiB and truncated/tool/refusal responses fail closed.
-
-Cloud transports use fixed Anthropic, OpenAI, and Google HTTPS origins. Local
-OpenAI-compatible endpoints require a loopback IP literal (127.0.0.1 or [::1]);
-redirects, URL credentials, queries, and fragments are rejected. No transport
-supplies tools, file attachments, terminal IDs, hooks, or process metadata.
-CLI inference is currently unavailable: neither tested CLI has a verified complete
-no-files/no-instructions/no-integrations isolation profile. This intentionally
-follows the fail-closed decision above; interactive agent launch is unaffected.
+The quiet debounce does not publish an intermediate state. Ambiguous input immediately
+returns the existing neutral rules verdict. No production classifier calls a model provider.
+Control API and MCP responses never send `checking`; clients may retain that deprecated
+value in existing schemas for compatibility.
 
 ## Secrets
 
-- API keys go through Electron `safeStorage` and are never written in plain text.
-- Keys never cross into the renderer after they're entered.
-- The redaction pass runs before any text leaves the machine.
+Use Electron `safeStorage` for any secret Foom stores; never store plaintext or expose
+secrets to the renderer. Foom sends no terminal content to models or network services.
+On profile load, `SettingsStore` drops legacy `inference` and `inferenceTimeoutMs`
+fields and atomically saves the migrated settings. It deletes the three fixed
+`inference-{anthropic,openai,google}.key` ciphertext files without decrypting them.
+Cleanup is idempotent and does not require OS encryption to be available; deletion
+errors fail startup instead of silently retaining secrets. Removed setup key/probe
+IPC channels have no handlers, and inference fields remain invalid in IPC patches.
 
-`InferenceKeys` is a main-only key store using Electron `safeStorage`. It rejects
-unavailable encryption and Linux `basic_text`, writes only ciphertext to private
-0600 files through atomic replacement, and supports removal. There is no renderer
-key-read API; preflight can save, replace or remove a key through `setup:set-key` and
-`setup:remove-key`, and learns only whether one is stored. Redaction removes likely labelled
-credentials, bearer/API tokens, JWTs, URL credentials, and private-key blocks before
-selecting the last 40 physical lines. Already-truncated host tails with an unmatched private-key END marker lose the entire preceding fragment; leading PEM-sized base64 lines are also redacted when both markers are absent. Line boundaries are preserved. Oversized input fails back to rules. Redaction
-is heuristic and cannot identify every unlabelled secret.
+`terminal-tail.ts` retains `prepareTail` for control metadata redaction. It removes
+likely labelled credentials, bearer/API tokens, JWTs, URL credentials and private-key
+blocks before selecting at most 40 physical lines. Truncated private-key fragments
+are redacted too. Oversized input is rejected. Redaction is heuristic and cannot
+identify every unlabelled secret.
 
 ### Shell lifecycle status
 
@@ -869,10 +817,8 @@ return with a bounded exit status. Initial prompt means Ready (Quiet); a running
 command means Working, and its next prompt means Done or Failed. Prompt editing,
 empty commands and subsequent quiet evaluation preserve the last result. These are
 status hints only, never capabilities or instructions. A permission hook and a real
-process exit retain precedence. Lifecycle transitions invalidate pending inference.
-Slow classification displays transient Checking after 150 ms; new output, user input,
-removal and command lifecycle changes invalidate the old result. Checking is a UI
-state, not a model verdict or a verdict-log entry. Ambiguous rules-only results say
+process exit retain precedence. Lifecycle transitions, new output, user input and removal invalidate pending classification.
+There is no Checking state. Ambiguous results say
 “No completion or input request detected,” rather than implying a Quiet verdict.
 
 ## Tile renderer measurement
@@ -984,7 +930,7 @@ still disposes controllers. Main continues to reject unknown and foreign IDs.
 ### Agent title, progress and screen evidence
 
 The evaluator order is **process exit → permission hook → per-agent rules → shell
-facts/generic text rules → model**. Main chooses the agent from its launch record;
+facts/generic text rules**. Main chooses the agent from its launch record;
 output cannot choose a rule manifest. Shell sessions never use agent rules.
 `main/evaluator/agent-rules/*.json` ships one versioned manifest per agent, recording
 minimum engine version, provenance, ordered priorities, region, matchers, exclusions
@@ -999,7 +945,7 @@ finishes, with a terminal ID. Main validates it, checks live session ownership a
 keeps it outside renderer IPC. Title changes request immediate evaluation only when
 the detected rule or state changes. Spinner and blinking frames retain the latest
 evidence without evaluating; progress-only or unknown changes wait for normal quiet
-events, so they cannot trigger inference during streaming output. Existing generation/output guards discard stale results, exits stay
+events, so they cannot trigger classification during streaming output. Existing generation/output guards discard stale results, exits stay
 final. Permission hooks persist until a working hook, or a reply followed by fresh
 working title evidence and no matching agent permission form; dismissal only hides attention.
 
@@ -1012,11 +958,10 @@ millisecond evaluation budget supplements those bounds; it is not presented as a
 way to interrupt a running JavaScript regex. No matcher can type into a terminal.
 
 Working and blocked rules produce fixed reasons and `rules:<agent>:<rule-id>` signals.
-Idle evidence has low confidence and continues through generic rules and the model,
+Idle evidence has low confidence and continues through generic rules,
 never directly to Done. Workspace execution promotes an ambiguous result to Done
 only after a recorded working-to-idle transition; Claude with hooks additionally
-requires Stop, so title-only interrupts stay neutral. Initial readiness stays neutral. Model requests still contain only the existing redacted 40-line tail; titles,
-progress, files, diffs, keystrokes and manifest content are never added to that input.
+requires Stop, so title-only interrupts stay neutral. Initial readiness stays neutral. All rules run locally; no terminal content is sent to a model.
 
 
 ## Agent execution
@@ -1037,7 +982,7 @@ is reused. Revoked hook capabilities cannot address that invocation.
 | Antigravity | Opt-in PreInvocation/PostToolUse observers | Screen rules | Fully idle Stop; error/step-limit Stop is failure |
 
 Evidence precedence is: process exit; lifecycle hooks (including Codex); active permission hooks; agent-specific
-blocked forms/titles; agent working titles; generic shell patterns; model fallback.
+blocked forms/titles; agent working titles; generic shell patterns; neutral fallback.
 A blocked agent form wins over a simultaneous working title, but generic password,
 yes/no and Enter strings do not override supported agent working evidence.
 

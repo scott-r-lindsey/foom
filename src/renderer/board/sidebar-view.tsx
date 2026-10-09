@@ -465,7 +465,7 @@ export function Sidebar({
         <AppMenu api={source.appMenu} development={source.isDevelopment} />
         <p className="board-summary" role="status">
           {rows.filter((row) => row.state === "needs_input").length} need you ·{" "}
-          {rows.filter((row) => row.state === "working" || row.state === "checking").length} working
+          {rows.filter((row) => row.state === "working").length} working
         </p>
         <div className="sidebar-filter">
           <input

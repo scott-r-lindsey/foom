@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { basename } from "node:path";
 import type { WorkspaceTerminal } from "../../shared/workspace";
-import { prepareTail } from "../evaluator/inference-input";
+import { prepareTail } from "../evaluator/terminal-tail";
 import { ControlError, exact, identifier } from "./validation";
 import type { Principal } from "./types";
 
@@ -61,7 +61,7 @@ export class SessionMetadata {
     else if (execution?.phase === "blocked" && !current) state = "needs_input";
     else if (
       (execution?.phase === "starting" || execution?.phase === "idle") &&
-      (state === "working" || state === "checking")
+      state === "working"
     )
       state = "quiet_ok";
     const reported = row.exited ? "exited" : state;

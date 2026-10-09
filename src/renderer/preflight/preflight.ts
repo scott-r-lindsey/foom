@@ -1,15 +1,13 @@
 import type { AgentId, AgentInstallation } from "../../shared/agents";
-import type { ApiProvider, InferenceConfig } from "../../shared/inference";
 import type { SetupState } from "../../shared/setup";
 import type { AgentReport } from "../../shared/workspace";
 import type { Repository } from "../../shared/worktrees";
 
 export const STEPS = [
   { t: "", label: "Welcome" },
-  { t: "T-4", label: "Agents" },
-  { t: "T-3", label: "Repositories" },
-  { t: "T-2", label: "Worktrees" },
-  { t: "T-1", label: "Evaluator" },
+  { t: "T-3", label: "Agents" },
+  { t: "T-2", label: "Repositories" },
+  { t: "T-1", label: "Worktrees" },
   { t: "T-0", label: "Go / no-go" },
 ] as const;
 
@@ -23,7 +21,7 @@ export const AGENTS: readonly { id: AgentId; name: string; command: string }[] =
 export const SIGNALS = {
   hooks: "Observer hooks tell Foom when an agent works, stops or asks for permission.",
   notify: "Codex runs Foom's notifier each time a turn completes.",
-  evaluator: "Foom reads the agent's output when it goes quiet and decides what it means.",
+  rules: "Foom reads the agent's output when it goes quiet and decides what it means.",
 } as const;
 
 /**
@@ -33,7 +31,7 @@ export const SIGNALS = {
 export function signalNote(agent: AgentInstallation, hooks: boolean): string | undefined {
   const how = signal(agent, hooks);
   if (how === "notify") return "Replaces your own Codex notifier, for Foom's launches only.";
-  if (how === "evaluator" && hooks && agent.id !== "agy") return agent.reason;
+  if (how === "rules" && hooks && agent.id !== "agy") return agent.reason;
   return undefined;
 }
 
@@ -45,15 +43,6 @@ export function versionNumber(output: string | null): string | null {
   if (output === null) return null;
   return /\d+\.\d+(?:\.\d+)?(?:-[0-9A-Za-z.]+)?/.exec(output)?.[0] ?? null;
 }
-
-export const PROVIDERS: readonly { id: ApiProvider; label: string; model: string }[] = [
-  { id: "anthropic", label: "Anthropic", model: "claude-haiku-4-5" },
-  { id: "openai", label: "OpenAI", model: "gpt-4.1-mini" },
-  { id: "google", label: "Google", model: "gemini-2.5-flash" },
-];
-
-/** The sample Run check sends; main uses the same line. */
-export const SAMPLE_TAIL = "Would you like me to apply these changes?";
 
 export function agentName(id: AgentId): string {
   return AGENTS.find((agent) => agent.id === id)?.name ?? id;
@@ -78,16 +67,9 @@ export function readyAgents(
 }
 
 /** How this agent will tell Foom it needs attention. */
-export function signal(agent: AgentInstallation, hooks: boolean): "hooks" | "notify" | "evaluator" {
-  if (!hooks || !agent.hooks) return "evaluator";
+export function signal(agent: AgentInstallation, hooks: boolean): "hooks" | "notify" | "rules" {
+  if (!hooks || !agent.hooks) return "rules";
   return agent.id === "codex" && agent.codexHookState !== "trusted" ? "notify" : "hooks";
-}
-
-export function inferenceSummary(config: InferenceConfig): string {
-  if (config.kind === "rules") return "Rules only. Ambiguous terminals stay neutral";
-  if (config.kind === "local") return `Local · ${config.model} at ${config.endpoint}`;
-  const provider = PROVIDERS.find((entry) => entry.id === config.kind);
-  return `${provider?.label ?? config.kind} API · ${config.model}`;
 }
 
 /** Where `feat/search` would land. Branch slashes become folders. */
@@ -111,9 +93,7 @@ export function pollRows(
   repositories: readonly Repository[],
 ): PollRow[] {
   const ready = readyAgents(report, state);
-  const { inference, hooks, worktreeLocation } = state.settings;
-  const keyMissing =
-    inference.kind !== "rules" && inference.kind !== "local" && !state.keys[inference.kind];
+  const { hooks, worktreeLocation } = state.settings;
   return [
     {
       system: "Agents",
@@ -146,12 +126,6 @@ export function pollRows(
       go: true,
       detail: worktreeLocation === "root" ? state.worktreeRoot : "Next to each repository",
       step: 3,
-    },
-    {
-      system: "Evaluator",
-      go: !keyMissing,
-      detail: keyMissing ? "The API key for this source is missing" : inferenceSummary(inference),
-      step: 4,
     },
   ];
 }

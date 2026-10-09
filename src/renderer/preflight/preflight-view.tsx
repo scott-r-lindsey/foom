@@ -1,3 +1,4 @@
+import { message } from "./message";
 import { AgentDefaultArguments } from "./agent-default-arguments";
 import { InterfaceThemePicker } from "./interface-theme-picker";
 import { SoundControls } from "../sound/sound-controls";
@@ -10,7 +11,7 @@ import { AppearanceControls } from "./appearance-controls";
 import { centerStep } from "./center-step";
 import { scalePreflight } from "./scale-preflight";
 import { LaunchSequence } from "./launch-sequence";
-import { EvaluatorStep, message } from "./preflight-evaluator";
+
 import { STEPS, readyAgents, pollRows } from "./preflight";
 import { defaultSelection, pending } from "./repository-picker";
 import { Wordmark } from "../ui/wordmark";
@@ -26,11 +27,10 @@ const SETTINGS_SECTIONS = [
   { step: 1, label: "Agents and hooks" },
   { step: 2, label: "Repositories" },
   { step: 3, label: "Worktrees" },
-  { step: 4, label: "Evaluator" },
-  { step: 6, label: "Appearance" },
-  { step: 7, label: "Terminal" },
-  { step: 8, label: "Themes" },
-  { step: 9, label: "Sound" },
+  { step: 5, label: "Appearance" },
+  { step: 6, label: "Terminal" },
+  { step: 7, label: "Themes" },
+  { step: 8, label: "Sound" },
 ];
 
 /**
@@ -316,21 +316,7 @@ export function Preflight({
         save={save}
       />
     );
-  } else if (step === 4) {
-    content = (
-      <>
-        <p className="preflight-eyebrow">T-1 · Evaluator</p>
-        <h2 ref={headingRef} tabIndex={-1}>
-          How should Foom read a terminal that goes quiet?
-        </h2>
-        <p className="preflight-intro">
-          Hooks and simple rules handle most cases. When output is ambiguous, like an agent asking a
-          question in plain prose, Foom can ask a model. Pick where that model runs.
-        </p>
-        <EvaluatorStep state={state} source={source} onState={setState} />
-      </>
-    );
-  } else if (step === 6) {
+  } else if (step === 5) {
     content = (
       <>
         <h2 ref={headingRef} tabIndex={-1}>
@@ -348,7 +334,7 @@ export function Preflight({
         />
       </>
     );
-  } else if (step === 7) {
+  } else if (step === 6) {
     content = (
       <>
         <h2 ref={headingRef} tabIndex={-1}>
@@ -381,7 +367,7 @@ export function Preflight({
         <p className="preflight-note">More terminal options are coming.</p>
       </>
     );
-  } else if (step === 8) {
+  } else if (step === 7) {
     content = (
       <>
         <h2 ref={headingRef} tabIndex={-1}>
@@ -395,7 +381,7 @@ export function Preflight({
         />
       </>
     );
-  } else if (step === 9) {
+  } else if (step === 8) {
     content = (
       <>
         <h2 ref={headingRef} tabIndex={-1}>
@@ -437,14 +423,14 @@ export function Preflight({
           : "None selected yet · needed to launch",
         3,
       )
-    ) : step === 3 || step === 4 ? (
+    ) : step === 3 ? (
       nav(step - 1, "You can change this any time from Preflight", step + 1)
-    ) : step === 5 ? (
+    ) : step === 4 ? (
       <div className="preflight-nav">
         <button
           type="button"
           onClick={() => {
-            go(4);
+            go(3);
           }}
         >
           Back

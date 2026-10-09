@@ -48,25 +48,6 @@ export function attachSetup(
         }
       },
     ],
-    ["setup:set-key", (provider, key) => setup.setKey(provider, key)],
-    ["setup:remove-key", (provider) => setup.removeKey(provider)],
-    [
-      "setup:check",
-      (id, config, timeoutMs) => {
-        if (typeof id !== "string" || !/^[a-zA-Z0-9-]{1,64}$/.test(id))
-          throw new Error("Invalid check ID");
-        return setup.check(id, config, timeoutMs, (update) => {
-          send("setup:check-progress", id, update);
-        });
-      },
-    ],
-    [
-      "setup:check-cancel",
-      (id) => {
-        if (typeof id === "string") setup.cancel(id);
-      },
-    ],
-    ["setup:models", (endpoint) => setup.models(endpoint)],
     ["setup:code-suggestions", () => setup.codeSuggestions()],
     [
       "setup:scan-code",

@@ -16,8 +16,6 @@ export function setupState(
       agentArguments: { claude: [], codex: [], agy: [] },
       agentBypassAcknowledged: { claude: false, codex: false, agy: false },
       worktreeLocation: "root",
-      inference: { kind: "rules" },
-      inferenceTimeoutMs: 5000,
       panelColor: "vivid",
       colorMode: "system",
       interfaceTheme: "follow",
@@ -28,8 +26,6 @@ export function setupState(
       codeFolder: null,
       ...settings,
     },
-    keys: { anthropic: false, openai: false, google: false },
-    secureStorage: true,
     worktreeRoot: "/home/me/.foom/worktrees",
     ...rest,
   };

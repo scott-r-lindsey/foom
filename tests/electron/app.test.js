@@ -1841,61 +1841,6 @@ test("launches an agent in a managed worktree and routes its attention signals",
   assert.doesNotMatch(log, /FOOM_AGENT_READY|npm test/);
 });
 
-test("inference keys stay in main and require real OS encryption", async (context) => {
-  const instance = await launchApp(context, false);
-  const page = await boardPage(instance);
-  const result = await instance.evaluate(async ({ app, safeStorage }) => {
-    const load = process
-      .getBuiltinModule("node:module")
-      .createRequire(app.getAppPath() + "/package.json");
-    const fs = load("node:fs/promises");
-    const path = load("node:path");
-    const { InferenceKeys } = load("./build/main/evaluator/inference-keys.js");
-    const dir = await fs.mkdtemp(path.join(app.getPath("temp"), "foom-inference-"));
-    const keys = new InferenceKeys(dir);
-    const secure =
-      safeStorage.isEncryptionAvailable() &&
-      (process.platform !== "linux" || safeStorage.getSelectedStorageBackend() !== "basic_text");
-    try {
-      if (!secure) {
-        let rejected = false;
-        try {
-          await keys.set("openai", "synthetic-key-not-a-real-credential");
-        } catch {
-          rejected = true;
-        }
-        return { rejected, files: await fs.readdir(dir) };
-      }
-      await keys.set("openai", "synthetic-key-not-a-real-credential");
-      const bytes = await fs.readFile(path.join(dir, "inference-openai.key"));
-      const roundTrip = (await keys.get("openai")) === "synthetic-key-not-a-real-credential";
-      await keys.remove("openai");
-      return {
-        roundTrip,
-        encrypted: bytes.length > 0 && !bytes.includes("synthetic-key-not-a-real-credential"),
-        files: await fs.readdir(dir),
-      };
-    } finally {
-      await fs.rm(dir, { recursive: true, force: true });
-    }
-  });
-  if ("rejected" in result) assert.equal(result.rejected, true);
-  else {
-    assert.equal(result.roundTrip, true);
-    assert.equal(result.encrypted, true);
-  }
-  assert.deepEqual(result.files, []);
-  // Preflight can store, remove and test a key; nothing in the bridge reads one back.
-  assert.deepEqual(
-    await page.evaluate(() =>
-      Object.keys(window.desktop).filter((key) => /key|secret|inference/i.test(key)),
-    ),
-    ["setInferenceKey", "removeInferenceKey", "checkInference", "cancelInferenceCheck"],
-  );
-  const state = await page.evaluate(() => window.desktop.setupState());
-  assert.deepEqual(state.keys, { anthropic: false, openai: false, google: false });
-});
-
 test("focus reports reach the shell without counting as a reply", {
   timeout: deadline(45_000),
   skip: process.platform === "win32" && "The prompt script is POSIX shell",
@@ -2099,31 +2044,12 @@ test("preflight fits safely through resize, zoom, long input and changing steps"
     await expect
       .poll(() => page.evaluate(() => [window.innerWidth, window.innerHeight]))
       .toEqual([Math.round((size.width * 100) / zoom), Math.round((size.height * 100) / zoom)]);
-    for (const step of [
-      "Welcome",
-      "Agents",
-      "Repositories",
-      "Worktrees",
-      "Evaluator",
-      "Go / no-go",
-    ]) {
+    for (const step of ["Welcome", "Agents", "Repositories", "Worktrees", "Go / no-go"]) {
       await rail.getByRole("button", { name: new RegExp(step) }).click();
       await assertPreflightFits(page, `${width}×${height} at ${zoom}%: ${step}`);
-      if (step === "Evaluator") {
-        const cloud = page.getByRole("radio", { name: /Use an API key/ });
-        if (await cloud.isEnabled()) {
-          await cloud.check();
-          await page.getByLabel("Model", { exact: true }).fill("a".repeat(300));
-          await assertPreflightFits(page, "Expanded API settings and a long model name");
-        }
-        await page.getByRole("radio", { name: /Use a local model/ }).check();
-        await page.getByLabel("Model", { exact: true }).fill("a".repeat(300));
-        await assertPreflightFits(page, "Expanded local settings and a long model name");
-      }
     }
   }
-  await rail.getByRole("button", { name: /Evaluator/ }).click();
-  await page.getByRole("radio", { name: /Use a local model/ }).check();
+  await rail.getByRole("button", { name: /Worktrees/ }).click();
   for (const control of [
     "Larger",
     "Larger",
@@ -2409,7 +2335,7 @@ test("first run goes from no agents to go, launches by keyboard, and can be repl
     timeout: deadline(20000),
   });
   await expect(page.locator(".badge-value")).toHaveText(["2.1.300", "0.155.1", "1.2.13"]);
-  for (const name of ["Hooks", "Notify", "Evaluator"])
+  for (const name of ["Hooks", "Notify", "Rules"])
     await expect(page.getByRole("button", { name, exact: true })).toBeVisible();
   // Where each agent was found is a tooltip away, by keyboard as well as pointer.
   // Park the pointer away from the cards, so a hover can't win over keyboard focus.
@@ -2449,8 +2375,6 @@ test("first run goes from no agents to go, launches by keyboard, and can be repl
     agentArguments: { claude: [], codex: [], agy: [] },
     agentBypassAcknowledged: { claude: false, codex: false, agy: false },
     worktreeLocation: "root",
-    inference: { kind: "rules" },
-    inferenceTimeoutMs: 5000,
     colorMode: "system",
     panelColor: "vivid",
     interfaceTheme: "follow",
@@ -2480,72 +2404,6 @@ test("first run goes from no agents to go, launches by keyboard, and can be repl
   await page.keyboard.press("Escape");
   await expect(page.locator(".board-home")).toBeVisible();
   assert.equal(await shellRow.evaluate((row) => row === document.activeElement), true);
-});
-
-test("Run check streams live progress from a local model server, then saves the source", async (context) => {
-  const { createServer } = require("node:http");
-  let release;
-  const released = new Promise((resolve) => {
-    release = resolve;
-  });
-  const chunk = (delta, finish = null) =>
-    `data: ${JSON.stringify({ choices: [{ delta, finish_reason: finish }] })}\n\n`;
-  // A stand-in for Ollama that keeps "thinking" until the test has seen live progress.
-  const server = createServer(async (request, response) => {
-    if (request.url === "/api/version") return response.end('{"version":"9.9.9"}');
-    if (request.url === "/api/ps") return response.end('{"models":[]}');
-    if (request.url === "/v1/models") return response.end('{"data":[{"id":"fake:1b"}]}');
-    if (request.url !== "/v1/chat/completions") return response.writeHead(404).end();
-    response.writeHead(200, { "content-type": "text/event-stream" });
-    response.write(chunk({ reasoning: "Considering" }));
-    await released;
-    response.write(chunk({ content: '{"state":"needs_input","confidence":0.9}' }));
-    response.end(`${chunk({}, "stop")}data: [DONE]\n\n`);
-  });
-  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
-  context.after(() => {
-    // A failed assertion must not leave a streaming request holding teardown open.
-    release();
-    server.closeAllConnections();
-    return new Promise((resolve) => server.close(resolve));
-  });
-  const endpoint = `http://127.0.0.1:${server.address().port}/v1`;
-  // launchApp owns this profile and removes it only after Electron exits.
-  const app = await launchApp(context, false, { firstRun: true });
-  const userData = await app.evaluate(({ app }) => app.getPath("userData"));
-  const page = await boardPage(app);
-  await page.getByRole("button", { name: "Start preflight" }).click();
-  for (let step = 0; step < 3; step++) await page.getByRole("button", { name: "Continue" }).click();
-  await page.getByRole("radio", { name: /Use a local model/ }).check();
-  await page.getByRole("textbox", { name: "Endpoint" }).fill(endpoint);
-  await page.getByRole("combobox", { name: "Model" }).fill("fake:1b");
-  await page.getByText("Ollama 9.9.9 · 1 model").waitFor();
-  await page.getByRole("button", { name: "Run check" }).click();
-
-  // These arrive while the check is still running.
-  const steps = page.getByRole("list", { name: "Check steps" });
-  await steps.getByText("fake:1b is available").waitFor();
-  await steps.getByText("Thinking").waitFor();
-  await page.getByText("Thinking: 1 chunk").waitFor();
-  await assertPreflightFits(page, "Streaming evaluator output");
-  await expect(page.getByRole("progressbar", { name: "Time limit" })).toBeVisible();
-  await assertAccessible(page);
-  release();
-
-  await page.getByText(/needs_input · confidence 0\.90 in .*Foom will use this source/).waitFor();
-  await expect(steps.getByText("Loaded fake:1b")).toBeVisible();
-  await page.getByText("Details", { exact: true }).click();
-  await assertPreflightFits(page, "Expanded evaluator request and reply details");
-  const saved = JSON.parse(await readFile(path.join(userData, "settings.json"), "utf8"));
-  assert.deepEqual(saved.settings.inference, { kind: "local", model: "fake:1b", endpoint });
-
-  // A closed port fails at the first step, in plain words.
-  await page.getByRole("textbox", { name: "Endpoint" }).fill("http://127.0.0.1:59999/v1");
-  await page.getByRole("button", { name: "Run check" }).click();
-  await page
-    .getByRole("status")
-    .filter({ hasText: "Connection refused: nothing is listening on 127.0.0.1:59999" })
-    .waitFor();
 });
 
 test("appearance switches light and dark, and zoom shortcuts resize the interface", async (context) => {
@@ -3528,15 +3386,6 @@ test("Settings shares live preflight values, sizes the terminal and restores key
       page.evaluate(async () => (await window.desktop.setupState()).settings.worktreeLocation),
     )
     .toBe("adjacent");
-  await section("Evaluator");
-  await tabToControl(page.getByRole("radio", { name: /Rules only/ }));
-  await page.keyboard.press("ArrowUp");
-  await nextSelectOption(page.getByLabel("Time limit"), "10000");
-  await expect
-    .poll(() =>
-      page.evaluate(async () => (await window.desktop.setupState()).settings.inferenceTimeoutMs),
-    )
-    .toBe(10000);
   await section("Appearance");
   await tabToControl(page.getByRole("radio", { name: "System", exact: true }));
   await page.keyboard.press("ArrowRight");
@@ -3590,7 +3439,6 @@ test("every Settings section passes axe in light and dark, including the narrow 
     "Agents and hooks",
     "Repositories",
     "Worktrees",
-    "Evaluator",
     "Appearance",
     "Terminal",
     "Themes",
@@ -6284,4 +6132,56 @@ test("trusted card follows interface scale and clears its scrim on every dismiss
   await quitAndWait(app, async () => {
     await dialog.getByRole("button", { name: "Stop all and quit" }).click();
   });
+});
+
+test("legacy inference profiles upgrade without evaluator controls or stored keys", async (context) => {
+  const root = await mkdtemp(path.join(tmpdir(), "foom-legacy-profile-"));
+  removeAfterApps(context, root);
+  await writeFile(
+    path.join(root, "settings.json"),
+    JSON.stringify({
+      version: 1,
+      settings: {
+        setupComplete: true,
+        hooks: false,
+        interfaceScale: 110,
+        inference: { kind: "openai", model: "saved-model" },
+        inferenceTimeoutMs: 15000,
+      },
+    }),
+  );
+  for (const provider of ["anthropic", "openai", "google"])
+    await writeFile(path.join(root, `inference-${provider}.key`), Buffer.from([0, 128, 255]));
+  const app = await launchApp(context, false, {
+    args: [`--user-data-dir=${root}`],
+    emptyBoard: true,
+  });
+  const page = await boardPage(app);
+  const state = await page.evaluate(() => window.desktop.setupState());
+  assert.equal(state.settings.hooks, false);
+  assert.equal(state.settings.interfaceScale, 110);
+  assert.equal("inference" in state.settings, false);
+  assert.equal("inferenceTimeoutMs" in state.settings, false);
+  assert.equal("keys" in state, false);
+  for (const provider of ["anthropic", "openai", "google"])
+    await assert.rejects(readFile(path.join(root, `inference-${provider}.key`)), {
+      code: "ENOENT",
+    });
+  assert.doesNotMatch(await readFile(path.join(root, "settings.json"), "utf8"), /inference/);
+  assert.deepEqual(
+    await page.evaluate(() =>
+      Object.keys(window.desktop).filter((key) => /inference|localModels/i.test(key)),
+    ),
+    [],
+  );
+  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  await page.getByRole("navigation", { name: "Settings sections" }).waitFor();
+  await expect(page.getByText(/Evaluator|Run check|API key/)).toHaveCount(0);
+  await page.evaluate(() => window.desktop.saveSetup({ setupComplete: false }));
+  await page.reload();
+  await page.getByRole("button", { name: "Start preflight" }).waitFor();
+  await expect(
+    page.getByRole("navigation", { name: "Preflight steps" }).getByRole("button"),
+  ).toHaveCount(5);
+  await expect(page.getByText(/Evaluator|Run check|API key/)).toHaveCount(0);
 });

@@ -2,7 +2,6 @@ import type { BoardRow, BoardState } from "./board.d";
 
 const labels: Record<BoardState, string> = {
   working: "Working",
-  checking: "Checking",
   needs_input: "Needs you",
   done: "Done",
   failed: "Failed",

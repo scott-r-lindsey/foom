@@ -1080,8 +1080,7 @@ export class Workspace {
           ? "working"
           : phase === "blocked" && state.signal !== "user:dismissed"
             ? "needs_input"
-            : (phase === "idle" || phase === "starting") &&
-                (state.state === "working" || state.state === "checking")
+            : (phase === "idle" || phase === "starting") && state.state === "working"
               ? "quiet_ok"
               : state.state;
     terminal.state = {
@@ -1126,48 +1125,13 @@ export class Workspace {
         terminal.codexHealthLaunch,
       );
     }
-    const previousState = terminal.state;
-    const checking = setTimeout(() => {
-      if (!stale() && terminal.exitCode === undefined && !terminal.hook) {
-        this.publish(id, terminal, {
-          verdictId: null,
-          state: "checking",
-          reason: "Evaluating terminal output",
-          signal: "evaluation:pending",
-          confidence: 1,
-        });
-      }
-    }, 150);
-    let record: VerdictRecord;
-    try {
-      record = await this.deps.verdicts.classify({
-        terminalId: id,
-        tail,
-        ...this.agentInput(id, terminal),
-        ...(terminal.hook && !terminal.permissionProgress ? { hook: terminal.hook } : {}),
-        ...(terminal.exitCode !== undefined ? { exitCode: terminal.exitCode } : {}),
-      });
-    } finally {
-      clearTimeout(checking);
-      if (
-        !this.closed &&
-        this.terminals.get(id) === terminal &&
-        terminal.state?.state === "checking"
-      ) {
-        if (previousState && !stale()) {
-          terminal.state = previousState;
-          this.deps.onState(previousState);
-        } else {
-          this.publish(id, terminal, {
-            verdictId: null,
-            state: "working",
-            reason: "No completion or input request detected",
-            signal: "evaluation:finished",
-            confidence: 0.25,
-          });
-        }
-      }
-    }
+    let record = await this.deps.verdicts.classify({
+      terminalId: id,
+      tail,
+      ...this.agentInput(id, terminal),
+      ...(terminal.hook && !terminal.permissionProgress ? { hook: terminal.hook } : {}),
+      ...(terminal.exitCode !== undefined ? { exitCode: terminal.exitCode } : {}),
+    });
     if (stale()) return;
     const execution = terminal.execution?.snapshot();
     const agentInput = this.agentInput(id, terminal);

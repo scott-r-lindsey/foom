@@ -476,3 +476,5 @@ Until those schemas ship, it returns `config_schema_unavailable` and exit 2,
 without reading the path, pairing, opening a window, or accessing profile data.
 #84's earlier Electron-based console recipe is superseded by this standalone
 helper; its validation schemas and config-only capabilities remain #84's work.
+
+As of #217, Foom never emits `checking` in control API or MCP session states. Any existing client schema may retain it as deprecated for backward compatibility. Quiet debounce and classification do not introduce an intermediate state.

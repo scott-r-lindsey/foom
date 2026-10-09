@@ -3,11 +3,10 @@ import type { ExecutionTransition } from "../shared/execution";
 import { contextBridge, ipcRenderer } from "electron";
 import type { IpcRendererEvent } from "electron";
 import type { DesktopApi, TerminalActivity } from "../shared/desktop";
-import type { ProbeUpdate } from "../shared/inference";
 import type { SetupState } from "../shared/setup";
 import type { TerminalState } from "../shared/workspace";
 
-const states = ["needs_input", "done", "failed", "quiet_ok", "working", "checking"];
+const states = ["needs_input", "done", "failed", "quiet_ok", "working"];
 function object(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -52,32 +51,8 @@ function executionTransition(value: unknown): value is ExecutionTransition {
   );
 }
 
-const steps = ["key", "connect", "server", "model", "load", "request", "reply", "parse"];
-const statuses = ["running", "ok", "failed", "skipped"];
-function probeUpdate(value: unknown): value is ProbeUpdate {
-  if (!object(value)) return false;
-  if (value["kind"] === "stream")
-    return typeof value["thinking"] === "number" && typeof value["reply"] === "string";
-  const event = value["event"];
-  return (
-    value["kind"] === "step" &&
-    object(event) &&
-    steps.includes(String(event["step"])) &&
-    statuses.includes(String(event["status"])) &&
-    typeof event["label"] === "string" &&
-    typeof event["atMs"] === "number" &&
-    (event["durationMs"] === undefined || typeof event["durationMs"] === "number")
-  );
-}
-
 function setupState(value: unknown): value is SetupState {
-  return (
-    object(value) &&
-    object(value["settings"]) &&
-    object(value["keys"]) &&
-    typeof value["secureStorage"] === "boolean" &&
-    typeof value["worktreeRoot"] === "string"
-  );
+  return object(value) && object(value["settings"]) && typeof value["worktreeRoot"] === "string";
 }
 
 // Main sends this after availability notifications. Reply after the current
@@ -402,21 +377,6 @@ const desktop: DesktopApi = {
   openThemesFolder: (kind) => ipcRenderer.invoke("theme:open-folder", kind),
   setupState: () => ipcRenderer.invoke("setup:state"),
   saveSetup: (patch) => ipcRenderer.invoke("setup:save", patch),
-  setInferenceKey: (provider, key) => ipcRenderer.invoke("setup:set-key", provider, key),
-  removeInferenceKey: (provider) => ipcRenderer.invoke("setup:remove-key", provider),
-  checkInference(id, config, timeoutMs, onUpdate) {
-    const listener = (_event: IpcRendererEvent, check: unknown, update: unknown) => {
-      if (check === id && probeUpdate(update)) onUpdate(update);
-    };
-    ipcRenderer.on("setup:check-progress", listener);
-    return ipcRenderer.invoke("setup:check", id, config, timeoutMs).finally(() => {
-      ipcRenderer.removeListener("setup:check-progress", listener);
-    });
-  },
-  async cancelInferenceCheck(id) {
-    await ipcRenderer.invoke("setup:check-cancel", id);
-  },
-  localModels: (endpoint) => ipcRenderer.invoke("setup:models", endpoint),
   codeSuggestions: () => ipcRenderer.invoke("setup:code-suggestions"),
   scanCode(id, folder, onProgress) {
     const listener = (_event: IpcRendererEvent, scan: unknown, progress: unknown) => {

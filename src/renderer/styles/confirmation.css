@@ -66,8 +66,7 @@ li {
   border-radius: 50%;
   background: var(--muted);
 }
-.confirmation-light[data-state="working"],
-.confirmation-light[data-state="checking"] {
+.confirmation-light[data-state="working"] {
   background: var(--accent);
 }
 .confirmation-light[data-state="needs_input"] {

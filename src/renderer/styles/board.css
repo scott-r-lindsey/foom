@@ -65,9 +65,6 @@
   opacity: var(--light-opacity);
   transition: opacity 500ms linear;
 }
-.board-row[data-state="checking"] .board-light {
-  animation: board-breathe 3s ease-in-out infinite;
-}
 .board-row[data-state="needs_input"] .board-light {
   background: var(--attention);
   box-shadow: 0 0 0 4px color-mix(in srgb, var(--attention) 22%, transparent);
@@ -104,11 +101,6 @@
 .board-terminal p {
   color: var(--muted);
   font-size: 12px;
-}
-@keyframes board-breathe {
-  50% {
-    opacity: 0.35;
-  }
 }
 @media (prefers-reduced-motion: reduce) {
   .board-light {

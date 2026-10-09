@@ -24,7 +24,7 @@ export function RepositoriesStep({
 }) {
   return (
     <>
-      <p className="preflight-eyebrow">T-3 · Repositories</p>
+      <p className="preflight-eyebrow">T-2 · Repositories</p>
       <h2 ref={headingRef} tabIndex={-1}>
         Where do you keep your code?
       </h2>

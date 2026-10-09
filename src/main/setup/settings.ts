@@ -8,7 +8,6 @@ import { DEFAULT_SOUND, migrateSoundSettings } from "../../shared/sounds";
 import { randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { dirname, isAbsolute, join } from "node:path";
-import { parseInferenceConfig } from "../evaluator/inference-source";
 import type { AgentId } from "../../shared/agents";
 import type { Settings, SettingsPatch } from "../../shared/setup";
 
@@ -22,8 +21,6 @@ export const DEFAULT_SETTINGS: Settings = Object.freeze({
   agentArguments: EMPTY_AGENT_ARGUMENTS,
   agentBypassAcknowledged: Object.freeze({ claude: false, codex: false, agy: false }),
   worktreeLocation: "root",
-  inference: Object.freeze({ kind: "rules" }),
-  inferenceTimeoutMs: 5000,
   colorMode: "system",
   panelColor: "vivid",
   interfaceTheme: "follow",
@@ -66,7 +63,6 @@ export function parseSettingsPatch(value: unknown): SettingsPatch {
       };
     else if (key === "agentArguments") patch.agentArguments = parseAgentDefaults(entry);
     else if (isConfigSetting(key)) Object.assign(patch, parseConfigSettings({ [key]: entry }));
-    else if (key === "inference") patch.inference = parseInferenceConfig(entry);
     else if (
       key === "codeFolder" &&
       (entry === null ||
@@ -76,14 +72,6 @@ export function parseSettingsPatch(value: unknown): SettingsPatch {
           isAbsolute(entry)))
     )
       patch.codeFolder = entry;
-    else if (
-      key === "inferenceTimeoutMs" &&
-      Number.isInteger(entry) &&
-      typeof entry === "number" &&
-      entry >= 1000 &&
-      entry <= 30_000
-    )
-      patch.inferenceTimeoutMs = entry;
     else throw new Error("Invalid settings");
   }
   return patch;
@@ -98,11 +86,18 @@ export class SettingsStore {
 
   /** Missing, corrupt or unsupported state starts from defaults, so setup runs again. */
   static async open(userData: string): Promise<SettingsStore> {
+    // Remove ciphertext without decrypting it or depending on OS key storage.
+    for (const provider of ["anthropic", "openai", "google"])
+      await rm(join(userData, `inference-${provider}.key`), { force: true });
     const store = new SettingsStore(join(userData, "settings.json"));
+    let migrated = false;
     try {
       const state: unknown = JSON.parse(await readFile(store.file, "utf8"));
       if (record(state) && state["version"] === 1 && record(state["settings"])) {
         const { agentArguments, sound, ...rest } = state["settings"];
+        const legacy = "inference" in rest || "inferenceTimeoutMs" in rest;
+        delete rest["inference"];
+        delete rest["inferenceTimeoutMs"];
         const recovered = { ...EMPTY_AGENT_ARGUMENTS };
         if (record(agentArguments)) {
           for (const agent of AGENTS) {
@@ -119,10 +114,12 @@ export class SettingsStore {
           sound: sound === undefined ? DEFAULT_SOUND : migrateSoundSettings(sound),
           agentArguments: recovered,
         };
+        migrated = legacy;
       }
     } catch {
       // Defaults.
     }
+    if (migrated) await store.update({});
     return store;
   }
 

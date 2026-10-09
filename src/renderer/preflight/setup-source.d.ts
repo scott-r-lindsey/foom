@@ -1,13 +1,6 @@
 import type { ThemeKind } from "../../shared/theme-file";
 import type { AgyPluginAction } from "../../shared/agy-plugin";
 import type {
-  ApiProvider,
-  InferenceConfig,
-  ModelList,
-  ProbeResult,
-  ProbeUpdate,
-} from "../../shared/inference";
-import type {
   CodeScan,
   CodeSuggestion,
   RepositoryUpdate,
@@ -23,16 +16,6 @@ export interface SetupSource {
   openThemesFolder(kind: ThemeKind): Promise<void>;
   state(): Promise<SetupState>;
   save(patch: SettingsPatch): Promise<SetupState>;
-  setKey(provider: ApiProvider, key: string): Promise<SetupState>;
-  removeKey(provider: ApiProvider): Promise<SetupState>;
-  check(
-    id: string,
-    config: InferenceConfig,
-    timeoutMs: number,
-    onUpdate: (update: ProbeUpdate) => void,
-  ): Promise<ProbeResult>;
-  cancel(id: string): Promise<void>;
-  models(endpoint: string): Promise<ModelList>;
   scanAgents(refresh: boolean): Promise<AgentReport>;
   changeAgyPlugin(action: AgyPluginAction): Promise<AgentReport>;
   repositories(): Promise<readonly Repository[]>;

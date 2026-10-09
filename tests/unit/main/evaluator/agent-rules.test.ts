@@ -10,7 +10,6 @@ import {
 } from "../../../../src/main/evaluator/agent-rules";
 import type { AgentRule } from "../../../../src/main/evaluator/agent-rule-types";
 import { evaluateRules } from "../../../../src/main/evaluator/evaluator";
-import { ModelEvaluator } from "../../../../src/main/evaluator/model-evaluator";
 import claude from "../../../../src/main/evaluator/agent-rules/claude.json";
 const evidence = { title: "", progress: null };
 const rule: AgentRule = {
@@ -135,7 +134,7 @@ test("every shipped rule matches a versioned real capture", () => {
     }
 });
 
-test("exit and hooks beat agent rules; idle still reaches only the tail model", async () => {
+test("exit and hooks beat agent rules; idle stays neutral", () => {
   const input = {
     terminalId: "t",
     agent: "codex" as const,
@@ -160,16 +159,14 @@ test("exit and hooks beat agent rules; idle still reaches only the tail model", 
   expect(evaluateRules({ ...input, evidence: { title: "⠋ codex", progress: null } })).toMatchObject(
     { state: "working", confidence: 0.95 },
   );
-  const complete = vi.fn().mockResolvedValue('{"state":"needs_input","confidence":0.9}');
-  const model = new ModelEvaluator({ complete });
   const idle = {
     ...input,
     tail: ["Which file should I edit?"],
     evidence: { title: "private-title", progress: null },
   };
-  expect((await new ModelEvaluator().evaluate(idle)).signal).toBe("rules:codex:osc_title_idle");
-  expect((await model.evaluate(idle)).state).toBe("needs_input");
-  expect(complete.mock.calls[0]?.[0]).not.toContain("private-title");
-  await model.evaluate(input);
-  expect(complete).toHaveBeenCalledOnce();
+  expect(evaluateRules(idle)).toMatchObject({
+    state: "working",
+    signal: "rules:codex:osc_title_idle",
+    confidence: 0.25,
+  });
 });

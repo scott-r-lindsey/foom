@@ -1,7 +1,7 @@
 import { useState } from "react";
 import type { AgentId } from "../../shared/agents";
 import { AGENTS } from "./preflight";
-import { message } from "./preflight-evaluator";
+import { message } from "./message";
 
 /** Keep interior lines for useful error locations; only trailing empty lines are ignored. */
 export function argumentLines(text: string): string[] {

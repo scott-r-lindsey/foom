@@ -5,7 +5,6 @@ const ranks: Record<BoardState, number> = {
   needs_input: 5,
   failed: 4,
   working: 3,
-  checking: 3,
   done: 2,
   quiet_ok: 1,
 };

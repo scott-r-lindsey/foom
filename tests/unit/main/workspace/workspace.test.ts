@@ -1421,7 +1421,7 @@ test("shell lifecycle reports ready, working, done and failed, preserving comple
 });
 
 test.each(["finish", "output", "prompt", "reject"])(
-  "slow evaluation shows Checking and survives %s",
+  "pending evaluation preserves state and survives %s",
   async (action) => {
     vi.useFakeTimers();
     const workspace = new Workspace(deps);
@@ -1436,7 +1436,7 @@ test.each(["finish", "output", "prompt", "reject"])(
     );
     const pending = workspace.quiet("t1");
     await vi.advanceTimersByTimeAsync(151);
-    expect(states.at(-1)?.state).toBe("checking");
+    expect(states.map((state) => state.state)).not.toContain("checking");
     if (action === "output") workspace.output("t1");
     if (action === "prompt") workspace.shellState("t1", { phase: "prompt", exitCode: 0 });
     if (action === "reject") reject(new Error("unavailable"));
@@ -1449,7 +1449,13 @@ test.each(["finish", "output", "prompt", "reject"])(
       });
     await pending;
     expect(states.at(-1)?.state).toBe(
-      action === "finish" ? "needs_input" : action === "prompt" ? "quiet_ok" : "working",
+      action === "finish"
+        ? "needs_input"
+        : action === "prompt"
+          ? "quiet_ok"
+          : action === "output"
+            ? "working"
+            : undefined,
     );
     vi.useRealTimers();
   },
@@ -1469,7 +1475,7 @@ test("shell markers do not override a permission hook", async () => {
 });
 
 test.each(["output", "input", "removed"] as const)(
-  "no Checking or verdict after %s invalidates an evaluation",
+  "no verdict after %s invalidates an evaluation",
   async (action) => {
     vi.useFakeTimers();
     const workspace = new Workspace(deps);
@@ -1652,7 +1658,7 @@ test("working, blocked and idle title transitions each evaluate", async () => {
   await workspace.dispose();
 });
 
-test("slow repeated classification preserves the verdict ID across Checking", async () => {
+test("slow repeated classification preserves the verdict ID while pending", async () => {
   vi.useFakeTimers();
   try {
     const workspace = new Workspace(deps);
@@ -1662,7 +1668,7 @@ test("slow repeated classification preserves the verdict ID across Checking", as
     classify.mockReturnValueOnce(response.promise);
     const pending = workspace.quiet("t1");
     await vi.advanceTimersByTimeAsync(151);
-    expect(states.at(-1)?.state).toBe("checking");
+    expect(states.map((state) => state.state)).not.toContain("checking");
     response.resolve({
       id: "duplicate",
       terminalId: "t1",

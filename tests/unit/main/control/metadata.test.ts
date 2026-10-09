@@ -157,8 +157,6 @@ it("tracks current execution and changes revisions on relaunch, attention and ex
   if (!row.state) throw new Error("Expected verdict");
   row.state = { ...row.state, execution: row.execution, state: "working" };
   expect(call()).toMatchObject({ state: "quiet_ok" });
-  row.state.state = "checking";
-  expect(call()).toMatchObject({ state: "quiet_ok" });
   row.state.state = "done";
   expect(call()).toMatchObject({ state: "done" });
   row.execution = { ...row.execution, phase: "starting" };

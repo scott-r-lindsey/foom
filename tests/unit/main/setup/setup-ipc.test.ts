@@ -19,16 +19,6 @@ const trusted = { sender: contents, senderFrame: frame };
 const setup = {
   state: vi.fn(() => "state"),
   save: vi.fn(() => "saved"),
-  setKey: vi.fn(() => "set"),
-  removeKey: vi.fn(() => "removed"),
-  check: vi.fn(
-    (_id: string, _config: unknown, _limit: unknown, onUpdate: (update: unknown) => void) => {
-      onUpdate({ kind: "stream", thinking: 1, reply: "{" });
-      return "checked";
-    },
-  ),
-  cancel: vi.fn(),
-  models: vi.fn(() => "models"),
   codeSuggestions: vi.fn(() => "suggestions"),
   scanCode: vi.fn((_folder: unknown, onProgress: (progress: unknown) => void) => {
     onProgress({ folders: 1, repositories: 0 });
@@ -54,11 +44,6 @@ test("every channel rejects untrusted senders", () => {
   expect(channels).toEqual([
     "setup:state",
     "setup:save",
-    "setup:set-key",
-    "setup:remove-key",
-    "setup:check",
-    "setup:check-cancel",
-    "setup:models",
     "setup:code-suggestions",
     "setup:scan-code",
     "setup:apply-repositories",
@@ -82,29 +67,6 @@ test("passes payloads to Setup, which validates them, and never offers a key rea
   expect(setup.save).toHaveBeenCalledWith({ hooks: false });
   expect(contents.send).toHaveBeenCalledWith("setup:changed", "saved");
   contents.send.mockClear();
-  expect(invoke("setup:set-key", ["openai", "sk"])).toBe("set");
-  expect(setup.setKey).toHaveBeenCalledWith("openai", "sk");
-  expect(invoke("setup:remove-key", ["openai"])).toBe("removed");
-  expect(invoke("setup:check", ["id-1", { kind: "rules" }, 5000])).toBe("checked");
-  expect(setup.check).toHaveBeenCalledWith("id-1", { kind: "rules" }, 5000, expect.any(Function));
-  expect(contents.send).toHaveBeenCalledWith("setup:check-progress", "id-1", {
-    kind: "stream",
-    thinking: 1,
-    reply: "{",
-  });
-  // Progress never goes to another document or a destroyed window.
-  frame.url = "https://example.com/";
-  setup.check.mock.calls[0]?.[3]({ kind: "stream", thinking: 2, reply: "" });
-  frame.url = "app://bundle/index.html";
-  contents.isDestroyed.mockReturnValueOnce(true);
-  setup.check.mock.calls[0]?.[3]({ kind: "stream", thinking: 3, reply: "" });
-  expect(contents.send).toHaveBeenCalledOnce();
-  for (const id of [7, "", "has space", "x".repeat(65)])
-    expect(() => invoke("setup:check", [id, { kind: "rules" }, 5000])).toThrow("Invalid check ID");
-  invoke("setup:check-cancel", ["id-1"]);
-  invoke("setup:check-cancel", [7]);
-  expect(setup.cancel).toHaveBeenCalledExactlyOnceWith("id-1");
-  expect(invoke("setup:models", ["http://127.0.0.1:11434/v1"])).toBe("models");
   expect(invoke("setup:code-suggestions")).toBe("suggestions");
   expect(invoke("setup:scan-code", ["s1", "/code"])).toBe("scanned");
   expect(setup.scanCode).toHaveBeenCalledWith("/code", expect.any(Function));
@@ -164,4 +126,15 @@ test("dispose removes every handler", () => {
   expect(mock.removeHandler.mock.calls.map(([name]: unknown[]) => name)).toEqual(
     mock.handle.mock.calls.map(([name]) => name),
   );
+});
+
+test("removed inference channels have no handlers", () => {
+  for (const name of [
+    "setup:set-key",
+    "setup:remove-key",
+    "setup:check",
+    "setup:check-cancel",
+    "setup:models",
+  ])
+    expect(mock.handle.mock.calls.some(([channel]) => channel === name)).toBe(false);
 });
