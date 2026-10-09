@@ -75,9 +75,6 @@ export function TileMenu({
         kind: `Tile ${String(number)}`,
         mark: String(number),
         pinned: true,
-        enter: () => {},
-        leave: () => {},
-        pin: () => {},
         facts: (
           <dl className="panel-facts">
             <dt>Session</dt>

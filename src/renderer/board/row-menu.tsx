@@ -22,9 +22,9 @@ export interface PanelContent {
   mark: string;
   facts: ReactNode;
   pinned: boolean;
-  enter: () => void;
-  leave: () => void;
-  pin: () => void;
+  enter?: () => void;
+  leave?: () => void;
+  pin?: () => void;
 }
 /** A body portal escapes scrolling and stacking contexts; positioning remains viewport-relative. */
 export function RowMenu({

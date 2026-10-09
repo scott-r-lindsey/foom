@@ -199,8 +199,10 @@ export function Board({
               leaves(layoutRef.current.tree).some(
                 (item) => item.id === tile && (item.session === session || item.session === null),
               )
-            )
+            ) {
               changeLayout(closeTile({ ...layoutRef.current, focused: tile }));
+              setFocusRequest((value) => value + 1);
+            }
           })
           .catch(() => {
             setRemoveError("Unable to close session.");

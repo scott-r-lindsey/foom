@@ -157,6 +157,7 @@ test("placement uses empty tiles, refuses full without replacement, and next-wai
 });
 test("keyboard-only splits, spatial focus, hide, close and empty layouts remain operable", async () => {
   const { screen, send, click } = setup();
+  expect(screen.getByRole("group", { name: "Terminal tiles" })).toBeTruthy();
   send("split-right");
   send("split-down");
   click(0);
@@ -613,4 +614,31 @@ test("keyboard gutters collapse empty sides and terminal numbering skips spaces"
   expect(screen.queryByRole("button", { name: "Tile 3 menu" })).toBeNull();
   send("tile-2");
   expect(screen.getByRole("region", { name: /Tile 2:/ }).getAttribute("data-focused")).toBe("true");
+});
+
+test("asynchronous Close focuses the surviving terminal after the command resolves", async () => {
+  const { screen, click, data, source, send, views } = setup();
+  click(0);
+  send("split-right");
+  click(1);
+  send("tile-1");
+  act(() => {
+    data.update("permission", { exited: true });
+  });
+  let complete: (() => void) | undefined;
+  source.sidebarCommand = vi.fn(
+    () =>
+      new Promise<void>((resolve) => {
+        complete = resolve;
+      }),
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Close" }));
+  await act(async () => {});
+  const focusedBefore = views[1]?.focus.mock.calls.length ?? 0;
+  await act(async () => {
+    complete?.();
+    await Promise.resolve();
+  });
+  expect(views[1]?.focus).toHaveBeenCalledTimes(focusedBefore + 1);
+  expect(document.activeElement).toBe(screen.getByRole("region", { name: /Tile 1:/ }));
 });

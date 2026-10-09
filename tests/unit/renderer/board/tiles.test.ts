@@ -356,3 +356,19 @@ test("gutter preview and commit collapse only all-space sides and preserve occup
   expect(resizeSplit(left, left.tree.id, NaN).tree).toMatchObject({ ratio: 0.5 });
   expect(resizeSplit(left, "stale", 0, true)).toEqual(left);
 });
+
+test("filling narrow space restores terminal minimums for placement, drops and swaps", () => {
+  const pair = splitTile(place(initialLayout(), "a"), "horizontal");
+  const narrow = resizeSplit(pair, pair.tree.id, 0.9);
+  expect(place(narrow, "b").tree).toMatchObject({ ratio: 0.85 });
+  const empty = landingSpace(narrow);
+  if (!empty) throw new Error("No space");
+  expect(dropTile(narrow, { kind: "session", id: "b" }, empty.id, "center").tree).toMatchObject({
+    ratio: 0.85,
+  });
+  const swapped = swapTiles(narrow, narrow.focused, empty.id);
+  expect(swapped.tree).toMatchObject({ ratio: 0.85 });
+  const leftSpace = place(splitTile(initialLayout(), "horizontal"), "a");
+  const squeezed = resizeSplit(leftSpace, leftSpace.tree.id, 0.1);
+  expect(place(squeezed, "b").tree).toMatchObject({ ratio: 0.15 });
+});

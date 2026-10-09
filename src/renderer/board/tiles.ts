@@ -112,6 +112,17 @@ export function growTile(layout: TileLayout, direction: TileSplit["direction"]):
 export function ratioLimits(node: TileSplit): [number, number] {
   return [terminals(node.first).length ? 0.15 : 0, terminals(node.second).length ? 0.85 : 1];
 }
+/** Occupancy can change after resizing space; every occupied side regains its minimum. */
+function fitRatios(tree: TileNode): TileNode {
+  if (tree.kind === "tile") return tree;
+  const [min, max] = ratioLimits(tree);
+  return {
+    ...tree,
+    ratio: Math.max(min, Math.min(max, tree.ratio)),
+    first: fitRatios(tree.first),
+    second: fitRatios(tree.second),
+  };
+}
 export function resizeSplit(
   layout: TileLayout,
   target: string,
@@ -152,7 +163,12 @@ export function placeSession(
   if (replace && visible && visible.id !== target.id)
     tree = update(tree, visible.id, (node) => ({ ...node, session: null }));
   tree = update(tree, target.id, (node) => ({ ...node, session }));
-  return { ...layout, tree, focused: target.id, maximized: layout.maximized ? target.id : null };
+  return {
+    ...layout,
+    tree: fitRatios(tree),
+    focused: target.id,
+    maximized: layout.maximized ? target.id : null,
+  };
 }
 export function preset(layout: TileLayout, kind: TilePreset): TileLayout {
   const old = leaves(layout.tree);
@@ -386,7 +402,7 @@ export function swapTiles(layout: TileLayout, from: string, to: string): TileLay
         : node.kind === "tile"
           ? node
           : { ...node, first: swap(node.first), second: swap(node.second) };
-  return { ...layout, tree: swap(layout.tree), focused: from, maximized: null };
+  return { ...layout, tree: fitRatios(swap(layout.tree)), focused: from, maximized: null };
 }
 
 /** Drops are atomic: refused splits never remove their source. */
@@ -418,7 +434,7 @@ export function dropTile(
   let tree = update(added.tree, fresh.id, () => moving);
   if (drag.kind === "session" && origin)
     tree = update(tree, origin.id, () => ({ ...origin, session: null }));
-  const result = { tree, focused: moving.id, maximized: null };
+  const result = { tree: fitRatios(tree), focused: moving.id, maximized: null };
   return zone === "left" || zone === "up" ? swapTiles(result, moving.id, target) : result;
 }
 

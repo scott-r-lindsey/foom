@@ -1814,7 +1814,7 @@ test("launches an agent in a managed worktree and routes its attention signals",
     );
     const row = page.locator(".board-row").filter({ hasText: branch });
     await expect(row).toHaveAttribute("data-state", branch === "finish-ok" ? "done" : "failed");
-    await page.getByRole("button", { name: "Hide", exact: true }).click();
+    await page.getByRole("button", { name: "Close", exact: true }).click();
     await row.click();
     await expect(page.locator(".xterm-helper-textarea")).toBeFocused();
     await expect(page.locator(".xterm-rows")).toContainText(
@@ -3976,6 +3976,8 @@ test("launching into full tiles replaces focus and empty tiles support mouse con
   await page.getByRole("button", { name: "Tile 1 menu", exact: true }).click();
   const menu = page.getByRole("dialog", { name: "Tile 1 menu", exact: true });
   await expect(menu).toContainText(/\d+ × \d+/);
+  await assertAccessible(page);
+  await page.screenshot({ path: path.join(tmpdir(), "foom-220-tile-panel.png") });
   await menu.press("Escape");
   await page.getByRole("button", { name: "Two side by side", exact: true }).click();
   for (const colorScheme of ["light", "dark"]) {

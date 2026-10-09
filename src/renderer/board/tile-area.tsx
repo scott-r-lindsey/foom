@@ -153,6 +153,7 @@ function Tile({
         if (!row) return;
         select();
         if (
+          event.button !== 2 &&
           event.target instanceof Element &&
           !event.target.closest("button") &&
           !event.target.closest(".xterm")
@@ -435,6 +436,7 @@ export function TileArea({
   return (
     <div
       className="tile-area"
+      role="group"
       aria-label="Terminal tiles"
       hidden={inactive}
       onDragOver={(event) => {
