@@ -10,6 +10,7 @@ export interface SidebarWorktree extends Worktree {
 }
 export interface SidebarRepository extends Repository {
   canDeleteMerged?: boolean;
+  mergedCount?: number;
   mergedError?: string;
   worktrees: readonly SidebarWorktree[];
 }

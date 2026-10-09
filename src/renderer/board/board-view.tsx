@@ -407,7 +407,7 @@ export function Board({
           const resumed = source.getSnapshot().find((row) => row.id === value.id && !row.exited);
           if (resumed) open(resumed, true);
         }
-        if (value.kind === "launch" || value.kind === "restart") {
+        if (value.kind === "launch" || value.kind === "restart" || value.kind === "home-shell") {
           const created = source.getSnapshot().find((row) => !before.has(row.id));
           if (created) {
             open(
@@ -609,6 +609,7 @@ export function Board({
       {removeError && <p role="alert">{removeError}</p>}
       <div className="board-workspace">
         <Sidebar
+          dragging={Boolean(drag)}
           source={source}
           otherViews={otherViews}
           tileNumbers={

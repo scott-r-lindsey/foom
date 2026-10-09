@@ -57,6 +57,10 @@ function launchRequest(value: unknown): LaunchRequest {
 function sidebarCommand(value: unknown): SidebarCommand {
   if (!record(value)) throw new Error("Invalid sidebar command");
   const kind = value["kind"];
+  if (kind === "home-shell") {
+    if (Object.keys(value).length !== 1) throw new Error("Invalid home shell request");
+    return { kind };
+  }
   if (
     kind === "stop" ||
     kind === "close" ||
@@ -199,6 +203,15 @@ export function attachWorkspace(
               : { kind: "remove" },
           ),
         );
+      },
+    ],
+    [
+      "workspace:panel-facts",
+      (...args) => {
+        const [repository, worktree] = args;
+        if (args.length !== 2 || !text(repository) || !text(worktree))
+          throw new Error("Invalid panel request");
+        return workspace.panelFacts(repository, worktree);
       },
     ],
     ["workspace:sidebar", () => workspace.sidebarInventory()],

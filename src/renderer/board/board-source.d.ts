@@ -1,3 +1,4 @@
+import type { GitPanelFacts, HomeShellFacts } from "../../shared/panel";
 import type { WindowsApi } from "../../shared/windows";
 import type { AppMenuApi } from "../../shared/app-menu";
 import type { ConfirmationClient } from "../../shared/confirmation";
@@ -36,6 +37,8 @@ export interface BoardSource {
   createView?: () => TerminalViewSource;
   getSidebar?: () => SidebarRepository[] | readonly SidebarRepository[];
   sidebarCommand?: (command: SidebarCommand) => Promise<void>;
+  panelFacts?: (repository: string, worktree: string) => Promise<GitPanelFacts>;
+  homeShell?: () => HomeShellFacts | undefined;
   shellName?: () => string;
 
   getSnapshot: () => readonly BoardRow[];

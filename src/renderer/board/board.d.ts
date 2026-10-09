@@ -4,6 +4,10 @@ export interface BoardRow {
   execution?: ExecutionSnapshot | undefined;
   id: string;
   managed?: boolean;
+  home?: boolean;
+  startedAt?: number | undefined;
+  exitCode?: number | undefined;
+  launchFlags?: readonly string[] | undefined;
   repositoryPath?: string;
   worktree?: string;
   exited?: boolean;

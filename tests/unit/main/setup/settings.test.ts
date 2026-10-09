@@ -265,3 +265,11 @@ test("legacy soundscape migrates on disk without changing switches or volumes", 
     }),
   ).toThrow();
 });
+
+test("panel color validates and defaults to vivid", () => {
+  expect(DEFAULT_SETTINGS.panelColor).toBe("vivid");
+  for (const panelColor of ["vivid", "subtle", "plain"])
+    expect(parseSettingsPatch({ panelColor })).toEqual({ panelColor });
+  for (const panelColor of [null, "bright", 0])
+    expect(() => parseSettingsPatch({ panelColor })).toThrow();
+});

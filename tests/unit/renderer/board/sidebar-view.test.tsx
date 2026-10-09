@@ -151,7 +151,7 @@ test("location selection shows breadcrumbs and launches there; menus issue locat
   for (const [label, expected] of [
     ["Claude Code", { kind: "launch", repository: "/foom", worktree: "/tree", run: "claude" }],
     ["Shell (zsh)", { kind: "launch", repository: "/foom", worktree: "/tree", run: "shell" }],
-    ["Remove worktree…", { kind: "remove-worktree", repository: "/foom", worktree: "/tree" }],
+    ["Delete worktree…", { kind: "remove-worktree", repository: "/foom", worktree: "/tree" }],
   ] as const) {
     fireEvent.click(view.getByRole("button", { name: "Actions for feature" }));
     await act(async () => {
@@ -161,11 +161,11 @@ test("location selection shows breadcrumbs and launches there; menus issue locat
     expect(view.command).toHaveBeenLastCalledWith(expected);
   }
   fireEvent.click(view.getByRole("button", { name: "Actions for Main checkout" }));
-  expect(view.queryByRole("menuitem", { name: "Remove worktree…" })).toBeNull();
+  expect(view.queryByRole("menuitem", { name: "Delete worktree…" })).toBeNull();
   fireEvent.keyDown(view.getByRole("menu"), { key: "Escape" });
   fireEvent.click(view.getByRole("button", { name: "Actions for Foom" }));
   await act(async () => {
-    fireEvent.click(view.getByRole("menuitem", { name: "Remove repository…" }));
+    fireEvent.click(view.getByRole("menuitem", { name: /Remove from Foom…/ }));
     await Promise.resolve();
   });
   expect(view.command).toHaveBeenLastCalledWith({ kind: "remove-repository", repository: "/foom" });
@@ -231,11 +231,11 @@ test("tree keyboard traversal, filter typing, narrow mode and persistence failur
   fireEvent.keyDown(name, { key: "ArrowRight" });
   expect(view.getByRole("button", { name: "Actions for Main checkout" })).toBeTruthy();
   fireEvent.keyDown(name, { key: "Home" });
-  expect(document.activeElement).toBe(name);
+  expect(document.activeElement?.textContent).toContain("zsh ~");
   fireEvent.keyDown(name, { key: "End" });
   expect(document.activeElement?.className).toBe("board-row");
-  fireEvent.keyDown(name, { key: "ArrowUp" });
-  expect(document.activeElement?.className).toBe("board-row");
+  fireEvent.keyDown(document.activeElement ?? name, { key: "ArrowUp" });
+  expect(document.activeElement?.className).toBe("tree-name");
   fireEvent.keyDown(name, { key: "ArrowDown", ctrlKey: true });
   fireEvent.keyDown(view.getByLabelText("Filter repositories and sessions"), { key: "ArrowDown" });
   const fail = vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
@@ -500,8 +500,8 @@ test("merged cleanup appears only when eligible, below repository removal", asyn
   });
   fireEvent.click(view.getByRole("button", { name: "Actions for Foom" }));
   const items = view.getAllByRole("menuitem");
-  const removal = items.findIndex((item) => item.textContent === "Remove repository…");
-  expect(items[removal + 1]?.textContent).toBe("Delete merged worktrees…");
+  const removal = items.findIndex((item) => item.textContent.includes("Remove from Foom…"));
+  expect(items[removal + 1]?.textContent).toContain("Delete merged worktrees…");
   expect(view.getByRole("menuitem", { name: "Fetch failed" }).hasAttribute("disabled")).toBe(true);
   await act(async () => {
     fireEvent.click(view.getByRole("menuitem", { name: "Delete merged worktrees…" }));
@@ -550,6 +550,50 @@ test("worktree menus offer only enabled launchers and deletion with an agent run
   expect(view.getAllByRole("menuitem").map((item) => item.textContent)).toEqual([
     "CCClaude Code",
     ">_Shell (zsh)",
-    "Remove worktree…",
+    "♜Delete worktree…",
   ]);
+});
+
+test("panels support hover intent, right-click pinning, title rename and home launch", async () => {
+  vi.useFakeTimers();
+  const view = setup();
+  await act(async () => {
+    await Promise.resolve();
+  });
+  const row = view.container.querySelector<HTMLElement>(".board-row");
+  if (!row) throw Error("Missing session");
+  fireEvent.pointerEnter(row);
+  act(() => {
+    vi.advanceTimersByTime(399);
+  });
+  expect(view.queryByRole("dialog")).toBeNull();
+  act(() => {
+    vi.advanceTimersByTime(1);
+  });
+  expect(view.getByRole("dialog").getAttribute("data-pinned")).toBe("false");
+  fireEvent.contextMenu(row);
+  fireEvent.pointerLeave(row);
+  act(() => {
+    vi.advanceTimersByTime(500);
+  });
+  expect(view.getByRole("dialog").getAttribute("data-pinned")).toBe("true");
+  fireEvent.click(view.getByRole("button", { name: "Rename Claude Code" }));
+  fireEvent.change(view.getByLabelText("Session name"), { target: { value: "Panel helper" } });
+  fireEvent.keyDown(view.getByLabelText("Session name"), { key: "Enter" });
+  expect(row.textContent).toContain("Panel helper");
+  fireEvent.keyDown(view.getByRole("dialog"), { key: "Escape" });
+  expect(document.activeElement).toBe(row);
+  fireEvent.keyDown(view.getByRole("button", { name: "Foom" }), { key: "F10", shiftKey: true });
+  expect(view.getByRole("dialog").textContent).toContain("Repository");
+  expect(view.queryByRole("menuitem", { name: "Claude Code" })).toBeNull();
+  fireEvent.scroll(view.container.querySelector(".board-list") ?? row);
+  expect(view.queryByRole("dialog")).toBeNull();
+  fireEvent.click(view.getByRole("button", { name: "Actions for Home shell" }));
+  await act(async () => {
+    fireEvent.click(view.getByRole("menuitem", { name: "New shell" }));
+    await Promise.resolve();
+  });
+  expect(view.command).toHaveBeenCalledWith({ kind: "home-shell" });
+  view.unmount();
+  vi.useRealTimers();
 });

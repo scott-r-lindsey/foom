@@ -910,3 +910,26 @@ it("status inspection never refreshes the index during concurrent cleanup", asyn
   await execute("git", ["status", "--porcelain=v1"], { cwd: path });
   expect(await readFile(index)).not.toEqual(before);
 });
+
+describe("local panel facts", () => {
+  it("reports changes, commit and unknown upstream without fetching; caches briefly", async () => {
+    await writeFile(join(repo, "note.txt"), "draft");
+    const facts = await service.panelFacts(repo, repo);
+    expect(facts).toMatchObject({
+      changes: 1,
+      upstream: null,
+      remote: null,
+      merged: null,
+      commit: { subject: "Initial" },
+    });
+    await writeFile(join(repo, "other.txt"), "draft");
+    expect(await service.panelFacts(repo, repo)).toEqual(facts);
+    await expect(service.panelFacts(repo, temporary)).rejects.toThrow();
+    await expect(service.panelFacts(temporary, repo)).rejects.toThrow();
+  });
+  it("shows unknown for git failures after authorization", async () => {
+    vi.spyOn(service, "launchIdentity").mockResolvedValue("verified");
+    const facts = await service.panelFacts(repo, temporary);
+    expect(facts).toMatchObject({ changes: null, upstream: null, commit: null, remote: null });
+  });
+});

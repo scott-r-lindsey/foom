@@ -27,6 +27,7 @@ const contents = {
 const window = { webContents: contents } as unknown as BrowserWindow;
 const trusted = { sender: contents, senderFrame: frame } as unknown as IpcMainInvokeEvent;
 const workspace = {
+  panelFacts: vi.fn(),
   ownsSession: vi.fn((id: string) => id === "restored"),
   startWorktree: vi.fn(() => Promise.resolve("t1")),
   removeWorktree: vi.fn(
@@ -66,6 +67,7 @@ test("rejects untrusted senders on every channel", () => {
     "confirmation:cancel",
     "workspace:start",
     "workspace:remove",
+    "workspace:panel-facts",
     "workspace:sidebar",
     "workspace:sidebar-command",
     "workspace:snapshot",
@@ -388,4 +390,21 @@ test("Antigravity plugin IPC accepts only one fixed operation, never paths or CL
     ["install;touch bad"],
   ])
     expect(() => invoke("agents:agy-plugin", args)).toThrow("Invalid plugin request");
+});
+
+test("panel facts validate exact arguments before authorizing paths", async () => {
+  for (const args of [
+    [],
+    ["/repo"],
+    ["/repo", ""],
+    ["/repo", "/tree", true],
+    [null, "/tree"],
+    ["/repo", "a\0b"],
+  ])
+    expect(() => invoke("workspace:panel-facts", args)).toThrow("Invalid panel request");
+  await invoke("workspace:panel-facts", ["/repo", "/tree"]);
+  expect(workspace.panelFacts).toHaveBeenCalledWith("/repo", "/tree");
+  expect(() =>
+    invoke("workspace:sidebar-command", [{ kind: "home-shell", cwd: "/arbitrary" }]),
+  ).toThrow();
 });

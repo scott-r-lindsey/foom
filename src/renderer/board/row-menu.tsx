@@ -3,14 +3,25 @@ import { useConfirmation } from "./use-confirmation";
 import type { ConfirmationClient } from "../../shared/confirmation";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import type { CSSProperties } from "react";
+import type { CSSProperties, ReactNode } from "react";
 export interface RowAction {
   label: string;
   disabled?: boolean;
   checked?: boolean | undefined;
   badge?: string;
+  glyph?: string;
   hint?: string;
   run: () => void | Promise<void>;
+}
+export interface PanelContent {
+  title: ReactNode;
+  kind: string;
+  mark: string;
+  facts: ReactNode;
+  pinned: boolean;
+  enter: () => void;
+  leave: () => void;
+  pin: () => void;
 }
 /** A body portal escapes scrolling and stacking contexts; positioning remains viewport-relative. */
 export function RowMenu({
@@ -21,16 +32,19 @@ export function RowMenu({
   placement = "right",
   label = "Actions",
   onAction,
+  panel,
 }: {
+  panel?: PanelContent;
   /** Overrides confirmation handling; the caller owns dismissal, focus and dispatch. */
   onAction?: (action: RowAction) => void;
   placement?: "right" | "below";
   label?: string;
-  anchor: HTMLButtonElement;
+  anchor: HTMLElement;
   actions: readonly (RowAction | null)[];
   close: () => void;
   confirmations?: ConfirmationClient | undefined;
 }) {
+  const focusOnOpen = !panel || panel.pinned;
   const confirmation = useConfirmation(confirmations);
   const [selected, setSelected] = useState<number>();
   const ref = useRef<HTMLDivElement>(null);
@@ -64,8 +78,9 @@ export function RowMenu({
       "--notch",
       `${String(Math.max(12, Math.min(bounds.height - 12, button.top + button.height / 2 - top)))}px`,
     );
-    menu.querySelector<HTMLButtonElement>("button:not(:disabled)")?.focus();
-  }, [anchor, placement]);
+    if (focusOnOpen)
+      menu.querySelector<HTMLButtonElement>(".row-menu-items button:not(:disabled)")?.focus();
+  }, [anchor, placement, focusOnOpen]);
   useEffect(() => {
     const outside = (event: PointerEvent) => {
       if (
@@ -90,15 +105,20 @@ export function RowMenu({
   return createPortal(
     <div
       ref={ref}
-      className={`row-menu${placement === "below" ? " app-menu" : ""}`}
-      role="menu"
+      className={`row-menu${placement === "below" ? " app-menu" : ""}${panel ? " sidebar-panel" : ""}`}
+      role={panel ? "dialog" : "menu"}
+      data-pinned={panel?.pinned}
+      onPointerEnter={panel?.enter}
+      onPointerLeave={panel?.leave}
+      onPointerDown={panel?.pin}
       aria-label={label}
       onKeyDown={(event) => {
         const items = Array.from(
           event.currentTarget.querySelectorAll<HTMLButtonElement>("button:not(:disabled)"),
         );
         const index = items.findIndex((item) => item === document.activeElement);
-        if (event.key === "Escape" || event.key === "Tab") {
+        if (event.target instanceof HTMLInputElement) return;
+        if (event.key === "Escape" || (event.key === "Tab" && !panel)) {
           if (event.key === "Escape") event.preventDefault();
           event.stopPropagation();
           close();
@@ -115,45 +135,66 @@ export function RowMenu({
         }
       }}
     >
-      <div className="row-menu-items">
-        {actions.map((action, index) =>
-          action ? (
-            <button
-              key={action.label}
-              type="button"
-              role={action.checked === undefined ? "menuitem" : "menuitemcheckbox"}
-              aria-checked={action.checked}
-              disabled={action.disabled}
-              style={{ "--item": index } as CSSProperties}
-              data-armed={(selected === index && Boolean(confirmation.arm)) || undefined}
-              onPointerLeave={confirmation.cancel}
-              onBlur={confirmation.cancel}
-              onClick={() => {
-                if (onAction) {
-                  onAction(action);
-                  return;
-                }
-                if (confirmation.pending && selected !== index) {
-                  confirmation.cancel();
-                  return;
-                }
-                setSelected(index);
-                void confirmation.run(action.run, () => {
-                  close();
-                  anchor.focus();
-                });
-              }}
-            >
-              {action.badge && <AgentBadge mark={action.badge} />}
-              <span className="menu-label">
-                {selected === index && confirmation.arm ? confirmation.arm.label : action.label}
-              </span>
-              {action.hint && <span className="menu-hint">{action.hint}</span>}
-            </button>
-          ) : (
-            <hr key={`separator-${String(index)}`} />
-          ),
-        )}
+      {panel && (
+        <header className="panel-header">
+          <span className="panel-mark" aria-hidden="true">
+            {panel.mark}
+          </span>
+          <div className="panel-title">{panel.title}</div>
+          <span className="panel-kind">{panel.kind}</span>
+        </header>
+      )}
+      <div className={panel ? "panel-body" : undefined}>
+        <div
+          className="row-menu-items"
+          role={panel ? "menu" : undefined}
+          aria-label={panel ? "Commands" : undefined}
+        >
+          {actions.map((action, index) =>
+            action ? (
+              <button
+                key={action.label}
+                type="button"
+                role={action.checked === undefined ? "menuitem" : "menuitemcheckbox"}
+                aria-checked={action.checked}
+                disabled={action.disabled}
+                style={{ "--item": index } as CSSProperties}
+                data-armed={(selected === index && Boolean(confirmation.arm)) || undefined}
+                onPointerLeave={confirmation.cancel}
+                onBlur={confirmation.cancel}
+                onClick={() => {
+                  if (onAction) {
+                    onAction(action);
+                    return;
+                  }
+                  if (confirmation.pending && selected !== index) {
+                    confirmation.cancel();
+                    return;
+                  }
+                  setSelected(index);
+                  void confirmation.run(action.run, () => {
+                    close();
+                    anchor.focus();
+                  });
+                }}
+              >
+                {panel && !action.badge && (
+                  <span className="command-glyph" aria-hidden="true">
+                    {action.glyph ?? "·"}
+                  </span>
+                )}
+                {action.badge && <AgentBadge mark={action.badge} />}
+                <span className="menu-label">
+                  {selected === index && confirmation.arm ? confirmation.arm.label : action.label}
+                </span>
+                {action.hint && <span className="menu-hint">{action.hint}</span>}
+              </button>
+            ) : (
+              <hr key={`separator-${String(index)}`} />
+            ),
+          )}
+        </div>
+        {panel?.facts}
       </div>
     </div>,
     document.body,

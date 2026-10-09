@@ -1,3 +1,4 @@
+import type { GitPanelFacts, HomeShellFacts } from "./panel";
 import type { AgyPluginAction } from "./agy-plugin";
 import type { ExecutionSnapshot, ExecutionTransition } from "./execution";
 import type { ConfirmationClient } from "./confirmation";
@@ -39,6 +40,10 @@ export interface WorkspaceTerminal {
   launchVersion?: number;
   /** Known bypass argument present at launch; does not infer global agent policy. */
   bypass?: boolean;
+  home?: boolean;
+  startedAt?: number;
+  exitCode?: number | undefined;
+  launchFlags?: readonly string[];
 }
 
 export interface WorkspaceSnapshot {
@@ -70,6 +75,7 @@ export interface StartWorktreeRequest {
 
 export interface WorkspaceApi {
   confirmations: ConfirmationClient;
+  panelFacts(repository: string, worktree: string): Promise<GitPanelFacts>;
   sidebarInventory(): Promise<SidebarInventory>;
   sidebarCommand(command: SidebarCommand): Promise<void>;
   /** Null means the user cancelled the shared-agent confirmation. */
@@ -102,11 +108,14 @@ export interface SidebarInventory {
   repositories: readonly (Repository & {
     worktrees: readonly Worktree[];
     canDeleteMerged?: boolean;
+    mergedCount?: number;
     mergedError?: string;
   })[];
   shell: string;
+  home?: HomeShellFacts;
 }
 export type SidebarCommand =
+  | { kind: "home-shell" }
   | { kind: "launch"; repository: string; worktree: string; run: AgentId | "shell" }
   | { kind: "remove-worktree"; repository: string; worktree: string }
   | { kind: "delete-merged-worktrees"; repository: string }

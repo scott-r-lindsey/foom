@@ -16,8 +16,10 @@ export function readSessions(value: unknown): WorkspaceTerminal[] {
   return value.map((entry: unknown) => {
     if (typeof entry !== "object" || entry === null) throw new Error("Invalid session");
     const data: Record<string, unknown> = { ...entry };
-    const { id, agent, repository, worktree, branch, conversationId: conversation } = data;
+    const { id, agent, repository, worktree, branch, conversationId: conversation, home } = data;
     if (
+      (home !== undefined &&
+        (home !== true || agent !== "shell" || repository !== worktree || branch !== null)) ||
       !conversationId(id) ||
       ids.has(id) ||
       !path(repository) ||
@@ -35,6 +37,7 @@ export function readSessions(value: unknown): WorkspaceTerminal[] {
     ids.add(id);
     return {
       id,
+      ...(home === true ? { home: true } : {}),
       agent,
       repository,
       worktree,
@@ -64,7 +67,8 @@ export class SessionStore {
   }
   save(entries: readonly WorkspaceTerminal[]): Promise<void> {
     const data = JSON.stringify(
-      entries.map(({ id, agent, repository, worktree, branch, conversationId }) => ({
+      entries.map(({ id, agent, repository, worktree, branch, conversationId, home }) => ({
+        ...(home ? { home: true } : {}),
         id,
         agent,
         repository,

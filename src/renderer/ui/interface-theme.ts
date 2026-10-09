@@ -12,9 +12,10 @@ export function attachInterfaceTheme(
   target = document.documentElement,
   media = matchMedia("(prefers-color-scheme: dark)"),
 ) {
-  let settings: Pick<Settings, "interfaceTheme" | "colorMode"> = {
+  let settings: Pick<Settings, "interfaceTheme" | "colorMode" | "panelColor"> = {
     interfaceTheme: "follow",
     colorMode: "system",
+    panelColor: "vivid",
   };
   let disposed = false;
   let revision = 0;
@@ -28,6 +29,9 @@ export function attachInterfaceTheme(
       theme.colors["highlight-deep"] ?? theme.colors["accent-deep"],
     );
     target.style.colorScheme = theme.base;
+    target.dataset["panelColor"] = settings.panelColor;
+    target.dataset["panelContrast"] =
+      settings.interfaceTheme === "high-contrast" ? "more" : "normal";
   };
   const off = source.subscribe((state) => {
     revision++;
@@ -52,5 +56,7 @@ export function attachInterfaceTheme(
     for (const key of [...interfaceColorNames, ...interfaceHighlightNames])
       target.style.removeProperty(`--${key}`);
     target.style.removeProperty("color-scheme");
+    delete target.dataset["panelColor"];
+    delete target.dataset["panelContrast"];
   };
 }

@@ -1,3 +1,4 @@
+import type { HomeShellFacts } from "../../shared/panel";
 import type { ExecutionSnapshot } from "../../shared/execution";
 import { createTerminalView } from "../terminal/terminal-view-source";
 import type { SidebarRepository } from "./sidebar.d";
@@ -35,6 +36,7 @@ export function createAppSource(): BoardSource {
   let repositories: readonly string[] = [];
   let sidebar: readonly SidebarRepository[] = [];
   let shellName = "Shell";
+  let home: HomeShellFacts | undefined;
   let shellId = pendingShell;
   const listeners = new Set<() => void>();
   const activityListeners = new Set<(batch: readonly TerminalActivity[]) => void>();
@@ -174,8 +176,15 @@ export function createAppSource(): BoardSource {
         ...(entry.dormant
           ? { state: "quiet_ok", reason: "Exited · saved session", seen: false }
           : {}),
-        branch: (checkout ? checkout.branch : entry.branch) ?? "Detached HEAD",
-        worktreeRemoved: !checkout || checkout.prunable,
+        branch: entry.home
+          ? "~"
+          : ((checkout ? checkout.branch : entry.branch) ??
+            `⏣ ${checkout?.head?.slice(0, 7) ?? "Unknown"}`),
+        home: entry.home === true,
+        startedAt: entry.startedAt,
+        exitCode: entry.exitCode,
+        launchFlags: entry.launchFlags,
+        worktreeRemoved: !entry.home && (!checkout || checkout.prunable),
         exited: entry.exited ?? exits.has(entry.id),
         bypass: entry.bypass === true,
         conversationId: entry.conversationId,
@@ -252,6 +261,7 @@ export function createAppSource(): BoardSource {
         if (!disposed && current === revision) {
           sidebar = inventory.repositories;
           shellName = inventory.shell;
+          home = inventory.home;
           snapshot(next);
         }
       } catch (error) {
@@ -350,6 +360,8 @@ export function createAppSource(): BoardSource {
     isReady: () => loaded,
     getSidebar: () => sidebar,
     shellName: () => shellName,
+    homeShell: () => home,
+    panelFacts: (repository, worktree) => window.desktop.panelFacts(repository, worktree),
     sidebarCommand: async (command) => {
       if ("id" in command && command.id === shellId && command.kind === "restart") {
         await restart();
@@ -394,6 +406,7 @@ export function createAppSource(): BoardSource {
       const inventory = await window.desktop.sidebarInventory();
       sidebar = inventory.repositories;
       shellName = inventory.shell;
+      home = inventory.home;
       snapshot(await window.desktop.workspace());
     },
     worktrees: {

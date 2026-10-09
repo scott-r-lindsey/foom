@@ -1044,3 +1044,35 @@ against the Antigravity launch, pins `conversationId`, and emits only event/acti
 terminal ID and enumerated Stop facts. It never exposes an Antigravity conversation
 ID for Resume. See the [probe record](agents.md#opt-in-antigravity-lifecycle-plugin-178)
 for the documented-versus-observed Stop spelling and remaining platform verification.
+
+
+## Sidebar panels and home shells (#197)
+
+`PanelIntent` owns cancellable 400/120/250 ms hover timers, pinning and drag
+suppression. The sidebar derives panel subjects and commands from its source;
+`RowMenu` shares positioning, keyboard and main-owned confirmations between the
+application menu and labelled sidebar dialogs. Panel facts load through the
+source, ignore superseded replies and remain inert text. Session title edits
+remain local view preferences. The theme subscription applies the validated
+`panelColor` setting as root metadata; CSS forces undecorated panels for High
+Contrast and increased OS contrast without weakening status outlines.
+
+`workspace:panel-facts` accepts exactly a repository and worktree path from the
+trusted top frame. WorktreeService validates registered membership and canonical
+launch identity even on cache hits. Local Git reads use argument arrays and
+three-second deadlines, and results are cached for three seconds per checkout
+identity. Failed reads return null facts. The request never calls fetch: merge
+comparison uses only the last successful default commit already fetched by the
+cleanup service. Sidebar eligibility supplies the same count used by cleanup.
+
+`home-shell` is a path-free sidebar command. Main chooses the home directory and
+shell, starts a normal sandboxed-host PTY and records `home: true` alongside
+ordinary session metadata. Restore accepts home records only for shells with
+matching home paths; it never launches automatically. Restart uses the same
+main-owned launch path. Home sessions remain outside the Git repository tree
+and repository-scoped agent control; no arbitrary cwd or executable capability
+is added. The bounded shell version probe is main-owned and cached.
+
+The read-only mockup reference is `docs/mockups/sidebar-panels.html`; its existing
+README entry describes these panels. Contributor rules keep that reference
+folder unchanged.

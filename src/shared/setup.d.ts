@@ -28,6 +28,7 @@ export interface Settings {
   /** How long a model gets per classification, 1–30 seconds. */
   inferenceTimeoutMs: number;
   /** Eclipse variant when interfaceTheme is Follow; fixed themes supply their own base. */
+  panelColor: "vivid" | "subtle" | "plain";
   colorMode: "system" | "light" | "dark";
   /** A built-in or complete validated color palette; Follow preserves the legacy mode. */
   interfaceTheme: InterfaceThemeChoice;

@@ -1,3 +1,4 @@
+import { homeDirectory, homeShellFacts, shellPath } from "./home-shell";
 import type { AgyPluginAction } from "../../shared/agy-plugin";
 import { AgyPlugin } from "../agents/agy-plugin";
 import { CodexHookStatus } from "../agents/codex-hook-status";
@@ -76,6 +77,7 @@ export interface WorkspaceDependencies {
     | "mergedDefault"
     | "mergedCommit"
     | "deleteMergedBranch"
+    | "panelFacts"
   >;
   terminals: {
     create(spec: TerminalSpec): Promise<string>;
@@ -139,7 +141,7 @@ export class Workspace {
     {
       key: string;
       expires: number;
-      result: { canDeleteMerged: boolean; mergedError?: string };
+      result: { canDeleteMerged: boolean; mergedCount?: number; mergedError?: string };
     }
   >();
   private enabled: Readonly<Record<AgentId, boolean>> = { claude: true, codex: true, agy: true };
@@ -214,7 +216,13 @@ export class Workspace {
 
   async restore(): Promise<void> {
     for (const entry of (await this.deps.sessions?.load()) ?? []) {
-      if (!this.deps.worktrees.listRepositories().some((repo) => repo.path === entry.repository))
+      if (
+        entry.home
+          ? entry.kind !== "shell" ||
+            entry.worktree !== homeDirectory ||
+            entry.repository !== homeDirectory
+          : !this.deps.worktrees.listRepositories().some((repo) => repo.path === entry.repository)
+      )
         continue;
       this.launched.set(entry.id, entry);
       this.track(entry.id).exitCode = -1;
@@ -238,6 +246,9 @@ export class Workspace {
         ...entry,
         ...(this.terminals.get(entry.id)?.execution
           ? { execution: this.terminals.get(entry.id)?.execution?.snapshot() }
+          : {}),
+        ...(this.terminals.get(entry.id)?.exitCode !== undefined
+          ? { exitCode: this.terminals.get(entry.id)?.exitCode }
           : {}),
         state: this.terminals.get(entry.id)?.state ?? null,
         exited: entry.dormant === true || this.terminals.get(entry.id)?.exitCode !== undefined,
@@ -423,6 +434,8 @@ export class Workspace {
       this.launched.set(result.id, {
         ...(launchVersion === undefined ? {} : { launchVersion }),
         id: result.id,
+        startedAt: this.now(),
+        launchFlags: [...this.defaultArguments[request.agent]],
         kind: "agent",
         agent: request.agent,
         repository: request.repository,
@@ -502,6 +515,7 @@ export class Workspace {
         });
         this.launched.set(id, {
           id,
+          startedAt: this.now(),
           kind: "shell",
           agent: "shell",
           repository: request.repository,
@@ -701,7 +715,11 @@ export class Workspace {
     if (cached?.key === key && this.now() < cached.expires) return cached.result;
     const entry = { key, expires: Number.POSITIVE_INFINITY, result: { canDeleteMerged: false } };
     this.mergeEligibility.set(repository, entry);
-    const publish = (result: { canDeleteMerged: boolean; mergedError?: string }) => {
+    const publish = (result: {
+      canDeleteMerged: boolean;
+      mergedCount?: number;
+      mergedError?: string;
+    }) => {
       // A newer inventory, repository removal or shutdown supersedes this scan.
       if (this.closed || this.mergeEligibility.get(repository) !== entry) return;
       entry.result = result;
@@ -710,7 +728,10 @@ export class Workspace {
     };
     void this.mergedPlan(repository, false, worktrees).then(
       (plan) => {
-        publish({ canDeleteMerged: plan.some((item) => !item.reason) });
+        publish({
+          canDeleteMerged: plan.some((item) => !item.reason),
+          mergedCount: plan.filter((item) => !item.reason).length,
+        });
       },
       (error: unknown) => {
         publish({
@@ -722,8 +743,42 @@ export class Workspace {
     return entry.result;
   }
 
+  private homeFacts: ReturnType<typeof homeShellFacts> | undefined;
+  panelFacts(repository: string, worktree: string) {
+    this.known(repository);
+    return this.deps.worktrees.panelFacts(repository, worktree);
+  }
+
+  private async startHomeShell(): Promise<void> {
+    const windows = process.platform === "win32";
+    const id = await this.deps.terminals.create({
+      command: shellPath(),
+      args: windows ? ["-NoLogo"] : ["-l"],
+      shellIntegration: true,
+      cwd: homeDirectory,
+      cols: 80,
+      rows: 24,
+    });
+    this.launched.set(id, {
+      id,
+      kind: "shell",
+      agent: "shell",
+      home: true,
+      repository: homeDirectory,
+      worktree: homeDirectory,
+      branch: null,
+      attention: "evaluator",
+      state: null,
+      startedAt: this.now(),
+    });
+    this.track(id);
+    this.persist();
+    this.refresh();
+  }
+
   async sidebarInventory(): Promise<SidebarInventory> {
     return {
+      home: await (this.homeFacts ??= homeShellFacts()),
       repositories: await Promise.all(
         this.deps.worktrees.listRepositories().map(async (repository) => {
           const worktrees = await this.worktrees(repository.path);
@@ -743,6 +798,7 @@ export class Workspace {
 
   async sidebarCommand(command: SidebarCommand, confirm: ConfirmWorkspace): Promise<void> {
     if (this.closed) throw new Error("Workspace is closed");
+    if (command.kind === "home-shell") return this.startHomeShell();
     if ("id" in command && this.busySessions.has(command.id)) throw new Error("Session is busy");
     if (
       command.kind === "resume" ||
@@ -785,7 +841,8 @@ export class Workspace {
       if (!exited) throw new Error("Session is still running");
       if (command.kind === "restart") {
         if (!entry || entry.kind !== "shell") throw new Error("Only shells can restart");
-        await this.startExisting(entry.repository, entry.worktree, "shell", confirm);
+        if (entry.home) await this.startHomeShell();
+        else await this.startExisting(entry.repository, entry.worktree, "shell", confirm);
       }
       if (!entry?.dormant) await this.deps.terminals.kill(command.id);
       this.removed(command.id);
@@ -892,6 +949,7 @@ export class Workspace {
           });
           this.launched.set(id, {
             id,
+            startedAt: this.now(),
             kind: "shell",
             agent: "shell",
             repository,

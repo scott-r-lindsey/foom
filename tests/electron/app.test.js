@@ -2772,7 +2772,7 @@ test("new worktree dialog launches by keyboard and confirms dirty removal", {
   const dirty = path.join(terminal.worktree, "unsaved.txt");
   await writeFile(dirty, "preserve unless confirmed");
   await page.getByRole("button", { name: "Actions for feature/ui", exact: true }).click();
-  await page.getByRole("menuitem", { name: "Remove worktree…" }).click();
+  await page.getByRole("menuitem", { name: "Delete worktree…" }).click();
   const confirmation = await confirmationPage(app);
   await expect(confirmation.getByLabel("Uncommitted changes")).toContainText("unsaved.txt");
   await expect(confirmation.getByRole("button", { name: "Cancel" })).toBeFocused();
@@ -2781,7 +2781,7 @@ test("new worktree dialog launches by keyboard and confirms dirty removal", {
   assert.equal(await readFile(dirty, "utf8"), "preserve unless confirmed");
   await expect(row).toBeVisible();
   await page.getByRole("button", { name: "Actions for feature/ui", exact: true }).click();
-  await page.getByRole("menuitem", { name: "Remove worktree…" }).click();
+  await page.getByRole("menuitem", { name: "Delete worktree…" }).click();
   await confirmation.getByRole("button", { name: "Discard 1 change and remove" }).click();
   await expect(row).toHaveCount(0);
   await assert.rejects(readFile(dirty), { code: "ENOENT" });
@@ -2835,7 +2835,7 @@ test("external worktrees offer confirmed removal while preserving branches and t
   await page.getByRole("button", { name: "Add repository", exact: true }).click();
   const row = page.getByRole("button", { name: "Actions for external", exact: true });
   await row.click();
-  await page.getByRole("menuitem", { name: "Remove worktree…" }).click();
+  await page.getByRole("menuitem", { name: "Delete worktree…" }).click();
   const confirmation = await confirmationPage(app);
   await expect(confirmation.getByLabel("Uncommitted changes")).toContainText("unsaved.txt");
   await expect(confirmation.getByRole("button", { name: "Cancel" })).toBeFocused();
@@ -2844,7 +2844,7 @@ test("external worktrees offer confirmed removal while preserving branches and t
   assert.equal(await readFile(dirty, "utf8"), "keep until confirmed");
   await expect(row).toBeVisible();
   await row.click();
-  await page.getByRole("menuitem", { name: "Remove worktree…" }).click();
+  await page.getByRole("menuitem", { name: "Delete worktree…" }).click();
   await confirmation.getByRole("button", { name: "Discard 1 change and remove" }).click();
   await expect(row).toHaveCount(0);
   await assert.rejects(readFile(dirty), { code: "ENOENT" });
@@ -2853,7 +2853,7 @@ test("external worktrees offer confirmed removal while preserving branches and t
     "external",
   );
   await page.getByRole("button", { name: "Actions for Main checkout", exact: true }).click();
-  await expect(page.getByRole("menuitem", { name: "Remove worktree…" })).toHaveCount(0);
+  await expect(page.getByRole("menuitem", { name: "Delete worktree…" })).toHaveCount(0);
   await page.getByRole("menuitem", { name: /^Shell \(/ }).click();
   await expect(
     page.getByRole("heading", { name: "repo › Main checkout › Shell", exact: true }),
@@ -3703,7 +3703,7 @@ test("sidebar menus escape the scroll area, stay in the window and launch from a
     .toBe("matrix(1, 0, 0, 1, 0, 0)");
 
   await page.keyboard.press("End");
-  await expect(page.getByRole("menuitem", { name: "Remove worktree…" })).toBeFocused();
+  await expect(page.getByRole("menuitem", { name: "Delete worktree…" })).toBeFocused();
   await page.keyboard.press("ArrowUp");
   await expect(page.getByRole("menuitem", { name: /^Shell \(/ })).toBeFocused();
   await page.keyboard.press("Escape");
@@ -4344,18 +4344,18 @@ test("click-again repository removal rejects double clicks, cancels, expires and
   await page.getByRole("button", { name: "Add repository", exact: true }).click();
   const actions = page.getByRole("button", { name: "Actions for remove-fixture", exact: true });
   await actions.click();
-  await page.getByRole("menuitem", { name: "Remove repository…" }).dblclick();
+  await page.getByRole("menuitem", { name: /Remove from Foom…/ }).dblclick();
   const armed = page.getByRole("menuitem", { name: "Click again to remove" });
   await expect(armed).toBeVisible();
   assert.equal((await page.evaluate(() => window.desktop.workspace())).repositories.length, 1);
   await page.keyboard.press("Escape");
   await actions.click();
-  await page.getByRole("menuitem", { name: "Remove repository…" }).click();
+  await page.getByRole("menuitem", { name: /Remove from Foom…/ }).click();
   await expect(armed).toBeVisible();
   // The expiration interval itself is under test.
   await page.waitForTimeout(3050);
-  await expect(page.getByRole("menuitem", { name: "Remove repository…" })).toBeVisible();
-  await page.getByRole("menuitem", { name: "Remove repository…" }).click();
+  await expect(page.getByRole("menuitem", { name: /Remove from Foom…/ })).toBeVisible();
+  await page.getByRole("menuitem", { name: /Remove from Foom…/ }).click();
   await expect(armed).toBeVisible();
   await page.waitForTimeout(310);
   await armed.click();
