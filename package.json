@@ -70,6 +70,7 @@
     "music-metadata": "12.1.0",
     "node-pty": "1.1.0",
     "react": "19.3.0",
-    "react-dom": "19.3.0"
+    "react-dom": "19.3.0",
+    "strtok3": "10.3.5"
   }
 }

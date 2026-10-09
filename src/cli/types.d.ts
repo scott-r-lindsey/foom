@@ -12,3 +12,10 @@ export interface Command {
   method: string;
   params: Record<string, unknown>;
 }
+
+export interface ConfigDirectory {
+  path: string;
+  canonical: string;
+  ino: number;
+  dev: number;
+}

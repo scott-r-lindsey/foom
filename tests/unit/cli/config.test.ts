@@ -44,6 +44,11 @@ test("validates individual files, reports content failures and I/O exit codes", 
     code: 1,
     problems: [{ reason: "malformed-json" }],
   });
+  await writeFile(file, '\uFEFF{"kind":"settings"}');
+  expect(await validateConfig(file)).toMatchObject({
+    code: 1,
+    problems: [{ reason: "malformed-json" }],
+  });
   await writeFile(file, "{");
   expect(await validateConfig(file)).toEqual({
     problems: [{ file: "input.json", path: "$", reason: "malformed-json" }],

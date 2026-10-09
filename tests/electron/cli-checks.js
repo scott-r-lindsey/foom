@@ -58,7 +58,7 @@ async function assertCliPairing(context, executable, profile, repository, confir
   assert.ok(stderr.includes('"error":"forbidden"'));
 }
 function assertConfigValidation(executable, scratch) {
-  const { writeFileSync, mkdirSync } = require("node:fs");
+  const { writeFileSync, mkdirSync, copyFileSync } = require("node:fs");
   const { spawnSync } = require("node:child_process");
   const directory = join(scratch, "config-validation");
   mkdirSync(directory, { recursive: true });
@@ -93,6 +93,33 @@ function assertConfigValidation(executable, scratch) {
         );
       else if (code) assert.match(result.stdout, /broken.json.*\$\.agentArguments.*unknown-key/);
     }
+  }
+  const sounds = join(directory, "done");
+  mkdirSync(sounds, { recursive: true });
+  const recording = join(sounds, "tone.flac");
+  copyFileSync(join(__dirname, "../fixtures/sounds/tone.flac"), recording);
+  const attack = join(sounds, "attack.wav");
+  const bytes = Buffer.alloc(20);
+  bytes.write("RIFF");
+  bytes.writeUInt32LE(268435456, 4);
+  bytes.write("WAVECSET", 8);
+  bytes.writeUInt32LE(268435456, 16);
+  writeFileSync(attack, bytes);
+  for (const [file, code] of [
+    [recording, 0],
+    [attack, 1],
+  ]) {
+    const result = spawnSync(executable, ["config", "validate", file, "--json"], {
+      env,
+      encoding: "utf8",
+      timeout: deadline(10000),
+      windowsHide: true,
+    });
+    assert.equal(result.status, code, result.stderr);
+    assert.deepEqual(
+      JSON.parse(result.stdout),
+      code ? [{ file: "attack.wav", path: "$", reason: "invalid-value" }] : [],
+    );
   }
   return { valid, broken };
 }

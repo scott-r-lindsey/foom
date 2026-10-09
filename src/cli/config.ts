@@ -1,3 +1,5 @@
+import type { ConfigDirectory } from "./types";
+import { soundDuration } from "./sound-duration";
 import { constants } from "node:fs";
 import { lstat, open, opendir, realpath } from "node:fs/promises";
 import { basename, dirname, join, resolve } from "node:path";
@@ -20,13 +22,31 @@ const fail = (reason: ThemeDiagnostic["reason"]): never => {
 const soundKind = (kind: FolderKind): kind is SoundKind =>
   SOUND_KINDS.some((value) => value === kind);
 
+async function directoryIdentity(path: string): Promise<ConfigDirectory> {
+  const info = await lstat(path);
+  if (!info.isDirectory()) fail("unsafe-file");
+  const identity = { path, canonical: await realpath(path), ino: info.ino, dev: info.dev };
+  await checkDirectory(identity);
+  return identity;
+}
+async function checkDirectory(identity: ConfigDirectory): Promise<void> {
+  const current = await lstat(identity.path);
+  if (
+    !current.isDirectory() ||
+    current.ino !== identity.ino ||
+    current.dev !== identity.dev ||
+    (await realpath(identity.path)) !== identity.canonical
+  )
+    fail("unsafe-file");
+}
 /** Descriptor-bounded read. Refuse links and special files before opening, then recheck identity. */
-async function read(path: string, max: number): Promise<Uint8Array> {
+async function read(path: string, max: number, parent: ConfigDirectory): Promise<Uint8Array> {
+  await checkDirectory(parent);
   const before = await lstat(path);
   if (!before.isFile()) fail("unsafe-file");
-  const parent = await realpath(dirname(path));
   const file = await open(path, constants.O_RDONLY | constants.O_NONBLOCK | constants.O_NOFOLLOW);
   try {
+    await checkDirectory(parent);
     const info = await file.stat();
     if (!info.isFile() || info.ino !== before.ino || info.dev !== before.dev) fail("unsafe-file");
     if (info.size > max) fail("too-large");
@@ -44,36 +64,35 @@ async function read(path: string, max: number): Promise<Uint8Array> {
       after.dev !== info.dev ||
       !after.isFile() ||
       after.size !== info.size ||
-      after.mtimeMs !== info.mtimeMs ||
-      (await realpath(dirname(path))) !== parent
+      after.mtimeMs !== info.mtimeMs
     )
       fail("unsafe-file");
+    await checkDirectory(parent);
     return bytes.subarray(0, count);
   } finally {
     await file.close();
   }
 }
-async function validateFile(path: string, kind?: FolderKind): Promise<void> {
+async function validateFile(
+  path: string,
+  parent: ConfigDirectory,
+  kind?: FolderKind,
+): Promise<void> {
   if (kind && soundKind(kind)) {
     if (!validSoundFile(basename(path))) fail("unsafe-file");
-    const bytes = await read(path, soundSizeLimit(kind));
+    const bytes = await read(path, soundSizeLimit(kind), parent);
     if (!matchesSoundHeader(path, bytes.subarray(0, 512))) fail("invalid-value");
     try {
-      const { parseBuffer } = await import("music-metadata");
-      const metadata = await parseBuffer(
-        bytes,
-        { path: basename(path), size: bytes.length },
-        { duration: true, skipCovers: true },
-      );
-      if (!validSoundDuration(kind, metadata.format.duration ?? NaN)) fail("invalid-value");
+      if (!validSoundDuration(kind, await soundDuration(bytes, basename(path))))
+        fail("invalid-value");
     } catch {
       fail("invalid-value");
     }
   } else {
-    const bytes = await read(path, 65536);
+    const bytes = await read(path, 65536, parent);
     let text: string;
     try {
-      text = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+      text = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(bytes);
     } catch {
       return fail("malformed-json");
     }
@@ -97,18 +116,28 @@ export async function validateConfig(
       reason: error instanceof ThemeValidationError ? error.reason : "unreadable",
     });
   };
-  const visitFile = async (file: string, label: string, kind?: FolderKind) => {
+  const visitFile = async (
+    file: string,
+    label: string,
+    parent: ConfigDirectory,
+    kind?: FolderKind,
+  ) => {
     try {
-      await validateFile(file, kind);
+      await validateFile(file, parent, kind);
     } catch (error) {
       report(label, error);
     }
   };
-  const folder = async (directory: string, label: string, kind: FolderKind) => {
+  const folder = async (
+    directory: string,
+    label: string,
+    kind: FolderKind,
+    parent?: ConfigDirectory,
+  ) => {
     try {
-      const before = await lstat(directory);
-      if (!before.isDirectory()) fail("unsafe-file");
-      const canonical = await realpath(directory);
+      if (parent) await checkDirectory(parent);
+      const identity = await directoryIdentity(directory);
+      if (parent && dirname(identity.canonical) !== parent.canonical) fail("unsafe-file");
       const entries = await opendir(directory);
       let count = 0;
       const limit = soundKind(kind)
@@ -123,20 +152,13 @@ export async function validateConfig(
           report(label, new ThemeValidationError("$", "too-many-files"));
           break;
         }
-        const current = await lstat(directory);
-        if (
-          !current.isDirectory() ||
-          current.ino !== before.ino ||
-          current.dev !== before.dev ||
-          (await realpath(directory)) !== canonical
-        )
-          fail("unsafe-file");
+        await checkDirectory(identity);
         const file = join(directory, entry.name);
         const name = label ? `${label}/${entry.name}` : entry.name;
         let child: FolderKind | undefined;
         if (kind === "config") {
           if (entry.name === "settings.json") {
-            await visitFile(file, name, "settings");
+            await visitFile(file, name, identity, "settings");
             continue;
           }
           if (entry.name === "themes") child = "theme";
@@ -146,12 +168,13 @@ export async function validateConfig(
         else {
           if (!(soundKind(kind) ? validSoundFile(entry.name) : validThemeFile(entry.name)))
             report(name, new ThemeValidationError("$", "unsafe-file"));
-          else await visitFile(file, name, kind);
+          else await visitFile(file, name, identity, kind);
           continue;
         }
-        if (child) await folder(file, name, child);
+        if (child) await folder(file, name, child, identity);
         else report(name, new ThemeValidationError("$", "unsafe-file"));
       }
+      await checkDirectory(identity);
     } catch (error) {
       report(label, error);
     }
@@ -172,7 +195,12 @@ export async function validateConfig(
       await folder(absolute, "", kind);
     } else {
       const kind = SOUND_KINDS.find((value) => value === basename(dirname(absolute)));
-      await visitFile(absolute, basename(absolute), kind);
+      await visitFile(
+        absolute,
+        basename(absolute),
+        await directoryIdentity(dirname(absolute)),
+        kind,
+      );
     }
   } catch (error) {
     report(basename(absolute), error);

@@ -499,7 +499,8 @@ one sound-kind folder. JSON files select their parser with `kind`; folder valida
 also checks placement (`settings.json`, `themes/*.json`, `terminal-themes/*.json`).
 Only the documented config layout is walked. Unexpected entries, symlinks (including
 in-folder links), nonregular files and redirected directories are rejected. Reads
-use capped open descriptors with identity checks before and after reading. JSON is
+use capped open descriptors, carry the validated parent identity through each read,
+and check it again after opening and before/after reading. JSON is
 limited to 64 KiB and theme folders to 50 entries; sound kind folders to 100 entries,
 with 8 MiB Working files and 2 MiB other files. Invalid entries count toward these
 offline traversal bounds so hostile directories cannot force unbounded work.
@@ -511,7 +512,9 @@ array (empty for valid input). Exit status is 0 for valid, 1 for invalid and 2 f
 usage or I/O errors; I/O errors take precedence in mixed results. No file contents
 or parser exception messages appear in diagnostics. Offline sound checks use the
 shared filename, header, size and duration rules; `music-metadata` reads duration
-from bounded bytes, with no file/network access. Missing duration is invalid.
+from bounded bytes through a tokenizer that checks token lengths before allocation.
+FLAC block and comment counts are checked before the parser can allocate tag arrays,
+with no file/network access. Missing duration is invalid.
 This checks container metadata, not sample decoding; playback still verifies that
 Chromium can decode the audio and checks its samples.
 
