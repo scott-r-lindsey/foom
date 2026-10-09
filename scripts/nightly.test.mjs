@@ -307,3 +307,18 @@ test("retry repairs interrupted cleanup even when the tag already matches", asyn
   await mock.run();
   assert.deepEqual(mock.state(), before);
 });
+
+test("an interrupted first publish resumes its draft even when the tag endpoint returns 404", async (t) => {
+  const { context } = fixture(t);
+  const mock = api();
+  const draft = { id: 7, tag_name: "nightly", draft: true, prerelease: true };
+  mock.github.rest.repos.listReleases = () => {};
+  mock.github.paginate = async (method) =>
+    method === mock.github.rest.repos.listReleases ? [draft] : [];
+  mock.github.rest.repos.getCommit = async () => {
+    throw Object.assign(new Error("no tag yet"), { status: 404 });
+  };
+  await publish({ ...mock, context });
+  assert.ok(!mock.calls.some(([name]) => name === "createRelease"));
+  assert.equal(mock.calls.find(([name]) => name === "updateRelease")[1].release_id, 7);
+});

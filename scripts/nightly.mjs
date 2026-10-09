@@ -77,6 +77,14 @@ export async function publish({ github, context, directory = "nightly-packages" 
     previous = (await github.rest.repos.getReleaseByTag({ ...repo, tag: "nightly" })).data;
   } catch (error) {
     if (error.status !== 404) throw error;
+    // The tag endpoint only promises published releases. Recover a draft left
+    // by an interrupted first publish through the authenticated release list.
+    const drafts = (
+      await github.paginate(github.rest.repos.listReleases, { ...repo, per_page: 100 })
+    ).filter((release) => release.tag_name === "nightly" && release.draft);
+    if (drafts.length > 1)
+      throw new Error("Multiple nightly drafts require manual reconciliation", { cause: error });
+    previous = drafts[0];
   }
   let previousSha;
   if (previous) {
