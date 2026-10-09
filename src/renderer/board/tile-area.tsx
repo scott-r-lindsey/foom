@@ -1,10 +1,19 @@
+import { TileMenu } from "./tile-menu";
 import { AgentBadge } from "./agent-badge";
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import type { CSSProperties, DragEvent } from "react";
 import type { BoardSource } from "./board-source.d";
 import type { BoardRow } from "./board.d";
 import type { SidebarPreferences } from "./sidebar.d";
-import type { TileDrag, DropZone, TileLayout, TileLeaf, TileRect, TileSplit } from "./tiles.d";
+import type {
+  TileAction,
+  TileDrag,
+  DropZone,
+  TileLayout,
+  TileLeaf,
+  TileRect,
+  TileSplit,
+} from "./tiles.d";
 import type { TerminalViewSource } from "../terminal/terminal-view-source.d";
 import { light } from "./board";
 import {
@@ -14,7 +23,16 @@ import {
   rowWorktree,
   agentBadges,
 } from "./sidebar-model";
-import { rectangles, resizeSplit, dropTile, dropZone } from "./tiles";
+import {
+  rectangles,
+  resizeSplit,
+  dropTile,
+  dropZone,
+  terminals,
+  landingSpace,
+  ratioLimits,
+  leaves,
+} from "./tiles";
 
 function TerminalView({
   view,
@@ -65,7 +83,11 @@ function Tile({
   focusRequest,
   select,
   action,
+  layout,
+  collapsing,
 }: {
+  layout: TileLayout;
+  collapsing: boolean;
   tile: TileLeaf;
   rect: TileRect;
   number: number;
@@ -78,10 +100,12 @@ function Tile({
   inactive: boolean;
   focusRequest: number;
   select: () => void;
-  action: (action: "right" | "down" | "maximize" | "hide" | "close" | "restart" | "popout") => void;
+  action: (action: TileAction) => void;
 }) {
   const [view] = useState(() => source.createView?.());
   const [error, setError] = useState("");
+  const [menu, setMenu] = useState<{ anchor: HTMLElement; point?: { x: number; y: number } }>();
+  const menuRef = useRef<HTMLButtonElement>(null);
   const lightRef = useRef<HTMLSpanElement>(null);
   const elementRef = useRef<HTMLElement>(null);
   useEffect(
@@ -110,80 +134,121 @@ function Tile({
       ref={elementRef}
       className="terminal-tile"
       data-tile={tile.id}
-      data-focused={focused}
+      data-focused={Boolean(row) && focused}
+      data-landing={!row && landingSpace(layout)?.id === tile.id}
+      data-collapsing={collapsing}
       data-state={row?.state}
       data-empty={!row}
       data-maximized={maximized}
       data-behind={behind}
       style={position(maximized ? { x: 0, y: 0, width: 100, height: 100 } : rect)}
       aria-label={`Tile ${String(number)}${row ? `: ${sessionName(row, preferences)}` : ": empty"}`}
-      tabIndex={focused ? 0 : -1}
+      aria-hidden={!row || undefined}
+      tabIndex={row ? (focused ? 0 : -1) : undefined}
       inert={behind || inactive}
-      onFocus={select}
+      onFocus={() => {
+        if (row) select();
+      }}
       onPointerDown={(event) => {
+        if (!row) return;
         select();
         if (
           event.target instanceof Element &&
           !event.target.closest("button") &&
           !event.target.closest(".xterm")
         ) {
-          if (view && row) view.focus();
+          if (view) view.focus();
           else elementRef.current?.focus();
         }
       }}
     >
-      <header className="tile-title" draggable>
-        {row && (
-          <>
-            <h2 className="visually-hidden">{`${row.repository} › ${rowWorktree(row) === rowRepository(row) ? "Main checkout" : row.branch} › ${sessionName(row, preferences)}`}</h2>
-            <span
-              ref={lightRef}
-              className="board-light"
-              style={{ "--light-opacity": light(row).opacity } as CSSProperties}
-              role="img"
-              aria-label={light(row).label}
-            />
-            <AgentBadge mark={row.kind === "shell" ? ">_" : agentBadges.get(row.agent)} />
-            <span className="tile-location" title={`${row.repository} › ${row.branch}`}>
-              {row.repository} › {row.branch}
-            </span>
-            <span className="tile-name" title={sessionIdentity(row, source.shellName?.())}>
-              {sessionName(row, preferences)}
-            </span>
-          </>
-        )}
-        <span className="tile-number">{number}</span>
-        <div className="tile-controls">
-          {(
-            [
-              ["right", "Split right", "◫"],
-              ["down", "Split down", "⬒"],
-              ["maximize", maximized ? "Restore tile" : "Maximize tile", "□"],
-              ["hide", "Hide session", "−"],
-              ["popout", "Move to new window", "↗"],
-              ["close", "Close tile", "×"],
-            ] as const
-          )
-            .filter(([key]) =>
-              key === "popout"
-                ? Boolean(row && source.windows)
-                : row || (key !== "maximize" && key !== "hide"),
-            )
-            .map(([key, label, icon]) => (
-              <button
-                key={key}
-                type="button"
-                aria-label={label}
-                title={label}
-                onClick={() => {
-                  action(key);
-                }}
-              >
-                {icon}
-              </button>
-            ))}
-        </div>
-      </header>
+      {row && (
+        <header
+          className="tile-title"
+          draggable
+          onDoubleClick={(event) => {
+            if (event.target instanceof Element && !event.target.closest("button"))
+              action("maximize");
+          }}
+          onContextMenu={(event) => {
+            event.preventDefault();
+            select();
+            if (menuRef.current)
+              setMenu({ anchor: menuRef.current, point: { x: event.clientX, y: event.clientY } });
+          }}
+        >
+          {
+            <>
+              <h2 className="visually-hidden">{`${row.repository} › ${rowWorktree(row) === rowRepository(row) ? "Main checkout" : row.branch} › ${sessionName(row, preferences)}`}</h2>
+              <span
+                ref={lightRef}
+                className="board-light"
+                style={{ "--light-opacity": light(row).opacity } as CSSProperties}
+                role="img"
+                aria-label={light(row).label}
+              />
+              <AgentBadge mark={row.kind === "shell" ? ">_" : agentBadges.get(row.agent)} />
+              <span className="tile-location" title={`${row.repository} › ${row.branch}`}>
+                {row.repository} › {row.branch}
+              </span>
+              <span className="tile-name" title={sessionIdentity(row, source.shellName?.())}>
+                {sessionName(row, preferences)}
+              </span>
+            </>
+          }
+          <button
+            ref={menuRef}
+            type="button"
+            className="tile-number"
+            aria-label={`Tile ${String(number)} menu`}
+            aria-haspopup="dialog"
+            aria-expanded={Boolean(menu)}
+            onClick={(event) => {
+              setMenu(menu ? undefined : { anchor: event.currentTarget });
+            }}
+          >
+            {number} <span aria-hidden="true">⌄</span>
+          </button>
+          <div className="tile-controls">
+            <button
+              type="button"
+              aria-label={maximized ? "Restore tile" : "Maximize tile"}
+              title={maximized ? "Restore tile" : "Maximize tile"}
+              onClick={() => {
+                action("maximize");
+              }}
+            >
+              □
+            </button>
+            <button
+              type="button"
+              aria-label={row.exited ? "Close" : "Hide"}
+              title={row.exited ? "Close" : "Hide"}
+              onClick={() => {
+                action(row.exited ? "close" : "hide");
+              }}
+            >
+              {row.exited ? "×" : "−"}
+            </button>
+          </div>
+        </header>
+      )}
+      {row && menu && !inactive && !behind && (
+        <TileMenu
+          anchor={menu.anchor}
+          point={menu.point}
+          layout={{ ...layout, focused: tile.id }}
+          row={row}
+          name={sessionName(row, preferences)}
+          number={number}
+          view={view}
+          popout={Boolean(source.windows)}
+          close={() => {
+            setMenu(undefined);
+          }}
+          action={action}
+        />
+      )}
       {row && (
         <>
           {row.state === "needs_input" && (
@@ -243,17 +308,18 @@ function Gutter({
   node: TileSplit;
   rect: TileRect;
   area: TileRect;
-  change: (id: string, ratio: number) => void;
+  change: (id: string, ratio: number, commit?: boolean) => void;
 }) {
   const [dragging, setDragging] = useState(false);
+  const [min, max] = ratioLimits(node);
   const horizontal = node.direction === "horizontal";
   return (
     <div
       role="separator"
       aria-label="Resize tiles"
       aria-orientation={horizontal ? "vertical" : "horizontal"}
-      aria-valuemin={15}
-      aria-valuemax={85}
+      aria-valuemin={min * 100}
+      aria-valuemax={max * 100}
       aria-valuenow={Math.round(node.ratio * 100)}
       tabIndex={0}
       className="tile-gutter"
@@ -278,6 +344,7 @@ function Gutter({
         change(node.id, value);
       }}
       onPointerUp={(event) => {
+        change(node.id, node.ratio, true);
         event.currentTarget.releasePointerCapture(event.pointerId);
         setDragging(false);
       }}
@@ -297,10 +364,11 @@ function Gutter({
           change(
             node.id,
             event.key === "Home"
-              ? 0.15
+              ? min
               : event.key === "End"
-                ? 0.85
+                ? max
                 : node.ratio + (event.key === decrease ? -0.05 : 0.05),
+            true,
           );
         }
       }}
@@ -330,10 +398,7 @@ export function TileArea({
   preferences: SidebarPreferences;
   inactive: boolean;
   focusRequest: number;
-  action: (
-    tile: string,
-    action: "right" | "down" | "maximize" | "hide" | "close" | "restart" | "popout",
-  ) => void;
+  action: (tile: string, action: TileAction) => void;
 }) {
   const [lastPreview, setLastPreview] = useState<{
     tile: string;
@@ -358,10 +423,13 @@ export function TileArea({
     return {
       drag,
       tile: id,
-      zone: dropZone(
-        (event.clientX - bounds.left) / bounds.width,
-        (event.clientY - bounds.top) / bounds.height,
-      ),
+      zone:
+        tile.dataset["empty"] === "true"
+          ? ("center" as const)
+          : dropZone(
+              (event.clientX - bounds.left) / bounds.width,
+              (event.clientY - bounds.top) / bounds.height,
+            ),
     };
   };
   return (
@@ -430,12 +498,24 @@ export function TileArea({
             : `Split ${preview.zone}`}
         </div>
       )}
-      {geometry.tiles.map(({ tile, rect }, index) => (
+      {geometry.tiles.map(({ tile, rect }) => (
         <Tile
           key={tile.id}
           tile={tile}
           rect={rect}
-          number={index + 1}
+          number={terminals(layout.tree).findIndex((item) => item.id === tile.id) + 1}
+          layout={layout}
+          collapsing={geometry.gutters.some(({ split }) => {
+            const [min, max] = ratioLimits(split);
+            return (
+              (min === 0 &&
+                split.ratio < 0.08 &&
+                leaves(split.first).some((item) => item.id === tile.id)) ||
+              (max === 1 &&
+                split.ratio > 0.92 &&
+                leaves(split.second).some((item) => item.id === tile.id))
+            );
+          })}
           source={source}
           row={rows.find((row) => row.id === tile.session)}
           preferences={preferences}
@@ -459,8 +539,10 @@ export function TileArea({
             node={split}
             rect={rect}
             area={area}
-            change={(id, ratio) => {
-              setLayout(resizeSplit(layout, id, ratio));
+            change={(id, ratio, commit) => {
+              const next = resizeSplit(layout, id, ratio, commit);
+              if (leaves(next.tree).length < leaves(layout.tree).length) dropLayout(next);
+              else setLayout(next);
             }}
           />
         ))}

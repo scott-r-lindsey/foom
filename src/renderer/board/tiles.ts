@@ -48,7 +48,7 @@ export function splitTile(layout: TileLayout, direction: TileSplit["direction"])
     ...layout,
     maximized: null,
     tree: update(layout.tree, layout.focused, (node) => split(node, next, direction)),
-    focused: next.id,
+    landing: next.id,
   };
 }
 export function closeTile(layout: TileLayout): TileLayout {
@@ -60,29 +60,77 @@ export function closeTile(layout: TileLayout): TileLayout {
       second = remove(node.second);
     if (first && second) return { ...node, first, second };
     const sibling = first ?? second;
-    if (sibling) focused = leaves(sibling)[0]?.id ?? sibling.id;
+    if (sibling) focused = terminals(sibling)[0]?.id ?? leaves(sibling)[0]?.id ?? sibling.id;
     return sibling;
   };
   const remaining = remove(layout.tree);
   const tree = remaining ?? newTile();
-  return { tree, focused: remaining ? focused : tree.id, maximized: null };
+  return {
+    ...layout,
+    tree,
+    focused: remaining
+      ? (terminals(tree).find((tile) => tile.id === focused)?.id ??
+        terminals(tree)[0]?.id ??
+        tree.id)
+      : tree.id,
+    maximized: null,
+  };
 }
 export function hideSession(layout: TileLayout): TileLayout {
+  return closeTile(layout);
+}
+export const terminals = (tree: TileNode): TileLeaf[] =>
+  leaves(tree).filter((tile) => tile.session !== null);
+export const landingSpace = (layout: TileLayout): TileLeaf | undefined =>
+  leaves(layout.tree).find((tile) => tile.id === layout.landing && tile.session === null) ??
+  leaves(layout.tree).find((tile) => tile.session === null);
+export function growTarget(
+  layout: TileLayout,
+  direction: TileSplit["direction"],
+): { split: TileSplit; side: TileNode } | { reason: string } {
+  const walk = (node: TileNode): TileSplit[] | undefined => {
+    if (node.id === layout.focused) return [];
+    if (node.kind === "tile") return undefined;
+    const path = walk(node.first) ?? walk(node.second);
+    return path ? [...path, node] : undefined;
+  };
+  const ancestor = walk(layout.tree)?.find((node) => node.direction === direction);
+  if (!ancestor)
+    return { reason: direction === "horizontal" ? "Already full width" : "Already full height" };
+  const inFirst = leaves(ancestor.first).some((tile) => tile.id === layout.focused);
+  const other = inFirst ? ancestor.second : ancestor.first;
+  return terminals(other).length
+    ? { reason: "Next to a terminal" }
+    : { split: ancestor, side: inFirst ? ancestor.first : ancestor.second };
+}
+export function growTile(layout: TileLayout, direction: TileSplit["direction"]): TileLayout {
+  const target = growTarget(layout, direction);
+  return "reason" in target
+    ? layout
+    : { ...layout, maximized: null, tree: update(layout.tree, target.split.id, () => target.side) };
+}
+export function ratioLimits(node: TileSplit): [number, number] {
+  return [terminals(node.first).length ? 0.15 : 0, terminals(node.second).length ? 0.85 : 1];
+}
+export function resizeSplit(
+  layout: TileLayout,
+  target: string,
+  ratio: number,
+  commit = false,
+): TileLayout {
   return {
     ...layout,
-    tree: update(layout.tree, layout.focused, (node) =>
-      node.kind === "tile" ? { ...node, session: null } : node,
-    ),
+    tree: update(layout.tree, target, (node) => {
+      if (node.kind !== "split") return node;
+      const [min, max] = ratioLimits(node);
+      const value = Number.isFinite(ratio) ? Math.max(min, Math.min(max, ratio)) : 0.5;
+      if (commit && min === 0 && value < 0.08) return node.second;
+      if (commit && max === 1 && value > 0.92) return node.first;
+      return { ...node, ratio: value };
+    }),
   };
 }
-export function resizeSplit(layout: TileLayout, target: string, ratio: number): TileLayout {
-  return {
-    ...layout,
-    tree: update(layout.tree, target, (node) =>
-      node.kind === "split" ? { ...node, ratio: clampRatio(ratio) } : node,
-    ),
-  };
-}
+
 export function placeSession(
   layout: TileLayout,
   session: string,
@@ -94,7 +142,11 @@ export function placeSession(
   const target = replace
     ? focused
     : (visible ??
-      (focused?.session === null ? focused : tiles.find((tile) => tile.session === null)));
+      (layout.landing
+        ? landingSpace(layout)
+        : focused?.session === null
+          ? focused
+          : landingSpace(layout)));
   if (!target) return null;
   let tree = layout.tree;
   if (replace && visible && visible.id !== target.id)
@@ -174,7 +226,7 @@ export function rectangles(
   };
 }
 export function neighbor(layout: TileLayout, direction: "left" | "right" | "up" | "down"): string {
-  const tiles = rectangles(layout.tree).tiles;
+  const tiles = rectangles(layout.tree).tiles.filter((item) => item.tile.session !== null);
   const current = tiles.find((item) => item.tile.id === layout.focused);
   if (!current) return layout.focused;
   const cx = current.rect.x + current.rect.width / 2,
@@ -266,10 +318,19 @@ export function restoreLayout(raw: string | null): TileLayout {
     const focused =
       "focused" in value &&
       typeof value.focused === "string" &&
-      tiles.some((tile) => tile.id === value.focused)
+      tiles.some(
+        (tile) =>
+          tile.id === value.focused && (tile.session !== null || terminals(tree).length === 0),
+      )
         ? value.focused
-        : (tiles[0]?.id ?? tree.id);
-    return { tree, focused, maximized: null };
+        : (terminals(tree)[0]?.id ?? tree.id);
+    const landing =
+      "landing" in value &&
+      typeof value.landing === "string" &&
+      tiles.some((tile) => tile.id === value.landing)
+        ? value.landing
+        : undefined;
+    return { tree, focused, maximized: null, ...(landing ? { landing } : {}) };
   } catch {
     return initialLayout();
   }
@@ -281,14 +342,34 @@ export function pruneSessions(layout: TileLayout, sessions: ReadonlySet<string>)
         ? { ...node, session: null }
         : node
       : { ...node, first: prune(node.first), second: prune(node.second) };
-  return { ...layout, tree: prune(layout.tree) };
+  const tree = prune(layout.tree);
+  const occupied = terminals(tree);
+  const focused =
+    occupied.find((tile) => tile.id === layout.focused)?.id ??
+    occupied[0]?.id ??
+    leaves(tree)[0]?.id ??
+    tree.id;
+  return {
+    ...layout,
+    tree,
+    focused,
+    maximized: occupied.some((tile) => tile.id === layout.maximized) ? layout.maximized : null,
+  };
 }
 export function saveLayout(
   storage: Pick<Storage, "setItem">,
   layout: TileLayout,
   key = TILE_STORAGE,
 ): void {
-  storage.setItem(key, JSON.stringify({ version: 1, tree: layout.tree, focused: layout.focused }));
+  storage.setItem(
+    key,
+    JSON.stringify({
+      version: 1,
+      tree: layout.tree,
+      focused: layout.focused,
+      landing: layout.landing,
+    }),
+  );
 }
 
 /** Swap whole leaves, preserving their controllers and session assignments. */
@@ -321,7 +402,7 @@ export function dropTile(
     drag.kind === "tile" ? tile.id === drag.id : tile.session === drag.id,
   );
   if (!destination || origin === destination || (drag.kind === "tile" && !origin)) return layout;
-  if (zone === "center") {
+  if (zone === "center" || destination.session === null) {
     if (drag.kind === "tile") return swapTiles(layout, drag.id, target);
     return placeSession({ ...layout, focused: target }, drag.id, true) ?? layout;
   }
@@ -331,7 +412,7 @@ export function dropTile(
     zone === "left" || zone === "right" ? "horizontal" : "vertical",
   );
   if (added.tree === base.tree) return layout;
-  const fresh = leaves(added.tree).find((tile) => tile.id === added.focused);
+  const fresh = leaves(added.tree).find((tile) => tile.id === added.landing);
   if (!fresh) return layout;
   const moving = drag.kind === "tile" && origin ? origin : { ...fresh, session: drag.id };
   let tree = update(added.tree, fresh.id, () => moving);

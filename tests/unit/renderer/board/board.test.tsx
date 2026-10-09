@@ -150,7 +150,7 @@ test("sidebar arrows wrap, focus peeks, selection preserves attention and Escape
   });
   expect(document.activeElement).toBe(buttons[0]);
   act(() => {
-    dialog.querySelector<HTMLButtonElement>('[aria-label="Hide session"]')?.click();
+    dialog.querySelector<HTMLButtonElement>('[aria-label="Hide"]')?.click();
     dialog.querySelector<HTMLElement>('.board-row[data-state="done"]')?.click();
   });
   expect(

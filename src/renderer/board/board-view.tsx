@@ -13,6 +13,8 @@ import {
   splitTile,
   closeTile,
   hideSession,
+  growTile,
+  terminals,
   pruneSessions,
   neighbor,
   swapTiles,
@@ -177,20 +179,47 @@ export function Board({
     };
   }, [refused]);
   const tileAction = useCallback(
-    (tile: string, action: "right" | "down" | "maximize" | "hide" | "close") => {
+    (
+      tile: string,
+      action: "right" | "down" | "growx" | "growy" | "maximize" | "hide" | "close",
+    ) => {
       setFocusRequest((value) => value + 1);
       const current = { ...layoutRef.current, focused: tile };
+      const session = leaves(current.tree).find((item) => item.id === tile)?.session;
+      if (action === "maximize" && !session) return;
+      if (
+        action === "close" &&
+        session &&
+        source.getSnapshot().some((row) => row.id === session && row.exited)
+      ) {
+        void source
+          .sidebarCommand?.({ kind: "close", id: session })
+          .then(() => {
+            if (
+              leaves(layoutRef.current.tree).some(
+                (item) => item.id === tile && (item.session === session || item.session === null),
+              )
+            )
+              changeLayout(closeTile({ ...layoutRef.current, focused: tile }));
+          })
+          .catch(() => {
+            setRemoveError("Unable to close session.");
+          });
+        return;
+      }
       changeLayout(
-        action === "right" || action === "down"
-          ? splitTile(current, action === "right" ? "horizontal" : "vertical")
-          : action === "close"
-            ? closeTile(current)
-            : action === "hide"
-              ? hideSession(current)
-              : { ...current, maximized: current.maximized === tile ? null : tile },
+        action === "growx" || action === "growy"
+          ? growTile(current, action === "growx" ? "horizontal" : "vertical")
+          : action === "right" || action === "down"
+            ? splitTile(current, action === "right" ? "horizontal" : "vertical")
+            : action === "close"
+              ? closeTile(current)
+              : action === "hide"
+                ? hideSession(current)
+                : { ...current, maximized: current.maximized === tile ? null : tile },
       );
     },
-    [changeLayout],
+    [changeLayout, source],
   );
   const [launching, setLaunching] = useState(false);
   const [launchRepository, setLaunchRepository] = useState<string>();
@@ -487,7 +516,7 @@ export function Board({
             );
             setFocusRequest((value) => value + 1);
           } else if (command.startsWith("tile-")) {
-            const tile = leaves(current.tree)[Number(command.slice(5)) - 1];
+            const tile = terminals(current.tree)[Number(command.slice(5)) - 1];
             if (tile) {
               setFocusRequest((value) => value + 1);
               changeLayout({
@@ -537,7 +566,7 @@ export function Board({
       ?.setView({
         available: !inactive && !launching && !settingsOpen,
         maximized: Boolean(layout.maximized),
-        tiles: leaves(layout.tree).length,
+        tiles: terminals(layout.tree).length,
       })
       .catch((error: unknown) => {
         console.error("Unable to update menu state:", error);
@@ -614,7 +643,7 @@ export function Board({
           otherViews={otherViews}
           tileNumbers={
             new Map(
-              leaves(layout.tree).flatMap((tile, index) =>
+              terminals(layout.tree).flatMap((tile, index) =>
                 tile.session
                   ? [[tile.session, { number: index + 1, focused: tile.id === layout.focused }]]
                   : [],

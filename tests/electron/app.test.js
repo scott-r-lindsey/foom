@@ -458,7 +458,7 @@ async function launchApp(context, openShell = true, options = {}) {
     .not.toBe("Starting shell…");
   assert.doesNotMatch(await page.locator(".tile-status").textContent(), /Unable|failed/);
   if (!openShell) {
-    await page.getByRole("button", { name: "Hide session", exact: true }).click();
+    await page.getByRole("button", { name: "Hide", exact: true }).click();
     await boardCommand(app, "B");
   }
   if (openShell) {
@@ -1717,11 +1717,11 @@ test("launches an agent in a managed worktree and routes its attention signals",
   await expect(page.locator('.board-row[data-kind="shell"]')).toBeFocused();
   await page.keyboard.press("ArrowDown");
   await expect(page.locator("[data-nav]:focus")).toBeVisible();
-  await page.getByRole("button", { name: "Hide session", exact: true }).click();
+  await page.getByRole("button", { name: "Hide", exact: true }).click();
   await agentRow.focus();
   await page.keyboard.press("Enter");
   await expect(page.locator(".xterm-helper-textarea")).toBeFocused();
-  await page.getByRole("button", { name: "Hide session", exact: true }).click();
+  await page.getByRole("button", { name: "Hide", exact: true }).click();
   await page.locator('.board-row[data-kind="shell"]').press("Enter");
   await boardCommand(app, "N");
   await expect(page.locator(".xterm-helper-textarea")).toBeFocused();
@@ -1814,7 +1814,7 @@ test("launches an agent in a managed worktree and routes its attention signals",
     );
     const row = page.locator(".board-row").filter({ hasText: branch });
     await expect(row).toHaveAttribute("data-state", branch === "finish-ok" ? "done" : "failed");
-    await page.getByRole("button", { name: "Hide session", exact: true }).click();
+    await page.getByRole("button", { name: "Hide", exact: true }).click();
     await row.click();
     await expect(page.locator(".xterm-helper-textarea")).toBeFocused();
     await expect(page.locator(".xterm-rows")).toContainText(
@@ -3106,7 +3106,7 @@ test("empty sidebar and terminal pane stay accessible at both widths", async (co
     await expect(page.getByRole("button", { name: "Add repository", exact: true })).toBeVisible();
     await expect(page.getByRole("button", { name: "New worktree", exact: true })).toHaveCount(0);
     await expect(page.getByRole("button", { name: "Local shell", exact: true })).toHaveCount(0);
-    await expect(page.getByRole("region", { name: "Tile 1: empty" })).toBeVisible();
+    await expect(page.locator('.terminal-tile[data-empty="true"]')).toBeVisible();
     await assertAccessible(page);
   }
   await page.screenshot({ path: path.join(tmpdir(), "foom-132-empty-sidebar.png") });
@@ -3805,10 +3805,14 @@ test("tiles build irregular layouts, preserve views, refuse full placement and r
         window.attachments.push({ id, token });
     });
   });
-  await page.getByRole("button", { name: "Split right", exact: true }).click();
-  await expect(page.getByRole("region", { name: "Tile 2: empty" })).toBeVisible();
+  await page.getByRole("button", { name: "Tile 1 menu", exact: true }).click();
+  await expect(page.getByRole("menuitem", { name: "Split right", exact: true })).toBeFocused();
+  await page.getByRole("menuitem", { name: "Split right", exact: true }).click();
+  await expect(page.locator('[data-empty="true"]')).toHaveAttribute("aria-hidden", "true");
+  await expect(page.locator(".xterm-helper-textarea").first()).toBeFocused();
   await rows.nth(1).click();
-  await page.getByRole("button", { name: "Split down", exact: true }).nth(1).click();
+  await page.getByRole("button", { name: "Tile 2 menu", exact: true }).click();
+  await page.getByRole("menuitem", { name: "Split down", exact: true }).click();
   await rows.nth(2).click();
   const tiles = page.locator(".terminal-tile");
   await expect(tiles).toHaveCount(3);
@@ -3886,13 +3890,13 @@ test("tiles build irregular layouts, preserve views, refuse full placement and r
     ),
     sessions[3].id,
   );
-  await page.getByRole("button", { name: "Hide session", exact: true }).first().click();
+  await page.getByRole("button", { name: "Hide", exact: true }).first().click();
   await rows.nth(0).click();
   await page.getByRole("button", { name: "One and three", exact: true }).click();
   await expect(tiles).toHaveCount(4);
   assert.equal(
     await page.evaluate(() =>
-      window.tileElements.every((element) => document.body.contains(element)),
+      window.tileElements.slice(1).every((element) => document.body.contains(element)),
     ),
     true,
   );
@@ -3900,7 +3904,7 @@ test("tiles build irregular layouts, preserve views, refuse full placement and r
   await page.emulateMedia({ reducedMotion: "reduce" });
   await expect(tiles.first()).toHaveCSS("transition-duration", "0s");
   await page.screenshot({ path: path.join(tmpdir(), "foom-132-tiles.png") });
-  await page.getByRole("button", { name: "Close tile", exact: true }).first().click();
+  await page.getByRole("button", { name: "Hide", exact: true }).first().click();
   assert.equal(
     (await page.evaluate(() => window.desktop.workspace())).terminals.filter((t) => !t.exited)
       .length,
@@ -3944,23 +3948,53 @@ test("launching into full tiles replaces focus and empty tiles support mouse con
   assert.equal(sessions.find((session) => session.id === original.id).exited, false);
 
   await page.getByRole("button", { name: "Two by two", exact: true }).click();
-  const empty = page.getByRole("region", { name: "Tile 4: empty", exact: true });
-  await empty.hover();
-  await expect(empty.locator(".tile-number")).toHaveText("4");
-  await expect(empty.getByRole("button")).toHaveCount(3);
-  await empty.getByRole("button", { name: "Close tile", exact: true }).click();
-  await expect(page.locator(".terminal-tile")).toHaveCount(3);
-  const sibling = page.getByRole("region", { name: "Tile 3: empty", exact: true });
-  await expect(sibling).toHaveAttribute("data-focused", "true");
-  await sibling.getByRole("button", { name: "Split down", exact: true }).click();
-  await expect(page.locator(".terminal-tile")).toHaveCount(4);
+  const empty = page.locator('.terminal-tile[data-empty="true"]').last();
+  await expect(empty).toHaveAttribute("aria-hidden", "true");
+  await expect(empty.locator(".tile-title")).toHaveCount(0);
+  await expect(empty.locator("button")).toHaveCount(0);
+  await page.getByRole("separator").first().press("End");
+  await expect(page.locator(".terminal-tile")).toHaveCount(2);
+  await page.getByRole("separator").press("End");
+  await expect(page.locator(".terminal-tile")).toHaveCount(1);
+  await page.locator(".tile-title").click({ button: "right" });
+  await expect(page.getByRole("menuitem", { name: "Split right", exact: true })).toBeFocused();
+  await expect(page.getByRole("menuitem", { name: /Grow sideways/ })).toBeDisabled();
+  await page.getByRole("menuitem", { name: "Split right", exact: true }).press("Escape");
+  await expect(page.getByRole("button", { name: "Tile 1 menu", exact: true })).toBeFocused();
+  await page.getByRole("button", { name: "Tile 1 menu", exact: true }).click();
+  await page.getByRole("menuitem", { name: "Split right", exact: true }).click();
+  const gutter = page.getByRole("separator");
+  const bounds = await page.locator(".tile-area").boundingBox();
+  const handle = await gutter.boundingBox();
+  assert.ok(bounds && handle);
+  await page.mouse.move(handle.x + handle.width / 2, handle.y + handle.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(bounds.x + bounds.width * 0.96, handle.y + handle.height / 2, { steps: 8 });
+  await expect(empty).toHaveAttribute("data-collapsing", "true");
+  await page.mouse.up();
+  await expect(page.locator(".terminal-tile")).toHaveCount(1);
+  await page.getByRole("button", { name: "Tile 1 menu", exact: true }).click();
+  const menu = page.getByRole("dialog", { name: "Tile 1 menu", exact: true });
+  await expect(menu).toContainText(/\d+ × \d+/);
+  await menu.press("Escape");
+  await page.getByRole("button", { name: "Two side by side", exact: true }).click();
   for (const colorScheme of ["light", "dark"]) {
     await page.emulateMedia({ colorScheme });
     await expect(page.locator("html")).toHaveCSS("color-scheme", colorScheme);
-    await expect(empty.locator(".tile-title")).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+    await expect(empty.locator(".tile-title")).toHaveCount(0);
     await assertAccessible(page);
   }
   await page.screenshot({ path: path.join(tmpdir(), "foom-tile-bug-fixes.png") });
+  await page.evaluate((id) => window.desktop.input(id, "exit\r"), created.id);
+  await expect(page.getByRole("button", { name: "Close", exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Close", exact: true }).click();
+  await expect
+    .poll(async () =>
+      (await page.evaluate(() => window.desktop.workspace())).terminals.some(
+        (session) => session.id === created.id,
+      ),
+    )
+    .toBe(false);
 });
 
 test("tile leader avoids AltGr chords and cancels unmatched keys", {
@@ -5523,7 +5557,8 @@ test("multiple windows share sessions, keep views exclusive and retain terminals
     }, original),
     "rejected",
   );
-  await first.getByRole("button", { name: "Split right", exact: true }).click();
+  await first.getByRole("button", { name: "Tile 1 menu", exact: true }).click();
+  await first.getByRole("menuitem", { name: "Split right", exact: true }).click();
   await first
     .getByRole("button", { name: "Actions for Main checkout", exact: true })
     .press("Enter");
@@ -5541,8 +5576,9 @@ test("multiple windows share sessions, keep views exclusive and retain terminals
   await assertAccessible(second);
   await first
     .locator(".terminal-tile[data-focused=true]")
-    .getByRole("button", { name: "Move to new window", exact: true })
+    .getByRole("button", { name: /Tile \d+ menu/ })
     .press("Enter");
+  await first.getByRole("menuitem", { name: "Move to new window", exact: true }).press("Enter");
   await expect
     .poll(() => app.windows().filter((page) => page.url() === "app://bundle/index.html").length)
     .toBe(3);

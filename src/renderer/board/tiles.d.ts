@@ -16,6 +16,7 @@ export interface TileLayout {
   tree: TileNode;
   focused: string;
   maximized: string | null;
+  landing?: string;
 }
 export interface TileRect {
   x: number;
@@ -26,3 +27,14 @@ export interface TileRect {
 export type TilePreset = "one" | "columns" | "rows" | "grid" | "main2" | "main3";
 export type DropZone = "center" | "left" | "right" | "up" | "down";
 export type TileDrag = { kind: "tile" | "session"; id: string };
+
+export type TileAction =
+  | "right"
+  | "down"
+  | "growx"
+  | "growy"
+  | "maximize"
+  | "hide"
+  | "close"
+  | "restart"
+  | "popout";

@@ -13,6 +13,7 @@ export interface RowAction {
   badge?: string;
   glyph?: CommandGlyphName;
   hint?: string;
+  reason?: string;
   run: () => void | Promise<void>;
 }
 export interface PanelContent {
@@ -35,7 +36,9 @@ export function RowMenu({
   label = "Actions",
   onAction,
   panel,
+  point,
 }: {
+  point?: { x: number; y: number } | undefined;
   panel?: PanelContent;
   /** Overrides confirmation handling; the caller owns dismissal, focus and dispatch. */
   onAction?: (action: RowAction) => void;
@@ -68,7 +71,7 @@ export function RowMenu({
         ? (anchor.closest(".sidebar-shell")?.getBoundingClientRect().right ?? button.right)
         : button.right;
       if (isPanel)
-        menu.style.width = `${String(Math.min(720, Math.max(280, window.innerWidth - right - 18)))}px`;
+        menu.style.width = `${String(Math.min(720, Math.max(280, placement === "below" ? window.innerWidth - 16 : window.innerWidth - right - 18)))}px`;
       if (placement === "below")
         menu.style.maxHeight = `${String(Math.max(80, window.innerHeight - button.bottom - 16))}px`;
       // Opening animations transform the border box; placement needs its final
@@ -77,12 +80,12 @@ export function RowMenu({
       const top = Math.max(
         8,
         Math.min(
-          placement === "below" ? button.bottom + 8 : button.top,
+          point ? point.y : placement === "below" ? button.bottom + 8 : button.top,
           window.innerHeight - bounds.height - 8,
         ),
       );
       menu.style.top = `${String(top)}px`;
-      menu.style.left = `${String(Math.max(8, Math.min(placement === "below" ? button.left : right + 10, window.innerWidth - bounds.width - 8)))}px`;
+      menu.style.left = `${String(Math.max(8, Math.min(point ? point.x : placement === "below" ? button.left : right + 10, window.innerWidth - bounds.width - 8)))}px`;
       menu.style.setProperty(
         "--notch",
         `${String(Math.max(12, Math.min(bounds.height - 12, button.top + button.height / 2 - top)))}px`,
@@ -97,7 +100,7 @@ export function RowMenu({
     return () => {
       observer?.disconnect();
     };
-  }, [anchor, placement, focusOnOpen, isPanel]);
+  }, [anchor, placement, focusOnOpen, isPanel, point]);
   useEffect(() => {
     const outside = (event: PointerEvent) => {
       if (
@@ -213,6 +216,7 @@ export function RowMenu({
                 {action.badge && <AgentBadge mark={action.badge} />}
                 <span className="menu-label">
                   {selected === index && confirmation.arm ? confirmation.arm.label : action.label}
+                  {action.reason && <small className="command-reason">{action.reason}</small>}
                 </span>
                 {action.hint && <span className="menu-hint">{action.hint}</span>}
               </button>
