@@ -75,8 +75,6 @@ function sidebarCommand(value: unknown): SidebarCommand {
   if (!text(value["worktree"])) throw new Error("Invalid worktree");
   const worktree = value["worktree"];
   if (kind === "remove-worktree") return { kind, repository, worktree };
-  if (kind === "review" && (value["run"] === "claude" || value["run"] === "codex"))
-    return { kind, repository, worktree, run: value["run"] };
   if (kind === "launch" && (value["run"] === "shell" || agent(value["run"])))
     return { kind, repository, worktree, run: value["run"] };
   throw new Error("Invalid sidebar command");

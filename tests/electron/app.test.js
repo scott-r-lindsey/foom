@@ -2662,21 +2662,6 @@ test("new worktree dialog launches by keyboard and confirms dirty removal", {
   if (process.platform !== "win32") {
     await writeFile(path.join(bin, "claude"), FAKE_CLAUDE, { mode: 0o755 });
   }
-  if (process.platform !== "win32") {
-    await writeFile(
-      path.join(bin, "codex"),
-      `#!/usr/bin/env node
-const args = process.argv.slice(2);
-if (args[0] === "--version") { console.log("codex-cli 0.1.0"); process.exit(0); }
-if (args[0] === "--help") { console.log("-c, --config <key=value> --sandbox <mode> read-only"); process.exit(0); }
-console.log("REVIEW_ARGS:" + JSON.stringify(args));
-console.log("Listening on http://localhost:3000");
-process.stdin.setRawMode(true);
-process.stdin.resume();
-`,
-      { mode: 0o755 },
-    );
-  }
   const app = await launchApp(context, false, {
     emptyBoard: true,
     env: {
@@ -3003,31 +2988,6 @@ process.stdin.resume();
       .poll(async () => (await sharedSessions()).filter((t) => t.kind === "agent").length)
       .toBe(2);
     await expect(page.locator(".xterm-helper-textarea").first()).toBeFocused();
-    await page.getByRole("button", { name: "Actions for agent", exact: true }).click();
-    await page.getByRole("menuitem", { name: /Review with Codex/ }).click();
-    await expect(sharedArm).toBeVisible();
-    await page.waitForTimeout(310); // The click-again minimum interval is the behavior under test.
-    await sharedArm.click();
-    await expect
-      .poll(async () => (await sharedSessions()).filter((t) => t.readOnly).length)
-      .toBe(1);
-    const reviewer = (await sharedSessions()).find((t) => t.readOnly);
-    assert.ok(reviewer);
-    await expect
-      .poll(() =>
-        page.evaluate(async (id) => (await window.desktop.tail(id, 30)).join(""), reviewer.id),
-      )
-      .toContain('["--sandbox","read-only","-c","approval_policy=\\"never\\""]'.slice(0, -1));
-    await expect(page.locator(".board-row").filter({ hasText: "Reviewing read-only" })).toHaveCount(
-      1,
-    );
-    await expect
-      .poll(async () => (await sharedSessions()).find((t) => t.id === reviewer.id)?.state?.state)
-      .toBe("quiet_ok");
-    await expect
-      .poll(async () => (await sharedSessions()).find((t) => t.id === terminal.id)?.state?.state)
-      .toBe("needs_input");
-    assert.equal(reviewer.bypass, false);
   }
   const shell = (await sharedSessions()).find((t) => t.kind === "shell");
   assert.ok(shell);

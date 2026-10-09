@@ -4,7 +4,7 @@ import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { launcherActions } from "../../../../src/renderer/board/sidebar-view";
 import { Board } from "../../../../src/renderer/board/board-view";
 import { createSampleSource } from "../../../../src/renderer/board/sample-board-source";
-import { sampleRows } from "../../../../src/renderer/board/sample-rows";
+import { boardRows as sampleRows } from "../../../fixtures/board";
 import { installation } from "../../../fixtures/setup";
 import type { SidebarRepository } from "../../../../src/renderer/board/sidebar.d";
 import type { BoardSource } from "../../../../src/renderer/board/board-source.d";
@@ -44,7 +44,7 @@ const load = () =>
     hooks: true,
     acknowledged: true,
   });
-function setup(mainCheckout = false, review = false) {
+function setup(mainCheckout = false) {
   const original = sampleRows(0)[0];
   if (!original) throw Error("fixture");
   const base = createSampleSource([
@@ -70,16 +70,7 @@ function setup(mainCheckout = false, review = false) {
     shellName: () => "zsh",
     sidebarCommand: command,
     worktrees: {
-      load: review
-        ? async () => ({
-            ...(await load()),
-            agents: [
-              { ...installation("codex"), review: true },
-              { ...installation("claude"), review: true },
-              { ...installation("agy"), review: true },
-            ],
-          })
-        : load,
+      load,
       addRepository: add,
       start: () => Promise.resolve(),
       remove: () => Promise.resolve(true),
@@ -550,27 +541,15 @@ test("open menus receive eligibility published after opening", async () => {
   expect(view.queryByRole("menuitem", { name: "Delete merged worktrees…" })).toBeNull();
 });
 
-test("worktree reviews offer the other installed agent and disappear for exited sessions", async () => {
-  const view = setup(false, true);
+test("worktree menus offer only enabled launchers and deletion with an agent running", async () => {
+  const view = setup();
   await act(async () => {
     await Promise.resolve();
   });
   fireEvent.click(view.getByRole("button", { name: "Actions for feature" }));
-  expect(view.queryByRole("menuitem", { name: /Review with Claude/ })).toBeNull();
-  expect(view.queryByRole("menuitem", { name: /Review with Antigravity/ })).toBeNull();
-  await act(async () => {
-    fireEvent.click(view.getByRole("menuitem", { name: /Review with Codex/ }));
-    await Promise.resolve();
-  });
-  expect(view.command).toHaveBeenLastCalledWith({
-    kind: "review",
-    repository: "/foom",
-    worktree: "/tree",
-    run: "codex",
-  });
-  act(() => {
-    view.base.update("a", { exited: true });
-  });
-  fireEvent.click(view.getByRole("button", { name: "Actions for feature" }));
-  expect(view.queryByRole("menuitem", { name: /Review with/ })).toBeNull();
+  expect(view.getAllByRole("menuitem").map((item) => item.textContent)).toEqual([
+    "CCClaude Code",
+    ">_Shell (zsh)",
+    "Remove worktree…",
+  ]);
 });

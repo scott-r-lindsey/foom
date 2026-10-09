@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { sampleRows } from "../../../../src/renderer/board/sample-rows";
+import { boardRows as sampleRows } from "../../../fixtures/board";
 import { act, cleanup, fireEvent, render } from "@testing-library/react";
 import { Profiler } from "react";
 import { Board } from "../../../../src/renderer/board/board-view";
@@ -111,12 +111,12 @@ test("maps every state to a text label and activity brightness, dimming only ack
 test("queue uses oldest wait, keeps ties stable and never reorders the board", () => {
   const rows = sampleRows(200000);
   const original = rows.map((row) => row.id);
-  expect(nextWaiting(rows)?.id).toBe("review");
+  expect(nextWaiting(rows)?.id).toBe("permission");
   const first = rows[0];
   const last = rows[6];
   if (!first || !last) throw new Error("Missing waiting rows");
   first.waitingSince = last.waitingSince;
-  expect(nextWaiting(rows)?.id).toBe("review");
+  expect(nextWaiting(rows)?.id).toBe("permission");
   first.state = "working";
   expect(nextWaiting(rows)?.id).toBe("approve");
   last.state = "working";
@@ -194,7 +194,7 @@ test("replies and dismissals advance the queue without moving rows; elapsed wait
   expect(buttons[0]?.textContent).toContain("4m");
   key("N");
   act(() => {
-    void board.source.resolve("review", "Sample reply sent");
+    void board.source.resolve("permission", "Sample reply sent");
   });
   key("Escape");
   expect(buttons[0]?.textContent).toContain("Sample reply sent");

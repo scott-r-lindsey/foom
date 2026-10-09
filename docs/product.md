@@ -93,21 +93,6 @@ session and its stored record, never the checkout or the agent's own conversatio
 Sessions restore without automatically launching agents. If no supported hook/notify event
 arrived before exit (including hooks-disabled launches), no conversation ID is available.
 
-A checkout with a running agent offers **Review with Claude Code** or **Review with
-Codex** for the other installed, enabled agent when its CLI advertises the required
-review flags. Review starts alongside the author, with the usual shared-agent confirmation.
-Claude starts in plan permission mode; Codex starts with a read-only sandbox and
-no approval escalation. A fixed prompt asks for findings without editing files.
-Review launches skip Foom's ordinary default arguments so they cannot override
-these flags. Hooks remain per launch; user configuration files are never edited.
-The reason line includes **Reviewing read-only** alongside the current verdict.
-Resume and New conversation retain the review launch policy, including after an
-app restart. This label records launch policy: Foom cannot detect a user changing
-modes inside the agent. Claude's plan mode is a CLI permission mode, not an OS
-filesystem sandbox; user-approved commands and external integrations still obey
-that CLI's policy. Use ordinary launch actions for editing or a shell running tests.
-Every session keeps its own light, hooks and verdicts.
-
 Worktree removal is available for linked checkouts created by any tool. It requires
 confirmation, validates repository membership and worktree identity, and rechecks dirty
 files before deletion. The branch is kept; the main checkout cannot be removed. Repository removal forgets its

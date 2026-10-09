@@ -6,7 +6,7 @@ import type { SidebarCommand } from "../../../../src/shared/workspace";
 import type { BoardSource } from "../../../../src/renderer/board/board-source.d";
 import { Board } from "../../../../src/renderer/board/board-view";
 import { createSampleSource } from "../../../../src/renderer/board/sample-board-source";
-import { sampleRows } from "../../../../src/renderer/board/sample-rows";
+import { boardRows as sampleRows } from "../../../fixtures/board";
 import {
   TILE_STORAGE,
   initialLayout,
@@ -131,7 +131,7 @@ test("placement uses empty tiles, refuses full without replacement, and next-wai
   expect(row(0).dataset["refused"]).toBe("false");
   send("next-waiting");
   await act(async () => {});
-  expect(views[0]?.open).toHaveBeenLastCalledWith("review");
+  expect(views[0]?.open).toHaveBeenLastCalledWith("permission");
   fireEvent.click(screen.getByRole("button", { name: "Two side by side" }));
   click(1);
   await act(async () => {});
@@ -233,29 +233,29 @@ test("activity changes tile light brightness without remounting, and only attent
   expect(tile.getAttribute("data-state")).toBe("needs_input");
   const mounts = views[0]?.mount.mock.calls.length;
   act(() => {
-    data.setActivity("review", 10000);
+    data.setActivity("permission", 10000);
   });
   expect(views[0]?.mount.mock.calls.length).toBe(mounts);
   act(() => {
-    data.update("review", { state: "working" });
+    data.update("permission", { state: "working" });
   });
   expect(tile.getAttribute("data-state")).toBe("working");
   act(() => {
-    data.setActivity("review", 1000);
+    data.setActivity("permission", 1000);
   });
   expect(
     tile.querySelector<HTMLElement>(".board-light")?.style.getPropertyValue("--light-opacity"),
   ).not.toBe("");
 });
 test("restored live sessions wait for inventory; removed sessions become empty without stopping processes", () => {
-  const layout = placeSession(preset(initialLayout(), "rows"), "review");
+  const layout = placeSession(preset(initialLayout(), "rows"), "permission");
   if (!layout) throw new Error("No layout");
   localStorage.setItem(TILE_STORAGE, JSON.stringify({ version: 1, ...layout }));
   const { screen, data } = setup();
   expect(screen.getByRole("region", { name: /Tile 1:/ }).getAttribute("data-empty")).toBe("false");
   expect(leaves(layout.tree)).toHaveLength(2);
   act(() => {
-    data.update("review", { id: "changed" });
+    data.update("permission", { id: "changed" });
   });
   expect(screen.getByRole("region", { name: "Tile 1: empty" })).toBeTruthy();
 });
@@ -299,14 +299,14 @@ test("tile restart routes through workspace lifecycle and places the replacement
     await Promise.resolve();
   });
   act(() => {
-    data.update("review", { kind: "shell", exited: true, state: "done" });
+    data.update("permission", { kind: "shell", exited: true, state: "done" });
   });
   click(0);
   await act(async () => {});
   const original = screen.container.querySelector(".terminal-tile");
   fireEvent.click(screen.getByRole("button", { name: "Restart shell" }));
   await act(async () => {});
-  expect(source.sidebarCommand).toHaveBeenCalledWith({ kind: "restart", id: "review" });
+  expect(source.sidebarCommand).toHaveBeenCalledWith({ kind: "restart", id: "permission" });
   expect(views[0]?.open).toHaveBeenLastCalledWith("replacement");
   expect(screen.container.querySelector(".terminal-tile")).toBe(original);
 });
@@ -346,7 +346,7 @@ test.each(["full", "focused empty", "first empty"] as const)(
     expect(views[target]?.open).toHaveBeenLastCalledWith("launched");
     expect(screen.container.querySelector('[data-refused="true"]')).toBeNull();
     expect(source.getSnapshot().some((row) => row.id === "build")).toBe(true);
-    expect(views[0]?.open).toHaveBeenLastCalledWith("review");
+    expect(views[0]?.open).toHaveBeenLastCalledWith("permission");
     if (mode === "first empty") expect(views[1]?.open).toHaveBeenLastCalledWith("build");
   },
 );

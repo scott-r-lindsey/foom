@@ -388,7 +388,6 @@ export class Workspace {
     sharedCheckout = false,
     checkoutIdentity?: string,
     replacement?: { id: string; conversationId?: string },
-    readOnly = false,
   ): Promise<{ id: string; attention: "hooks" | "evaluator" }> {
     return this.withRepository(request.repository, async () => {
       if (!this.enabled[request.agent]) throw new Error("This agent is turned off in preflight");
@@ -398,11 +397,10 @@ export class Workspace {
       const tree = (await this.deps.worktrees.listWorktrees(request.repository)).find(
         (entry) => entry.path === request.worktree,
       );
-      const defaultArguments = readOnly ? [] : this.defaultArguments[request.agent];
+      const defaultArguments = this.defaultArguments[request.agent];
       const result = await this.agents.launch({
         ...request,
         defaultArguments,
-        ...(readOnly ? { readOnly: true } : {}),
         ...(replacement
           ? {
               terminalId: replacement.id,
@@ -430,7 +428,6 @@ export class Workspace {
         ...(replacement?.conversationId === undefined
           ? {}
           : { conversationId: replacement.conversationId }),
-        ...(readOnly ? { readOnly: true } : {}),
         bypass: hasBypassArgument(request.agent, defaultArguments),
         state: null,
       });
@@ -760,19 +757,12 @@ export class Workspace {
       if (command.kind === "resume") resumeArguments(entry.agent, entry.conversationId);
       this.busySessions.add(entry.id);
       try {
-        await this.startExisting(
-          entry.repository,
-          entry.worktree,
-          entry.agent,
-          confirm,
-          {
-            id: entry.id,
-            ...(command.kind === "resume" && entry.conversationId !== undefined
-              ? { conversationId: entry.conversationId }
-              : {}),
-          },
-          entry.readOnly === true,
-        );
+        await this.startExisting(entry.repository, entry.worktree, entry.agent, confirm, {
+          id: entry.id,
+          ...(command.kind === "resume" && entry.conversationId !== undefined
+            ? { conversationId: entry.conversationId }
+            : {}),
+        });
       } finally {
         this.busySessions.delete(entry.id);
       }
@@ -803,15 +793,8 @@ export class Workspace {
     if (command.kind === "remove-repository") {
       return this.removeRepository(command.repository, () => confirm({ kind: "remove" }));
     }
-    if (command.kind === "launch" || command.kind === "review") {
-      await this.startExisting(
-        command.repository,
-        command.worktree,
-        command.run,
-        confirm,
-        undefined,
-        command.kind === "review",
-      );
+    if (command.kind === "launch") {
+      await this.startExisting(command.repository, command.worktree, command.run, confirm);
       return;
     }
     const tree = (await this.worktrees(command.repository)).find(
@@ -836,7 +819,6 @@ export class Workspace {
     run: AgentId | "shell",
     confirm: ConfirmWorkspace,
     replacement?: { id: string; conversationId?: string },
-    readOnly = false,
   ): Promise<void> {
     return this.withRepository(repository, async () => {
       const tree = (await this.worktrees(repository)).find((item) => item.path === worktree);
@@ -847,19 +829,6 @@ export class Workspace {
       this.busyWorktrees.add(key);
       try {
         const identity = await this.deps.worktrees.launchIdentity(repository, worktree);
-        if (
-          readOnly &&
-          !replacement &&
-          ![...this.launched.values()].some(
-            (entry) =>
-              entry.repository === repository &&
-              entry.worktree === worktree &&
-              entry.kind === "agent" &&
-              entry.agent !== run &&
-              this.terminals.get(entry.id)?.exitCode === undefined,
-          )
-        )
-          throw new Error("No other agent is running in this worktree");
         if (run !== "shell" && !(await this.confirmAgentLaunch(worktree, confirm))) return;
         if (run !== "shell") {
           const scan = await this.scanAgents(false);
@@ -899,7 +868,6 @@ export class Workspace {
               true,
               identity,
               replacement,
-              readOnly,
             );
           } catch (error) {
             if (replacement) this.track(replacement.id).exitCode = -1;

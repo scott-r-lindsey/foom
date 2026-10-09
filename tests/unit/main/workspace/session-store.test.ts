@@ -76,16 +76,14 @@ test("corrupt and oversized files are ignored; failed writes can be retried", as
   expect(await store.load()).toEqual([]);
 });
 
-test("persists review policy and rejects malformed review metadata", async () => {
-  const { store } = await setup();
-  const entries = readSessions([{ ...record, readOnly: true }]);
-  await store.save(entries);
-  expect(await store.load()).toEqual(entries);
-  expect(entries[0]?.readOnly).toBe(true);
-  expect(readSessions([{ ...record, readOnly: false }])[0]?.readOnly).toBeUndefined();
-  for (const value of ["true", 1, null])
-    expect(() => readSessions([{ ...record, readOnly: value }])).toThrow("Invalid review mode");
-  expect(() =>
-    readSessions([{ ...record, agent: "shell", conversationId: undefined, readOnly: true }]),
-  ).toThrow("Invalid review mode");
+test("ignores obsolete session fields without persisting them", async () => {
+  const { store, directory } = await setup();
+  const expected = readSessions([record]);
+  for (const readOnly of [true, false, "true", 1, null]) {
+    const entries = readSessions([{ ...record, readOnly }]);
+    expect(entries).toEqual(expected);
+    await store.save(entries);
+    expect(await store.load()).toEqual(expected);
+    expect(await readFile(join(directory, "sessions.json"), "utf8")).not.toContain("readOnly");
+  }
 });

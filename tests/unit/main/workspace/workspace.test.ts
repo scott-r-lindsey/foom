@@ -2690,63 +2690,6 @@ test("Antigravity completion and failure evidence survives quiet output, clears 
   await workspace.dispose();
 });
 
-test("review uses another live agent, isolates verdicts and retains read-only mode on relaunch", async () => {
-  const workspace = await launched();
-  agents.launch.mockResolvedValue({ id: "reviewer", attention: "hooks" });
-  const command = {
-    kind: "review",
-    repository: repo.path,
-    worktree: tree.path,
-    run: "codex",
-  } as const;
-  await workspace.sidebarCommand(command, () => Promise.resolve(false));
-  expect(agents.launch).toHaveBeenCalledTimes(1);
-  await workspace.sidebarCommand(command, () => Promise.resolve(true));
-  expect(agents.launch).toHaveBeenLastCalledWith(
-    expect.objectContaining({
-      agent: "codex",
-      readOnly: true,
-      defaultArguments: [],
-      sharedCheckout: true,
-      checkoutIdentity: "identity",
-    }),
-  );
-  tails.set("reviewer", ["Listening on http://localhost:3000"]);
-  await workspace.quiet("t1");
-  await workspace.quiet("reviewer");
-  const entries = workspace.snapshot().terminals;
-  expect(entries.find((entry) => entry.id === "t1")?.state?.state).toBe("needs_input");
-  expect(entries.find((entry) => entry.id === "reviewer")).toMatchObject({
-    readOnly: true,
-    bypass: false,
-    state: { state: "quiet_ok" },
-  });
-  await workspace.exited("reviewer", 0);
-  await workspace.sidebarCommand({ kind: "new-conversation", id: "reviewer" }, () =>
-    Promise.resolve(true),
-  );
-  expect(agents.launch).toHaveBeenLastCalledWith(
-    expect.objectContaining({ readOnly: true, terminalId: "reviewer" }),
-  );
-});
-test("review rejects stale targets and the same agent without starting anything", async () => {
-  const workspace = await launched();
-  const command = {
-    kind: "review",
-    repository: repo.path,
-    worktree: tree.path,
-    run: "claude",
-  } as const;
-  await expect(workspace.sidebarCommand(command, () => Promise.resolve(true))).rejects.toThrow(
-    "No other agent",
-  );
-  await workspace.exited("t1", 0);
-  await expect(
-    workspace.sidebarCommand({ ...command, run: "codex" }, () => Promise.resolve(true)),
-  ).rejects.toThrow("No other agent");
-  expect(agents.launch).toHaveBeenCalledTimes(1);
-});
-
 test("fully idle Antigravity Stop recovers a turn whose working report was overtaken", async () => {
   agents.scan.mockResolvedValue({
     ...scan,

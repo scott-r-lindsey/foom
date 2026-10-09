@@ -4,7 +4,7 @@ import { afterEach, expect, test, vi } from "vitest";
 import type { WindowsApi, WindowView } from "../../../../src/shared/windows";
 import { Board } from "../../../../src/renderer/board/board-view";
 import { createSampleSource } from "../../../../src/renderer/board/sample-board-source";
-import { sampleRows } from "../../../../src/renderer/board/sample-rows";
+import { boardRows as sampleRows } from "../../../fixtures/board";
 import {
   TILE_STORAGE,
   restoreLayout,
