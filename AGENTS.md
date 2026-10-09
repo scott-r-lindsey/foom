@@ -68,8 +68,12 @@ For runtime, build, or tooling changes, also run:
 npm run test:coverage
 npm run test:electron
 npm run make
+npm run test:packaged
+npm run clean
 git diff --check
 ```
+
+Run `npm run clean` only after `npm run make` and `npm run test:packaged` pass. It removes local `out/` packaging output so development worktrees do not retain it. On Linux, wrap both Electron test commands in `xvfb-run -a`. Keep CI packaging output until its artifact uploads finish; do not add this cleanup to CI.
 
 Open a **draft** pull request after the first coherent commit and push at each working step. CI runs on drafts, so Windows and macOS failures surface while the work is in progress; a newer push cancels the branch's previous run. Watch results with `gh pr checks --watch` and mark the PR ready for review only when it is green. Pass local `npm run check` before each push, reproduce Linux failures locally, and don't push only to re-run CI.
 
