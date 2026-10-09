@@ -1,6 +1,6 @@
 import { Workspace } from "../../../../src/main/workspace/workspace";
 import { evaluateRules } from "../../../../src/main/evaluator/evaluator";
-import { execFile } from "node:child_process";
+import { git as execute } from "../../../helpers/git.js";
 import {
   mkdir,
   mkdtemp,
@@ -14,23 +14,15 @@ import {
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { promisify } from "node:util";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { WorktreeService } from "../../../../src/main/workspace/worktrees";
 
-const executeFile = promisify(execFile);
-function execute(command: string, args: string[], options: { cwd: string }) {
-  const env = Object.fromEntries(
-    Object.entries(process.env).filter(([key]) => !key.startsWith("GIT_")),
-  );
-  return executeFile(command, args, { ...options, env });
-}
 let temporary: string;
 let repo: string;
 let root: string;
 let service: WorktreeService;
 async function git(...args: string[]): Promise<string> {
-  const { stdout } = await execute("git", args, { cwd: repo });
+  const { stdout } = await execute(args, { cwd: repo });
   return stdout;
 }
 beforeEach(async () => {
@@ -124,7 +116,7 @@ describe("creation and listing", () => {
     const bare = join(temporary, "bare.git");
     const linked = join(temporary, "linked");
     await git("clone", "--bare", repo, bare);
-    await execute("git", ["worktree", "add", linked, "main"], { cwd: bare });
+    await execute(["worktree", "add", linked, "main"], { cwd: bare });
     await service.addRepository(linked);
     expect(await service.listWorktrees(linked)).toContainEqual(
       expect.objectContaining({ path: bare, bare: true, head: null, managed: false }),
@@ -251,10 +243,9 @@ describe("safe removal", () => {
     const file = join(path, "file");
     await writeFile(file, "original");
     if (kind !== "untracked") {
-      await execute("git", ["add", "file"], { cwd: path });
+      await execute(["add", "file"], { cwd: path });
       if (kind === "tracked") {
         await execute(
-          "git",
           ["-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "-m", "File"],
           { cwd: path },
         );
@@ -273,7 +264,7 @@ describe("safe removal", () => {
     expect(await fresh.removalIdentity(repo, path)).toBeTruthy();
     const other = join(temporary, "other");
     await mkdir(other);
-    await execute("git", ["init"], { cwd: other });
+    await execute(["init"], { cwd: other });
     await service.addRepository(other);
     await expect(service.removeWorktree(other, path, true)).rejects.toThrow("main checkout");
     await expect(service.removeWorktree(repo, repo, true)).rejects.toThrow("main checkout");
@@ -329,7 +320,7 @@ it("invalidates ownership when metadata disappears", async () => {
 
 it("preserves ownership across ordinary branch and file changes", async () => {
   const path = await service.createWorktree(repo, "owned");
-  await execute("git", ["checkout", "-b", "renamed"], { cwd: path });
+  await execute(["checkout", "-b", "renamed"], { cwd: path });
   await writeFile(join(path, "new-file"), "content");
   expect(await service.listWorktrees(repo)).toContainEqual(
     expect.objectContaining({ path, branch: "renamed", managed: true }),
@@ -491,7 +482,7 @@ describe("persistent ownership", () => {
     await service.createWorktree(repo, "persist");
     const other = join(temporary, "other");
     await mkdir(other);
-    await execute("git", ["init"], { cwd: other });
+    await execute(["init"], { cwd: other });
     await service.addRepository(other);
     const state = await saved();
     await store({
@@ -627,7 +618,7 @@ it("rejects main, missing, locked, prunable, bare and unrelated removal targets"
   await expect(service.removalIdentity(path, repo)).rejects.toThrow("not a linked checkout");
   const other = join(temporary, "other");
   await mkdir(other);
-  await execute("git", ["init"], { cwd: other });
+  await execute(["init"], { cwd: other });
   await service.addRepository(other);
   await expect(service.removalIdentity(other, path)).rejects.toThrow("missing");
   await rm(join(path, ".git"));
@@ -692,9 +683,8 @@ describe("merged worktree containment", () => {
     await git("config", "user.email", "");
   });
   async function commit(cwd: string, message: string) {
-    await execute("git", ["add", "."], { cwd });
+    await execute(["add", "."], { cwd });
     await execute(
-      "git",
       ["-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "-m", message],
       { cwd },
     );
@@ -809,14 +799,14 @@ describe("merged worktree containment", () => {
     await git("remote", "set-url", "origin", upstream);
     await git("branch", "next");
     await git("push", "origin", "next");
-    await execute("git", ["symbolic-ref", "HEAD", "refs/heads/next"], { cwd: upstream });
+    await execute(["symbolic-ref", "HEAD", "refs/heads/next"], { cwd: upstream });
     expect(await service.mergedDefault(repo, true)).toBe(base);
     await git("remote", "rename", "origin", "upstream");
     expect(await service.mergedDefault(repo, true)).toBe(base);
     await git("remote", "add", "second", upstream);
     await expect(service.mergedDefault(repo, true)).rejects.toThrow("unambiguous");
     await git("remote", "remove", "second");
-    await execute("git", ["symbolic-ref", "HEAD", "refs/heads/missing"], { cwd: upstream });
+    await execute(["symbolic-ref", "HEAD", "refs/heads/missing"], { cwd: upstream });
     await expect(service.mergedDefault(repo, true)).rejects.toThrow("default branch");
   });
 });
@@ -854,9 +844,8 @@ it.each(["untracked", "commit"])(
           async () => {
             await writeFile(join(tree, "new.txt"), "must survive");
             if (change === "commit") {
-              await execute("git", ["add", "."], { cwd: tree });
+              await execute(["add", "."], { cwd: tree });
               await execute(
-                "git",
                 [
                   "-c",
                   "user.name=Test",
@@ -887,17 +876,14 @@ it("status inspection never refreshes the index during concurrent cleanup", asyn
   const path = await service.createWorktree(repo, "status-read");
   const tracked = join(path, "tracked.txt");
   await writeFile(tracked, "unchanged content");
-  await execute("git", ["add", "."], { cwd: path });
+  await execute(["add", "."], { cwd: path });
   await execute(
-    "git",
     ["-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "-m", "tracked"],
     { cwd: path },
   );
-  const { stdout } = await execute(
-    "git",
-    ["rev-parse", "--path-format=absolute", "--git-path", "index"],
-    { cwd: path },
-  );
+  const { stdout } = await execute(["rev-parse", "--path-format=absolute", "--git-path", "index"], {
+    cwd: path,
+  });
   const index = stdout.trim();
   const before = await readFile(index);
   const later = new Date(Date.now() + 2000);
@@ -907,7 +893,7 @@ it("status inspection never refreshes the index during concurrent cleanup", asyn
   expect(await service.changes(repo, path, identity)).toBe("");
   expect(await readFile(index)).toEqual(before);
   // Establish that ordinary status would write the stale stat cache in this fixture.
-  await execute("git", ["status", "--porcelain=v1"], { cwd: path });
+  await execute(["status", "--porcelain=v1"], { cwd: path });
   expect(await readFile(index)).not.toEqual(before);
 });
 

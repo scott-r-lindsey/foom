@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
+import { gitSync } from "../tests/helpers/git.js";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -44,11 +44,6 @@ test("version and asset identity reject malformed input and use UTC commit date"
 });
 
 function fixture(context) {
-  const gitEnvironment = Object.fromEntries(
-    Object.entries(process.env).filter(([key]) => key.startsWith("GIT_")),
-  );
-  for (const key of Object.keys(gitEnvironment)) delete process.env[key];
-  context.after(() => Object.assign(process.env, gitEnvironment));
   const cwd = process.cwd();
   const root = mkdtempSync(join(tmpdir(), "foom-nightly-"));
   context.after(() => {
@@ -56,12 +51,12 @@ function fixture(context) {
     rmSync(root, { recursive: true, force: true });
   });
   process.chdir(root);
-  execFileSync("git", ["init", "-q"]);
+  gitSync(["init", "-q"]);
   writeFileSync("package.json", '{"version":"0.1.0"}');
   mkdirSync("docs");
   writeFileSync("docs/nightly-opening.md", "Opening instructions");
-  execFileSync("git", ["add", "."]);
-  execFileSync("git", [
+  gitSync(["add", "."]);
+  gitSync([
     "-c",
     "user.name=Test",
     "-c",
@@ -170,7 +165,7 @@ test("failed upload never moves the existing tag or updates release notes", asyn
   // Previous commit must exist locally for the release log.
   mock.github.rest.repos.getCommit = async () => ({ data: { sha: context.sha } });
   // Test an advancing commit.
-  execFileSync("git", [
+  gitSync([
     "-c",
     "user.name=Test",
     "-c",

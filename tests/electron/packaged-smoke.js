@@ -1,3 +1,4 @@
+const { gitSync } = require("../helpers/git.js");
 const { assertBundledTerminalFonts } = require("./font-checks.js");
 const { extractFile } = require("@electron/asar");
 const { test } = require("node:test");
@@ -112,7 +113,7 @@ test("packaged utility host runs native PTYs with RunAsNode disabled", {
   );
   const repository = path.join(profile, "repo");
   mkdirSync(repository);
-  execFileSync("git", ["init", "-q", repository]);
+  gitSync(["init", "-q", repository]);
   writeFileSync(
     path.join(profile, "worktrees.json"),
     JSON.stringify({ version: 1, repositories: [repository], managed: [] }),

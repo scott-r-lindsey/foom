@@ -4,6 +4,7 @@ export default defineConfig({
   test: {
     include: ["tests/unit/**/*.test.{ts,tsx}"],
     restoreMocks: true,
+    setupFiles: ["tests/helpers/setup.js"],
     coverage: {
       provider: "v8",
       reportsDirectory: "coverage",

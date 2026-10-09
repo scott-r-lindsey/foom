@@ -1,7 +1,8 @@
+const { gitSync } = require("../helpers/git.js");
 // Manual: xvfb-run -a node tests/electron/tiles-measurement.js (after npm run make).
 // Six real tiles, two bounded output floods, DOM renderer, packaged sandbox intact.
 const { chromium, expect } = require("@playwright/test");
-const { spawn, execFileSync } = require("node:child_process");
+const { spawn } = require("node:child_process");
 const { mkdtempSync, mkdirSync, writeFileSync, realpathSync, rmSync } = require("node:fs");
 const { tmpdir, cpus } = require("node:os");
 const path = require("node:path");
@@ -11,7 +12,7 @@ async function measure() {
     repository = path.join(directory, "repo");
   mkdirSync(profile);
   mkdirSync(repository);
-  execFileSync("git", ["init", "-q", repository]);
+  gitSync(["init", "-q", repository]);
   writeFileSync(
     path.join(profile, "settings.json"),
     JSON.stringify({ version: 1, settings: { setupComplete: true } }),
