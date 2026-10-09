@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef, useCallback } from "react";
 import type { ReactNode } from "react";
 import type { GitPanelFacts, HomeShellFacts } from "../../shared/panel";
 import type { BoardSource, LaunchOptions } from "./board-source.d";
@@ -151,7 +151,7 @@ export function PanelFacts({
                 <span className="panel-hash">{facts.commit.hash.slice(0, 7)}</span>{" "}
                 {facts.commit.subject}
                 <br />
-                {new Date(facts.commit.timestamp).toLocaleString()}
+                {Math.max(0, Math.floor((now - facts.commit.timestamp) / 60_000))} min ago
               </>
             ) : (
               unknown
@@ -222,12 +222,33 @@ export function PanelFacts({
 
 export function PanelTitle({ name, save }: { name: string; save: (value: string) => void }) {
   const [draft, setDraft] = useState<string>();
+  const editingRef = useRef(false);
+  const finishedRef = useRef(false);
+  const titleRef = useCallback((element: HTMLButtonElement | null) => {
+    if (element && editingRef.current) {
+      editingRef.current = false;
+      element.focus();
+    }
+  }, []);
+  const inputRef = useCallback((element: HTMLInputElement | null) => {
+    element?.focus();
+    element?.select();
+  }, []);
+  const finish = (commit: boolean) => {
+    if (finishedRef.current) return;
+    finishedRef.current = true;
+    if (commit && draft !== undefined) save(draft);
+    setDraft(undefined);
+  };
   return draft === undefined ? (
     <button
+      ref={titleRef}
       type="button"
       className="panel-rename-title"
       aria-label={`Rename ${name}`}
       onClick={() => {
+        editingRef.current = true;
+        finishedRef.current = false;
         setDraft(name);
       }}
     >
@@ -239,26 +260,18 @@ export function PanelTitle({ name, save }: { name: string; save: (value: string)
       className="session-rename"
       maxLength={120}
       value={draft}
-      ref={(element) => {
-        element?.focus();
-      }}
+      ref={inputRef}
       onChange={(event) => {
         setDraft(event.target.value);
       }}
       onBlur={() => {
-        save(draft);
-        setDraft(undefined);
+        finish(true);
       }}
       onKeyDown={(event) => {
         event.stopPropagation();
-        if (event.key === "Escape") {
+        if (event.key === "Escape" || event.key === "Enter") {
           event.preventDefault();
-          setDraft(undefined);
-        }
-        if (event.key === "Enter") {
-          event.preventDefault();
-          save(draft);
-          setDraft(undefined);
+          finish(event.key === "Enter");
         }
       }}
     />

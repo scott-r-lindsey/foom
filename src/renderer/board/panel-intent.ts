@@ -54,7 +54,7 @@ export class PanelIntent {
     this.cancel();
     const previous = this.current;
     this.publish(undefined);
-    if (previous?.pinned) previous.anchor.focus();
+    if (previous?.pinned) previous.anchor.focus({ preventScroll: true });
   };
   drag(active: boolean) {
     this.dragging = active;

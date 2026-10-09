@@ -2777,3 +2777,37 @@ test("panel facts require a registered repository", async () => {
   await workspace.panelFacts(repo.path, tree.path);
   expect(deps.worktrees.panelFacts).toHaveBeenCalledWith(repo.path, tree.path);
 });
+
+test("restores home shells without repositories and rejects foreign home paths", async () => {
+  const { homeDirectory } = await import("../../../../src/main/workspace/home-shell");
+  const stored = {
+    id: "home-1",
+    kind: "shell" as const,
+    agent: "shell" as const,
+    home: true,
+    repository: homeDirectory,
+    worktree: homeDirectory,
+    branch: null,
+    attention: "evaluator" as const,
+    state: null,
+    dormant: true,
+    exited: true,
+  };
+  deps.sessions = {
+    load: () =>
+      Promise.resolve([
+        stored,
+        { ...stored, id: "bad-home", worktree: "/other" },
+        { ...stored, id: "bad-repo", repository: "/other" },
+        { ...stored, id: "bad-agent", kind: "agent" },
+      ]),
+    save: () => Promise.resolve(),
+    flush: () => Promise.resolve(),
+  };
+  const workspace = new Workspace(deps);
+  await workspace.restore();
+  expect(workspace.snapshot().terminals.map((entry) => entry.id)).toEqual(["home-1"]);
+  expect(vi.mocked(deps.terminals, true).create.mock.calls).toHaveLength(0);
+  await workspace.sidebarCommand({ kind: "close", id: "home-1" }, () => Promise.resolve(true));
+  expect(workspace.snapshot().terminals).toEqual([]);
+});

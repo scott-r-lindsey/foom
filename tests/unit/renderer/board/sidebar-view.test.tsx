@@ -550,7 +550,7 @@ test("worktree menus offer only enabled launchers and deletion with an agent run
   expect(view.getAllByRole("menuitem").map((item) => item.textContent)).toEqual([
     "CCClaude Code",
     ">_Shell (zsh)",
-    "♜Delete worktree…",
+    "Delete worktree…",
   ]);
 });
 
@@ -594,6 +594,80 @@ test("panels support hover intent, right-click pinning, title rename and home la
     await Promise.resolve();
   });
   expect(view.command).toHaveBeenCalledWith({ kind: "home-shell" });
+  view.unmount();
+  vi.useRealTimers();
+});
+
+test("home grouping, name launch, hover traversal and drag suppression", async () => {
+  vi.useFakeTimers();
+  const view = setup();
+  await act(async () => {
+    await Promise.resolve();
+  });
+  act(() => {
+    view.base.update("a", { home: true, kind: "shell", agent: "shell" });
+  });
+  expect(view.getByRole("treeitem", { name: "Home shell" }).textContent).toContain("Shell");
+  fireEvent.click(view.getByRole("button", { name: "Toggle home shells" }));
+  expect(view.container.querySelector(".board-row")).toBeNull();
+  fireEvent.click(view.getByRole("button", { name: "Toggle home shells" }));
+  await act(async () => {
+    fireEvent.click(view.getByRole("button", { name: "zsh ~" }));
+    await Promise.resolve();
+  });
+  expect(view.command).toHaveBeenCalledWith({ kind: "home-shell" });
+  fireEvent.pointerEnter(view.getByRole("button", { name: "Foom" }));
+  act(() => {
+    vi.advanceTimersByTime(400);
+  });
+  fireEvent.pointerEnter(view.getByRole("dialog"));
+  fireEvent.pointerLeave(view.getByRole("dialog"));
+  act(() => {
+    vi.advanceTimersByTime(250);
+  });
+  expect(view.queryByRole("dialog")).toBeNull();
+  fireEvent.pointerEnter(view.getByRole("button", { name: "Foom" }));
+  act(() => {
+    vi.advanceTimersByTime(400);
+  });
+  fireEvent.pointerDown(view.getByRole("dialog"));
+  expect(view.getByRole("dialog").getAttribute("data-pinned")).toBe("true");
+  fireEvent.pointerDown(document.body);
+  expect(view.queryByRole("dialog")).toBeNull();
+  view.unmount();
+  vi.useRealTimers();
+});
+
+test("removed subjects release pinned intent; Escape works outside and the opener toggles", async () => {
+  vi.useFakeTimers();
+  const view = setup();
+  await act(async () => {
+    await Promise.resolve();
+  });
+  const opener = view.getByRole("button", { name: "Actions for Foom" });
+  fireEvent.pointerDown(opener);
+  fireEvent.click(opener);
+  expect(view.getByRole("dialog")).toBeTruthy();
+  fireEvent.pointerDown(opener);
+  fireEvent.click(opener);
+  expect(view.queryByRole("dialog")).toBeNull();
+  fireEvent.pointerEnter(opener);
+  act(() => {
+    vi.advanceTimersByTime(400);
+  });
+  fireEvent.keyDown(document.body, { key: "Escape" });
+  expect(view.queryByRole("dialog")).toBeNull();
+  const row = view.container.querySelector(".board-row");
+  if (!row) throw Error("Missing row");
+  fireEvent.contextMenu(row);
+  act(() => {
+    view.base.update("a", { id: "replacement" });
+  });
+  expect(view.queryByRole("dialog")).toBeNull();
+  fireEvent.click(view.getByRole("button", { name: "Actions for Home shell" }));
+  expect(view.getByRole("dialog").textContent).toContain("Home shell");
+  fireEvent.keyDown(document.body, { key: "Escape" });
+  expect(view.queryByRole("dialog")).toBeNull();
   view.unmount();
   vi.useRealTimers();
 });

@@ -44,6 +44,7 @@ export function RowMenu({
   close: () => void;
   confirmations?: ConfirmationClient | undefined;
 }) {
+  const isPanel = Boolean(panel);
   const focusOnOpen = !panel || panel.pinned;
   const confirmation = useConfirmation(confirmations);
   const [selected, setSelected] = useState<number>();
@@ -52,56 +53,84 @@ export function RowMenu({
     () =>
       confirmations?.onDialog?.(() => {
         close();
-        anchor.focus();
+        anchor.focus({ preventScroll: true });
       }),
     [confirmations, close, anchor],
   );
   useLayoutEffect(() => {
     const menu = ref.current;
     if (!menu) return;
-    const button = anchor.getBoundingClientRect();
-    if (placement === "below")
-      menu.style.maxHeight = `${String(Math.max(80, window.innerHeight - button.bottom - 16))}px`;
-    // Opening animations transform the border box; placement needs its final
-    // layout size or the expanded menu can extend beyond the window edge.
-    const bounds = { width: menu.offsetWidth, height: menu.offsetHeight };
-    const top = Math.max(
-      8,
-      Math.min(
-        placement === "below" ? button.bottom + 8 : button.top,
-        window.innerHeight - bounds.height - 8,
-      ),
-    );
-    menu.style.top = `${String(top)}px`;
-    menu.style.left = `${String(Math.max(8, Math.min(placement === "below" ? button.left : button.right + 10, window.innerWidth - bounds.width - 8)))}px`;
-    menu.style.setProperty(
-      "--notch",
-      `${String(Math.max(12, Math.min(bounds.height - 12, button.top + button.height / 2 - top)))}px`,
-    );
+    const position = () => {
+      const button = anchor.getBoundingClientRect();
+      const right = isPanel
+        ? (anchor.closest(".sidebar-shell")?.getBoundingClientRect().right ?? button.right)
+        : button.right;
+      if (isPanel)
+        menu.style.width = `${String(Math.min(720, Math.max(280, window.innerWidth - right - 18)))}px`;
+      if (placement === "below")
+        menu.style.maxHeight = `${String(Math.max(80, window.innerHeight - button.bottom - 16))}px`;
+      // Opening animations transform the border box; placement needs its final
+      // layout size or the expanded menu can extend beyond the window edge.
+      const bounds = { width: menu.offsetWidth, height: menu.offsetHeight };
+      const top = Math.max(
+        8,
+        Math.min(
+          placement === "below" ? button.bottom + 8 : button.top,
+          window.innerHeight - bounds.height - 8,
+        ),
+      );
+      menu.style.top = `${String(top)}px`;
+      menu.style.left = `${String(Math.max(8, Math.min(placement === "below" ? button.left : right + 10, window.innerWidth - bounds.width - 8)))}px`;
+      menu.style.setProperty(
+        "--notch",
+        `${String(Math.max(12, Math.min(bounds.height - 12, button.top + button.height / 2 - top)))}px`,
+      );
+    };
+    position();
+    const observer =
+      typeof ResizeObserver === "undefined" ? undefined : new ResizeObserver(position);
+    observer?.observe(menu);
     if (focusOnOpen)
       menu.querySelector<HTMLButtonElement>(".row-menu-items button:not(:disabled)")?.focus();
-  }, [anchor, placement, focusOnOpen]);
+    return () => {
+      observer?.disconnect();
+    };
+  }, [anchor, placement, focusOnOpen, isPanel]);
   useEffect(() => {
     const outside = (event: PointerEvent) => {
       if (
         event.target instanceof Node &&
         !ref.current?.contains(event.target) &&
-        !anchor.contains(event.target)
+        !anchor.contains(event.target) &&
+        !(isPanel && anchor.closest(".tree-row, .board-row")?.contains(event.target))
       )
         close();
     };
     const scroll = (event: Event) => {
       if (!(event.target instanceof Node) || !ref.current?.contains(event.target)) close();
     };
+    const escape = (event: KeyboardEvent) => {
+      if (
+        isPanel &&
+        event.key === "Escape" &&
+        !event.defaultPrevented &&
+        !(event.target instanceof HTMLInputElement && ref.current?.contains(event.target))
+      ) {
+        event.preventDefault();
+        close();
+      }
+    };
+    document.addEventListener("keydown", escape);
     document.addEventListener("pointerdown", outside);
     document.addEventListener("scroll", scroll, true);
     window.addEventListener("resize", close);
     return () => {
+      document.removeEventListener("keydown", escape);
       document.removeEventListener("pointerdown", outside);
       document.removeEventListener("scroll", scroll, true);
       window.removeEventListener("resize", close);
     };
-  }, [anchor, close]);
+  }, [anchor, close, isPanel]);
   return createPortal(
     <div
       ref={ref}
@@ -114,7 +143,9 @@ export function RowMenu({
       aria-label={label}
       onKeyDown={(event) => {
         const items = Array.from(
-          event.currentTarget.querySelectorAll<HTMLButtonElement>("button:not(:disabled)"),
+          event.currentTarget.querySelectorAll<HTMLButtonElement>(
+            ".row-menu-items button:not(:disabled)",
+          ),
         );
         const index = items.findIndex((item) => item === document.activeElement);
         if (event.target instanceof HTMLInputElement) return;
@@ -122,7 +153,7 @@ export function RowMenu({
           if (event.key === "Escape") event.preventDefault();
           event.stopPropagation();
           close();
-          anchor.focus();
+          anchor.focus({ preventScroll: true });
         } else if (["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) {
           event.preventDefault();
           const next =
@@ -174,13 +205,25 @@ export function RowMenu({
                   setSelected(index);
                   void confirmation.run(action.run, () => {
                     close();
-                    anchor.focus();
+                    anchor.focus({ preventScroll: true });
                   });
                 }}
               >
                 {panel && !action.badge && (
                   <span className="command-glyph" aria-hidden="true">
-                    {action.glyph ?? "·"}
+                    {action.glyph === "trash" ? (
+                      <svg
+                        width="16"
+                        height="16"
+                        viewBox="0 0 16 16"
+                        fill="none"
+                        stroke="currentColor"
+                      >
+                        <path d="M2 4h12M6 4V2h4v2M4 4l1 10h6l1-10M7 6v6M9 6v6" />
+                      </svg>
+                    ) : (
+                      (action.glyph ?? "·")
+                    )}
                   </span>
                 )}
                 {action.badge && <AgentBadge mark={action.badge} />}

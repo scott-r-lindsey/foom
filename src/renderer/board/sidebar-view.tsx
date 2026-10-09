@@ -208,6 +208,10 @@ export function Sidebar({
       kind: "Session",
       mark: row.kind === "shell" ? ">_" : (agentBadges.get(row.agent) ?? "?"),
     });
+  const available = !menu || subjects.has(menu.id);
+  useLayoutEffect(() => {
+    if (menu && (!available || inactive || !menu.anchor.isConnected)) intent.close();
+  });
   const rowEvents = (id: string) => ({
     onPointerEnter: (event: React.PointerEvent<HTMLElement>) => {
       const anchor =
@@ -700,7 +704,7 @@ export function Sidebar({
                                 null,
                                 {
                                   label: "Delete merged worktrees…",
-                                  glyph: "♜",
+                                  glyph: "trash",
                                   hint: String(repo.repository.mergedCount ?? ""),
                                   run: () =>
                                     command({
@@ -815,7 +819,7 @@ export function Sidebar({
                                             null,
                                             {
                                               label: "Delete worktree…",
-                                              glyph: "♜",
+                                              glyph: "trash",
                                               run: () => {
                                                 return command({
                                                   kind: "remove-worktree",

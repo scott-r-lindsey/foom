@@ -253,7 +253,7 @@ async function launchCheckoutShell(app, page) {
     .toContain(repository);
   // The first window can still be animating on a cold CI display. Keyboard
   // activation exercises the menu without depending on pointer hit-test stability.
-  await page.getByRole("button", { name: "Actions for shell-fixture", exact: true }).press("Enter");
+  await page.getByRole("button", { name: "Actions for Main checkout", exact: true }).press("Enter");
   await page.getByRole("menuitem", { name: /^Shell \(/ }).press("Enter");
 }
 
@@ -619,6 +619,7 @@ test("terminal runs an interactive shell behind an isolated bridge", {
           "onWorkspaceChange",
           "startWorktree",
           "removeWorktree",
+          "panelFacts",
           "sidebarInventory",
           "sidebarCommand",
           "workspace",
@@ -3647,7 +3648,7 @@ test("sidebar menus escape the scroll area, stay in the window and launch from a
   const bottom = page.getByRole("button", { name: "Actions for feature/row-17", exact: true });
   await bottom.scrollIntoViewIfNeeded();
   await bottom.click();
-  const menu = page.getByRole("menu", { name: "Actions" });
+  const menu = page.getByRole("dialog", { name: /details and commands/ });
   await expect(menu).toBeVisible();
   // Visibility begins during the opening transform; measure the settled menu.
   await menu.evaluate((element) =>
@@ -3708,7 +3709,7 @@ test("sidebar menus escape the scroll area, stay in the window and launch from a
   await expect(page.getByRole("menuitem", { name: /^Shell \(/ })).toBeFocused();
   await page.keyboard.press("Escape");
   await expect(menu).toHaveCount(0);
-  await expect(bottom).toBeFocused();
+  await expect(page.getByRole("button", { name: "feature/row-17", exact: true })).toBeFocused();
   await bottom.click();
   await page.getByRole("menuitem", { name: /^Shell \(/ }).press("Enter");
   await expect(page.locator(".board-row").filter({ hasText: "feature/row-17" })).toBeVisible();
@@ -4025,7 +4026,7 @@ test("launching into full tiles replaces focus and empty tiles support mouse con
   const original = (await page.evaluate(() => window.desktop.workspace())).terminals[0];
   // The first window can still be animating on a cold CI display. Keyboard
   // activation exercises the menu without depending on pointer hit-test stability.
-  await page.getByRole("button", { name: "Actions for shell-fixture", exact: true }).press("Enter");
+  await page.getByRole("button", { name: "Actions for Main checkout", exact: true }).press("Enter");
   await page.getByRole("menuitem", { name: /^Shell \(/ }).press("Enter");
   await expect(page.locator(".board-row")).toHaveCount(2);
   const sessions = (await page.evaluate(() => window.desktop.workspace())).terminals;
@@ -5584,10 +5585,10 @@ test("multiple windows share sessions, keep views exclusive and retain terminals
     })
     .toBe(true);
   await expect(
-    second.getByRole("button", { name: "Actions for shell-fixture", exact: true }),
+    second.getByRole("button", { name: "Actions for Main checkout", exact: true }),
   ).toBeVisible();
   await second
-    .getByRole("button", { name: "Actions for shell-fixture", exact: true })
+    .getByRole("button", { name: "Actions for Main checkout", exact: true })
     .press("Enter");
   await second.getByRole("menuitem", { name: /^Shell \(/ }).press("Enter");
   await expect(second.locator(".terminal-tile[data-empty=false]")).toHaveCount(1);
@@ -5610,7 +5611,7 @@ test("multiple windows share sessions, keep views exclusive and retain terminals
   );
   await first.getByRole("button", { name: "Split right", exact: true }).click();
   await first
-    .getByRole("button", { name: "Actions for shell-fixture", exact: true })
+    .getByRole("button", { name: "Actions for Main checkout", exact: true })
     .press("Enter");
   await first.getByRole("menuitem", { name: /^Shell \(/ }).press("Enter");
   await expect(first.locator(".terminal-tile[data-empty=false]")).toHaveCount(2);
@@ -5851,4 +5852,46 @@ test("console pairing requires trusted approval and gives only read-only reposit
     repository,
     confirmation,
   );
+});
+
+test("sidebar panels hover, pin, rename and launch a home shell", async (context) => {
+  const app = await launchApp(context, false, { emptyBoard: true });
+  const page = await boardPage(app);
+  const home = page.getByRole("treeitem", { name: "Home shell", exact: true });
+  await home.hover();
+  const panel = page.getByRole("dialog", { name: /details and commands/ });
+  await expect(panel).toBeVisible();
+  await expect(panel).toHaveAttribute("data-pinned", "false");
+  await page.getByRole("button", { name: "Actions for Home shell" }).click();
+  await expect(panel).toHaveAttribute("data-pinned", "true");
+  await page.mouse.move(0, 0);
+  await expect(panel).toBeVisible();
+  await assertAccessible(page);
+  await page.getByRole("menuitem", { name: "New shell" }).click();
+  const row = page.locator(".board-row");
+  await expect(row).toHaveCount(1);
+  const homeDirectory = await app.evaluate(({ app }) => app.getPath("home"));
+  const snapshot = await page.evaluate(() => window.desktop.workspace());
+  assert.equal(snapshot.terminals[0].worktree, homeDirectory);
+  assert.equal(snapshot.terminals[0].home, true);
+  await expect(page.locator(".xterm-helper-textarea")).toBeFocused();
+  await page.keyboard.type(process.platform === "win32" ? "(Get-Location).Path" : "pwd");
+  await page.keyboard.press("Enter");
+  await expect
+    .poll(() =>
+      page.evaluate(
+        async (id) => (await window.desktop.tail(id, 40)).join("\n"),
+        snapshot.terminals[0].id,
+      ),
+    )
+    .toContain(homeDirectory);
+  await row.click({ button: "right" });
+  await expect(panel).toBeVisible();
+  await page.getByRole("button", { name: /^Rename / }).click();
+  await page.getByRole("textbox", { name: "Session name" }).fill("Home helper");
+  await page.getByRole("textbox", { name: "Session name" }).press("Enter");
+  await expect(row).toContainText("Home helper");
+  await page.keyboard.press("Escape");
+  await expect(panel).toHaveCount(0);
+  await expect(row).toBeFocused();
 });
