@@ -134,6 +134,9 @@ test("accepts legacy 19-key colors and the complete optional highlight pair", ()
   const legacy = interfaceThemes["eclipse-dark"];
   expect(Object.keys(legacy.colors)).toHaveLength(19);
   expect(parseInterfaceTheme(legacy)).toEqual(legacy);
+  // Previously valid custom palettes must not acquire a new accent/done distance rule.
+  const custom = { ...legacy, colors: { ...legacy.colors, done: legacy.colors.accent } };
+  expect(parseInterfaceTheme(custom)).toEqual(custom);
   const theme = {
     ...legacy,
     colors: { ...legacy.colors, highlight: "#aaaaaa", "highlight-deep": "#555555" },

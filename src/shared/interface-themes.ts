@@ -246,11 +246,13 @@ export function validateInterfaceColors(palette: InterfaceTheme["colors"]): void
     ["failed-ink", "accent"],
   ] as const)
     if (colorDistance(palette[a], palette[b]) < 40) fail();
-  const highlight = palette.highlight ?? palette.accent;
-  for (const status of ["attention", "failed", "done"] as const)
-    if (colorDistance(highlight, palette[status]) < 40) fail();
-  for (const background of ["bg", "surface"] as const)
-    if (contrast(highlight, palette[background]) < 4.5) fail();
+  // Keep the original gate for legacy palettes; only explicit highlights add new constraints.
+  if (palette.highlight !== undefined) {
+    for (const status of ["attention", "failed", "done"] as const)
+      if (colorDistance(palette.highlight, palette[status]) < 40) fail();
+    for (const background of ["bg", "surface"] as const)
+      if (contrast(palette.highlight, palette[background]) < 4.5) fail();
+  }
   for (const background of ["bg", "surface"] as const)
     for (const foreground of [
       "ink",

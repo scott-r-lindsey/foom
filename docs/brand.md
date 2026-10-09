@@ -71,7 +71,7 @@ Built-in and future user themes share these enforced invariants:
   CIE Lab Delta E 1976 units, using sRGB and a D65 reference white. The same
   minimum applies to attention ink, failure ink and accent. This is Foom's design
   threshold, not a WCAG criterion.
-- Highlight is at least 40 Delta E units from attention, failed and done.
+- An explicit highlight is at least 40 Delta E units from attention, failed and done.
   Its deep shade follows the non-status hue restrictions but is not a text color.
 - Primary text, muted text, accent, highlight and all three status inks meet **4.5:1** on both
   background and surface. Badge inks meet 4.5:1 on their own fills; space ink meets
