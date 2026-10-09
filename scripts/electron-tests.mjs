@@ -5,6 +5,8 @@ mkdirSync("test-results", { recursive: true });
 const result = spawnSync(
   process.execPath,
   [
+    "--require",
+    "./tests/helpers/setup.js",
     "--test",
     "--test-reporter=spec",
     "--test-reporter-destination=stdout",

@@ -1,26 +1,14 @@
 import * as fs from "node:fs/promises";
-import { execFile } from "node:child_process";
+import { git as run } from "../../../helpers/git.js";
 import { mkdir, mkdtemp, realpath, rm, symlink, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { promisify } from "node:util";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { isRecent, scanCodeFolder, suggestCodeFolders } from "../../../../src/main/setup/code-scan";
 import type { ScanProgress } from "../../../../src/shared/setup";
 
 vi.mock("node:fs/promises", { spy: true });
 
-const executeFile = promisify(execFile);
-/**
- * Git inside a hook (such as pre-commit) inherits GIT_DIR, GIT_INDEX_FILE and friends,
- * which would point these commands at the repository being committed. Drop them.
- */
-function run(command: string, args: string[], options: { cwd: string }) {
-  const env = Object.fromEntries(
-    Object.entries(process.env).filter(([key]) => !key.startsWith("GIT_")),
-  );
-  return executeFile(command, args, { ...options, env });
-}
 let root: string;
 
 /** A repository as the scanner sees it: a `.git` folder with HEAD and a reflog. */
@@ -83,7 +71,7 @@ test("a real git repository and its linked worktree", async () => {
   const repo = join(root, "real");
   await mkdir(repo);
   const git = (...args: string[]) =>
-    run("git", ["-c", "user.name=T", "-c", "user.email=t@example.com", ...args], { cwd: repo });
+    run(["-c", "user.name=T", "-c", "user.email=t@example.com", ...args], { cwd: repo });
   await git("init", "-q", "-b", "trunk");
   await git("commit", "-q", "--allow-empty", "-m", "init");
   await git("worktree", "add", "-q", "-b", "side", join(root, "side-tree"));

@@ -1,3 +1,4 @@
+const { gitSync: isolatedGit } = require("../helpers/git.js");
 async function boardPage(app) {
   let page;
   await expect
@@ -1912,14 +1913,6 @@ test("focus reports reach the shell without counting as a reply", {
     1,
   );
 });
-
-/** Git without inherited GIT_* variables, which could point it at Foom's own repository. */
-function isolatedGit(args, options = {}) {
-  const env = Object.fromEntries(
-    Object.entries(process.env).filter(([key]) => !key.startsWith("GIT_")),
-  );
-  return require("node:child_process").execFileSync("git", args, { ...options, env });
-}
 
 async function tabTo(page, name, accessibleName = name) {
   const target = page.getByRole("button", { name: accessibleName, exact: true });

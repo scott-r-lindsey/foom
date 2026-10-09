@@ -1,3 +1,4 @@
+import { gitSync, gitEnvironment } from "../tests/helpers/git.js";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { desktopMatrix, detectDesktop, requiresDesktop } from "./ci-changes.mjs";
@@ -135,18 +136,14 @@ test("invalid payloads and unavailable history fail instead of granting a skip",
 });
 
 test("CLI uses real Git history, includes renamed source paths, and emits no skip on failure", async () => {
-  const { execFileSync, spawnSync } = await import("node:child_process");
+  const { spawnSync } = await import("node:child_process");
   const { mkdtempSync, writeFileSync, readFileSync, rmSync } = await import("node:fs");
   const { tmpdir } = await import("node:os");
   const { join } = await import("node:path");
   const { fileURLToPath } = await import("node:url");
   const directory = mkdtempSync(join(tmpdir(), "foom-ci-"));
-  // Hooks export Git variables pointing at the parent repository/index.
-  const isolatedEnv = Object.fromEntries(
-    Object.entries(process.env).filter(([key]) => !key.startsWith("GIT_")),
-  );
-  const git = (...args) =>
-    execFileSync("git", args, { cwd: directory, encoding: "utf8", env: isolatedEnv }).trim();
+  const isolatedEnv = gitEnvironment();
+  const git = (...args) => gitSync(args, { cwd: directory }).toString().trim();
   try {
     git("init", "--quiet");
     git("config", "user.name", "CI test");

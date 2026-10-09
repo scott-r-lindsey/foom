@@ -49,6 +49,8 @@ uses an isolated disposable profile and deletes it on exit.
 
 ## Tests and coverage
 
+- Tests spawning Git must use `tests/helpers/git.js` (`git` or `gitSync`), which removes inherited Git variables and disables global/system Git configuration. Never launch Git directly from a test.
+
 - `npm test` runs fast unit tests without a display. Test behavior, failure paths, and security boundaries. Keep logic separable from platform APIs as the app grows.
 - `npm run test:electron` launches the real app and verifies the Electron boundary. Mocks do not replace this check.
 - On Linux, run Electron tests under Xvfb (`xvfb-run -a npm run test:electron`) so test windows do not appear on the user’s desktop or steal focus. Use the same virtual-display wrapper for packaged smoke tests and automated Electron previews; use the visible desktop only when the user explicitly requests it. Keep sandboxing enabled.
