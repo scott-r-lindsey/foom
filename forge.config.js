@@ -11,6 +11,17 @@ module.exports = {
         { cwd: __dirname, stdio: "inherit" },
       );
     },
+    // Seal the finished bundle after fuses, ASAR creation and helper copying.
+    // This is ad-hoc signing only; no identity, keychain or notarization is used.
+    postPackage: async (_config, result) => {
+      if (result.platform !== "darwin") return;
+      const { execFileSync } = require("node:child_process");
+      for (const output of result.outputPaths) {
+        const app = require("node:path").join(output, "Foom.app");
+        execFileSync("codesign", ["--force", "--deep", "--sign", "-", app], { stdio: "inherit" });
+        execFileSync("codesign", ["--verify", "--deep", "--strict", app], { stdio: "inherit" });
+      }
+    },
     // The helper is a console Node SEA, never Electron's GUI executable.
     packageAfterCopy: async (_config, buildPath) => {
       await require("node:fs/promises").rm(require("node:path").join(buildPath, "build/sea"), {
