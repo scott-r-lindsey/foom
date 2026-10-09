@@ -32,7 +32,17 @@ export function ConfirmationPage() {
   }, [request]);
   const requestId = request?.id;
   useEffect(() => {
-    cancelRef.current?.focus();
+    if (!requestId) return;
+    const focusCancel = () => {
+      cancelRef.current?.focus();
+    };
+    focusCancel();
+    // The initial measurement happens hidden. Native activation can choose the
+    // first tab stop on macOS, so restore Cancel on this request's first focus.
+    window.addEventListener("focus", focusCancel, { once: true });
+    return () => {
+      window.removeEventListener("focus", focusCancel);
+    };
   }, [requestId]);
   useEffect(() => {
     const card = cardRef.current;

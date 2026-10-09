@@ -54,9 +54,9 @@ test("focuses Cancel for every request, traps Tab, and renders untrusted content
   expect(view.getByRole("list", { name: "Worktrees to delete" }).textContent).toBe("merged");
   expect(view.getByRole("list", { name: "Skipped worktrees" }).textContent).toBe("keptrunning");
   const card = view.getByRole("alertdialog");
-  const content = card.querySelector(".confirmation-content");
-  const body = content?.firstElementChild;
-  if (!content || !body) throw Error("Missing dialog content");
+  const content = view.getByRole("region", { name: "Details" });
+  const body = content.firstElementChild;
+  if (!body) throw Error("Missing dialog content");
   Object.defineProperty(card, "offsetHeight", { value: 300 });
   Object.defineProperty(content, "clientHeight", { value: 150 });
   Object.defineProperty(body, "offsetHeight", { value: 600 });
@@ -66,7 +66,13 @@ test("focuses Cancel for every request, traps Tab, and renders untrusted content
   const cancel = view.getByRole("button", { name: "Cancel" });
   const accept = view.getByRole("button", { name: request.accept });
   expect(document.activeElement).toBe(cancel);
+  // Model native activation selecting the first tab stop after the hidden page measured itself.
+  content.focus();
+  fireEvent.focus(window);
+  expect(document.activeElement).toBe(cancel);
   fireEvent.keyDown(cancel, { key: "Tab" });
+  expect(document.activeElement).toBe(accept);
+  fireEvent.focus(window);
   expect(document.activeElement).toBe(accept);
   fireEvent.keyDown(accept, { key: "Tab" });
   expect(document.activeElement).toBe(cancel);
