@@ -12,6 +12,10 @@ on:
     - cron: '17 9 * * *'
   workflow_dispatch:
     inputs:
+      publish_nightly:
+        description: Publish tested main packages to the rolling nightly prerelease
+        type: boolean
+        default: false
       upload_packages:
         description: Upload unsigned development ZIPs (retained for 3 days)
         type: boolean
@@ -216,9 +220,17 @@ jobs:
         timeout-minutes: ${{ runner.os == 'macOS' && 12 || 10 }}
         if: runner.os != 'Linux'
         run: npm run test:electron
+      - name: Stamp nightly package version
+        if: >-
+          matrix.shard != '2/2' && github.ref == 'refs/heads/main' &&
+          (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.publish_nightly))
+        run: node scripts/nightly.mjs stamp
       - name: Package desktop application
         if: matrix.shard != '2/2'
         run: npm run make
+      - name: Verify macOS ad-hoc signature after packaging and fuses
+        if: runner.os == 'macOS'
+        run: codesign --verify --deep --strict out/Foom-darwin-arm64/Foom.app
       - name: Test packaged terminal host on Linux
         if: runner.os == 'Linux'
         run: xvfb-run -a npm run test:packaged
@@ -234,7 +246,11 @@ jobs:
           if-no-files-found: error
           retention-days: 3
       - name: Upload unsigned development package
-        if: github.event_name == 'workflow_dispatch' && inputs.upload_packages && matrix.shard != '2/2'
+        if: >-
+          matrix.shard != '2/2' &&
+          ((github.event_name == 'workflow_dispatch' && inputs.upload_packages) ||
+          (github.ref == 'refs/heads/main' && (github.event_name == 'schedule' ||
+          (github.event_name == 'workflow_dispatch' && inputs.publish_nightly))))
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
           name: foom-${{ matrix.os }}
@@ -264,3 +280,39 @@ jobs:
             true:success|false:skipped) exit 0 ;;
             *) exit 1 ;;
           esac
+
+  nightly:
+    name: Publish nightly
+    needs: [changes, quality]
+    if: >-
+      needs.quality.result == 'success' && needs.changes.outputs.desktop_required == 'true' &&
+      github.ref == 'refs/heads/main' &&
+      (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.publish_nightly))
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      actions: read
+    concurrency:
+      group: publish-nightly
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version-file: .nvmrc
+      - name: Download this run's tested packages
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RUN_ID: ${{ github.run_id }}
+        run: gh run download "$RUN_ID" --name foom-ubuntu-24.04 --name foom-windows-2025 --name foom-macos-15 --dir nightly-packages
+      - name: Publish rolling prerelease
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+        with:
+          script: |
+            const { publish } = await import(`${process.env.GITHUB_WORKSPACE}/scripts/nightly.mjs`);
+            await publish({ github, context });
