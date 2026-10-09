@@ -245,3 +245,6 @@
 .sidebar-panel.app-menu::before {
   display: none;
 }
+.sidebar-panel.app-menu .panel-sub {
+  display: block;
+}
