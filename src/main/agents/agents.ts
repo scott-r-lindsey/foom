@@ -119,14 +119,6 @@ async function detect(id: AgentId, path: string): Promise<AgentInstallation> {
       meetsMinimum(version, /^codex-cli (0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/u, [0, 161, 0])
         ? { codexLifecycle: true }
         : {}),
-      review:
-        (id === "claude" &&
-          /(?:^|\s)--permission-mode(?:[ =,]|$)/mu.test(help) &&
-          /\bplan\b/u.test(help)) ||
-        (id === "codex" &&
-          /(?:^|\s)--sandbox(?:[ =,]|$)/mu.test(help) &&
-          /\bread-only\b/u.test(help) &&
-          /(?:^|\s)-c(?:[ ,]|$)/mu.test(help)),
       inline: id === "codex" && /(?:^|\s)--no-alt-screen(?:[ =,]|$)/mu.test(help),
       reason: hooks
         ? "Per-launch hooks supported."
@@ -232,11 +224,7 @@ export class AgentService {
   private async start(
     request: AgentLaunch,
   ): Promise<{ id: string; attention: "hooks" | "evaluator" }> {
-    // Review never inherits defaults: prompts, profiles, config and permission flags
-    // could override the review policy or consume Foom's later arguments.
-    const defaults = request.readOnly
-      ? []
-      : parseAgentArguments(request.agent, request.defaultArguments ?? []);
+    const defaults = parseAgentArguments(request.agent, request.defaultArguments ?? []);
     const resume =
       request.conversationId === undefined
         ? []
@@ -255,15 +243,6 @@ export class AgentService {
     const agent = scan.agents.find((entry) => entry.id === request.agent);
     if (!agent?.path)
       throw new Error(`${request.agent} is not installed. Rescan after installing it.`);
-    if (request.readOnly && !agent.review)
-      throw new Error(
-        "Read-only review is unavailable for this installation. Rescan after updating it.",
-      );
-    const review = request.readOnly
-      ? agent.id === "claude"
-        ? ["--permission-mode", "plan"]
-        : ["--sandbox", "read-only", "-c", 'approval_policy="never"']
-      : [];
     const attach = this.hooksEnabled && agent.hooks && this.prepareHooks;
     const binding = attach ? await attach(agent.id) : undefined;
     const notify =
@@ -293,7 +272,6 @@ export class AgentService {
       const args = [
         ...resume,
         ...(control && agent.cliGuidance ? cliGuidance(defaults) : defaults),
-        ...review,
         ...(agent.inline ? ["--no-alt-screen"] : []),
         ...(mcp?.args ?? []),
       ];
@@ -318,10 +296,6 @@ export class AgentService {
           if (notify) args.push("-c", `notify=${JSON.stringify(binding.codexCommand)}`);
         }
       }
-      if (request.readOnly && request.conversationId === undefined)
-        args.push(
-          "Review the current worktree changes. Report findings; do not modify files or leave read-only review mode.",
-        );
       const id = await this.terminals.create({
         ...(request.terminalId === undefined ? {} : { id: request.terminalId }),
         command: agent.path,

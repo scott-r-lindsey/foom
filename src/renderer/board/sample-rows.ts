@@ -4,19 +4,6 @@ export function sampleRows(now: number): BoardRow[] {
   return [
     {
       kind: "sample",
-      id: "review",
-      repository: "foom",
-      branch: "fix/session-restore",
-      agent: "Claude Code",
-      state: "needs_input",
-      reason: "Wants permission to run tests · hook: permission",
-      rate: 0,
-      waitingSince: now - 184000,
-      seen: false,
-      tail: ["Ready to verify session restore.", "Run npm test? (y/n)"],
-    },
-    {
-      kind: "sample",
       id: "build",
       repository: "foom",
       branch: "feat/terminal-tabs",

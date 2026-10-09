@@ -271,8 +271,6 @@ test("sidebar commands copy known fields, validate IDs and paths, and keep confi
   for (const value of [
     { kind: "launch", repository: "/repo", worktree: "/tree", run: "shell" },
     { kind: "launch", repository: "/repo", worktree: "/tree", run: "claude" },
-    { kind: "review", repository: "/repo", worktree: "/tree", run: "claude" },
-    { kind: "review", repository: "/repo", worktree: "/tree", run: "codex" },
     { kind: "remove-repository", repository: "/repo" },
     { kind: "delete-merged-worktrees", repository: "/repo" },
     { kind: "remove-worktree", repository: "/repo", worktree: "/tree" },
@@ -297,6 +295,8 @@ test("sidebar commands copy known fields, validate IDs and paths, and keep confi
     { kind: "launch", repository: "/repo", worktree: "" },
     { kind: "launch", repository: "/repo", worktree: "/tree", run: "evil" },
     { kind: "evil", repository: "/repo", worktree: "/tree" },
+    { kind: "review", repository: "/repo", worktree: "/tree", run: "claude" },
+    { kind: "review", repository: "/repo", worktree: "/tree", run: "codex" },
     { kind: "review", repository: "/repo", worktree: "/tree", run: "agy" },
     { kind: "review", repository: "/repo", worktree: "/tree", run: "shell" },
   ])
