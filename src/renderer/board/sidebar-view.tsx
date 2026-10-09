@@ -188,7 +188,7 @@ export function Sidebar({
       },
       name: repository.name,
       kind: "Repository",
-      mark: "▣",
+      mark: "repository",
     });
     for (const tree of repository.worktrees)
       subjects.set(worktreeKey(tree.path), {
@@ -197,15 +197,15 @@ export function Sidebar({
           tree.path === repository.path
             ? "Main checkout"
             : (tree.branch ?? `Detached at ${tree.head?.slice(0, 7) ?? "Unknown"}`),
-        kind: "Checkout",
-        mark: "⑂",
+        kind: tree.path === repository.path ? repository.name : "Worktree",
+        mark: tree.path === repository.path ? "checkout" : tree.branch ? "worktree" : "detached",
       });
   }
   for (const row of rows)
     subjects.set(row.id, {
       subject: { kind: "session", row, tile: tileNumbers?.get(row.id)?.number },
       name: sessionName(row, preferences),
-      kind: "Session",
+      kind: row.kind === "shell" ? "Shell" : "Session",
       mark: row.kind === "shell" ? ">_" : (agentBadges.get(row.agent) ?? "?"),
     });
   const available = !menu || subjects.has(menu.id);
@@ -282,7 +282,7 @@ export function Sidebar({
               : [
                   {
                     label: "Restart shell",
-                    glyph: "↻",
+                    glyph: "restart" as const,
                     run: () => {
                       return command({ kind: "restart", id: row.id });
                     },
@@ -296,7 +296,7 @@ export function Sidebar({
                   ? [
                       {
                         label: "Resume conversation",
-                        glyph: "▶",
+                        glyph: "resume" as const,
                         hint: `${row.conversationId.slice(0, 8)}…`,
                         run: () => command({ kind: "resume", id: row.id }),
                       },
@@ -306,7 +306,7 @@ export function Sidebar({
                   ? [
                       {
                         label: "New conversation here",
-                        glyph: "+",
+                        glyph: "plus" as const,
                         run: () => command({ kind: "new-conversation", id: row.id }),
                       },
                     ]
@@ -315,7 +315,7 @@ export function Sidebar({
                   ? [
                       {
                         label: "Copy session ID",
-                        glyph: "⧉",
+                        glyph: "copy" as const,
                         run: () => command({ kind: "copy-session-id", id: row.id }),
                       },
                     ]
@@ -324,7 +324,7 @@ export function Sidebar({
               ]),
           {
             label: "Close",
-            glyph: "×",
+            glyph: "close" as const,
             run: () => {
               return command({ kind: "close", id: row.id });
             },
@@ -332,7 +332,7 @@ export function Sidebar({
         ]
       : [
           {
-            glyph: "■",
+            glyph: "stop" as const,
             label: `Stop ${row.kind === "shell" ? "shell" : (agentNames.get(row.agent) ?? row.agent)}`,
             run: () => {
               return command({ kind: "stop", id: row.id });
@@ -669,7 +669,7 @@ export function Sidebar({
                         {actions(rid, repo.repository.name, [
                           {
                             label: "New worktree…",
-                            glyph: "⑂",
+                            glyph: "branch" as const,
                             run: () => {
                               newWorktree(repo.repository.path);
                             },
@@ -678,7 +678,7 @@ export function Sidebar({
 
                           {
                             label: repo.pinned ? "Unpin" : "Pin to top",
-                            glyph: "⌖",
+                            glyph: "pin" as const,
                             run: () => {
                               save({
                                 ...preferences,
@@ -691,7 +691,7 @@ export function Sidebar({
                           {
                             label: "Remove from Foom…",
                             hint: "keeps files",
-                            glyph: "⊖",
+                            glyph: "unlist" as const,
                             run: () => {
                               return command({
                                 kind: "remove-repository",
@@ -704,7 +704,7 @@ export function Sidebar({
                                 null,
                                 {
                                   label: "Delete merged worktrees…",
-                                  glyph: "trash",
+                                  glyph: "trash" as const,
                                   hint: String(repo.repository.mergedCount ?? ""),
                                   run: () =>
                                     command({
@@ -819,7 +819,7 @@ export function Sidebar({
                                             null,
                                             {
                                               label: "Delete worktree…",
-                                              glyph: "trash",
+                                              glyph: "trash" as const,
                                               run: () => {
                                                 return command({
                                                   kind: "remove-worktree",

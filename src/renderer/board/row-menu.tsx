@@ -1,4 +1,6 @@
 import { AgentBadge } from "./agent-badge";
+import { CommandGlyph, PanelMark } from "./panel-glyphs";
+import type { CommandGlyphName } from "./panel-glyphs";
 import { useConfirmation } from "./use-confirmation";
 import type { ConfirmationClient } from "../../shared/confirmation";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
@@ -9,7 +11,7 @@ export interface RowAction {
   disabled?: boolean;
   checked?: boolean | undefined;
   badge?: string;
-  glyph?: string;
+  glyph?: CommandGlyphName;
   hint?: string;
   run: () => void | Promise<void>;
 }
@@ -168,9 +170,7 @@ export function RowMenu({
     >
       {panel && (
         <header className="panel-header">
-          <span className="panel-mark" aria-hidden="true">
-            {panel.mark}
-          </span>
+          <PanelMark mark={panel.mark} />
           <div className="panel-title">{panel.title}</div>
           <span className="panel-kind">{panel.kind}</span>
         </header>
@@ -209,23 +209,7 @@ export function RowMenu({
                   });
                 }}
               >
-                {panel && !action.badge && (
-                  <span className="command-glyph" aria-hidden="true">
-                    {action.glyph === "trash" ? (
-                      <svg
-                        width="16"
-                        height="16"
-                        viewBox="0 0 16 16"
-                        fill="none"
-                        stroke="currentColor"
-                      >
-                        <path d="M2 4h12M6 4V2h4v2M4 4l1 10h6l1-10M7 6v6M9 6v6" />
-                      </svg>
-                    ) : (
-                      (action.glyph ?? "·")
-                    )}
-                  </span>
-                )}
+                {panel && !action.badge && <CommandGlyph name={action.glyph} />}
                 {action.badge && <AgentBadge mark={action.badge} />}
                 <span className="menu-label">
                   {selected === index && confirmation.arm ? confirmation.arm.label : action.label}

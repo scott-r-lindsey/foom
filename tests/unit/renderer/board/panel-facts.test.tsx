@@ -201,3 +201,95 @@ test("title edits commit on blur or Enter and Escape cancels", () => {
   fireEvent.keyDown(view.getByLabelText("Session name"), { key: "Enter" });
   expect(save).toHaveBeenLastCalledWith("Helper");
 });
+
+test("fact chips keep amber for needs-you, magenta for failures and name every state", async () => {
+  const tones = (view: ReturnType<typeof render>) =>
+    Array.from(view.container.querySelectorAll(".panel-chip"), (chip) => [
+      chip.getAttribute("data-tone"),
+      chip.textContent,
+    ]);
+  const now = Date.now();
+  const stale = {
+    ...facts,
+    changes: 3,
+    upstream: { ahead: 0, behind: 0 },
+    commit: {
+      hash: "abcdef123",
+      subject: "Old",
+      timestamp: now - 3 * 3_600_000,
+    },
+    lastFetch: now - 5 * 86_400_000,
+    merged: false,
+  } satisfies GitPanelFacts;
+  const live = { ...source, panelFacts: vi.fn(() => Promise.resolve(stale)) };
+  const linked = { ...tree, branch: "main", managed: true };
+  const view = render(
+    <PanelFacts
+      subject={{ kind: "worktree", repository, tree: linked }}
+      source={live}
+      options={undefined}
+    />,
+  );
+  await act(async () => {
+    await Promise.resolve();
+  });
+  expect(tones(view)).toEqual([
+    ["neutral", "default"],
+    ["info", "3 changed"],
+    ["neutral", "Not merged into default branch"],
+    ["info", "Foom"],
+  ]);
+  expect(view.container.textContent).toContain("In sync");
+  expect(view.container.textContent).toContain("3 h ago");
+  live.panelFacts.mockResolvedValue({ ...stale, fetchFailed: true });
+  view.rerender(
+    <PanelFacts
+      subject={{ kind: "repository", repository: { ...repository, mergedCount: 0 }, rows: [] }}
+      source={live}
+      options={undefined}
+    />,
+  );
+  await act(async () => {
+    await Promise.resolve();
+  });
+  expect(tones(view)).toEqual([
+    ["failed", "Fetch failed"],
+    ["neutral", "0 by Foom"],
+    ["neutral", "0 eligible to delete"],
+  ]);
+  live.panelFacts.mockResolvedValue(stale);
+  view.rerender(
+    <PanelFacts
+      subject={{ kind: "repository", repository: { ...repository, path: "/other" }, rows: [] }}
+      source={live}
+      options={undefined}
+    />,
+  );
+  await act(async () => {
+    await Promise.resolve();
+  });
+  expect(view.container.textContent).toContain("fetched 5 days ago");
+  view.rerender(
+    <PanelFacts
+      subject={{ kind: "session", row: { ...row, state: "needs_input" }, tile: 3 }}
+      source={live}
+      options={undefined}
+    />,
+  );
+  expect(tones(view).map(([tone]) => tone)).toEqual(["needs", "needs", "info"]);
+  view.rerender(
+    <PanelFacts
+      subject={{
+        kind: "session",
+        row: { ...row, state: "failed", exited: true, exitCode: 1 },
+        tile: undefined,
+      }}
+      source={live}
+      options={undefined}
+    />,
+  );
+  expect(tones(view)).toEqual([
+    ["failed", "Failed"],
+    ["failed", "1"],
+  ]);
+});
