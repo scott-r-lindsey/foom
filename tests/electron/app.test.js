@@ -10,6 +10,30 @@ function captureConfirmationDesktop(name) {
   }
 }
 
+async function assertConfirmationFocus(app, page, locator) {
+  try {
+    await expect(locator).toBeFocused();
+  } catch (error) {
+    console.error("Confirmation focus diagnostics:", {
+      page: await page.evaluate(() => ({
+        focused: document.hasFocus(),
+        visibility: document.visibilityState,
+        active: document.activeElement?.outerHTML.slice(0, 240),
+      })),
+      windows: await app.evaluate(({ BrowserWindow }) =>
+        BrowserWindow.getAllWindows().map((window) => ({
+          url: window.webContents.getURL(),
+          visible: window.isVisible(),
+          focused: window.isFocused(),
+          contentsFocused: window.webContents.isFocused(),
+          enabled: window.isEnabled(),
+        })),
+      ),
+    });
+    throw error;
+  }
+}
+
 async function boardPage(app) {
   let page;
   await expect
@@ -4474,7 +4498,7 @@ test("trusted quit dialog isolates answers, passes axe in both themes and surviv
         true,
       );
     }, id);
-    await expect(dialog.getByRole("button", { name: "Cancel" })).toBeFocused();
+    await assertConfirmationFocus(app, dialog, dialog.getByRole("button", { name: "Cancel" }));
     assert.equal(await board.evaluate(() => "confirmation" in window), false);
     await mkdir("test-results", { recursive: true });
     await dialog.screenshot({
@@ -4491,7 +4515,7 @@ test("trusted quit dialog isolates answers, passes axe in both themes and surviv
     await dialog.keyboard.press("Tab");
     await expect(dialog.getByRole("button", { name: "Stop all and quit" })).toBeFocused();
     await dialog.keyboard.press("Tab");
-    await expect(dialog.getByRole("button", { name: "Cancel" })).toBeFocused();
+    await assertConfirmationFocus(app, dialog, dialog.getByRole("button", { name: "Cancel" }));
     await dialog.keyboard.press("Escape");
     await expect(dialog.getByRole("alertdialog")).toHaveCount(0);
     await expect(board.locator(".board-confirmation-scrim")).toHaveCount(0);
@@ -6214,7 +6238,11 @@ test("trusted card follows interface scale and clears its scrim on every dismiss
   assert.deepEqual(longScan.violations, []);
   await acceptPage.keyboard.press("Tab");
   await acceptPage.keyboard.press("Tab");
-  await expect(acceptPage.getByRole("region", { name: "Details" })).toBeFocused();
+  await assertConfirmationFocus(
+    app,
+    acceptPage,
+    acceptPage.getByRole("region", { name: "Details" }),
+  );
   const cues = await acceptPage.evaluate(() => ({
     failed: getComputedStyle(document.querySelector('[data-state="failed"]')).borderRadius,
     attention: getComputedStyle(document.querySelector('[data-state="needs_input"]')).boxShadow,

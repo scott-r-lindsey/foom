@@ -19,6 +19,7 @@ class FakeWindow extends EventEmitter {
           resize({ width: 440, height: 240 });
         });
     }),
+    focus: vi.fn(),
     getZoomFactor: vi.fn(() => 1),
     setZoomFactor: vi.fn(),
     setWindowOpenHandler: vi.fn<(handler: () => { action: string }) => void>(),
@@ -263,6 +264,7 @@ test("size requires a pending trusted main frame and finite positive dimensions 
   expect(window().setBounds).not.toHaveBeenCalled();
   resize(valid);
   expect(window().show).toHaveBeenCalledOnce();
+  expect(window().webContents.focus).toHaveBeenCalledOnce();
   expect(window().setBounds).toHaveBeenLastCalledWith({ x: 190, y: 200, width: 440, height: 240 });
   resize({ width: Number.MAX_VALUE, height: Number.MAX_VALUE });
   expect(window().setBounds).toHaveBeenLastCalledWith({ x: 34, y: 44, width: 752, height: 552 });

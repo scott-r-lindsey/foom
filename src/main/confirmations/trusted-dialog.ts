@@ -65,9 +65,9 @@ export class TrustedDialog {
     this.syncBounds();
     if (first) {
       this.window?.show();
-      this.window?.focus();
       // Some window managers place a child when mapping it. Reapply after show.
       this.syncBounds();
+      this.focusDialog();
     }
   };
   /** Called after the board's scale or resolved theme changes. */
@@ -204,7 +204,11 @@ export class TrustedDialog {
     this.window.setBounds({ x, y, width, height });
   };
   private readonly focusDialog = () => {
-    if (this.pending) this.window?.focus();
+    if (this.pending && this.window) {
+      this.window.focus();
+      // A reused macOS window can be key without its web view owning keyboard input.
+      this.window.webContents.focus();
+    }
   };
   private finish(accepted: boolean): void {
     const pending = this.pending;
