@@ -120,8 +120,14 @@ buttons share the same component. The full identity appears in the sidebar's
 existing hover/focus preview; shell launch labels and previews include the
 detected shell name. Missing or withdrawn artwork must retain this text fallback
 without moving the separate status light.
-Use the existing badge fill/ink tokens. Keep the status light separate: no amber,
-magenta, status tinting or animated identity mark. Include the full agent name in
+Use the existing badge fill/ink tokens at rest. Letter badges (`CC`, `CX`, `AG`,
+`>_`) take the deep-accent fill and a soft accent glow on menu hover and focus.
+This is an interaction state, not status: amber, magenta and status tinting remain
+off-limits. Respect reduced motion by disabling these transitions.
+
+Official artwork keeps its own colors and is never tinted, glowed or animated;
+any menu hover glow belongs on the badge slot behind the mark instead. Keep the
+status light separate. Include the full agent name in
 the row's accessible name and a hover/focus label when it is otherwise absent.
 Check both themes and 80–150% interface scaling in the implementation. If a mark's
 required clear space doesn't fit, keep the letters rather than shrinking it.

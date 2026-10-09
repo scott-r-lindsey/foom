@@ -16,6 +16,7 @@ export function createShell(
   autoStart = true,
   focusOnOpen = true,
   available: (id: string) => boolean = () => true,
+  hasExited: (id: string) => boolean = () => false,
 ) {
   const view: ShellView = {
     status: "Starting shell…",
@@ -91,6 +92,8 @@ export function createShell(
     publish();
   };
   const controls = () => {
+    terminal.options.disableStdin = exited;
+    terminal.options.cursorBlink = !exited;
     if (fontResizePending) resize();
     view.toggleDisabled = busy || !activeId;
     view.restartDisabled = busy || !exited || (activeId !== undefined && activeId !== shellId);
@@ -122,7 +125,8 @@ export function createShell(
   });
   const offData = window.desktop.onData((id, token, data) => {
     if (id !== activeId || !attached) return;
-    terminal.write(data, () => {
+    // A restored snapshot may show the cursor again; keep exited screens read-only.
+    terminal.write(exited ? `${data}\x1b[?25l` : data, () => {
       window.desktop.acknowledge(id, token, data.length);
     });
   });
@@ -136,6 +140,7 @@ export function createShell(
     view.status = terminalStatus;
     view.state = code === 0 ? "done" : "failed";
     exited = true;
+    terminal.write("\x1b[?25l");
     if (hostFailed) {
       activeId = undefined;
       visibility(false);
@@ -143,10 +148,10 @@ export function createShell(
     controls();
   });
   terminal.onData((data) => {
-    if (activeId && attached && !busy) window.desktop.input(activeId, data);
+    if (activeId && attached && !busy && !exited) window.desktop.input(activeId, data);
   });
   const wheel = alternateScroll(terminal, (data) => {
-    if (activeId && attached && !busy) window.desktop.input(activeId, data, "wheel");
+    if (activeId && attached && !busy && !exited) window.desktop.input(activeId, data, "wheel");
   });
   terminal.attachCustomWheelEventHandler((event) => wheel.handle(event));
   const resize = () => {
@@ -192,6 +197,8 @@ export function createShell(
     if (isDisposed() || !wantsVisible() || !isAvailable(id)) return;
     wheel.reset();
     terminal.reset();
+    if (exited) terminal.write("\x1b[?25l");
+    controls();
     updateTheme();
     visibility(true);
     fit.fit();
@@ -313,7 +320,7 @@ export function createShell(
         if (isDisposed() || current !== request || !isAvailable(id)) return;
         activeId = id;
         const code = exits.get(id);
-        exited = code !== undefined;
+        exited = code !== undefined || hasExited(id);
         hostFailed = code === -1;
         terminalStatus = code === undefined ? "Terminal" : `Terminal exited (${String(code)})`;
         view.state = code === undefined ? "quiet_ok" : code === 0 ? "done" : "failed";

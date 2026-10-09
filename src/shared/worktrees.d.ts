@@ -10,6 +10,7 @@ export interface Worktree {
   readonly branch: string | null;
   readonly locked: boolean;
   readonly prunable: boolean;
+  /** Historical creation record only; never an authorization requirement. */
   readonly managed: boolean;
 }
 

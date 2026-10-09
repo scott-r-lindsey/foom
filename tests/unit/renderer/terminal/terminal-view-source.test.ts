@@ -53,6 +53,7 @@ test("one passive controller per mount, ordered transfer, focus, subscriptions a
     false,
     false,
     expect.any(Function),
+    expect.any(Function),
   );
   const listener = vi.fn(),
     off = second.subscribe(listener);

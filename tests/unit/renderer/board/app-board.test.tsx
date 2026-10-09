@@ -10,6 +10,8 @@ import { createAppSource } from "../../../../src/renderer/board/live-board-sourc
 import { App } from "../../../../src/renderer/app";
 import { installation, report, setupState } from "../../../fixtures/setup";
 const mock = vi.hoisted(() => ({
+  viewAvailable: undefined as ((id: string) => boolean) | undefined,
+  viewExited: undefined as ((id: string) => boolean) | undefined,
   execution: undefined as ((event: ExecutionTransition) => void) | undefined,
   command: undefined as ((command: BoardCommand) => void) | undefined,
   state: undefined as ((state: TerminalState) => void) | undefined,
@@ -37,17 +39,26 @@ const mock = vi.hoisted(() => ({
   focus: vi.fn(),
 }));
 vi.mock("../../../../src/renderer/terminal/terminal-view-source", () => ({
-  createTerminalView: () => ({
-    mount: (element: HTMLElement) => {
-      mock.mount(element);
-      return mock.dispose;
-    },
-    open: mock.open,
-    hide: mock.hide,
-    focus: mock.focus,
-    subscribe: () => () => {},
-    getSnapshot: () => terminalView,
-  }),
+  createTerminalView: (
+    _schedule: unknown,
+    _owners: unknown,
+    available: (id: string) => boolean,
+    hasExited: (id: string) => boolean,
+  ) => {
+    mock.viewAvailable = available;
+    mock.viewExited = hasExited;
+    return {
+      mount: (element: HTMLElement) => {
+        mock.mount(element);
+        return mock.dispose;
+      },
+      open: mock.open,
+      hide: mock.hide,
+      focus: mock.focus,
+      subscribe: () => () => {},
+      getSnapshot: () => terminalView,
+    };
+  },
 }));
 const terminalView = {
   status: "Terminal",
@@ -727,4 +738,19 @@ test("execution overlays verdicts, rejects stale events, and waits for each turn
   mock.exit?.("a", 1);
   expect(current()?.state).toBe("failed");
   off?.();
+});
+
+test("terminal views read current exit state when opening an existing session", async () => {
+  mock.workspace.mockResolvedValue({ repositories: [], terminals: [agent("a")] });
+  const source = createAppSource();
+  const disconnect = source.connect?.();
+  await settle();
+  source.createView?.();
+  expect(mock.viewAvailable?.("a")).toBe(true);
+  expect(mock.viewAvailable?.("unknown")).toBe(false);
+  expect(mock.viewExited?.("a")).toBe(false);
+  mock.exit?.("a", 0);
+  expect(mock.viewExited?.("a")).toBe(true);
+  expect(mock.viewExited?.("unknown")).toBe(false);
+  disconnect?.();
 });
