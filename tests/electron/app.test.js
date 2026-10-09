@@ -739,11 +739,27 @@ test("terminal runs an interactive shell behind an isolated bridge", {
     await page.keyboard.type("exit");
     await page.keyboard.press("Enter");
     await page.getByRole("status").filter({ hasText: "Shell exited" }).waitFor();
+    await expect(input).toHaveAttribute("readonly", "");
+    await expect(page.locator(".xterm-cursor")).toHaveCount(0);
+    // Focusing the retained output must not revive the cursor.
+    await input.focus();
+    await expect(page.locator(".xterm-cursor")).toHaveCount(0);
     console.info("Shell exited");
     await page.getByRole("button", { name: "Restart shell" }).click();
     await page.waitForFunction(
       () => !/Starting|exited|Unable/.test(document.querySelector(".tile-status").textContent),
     );
+    await expect(input).not.toHaveAttribute("readonly", "");
+    await input.focus();
+    await page.keyboard.type(
+      process.platform === "win32"
+        ? 'Write-Output ("RESTART_" + "INPUT_OK")'
+        : "printf 'RESTART_%s\\n' INPUT_OK",
+    );
+    await page.keyboard.press("Enter");
+    await expect
+      .poll(() => page.evaluate(() => window.terminalOutput.includes("RESTART_INPUT_OK")))
+      .toBe(true);
     console.info("Shell restarted");
     // Quit with fresh, detached PTYs as well as the restarted visible shell. Native
     // exit callbacks must finish before Electron tears down its Node environment.
@@ -1516,16 +1532,16 @@ test("launches an agent in a managed worktree and routes its attention signals",
     `Fake agent not detected: ${JSON.stringify(setup.claude)}`,
   );
 
-  // The renderer can't substitute an executable or an unmanaged path.
+  // The renderer cannot substitute a path outside the registered Git inventory.
   await assert.rejects(
     page.evaluate((request) => window.desktop.launchAgent(request), {
       agent: "claude",
       repository: setup.repository.path,
-      worktree: repo,
+      worktree: path.dirname(repo),
       cols: 80,
       rows: 24,
     }),
-    /not managed by Foom/,
+    /Worktree is missing/,
   );
 
   const launched = await page.evaluate((request) => window.desktop.launchAgent(request), {
@@ -3688,12 +3704,43 @@ test("sidebar menus escape the scroll area, stay in the window and launch from a
   );
   assert.equal(await menu.evaluate((element) => element.closest(".board-list")), null);
   await assertAccessible(page);
-  if (process.env.FOOM_SCREENSHOTS) {
-    for (const colorScheme of ["light", "dark"]) {
-      await page.emulateMedia({ colorScheme, reducedMotion: "reduce" });
+  const launchItem = page.getByRole("menuitem", { name: /^Shell \(/ });
+  const badge = launchItem.locator(".board-agent");
+  for (const colorScheme of ["light", "dark"]) {
+    await page.emulateMedia({ colorScheme, reducedMotion: "reduce" });
+    await expect(page.locator("html")).toHaveCSS("color-scheme", colorScheme);
+    await launchItem.hover();
+    await expect(badge).toHaveCSS(
+      "background-color",
+      colorScheme === "light" ? "rgb(59, 26, 153)" : "rgb(122, 60, 255)",
+    );
+    await expect(badge).toHaveCSS("transition-duration", "0s");
+    await expect
+      .poll(() => launchItem.evaluate((element) => getComputedStyle(element, "::before").transform))
+      .toBe("matrix(1, 0, 0, 1, 0, 0)");
+    if (process.env.FOOM_SCREENSHOTS)
       await page.screenshot({ path: path.join(tmpdir(), `foom-sidebar-${colorScheme}.png`) });
-    }
   }
+  await assertAccessible(page);
+  await page.emulateMedia({ colorScheme: "dark", reducedMotion: "no-preference" });
+  await launchItem.evaluate((element) => element.blur());
+  await page.mouse.move(0, 0);
+  await expect
+    .poll(() => launchItem.evaluate((element) => getComputedStyle(element, "::before").transform))
+    .toBe("matrix(1, 0, 0, 0, 0, 0)");
+  await expect
+    .poll(() =>
+      launchItem.evaluate((element) => getComputedStyle(element, "::before").transitionDuration),
+    )
+    .toBe("0.16s");
+  await launchItem.focus();
+  await page.keyboard.press("End");
+  await page.keyboard.press("ArrowUp");
+  await expect(launchItem).toBeFocused();
+  await expect(badge).toHaveCSS("background-color", "rgb(122, 60, 255)");
+  await expect
+    .poll(() => launchItem.evaluate((element) => getComputedStyle(element, "::before").transform))
+    .toBe("matrix(1, 0, 0, 1, 0, 0)");
 
   await page.keyboard.press("End");
   await expect(page.getByRole("menuitem", { name: "Remove worktree…" })).toBeFocused();
@@ -4949,7 +4996,14 @@ test("application menu uses the command registry and supports native keyboard ac
     ),
   );
   await assertAccessible(page);
-  await page.screenshot({ path: "test-results/application-menu.png", animations: "disabled" });
+  for (const colorScheme of ["light", "dark"]) {
+    await page.emulateMedia({ colorScheme, reducedMotion: "reduce" });
+    await expect(page.locator("html")).toHaveCSS("color-scheme", colorScheme);
+    await page.screenshot({
+      path: `test-results/application-menu-${colorScheme}.png`,
+      animations: "disabled",
+    });
+  }
   await expect(page.getByRole("menuitem", { name: /^New Window/ })).toBeEnabled();
   await page.keyboard.press("End");
   await expect(page.getByRole("menuitem", { name: /Toggle Developer Tools/ })).toBeFocused();
@@ -5403,7 +5457,7 @@ test("neutral identity badges keep labels and geometry across themes and interfa
   await assertAccessible(page);
 });
 
-test("merged cleanup deletes two worktrees and branches while preserving a skipped checkout", {
+test("merged cleanup deletes external worktrees and branches while preserving a skipped checkout", {
   timeout: deadline(60000),
 }, async (context) => {
   const root = await realpath(await mkdtemp(path.join(tmpdir(), "foom-merged-")));
@@ -5433,11 +5487,8 @@ test("merged cleanup deletes two worktrees and branches while preserving a skipp
   );
   const paths = {};
   for (const branch of ["merged-one", "merged-two", "dirty"]) {
-    const tree = await page.evaluate(
-      ({ repo, branch }) => window.desktop.createWorktree(repo, branch, "adjacent"),
-      { repo: repository, branch },
-    );
-    paths[branch] = tree.path;
+    paths[branch] = path.join(root, `repo-${branch}`);
+    git("worktree", "add", "-b", branch, paths[branch]);
   }
   await writeFile(path.join(paths.dirty, "keep.txt"), "must survive");
   // Wait for the source to include the fresh eligibility result before opening its menu.

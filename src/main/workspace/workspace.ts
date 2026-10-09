@@ -374,8 +374,12 @@ export class Workspace {
       if (this.busyWorktrees.has(key)) throw new Error("This worktree is busy");
       this.busyWorktrees.add(key);
       try {
+        const identity = await this.deps.worktrees.launchIdentity(
+          request.repository,
+          request.worktree,
+        );
         if (!(await this.confirmAgentLaunch(request.worktree, confirm))) return null;
-        return await this.launchAgent(request, false, true);
+        return await this.launchAgent(request, false, true, identity);
       } finally {
         this.busyWorktrees.delete(key);
       }
@@ -457,13 +461,11 @@ export class Workspace {
         await this.deps.worktrees.validateBranch(request.repository, request.branch);
         const trees = await this.worktrees(request.repository);
         const existing = trees.find((tree) => tree.branch === request.branch);
-        if (existing && !existing.managed)
-          throw new Error("This branch is already checked out outside Foom");
         const tree =
           existing ??
           (await this.createWorktree(request.repository, request.branch, this.location));
-        if (!tree.managed || tree.locked || tree.prunable)
-          throw new Error("Worktree is unavailable");
+        if (tree.bare || tree.locked || tree.prunable) throw new Error("Worktree is unavailable");
+        const identity = await this.deps.worktrees.launchIdentity(request.repository, tree.path);
         if (request.run !== "shell") {
           if (!(await this.confirmAgentLaunch(tree.path, confirm))) return null;
           if (
@@ -486,9 +488,12 @@ export class Workspace {
               },
               false,
               true,
+              identity,
             )
           ).id;
         }
+        if ((await this.deps.worktrees.launchIdentity(request.repository, tree.path)) !== identity)
+          throw new Error("Worktree has changed. Select it and try again.");
         const windows = process.platform === "win32";
         const id = await this.deps.terminals.create({
           command: windows ? "powershell.exe" : process.env["SHELL"] || "/bin/bash",
@@ -592,13 +597,12 @@ export class Workspace {
 
   private async mergedPlan(repository: string, refresh: boolean, inventory?: readonly Worktree[]) {
     const trees = inventory ?? (await this.worktrees(repository));
-    if (!trees.some((tree) => tree.managed)) return [];
+    if (!trees.some((tree) => tree.path !== repository && !tree.bare)) return [];
     const base = await this.deps.worktrees.mergedDefault(repository, refresh);
     return Promise.all(
       trees.map(async (tree) => {
         let reason: string | undefined;
         if (tree.path === repository || tree.bare) reason = "main checkout";
-        else if (!tree.managed) reason = "not managed by Foom";
         else if (tree.locked || tree.prunable || !tree.branch) reason = "unavailable";
         else reason = this.sessionSkip(tree.path);
         if (!reason) {
@@ -651,7 +655,7 @@ export class Workspace {
             (item) => item.path === tree.path,
           );
           if (
-            !current?.managed ||
+            !current ||
             current.branch !== tree.branch ||
             current.head !== tree.head ||
             (await this.deps.worktrees.removalIdentity(repository, tree.path)) !==
@@ -691,7 +695,7 @@ export class Workspace {
 
   /** Never let remote discovery hold up local inventory or session publication. */
   private cachedMergeEligibility(repository: string, worktrees: readonly Worktree[]) {
-    if (this.closed || !worktrees.some((tree) => tree.managed)) {
+    if (this.closed || !worktrees.some((tree) => tree.path !== repository && !tree.bare)) {
       this.mergeEligibility.delete(repository);
       return { canDeleteMerged: false };
     }

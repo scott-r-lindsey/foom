@@ -355,7 +355,7 @@ describe("launch", () => {
     expect(create).not.toHaveBeenCalled();
     await expect(service.launch(request)).rejects.toThrow("disposed");
   });
-  it("rejects invalid dimensions, unknown agents, and unowned paths", async () => {
+  it("rejects invalid dimensions, unknown agents, and unavailable paths", async () => {
     for (const cols of [0, 501, 1.5, Number.NaN])
       await expect(service.launch({ ...request, cols })).rejects.toThrow("dimensions");
     const invalid = { ...request };
@@ -365,12 +365,12 @@ describe("launch", () => {
       await expect(service.launch({ ...request, worktree })).rejects.toThrow("Invalid worktree");
     for (const entries of [
       [],
-      [{ path: tree, managed: false }],
+      [{ path: tree, managed: false, locked: true }],
       [{ path: tree, managed: true, bare: true }],
       [{ path: tree, managed: true, prunable: true }],
     ]) {
       listWorktrees.mockResolvedValueOnce(entries);
-      await expect(service.launch(request)).rejects.toThrow("not managed");
+      await expect(service.launch(request)).rejects.toThrow("missing");
     }
     expect(create).not.toHaveBeenCalled();
   });
@@ -411,7 +411,7 @@ it("main-only checkout authorization permits the registered checkout and retains
   service.release("second");
   await service.launch({ ...main, sharedCheckout: false });
   service.release("terminal-id");
-  await expect(service.launch({ ...main, mainCheckout: false })).rejects.toThrow("not managed");
+  await service.launch({ ...main, mainCheckout: false });
 });
 
 it("launches a main-authorized external checkout at its selected directory", async () => {
@@ -801,4 +801,11 @@ describe("read-only review", () => {
     const scan = await service.scan();
     expect(scan.agents.every((agent) => !agent.review)).toBe(true);
   });
+});
+
+it("launches an external checkout without a creation record", async () => {
+  listWorktrees.mockResolvedValue([{ path: tree, managed: false, bare: false, prunable: false }]);
+  await service.launch(request);
+  expect(launchIdentity).toHaveBeenCalledWith(root, tree);
+  expect(create).toHaveBeenCalledWith(expect.objectContaining({ cwd: tree }));
 });

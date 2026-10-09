@@ -6,6 +6,7 @@ export function createTerminalView(
   schedule: (operation: () => Promise<void>) => Promise<void> = (operation) => operation(),
   owners = new Map<string, ReturnType<typeof createShell>>(),
   available: (id: string) => boolean = () => true,
+  hasExited: (id: string) => boolean = () => false,
 ): TerminalViewSource {
   let controller: ReturnType<typeof createShell> | undefined;
   let snapshot: ShellView = {
@@ -38,6 +39,7 @@ export function createTerminalView(
         false,
         false,
         available,
+        hasExited,
       );
       return () => {
         const previous = controller;

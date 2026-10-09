@@ -51,7 +51,7 @@ async function prepareParent(root: string, path: string): Promise<void> {
   await mkdir(path);
 }
 
-// Bind ownership to both the filesystem entries and Git's per-worktree metadata.
+// Bind confirmation to both the filesystem entries and Git's per-worktree metadata.
 // Birth time distinguishes recreated entries even when the filesystem reuses an inode.
 async function worktreeIdentity(path: string): Promise<string> {
   const gitDirectory = await realpath(
@@ -79,7 +79,7 @@ function absolutePath(value: unknown): value is string {
   );
 }
 
-/** Main-process service. Use open() for persisted ownership; listing never adopts trees. */
+/** Main-process service. Git membership authorizes management; managed records creation history. */
 export class WorktreeService {
   private readonly repositories = new Map<string, Repository>();
   private readonly managed = new Map<
@@ -197,17 +197,12 @@ export class WorktreeService {
     return repository;
   }
 
-  /**
-   * Forgets a repository. Refused while Foom still owns worktrees in it, so their
-   * ownership records aren't silently dropped; remove those worktrees first.
-   */
+  /** Forget registration and creation history, leaving every checkout on disk. */
   async removeRepository(path: string): Promise<void> {
     this.repository(path);
-    const owned = [...this.managed.values()].filter((entry) => entry.repository === path).length;
-    if (owned > 0)
-      throw new Error(
-        `Has ${String(owned)} ${owned === 1 ? "worktree" : "worktrees"} Foom made; remove ${owned === 1 ? "it" : "them"} first`,
-      );
+    for (const [tree, entry] of this.managed) {
+      if (entry.repository === path) this.managed.delete(tree);
+    }
     this.repositories.delete(path);
     await this.save();
   }
@@ -299,7 +294,7 @@ export class WorktreeService {
     return this.checkoutIdentity(repositoryPath, path, false);
   }
 
-  /** Validate a selected checkout without adopting it as Foom-owned. */
+  /** Validate any selected checkout belonging to an added repository. */
   async launchIdentity(repositoryPath: string, path: string): Promise<string> {
     return this.checkoutIdentity(repositoryPath, path, true);
   }
@@ -346,19 +341,8 @@ export class WorktreeService {
   // Background status reads must not refresh/write the index while removal is
   // deleting per-worktree Git metadata. --no-optional-locks keeps them read-only.
   async changes(repositoryPath: string, path: string, identity?: string): Promise<string> {
-    if (identity !== undefined) {
-      await this.checkRemovalIdentity(repositoryPath, path, identity);
-      return git(path, [
-        "--no-optional-locks",
-        "status",
-        "--porcelain=v1",
-        "-z",
-        "--untracked-files=all",
-      ]);
-    }
-    const trees = await this.listWorktrees(repositoryPath);
-    if (!trees.some((tree) => tree.path === path && tree.managed && !tree.prunable && !tree.locked))
-      throw new Error("Worktree is not managed by Foom or is locked");
+    const expected = identity ?? (await this.removalIdentity(repositoryPath, path));
+    await this.checkRemovalIdentity(repositoryPath, path, expected);
     return git(path, [
       "--no-optional-locks",
       "status",
@@ -490,18 +474,8 @@ export class WorktreeService {
     const repository = this.repository(repositoryPath);
     validatePath(path);
     const resolved = resolve(path);
-    if (identity !== undefined) {
-      await this.checkRemovalIdentity(repositoryPath, resolved, identity);
-    } else {
-      const ownership = this.managed.get(resolved);
-      if (ownership?.repository !== repository.path)
-        throw new Error("Worktree is not managed by Foom");
-      assertInside(ownership.root, resolved);
-      if ((await realpath(resolved)) !== resolved)
-        throw new Error("Worktree path has been redirected");
-      if (!(await this.isManaged(repository.path, resolved)))
-        throw new Error("Worktree is not managed by Foom");
-    }
+    const expected = identity ?? (await this.removalIdentity(repositoryPath, resolved));
+    await this.checkRemovalIdentity(repositoryPath, resolved, expected);
     // Git performs its own dirty/locked checks before removing the tree.
     await git(repository.path, [
       "worktree",

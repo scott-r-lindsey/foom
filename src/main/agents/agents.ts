@@ -244,17 +244,13 @@ export class AgentService {
     const trees = await this.worktrees.listWorktrees(request.repository);
     if (
       !trees.some(
-        (tree) =>
-          tree.path === request.worktree &&
-          (tree.managed ||
-            request.checkoutIdentity !== undefined ||
-            (request.mainCheckout && tree.path === request.repository)) &&
-          !tree.bare &&
-          !tree.prunable &&
-          !tree.locked,
+        (tree) => tree.path === request.worktree && !tree.bare && !tree.prunable && !tree.locked,
       )
     )
-      throw new Error("Worktree is not managed by Foom");
+      throw new Error("Worktree is missing, bare, locked, or prunable");
+    const checkoutIdentity =
+      request.checkoutIdentity ??
+      (await this.worktrees.launchIdentity(request.repository, request.worktree));
     const scan = this.scanResult ?? (await this.scan());
     const agent = scan.agents.find((entry) => entry.id === request.agent);
     if (!agent?.path)
@@ -290,9 +286,8 @@ export class AgentService {
         mcp = await prepareMcpLaunch(agent.id, control.env["FOOM_CONTROL_URL"] ?? "");
       this.ensureOpen();
       if (
-        request.checkoutIdentity !== undefined &&
         (await this.worktrees.launchIdentity(request.repository, request.worktree)) !==
-          request.checkoutIdentity
+        checkoutIdentity
       )
         throw new Error("Worktree has changed. Select it and try again.");
       const args = [
