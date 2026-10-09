@@ -66,6 +66,18 @@ test("focuses Cancel for every request, traps Tab, and renders untrusted content
   expect(view.getByRole("img", { name: "Working" })).toBeTruthy();
   expect(document.documentElement.style.colorScheme).toBe("dark");
   fireEvent.keyDown(view.getByRole("alertdialog"), { key: "x" });
+  for (const id of ["graphite", "eclipse-light", "deep-field", "eclipse-dark"] as const) {
+    const theme = resolveInterfaceTheme(id, false);
+    act(() => {
+      receive({ ...request, id, theme });
+    });
+    expect(document.documentElement.style.getPropertyValue("--highlight")).toBe(
+      theme.colors.highlight ?? theme.colors.accent,
+    );
+    expect(document.documentElement.style.getPropertyValue("--highlight-deep")).toBe(
+      theme.colors["highlight-deep"] ?? theme.colors["accent-deep"],
+    );
+  }
   act(() => {
     receive(null);
   });

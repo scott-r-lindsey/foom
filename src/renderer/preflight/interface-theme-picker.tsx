@@ -54,9 +54,14 @@ export function InterfaceThemePicker({
     settings.interfaceTheme,
     settings.colorMode === "system" ? systemDark : settings.colorMode === "dark",
   );
+  const previewColors = {
+    ...theme.colors,
+    highlight: theme.colors.highlight ?? theme.colors.accent,
+    "highlight-deep": theme.colors["highlight-deep"] ?? theme.colors["accent-deep"],
+  };
   const style: CSSProperties = {
     colorScheme: theme.base,
-    ...Object.fromEntries(Object.entries(theme.colors).map(([key, value]) => [`--${key}`, value])),
+    ...Object.fromEntries(Object.entries(previewColors).map(([key, value]) => [`--${key}`, value])),
   };
   return (
     <div className="interface-theme-settings">
@@ -84,11 +89,14 @@ export function InterfaceThemePicker({
             >
               {candidate.name}
               <span className="interface-theme-swatches" aria-hidden="true">
-                {(["bg", "surface", "accent", "attention", "done", "failed"] as const).map(
-                  (key) => (
-                    <i key={key} style={{ backgroundColor: candidate.colors[key] }} />
-                  ),
-                )}
+                {(
+                  ["bg", "surface", "accent", "highlight", "attention", "done", "failed"] as const
+                ).map((key) => (
+                  <i
+                    key={key}
+                    style={{ backgroundColor: candidate.colors[key] ?? candidate.colors.accent }}
+                  />
+                ))}
               </span>
             </button>
           );

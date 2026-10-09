@@ -43,12 +43,12 @@
   border-left: 0;
 }
 .appearance-mode input:checked + span {
-  background: var(--accent);
-  border-color: var(--accent);
+  background: var(--highlight);
+  border-color: var(--highlight);
   color: var(--bg);
 }
 .appearance-mode input:focus-visible + span {
-  outline: 2px solid var(--accent);
+  outline: 2px solid var(--highlight);
   outline-offset: 2px;
 }
 .appearance-size {

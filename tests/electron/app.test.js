@@ -4166,9 +4166,48 @@ test("every interface theme applies live to native chrome and passes axe on boar
     await expect(
       page.getByRole("list", { name: "Terminal status previews" }).getByRole("listitem"),
     ).toHaveCount(6);
+    const expectedHighlight = {
+      "deep-field": "#6cc7ff",
+      graphite: "#9fb1c7",
+      moonlight: "#2f5fbf",
+    }[id];
+    const colors = await page.evaluate(() => {
+      const root = getComputedStyle(document.documentElement);
+      const preview = document.querySelector(".interface-theme-preview");
+      const selected = document.querySelector(
+        '.interface-theme-choices button[aria-pressed="true"]',
+      );
+      const working = preview.querySelector('[data-state="working"] .board-light');
+      const cssColor = (hex) => {
+        const node = document.createElement("span");
+        node.style.color = hex;
+        return node.style.color;
+      };
+      const accent = root.getPropertyValue("--accent").trim();
+      const highlight = root.getPropertyValue("--highlight").trim();
+      return {
+        accent,
+        highlight,
+        highlightRgb: cssColor(highlight),
+        accentRgb: cssColor(accent),
+        selection: getComputedStyle(selected).outlineColor,
+        swatch: getComputedStyle(selected.querySelectorAll("i")[3]).backgroundColor,
+        working: getComputedStyle(working).backgroundColor,
+        brand: getComputedStyle(document.querySelector(".wordmark-hole")).boxShadow,
+      };
+    });
+    assert.equal(colors.highlight, expectedHighlight ?? colors.accent);
+    assert.equal(colors.selection, colors.highlightRgb);
+    assert.equal(colors.swatch, colors.highlightRgb);
+    assert.equal(colors.working, colors.accentRgb);
+    assert.ok(colors.brand.includes(colors.accentRgb));
     await assertAccessible(page);
     await page.keyboard.press("Escape");
     await expect(page.locator(".tile-terminal")).toBeVisible();
+    await expect(page.locator('.terminal-tile[data-focused="true"]')).toHaveCSS(
+      "border-color",
+      colors.highlightRgb,
+    );
     await assertAccessible(page);
   }
   await boardCommand(app, ",", process.platform !== "darwin");

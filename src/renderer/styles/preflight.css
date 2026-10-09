@@ -38,7 +38,7 @@
 }
 .preflight-rail ol button[aria-current="step"] {
   background: var(--bg);
-  border-color: var(--accent);
+  border-color: var(--highlight);
 }
 .preflight-t,
 .preflight-tick {
@@ -123,7 +123,7 @@
   font: 11px var(--font-mono);
   letter-spacing: 1px;
   text-transform: uppercase;
-  color: var(--accent);
+  color: var(--highlight);
 }
 :is(.preflight, .settings-view) code,
 :is(.preflight, .settings-view) .mono {
@@ -131,15 +131,15 @@
   font-size: 12px;
 }
 :is(.preflight, .settings-view) button.primary {
-  background: var(--accent);
-  border-color: var(--accent);
+  background: var(--highlight);
+  border-color: var(--highlight);
   color: var(--bg);
 }
 :is(.preflight, .settings-view) button.link {
   padding: 0;
   border: 0;
   background: none;
-  color: var(--accent);
+  color: var(--highlight);
   text-decoration: underline;
 }
 .preflight-cta {
@@ -256,7 +256,7 @@
 }
 :is(.preflight, .settings-view) input:focus-visible,
 :is(.preflight, .settings-view) select:focus-visible {
-  outline: 2px solid var(--accent);
+  outline: 2px solid var(--highlight);
 }
 .preflight-key {
   font-size: 13px;

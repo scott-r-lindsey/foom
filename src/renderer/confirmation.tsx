@@ -18,6 +18,14 @@ export function ConfirmationPage() {
     if (!request) return;
     for (const [key, color] of Object.entries(request.theme.colors))
       document.documentElement.style.setProperty(`--${key}`, color);
+    document.documentElement.style.setProperty(
+      "--highlight",
+      request.theme.colors.highlight ?? request.theme.colors.accent,
+    );
+    document.documentElement.style.setProperty(
+      "--highlight-deep",
+      request.theme.colors["highlight-deep"] ?? request.theme.colors["accent-deep"],
+    );
     document.documentElement.style.colorScheme = request.theme.base;
     cancelRef.current?.focus();
   }, [request]);

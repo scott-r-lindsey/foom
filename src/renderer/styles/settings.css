@@ -115,7 +115,7 @@
   text-align: left;
 }
 .terminal-theme-choices button[aria-pressed="true"] {
-  border-color: var(--accent);
+  border-color: var(--highlight);
 }
 .terminal-theme-strip {
   display: flex;
@@ -161,7 +161,7 @@
   text-align: left;
 }
 .interface-theme-choices button[aria-pressed="true"] {
-  outline: 2px solid var(--accent);
+  outline: 2px solid var(--highlight);
   outline-offset: 2px;
 }
 .theme-description {
@@ -224,7 +224,7 @@
 }
 .sound-panel input[type="range"] {
   width: 100%;
-  accent-color: var(--accent);
+  accent-color: var(--highlight);
 }
 .sound-picker,
 .sound-panel .preflight-field {

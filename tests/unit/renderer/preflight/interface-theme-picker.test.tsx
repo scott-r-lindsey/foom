@@ -32,6 +32,22 @@ test("selects System and each theme, previews every status, follows media and ac
   for (const [id, theme] of Object.entries(interfaceThemes)) {
     fireEvent.click(screen.getByRole("button", { name: theme.name }));
     expect(onChange).toHaveBeenLastCalledWith({ interfaceTheme: id });
+    view.rerender(
+      <InterfaceThemePicker
+        settings={setupState({ interfaceTheme: theme }).settings}
+        onChange={onChange}
+      />,
+    );
+    expect(preview.style.getPropertyValue("--highlight")).toBe(
+      theme.colors.highlight ?? theme.colors.accent,
+    );
+    expect(preview.style.getPropertyValue("--highlight-deep")).toBe(
+      theme.colors["highlight-deep"] ?? theme.colors["accent-deep"],
+    );
+    const swatches = screen.getByRole("button", { name: theme.name }).querySelectorAll("i");
+    const expected = document.createElement("i");
+    expected.style.backgroundColor = theme.colors.highlight ?? theme.colors.accent;
+    expect(swatches[3]?.style.backgroundColor).toBe(expected.style.backgroundColor);
   }
   fireEvent.click(screen.getByRole("button", { name: /^System/ }));
   expect(onChange).toHaveBeenLastCalledWith({ interfaceTheme: "follow", colorMode: "system" });

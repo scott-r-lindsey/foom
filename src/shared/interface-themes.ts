@@ -26,6 +26,7 @@ export const interfaceColorNames: readonly InterfaceColor[] = [
   "badge-fill",
   "badge-ink",
 ];
+export const interfaceHighlightNames = ["highlight", "highlight-deep"] as const;
 const light: InterfaceTheme["colors"] = {
   bg: "#f3f0fa",
   surface: "#e9e4f5",
@@ -109,6 +110,8 @@ export const interfaceThemes: Readonly<Record<InterfaceThemeId, InterfaceTheme>>
       muted: "#a5b0cc",
       accent: "#b39aff",
       "accent-deep": "#9569f5",
+      highlight: "#6cc7ff",
+      "highlight-deep": "#2d7fb8",
       failed: "#ff65a8",
       "failed-ink": "#ff65a8",
       "badge-label-fill": "#313b58",
@@ -130,6 +133,8 @@ export const interfaceThemes: Readonly<Record<InterfaceThemeId, InterfaceTheme>>
       muted: "#b0afb8",
       accent: "#bca5ff",
       "accent-deep": "#9165f0",
+      highlight: "#9fb1c7",
+      "highlight-deep": "#5d6f85",
       failed: "#ff65a8",
       "failed-ink": "#ff65a8",
       "badge-label-fill": "#45454f",
@@ -172,6 +177,8 @@ export const interfaceThemes: Readonly<Record<InterfaceThemeId, InterfaceTheme>>
       muted: "#536079",
       accent: "#5836c2",
       "accent-deep": "#3b218e",
+      highlight: "#2f5fbf",
+      "highlight-deep": "#1f3f86",
       "badge-label-fill": "#414d65",
       "badge-fill": "#d9dfed",
       "badge-ink": "#182133",
@@ -193,9 +200,10 @@ function exact(value: Record<string, unknown>, keys: readonly string[]): boolean
 function colors(value: unknown): value is InterfaceTheme["colors"] {
   return (
     record(value) &&
-    exact(value, interfaceColorNames) &&
-    interfaceColorNames.every(
-      (key) => typeof value[key] === "string" && /^#[0-9a-f]{6}$/i.test(value[key]),
+    (exact(value, interfaceColorNames) ||
+      exact(value, [...interfaceColorNames, ...interfaceHighlightNames])) &&
+    Object.values(value).every(
+      (color) => typeof color === "string" && /^#[0-9a-f]{6}$/i.test(color),
     )
   );
 }
@@ -204,6 +212,7 @@ export function validateInterfaceColors(palette: InterfaceTheme["colors"]): void
   const fail = () => {
     throw new Error("Theme must preserve brand colors and readable contrast");
   };
+  if (!colors(palette)) fail();
   if (palette.hole.toLowerCase() !== "#06050b") fail();
   for (const key of [
     "attention",
@@ -221,9 +230,11 @@ export function validateInterfaceColors(palette: InterfaceTheme["colors"]): void
         : [245, 280];
     if (hue < min || hue > max || saturation < 0.45) fail();
   }
-  for (const key of interfaceColorNames) {
+  for (const key of [...interfaceColorNames, ...interfaceHighlightNames]) {
     if (key.startsWith("attention") || key.startsWith("failed")) continue;
-    const { hue, saturation } = hueSaturation(palette[key]);
+    const color = palette[key];
+    if (color === undefined) continue;
+    const { hue, saturation } = hueSaturation(color);
     if (saturation > 0.2 && ((hue >= 20 && hue <= 55) || (hue >= 310 && hue <= 350))) fail();
   }
   for (const [a, b] of [
@@ -235,6 +246,13 @@ export function validateInterfaceColors(palette: InterfaceTheme["colors"]): void
     ["failed-ink", "accent"],
   ] as const)
     if (colorDistance(palette[a], palette[b]) < 40) fail();
+  // Keep the original gate for legacy palettes; only explicit highlights add new constraints.
+  if (palette.highlight !== undefined) {
+    for (const status of ["attention", "failed", "done"] as const)
+      if (colorDistance(palette.highlight, palette[status]) < 40) fail();
+    for (const background of ["bg", "surface"] as const)
+      if (contrast(palette.highlight, palette[background]) < 4.5) fail();
+  }
   for (const background of ["bg", "surface"] as const)
     for (const foreground of [
       "ink",

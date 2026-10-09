@@ -47,6 +47,16 @@ test("applies complete token data, follows System, handles fixed/custom themes a
   expect(root.style.getPropertyValue("--bg")).toBe("#f5f7fc");
   changed?.(setupState({ interfaceTheme: interfaceThemes["deep-field"] }));
   expect(root.style.getPropertyValue("--bg")).toBe("#080f1e");
+  for (const [id, theme] of Object.entries(interfaceThemes)) {
+    changed?.(setupState({ interfaceTheme: theme }));
+    expect(root.style.getPropertyValue("--highlight"), id).toBe(
+      theme.colors.highlight ?? theme.colors.accent,
+    );
+    expect(root.style.getPropertyValue("--highlight-deep"), id).toBe(
+      theme.colors["highlight-deep"] ?? theme.colors["accent-deep"],
+    );
+    expect(root.style.getPropertyValue("--accent"), id).toBe(theme.colors.accent);
+  }
   dispose();
   expect(off).toHaveBeenCalledOnce();
   expect(m.removeEventListener).toHaveBeenCalledWith(

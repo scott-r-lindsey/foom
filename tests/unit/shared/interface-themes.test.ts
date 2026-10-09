@@ -2,6 +2,8 @@ import { readFile } from "node:fs/promises";
 import { expect, test } from "vitest";
 import {
   interfaceColorNames,
+  interfaceHighlightNames,
+  validateInterfaceColors,
   interfaceThemes,
   parseInterfaceTheme,
   resolveInterfaceTheme,
@@ -12,7 +14,9 @@ import { colorDistance, contrast, hueSaturation } from "../../../src/shared/them
 test.each(Object.entries(interfaceThemes))(
   "%s is complete and passes the user-theme accessibility and brand gate",
   (_id, theme) => {
-    expect(Object.keys(theme.colors).sort()).toEqual([...interfaceColorNames].sort());
+    expect(Object.keys(theme.colors).sort()).toEqual(
+      [...interfaceColorNames, ...(theme.colors.highlight ? interfaceHighlightNames : [])].sort(),
+    );
     expect(parseInterfaceTheme(theme)).toEqual(theme);
     expect(parseInterfaceTheme(theme)).not.toBe(theme);
     for (const bg of ["bg", "surface"] as const)
@@ -124,4 +128,90 @@ test("color math agrees with reference values and handles neutral colors", () =>
   expect(colorDistance("#777777", "#777777")).toBe(0);
   expect(hueSaturation("#888888")).toEqual({ hue: 0, saturation: 0 });
   expect(hueSaturation("#00ff00")).toEqual({ hue: 120, saturation: 1 });
+});
+
+test("accepts legacy 19-key colors and the complete optional highlight pair", () => {
+  const legacy = interfaceThemes["eclipse-dark"];
+  expect(Object.keys(legacy.colors)).toHaveLength(19);
+  expect(parseInterfaceTheme(legacy)).toEqual(legacy);
+  // Previously valid custom palettes must not acquire a new accent/done distance rule.
+  const custom = { ...legacy, colors: { ...legacy.colors, done: legacy.colors.accent } };
+  expect(parseInterfaceTheme(custom)).toEqual(custom);
+  const theme = {
+    ...legacy,
+    colors: { ...legacy.colors, highlight: "#aaaaaa", "highlight-deep": "#555555" },
+  };
+  expect(parseInterfaceTheme(theme)).toEqual(theme);
+  expect(() => {
+    validateInterfaceColors(theme.colors);
+  }).not.toThrow();
+});
+test("rejects partial, invalid and additional highlight data at the untrusted boundary", () => {
+  const theme = interfaceThemes["eclipse-dark"];
+  for (const patch of [
+    { highlight: "#aaaaaa" },
+    { "highlight-deep": "#555555" },
+    { highlight: "#aaaaaa", "highlight-deep": undefined },
+    { highlight: "#aaaaaa", "highlight-deep": "url(https://example.com)" },
+    { highlight: 123, "highlight-deep": "#555555" },
+    { highlight: "#aaaaaa", "highlight-deep": "#555555", extra: "#ffffff" },
+  ])
+    expect(() =>
+      parseInterfaceTheme({ ...theme, colors: { ...theme.colors, ...patch } }),
+    ).toThrow();
+  expect(() => {
+    validateInterfaceColors({ ...theme.colors, highlight: "#aaaaaa" });
+  }).toThrow();
+});
+test.each(["highlight", "highlight-deep"] as const)(
+  "%s excludes saturated amber and magenta",
+  (key) => {
+    const theme = interfaceThemes["eclipse-dark"];
+    for (const color of ["#ffbb44", "#ff44aa"])
+      expect(() =>
+        parseInterfaceTheme({
+          ...theme,
+          colors: {
+            ...theme.colors,
+            highlight: "#aaaaaa",
+            "highlight-deep": "#555555",
+            [key]: color,
+          },
+        }),
+      ).toThrow();
+  },
+);
+test("highlight separates decoration from each status, including lookalikes outside the reserved hues", () => {
+  const theme = interfaceThemes["eclipse-dark"];
+  // These pass the hue gate but remain perceptually too close to a status light.
+  for (const [highlight, status] of [
+    ["#fff144", "attention"],
+    ["#ff4455", "failed"],
+    ["#6fe0a3", "done"],
+  ] as const) {
+    const { hue, saturation } = hueSaturation(highlight);
+    expect(saturation <= 0.2 || !((hue >= 20 && hue <= 55) || (hue >= 310 && hue <= 350))).toBe(
+      true,
+    );
+    expect(colorDistance(highlight, theme.colors[status])).toBeLessThan(40);
+    expect(() =>
+      parseInterfaceTheme({
+        ...theme,
+        colors: { ...theme.colors, highlight, "highlight-deep": "#555555" },
+      }),
+    ).toThrow();
+  }
+});
+test("highlight text meets contrast on both surfaces; its deep shade is decorative", () => {
+  const theme = interfaceThemes.graphite;
+  for (const highlight of ["#18181b", "#838383"]) {
+    expect(contrast(highlight, theme.colors.surface)).toBeLessThan(4.5);
+    expect(() =>
+      parseInterfaceTheme({ ...theme, colors: { ...theme.colors, highlight } }),
+    ).toThrow();
+  }
+  expect(contrast("#838383", theme.colors.bg)).toBeGreaterThanOrEqual(4.5);
+  expect(() =>
+    parseInterfaceTheme({ ...theme, colors: { ...theme.colors, "highlight-deep": "#000000" } }),
+  ).not.toThrow();
 });

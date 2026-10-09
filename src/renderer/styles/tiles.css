@@ -27,7 +27,7 @@
     opacity 180ms ease;
 }
 .terminal-tile[data-focused="true"] {
-  border-color: var(--accent);
+  border-color: var(--highlight);
 }
 .terminal-tile[data-state="needs_input"] {
   border-color: var(--attention);
@@ -57,7 +57,7 @@
   color: var(--muted);
 }
 .terminal-tile[data-focused="true"] .tile-title {
-  background: color-mix(in srgb, var(--accent) 10%, var(--surface));
+  background: color-mix(in srgb, var(--highlight) 10%, var(--surface));
   color: var(--ink);
 }
 .terminal-tile[data-empty="true"] .tile-title {
@@ -90,7 +90,7 @@
 }
 .tile-number[data-focused="true"],
 .terminal-tile[data-focused="true"] .tile-number {
-  border-color: var(--accent);
+  border-color: var(--highlight);
   color: var(--ink);
 }
 .tile-controls {
@@ -177,7 +177,7 @@
 .tile-gutter:hover,
 .tile-gutter:focus-visible,
 .tile-gutter[data-dragging="true"] {
-  background: color-mix(in srgb, var(--accent) 35%, transparent);
+  background: color-mix(in srgb, var(--highlight) 35%, transparent);
 }
 .tile-presets {
   display: flex;
@@ -221,7 +221,7 @@
   pointer-events: none;
   display: grid;
   place-items: center;
-  border: 3px dashed var(--accent);
+  border: 3px dashed var(--highlight);
   background: color-mix(in srgb, var(--surface) 90%, transparent);
   color: var(--ink);
   font-weight: 600;

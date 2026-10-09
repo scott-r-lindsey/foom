@@ -23,7 +23,9 @@ export interface InterfaceTheme {
   version: 1;
   name: string;
   base: "light" | "dark";
-  colors: Readonly<Record<InterfaceColor, string>>;
+  colors: Readonly<
+    Record<InterfaceColor, string> & { highlight?: string; "highlight-deep"?: string }
+  >;
 }
 export type InterfaceThemeId =
   | "eclipse-light"
