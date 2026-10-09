@@ -1,3 +1,5 @@
+import { isUserThemeId } from "../../shared/theme-validation";
+import type { SetupState } from "../../shared/setup";
 import { resolveTerminalTheme } from "../../shared/terminal-themes";
 import type { TerminalThemeChoice } from "../../shared/terminal-theme";
 import { alternateScroll } from "./alternate-scroll";
@@ -173,16 +175,21 @@ export function createShell(
     themeChoice = choice;
     updateTheme();
   };
+  const selectedTheme = (state: SetupState): TerminalThemeChoice =>
+    isUserThemeId(state.settings.terminalTheme)
+      ? (state.themes?.terminal.find((entry) => entry.id === state.settings.terminalTheme)?.theme ??
+        "follow")
+      : state.settings.terminalTheme;
   const offSetup = window.desktop.onSetupChange((state) => {
     settingsChanged = true;
     applyFont(state.settings.terminalFontSize);
-    applyTheme(state.settings.terminalTheme);
+    applyTheme(selectedTheme(state));
   });
   const initialSettings = window.desktop.setupState().then(
     (state) => {
       if (!settingsChanged) {
         applyFont(state.settings.terminalFontSize);
-        applyTheme(state.settings.terminalTheme);
+        applyTheme(selectedTheme(state));
       }
     },
     () => undefined,

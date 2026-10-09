@@ -1,3 +1,4 @@
+import type { ThemeCatalog } from "../../shared/theme-file";
 import {
   interfaceColorNames,
   interfaceHighlightNames,
@@ -17,11 +18,12 @@ export function attachInterfaceTheme(
     colorMode: "system",
     panelColor: "vivid",
   };
+  let catalog: ThemeCatalog | undefined;
   let disposed = false;
   let revision = 0;
   const apply = () => {
     const dark = settings.colorMode === "system" ? media.matches : settings.colorMode === "dark";
-    const theme = resolveInterfaceTheme(settings.interfaceTheme, dark);
+    const theme = resolveInterfaceTheme(settings.interfaceTheme, dark, catalog);
     for (const key of interfaceColorNames) target.style.setProperty(`--${key}`, theme.colors[key]);
     target.style.setProperty("--highlight", theme.colors.highlight ?? theme.colors.accent);
     target.style.setProperty(
@@ -36,6 +38,7 @@ export function attachInterfaceTheme(
   const off = source.subscribe((state) => {
     revision++;
     settings = state.settings;
+    catalog = state.themes;
     apply();
   });
   const initialRevision = revision;
@@ -43,6 +46,7 @@ export function attachInterfaceTheme(
     (state) => {
       if (!disposed && revision === initialRevision) {
         settings = state.settings;
+        catalog = state.themes;
         apply();
       }
     },

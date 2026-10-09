@@ -1,3 +1,4 @@
+import type { ThemeCatalog, ThemeKind } from "./theme-file";
 import type { InterfaceThemeChoice } from "./interface-theme";
 import type { SoundSettings } from "./sound";
 import type { TerminalThemeChoice } from "./terminal-theme";
@@ -88,6 +89,7 @@ export interface RepositoryUpdate {
 export type SettingsPatch = Partial<Settings>;
 
 export interface SetupState {
+  themes?: ThemeCatalog;
   settings: Settings;
   /** Which providers have a stored key. Keys themselves never leave main. */
   keys: Readonly<Record<ApiProvider, boolean>>;
@@ -97,6 +99,8 @@ export interface SetupState {
 }
 
 export interface SetupApi {
+  listThemes(): Promise<ThemeCatalog>;
+  openThemesFolder(kind: ThemeKind): Promise<void>;
   setupState(): Promise<SetupState>;
   saveSetup(patch: SettingsPatch): Promise<SetupState>;
   setInferenceKey(provider: ApiProvider, key: string): Promise<SetupState>;

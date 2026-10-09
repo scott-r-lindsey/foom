@@ -92,3 +92,36 @@ test("selects System and each theme, previews every status, follows media and ac
     media.addEventListener.mock.calls[0]?.[1],
   );
 });
+
+test("custom themes follow built-ins and selection keeps their file identity", () => {
+  vi.stubGlobal("matchMedia", () => ({
+    matches: false,
+    addEventListener: vi.fn(),
+    removeEventListener: vi.fn(),
+  }));
+  const onChange = vi.fn();
+  const catalog = {
+    interface: [
+      {
+        id: "user:custom.json" as const,
+        theme: { ...interfaceThemes.graphite, name: "Graphite (custom)" },
+      },
+    ],
+    terminal: [],
+    errors: [],
+  };
+  render(
+    <InterfaceThemePicker
+      settings={setupState({ interfaceTheme: "user:custom.json" }).settings}
+      catalog={catalog}
+      onChange={onChange}
+    />,
+  );
+  const custom = screen.getByRole("button", { name: "Graphite (custom)" });
+  expect(custom.getAttribute("aria-pressed")).toBe("true");
+  fireEvent.click(custom);
+  expect(onChange).toHaveBeenCalledWith({ interfaceTheme: "user:custom.json" });
+  expect(screen.getByLabelText("Interface theme preview").style.getPropertyValue("--bg")).toBe(
+    interfaceThemes.graphite.colors.bg,
+  );
+});

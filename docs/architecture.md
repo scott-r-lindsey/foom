@@ -573,7 +573,7 @@ the full log view. Components retain view state only; hidden PTYs keep running.
 Appearance lives in Settings and the preflight rail through the same `AppearanceControls` component and applies at once. `colorMode` (system, light or dark) sets `nativeTheme.themeSource` for Eclipse; fixed interface themes supply their own base. Main applies the source before the window is created at startup, so the CSS (`prefers-color-scheme`), the window background and terminals using Follow interface all follow it; changing the resolved terminal palette resets colors a program set in the terminal; fixed terminal themes ignore interface changes. `interfaceScale` (80–150% in steps of 10) is Chromium zoom: the window starts with it as `zoomFactor` and later changes use `setZoomFactor`. The window resizes with it in both directions (`src/main/window/window-scale.ts`): main remembers the window's size at 100% and sets the window to that size times the scale, capped to the display's usable area and moved back on screen if needed, so zooming in and back out restores the same size. A resize by the user sets a new size at 100%. On first launch, the window uses 60% of the primary display’s usable width and height. After a successful quit, main saves every window's normal bounds, display, maximized state and interface scale in `windows.json` in user data and restores them on connected displays, clamped to the current work area and minimum. The legacy `window-size.json` remains a fallback for the first window. Missing or invalid saved geometry uses the first-launch size. The minimum size (900 × 640 at 100%) scales too. Maximized and full-screen windows keep their size. Tiling window managers may ignore the resize; zoom still applies. Main handles the zoom keys before the terminal sees them: ⌘ =, − and 0 on macOS, and Ctrl+Shift+= / Ctrl+Shift+− and Ctrl+0 elsewhere, because plain Ctrl+− is readline's undo. A shortcut saves the new scale and sends `setup:changed` so preflight's controls follow. `terminalFontSize` is a separate validated integer setting (10–32 CSS pixels, default 14). Each mounted terminal controller reads it before its initial attachment, subscribes to `setup:changed`, and updates xterm options. Visible attachments refit and send an ID-scoped resize; hidden views use the new size on their next attachment. Disposal removes the subscription.
 
 Interface colors are independently stored as `interfaceTheme`: `follow` (default),
-a built-in ID, or a version 1 portable object with `name`, `base` and `colors`.
+a built-in ID, a `user:<filename>` ID, or a version 1 portable object with `name`, `base` and `colors`.
 Follow retains existing `colorMode` preferences and uses Eclipse Light/Dark; the
 Themes picker’s System choice sets both Follow and System. A `colorMode`-only save
 returns to Follow, while changing zoom or terminal settings retains the theme.
@@ -588,8 +588,7 @@ tokens and optionally accepts the paired
 `highlight` / `highlight-deep` decoration colors, falling back to accent / accent-deep.
 Fonts stay fixed and bundled. There are no CSS filenames,
 imports, URLs or arbitrary CSS values in theme data. See [brand](brand.md#interface-themes)
-for the numerical invariants. A future Foom-config loader can supply the same
-object through the existing settings validation; this change does not load files.
+for the numerical invariants. Custom files use the same gate, as described below.
 
 `renderer/ui/interface-theme.ts` subscribes to the setup source and system media
 changes, sets color tokens on the root element and removes its listeners on unmount.
@@ -1078,3 +1077,45 @@ is added. The bounded shell version probe is main-owned and cached.
 The read-only mockup reference is `docs/mockups/sidebar-panels.html`; its existing
 README entry describes these panels. Contributor rules keep that reference
 folder unchanged.
+
+
+## Custom theme files (#205)
+
+Main creates `~/.foom/config/themes/` for interface themes and
+`~/.foom/config/terminal-themes/` for terminal palettes, alongside sounds.
+`shared/theme-files.ts` is the platform-neutral parser for main and the future
+`foom config validate` command. Interface files contain exactly
+`{ "kind": "theme", "name": "…", "base": "light" | "dark", "colors": { … } }`.
+Colors require the original 19 interface tokens; `highlight` and `highlight-deep`
+are optional only as a pair. The existing contrast, violet accent, reserved amber
+and magenta, color-distance, background/base and black-hole rules all apply.
+
+Terminal files contain exactly `{ "kind": "terminal-theme", "name": "…",
+"background": "#rrggbb", "foreground": "#rrggbb", "cursor": "#rrggbb",
+"ansi": [16 colors] }`. ANSI order is black through white, then bright black
+through bright white. Selection uses ANSI bright black. Like built-in terminal
+palettes, arbitrary ANSI colors are permitted; interface status hue and contrast
+rules do not apply to terminal output. Every color in either format is an opaque
+six-digit hex value. Names are 1–40 letters, numbers, spaces, dots, underscores
+or hyphens, with at least one nonspace character. Unknown keys, including `id`,
+reject the whole file; files cannot choose or replace a built-in ID.
+
+`main/themes/library.ts` reads at most 50 named JSON files per folder, at most
+64 KiB each. Names are at most 100 characters, nonhidden and path-free. Reads
+inspect an open descriptor, reject nonregular files and links outside the direct
+folder, bound allocation, and recheck file and directory identity. Subfolders and
+redirected theme directories are refused. Folder failures produce fixed diagnostics.
+The folder watcher debounces changes for 250 ms, reloads serially and closes on
+shutdown. Parsed palettes and bounded diagnostics contain no absolute paths or
+raw file contents; diagnostics have a filename, JSON path and fixed reason code.
+They never echo parser exception messages or arbitrary unknown property names.
+
+Main keeps the last good palette for a rejected edit during the current session.
+A missing file disappears from the catalog. Invalid or missing selections after
+restart use Follow without overwriting the saved ID, and recover when a valid file
+returns. Built-ins precede custom themes; colliding names gain “(custom)”.
+`theme:list` and `theme:open-folder` validate the owning top frame and exact argument
+counts. Open accepts only the enumerated theme kind and chooses the folder in main.
+Updates travel through `setup:changed`; native backgrounds, interface tokens,
+terminal views and the headless terminal host receive the resolved colors. The
+sandboxed preload adds no runtime imports and CSP remains unchanged.

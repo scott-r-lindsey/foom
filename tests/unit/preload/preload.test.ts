@@ -175,6 +175,8 @@ test("workspace requests use their own channels", async () => {
 test("setup requests use their own channels and never read a key back", async () => {
   const api = await bridge();
   mock.invoke.mockResolvedValue("reply");
+  await expect(api.listThemes()).resolves.toBe("reply");
+  await api.openThemesFolder("theme");
   await expect(api.setupState()).resolves.toBe("reply");
   await api.saveSetup({ hooks: false });
   await api.setInferenceKey("openai", "sk-test");
@@ -182,6 +184,8 @@ test("setup requests use their own channels and never read a key back", async ()
   await api.cancelInferenceCheck("c1");
   await api.localModels("http://127.0.0.1:11434/v1");
   expect(mock.invoke.mock.calls).toEqual([
+    ["theme:list"],
+    ["theme:open-folder", "theme"],
     ["setup:state"],
     ["setup:save", { hooks: false }],
     ["setup:set-key", "openai", "sk-test"],

@@ -3,6 +3,7 @@ import type { SetupSource } from "./setup-source.d";
 export function createSetupSource(): SetupSource {
   const desktop = window.desktop;
   return {
+    openThemesFolder: (kind) => desktop.openThemesFolder(kind),
     state: () => desktop.setupState(),
     save: (patch) => desktop.saveSetup(patch),
     setKey: (provider, key) => desktop.setInferenceKey(provider, key),

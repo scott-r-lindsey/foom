@@ -1,4 +1,5 @@
-import { ThemeValidationError } from "./theme-validation";
+import type { ThemeCatalog } from "./theme-file";
+import { isUserThemeId, ThemeValidationError } from "./theme-validation";
 import type {
   InterfaceColor,
   InterfaceTheme,
@@ -279,6 +280,7 @@ export function validateInterfaceColors(palette: InterfaceTheme["colors"]): void
       fail(`$.colors.${foreground}`, "contrast");
 }
 export function parseInterfaceTheme(value: unknown): InterfaceThemeChoice {
+  if (isUserThemeId(value)) return value;
   if (typeof value === "string" && (value === "follow" || isInterfaceThemeId(value))) return value;
   if (
     !record(value) ||
@@ -296,14 +298,28 @@ export function parseInterfaceTheme(value: unknown): InterfaceThemeChoice {
     throw new ThemeValidationError("$.base", "invalid-value");
   return { version: 1, name: value["name"], base: value["base"], colors: { ...value["colors"] } };
 }
-export function resolveInterfaceTheme(choice: InterfaceThemeChoice, dark: boolean): InterfaceTheme {
-  return typeof choice !== "string"
-    ? choice
-    : interfaceThemes[choice === "follow" ? (dark ? "eclipse-dark" : "eclipse-light") : choice];
+export function resolveInterfaceTheme(
+  choice: InterfaceThemeChoice,
+  dark: boolean,
+  catalog?: ThemeCatalog,
+): InterfaceTheme {
+  if (typeof choice !== "string") return choice;
+  if (isUserThemeId(choice))
+    return (
+      catalog?.interface.find((entry) => entry.id === choice)?.theme ??
+      interfaceThemes[dark ? "eclipse-dark" : "eclipse-light"]
+    );
+  return interfaceThemes[choice === "follow" ? (dark ? "eclipse-dark" : "eclipse-light") : choice];
 }
 export function interfaceThemeSource(
   choice: InterfaceThemeChoice,
   mode: "system" | "light" | "dark",
+  catalog?: ThemeCatalog,
 ): "system" | "light" | "dark" {
-  return choice === "follow" ? mode : resolveInterfaceTheme(choice, false).base;
+  if (
+    choice === "follow" ||
+    (isUserThemeId(choice) && !catalog?.interface.some((entry) => entry.id === choice))
+  )
+    return mode;
+  return resolveInterfaceTheme(choice, false, catalog).base;
 }

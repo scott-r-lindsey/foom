@@ -1,3 +1,5 @@
+import type { ThemeCatalog } from "../../shared/theme-file";
+import { ThemeFilesStatus } from "./theme-files-status";
 import { useEffect, useState } from "react";
 import {
   ansiNames,
@@ -9,7 +11,11 @@ import type { Settings, SettingsPatch } from "../../shared/setup";
 export function TerminalThemePicker({
   settings,
   onChange,
+  catalog,
+  openFolder,
 }: {
+  catalog?: ThemeCatalog | undefined;
+  openFolder?: (() => Promise<void>) | undefined;
   settings: Settings;
   onChange: (patch: SettingsPatch) => void;
 }) {
@@ -24,12 +30,12 @@ export function TerminalThemePicker({
       media.removeEventListener("change", changed);
     };
   }, [media]);
-  const theme = resolveTerminalTheme(settings.terminalTheme, dark);
+  const theme = resolveTerminalTheme(settings.terminalTheme, dark, catalog);
   return (
     <div className="terminal-theme-settings">
       <div className="terminal-theme-choices" role="group" aria-label="Terminal colors">
-        {terminalThemeOptions.map((option) => {
-          const palette = resolveTerminalTheme(option.id, dark);
+        {[...terminalThemeOptions, ...(catalog?.terminal ?? [])].map((option) => {
+          const palette = resolveTerminalTheme(option.id, dark, catalog);
           return (
             <button
               type="button"
@@ -51,6 +57,7 @@ export function TerminalThemePicker({
         })}
         {typeof settings.terminalTheme !== "string" && <p>Custom theme</p>}
       </div>
+      <ThemeFilesStatus catalog={catalog} kind="terminal-theme" openFolder={openFolder} />
       <pre
         className="settings-terminal-preview"
         aria-label="Terminal theme preview"

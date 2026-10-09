@@ -131,3 +131,34 @@ test("user IDs accept only direct bounded JSON filenames", () => {
   ])
     expect(isUserThemeId(value)).toBe(false);
 });
+
+test("saved user choices resolve through catalogs and fall back without replacing the choice", async () => {
+  const { parseInterfaceTheme, resolveInterfaceTheme, interfaceThemeSource } = await import(
+    "../../../src/shared/interface-themes"
+  );
+  const { parseTerminalThemeChoice, resolveTerminalTheme } = await import(
+    "../../../src/shared/terminal-themes"
+  );
+  const catalog = {
+    interface: [{ id: "user:custom.json" as const, theme: interfaceThemes.moonlight }],
+    terminal: [{ id: "user:custom.json" as const, name: "Custom", theme: terminalThemes.dracula }],
+    errors: [],
+  };
+  expect(parseInterfaceTheme("user:custom.json")).toBe("user:custom.json");
+  expect(parseTerminalThemeChoice("user:custom.json")).toBe("user:custom.json");
+  for (const dark of [false, true]) {
+    expect(resolveInterfaceTheme("user:missing.json", dark, catalog)).toEqual(
+      interfaceThemes[dark ? "eclipse-dark" : "eclipse-light"],
+    );
+    expect(resolveTerminalTheme("user:missing.json", dark, catalog)).toEqual(
+      terminalThemes[dark ? "foom-dark" : "foom-light"],
+    );
+    expect(resolveInterfaceTheme("user:custom.json", dark, catalog)).toEqual(
+      interfaceThemes.moonlight,
+    );
+    expect(resolveTerminalTheme("user:custom.json", dark, catalog)).toEqual(terminalThemes.dracula);
+  }
+  expect(interfaceThemeSource("user:custom.json", "dark", catalog)).toBe("light");
+  expect(interfaceThemeSource("user:missing.json", "system", catalog)).toBe("system");
+  expect(interfaceThemeSource("user:missing.json", "dark")).toBe("dark");
+});

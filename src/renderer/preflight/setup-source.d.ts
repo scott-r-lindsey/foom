@@ -1,3 +1,4 @@
+import type { ThemeKind } from "../../shared/theme-file";
 import type { AgyPluginAction } from "../../shared/agy-plugin";
 import type {
   ApiProvider,
@@ -19,6 +20,7 @@ import type { Repository } from "../../shared/worktrees";
 
 /** What preflight needs from main. Components use this, never the bridge directly. */
 export interface SetupSource {
+  openThemesFolder(kind: ThemeKind): Promise<void>;
   state(): Promise<SetupState>;
   save(patch: SettingsPatch): Promise<SetupState>;
   setKey(provider: ApiProvider, key: string): Promise<SetupState>;

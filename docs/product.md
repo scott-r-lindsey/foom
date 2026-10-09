@@ -432,6 +432,15 @@ and Appearance System/Light/Dark controls return to the corresponding Eclipse
 appearance; changing interface size keeps the selected theme. Terminal color
 schemes remain independent; Follow interface uses the light/dark base.
 
+Appearance and Terminal list custom themes after the built-ins and offer **Open
+themes folder**. Add interface JSON files to `~/.foom/config/themes/` and terminal
+JSON files to `~/.foom/config/terminal-themes/`. New files and valid edits apply live,
+without restarting. Rejected files appear below the picker with a filename, JSON
+path and reason in failure styling. An invalid edit retains that theme's last good
+colors for the current session. A missing or invalid saved choice at startup uses
+Follow while retaining the choice; fixing its file restores the selection. Custom
+names matching a built-in receive “(custom)”. See the [file formats and limits](architecture.md#custom-theme-files-205).
+
 Every theme keeps amber for Needs you, magenta for Failed, and violet for activity.
 Needs you retains its halo, Failed its square light, and all states their labels.
 High Contrast provides at least 7:1 text contrast and stronger borders.
