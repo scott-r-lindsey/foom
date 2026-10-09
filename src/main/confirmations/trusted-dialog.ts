@@ -206,7 +206,7 @@ export class TrustedDialog {
   private readonly focusDialog = () => {
     if (this.pending && this.window) {
       this.window.focus();
-      // A reused macOS window can be key without its web view owning keyboard input.
+      // Give the web view keyboard input as well as activating its native window.
       this.window.webContents.focus();
     }
   };

@@ -10,6 +10,23 @@ test("focuses Cancel for every request, traps Tab, and renders untrusted content
   const off = vi.fn();
   const answer = vi.fn();
   const size = vi.fn();
+  const visibility = vi.spyOn(document, "visibilityState", "get").mockReturnValue("hidden");
+  const frames = new Map<number, FrameRequestCallback>();
+  let frameId = 0;
+  vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => {
+    frames.set(++frameId, callback);
+    return frameId;
+  });
+  vi.stubGlobal("cancelAnimationFrame", (id: number) => {
+    frames.delete(id);
+  });
+  const paint = () => {
+    const callbacks = [...frames.values()];
+    frames.clear();
+    act(() => {
+      for (const callback of callbacks) callback(0);
+    });
+  };
   const disconnect = vi.fn();
   let measure: () => void = () => undefined;
   vi.stubGlobal(
@@ -65,10 +82,16 @@ test("focuses Cancel for every request, traps Tab, and renders untrusted content
   expect(size).toHaveBeenCalledTimes(2);
   const cancel = view.getByRole("button", { name: "Cancel" });
   const accept = view.getByRole("button", { name: request.accept });
-  expect(document.activeElement).toBe(cancel);
-  // Model native activation selecting the first tab stop after the hidden page measured itself.
+  expect(frames.size).toBe(0);
+  // A hidden page must wait for reveal; native activation can pick the first tab stop.
   content.focus();
   fireEvent.focus(window);
+  expect(document.activeElement).toBe(content);
+  visibility.mockReturnValue("visible");
+  fireEvent(document, new Event("visibilitychange"));
+  fireEvent.focus(window);
+  expect(document.activeElement).toBe(content);
+  paint();
   expect(document.activeElement).toBe(cancel);
   fireEvent.keyDown(cancel, { key: "Tab" });
   expect(document.activeElement).toBe(accept);
@@ -101,6 +124,7 @@ test("focuses Cancel for every request, traps Tab, and renders untrusted content
       sessions: [{ id: "t", name: "shell", location: "/repo", state: "working" }],
     });
   });
+  paint();
   expect(document.activeElement).toBe(view.getByRole("button", { name: "Cancel" }));
   expect(view.getByRole("img", { name: "Working" })).toBeTruthy();
   expect(document.documentElement.style.colorScheme).toBe("dark");
@@ -124,5 +148,7 @@ test("focuses Cancel for every request, traps Tab, and renders untrusted content
   view.unmount();
   expect(off).toHaveBeenCalledOnce();
   expect(disconnect).toHaveBeenCalled();
+  expect(frames.size).toBe(0);
+  visibility.mockRestore();
   vi.unstubAllGlobals();
 });

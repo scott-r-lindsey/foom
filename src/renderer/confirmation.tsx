@@ -33,15 +33,28 @@ export function ConfirmationPage() {
   const requestId = request?.id;
   useEffect(() => {
     if (!requestId) return;
-    const focusCancel = () => {
-      cancelRef.current?.focus();
+    let frame: number | undefined;
+    const removeListeners = () => {
+      window.removeEventListener("focus", focusWhenVisible);
+      document.removeEventListener("visibilitychange", focusWhenVisible);
     };
-    focusCancel();
-    // The initial measurement happens hidden. Native activation can choose the
-    // first tab stop on macOS, so restore Cancel on this request's first focus.
-    window.addEventListener("focus", focusCancel, { once: true });
+    const focusWhenVisible = () => {
+      if (document.visibilityState !== "visible") return;
+      if (frame !== undefined) cancelAnimationFrame(frame);
+      // Native activation can select the first tab stop after a hidden page's
+      // focus event. Restore Cancel on its first visible paint, then leave focus alone.
+      frame = requestAnimationFrame(() => {
+        cancelRef.current?.focus();
+        removeListeners();
+      });
+    };
+    window.addEventListener("focus", focusWhenVisible);
+    document.addEventListener("visibilitychange", focusWhenVisible);
+    focusWhenVisible();
     return () => {
-      window.removeEventListener("focus", focusCancel);
+      window.removeEventListener("focus", focusWhenVisible);
+      document.removeEventListener("visibilitychange", focusWhenVisible);
+      if (frame !== undefined) cancelAnimationFrame(frame);
     };
   }, [requestId]);
   useEffect(() => {

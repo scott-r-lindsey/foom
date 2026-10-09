@@ -6236,6 +6236,11 @@ test("trusted card follows interface scale and clears its scrim on every dismiss
     .toBe(true);
   const longScan = await new AxeBuilder({ page: acceptPage }).setLegacyMode().analyze();
   assert.deepEqual(longScan.violations, []);
+  await assertConfirmationFocus(
+    app,
+    acceptPage,
+    acceptPage.getByRole("button", { name: "Cancel" }),
+  );
   await acceptPage.keyboard.press("Tab");
   await acceptPage.keyboard.press("Tab");
   await assertConfirmationFocus(
