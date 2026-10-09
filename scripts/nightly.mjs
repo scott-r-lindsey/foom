@@ -80,27 +80,65 @@ export async function publish({ github, context, directory = "nightly-packages" 
   }
   let previousSha;
   if (previous) {
-    const commit = await github.rest.repos.getCommit({ ...repo, ref: "nightly" });
-    previousSha = commit.data.sha;
-    if (!/^[a-f0-9]{40}$/.test(previousSha)) throw new Error("Invalid previous nightly commit");
-    if (previousSha === info.sha) return;
-    const comparison = await github.rest.repos.compareCommits({
-      ...repo,
-      base: previousSha,
-      head: info.sha,
-    });
-    if (comparison.data.status !== "ahead") return; // Never let a delayed run roll back nightly.
+    try {
+      previousSha = (await github.rest.repos.getCommit({ ...repo, ref: "nightly" })).data.sha;
+    } catch (error) {
+      if (error.status !== 404 || !previous.draft) throw error;
+    }
+    if (previousSha && !/^[a-f0-9]{40}$/.test(previousSha))
+      throw new Error("Invalid previous nightly commit");
+    if (previousSha && previousSha !== info.sha) {
+      const comparison = await github.rest.repos.compareCommits({
+        ...repo,
+        base: previousSha,
+        head: info.sha,
+      });
+      if (comparison.data.status !== "ahead") return;
+    }
   }
   const range = previousSha ? `${previousSha}..${info.sha}` : info.sha;
   const commits = execFileSync("git", ["log", "--first-parent", "--format=%h %s", range, "--"], {
     encoding: "utf8",
   });
   const opening = readFileSync("docs/nightly-opening.md", "utf8");
-  const body = `Commit: ${info.sha}\nCommit date: ${info.date}\nVersion: ${info.version}\n[CI run](${context.serverUrl}/${repo.owner}/${repo.repo}/actions/runs/${context.runId})\n\n${opening}\n\n## Main commits since the previous nightly\n\n${commits
+  const generatedBody = `Commit: ${info.sha}\nCommit date: ${info.date}\nVersion: ${info.version}\n[CI run](${context.serverUrl}/${repo.owner}/${repo.repo}/actions/runs/${context.runId})\n\n${opening}\n\n## Main commits since the previous nightly\n\n${commits
     .split("\n")
     .filter(Boolean)
     .map((line) => `- ${line.replaceAll("<", "&lt;").replaceAll(">", "&gt;")}`)
     .join("\n")}\n`;
+  // A retry after tag/notes update retains the original changelog.
+  const body =
+    previousSha === info.sha && previous?.body?.startsWith(`Commit: ${info.sha}\n`)
+      ? previous.body
+      : generatedBody;
+  await replaceAssets({ github, repo, previous, previousSha, info, packages, body });
+}
+
+export async function replaceAssets({ github, repo, previous, previousSha, info, packages, body }) {
+  const desired = [...packages, { name: "SHA256SUMS", data: Buffer.from(checksums(packages)) }];
+  const digest = (data) => `sha256:${createHash("sha256").update(data).digest("hex")}`;
+  const list = (id) =>
+    github.paginate(github.rest.repos.listReleaseAssets, {
+      ...repo,
+      release_id: id,
+      per_page: 100,
+    });
+  const oldAssets = previous ? await list(previous.id) : [];
+  const oldZips = packages.map((asset) => oldAssets.find((old) => old.name === asset.name));
+  const completeZips = oldZips.every((asset) => /^sha256:[a-f0-9]{64}$/.test(asset?.digest));
+  const oldSums = completeZips
+    ? Buffer.from(oldZips.map((asset) => `${asset.digest.slice(7)}  ${asset.name}\n`).join(""))
+    : null;
+  if (
+    previousSha === info.sha &&
+    !previous.draft &&
+    previous.prerelease &&
+    previous.body?.startsWith(`Commit: ${info.sha}\n`) &&
+    oldAssets.length === desired.length &&
+    oldSums &&
+    oldAssets.some((asset) => asset.name === "SHA256SUMS" && asset.digest === digest(oldSums))
+  )
+    return;
   const release =
     previous ??
     (
@@ -115,43 +153,107 @@ export async function publish({ github, context, directory = "nightly-packages" 
         make_latest: "false",
       })
     ).data;
-  const oldAssets = await github.paginate(github.rest.repos.listReleaseAssets, {
-    ...repo,
-    release_id: release.id,
-    per_page: 100,
-  });
-  // Upload the new ZIPs before removing the old set. A failed upload leaves the
-  // old tag and notes available; a rerun replaces only its own partial uploads.
-  for (const asset of [
-    ...packages,
-    { name: "SHA256SUMS", data: Buffer.from(checksums(packages)) },
-  ]) {
-    const collision = oldAssets.find((old) => old.name === asset.name);
-    if (collision) await github.rest.repos.deleteReleaseAsset({ ...repo, asset_id: collision.id });
-    await github.rest.repos.uploadReleaseAsset({
+  const remove = (id) => github.rest.repos.deleteReleaseAsset({ ...repo, asset_id: id });
+  const rename = (id, name) =>
+    github.rest.repos.updateReleaseAsset({ ...repo, asset_id: id, name });
+  const created = [];
+  const upload = async (asset) => {
+    const old = oldAssets.find((item) => item.name === asset.name);
+    if (old?.digest === digest(asset.data)) return old;
+    if (old) await remove(old.id);
+    const uploaded = (
+      await github.rest.repos.uploadReleaseAsset({
+        ...repo,
+        release_id: release.id,
+        name: asset.name,
+        data: asset.data,
+        headers: { "content-type": "application/octet-stream" },
+      })
+    ).data;
+    created.push(uploaded.id);
+    return uploaded;
+  };
+  // Stage every byte before touching the current checksums, tag or notes.
+  const uploaded = [];
+  const stagedName = `SHA256SUMS-${info.sha}`;
+  let staged;
+  const oldChecksum = oldAssets.find((asset) => asset.name === "SHA256SUMS");
+  let backedUp = false;
+  let swapped = false;
+  let tagChanged = false;
+  let notesAttempted = false;
+  try {
+    for (const asset of packages) uploaded.push(await upload(asset));
+    staged = await upload({ name: stagedName, data: Buffer.from(checksums(packages)) });
+    if (oldChecksum) {
+      await rename(oldChecksum.id, `SHA256SUMS-previous-${oldChecksum.id}`);
+      backedUp = true;
+    }
+    await rename(staged.id, "SHA256SUMS");
+    swapped = true;
+    if (previousSha)
+      await github.rest.git.updateRef({ ...repo, ref: "tags/nightly", sha: info.sha, force: true });
+    else await github.rest.git.createRef({ ...repo, ref: "refs/tags/nightly", sha: info.sha });
+    tagChanged = true;
+    notesAttempted = true;
+    await github.rest.repos.updateRelease({
       ...repo,
       release_id: release.id,
-      name: asset.name,
-      data: asset.data,
-      headers: { "content-type": "application/octet-stream" },
+      name: `Foom nightly ${info.day} (${info.short})`,
+      body,
+      draft: false,
+      prerelease: true,
+      make_latest: "false",
     });
+  } catch (error) {
+    // REST updates are not atomic. Restore the previous public metadata and
+    // checksum asset on a failed commit; report any rollback error as well.
+    const recovery = [];
+    const restore = async (action) => {
+      try {
+        await action();
+      } catch (failure) {
+        recovery.push(failure);
+      }
+    };
+    if (notesAttempted && previous)
+      await restore(() =>
+        github.rest.repos.updateRelease({
+          ...repo,
+          release_id: release.id,
+          name: previous.name,
+          body: previous.body,
+          draft: previous.draft,
+          prerelease: previous.prerelease,
+          make_latest: "false",
+        }),
+      );
+    if (tagChanged)
+      await restore(() =>
+        previousSha
+          ? github.rest.git.updateRef({
+              ...repo,
+              ref: "tags/nightly",
+              sha: previousSha,
+              force: true,
+            })
+          : github.rest.git.deleteRef({ ...repo, ref: "tags/nightly" }),
+      );
+    if (swapped) await restore(() => rename(staged.id, stagedName));
+    if (backedUp) await restore(() => rename(oldChecksum.id, "SHA256SUMS"));
+    if (recovery.length === 0) for (const id of created) await restore(() => remove(id));
+    if (recovery.length)
+      throw new AggregateError(
+        [error, ...recovery],
+        "Nightly publication and rollback failed; rerun to repair",
+        { cause: error },
+      );
+    throw error;
   }
-  if (previous)
-    await github.rest.git.updateRef({ ...repo, ref: "tags/nightly", sha: info.sha, force: true });
-  await github.rest.repos.updateRelease({
-    ...repo,
-    release_id: release.id,
-    name: `Foom nightly ${info.day} (${info.short})`,
-    body,
-    draft: false,
-    prerelease: true,
-    make_latest: "false",
-  });
-  for (const old of oldAssets.filter(
-    (old) => old.name !== "SHA256SUMS" && !packages.some((asset) => asset.name === old.name),
-  )) {
-    await github.rest.repos.deleteReleaseAsset({ ...repo, asset_id: old.id });
-  }
+  // Cleanup is resumable: an identical SHA is skipped only when metadata and
+  // the exact asset set are complete, including GitHub's SHA-256 digests.
+  const keep = new Set([...uploaded.map((asset) => asset.id), staged.id]);
+  for (const old of await list(release.id)) if (!keep.has(old.id)) await remove(old.id);
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {

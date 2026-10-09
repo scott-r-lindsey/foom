@@ -45,6 +45,15 @@ test("packaged utility host runs native PTYs with RunAsNode disabled", {
       ? path.join(root, "Foom.app", "Contents", "Resources")
       : path.join(root, "resources");
   const archive = path.join(resources, "app.asar");
+  const packagedVersion = JSON.parse(extractFile(archive, "package.json").toString()).version;
+  assert.equal(packagedVersion, require("../../package.json").version);
+  const consoleManifest = JSON.parse(
+    readFileSync(
+      path.join(resources, "app.asar.unpacked", "build", "console", "manifest.json"),
+      "utf8",
+    ),
+  );
+  assert.equal(consoleManifest.version, packagedVersion, "GUI and console share the build version");
   for (const name of ["codex-v1.sh", "codex-v1.ps1"]) {
     const observer = path.join(resources, "app.asar.unpacked", "build", "observers", name);
     assert.ok(

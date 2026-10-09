@@ -25,9 +25,9 @@ permissions:
   contents: read
 
 concurrency:
-  # Manual runs must not cancel a run in progress.
-  group: ci-${{ github.workflow }}-${{ github.event_name == 'workflow_dispatch' && github.run_id || github.ref }}
-  cancel-in-progress: true
+  # Scheduled/manual runs have isolated groups so pushes cannot interrupt publication.
+  group: ci-${{ github.workflow }}-${{ (github.event_name == 'workflow_dispatch' || github.event_name == 'schedule') && github.run_id || github.ref }}
+  cancel-in-progress: ${{ github.event_name != 'schedule' && github.event_name != 'workflow_dispatch' }}
 
 env:
   HUSKY: '0'
