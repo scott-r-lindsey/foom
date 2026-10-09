@@ -6,11 +6,11 @@ const mock = vi.hoisted(() => ({
   send: vi.fn(),
 }));
 vi.mock("electron", () => ({ contextBridge: mock, ipcRenderer: mock }));
-test("buffers main's request before React subscribes and exposes only render and answer", async () => {
+test("buffers main's request before React subscribes and exposes only rendering, size and answer", async () => {
   await import("../../../src/preload/confirmation");
   const api = mock.exposeInMainWorld.mock.calls[0]?.[1];
   if (!api) throw Error("Missing API");
-  expect(Object.keys(api)).toEqual(["render", "answer"]);
+  expect(Object.keys(api)).toEqual(["render", "size", "answer"]);
   const listener = mock.on.mock.calls[0]?.[1];
   const request = { id: "one" };
   listener?.({}, request);
@@ -19,6 +19,8 @@ test("buffers main's request before React subscribes and exposes only render and
   expect(render).toHaveBeenCalledWith(request);
   listener?.({}, null);
   expect(render).toHaveBeenLastCalledWith(null);
+  api.size({ width: 440, height: 240 });
+  expect(mock.send).toHaveBeenCalledWith("confirmation:size", { width: 440, height: 240 });
   api.answer("one", false);
   expect(mock.send).toHaveBeenCalledWith("confirmation:answer", "one", false);
   dispose();

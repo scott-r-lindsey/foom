@@ -17,6 +17,8 @@ export function App() {
       ? createSampleSource()
       : createAppSource(),
   );
+  const [scrim, setScrim] = useState(false);
+  useEffect(() => source.confirmations?.onScrim?.(setScrim), [source]);
   const [setup] = useState(createSetupSource);
   useEffect(() => attachInterfaceTheme(setup), [setup]);
   const [state, setState] = useState<SetupState>();
@@ -82,6 +84,16 @@ export function App() {
               />
             ) : undefined
           }
+        />
+      )}
+      {scrim && (
+        <div
+          className="board-confirmation-scrim"
+          aria-hidden="true"
+          popover="manual"
+          ref={(element) => {
+            element?.showPopover();
+          }}
         />
       )}
     </>

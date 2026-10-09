@@ -205,7 +205,8 @@ worktree lists the exact uncommitted status from Git and offers **Cancel** and
 **Discard N changes and remove**. Quitting with live terminals lists each session,
 its status light and location, then **Cancel** and **Stop all and quit**. Cancel is
 focused initially; Escape cancels, Tab stays within the dialog and Enter activates
-the focused button. The window covers the board with a theme-based backdrop and returns focus on dismissal.
+the focused button. The card-sized window follows Interface scale and stays centered on the board’s content.
+The board stays visible under a translucent scrim and regains focus on dismissal.
 It remains usable if the board renderer crashes or hangs. Confirmation buttons
 use solid ink; amber and magenta retain their status meanings.
 

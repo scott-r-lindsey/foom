@@ -279,6 +279,9 @@ Every channel checks the sender (a registered app window, its main frame, `app:/
 | `workspace:worktrees` | renderer → main (invoke) | added repository path → worktrees |
 | `workspace:create-worktree` | renderer → main (invoke) | repository path, branch, `root` / `adjacent` → worktree |
 | `workspace:start` | renderer → main (invoke) | `{ repository, branch, run, acknowledgeCodexNotifierReplacement }` → terminal ID or null on cancellation |
+| `confirmation:scrim` | main → requesting board | boolean visibility only; cosmetic dimming, no dialog content or approval capability |
+| `confirmation:size` | trusted renderer → main | finite positive `{ width, height }` in CSS pixels; exact trusted main frame, URL and pending request required; zoomed and clamped to parent content and display work area |
+| `confirmation:answer` | trusted renderer → main | request ID and boolean; exact trusted window, main frame, URL and pending ID required |
 | `workspace:remove` | renderer → main (invoke) | terminal ID → boolean; main owns confirmation and dirty-file inspection |
 | `agents:scan` | renderer → main (invoke) | `refresh` → `{ warning, agents }` (no PATH) |
 | `agents:launch` | renderer → main (invoke) | `{ agent, repository, worktree, cols, rows, acknowledgeCodexNotifierReplacement? }` → `{ id, attention }` or null on cancellation |
@@ -331,17 +334,27 @@ the board has crashed or hung. Do not move its initialization into the renderer 
 lazy-load it on quit. With no macOS boards, quit opens a board and its trusted
 child before asking for confirmation.
 A separate in-memory session and `app://confirmation/confirmation.html` origin
-isolate its renderer process from the board. The window covers the parent's bounds;
-its page centers a raised card over an opaque theme-derived backdrop. It covers
-rather than composites the board, avoiding black transparent windows on Linux
-without a compositor. Native `modal` is false to avoid macOS sheet presentation;
-main disables parent input, redirects parent focus to the child, follows parent
-move/resize events while pending, then removes listeners and restores input and
-focus on dismissal. Positioning remains subject to window-manager restrictions
-(for example native Wayland). Quit approval does not need the board to render.
+isolate its renderer process from the board. The opaque frameless window contains only
+its raised card, with a native shadow and platform rounding where supported (square
+corners on Linux). The board draws a cosmetic translucent scrim in the top layer, covering any open
+board form, from the boolean-only
+`confirmation:scrim` notification. Hiding or failing to draw it grants nothing.
+Native `modal` is false to avoid macOS sheet presentation; main disables parent input
+and redirects parent focus to the child. The page uses a ResizeObserver to report
+natural card dimensions in CSS pixels via `confirmation:size`. Main accepts only
+finite positive sizes from the trusted main frame at the exact confirmation URL,
+while a request is pending. It multiplies by the board zoom, clamps to the parent's
+content area less a 24-DIP margin and the display work area, and centers the card on
+the content bounds. The card's content scrolls when constrained. Main shows the
+window only after its first valid measurement and reapplies positioning after show.
+Theme and Interface scale updates reach the dialog while pending; parent move,
+resize, maximize, unmaximize and restore events recenter it. Dismissal removes
+listeners, clears the scrim, and restores input and focus. Positioning remains
+subject to window-manager restrictions (for example native Wayland). Quit approval
+does not need the board to render.
 Main serializes requests, supplies the current
 resolved theme and content, and gives each request a new ID. Its sandboxed preload
-exposes only request rendering and answering; it buffers the request until the page
+exposes only request rendering, sizing and answering; it buffers the request until the page
 subscribes. `confirmation:answer` validates the exact window, top frame, URL,
 request ID and boolean. Board frames, stale IDs and malformed answers are ignored.
 Closing, renderer failure and disposal cancel. A failed window is recreated for
@@ -351,7 +364,8 @@ The trusted session denies permissions and navigation, blocks new windows and
 webviews, and serves only its page, script, styles and bundled fonts. Context
 isolation and sandboxing stay enabled; Node integration stays disabled. Its CSP
 matches the board's restrictions. React renders titles, filenames and session
-metadata as text. The page traps focus between Cancel and the confirming button,
+metadata as text. The page traps focus within Cancel, the confirming button and (when scrolling)
+the content region,
 handles Escape, focuses Cancel for every request, and respects reduced motion.
 Quit inventories live terminals in main, including shells outside the workspace
 snapshot; it does not query the board. Renderer loss immediately releases a pending terminal view flush; a crashed board

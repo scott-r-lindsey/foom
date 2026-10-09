@@ -1,4 +1,39 @@
 const { gitSync: isolatedGit } = require("../helpers/git.js");
+// Opt-in native-window evidence on the isolated Linux test display (ImageMagick).
+function captureConfirmationDesktop(name) {
+  if (process.platform === "linux" && process.env.FOOM_CONFIRMATION_SCREENSHOTS === "1") {
+    require("node:child_process").execFileSync("import", [
+      "-window",
+      "root",
+      `test-results/confirmation-${name}-desktop.png`,
+    ]);
+  }
+}
+
+async function assertConfirmationFocus(app, page, locator) {
+  try {
+    await expect(locator).toBeFocused();
+  } catch (error) {
+    console.error("Confirmation focus diagnostics:", {
+      page: await page.evaluate(() => ({
+        focused: document.hasFocus(),
+        visibility: document.visibilityState,
+        active: document.activeElement?.outerHTML.slice(0, 240),
+      })),
+      windows: await app.evaluate(({ BrowserWindow }) =>
+        BrowserWindow.getAllWindows().map((window) => ({
+          url: window.webContents.getURL(),
+          visible: window.isVisible(),
+          focused: window.isFocused(),
+          contentsFocused: window.webContents.isFocused(),
+          enabled: window.isEnabled(),
+        })),
+      ),
+    });
+    throw error;
+  }
+}
+
 async function boardPage(app) {
   let page;
   await expect
@@ -2779,7 +2814,25 @@ test("new worktree dialog launches by keyboard and confirms dirty removal", {
   const confirmation = await confirmationPage(app);
   await expect(confirmation.getByLabel("Uncommitted changes")).toContainText("unsaved.txt");
   await expect(confirmation.getByRole("button", { name: "Cancel" })).toBeFocused();
+  await expect(page.locator(".board-confirmation-scrim")).toBeVisible();
+  for (const colorMode of ["light", "dark"]) {
+    await page.evaluate((colorMode) => window.desktop.saveSetup({ colorMode }), colorMode);
+    await expect
+      .poll(() => confirmation.evaluate(() => document.documentElement.style.colorScheme))
+      .toBe(colorMode);
+    await mkdir("test-results", { recursive: true });
+    await confirmation.screenshot({
+      path: `test-results/confirmation-dirty-${colorMode}.png`,
+      animations: "disabled",
+    });
+    await page.screenshot({
+      path: `test-results/confirmation-dirty-board-${colorMode}.png`,
+      animations: "disabled",
+    });
+    captureConfirmationDesktop(`dirty-${colorMode}`);
+  }
   await confirmation.keyboard.press("Enter");
+  await expect(page.locator(".board-confirmation-scrim")).toHaveCount(0);
   await expect(confirmation.getByRole("alertdialog")).toHaveCount(0);
   assert.equal(await readFile(dirty, "utf8"), "preserve unless confirmed");
   await expect(row).toBeVisible();
@@ -2787,6 +2840,7 @@ test("new worktree dialog launches by keyboard and confirms dirty removal", {
   await page.getByRole("menuitem", { name: "Delete worktree…" }).click();
   await confirmation.getByRole("button", { name: "Discard 1 change and remove" }).click();
   await expect(row).toHaveCount(0);
+  await expect(page.locator(".board-confirmation-scrim")).toHaveCount(0);
   await assert.rejects(readFile(dirty), { code: "ENOENT" });
   await page.locator(".board-row").filter({ hasText: "feature/remaining" }).click();
   await expect(page.locator(".tile-terminal")).toBeVisible();
@@ -4387,6 +4441,7 @@ test("trusted quit dialog isolates answers, passes axe in both themes and surviv
     await board.evaluate((colorMode) => window.desktop.saveSetup({ colorMode }), colorMode);
     await app.evaluate(({ app }) => app.quit());
     await expect(dialog.getByRole("alertdialog")).toBeVisible();
+    await expect(board.locator(".board-confirmation-scrim")).toBeVisible();
     const bounds = await app.evaluate(({ BrowserWindow }) => {
       const parent = BrowserWindow.getAllWindows().find(
         (window) => window.webContents.getURL() === "app://bundle/index.html",
@@ -4411,7 +4466,16 @@ test("trusted quit dialog isolates answers, passes axe in both themes and surviv
           const child = BrowserWindow.getAllWindows().find(
             (window) => window.webContents.getURL() === "app://confirmation/confirmation.html",
           );
-          return JSON.stringify(parent.getBounds()) === JSON.stringify(child.getBounds());
+          const p = parent.getContentBounds();
+          const c = child.getBounds();
+          return (
+            c.x >= p.x &&
+            c.y >= p.y &&
+            c.x + c.width <= p.x + p.width &&
+            c.y + c.height <= p.y + p.height &&
+            Math.abs(c.x + c.width / 2 - p.x - p.width / 2) <= 1 &&
+            Math.abs(c.y + c.height / 2 - p.y - p.height / 2) <= 1
+          );
         }),
       )
       .toBe(true);
@@ -4434,21 +4498,27 @@ test("trusted quit dialog isolates answers, passes axe in both themes and surviv
         true,
       );
     }, id);
-    await expect(dialog.getByRole("button", { name: "Cancel" })).toBeFocused();
+    await assertConfirmationFocus(app, dialog, dialog.getByRole("button", { name: "Cancel" }));
     assert.equal(await board.evaluate(() => "confirmation" in window), false);
     await mkdir("test-results", { recursive: true });
     await dialog.screenshot({
       path: `test-results/confirmation-${colorMode}.png`,
       animations: "disabled",
     });
+    await board.screenshot({
+      path: `test-results/confirmation-board-${colorMode}.png`,
+      animations: "disabled",
+    });
+    captureConfirmationDesktop(`quit-${colorMode}`);
     const scan = await new AxeBuilder({ page: dialog }).setLegacyMode().analyze();
     assert.deepEqual(scan.violations, []);
     await dialog.keyboard.press("Tab");
     await expect(dialog.getByRole("button", { name: "Stop all and quit" })).toBeFocused();
     await dialog.keyboard.press("Tab");
-    await expect(dialog.getByRole("button", { name: "Cancel" })).toBeFocused();
+    await assertConfirmationFocus(app, dialog, dialog.getByRole("button", { name: "Cancel" }));
     await dialog.keyboard.press("Escape");
     await expect(dialog.getByRole("alertdialog")).toHaveCount(0);
+    await expect(board.locator(".board-confirmation-scrim")).toHaveCount(0);
     await app.evaluate(({ BrowserWindow }, bounds) => {
       const parent = BrowserWindow.getAllWindows().find(
         (window) => window.webContents.getURL() === "app://bundle/index.html",
@@ -6005,4 +6075,213 @@ test("custom theme files appear live, update selected colors and retain rejected
     "rgb(16, 16, 16)",
   );
   await page.screenshot({ path: path.join(__dirname, "../../test-results/custom-theme.png") });
+});
+
+test("trusted card follows interface scale and clears its scrim on every dismissal", {
+  timeout: deadline(45000),
+}, async (context) => {
+  const app = await launchApp(context);
+  const board = await boardPage(app);
+  let dialog = await confirmationPage(app);
+  for (const interfaceScale of [125, 80]) {
+    await board.evaluate(
+      (interfaceScale) =>
+        window.desktop.saveSetup({ interfaceScale: interfaceScale === 125 ? 120 : interfaceScale }),
+      interfaceScale,
+    );
+    await board.evaluate(() => {
+      const modal = document.createElement("dialog");
+      modal.id = "scrim-test-modal";
+      modal.textContent = "An existing board dialog";
+      document.body.append(modal);
+      modal.showModal();
+    });
+    // Settings currently offers 10% steps; exercise the requested fractional zoom in main.
+    if (interfaceScale === 125)
+      await app.evaluate(({ BrowserWindow }) => {
+        BrowserWindow.getAllWindows()
+          .find((w) => w.webContents.getURL() === "app://bundle/index.html")
+          .webContents.setZoomFactor(1.25);
+      });
+    await app.evaluate(({ app }) => app.quit());
+    await expect(dialog.getByRole("alertdialog")).toBeVisible();
+    await expect(board.locator(".board-confirmation-scrim")).toBeVisible();
+    await expect
+      .poll(() =>
+        app.evaluate(({ BrowserWindow }) => {
+          const parent = BrowserWindow.getAllWindows().find(
+            (w) => w.webContents.getURL() === "app://bundle/index.html",
+          );
+          const child = BrowserWindow.getAllWindows().find(
+            (w) => w.webContents.getURL() === "app://confirmation/confirmation.html",
+          );
+          return {
+            zoom: child.webContents.getZoomFactor(),
+            boardZoom: parent.webContents.getZoomFactor(),
+            width: child.getBounds().width,
+          };
+        }),
+      )
+      .toEqual({
+        zoom: interfaceScale / 100,
+        boardZoom: interfaceScale / 100,
+        width: (440 * interfaceScale) / 100,
+      });
+    await expect(board.locator(".board-confirmation-scrim:popover-open")).toHaveCount(1);
+    const scaledHeight = await app.evaluate(
+      ({ BrowserWindow }) =>
+        BrowserWindow.getAllWindows()
+          .find((w) => w.webContents.getURL() === "app://confirmation/confirmation.html")
+          .getBounds().height,
+    );
+    // A settings change while open must update the existing trusted renderer, too.
+    await board.evaluate(() =>
+      window.desktop.saveSetup({ interfaceScale: 100, colorMode: "dark" }),
+    );
+    await expect
+      .poll(() =>
+        dialog.evaluate(() => ({
+          width: innerWidth,
+          theme: document.documentElement.style.colorScheme,
+        })),
+      )
+      .toEqual({ width: 440, theme: "dark" });
+    await expect
+      .poll(() =>
+        app.evaluate(
+          ({ BrowserWindow }, scaledHeight) => {
+            const child = BrowserWindow.getAllWindows().find(
+              (w) => w.webContents.getURL() === "app://confirmation/confirmation.html",
+            );
+            return (
+              Math.abs(child.getBounds().height - scaledHeight.height / scaledHeight.zoom) <= 2
+            );
+          },
+          { height: scaledHeight, zoom: interfaceScale / 100 },
+        ),
+      )
+      .toBe(true);
+    await dialog.getByRole("button", { name: "Cancel" }).click();
+    await expect(board.locator(".board-confirmation-scrim")).toHaveCount(0);
+    await board.evaluate(() => document.getElementById("scrim-test-modal").remove());
+  }
+  // Exercise the same main-only API used by aborted control requests without granting the board access.
+  const mainModule = path.resolve("build/main/confirmations/trusted-dialog.js");
+  await app.evaluate(({ BrowserWindow, session }, mainModule) => {
+    const load = process.getBuiltinModule("node:module").createRequire(mainModule);
+    const { TrustedDialog } = load(mainModule);
+    const { resolveInterfaceTheme } = load("../../shared/interface-themes.js");
+    const parent = BrowserWindow.getAllWindows().find(
+      (w) => w.webContents.getURL() === "app://bundle/index.html",
+    );
+    globalThis.testConfirmation = new TrustedDialog(
+      parent,
+      session.fromPartition("confirmation"),
+      () => resolveInterfaceTheme("follow", false),
+    );
+    globalThis.testAbort = new AbortController();
+    globalThis.testAnswer = undefined;
+    void globalThis.testConfirmation
+      .request({ title: "Abort test", accept: "Accept" }, globalThis.testAbort.signal)
+      .then((answer) => {
+        globalThis.testAnswer = answer;
+      });
+  }, mainModule);
+  await expect
+    .poll(async () => {
+      const windows = app.windows();
+      for (const page of windows)
+        if (await page.getByRole("alertdialog", { name: "Abort test" }).count()) return true;
+      return false;
+    })
+    .toBe(true);
+  await expect(board.locator(".board-confirmation-scrim")).toBeVisible();
+  await app.evaluate(() => globalThis.testAbort.abort());
+  await expect(board.locator(".board-confirmation-scrim")).toHaveCount(0);
+  await expect.poll(() => app.evaluate(() => globalThis.testAnswer)).toBe(false);
+  await app.evaluate(() => {
+    globalThis.testAnswer = undefined;
+    void globalThis.testConfirmation
+      .request({
+        title: "Accept test",
+        accept: "Accept",
+        changes: "?? changed.txt\0".repeat(80),
+        sessions: [
+          { id: "needs", name: "Needs attention", location: "repo", state: "needs_input" },
+          { id: "failed", name: "Failed session", location: "repo", state: "failed" },
+        ],
+      })
+      .then((answer) => {
+        globalThis.testAnswer = answer;
+      });
+  });
+  let acceptPage;
+  await expect
+    .poll(async () => {
+      for (const page of app.windows())
+        if (await page.getByRole("alertdialog", { name: "Accept test" }).count()) {
+          acceptPage = page;
+          return true;
+        }
+      return false;
+    })
+    .toBe(true);
+  await expect(board.locator(".board-confirmation-scrim")).toBeVisible();
+  await expect
+    .poll(() =>
+      acceptPage
+        .locator(".confirmation-content")
+        .evaluate((element) => element.scrollHeight > element.clientHeight),
+    )
+    .toBe(true);
+  const longScan = await new AxeBuilder({ page: acceptPage }).setLegacyMode().analyze();
+  assert.deepEqual(longScan.violations, []);
+  await assertConfirmationFocus(
+    app,
+    acceptPage,
+    acceptPage.getByRole("button", { name: "Cancel" }),
+  );
+  await acceptPage.keyboard.press("Tab");
+  await acceptPage.keyboard.press("Tab");
+  await assertConfirmationFocus(
+    app,
+    acceptPage,
+    acceptPage.getByRole("region", { name: "Details" }),
+  );
+  const cues = await acceptPage.evaluate(() => ({
+    failed: getComputedStyle(document.querySelector('[data-state="failed"]')).borderRadius,
+    attention: getComputedStyle(document.querySelector('[data-state="needs_input"]')).boxShadow,
+  }));
+  assert.equal(cues.failed, "0px");
+  assert.notEqual(cues.attention, "none");
+  await acceptPage.getByRole("button", { name: "Accept", exact: true }).click();
+  await expect(board.locator(".board-confirmation-scrim")).toHaveCount(0);
+  await expect.poll(() => app.evaluate(() => globalThis.testAnswer)).toBe(true);
+  await app.evaluate(() => globalThis.testConfirmation.dispose());
+  await app.evaluate(({ app }) => app.quit());
+  await expect(dialog.getByRole("alertdialog")).toBeVisible();
+  const dialogPid = await app.evaluate(({ BrowserWindow }) => {
+    const contents = BrowserWindow.getAllWindows().find(
+      (w) => w.webContents.getURL() === "app://confirmation/confirmation.html",
+    ).webContents;
+    globalThis.confirmationCrash = null;
+    contents.once("render-process-gone", (_event, details) => {
+      globalThis.confirmationCrash = details.reason;
+    });
+    return contents.getOSProcessId();
+  });
+  assert.ok(Number.isInteger(dialogPid) && dialogPid > 0, "Trusted renderer PID must be valid");
+  // Unlike a renderer-directed crash request, this also kills an unresponsive renderer.
+  // Target only this fixture's trusted process and wait for main to observe its loss.
+  process.kill(dialogPid, "SIGKILL");
+  await expect
+    .poll(() => app.evaluate(() => globalThis.confirmationCrash))
+    .toMatch(/^(crashed|killed)$/);
+  await expect(board.locator(".board-confirmation-scrim")).toHaveCount(0);
+  await app.evaluate(({ app }) => app.quit());
+  dialog = await confirmationPage(app);
+  await expect(dialog.getByRole("alertdialog")).toBeVisible();
+  await quitAndWait(app, async () => {
+    await dialog.getByRole("button", { name: "Stop all and quit" }).click();
+  });
 });

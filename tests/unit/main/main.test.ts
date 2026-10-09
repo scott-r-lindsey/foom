@@ -29,6 +29,7 @@ import type { WorkspaceDependencies } from "../../../src/main/workspace/workspac
 import type { DialogContent } from "../../../src/shared/confirmation";
 vi.mock("../../../src/main/confirmations/trusted-dialog", () => ({
   TrustedDialog: class {
+    refresh = vi.fn();
     request: (content: unknown) => Promise<boolean>;
     constructor(parent: unknown, _session: unknown, theme: () => unknown) {
       theme();
