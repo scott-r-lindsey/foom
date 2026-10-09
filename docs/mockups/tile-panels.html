@@ -92,7 +92,8 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .tile.needs { border-color: var(--attention); }
 .tile.behind { opacity: 0; pointer-events: none; }
 .tile.front { z-index: 3; }
-/* Title bar: light, badge, location, name, then number (opens the panel), maximize, close. */
+/* Title bar: light, badge, location, name, then the tile menu (number and chevron), maximize,
+   and hide, which becomes close once the session has exited. */
 .tb { display: flex; align-items: center; gap: 8px; height: 30px; flex-shrink: 0; padding: 0 4px 0 10px; background: #0d0a17; border-bottom: 1px solid var(--term-line); color: #9d93bd; font: 12px var(--mono); user-select: none; }
 .tile.focus .tb { background: #15111f; color: var(--term-ink); }
 .tb .badge { background: #3a3060; color: #f4efff; height: 18px; }
@@ -102,7 +103,10 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .tb .grow { flex: 1; }
 .tb button { flex-shrink: 0; height: 22px; padding: 0; display: grid; place-items: center; background: transparent; border: 1px solid transparent; border-radius: 5px; color: #9d93bd; }
 .tb button:hover { background: #1c1632; color: #f4efff; }
-.tb .no { min-width: 22px; padding: 0 5px; border-color: #251d3f; font: 11px var(--mono); }
+.tb .no { display: flex; gap: 3px; min-width: 22px; padding: 0 3px 0 6px; border-color: #251d3f; font: 11px var(--mono); }
+.tb .no svg { width: 10px; height: 10px; stroke-width: 1.6; color: #6a6188; transition: transform 120ms ease, color 120ms ease; }
+.tb .no:hover svg, .tile.focus .tb .no svg { color: currentColor; }
+.tb .no[aria-expanded="true"] svg { transform: rotate(180deg); }
 .tile.focus .tb .no { border-color: var(--term-acc); color: #f4efff; }
 .tb .no[aria-expanded="true"] { background: #2a2147; border-color: var(--term-acc); color: #f4efff; }
 .tb .ctl { width: 24px; opacity: 0; transition: opacity 120ms ease; }
@@ -190,7 +194,7 @@ button { font: inherit; color: inherit; cursor: pointer; }
 </div>
 </div>
 <div class="mock">
-  <span id="note">Click a tile number for its panel, or right-click a title bar.</span>
+  <span id="note">Tile menu: the number, or right-click a title bar. Tile 3 in “four terminals” has exited.</span>
   <select id="scene" aria-label="Mockup: layout">
     <option value="space">Layout: two terminals and a space</option>
     <option value="one">Layout: one terminal</option>
@@ -215,7 +219,7 @@ const sessions = [
     out: `<span class="t-acc">●</span> The board now dims itself; the trusted window is only the card.\n\n  PR #221 is open as a draft.\n\n<span class="t-dim">✳ Done</span>\n` },
   { id: "e", agent: "codex", name: "Nightly notes", repo: "foom", branch: "issue-207", light: "quiet", reason: "Quiet",
     out: `<span class="t-dim">•</span> Waiting for your next message.\n` },
-  { id: "f", agent: "agy", name: "Theme files", repo: "foom", branch: "issue-205", light: "done", reason: "Exited 0",
+  { id: "f", agent: "agy", name: "Theme files", repo: "foom", branch: "issue-205", light: "done", reason: "Exited 0", exited: true,
     out: `<span class="t-dim">Session ended.</span>\n` },
 ];
 const byId = (id) => sessions.find((s) => s.id === id);
@@ -226,7 +230,7 @@ const split = (dir, a, b, ratio = 0.5) => ({ leaf: false, id: "n" + uid++, dir, 
 const SCENES = {
   space: () => split("row", leaf("a"), split("col", leaf("b"), leaf()), 0.55),
   one: () => leaf("a"),
-  four: () => split("row", split("col", leaf("a"), leaf("b")), split("col", leaf("c"), leaf("d"))),
+  four: () => split("row", split("col", leaf("a"), leaf("b")), split("col", leaf("f"), leaf("d"))),
   spaces: () => split("row", split("col", leaf("a"), leaf()), split("col", leaf("b"), split("row", leaf("c"), leaf()), 0.6)),
 };
 let tree, focused, maximized = null, panel = null;
@@ -325,6 +329,8 @@ const ICON = {
   max: `<svg viewBox="0 0 14 14"><path d="M8.5 2.5h3v3M5.5 11.5h-3v-3M11.5 2.5L8 6M2.5 11.5L6 8"/></svg>`,
   restore: `<svg viewBox="0 0 14 14"><path d="M4 7h3v3M10 7H7V4M7 7L2.5 11.5M7 7l4.5-4.5"/></svg>`,
   close: `<svg viewBox="0 0 14 14"><path d="M3.5 3.5l7 7M10.5 3.5l-7 7"/></svg>`,
+  hide: `<svg viewBox="0 0 14 14"><path d="M3 10.5h8"/></svg>`,
+  menu: `<svg viewBox="0 0 10 10"><path d="M2.5 4l2.5 2.5L7.5 4"/></svg>`,
 };
 let geometry = [];
 
@@ -386,9 +392,11 @@ function renderTile(el, l, behind, full) {
       <span class="loc">${s.repo} › ${s.branch}</span>
       <span class="name">${s.name}</span>
       <span class="grow"></span>
-      <button type="button" class="no" data-act="panel" aria-haspopup="dialog" aria-expanded="${open}" title="Tile ${numberOf(l)}">${numberOf(l)}</button>
+      <button type="button" class="no" data-act="panel" aria-haspopup="dialog" aria-expanded="${open}" aria-label="Tile ${numberOf(l)} menu" title="Tile ${numberOf(l)} menu">${numberOf(l)}${ICON.menu}</button>
       <button type="button" class="ctl" data-act="max" aria-label="${full ? "Restore tile" : "Maximize tile"}" title="${full ? "Restore tile" : "Maximize tile"}">${full ? ICON.restore : ICON.max}</button>
-      <button type="button" class="ctl" data-act="close" aria-label="Close tile" title="Close tile">${ICON.close}</button>
+      ${s.exited
+        ? `<button type="button" class="ctl" data-act="close" aria-label="Close" title="Close">${ICON.close}</button>`
+        : `<button type="button" class="ctl" data-act="hide" aria-label="Hide" title="Hide">${ICON.hide}</button>`}
     </header><div class="out">${s.out}<span class="cursor"></span></div>`;
 }
 
@@ -417,6 +425,7 @@ const DIAGRAM = {
   restore: `<svg viewBox="0 0 18 18"><rect x="2" y="3" width="14" height="12" rx="1.5"/><path d="M6 9h3v3M12 9H9V6"/></svg>`,
   popout: `<svg viewBox="0 0 18 18"><path d="M8 4H3.5A1.5 1.5 0 0 0 2 5.5v8A1.5 1.5 0 0 0 3.5 15h8a1.5 1.5 0 0 0 1.5-1.5V10M10 2.5h5.5V8M15.5 2.5L8.5 9.5"/></svg>`,
   close: `<svg viewBox="0 0 18 18"><rect x="2" y="3" width="14" height="12" rx="1.5"/><path d="M6.5 6.5l5 5M11.5 6.5l-5 5"/></svg>`,
+  hide: `<svg viewBox="0 0 18 18"><rect x="2" y="3" width="14" height="12" rx="1.5"/><path d="M6 12h6"/></svg>`,
 };
 function openPanel(l, at) {
   panel = { id: l.id, at };
@@ -446,7 +455,7 @@ function renderPanel() {
     ["max", full ? "Restore" : "Maximize", full ? DIAGRAM.restore : DIAGRAM.max, null, "⇧⌘↵"],
     ["popout", "Move to new window", DIAGRAM.popout, null],
     "hr",
-    ["close", "Close tile", DIAGRAM.close, null, "⌥⇧⌘W"],
+    s.exited ? ["close", "Close", DIAGRAM.close, null, "⌥⇧⌘W"] : ["hide", "Hide", DIAGRAM.hide, null, "⌥⇧⌘W"],
   ];
   let d = 0;
   const html = `<div class="panel${panel.at ? " at-pointer" : ""}" role="dialog" aria-label="Tile ${numberOf(l)}">
@@ -484,8 +493,11 @@ function run(cmd, l) {
   if (cmd === "growx") grow(l, "row");
   if (cmd === "growy") grow(l, "col");
   if (cmd === "max") maximized = maximized === l.id ? null : l.id;
-  if (cmd === "close" || cmd === "popout") close(l);
-  if (cmd === "popout") note(`Mockup: ${byId(l.session).name} would open in a new window.`);
+  const sid = l.session;
+  if (cmd === "hide" || cmd === "close" || cmd === "popout") close(l);
+  // Hide keeps the session running in the sidebar; Close is only offered once it has exited.
+  if (cmd === "close") sessions.splice(sessions.indexOf(byId(sid)), 1);
+  if (cmd === "popout") note(`Mockup: ${byId(sid).name} would open in a new window.`);
   closePanel();
   render();
   area.querySelector(`[data-id="${focused}"]`)?.focus({ preventScroll: true });
@@ -538,7 +550,7 @@ area.addEventListener("click", (e) => {
   const l = leaves(tree).find((x) => x.id === tile.dataset.id);
   if (act === "panel") { if (panel?.id === l.id) closePanel(); else { focused = l.id; openPanel(l); } return; }
   if (act === "max") { run("max", l); return; }
-  if (act === "close") { run("close", l); return; }
+  if (act === "hide" || act === "close") { run(act, l); return; }
   if (panel) closePanel();
   if (focused !== l.id) { focused = l.id; render(); }
 });
