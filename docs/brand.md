@@ -8,7 +8,8 @@ The direction is **Event Horizon: Eclipse**. It's a black hole with a glowing ri
 2. **The black hole is always black** (`#06050B`), in both modes. Only the sky around it changes.
 3. **Magenta (redshift) is only for failures.**
 4. **Brand violet is for activity and identity**, never for a status that needs action.
-5. **Status never depends on color alone.** Failed is square. Needs you has a halo.
+5. **Accent is the brand and the working state; highlight is decoration.**
+6. **Status never depends on color alone.** Failed is square. Needs you has a halo.
 
 ## Color
 
@@ -20,7 +21,9 @@ The direction is **Event Horizon: Eclipse**. It's a black hole with a glowing ri
 | `ink` | `#F4EFFF` | `#14101F` | Text |
 | `muted` | `#9D93BD` | `#625A7A` | Secondary text |
 | `accent` | `#9B6BFF` | `#5B2BD9` | Brand, working light |
-| `accent-deep` | `#7A3CFF` | `#3B1A99` | Glow, art |
+| `accent-deep` | `#7A3CFF` | `#3B1A99` | Brand glow, art |
+| `highlight` | Falls back to `accent` | Falls back to `accent` | Decoration: selection, focus, hover, informational text |
+| `highlight-deep` | Falls back to `accent-deep` | Falls back to `accent-deep` | Decorative glows and badge hover fills |
 | `attention` | `#FFB23E` | `#D98200` | Needs you lights only |
 | `attention-ink` | `#FFB23E` | `#8C5000` | Needs you text; readable on the row surface |
 | `done` | `#6FE0A3` | `#13804A` | Done |
@@ -43,15 +46,16 @@ Badges and chips use the badge fills and stay neutral: no amber, magenta, or sta
 | Eclipse Light | Light | Original pale violet surfaces and dark violet accent |
 | Eclipse Dark | Dark | Original near-black violet surfaces and bright violet accent |
 | High Contrast | Dark | Black surfaces, brighter text and status inks, visible neutral borders |
-| Deep Field | Dark | Blue-slate surfaces with a violet accent |
-| Moonlight | Light | Cool slate surfaces with a violet accent |
-| Graphite | Dark | Neutral charcoal surfaces with a soft violet accent |
+| Deep Field | Dark | Blue-slate surfaces with cyan highlights and violet brand/working lights |
+| Moonlight | Light | Cool slate surfaces with blue highlights and violet brand/working lights |
+| Graphite | Dark | Neutral charcoal surfaces with steel highlights and violet brand/working lights |
 | Midnight Indigo | Dark | Rich indigo surfaces with a lavender-violet accent |
 
 Themes are complete color-token data, not CSS. `src/shared/interface-theme.d.ts`
 defines the version 1 schema: `{ version: 1, name, base, colors }`. `colors` contains
-all 19 color tokens from `src/renderer/styles/tokens.css`, including `space-ink`;
-font tokens stay fixed. Names contain 1–40 letters, numbers, spaces, dots, hyphens
+all 19 required color tokens from `src/renderer/styles/tokens.css`, including `space-ink`;
+font tokens stay fixed. The optional `highlight` and `highlight-deep` keys must be
+supplied together; older themes fall back to `accent` and `accent-deep`. Names contain 1–40 letters, numbers, spaces, dots, hyphens
 or underscores. Every color is an opaque six-digit `#RRGGBB` value. Extra and
 missing fields are rejected. `base` must agree with the background's lightness
 (white has higher contrast than black on a dark background, and vice versa).
@@ -67,7 +71,9 @@ Built-in and future user themes share these enforced invariants:
   CIE Lab Delta E 1976 units, using sRGB and a D65 reference white. The same
   minimum applies to attention ink, failure ink and accent. This is Foom's design
   threshold, not a WCAG criterion.
-- Primary text, muted text, accent and all three status inks meet **4.5:1** on both
+- Highlight is at least 40 Delta E units from attention, failed and done.
+  Its deep shade follows the non-status hue restrictions but is not a text color.
+- Primary text, muted text, accent, highlight and all three status inks meet **4.5:1** on both
   background and surface. Badge inks meet 4.5:1 on their own fills; space ink meets
   4.5:1 on the black hole. Contrast uses the
   [WCAG 2.2 relative-luminance calculation](https://www.w3.org/WAI/WCAG22/Understanding/contrast-minimum.html).

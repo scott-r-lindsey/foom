@@ -71,6 +71,8 @@
   --raised-shadow: light-dark(rgb(40 20 90 / 28%), rgb(0 0 0 / 85%));
   --ink: #14101f;
   --muted: #625a7a;
+  --highlight: var(--accent);
+  --highlight-deep: var(--accent-deep);
   --accent: #5b2bd9;
   --accent-deep: #3b1a99;
   --attention: #d98200;

@@ -40,7 +40,7 @@
   border-radius: 6px;
 }
 .preflight .repo-found li button:hover {
-  border-color: var(--accent);
+  border-color: var(--highlight);
 }
 .repo-found li code {
   flex: 1;
@@ -55,7 +55,7 @@
   white-space: nowrap;
 }
 .repo-found-go {
-  color: var(--accent);
+  color: var(--highlight);
 }
 .repo-found-else {
   margin: 12px 0 0;
@@ -94,7 +94,7 @@
   width: 200px;
 }
 .preflight .repo-tools input[type="search"]:focus-visible {
-  outline: 2px solid var(--accent);
+  outline: 2px solid var(--highlight);
 }
 .repo-count {
   margin-left: auto;
