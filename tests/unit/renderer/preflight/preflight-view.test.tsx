@@ -84,6 +84,7 @@ function fake(initial: SetupState, scan: AgentReport = all) {
     return Promise.resolve(state);
   };
   return {
+    openThemesFolder: vi.fn(async () => {}),
     state: vi.fn(() => Promise.resolve(state)),
     save: vi.fn((patch: SettingsPatch) =>
       update({ ...state, settings: { ...state.settings, ...patch } }),
@@ -754,6 +755,8 @@ test("Settings shares setup controls, saves immediately and exposes planned sect
   fireEvent.click(button("Evaluator"));
   expect(screen.getByText("How should Foom read a terminal that goes quiet?")).toBeTruthy();
   fireEvent.click(button("Appearance"));
+  fireEvent.click(button("Open themes folder"));
+  expect(source.openThemesFolder).toHaveBeenCalledWith("theme");
   fireEvent.click(screen.getByLabelText("Dark"));
   await waitFor(() => {
     expect(source.save).toHaveBeenCalledWith({ colorMode: "dark" });
@@ -763,12 +766,15 @@ test("Settings shares setup controls, saves immediately and exposes planned sect
     expect(source.save).toHaveBeenCalledWith({ interfaceScale: 110 });
   });
   fireEvent.click(button("Terminal"));
+  fireEvent.click(button("Open themes folder"));
+  expect(source.openThemesFolder).toHaveBeenCalledWith("terminal-theme");
   fireEvent.change(screen.getByLabelText("Terminal font size"), { target: { value: "18" } });
   await waitFor(() => {
     expect(source.save).toHaveBeenCalledWith({ terminalFontSize: 18 });
   });
   expect(screen.getByText(/Hack Nerd Font Mono ·/).style.fontSize).toBe("18px");
   fireEvent.click(button("Themes"));
+  fireEvent.click(button("Open themes folder"));
   expect(screen.getByRole("group", { name: "Interface themes" })).toBeTruthy();
   fireEvent.click(button("Sound"));
   expect(screen.getByRole("checkbox", { name: "Alerts on" })).toBeTruthy();

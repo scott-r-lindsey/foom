@@ -1,3 +1,5 @@
+import type { ThemeCatalog } from "./theme-file";
+import { isUserThemeId, ThemeValidationError } from "./theme-validation";
 import type {
   InterfaceColor,
   InterfaceTheme,
@@ -209,10 +211,13 @@ function colors(value: unknown): value is InterfaceTheme["colors"] {
 }
 /** The same brand/accessibility gate is used for built-ins and untrusted user data. */
 export function validateInterfaceColors(palette: InterfaceTheme["colors"]): void {
-  const fail = () => {
-    throw new Error("Theme must preserve brand colors and readable contrast");
+  const fail = (
+    path = "$.colors",
+    reason: "invalid-value" | "reserved-color" | "contrast" = "reserved-color",
+  ) => {
+    throw new ThemeValidationError(path, reason);
   };
-  if (!colors(palette)) fail();
+  if (!colors(palette)) fail("$.colors", "invalid-value");
   if (palette.hole.toLowerCase() !== "#06050b") fail();
   for (const key of [
     "attention",
@@ -228,14 +233,15 @@ export function validateInterfaceColors(palette: InterfaceTheme["colors"]): void
       : key.startsWith("failed")
         ? [315, 345]
         : [245, 280];
-    if (hue < min || hue > max || saturation < 0.45) fail();
+    if (hue < min || hue > max || saturation < 0.45) fail(`$.colors.${key}`);
   }
   for (const key of [...interfaceColorNames, ...interfaceHighlightNames]) {
     if (key.startsWith("attention") || key.startsWith("failed")) continue;
     const color = palette[key];
     if (color === undefined) continue;
     const { hue, saturation } = hueSaturation(color);
-    if (saturation > 0.2 && ((hue >= 20 && hue <= 55) || (hue >= 310 && hue <= 350))) fail();
+    if (saturation > 0.2 && ((hue >= 20 && hue <= 55) || (hue >= 310 && hue <= 350)))
+      fail(`$.colors.${key}`);
   }
   for (const [a, b] of [
     ["attention", "failed"],
@@ -251,7 +257,8 @@ export function validateInterfaceColors(palette: InterfaceTheme["colors"]): void
     for (const status of ["attention", "failed", "done"] as const)
       if (colorDistance(palette.highlight, palette[status]) < 40) fail();
     for (const background of ["bg", "surface"] as const)
-      if (contrast(palette.highlight, palette[background]) < 4.5) fail();
+      if (contrast(palette.highlight, palette[background]) < 4.5)
+        fail("$.colors.highlight", "contrast");
   }
   for (const background of ["bg", "surface"] as const)
     for (const foreground of [
@@ -262,15 +269,18 @@ export function validateInterfaceColors(palette: InterfaceTheme["colors"]): void
       "done-ink",
       "failed-ink",
     ] as const)
-      if (contrast(palette[foreground], palette[background]) < 4.5) fail();
+      if (contrast(palette[foreground], palette[background]) < 4.5)
+        fail(`$.colors.${foreground}`, "contrast");
   for (const [foreground, background] of [
     ["badge-ink", "badge-fill"],
     ["badge-label-ink", "badge-label-fill"],
     ["space-ink", "hole"],
   ] as const)
-    if (contrast(palette[foreground], palette[background]) < 4.5) fail();
+    if (contrast(palette[foreground], palette[background]) < 4.5)
+      fail(`$.colors.${foreground}`, "contrast");
 }
 export function parseInterfaceTheme(value: unknown): InterfaceThemeChoice {
+  if (isUserThemeId(value)) return value;
   if (typeof value === "string" && (value === "follow" || isInterfaceThemeId(value))) return value;
   if (
     !record(value) ||
@@ -284,17 +294,32 @@ export function parseInterfaceTheme(value: unknown): InterfaceThemeChoice {
     throw new Error("Invalid interface theme");
   validateInterfaceColors(value["colors"]);
   const dark = contrast(value["colors"].bg, "#ffffff") > contrast(value["colors"].bg, "#000000");
-  if (dark !== (value["base"] === "dark")) throw new Error("Theme base must match its background");
+  if (dark !== (value["base"] === "dark"))
+    throw new ThemeValidationError("$.base", "invalid-value");
   return { version: 1, name: value["name"], base: value["base"], colors: { ...value["colors"] } };
 }
-export function resolveInterfaceTheme(choice: InterfaceThemeChoice, dark: boolean): InterfaceTheme {
-  return typeof choice !== "string"
-    ? choice
-    : interfaceThemes[choice === "follow" ? (dark ? "eclipse-dark" : "eclipse-light") : choice];
+export function resolveInterfaceTheme(
+  choice: InterfaceThemeChoice,
+  dark: boolean,
+  catalog?: ThemeCatalog,
+): InterfaceTheme {
+  if (typeof choice !== "string") return choice;
+  if (isUserThemeId(choice))
+    return (
+      catalog?.interface.find((entry) => entry.id === choice)?.theme ??
+      interfaceThemes[dark ? "eclipse-dark" : "eclipse-light"]
+    );
+  return interfaceThemes[choice === "follow" ? (dark ? "eclipse-dark" : "eclipse-light") : choice];
 }
 export function interfaceThemeSource(
   choice: InterfaceThemeChoice,
   mode: "system" | "light" | "dark",
+  catalog?: ThemeCatalog,
 ): "system" | "light" | "dark" {
-  return choice === "follow" ? mode : resolveInterfaceTheme(choice, false).base;
+  if (
+    choice === "follow" ||
+    (isUserThemeId(choice) && !catalog?.interface.some((entry) => entry.id === choice))
+  )
+    return mode;
+  return resolveInterfaceTheme(choice, false, catalog).base;
 }

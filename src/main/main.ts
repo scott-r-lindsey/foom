@@ -1,3 +1,7 @@
+import type { Settings } from "../shared/setup";
+import { ThemeLibrary } from "./themes/library";
+import { attachThemes } from "./themes/ipc";
+import { isUserThemeId } from "../shared/theme-validation";
 import { WindowAudio } from "./window/window-audio";
 import type { Command } from "./window/commands";
 import { attachWindowViews } from "./window/window-views-ipc";
@@ -44,6 +48,34 @@ const ownsProfile = app.requestSingleInstanceLock();
 
 export let worktrees: WorktreeService;
 let settings: SettingsStore;
+let themes: ThemeLibrary;
+let disposeThemes = () => {};
+function applyThemeSettings(next: Settings = settings.get()) {
+  const catalog = themes.snapshot();
+  nativeTheme.themeSource = interfaceThemeSource(next.interfaceTheme, next.colorMode, catalog);
+  if (initialized)
+    terminals.setTheme(
+      isUserThemeId(next.terminalTheme)
+        ? (catalog.terminal.find((entry) => entry.id === next.terminalTheme)?.theme ?? "follow")
+        : next.terminalTheme,
+    );
+}
+function themesChanged() {
+  applyThemeSettings();
+  for (const entry of windows.values()) {
+    entry.updateBackground();
+    void entry.setup
+      .state()
+      .then((state) => {
+        if (
+          !entry.window.webContents.isDestroyed() &&
+          entry.window.webContents.mainFrame.url === APP_URL
+        )
+          entry.window.webContents.send("setup:changed", state);
+      })
+      .catch(() => {});
+  }
+}
 
 const APP_URL = "app://bundle/index.html";
 const rendererDirectory = path.join(__dirname, "../renderer");
@@ -196,6 +228,7 @@ async function buildWindow(savedSize?: Size, saved?: WindowPlacement, initialSes
     backgroundColor: resolveInterfaceTheme(
       settings.get().interfaceTheme,
       nativeTheme.shouldUseDarkColors,
+      themes.snapshot(),
     ).colors.bg,
     show: false,
     autoHideMenuBar: true,
@@ -235,11 +268,15 @@ async function buildWindow(savedSize?: Size, saved?: WindowPlacement, initialSes
 
   const updateBackground = () => {
     window.setBackgroundColor(
-      resolveInterfaceTheme(settings.get().interfaceTheme, nativeTheme.shouldUseDarkColors).colors
-        .bg,
+      resolveInterfaceTheme(
+        settings.get().interfaceTheme,
+        nativeTheme.shouldUseDarkColors,
+        themes.snapshot(),
+      ).colors.bg,
     );
   };
   nativeTheme.on("updated", updateBackground);
+  const themeIpc = attachThemes(window, themes, ipc);
   const soundIpc = attachSounds(
     window,
     new SoundLibrary(
@@ -251,6 +288,7 @@ async function buildWindow(savedSize?: Size, saved?: WindowPlacement, initialSes
   );
   window.once("closed", () => {
     soundIpc();
+    themeIpc();
     nativeTheme.removeListener("updated", updateBackground);
   });
 
@@ -336,7 +374,11 @@ async function buildWindow(savedSize?: Size, saved?: WindowPlacement, initialSes
     initialized = true;
   }
   const confirmations = new TrustedDialog(window, session.fromPartition("confirmation"), () =>
-    resolveInterfaceTheme(settings.get().interfaceTheme, nativeTheme.shouldUseDarkColors),
+    resolveInterfaceTheme(
+      settings.get().interfaceTheme,
+      nativeTheme.shouldUseDarkColors,
+      themes.snapshot(),
+    ),
   );
   void workspace.initializeControl().catch(() => {
     console.warn("Foom CLI discovery is unavailable.");
@@ -358,6 +400,7 @@ async function buildWindow(savedSize?: Size, saved?: WindowPlacement, initialSes
     scale,
   );
   const setup = new Setup({
+    themes: () => themes.snapshot(),
     store: {
       get: () => ({ ...settings.get(), interfaceScale: scale }),
       update: async (patch) => {
@@ -396,8 +439,7 @@ async function buildWindow(savedSize?: Size, saved?: WindowPlacement, initialSes
     },
     apply: (next) => {
       workspace.configure(next);
-      terminals.setTheme(next.terminalTheme);
-      nativeTheme.themeSource = interfaceThemeSource(next.interfaceTheme, next.colorMode);
+      applyThemeSettings(next);
       updateBackground();
       // Resize first: the page then zooms into a window that already fits it.
       windowScale.apply(next.interfaceScale);
@@ -514,6 +556,7 @@ function requestQuit(): Promise<void> {
 }
 async function performQuit() {
   if (!initialized) {
+    disposeThemes();
     quitting = true;
     app.quit();
     return;
@@ -569,6 +612,7 @@ async function performQuit() {
       console.error("Unable to save the window size:", error);
     }
     for (const current of windows.values()) current.confirmations.dispose();
+    disposeThemes();
     quitting = true;
     // A resolved shutdown can resume inside a native close callback's microtask
     // checkpoint. Let that cancelled close unwind before asking Electron to quit.
@@ -613,11 +657,12 @@ if (!ownsProfile) {
     .then(async () => {
       worktrees = await WorktreeService.open(app.getPath("userData"));
       settings = await SettingsStore.open(app.getPath("userData"));
-      // Before the window exists, so its background already matches the saved mode.
-      nativeTheme.themeSource = interfaceThemeSource(
-        settings.get().interfaceTheme,
-        settings.get().colorMode,
-      );
+      themes = new ThemeLibrary(path.join(app.getPath("home"), ".foom/config"), themesChanged);
+      disposeThemes = () => {
+        themes.dispose();
+      };
+      await themes.initialize();
+      applyThemeSettings();
       // Serve only known local assets; arbitrary filesystem access is never exposed.
       const assetHandler = (request: Request) => {
         const url = new URL(request.url);

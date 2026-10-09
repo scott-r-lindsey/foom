@@ -339,7 +339,13 @@ export function Preflight({
         <p className="preflight-intro">
           Choose the light or dark appearance and the size of the interface.
         </p>
-        <AppearanceControls settings={state.settings} onChange={save} />
+        <AppearanceControls settings={state.settings} catalog={state.themes} onChange={save} />
+        <InterfaceThemePicker
+          settings={state.settings}
+          catalog={state.themes}
+          openFolder={() => source.openThemesFolder("theme")}
+          onChange={save}
+        />
       </>
     );
   } else if (step === 7) {
@@ -366,7 +372,12 @@ export function Preflight({
             ))}
           </select>
         </label>
-        <TerminalThemePicker settings={state.settings} onChange={save} />
+        <TerminalThemePicker
+          settings={state.settings}
+          catalog={state.themes}
+          openFolder={() => source.openThemesFolder("terminal-theme")}
+          onChange={save}
+        />
         <p className="preflight-note">More terminal options are coming.</p>
       </>
     );
@@ -376,7 +387,12 @@ export function Preflight({
         <h2 ref={headingRef} tabIndex={-1}>
           Themes
         </h2>
-        <InterfaceThemePicker settings={state.settings} onChange={save} />
+        <InterfaceThemePicker
+          settings={state.settings}
+          catalog={state.themes}
+          openFolder={() => source.openThemesFolder("theme")}
+          onChange={save}
+        />
       </>
     );
   } else if (step === 9) {
@@ -522,7 +538,7 @@ export function Preflight({
           ))}
         </ol>
         <div className="preflight-rail-foot">
-          <AppearanceControls settings={state.settings} onChange={save} />
+          <AppearanceControls settings={state.settings} catalog={state.themes} onChange={save} />
           {onClose && (
             <button type="button" className="preflight-close" onClick={onClose}>
               Back to board · Esc

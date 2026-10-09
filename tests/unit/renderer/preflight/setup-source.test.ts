@@ -5,6 +5,7 @@ import { createSetupSource } from "../../../../src/renderer/preflight/setup-sour
 test("preflight reaches main only through the setup bridge", async () => {
   const repository = { path: "/code/app", name: "app" };
   const desktop = {
+    openThemesFolder: vi.fn(async () => {}),
     setupState: vi.fn(() => Promise.resolve("state")),
     saveSetup: vi.fn(() => Promise.resolve("saved")),
     setInferenceKey: vi.fn(() => Promise.resolve("set")),
@@ -22,6 +23,8 @@ test("preflight reaches main only through the setup bridge", async () => {
   };
   Object.defineProperty(window, "desktop", { configurable: true, value: desktop });
   const source = createSetupSource();
+  await source.openThemesFolder("theme");
+  expect(desktop.openThemesFolder).toHaveBeenCalledWith("theme");
   await expect(source.state()).resolves.toBe("state");
   await expect(source.save({ hooks: false })).resolves.toBe("saved");
   await expect(source.setKey("openai", "sk")).resolves.toBe("set");

@@ -1,3 +1,4 @@
+import type { UserThemeId } from "./theme-file";
 /** Portable palette for built-ins and future user theme files. Colors are #RRGGBB. */
 export interface TerminalTheme {
   foreground: string;
@@ -28,4 +29,4 @@ export type TerminalThemeId =
   | "solarized-dark"
   | "solarized-light"
   | "dracula";
-export type TerminalThemeChoice = TerminalThemeId | TerminalTheme;
+export type TerminalThemeChoice = TerminalThemeId | UserThemeId | TerminalTheme;

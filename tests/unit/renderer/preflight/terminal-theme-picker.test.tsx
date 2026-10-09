@@ -49,3 +49,33 @@ test("previews all ANSI colors and text styles, saves a scheme, follows media an
   );
   vi.unstubAllGlobals();
 });
+
+test("custom terminal palettes select by file ID and preview parsed colors", () => {
+  vi.stubGlobal("matchMedia", () => ({
+    matches: false,
+    addEventListener: vi.fn(),
+    removeEventListener: vi.fn(),
+  }));
+  const onChange = vi.fn();
+  const catalog = {
+    interface: [],
+    terminal: [
+      { id: "user:term.json" as const, name: "Terminal custom", theme: terminalThemes.dracula },
+    ],
+    errors: [],
+  };
+  render(
+    <TerminalThemePicker
+      settings={setupState({ terminalTheme: "user:term.json" }).settings}
+      catalog={catalog}
+      onChange={onChange}
+    />,
+  );
+  const custom = screen.getByRole("button", { name: "Terminal custom" });
+  expect(custom.getAttribute("aria-pressed")).toBe("true");
+  fireEvent.click(custom);
+  expect(onChange).toHaveBeenCalledWith({ terminalTheme: "user:term.json" });
+  expect(screen.getByLabelText("Terminal theme preview").style.backgroundColor).toBe(
+    "rgb(40, 42, 54)",
+  );
+});

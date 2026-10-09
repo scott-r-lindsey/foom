@@ -1,3 +1,5 @@
+import type { ThemeCatalog } from "./theme-file";
+import { isUserThemeId } from "./theme-validation";
 import type { TerminalTheme, TerminalThemeChoice, TerminalThemeId } from "./terminal-theme";
 export const ansiNames = [
   "black",
@@ -128,13 +130,23 @@ export function isTerminalTheme(value: unknown): value is TerminalTheme {
   );
 }
 export function parseTerminalThemeChoice(value: unknown): TerminalThemeChoice {
+  if (isUserThemeId(value)) return value;
   if (typeof value === "string") {
     const option = terminalThemeOptions.find((option) => option.id === value);
     if (option) return option.id;
   } else if (isTerminalTheme(value)) return { ...value };
   throw new Error("Invalid terminal theme");
 }
-export function resolveTerminalTheme(choice: TerminalThemeChoice, dark: boolean): TerminalTheme {
+export function resolveTerminalTheme(
+  choice: TerminalThemeChoice,
+  dark: boolean,
+  catalog?: ThemeCatalog,
+): TerminalTheme {
   if (typeof choice !== "string") return choice;
+  if (isUserThemeId(choice))
+    return (
+      catalog?.terminal.find((entry) => entry.id === choice)?.theme ??
+      terminalThemes[dark ? "foom-dark" : "foom-light"]
+    );
   return terminalThemes[choice === "follow" ? (dark ? "foom-dark" : "foom-light") : choice];
 }

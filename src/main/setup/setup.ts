@@ -1,3 +1,4 @@
+import type { ThemeCatalog } from "../../shared/theme-file";
 import { hasBypassArgument } from "../agents/default-arguments";
 import type { AgentId } from "../../shared/agents";
 import { isRecent, scanCodeFolder, suggestCodeFolders } from "./code-scan";
@@ -28,6 +29,7 @@ import type { WorktreeService } from "../workspace/worktrees";
 const PROVIDERS: readonly ApiProvider[] = ["anthropic", "openai", "google"];
 
 export interface SetupDependencies {
+  themes?: () => ThemeCatalog;
   store: Pick<SettingsStore, "get" | "update">;
   keys: {
     available(): boolean;
@@ -126,6 +128,7 @@ export class Setup {
       PROVIDERS.map(async (name) => [name, await this.deps.keys.has(name)] as const),
     );
     return {
+      ...(this.deps.themes ? { themes: this.deps.themes() } : {}),
       settings: this.deps.store.get(),
       keys: { anthropic: false, openai: false, google: false, ...Object.fromEntries(entries) },
       secureStorage: this.deps.keys.available(),

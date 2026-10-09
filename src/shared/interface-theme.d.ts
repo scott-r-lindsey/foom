@@ -1,3 +1,4 @@
+import type { UserThemeId } from "./theme-file";
 /** Every color token; typography stays bundled and is not user-configurable. */
 export type InterfaceColor =
   | "bg"
@@ -36,4 +37,4 @@ export type InterfaceThemeId =
   | "graphite"
   | "midnight-indigo";
 /** Follow preserves the preflight System/Light/Dark preference and existing profiles. */
-export type InterfaceThemeChoice = "follow" | InterfaceThemeId | InterfaceTheme;
+export type InterfaceThemeChoice = "follow" | InterfaceThemeId | UserThemeId | InterfaceTheme;

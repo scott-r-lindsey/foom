@@ -1,3 +1,4 @@
+import type { ThemeCatalog } from "../../shared/theme-file";
 import { resolveInterfaceTheme } from "../../shared/interface-themes";
 import { useRef } from "react";
 import type { Settings } from "../../shared/setup";
@@ -18,7 +19,9 @@ const shortcutHint = () =>
 export function AppearanceControls({
   settings,
   onChange,
+  catalog,
 }: {
+  catalog?: ThemeCatalog | undefined;
   settings: Pick<Settings, "colorMode" | "interfaceScale"> &
     Partial<Pick<Settings, "interfaceTheme" | "panelColor">>;
   onChange: (patch: Partial<Pick<Settings, "colorMode" | "interfaceScale" | "panelColor">>) => void;
@@ -91,7 +94,7 @@ export function AppearanceControls({
       </div>
       {settings.interfaceTheme && settings.interfaceTheme !== "follow" && (
         <p className="appearance-hint">
-          Theme: {resolveInterfaceTheme(settings.interfaceTheme, false).name}
+          Theme: {resolveInterfaceTheme(settings.interfaceTheme, false, catalog).name}
         </p>
       )}
       <p className="appearance-hint">{shortcutHint()}</p>

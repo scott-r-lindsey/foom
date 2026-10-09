@@ -635,6 +635,8 @@ test("terminal runs an interactive shell behind an isolated bridge", {
           "changeAgyPlugin",
           "scanAgents",
           "launchAgent",
+          "listThemes",
+          "openThemesFolder",
           "setupState",
           "saveSetup",
           "setInferenceKey",
@@ -5924,4 +5926,90 @@ test("sidebar panels hover, pin, rename and launch a home shell", async (context
   await page.keyboard.press("Escape");
   await expect(panel).toHaveCount(0);
   await expect(row).toBeFocused();
+});
+
+test("custom theme files appear live, update selected colors and retain rejected edits", {
+  timeout: deadline(45000),
+}, async (context) => {
+  const root = await mkdtemp(path.join(tmpdir(), "foom-custom-theme-"));
+  removeAfterApps(context, root);
+  const app = await launchApp(context, true, { home: root });
+  const page = await boardPage(app);
+  await boardCommand(app, ",", process.platform !== "darwin");
+  await page.getByRole("button", { name: "Appearance", exact: true }).click();
+  const { interfaceThemes } = require("../../build/shared/interface-themes.js");
+  const { terminalThemes, ansiNames } = require("../../build/shared/terminal-themes.js");
+  const file = path.join(root, ".foom/config/themes/custom.json");
+  const palette = interfaceThemes["eclipse-dark"];
+  const theme = { kind: "theme", name: "Live custom", base: palette.base, colors: palette.colors };
+  await writeFile(file, JSON.stringify(theme));
+  await page.getByRole("button", { name: "Live custom", exact: true }).click();
+  await expect
+    .poll(() => page.evaluate(() => document.documentElement.style.getPropertyValue("--bg")))
+    .toBe(palette.colors.bg);
+  theme.colors = interfaceThemes.graphite.colors;
+  await writeFile(file, JSON.stringify(theme));
+  await expect
+    .poll(() => page.evaluate(() => document.documentElement.style.getPropertyValue("--bg")))
+    .toBe(theme.colors.bg);
+  await writeFile(
+    file,
+    JSON.stringify({ ...theme, colors: { ...theme.colors, accent: "url(https://example.org)" } }),
+  );
+  await expect(page.getByRole("status").filter({ hasText: "Rejected custom.json" })).toContainText(
+    "$.colors.accent: not-a-color",
+  );
+  assert.equal(
+    await page.evaluate(() => document.documentElement.style.getPropertyValue("--bg")),
+    theme.colors.bg,
+  );
+  assert.equal(
+    await page.evaluate(async () => (await window.desktop.setupState()).settings.interfaceTheme),
+    "user:custom.json",
+  );
+  await page.getByRole("button", { name: "Terminal", exact: true }).click();
+  const terminal = terminalThemes.dracula;
+  const terminalFile = path.join(root, ".foom/config/terminal-themes/custom.json");
+  const terminalTheme = {
+    kind: "terminal-theme",
+    name: "Live terminal",
+    background: terminal.background,
+    foreground: terminal.foreground,
+    cursor: terminal.cursor,
+    ansi: ansiNames.map((key) => terminal[key]),
+  };
+  await writeFile(terminalFile, JSON.stringify(terminalTheme));
+  await page.getByRole("button", { name: "Live terminal", exact: true }).click();
+  const choicesBounds = await page.getByRole("group", { name: "Terminal colors" }).boundingBox();
+  const previewBounds = await page.getByLabel("Terminal theme preview").boundingBox();
+  assert.ok(choicesBounds && previewBounds);
+  assert.ok(previewBounds.x > choicesBounds.x, "terminal preview stays beside the picker");
+  assert.ok(
+    Math.abs(previewBounds.y - choicesBounds.y) < 2,
+    "preview and picker share the top row",
+  );
+  await expect(page.getByLabel("Terminal theme preview")).toHaveCSS(
+    "background-color",
+    "rgb(40, 42, 54)",
+  );
+  terminalTheme.background = "#101010";
+  await writeFile(terminalFile, JSON.stringify(terminalTheme));
+  await expect(page.getByLabel("Terminal theme preview")).toHaveCSS(
+    "background-color",
+    "rgb(16, 16, 16)",
+  );
+  await expect
+    .poll(() =>
+      page.evaluate(() => document.documentElement.style.getPropertyValue("--terminal-background")),
+    )
+    .toBe("#101010");
+  await writeFile(terminalFile, "{");
+  await expect(page.getByRole("status").filter({ hasText: "Rejected custom.json" })).toContainText(
+    "malformed-json",
+  );
+  await expect(page.getByLabel("Terminal theme preview")).toHaveCSS(
+    "background-color",
+    "rgb(16, 16, 16)",
+  );
+  await page.screenshot({ path: path.join(__dirname, "../../test-results/custom-theme.png") });
 });

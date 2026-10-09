@@ -1,3 +1,17 @@
+import type { ThemeCatalog } from "../../../src/shared/theme-file";
+import { interfaceThemes } from "../../../src/shared/interface-themes";
+import { terminalThemes } from "../../../src/shared/terminal-themes";
+vi.mock("../../../src/main/themes/library", () => ({
+  ThemeLibrary: class {
+    constructor(_root: string, changed: () => void) {
+      mock.themeChanged = changed;
+    }
+    initialize = async () => {};
+    snapshot = () => mock.catalog;
+    dispose = vi.fn();
+  },
+}));
+vi.mock("../../../src/main/themes/ipc", () => ({ attachThemes: vi.fn(() => vi.fn()) }));
 import type { WindowPlacement } from "../../../src/main/window/window-placement";
 vi.mock("../../../src/main/window/window-placement", () => ({
   loadPlacements: mock.loadPlacements,
@@ -118,6 +132,7 @@ type ShortcutInput = Pick<Input, "type" | "key" | "control" | "shift" | "alt" | 
   Partial<Pick<Input, "code">>;
 
 const mock = vi.hoisted(() => {
+  const catalog: ThemeCatalog = { interface: [], terminal: [], errors: [] };
   const appEvents = new Map<string, (event: { preventDefault(): void }) => void>();
   const windowEvents = new Map<
     string,
@@ -281,6 +296,8 @@ const mock = vi.hoisted(() => {
       ) => typeof ipc
     >(() => ipc),
     setup,
+    themeChanged: () => {},
+    catalog,
     setupIpc: { dispose: vi.fn(), zoom: vi.fn<(direction: string) => Promise<void>>() },
     attachSetup: vi.fn<(...args: unknown[]) => unknown>(),
     loadPlacements: vi.fn<() => Promise<WindowPlacement[]>>(() => Promise.resolve([])),
@@ -421,6 +438,7 @@ beforeEach(() => {
   mock.appEvents.clear();
   mock.windowEvents.clear();
   mock.readyEvents.clear();
+  mock.catalog = { interface: [], terminal: [], errors: [] };
   mock.state.windows = [mock.window];
   mock.ready.mockResolvedValue();
   mock.openWorktrees.mockResolvedValue({ worktreeRoot: "/home/.foom/worktrees" });
@@ -432,8 +450,14 @@ beforeEach(() => {
   mock.fetch.mockResolvedValue(new Response("asset"));
 });
 
-async function start() {
+async function start(wait = true) {
   await import("../../../src/main/main");
+  if (wait)
+    await vi.waitFor(() => {
+      expect(mock.window.loadURL.mock.calls.length + mock.quit.mock.calls.length).toBeGreaterThan(
+        0,
+      );
+    });
 }
 
 test("loads worktree state from userData before creating a window", async () => {
@@ -446,7 +470,7 @@ test("loads worktree state from userData before creating a window", async () => 
         };
       }),
   );
-  await start();
+  await start(false);
   expect(mock.openWorktrees).toHaveBeenCalledWith("/test/user-data");
   expect(mock.construct).not.toHaveBeenCalled();
   finish?.();
@@ -1415,4 +1439,34 @@ test("a discovery initialization failure leaves the main window usable", async (
     expect(warn).toHaveBeenCalledWith("Foom CLI discovery is unavailable.");
   });
   expect(mock.attachWorkspace).toHaveBeenCalled();
+});
+
+test("live theme catalog changes update native colors, terminal palettes and all settings subscribers", async () => {
+  await start();
+  const settings = {
+    ...mock.settingsStore.get(),
+    interfaceTheme: "user:custom.json" as const,
+    terminalTheme: "user:term.json" as const,
+  };
+  vi.spyOn(mock.settingsStore, "get").mockReturnValue(settings);
+  mock.catalog = {
+    interface: [{ id: "user:custom.json", theme: interfaceThemes.moonlight }],
+    terminal: [{ id: "user:term.json", name: "Custom", theme: terminalThemes.dracula }],
+    errors: [],
+  };
+  expect(mock.setup.deps?.themes?.()).toEqual(mock.catalog);
+  mock.themeChanged();
+  await vi.waitFor(() => {
+    expect(mock.window.webContents.send).toHaveBeenCalledWith("setup:changed", expect.anything());
+  });
+  expect(mock.theme.themeSource).toBe("light");
+  expect(mock.terminals.setTheme).toHaveBeenLastCalledWith(terminalThemes.dracula);
+  mock.catalog = { interface: [], terminal: [], errors: [] };
+  mock.themeChanged();
+  expect(mock.terminals.setTheme).toHaveBeenLastCalledWith("follow");
+  mock.window.webContents.send.mockClear();
+  mock.window.webContents.isDestroyed.mockReturnValue(true);
+  mock.themeChanged();
+  await Promise.resolve();
+  expect(mock.window.webContents.send).not.toHaveBeenCalled();
 });

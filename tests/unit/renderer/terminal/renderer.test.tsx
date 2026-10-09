@@ -1,3 +1,4 @@
+import { terminalThemes } from "../../../../src/shared/terminal-themes";
 // @vitest-environment jsdom
 import { setupState } from "../../../fixtures/setup";
 import type { SetupState } from "../../../../src/shared/setup";
@@ -936,6 +937,22 @@ test("live terminal themes also color peek and fixed palettes ignore interface c
   expect(mock.options.theme?.background).toBe("#282a36");
   mock.onSetupChange.mock.calls[0]?.[0](setupState({ terminalTheme: "solarized-light" }));
   expect(mock.options.theme?.background).toBe("#fdf6e3");
+  mock.onSetupChange.mock.calls[0]?.[0](
+    setupState(
+      { terminalTheme: "user:live.json" },
+      {
+        themes: {
+          interface: [],
+          terminal: [{ id: "user:live.json", name: "Live", theme: terminalThemes.dracula }],
+          errors: [],
+        },
+      },
+    ),
+  );
+  expect(mock.options.theme?.background).toBe("#282a36");
+  mock.onSetupChange.mock.calls[0]?.[0](setupState({ terminalTheme: "user:missing.json" }));
+  expect(mock.options.theme?.background).toBe(mock.dark ? "#05040a" : "#f3f0fa");
+  mock.onSetupChange.mock.calls[0]?.[0](setupState({ terminalTheme: "solarized-light" }));
   controller.dispose();
   mock.onSetupChange.mock.calls[0]?.[0](setupState({ terminalTheme: "follow" }));
   expect(mock.options.theme?.background).toBe("#fdf6e3");

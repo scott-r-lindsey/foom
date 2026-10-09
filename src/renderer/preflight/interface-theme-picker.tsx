@@ -1,3 +1,5 @@
+import type { ThemeCatalog } from "../../shared/theme-file";
+import { ThemeFilesStatus } from "./theme-files-status";
 import { useEffect, useState } from "react";
 import type { CSSProperties } from "react";
 import { interfaceThemes, resolveInterfaceTheme } from "../../shared/interface-themes";
@@ -29,7 +31,11 @@ const states = [
 export function InterfaceThemePicker({
   settings,
   onChange,
+  catalog,
+  openFolder,
 }: {
+  catalog?: ThemeCatalog | undefined;
+  openFolder?: (() => Promise<void>) | undefined;
   settings: Settings;
   onChange: (patch: SettingsPatch) => void;
 }) {
@@ -53,6 +59,7 @@ export function InterfaceThemePicker({
   const theme = resolveInterfaceTheme(
     settings.interfaceTheme,
     settings.colorMode === "system" ? systemDark : settings.colorMode === "dark",
+    catalog,
   );
   const previewColors = {
     ...theme.colors,
@@ -76,8 +83,10 @@ export function InterfaceThemePicker({
           System
           <span className="theme-description">Follow your system’s light or dark appearance</span>
         </button>
-        {choices.map((id) => {
-          const candidate = interfaceThemes[id];
+        {[
+          ...choices.map((id) => ({ id, theme: interfaceThemes[id] })),
+          ...(catalog?.interface ?? []),
+        ].map(({ id, theme: candidate }) => {
           return (
             <button
               type="button"
@@ -102,6 +111,7 @@ export function InterfaceThemePicker({
           );
         })}
       </div>
+      <ThemeFilesStatus catalog={catalog} kind="theme" openFolder={openFolder} />
       <section
         className="interface-theme-preview"
         aria-label="Interface theme preview"
