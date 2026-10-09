@@ -6227,11 +6227,23 @@ test("trusted card follows interface scale and clears its scrim on every dismiss
   await app.evaluate(() => globalThis.testConfirmation.dispose());
   await app.evaluate(({ app }) => app.quit());
   await expect(dialog.getByRole("alertdialog")).toBeVisible();
-  await app.evaluate(({ BrowserWindow }) => {
-    BrowserWindow.getAllWindows()
-      .find((w) => w.webContents.getURL() === "app://confirmation/confirmation.html")
-      .webContents.forcefullyCrashRenderer();
+  const dialogPid = await app.evaluate(({ BrowserWindow }) => {
+    const contents = BrowserWindow.getAllWindows().find(
+      (w) => w.webContents.getURL() === "app://confirmation/confirmation.html",
+    ).webContents;
+    globalThis.confirmationCrash = null;
+    contents.once("render-process-gone", (_event, details) => {
+      globalThis.confirmationCrash = details.reason;
+    });
+    return contents.getOSProcessId();
   });
+  assert.ok(Number.isInteger(dialogPid) && dialogPid > 0, "Trusted renderer PID must be valid");
+  // Unlike a renderer-directed crash request, this also kills an unresponsive renderer.
+  // Target only this fixture's trusted process and wait for main to observe its loss.
+  process.kill(dialogPid, "SIGKILL");
+  await expect
+    .poll(() => app.evaluate(() => globalThis.confirmationCrash))
+    .toMatch(/^(crashed|killed)$/);
   await expect(board.locator(".board-confirmation-scrim")).toHaveCount(0);
   await app.evaluate(({ app }) => app.quit());
   dialog = await confirmationPage(app);
