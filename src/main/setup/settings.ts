@@ -3,13 +3,11 @@ import {
   parseAgentDefaults,
   parseAgentArguments,
 } from "../agents/default-arguments";
-import { parseInterfaceTheme } from "../../shared/interface-themes";
-import { DEFAULT_SOUND, migrateSoundSettings, parseSoundSettings } from "../../shared/sounds";
-import { parseTerminalThemeChoice } from "../../shared/terminal-themes";
+import { isConfigSetting, parseConfigSettings } from "../../shared/config-settings";
+import { DEFAULT_SOUND, migrateSoundSettings } from "../../shared/sounds";
 import { randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { dirname, isAbsolute, join } from "node:path";
-import { SCALES } from "../window/appearance";
 import { parseInferenceConfig } from "../evaluator/inference-source";
 import type { AgentId } from "../../shared/agents";
 import type { Settings, SettingsPatch } from "../../shared/setup";
@@ -49,14 +47,14 @@ export function parseSettingsPatch(value: unknown): SettingsPatch {
   const patch: SettingsPatch = {};
   for (const [key, entry] of Object.entries(value)) {
     if (
-      (key === "setupComplete" || key === "hooks" || key === "codexNotifierAcknowledged") &&
+      (key === "setupComplete" || key === "codexNotifierAcknowledged") &&
       typeof entry === "boolean"
     )
       patch[key] = entry;
     else if (key === "worktreeLocation" && (entry === "root" || entry === "adjacent"))
       patch.worktreeLocation = entry;
     else if (
-      (key === "agents" || key === "agentBypassAcknowledged") &&
+      key === "agentBypassAcknowledged" &&
       record(entry) &&
       Object.keys(entry).length === AGENTS.length &&
       AGENTS.every((id) => typeof entry[id] === "boolean")
@@ -67,11 +65,7 @@ export function parseSettingsPatch(value: unknown): SettingsPatch {
         agy: entry["agy"] === true,
       };
     else if (key === "agentArguments") patch.agentArguments = parseAgentDefaults(entry);
-    else if (key === "panelColor" && (entry === "vivid" || entry === "subtle" || entry === "plain"))
-      patch.panelColor = entry;
-    else if (key === "interfaceTheme") patch.interfaceTheme = parseInterfaceTheme(entry);
-    else if (key === "sound") patch.sound = parseSoundSettings(entry);
-    else if (key === "terminalTheme") patch.terminalTheme = parseTerminalThemeChoice(entry);
+    else if (isConfigSetting(key)) Object.assign(patch, parseConfigSettings({ [key]: entry }));
     else if (key === "inference") patch.inference = parseInferenceConfig(entry);
     else if (
       key === "codeFolder" &&
@@ -82,18 +76,6 @@ export function parseSettingsPatch(value: unknown): SettingsPatch {
           isAbsolute(entry)))
     )
       patch.codeFolder = entry;
-    else if (key === "colorMode" && (entry === "system" || entry === "light" || entry === "dark"))
-      patch.colorMode = entry;
-    else if (key === "interfaceScale" && typeof entry === "number" && SCALES.includes(entry))
-      patch.interfaceScale = entry;
-    else if (
-      key === "terminalFontSize" &&
-      typeof entry === "number" &&
-      Number.isInteger(entry) &&
-      entry >= 10 &&
-      entry <= 32
-    )
-      patch.terminalFontSize = entry;
     else if (
       key === "inferenceTimeoutMs" &&
       Number.isInteger(entry) &&

@@ -1,5 +1,6 @@
 /** Interface scale steps, in percent. 100 is the default. */
-export const SCALES: readonly number[] = [80, 90, 100, 110, 120, 130, 140, 150];
+import { SCALES } from "../../shared/config-settings";
+export { SCALES } from "../../shared/config-settings";
 
 export type ZoomDirection = "in" | "out" | "reset";
 

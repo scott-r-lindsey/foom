@@ -1,4 +1,4 @@
-/** Stable console envelope. Config validation is reserved for the schemas in #84. */
+/** Stable console envelope. Includes offline configuration validation. */
 export function run(
   args: readonly string[],
   version: string,
@@ -18,7 +18,7 @@ export function run(
   if (words.length === 0 || (words.length === 1 && words[0] === "--help"))
     return {
       output:
-        "foom [--json] whoami | sessions [--limit N] [--cursor ID] | session-state ID | operation-status --operation-id ID | operation-status --idempotency-key KEY\nHuman/script access: add --repository ABSOLUTE_PATH [--profile PROFILE]. Approve pairing in Foom.\nfoom pair --repository ABSOLUTE_PATH [--profile PROFILE] reads JSON argv arrays, one per line, for ten minutes.\nfoom --install-cli BIN_DIRECTORY | --uninstall-cli BIN_DIRECTORY (Windows: directory optional)\nfoom --version | --help | --validate-config PATH (reserved for #84; no files read)",
+        "foom [--json] whoami | sessions [--limit N] [--cursor ID] | session-state ID | operation-status --operation-id ID | operation-status --idempotency-key KEY\nHuman/script access: add --repository ABSOLUTE_PATH [--profile PROFILE]. Approve pairing in Foom.\nfoom pair --repository ABSOLUTE_PATH [--profile PROFILE] reads JSON argv arrays, one per line, for ten minutes.\nfoom --install-cli BIN_DIRECTORY | --uninstall-cli BIN_DIRECTORY (Windows: directory optional)\nfoom config validate PATH [--json] (offline, read-only)\nfoom --version | --help",
       error: false,
       code: 0,
     };
