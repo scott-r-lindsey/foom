@@ -2811,3 +2811,26 @@ test("restores home shells without repositories and rejects foreign home paths",
   await workspace.sidebarCommand({ kind: "close", id: "home-1" }, () => Promise.resolve(true));
   expect(workspace.snapshot().terminals).toEqual([]);
 });
+
+test("fact clipboard commands use main-owned values and reject unknown worktrees", async () => {
+  const copy = vi.fn();
+  deps.copyText = copy;
+  const workspace = new Workspace(deps);
+  await workspace.sidebarCommand({ kind: "copy-home-path" }, () => Promise.resolve(false));
+  const { homeDirectory } = await import("../../../../src/main/workspace/home-shell");
+  expect(copy).toHaveBeenLastCalledWith(homeDirectory);
+  await workspace.sidebarCommand(
+    { kind: "copy-worktree-path", repository: repo.path, worktree: tree.path },
+    () => Promise.resolve(false),
+  );
+  expect(deps.worktrees.launchIdentity).toHaveBeenCalledWith(repo.path, tree.path);
+  expect(copy).toHaveBeenLastCalledWith(tree.path);
+  vi.mocked(deps.worktrees.launchIdentity).mockRejectedValueOnce(new Error("Unknown worktree"));
+  await expect(
+    workspace.sidebarCommand(
+      { kind: "copy-worktree-path", repository: repo.path, worktree: "/foreign" },
+      () => Promise.resolve(false),
+    ),
+  ).rejects.toThrow("Unknown worktree");
+  expect(copy).toHaveBeenCalledTimes(2);
+});

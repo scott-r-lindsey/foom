@@ -933,3 +933,19 @@ describe("local panel facts", () => {
     expect(facts).toMatchObject({ changes: null, upstream: null, commit: null, remote: null });
   });
 });
+
+it("repository panels read local default branch and fetch time without network or linked worktrees", async () => {
+  await git("remote", "add", "upstream", "https://invalid.example/repo.git");
+  const head = (await git("rev-parse", "HEAD")).trim();
+  await git("update-ref", "refs/remotes/upstream/main", head);
+  await git("symbolic-ref", "refs/remotes/upstream/HEAD", "refs/remotes/upstream/main");
+  await git("branch", "--set-upstream-to=upstream/main", "main");
+  await writeFile(join(repo, ".git", "FETCH_HEAD"), `${head}\t\tbranch 'main'\n`);
+  const facts = await service.panelFacts(repo, repo);
+  expect(facts.defaultBranch).toBe("main");
+  expect(facts.remote).toBe("https://invalid.example/repo.git");
+  expect(facts.lastFetch).toBeGreaterThan(0);
+  expect(facts.upstream).toEqual({ ahead: 0, behind: 0 });
+  expect(facts.fetchFailed).toBe(false);
+  expect(await service.listWorktrees(repo)).toHaveLength(1);
+});

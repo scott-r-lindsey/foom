@@ -799,6 +799,15 @@ export class Workspace {
   async sidebarCommand(command: SidebarCommand, confirm: ConfirmWorkspace): Promise<void> {
     if (this.closed) throw new Error("Workspace is closed");
     if (command.kind === "home-shell") return this.startHomeShell();
+    if (command.kind === "copy-home-path") {
+      await this.deps.copyText?.(homeDirectory);
+      return;
+    }
+    if (command.kind === "copy-worktree-path") {
+      await this.deps.worktrees.launchIdentity(command.repository, command.worktree);
+      await this.deps.copyText?.(command.worktree);
+      return;
+    }
     if ("id" in command && this.busySessions.has(command.id)) throw new Error("Session is busy");
     if (
       command.kind === "resume" ||
@@ -807,13 +816,13 @@ export class Workspace {
     ) {
       const entry = this.launched.get(command.id);
       if (!entry || entry.agent === "shell") throw new Error("Unknown agent session");
-      if (this.terminals.get(entry.id)?.exitCode === undefined)
-        throw new Error("Session is still running");
       if (command.kind === "copy-session-id") {
         if (!conversationId(entry.conversationId)) throw new Error("No conversation ID recorded");
         await this.deps.copyText?.(entry.conversationId);
         return;
       }
+      if (this.terminals.get(entry.id)?.exitCode === undefined)
+        throw new Error("Session is still running");
       if (command.kind === "resume") resumeArguments(entry.agent, entry.conversationId);
       this.busySessions.add(entry.id);
       try {

@@ -35,8 +35,11 @@ afterEach(() => {
 });
 test("renders local facts, unknowns, state chips and copy buttons", async () => {
   const writeText = vi.fn(() => Promise.resolve());
-  Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } });
-  const live = { ...source, panelFacts: vi.fn(() => Promise.resolve(facts)) };
+  const live = {
+    ...source,
+    sidebarCommand: writeText,
+    panelFacts: vi.fn(() => Promise.resolve(facts)),
+  };
   const view = render(
     <PanelFacts
       subject={{ kind: "repository", repository, rows: [row] }}
@@ -53,7 +56,11 @@ test("renders local facts, unknowns, state chips and copy buttons", async () => 
     fireEvent.click(view.getByRole("button", { name: "/repo" }));
     await Promise.resolve();
   });
-  expect(writeText).toHaveBeenCalledWith("/repo");
+  expect(writeText).toHaveBeenCalledWith({
+    kind: "copy-worktree-path",
+    repository: "/repo",
+    worktree: "/repo",
+  });
   expect(view.getByRole("status").textContent).toBe("Copied");
   writeText.mockRejectedValueOnce(Error("denied"));
   await act(async () => {
@@ -76,6 +83,59 @@ test("renders local facts, unknowns, state chips and copy buttons", async () => 
   expect(view.container.textContent).toContain("2 ahead · 1 behind");
   expect(view.container.textContent).toContain("Last change");
   expect(view.container.textContent).toContain("Merged into default branch");
+  await act(async () => {
+    fireEvent.click(view.getByRole("button", { name: "/tree" }));
+    await Promise.resolve();
+  });
+  expect(writeText).toHaveBeenLastCalledWith({
+    kind: "copy-worktree-path",
+    repository: "/repo",
+    worktree: "/tree",
+  });
+  view.rerender(
+    <PanelFacts
+      subject={{
+        kind: "home",
+        home: { directory: "/home/me", path: "/bin/bash", version: null },
+        rows: [],
+      }}
+      source={live}
+      options={undefined}
+    />,
+  );
+  await act(async () => {
+    fireEvent.click(view.getByRole("button", { name: "/home/me" }));
+    await Promise.resolve();
+  });
+  expect(writeText).toHaveBeenLastCalledWith({ kind: "copy-home-path" });
+  view.rerender(
+    <PanelFacts
+      subject={{
+        kind: "session",
+        row: { ...row, conversationId: "conversation" },
+        tile: undefined,
+      }}
+      source={live}
+      options={undefined}
+    />,
+  );
+  await act(async () => {
+    fireEvent.click(view.getByRole("button", { name: "conversation" }));
+    await Promise.resolve();
+  });
+  expect(writeText).toHaveBeenLastCalledWith({ kind: "copy-session-id", id: row.id });
+  view.rerender(
+    <PanelFacts
+      subject={{ kind: "repository", repository, rows: [] }}
+      source={source}
+      options={undefined}
+    />,
+  );
+  await act(async () => {
+    fireEvent.click(view.getByRole("button", { name: "/repo" }));
+    await Promise.resolve();
+  });
+  expect(view.getByRole("status").textContent).toBe("Unable to copy");
 });
 test("all row types remain useful without available facts", async () => {
   const subjects: PanelSubject[] = [

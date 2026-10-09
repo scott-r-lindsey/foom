@@ -1,5 +1,6 @@
 import { useEffect, useState, useRef, useCallback } from "react";
 import type { ReactNode } from "react";
+import type { SidebarCommand } from "../../shared/workspace";
 import type { GitPanelFacts, HomeShellFacts } from "../../shared/panel";
 import type { BoardSource, LaunchOptions } from "./board-source.d";
 import type { BoardRow } from "./board.d";
@@ -12,7 +13,7 @@ export type PanelSubject =
   | { kind: "worktree"; repository: SidebarRepository; tree: SidebarWorktree }
   | { kind: "session"; row: BoardRow; tile: number | undefined };
 
-function Copy({ value }: { value: string }) {
+function Copy({ value, copy }: { value: string; copy: () => Promise<void> }) {
   const [message, setMessage] = useState("");
   return (
     <>
@@ -20,7 +21,7 @@ function Copy({ value }: { value: string }) {
         type="button"
         className="panel-copy"
         onClick={() => {
-          void navigator.clipboard.writeText(value).then(
+          void copy().then(
             () => {
               setMessage("Copied");
             },
@@ -54,6 +55,8 @@ export function PanelFacts({
   options: LaunchOptions | undefined;
 }) {
   const [now] = useState(Date.now);
+  const copy = (command: SidebarCommand) =>
+    source.sidebarCommand?.(command) ?? Promise.reject(new Error("Copy unavailable"));
   const repository =
     subject.kind === "repository" || subject.kind === "worktree"
       ? subject.repository.path
@@ -85,7 +88,11 @@ export function PanelFacts({
       {subject.kind === "home" && (
         <>
           <Fact label="Home">
-            {subject.home ? <Copy value={subject.home.directory} /> : unknown}
+            {subject.home ? (
+              <Copy value={subject.home.directory} copy={() => copy({ kind: "copy-home-path" })} />
+            ) : (
+              unknown
+            )}
           </Fact>
           <Fact label="Shell">{subject.home?.path ?? unknown}</Fact>
           <Fact label="Version">{subject.home?.version ?? unknown}</Fact>
@@ -95,7 +102,16 @@ export function PanelFacts({
       {subject.kind === "repository" && (
         <>
           <Fact label="Path">
-            <Copy value={subject.repository.path} />
+            <Copy
+              value={subject.repository.path}
+              copy={() =>
+                copy({
+                  kind: "copy-worktree-path",
+                  repository: subject.repository.path,
+                  worktree: subject.repository.path,
+                })
+              }
+            />
           </Fact>
           <Fact label="Remote">{facts?.remote ?? unknown}</Fact>
           <Fact label="Default branch">{facts?.defaultBranch ?? unknown}</Fact>
@@ -129,7 +145,16 @@ export function PanelFacts({
             {subject.tree.branch ?? `Detached at ${subject.tree.head?.slice(0, 7) ?? unknown}`}
           </Fact>
           <Fact label="Path">
-            <Copy value={subject.tree.path} />
+            <Copy
+              value={subject.tree.path}
+              copy={() =>
+                copy({
+                  kind: "copy-worktree-path",
+                  repository: subject.repository.path,
+                  worktree: subject.tree.path,
+                })
+              }
+            />
           </Fact>
           <Fact label="Changes">
             {facts?.changes === 0 ? (
@@ -209,7 +234,10 @@ export function PanelFacts({
           <Fact label="Tile">{subject.tile ?? "Hidden"}</Fact>
           <Fact label="Conversation">
             {subject.row.conversationId ? (
-              <Copy value={subject.row.conversationId} />
+              <Copy
+                value={subject.row.conversationId}
+                copy={() => copy({ kind: "copy-session-id", id: subject.row.id })}
+              />
             ) : (
               "None recorded"
             )}

@@ -276,6 +276,7 @@ test("sidebar commands copy known fields, validate IDs and paths, and keep confi
     { kind: "remove-repository", repository: "/repo" },
     { kind: "delete-merged-worktrees", repository: "/repo" },
     { kind: "remove-worktree", repository: "/repo", worktree: "/tree" },
+    { kind: "copy-worktree-path", repository: "/repo", worktree: "/tree" },
     { kind: "stop", id: "t1" },
     { kind: "close", id: "t1" },
     { kind: "restart", id: "t1" },

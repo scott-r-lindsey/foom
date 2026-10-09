@@ -423,11 +423,19 @@ export class WorktreeService {
 
   private async readPanelFacts(repository: string, worktree: string): Promise<GitPanelFacts> {
     const read = (args: string[]) => git(worktree, args, 3000).catch(() => null);
-    const [status, upstream, log, remote] = await Promise.all([
+    const remotes = (await read(["remote"]))?.trim().split("\n").filter(Boolean) ?? [];
+    const remoteName = remotes.includes("origin")
+      ? "origin"
+      : remotes.length === 1
+        ? remotes[0]
+        : undefined;
+    const [status, upstream, log, remote, localDefault, fetchPath] = await Promise.all([
       read(["--no-optional-locks", "status", "--porcelain=v1", "-z", "--untracked-files=normal"]),
       read(["rev-list", "--left-right", "--count", "HEAD...@{upstream}", "--"]),
       read(["log", "-1", "--format=%H%x00%s%x00%ct", "--"]),
-      read(["remote", "get-url", "origin"]),
+      remoteName ? read(["remote", "get-url", "--", remoteName]) : null,
+      remoteName ? read(["symbolic-ref", "--quiet", `refs/remotes/${remoteName}/HEAD`]) : null,
+      read(["rev-parse", "--path-format=absolute", "--git-path", "FETCH_HEAD"]),
     ]);
     let changes: number | null = null;
     if (status !== null) {
@@ -443,6 +451,17 @@ export class WorktreeService {
     const counts = upstream?.trim().match(/^(\d+)\s+(\d+)$/u);
     const [hash, subject, seconds] = log?.trim().split("\0") ?? [];
     const fetch = this.fetchFacts.get(repository);
+    const localFetch =
+      fetchPath && isAbsolute(fetchPath.trim())
+        ? await lstat(fetchPath.trim()).then(
+            (stat) => (stat.isFile() ? stat.mtimeMs : null),
+            () => null,
+          )
+        : null;
+    const prefix = `refs/remotes/${remoteName ?? ""}/`;
+    const localBranch = localDefault?.startsWith(prefix)
+      ? localDefault.trim().slice(prefix.length)
+      : null;
     let merged: boolean | null = null;
     if (fetch?.head && !fetch.failed && hash && /^[a-f0-9]{40,64}$/u.test(hash)) {
       const tree = await read(["rev-parse", `${fetch.head}^{tree}`]);
@@ -461,8 +480,8 @@ export class WorktreeService {
           ? { hash, subject: subject.slice(0, 500), timestamp: Number(seconds) * 1000 }
           : null,
       remote: remote?.trim().slice(0, 4096) || null,
-      defaultBranch: fetch?.branch ?? null,
-      lastFetch: fetch?.time ?? null,
+      defaultBranch: fetch?.branch ?? localBranch,
+      lastFetch: fetch?.time ?? localFetch,
       fetchFailed: fetch?.failed ?? false,
       merged,
     };

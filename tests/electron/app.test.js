@@ -253,7 +253,13 @@ async function launchCheckoutShell(app, page) {
     .toContain(repository);
   // The first window can still be animating on a cold CI display. Keyboard
   // activation exercises the menu without depending on pointer hit-test stability.
-  await page.getByRole("button", { name: "Actions for Main checkout", exact: true }).press("Enter");
+  const fixtureRow = page.getByRole("treeitem", { name: "shell-fixture", exact: true });
+  await expect(fixtureRow).toBeVisible();
+  const expand = fixtureRow.getByRole("button", { name: "Expand shell-fixture", exact: true });
+  if (await expand.count()) await expand.press("Enter");
+  await fixtureRow
+    .getByRole("button", { name: "Actions for Main checkout", exact: true })
+    .press("Enter");
   await page.getByRole("menuitem", { name: /^Shell \(/ }).press("Enter");
 }
 
@@ -2416,6 +2422,7 @@ test("first run goes from no agents to go, launches by keyboard, and can be repl
     inference: { kind: "rules" },
     inferenceTimeoutMs: 5000,
     colorMode: "system",
+    panelColor: "vivid",
     interfaceTheme: "follow",
     interfaceScale: 100,
     terminalFontSize: 14,
@@ -2936,7 +2943,10 @@ process.stdin.resume();
   await page.getByRole("button", { name: "Add repository", exact: true }).click();
   for (const [name, directory] of [
     ["external", external],
-    ["Detached HEAD", detached],
+    [
+      `⏣ ${isolatedGit(["rev-parse", "--short=7", "HEAD"], { cwd: detached }).toString().trim()}`,
+      detached,
+    ],
   ]) {
     await page.getByRole("button", { name: `Actions for ${name}`, exact: true }).click();
     await page.getByRole("menuitem", { name: /^Shell \(/ }).click();
@@ -5503,7 +5513,7 @@ test("merged cleanup deletes external worktrees and branches while preserving a 
     page.getByRole("button", { name: "Actions for merged-two", exact: true }),
   ).toBeVisible();
   await page.getByRole("button", { name: "Actions for repo", exact: true }).click();
-  await page.getByRole("menuitem", { name: "Delete merged worktrees…" }).click();
+  await page.getByRole("menuitem", { name: /Delete merged worktrees…/ }).click();
   const confirmation = await confirmationPage(app);
   await expect(confirmation.getByRole("list", { name: "Worktrees to delete" })).toHaveText(
     "merged-onemerged-two",
@@ -5521,7 +5531,7 @@ test("merged cleanup deletes external worktrees and branches while preserving a 
   await confirmation.getByRole("button", { name: "Cancel" }).click();
   assert.ok((git("branch", "--list", "merged-one") || "").includes("merged-one"));
   await page.getByRole("button", { name: "Actions for repo", exact: true }).click();
-  await page.getByRole("menuitem", { name: "Delete merged worktrees…" }).click();
+  await page.getByRole("menuitem", { name: /Delete merged worktrees…/ }).click();
   await expect(confirmation.getByRole("button", { name: "Delete", exact: true })).toBeVisible();
   await confirmation.getByRole("button", { name: "Delete", exact: true }).click();
   await expect
@@ -5867,6 +5877,26 @@ test("sidebar panels hover, pin, rename and launch a home shell", async (context
   await page.mouse.move(0, 0);
   await expect(panel).toBeVisible();
   await assertAccessible(page);
+  const expectedHome = await app.evaluate(({ app }) => app.getPath("home"));
+  await panel.getByRole("button", { name: expectedHome, exact: true }).click();
+  await expect.poll(() => app.evaluate(({ clipboard }) => clipboard.readText())).toBe(expectedHome);
+  for (const [panelColor, tint] of [
+    ["vivid", "1"],
+    ["subtle", "0.5"],
+    ["plain", "0"],
+  ]) {
+    await page.evaluate((panelColor) => window.desktop.saveSetup({ panelColor }), panelColor);
+    await expect(panel).toHaveCSS("--panel-tint", tint);
+  }
+  await page.evaluate(() =>
+    window.desktop.saveSetup({ panelColor: "vivid", interfaceTheme: "high-contrast" }),
+  );
+  await expect(panel).toHaveCSS("--panel-tint", "0");
+  await expect(panel).toHaveCSS("--panel-chip-line", "100%");
+  await page.evaluate(() => window.desktop.saveSetup({ interfaceTheme: "follow" }));
+  await page.emulateMedia({ contrast: "more" });
+  await expect(panel).toHaveCSS("--panel-tint", "0");
+  await page.emulateMedia({ contrast: "no-preference" });
   await page.getByRole("menuitem", { name: "New shell" }).click();
   const row = page.locator(".board-row");
   await expect(row).toHaveCount(1);

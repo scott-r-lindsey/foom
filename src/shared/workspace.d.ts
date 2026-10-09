@@ -116,6 +116,8 @@ export interface SidebarInventory {
 }
 export type SidebarCommand =
   | { kind: "home-shell" }
+  | { kind: "copy-home-path" }
+  | { kind: "copy-worktree-path"; repository: string; worktree: string }
   | { kind: "launch"; repository: string; worktree: string; run: AgentId | "shell" }
   | { kind: "remove-worktree"; repository: string; worktree: string }
   | { kind: "delete-merged-worktrees"; repository: string }
