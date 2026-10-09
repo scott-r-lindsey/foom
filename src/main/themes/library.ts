@@ -83,13 +83,19 @@ export class ThemeLibrary {
       const retained = new Map<string, ParsedThemeFile>();
       for (const kind of kinds) {
         let names: string[];
+        const nonFiles = new Set<string>();
         try {
           if (!(await lstat(this.folder(kind))).isDirectory()) throw new Error("unsafe directory");
-          names = (await readdir(this.folder(kind))).sort(
-            (a, b) =>
-              Number(this.good.has(`${kind}/${b}`)) - Number(this.good.has(`${kind}/${a}`)) ||
-              a.localeCompare(b),
-          );
+          const entries = await readdir(this.folder(kind), { withFileTypes: true });
+          for (const entry of entries)
+            if (!entry.isFile() && !entry.isSymbolicLink()) nonFiles.add(entry.name);
+          names = entries
+            .map((entry) => entry.name)
+            .sort(
+              (a, b) =>
+                Number(this.good.has(`${kind}/${b}`)) - Number(this.good.has(`${kind}/${a}`)) ||
+                a.localeCompare(b),
+            );
         } catch {
           next.errors.push({ kind, file: "(folder)", path: "$", reason: "unreadable" });
           // An inaccessible directory is not evidence that its files were deleted.
@@ -102,8 +108,11 @@ export class ThemeLibrary {
           const key = `${kind}/${file}`;
           let theme: ParsedThemeFile | undefined;
           let diagnostic: ThemeDiagnostic | undefined;
-          if (!validThemeFile(file)) diagnostic = { file, path: "$", reason: "unsafe-file" };
-          else if (++count > 50) diagnostic = { file, path: "$", reason: "too-many-files" };
+          if (!validThemeFile(file) || nonFiles.has(file)) {
+            // Retained versions still occupy a slot even when their file became a directory.
+            if (this.good.has(key)) count++;
+            diagnostic = { file, path: "$", reason: "unsafe-file" };
+          } else if (++count > 50) diagnostic = { file, path: "$", reason: "too-many-files" };
           else {
             try {
               theme = await this.read(kind, file);

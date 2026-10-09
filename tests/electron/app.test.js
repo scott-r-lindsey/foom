@@ -6003,5 +6003,5 @@ test("custom theme files appear live, update selected colors and retain rejected
     "background-color",
     "rgb(16, 16, 16)",
   );
-  await page.screenshot({ path: path.join(root, "custom-theme.png") });
+  await page.screenshot({ path: path.join(__dirname, "../../test-results/custom-theme.png") });
 });

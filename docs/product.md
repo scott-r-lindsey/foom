@@ -441,7 +441,7 @@ colors for the current session. A missing or invalid saved choice at startup use
 Follow while retaining the choice; fixing its file restores the selection. Custom
 names matching a built-in receive “(custom)”. See the [file formats and limits](architecture.md#custom-theme-files-205).
 
-Every theme keeps amber for Needs you, magenta for Failed, and violet for activity.
+Every interface theme keeps amber for Needs you, magenta for Failed, and violet for activity.
 Needs you retains its halo, Failed its square light, and all states their labels.
 High Contrast provides at least 7:1 text contrast and stronger borders.
 

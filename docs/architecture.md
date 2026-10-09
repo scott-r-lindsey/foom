@@ -1100,11 +1100,13 @@ six-digit hex value. Names are 1–40 letters, numbers, spaces, dots, underscore
 or hyphens, with at least one nonspace character. Unknown keys, including `id`,
 reject the whole file; files cannot choose or replace a built-in ID.
 
-`main/themes/library.ts` reads at most 50 named JSON files per folder, at most
+`main/themes/library.ts` reads at most 50 eligible JSON files per folder, at most
 64 KiB each. Names are at most 100 characters, nonhidden and path-free. Reads
 inspect an open descriptor, reject nonregular files and links outside the direct
 folder, bound allocation, and recheck file and directory identity. Subfolders and
-redirected theme directories are refused. Folder failures produce fixed diagnostics.
+redirected theme directories are refused. Invalid names and nonfiles do not consume
+the file budget. Previously loaded files are considered first so added files cannot
+evict their last-good versions; remaining names are sorted. Folder failures produce fixed diagnostics.
 The folder watcher debounces changes for 250 ms, reloads serially and closes on
 shutdown. Parsed palettes and bounded diagnostics contain no absolute paths or
 raw file contents; diagnostics have a filename, JSON path and fixed reason code.

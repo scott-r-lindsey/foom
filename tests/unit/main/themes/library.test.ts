@@ -119,7 +119,7 @@ test("rejects unsafe names, directories, oversized files and files beyond fifty"
       JSON.stringify(valid()),
     );
   await library.reload();
-  expect(library.snapshot().interface.length).toBeLessThanOrEqual(50);
+  expect(library.snapshot().interface).toHaveLength(50);
   expect(library.snapshot().errors).toEqual(
     expect.arrayContaining([
       expect.objectContaining({ reason: "unsafe-file" }),
@@ -203,4 +203,24 @@ test("an unavailable directory retains its known themes until recovery", async (
   );
   library.dispose();
   await library.initialize();
+});
+
+test("retained unsafe replacements still consume a registry slot", async () => {
+  const { library, folder } = await fixture();
+  const file = join(folder, "old.json");
+  await writeFile(file, JSON.stringify(valid()));
+  await library.reload();
+  await rm(file);
+  await mkdir(file);
+  for (let i = 0; i < 50; i++)
+    await writeFile(join(folder, `new-${String(i)}.json`), JSON.stringify(valid()));
+  await library.reload();
+  expect(library.snapshot().interface).toHaveLength(50);
+  expect(library.snapshot().interface.some((entry) => entry.id === "user:old.json")).toBe(true);
+  expect(library.snapshot().errors).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({ file: "old.json", reason: "unsafe-file" }),
+      expect.objectContaining({ reason: "too-many-files" }),
+    ]),
+  );
 });
