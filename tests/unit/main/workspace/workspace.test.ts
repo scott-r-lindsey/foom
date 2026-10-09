@@ -697,12 +697,12 @@ test("creates missing worktrees at the configured location and persists Codex ac
   await workspace.dispose();
 });
 
-test("refuses unknown, unmanaged, locked, prunable and invalid branches without spawning", async () => {
+test("refuses unknown, bare, locked, prunable and invalid branches without spawning", async () => {
   const workspace = new Workspace(deps);
   await expect(workspace.startWorktree({ ...start, repository: "/unknown" })).rejects.toThrow(
     "not been added",
   );
-  for (const change of [{ managed: false }, { locked: true }, { prunable: true }]) {
+  for (const change of [{ bare: true }, { locked: true }, { prunable: true }]) {
     vi.spyOn(deps.worktrees, "listWorktrees").mockResolvedValueOnce([{ ...tree, ...change }]);
     await expect(workspace.startWorktree(start)).rejects.toThrow();
   }
@@ -2315,7 +2315,11 @@ test("merged cleanup lists every skip rule and continues after a changed candida
     .poll(async () => (await workspace.sidebarInventory()).repositories[0]?.canDeleteMerged)
     .toBe(true);
   const confirm = vi.fn<ConfirmWorkspace>(() => {
-    vi.mocked(deps.worktrees.listWorktrees).mockResolvedValue([tree, { ...changed, head: "new" }]);
+    vi.mocked(deps.worktrees.listWorktrees).mockResolvedValue([
+      tree,
+      external,
+      { ...changed, head: "new" },
+    ]);
     return Promise.resolve(true);
   });
   await expect(
@@ -2327,7 +2331,7 @@ test("merged cleanup lists every skip rule and continues after a changed candida
       { branch: "feature" },
       { branch: "changed" },
       { branch: "dirty", reason: "uncommitted changes" },
-      { branch: "external", reason: "not managed by Foom" },
+      { branch: "external" },
       { branch: "main", reason: "main checkout" },
       { branch: "locked", reason: "unavailable" },
       { branch: detached.path, reason: "unavailable" },
@@ -2336,21 +2340,24 @@ test("merged cleanup lists every skip rule and continues after a changed candida
       { branch: "unavailable", reason: "unavailable" },
     ],
   });
-  expect(deps.worktrees.removeWorktree).toHaveBeenCalledExactlyOnceWith(
-    repo.path,
-    tree.path,
-    false,
-    "identity",
-  );
-  expect(deps.worktrees.deleteMergedBranch).toHaveBeenCalledExactlyOnceWith(
-    repo.path,
-    tree.branch,
-    tree.head,
-  );
+  expect(deps.worktrees.removeWorktree).toHaveBeenCalledTimes(2);
+  for (const candidate of [tree, external]) {
+    expect(deps.worktrees.removeWorktree).toHaveBeenCalledWith(
+      repo.path,
+      candidate.path,
+      false,
+      "identity",
+    );
+    expect(deps.worktrees.deleteMergedBranch).toHaveBeenCalledWith(
+      repo.path,
+      candidate.branch,
+      candidate.head,
+    );
+  }
   await workspace.dispose();
 });
 
-test.each(["dirty", "unmerged", "replaced", "unmanaged", "renamed", "missing"])(
+test.each(["dirty", "unmerged", "replaced", "renamed", "missing"])(
   "merged cleanup revalidates %s after confirmation",
   async (change) => {
     const workspace = new Workspace(deps);
@@ -2364,10 +2371,6 @@ test.each(["dirty", "unmerged", "replaced", "unmanaged", "renamed", "missing"])(
             vi.mocked(deps.worktrees.mergedCommit).mockResolvedValue(false);
           if (change === "replaced")
             vi.mocked(deps.worktrees.removalIdentity).mockResolvedValue("new");
-          if (change === "unmanaged")
-            vi.mocked(deps.worktrees.listWorktrees).mockResolvedValue([
-              { ...tree, managed: false },
-            ]);
           if (change === "renamed")
             vi.mocked(deps.worktrees.listWorktrees).mockResolvedValue([
               { ...tree, branch: "other" },
@@ -2386,7 +2389,7 @@ test.each(["dirty", "unmerged", "replaced", "unmanaged", "renamed", "missing"])(
 test("merged cleanup cancels, refuses stale fetches and hides ineligible inventory", async () => {
   const workspace = new Workspace(deps);
   const command = { kind: "delete-merged-worktrees", repository: repo.path } as const;
-  vi.mocked(deps.worktrees.listWorktrees).mockResolvedValue([{ ...tree, managed: false }]);
+  vi.mocked(deps.worktrees.listWorktrees).mockResolvedValue([{ ...tree, path: repo.path }]);
   expect((await workspace.sidebarInventory()).repositories[0]?.canDeleteMerged).toBe(false);
   expect(deps.worktrees.mergedDefault).not.toHaveBeenCalled();
   vi.mocked(deps.worktrees.listWorktrees).mockResolvedValue([tree]);
@@ -2542,7 +2545,7 @@ test.each([new Error("offline"), "offline"])(
   },
 );
 
-test.each(["new inventory", "unmanaged", "removed", "disposed"])(
+test.each(["new inventory", "main only", "removed", "disposed"])(
   "a pending eligibility result is discarded after %s",
   async (change) => {
     let complete: (base: string) => void = () => undefined;
@@ -2563,8 +2566,8 @@ test.each(["new inventory", "unmanaged", "removed", "disposed"])(
         expect(changed).toHaveBeenCalledOnce();
       });
     }
-    if (change === "unmanaged") {
-      vi.mocked(deps.worktrees.listWorktrees).mockResolvedValue([{ ...tree, managed: false }]);
+    if (change === "main only") {
+      vi.mocked(deps.worktrees.listWorktrees).mockResolvedValue([{ ...tree, path: repo.path }]);
       await workspace.sidebarInventory();
     }
     if (change === "removed") await workspace.removeRepository(repo.path);
@@ -2785,4 +2788,25 @@ test("fully idle Antigravity Stop recovers a turn whose working report was overt
     hooks?.dispose();
     await workspace.dispose();
   }
+});
+
+test("New worktree reuses an external checkout for shells", async () => {
+  vi.mocked(deps.worktrees.listWorktrees).mockResolvedValue([{ ...tree, managed: false }]);
+  const workspace = new Workspace(deps);
+  await workspace.startWorktree({ ...start, run: "shell" });
+  expect(deps.worktrees.createWorktree).not.toHaveBeenCalled();
+  expect(vi.spyOn(deps.terminals, "create")).toHaveBeenCalledWith(
+    expect.objectContaining({ cwd: tree.path }),
+  );
+  await workspace.dispose();
+});
+
+test("New worktree refuses a checkout replaced during launch validation", async () => {
+  vi.mocked(deps.worktrees.launchIdentity)
+    .mockResolvedValueOnce("old")
+    .mockResolvedValueOnce("new");
+  const workspace = new Workspace(deps);
+  await expect(workspace.startWorktree({ ...start, run: "shell" })).rejects.toThrow("changed");
+  expect(vi.spyOn(deps.terminals, "create")).not.toHaveBeenCalled();
+  await workspace.dispose();
 });

@@ -63,6 +63,12 @@
   --bg: #f3f0fa;
   --surface: #e9e4f5;
   --line: #ddd6ee;
+  /* Raised menus follow the active theme base, including explicit theme choices. */
+  --raised-top: light-dark(#f7f4fd, #1b1629);
+  --raised-bottom: light-dark(#ece7f7, #110e1b);
+  --raised-line: light-dark(#cfc6e6, #3a3060);
+  --raised-hover: light-dark(#e2dbf3, #221b3a);
+  --raised-shadow: light-dark(rgb(40 20 90 / 28%), rgb(0 0 0 / 85%));
   --ink: #14101f;
   --muted: #625a7a;
   --accent: #5b2bd9;

@@ -111,7 +111,7 @@ Every session keeps its own light, hooks and verdicts.
 Worktree removal is available for linked checkouts created by any tool. It requires
 confirmation, validates repository membership and worktree identity, and rechecks dirty
 files before deletion. The branch is kept; the main checkout cannot be removed. Repository removal forgets its
-registration, retains files and refuses while it has sessions or Foom-owned worktrees.
+registration, retains all checkout files and refuses while it has sessions or pending operations.
 
 Below 720 CSS pixels, once sessions exist, the tree becomes a flat column with one light per session and accessible
 names. ⌘⇧B on macOS or Ctrl+Shift+B elsewhere focuses the sidebar; arrow keys navigate.
@@ -122,7 +122,7 @@ Settings and the six tile preset icons stay at the bottom of the sidebar. Launch
 ### Delete merged worktrees
 
 The repository menu offers **Delete merged worktrees…** below Remove repository
-when at least one Foom-managed worktree is eligible. Foom fetches the remote
+when at least one linked worktree is eligible, regardless of which tool created it. Foom fetches the remote
 (`origin`, or the sole remote) and resolves its advertised default branch. A
 branch is merged when `git merge-tree --write-tree <default> <branch>` produces
 the default branch's tree: merging it would change nothing. This works for merge,
@@ -132,7 +132,7 @@ background cleanup eligibility is cached for up to one minute and published when
 ready. The action always fetches afresh.
 
 The trusted dialog lists candidate branches, then skipped checkouts with short
-reasons, and offers **Delete** and **Cancel**. Main checkouts, unmanaged, locked,
+reasons, and offers **Delete** and **Cancel**. Main checkouts, locked,
 prunable or detached worktrees, running sessions, dirty/untracked files and
 exited resumable Claude/Codex conversations are retained. After confirmation,
 Foom fetches again, revalidates each candidate before and after stopping its
@@ -361,7 +361,7 @@ Short steps center vertically. Content changes
 re-center over 180 milliseconds (immediately with reduced motion). Back, Continue and
 Launch stay in a footer at the bottom of the window, outside the scrolling content.
 
-The rail also holds **Appearance**: System, Light or Dark, and the interface size (80–150%; the window grows and shrinks with it while the screen has room, around the pointer when you click + or − or scroll over the percentage, so what you pointed at stays under it; also ⌘ +/−/0 on macOS or Ctrl+Shift+=/−/0 elsewhere). Terminal font size is separate and lives in Settings → Terminal. A model source is used only after it passes Run check. Launch opens the board. The board starts empty. A repository’s **New worktree** action launches an agent or shell in a managed worktree; checkout menus launch sessions in an existing checkout. Sample sessions are available only in an explicit development build. After first run, **Settings** on the board edits the saved choices.
+The rail also holds **Appearance**: System, Light or Dark, and the interface size (80–150%; the window grows and shrinks with it while the screen has room, around the pointer when you click + or − or scroll over the percentage, so what you pointed at stays under it; also ⌘ +/−/0 on macOS or Ctrl+Shift+=/−/0 elsewhere). Terminal font size is separate and lives in Settings → Terminal. A model source is used only after it passes Run check. Launch opens the board. The board starts empty. A repository’s **New worktree** action creates or reuses a Git worktree for the branch, regardless of which tool created it, and launches an agent or shell; checkout menus launch sessions in an existing checkout. Sample sessions are available only in an explicit development build. After first run, **Settings** on the board edits the saved choices.
 
 ## Settings
 
