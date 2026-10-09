@@ -910,3 +910,42 @@ it("status inspection never refreshes the index during concurrent cleanup", asyn
   await execute("git", ["status", "--porcelain=v1"], { cwd: path });
   expect(await readFile(index)).not.toEqual(before);
 });
+
+describe("local panel facts", () => {
+  it("reports changes, commit and unknown upstream without fetching; caches briefly", async () => {
+    await writeFile(join(repo, "note.txt"), "draft");
+    const facts = await service.panelFacts(repo, repo);
+    expect(facts).toMatchObject({
+      changes: 1,
+      upstream: null,
+      remote: null,
+      merged: null,
+      commit: { subject: "Initial" },
+    });
+    await writeFile(join(repo, "other.txt"), "draft");
+    expect(await service.panelFacts(repo, repo)).toEqual(facts);
+    await expect(service.panelFacts(repo, temporary)).rejects.toThrow();
+    await expect(service.panelFacts(temporary, repo)).rejects.toThrow();
+  });
+  it("shows unknown for git failures after authorization", async () => {
+    vi.spyOn(service, "launchIdentity").mockResolvedValue("verified");
+    const facts = await service.panelFacts(repo, temporary);
+    expect(facts).toMatchObject({ changes: null, upstream: null, commit: null, remote: null });
+  });
+});
+
+it("repository panels read local default branch and fetch time without network or linked worktrees", async () => {
+  await git("remote", "add", "upstream", "https://invalid.example/repo.git");
+  const head = (await git("rev-parse", "HEAD")).trim();
+  await git("update-ref", "refs/remotes/upstream/main", head);
+  await git("symbolic-ref", "refs/remotes/upstream/HEAD", "refs/remotes/upstream/main");
+  await git("branch", "--set-upstream-to=upstream/main", "main");
+  await writeFile(join(repo, ".git", "FETCH_HEAD"), `${head}\t\tbranch 'main'\n`);
+  const facts = await service.panelFacts(repo, repo);
+  expect(facts.defaultBranch).toBe("main");
+  expect(facts.remote).toBe("https://invalid.example/repo.git");
+  expect(facts.lastFetch).toBeGreaterThan(0);
+  expect(facts.upstream).toEqual({ ahead: 0, behind: 0 });
+  expect(facts.fetchFailed).toBe(false);
+  expect(await service.listWorktrees(repo)).toHaveLength(1);
+});

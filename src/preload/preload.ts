@@ -377,6 +377,8 @@ const desktop: DesktopApi = {
   },
   startWorktree: (request) => ipcRenderer.invoke("workspace:start", request),
   removeWorktree: (id) => ipcRenderer.invoke("workspace:remove", id),
+  panelFacts: (repository, worktree) =>
+    ipcRenderer.invoke("workspace:panel-facts", repository, worktree),
   sidebarInventory: () => ipcRenderer.invoke("workspace:sidebar"),
   sidebarCommand: (command) => ipcRenderer.invoke("workspace:sidebar-command", command),
   workspace: () => ipcRenderer.invoke("workspace:snapshot"),

@@ -18,6 +18,7 @@ export function setupState(
       worktreeLocation: "root",
       inference: { kind: "rules" },
       inferenceTimeoutMs: 5000,
+      panelColor: "vivid",
       colorMode: "system",
       interfaceTheme: "follow",
       interfaceScale: 100,

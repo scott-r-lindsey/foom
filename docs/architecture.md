@@ -118,7 +118,7 @@ pruned only after the source's first inventory completes, so an asynchronous loa
 cannot erase valid assignments. This data grants no process capabilities. Maximize
 is not persisted. All terminal IPC remains ID-scoped and main-validated.
 
-The board starts empty. Shells and agents launch from a repository or checkout’s menu; **New worktree** is a repository action. `npm run start:samples` explicitly builds the development sample board. Normal builds omit its data, and Forge rebuilds without the sample flag before packaging, including when invoked directly. The renderer `<dialog>` New worktree form selects a repository, branch and detected agent or shell, and shows versions and hook availability. Repository paths come from main’s registry or native directory picker; main chooses worktree destinations and executables.
+The board starts empty. Shells and agents launch from checkout panels; home shells use the home row; **New worktree** is a repository action. `npm run start:samples` explicitly builds the development sample board. Normal builds omit its data, and Forge rebuilds without the sample flag before packaging, including when invoked directly. The renderer `<dialog>` New worktree form selects a repository, branch and detected agent or shell, and shows versions and hook availability. Repository paths come from main’s registry or native directory picker; main chooses worktree destinations and executables.
 
 Main's inventory watcher derives the common Git directory with `rev-parse`, validates
 its canonical path, and watches metadata directories for `HEAD`, `packed-refs`,
@@ -139,7 +139,7 @@ changing their terminal state, capabilities or attachment.
 
 ## Renderer
 
-**Today:** The board uses React 19 with TSX and reads one typed source through `useSyncExternalStore`. Each stable tile mounts one imperative terminal controller through the source adapter and disposes xterm and subscriptions on unmount. Terminal attachment and measurement remain in the controller to preserve attachment ordering. Board focus and pane selection are independent view state; hovering or focusing a row previews its tail without selecting it. The source also supplies path-identified repositories and their complete Git worktree inventory, including empty worktrees and the main checkout, plus validated main-process navigation commands. `sidebar-model.ts` computes stable pin/active/idle sections, filtering, hidden attention counts and roll-ups. `sidebar-view.tsx` renders the tree (or flattened session column below 720px). Sidebar focus and location selection do not attach a terminal; only the board's presentation callback requests that from the tile controller. Open row menus derive actions from current source data so delayed eligibility updates are visible without reopening. `row-menu.tsx` portals menus to the document body, positions them from the action button's viewport rectangle, and owns keyboard navigation and dismissal. `sidebar-preferences.ts` validates versioned localStorage metadata for pins, expansion and terminal-ID names; this metadata grants no process or filesystem capabilities. Session metadata restores as exited rows across application exit; PTYs and screens are not restored. Activity batches write brightness directly to each light; a separate clock updates wait labels without React commits. Activity goes directly from IPC to light styles without changing the React row snapshot.
+**Today:** The board uses React 19 with TSX and reads one typed source through `useSyncExternalStore`. Each stable tile mounts one imperative terminal controller through the source adapter and disposes xterm and subscriptions on unmount. Terminal attachment and measurement remain in the controller to preserve attachment ordering. Board focus and pane selection are independent view state; hovering or focusing a row previews its tail without selecting it. The source also supplies path-identified repositories and their complete Git worktree inventory, including empty worktrees and the main checkout, plus validated main-process navigation commands. `sidebar-model.ts` computes stable pin/active/idle sections, filtering, hidden attention counts and roll-ups. `sidebar-view.tsx` renders the tree (or flattened session column below 720px). Sidebar focus and location selection do not attach a terminal; only the board's presentation callback requests that from the tile controller. Open row panels derive actions from current source data so delayed eligibility updates are visible without reopening. `row-menu.tsx` portals panels to the document body, positions them from the row’s viewport rectangle, and owns keyboard navigation and dismissal. `sidebar-preferences.ts` validates versioned localStorage metadata for pins, expansion and terminal-ID names; this metadata grants no process or filesystem capabilities. Session metadata restores as exited rows across application exit; PTYs and screens are not restored. Activity batches write brightness directly to each light; a separate clock updates wait labels without React commits. Activity goes directly from IPC to light styles without changing the React row snapshot.
 
 - **React 19 with TSX**, bundled by esbuild as a production build (`process.env.NODE_ENV` defined). No other UI framework, component kit, or CSS-in-JS. Styles are plain CSS using the tokens in `tokens.css`.
 - **The renderer holds view state only.** Terminal, verdict, and worktree truth lives in main and arrives through `window.desktop`. Components don't call the bridge directly; they read from one board data-source interface shaped like the IPC contract. A sample source serves explicit development builds and tests; the app uses the live source.
@@ -1044,3 +1044,37 @@ against the Antigravity launch, pins `conversationId`, and emits only event/acti
 terminal ID and enumerated Stop facts. It never exposes an Antigravity conversation
 ID for Resume. See the [probe record](agents.md#opt-in-antigravity-lifecycle-plugin-178)
 for the documented-versus-observed Stop spelling and remaining platform verification.
+
+
+## Sidebar panels and home shells (#197)
+
+`PanelIntent` owns cancellable 400/120/250 ms hover timers, pinning and drag
+suppression. The sidebar derives panel subjects and commands from its source;
+`RowMenu` shares positioning, keyboard and main-owned confirmations between the
+application menu and labelled sidebar dialogs. Panel facts load through the
+source, ignore superseded replies and remain inert text. Session title edits
+remain local view preferences. The theme subscription applies the validated
+`panelColor` setting as root metadata; CSS forces undecorated panels for High
+Contrast and increased OS contrast without weakening status outlines.
+
+`workspace:panel-facts` accepts exactly a repository and worktree path from the
+trusted top frame. WorktreeService validates registered membership and canonical
+launch identity even on cache hits. Local Git reads use argument arrays and
+three-second deadlines, and results are cached for three seconds per checkout
+identity. Failed reads return null facts. The request never calls fetch: merge
+comparison uses only the last successful default commit already fetched by the
+cleanup service. Default-branch and last-fetch facts also read the local remote HEAD and FETCH_HEAD timestamp, including repositories with no linked checkouts. Sidebar eligibility supplies the same count used by cleanup.
+
+Fact-copy actions use validated sidebar commands and main’s clipboard capability: home paths are main-owned, checkout paths require a registered checkout identity, and conversation IDs come from the selected session. Browser clipboard permissions remain denied.
+
+`home-shell` is a path-free sidebar command. Main chooses the home directory and
+shell, starts a normal sandboxed-host PTY and records `home: true` alongside
+ordinary session metadata. Restore accepts home records only for shells with
+matching home paths; it never launches automatically. Restart uses the same
+main-owned launch path. Home sessions remain outside the Git repository tree
+and repository-scoped agent control; no arbitrary cwd or executable capability
+is added. The bounded shell version probe is main-owned and cached.
+
+The read-only mockup reference is `docs/mockups/sidebar-panels.html`; its existing
+README entry describes these panels. Contributor rules keep that reference
+folder unchanged.

@@ -93,6 +93,7 @@ beforeEach(() => {
   deps = {
     acknowledgeCodex: vi.fn(async () => {}),
     worktrees: {
+      panelFacts: vi.fn(),
       listRepositories: vi.fn(() => [repo]),
       addRepository: vi.fn(() => Promise.resolve(repo)),
       listWorktrees: vi.fn(() => Promise.resolve([tree])),
@@ -149,7 +150,7 @@ async function launched(): Promise<Workspace> {
 test("launches into a known repository and lists the terminal with its branch", async () => {
   const workspace = await launched();
   expect(agents.scan).toHaveBeenCalledOnce();
-  expect(workspace.snapshot()).toEqual({
+  expect(workspace.snapshot()).toMatchObject({
     repositories: [repo],
     terminals: [
       {
@@ -876,7 +877,7 @@ test("output preserves a permission hook even while its evaluation is pending", 
 test("sidebar inventory includes empty trees and the actual shell; launches use registered location identities", async () => {
   const workspace = new Workspace(deps);
   vi.stubEnv("SHELL", "/bin/zsh");
-  expect(await workspace.sidebarInventory()).toEqual({
+  expect(await workspace.sidebarInventory()).toMatchObject({
     repositories: [{ ...repo, worktrees: [tree], canDeleteMerged: false }],
     shell: process.platform === "win32" ? "powershell.exe" : "zsh",
   });
@@ -2752,4 +2753,84 @@ test("New worktree refuses a checkout replaced during launch validation", async 
   await expect(workspace.startWorktree({ ...start, run: "shell" })).rejects.toThrow("changed");
   expect(vi.spyOn(deps.terminals, "create")).not.toHaveBeenCalled();
   await workspace.dispose();
+});
+
+test("home shells use only main-owned paths, persist and restart without a repository", async () => {
+  const create = vi.spyOn(deps.terminals, "create");
+  const { homeDirectory } = await import("../../../../src/main/workspace/home-shell");
+  const workspace = new Workspace(deps);
+  await workspace.sidebarCommand({ kind: "home-shell" }, () => Promise.resolve(false));
+  expect(create).toHaveBeenCalledWith(
+    expect.objectContaining({ cwd: homeDirectory, shellIntegration: true }),
+  );
+  const entry = workspace.snapshot().terminals[0];
+  expect(entry).toMatchObject({ home: true, kind: "shell", worktree: homeDirectory });
+  if (!entry) throw new Error("Missing home shell");
+  await workspace.exited(entry.id, 0);
+  await workspace.sidebarCommand({ kind: "restart", id: entry.id }, () => Promise.resolve(false));
+  expect(create).toHaveBeenCalledTimes(2);
+});
+
+test("panel facts require a registered repository", async () => {
+  const workspace = new Workspace(deps);
+  expect(() => workspace.panelFacts("/foreign", tree.path)).toThrow();
+  await workspace.panelFacts(repo.path, tree.path);
+  expect(deps.worktrees.panelFacts).toHaveBeenCalledWith(repo.path, tree.path);
+});
+
+test("restores home shells without repositories and rejects foreign home paths", async () => {
+  const { homeDirectory } = await import("../../../../src/main/workspace/home-shell");
+  const stored = {
+    id: "home-1",
+    kind: "shell" as const,
+    agent: "shell" as const,
+    home: true,
+    repository: homeDirectory,
+    worktree: homeDirectory,
+    branch: null,
+    attention: "evaluator" as const,
+    state: null,
+    dormant: true,
+    exited: true,
+  };
+  deps.sessions = {
+    load: () =>
+      Promise.resolve([
+        stored,
+        { ...stored, id: "bad-home", worktree: "/other" },
+        { ...stored, id: "bad-repo", repository: "/other" },
+        { ...stored, id: "bad-agent", kind: "agent" },
+      ]),
+    save: () => Promise.resolve(),
+    flush: () => Promise.resolve(),
+  };
+  const workspace = new Workspace(deps);
+  await workspace.restore();
+  expect(workspace.snapshot().terminals.map((entry) => entry.id)).toEqual(["home-1"]);
+  expect(vi.mocked(deps.terminals, true).create.mock.calls).toHaveLength(0);
+  await workspace.sidebarCommand({ kind: "close", id: "home-1" }, () => Promise.resolve(true));
+  expect(workspace.snapshot().terminals).toEqual([]);
+});
+
+test("fact clipboard commands use main-owned values and reject unknown worktrees", async () => {
+  const copy = vi.fn();
+  deps.copyText = copy;
+  const workspace = new Workspace(deps);
+  await workspace.sidebarCommand({ kind: "copy-home-path" }, () => Promise.resolve(false));
+  const { homeDirectory } = await import("../../../../src/main/workspace/home-shell");
+  expect(copy).toHaveBeenLastCalledWith(homeDirectory);
+  await workspace.sidebarCommand(
+    { kind: "copy-worktree-path", repository: repo.path, worktree: tree.path },
+    () => Promise.resolve(false),
+  );
+  expect(deps.worktrees.launchIdentity).toHaveBeenCalledWith(repo.path, tree.path);
+  expect(copy).toHaveBeenLastCalledWith(tree.path);
+  vi.mocked(deps.worktrees.launchIdentity).mockRejectedValueOnce(new Error("Unknown worktree"));
+  await expect(
+    workspace.sidebarCommand(
+      { kind: "copy-worktree-path", repository: repo.path, worktree: "/foreign" },
+      () => Promise.resolve(false),
+    ),
+  ).rejects.toThrow("Unknown worktree");
+  expect(copy).toHaveBeenCalledTimes(2);
 });

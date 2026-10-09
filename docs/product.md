@@ -74,15 +74,42 @@ conversation IDs survive Foom restarts as exited sessions; PTYs and screens do n
 Hover or focus a session to peek without switching the pane. Click or press Enter to show
 its terminal and focus input, using the placement rules below. Needs you remains; Done and Failed dim once seen.
 
-Each row has an actions menu that opens to the right, over the pane, outside the scrolling
-tree. Arrow keys, Home/End, Enter and Escape operate it; outside clicks and tree scrolling
-close it. Repository and worktree selection show breadcrumbs and location launch buttons.
-Repository launchers use the main checkout. Worktree launchers use the selected checkout,
-including worktrees created outside Foom and detached checkouts. Launchers name the user's shell and show only
-installed, enabled agents. New worktree opens the existing branch/agent dialog. A running
-session offers Stop. An exited agent offers **Resume conversation** with a short ID hint
-when a validated Claude Code or Codex conversation ID was recorded, **New conversation
-here**, **Copy session ID** when an ID exists, then a separator and **Close**.
+Each row opens a labelled panel to the right of the sidebar, over the tiles.
+Hover intent takes 400 ms, or 120 ms when switching from another open panel;
+leaving both row and panel closes a hover panel after 250 ms. The ⋯ button,
+right-click and Shift+F10 pin it and move focus to its commands. Escape, an
+outside click or tree scrolling closes it and returns focus to the row. Hover
+cannot replace a pinned panel; dragging suppresses panels.
+
+Panels have a title band, a 248 px command column and facts beside it, up to
+720 px wide and contained within the window. Commands retain their existing
+confirmations. Arrow keys, Home/End and Enter operate commands; copyable paths
+and conversation IDs are buttons. Clicking a session title renames it with the
+same Enter/blur, Escape and empty-name behavior as sidebar double-click rename.
+
+The home shell row (`>_ shell ~`) sits above repositories. Its name and **New
+shell** command launch in the main-owned home directory. Shells group beneath
+it and restore as exited sessions. Its panel shows home, executable, version
+and running count. Repository panels show path, remote, default branch, last
+fetch status, worktree/creation/eligible-merged counts and session states; they
+offer New worktree, pinning, Delete merged worktrees and **Remove from Foom…**
+(with “keeps files”). Launchers belong to checkout panels. Checkout facts show
+branch, path, changes, upstream counts and last commit; linked worktrees also
+show merged state and creation origin. Detached rows show a short hash with a
+detached glyph, and panels say “Detached at <hash>”. **Delete worktree…** names
+the existing folder-removal action.
+
+Session panels show location, discovered agent version, state and reason,
+waiting time, recorded launch flags (BYPASS when applicable), start time or exit
+code, tile and conversation ID. A running session offers Stop. An exited agent
+offers **Resume conversation** with a short ID hint when a validated Claude Code
+or Codex conversation ID was recorded, **New conversation here**, **Copy session
+ID** when an ID exists, then a separator and **Close**.
+
+Git facts load lazily, locally and with bounded calls; unavailable facts say
+Unknown. Opening a panel never fetches from the network. Merge facts use the
+merge checker's last fetch and the eligible count uses its exact cleanup rules.
+
 Resume starts the same agent in the same checkout and row, with fresh per-launch hooks
 and current launch defaults. New conversation uses that row and checkout without a
 resume ID. Failed launches retain the saved conversation for retry. Copy uses the full ID.
@@ -383,6 +410,12 @@ continue, session-ID and fork-session flags; Codex `resume`/`fork` commands and
 `--last`/`--fork`; Antigravity conversation/continue flags. This prevents launch
 defaults from redirecting Resume or turning New conversation into a continuation.
 Other agent arguments retain the existing validation and literal argv behavior.
+
+Settings → Appearance also offers **Panel color: Vivid / Subtle / Plain**,
+with Vivid as the default. It scales header, mark, command-column, chip-fill and
+glow decoration only. Status text and outlines retain color and words. High
+Contrast and `prefers-contrast: more` force Plain and full-strength chip outlines.
+Decoration uses highlight; Working continues to use accent.
 
 Appearance shares the preflight rail's System/Light/Dark and interface-size controls.
 Changing either view is reflected in the other without restarting.

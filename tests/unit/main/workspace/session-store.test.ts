@@ -87,3 +87,27 @@ test("ignores obsolete session fields without persisting them", async () => {
     expect(await readFile(join(directory, "sessions.json"), "utf8")).not.toContain("readOnly");
   }
 });
+
+test("home records persist only the shell location marker and reject forged agent homes", async () => {
+  const { store } = await setup();
+  const shell = {
+    ...record,
+    agent: "shell",
+    home: true,
+    repository: root,
+    worktree: root,
+    branch: null,
+    conversationId: undefined,
+  };
+  const entries = readSessions([shell]);
+  expect(entries[0]?.home).toBe(true);
+  await store.save(entries);
+  expect(await store.load()).toEqual(entries);
+  for (const bad of [
+    { ...shell, home: false },
+    { ...shell, agent: "claude" },
+    { ...shell, branch: "main" },
+    { ...shell, worktree: join(root, "elsewhere") },
+  ])
+    expect(() => readSessions([bad])).toThrow();
+});

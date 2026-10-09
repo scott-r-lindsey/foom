@@ -20,8 +20,8 @@ export function AppearanceControls({
   onChange,
 }: {
   settings: Pick<Settings, "colorMode" | "interfaceScale"> &
-    Partial<Pick<Settings, "interfaceTheme">>;
-  onChange: (patch: Partial<Pick<Settings, "colorMode" | "interfaceScale">>) => void;
+    Partial<Pick<Settings, "interfaceTheme" | "panelColor">>;
+  onChange: (patch: Partial<Pick<Settings, "colorMode" | "interfaceScale" | "panelColor">>) => void;
 }) {
   const scale = settings.interfaceScale;
   const smaller = SCALES.findLast((step) => step < scale);
@@ -95,6 +95,25 @@ export function AppearanceControls({
         </p>
       )}
       <p className="appearance-hint">{shortcutHint()}</p>
+      <fieldset className="appearance-mode">
+        <legend>Panel color</legend>
+        {(["vivid", "subtle", "plain"] as const).map((level) => (
+          <label key={level}>
+            <input
+              type="radio"
+              name="panel-color"
+              checked={(settings.panelColor ?? "vivid") === level}
+              onChange={() => {
+                onChange({ panelColor: level });
+              }}
+            />
+            <span>
+              {level[0]?.toUpperCase()}
+              {level.slice(1)}
+            </span>
+          </label>
+        ))}
+      </fieldset>
     </div>
   );
 }

@@ -27,6 +27,7 @@ export const DEFAULT_SETTINGS: Settings = Object.freeze({
   inference: Object.freeze({ kind: "rules" }),
   inferenceTimeoutMs: 5000,
   colorMode: "system",
+  panelColor: "vivid",
   interfaceTheme: "follow",
   interfaceScale: 100,
   terminalFontSize: 14,
@@ -66,6 +67,8 @@ export function parseSettingsPatch(value: unknown): SettingsPatch {
         agy: entry["agy"] === true,
       };
     else if (key === "agentArguments") patch.agentArguments = parseAgentDefaults(entry);
+    else if (key === "panelColor" && (entry === "vivid" || entry === "subtle" || entry === "plain"))
+      patch.panelColor = entry;
     else if (key === "interfaceTheme") patch.interfaceTheme = parseInterfaceTheme(entry);
     else if (key === "sound") patch.sound = parseSoundSettings(entry);
     else if (key === "terminalTheme") patch.terminalTheme = parseTerminalThemeChoice(entry);

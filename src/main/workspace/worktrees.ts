@@ -1,3 +1,4 @@
+import type { GitPanelFacts } from "../../shared/panel";
 import { inventoryWatchPaths } from "./inventory-watch";
 import { randomUUID } from "node:crypto";
 import { execFile } from "node:child_process";
@@ -9,7 +10,7 @@ import type { CreateWorktreeOptions, Repository, Worktree } from "../../shared/w
 
 const execute = promisify(execFile);
 
-async function git(cwd: string, args: string[]): Promise<string> {
+async function git(cwd: string, args: string[], timeout = 30_000): Promise<string> {
   // Ignore inherited repository selectors: the validated cwd selects the repository.
   const env = Object.fromEntries(
     Object.entries(process.env).filter(([key]) => !key.startsWith("GIT_")),
@@ -17,7 +18,7 @@ async function git(cwd: string, args: string[]): Promise<string> {
   const { stdout } = await execute("git", args, {
     cwd,
     env: { ...env, GIT_TERMINAL_PROMPT: "0" },
-    timeout: 30_000,
+    timeout,
     encoding: "utf8",
     maxBuffer: 16 * 1024 * 1024,
   });
@@ -400,6 +401,92 @@ export class WorktreeService {
     return path;
   }
 
+  private readonly panelCache = new Map<
+    string,
+    { time: number; identity: string; result: Promise<GitPanelFacts> }
+  >();
+  private readonly fetchFacts = new Map<
+    string,
+    { branch: string | null; time: number; failed: boolean; head: string | null }
+  >();
+
+  /** Authorize even cache hits. Opening a panel never starts or awaits a network fetch. */
+  async panelFacts(repository: string, worktree: string): Promise<GitPanelFacts> {
+    const identity = await this.launchIdentity(repository, worktree);
+    const key = `${repository}\0${worktree}`;
+    const cached = this.panelCache.get(key);
+    if (cached?.identity === identity && Date.now() - cached.time < 3000) return cached.result;
+    const result = this.readPanelFacts(repository, worktree);
+    this.panelCache.set(key, { identity, time: Date.now(), result });
+    return result;
+  }
+
+  private async readPanelFacts(repository: string, worktree: string): Promise<GitPanelFacts> {
+    const read = (args: string[]) => git(worktree, args, 3000).catch(() => null);
+    const remotes = (await read(["remote"]))?.trim().split("\n").filter(Boolean) ?? [];
+    const remoteName = remotes.includes("origin")
+      ? "origin"
+      : remotes.length === 1
+        ? remotes[0]
+        : undefined;
+    const [status, upstream, log, remote, localDefault, fetchPath] = await Promise.all([
+      read(["--no-optional-locks", "status", "--porcelain=v1", "-z", "--untracked-files=normal"]),
+      read(["rev-list", "--left-right", "--count", "HEAD...@{upstream}", "--"]),
+      read(["log", "-1", "--format=%H%x00%s%x00%ct", "--"]),
+      remoteName ? read(["remote", "get-url", "--", remoteName]) : null,
+      remoteName ? read(["symbolic-ref", "--quiet", `refs/remotes/${remoteName}/HEAD`]) : null,
+      read(["rev-parse", "--path-format=absolute", "--git-path", "FETCH_HEAD"]),
+    ]);
+    let changes: number | null = null;
+    if (status !== null) {
+      changes = 0;
+      const records = status.split("\0");
+      for (let index = 0; index < records.length; index++) {
+        const record = records[index];
+        if (!record) continue;
+        changes++;
+        if (/[RC]/u.test(record.slice(0, 2))) index++;
+      }
+    }
+    const counts = upstream?.trim().match(/^(\d+)\s+(\d+)$/u);
+    const [hash, subject, seconds] = log?.trim().split("\0") ?? [];
+    const fetch = this.fetchFacts.get(repository);
+    const localFetch =
+      fetchPath && isAbsolute(fetchPath.trim())
+        ? await lstat(fetchPath.trim()).then(
+            (stat) => (stat.isFile() ? stat.mtimeMs : null),
+            () => null,
+          )
+        : null;
+    const prefix = `refs/remotes/${remoteName ?? ""}/`;
+    const localBranch = localDefault?.startsWith(prefix)
+      ? localDefault.trim().slice(prefix.length)
+      : null;
+    let merged: boolean | null = null;
+    if (fetch?.head && !fetch.failed && hash && /^[a-f0-9]{40,64}$/u.test(hash)) {
+      const tree = await read(["rev-parse", `${fetch.head}^{tree}`]);
+      const merge = await read(["merge-tree", "--write-tree", fetch.head, hash]);
+      if (tree !== null && merge !== null) merged = tree.trim() === merge.trim();
+    }
+    return {
+      changes,
+      upstream: counts ? { ahead: Number(counts[1]), behind: Number(counts[2]) } : null,
+      commit:
+        hash &&
+        subject !== undefined &&
+        seconds &&
+        /^[a-f0-9]{40,64}$/u.test(hash) &&
+        /^\d+$/u.test(seconds)
+          ? { hash, subject: subject.slice(0, 500), timestamp: Number(seconds) * 1000 }
+          : null,
+      remote: remote?.trim().slice(0, 4096) || null,
+      defaultBranch: fetch?.branch ?? localBranch,
+      lastFetch: fetch?.time ?? localFetch,
+      fetchFailed: fetch?.failed ?? false,
+      merged,
+    };
+  }
+
   private readonly mergeDefaults = new Map<string, { time: number; result: Promise<string> }>();
 
   /** Inventory shares a recent fetch; destructive actions always fetch again. */
@@ -429,8 +516,18 @@ export class WorktreeService {
       await this.validateBranch(repository, ref.slice("refs/heads/".length));
       // Fetch explicitly as well: a custom fetch refspec may omit the default branch.
       await git(repository, ["fetch", "--no-write-fetch-head", "--", remote, ref]);
-      return (await git(repository, ["rev-parse", "--verify", `${head}^{commit}`])).trim();
+      const commit = (await git(repository, ["rev-parse", "--verify", `${head}^{commit}`])).trim();
+      this.fetchFacts.set(repository, {
+        branch: ref.slice("refs/heads/".length),
+        time: Date.now(),
+        failed: false,
+        head: commit,
+      });
+      this.panelCache.clear();
+      return commit;
     } catch (error) {
+      this.fetchFacts.set(repository, { branch: null, time: Date.now(), failed: true, head: null });
+      this.panelCache.clear();
       throw new Error(
         `Cannot check merged worktrees: fetch failed. ${error instanceof Error ? error.message : String(error)}`,
         { cause: error },

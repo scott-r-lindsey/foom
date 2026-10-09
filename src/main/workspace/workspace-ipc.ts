@@ -57,6 +57,10 @@ function launchRequest(value: unknown): LaunchRequest {
 function sidebarCommand(value: unknown): SidebarCommand {
   if (!record(value)) throw new Error("Invalid sidebar command");
   const kind = value["kind"];
+  if (kind === "home-shell" || kind === "copy-home-path") {
+    if (Object.keys(value).length !== 1) throw new Error("Invalid home shell request");
+    return { kind };
+  }
   if (
     kind === "stop" ||
     kind === "close" ||
@@ -74,7 +78,8 @@ function sidebarCommand(value: unknown): SidebarCommand {
     return { kind, repository };
   if (!text(value["worktree"])) throw new Error("Invalid worktree");
   const worktree = value["worktree"];
-  if (kind === "remove-worktree") return { kind, repository, worktree };
+  if (kind === "remove-worktree" || kind === "copy-worktree-path")
+    return { kind, repository, worktree };
   if (kind === "launch" && (value["run"] === "shell" || agent(value["run"])))
     return { kind, repository, worktree, run: value["run"] };
   throw new Error("Invalid sidebar command");
@@ -199,6 +204,15 @@ export function attachWorkspace(
               : { kind: "remove" },
           ),
         );
+      },
+    ],
+    [
+      "workspace:panel-facts",
+      (...args) => {
+        const [repository, worktree] = args;
+        if (args.length !== 2 || !text(repository) || !text(worktree))
+          throw new Error("Invalid panel request");
+        return workspace.panelFacts(repository, worktree);
       },
     ],
     ["workspace:sidebar", () => workspace.sidebarInventory()],

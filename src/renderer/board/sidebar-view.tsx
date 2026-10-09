@@ -1,6 +1,9 @@
+import { PanelIntent } from "./panel-intent";
+import { PanelFacts, PanelTitle } from "./panel-facts";
+import type { PanelSubject } from "./panel-facts";
 import { AgentBadge } from "./agent-badge";
 import { AppMenu } from "./app-menu";
-import { useCallback, useEffect, useLayoutEffect, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useState, useSyncExternalStore } from "react";
 import type { RefObject, ReactNode, CSSProperties } from "react";
 import type { BoardSource, LaunchOptions } from "./board-source.d";
 import type { BoardRow } from "./board.d";
@@ -43,6 +46,7 @@ export function launcherActions(
 }
 export function Sidebar({
   source,
+  dragging,
   revealRef,
   location,
   inactive,
@@ -66,6 +70,7 @@ export function Sidebar({
   clearRefusal,
 }: {
   source: BoardSource;
+  dragging?: boolean;
   location: SidebarLocation | undefined;
   inactive: boolean;
   revealRef: RefObject<((row: BoardRow) => void) | undefined>;
@@ -91,14 +96,21 @@ export function Sidebar({
   const [now] = useState(Date.now);
   const [filter, setFilter] = useState("");
   const [error, setError] = useState("");
-  const [menu, setMenu] = useState<{
-    id: string;
-    anchor: HTMLButtonElement;
-  }>();
+  const [intent] = useState(() => new PanelIntent());
+  const menu = useSyncExternalStore(intent.subscribe, intent.getSnapshot);
+  useEffect(
+    () => () => {
+      intent.dispose();
+    },
+    [intent],
+  );
+  useEffect(() => {
+    intent.drag(Boolean(dragging));
+  }, [intent, dragging]);
   useLayoutEffect(() => {
     revealRef.current = (row) => {
       setFilter("");
-      setMenu(undefined);
+      intent.close();
       save({
         ...preferences,
         expanded: {
@@ -111,10 +123,10 @@ export function Sidebar({
     return () => {
       revealRef.current = undefined;
     };
-  }, [preferences, save, revealRef]);
+  }, [preferences, save, revealRef, intent]);
   const closeMenu = useCallback(() => {
-    setMenu(undefined);
-  }, []);
+    intent.close();
+  }, [intent]);
   const [narrow, setNarrow] = useState(
     () => typeof matchMedia !== "undefined" && matchMedia("(max-width: 719px)").matches,
   );
@@ -130,13 +142,14 @@ export function Sidebar({
     };
   }, []);
   const repositories = sidebarRepositories(
-    rows,
+    rows.filter((row) => !row.home),
     source.getSidebar?.() ??
       (source.getRepositories?.() ?? []).map((name) => ({ name, path: name, worktrees: [] })),
   );
+  const homeRows = rows.filter((row) => row.home);
   const compact = narrow && rows.length > 0;
   const { tree, hiddenNeeds } = buildSidebar(
-    rows,
+    rows.filter((row) => !row.home),
     repositories,
     preferences,
     compact ? "" : filter,
@@ -156,6 +169,73 @@ export function Sidebar({
         });
       },
     }));
+  const subjects = new Map<
+    string,
+    { subject: PanelSubject; name: string; kind: string; mark: string }
+  >();
+  subjects.set("home", {
+    subject: { kind: "home", home: source.homeShell?.(), rows: homeRows },
+    name: `${source.shellName?.() ?? "Shell"} ~`,
+    kind: "Home shell",
+    mark: ">_",
+  });
+  for (const repository of repositories) {
+    subjects.set(repositoryKey(repository.path), {
+      subject: {
+        kind: "repository",
+        repository,
+        rows: rows.filter((row) => rowRepository(row) === repository.path),
+      },
+      name: repository.name,
+      kind: "Repository",
+      mark: "▣",
+    });
+    for (const tree of repository.worktrees)
+      subjects.set(worktreeKey(tree.path), {
+        subject: { kind: "worktree", repository, tree },
+        name:
+          tree.path === repository.path
+            ? "Main checkout"
+            : (tree.branch ?? `Detached at ${tree.head?.slice(0, 7) ?? "Unknown"}`),
+        kind: "Checkout",
+        mark: "⑂",
+      });
+  }
+  for (const row of rows)
+    subjects.set(row.id, {
+      subject: { kind: "session", row, tile: tileNumbers?.get(row.id)?.number },
+      name: sessionName(row, preferences),
+      kind: "Session",
+      mark: row.kind === "shell" ? ">_" : (agentBadges.get(row.agent) ?? "?"),
+    });
+  const available = !menu || subjects.has(menu.id);
+  useLayoutEffect(() => {
+    if (menu && (!available || inactive || !menu.anchor.isConnected)) intent.close();
+  });
+  const rowEvents = (id: string) => ({
+    onPointerEnter: (event: React.PointerEvent<HTMLElement>) => {
+      const anchor =
+        event.currentTarget.querySelector<HTMLElement>("[data-nav]") ?? event.currentTarget;
+      intent.enter(id, anchor);
+    },
+    onPointerLeave: () => {
+      intent.leave();
+    },
+    onContextMenu: (event: React.MouseEvent<HTMLElement>) => {
+      if (event.target instanceof HTMLInputElement) return;
+      event.preventDefault();
+      const anchor =
+        event.currentTarget.querySelector<HTMLElement>("[data-nav]") ?? event.currentTarget;
+      intent.pin(id, anchor);
+    },
+    onKeyDownCapture: (event: React.KeyboardEvent<HTMLElement>) => {
+      if (event.key !== "F10" || !event.shiftKey || event.target instanceof HTMLInputElement)
+        return;
+      event.preventDefault();
+      event.stopPropagation();
+      intent.pin(id, event.target instanceof HTMLElement ? event.target : event.currentTarget);
+    },
+  });
   const currentActions = new Map<string, (RowAction | null)[]>();
   const actions = (id: string, name: string, items: (RowAction | null)[]) => {
     currentActions.set(id, items);
@@ -164,12 +244,21 @@ export function Sidebar({
         className="row-actions"
         type="button"
         aria-label={`Actions for ${name}`}
-        aria-haspopup="menu"
+        aria-haspopup="dialog"
         aria-expanded={menu?.id === id}
         onClick={(event) => {
           event.stopPropagation();
           peek();
-          setMenu(menu?.id === id ? undefined : { id, anchor: event.currentTarget });
+          if (menu?.id === id && menu.pinned) intent.close();
+          else
+            intent.pin(
+              id,
+              event.currentTarget
+                .closest(".tree-row, .board-row")
+                ?.querySelector<HTMLElement>("[data-nav]") ??
+                event.currentTarget.closest<HTMLElement>(".board-row") ??
+                event.currentTarget,
+            );
         }}
       >
         <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor" aria-hidden="true">
@@ -193,6 +282,7 @@ export function Sidebar({
               : [
                   {
                     label: "Restart shell",
+                    glyph: "↻",
                     run: () => {
                       return command({ kind: "restart", id: row.id });
                     },
@@ -206,6 +296,7 @@ export function Sidebar({
                   ? [
                       {
                         label: "Resume conversation",
+                        glyph: "▶",
                         hint: `${row.conversationId.slice(0, 8)}…`,
                         run: () => command({ kind: "resume", id: row.id }),
                       },
@@ -215,6 +306,7 @@ export function Sidebar({
                   ? [
                       {
                         label: "New conversation here",
+                        glyph: "+",
                         run: () => command({ kind: "new-conversation", id: row.id }),
                       },
                     ]
@@ -223,6 +315,7 @@ export function Sidebar({
                   ? [
                       {
                         label: "Copy session ID",
+                        glyph: "⧉",
                         run: () => command({ kind: "copy-session-id", id: row.id }),
                       },
                     ]
@@ -231,6 +324,7 @@ export function Sidebar({
               ]),
           {
             label: "Close",
+            glyph: "×",
             run: () => {
               return command({ kind: "close", id: row.id });
             },
@@ -238,6 +332,7 @@ export function Sidebar({
         ]
       : [
           {
+            glyph: "■",
             label: `Stop ${row.kind === "shell" ? "shell" : (agentNames.get(row.agent) ?? row.agent)}`,
             run: () => {
               return command({ kind: "stop", id: row.id });
@@ -246,8 +341,9 @@ export function Sidebar({
         ];
     return (
       <div
-        className="board-entry session-entry"
         key={row.kind === "shell" && !row.managed ? "local-shell" : row.id}
+        {...rowEvents(row.id)}
+        className="board-entry session-entry"
         role="none"
         data-selected={!location && selected === row.id}
       >
@@ -465,6 +561,54 @@ export function Sidebar({
         }}
       >
         <div role="tree" aria-label="Repositories and sessions">
+          {!compact && (
+            <div
+              role="treeitem"
+              aria-label="Home shell"
+              aria-expanded={preferences.expanded["home"] !== false}
+            >
+              <div className="tree-row home-row" {...rowEvents("home")}>
+                <button
+                  type="button"
+                  className="tree-chevron"
+                  aria-label="Toggle home shells"
+                  onClick={() => {
+                    toggle("home", preferences.expanded["home"] !== false);
+                  }}
+                >
+                  {preferences.expanded["home"] !== false ? "▾" : "▸"}
+                </button>
+                <button
+                  type="button"
+                  data-nav
+                  className="tree-name"
+                  onClick={() => {
+                    void command({ kind: "home-shell" });
+                  }}
+                >
+                  <AgentBadge mark=">_" />
+                  {source.shellName?.() ?? "Shell"} ~
+                </button>
+                {actions("home", "Home shell", [
+                  { label: "New shell", badge: ">_", run: () => command({ kind: "home-shell" }) },
+                ])}
+              </div>
+              {preferences.expanded["home"] !== false && (
+                <div role="group">
+                  {homeRows
+                    .filter(
+                      (row) =>
+                        !filter ||
+                        `${sessionName(row, preferences)} ${row.reason} ~`
+                          .toLocaleLowerCase()
+                          .includes(filter.toLocaleLowerCase()),
+                    )
+                    .map(session)}
+                </div>
+              )}
+            </div>
+          )}
+          {compact && homeRows.map(session)}
           {compact
             ? tree
                 .flatMap((repo) => repo.worktrees.flatMap((worktree) => worktree.sessions))
@@ -485,6 +629,7 @@ export function Sidebar({
                       aria-label={repo.repository.name}
                     >
                       <div
+                        {...rowEvents(rid)}
                         className="tree-row repository-row"
                         data-selected={
                           location?.repository === repo.repository.path && !location.worktree
@@ -524,15 +669,16 @@ export function Sidebar({
                         {actions(rid, repo.repository.name, [
                           {
                             label: "New worktree…",
+                            glyph: "⑂",
                             run: () => {
                               newWorktree(repo.repository.path);
                             },
                           },
                           null,
-                          ...launchers({ repository: repo.repository.path }),
-                          null,
+
                           {
                             label: repo.pinned ? "Unpin" : "Pin to top",
+                            glyph: "⌖",
                             run: () => {
                               save({
                                 ...preferences,
@@ -543,7 +689,9 @@ export function Sidebar({
                             },
                           },
                           {
-                            label: "Remove repository…",
+                            label: "Remove from Foom…",
+                            hint: "keeps files",
+                            glyph: "⊖",
                             run: () => {
                               return command({
                                 kind: "remove-repository",
@@ -556,6 +704,8 @@ export function Sidebar({
                                 null,
                                 {
                                   label: "Delete merged worktrees…",
+                                  glyph: "trash",
+                                  hint: String(repo.repository.mergedCount ?? ""),
                                   run: () =>
                                     command({
                                       kind: "delete-merged-worktrees",
@@ -580,7 +730,8 @@ export function Sidebar({
                         <div role="group">
                           {repo.worktrees.map(({ tree: worktree, expanded, rollup, sessions }) => {
                             const wid = worktreeKey(worktree.path);
-                            const branch = worktree.branch ?? "Detached HEAD";
+                            const branch =
+                              worktree.branch ?? `⏣ ${worktree.head?.slice(0, 7) ?? "Unknown"}`;
                             const main = worktree.path === repo.repository.path;
                             const name = main ? "Main checkout" : branch;
                             const target = {
@@ -595,6 +746,7 @@ export function Sidebar({
                                 aria-label={name}
                               >
                                 <div
+                                  {...rowEvents(wid)}
                                   className="tree-row worktree-row"
                                   data-selected={location?.worktree === worktree.path}
                                 >
@@ -666,7 +818,8 @@ export function Sidebar({
                                         ? [
                                             null,
                                             {
-                                              label: "Remove worktree…",
+                                              label: "Delete worktree…",
+                                              glyph: "trash",
                                               run: () => {
                                                 return command({
                                                   kind: "remove-worktree",
@@ -691,8 +844,40 @@ export function Sidebar({
         </div>
       </nav>
       <footer className="sidebar-footer">{footer}</footer>
-      {menu && !inactive && (
+      {menu && subjects.has(menu.id) && !inactive && (
         <RowMenu
+          panel={{
+            title:
+              subjects.get(menu.id)?.subject.kind === "session" ? (
+                <PanelTitle
+                  name={subjects.get(menu.id)?.name ?? "Session"}
+                  save={(value) => {
+                    save(renameSession(preferences, menu.id, value));
+                  }}
+                />
+              ) : (
+                subjects.get(menu.id)?.name
+              ),
+            kind: subjects.get(menu.id)?.kind ?? "",
+            mark: subjects.get(menu.id)?.mark ?? "",
+            facts: (() => {
+              const subject = subjects.get(menu.id)?.subject;
+              return subject ? (
+                <PanelFacts key={menu.id} subject={subject} source={source} options={options} />
+              ) : null;
+            })(),
+            pinned: menu.pinned,
+            enter: () => {
+              intent.hold();
+            },
+            leave: () => {
+              intent.leave();
+            },
+            pin: () => {
+              if (!menu.pinned) intent.pin(menu.id, menu.anchor);
+            },
+          }}
+          label={`${subjects.get(menu.id)?.name ?? "Row"} details and commands`}
           confirmations={source.confirmations}
           anchor={menu.anchor}
           actions={currentActions.get(menu.id) ?? []}

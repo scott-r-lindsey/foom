@@ -253,7 +253,13 @@ async function launchCheckoutShell(app, page) {
     .toContain(repository);
   // The first window can still be animating on a cold CI display. Keyboard
   // activation exercises the menu without depending on pointer hit-test stability.
-  await page.getByRole("button", { name: "Actions for shell-fixture", exact: true }).press("Enter");
+  const fixtureRow = page.getByRole("treeitem", { name: "shell-fixture", exact: true });
+  await expect(fixtureRow).toBeVisible();
+  const expand = fixtureRow.getByRole("button", { name: "Expand shell-fixture", exact: true });
+  if (await expand.count()) await expand.press("Enter");
+  await fixtureRow
+    .getByRole("button", { name: "Actions for Main checkout", exact: true })
+    .press("Enter");
   await page.getByRole("menuitem", { name: /^Shell \(/ }).press("Enter");
 }
 
@@ -619,6 +625,7 @@ test("terminal runs an interactive shell behind an isolated bridge", {
           "onWorkspaceChange",
           "startWorktree",
           "removeWorktree",
+          "panelFacts",
           "sidebarInventory",
           "sidebarCommand",
           "workspace",
@@ -2415,6 +2422,7 @@ test("first run goes from no agents to go, launches by keyboard, and can be repl
     inference: { kind: "rules" },
     inferenceTimeoutMs: 5000,
     colorMode: "system",
+    panelColor: "vivid",
     interfaceTheme: "follow",
     interfaceScale: 100,
     terminalFontSize: 14,
@@ -2772,7 +2780,7 @@ test("new worktree dialog launches by keyboard and confirms dirty removal", {
   const dirty = path.join(terminal.worktree, "unsaved.txt");
   await writeFile(dirty, "preserve unless confirmed");
   await page.getByRole("button", { name: "Actions for feature/ui", exact: true }).click();
-  await page.getByRole("menuitem", { name: "Remove worktree…" }).click();
+  await page.getByRole("menuitem", { name: "Delete worktree…" }).click();
   const confirmation = await confirmationPage(app);
   await expect(confirmation.getByLabel("Uncommitted changes")).toContainText("unsaved.txt");
   await expect(confirmation.getByRole("button", { name: "Cancel" })).toBeFocused();
@@ -2781,7 +2789,7 @@ test("new worktree dialog launches by keyboard and confirms dirty removal", {
   assert.equal(await readFile(dirty, "utf8"), "preserve unless confirmed");
   await expect(row).toBeVisible();
   await page.getByRole("button", { name: "Actions for feature/ui", exact: true }).click();
-  await page.getByRole("menuitem", { name: "Remove worktree…" }).click();
+  await page.getByRole("menuitem", { name: "Delete worktree…" }).click();
   await confirmation.getByRole("button", { name: "Discard 1 change and remove" }).click();
   await expect(row).toHaveCount(0);
   await assert.rejects(readFile(dirty), { code: "ENOENT" });
@@ -2835,7 +2843,7 @@ test("external worktrees offer confirmed removal while preserving branches and t
   await page.getByRole("button", { name: "Add repository", exact: true }).click();
   const row = page.getByRole("button", { name: "Actions for external", exact: true });
   await row.click();
-  await page.getByRole("menuitem", { name: "Remove worktree…" }).click();
+  await page.getByRole("menuitem", { name: "Delete worktree…" }).click();
   const confirmation = await confirmationPage(app);
   await expect(confirmation.getByLabel("Uncommitted changes")).toContainText("unsaved.txt");
   await expect(confirmation.getByRole("button", { name: "Cancel" })).toBeFocused();
@@ -2844,7 +2852,7 @@ test("external worktrees offer confirmed removal while preserving branches and t
   assert.equal(await readFile(dirty, "utf8"), "keep until confirmed");
   await expect(row).toBeVisible();
   await row.click();
-  await page.getByRole("menuitem", { name: "Remove worktree…" }).click();
+  await page.getByRole("menuitem", { name: "Delete worktree…" }).click();
   await confirmation.getByRole("button", { name: "Discard 1 change and remove" }).click();
   await expect(row).toHaveCount(0);
   await assert.rejects(readFile(dirty), { code: "ENOENT" });
@@ -2853,7 +2861,7 @@ test("external worktrees offer confirmed removal while preserving branches and t
     "external",
   );
   await page.getByRole("button", { name: "Actions for Main checkout", exact: true }).click();
-  await expect(page.getByRole("menuitem", { name: "Remove worktree…" })).toHaveCount(0);
+  await expect(page.getByRole("menuitem", { name: "Delete worktree…" })).toHaveCount(0);
   await page.getByRole("menuitem", { name: /^Shell \(/ }).click();
   await expect(
     page.getByRole("heading", { name: "repo › Main checkout › Shell", exact: true }),
@@ -2935,7 +2943,10 @@ process.stdin.resume();
   await page.getByRole("button", { name: "Add repository", exact: true }).click();
   for (const [name, directory] of [
     ["external", external],
-    ["Detached HEAD", detached],
+    [
+      `⏣ ${isolatedGit(["rev-parse", "--short=7", "HEAD"], { cwd: detached }).toString().trim()}`,
+      detached,
+    ],
   ]) {
     await page.getByRole("button", { name: `Actions for ${name}`, exact: true }).click();
     await page.getByRole("menuitem", { name: /^Shell \(/ }).click();
@@ -3647,7 +3658,7 @@ test("sidebar menus escape the scroll area, stay in the window and launch from a
   const bottom = page.getByRole("button", { name: "Actions for feature/row-17", exact: true });
   await bottom.scrollIntoViewIfNeeded();
   await bottom.click();
-  const menu = page.getByRole("menu", { name: "Actions" });
+  const menu = page.getByRole("dialog", { name: /details and commands/ });
   await expect(menu).toBeVisible();
   // Visibility begins during the opening transform; measure the settled menu.
   await menu.evaluate((element) =>
@@ -3703,12 +3714,12 @@ test("sidebar menus escape the scroll area, stay in the window and launch from a
     .toBe("matrix(1, 0, 0, 1, 0, 0)");
 
   await page.keyboard.press("End");
-  await expect(page.getByRole("menuitem", { name: "Remove worktree…" })).toBeFocused();
+  await expect(page.getByRole("menuitem", { name: "Delete worktree…" })).toBeFocused();
   await page.keyboard.press("ArrowUp");
   await expect(page.getByRole("menuitem", { name: /^Shell \(/ })).toBeFocused();
   await page.keyboard.press("Escape");
   await expect(menu).toHaveCount(0);
-  await expect(bottom).toBeFocused();
+  await expect(page.getByRole("button", { name: "feature/row-17", exact: true })).toBeFocused();
   await bottom.click();
   await page.getByRole("menuitem", { name: /^Shell \(/ }).press("Enter");
   await expect(page.locator(".board-row").filter({ hasText: "feature/row-17" })).toBeVisible();
@@ -4025,7 +4036,7 @@ test("launching into full tiles replaces focus and empty tiles support mouse con
   const original = (await page.evaluate(() => window.desktop.workspace())).terminals[0];
   // The first window can still be animating on a cold CI display. Keyboard
   // activation exercises the menu without depending on pointer hit-test stability.
-  await page.getByRole("button", { name: "Actions for shell-fixture", exact: true }).press("Enter");
+  await page.getByRole("button", { name: "Actions for Main checkout", exact: true }).press("Enter");
   await page.getByRole("menuitem", { name: /^Shell \(/ }).press("Enter");
   await expect(page.locator(".board-row")).toHaveCount(2);
   const sessions = (await page.evaluate(() => window.desktop.workspace())).terminals;
@@ -4344,18 +4355,18 @@ test("click-again repository removal rejects double clicks, cancels, expires and
   await page.getByRole("button", { name: "Add repository", exact: true }).click();
   const actions = page.getByRole("button", { name: "Actions for remove-fixture", exact: true });
   await actions.click();
-  await page.getByRole("menuitem", { name: "Remove repository…" }).dblclick();
+  await page.getByRole("menuitem", { name: /Remove from Foom…/ }).dblclick();
   const armed = page.getByRole("menuitem", { name: "Click again to remove" });
   await expect(armed).toBeVisible();
   assert.equal((await page.evaluate(() => window.desktop.workspace())).repositories.length, 1);
   await page.keyboard.press("Escape");
   await actions.click();
-  await page.getByRole("menuitem", { name: "Remove repository…" }).click();
+  await page.getByRole("menuitem", { name: /Remove from Foom…/ }).click();
   await expect(armed).toBeVisible();
   // The expiration interval itself is under test.
   await page.waitForTimeout(3050);
-  await expect(page.getByRole("menuitem", { name: "Remove repository…" })).toBeVisible();
-  await page.getByRole("menuitem", { name: "Remove repository…" }).click();
+  await expect(page.getByRole("menuitem", { name: /Remove from Foom…/ })).toBeVisible();
+  await page.getByRole("menuitem", { name: /Remove from Foom…/ }).click();
   await expect(armed).toBeVisible();
   await page.waitForTimeout(310);
   await armed.click();
@@ -5502,7 +5513,7 @@ test("merged cleanup deletes external worktrees and branches while preserving a 
     page.getByRole("button", { name: "Actions for merged-two", exact: true }),
   ).toBeVisible();
   await page.getByRole("button", { name: "Actions for repo", exact: true }).click();
-  await page.getByRole("menuitem", { name: "Delete merged worktrees…" }).click();
+  await page.getByRole("menuitem", { name: /Delete merged worktrees…/ }).click();
   const confirmation = await confirmationPage(app);
   await expect(confirmation.getByRole("list", { name: "Worktrees to delete" })).toHaveText(
     "merged-onemerged-two",
@@ -5520,7 +5531,7 @@ test("merged cleanup deletes external worktrees and branches while preserving a 
   await confirmation.getByRole("button", { name: "Cancel" }).click();
   assert.ok((git("branch", "--list", "merged-one") || "").includes("merged-one"));
   await page.getByRole("button", { name: "Actions for repo", exact: true }).click();
-  await page.getByRole("menuitem", { name: "Delete merged worktrees…" }).click();
+  await page.getByRole("menuitem", { name: /Delete merged worktrees…/ }).click();
   await expect(confirmation.getByRole("button", { name: "Delete", exact: true })).toBeVisible();
   await confirmation.getByRole("button", { name: "Delete", exact: true }).click();
   await expect
@@ -5584,10 +5595,10 @@ test("multiple windows share sessions, keep views exclusive and retain terminals
     })
     .toBe(true);
   await expect(
-    second.getByRole("button", { name: "Actions for shell-fixture", exact: true }),
+    second.getByRole("button", { name: "Actions for Main checkout", exact: true }),
   ).toBeVisible();
   await second
-    .getByRole("button", { name: "Actions for shell-fixture", exact: true })
+    .getByRole("button", { name: "Actions for Main checkout", exact: true })
     .press("Enter");
   await second.getByRole("menuitem", { name: /^Shell \(/ }).press("Enter");
   await expect(second.locator(".terminal-tile[data-empty=false]")).toHaveCount(1);
@@ -5610,7 +5621,7 @@ test("multiple windows share sessions, keep views exclusive and retain terminals
   );
   await first.getByRole("button", { name: "Split right", exact: true }).click();
   await first
-    .getByRole("button", { name: "Actions for shell-fixture", exact: true })
+    .getByRole("button", { name: "Actions for Main checkout", exact: true })
     .press("Enter");
   await first.getByRole("menuitem", { name: /^Shell \(/ }).press("Enter");
   await expect(first.locator(".terminal-tile[data-empty=false]")).toHaveCount(2);
@@ -5851,4 +5862,66 @@ test("console pairing requires trusted approval and gives only read-only reposit
     repository,
     confirmation,
   );
+});
+
+test("sidebar panels hover, pin, rename and launch a home shell", async (context) => {
+  const app = await launchApp(context, false, { emptyBoard: true });
+  const page = await boardPage(app);
+  const home = page.getByRole("treeitem", { name: "Home shell", exact: true });
+  await home.hover();
+  const panel = page.getByRole("dialog", { name: /details and commands/ });
+  await expect(panel).toBeVisible();
+  await expect(panel).toHaveAttribute("data-pinned", "false");
+  await page.getByRole("button", { name: "Actions for Home shell" }).click();
+  await expect(panel).toHaveAttribute("data-pinned", "true");
+  await page.mouse.move(0, 0);
+  await expect(panel).toBeVisible();
+  await assertAccessible(page);
+  const expectedHome = await app.evaluate(({ app }) => app.getPath("home"));
+  await panel.getByRole("button", { name: expectedHome, exact: true }).click();
+  await expect.poll(() => app.evaluate(({ clipboard }) => clipboard.readText())).toBe(expectedHome);
+  for (const [panelColor, tint] of [
+    ["vivid", "1"],
+    ["subtle", "0.5"],
+    ["plain", "0"],
+  ]) {
+    await page.evaluate((panelColor) => window.desktop.saveSetup({ panelColor }), panelColor);
+    await expect(panel).toHaveCSS("--panel-tint", tint);
+  }
+  await page.evaluate(() =>
+    window.desktop.saveSetup({ panelColor: "vivid", interfaceTheme: "high-contrast" }),
+  );
+  await expect(panel).toHaveCSS("--panel-tint", "0");
+  await expect(panel).toHaveCSS("--panel-chip-line", "100%");
+  await page.evaluate(() => window.desktop.saveSetup({ interfaceTheme: "follow" }));
+  await page.emulateMedia({ contrast: "more" });
+  await expect(panel).toHaveCSS("--panel-tint", "0");
+  await page.emulateMedia({ contrast: "no-preference" });
+  await page.getByRole("menuitem", { name: "New shell" }).click();
+  const row = page.locator(".board-row");
+  await expect(row).toHaveCount(1);
+  const homeDirectory = await app.evaluate(({ app }) => app.getPath("home"));
+  const snapshot = await page.evaluate(() => window.desktop.workspace());
+  assert.equal(snapshot.terminals[0].worktree, homeDirectory);
+  assert.equal(snapshot.terminals[0].home, true);
+  await expect(page.locator(".xterm-helper-textarea")).toBeFocused();
+  await page.keyboard.type(process.platform === "win32" ? "(Get-Location).Path" : "pwd");
+  await page.keyboard.press("Enter");
+  await expect
+    .poll(() =>
+      page.evaluate(
+        async (id) => (await window.desktop.tail(id, 40)).join("\n"),
+        snapshot.terminals[0].id,
+      ),
+    )
+    .toContain(homeDirectory);
+  await row.click({ button: "right" });
+  await expect(panel).toBeVisible();
+  await page.getByRole("button", { name: /^Rename / }).click();
+  await page.getByRole("textbox", { name: "Session name" }).fill("Home helper");
+  await page.getByRole("textbox", { name: "Session name" }).press("Enter");
+  await expect(row).toContainText("Home helper");
+  await page.keyboard.press("Escape");
+  await expect(panel).toHaveCount(0);
+  await expect(row).toBeFocused();
 });

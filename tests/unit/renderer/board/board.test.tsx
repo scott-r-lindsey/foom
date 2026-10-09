@@ -378,7 +378,7 @@ test("board opens the launcher without routing typing to shortcuts and reports r
     await Promise.resolve();
   });
   await act(async () => {
-    fireEvent.click(screen.getByRole("menuitem", { name: "Remove worktree…" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Delete worktree…" }));
     await Promise.resolve();
   });
   expect(screen.getByRole("alert").textContent).toBe("Worktree changed");
@@ -389,7 +389,7 @@ test("board opens the launcher without routing typing to shortcuts and reports r
     await Promise.resolve();
   });
   await act(async () => {
-    fireEvent.click(screen.getByRole("menuitem", { name: "Remove worktree…" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Delete worktree…" }));
     await Promise.resolve();
   });
   expect(screen.getByRole("alert").textContent).toBe("Unable to update workspace.");

@@ -1227,3 +1227,29 @@ test("a failed snapshot releases the view for a different window", async () => {
   } as unknown as IpcMainInvokeEvent & IpcMainEvent;
   await expect(invoke("attach", [id], secondEvent)).resolves.toBeUndefined();
 });
+
+test("ConPTY ignores queued native operations after kill while preserving final output", async () => {
+  const platform = vi.spyOn(process, "platform", "get").mockReturnValue("win32");
+  try {
+    const id = manager.create(spec);
+    pty().kill.mockImplementation(() => {});
+    const stopping = manager.stop(id);
+    pty().write.mockClear();
+    pty().resize.mockClear();
+    pty().pause.mockClear();
+    pty().resume.mockClear();
+    manager.resize(id, 100, 30);
+    manager.write(id, "late input");
+    output("final output\x1b[5n\x1b]10;?\x07");
+    manager.detach(id);
+    expect((await manager.tail(id, 5)).join("\n")).toContain("final output");
+    expect(pty().write).not.toHaveBeenCalled();
+    expect(pty().resize).not.toHaveBeenCalled();
+    expect(pty().pause).not.toHaveBeenCalled();
+    expect(pty().resume).not.toHaveBeenCalled();
+    pty().emitExit();
+    await stopping;
+  } finally {
+    platform.mockRestore();
+  }
+});

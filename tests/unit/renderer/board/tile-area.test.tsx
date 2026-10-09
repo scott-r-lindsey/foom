@@ -339,7 +339,7 @@ test.each(["full", "focused empty", "first empty"] as const)(
       if (command.kind === "launch") data.update("check", { id: "launched" });
       await Promise.resolve();
     });
-    fireEvent.click(screen.getByRole("button", { name: "Actions for foom" }));
+    fireEvent.click(screen.getByRole("button", { name: "Actions for fix/session-restore" }));
     fireEvent.click(screen.getByRole("menuitem", { name: "Shell" }));
     await act(async () => {});
     const target = mode === "first empty" ? 2 : 1;
