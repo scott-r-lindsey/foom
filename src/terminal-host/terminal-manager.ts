@@ -88,7 +88,7 @@ export class TerminalManager {
     const serialize = new SerializeAddon();
     screen.loadAddon(serialize);
     const colors = new TerminalColors(screen.parser, dark, (data) => {
-      if (!session.exited) pty.write(data);
+      if (this.nativeAvailable(session)) pty.write(data);
     });
     const session: Session = {
       evidence: { title: "", progress: null },
@@ -131,7 +131,7 @@ export class TerminalManager {
       }),
       // The host is the response owner, whether or not a renderer is attached.
       screen.onData((data) => {
-        if (!session.exited) pty.write(data);
+        if (this.nativeAvailable(session)) pty.write(data);
       }),
       pty.onData((data) => {
         if (data && !session.exited) {
@@ -199,12 +199,17 @@ export class TerminalManager {
     session.view.send(session.view.token, data);
   }
 
+  private nativeAvailable(session: Session): boolean {
+    // ConPTY kill closes the native handle before its asynchronous exit callback.
+    return !session.exited && !(process.platform === "win32" && session.terminationRequested);
+  }
+
   private updateFlow(session: Session): void {
     const blocked =
       !this.shuttingDown &&
       !session.terminationRequested &&
       (session.parserBlocked || session.viewBlocked);
-    if (session.exited || session.paused === blocked) return;
+    if (!this.nativeAvailable(session) || session.paused === blocked) return;
     session.paused = blocked;
     if (blocked) session.pty.pause();
     else session.pty.resume();
@@ -212,7 +217,7 @@ export class TerminalManager {
 
   write(id: string, data: string): void {
     const session = this.get(id);
-    if (!session.exited) session.pty.write(data);
+    if (this.nativeAvailable(session)) session.pty.write(data);
   }
 
   setTheme(id: string, dark: boolean | TerminalTheme): void {
@@ -227,7 +232,7 @@ export class TerminalManager {
   resize(id: string, cols: number, rows: number): void {
     const session = this.get(id);
     session.screen.resize(cols, rows);
-    if (!session.exited) session.pty.resize(cols, rows);
+    if (this.nativeAvailable(session)) session.pty.resize(cols, rows);
   }
 
   async attach(id: string, send: View["send"]): Promise<void> {
