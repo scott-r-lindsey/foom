@@ -33,28 +33,25 @@ export function ConfirmationPage() {
   const requestId = request?.id;
   useEffect(() => {
     if (!requestId) return;
-    let frame: number | undefined;
-    const removeListeners = () => {
-      window.removeEventListener("focus", focusWhenVisible);
-      document.removeEventListener("visibilitychange", focusWhenVisible);
+    // Native activation can select its own first tab stop after showing the
+    // measured window. Keep the safe default until the user's first interaction.
+    let initial = true;
+    const focusCancel = () => {
+      if (initial && document.activeElement !== cancelRef.current) cancelRef.current?.focus();
     };
-    const focusWhenVisible = () => {
-      if (document.visibilityState !== "visible") return;
-      if (frame !== undefined) cancelAnimationFrame(frame);
-      // Native activation can select the first tab stop after a hidden page's
-      // focus event. Restore Cancel on its first visible paint, then leave focus alone.
-      frame = requestAnimationFrame(() => {
-        cancelRef.current?.focus();
-        removeListeners();
-      });
+    const interacted = () => {
+      initial = false;
     };
-    window.addEventListener("focus", focusWhenVisible);
-    document.addEventListener("visibilitychange", focusWhenVisible);
-    focusWhenVisible();
+    window.addEventListener("focus", focusCancel);
+    document.addEventListener("focusin", focusCancel);
+    document.addEventListener("keydown", interacted, true);
+    document.addEventListener("pointerdown", interacted, true);
+    focusCancel();
     return () => {
-      window.removeEventListener("focus", focusWhenVisible);
-      document.removeEventListener("visibilitychange", focusWhenVisible);
-      if (frame !== undefined) cancelAnimationFrame(frame);
+      window.removeEventListener("focus", focusCancel);
+      document.removeEventListener("focusin", focusCancel);
+      document.removeEventListener("keydown", interacted, true);
+      document.removeEventListener("pointerdown", interacted, true);
     };
   }, [requestId]);
   useEffect(() => {
