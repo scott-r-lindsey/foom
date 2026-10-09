@@ -11,6 +11,8 @@ const stateLabels: Readonly<Record<string, string>> = {
 };
 export function ConfirmationPage() {
   const [request, setRequest] = useState<DialogRequest | null>(null);
+  const cardRef = useRef<HTMLElement>(null);
+  const bodyRef = useRef<HTMLDivElement>(null);
   const cancelRef = useRef<HTMLButtonElement>(null);
   const acceptRef = useRef<HTMLButtonElement>(null);
   useEffect(() => window.confirmation.render(setRequest), []);
@@ -27,15 +29,38 @@ export function ConfirmationPage() {
       request.theme.colors["highlight-deep"] ?? request.theme.colors["accent-deep"],
     );
     document.documentElement.style.colorScheme = request.theme.base;
-    cancelRef.current?.focus();
   }, [request]);
+  const requestId = request?.id;
+  useEffect(() => {
+    cancelRef.current?.focus();
+  }, [requestId]);
+  useEffect(() => {
+    const card = cardRef.current;
+    const body = bodyRef.current;
+    if (!requestId || !card || !body) return;
+    const measure = () => {
+      // Keep the natural body height even when its viewport is clamped and scrolling.
+      const content = body.parentElement;
+      if (!content) return;
+      window.confirmation.size({
+        width: 440,
+        height: card.offsetHeight - content.clientHeight + body.offsetHeight + 12,
+      });
+    };
+    const observer = new ResizeObserver(measure);
+    observer.observe(card);
+    observer.observe(body);
+    measure();
+    return () => {
+      observer.disconnect();
+    };
+  }, [requestId]);
   if (!request) return null;
   const answer = (accepted: boolean) => {
     window.confirmation.answer(request.id, accepted);
   };
   return (
     <main
-      className="confirmation-scrim"
       onKeyDown={(event) => {
         if (event.key === "Escape") {
           event.preventDefault();
@@ -43,11 +68,21 @@ export function ConfirmationPage() {
         }
         if (event.key === "Tab") {
           event.preventDefault();
-          (document.activeElement === cancelRef.current ? acceptRef : cancelRef).current?.focus();
+          const content = bodyRef.current?.parentElement;
+          const targets = [cancelRef.current, acceptRef.current];
+          const focusable =
+            content && content.scrollHeight > content.clientHeight
+              ? [...targets, content]
+              : targets;
+          const index = focusable.findIndex((element) => element === document.activeElement);
+          focusable[
+            (index + (event.shiftKey ? -1 : 1) + focusable.length) % focusable.length
+          ]?.focus();
         }
       }}
     >
       <section
+        ref={cardRef}
         key={request.id}
         className="confirmation-window"
         role="alertdialog"
@@ -55,50 +90,52 @@ export function ConfirmationPage() {
         aria-labelledby="confirmation-title"
       >
         <h1 id="confirmation-title">{request.title}</h1>
-        <div className="confirmation-content">
-          {request.detail !== undefined && <p>{request.detail}</p>}
-          {request.changes !== undefined && (
-            <pre aria-label="Uncommitted changes">
-              {request.changes.split("\0").filter(Boolean).join("\n")}
-            </pre>
-          )}
-          {request.worktrees && (
-            <>
-              <ul aria-label="Worktrees to delete">
-                {request.worktrees
-                  .filter((item) => !item.reason)
-                  .map((item) => (
-                    <li key={item.branch}>{item.branch}</li>
-                  ))}
+        <div className="confirmation-content" tabIndex={0} role="region" aria-label="Details">
+          <div ref={bodyRef}>
+            {request.detail !== undefined && <p>{request.detail}</p>}
+            {request.changes !== undefined && (
+              <pre aria-label="Uncommitted changes">
+                {request.changes.split("\0").filter(Boolean).join("\n")}
+              </pre>
+            )}
+            {request.worktrees && (
+              <>
+                <ul aria-label="Worktrees to delete">
+                  {request.worktrees
+                    .filter((item) => !item.reason)
+                    .map((item) => (
+                      <li key={item.branch}>{item.branch}</li>
+                    ))}
+                </ul>
+                <ul aria-label="Skipped worktrees" className="confirmation-skipped">
+                  {request.worktrees
+                    .filter((item) => item.reason)
+                    .map((item) => (
+                      <li key={item.branch}>
+                        <span>{item.branch}</span>
+                        <span className="confirmation-location">{item.reason}</span>
+                      </li>
+                    ))}
+                </ul>
+              </>
+            )}
+            {request.sessions && (
+              <ul>
+                {request.sessions.map((item) => (
+                  <li key={item.id}>
+                    <span
+                      className="confirmation-light"
+                      data-state={item.state}
+                      role="img"
+                      aria-label={stateLabels[item.state] ?? "Quiet"}
+                    />
+                    <span>{item.name}</span>
+                    <span className="confirmation-location">{item.location}</span>
+                  </li>
+                ))}
               </ul>
-              <ul aria-label="Skipped worktrees" className="confirmation-skipped">
-                {request.worktrees
-                  .filter((item) => item.reason)
-                  .map((item) => (
-                    <li key={item.branch}>
-                      <span>{item.branch}</span>
-                      <span className="confirmation-location">{item.reason}</span>
-                    </li>
-                  ))}
-              </ul>
-            </>
-          )}
-          {request.sessions && (
-            <ul>
-              {request.sessions.map((item) => (
-                <li key={item.id}>
-                  <span
-                    className="confirmation-light"
-                    data-state={item.state}
-                    role="img"
-                    aria-label={stateLabels[item.state] ?? "Quiet"}
-                  />
-                  <span>{item.name}</span>
-                  <span className="confirmation-location">{item.location}</span>
-                </li>
-              ))}
-            </ul>
-          )}
+            )}
+          </div>
         </div>
         <footer>
           <button

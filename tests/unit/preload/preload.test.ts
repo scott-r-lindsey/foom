@@ -658,3 +658,16 @@ test("main-generated window arguments scope metadata without exposing paths", as
     process.argv = original;
   }
 });
+
+test("scrim notifications carry only validated visibility and unsubscribe", async () => {
+  const api = await bridge();
+  const receive = vi.fn();
+  const off = api.confirmations.onScrim?.(receive);
+  const listener = mock.on.mock.calls.at(-1)?.[1];
+  listener?.({}, true);
+  listener?.({}, false);
+  listener?.({}, { title: "untrusted" });
+  expect(receive.mock.calls).toEqual([[true], [false]]);
+  off?.();
+  expect(mock.removeListener).toHaveBeenCalledWith("confirmation:scrim", listener);
+});

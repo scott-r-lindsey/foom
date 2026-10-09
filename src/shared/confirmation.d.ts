@@ -5,6 +5,7 @@ export interface ArmedConfirmation {
   label: string;
 }
 export interface ConfirmationClient {
+  onScrim?(callback: (visible: boolean) => void): () => void;
   onDialog?(callback: () => void): () => void;
   subscribe(callback: (arm: ArmedConfirmation | null, accepted?: boolean) => void): () => void;
   confirm(arm: ArmedConfirmation): Promise<void>;
@@ -24,6 +25,7 @@ export interface DialogRequest extends DialogContent {
 }
 export interface ConfirmationWindowApi {
   render(callback: (request: DialogRequest | null) => void): () => void;
+  size(value: { width: number; height: number }): void;
   answer(id: string, accepted: boolean): void;
 }
 

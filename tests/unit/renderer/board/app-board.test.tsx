@@ -754,3 +754,38 @@ test("terminal views read current exit state when opening an existing session", 
   expect(mock.viewExited?.("unknown")).toBe(false);
   disconnect?.();
 });
+
+test("main's cosmetic scrim follows visibility and unsubscribes when the app unmounts", async () => {
+  const showPopover = vi.fn();
+  Object.defineProperty(HTMLElement.prototype, "showPopover", {
+    configurable: true,
+    value: showPopover,
+  });
+  let receive: (visible: boolean) => void = () => undefined;
+  const off = vi.fn();
+  Object.defineProperty(window.desktop, "confirmations", {
+    configurable: true,
+    value: {
+      onScrim(callback: (visible: boolean) => void) {
+        receive = callback;
+        return off;
+      },
+    },
+  });
+  const view = render(<App />);
+  await settle();
+  act(() => {
+    receive(true);
+  });
+  expect(
+    view.container.querySelector(".board-confirmation-scrim")?.getAttribute("aria-hidden"),
+  ).toBe("true");
+  act(() => {
+    receive(false);
+  });
+  expect(view.container.querySelector(".board-confirmation-scrim")).toBeNull();
+  expect(showPopover).toHaveBeenCalled();
+  view.unmount();
+  Reflect.deleteProperty(HTMLElement.prototype, "showPopover");
+  expect(off).toHaveBeenCalledOnce();
+});

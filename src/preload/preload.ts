@@ -193,6 +193,15 @@ const desktop: DesktopApi = {
     notices: () => ipcRenderer.invoke("sound:notices"),
   },
   confirmations: {
+    onScrim(callback) {
+      const listener = (_event: IpcRendererEvent, value: unknown) => {
+        if (typeof value === "boolean") callback(value);
+      };
+      ipcRenderer.on("confirmation:scrim", listener);
+      return () => {
+        ipcRenderer.removeListener("confirmation:scrim", listener);
+      };
+    },
     onDialog(callback) {
       const listener = () => {
         callback();

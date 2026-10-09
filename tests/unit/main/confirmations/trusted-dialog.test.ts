@@ -3,6 +3,8 @@ import { EventEmitter } from "node:events";
 import type { BrowserWindow, Session, BrowserWindowConstructorOptions } from "electron";
 import { resolveInterfaceTheme } from "../../../../src/shared/interface-themes";
 const mock = vi.hoisted(() => ({
+  autoSize: true,
+  workArea: { x: 0, y: 0, width: 1920, height: 1080 },
   ipc: new Map<string, (...args: unknown[]) => void>(),
   windows: [] as FakeWindow[],
   construct: vi.fn(),
@@ -11,7 +13,14 @@ const mock = vi.hoisted(() => ({
 class FakeWindow extends EventEmitter {
   webContents = Object.assign(new EventEmitter(), {
     mainFrame: { url: "app://confirmation/confirmation.html" },
-    send: vi.fn(),
+    send: vi.fn((_channel: string, request: unknown) => {
+      if (request && mock.autoSize)
+        queueMicrotask(() => {
+          resize({ width: 440, height: 240 });
+        });
+    }),
+    getZoomFactor: vi.fn(() => 1),
+    setZoomFactor: vi.fn(),
     setWindowOpenHandler: vi.fn<(handler: () => { action: string }) => void>(),
   });
   removeMenu = vi.fn();
@@ -32,6 +41,7 @@ vi.mock("electron", () => ({
   BrowserWindow: vi.fn(function (options: BrowserWindowConstructorOptions) {
     return new FakeWindow(options);
   }),
+  screen: { getDisplayMatching: () => ({ workArea: mock.workArea }) },
   ipcMain: {
     on: (channel: string, fn: (...args: unknown[]) => void) => mock.ipc.set(channel, fn),
     removeListener: (channel: string) => mock.ipc.delete(channel),
@@ -42,7 +52,8 @@ const theme = resolveInterfaceTheme("follow", false);
 const parent = Object.assign(new EventEmitter(), {
   isEnabled: () => true,
   setEnabled: vi.fn(),
-  getBounds: () => ({ x: 10, y: 20, width: 800, height: 600 }),
+  webContents: { send: vi.fn(), getZoomFactor: vi.fn(() => 1) },
+  getContentBounds: vi.fn(() => ({ x: 10, y: 20, width: 800, height: 600 })),
   isDestroyed: vi.fn(() => false),
   focus: vi.fn(),
 });
@@ -77,6 +88,10 @@ async function shown() {
 }
 beforeEach(() => {
   vi.clearAllMocks();
+  mock.autoSize = true;
+  mock.workArea = { x: 0, y: 0, width: 1920, height: 1080 };
+  parent.webContents.getZoomFactor.mockReturnValue(1);
+  parent.getContentBounds.mockReturnValue({ x: 10, y: 20, width: 800, height: 600 });
   mock.windows.length = 0;
   mock.ipc.clear();
   mock.load.mockResolvedValue();
@@ -178,7 +193,7 @@ test("tracks parent bounds and focus only while pending and restores input on ca
   parent.emit("resize");
   parent.emit("focus");
   expect(window().setBounds).toHaveBeenCalledTimes(2);
-  expect(window().setBounds).toHaveBeenLastCalledWith(parent.getBounds());
+  expect(window().setBounds).toHaveBeenLastCalledWith({ x: 190, y: 200, width: 440, height: 240 });
   expect(window().focus).toHaveBeenCalledOnce();
   window().emit("close", { preventDefault: vi.fn() });
   await expect(pending).resolves.toBe(false);
@@ -201,4 +216,76 @@ test("pairing deadlines dismiss active dialogs and cannot approve queued expired
   expect(await pending).toBe(false);
   expect(await dialog.request(content, controller.signal)).toBe(false);
   dialog.dispose();
+});
+
+function resize(
+  value: unknown,
+  event: unknown = {
+    sender: window().webContents,
+    senderFrame: window().webContents.mainFrame,
+  },
+) {
+  mock.ipc.get("confirmation:size")?.(event, value);
+}
+test("size requires a pending trusted main frame and finite positive dimensions before showing", async () => {
+  mock.autoSize = false;
+  const dialog = setup();
+  resize({ width: 440, height: 240 });
+  expect(window().setBounds).not.toHaveBeenCalled();
+  const pending = dialog.request(content);
+  await vi.waitFor(() => {
+    expect(parent.setEnabled).toHaveBeenCalledWith(false);
+  });
+  expect(parent.webContents.send).toHaveBeenLastCalledWith("confirmation:scrim", true);
+  const valid = { width: 440, height: 240 };
+  resize(valid, { sender: parent.webContents, senderFrame: window().webContents.mainFrame });
+  resize(valid, {
+    sender: window().webContents,
+    senderFrame: { url: "app://confirmation/confirmation.html" },
+  });
+  window().webContents.mainFrame.url = "app://bundle/index.html";
+  resize(valid);
+  window().webContents.mainFrame.url = "app://confirmation/confirmation.html";
+  for (const value of [
+    null,
+    false,
+    {},
+    { width: 1 },
+    { width: "1", height: 2 },
+    { width: 1, height: "2" },
+    { width: NaN, height: 2 },
+    { width: 1, height: Infinity },
+    { width: -1, height: 2 },
+    { width: 1, height: 0 },
+  ])
+    resize(value);
+  expect(window().show).not.toHaveBeenCalled();
+  expect(window().setBounds).not.toHaveBeenCalled();
+  resize(valid);
+  expect(window().show).toHaveBeenCalledOnce();
+  expect(window().setBounds).toHaveBeenLastCalledWith({ x: 190, y: 200, width: 440, height: 240 });
+  resize({ width: Number.MAX_VALUE, height: Number.MAX_VALUE });
+  expect(window().setBounds).toHaveBeenLastCalledWith({ x: 34, y: 44, width: 752, height: 552 });
+  mock.workArea = { x: 100, y: 100, width: 600, height: 400 };
+  parent.emit("maximize");
+  expect(window().setBounds).toHaveBeenLastCalledWith({ x: 100, y: 100, width: 600, height: 400 });
+  parent.webContents.getZoomFactor.mockReturnValue(1.25);
+  window().webContents.getZoomFactor.mockReturnValue(1.25);
+  resize(valid);
+  dialog.refresh();
+  expect(window().webContents.setZoomFactor).toHaveBeenLastCalledWith(1.25);
+  expect(window().setBounds).toHaveBeenLastCalledWith({ x: 135, y: 170, width: 550, height: 300 });
+  parent.getContentBounds.mockReturnValue({ x: -1500, y: -1500, width: 800, height: 600 });
+  parent.emit("move");
+  expect(window().setBounds).toHaveBeenLastCalledWith({ x: 100, y: 100, width: 550, height: 300 });
+  window().emit("close", { preventDefault: vi.fn() });
+  await expect(pending).resolves.toBe(false);
+  expect(parent.webContents.send).toHaveBeenLastCalledWith("confirmation:scrim", false);
+  window().setBounds.mockClear();
+  resize(valid);
+  parent.emit("restore");
+  expect(window().setBounds).not.toHaveBeenCalled();
+  dialog.dispose();
+  dialog.refresh();
+  resize(valid);
 });

@@ -15,6 +15,9 @@ const api: ConfirmationWindowApi = {
       listeners.delete(callback);
     };
   },
+  size(value) {
+    ipcRenderer.send("confirmation:size", value);
+  },
   answer(id, accepted) {
     ipcRenderer.send("confirmation:answer", id, accepted);
   },

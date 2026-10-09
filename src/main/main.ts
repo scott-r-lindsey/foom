@@ -267,6 +267,7 @@ async function buildWindow(savedSize?: Size, saved?: WindowPlacement, initialSes
   });
 
   const updateBackground = () => {
+    windows.get(window.id)?.confirmations.refresh();
     window.setBackgroundColor(
       resolveInterfaceTheme(
         settings.get().interfaceTheme,
@@ -444,6 +445,7 @@ async function buildWindow(savedSize?: Size, saved?: WindowPlacement, initialSes
       // Resize first: the page then zooms into a window that already fits it.
       windowScale.apply(next.interfaceScale);
       window.webContents.setZoomFactor(next.interfaceScale / 100);
+      confirmations.refresh();
       // Each setup owns its scan/probe state; persisted choices are shared.
       queueMicrotask(() => {
         classify = setup.classify;
