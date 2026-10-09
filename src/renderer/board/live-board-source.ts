@@ -97,7 +97,7 @@ export function createAppSource(): BoardSource {
             ? row.state
             : "needs_input"
           : (execution.phase === "starting" || execution.phase === "idle") &&
-              (!currentVerdict || row.state === "working" || row.state === "checking")
+              (!currentVerdict || row.state === "working")
             ? "quiet_ok"
             : row.state;
     return {

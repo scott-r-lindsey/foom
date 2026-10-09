@@ -109,7 +109,6 @@ vi.mock("../../../src/main/agents/hook-receiver", () => ({
   HookReceiver: { listen: mock.listen },
 }));
 vi.mock("../../../src/main/evaluator/verdict-log", () => ({ VerdictLog: mock.VerdictLog }));
-vi.mock("../../../src/main/evaluator/inference-keys", () => ({ InferenceKeys: vi.fn() }));
 vi.mock("../../../src/main/setup/settings", () => ({ SettingsStore: { open: mock.openSettings } }));
 vi.mock("../../../src/main/window/window-state", () => ({
   loadWindowSize: mock.loadWindowSize,
@@ -117,7 +116,6 @@ vi.mock("../../../src/main/window/window-state", () => ({
 }));
 vi.mock("../../../src/main/setup/setup", () => ({
   Setup: class {
-    classify = mock.setup.classify;
     state = () => Promise.resolve({ settings: mock.settingsStore.get() });
     constructor(deps: ConstructorParameters<typeof Setup>[0]) {
       mock.setup.deps = deps;
@@ -267,7 +265,6 @@ const mock = vi.hoisted(() => {
   };
   const setup = {
     deps: undefined as ConstructorParameters<typeof Setup>[0] | undefined,
-    classify: vi.fn(),
   };
   return {
     terminals: {
@@ -315,7 +312,7 @@ const mock = vi.hoisted(() => {
         interfaceTheme: "follow",
       }),
     },
-    VerdictLog: vi.fn<(userData: string, classify: (input: unknown) => unknown) => void>(),
+    VerdictLog: vi.fn<(userData: string) => void>(),
     listen: vi.fn(),
     theme: {
       themeSource: "system",
@@ -860,7 +857,7 @@ test("routes terminal events, hook signals and state through the workspace", asy
   expect(mock.setupIpc.dispose).toHaveBeenCalledOnce();
 });
 
-test("setup owns the settings, applies them to the workspace, and classifies verdicts", async () => {
+test("setup owns the settings, applies them to the workspace, and uses the local verdict classifier", async () => {
   await start();
   expect(mock.openSettings).toHaveBeenCalledWith("/test/user-data");
   const deps = mock.setup.deps as {
@@ -907,9 +904,7 @@ test("setup owns the settings, applies them to the workspace, and classifies ver
     width: 720,
     height: 512,
   });
-  const classify = mock.VerdictLog.mock.calls[0]?.[1];
-  classify?.({ terminalId: "a" });
-  expect(mock.setup.classify).toHaveBeenCalledWith({ terminalId: "a" });
+  expect(mock.VerdictLog).toHaveBeenCalledWith("/test/user-data");
 });
 
 test("confirmed quit disposes the workspace only after terminals stop", async () => {

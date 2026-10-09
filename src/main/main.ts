@@ -10,7 +10,6 @@ import { WindowIpcRouter } from "./window/window-ipc";
 import { TerminalViews } from "./window/terminal-views";
 import { loadPlacements, savePlacements, placeWindow } from "./window/window-placement";
 import type { WindowPlacement } from "./window/window-placement";
-import type { EvaluationInput, Verdict } from "../shared/evaluator";
 import { join } from "node:path";
 import { CodexHookStatus } from "./agents/codex-hook-status";
 import { SoundLibrary } from "./sounds/library";
@@ -31,7 +30,6 @@ import { HookReceiver } from "./agents/hook-receiver";
 import { VerdictLog } from "./evaluator/verdict-log";
 import { Workspace } from "./workspace/workspace";
 import { attachWorkspace } from "./workspace/workspace-ipc";
-import { InferenceKeys } from "./evaluator/inference-keys";
 import { SettingsStore } from "./setup/settings";
 import { Setup } from "./setup/setup";
 import { attachSetup } from "./setup/setup-ipc";
@@ -105,7 +103,6 @@ const views = new TerminalViews();
 const audio = new WindowAudio();
 let terminals: ReturnType<typeof attachTerminal>;
 let workspace: Workspace;
-let classify: (input: EvaluationInput) => Promise<Verdict>;
 let newWindowCommand: Command | undefined;
 let initialized = false;
 let windowQueue: Promise<unknown> = Promise.resolve();
@@ -350,8 +347,8 @@ async function buildWindow(savedSize?: Size, saved?: WindowPlacement, initialSes
       acknowledgeCodex: async () => {
         await settings.update({ codexNotifierAcknowledged: true });
       },
-      // Rules first, then whatever model tier setup has configured.
-      verdicts: new VerdictLog(app.getPath("userData"), (input) => classify(input)),
+      // Local rules classify each terminal; the log stores verdict metadata only.
+      verdicts: new VerdictLog(app.getPath("userData")),
       control: () =>
         ControlRuntime.start(app.getPath("userData"), () => workspace.snapshot().terminals, {
           repository: (path) =>
@@ -420,7 +417,6 @@ async function buildWindow(savedSize?: Size, saved?: WindowPlacement, initialSes
         accept: "Save bypass defaults",
       });
     },
-    keys: new InferenceKeys(app.getPath("userData")),
     worktreeRoot: worktrees.worktreeRoot,
     code: {
       worktrees: {
@@ -446,9 +442,8 @@ async function buildWindow(savedSize?: Size, saved?: WindowPlacement, initialSes
       windowScale.apply(next.interfaceScale);
       window.webContents.setZoomFactor(next.interfaceScale / 100);
       confirmations.refresh();
-      // Each setup owns its scan/probe state; persisted choices are shared.
+      // Each setup owns its scan state; persisted choices are shared.
       queueMicrotask(() => {
-        classify = setup.classify;
         for (const entry of windows.values()) {
           entry.updateBackground();
           void entry.setup
@@ -465,7 +460,6 @@ async function buildWindow(savedSize?: Size, saved?: WindowPlacement, initialSes
     },
   });
   // A click on + or − grows the window from the pointer, so the button stays under it.
-  classify = setup.classify;
   const setupIpc = attachSetup(
     window,
     setup,

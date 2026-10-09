@@ -6,12 +6,6 @@ export function createSetupSource(): SetupSource {
     openThemesFolder: (kind) => desktop.openThemesFolder(kind),
     state: () => desktop.setupState(),
     save: (patch) => desktop.saveSetup(patch),
-    setKey: (provider, key) => desktop.setInferenceKey(provider, key),
-    removeKey: (provider) => desktop.removeInferenceKey(provider),
-    check: (id, config, timeoutMs, onUpdate) =>
-      desktop.checkInference(id, config, timeoutMs, onUpdate),
-    cancel: (id) => desktop.cancelInferenceCheck(id),
-    models: (endpoint) => desktop.localModels(endpoint),
     changeAgyPlugin: (action) => desktop.changeAgyPlugin(action),
     scanAgents: (refresh) => desktop.scanAgents(refresh),
     repositories: async () => (await desktop.workspace()).repositories,

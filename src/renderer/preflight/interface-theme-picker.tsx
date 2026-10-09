@@ -17,7 +17,6 @@ const choices: readonly InterfaceThemeId[] = [
 ];
 const states = [
   { state: "working", label: "Working", reason: "Output is arriving", ink: "accent" },
-  { state: "checking", label: "Checking", reason: "Evaluating quiet output", ink: "accent" },
   {
     state: "needs_input",
     label: "Needs you",

@@ -6,7 +6,7 @@ import type { StepHeading, StepActions } from "./preflight-step.d";
 import { Tooltip } from "../ui/tooltip";
 import { AGENTS, found, signal, signalNote, SIGNALS, versionNumber } from "./preflight";
 
-const SIGNAL_LABEL = { hooks: "Hooks", notify: "Notify", evaluator: "Evaluator" } as const;
+const SIGNAL_LABEL = { hooks: "Hooks", notify: "Notify", rules: "Rules" } as const;
 
 /** A path that wraps after a separator, not mid-name. */
 function Path({ path }: { path: string }) {
@@ -55,7 +55,7 @@ export function AgentsStep({
   const agy = found(report, "agy");
   return (
     <>
-      <p className="preflight-eyebrow">T-4 · Agents</p>
+      <p className="preflight-eyebrow">T-3 · Agents</p>
       <h2 ref={headingRef} tabIndex={-1}>
         Which agents do you run?
       </h2>
@@ -167,7 +167,7 @@ export function AgentsStep({
             Passed per launch (<code>claude --settings</code>, <code>codex -c notify=…</code>). Your
             own config files are never edited for these agents. Antigravity uses the optional plugin
             above with credentials supplied only per launch. Turn this off and every agent falls
-            back to the evaluator.
+            back to the rules.
           </small>
         </span>
       </label>

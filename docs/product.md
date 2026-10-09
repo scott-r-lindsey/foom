@@ -10,7 +10,7 @@ The target is about 10 concurrent agents. Supported agents are Claude Code (`cla
 - **Worktree**: a `git worktree` for one branch, created by Foom or another tool. Every checkout can run multiple shells and agents. Shells need no sharing confirmation. Starting an agent while another agent is still running in that checkout requires confirmation because they can edit the same files. Exited agents do not trigger the warning.
 - **Terminal**: one PTY session inside a worktree. It may run an agent, a dev server, or a shell.
 - **Light**: the indicator that represents a hidden terminal.
-- **Evaluator**: the pipeline that decides what a terminal's state is when its output stops.
+- **Evaluator**: the local rules pipeline that decides what a terminal's state is when its output stops.
 
 ## The light
 
@@ -22,7 +22,6 @@ The light carries two separate signals.
 | State | Light | Meaning |
 |---|---|---|
 | Working | Brand violet, brightness follows output | Agent is executing, or a shell command is running |
-| Checking | Brand violet, slow breathing | Output stopped; the evaluator is running |
 | Needs you | Amber, steady, with a halo | Waiting for input or approval |
 | Done | Green | Finished successfully |
 | Failed | Magenta, square | Exited with an error or gave up |
@@ -49,7 +48,7 @@ The case-insensitive filter matches repository names, branches, session names an
 highlights matching text and expands ancestors. A banner counts filtered-out sessions that
 need you; Show clears the filter. Collapsed repository rows show their worktree count and
 most urgent state; collapsed worktrees show the same roll-up. Urgency is Needs you, Failed,
-Working/Checking, Done, then Quiet. The main checkout is labeled **Main checkout**, with its branch on a secondary line and a folder icon.
+Working, Done, then Quiet. The main checkout is labeled **Main checkout**, with its branch on a secondary line and a folder icon.
 Location and session breadcrumbs also call it **Main checkout**. Other worktrees
 have a branch icon. Pins and repository/worktree expansion choices persist.
 Repositories with running sessions start expanded; idle repositories start collapsed.
@@ -295,22 +294,12 @@ Checks run from cheapest and most certain to least:
 2. **Local agent UI signals**: capture-backed terminal title and screen rules. Idle is evidence for classification, never Done by itself. Process exit remains final and permission hooks take precedence.
 3. **Process facts**: exit code, the shell prompt returning, echo changes only with corroborating prompt context (agent TUIs also disable echo during ordinary operation; this may not be detectable on Windows).
 4. **Text patterns** in the tail: `(y/n)`, `Password:`, `Press Enter`.
-5. **A model** for what's still ambiguous, such as a question asked in plain prose.
+
+There is no model tier: local signals cover the useful verdicts without sending terminal content to a provider. Ambiguous terminals retain the neutral rules verdict.
 
 "Quiet" is not "done". A process can be silent while it works. The debounce adapts: it's short when the tail ends in a question and longer mid-stream.
 
 Every verdict and the user's next action (replied, dismissed, ignored) go into a local log. Dismissing an alert counts as feedback. The log becomes the test set for improving the evaluator.
-
-### Inference sources
-
-The model tier uses one of these sources:
-
-- **An agent the user already has**: a one-shot headless call through `claude -p` or `codex exec`, using the user's existing login. No key is stored. Not available yet: Foom can't yet enforce that such a call sees only the terminal tail (see [architecture](architecture.md#evaluator-pipeline)). Preflight shows it as unavailable.
-- **An API key**: Anthropic, OpenAI, or Google. The key is stored with Electron `safeStorage`.
-- **A local model**: any OpenAI-compatible endpoint, such as Ollama.
-- **Rules only**: no model. Ambiguous terminals stay neutral.
-
-The evaluator sends only the last 40 lines of a quiet terminal, with likely secrets redacted. It never sends files, diffs, or keystrokes.
 
 ## Orchestration and privacy (planned)
 
@@ -337,8 +326,7 @@ setup; absolute-path use needs no installation. See [console usage](orchestratio
 
 An orchestrator can request at most the last 40 lines of each child's terminal,
 with likely secrets redacted and each response capped at 16 KiB. These results may
-be sent to the orchestrator agent's model provider, which can differ from your
-evaluator provider. Repeated reads can collect more output over time. Foom does
+be sent to the orchestrator agent's model provider, under that agent's own provider settings. Repeated reads can collect more output over time. Foom does
 not read files, diffs, transcripts or keystrokes for this API; a terminal may print
 file contents, diffs or echoed input, and redaction cannot catch every secret.
 The launch flow will disclose this data path. The agent's own tools and provider
@@ -356,13 +344,12 @@ initial prompts. It retains at most 30 days and five 10 MiB files and can be cle
 
 Setup is a preflight countdown:
 
-1. **Agents** (T-4): detect the supported CLIs on PATH and show each one's attention signal. One setting controls whether Foom supplies hooks and credentials per launch. Antigravity also offers an explicit plugin install with its location, behavior and removal disclosed; Settings shows installed, outdated or disabled status and offers update, enable and removal.
-2. **Repositories** (T-3): "Where do you keep your code?" Foom suggests common code folders that hold repositories, with a count for each, or you choose one. It scans that folder and lists its Git repositories, with the ones worked on in the last 30 days checked.
-3. **Worktrees** (T-2): choose where new worktrees live: Foom's folder (`~/.foom/worktrees`, the default) or next to each repository.
-4. **Evaluator** (T-1): pick an inference source and test it on a sample.
-5. **Go / no-go** (T-0): each item shows GO or NO-GO with a link back to its step. Launch needs every item GO: at least one agent ready and one repository added.
+1. **Agents** (T-3): detect the supported CLIs on PATH and show each one's attention signal. One setting controls whether Foom supplies hooks and credentials per launch. Antigravity also offers an explicit plugin install with its location, behavior and removal disclosed; Settings shows installed, outdated or disabled status and offers update, enable and removal.
+2. **Repositories** (T-2): "Where do you keep your code?" Foom suggests common code folders that hold repositories, with a count for each, or you choose one. It scans that folder and lists its Git repositories, with the ones worked on in the last 30 days checked.
+3. **Worktrees** (T-1): choose where new worktrees live: Foom's folder (`~/.foom/worktrees`, the default) or next to each repository.
+4. **Go / no-go** (T-0): each item shows GO or NO-GO with a link back to its step. Launch needs every item GO: at least one agent ready and one repository added.
 
-On wide windows the steps use the extra width: agents as a grid, the worktree choices side by side, and the Evaluator's live check beside its options.
+On wide windows the steps use the extra width: agents as a grid and the worktree choices side by side.
 
 Preflight derives a shared enlargement from the actual space left beside or below the
 rail, then checks the rendered content, including wrapping and the fixed footer. It
@@ -374,7 +361,7 @@ Short steps center vertically. Content changes
 re-center over 180 milliseconds (immediately with reduced motion). Back, Continue and
 Launch stay in a footer at the bottom of the window, outside the scrolling content.
 
-The rail also holds **Appearance**: System, Light or Dark, and the interface size (80–150%; the window grows and shrinks with it while the screen has room, around the pointer when you click + or − or scroll over the percentage, so what you pointed at stays under it; also ⌘ +/−/0 on macOS or Ctrl+Shift+=/−/0 elsewhere). Terminal font size is separate and lives in Settings → Terminal. A model source is used only after it passes Run check. Launch opens the board. The board starts empty. A repository’s **New worktree** action creates or reuses a Git worktree for the branch, regardless of which tool created it, and launches an agent or shell; checkout menus launch sessions in an existing checkout. Sample sessions are available only in an explicit development build. After first run, **Settings** on the board edits the saved choices.
+The rail also holds **Appearance**: System, Light or Dark, and the interface size (80–150%; the window grows and shrinks with it while the screen has room, around the pointer when you click + or − or scroll over the percentage, so what you pointed at stays under it; also ⌘ +/−/0 on macOS or Ctrl+Shift+=/−/0 elsewhere). Terminal font size is separate and lives in Settings → Terminal. Launch opens the board. The board starts empty. A repository’s **New worktree** action creates or reuses a Git worktree for the branch, regardless of which tool created it, and launches an agent or shell; checkout menus launch sessions in an existing checkout. Sample sessions are available only in an explicit development build. After first run, **Settings** on the board edits the saved choices.
 
 ## Settings
 
@@ -383,10 +370,10 @@ It replaces the terminal tiles beside the persistent sidebar in the same window.
 Esc returns to the tiles and restores the same focused sidebar row.
 Selecting a terminal in the sidebar also leaves Settings; terminals keep running throughout.
 
-Agents and hooks, Repositories, Worktrees, and Evaluator use the same controls as
+Agents and hooks, Repositories, and Worktrees use the same controls as
 preflight. Changes apply immediately and persist. A repository scan in Settings
 starts with the already-added repositories checked; toggling a selection saves it
-at once and reports any refusal. A model source still requires a successful Run check.
+at once and reports any refusal.
 Settings → Agents and hooks also provides default launch arguments for each supported
 agent, one argument per line, with an explicit Save default arguments action. Put flag
 values on separate lines. Spaces and quotes are literal, with no shell parsing or
@@ -523,6 +510,6 @@ Shell status currently follows command start and completion in Bash 4.4+: an ini
 prompt is Quiet (“Shell is ready”), a command is Working, and return to the prompt is
 Done or Failed according to its exit code. Editing the next command preserves that
 result until execution starts. Other shells use output patterns and process exit.
-Shell evaluations lasting longer than 150 ms show Checking. Agent Working follows
+The quiet debounce preserves the current state; there is no separate Checking state. Agent Working follows
 lifecycle evidence, never silence or output volume. A supported turn-end signal
 stops Working immediately; classification determines the result.

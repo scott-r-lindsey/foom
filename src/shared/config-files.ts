@@ -22,8 +22,6 @@ export function parseSettingsFile(text: string): ConfigSettings {
     "agentBypassAcknowledged",
     "codexNotifierAcknowledged",
     "setupComplete",
-    "inference",
-    "inferenceTimeoutMs",
     "codeFolder",
     "worktreeLocation",
   ])

@@ -20,7 +20,7 @@ test("selects System and each theme, previews every status, follows media and ac
     <InterfaceThemePicker settings={setupState().settings} onChange={onChange} />,
   );
   const preview = screen.getByLabelText("Interface theme preview");
-  expect(screen.getAllByRole("listitem")).toHaveLength(6);
+  expect(screen.getAllByRole("listitem")).toHaveLength(5);
   expect(screen.getByText("Needs you")).toBeTruthy();
   expect(screen.getByText("Failed")).toBeTruthy();
   expect(preview.style.getPropertyValue("--bg")).toBe("#f3f0fa");

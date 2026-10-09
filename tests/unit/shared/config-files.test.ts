@@ -39,8 +39,6 @@ test.each([
   "agentBypassAcknowledged",
   "codexNotifierAcknowledged",
   "setupComplete",
-  "inference",
-  "inferenceTimeoutMs",
   "codeFolder",
   "worktreeLocation",
 ])("rejects excluded %s with a fixed field-specific reason", (key) => {
@@ -111,3 +109,12 @@ test("dispatches each kind to its shared parser and refuses folder mismatches", 
     }).toThrow(expect.objectContaining({ path: "$.kind", reason: "invalid-value" }));
   }
 });
+
+test.each(["inference", "inferenceTimeoutMs"])(
+  "removed %s is rejected as an unknown key",
+  (key) => {
+    expect(() => parseSettingsFile(JSON.stringify({ kind: "settings", [key]: null }))).toThrow(
+      expect.objectContaining({ path: "$", reason: "unknown-key" }),
+    );
+  },
+);

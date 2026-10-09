@@ -3,7 +3,6 @@ import { createRoot } from "react-dom/client";
 import type { DialogRequest } from "../shared/confirmation";
 const stateLabels: Readonly<Record<string, string>> = {
   working: "Working",
-  checking: "Checking",
   needs_input: "Needs you",
   done: "Done",
   failed: "Failed",

@@ -1,14 +1,14 @@
 # Agent attention signals
 
-Research for #11, checked 2026-09-28 on Linux. This is a capability baseline, not a claim that every installed version behaves identically. Detect each resolved executable with `--version`, retain its full version string, and probe its `--help` before choosing flags. Hook discovery accepts stable numeric Claude Code versions >= 2.1.284 (` (Claude Code)` is an optional product label) and `codex-cli` versions >= 0.155.1, with no upper bound. Help must still advertise the complete `--settings` or `-c` flag. Older, unparseable, prerelease, and custom-suffixed versions use the output-evaluator fallback. Missing or failed help probes also fall back.
+Research for #11, checked 2026-09-28 on Linux. This is a capability baseline, not a claim that every installed version behaves identically. Detect each resolved executable with `--version`, retain its full version string, and probe its `--help` before choosing flags. Hook discovery accepts stable numeric Claude Code versions >= 2.1.284 (` (Claude Code)` is an optional product label) and `codex-cli` versions >= 0.155.1, with no upper bound. Help must still advertise the complete `--settings` or `-c` flag. Older, unparseable, prerelease, and custom-suffixed versions use the local rules fallback. Missing or failed help probes also fall back.
 
 ## Recommendation
 
-| Agent | Version tested | Attention source | One-shot evaluator |
+| Agent | Version tested | Attention source | Rules |
 |---|---|---|---|
-| Claude Code | `2.1.284` | Per-launch Stop + Notification hooks; completion still needs classification | `claude -p`, with tools and external integrations disabled |
-| Codex | `codex-cli 0.155.1` | Per-launch `notify` for turn completion only; use the evaluator for approvals/questions | `codex exec`, conditional on enforcing the tail-only input boundary |
-| Antigravity | `agy 1.1.13` | Output evaluator for now: hooks exist, but no per-launch attachment was verified | Headless mode exists; not recommended as a Foom inference source yet |
+| Claude Code | `2.1.284` | Per-launch Stop + Notification hooks; completion still needs classification | Title, screen, process and text rules |
+| Codex | `codex-cli 0.155.1` | Per-launch `notify` for turn completion only; use local rules for approvals/questions | Title, screen, process and text rules |
+| Antigravity | `agy 1.1.13` | Local rules: hooks exist, but no per-launch attachment was verified | Screen, process and text rules |
 
 Discovery regression tests cover the baseline, Claude 2.1.285 / 2.2.0 / 3.0.0 and Codex 0.155.2 / 0.156.0 / 1.0.0, older releases, malformed strings, suffixes, and missing flags. These are synthetic discovery/launch tests, not additional real hook measurements. Runtime verification of missing hooks after a completed turn remains part of service/evaluator integration (#50/#14); accepting a version does not prove hooks fired.
 
@@ -171,7 +171,7 @@ Interactive approvals depend on the configured policy and sandbox. The tested he
 
 `codex exec --json` is usable for bounded evaluation and emits JSONL events, including completion usage. `--output-schema` constrains the final answer. [Non-interactive usage](https://learn.chatgpt.com/docs/non-interactive-mode)
 
-However, read-only is not no-read. Before shipping this evaluator, disable file/command tools, MCP, web/connectors, hooks, skills, and instruction-file discovery, or use an independently enforced environment that exposes only the synthetic prompt/redacted tail and required authentication. A prompt saying “do not read files” is not enforcement. The successful probe below establishes the invocation and callback, not production isolation. If the installed version cannot enforce the boundary, use another inference source or rules only.
+Foom does not use CLI model evaluation. The historical probes below do not authorize terminal content being sent to a model.
 
 ## Antigravity
 
@@ -179,7 +179,7 @@ The tested `agy --help` includes `-p`/`--print`, JSON and stream-JSON output, `-
 
 Hooks also exist: `PreToolUse`, `PostToolUse`, `PreInvocation`, `PostInvocation`, and `Stop`. Stop receives JSON on stdin with `executionNum`, `terminationReason`, optional `error`, `fullyIdle`, and common conversation/workspace metadata. Documented installation locations are workspace `.agents/hooks.json`, global configuration, or installed plugins. No Notification event or per-launch settings/hook flag was established by the docs or installed help. [Lifecycle hooks](https://www.antigravity.google/docs/hooks/)
 
-The opt-in lifecycle plugin in #178 is the scoped exception to invocation-only attachment. Foom never installs it silently or writes Antigravity configuration directly; Settings calls the plugin CLI after explicit disclosure. Headless support alone does not add Antigravity to the product's inference-source choices; tool isolation and end-to-end behavior remain unverified.
+The opt-in lifecycle plugin in #178 is the scoped exception to invocation-only attachment. Foom never installs it silently or writes Antigravity configuration directly; Settings calls the plugin CLI after explicit disclosure. Headless support does not change local attention classification.
 
 Interactive permission prompts cover actions requiring a grant, depending on rules and sandbox settings. Treat those as Needs you. Foom never adds `--dangerously-skip-permissions` itself; users may explicitly save it as a default after the bypass disclosure. Exact prompt text is not a stable interface. [Permissions](https://www.antigravity.google/docs/permissions/)
 
@@ -201,9 +201,9 @@ Run from an empty scratch directory. The shared synthetic prompt was: `Classify 
 | Claude, reported model `claude-opus-5-5` | 2.62 s; API time 1.551 s | 2 input + 2,061 cache-write + 531 cache-read + 13 output tokens; `total_cost_usd` $0.0168622 |
 | Codex, default model not pinned | 4.45 s | 13,563 input, including 11,520 cached; 10 output tokens; no dollar cost reported |
 
-These are observations, not latency guarantees or account billing quotes. Claude reported list-price cost; subscription usage need not be a per-call charge. Defaults, hidden system context, caching, model choice, and account limits affect both cost and latency. Benchmark the user's selected model at setup. Apply a hard timeout, bounded concurrency, and fallback to rules; do not run a model call for every output chunk.
+These are observations, not latency guarantees or account billing quotes. Claude reported list-price cost; subscription usage need not be a per-call charge. Defaults, hidden system context, caching, model choice, and account limits affect both cost and latency. These historical probes are not part of Foom; all attention classification now uses local rules.
 
-Before implementing detection, repeat real approval/idle/interrupt tests on each supported OS, confirm hook coexistence and disabled-hook policies, and validate evaluator isolation. Keep uncertain events neutral rather than interpreting missing callbacks as success.
+Before implementing detection, repeat real approval/idle/interrupt tests on each supported OS, confirm hook coexistence and disabled-hook policies, and verify local rules. Keep uncertain events neutral rather than interpreting missing callbacks as success.
 
 ## Receiver implementation (#13)
 
@@ -231,14 +231,14 @@ or cross-version reliability.
   without approving it. A startup spinner-to-idle sequence is also captured.
 - Antigravity: the captured trust dialog is recognized from the bottom eight
   nonempty lines. Uncaptured approval/working/question variants remain subject to
-  generic rules and the evaluator.
+  generic rules.
 
 The host parses OSC 0/2 titles, caps them at 512 UTF-16 code units and strips control
 and format characters. OSC 9;4 accepts only states 0–4 and optional integer values
 0–100; state 0 means no progress/busy indication. Invalid sequences leave the prior
 metadata intact. These probes did not emit OSC 9;4, so progress is retained locally
 but no progress-only rule is shipped without capture evidence. No title or progress
-is sent to inference. Rules are packaged JSON, never downloaded or supplied by a CLI.
+is sent to a model. Rules are packaged JSON, never downloaded or supplied by a CLI.
 Matched signals are `rules:<agent>:<rule-id>`; reasons are authored by Foom.
 
 **Codex notifier decision at #161 (superseded for confirmed lifecycle hooks by #181 below):** retain the invocation-only `notify` override and its

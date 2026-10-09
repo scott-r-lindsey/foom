@@ -15,7 +15,7 @@ export function WorktreesStep({
   }) {
   return (
     <>
-      <p className="preflight-eyebrow">T-2 · Worktrees</p>
+      <p className="preflight-eyebrow">T-1 · Worktrees</p>
       <h2 ref={headingRef} tabIndex={-1}>
         Where should new worktrees go?
       </h2>

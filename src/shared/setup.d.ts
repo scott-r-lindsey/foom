@@ -4,14 +4,6 @@ import type { SoundSettings } from "./sound";
 import type { TerminalThemeChoice } from "./terminal-theme";
 import type { AgentId } from "./agents";
 import type { Repository } from "./worktrees";
-import type {
-  ApiProvider,
-  InferenceConfig,
-  ModelList,
-  ProbeResult,
-  ProbeUpdate,
-} from "./inference";
-
 /** Everything first-run setup decides. Stored in main; the renderer holds only a copy. */
 export interface Settings {
   setupComplete: boolean;
@@ -24,10 +16,6 @@ export interface Settings {
   agentBypassAcknowledged: Readonly<Record<AgentId, boolean>>;
   /** Default for new worktrees: Foom's folder, or next to the repository. */
   worktreeLocation: "root" | "adjacent";
-  /** Only rules or a source that passed Run check is ever saved. */
-  inference: InferenceConfig;
-  /** How long a model gets per classification, 1–30 seconds. */
-  inferenceTimeoutMs: number;
   /** Eclipse variant when interfaceTheme is Follow; fixed themes supply their own base. */
   panelColor: "vivid" | "subtle" | "plain";
   colorMode: "system" | "light" | "dark";
@@ -91,10 +79,6 @@ export type SettingsPatch = Partial<Settings>;
 export interface SetupState {
   themes?: ThemeCatalog;
   settings: Settings;
-  /** Which providers have a stored key. Keys themselves never leave main. */
-  keys: Readonly<Record<ApiProvider, boolean>>;
-  /** False when the OS can't encrypt keys; API sources are then unavailable. */
-  secureStorage: boolean;
   worktreeRoot: string;
 }
 
@@ -103,21 +87,6 @@ export interface SetupApi {
   openThemesFolder(kind: ThemeKind): Promise<void>;
   setupState(): Promise<SetupState>;
   saveSetup(patch: SettingsPatch): Promise<SetupState>;
-  setInferenceKey(provider: ApiProvider, key: string): Promise<SetupState>;
-  removeInferenceKey(provider: ApiProvider): Promise<SetupState>;
-  /**
-   * Runs the sample check against a source, reporting each step to `onUpdate` as it
-   * happens. Success lets main save that source. `id` names the check for cancelling.
-   */
-  checkInference(
-    id: string,
-    config: InferenceConfig,
-    timeoutMs: number,
-    onUpdate: (update: ProbeUpdate) => void,
-  ): Promise<ProbeResult>;
-  cancelInferenceCheck(id: string): Promise<void>;
-  /** Models a local endpoint offers. */
-  localModels(endpoint: string): Promise<ModelList>;
   /** Persisted settings after a save or a main-process zoom shortcut. */
   onSetupChange(callback: (state: SetupState) => void): () => void;
   /** Common code folders under the home folder, such as ~/code, that hold repositories. */

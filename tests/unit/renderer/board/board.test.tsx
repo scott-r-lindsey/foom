@@ -80,7 +80,7 @@ test("maps every state to a text label and activity brightness, dimming only ack
   expect(rows.map(light).map((value) => value.label)).toEqual([
     "Needs you",
     "Working",
-    "Checking",
+    "Quiet",
     "Done",
     "Failed",
     "Quiet",

@@ -14,7 +14,7 @@ export interface TerminalState {
   execution?: ExecutionSnapshot | undefined;
   id: string;
   verdictId: string | null;
-  state: VerdictState | "checking";
+  state: VerdictState;
   reason: string;
   signal: string;
   confidence: number;

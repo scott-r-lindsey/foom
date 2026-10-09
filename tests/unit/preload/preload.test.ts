@@ -179,58 +179,13 @@ test("setup requests use their own channels and never read a key back", async ()
   await api.openThemesFolder("theme");
   await expect(api.setupState()).resolves.toBe("reply");
   await api.saveSetup({ hooks: false });
-  await api.setInferenceKey("openai", "sk-test");
-  await api.removeInferenceKey("openai");
-  await api.cancelInferenceCheck("c1");
-  await api.localModels("http://127.0.0.1:11434/v1");
   expect(mock.invoke.mock.calls).toEqual([
     ["theme:list"],
     ["theme:open-folder", "theme"],
     ["setup:state"],
     ["setup:save", { hooks: false }],
-    ["setup:set-key", "openai", "sk-test"],
-    ["setup:remove-key", "openai"],
-    ["setup:check-cancel", "c1"],
-    ["setup:models", "http://127.0.0.1:11434/v1"],
   ]);
   expect(Object.keys(api).some((key) => /get.*key|read.*key/i.test(key))).toBe(false);
-});
-test("check progress is filtered by ID, validated, and unsubscribed when the check ends", async () => {
-  const api = await bridge();
-  const updates: unknown[] = [];
-  let finish: (value: unknown) => void = () => {};
-  mock.invoke.mockReturnValueOnce(
-    new Promise((resolve) => {
-      finish = resolve;
-    }),
-  );
-  const pending = api.checkInference("c1", { kind: "rules" }, 5000, (update) => {
-    updates.push(update);
-  });
-  expect(mock.invoke).toHaveBeenLastCalledWith("setup:check", "c1", { kind: "rules" }, 5000);
-  const listener = mock.on.mock.calls.find(([name]) => name === "setup:check-progress")?.[1];
-  if (!listener) throw new Error("Missing listener");
-  const step = { step: "connect", status: "ok", label: "Connected", atMs: 1, durationMs: 1 };
-  for (const [id, update] of [
-    ["c1", { kind: "step", event: step }],
-    ["c1", { kind: "step", event: { ...step, durationMs: undefined } }],
-    ["c1", { kind: "stream", thinking: 2, reply: "{" }],
-    ["other", { kind: "stream", thinking: 2, reply: "{" }],
-    ["c1", null],
-    ["c1", { kind: "stream", thinking: "2", reply: "{" }],
-    ["c1", { kind: "step", event: { ...step, step: "exfiltrate" } }],
-    ["c1", { kind: "step", event: { ...step, status: "maybe" } }],
-    ["c1", { kind: "step", event: { ...step, label: 1 } }],
-    ["c1", { kind: "step", event: { ...step, atMs: "1" } }],
-    ["c1", { kind: "step", event: { ...step, durationMs: "1" } }],
-    ["c1", { kind: "step", event: null }],
-    ["c1", { kind: "other" }],
-  ] as const)
-    listener({}, id, update);
-  expect(updates).toHaveLength(3);
-  finish("result");
-  await expect(pending).resolves.toBe("result");
-  expect(mock.removeListener).toHaveBeenCalledWith("setup:check-progress", listener);
 });
 test("code scans report validated progress and use their own channels", async () => {
   const api = await bridge();
@@ -261,15 +216,8 @@ test("setup changes from main are validated and can be unsubscribed", async () =
   const off = api.onSetupChange(callback);
   const listener = mock.on.mock.calls.find(([name]) => name === "setup:changed")?.[1];
   if (!listener) throw new Error("Missing listener");
-  const state = { settings: {}, keys: {}, secureStorage: true, worktreeRoot: "/w" };
-  for (const value of [
-    state,
-    null,
-    { ...state, settings: null },
-    { ...state, keys: [] },
-    { ...state, secureStorage: "yes" },
-    { ...state, worktreeRoot: 1 },
-  ])
+  const state = { settings: {}, worktreeRoot: "/w" };
+  for (const value of [state, null, { ...state, settings: null }, { ...state, worktreeRoot: 1 }])
     listener({}, value);
   expect(callback).toHaveBeenCalledExactlyOnceWith(state);
   off();

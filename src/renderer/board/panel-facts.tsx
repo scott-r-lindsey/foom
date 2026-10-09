@@ -42,7 +42,6 @@ function Copy({ value, copy }: { value: string; copy: () => Promise<void> }) {
 type Tone = "neutral" | "info" | "working" | "done" | "needs" | "failed";
 const stateTone: Record<BoardRow["state"], Tone> = {
   working: "working",
-  checking: "working",
   needs_input: "needs",
   done: "done",
   failed: "failed",
@@ -172,16 +171,14 @@ export function PanelFacts({
             )}
           </Fact>
           <Fact label="Sessions">
-            {(["needs_input", "working", "checking", "done", "failed", "quiet_ok"] as const).map(
-              (state) => {
-                const matching = subject.rows.filter((row) => row.state === state);
-                return matching[0] ? (
-                  <Chip key={state} tone={stateTone[state]} dot>
-                    {matching.length} {light(matching[0]).label.toLowerCase()}
-                  </Chip>
-                ) : null;
-              },
-            )}
+            {(["needs_input", "working", "done", "failed", "quiet_ok"] as const).map((state) => {
+              const matching = subject.rows.filter((row) => row.state === state);
+              return matching[0] ? (
+                <Chip key={state} tone={stateTone[state]} dot>
+                  {matching.length} {light(matching[0]).label.toLowerCase()}
+                </Chip>
+              ) : null;
+            })}
             {subject.rows.length === 0 && <Sub>None</Sub>}
           </Fact>
         </>

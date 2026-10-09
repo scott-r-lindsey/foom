@@ -135,13 +135,13 @@ test("filter matches names, branch and reasons, includes matching descendants an
   };
   expect(buildSidebar([], [detached], preferences, "Detached HEAD").tree).toHaveLength(1);
 });
-test("rollups rank needs you, failed, working/checking, done, quiet and retain the first tied session", () => {
-  const states: BoardState[] = ["quiet_ok", "done", "checking", "working", "failed", "needs_input"];
+test("rollups rank needs you, failed, working, done, quiet and retain the first tied session", () => {
+  const states: BoardState[] = ["quiet_ok", "done", "working", "working", "failed", "needs_input"];
   expect(rollup([])).toBeUndefined();
   const rows = states.map((state) => row(state, "/repo", state));
   expect(rollup(rows)?.state).toBe("needs_input");
   expect(rollup(rows.slice(0, 5))?.state).toBe("failed");
-  expect(rollup(rows.slice(0, 4))?.state).toBe("checking");
+  expect(rollup(rows.slice(0, 4))?.state).toBe("working");
   expect(rollup(rows.slice(0, 2))?.state).toBe("done");
 });
 test("sample locations are synthesized without merging real repositories with identical names", () => {

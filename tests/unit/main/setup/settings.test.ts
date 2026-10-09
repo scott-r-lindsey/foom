@@ -1,5 +1,5 @@
 import { interfaceThemes } from "../../../../src/shared/interface-themes";
-import { mkdtemp, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, expect, test } from "vitest";
@@ -26,8 +26,6 @@ test("patches copy only known, well-formed fields", () => {
       hooks: false,
       worktreeLocation: "adjacent",
       agents: { claude: true, codex: false, agy: true },
-      inference: { kind: "anthropic", model: "claude-haiku-4-5" },
-      inferenceTimeoutMs: 15_000,
       colorMode: "dark",
       interfaceScale: 120,
       terminalFontSize: 18,
@@ -38,12 +36,10 @@ test("patches copy only known, well-formed fields", () => {
     terminalFontSize: 18,
     colorMode: "dark",
     interfaceScale: 120,
-    inferenceTimeoutMs: 15_000,
     setupComplete: true,
     hooks: false,
     worktreeLocation: "adjacent",
     agents: { claude: true, codex: false, agy: true },
-    inference: { kind: "anthropic", model: "claude-haiku-4-5" },
   });
   expect(parseSettingsPatch({})).toEqual({});
   for (const bad of [
@@ -73,9 +69,7 @@ test("patches copy only known, well-formed fields", () => {
     { codeFolder: 7 },
   ])
     expect(() => parseSettingsPatch(bad), JSON.stringify(bad)).toThrow("Invalid settings");
-  expect(() => parseSettingsPatch({ inference: { kind: "claude" } })).toThrow(
-    "CLI inference unavailable",
-  );
+  expect(() => parseSettingsPatch({ inference: { kind: "claude" } })).toThrow("Invalid settings");
 });
 
 test("a missing, corrupt or unsupported file starts from defaults", async () => {
@@ -124,8 +118,8 @@ test("updates are private, atomic, serialized and survive a restart", async () =
 test("a failed write leaves settings unchanged and later writes still work", async () => {
   const root = await directory();
   const dir = path.join(root, "blocked");
-  await writeFile(dir, "a file where the folder should be");
   const store = await SettingsStore.open(dir);
+  await writeFile(dir, "a file where the folder should be");
   await expect(store.update({ setupComplete: true })).rejects.toThrow();
   expect(store.get().setupComplete).toBe(false);
   await rm(dir);
@@ -196,7 +190,6 @@ test.each([
       ...DEFAULT_SETTINGS,
       setupComplete: true,
       interfaceTheme: "moonlight",
-      inference: { kind: "openai", model: "saved-model" },
       agentBypassAcknowledged: { claude: true, codex: true, agy: false },
       agentArguments,
     };
@@ -272,4 +265,61 @@ test("panel color validates and defaults to vivid", () => {
     expect(parseSettingsPatch({ panelColor })).toEqual({ panelColor });
   for (const panelColor of [null, "bright", 0])
     expect(() => parseSettingsPatch({ panelColor })).toThrow();
+});
+
+test("legacy sources and limits are dropped and ciphertext is removed idempotently", async () => {
+  const dir = await directory();
+  const file = path.join(dir, "settings.json");
+  await writeFile(
+    file,
+    JSON.stringify({
+      version: 1,
+      settings: {
+        setupComplete: true,
+        hooks: false,
+        interfaceScale: 120,
+        inference: { kind: "openai", model: "saved-model" },
+        inferenceTimeoutMs: 15000,
+      },
+    }),
+  );
+  for (const provider of ["anthropic", "openai", "google"])
+    await writeFile(path.join(dir, `inference-${provider}.key`), Buffer.from([0, 128, 255]));
+  const temporary = "inference-openai.key.12345678-1234-4234-8234-123456789abc.tmp";
+  await writeFile(path.join(dir, temporary), Buffer.from([0, 128, 255]));
+  const unrelated = [
+    "unrelated.key",
+    "inference-openai.key.not-a-uuid.tmp",
+    "inference-other.key.12345678-1234-4234-8234-123456789abc.tmp",
+  ];
+  for (const file of unrelated) await writeFile(path.join(dir, file), "keep");
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const store = await SettingsStore.open(dir);
+    expect(store.get()).toMatchObject({ setupComplete: true, hooks: false, interfaceScale: 120 });
+    expect(store.get()).not.toHaveProperty("inference");
+    expect(store.get()).not.toHaveProperty("inferenceTimeoutMs");
+    expect(await readdir(dir)).toEqual(expect.arrayContaining(["settings.json", "unrelated.key"]));
+    expect((await readdir(dir)).sort()).toEqual(["settings.json", ...unrelated].sort());
+    for (const file of unrelated) expect(await readFile(path.join(dir, file), "utf8")).toBe("keep");
+    expect(await readFile(file, "utf8")).not.toContain("inference");
+  }
+  for (const patch of [{ inference: { kind: "rules" } }, { inferenceTimeoutMs: 5000 }])
+    expect(() => parseSettingsPatch(patch)).toThrow("Invalid settings");
+});
+
+test("key cleanup fails closed without recursively deleting unexpected directories", async () => {
+  const dir = await directory();
+  const unexpected = path.join(dir, "inference-openai.key");
+  await mkdir(unexpected);
+  await writeFile(path.join(unexpected, "keep"), "keep");
+  await expect(SettingsStore.open(dir)).rejects.toThrow();
+  expect(await readFile(path.join(unexpected, "keep"), "utf8")).toBe("keep");
+});
+
+test("key migration reports unreadable profile directories", async () => {
+  const dir = await directory();
+  const file = path.join(dir, "not-a-directory");
+  await writeFile(file, "keep");
+  await expect(SettingsStore.open(file)).rejects.toThrow();
+  expect(await readFile(file, "utf8")).toBe("keep");
 });
