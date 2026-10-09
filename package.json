@@ -19,6 +19,7 @@
     "test": "vitest run",
     "package": "npm run build && electron-forge package",
     "make": "npm run build && electron-forge make",
+    "clean": "node -e \"require('node:fs').rmSync('out', { recursive: true, force: true })\"",
     "format": "biome format --write .",
     "format:check": "biome format .",
     "lint:fix": "eslint . --fix --max-warnings=0",
