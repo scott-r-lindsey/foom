@@ -489,7 +489,31 @@ a ten-minute deadline checked on every call, memory-only token delivery, and an
 explicit release operation unavailable to agents. Pairing is single-pending,
 rate-limited to one request per ten seconds and bounded to four live grants.
 See [console usage and PATH ownership](orchestration.md#console-helper-and-local-pairing-154).
-Offline config validation remains reserved for #84; no config mutation is exposed.
+`foom config validate <path> [--json]` (#206) is offline and read-only. It dispatches
+before inherited control credentials or pairing; it never opens discovery, keys,
+worktree state or userData. The standalone Node executable needs neither Foom nor
+a display, and also works while Foom is running. There is no config mutation.
+
+The path names one file, a config root, `themes`, `terminal-themes`, `sounds`, or
+one sound-kind folder. JSON files select their parser with `kind`; folder validation
+also checks placement (`settings.json`, `themes/*.json`, `terminal-themes/*.json`).
+Only the documented config layout is walked. Unexpected entries, symlinks (including
+in-folder links), nonregular files and redirected directories are rejected. Reads
+use capped open descriptors with identity checks before and after reading. JSON is
+limited to 64 KiB and theme folders to 50 entries; sound kind folders to 100 entries,
+with 8 MiB Working files and 2 MiB other files. Invalid entries count toward these
+offline traversal bounds so hostile directories cannot force unbounded work.
+
+Each invalid file produces a filename, JSON path and a fixed reason from the theme
+validation vocabulary. Text prints one problem per line; filenames are JSON-escaped
+to keep control characters inert. `--json` prints the same problem records as an
+array (empty for valid input). Exit status is 0 for valid, 1 for invalid and 2 for
+usage or I/O errors; I/O errors take precedence in mixed results. No file contents
+or parser exception messages appear in diagnostics. Offline sound checks use the
+shared filename, header, size and duration rules; `music-metadata` reads duration
+from bounded bytes, with no file/network access. Missing duration is invalid.
+This checks container metadata, not sample decoding; playback still verifies that
+Chromium can decode the audio and checks its samples.
 
 **Remaining target from #119.** See [orchestration research](orchestration.md) for
 per-agent evidence and follow-ups #155–#157. Orchestration remains future work. Existing terminal ownership, utility-host
@@ -565,6 +589,44 @@ mutations, then nest children under their orchestrator in the board source and a
 the full log view. Components retain view state only; hidden PTYs keep running.
 
 ## Settings and setup
+
+### Agent-editable settings format (#206)
+
+`~/.foom/config/settings.json` is a JSON object with `"kind": "settings"` and any
+subset of the following keys. Unknown keys are rejected, including nested sound
+and agent fields. This defines the format only: main still reads and writes its
+versioned private profile settings; #84 will connect this file to main and require
+approval for disabling agents or hooks. Validation alone grants no approval.
+
+| Allowed key | Value |
+| --- | --- |
+| `colorMode` | `system`, `light`, `dark` |
+| `panelColor` | `vivid`, `subtle`, `plain` |
+| `interfaceTheme`, `terminalTheme` | `follow`, a corresponding built-in ID, or `user:<filename>.json`; no inline palette objects |
+| `interfaceScale` | 80–150 in steps of 10 |
+| `terminalFontSize` | Integer 10–32 |
+| `sound` | Exact current `shared/sounds.ts` settings format |
+| `agents` | Exactly boolean `claude`, `codex`, `agy` switches |
+| `hooks` | Boolean |
+
+`shared/config-settings.ts` supplies the same value validation to main's settings
+patch parser and the file parser; theme files use `shared/theme-files.ts` directly.
+Theme IDs are checked syntactically, without opening any other file or profile.
+
+| Excluded key | Reason |
+| --- | --- |
+| `agentArguments` | Launch flags can carry bypass mode; an agent must not grant itself bypass on its next launch |
+| `agentBypassAcknowledged` | Records human consent to bypass mode |
+| `codexNotifierAcknowledged` | Records human consent to notifier replacement |
+| `setupComplete` | Records human setup progress |
+| `inference` | Contains provider endpoints and URLs |
+| `inferenceTimeoutMs` | Changes evaluator behavior; remains in Settings |
+| `codeFolder`, `worktreeLocation` | Select filesystem paths or placement |
+
+Excluded keys report `unknown-key` at their fixed `$.<key>` path. Arbitrary unknown
+property names are never echoed. The allowlist applies even when an excluded value
+is null, false or otherwise harmless in isolation.
+
 
 **Today:** First run is the preflight countdown from [product](product.md#first-run). `src/main/setup/settings.ts` stores versioned `settings.json` in user data: whether setup is complete, the hooks setting, which agents are turned on, the default worktree location, and the inference source. Writes are atomic (private temporary file, then rename) and serialized; a failed write leaves the settings unchanged. Missing, corrupt or unsupported files start from defaults, so preflight runs again. Every patch, from IPC or disk, is validated field by field and unknown fields are rejected.
 
@@ -1083,7 +1145,7 @@ folder unchanged.
 
 Main creates `~/.foom/config/themes/` for interface themes and
 `~/.foom/config/terminal-themes/` for terminal palettes, alongside sounds.
-`shared/theme-files.ts` is the platform-neutral parser for main and the future
+`shared/theme-files.ts` is the platform-neutral parser for main and the offline
 `foom config validate` command. Interface files contain exactly
 `{ "kind": "theme", "name": "…", "base": "light" | "dark", "colors": { … } }`.
 Colors require the original 19 interface tokens; `highlight` and `highlight-deep`

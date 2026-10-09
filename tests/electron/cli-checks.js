@@ -57,4 +57,43 @@ async function assertCliPairing(context, executable, profile, repository, confir
   assert.equal(await finished, 3);
   assert.ok(stderr.includes('"error":"forbidden"'));
 }
-module.exports = { assertCliPairing };
+function assertConfigValidation(executable, scratch) {
+  const { writeFileSync, mkdirSync } = require("node:fs");
+  const { spawnSync } = require("node:child_process");
+  const directory = join(scratch, "config-validation");
+  mkdirSync(directory, { recursive: true });
+  const valid = join(directory, "valid.json");
+  const broken = join(directory, "broken.json");
+  writeFileSync(valid, '{"kind":"settings","terminalFontSize":16}');
+  writeFileSync(broken, '{"kind":"settings","agentArguments":{}}');
+  const env = { ...process.env, FOOM_CONTROL_URL: "invalid", FOOM_CONTROL_TOKEN: "must-not-use" };
+  delete env.DISPLAY;
+  delete env.WAYLAND_DISPLAY;
+  for (const json of [false, true]) {
+    for (const [file, code] of [
+      [valid, 0],
+      [broken, 1],
+    ]) {
+      const result = spawnSync(
+        executable,
+        ["config", "validate", file, ...(json ? ["--json"] : [])],
+        {
+          env,
+          encoding: "utf8",
+          timeout: deadline(10000),
+          windowsHide: true,
+        },
+      );
+      assert.equal(result.status, code, result.stderr);
+      assert.equal(result.stderr, "");
+      if (json)
+        assert.deepEqual(
+          JSON.parse(result.stdout),
+          code ? [{ file: "broken.json", path: "$.agentArguments", reason: "unknown-key" }] : [],
+        );
+      else if (code) assert.match(result.stdout, /broken.json.*\$\.agentArguments.*unknown-key/);
+    }
+  }
+  return { valid, broken };
+}
+module.exports = { assertCliPairing, assertConfigValidation };

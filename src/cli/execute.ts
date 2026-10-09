@@ -1,3 +1,4 @@
+import { validateConfig } from "./config";
 import { dirname } from "node:path";
 import { ControlError } from "../node-common/control-validation";
 import { command } from "./commands";
@@ -33,6 +34,23 @@ export async function execute(
     ) {
       const result = run(args, version);
       output(result.output, result.error);
+      return result.code;
+    }
+    if (words[0] === "config") {
+      const path = words[2];
+      if (
+        words.length !== 3 ||
+        words[1] !== "validate" ||
+        !path ||
+        path.startsWith("-") ||
+        path.includes("\0")
+      )
+        throw new ControlError("invalid_request");
+      const result = await validateConfig(path);
+      if (json) output(result.problems);
+      else
+        for (const problem of result.problems)
+          output(`${JSON.stringify(problem.file)}: ${problem.path}: ${problem.reason}`);
       return result.code;
     }
     const connection = inherited(env);

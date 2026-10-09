@@ -1,3 +1,4 @@
+import { validSoundDuration } from "../../shared/sound-files";
 import type { SoundChoice, SoundKind, SoundRead, SoundRequest } from "../../shared/sound";
 import { DEFAULT_SOUND } from "../../shared/sounds";
 export interface Recording {
@@ -8,12 +9,7 @@ export interface Recording {
 /** Peak-bounded RMS normalization. Silence never receives unbounded amplification. */
 export function recordingGain(kind: SoundKind, buffer: AudioBuffer): number {
   const maximum = kind === "working" ? 30 : kind === "refusal" ? 0.3 : 1.5;
-  if (
-    !Number.isFinite(buffer.duration) ||
-    buffer.duration <= 0 ||
-    buffer.duration > maximum ||
-    (kind === "working" && buffer.duration < 1)
-  )
+  if (!validSoundDuration(kind, buffer.duration))
     throw new Error(
       `Sound duration must be ${kind === "working" ? "1–30" : `at most ${String(maximum)}`} seconds`,
     );

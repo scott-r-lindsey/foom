@@ -178,7 +178,13 @@ test("packaged utility host runs native PTYs with RunAsNode disabled", {
         ),
       )
       .toContain(repository);
-    const { assertCliPairing } = require("./cli-checks.js");
+    const { assertCliPairing, assertConfigValidation } = require("./cli-checks.js");
+    const cliExecutable = path.join(
+      resources,
+      "app.asar.unpacked/build/console",
+      process.platform === "win32" ? "foom.exe" : "foom",
+    );
+    const configFiles = assertConfigValidation(cliExecutable, profile);
     let confirmation;
     await expect
       .poll(() => {
@@ -284,6 +290,25 @@ test("packaged utility host runs native PTYs with RunAsNode disabled", {
       .last()
       .waitFor();
     console.info("Packaged interactive PTY command passed");
+    if (process.platform === "win32") {
+      // Exercise the packaged Node console through the app's real ConPTY, as well as pipes.
+      const quote = (value) => "'" + value.replaceAll("'", "''") + "'";
+      for (const [file, code] of [
+        [configFiles.valid, 0],
+        [configFiles.broken, 1],
+      ]) {
+        await page.keyboard.type(
+          `& ${quote(cliExecutable)} config validate ${quote(file)}; Write-Output ("CONFIG_EXIT_" + $LASTEXITCODE)`,
+        );
+        await page.keyboard.press("Enter");
+        await page
+          .locator(".xterm-rows > div")
+          .filter({ hasText: new RegExp(`^CONFIG_EXIT_${code}$`) })
+          .last()
+          .waitFor();
+      }
+      await expect(page.locator(".xterm-rows")).toContainText("unknown-key");
+    }
     const primary = await page.evaluate(async () => {
       const [terminal] = (await window.desktop.workspace()).terminals;
       if (!terminal) throw new Error("Missing packaged shell");
@@ -444,6 +469,7 @@ test("packaged console helper runs without Node from relocated Unicode paths", a
   const env = { ...process.env, PATH: scratch, NODE_OPTIONS: "--require=/foom-must-not-load-code" };
   const { spawnSync } = require("node:child_process");
   for (const executable of [helper, moved]) {
+    require("./cli-checks.js").assertConfigValidation(executable, scratch);
     const version = spawnSync(executable, ["--version", "--json"], {
       env,
       encoding: "utf8",
