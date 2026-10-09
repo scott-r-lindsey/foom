@@ -675,11 +675,6 @@ test("terminal runs an interactive shell behind an isolated bridge", {
           "openThemesFolder",
           "setupState",
           "saveSetup",
-          "setInferenceKey",
-          "removeInferenceKey",
-          "checkInference",
-          "cancelInferenceCheck",
-          "localModels",
           "codeSuggestions",
           "scanCode",
           "applyRepositories",
@@ -2013,7 +2008,7 @@ test("preflight fits safely through resize, zoom, long input and changing steps"
   const page = await boardPage(app);
   await page.emulateMedia({ reducedMotion: "reduce" });
   await page.getByRole("button", { name: "Start preflight", exact: true }).click();
-  for (let step = 0; step < 4; step++)
+  for (let step = 0; step < 3; step++)
     await page.getByRole("button", { name: "Continue", exact: true }).click();
   const rail = page.getByRole("navigation", { name: "Preflight steps" });
   for (const [width, height, zoom] of [
@@ -2282,16 +2277,12 @@ test("first run goes from no agents to go, launches by keyboard, and can be repl
   await page.getByRole("button", { name: "Choose folder…" }).click();
   await page.getByText("1 of 1 selected").waitFor();
   await assertFooter();
-  for (const heading of [
-    "Where should new worktrees go?",
-    "How should Foom read a terminal that goes quiet?",
-    "Hold. Something needs fixing.",
-  ]) {
+  for (const heading of ["Where should new worktrees go?", "Hold. Something needs fixing."]) {
     await tabTo(page, "Continue");
     await page.keyboard.press("Enter");
     await page.getByText(heading).waitFor();
     await assertFooter();
-    if (heading.startsWith("How should")) {
+    if (heading.startsWith("Where should")) {
       await app.evaluate(({ BrowserWindow }) => {
         const window = BrowserWindow.getAllWindows().find(
           (window) => window.webContents.getURL() === "app://bundle/index.html",
@@ -4073,7 +4064,7 @@ test("every interface theme applies live to native chrome and passes axe on boar
     );
     await expect(
       page.getByRole("list", { name: "Terminal status previews" }).getByRole("listitem"),
-    ).toHaveCount(6);
+    ).toHaveCount(5);
     const expectedHighlight = {
       "deep-field": "#6cc7ff",
       graphite: "#9fb1c7",
