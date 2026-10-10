@@ -30,6 +30,7 @@ import { WorktreeDialog } from "./worktree-dialog";
 import {
   useCallback,
   useEffect,
+  useEffectEvent,
   useLayoutEffect,
   useRef,
   useState,
@@ -413,15 +414,16 @@ export function Board({
         ) {
           // One config session at a time: a second launch focuses the running one.
           const created =
-            source.getSnapshot().find((row) => !before.has(row.id)) ??
-            (value.kind === "config-launch"
+            value.kind === "config-launch"
               ? source.getSnapshot().find((row) => row.config && !row.exited)
-              : undefined);
+              : source.getSnapshot().find((row) => !before.has(row.id));
           if (created) {
+            const tiles = leaves(layoutRef.current.tree);
             open(
               created,
               value.kind === "restart" ||
-                leaves(layoutRef.current.tree).every((tile) => tile.session !== null),
+                (tiles.every((tile) => tile.session !== null) &&
+                  !tiles.some((tile) => tile.session === created.id)),
             );
             const name = value.kind === "restart" ? preferences.names[value.id] : undefined;
             if (name) {
@@ -442,11 +444,15 @@ export function Board({
         setRemoveError(error instanceof Error ? error.message : "Unable to update workspace.");
       });
   };
+  const runSidebarCommand = useEffectEvent(command);
   useEffect(
     () =>
       source.subscribeCommands?.((command) => {
         if (inactive || launching) return;
-        if (command === "settings") {
+        if (command === "via-claude" || command === "via-codex" || command === "via-agy") {
+          const agent = { "via-claude": "claude", "via-codex": "codex", "via-agy": "agy" } as const;
+          void runSidebarCommand({ kind: "config-launch", run: agent[command], origin: "menu" });
+        } else if (command === "settings") {
           onSettings?.();
         } else if (command === "add-repository") {
           void source.worktrees?.addRepository().catch(() => {
@@ -548,6 +554,7 @@ export function Board({
     void source.appMenu
       ?.setView({
         available: !inactive && !launching && !settingsOpen,
+        configAvailable: !inactive && !launching,
         maximized: Boolean(layout.maximized),
         tiles: terminals(layout.tree).length,
       })

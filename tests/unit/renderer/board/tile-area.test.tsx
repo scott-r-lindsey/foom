@@ -410,7 +410,12 @@ test("menu presets and Dock navigation use the same board placement and report v
     expect(screen.container.querySelectorAll(".terminal-tile")).toHaveLength(count);
   }
   send("maximize");
-  expect(setView).toHaveBeenLastCalledWith({ available: true, maximized: false, tiles: 0 });
+  expect(setView).toHaveBeenLastCalledWith({
+    available: true,
+    configAvailable: true,
+    maximized: false,
+    tiles: 0,
+  });
   act(() => {
     navigate?.("missing");
     navigate?.(source.getSnapshot()[1]?.id ?? "missing");

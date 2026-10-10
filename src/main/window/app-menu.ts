@@ -1,3 +1,4 @@
+import type { AgentId } from "../../shared/agents";
 import type { WindowIpc } from "./window-ipc";
 import { app, Menu, dialog, ipcMain, shell } from "electron";
 import type { BrowserWindow, IpcMainInvokeEvent } from "electron";
@@ -19,6 +20,7 @@ export function attachAppMenu(
   openWindow: () => void = () => undefined,
   /** The current interface size in percent, for the menu's Size row. */
   scale: () => Promise<number> = () => Promise.resolve(100),
+  configAgents: () => Promise<readonly AgentId[]> = () => Promise.resolve([]),
 ) {
   const contents = window.webContents;
   const native = (id: string) => {
@@ -128,8 +130,25 @@ export function attachAppMenu(
     );
     if (process.platform !== "darwin") window.removeMenu();
   };
+  let configAvailable = false;
+  let generation = 0;
+  let disposed = false;
+  const refreshAgents = async () => {
+    const current = ++generation;
+    const agents: readonly AgentId[] = await configAgents().catch(() => []);
+    if (disposed || current !== generation) return;
+    for (const agent of AGENTS) {
+      const command = commands.find((entry) => entry.id === `via-${agent.id}`);
+      if (command) command.enabled = configAvailable && agents.includes(agent.id);
+    }
+    refresh();
+  };
+  const focus = () => {
+    refresh();
+    void refreshAgents();
+  };
   refresh();
-  window.on("focus", refresh);
+  window.on("focus", focus);
   ipc.handle("app-menu:view", (event, state: unknown) => {
     trusted(event);
     if (
@@ -137,6 +156,7 @@ export function attachAppMenu(
       state === null ||
       !("available" in state) ||
       typeof state.available !== "boolean" ||
+      ("configAvailable" in state && typeof state.configAvailable !== "boolean") ||
       !("maximized" in state) ||
       typeof state.maximized !== "boolean" ||
       !("tiles" in state) ||
@@ -146,7 +166,9 @@ export function attachAppMenu(
       state.tiles > 256
     )
       throw new Error("Invalid menu view state");
+    configAvailable = "configAvailable" in state ? state.configAvailable === true : state.available;
     for (const command of commands) {
+      if (command.id.startsWith("via-") && !configAvailable) command.enabled = false;
       if (
         (command.section === "View" && !command.id.startsWith("zoom-")) ||
         command.id === "new-worktree"
@@ -157,6 +179,7 @@ export function attachAppMenu(
       if (command.id === "maximize") command.checked = state.maximized;
     }
     refresh();
+    return refreshAgents();
   });
   const shortcuts = createShortcuts(commands, process.platform, () => {
     contents.send("app-menu:open");
@@ -177,6 +200,7 @@ export function attachAppMenu(
   };
   ipc.handle("app-menu:list", async (event) => {
     trusted(event);
+    await refreshAgents();
     return projectAppMenu(commands, await scale());
   });
   ipc.handle("app-menu:shortcuts", (event) => {
@@ -185,6 +209,7 @@ export function attachAppMenu(
   });
   ipc.handle("app-menu:execute", async (event, id: unknown) => {
     trusted(event);
+    if (typeof id === "string" && id.startsWith("via-")) await refreshAgents();
     const command = typeof id === "string" && commands.find((command) => command.id === id);
     if (!command || !command.enabled) throw new Error("Unavailable app command");
     // Awaited so the Size row can show the size this step produced.
@@ -194,10 +219,13 @@ export function attachAppMenu(
   if (!newWindow) throw new Error("Missing New Window command");
   return {
     newWindow,
+    refreshAgents,
     dispose() {
       contents.removeListener("before-input-event", beforeInput);
       window.removeListener("blur", shortcuts.reset);
-      window.removeListener("focus", refresh);
+      disposed = true;
+      generation++;
+      window.removeListener("focus", focus);
       ipc.removeHandler("app-menu:view");
       ipc.removeHandler("app-menu:list");
       ipc.removeHandler("app-menu:shortcuts");

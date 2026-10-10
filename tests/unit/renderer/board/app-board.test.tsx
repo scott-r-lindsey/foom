@@ -870,3 +870,71 @@ test("the Foom config row nests its sessions, shows chips, launches there and op
       ?.getAttribute("aria-current"),
   ).toBe("page");
 });
+
+test.each(["via-claude", "via-codex", "via-agy"] as const)(
+  "%s launches config from Settings and focuses its session",
+  async (route) => {
+    const screen = render(<App />);
+    await settle();
+    act(() => {
+      mock.command?.("settings");
+    });
+    await settle();
+    expect(screen.getByRole("heading", { name: "Settings" })).toBeTruthy();
+    const configured = {
+      ...agent("cfg"),
+      config: true,
+      repository: "/home/.foom/config",
+      worktree: "/home/.foom/config",
+      branch: null,
+    };
+    // Another launch can appear in the same refresh; select the config session specifically.
+    mock.sidebarCommand.mockImplementationOnce(() => {
+      mock.workspace.mockResolvedValue({
+        repositories: [],
+        terminals: [agent("other"), configured],
+      });
+      return Promise.resolve();
+    });
+    act(() => {
+      mock.command?.(route);
+    });
+    await settle();
+    expect(mock.sidebarCommand).toHaveBeenLastCalledWith({
+      kind: "config-launch",
+      run: route.slice(4),
+      origin: "menu",
+    });
+    expect(mock.open).toHaveBeenLastCalledWith("cfg");
+    expect(screen.queryByRole("heading", { name: "Settings" })).toBeNull();
+    mock.open.mockClear();
+    act(() => {
+      mock.command?.(route);
+    });
+    await settle();
+    expect(mock.open).not.toHaveBeenCalledWith("other");
+    expect(screen.container.querySelectorAll(".terminal-tile[data-empty=false]")).toHaveLength(1);
+  },
+);
+
+test("failed and cancelled menu config launches leave Settings available", async () => {
+  const screen = render(<App />);
+  await settle();
+  act(() => {
+    mock.command?.("settings");
+  });
+  await settle();
+  mock.sidebarCommand.mockRejectedValueOnce(new Error("Agent is no longer installed"));
+  act(() => {
+    mock.command?.("via-claude");
+  });
+  await settle();
+  expect(screen.getByText("Agent is no longer installed")).toBeTruthy();
+  expect(screen.getByRole("heading", { name: "Settings" })).toBeTruthy();
+  act(() => {
+    mock.command?.("via-codex");
+  });
+  await settle();
+  expect(mock.open).not.toHaveBeenCalled();
+  expect(screen.getByRole("heading", { name: "Settings" })).toBeTruthy();
+});

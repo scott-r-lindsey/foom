@@ -948,7 +948,7 @@ layout to the wordmark menu on every platform. The wordmark projection is data
 only (`AppMenuEntry`): commands, separators, the Settings submenu (the agent
 routes come from `main/agents/agent-list.ts`, followed by Via Settings UI), and a
 `size` row carrying Bigger/Smaller and main's current interface scale. Planned
-commands (Via each agent, New orchestrator, Action log) exist in the registry
+commands (New orchestrator, Action log) exist in the registry
 disabled, without bindings, and stay out of the macOS menu bar until they land.
 Main owns one `before-input-event` dispatcher; native accelerators are
 display-only (`registerAccelerator: false`). Windows/Linux have no native
@@ -968,6 +968,18 @@ the board to show it. View accepts bounded tile counts and booleans solely for
 presentation availability and the maximize checkmark. The board source exposes
 this small typed capability. Add repository reaches the board as the
 `add-repository` board command and uses the sidebar's picker path.
+The three `via-<agent>` commands use the same registry for native and wordmark
+menus. Main derives their availability from discovery and saved agent switches;
+the board reports config-launch availability separately from tile availability,
+so Settings can stay open while choosing an agent. Preflight and modal launchers
+disable these routes. Availability refreshes on menu reads, execution, window
+focus and settings updates. The preload accepts only the three fixed route IDs.
+The board dispatches the existing `config-launch` command with `origin: "menu"`,
+awaits the source's refreshed inventory, and opens the running config session
+through normal cross-window selection. This optional, validated origin changes
+only notifier confirmation presentation: main uses a trusted disclosure dialog
+for menu launches and keeps click-again for sidebar launches. It grants no consent
+and cannot change the executable, directory or launch policy.
 
 The renderer reuses RowMenu's keyboard navigation, portal and dismissal behavior.
 RowMenu renders a submenu as a nested portal anchored to its item: the top-level
@@ -1331,7 +1343,8 @@ never installed. One config session runs at a time; a second launch starts
 nothing and the renderer focuses the running session. Session records keep a
 validated `config` flag (folder path equal to itself, no branch) and restore only
 for the current folder. Sidebar commands
-`config-launch` (a run kind only) and `copy-config-path` carry no paths.
+`config-launch` (a run kind and optional menu origin) and `copy-config-path`
+carry no paths.
 `config:status`, `config:decide` (`allow` or `keep`), `config:revert` (a full hex
 commit ID) and `config:open-folder` check the trusted top frame and exact argument
 counts; main pushes `config:changed`. File contents, raw parser messages and

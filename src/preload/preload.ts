@@ -256,6 +256,9 @@ const desktop: DesktopApi = {
         command === "sidebar" ||
         command === "next-waiting" ||
         command === "settings" ||
+        command === "via-claude" ||
+        command === "via-codex" ||
+        command === "via-agy" ||
         command === "new-worktree" ||
         command === "add-repository" ||
         command === "preset-one" ||
