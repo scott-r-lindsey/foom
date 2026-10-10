@@ -6275,7 +6275,8 @@ const args = process.argv.slice(2);
 if (args[0] === "--version") { console.log("2.1.300 (Claude Code)"); process.exit(0); }
 if (args[0] === "--help") { console.log("  --settings <file-or-json>  Load settings"); process.exit(0); }
 const theme = (value) => writeFileSync("themes/agent.json", JSON.stringify(value));
-process.stdout.write("FOOM_CONFIG_AGENT " + process.cwd() + "\\r\\n");
+writeFileSync(${JSON.stringify(path.join(root, "agent-cwd.txt"))}, process.cwd());
+process.stdout.write("FOOM_CONFIG_AGENT_READY\\r\\n");
 process.stdin.setRawMode(true);
 process.stdin.on("data", (key) => {
   const input = key.toString();
@@ -6322,7 +6323,12 @@ process.stdin.on("data", (key) => {
     });
   const tail = () =>
     page.evaluate(async (id) => (await window.desktop.tail(id, 40)).join("\n"), id);
-  await expect.poll(tail).toContain(`FOOM_CONFIG_AGENT ${folder}`);
+  // Long temporary paths wrap in the terminal, so the agent reports its cwd in a file.
+  await expect.poll(tail).toContain("FOOM_CONFIG_AGENT_READY");
+  assert.equal(
+    await realpath(await readFile(path.join(root, "agent-cwd.txt"), "utf8")),
+    await realpath(folder),
+  );
   const snapshot = await page.evaluate(() => window.desktop.workspace());
   assert.equal(snapshot.terminals.find((entry) => entry.id === id).attention, "hooks");
   // A second launch focuses the running session instead of starting another.
