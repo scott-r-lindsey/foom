@@ -846,6 +846,12 @@
   font-family: var(--font-mono);
   margin-left: auto;
 }
+/* The hover fill lowers the muted hint's contrast; lift it toward ink. */
+.row-menu button:hover .menu-hint,
+.row-menu button:focus-visible .menu-hint,
+.row-menu button:focus .menu-hint {
+  color: color-mix(in srgb, var(--muted) 60%, var(--ink));
+}
 
 .worktree-removed {
   color: var(--muted);
@@ -853,12 +859,170 @@
 }
 
 .wordmark-menu {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   font: inherit;
   color: inherit;
   border: 0;
+  border-radius: 5px;
   background: transparent;
-  padding: 0;
+  padding: 2px 4px;
+  margin: -2px -4px;
   cursor: pointer;
+}
+.wordmark-menu:hover,
+.wordmark-menu[aria-expanded="true"] {
+  background: color-mix(in srgb, var(--highlight) 14%, transparent);
+}
+.menu-chevron {
+  flex-shrink: 0;
+  width: 10px;
+  height: 10px;
+  fill: none;
+  stroke: var(--muted);
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  transition: transform 140ms;
+}
+.row-menu button .menu-chevron {
+  margin-left: auto;
+}
+.wordmark-menu[aria-expanded="true"] .menu-chevron {
+  transform: rotate(180deg);
+}
+.row-submenu {
+  min-width: 240px;
+  animation-name: submenu-open;
+}
+.row-submenu::before {
+  display: none;
+}
+@keyframes submenu-open {
+  from {
+    opacity: 0;
+    transform: translateX(-6px) scale(0.97);
+  }
+}
+.row-menu button[data-open] {
+  background: var(--raised-hover);
+}
+.row-menu button[data-open]::before {
+  transform: scaleY(1);
+}
+/* The Size row: one stop holding two step buttons around the current size. */
+.menu-stepper {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-height: 34px;
+  padding: 4px 6px 4px 10px;
+  font-size: 12px;
+  animation: menu-item 160ms both;
+  animation-delay: calc(var(--item) * 18ms);
+}
+.menu-stepper .menu-label {
+  flex: 1;
+}
+.row-menu .menu-stepper button {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 24px;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  font: 13px var(--font-mono);
+  animation: none;
+}
+.row-menu .menu-stepper button:hover,
+.row-menu .menu-stepper button:focus-visible {
+  border-color: var(--raised-line);
+}
+.row-menu .menu-stepper button::before {
+  display: none;
+}
+.menu-step-value {
+  min-width: 42px;
+  text-align: center;
+  font: 11px var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+.shortcut-sheet {
+  width: min(760px, calc(100vw - 32px));
+  max-height: calc(100vh - 48px);
+  padding: 0;
+  color: var(--ink);
+  background: linear-gradient(180deg, var(--raised-top), var(--raised-bottom));
+  border: 1px solid var(--raised-line);
+  border-radius: 10px;
+  box-shadow: 0 22px 48px -12px var(--raised-shadow);
+}
+.shortcut-sheet::backdrop {
+  background: color-mix(in srgb, var(--bg) 55%, transparent);
+}
+.shortcut-sheet-body {
+  padding: 18px 22px;
+}
+.shortcut-sheet h2 {
+  margin: 0 0 12px;
+  font-size: 15px;
+  font-weight: 600;
+}
+.shortcut-columns {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 18px;
+}
+.shortcut-columns h3 {
+  margin: 0 0 6px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--muted);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.shortcut-lead {
+  margin-left: 6px;
+  font: 10px var(--font-mono);
+  letter-spacing: 0;
+  text-transform: none;
+}
+.shortcut-columns dl {
+  display: grid;
+  gap: 5px;
+  margin: 0;
+  font-size: 12px;
+}
+.shortcut-columns dl > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+}
+.shortcut-columns dd {
+  margin: 0;
+  text-align: right;
+}
+.shortcut-columns kbd {
+  font: 11px var(--font-mono);
+  color: var(--muted);
+  white-space: nowrap;
+}
+@media (max-width: 720px) {
+  .shortcut-columns {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .menu-chevron,
+  .menu-stepper {
+    transition: none;
+    animation: none;
+  }
+  .row-submenu {
+    animation: none;
+  }
 }
 .app-menu {
   min-width: min(360px, calc(100vw - 16px));

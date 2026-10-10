@@ -249,7 +249,19 @@ test("packaged utility host runs native PTYs with RunAsNode disabled", {
     console.info("Packaged recordings loaded and decoded");
     console.info("Packaged repository restored");
     await page.getByRole("button", { name: "Actions for Main checkout", exact: true }).click();
-    const packagedCommands = await page.evaluate(() => window.desktop.appMenu.commands());
+    // Menu entries include separators (null), the Settings submenu and the Size row.
+    const packagedCommands = (await page.evaluate(() => window.desktop.appMenu.commands()))
+      .flatMap((entry) =>
+        entry === null
+          ? []
+          : entry.kind === "submenu"
+            ? entry.items
+            : entry.kind === "size"
+              ? [entry.smaller, entry.bigger]
+              : [entry],
+      )
+      .filter((item) => item !== null);
+    assert.ok(packagedCommands.some((item) => item.id === "quit"));
     assert.ok(
       !packagedCommands.some((item) => ["reload", "force-reload", "devtools"].includes(item.id)),
     );

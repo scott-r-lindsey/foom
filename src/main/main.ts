@@ -314,7 +314,13 @@ async function buildWindow(savedSize?: Size, saved?: WindowPlacement, initialSes
       console.error("Unable to open window:", error);
     });
   };
-  const appMenu = attachAppMenu(window, (direction) => setupIpc.zoom(direction), ipc, openWindow);
+  const appMenu = attachAppMenu(
+    window,
+    (direction) => setupIpc.zoom(direction),
+    ipc,
+    openWindow,
+    async () => (await setup.state()).settings.interfaceScale,
+  );
   newWindowCommand = appMenu.newWindow;
   // Terminal events and state updates only arrive after both objects exist.
   if (!initialized)

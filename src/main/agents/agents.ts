@@ -22,9 +22,10 @@ import type {
 } from "../../shared/agents";
 import type { TerminalSpec } from "../../shared/desktop";
 import type { WorktreeService } from "../workspace/worktrees";
+import { AGENTS } from "./agent-list";
 
 const execute = promisify(execFile);
-const ids: readonly AgentId[] = ["claude", "codex", "agy"];
+const ids: readonly AgentId[] = AGENTS.map(({ id }) => id);
 const probeOptions = { encoding: "utf8", timeout: 5000, maxBuffer: 256 * 1024 } as const;
 
 /** Fixed shell program only: no executable paths, arguments, or agent output interpolated. */
