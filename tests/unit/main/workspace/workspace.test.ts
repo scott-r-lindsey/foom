@@ -11,7 +11,7 @@ import { evaluateRules } from "../../../../src/main/evaluator/evaluator";
 import { Workspace } from "../../../../src/main/workspace/workspace";
 import type { WorkspaceDependencies } from "../../../../src/main/workspace/workspace";
 
-type Launched = { id: string; attention: "hooks" | "evaluator" };
+type Launched = { id: string; attention: "hooks" | "evaluator"; environment?: readonly string[] };
 const repo = { path: "/repos/app", name: "app" };
 const tree = {
   path: "/trees/app/feature",
@@ -648,6 +648,37 @@ const start = {
   run: "shell" as const,
   acknowledgeCodexNotifierReplacement: false,
 };
+
+test("shells get only the All sessions layer; agents get their layers and record names", async () => {
+  const layers = {
+    shell: [[{ name: "HTTPS_PROXY", value: "http://proxy:1" }]],
+    claude: [[{ name: "HTTPS_PROXY", value: "http://proxy:1" }], [{ name: "ONLY", value: "1" }]],
+  };
+  const environment = vi.fn((target: string) =>
+    target === "shell" ? layers.shell : target === "claude" ? layers.claude : [[]],
+  );
+  agents.launch.mockResolvedValue({ id: "t9", attention: "hooks", environment: ["ONLY"] });
+  const create = vi.spyOn(deps.terminals, "create");
+  const workspace = new Workspace({ ...deps, environment });
+  expect(await workspace.startWorktree(start)).toBe("t1");
+  const spec = create.mock.calls.at(-1)?.[0];
+  expect(spec?.env).toMatchObject({ HTTPS_PROXY: "http://proxy:1" });
+  expect(spec?.env?.["NO_PROXY"]).toContain("127.0.0.1");
+  expect(spec?.env).not.toHaveProperty("ONLY");
+  await workspace.sidebarCommand({ kind: "home-shell" }, () => Promise.resolve(false));
+  expect(create.mock.calls.at(-1)?.[0].env).toMatchObject({ HTTPS_PROXY: "http://proxy:1" });
+  await workspace.sidebarCommand(
+    { kind: "launch", repository: repo.path, worktree: tree.path, run: "claude" },
+    () => Promise.resolve(true),
+  );
+  expect(agents.launch.mock.calls.at(-1)?.[0].environment).toBe(layers.claude);
+  expect(environment).toHaveBeenCalledWith("claude");
+  const terminals = workspace.snapshot().terminals;
+  expect(terminals.find((entry) => entry.id === "t9")?.environment).toEqual(["ONLY"]);
+  expect(terminals.find((entry) => entry.kind === "shell")?.environment).toEqual(
+    expect.arrayContaining(["HTTPS_PROXY", "NO_PROXY"]),
+  );
+});
 
 test("launches multiple shells in a managed worktree", async () => {
   const workspace = new Workspace(deps);
@@ -2902,6 +2933,35 @@ test("config agents get hooks and no worktree, and resume in the same row", asyn
   expect(agents.launch).toHaveBeenLastCalledWith(
     expect.objectContaining({ terminalId: "c1", configCli: "/app/console" }),
   );
+  await workspace.dispose();
+});
+
+test("config sessions get Environment layers with the bundled CLI first on PATH", async () => {
+  deps.config = configDep();
+  const environment = vi.fn((target: string) =>
+    target === "shell"
+      ? [[{ name: "PATH", value: "/opt/bin" }]]
+      : [[], [{ name: "HTTPS_PROXY", value: "http://proxy:1" }]],
+  );
+  agents.launch.mockResolvedValue({ id: "c1", attention: "hooks", environment: ["HTTPS_PROXY"] });
+  const create = vi.spyOn(deps.terminals, "create");
+  const workspace = new Workspace({ ...deps, environment });
+  const no = () => Promise.resolve(false);
+  await workspace.sidebarCommand({ kind: "config-launch", run: "shell" }, no);
+  const env = create.mock.calls.at(-1)?.[0].env ?? {};
+  const pathKey = Object.keys(env).find((name) => name.toUpperCase() === "PATH") ?? "PATH";
+  expect(env[pathKey]).toMatch(/^\/app\/console[:;]\/opt\/bin[:;]/);
+  expect(workspace.snapshot().terminals[0]).toMatchObject({ config: true, environment: ["PATH"] });
+  await workspace.exited("t1", 0);
+  await workspace.sidebarCommand({ kind: "config-launch", run: "codex" }, no);
+  expect(environment).toHaveBeenCalledWith("codex");
+  expect(agents.launch).toHaveBeenLastCalledWith(
+    expect.objectContaining({ configCli: "/app/console", environment: environment("codex") }),
+  );
+  expect(workspace.snapshot().terminals.find((entry) => entry.id === "c1")).toMatchObject({
+    config: true,
+    environment: ["HTTPS_PROXY"],
+  });
   await workspace.dispose();
 });
 

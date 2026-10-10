@@ -1,3 +1,4 @@
+import type { EnvironmentApi } from "./environment";
 import type { WindowsApi } from "./windows";
 import type { SoundApi } from "./sound";
 import type { AppMenuApi } from "./app-menu";
@@ -31,7 +32,7 @@ import type { SetupApi } from "./setup";
 import type { ConfigApi } from "./foom-config";
 import type { WorkspaceApi } from "./workspace";
 
-export interface DesktopApi extends WorkspaceApi, SetupApi, ConfigApi {
+export interface DesktopApi extends WorkspaceApi, SetupApi, ConfigApi, EnvironmentApi {
   windows?: WindowsApi;
   sounds: SoundApi;
   readonly isDevelopment: boolean;

@@ -39,14 +39,14 @@ test("detects absence, installed versions, updates and user-disabled preference"
   );
   run.mockResolvedValue({ stdout: '{"imports":[{"name":"foom","components":["hooks"]}]}' });
   expect(await plugin.status("agy")).toEqual({ state: "unavailable" });
-  await manifest({ name: "foom", foomObserverVersion: 0 });
-  expect(await plugin.status("agy")).toEqual({ state: "outdated", version: 0 });
-  await manifest({ name: "foom", foomObserverVersion: 1, disabled: true });
-  expect(await plugin.status("agy")).toEqual({ state: "disabled", version: 1 });
+  await manifest({ name: "foom", foomObserverVersion: 1 });
+  expect(await plugin.status("agy")).toEqual({ state: "outdated", version: 1 });
+  await manifest({ name: "foom", foomObserverVersion: 2, disabled: true });
+  expect(await plugin.status("agy")).toEqual({ state: "disabled", version: 2 });
   await settings({ plugins: { foom: { enabled: true }, unrelated: { enabled: false } } });
-  expect(await plugin.status("agy")).toEqual({ state: "installed", version: 1 });
+  expect(await plugin.status("agy")).toEqual({ state: "installed", version: 2 });
   await settings({ plugins: { foom: { enabled: false } } });
-  expect(await plugin.status("agy")).toEqual({ state: "disabled", version: 1 });
+  expect(await plugin.status("agy")).toEqual({ state: "disabled", version: 2 });
 });
 
 test("refuses malformed, conflicting, oversized, or unreadable metadata and failed CLI probes", async () => {

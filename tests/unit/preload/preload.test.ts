@@ -187,6 +187,25 @@ test("setup requests use their own channels and never read a key back", async ()
   ]);
   expect(Object.keys(api).some((key) => /get.*key|read.*key/i.test(key))).toBe(false);
 });
+test("environment requests use their own channels and copy import names", async () => {
+  const api = await bridge();
+  mock.invoke.mockResolvedValue("reply");
+  const change = { scope: "all", previous: null, name: "A", value: "1", secret: false } as const;
+  const names = ["HTTPS_PROXY"];
+  await expect(api.environmentState()).resolves.toBe("reply");
+  await api.saveEnvironment(change);
+  await api.removeEnvironment("codex", "A");
+  await api.readShellEnvironment();
+  await api.importEnvironment(names);
+  expect(mock.invoke.mock.calls).toEqual([
+    ["environment:state"],
+    ["environment:save", change],
+    ["environment:remove", "codex", "A"],
+    ["environment:read-shell"],
+    ["environment:import", ["HTTPS_PROXY"]],
+  ]);
+  expect(mock.invoke.mock.calls.at(-1)?.[1]).not.toBe(names);
+});
 test("code scans report validated progress and use their own channels", async () => {
   const api = await bridge();
   const progress = vi.fn();

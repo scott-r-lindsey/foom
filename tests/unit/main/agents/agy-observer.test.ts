@@ -8,6 +8,7 @@ import { afterEach, expect, test, vi } from "vitest";
 import { agyPluginFiles } from "../../../../src/main/agents/agy-observer";
 import { HookReceiver } from "../../../../src/main/agents/hook-receiver";
 import type { HookSignal } from "../../../../src/shared/hooks";
+import { UNREACHABLE_PROXY } from "../../../helpers/unreachable-proxy";
 
 const directories: string[] = [];
 afterEach(async () => {
@@ -71,7 +72,7 @@ test("static plugin installs only observer events on both native shells", () => 
       platform === "win32" ? "powershell.exe" : "sh ./observer.sh",
     );
     expect(files["hooks.json"]).toContain('"timeout":3');
-    expect(files["plugin.json"]).toContain('"foomObserverVersion":1');
+    expect(files["plugin.json"]).toContain('"foomObserverVersion":2');
   }
 });
 
@@ -104,7 +105,7 @@ test.each(["PreInvocation", "PostToolUse", "Stop"])(
       const launch = receiver.register("terminal", "agy");
       const result = await run(
         dir,
-        { ...process.env, ...launch.env },
+        { ...process.env, ...UNREACHABLE_PROXY, ...launch.env },
         event,
         JSON.stringify({
           conversationId: "session",
@@ -136,7 +137,14 @@ test("native shell returns an empty result after the receiver is gone", async ()
   await receiver.close();
   expect(
     JSON.parse(
-      (await run(await fixture(), { ...process.env, ...launch.env }, "Stop", "{}")).stdout,
+      (
+        await run(
+          await fixture(),
+          { ...process.env, ...UNREACHABLE_PROXY, ...launch.env },
+          "Stop",
+          "{}",
+        )
+      ).stdout,
     ),
   ).toEqual({});
 });

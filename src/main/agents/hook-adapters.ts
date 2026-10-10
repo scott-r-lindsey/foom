@@ -23,7 +23,10 @@ try {
   [Console]::InputEncoding = New-Object System.Text.UTF8Encoding($false)
   $payload = ${agent === "claude" ? "[Console]::In.ReadToEnd()" : "$args[-1]"}
   $headers = @{ 'Authorization' = $env:FOOM_TOKEN; 'X-Foom-Session' = $env:FOOM_SESSION }
-  Invoke-WebRequest -UseBasicParsing -Method Post -Uri $env:FOOM_HOOK_URL -Headers $headers -ContentType 'application/json' -Body ([System.Text.Encoding]::UTF8.GetBytes($payload)) -TimeoutSec 3 | Out-Null
+  # Loopback only: never use a system or environment proxy (5.1 lacks -NoProxy).
+  $direct = @{}
+  if ($PSVersionTable.PSVersion.Major -ge 6) { $direct['NoProxy'] = $true } else { [System.Net.WebRequest]::DefaultWebProxy = New-Object System.Net.WebProxy }
+  Invoke-WebRequest @direct -UseBasicParsing -Method Post -Uri $env:FOOM_HOOK_URL -Headers $headers -ContentType 'application/json' -Body ([System.Text.Encoding]::UTF8.GetBytes($payload)) -TimeoutSec 3 | Out-Null
 } catch { }
 exit 0
 `,

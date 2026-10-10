@@ -7,11 +7,13 @@ import {
   CODEX_EVENTS,
   codexHookArguments,
   codexObserverCommand,
+  codexObserverFile,
   codexObserverSource,
 } from "../../../../src/main/agents/codex-hooks";
 import { CodexHookStatus } from "../../../../src/main/agents/codex-hook-status";
 import { HookReceiver } from "../../../../src/main/agents/hook-receiver";
 import type { HookSignal } from "../../../../src/shared/hooks";
+import { UNREACHABLE_PROXY } from "../../../helpers/unreachable-proxy";
 
 const scratch: string[] = [];
 afterEach(async () => {
@@ -45,6 +47,8 @@ test("definitions are stable across launches, use unpacked resources, and contai
   expect(first).toHaveLength(CODEX_EVENTS.length * 2);
   expect(first.join(" ")).not.toMatch(/FOOM_|token|session-flags|http:|foom-hooks-/u);
   expect(codexObserverCommand("linux")).toContain("codex-v1.sh");
+  expect(codexObserverCommand("win32")).not.toContain("codex-v1");
+  expect(codexObserverFile("win32")).toBe("codex-v2.ps1");
   expect(codexObserverCommand("linux", "/opt/Foom it's/observers")).toContain("'\\''");
   const windows = codexObserverCommand("win32", "C:/Foom it's $safe/observers");
   expect(Buffer.from(windows.split(" ").at(-1) ?? "", "base64").toString("utf16le")).toContain(
@@ -57,10 +61,7 @@ test.each(["FOOM_HOOK_URL", "FOOM_SESSION", "FOOM_TOKEN"])(
   async (missing) => {
     const path = await directory();
     const platform = process.platform === "win32" ? "win32" : "posix";
-    await writeFile(
-      join(path, platform === "win32" ? "codex-v1.ps1" : "codex-v1.sh"),
-      codexObserverSource(platform),
-    );
+    await writeFile(join(path, codexObserverFile(platform)), codexObserverSource(platform));
     const env: NodeJS.ProcessEnv = {
       ...process.env,
       FOOM_HOOK_URL: "http://127.0.0.1:1/hooks",
@@ -78,15 +79,12 @@ test.each(["FOOM_HOOK_URL", "FOOM_SESSION", "FOOM_TOKEN"])(
 test("native observer delivers stdin without output or decisions, and tolerates a stopped receiver", async () => {
   const path = await directory();
   const platform = process.platform === "win32" ? "win32" : "posix";
-  await writeFile(
-    join(path, platform === "win32" ? "codex-v1.ps1" : "codex-v1.sh"),
-    codexObserverSource(platform),
-  );
+  await writeFile(join(path, codexObserverFile(platform)), codexObserverSource(platform));
   const signals: HookSignal[] = [];
   const receiver = await HookReceiver.listen((event) => signals.push(event));
   try {
     const launch = receiver.register("terminal", "codex");
-    const env = { ...process.env, ...launch.env };
+    const env = { ...process.env, ...UNREACHABLE_PROXY, ...launch.env };
     const command = codexObserverCommand(process.platform, path);
     const payload = JSON.stringify({
       hook_event_name: "PermissionRequest",

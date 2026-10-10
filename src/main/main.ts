@@ -26,7 +26,17 @@ import { ControlRuntime } from "./control/runtime";
 import { TrustedDialog } from "./confirmations/trusted-dialog";
 import { selectProfile, clearParentHooks } from "./profile";
 import { interfaceThemeSource, resolveInterfaceTheme } from "../shared/interface-themes";
-import { app, BrowserWindow, dialog, nativeTheme, net, protocol, screen, session } from "electron";
+import {
+  app,
+  BrowserWindow,
+  dialog,
+  nativeTheme,
+  net,
+  protocol,
+  safeStorage,
+  screen,
+  session,
+} from "electron";
 import { WorktreeService } from "./workspace/worktrees";
 import { attachTerminal } from "./terminals/terminal-ipc";
 import { clipboard } from "electron";
@@ -38,6 +48,14 @@ import { attachWorkspace } from "./workspace/workspace-ipc";
 import { SettingsStore } from "./setup/settings";
 import { Setup } from "./setup/setup";
 import { attachSetup } from "./setup/setup-ipc";
+import { attachEnvironment } from "./setup/environment-ipc";
+import {
+  buildLaunchEnvironment,
+  EnvironmentStore,
+  inheritedEnvironment,
+  safeStorageCipher,
+} from "./setup/environment";
+import { addTailSecrets } from "./evaluator/terminal-tail";
 import { initialSize, MINIMUM_SIZE, scaledSize } from "./window/appearance";
 import { loadWindowSize, saveWindowSize } from "./window/window-state";
 import type { Size } from "./window/appearance";
@@ -51,6 +69,7 @@ const ownsProfile = app.requestSingleInstanceLock();
 
 export let worktrees: WorktreeService;
 let settings: SettingsStore;
+let environment: EnvironmentStore;
 let themes: ThemeLibrary;
 let config: ConfigService;
 let configRoot: string;
@@ -350,6 +369,11 @@ async function buildWindow(savedSize?: Size, saved?: WindowPlacement, initialSes
         if (accepted) publishViews();
         return accepted;
       },
+      () =>
+        buildLaunchEnvironment({
+          layers: environment.layers("shell"),
+          base: inheritedEnvironment(),
+        }).env,
     );
   else terminals.addWindow(window);
   if (!initialized) {
@@ -388,6 +412,7 @@ async function buildWindow(savedSize?: Size, saved?: WindowPlacement, initialSes
           approve: requestPairing,
         }),
       receiver: () => HookReceiver.listen((signal) => void workspace.hook(signal)),
+      environment: (target) => environment.layers(target),
       onChange: () => {
         for (const entry of windows.values()) entry.workspaceIpc.sendChanged();
         attention();
@@ -500,6 +525,14 @@ async function buildWindow(savedSize?: Size, saved?: WindowPlacement, initialSes
     },
     ipc,
   );
+  const environmentIpc = attachEnvironment(
+    window,
+    environment,
+    () => {
+      addTailSecrets(environment.redactions());
+    },
+    ipc,
+  );
   windows.set(window.id, {
     window,
     confirmations,
@@ -535,6 +568,7 @@ async function buildWindow(savedSize?: Size, saved?: WindowPlacement, initialSes
     appMenu.dispose();
     confirmations.dispose();
     setupIpc.dispose();
+    environmentIpc.dispose();
     workspaceIpc.dispose();
     windows.delete(window.id);
     if (!windows.size && process.platform === "darwin") showWindowlessMenu(openWindow);
@@ -694,6 +728,11 @@ if (!ownsProfile) {
       configRoot = path.join(app.getPath("home"), ".foom", "config");
       worktrees = await WorktreeService.open(app.getPath("userData"), undefined, [configRoot]);
       settings = await SettingsStore.open(app.getPath("userData"));
+      environment = await EnvironmentStore.open(
+        app.getPath("userData"),
+        safeStorageCipher(safeStorage),
+      );
+      addTailSecrets(environment.redactions());
       config = new ConfigService({
         root: configRoot,
         git: new ConfigGit(

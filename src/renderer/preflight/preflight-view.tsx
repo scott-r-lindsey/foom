@@ -1,5 +1,6 @@
 import { message } from "./message";
 import { AgentDefaultArguments } from "./agent-default-arguments";
+import { EnvironmentSettings } from "./environment-settings";
 import { InterfaceThemePicker } from "./interface-theme-picker";
 import { SoundControls } from "../sound/sound-controls";
 import { ConfigControls } from "./config-controls";
@@ -26,6 +27,7 @@ import type { SetupSource } from "./setup-source.d";
 
 const SETTINGS_SECTIONS = [
   { step: 1, label: "Agents and hooks" },
+  { step: 10, label: "Environment" },
   { step: 2, label: "Repositories" },
   { step: 3, label: "Worktrees" },
   { step: 5, label: "Appearance" },
@@ -385,6 +387,8 @@ export function Preflight({
         />
       </>
     );
+  } else if (step === 10 && settingsMode && source.environment) {
+    content = <EnvironmentSettings source={source.environment} headingRef={headingRef} />;
   } else if (step === 9 && source.config) {
     content = (
       <>
@@ -465,7 +469,10 @@ export function Preflight({
       <section className="settings-view" aria-label="Settings">
         <nav className="settings-sections" aria-label="Settings sections">
           <h2>Settings</h2>
-          {SETTINGS_SECTIONS.filter((entry) => entry.step !== 9 || source.config).map((entry) => (
+          {SETTINGS_SECTIONS.filter(
+            (entry) =>
+              (entry.step !== 9 || source.config) && (entry.step !== 10 || source.environment),
+          ).map((entry) => (
             <button
               key={entry.step}
               type="button"

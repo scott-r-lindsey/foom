@@ -6,6 +6,7 @@ import { describe, expect, it } from "vitest";
 import { hookAdapter } from "../../../../src/main/agents/hook-adapters";
 import { HookReceiver } from "../../../../src/main/agents/hook-receiver";
 import type { HookSignal } from "../../../../src/shared/hooks";
+import { UNREACHABLE_PROXY } from "../../../helpers/unreachable-proxy";
 
 function run(file: string, args: string[], env: Record<string, string>, stdin: string) {
   return new Promise<{ code: number | null; output: string }>((resolve, reject) => {
@@ -78,7 +79,14 @@ describe("OS hook adapters", () => {
       if (agent === "codex") args.push("configured-argument", payload);
       try {
         await writeFile(path, adapter.source, { mode: 0o600 });
-        expect(await run(command, args, launch.env, agent === "claude" ? payload : "")).toEqual({
+        expect(
+          await run(
+            command,
+            args,
+            { ...UNREACHABLE_PROXY, ...launch.env },
+            agent === "claude" ? payload : "",
+          ),
+        ).toEqual({
           code: 0,
           output: "",
         });
@@ -91,12 +99,26 @@ describe("OS hook adapters", () => {
           },
         ]);
         launch.revoke();
-        expect(await run(command, args, launch.env, agent === "claude" ? payload : "")).toEqual({
+        expect(
+          await run(
+            command,
+            args,
+            { ...UNREACHABLE_PROXY, ...launch.env },
+            agent === "claude" ? payload : "",
+          ),
+        ).toEqual({
           code: 0,
           output: "",
         });
         await receiver.close();
-        expect(await run(command, args, launch.env, agent === "claude" ? payload : "")).toEqual({
+        expect(
+          await run(
+            command,
+            args,
+            { ...UNREACHABLE_PROXY, ...launch.env },
+            agent === "claude" ? payload : "",
+          ),
+        ).toEqual({
           code: 0,
           output: "",
         });

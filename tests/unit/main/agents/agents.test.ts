@@ -767,4 +767,15 @@ it("config launches skip worktree and control, keep hooks and put the CLI on PAT
   expect(spec?.args).toContain("--settings");
   expect(spec?.env?.["PATH"]).toBe(`/app/console${delimiter}${root}`);
   expect(spec?.env?.["FOOM_CONTROL_TOKEN"]).toBeUndefined();
+  service = new AgentService({ listWorktrees, launchIdentity }, { create }, prepare, control);
+  await service.launch({
+    ...request,
+    repository: config,
+    worktree: config,
+    configCli: "/app/console",
+    environment: [[{ name: "PATH", value: "/opt/bin" }]],
+  });
+  expect(create.mock.calls.at(-1)?.[0].env?.["PATH"]).toBe(
+    ["/app/console", "/opt/bin", root].join(delimiter),
+  );
 });

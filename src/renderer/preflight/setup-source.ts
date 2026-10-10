@@ -13,6 +13,13 @@ export function createSetupSource(): SetupSource {
     suggestions: () => desktop.codeSuggestions(),
     scan: (id, folder, onProgress) => desktop.scanCode(id, folder, onProgress),
     apply: (selected) => desktop.applyRepositories(selected),
+    environment: {
+      environmentState: () => desktop.environmentState(),
+      saveEnvironment: (change) => desktop.saveEnvironment(change),
+      removeEnvironment: (scope, name) => desktop.removeEnvironment(scope, name),
+      readShellEnvironment: () => desktop.readShellEnvironment(),
+      importEnvironment: (names) => desktop.importEnvironment(names),
+    },
     config: {
       status: () => desktop.configStatus(),
       decide: (decision, id) => desktop.decideConfig(decision, id),

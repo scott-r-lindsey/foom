@@ -32,6 +32,8 @@ export function attachTerminal(
   window: BrowserWindow,
   events: TerminalEvents = {},
   allowView: (contents: WebContents, id: string) => boolean = () => true,
+  /** Environment settings for shells: the All sessions layer. */
+  shellEnvironment: () => Record<string, string> = () => ({}),
 ) {
   const windows = new Map<
     WebContents,
@@ -102,6 +104,7 @@ export function attachTerminal(
     const id = await manager.create({
       command,
       shellIntegration: true,
+      env: shellEnvironment(),
       args: process.platform === "win32" ? ["-NoLogo"] : ["-l"],
       cwd,
       cols,
