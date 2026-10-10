@@ -296,6 +296,11 @@ Every channel checks the sender (a registered app window, its main frame, `app:/
 | `setup:state` | renderer → main (invoke) | → `{ settings, themes?, worktreeRoot }` |
 | `setup:save` | renderer → main (invoke) | settings patch (known fields only) → state |
 | `setup:changed` | main → renderer | setup state after a successful settings save or zoom shortcut |
+| `environment:state` | renderer → main (invoke) | → `{ lists, windows, secrets }`; saved secrets have a null value |
+| `environment:save` | renderer → main (invoke) | exactly `{ scope, previous, name, value, secret }`; a null value keeps a saved secret → state |
+| `environment:remove` | renderer → main (invoke) | scope, name → state |
+| `environment:read-shell` | renderer → main (invoke) | → importable candidates with masked credentials; values stay in main |
+| `environment:import` | renderer → main (invoke) | names from the last read → state |
 
 The renderer names repositories and worktrees only by paths main returned, and agents by ID. Main copies the known launch fields, checks the repository is registered and the checkout is authorized for that launch, and resolves the executable itself. A launched terminal belongs to the app; only its view is window-scoped.
 
@@ -408,6 +413,39 @@ Git commands have a 30-second process deadline.
 **Today:** `src/main/agents/agents.ts` provides a main-only `AgentService`, following the worktree service's integration boundary. `scan()` resolves PATH with the account's login shell (`-ilc`, a fixed printf program with NUL delimiters), then probes each resolved executable with bounded `--version` and `--help` calls. It retains full version strings. Shell failures report a warning and use inherited PATH; Windows uses inherited PATH and native executables. Relative and empty PATH components are ignored. Windows batch/PowerShell wrappers are not executed through a command shell; installations exposing only those wrappers currently need a native executable on PATH.
 
 Stable Claude Code releases at or above 2.1.284 and Codex releases at or above 0.155.1 enable hooks only when help includes the complete `--settings` or `-c` flag respectively. There is no maximum version. Unparseable versions, prerelease/custom suffixes, missing flags, failed probes, disabled hooks, and an unavailable receiver use output evaluation. Calling `scan()` again replaces discovery results. Codex receives `--no-alt-screen` only when its help lists the complete flag, independently of hook support or the hooks setting. Inline output stays in normal scrollback for wheel scrolling, peek and evaluator tails; a failed or unsupported probe leaves launch arguments unchanged. Launch uses a resolved executable and argument array through a terminal creation capability (including the asynchronous utility-host client), with the resolved PATH added to its scrubbed environment. All launch paths authorize any valid selected checkout in the registered repository, including external and detached worktrees. Main captures the canonical checkout identity before confirmations or agent scanning; the agent service revalidates it after hook preparation, immediately before spawning. Shells revalidate immediately before spawning too. Validation checks current Git membership and common Git directory, rejects redirected, bare, locked and prunable worktrees, and detects replacement during confirmation. The identity is a main-only launch capability; IPC never copies it from renderer requests. All checkouts permit multiple sessions. Sidebar, New worktree and legacy agent launch paths use a main-owned confirmation before launching an agent alongside any running agent in that checkout. Shells and exited agents do not trigger the warning. Cancellation creates no session. Main grants the shared-launch capability only after checking for active agents under the launch lock; renderer-supplied flags cannot bypass confirmation. Launch and removal locks cover confirmation and spawning. Repository registration is reserved before any asynchronous launch or worktree creation, including legacy launch IPC. Repository removal in both the sidebar and Settings refuses pending operations and tracked sessions; its exclusive guard spans confirmation and deregistration and blocks new launches until it settles. Each session retains independent hooks and verdicts.
+
+### Launch environment (#215)
+
+`src/main/setup/environment.ts` owns Environment settings. `environment.json` in user
+data holds an All sessions list and one per agent; secret values are stored only as
+`safeStorage` ciphertext, never in `settings.json`, and Linux's `basic_text` fallback
+counts as unavailable, so secrets are refused there. Loading drops invalid rows and
+secrets that cannot be decrypted. Replies carry names, plain values and null for saved
+secrets; error messages name variables, never values.
+
+Each launch is built in layers, each overriding the previous: the inherited
+environment (scrubbed of `npm_*`, `ELECTRON_*`, `FOOM_*` and `CLAUDECODE`), All
+sessions, the agent's own list, then Foom's reserved variables (control, hook and
+session variables). Shells get All sessions only. Main validates every variable again
+at launch. Names match `^[A-Za-z_][A-Za-z0-9_]*$` and compare case-insensitively on
+Windows, where a layer reuses the inherited spelling. `FOOM_*`, `CLAUDECODE`, `TERM`,
+`COLORTERM` and `TERM_PROGRAM` are reserved; `LD_PRELOAD`, `LD_LIBRARY_PATH`,
+`DYLD_*`, `NODE_OPTIONS`, `ELECTRON_*`, `BASH_ENV`, `ENV` and `PROMPT_COMMAND` are
+refused in any case. Values are literal (no expansion), at most 4096 characters, with
+no NUL. `PATH` only prepends absolute directories: Foom's CLI directory, then the
+agent's, then global, then the login PATH. Proxy variables must be `http://`,
+`https://` or `socks5://` URLs; an empty value turns an inherited proxy off. A URL with
+user information is always a secret. When any proxy is set, `NO_PROXY` and `no_proxy`
+keep every existing entry and gain `localhost,127.0.0.1,::1`. Session snapshots list
+the names Foom set, never values. Secret values and URL credentials are added to
+`prepareTail` redaction. Import from login shell runs one fixed `-ilc` printf program
+with NUL delimiters for the proxy and certificate names only (Windows reads the
+inherited environment); values stay in main until the user picks names.
+
+POSIX observers use `curl --noproxy '*'`. Windows observers pass `-NoProxy` on
+PowerShell 6+ and set an empty default proxy on 5.1, so hooks reach the loopback
+receiver behind any proxy. That change made the Windows Codex observer `codex-v2.ps1`
+(POSIX stays v1) and the Antigravity plugin version 2.
 
 `setHooksEnabled(false)` disables hook attachment for subsequent launches. A main-process integration supplies a fresh `AgentHooks` binding per launch, with a Claude stdin adapter command, a Codex argv adapter command, session credentials, and a cleanup callback. Claude settings attach prompt, tool, Stop, PermissionRequest, and Notification observer hooks as inline JSON in `--settings`; Codex 0.161+ receives stable lifecycle definitions and keeps `-c notify=[...]` until completion hooks are observed working. Older supported Codex versions receive notify only. No settings files are created in the user's HOME or workspace. Codex notifier fallback requires `acknowledgeCodexNotifierReplacement` after the UI discloses that the user's notifier is replaced for this invocation. Confirmed lifecycle hooks remove that override and disclosure on later launches. `release(terminalId)` must be called on exit/kill to revoke credentials and free the worktree; `dispose()` releases all bindings during shutdown after terminals are stopped. Spawn failures clean up immediately.
 
@@ -640,6 +678,7 @@ Theme IDs are checked syntactically, without opening any other file or profile.
 | `codexNotifierAcknowledged` | Records human consent to notifier replacement |
 | `setupComplete` | Records human setup progress |
 | `codeFolder`, `worktreeLocation` | Select filesystem paths or placement |
+| `environment` | Variables reach every agent launch, like `agentArguments`, and may hold secrets; set only through Settings (#215) |
 
 Excluded keys report `unknown-key` at their fixed `$.<key>` path. Arbitrary unknown
 property names are never echoed. The allowlist applies even when an excluded value
@@ -803,6 +842,8 @@ On profile load, `SettingsStore` drops legacy `inference` and `inferenceTimeoutM
 fields and atomically saves the migrated settings. It deletes the three fixed
 `inference-{anthropic,openai,google}.key` ciphertext files and strictly UUID-named
 temporary key files left by interrupted writes, without decrypting them. Unrelated files are preserved.
+Environment secrets (#215) are the only stored secrets; see
+[Launch environment](#launch-environment-215).
 Cleanup is idempotent and does not require OS encryption to be available; deletion
 errors fail startup instead of silently retaining secrets. Removed setup key/probe
 IPC channels have no handlers, and inference fields remain invalid in IPC patches.
