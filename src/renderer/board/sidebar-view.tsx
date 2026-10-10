@@ -226,10 +226,17 @@ export function Sidebar({
       const target =
         repository && repositories.some((entry) => entry.path === repository)
           ? repository
-          : buildSidebar([], repositories, preferences, "").tree[0]?.repository.path;
+          : // The sidebar's own order, which puts repositories with sessions first.
+            buildSidebar(
+              rows.filter((row) => !row.home && !row.config),
+              repositories,
+              preferences,
+              "",
+            ).tree[0]?.repository.path;
       if (!target || !source.worktrees) return false;
       const id = repositoryKey(target);
-      const anchor = anchorsRef.current.get(id);
+      // A compact sidebar lists sessions only, so the panel opens beside the sidebar itself.
+      const anchor = anchorsRef.current.get(id) ?? (compact ? sidebar.current : null);
       if (anchor) openField(id, anchor);
       else {
         // A filter hides the repository; clear it so its row can anchor the panel.
@@ -244,8 +251,9 @@ export function Sidebar({
   });
   const arrive = (repository: string, path: string) => {
     intent.close();
-    // The row may be collapsed or filtered out; focus it once it renders.
-    pendingRef.current.focus = worktreeKey(path);
+    // The row may be collapsed or filtered out; focus it once it renders. A compact
+    // sidebar shows no worktree rows, so there is nothing to focus.
+    if (!compact) pendingRef.current.focus = worktreeKey(path);
     setFilter("");
     save({
       ...preferences,

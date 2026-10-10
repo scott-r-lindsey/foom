@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { act, cleanup, fireEvent, render } from "@testing-library/react";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
-import { launcherActions } from "../../../../src/renderer/board/sidebar-view";
+import { Sidebar, launcherActions } from "../../../../src/renderer/board/sidebar-view";
 import { Board } from "../../../../src/renderer/board/board-view";
 import { createSampleSource } from "../../../../src/renderer/board/sample-board-source";
 import { boardRows as sampleRows } from "../../../fixtures/board";
@@ -792,4 +792,91 @@ test("removed subjects release pinned intent; Escape works outside and the opene
   expect(view.queryByRole("dialog")).toBeNull();
   view.unmount();
   vi.useRealTimers();
+});
+
+function sidebarWithSessions(narrow: boolean) {
+  vi.stubGlobal("matchMedia", () => ({
+    matches: narrow,
+    addEventListener: () => {},
+    removeEventListener: () => {},
+  }));
+  const original = sampleRows(0)[0];
+  if (!original) throw Error("fixture");
+  const rows = [
+    { ...original, repository: "Zulu", repositoryPath: "/zulu", worktree: "/zulu", branch: "main" },
+  ];
+  const repositories = ["Alpha", "Zulu"].map((name) => ({
+    name,
+    path: `/${name.toLowerCase()}`,
+    worktrees: [
+      {
+        path: `/${name.toLowerCase()}`,
+        branch: "main",
+        head: "abc",
+        managed: false,
+        bare: false,
+        locked: false,
+        prunable: false,
+      },
+    ],
+  }));
+  const branches = vi.fn(() =>
+    Promise.resolve({ head: "main", local: [], remote: null, remoteBranches: [] }),
+  );
+  const source: BoardSource = {
+    ...createSampleSource(rows),
+    getSidebar: () => repositories,
+    worktrees: {
+      load: () => new Promise(() => {}),
+      branches,
+      create: vi.fn(),
+      remove: vi.fn(),
+      addRepository: vi.fn(),
+    },
+  };
+  const ref: { current: ((repository?: string) => boolean) | undefined } = { current: undefined };
+  const view = render(
+    <Sidebar
+      source={source}
+      inactive={false}
+      revealRef={{ current: undefined }}
+      rows={rows}
+      preferences={{ pins: [], expanded: {}, names: {} }}
+      save={() => {}}
+      selected={undefined}
+      buttons={{ current: new Map() }}
+      sidebar={{ current: null }}
+      open={() => {}}
+      focus={() => {}}
+      newWorktreeRef={ref}
+      command={() => Promise.resolve()}
+      options={undefined}
+      footer={null}
+    />,
+  );
+  return { ...view, ref, branches };
+}
+
+test("without a focused repository, New worktree opens the sidebar's top repository", async () => {
+  const view = sidebarWithSessions(false);
+  // Repositories with sessions sort first, so Zulu tops the sidebar.
+  expect(view.container.querySelector(".repository-row .tree-label")?.textContent).toBe("Zulu");
+  await act(async () => {
+    expect(view.ref.current?.()).toBe(true);
+    await Promise.resolve();
+  });
+  expect(view.branches).toHaveBeenCalledWith("/zulu");
+  vi.unstubAllGlobals();
+});
+
+test("a compact sidebar opens the field beside the sidebar", async () => {
+  const view = sidebarWithSessions(true);
+  expect(view.container.querySelector(".repository-row")).toBeNull();
+  await act(async () => {
+    expect(view.ref.current?.("/alpha")).toBe(true);
+    await Promise.resolve();
+  });
+  expect(document.activeElement).toBe(view.getByLabelText("Branch for the new worktree"));
+  expect(view.branches).toHaveBeenCalledWith("/alpha");
+  vi.unstubAllGlobals();
 });
