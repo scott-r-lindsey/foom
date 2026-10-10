@@ -235,7 +235,7 @@ test("fact chips keep amber for needs-you, magenta for failures and name every s
   });
   expect(tones(view)).toEqual([
     ["neutral", "default"],
-    ["info", "3 changed"],
+    ["changes", "3 changed"],
     ["neutral", "Not merged into default branch"],
     ["info", "Foom"],
   ]);

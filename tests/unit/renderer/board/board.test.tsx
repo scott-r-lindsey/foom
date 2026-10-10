@@ -130,7 +130,7 @@ test("queue uses oldest wait, keeps ties stable and never reorders the board", (
   first.state = "working";
   expect(waitTime(first, 300000)).toBe("—");
 });
-test("sidebar arrows wrap, focus peeks, selection preserves attention and Escape stays in the pane", () => {
+test("sidebar arrows wrap, focus stays in the sidebar, selection preserves attention and Escape stays in the pane", () => {
   const { board, buttons, key, dialog } = setup();
   expect(document.activeElement).toBe(buttons[0]);
   key("End");
@@ -138,7 +138,7 @@ test("sidebar arrows wrap, focus peeks, selection preserves attention and Escape
   act(() => {
     buttons[0]?.focus();
   });
-  expect(dialog.querySelector<HTMLElement>(".board-peek")?.hidden).toBe(false);
+  expect(dialog.querySelector(".board-peek")).toBeNull();
   act(() => {
     buttons[0]?.click();
   });
@@ -161,7 +161,7 @@ test("sidebar arrows wrap, focus peeks, selection preserves attention and Escape
   ).toBe("0.4");
   board.dispose();
 });
-test("hover peeks without switching the pane; terminal text stays data", async () => {
+test("hover leaves the pane unchanged; selected terminal text stays data", async () => {
   const { board, buttons, dialog, rows } = setup();
   const row = rows[1];
   if (!row) throw new Error("Missing row");
@@ -171,16 +171,18 @@ test("hover peeks without switching the pane; terminal text stays data", async (
     await Promise.resolve();
     await Promise.resolve();
   });
-  expect(dialog.querySelector(".board-peek pre")?.textContent).toContain("<img");
+  expect(dialog.querySelector(".board-peek")).toBeNull();
   expect(dialog.querySelector("img")).toBeNull();
   expect(document.activeElement).toBe(buttons[0]);
   fireEvent.mouseOut(buttons[1] ?? document.body);
-  expect(dialog.querySelector<HTMLElement>(".board-peek")?.hidden).toBe(true);
+  expect(dialog.querySelector(".board-peek")).toBeNull();
   act(() => {
     buttons[1]?.click();
   });
+  expect(dialog.querySelector(".sample-terminal pre")?.textContent).toContain("<img");
+  expect(dialog.querySelector("img")).toBeNull();
   fireEvent.mouseOver(buttons[0] ?? document.body);
-  expect(dialog.querySelector<HTMLElement>(".board-peek")?.hidden).toBe(false);
+  expect(dialog.querySelector(".board-peek")).toBeNull();
   board.dispose();
 });
 test("replies and dismissals advance the queue without moving rows; elapsed waits update", () => {
@@ -277,32 +279,17 @@ test("groups by first repository appearance and preserves row order across verdi
   expect([...groupRows(reordered).values()].flat().map((row) => row.id)).toEqual(before);
 });
 
-test("tail failures are visible and obsolete tail responses do not overwrite a new peek", async () => {
+test("hover and focus do not request terminal output", async () => {
   const source = createSampleSource();
-  let finish: ((lines: string[]) => void) | undefined;
-  source.tail = vi
-    .fn()
-    .mockReturnValueOnce(
-      new Promise<string[]>((resolve) => {
-        finish = resolve;
-      }),
-    )
-    .mockRejectedValue(new Error("offline"));
+  const tail = vi.fn(() => Promise.resolve([]));
+  source.tail = tail;
   const view = render(<Board source={source} />);
-  const buttons = view.container.querySelectorAll(".board-row");
-  fireEvent.mouseOver(buttons[0] ?? document.body);
-  fireEvent.mouseOver(buttons[1] ?? document.body);
-  await act(async () => {
-    await Promise.resolve();
-    await Promise.resolve();
-  });
-  expect(view.container.querySelector(".board-peek pre")?.textContent).toContain("Unable to read");
-  await act(async () => {
-    await Promise.resolve();
-    finish?.(["stale"]);
-    await Promise.resolve();
-  });
-  expect(view.container.querySelector(".board-peek pre")?.textContent).not.toContain("stale");
+  const rows = view.container.querySelectorAll(".board-row");
+  fireEvent.mouseOver(rows[0] ?? document.body);
+  fireEvent.focus(rows[1] ?? document.body);
+  await act(async () => {});
+  expect(tail).not.toHaveBeenCalled();
+  expect(view.queryByRole("complementary", { name: "Terminal peek" })).toBeNull();
   await expect(createSampleSource().tail("missing")).resolves.toEqual([]);
 });
 
@@ -322,7 +309,7 @@ test("opening the same waiting row again keeps its output visible", async () => 
   expect(dialog.querySelector(".sample-terminal pre")?.textContent).toContain("Run npm test?");
 });
 
-test("focusing another row previews it without changing the selected pane", async () => {
+test("focusing another row leaves the selected pane unchanged", async () => {
   const { buttons, key, dialog } = setup();
   act(() => {
     buttons[0]?.click();
@@ -335,7 +322,7 @@ test("focusing another row previews it without changing the selected pane", asyn
   await act(async () => {
     await Promise.resolve();
   });
-  expect(dialog.querySelector(".board-peek h2")?.textContent).toContain("feat/terminal-tabs");
+  expect(dialog.querySelector(".board-peek")).toBeNull();
   expect(dialog.querySelector(".board-terminal h2")?.textContent).toContain("fix/session-restore");
   expect(dialog.querySelector(".sample-terminal pre")?.textContent).toContain("Run npm test?");
 });

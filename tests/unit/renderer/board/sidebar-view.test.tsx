@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act, cleanup, fireEvent, render, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render } from "@testing-library/react";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { launcherActions } from "../../../../src/renderer/board/sidebar-view";
 import { Board } from "../../../../src/renderer/board/board-view";
@@ -116,29 +116,20 @@ test("filters reasons, highlights, clears hidden attention and pins in persisted
   fireEvent.change(input, { target: { value: "feature" } });
   expect(view.container.querySelector(".board-row")).toBeTruthy();
 });
-test("location selection shows breadcrumbs and launches there; menus issue location-specific commands", async () => {
+test("location labels leave terminal tiles unchanged; menus issue location-specific commands", async () => {
   const view = setup();
   await act(async () => {
     await Promise.resolve();
   });
-  fireEvent.click(view.getByRole("button", { name: "Foom" }));
   const pane = view.getByRole("region", { name: "Terminal pane" });
-  expect(pane.textContent).toContain("Foom");
-  await act(async () => {
-    fireEvent.click(within(pane).getByRole("button", { name: /Shell/ }));
-    await Promise.resolve();
-  });
-  expect(view.command).toHaveBeenLastCalledWith({
-    kind: "launch",
-    repository: "/foom",
-    worktree: "/foom",
-    run: "shell",
-  });
+  const content = pane.innerHTML;
+  fireEvent.click(view.getByRole("button", { name: "Foom" }));
+  expect(pane.innerHTML).toBe(content);
   const checkout = view.getByRole("button", { name: "Main checkout" });
   expect(checkout.textContent).toContain("Main checkout");
   expect(checkout.textContent).toContain("main");
   fireEvent.click(checkout);
-  expect(pane.textContent).toContain("Foom › Main checkout");
+  expect(pane.innerHTML).toBe(content);
   const filter = view.getByLabelText("Filter repositories and sessions");
   fireEvent.change(filter, { target: { value: "Main checkout" } });
   expect(
@@ -147,7 +138,8 @@ test("location selection shows breadcrumbs and launches there; menus issue locat
   expect(view.queryByRole("button", { name: "feature" })).toBeNull();
   fireEvent.change(filter, { target: { value: "" } });
   fireEvent.click(view.getByRole("button", { name: "feature" }));
-  expect(pane.textContent).toContain("Foom › feature");
+  expect(pane.innerHTML).toBe(content);
+  expect(view.command).not.toHaveBeenCalled();
   for (const [label, expected] of [
     ["Claude Code", { kind: "launch", repository: "/foom", worktree: "/tree", run: "claude" }],
     ["Shell (zsh)", { kind: "launch", repository: "/foom", worktree: "/tree", run: "shell" }],
@@ -407,9 +399,7 @@ test.each(["shell", "agent"] as const)(
     expect(view.getAllByText("Worktree removed").length).toBeGreaterThan(0);
     expect(view.queryByRole("button", { name: "Actions for feature" })).toBeNull();
     fireEvent.click(view.getByRole("button", { name: "feature" }));
-    expect(view.container.querySelector(".location-launchers")?.textContent).toContain(
-      "Worktree removed",
-    );
+    expect(view.container.querySelector(".location-launchers")).toBeNull();
     fireEvent.click(
       view.getByRole("button", {
         name: `Actions for ${kind === "shell" ? "Shell" : "Claude Code"} in feature`,
@@ -460,14 +450,10 @@ test.each([
   expect(row.querySelector(".board-agent img, .board-agent svg")).toBeNull();
   const light = row.querySelector(".board-light");
   fireEvent.focus(row);
-  expect(view.getByRole("complementary", { name: "Terminal peek" }).textContent).toContain(
-    identity,
-  );
+  expect(view.queryByRole("complementary", { name: "Terminal peek" })).toBeNull();
   fireEvent.blur(row);
   fireEvent.mouseEnter(row);
-  expect(view.getByRole("complementary", { name: "Terminal peek" }).textContent).toContain(
-    identity,
-  );
+  expect(view.queryByRole("complementary", { name: "Terminal peek" })).toBeNull();
   expect(row.querySelector(".board-light")).toBe(light);
   fireEvent.click(row);
   expect(view.container.querySelector(".tile-title .board-agent")?.textContent).toBe(mark);
