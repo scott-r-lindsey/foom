@@ -28,6 +28,8 @@ function captureFocus(): () => void {
     }
   };
 }
+/** Submenu and Size rows act through their items; refs start with nothing to restore. */
+const nothing = () => undefined;
 export function AppMenu({
   api,
   development,
@@ -39,8 +41,8 @@ export function AppMenu({
   const [entries, setEntries] = useState<AppMenuEntry[]>();
   const [sheet, setSheet] = useState<ShortcutGroup[]>();
   const [error, setError] = useState("");
-  const restoreFocusRef = useRef<() => void>(() => {});
-  const restoreSheetFocusRef = useRef<() => void>(() => {});
+  const restoreFocusRef = useRef<() => void>(nothing);
+  const restoreSheetFocusRef = useRef<() => void>(nothing);
   const generationRef = useRef({ value: 0 });
   const close = useCallback(() => {
     generationRef.current.value++;
@@ -124,7 +126,7 @@ export function AppMenu({
       return {
         label: entry.label,
         submenu: entry.items.map((item) => item && command(item)),
-        run: () => undefined,
+        run: nothing,
       };
     if (entry.kind === "size")
       return {
@@ -135,7 +137,7 @@ export function AppMenu({
           decrease: command(entry.smaller, true),
           increase: command(entry.bigger, true),
         },
-        run: () => undefined,
+        run: nothing,
       };
     return command(entry);
   });
