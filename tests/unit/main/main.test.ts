@@ -53,10 +53,18 @@ vi.mock("../../../src/main/terminals/terminal-ipc", () => ({
     _window: unknown,
     events: Record<string, (...args: never[]) => void>,
     allow: (contents: unknown, id: string) => boolean,
+    shellEnvironment: () => Record<string, string>,
   ) => {
     mock.allowView = allow;
+    mock.shellEnvironment = shellEnvironment;
     mock.terminalEvents = events;
     return mock.terminals;
+  },
+}));
+vi.mock("../../../src/main/setup/environment-ipc", () => ({
+  attachEnvironment: (_window: unknown, _store: unknown, onChange: () => void) => {
+    mock.environmentChanged = onChange;
+    return { dispose: vi.fn() };
   },
 }));
 vi.mock("../../../src/main/workspace/workspace", () => ({
@@ -282,6 +290,8 @@ const mock = vi.hoisted(() => {
       owns: vi.fn<(id: string) => boolean>(),
     },
     allowView: (_contents: unknown, _id: string): boolean => false,
+    shellEnvironment: undefined as (() => Record<string, string>) | undefined,
+    environmentChanged: undefined as (() => void) | undefined,
     terminalEvents: {},
     workspace,
     ipc,
@@ -389,6 +399,11 @@ vi.mock("electron", () => ({
     handle: mock.protocolHandle,
   },
   net: { fetch: mock.fetch },
+  safeStorage: {
+    isEncryptionAvailable: () => false,
+    encryptString: (text: string) => Buffer.from(text),
+    decryptString: (data: Buffer) => data.toString(),
+  },
   screen: {
     getAllDisplays: () => [{ id: 1, workArea: { x: 0, y: 0, width: 1920, height: 1080 } }],
     getPrimaryDisplay: () => ({ id: 1, workArea: { x: 0, y: 0, width: 1920, height: 1080 } }),
@@ -828,13 +843,17 @@ test("routes terminal events, hook signals and state through the workspace", asy
   expect(mock.workspace.input).toHaveBeenCalledWith("a");
   expect(mock.workspace.removed).toHaveBeenCalledWith("a");
 
+  expect(mock.shellEnvironment?.()).toEqual({});
+  mock.environmentChanged?.();
   const deps = mock.workspace.deps as {
+    environment(target: string): unknown;
     receiver(): Promise<unknown>;
     onExecution(event: unknown): void;
     onState(state: unknown): void;
     onChange(): void;
     acknowledgeCodex(): Promise<void>;
   };
+  expect(deps.environment("claude")).toEqual([[], []]);
   await deps.acknowledgeCodex();
   deps.onChange();
   expect(mock.ipc.sendChanged).toHaveBeenCalledOnce();

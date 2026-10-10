@@ -55,7 +55,7 @@ test("packaged utility host runs native PTYs with RunAsNode disabled", {
     ),
   );
   assert.equal(consoleManifest.version, packagedVersion, "GUI and console share the build version");
-  for (const name of ["codex-v1.sh", "codex-v1.ps1"]) {
+  for (const name of ["codex-v1.sh", "codex-v2.ps1"]) {
     const observer = path.join(resources, "app.asar.unpacked", "build", "observers", name);
     assert.ok(
       existsSync(observer),

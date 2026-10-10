@@ -1,16 +1,31 @@
 /** Likely-secret redaction, not a guarantee for arbitrary unlabelled secrets. */
+let secrets: readonly string[] = [];
+
+/**
+ * Literal values to remove from every tail, such as Environment secrets and proxy URL
+ * credentials. Values shorter than four characters would redact ordinary text, so they
+ * are left to the pattern rules.
+ */
+export function setTailSecrets(values: readonly string[]): void {
+  secrets = [...new Set(values.filter((value) => value.length >= 4))].sort(
+    (a, b) => b.length - a.length,
+  );
+}
+
 export function prepareTail(tail: readonly string[]): string {
   const raw = tail.join("\n").replace(/\r\n?/g, "\n");
   if (raw.length > 131_072) throw new Error("Tail too large");
   // The host may already have removed either PEM marker when selecting its tail.
   // Preserve physical lines throughout redaction so trimming never expands that boundary.
-  const redacted = raw
+  const visible = raw
     .split("")
     .filter(
       (char) =>
         char === "\n" || char === "\t" || (char.charCodeAt(0) >= 32 && char.charCodeAt(0) !== 127),
     )
-    .join("")
+    .join("");
+  const redacted = secrets
+    .reduce((text, secret) => text.split(secret).join("[REDACTED SECRET]"), visible)
     .replace(
       /-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?(?:-----END [A-Z ]*PRIVATE KEY-----|$)/g,
       redactPrivateKey,

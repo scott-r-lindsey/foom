@@ -18,6 +18,8 @@ import type { AgentEvidence } from "../../shared/agent-detection";
 import { basename } from "node:path";
 import type { SidebarCommand, SidebarInventory } from "../../shared/workspace";
 import { AgentService } from "../agents/agents";
+import { buildLaunchEnvironment, inheritedEnvironment } from "../setup/environment";
+import type { EnvironmentVariable } from "../../shared/environment";
 import { prepareHookLaunch } from "../agents/hook-launch";
 import type { HookRegistrar } from "../agents/hook-launch";
 import type { AgentHooks, AgentId } from "../../shared/agents";
@@ -107,6 +109,8 @@ export interface WorkspaceDependencies {
     control?: (repository: string, worktree: string, sessionId?: string) => Promise<ControlLaunch>,
   ) => Agents;
   now?: () => number;
+  /** Validated Environment layers for a launch: All sessions, then the agent's own. */
+  environment?: (target: AgentId | "shell") => readonly (readonly EnvironmentVariable[])[];
 }
 
 /**
@@ -427,6 +431,7 @@ export class Workspace {
         mainCheckout,
         sharedCheckout,
         ...(checkoutIdentity !== undefined ? { checkoutIdentity } : {}),
+        ...(this.deps.environment ? { environment: this.deps.environment(request.agent) } : {}),
       });
       const launchVersion = replacement
         ? (this.launched.get(replacement.id)?.launchVersion ?? 0) + 1
@@ -436,6 +441,7 @@ export class Workspace {
         id: result.id,
         startedAt: this.now(),
         launchFlags: [...this.defaultArguments[request.agent]],
+        ...(result.environment?.length ? { environment: [...result.environment] } : {}),
         kind: "agent",
         agent: request.agent,
         repository: request.repository,
@@ -454,7 +460,7 @@ export class Workspace {
       else if (tracked.evidence) void this.evidence(result.id, tracked.evidence, true);
       this.persist();
       this.refresh();
-      return result;
+      return { id: result.id, attention: result.attention };
     });
   }
 
@@ -505,10 +511,12 @@ export class Workspace {
         if ((await this.deps.worktrees.launchIdentity(request.repository, tree.path)) !== identity)
           throw new Error("Worktree has changed. Select it and try again.");
         const windows = process.platform === "win32";
+        const environment = this.shellEnvironment();
         const id = await this.deps.terminals.create({
           command: windows ? "powershell.exe" : process.env["SHELL"] || "/bin/bash",
           args: windows ? ["-NoLogo"] : ["-l"],
           shellIntegration: true,
+          env: environment.env,
           cwd: tree.path,
           cols: 80,
           rows: 24,
@@ -518,6 +526,7 @@ export class Workspace {
           startedAt: this.now(),
           kind: "shell",
           agent: "shell",
+          ...(environment.names.length ? { environment: environment.names } : {}),
           repository: request.repository,
           worktree: tree.path,
           branch: tree.branch,
@@ -749,12 +758,22 @@ export class Workspace {
     return this.deps.worktrees.panelFacts(repository, worktree);
   }
 
+  /** Shells get the All sessions layer only. */
+  private shellEnvironment(): { env: Record<string, string>; names: string[] } {
+    const layers = this.deps.environment?.("shell");
+    return layers
+      ? buildLaunchEnvironment({ layers, base: inheritedEnvironment() })
+      : { env: {}, names: [] };
+  }
+
   private async startHomeShell(): Promise<void> {
     const windows = process.platform === "win32";
+    const environment = this.shellEnvironment();
     const id = await this.deps.terminals.create({
       command: shellPath(),
       args: windows ? ["-NoLogo"] : ["-l"],
       shellIntegration: true,
+      env: environment.env,
       cwd: homeDirectory,
       cols: 80,
       rows: 24,
@@ -764,6 +783,7 @@ export class Workspace {
       kind: "shell",
       agent: "shell",
       home: true,
+      ...(environment.names.length ? { environment: environment.names } : {}),
       repository: homeDirectory,
       worktree: homeDirectory,
       branch: null,
@@ -948,10 +968,12 @@ export class Workspace {
           if ((await this.deps.worktrees.launchIdentity(repository, worktree)) !== identity)
             throw new Error("Worktree has changed. Select it and try again.");
           const windows = process.platform === "win32";
+          const environment = this.shellEnvironment();
           const id = await this.deps.terminals.create({
             command: windows ? "powershell.exe" : process.env["SHELL"] || "/bin/bash",
             args: windows ? ["-NoLogo"] : ["-l"],
             shellIntegration: true,
+            env: environment.env,
             cwd: worktree,
             cols: 80,
             rows: 24,
@@ -961,6 +983,7 @@ export class Workspace {
             startedAt: this.now(),
             kind: "shell",
             agent: "shell",
+            ...(environment.names.length ? { environment: environment.names } : {}),
             repository,
             worktree,
             branch: tree.branch,

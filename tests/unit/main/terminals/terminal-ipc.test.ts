@@ -192,6 +192,22 @@ test("passes main-owned launch environment additions to the PTY", () => {
   });
 });
 
+test("renderer-created shells receive main's Environment layer, not renderer input", async () => {
+  await terminalControl.dispose();
+  mock.handle.mockClear();
+  terminalControl = attachTerminal(
+    window as unknown as BrowserWindow,
+    {},
+    () => true,
+    () => ({ HTTPS_PROXY: "http://proxy:1" }),
+  );
+  await create();
+  const options: unknown = mock.spawn.mock.calls.at(-1)?.[2];
+  if (typeof options !== "object" || !options || !("env" in options))
+    throw new Error("Missing environment");
+  expect(options.env).toMatchObject({ HTTPS_PROXY: "http://proxy:1", TERM_PROGRAM: "Foom" });
+});
+
 test("detached output continuously updates real headless screen and scrollback", async () => {
   const id = manager.create(spec);
   for (let i = 0; i < 5000; i++) output(`line ${String(i)} ${"x".repeat(60)}\r\n`);

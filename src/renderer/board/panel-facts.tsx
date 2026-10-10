@@ -290,6 +290,11 @@ export function PanelFacts({
             {subject.row.bypass && <strong className="panel-bypass">BYPASS</strong>}{" "}
             {subject.row.launchFlags?.join(" ") || <Sub>None recorded</Sub>}
           </Fact>
+          {subject.row.environment?.length ? (
+            <Fact label="Environment">
+              <span className="panel-environment">{subject.row.environment.join(" ")}</span>
+            </Fact>
+          ) : null}
           <Fact label={subject.row.exited ? "Exit code" : "Started"}>
             {subject.row.exited ? (
               subject.row.exitCode === undefined ? (

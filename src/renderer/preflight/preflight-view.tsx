@@ -1,5 +1,6 @@
 import { message } from "./message";
 import { AgentDefaultArguments } from "./agent-default-arguments";
+import { EnvironmentSettings } from "./environment-settings";
 import { InterfaceThemePicker } from "./interface-theme-picker";
 import { SoundControls } from "../sound/sound-controls";
 import { TerminalThemePicker } from "./terminal-theme-picker";
@@ -25,6 +26,7 @@ import type { SetupSource } from "./setup-source.d";
 
 const SETTINGS_SECTIONS = [
   { step: 1, label: "Agents and hooks" },
+  { step: 9, label: "Environment" },
   { step: 2, label: "Repositories" },
   { step: 3, label: "Worktrees" },
   { step: 5, label: "Appearance" },
@@ -381,6 +383,8 @@ export function Preflight({
         />
       </>
     );
+  } else if (step === 9 && settingsMode && source.environment) {
+    content = <EnvironmentSettings source={source.environment} headingRef={headingRef} />;
   } else if (step === 8) {
     content = (
       <>
@@ -452,19 +456,21 @@ export function Preflight({
       <section className="settings-view" aria-label="Settings">
         <nav className="settings-sections" aria-label="Settings sections">
           <h2>Settings</h2>
-          {SETTINGS_SECTIONS.map((entry) => (
-            <button
-              key={entry.step}
-              type="button"
-              aria-current={entry.step === step ? "page" : undefined}
-              disabled={applying}
-              onClick={() => {
-                go(entry.step);
-              }}
-            >
-              {entry.label}
-            </button>
-          ))}
+          {SETTINGS_SECTIONS.filter((entry) => entry.step !== 9 || source.environment).map(
+            (entry) => (
+              <button
+                key={entry.step}
+                type="button"
+                aria-current={entry.step === step ? "page" : undefined}
+                disabled={applying}
+                onClick={() => {
+                  go(entry.step);
+                }}
+              >
+                {entry.label}
+              </button>
+            ),
+          )}
           <button type="button" className="settings-close" disabled={applying} onClick={onClose}>
             Back to terminal · Esc
           </button>

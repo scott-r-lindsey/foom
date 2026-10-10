@@ -1,6 +1,6 @@
 import { generateKeyPairSync } from "node:crypto";
 import { expect, it } from "vitest";
-import { prepareTail } from "../../../../src/main/evaluator/terminal-tail";
+import { prepareTail, setTailSecrets } from "../../../../src/main/evaluator/terminal-tail";
 
 it("returns at most 40 physical lines and handles CRLF and embedded newlines", () => {
   const lines = Array.from({ length: 60 }, (_, i) => `line ${String(i)}`);
@@ -119,4 +119,16 @@ it("handles multiple complete and headerless blocks without leaking earlier mate
       "Continue?",
     ]).split("\n"),
   ).toEqual([...Array<string>(8).fill("[REDACTED PRIVATE KEY]"), "Continue?"]);
+});
+
+it("redacts Environment secrets literally, longest first, and forgets cleared ones", () => {
+  setTailSecrets(["hunter2-long", "hunter2", "abc", "proxy-user:hunter2"]);
+  try {
+    expect(prepareTail(["echo hunter2 and hunter2-long", "via proxy-user:hunter2 abc"])).toBe(
+      "echo [REDACTED SECRET] and [REDACTED SECRET]\nvia [REDACTED SECRET] abc",
+    );
+  } finally {
+    setTailSecrets([]);
+  }
+  expect(prepareTail(["hunter2"])).toBe("hunter2");
 });

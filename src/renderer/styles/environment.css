@@ -1,0 +1,186 @@
+/* Settings → Environment: lists edited in place (docs/mockups/environment.html). */
+.environment-head {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin: 0 0 22px;
+}
+.settings-controls .environment-head h2 {
+  margin: 0;
+}
+.environment-status {
+  font: 12px var(--font-mono);
+  color: var(--done-ink);
+}
+.environment-grow {
+  flex: 1;
+}
+.environment-scope {
+  margin-bottom: 26px;
+}
+.environment-scope h3 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 6px;
+  font: 600 13px var(--font-interface);
+}
+.environment-rows {
+  border-top: 1px solid var(--line);
+}
+.environment-row {
+  display: grid;
+  grid-template-columns: minmax(0, 230px) minmax(0, 1fr) 30px 30px;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 0;
+  border-bottom: 1px solid var(--line);
+}
+.environment-row input {
+  width: 100%;
+  height: 30px;
+  padding: 0 8px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  font: 12px var(--font-mono);
+}
+.environment-row input:hover {
+  border-color: var(--line);
+}
+.environment-row input:focus {
+  background: var(--bg);
+  border-color: var(--accent);
+  outline: none;
+}
+.environment-row input::placeholder {
+  color: var(--muted);
+  opacity: 0.6;
+}
+.environment-row.invalid input {
+  border-color: color-mix(in srgb, var(--failed) 60%, transparent);
+}
+.environment-row.locked {
+  color: var(--muted);
+  font: 12px var(--font-mono);
+}
+.environment-row.locked span {
+  display: flex;
+  align-items: center;
+  height: 30px;
+  padding: 0 8px;
+}
+.environment-name,
+.environment-value {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.environment-value input {
+  flex: 1;
+  min-width: 0;
+}
+.environment-tag,
+.environment-suffix {
+  flex-shrink: 0;
+  font: 10px var(--font-mono);
+  color: var(--muted);
+  white-space: nowrap;
+}
+.environment-suffix {
+  padding-right: 8px;
+  font-size: 12px;
+}
+.environment-masked {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 30px;
+  padding: 0 8px;
+  font: 12px var(--font-mono);
+  color: var(--muted);
+}
+.environment-masked button {
+  padding: 2px 8px;
+  font-size: 11px;
+}
+.environment-icon {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  background: transparent;
+  border-color: transparent;
+  color: var(--muted);
+}
+.environment-icon:hover {
+  border-color: var(--line);
+  color: var(--ink);
+}
+.environment-icon svg {
+  width: 14px;
+  height: 14px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.environment-icon[aria-pressed="true"] {
+  color: var(--accent);
+}
+.environment-error {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 8px 4px;
+  font-size: 12px;
+  color: var(--failed-ink);
+}
+/* Square mark: failure is never color alone. */
+.environment-error::before {
+  content: "";
+  width: 7px;
+  height: 7px;
+  border-radius: 1px;
+  background: var(--failed);
+}
+.environment-reading {
+  font: 12px var(--font-mono);
+  color: var(--muted);
+}
+.environment-import {
+  margin: -8px 0 24px;
+  padding: 14px 16px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+.environment-pick {
+  display: grid;
+  grid-template-columns: 20px minmax(0, 200px) minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 0;
+  font: 12px var(--font-mono);
+}
+.environment-pick input {
+  width: 15px;
+  height: 15px;
+  margin: 0;
+  accent-color: var(--accent);
+}
+.environment-candidate {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted);
+}
+.environment-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+}

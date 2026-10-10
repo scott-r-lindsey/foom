@@ -107,14 +107,13 @@ for (const [name, source] of Object.entries(agyPluginFiles(process.platform))) {
 }
 
 // Native interpreters need real files outside ASAR, at a stable installation path.
-const { codexObserverSource } = await import("../build/main/agents/codex-hooks.js");
+const { codexObserverFile, codexObserverSource } = await import(
+  "../build/main/agents/codex-hooks.js"
+);
 await mkdir(join(root, "build/observers"), { recursive: true });
-for (const [platform, extension] of [
-  ["posix", "sh"],
-  ["win32", "ps1"],
-]) {
+for (const platform of ["posix", "win32"]) {
   await writeFile(
-    join(root, `build/observers/codex-v1.${extension}`),
+    join(root, "build/observers", codexObserverFile(platform)),
     codexObserverSource(platform),
     { mode: 0o755 },
   );

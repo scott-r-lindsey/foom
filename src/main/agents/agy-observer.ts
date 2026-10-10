@@ -1,5 +1,8 @@
-/** Static observer assets; no credentials or installation-specific paths in the plugin. */
-export const AGY_PLUGIN_VERSION = 1;
+/**
+ * Static observer assets; no credentials or installation-specific paths in the plugin.
+ * Version 2 bypasses proxies explicitly on Windows.
+ */
+export const AGY_PLUGIN_VERSION = 2;
 
 export function agyPluginFiles(platform: NodeJS.Platform): Record<string, string> {
   const command =
@@ -174,7 +177,10 @@ try {
   [Console]::InputEncoding = New-Object System.Text.UTF8Encoding($false)
   $payload = [Console]::In.ReadToEnd()
   $headers = @{ 'Authorization' = $env:FOOM_TOKEN; 'X-Foom-Session' = $env:FOOM_SESSION; 'X-Foom-Event' = $args[0]; 'X-Foom-Sequence' = $args[1] }
-  Invoke-WebRequest -UseBasicParsing -Method Post -Uri $env:FOOM_HOOK_URL -Headers $headers -ContentType 'application/json' -Body ([System.Text.Encoding]::UTF8.GetBytes($payload)) -TimeoutSec 1 | Out-Null
+  # Loopback only: never use a system or environment proxy (5.1 lacks -NoProxy).
+  $direct = @{}
+  if ($PSVersionTable.PSVersion.Major -ge 6) { $direct['NoProxy'] = $true } else { [System.Net.WebRequest]::DefaultWebProxy = New-Object System.Net.WebProxy }
+  Invoke-WebRequest @direct -UseBasicParsing -Method Post -Uri $env:FOOM_HOOK_URL -Headers $headers -ContentType 'application/json' -Body ([System.Text.Encoding]::UTF8.GetBytes($payload)) -TimeoutSec 1 | Out-Null
 } catch { }
 exit 0
 `,
