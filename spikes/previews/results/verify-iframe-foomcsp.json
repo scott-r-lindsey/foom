@@ -1,0 +1,27 @@
+{
+  "isolation": "iframe",
+  "previewCsp": true,
+  "boardCsp": "foom (unchanged)",
+  "electron": "44.4.5",
+  "chrome": "152.0.7977.130",
+  "platform": "linux",
+  "framesLoaded": 3,
+  "previewRequests": 0,
+  "cspEvents": [
+    {
+      "t": 305,
+      "kind": "board-csp",
+      "message": "Framing 'foom-preview://baaac2b0dd3efd928cdeca52fd81b3dd/' violates the following Content Security Policy directive: \"default-src 'none'\". The request has been blocked. Note that 'frame-src' was not e"
+    },
+    {
+      "t": 306,
+      "kind": "board-csp",
+      "message": "Framing 'foom-preview://53de4aad04192306674119f5b0eb7870/' violates the following Content Security Policy directive: \"default-src 'none'\". The request has been blocked. Note that 'frame-src' was not e"
+    },
+    {
+      "t": 307,
+      "kind": "board-csp",
+      "message": "Framing 'foom-preview://c889a7c2b9e98fb87f2f93c44afc6e4b/' violates the following Content Security Policy directive: \"default-src 'none'\". The request has been blocked. Note that 'frame-src' was not e"
+    }
+  ]
+}

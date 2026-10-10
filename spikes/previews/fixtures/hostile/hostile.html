@@ -1,0 +1,115 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>hostile</title>
+<!-- Each probe records what happened; the harness reads window.__results.
+     The page gets ?port= (a local HTTP server that counts connections) and
+     ?other= (another preview's opaque origin id). -->
+<link rel="preconnect" href="http://127.0.0.1:PORT/">
+</head>
+<body>
+<h1>Hostile fixture</h1>
+<script>
+(async () => {
+  const q = new URLSearchParams(location.search);
+  const port = q.get("port");
+  const net = `http://127.0.0.1:${port}`;
+  const out = {};
+  const attempt = async (name, fn) => {
+    try { out[name] = { ok: true, value: await fn() }; }
+    catch (error) { out[name] = { ok: false, error: String(error && error.name || error) }; }
+  };
+  const settle = (ms) => new Promise((r) => setTimeout(r, ms));
+  const load = (tag, attrs) => new Promise((resolve) => {
+    const el = document.createElement(tag);
+    el.onload = () => resolve("load");
+    el.onerror = () => resolve("error");
+    Object.assign(el, attrs);
+    document.body.append(el);
+    setTimeout(() => resolve("timeout"), 1500);
+  });
+
+  // Bridge and Node reachability.
+  out.bridge = {
+    desktop: typeof window.desktop, spike: typeof window.spike, require: typeof window.require,
+    process: typeof window.process, electron: typeof window.electron, ipcRenderer: typeof window.ipcRenderer,
+  };
+  // Embedder reachability.
+  out.topIsSelf = window.top === window;
+  await attempt("parentDocument", () => parent.document.title);
+  await attempt("topHref", () => top.location.href);
+  await attempt("parentSpike", () => typeof parent.spike);
+  await attempt("parentPostMessage", () => { parent.postMessage({ hostile: true }, "*"); return "sent"; });
+  out.origin = location.origin;
+
+  // Storage, to compare across previews.
+  await attempt("localStorage", () => { localStorage.setItem("hostile", "1"); return localStorage.getItem("hostile"); });
+  await attempt("cookie", () => { document.cookie = "hostile=1"; return document.cookie; });
+
+  // Network: each should be blocked; the server counts what reaches it.
+  await attempt("fetch", () => fetch(`${net}/fetch`).then((r) => r.status));
+  await attempt("fetchNoCors", () => fetch(`${net}/no-cors`, { mode: "no-cors" }).then((r) => r.type));
+  await attempt("image", () => load("img", { src: `${net}/img` }));
+  await attempt("stylesheet", () => load("link", { rel: "stylesheet", href: `${net}/css` }));
+  await attempt("script", () => load("script", { src: `${net}/script.js` }));
+  await attempt("iframeHttp", () => load("iframe", { src: `${net}/frame` }));
+  await attempt("websocket", () => new Promise((resolve) => {
+    const ws = new WebSocket(`ws://127.0.0.1:${port}/ws`);
+    ws.onopen = () => resolve("open"); ws.onerror = () => resolve("error");
+    setTimeout(() => resolve("timeout"), 1500);
+  }));
+  await attempt("beacon", () => navigator.sendBeacon(`${net}/beacon`, "x"));
+  await attempt("eventSource", () => new Promise((resolve) => {
+    const es = new EventSource(`${net}/sse`); es.onopen = () => resolve("open"); es.onerror = () => { es.close(); resolve("error"); };
+  }));
+  await attempt("dynamicImport", () => import(`${net}/module.js`).then(() => "loaded"));
+  await attempt("cssUrl", () => { const s = document.createElement("div"); s.style.backgroundImage = `url(${net}/bg)`; document.body.append(s); return "set"; });
+  await attempt("fetchHttps", () => fetch("https://example.com/").then((r) => r.status));
+  await attempt("worker", () => new Promise((resolve) => {
+    const w = new Worker(URL.createObjectURL(new Blob([`fetch("${net}/worker").then(()=>postMessage("ok"),()=>postMessage("blocked"))`])));
+    w.onmessage = (e) => resolve(e.data); w.onerror = () => resolve("error");
+    setTimeout(() => resolve("timeout"), 1500);
+  }));
+
+  // file: URLs.
+  await attempt("fetchFile", () => fetch("file:///etc/hostname").then((r) => r.text()));
+  await attempt("imageFile", () => load("img", { src: "file:///usr/share/icons/hicolor/48x48/apps/xterm-color.png" }));
+  await attempt("iframeFile", () => load("iframe", { src: "file:///etc/" }));
+
+  // Another preview's origin on the same scheme.
+  await attempt("otherOrigin", () => fetch(`foom-preview://${q.get("other")}/hostile/hostile.html`).then((r) => r.status));
+
+  // Paths that try to leave the worktree, as raw request strings.
+  const paths = {
+    dotdot: "../../../../etc/hostname",
+    encodedDotdot: "/%2e%2e/%2e%2e/%2e%2e/etc/hostname",
+    encodedSlash: "/..%2f..%2f..%2fetc%2fhostname",
+    backslash: "/..%5c..%5cetc%5chostname",
+    symlinkDir: "/escape-dir/secret.txt",
+    symlinkFile: "/escape-file.txt",
+    insideLink: "/inside-link.md?raw",
+    dotEnv: "/.env",
+    gitConfig: "/.git/config",
+    tooLarge: "/big.bin",
+    sibling: "/hostile/secret-sibling.txt",
+  };
+  for (const [name, p] of Object.entries(paths))
+    await attempt(`path_${name}`, () => fetch(p).then(async (r) => `${r.status}:${(await r.text()).slice(0, 24)}`));
+
+  // Permissions.
+  await attempt("notification", () => Notification.requestPermission());
+  await attempt("camera", () => navigator.mediaDevices.getUserMedia({ video: true }).then(() => "granted"));
+  await attempt("clipboardRead", () => navigator.clipboard.readText());
+  await attempt("geolocation", () => new Promise((resolve, reject) =>
+    navigator.geolocation.getCurrentPosition(() => resolve("granted"), (e) => reject(new Error(`code ${e.code}`)), { timeout: 1500 })));
+  await attempt("alert", () => { const t = performance.now(); alert("x"); return `returned in ${Math.round(performance.now() - t)}ms`; });
+  await attempt("serviceWorker", () => navigator.serviceWorker.register("/sw.js").then(() => "registered"));
+
+  await settle(300);
+  window.__results = out;
+  document.title = "done";
+})();
+</script>
+</body>
+</html>
