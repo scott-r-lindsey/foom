@@ -685,10 +685,9 @@ if (!ownsProfile) {
   app
     .whenReady()
     .then(async () => {
-      worktrees = await WorktreeService.open(app.getPath("userData"));
-      settings = await SettingsStore.open(app.getPath("userData"));
       configRoot = path.join(app.getPath("home"), ".foom", "config");
-      await worktrees.protect(configRoot);
+      worktrees = await WorktreeService.open(app.getPath("userData"), undefined, [configRoot]);
+      settings = await SettingsStore.open(app.getPath("userData"));
       config = new ConfigService({
         root: configRoot,
         git: new ConfigGit(

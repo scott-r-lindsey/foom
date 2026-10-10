@@ -510,3 +510,74 @@ test("git failures after setup are reported without losing applied changes", asy
   await f.service.write({ terminalFontSize: 26 });
   expect(f.applied.at(-1)).toEqual({ terminalFontSize: 26 });
 });
+
+test.skipIf(process.platform === "win32")(
+  "a redirected theme folder is refused for reads, commits and reverts",
+  async () => {
+    const f = await fixture();
+    await f.service.initialize();
+    await f.write("themes/deep.json", theme("Deep"));
+    const added = (await f.service.refresh()).changes[0]?.commit;
+    if (!added) throw new Error("Expected a theme commit");
+    const outside = path.join(f.root, "outside");
+    await mkdir(outside);
+    await writeFile(path.join(outside, "deep.json"), theme("Deep"));
+    await writeFile(path.join(outside, "other.json"), theme("Other"));
+    await rm(path.join(f.folder, "themes"), { recursive: true });
+    await symlink(outside, path.join(f.folder, "themes"));
+    const status = await f.service.refresh();
+    expect(status.changes[0]).toMatchObject({ file: "themes/deep.json", reason: "$: unsafe-file" });
+    expect((await f.git.log(5)).map((entry) => entry.subject)).not.toContain("Add Other theme");
+    await expect(f.service.revert(added)).rejects.toThrow("unreadable");
+    expect(await readFile(path.join(outside, "deep.json"), "utf8")).toBe(theme("Deep"));
+  },
+);
+
+test("Keep it on without a baseline restores a valid default file", async () => {
+  const f = await fixture();
+  await mkdir(f.folder, { recursive: true });
+  await f.settings({ hooks: false });
+  await f.service.initialize();
+  await f.service.decide("keep");
+  expect(JSON.parse(await f.read("settings.json"))).toEqual({ kind: "settings" });
+  expect((await f.git.log(1))[0]?.subject).toBe("Restore settings");
+});
+
+test("concurrent Settings writes are each committed", async () => {
+  const f = await fixture();
+  await f.service.initialize();
+  await Promise.all([
+    f.service.write({ terminalFontSize: 15 }),
+    f.service.write({ terminalFontSize: 16 }),
+  ]);
+  await f.service.refresh();
+  expect((await f.git.log(2)).map((entry) => entry.subject)).toEqual([
+    "Terminal font size 16",
+    "Terminal font size 15",
+  ]);
+});
+
+test("an applied change whose commit failed is recorded on a later scan", async () => {
+  const f = await fixture();
+  await f.service.initialize();
+  vi.spyOn(f.git, "commit").mockRejectedValueOnce(new Error("index.lock"));
+  await f.settings({ terminalFontSize: 23 });
+  expect((await f.service.refresh()).error).toBe("Unable to record the last change in git.");
+  const status = await f.service.refresh();
+  expect(status.error).toBeUndefined();
+  expect(status.changes[0]).toMatchObject({ summary: "Terminal font size 23", state: "applied" });
+  expect(status.uncommitted).toBe(0);
+});
+
+test("a replaced theme folder gets a new watcher", async () => {
+  const f = await fixture();
+  await f.service.initialize();
+  const before = f.listeners.length;
+  f.listeners[0]?.("themes");
+  expect(f.listeners.length).toBe(before + 1);
+  await f.write("themes/again.json", theme("Again"));
+  f.listeners.at(-1)?.("again.json");
+  await vi.waitFor(async () => {
+    expect((await f.git.log(1))[0]?.subject).toBe("Add Again theme");
+  });
+});

@@ -1172,8 +1172,9 @@ byte-identical to a version Foom shipped earlier (`OWNED_HISTORY`), so user edit
 survive. `.gitignore` excludes recordings under `sounds/` and keeps `.gitkeep`
 files so the folder structure is tracked. `WorktreeService` refuses to register a
 repository that is, contains or sits inside the folder, checking before it runs any
-git command there, and config sessions refuse to start if a registered repository
-contains it. `foom config validate` skips the Foom-owned entries and `.gitkeep`.
+git command there. The check is installed before saved repositories load, so a
+conflicting saved registration is dropped, and config sessions refuse to start if a
+registered repository contains the folder. `foom config validate` skips the Foom-owned entries and `.gitkeep`.
 
 **Git.** If `.git` does not exist in the folder itself (a parent repository never
 counts), main runs `git init` with an empty template and makes an initial commit;
@@ -1211,12 +1212,17 @@ the patch: config keys are written to the file atomically and committed with a
 subject naming the change; profile keys go to the profile.
 
 **Live reload.** Main watches `settings.json`, `themes/` and `terminal-themes/`,
-waits 250 ms after the last event and scans serially. Reads refuse links,
-nonregular files and files over 64 KiB. `settings.json` is compared with the text
+waits 250 ms after the last event and scans serially. When `themes` or
+`terminal-themes` is replaced, the root watcher resubscribes to it. Reads refuse
+links, nonregular files and files over 64 KiB; a theme folder that is a link or
+resolves elsewhere is refused for reads, writes and removals, so nothing outside the
+folder is committed or deleted. `settings.json` is compared with the text
 Foom last applied, theme files with the last commit. Settings use the #206 parser
 and theme files the #205 parser; an invalid file is rejected whole with a filename,
 JSON path and fixed reason, and the last good version stays in effect. A valid
-settings change applies live and is committed; valid theme additions, edits and
+settings change applies live and is committed (Settings saves return once applied;
+each save is committed from its own snapshot right after). If a commit fails, a
+later scan records the applied file again; valid theme additions, edits and
 removals are committed one file per commit (the theme library applies them through
 its own watcher). Sound catalogs still refresh when Settings → Sound opens.
 
@@ -1229,8 +1235,9 @@ still has the held content, applies it and commits. **Keep it on** writes back t
 last applied text (the last commit's bytes when they match it) and commits that if
 the last commit differs. At startup the working file is trusted only if its digest
 matches `configDigest`; otherwise the last commit is trusted if its digest matches;
-otherwise the baseline is the defaults, so an off switch written while Foom was
-closed, or committed by an agent, is held. A Settings save replaces a held change.
+otherwise the baseline is the defaults (`{ "kind": "settings" }`), so an off switch
+written while Foom was closed, or committed by an agent, is held and Keep it on
+restores a valid default file. A Settings save replaces a held change.
 
 **Recent changes and Revert.** Status lists the last 20 commits with time, subject,
 files and short hash, merged with rejected and pending entries recorded this
@@ -1246,7 +1253,9 @@ merge drivers and checkout filters.
 folder: no worktree, no repository-scoped control grant, the usual per-launch hooks
 and evaluator, and the bundled console directory prepended to `PATH` even if the
 CLI was never installed. One config session runs at a time; a second launch starts
-nothing and the renderer focuses the running session. Sidebar commands
+nothing and the renderer focuses the running session. Session records keep a
+validated `config` flag (folder path equal to itself, no branch) and restore only
+for the current folder. Sidebar commands
 `config-launch` (a run kind only) and `copy-config-path` carry no paths.
 `config:status`, `config:decide` (`allow` or `keep`), `config:revert` (a full hex
 commit ID) and `config:open-folder` check the trusted top frame and exact argument

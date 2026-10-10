@@ -99,9 +99,15 @@ export class WorktreeService {
   private pendingSave: Promise<void> = Promise.resolve();
 
   /** Call after app.whenReady(), passing app.getPath("userData"). */
-  static async open(userData: string, root?: string): Promise<WorktreeService> {
+  /** `protect` applies before saved repositories load, so a conflicting one is dropped. */
+  static async open(
+    userData: string,
+    root?: string,
+    protect: readonly string[] = [],
+  ): Promise<WorktreeService> {
     validatePath(userData);
     const service = new WorktreeService(root);
+    for (const path of protect) await service.protect(path);
     const stateFile = join(resolve(userData), "worktrees.json");
     await service.load(stateFile);
     service.stateFile = stateFile;

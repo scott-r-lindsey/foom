@@ -479,7 +479,6 @@ beforeEach(() => {
   mock.ready.mockResolvedValue();
   mock.openWorktrees.mockResolvedValue({
     worktreeRoot: "/home/.foom/worktrees",
-    protect: () => Promise.resolve(),
     managesPath: mock.managesPath,
   });
   mock.config.initialize.mockResolvedValue({});
@@ -507,12 +506,14 @@ test("loads worktree state from userData before creating a window", async () => 
     () =>
       new Promise((resolve) => {
         finish = () => {
-          resolve({ protect: () => Promise.resolve() });
+          resolve({});
         };
       }),
   );
   await start(false);
-  expect(mock.openWorktrees).toHaveBeenCalledWith("/test/user-data");
+  expect(mock.openWorktrees).toHaveBeenCalledWith("/test/user-data", undefined, [
+    join("/test/user-data", ".foom", "config"),
+  ]);
   expect(mock.construct).not.toHaveBeenCalled();
   finish?.();
   await vi.waitFor(() => {
@@ -1050,7 +1051,6 @@ test("Settings repository selection uses workspace lifecycle guards", async () =
   const repository = { path: "/repo", name: "repo" };
   mock.openWorktrees.mockResolvedValue({
     worktreeRoot: "/trees",
-    protect: () => Promise.resolve(),
     listRepositories: () => [repository],
   });
   mock.workspace.addRepository.mockResolvedValue(repository);
@@ -1187,7 +1187,6 @@ test("control startup publishes private discovery and binds trusted pairing call
   const startControl = vi.spyOn(ControlRuntime, "start").mockRejectedValueOnce(error);
   mock.openWorktrees.mockResolvedValue({
     worktreeRoot: "/trees",
-    protect: () => Promise.resolve(),
     listRepositories: () => [],
   });
   try {

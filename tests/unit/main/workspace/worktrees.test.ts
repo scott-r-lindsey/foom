@@ -97,6 +97,17 @@ describe("repository discovery", () => {
     expect(await service.managesPath(repo)).toBe(true);
     expect(await service.managesPath(join(temporary, "elsewhere"))).toBe(false);
   });
+  it("drops a saved repository that holds the Foom config folder when loading", async () => {
+    const userData = join(temporary, "user-data");
+    await mkdir(userData);
+    await writeFile(
+      join(userData, "worktrees.json"),
+      JSON.stringify({ version: 1, repositories: [repo], managed: [] }),
+    );
+    expect((await WorktreeService.open(userData, root)).listRepositories()).toHaveLength(1);
+    const protectedService = await WorktreeService.open(userData, root, [join(repo, ".foom")]);
+    expect(protectedService.listRepositories()).toEqual([]);
+  });
   it("ignores inherited Git repository selectors", async () => {
     vi.stubEnv("GIT_DIR", join(temporary, "hostile"));
     expect(await service.addRepository(repo)).toEqual({ path: repo, name: "repo with spaces" });

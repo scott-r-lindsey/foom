@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { constants, watch } from "node:fs";
-import { lstat, mkdir, open, readdir, rename, rm, writeFile } from "node:fs/promises";
+import { lstat, mkdir, open, readdir, realpath, rename, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import type { ConfigSettings } from "../../shared/config";
 import { parseSettingsFile } from "../../shared/config-files";
@@ -39,6 +39,12 @@ interface Applied {
   text: string;
   values: ConfigSettings;
 }
+
+/** The unverified baseline: every default, as a valid file Keep it on can restore. */
+const DEFAULTS: Applied = {
+  text: `${JSON.stringify({ kind: "settings" }, null, 2)}\n`,
+  values: {},
+};
 
 interface Pending extends Applied {
   weak: Weakening[];
@@ -127,7 +133,7 @@ export function revertable(path: string): boolean {
  * hardened git repository.
  */
 export class ConfigService {
-  private applied: Applied = { text: "", values: {} };
+  private applied: Applied = DEFAULTS;
   private pending: Pending | null = null;
   private events: ConfigChange[] = [];
   private rejected = new Map<string, string>();
@@ -136,7 +142,7 @@ export class ConfigService {
   private commitTimes = new Map<string, number>();
   private revertSubjects = new Map<string, { object: string | null; subject: string }>();
   private queue: Promise<unknown> = Promise.resolve();
-  private watchers: { close(): void }[] = [];
+  private watchers = new Map<string, { close(): void }>();
   private timer: ReturnType<typeof setTimeout> | undefined;
   private available = true;
   private error: string | undefined;
@@ -164,10 +170,35 @@ export class ConfigService {
     return join(this.deps.root, ...relative.split("/"));
   }
 
+  /**
+   * Whether a folder inside the config root is a real directory at its expected place.
+   * `O_NOFOLLOW` guards only the last path component, so a `themes` link to another
+   * directory must be refused before reading, writing or removing anything in it.
+   */
+  private async contained(folder: string): Promise<boolean> {
+    if (!folder) return true;
+    try {
+      const info = await lstat(this.path(folder));
+      if (!info.isDirectory()) return false;
+      const root = await realpath(this.deps.root);
+      return (await realpath(this.path(folder))) === join(root, ...folder.split("/"));
+    } catch {
+      return false;
+    }
+  }
+
+  private async read(relative: string): Promise<Buffer | null> {
+    if (!(await this.contained(dirname(relative).replace(/^\.$/, ""))))
+      throw new ThemeValidationError("$", "unsafe-file");
+    return readConfigFile(this.path(relative));
+  }
+
   /** Atomic replacement inside the folder; the temporary name is hidden from the catalogs. */
   private async writeFile(relative: string, content: Uint8Array | string): Promise<void> {
     const target = this.path(relative);
     await mkdir(dirname(target), { recursive: true });
+    if (!(await this.contained(dirname(relative).replace(/^\.$/, ""))))
+      throw new Error("A Foom config folder is redirected outside the config folder");
     const temporary = join(dirname(target), `.foom-${randomUUID()}.tmp`);
     try {
       await writeFile(temporary, content, { flag: "wx", mode: 0o644 });
@@ -213,14 +244,14 @@ export class ConfigService {
       await mkdir(this.path(folder), { recursive: true });
     const written: string[] = [];
     for (const [relative, content] of Object.entries(OWNED_FILES)) {
-      const current = await readConfigFile(this.path(relative)).catch(ignore);
+      const current = await this.read(relative).catch(ignore);
       if (current !== undefined && refreshable(relative, current)) {
         await this.writeFile(relative, content);
         written.push(relative);
       }
     }
     let migrated: Applied | undefined;
-    if ((await readConfigFile(this.path(SETTINGS_FILE)).catch(ignore)) === null) {
+    if ((await this.read(SETTINGS_FILE).catch(ignore)) === null) {
       // Portable palette objects predate theme files and cannot be expressed in this file.
       const values: ConfigSettings = {};
       for (const [key, value] of Object.entries(legacy ?? {})) {
@@ -238,7 +269,7 @@ export class ConfigService {
       migrated = { text, values };
     }
     await this.initializeRepository(written);
-    this.applied = (await this.baseline(migrated)) ?? { text: "", values: {} };
+    this.applied = (await this.baseline(migrated)) ?? DEFAULTS;
     if (migrated && this.applied === migrated) await this.deps.baseline.set(digest(migrated.text));
     this.deps.apply(this.applied.values);
     await this.scan();
@@ -253,11 +284,11 @@ export class ConfigService {
         await this.deps.git.init();
         const files = new Map<string, Uint8Array>();
         for (const relative of [...Object.keys(OWNED_FILES), ...(await this.themePaths())]) {
-          const bytes = await settle(readConfigFile(this.path(relative)), null);
+          const bytes = await settle(this.read(relative), null);
           if (bytes && (themeKind(relative) === undefined || this.validTheme(relative, bytes)))
             files.set(relative, bytes);
         }
-        const settings = await settle(readConfigFile(this.path(SETTINGS_FILE)), null);
+        const settings = await settle(this.read(SETTINGS_FILE), null);
         if (settings && this.validSettings(settings)) files.set(SETTINGS_FILE, settings);
         await this.deps.git.commit(files, "Initialize Foom config");
       } else if (written.length) {
@@ -302,7 +333,7 @@ export class ConfigService {
     const known = this.deps.baseline.get();
     if (!known) return undefined;
     const candidates: Uint8Array[] = [];
-    const working = await settle(readConfigFile(this.path(SETTINGS_FILE)), null);
+    const working = await settle(this.read(SETTINGS_FILE), null);
     if (working) candidates.push(working);
     const committed = await this.committed(SETTINGS_FILE);
     if (committed) candidates.push(committed);
@@ -337,6 +368,7 @@ export class ConfigService {
   private async themePaths(): Promise<string[]> {
     const paths: string[] = [];
     for (const folder of Object.values(THEME_FOLDERS)) {
+      if (!(await this.contained(folder))) continue;
       const names = await settle(readdir(this.path(folder)), [] as string[]);
       paths.push(
         ...names
@@ -350,22 +382,28 @@ export class ConfigService {
   }
 
   private startWatching(): void {
-    const watcher = this.deps.watch ?? watchFolder;
-    const folders: [string, (file: string | null) => boolean][] = [
-      ["", (file) => file === null || file === SETTINGS_FILE],
-      [THEME_FOLDERS.theme, () => true],
-      [THEME_FOLDERS["terminal-theme"], () => true],
-    ];
-    for (const [folder, relevant] of folders) {
-      try {
-        this.watchers.push(
-          watcher(this.path(folder), (file) => {
-            if (relevant(file)) this.schedule();
-          }),
-        );
-      } catch {
-        // A missing folder is reported by the next scan instead.
-      }
+    this.watchFolder("", (file) => {
+      const replaced = Object.values(THEME_FOLDERS).find((folder) => folder === file);
+      // A theme folder that was removed and recreated needs a new subscription.
+      if (replaced) this.watchFolder(replaced);
+      return file === null || file === SETTINGS_FILE || replaced !== undefined;
+    });
+    for (const folder of Object.values(THEME_FOLDERS)) this.watchFolder(folder);
+  }
+
+  private watchFolder(folder: string, relevant: (file: string | null) => boolean = () => true) {
+    this.watchers.get(folder)?.close();
+    this.watchers.delete(folder);
+    if (this.closed) return;
+    try {
+      this.watchers.set(
+        folder,
+        (this.deps.watch ?? watchFolder)(this.path(folder), (file) => {
+          if (relevant(file)) this.schedule();
+        }),
+      );
+    } catch {
+      // A missing folder is reported by the next scan; the root watcher retries it.
     }
   }
 
@@ -415,7 +453,7 @@ export class ConfigService {
   private async scanSettings(tree: Map<string, TreeEntry>): Promise<void> {
     let bytes: Buffer | null;
     try {
-      bytes = await readConfigFile(this.path(SETTINGS_FILE));
+      bytes = await this.read(SETTINGS_FILE);
     } catch (error) {
       this.reject(SETTINGS_FILE, invalid(error), invalid(error));
       return;
@@ -434,6 +472,19 @@ export class ConfigService {
         if (this.pending) {
           this.pending = null;
           this.events = this.events.filter((event) => event.state !== "pending");
+        }
+        // An applied change whose commit failed, or a commit rewritten underneath it, is
+        // recorded again without waiting for another edit.
+        const entry = tree.get(SETTINGS_FILE);
+        if (this.available && entry?.object !== object) {
+          let recorded: ConfigSettings = {};
+          if (entry)
+            try {
+              recorded = parseSettingsFile(decode(await this.deps.git.blob(entry.object)));
+            } catch {
+              // An unreadable or invalid commit compares as the defaults.
+            }
+          await this.commitSettings(recorded, tree);
         }
         return;
       }
@@ -483,8 +534,8 @@ export class ConfigService {
     previous: ConfigSettings,
     tree: Map<string, TreeEntry>,
     subject?: string,
+    { text, values }: Applied = this.applied,
   ): Promise<void> {
-    const { text, values } = this.applied;
     const before = effective(this.deps.defaults, previous);
     const after = effective(this.deps.defaults, values);
     const bytes = Buffer.from(text);
@@ -514,7 +565,7 @@ export class ConfigService {
     const entry = tree.get(relative);
     let bytes: Buffer | null;
     try {
-      bytes = await readConfigFile(this.path(relative));
+      bytes = await this.read(relative);
     } catch (error) {
       this.reject(relative, invalid(error), invalid(error));
       return;
@@ -568,7 +619,7 @@ export class ConfigService {
       ]);
       let count = 0;
       for (const relative of paths) {
-        const bytes = await readConfigFile(this.path(relative)).catch(ignore);
+        const bytes = await this.read(relative).catch(ignore);
         const entry = tree.get(relative);
         if (bytes === undefined) count++;
         else if (bytes === null) count += entry ? 1 : 0;
@@ -634,11 +685,14 @@ export class ConfigService {
       await this.writeFile(SETTINGS_FILE, text);
       const previous = this.applied.values;
       await this.applyValues(text, values);
-      // Settings responds once the file is written and applied; the commit follows in order.
+      // Settings responds once the file is written and applied; the commit follows in
+      // order, from this write's own snapshot.
       void this.serial(async () => {
         await this.commitSettings(
           previous,
           await settle(this.headTree(), new Map<string, TreeEntry>()),
+          undefined,
+          { text, values },
         );
         await this.countUncommitted();
         this.publish();
@@ -653,7 +707,7 @@ export class ConfigService {
     return this.serial(async () => {
       const pending = this.pending;
       if (!pending) throw new Error("No change is waiting for approval");
-      const bytes = await settle(readConfigFile(this.path(SETTINGS_FILE)), null);
+      const bytes = await settle(this.read(SETTINGS_FILE), null);
       if (!bytes || bytes.toString("utf8") !== pending.text) {
         await this.scan();
         throw new Error("The file changed. Review the new change.");
@@ -705,7 +759,7 @@ export class ConfigService {
       )
         throw new Error("Only settings and theme changes can be reverted");
       for (const change of changes) {
-        const bytes = await readConfigFile(this.path(change.path)).catch(ignore);
+        const bytes = await this.read(change.path).catch(ignore);
         if (bytes === undefined) throw new Error(`${change.path} is unreadable`);
         const current = bytes === null ? null : await this.deps.git.objectId(bytes);
         if (current !== change.after) throw new Error(`${change.path} changed after this change`);
@@ -715,8 +769,11 @@ export class ConfigService {
           object: change.before,
           subject: `Revert "${record?.subject ?? commit.slice(0, 7)}"`,
         });
-        if (change.before === null) await rm(this.path(change.path), { force: true });
-        else await this.writeFile(change.path, await this.deps.git.blob(change.before));
+        if (change.before === null) {
+          if (!(await this.contained(dirname(change.path))))
+            throw new Error("A Foom config folder is redirected outside the config folder");
+          await rm(this.path(change.path), { force: true });
+        } else await this.writeFile(change.path, await this.deps.git.blob(change.before));
       }
       await this.scan();
       return this.status();
@@ -726,8 +783,8 @@ export class ConfigService {
   async dispose(): Promise<void> {
     this.closed = true;
     clearTimeout(this.timer);
-    for (const watcher of this.watchers) watcher.close();
-    this.watchers = [];
+    for (const watcher of this.watchers.values()) watcher.close();
+    this.watchers.clear();
     await this.queue.catch(ignore);
   }
 }
