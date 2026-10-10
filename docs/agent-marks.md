@@ -129,7 +129,7 @@ Official artwork keeps its own colors and is never tinted, glowed or animated;
 any menu hover glow belongs on the badge slot behind the mark instead. Keep the
 status light separate. Include the full agent name in
 the row's accessible name and a hover/focus label when it is otherwise absent.
-Check both themes and 80–150% interface scaling in the implementation. If a mark's
+Check both themes and 80–300% interface scaling in the implementation. If a mark's
 required clear space doesn't fit, keep the letters rather than shrinking it.
 
 ## Bundling and notices

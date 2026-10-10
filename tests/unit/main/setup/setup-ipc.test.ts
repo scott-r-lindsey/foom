@@ -89,7 +89,7 @@ test("a zoom shortcut saves the next size and tells the renderer", async () => {
   expect(setup.save).toHaveBeenCalledWith({ interfaceScale: 110 });
   expect(contents.send).toHaveBeenCalledWith("setup:changed", state(110));
   // At a limit nothing is saved; a destroyed window gets no message.
-  setup.state.mockReturnValue(state(150) as never);
+  setup.state.mockReturnValue(state(300) as never);
   await attached.zoom("in");
   expect(setup.save).toHaveBeenCalledOnce();
   setup.state.mockReturnValue(state(110) as never);

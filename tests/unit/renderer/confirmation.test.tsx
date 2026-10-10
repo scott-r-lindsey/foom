@@ -57,12 +57,22 @@ test("focuses Cancel for every request, traps Tab, and renders untrusted content
   const content = view.getByRole("region", { name: "Details" });
   const body = content.firstElementChild;
   if (!body) throw Error("Missing dialog content");
-  Object.defineProperty(card, "offsetHeight", { value: 300 });
-  Object.defineProperty(content, "clientHeight", { value: 150 });
-  Object.defineProperty(body, "offsetHeight", { value: 600 });
+  const heights = (cardHeight: number, contentHeight: number) => {
+    for (const [element, height] of [
+      [card, cardHeight],
+      [content, contentHeight],
+      [body, 600.5],
+    ] as const)
+      element.getBoundingClientRect = () => DOMRect.fromRect({ height });
+  };
+  heights(300.25, 150.5);
   measure();
-  expect(size).toHaveBeenLastCalledWith({ width: 440, height: 762 });
-  expect(size).toHaveBeenCalledTimes(2);
+  expect(size).toHaveBeenLastCalledWith({ width: 440, height: 762.25 });
+  // A clamped viewport changes the card and its scrolling content together, not the size.
+  heights(299.75, 150);
+  measure();
+  expect(size).toHaveBeenLastCalledWith({ width: 440, height: 762.25 });
+  expect(size).toHaveBeenCalledTimes(3);
   const cancel = view.getByRole("button", { name: "Cancel" });
   const accept = view.getByRole("button", { name: request.accept });
   expect(document.activeElement).toBe(cancel);
