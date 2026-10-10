@@ -5,6 +5,8 @@ export interface BoardRow {
   id: string;
   managed?: boolean;
   home?: boolean;
+  /** Runs in the Foom config folder and nests under the Foom config row. */
+  config?: boolean;
   startedAt?: number | undefined;
   exitCode?: number | undefined;
   launchFlags?: readonly string[] | undefined;

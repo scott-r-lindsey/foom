@@ -11,6 +11,7 @@ import type {
 } from "../../shared/setup";
 import type { AgentReport } from "../../shared/workspace";
 import type { Repository } from "../../shared/worktrees";
+import type { ConfigStatus } from "../../shared/foom-config";
 
 /** What preflight needs from main. Components use this, never the bridge directly. */
 export interface SetupSource {
@@ -30,6 +31,13 @@ export interface SetupSource {
   apply(selected: readonly string[]): Promise<RepositoryUpdate>;
   /** Settings → Environment; absent where main offers none, such as sample boards. */
   environment?: EnvironmentApi;
+  config?: {
+    status(): Promise<ConfigStatus>;
+    decide(decision: "allow" | "keep", id: string): Promise<ConfigStatus>;
+    revert(commit: string): Promise<ConfigStatus>;
+    openFolder(): Promise<void>;
+    subscribe(listener: (status: ConfigStatus) => void): () => void;
+  };
   /** Settings changed in main, for example by a zoom shortcut. */
   subscribe(listener: (state: SetupState) => void): () => void;
 }

@@ -3,6 +3,7 @@ import { AgentDefaultArguments } from "./agent-default-arguments";
 import { EnvironmentSettings } from "./environment-settings";
 import { InterfaceThemePicker } from "./interface-theme-picker";
 import { SoundControls } from "../sound/sound-controls";
+import { ConfigControls } from "./config-controls";
 import { TerminalThemePicker } from "./terminal-theme-picker";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { SetupState } from "../../shared/setup";
@@ -26,13 +27,14 @@ import type { SetupSource } from "./setup-source.d";
 
 const SETTINGS_SECTIONS = [
   { step: 1, label: "Agents and hooks" },
-  { step: 9, label: "Environment" },
+  { step: 10, label: "Environment" },
   { step: 2, label: "Repositories" },
   { step: 3, label: "Worktrees" },
   { step: 5, label: "Appearance" },
   { step: 6, label: "Terminal" },
   { step: 7, label: "Themes" },
   { step: 8, label: "Sound" },
+  { step: 9, label: "Foom config" },
 ];
 
 /**
@@ -45,15 +47,17 @@ export function Preflight({
   onLaunched,
   onClose,
   settingsMode = false,
+  initialSection,
 }: {
   source: SetupSource;
   initial: SetupState;
   onLaunched: (state: SetupState) => void;
   onClose?: () => void;
   settingsMode?: boolean;
+  initialSection?: "config";
 }) {
   const [state, setState] = useState(initial);
-  const [step, setStep] = useState(settingsMode ? 1 : 0);
+  const [step, setStep] = useState(settingsMode ? (initialSection === "config" ? 9 : 1) : 0);
   const [reached, setReached] = useState(onClose ? STEPS.length - 1 : 0);
   const [report, setReport] = useState<AgentReport>();
   const [scanning, setScanning] = useState(false);
@@ -383,8 +387,17 @@ export function Preflight({
         />
       </>
     );
-  } else if (step === 9 && settingsMode && source.environment) {
+  } else if (step === 10 && settingsMode && source.environment) {
     content = <EnvironmentSettings source={source.environment} headingRef={headingRef} />;
+  } else if (step === 9 && source.config) {
+    content = (
+      <>
+        <h2 ref={headingRef} tabIndex={-1}>
+          Foom config
+        </h2>
+        <ConfigControls config={source.config} />
+      </>
+    );
   } else if (step === 8) {
     content = (
       <>
@@ -456,21 +469,22 @@ export function Preflight({
       <section className="settings-view" aria-label="Settings">
         <nav className="settings-sections" aria-label="Settings sections">
           <h2>Settings</h2>
-          {SETTINGS_SECTIONS.filter((entry) => entry.step !== 9 || source.environment).map(
-            (entry) => (
-              <button
-                key={entry.step}
-                type="button"
-                aria-current={entry.step === step ? "page" : undefined}
-                disabled={applying}
-                onClick={() => {
-                  go(entry.step);
-                }}
-              >
-                {entry.label}
-              </button>
-            ),
-          )}
+          {SETTINGS_SECTIONS.filter(
+            (entry) =>
+              (entry.step !== 9 || source.config) && (entry.step !== 10 || source.environment),
+          ).map((entry) => (
+            <button
+              key={entry.step}
+              type="button"
+              aria-current={entry.step === step ? "page" : undefined}
+              disabled={applying}
+              onClick={() => {
+                go(entry.step);
+              }}
+            >
+              {entry.label}
+            </button>
+          ))}
           <button type="button" className="settings-close" disabled={applying} onClick={onClose}>
             Back to terminal · Esc
           </button>

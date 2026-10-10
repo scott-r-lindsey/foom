@@ -409,3 +409,23 @@ test("panel facts validate exact arguments before authorizing paths", async () =
     invoke("workspace:sidebar-command", [{ kind: "home-shell", cwd: "/arbitrary" }]),
   ).toThrow();
 });
+
+test("config sidebar commands accept only a run kind, never a path", async () => {
+  const command = vi.fn(() => Promise.resolve());
+  Object.assign(workspace, { sidebarCommand: command });
+  for (const command of [
+    { kind: "config-launch" },
+    { kind: "config-launch", run: "bash" },
+    { kind: "config-launch", run: "claude", cwd: "/elsewhere" },
+    { kind: "copy-config-path", path: "/etc" },
+  ])
+    expect(() => invoke("workspace:sidebar-command", [command])).toThrow();
+  await invoke("workspace:sidebar-command", [{ kind: "config-launch", run: "shell" }]);
+  await invoke("workspace:sidebar-command", [{ kind: "config-launch", run: "codex" }]);
+  await invoke("workspace:sidebar-command", [{ kind: "copy-config-path" }]);
+  expect(command.mock.calls.map((call: unknown[]) => call[0])).toEqual([
+    { kind: "config-launch", run: "shell" },
+    { kind: "config-launch", run: "codex" },
+    { kind: "copy-config-path" },
+  ]);
+});

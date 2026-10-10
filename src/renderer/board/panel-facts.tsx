@@ -2,6 +2,7 @@ import { useEffect, useState, useRef, useCallback } from "react";
 import type { ReactNode } from "react";
 import type { SidebarCommand } from "../../shared/workspace";
 import type { GitPanelFacts, HomeShellFacts } from "../../shared/panel";
+import type { ConfigStatus } from "../../shared/foom-config";
 import type { BoardSource, LaunchOptions } from "./board-source.d";
 import type { BoardRow } from "./board.d";
 import type { SidebarRepository, SidebarWorktree } from "./sidebar.d";
@@ -9,6 +10,7 @@ import { light, waitTime } from "./board";
 import { sessionIdentity } from "./sidebar-model";
 export type PanelSubject =
   | { kind: "home"; home: HomeShellFacts | undefined; rows: readonly BoardRow[] }
+  | { kind: "config"; status: ConfigStatus | undefined; rows: readonly BoardRow[] }
   | { kind: "repository"; repository: SidebarRepository; rows: readonly BoardRow[] }
   | { kind: "worktree"; repository: SidebarRepository; tree: SidebarWorktree }
   | { kind: "session"; row: BoardRow; tile: number | undefined };
@@ -124,6 +126,56 @@ export function PanelFacts({
           <Fact label="Shell">
             {subject.home?.path ?? unknown} <Sub>{subject.home?.version ?? "Version unknown"}</Sub>
           </Fact>
+          <Fact label="Sessions">
+            <Chip tone="working">{subject.rows.filter((row) => !row.exited).length} running</Chip>
+          </Fact>
+        </>
+      )}
+      {subject.kind === "config" && (
+        <>
+          <Fact label="Folder">
+            {subject.status ? (
+              <Copy value={subject.status.folder} copy={() => copy({ kind: "copy-config-path" })} />
+            ) : (
+              unknown
+            )}
+          </Fact>
+          <Fact label="Working tree">
+            {subject.status?.uncommitted == null
+              ? unknown
+              : subject.status.uncommitted === 0
+                ? "Clean"
+                : `${String(subject.status.uncommitted)} uncommitted`}
+          </Fact>
+          <Fact label="Last change">
+            {(() => {
+              const last = subject.status?.changes.find((change) => change.state === "applied");
+              return last ? (
+                <>
+                  {last.summary}{" "}
+                  <Sub>
+                    {last.hash} · {ago(now, last.time)}
+                  </Sub>
+                </>
+              ) : (
+                "None"
+              );
+            })()}
+          </Fact>
+          {subject.status?.pending && (
+            <Fact label="Approval">
+              <Chip tone="needs" dot>
+                Needs you
+              </Chip>{" "}
+              <Sub>{subject.status.pending.detail}</Sub>
+            </Fact>
+          )}
+          {Boolean(subject.status?.rejected) && (
+            <Fact label="Rejected">
+              <Chip tone="failed">{subject.status?.rejected} rejected</Chip>
+            </Fact>
+          )}
+          {subject.status?.error && <Fact label="Git">{subject.status.error}</Fact>}
           <Fact label="Sessions">
             <Chip tone="working">{subject.rows.filter((row) => !row.exited).length} running</Chip>
           </Fact>
@@ -261,7 +313,11 @@ export function PanelFacts({
       {subject.kind === "session" && (
         <>
           <Fact label="Location">
-            {subject.row.home ? "Home (~)" : `${subject.row.repository} › ${subject.row.branch}`}
+            {subject.row.config
+              ? "Foom config"
+              : subject.row.home
+                ? "Home (~)"
+                : `${subject.row.repository} › ${subject.row.branch}`}
             <br />
             <Sub>{subject.row.worktree}</Sub>
           </Fact>

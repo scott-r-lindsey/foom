@@ -57,9 +57,15 @@ function launchRequest(value: unknown): LaunchRequest {
 function sidebarCommand(value: unknown): SidebarCommand {
   if (!record(value)) throw new Error("Invalid sidebar command");
   const kind = value["kind"];
-  if (kind === "home-shell" || kind === "copy-home-path") {
+  if (kind === "home-shell" || kind === "copy-home-path" || kind === "copy-config-path") {
     if (Object.keys(value).length !== 1) throw new Error("Invalid home shell request");
     return { kind };
+  }
+  if (kind === "config-launch") {
+    const run = value["run"];
+    if (Object.keys(value).length !== 2 || (run !== "shell" && !agent(run)))
+      throw new Error("Invalid config launch");
+    return { kind, run };
   }
   if (
     kind === "stop" ||
