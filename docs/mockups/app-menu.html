@@ -1,0 +1,429 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Foom App Menu</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo+Black&family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500;600&display=swap">
+<style>
+/* The wordmark menu with everything landed: app-wide commands only; Settings as a
+   submenu of routes (via each agent in ~/.foom/config, #84, or via the Settings UI); size as one
+   row. Colors are the brand tokens from src/renderer/styles/tokens.css; the menu surface
+   follows .row-menu and .app-menu in src/renderer/styles/board.css. */
+:root {
+  --bg: #f3f0fa; --surface: #e9e4f5; --line: #ddd6ee; --ink: #14101f; --muted: #625a7a;
+  --accent: #5b2bd9; --accent-deep: #3b1a99; --attention: #d98200; --attention-ink: #8c5000;
+  --done: #13804a; --failed: #d6166e; --idle: #b9b0d3;
+  --badge: #4a4263; --badge-ink: #f4efff; --lift: #ffffff; --hole: #05040a;
+  --shadow: rgba(40, 20, 90, .28);
+  --term-bg: #05040a; --term-line: #251d3f; --term-ink: #f4efff; --term-dim: #6a6188; --term-acc: #c08bff;
+  --display: "Archivo Black", sans-serif;
+  --sans: "Geist", system-ui, sans-serif; --mono: "Geist Mono", ui-monospace, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #05040a; --surface: #0d0a17; --line: #251d3f; --ink: #f4efff; --muted: #9d93bd;
+    --accent: #9b6bff; --accent-deep: #7a3cff; --attention: #ffb23e; --attention-ink: #ffb23e;
+    --done: #6fe0a3; --failed: #ff2e88; --idle: #4a4263;
+    --badge: #3a3060; --badge-ink: #f4efff; --lift: #f4efff; --hole: #000000;
+    --shadow: rgba(0, 0, 0, .85);
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #05040a; --surface: #0d0a17; --line: #251d3f; --ink: #f4efff; --muted: #9d93bd;
+  --accent: #9b6bff; --accent-deep: #7a3cff; --attention: #ffb23e; --attention-ink: #ffb23e;
+  --done: #6fe0a3; --failed: #ff2e88; --idle: #4a4263;
+  --badge: #3a3060; --badge-ink: #f4efff; --lift: #f4efff; --hole: #000000;
+  --shadow: rgba(0, 0, 0, .85);
+  color-scheme: dark;
+}
+:root {
+  --highlight: var(--accent);
+  --highlight-deep: var(--accent-deep);
+  --select: color-mix(in srgb, var(--highlight) 18%, var(--surface));
+  --halo: color-mix(in srgb, var(--attention) 25%, transparent);
+  --raised-top: color-mix(in srgb, var(--surface) 92%, var(--lift));
+  --raised-bottom: var(--surface);
+  --raised-line: color-mix(in srgb, var(--highlight) 25%, var(--line));
+  --raised-hover: color-mix(in srgb, var(--highlight) 12%, var(--raised-top));
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; }
+body { background: var(--bg); color: var(--ink); font: 13px/1.4 var(--sans); }
+button { font: inherit; color: inherit; cursor: pointer; }
+:focus-visible { outline: 2px solid var(--highlight); outline-offset: 1px; }
+.frame { height: 100%; overflow-x: auto; }
+.app { position: relative; display: flex; height: 100%; min-width: 1100px; overflow: hidden; }
+
+/* Mockup controls, not product UI. */
+.mock { position: absolute; right: 14px; bottom: 12px; z-index: 50; display: flex; gap: 14px; align-items: center; padding: 6px 10px; border: 1px dashed var(--line); border-radius: 6px; background: var(--surface); font: 11px var(--mono); color: var(--muted); }
+.mock label { display: flex; gap: 6px; align-items: center; }
+.mock select { font: inherit; color: var(--ink); background: var(--bg); border: 1px solid var(--line); border-radius: 4px; }
+
+/* Sidebar slice */
+.side { width: 270px; flex-shrink: 0; display: flex; flex-direction: column; background: var(--surface); border-right: 1px solid var(--line); }
+.head { display: flex; align-items: center; justify-content: space-between; padding: 16px 12px 10px; }
+.wordmark { margin: 0; font: 22px/1 var(--display); font-weight: 400; color: var(--ink); }
+.wordmark-menu { display: inline-flex; align-items: center; gap: 4px; padding: 2px 4px; margin: -2px -4px; background: transparent; border: 0; border-radius: 5px; font: inherit; }
+.wordmark-menu:hover, .wordmark-menu[aria-expanded="true"] { background: color-mix(in srgb, var(--select) 70%, transparent); }
+.wordmark-hole { display: inline-block; width: .52em; height: .52em; margin: 0 .035em; border-radius: 50%; background: var(--hole); box-shadow: 0 0 0 2px var(--accent), 0 0 10px var(--accent); vertical-align: .02em; }
+.wordmark-menu svg { width: 10px; height: 10px; fill: none; stroke: var(--muted); stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; transition: transform 140ms; }
+.wordmark-menu[aria-expanded="true"] svg { transform: rotate(180deg); }
+.dev-profile { margin-left: 6px; font: 11px var(--mono); color: var(--muted); }
+.counts { display: flex; gap: 8px; font: 11px var(--mono); color: var(--muted); }
+.counts .n { color: var(--attention-ink); }
+.list { flex: 1; overflow-y: auto; padding: 0 6px 10px; }
+.group { padding: 10px 8px 4px; font: 600 12px var(--sans); color: var(--muted); }
+.srow { display: flex; align-items: flex-start; gap: 8px; padding: 6px 8px; border-radius: 6px; }
+.srow.nested { padding-left: 22px; }
+.group.config { color: var(--ink); }
+.srow .lines { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.srow .top { display: flex; align-items: center; gap: 6px; font: 12px var(--mono); }
+.srow .reason { font-size: 12px; color: var(--muted); }
+.srow .reason.needs { color: var(--attention-ink); }
+.light { flex-shrink: 0; width: 8px; height: 8px; margin-top: 4px; border-radius: 50%; background: var(--idle); }
+.light.needs { background: var(--attention); box-shadow: 0 0 0 4px var(--halo); }
+.light.working { background: var(--accent); box-shadow: 0 0 8px var(--accent); }
+.light.done { background: var(--done); }
+.badge { flex-shrink: 0; min-width: 24px; height: 20px; padding: 0 4px; display: inline-flex; align-items: center; justify-content: center; border-radius: 3px; background: var(--badge); color: var(--badge-ink); font: 600 11px var(--mono); }
+
+/* Board slice behind the menu */
+.area { position: relative; flex: 1; min-width: 0; display: grid; grid-template-columns: 1fr 1fr; gap: 6px; padding: 6px; }
+.tile { display: flex; flex-direction: column; min-width: 0; background: var(--term-bg); border: 1px solid var(--term-line); border-radius: 6px; overflow: hidden; }
+.tile.focus { border-color: var(--term-acc); }
+.tb { display: flex; align-items: center; gap: 8px; height: 28px; padding: 0 8px; border-bottom: 1px solid var(--term-line); font: 12px var(--mono); color: var(--term-ink); }
+.tb .no { padding: 0 5px; border: 1px solid var(--term-line); border-radius: 4px; color: var(--term-dim); font-size: 10px; }
+.term { flex: 1; padding: 10px 12px; font: 12px/1.6 var(--mono); color: var(--term-dim); white-space: pre; overflow: hidden; }
+.term b { color: var(--term-ink); font-weight: 400; }
+.term i { color: var(--term-acc); font-style: normal; }
+
+/* Menu: .row-menu + .app-menu */
+.row-menu { position: absolute; z-index: 20; min-width: 300px; background: linear-gradient(180deg, var(--raised-top), var(--raised-bottom)); border: 1px solid var(--raised-line); border-radius: 8px; padding: 6px; box-shadow: 0 1px 0 rgb(255 255 255 / 5%) inset, 0 22px 48px -12px var(--shadow), 0 8px 16px -8px var(--shadow), 0 0 28px -8px color-mix(in srgb, var(--highlight) 40%, transparent); animation: menu-open 130ms ease-out; }
+.row-menu.sub { min-width: 240px; animation-name: sub-open; }
+@keyframes menu-open { from { opacity: 0; transform: translateY(-4px) scale(.97); } }
+@keyframes sub-open { from { opacity: 0; transform: translateX(-6px) scale(.97); } }
+.row-menu .item { display: flex; align-items: center; gap: 9px; position: relative; width: 100%; min-height: 34px; padding: 7px 10px; text-align: left; background: transparent; border: 0; border-radius: 4px; font-size: 12px; }
+.row-menu .item:hover, .row-menu .item:focus-visible, .row-menu .item.open { background: var(--raised-hover); outline: none; }
+.row-menu .item::before { content: ""; position: absolute; inset: 5px auto 5px 0; width: 2px; background: var(--highlight); border-radius: 2px; transform: scaleY(0); transition: transform 160ms cubic-bezier(.2, .8, .2, 1); }
+.row-menu .item:hover::before, .row-menu .item:focus-visible::before, .row-menu .item.open::before { transform: scaleY(1); }
+.menu-label { flex: 1; transition: transform 120ms; }
+.row-menu .item:hover .menu-label, .row-menu .item:focus-visible .menu-label, .row-menu .item.open .menu-label { transform: translateX(3px); }
+.hint { font: 11px var(--mono); color: var(--muted); }
+.chev { width: 10px; height: 10px; fill: none; stroke: var(--muted); stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+.row-menu .item:disabled { cursor: default; color: var(--muted); opacity: .5; }
+.row-menu .item:disabled::before { display: none; }
+.row-menu .item:disabled .menu-label { transform: none; }
+.planned { font: 10px var(--mono); color: var(--muted); }
+.row-menu hr { border: 0; border-top: 1px solid var(--line); margin: 5px; }
+.row-menu .badge { min-width: 24px; transition: background-color 160ms, box-shadow 160ms; }
+.row-menu .item:hover .badge, .row-menu .item:focus-visible .badge { background: var(--highlight-deep); box-shadow: 0 0 10px color-mix(in srgb, var(--highlight) 60%, transparent); }
+.agent-fact { font: 10px var(--mono); color: var(--muted); }
+
+/* The size row: one row, two steppers. */
+.size { display: flex; align-items: center; gap: 9px; min-height: 34px; padding: 4px 6px 4px 10px; font-size: 12px; }
+.size .menu-label { flex: 1; }
+.step { width: 26px; height: 24px; display: grid; place-items: center; padding: 0; background: transparent; border: 1px solid var(--line); border-radius: 4px; font: 13px var(--mono); }
+.step:hover, .step:focus-visible { background: var(--raised-hover); border-color: var(--raised-line); outline: none; }
+.size output { min-width: 42px; text-align: center; font: 11px var(--mono); font-variant-numeric: tabular-nums; }
+
+/* Settings screen sketch (replaces the tiles, as today) */
+.settings { position: absolute; inset: 0; z-index: 5; display: flex; background: var(--bg); }
+.settings nav { width: 190px; flex-shrink: 0; padding: 18px 10px; border-right: 1px solid var(--line); }
+.settings nav h2 { margin: 0 8px 12px; font: 600 15px var(--sans); }
+.settings nav button { display: flex; align-items: center; gap: 8px; width: 100%; padding: 6px 8px; background: transparent; border: 0; border-radius: 5px; text-align: left; font-size: 12px; }
+.settings nav button[aria-current="page"] { background: var(--select); }
+.pane { flex: 1; min-width: 0; padding: 22px 28px; overflow-y: auto; }
+.pane h3 { display: flex; align-items: center; gap: 10px; margin: 0 0 4px; font: 600 16px var(--sans); }
+.pane .fact { margin: 0 0 22px; font: 11px var(--mono); color: var(--muted); }
+.btn { justify-self: start; padding: 5px 10px; background: var(--surface); border: 1px solid var(--line); border-radius: 5px; font-size: 12px; }
+.esc { position: absolute; top: 16px; right: 18px; font: 11px var(--mono); color: var(--muted); }
+
+/* Keyboard shortcuts sheet and About */
+.scrim { position: absolute; inset: 0; z-index: 30; display: grid; place-items: center; background: color-mix(in srgb, var(--bg) 55%, transparent); }
+.sheet { width: min(760px, calc(100% - 32px)); max-height: calc(100% - 48px); overflow-y: auto; padding: 18px 22px; background: linear-gradient(180deg, var(--raised-top), var(--raised-bottom)); border: 1px solid var(--raised-line); border-radius: 10px; box-shadow: 0 22px 48px -12px var(--shadow); }
+.sheet h2 { display: flex; justify-content: space-between; margin: 0 0 12px; font: 600 15px var(--sans); }
+.sheet h2 span { font: 11px var(--mono); color: var(--muted); font-weight: 400; }
+.cols { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 18px; }
+.cols h4 { margin: 0 0 6px; font: 600 11px var(--sans); color: var(--muted); letter-spacing: .04em; text-transform: uppercase; }
+.cols dl { display: grid; grid-template-columns: 1fr auto; gap: 5px 10px; margin: 0; font-size: 12px; }
+.cols dt { white-space: nowrap; }
+.cols h4 .lead { margin-left: 4px; font: 10px var(--mono); color: var(--muted); text-transform: none; letter-spacing: 0; }
+.cols dd { margin: 0; font: 11px var(--mono); color: var(--muted); text-align: right; white-space: nowrap; }
+.about { width: 340px; text-align: center; }
+.about .wordmark { font-size: 36px; margin: 8px 0 6px; }
+.about p { margin: 4px 0; font: 11px var(--mono); color: var(--muted); }
+.about .links { display: flex; justify-content: center; gap: 8px; margin-top: 14px; }
+.note { position: absolute; left: 14px; bottom: 14px; z-index: 4; font: 11px var(--mono); color: var(--term-dim); }
+</style>
+</head>
+<body>
+<div class="frame">
+<div class="app" id="app">
+  <aside class="side">
+    <div class="head">
+      <h1 class="wordmark" id="wm-h"></h1>
+      <div class="counts"><span class="n">1 needs you</span><span>2 working</span></div>
+    </div>
+    <div class="list">
+      <div class="group">foom</div>
+      <div class="srow"><span class="light needs"></span><span class="badge">CC</span><div class="lines"><div class="top"><span>Fix tile focus</span></div><div class="reason needs">Apply this edit?</div></div></div>
+      <div class="srow"><span class="light working"></span><span class="badge">CX</span><div class="lines"><div class="top"><span>Environment variables</span></div><div class="reason">Running npm run check</div></div></div>
+      <div class="srow"><span class="light working"></span><span class="badge">AG</span><div class="lines"><div class="top"><span>Theme files</span></div><div class="reason">Editing tokens.css</div></div></div>
+      <div class="srow"><span class="light done"></span><span class="badge">CC</span><div class="lines"><div class="top"><span>App menu mockup</span></div><div class="reason">Turn ended</div></div></div>
+    </div>
+  </aside>
+  <main class="area" id="area">
+    <section class="tile focus"><div class="tb"><span class="no">1</span>Fix tile focus</div><div class="term"><b>● Update(src/renderer/board/tiles.ts)</b>
+  51  -  focused: next.id,
+  51  +  focused: state.focused,
+
+<i>Apply this edit?</i>  1. Yes   2. No</div></section>
+    <section class="tile"><div class="tb"><span class="no">2</span>Environment variables</div><div class="term"><b>$ npm run check</b>
+ ✓ format   ✓ lint   ✓ typecheck
+ Test Files  212 passed
+      Tests  1584 passed</div></section>
+    <div class="note" id="note"></div>
+  </main>
+  <div class="mock" aria-label="Mockup controls">
+    <label>Platform <select id="m-plat"><option value="lin">Linux / Windows</option><option value="mac">macOS</option></select></label>
+    <label>Build <select id="m-dev"><option value="0">Everyday</option><option value="1">Foom Dev</option></select></label>
+    <label>Planned <select id="m-plan"><option value="landed">Landed</option><option value="greyed">Disabled (today)</option></select></label>
+    <label>Theme <select id="m-theme"><option value="">System</option><option value="light">Light</option><option value="dark">Dark</option></select></label>
+  </div>
+</div>
+</div>
+<script>
+const $ = (s, r = document) => r.querySelector(s);
+const app = $("#app"), area = $("#area");
+const state = { plat: "lin", dev: false, planned: "landed", size: 100, lastSettings: "agents" };
+const CHEV_DOWN = '<svg viewBox="0 0 10 10" aria-hidden="true"><path d="M2.5 4l2.5 2.5L7.5 4"/></svg>';
+const CHEV_RIGHT = '<svg class="chev" viewBox="0 0 10 10" aria-hidden="true"><path d="M4 2.5l2.5 2.5L4 7.5"/></svg>';
+const K = (lin, mac) => ({ lin, mac });
+const AGENTS = [
+  { id: "claude", label: "Claude Code", mark: "CC", banner: "Claude Code v2.1.32" },
+  { id: "codex", label: "Codex", mark: "CX", banner: "OpenAI Codex v0.48.0" },
+  { id: "agy", label: "Antigravity", mark: "AG", banner: "Antigravity 1.9.2" },
+];
+const MENU = () => [
+  { id: "new-window", label: "New window", key: K("Ctrl+Shift+O", "⌘N") },
+  { id: "new-worktree", label: "New worktree…", key: K("Ctrl+Shift+T", "⌘T") },
+  { id: "add-repo", label: "Add repository…" },
+  { id: "orchestrator", label: "New orchestrator…", planned: 155 },
+  "-",
+  { id: "settings", label: "Settings", sub: [
+    ...AGENTS.map((a) => ({ id: `via-${a.id}`, label: `Via ${a.label}`, mark: a.mark, planned: 84 })),
+    "-",
+    { id: "via-ui", label: "Via Settings UI", key: K("Ctrl+Shift+,", "⌘,") },
+  ] },
+  { kind: "size" },
+  "-",
+  { id: "action-log", label: "Action log", planned: 157 },
+  { id: "shortcuts", label: "Keyboard shortcuts", key: K("Ctrl+Shift+/", "⌘/") },
+  { id: "about", label: "About Foom" },
+  ...(state.dev ? ["-",
+    { id: "reload", label: "Reload", key: K("Ctrl+Shift+R", "⌘R") },
+    { id: "force-reload", label: "Force reload", key: K("Ctrl+Shift+Alt+R", "⇧⌘R") },
+    { id: "devtools", label: "Developer tools", key: K("Ctrl+Shift+I", "⌥⌘I") }] : []),
+  "-",
+  { id: "quit", label: "Quit Foom", key: K("Ctrl+Shift+Q", "⌘Q") },
+];
+const visible = (items) => items.filter((i, n, all) => i !== "-" || (n > 0 && all[n - 1] !== "-"));
+
+/* Wordmark */
+function renderWordmark() {
+  $("#wm-h").innerHTML = `<button class="wordmark-menu" id="wm" type="button" aria-haspopup="menu" aria-expanded="false" aria-label="Foom menu" title="Foom menu"><span aria-hidden="true">fo<span class="wordmark-hole"></span>m</span>${CHEV_DOWN}</button>${state.dev ? '<span class="dev-profile">Dev</span>' : ""}`;
+  $("#wm").addEventListener("click", () => (menu ? closeMenu(true) : openMenu()));
+  $("#note").textContent = state.plat === "mac"
+    ? "Click the wordmark. The menu bar has the rest."
+    : "Menu: click the wordmark, or press Alt or F10.";
+}
+
+/* Menu */
+let menu = null, sub = null;
+function itemHTML(i, n) {
+  if (i === "-") return "<hr>";
+  if (i.kind === "size") return `<div class="size" role="group" aria-label="Interface size"><span class="menu-label">Size</span><button class="step" data-step="-1" aria-label="Smaller interface" title="Smaller interface (${state.plat === "mac" ? "⌘−" : "Ctrl+Shift+−"})">−</button><output aria-live="polite">${state.size}%</output><button class="step" data-step="1" aria-label="Bigger interface" title="Bigger interface (${state.plat === "mac" ? "⌘+" : "Ctrl+Shift+="})">+</button></div>`;
+  const hint = i.key ? `<span class="hint">${i.key[state.plat]}</span>` : "";
+  const off = i.planned && state.planned === "greyed";
+  const tag = "";
+  const mark = i.mark ? `<span class="badge" aria-hidden="true">${i.mark}</span>` : "";
+  const more = i.sub ? CHEV_RIGHT : "";
+  return `<button class="item" role="menuitem" data-id="${i.id}" ${i.sub ? 'aria-haspopup="menu" aria-expanded="false"' : ""} ${off ? "disabled" : ""}>${mark}<span class="menu-label">${i.label}</span>${tag}${hint}${more}</button>`;
+}
+function build(items, cls) {
+  const el = document.createElement("div");
+  el.className = `row-menu ${cls}`;
+  el.setAttribute("role", "menu");
+  el.innerHTML = visible(items).map(itemHTML).join("");
+  app.appendChild(el);
+  return el;
+}
+function openMenu() {
+  closeMenu();
+  menu = build(MENU(), "app-menu");
+  menu.setAttribute("aria-label", "Foom");
+  const wm = $("#wm"), r = wm.getBoundingClientRect(), a = app.getBoundingClientRect();
+  menu.style.left = `${r.left - a.left - 2}px`;
+  menu.style.top = `${r.bottom - a.top + 8}px`;
+  wm.setAttribute("aria-expanded", "true");
+  wire(menu, MENU());
+  focusables(menu)[0]?.focus();
+}
+function closeMenu(restore) {
+  closeSub();
+  menu?.remove(); menu = null;
+  $("#wm")?.setAttribute("aria-expanded", "false");
+  if (restore) $("#wm").focus();
+}
+function openSub(row, items, focus) {
+  if (sub && sub.owner === row) { if (focus) focusables(sub)[0]?.focus(); return; }
+  closeSub();
+  sub = build(items, "sub");
+  sub.owner = row;
+  sub.setAttribute("aria-label", "Settings");
+  const r = row.getBoundingClientRect(), a = app.getBoundingClientRect();
+  sub.style.left = `${r.right - a.left + 10}px`;
+  sub.style.top = `${r.top - a.top - 7}px`;
+  row.classList.add("open"); row.setAttribute("aria-expanded", "true");
+  wire(sub, items);
+  if (focus) focusables(sub)[0]?.focus();
+}
+function closeSub(back) {
+  if (!sub) return;
+  const owner = sub.owner;
+  owner.classList.remove("open"); owner.setAttribute("aria-expanded", "false");
+  sub.remove(); sub = null;
+  if (back) owner.focus();
+}
+const focusables = (el) => [...el.querySelectorAll(".item:not(:disabled), .step")];
+function wire(el, items) {
+  const flat = items.flatMap((i) => (i === "-" ? [] : [i]));
+  el.addEventListener("click", (e) => {
+    const step = e.target.closest(".step");
+    if (step) { setSize(state.size + Number(step.dataset.step) * 10); return; }
+    const b = e.target.closest(".item");
+    if (!b || b.disabled) return;
+    const def = flat.find((i) => i.id === b.dataset.id);
+    if (def.sub) openSub(b, def.sub, true); else run(def.id);
+  });
+  el.addEventListener("pointerover", (e) => {
+    const b = e.target.closest(".item");
+    if (!b || el === sub) return;
+    const def = flat.find((i) => i.id === b.dataset.id);
+    if (def?.sub) openSub(b, def.sub, false); else if (sub && !b.disabled) closeSub();
+  });
+  el.addEventListener("keydown", (e) => {
+    const list = focusables(el), at = list.indexOf(document.activeElement);
+    const go = (n) => { e.preventDefault(); list[(n + list.length) % list.length].focus(); };
+    if (e.key === "ArrowDown") go(at + 1 + (list[at]?.dataset.step === "-1" ? 1 : 0));
+    else if (e.key === "ArrowUp") go(at - 1 - (list[at - 1]?.dataset.step === "1" ? 1 : 0));
+    else if (e.key === "Home") go(0);
+    else if (e.key === "End") go(list.length - 1);
+    else if (e.key === "ArrowRight") {
+      const b = document.activeElement;
+      if (b.dataset.step === "-1") go(at + 1);
+      const def = flat.find((i) => i.id === b.dataset?.id);
+      if (def?.sub) { e.preventDefault(); openSub(b, def.sub, true); }
+    } else if (e.key === "ArrowLeft") {
+      if (document.activeElement.dataset.step === "1") go(at - 1);
+      else if (el === sub) { e.preventDefault(); closeSub(true); }
+    } else if (e.key === "Escape") {
+      e.preventDefault(); e.stopPropagation();
+      if (el === sub) closeSub(true); else closeMenu(true);
+    }
+  });
+}
+function setSize(n) {
+  state.size = Math.min(150, Math.max(80, n));
+  document.querySelectorAll(".size output").forEach((o) => (o.textContent = `${state.size}%`));
+}
+document.addEventListener("pointerdown", (e) => {
+  if (menu && !e.target.closest(".row-menu, .wordmark-menu")) closeMenu();
+});
+
+/* Destinations */
+function run(id) {
+  closeMenu();
+  if (id === "via-ui") settings(state.lastSettings);
+  else if (id.startsWith("via-")) via(AGENTS.find((a) => a.id === id.slice(4)));
+  else if (id === "shortcuts") shortcuts();
+  else if (id === "about") about();
+  else flash(id);
+}
+function flash(id) {
+  const n = $("#note"), was = n.textContent;
+  n.textContent = `(${id} runs as today)`;
+  setTimeout(() => (n.textContent = was), 1400);
+}
+const SECTIONS = [["agents", "Agents and hooks"], ["repos", "Repositories"], ["worktrees", "Worktrees"], ["appearance", "Appearance"], ["terminal", "Terminal"], ["themes", "Themes"], ["sound", "Sound"]];
+function settings(section) {
+  state.lastSettings = section;
+  $(".settings")?.remove();
+  const s = document.createElement("div");
+  s.className = "settings";
+  s.innerHTML = `<nav aria-label="Settings"><h2>Settings</h2>${SECTIONS.map(([id, label]) => `<button data-sec="${id}" ${id === section ? 'aria-current="page"' : ""}>${label}</button>`).join("")}</nav><div class="pane"><h3>${SECTIONS.find(([id]) => id === section)[1]}</h3><p class="fact">Today's Settings screen, unchanged.</p></div><span class="esc">Esc</span>`;
+  area.appendChild(s);
+  s.querySelector("nav").addEventListener("click", (e) => { const b = e.target.closest("[data-sec]"); if (b) settings(b.dataset.sec); });
+  s.querySelector('[aria-current="page"]').focus();
+}
+/* Via an agent: a new session under the Foom config row (#84), in ~/.foom/config. */
+function via(a) {
+  $(".settings")?.remove();
+  const list = $(".list");
+  let group = $("#config-group");
+  if (!group) {
+    list.insertAdjacentHTML("afterbegin", '<div id="config-group"><div class="group config">⚙ Foom config</div></div>');
+    group = $("#config-group");
+  }
+  group.insertAdjacentHTML("beforeend", `<div class="srow nested"><span class="light working"></span><span class="badge">${a.mark}</span><div class="lines"><div class="top"><span>Foom settings</span></div><div class="reason">~/.foom/config</div></div></div>`);
+  const tiles = document.querySelectorAll(".tile");
+  tiles.forEach((t) => t.classList.remove("focus"));
+  const t = tiles[1];
+  t.classList.add("focus");
+  t.querySelector(".tb").innerHTML = `<span class="no">2</span>Foom settings`;
+  t.querySelector(".term").innerHTML = `<b>${a.banner}</b>\n~/.foom/config\n\nReads AGENTS.md: settings.json, themes/,\nterminal-themes/, sounds/. Validate after\nevery edit; Foom commits each change.\n\n<i>›</i> `;
+}
+function overlay(html, cls) {
+  closeOverlay();
+  const s = document.createElement("div");
+  s.className = "scrim";
+  s.innerHTML = `<div class="sheet ${cls}" role="dialog" aria-modal="true" tabindex="-1">${html}</div>`;
+  s.addEventListener("pointerdown", (e) => { if (e.target === s) closeOverlay(); });
+  app.appendChild(s);
+  s.firstChild.focus();
+}
+const closeOverlay = () => $(".scrim")?.remove();
+function shortcuts() {
+  const mac = state.plat === "mac";
+  const k = (lin, m) => (mac ? m : lin);
+  const groups = [
+    ["App", "", [["Menu", k("Alt or F10", "Click the wordmark")], ["New window", k("Ctrl+Shift+O", "⌘N")], ["New worktree", k("Ctrl+Shift+T", "⌘T")], ["Settings", k("Ctrl+Shift+,", "⌘,")], ["Interface size", k("Ctrl+Shift+= − 0", "⌘= − 0")], ["Copy, Paste", k("Ctrl+Shift+C, V", "⌘C, V")], ["Quit", k("Ctrl+Shift+Q", "⌘Q")]]],
+    ["Board", "", [["Focus sidebar", k("Ctrl+Shift+B", "⇧⌘B")], ["Longest waiting", k("Ctrl+Shift+N", "⇧⌘N")], ["Maximize tile", k("Ctrl+Shift+Enter", "⇧⌘↩")]]],
+    ["Tiles", k("Ctrl+Shift+Space, then", ""), [["Focus tile 1–9", k("1–9", "⌘1–9")], ["Focus", k("← ↑ ↓ →", "⌥⇧⌘ arrows")], ["Swap", k("Shift+arrows", "⌥⌘ arrows")], ["Split right", k("R", "⌥⇧⌘R")], ["Split down", k("D", "⌥⇧⌘D")], ["Hide", k("H", "⌥⇧⌘H")], ["Close", k("W", "⌥⇧⌘W")]]],
+  ];
+  overlay(`<h2>Keyboard shortcuts<span>Esc</span></h2><div class="cols">${groups.map(([g, lead, rows]) => `<div><h4>${g}${lead ? ` <span class="lead">${lead}</span>` : ""}</h4><dl>${rows.map(([a, b]) => `<dt>${a}</dt><dd>${b}</dd>`).join("")}</dl></div>`).join("")}</div>`, "");
+}
+function about() {
+  overlay(`<h1 class="wordmark"><span aria-hidden="true">fo<span class="wordmark-hole"></span>m</span></h1><p>0.1.0-nightly.20261009 · Electron 38</p><p>Apache-2.0</p><div class="links"><button class="btn">Third-party licenses</button><button class="btn">GitHub</button></div>`, "about");
+}
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape") {
+    if ($(".scrim")) closeOverlay();
+    else if ($(".settings")) $(".settings").remove();
+  }
+  if (e.key === "F10") { e.preventDefault(); if (state.plat !== "mac") openMenu(); }
+});
+
+/* Mock controls */
+$("#m-plat").addEventListener("change", (e) => { state.plat = e.target.value; renderWordmark(); closeMenu(); });
+$("#m-dev").addEventListener("change", (e) => { state.dev = e.target.value === "1"; renderWordmark(); closeMenu(); });
+$("#m-plan").addEventListener("change", (e) => { state.planned = e.target.value; if (menu) openMenu(); });
+$("#m-theme").addEventListener("change", (e) => { if (e.target.value) document.documentElement.dataset.theme = e.target.value; else delete document.documentElement.dataset.theme; });
+renderWordmark();
+openMenu();
+</script>
+</body>
+</html>
