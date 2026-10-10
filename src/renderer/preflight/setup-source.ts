@@ -15,7 +15,7 @@ export function createSetupSource(): SetupSource {
     apply: (selected) => desktop.applyRepositories(selected),
     config: {
       status: () => desktop.configStatus(),
-      decide: (decision) => desktop.decideConfig(decision),
+      decide: (decision, id) => desktop.decideConfig(decision, id),
       revert: (commit) => desktop.revertConfig(commit),
       openFolder: () => desktop.openConfigFolder(),
       subscribe: (listener) => desktop.onConfigChange(listener),

@@ -826,7 +826,12 @@ test("the Foom config row nests its sessions, shows chips, launches there and op
       folder: "/home/.foom/config",
       available: true,
       uncommitted: 2,
-      pending: { action: "turn hooks off", file: "settings.json", detail: "hooks: on → off" },
+      pending: {
+        id: "a".repeat(64),
+        action: "turn hooks off",
+        file: "settings.json",
+        detail: "hooks: on → off",
+      },
       changes: [
         {
           id: "c",

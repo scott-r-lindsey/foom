@@ -15,6 +15,8 @@ export interface ConfigChange {
 
 /** A change held because it would weaken attention, awaiting Allow or Keep it on. */
 export interface ConfigPending {
+  /** Digest of the held file. A decision names it, so it applies only to what was shown. */
+  id: string;
   /** Follows "An agent wants to", for example "turn off the needs-you sound". */
   action: string;
   file: string;
@@ -37,7 +39,7 @@ export interface ConfigStatus {
 export interface ConfigApi {
   configStatus(): Promise<ConfigStatus>;
   /** Allow applies and commits the held change; keep restores the last applied file. */
-  decideConfig(decision: "allow" | "keep"): Promise<ConfigStatus>;
+  decideConfig(decision: "allow" | "keep", id: string): Promise<ConfigStatus>;
   revertConfig(commit: string): Promise<ConfigStatus>;
   openConfigFolder(): Promise<void>;
   onConfigChange(callback: (status: ConfigStatus) => void): () => void;

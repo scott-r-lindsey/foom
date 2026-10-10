@@ -50,9 +50,14 @@ test("checks the sender, top frame and URL on every channel", async () => {
 test("validates argument counts, decisions and commit IDs at runtime", async () => {
   await expect(invoke("config:status", [1])).rejects.toThrow("arguments");
   await expect(invoke("config:open-folder", ["/etc"])).rejects.toThrow("arguments");
+  const id = "f".repeat(64);
   for (const value of [undefined, "yes", { allow: true }])
-    await expect(invoke("config:decide", [value])).rejects.toThrow("arguments");
-  await expect(invoke("config:decide", ["allow", "extra"])).rejects.toThrow("arguments");
+    await expect(invoke("config:decide", [value, id])).rejects.toThrow("arguments");
+  // The proposal ID is required and must be a digest.
+  for (const proposal of [undefined, "extra", "F".repeat(64), "f".repeat(63), 7])
+    await expect(invoke("config:decide", ["allow", proposal])).rejects.toThrow("arguments");
+  await expect(invoke("config:decide", ["allow"])).rejects.toThrow("arguments");
+  await expect(invoke("config:decide", ["allow", id, id])).rejects.toThrow("arguments");
   for (const value of ["HEAD", "HEAD~1", "a".repeat(39), `${"a".repeat(40)}\n`, 7])
     await expect(invoke("config:revert", [value])).rejects.toThrow("arguments");
   expect(service.decide).not.toHaveBeenCalled();
@@ -61,8 +66,8 @@ test("validates argument counts, decisions and commit IDs at runtime", async () 
 
 test("routes valid requests, opens only the fixed folder and disposes", async () => {
   await expect(invoke("config:status")).resolves.toBe(status);
-  await expect(invoke("config:decide", ["keep"])).resolves.toBe(status);
-  expect(service.decide).toHaveBeenCalledWith("keep");
+  await expect(invoke("config:decide", ["keep", "f".repeat(64)])).resolves.toBe(status);
+  expect(service.decide).toHaveBeenCalledWith("keep", "f".repeat(64));
   const commit = "a".repeat(40);
   await expect(invoke("config:revert", [commit])).resolves.toBe(status);
   expect(service.revert).toHaveBeenCalledWith(commit);

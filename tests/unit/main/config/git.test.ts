@@ -1,10 +1,23 @@
-import { chmod, mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
+import {
+  chmod,
+  mkdir,
+  mkdtemp,
+  readdir,
+  readFile,
+  rename,
+  rm,
+  stat,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, expect, test } from "vitest";
 import { gitSync } from "../../../helpers/git.js";
 import {
   ConfigGit,
+  RedirectedGitError,
+  assertContained,
   hardenedArguments,
   hardenedEnvironment,
   prepareIsolation,
@@ -219,3 +232,46 @@ test("sha256 repositories, missing objects and a locked index", async () => {
   const second = await git.commit(new Map([["b.json", bytes]]), "Two");
   expect(await git.head()).toBe(second);
 });
+
+test("a gitdir file or commondir never hands git another repository", async () => {
+  const { root, folder, isolation } = await fixture();
+  const calls: string[][] = [];
+  const git = new ConfigGit(folder, isolation, (args) => {
+    calls.push([...args]);
+    return Promise.resolve(Buffer.from(""));
+  });
+  await assertContained(folder);
+  await writeFile(path.join(folder, ".git"), `gitdir: ${path.join(root, "elsewhere")}\n`);
+  await expect(git.head()).resolves.toBeNull();
+  await expect(git.commit(new Map(), "x")).rejects.toThrow(RedirectedGitError);
+  await expect(git.init()).rejects.toThrow(".git points outside");
+  await rm(path.join(folder, ".git"));
+  await mkdir(path.join(folder, ".git"));
+  await writeFile(path.join(folder, ".git", "commondir"), "../../elsewhere\n");
+  await expect(git.tree("HEAD")).rejects.toThrow(".git/commondir points outside");
+  expect(calls).toEqual([]);
+});
+
+test.skipIf(process.platform === "win32")(
+  "linked metadata entries are refused, even after initialization",
+  async () => {
+    const { root, folder, isolation } = await fixture();
+    const git = new ConfigGit(folder, isolation);
+    await git.init();
+    await git.commit(new Map([["a.json", Buffer.from("{}\n")]]), "One");
+    const elsewhere = path.join(root, "elsewhere");
+    await mkdir(elsewhere);
+    for (const entry of ["objects", "refs", "HEAD", "index"]) {
+      const target = path.join(folder, ".git", entry);
+      await rename(target, `${target}.saved`);
+      await symlink(elsewhere, target);
+      await expect(git.log(1)).rejects.toThrow(`.git/${entry} points outside`);
+      await rm(target);
+      await rename(`${target}.saved`, target);
+    }
+    await expect(git.log(1)).resolves.toHaveLength(1);
+    await rm(path.join(folder, ".git"), { recursive: true });
+    await symlink(elsewhere, path.join(folder, ".git"));
+    await expect(git.log(1)).rejects.toThrow(".git points outside");
+  },
+);

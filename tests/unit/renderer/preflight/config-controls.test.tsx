@@ -79,6 +79,7 @@ test("a held change shows the amber banner with Allow and Keep it on", async () 
   const config = source({
     ...base,
     pending: {
+      id: "a".repeat(64),
       action: "turn off the needs-you sound",
       file: "settings.json",
       detail: "sound.alerts: on → off",
@@ -91,19 +92,25 @@ test("a held change shows the amber banner with Allow and Keep it on", async () 
     fireEvent.click(screen.getByRole("button", { name: "Keep it on" }));
     await Promise.resolve();
   });
-  expect(config.decide).toHaveBeenCalledWith("keep");
+  expect(config.decide).toHaveBeenCalledWith("keep", "a".repeat(64));
   expect(screen.queryByText(/An agent wants to/)).toBeNull();
   act(() => {
     config.push({
       ...base,
-      pending: { action: "turn hooks off", file: "settings.json", detail: "hooks: on → off" },
+      pending: {
+        id: "b".repeat(64),
+        action: "turn hooks off",
+        file: "settings.json",
+        detail: "hooks: on → off",
+      },
     });
   });
   await act(async () => {
     fireEvent.click(screen.getByRole("button", { name: "Allow" }));
     await Promise.resolve();
   });
-  expect(config.decide).toHaveBeenLastCalledWith("allow");
+  // Each click names the proposal on screen when it was made.
+  expect(config.decide).toHaveBeenLastCalledWith("allow", "b".repeat(64));
 });
 
 test("failures are shown, an empty history says so, and unmount unsubscribes", async () => {

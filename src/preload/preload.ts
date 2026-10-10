@@ -395,7 +395,7 @@ const desktop: DesktopApi = {
   scanAgents: (refresh) => ipcRenderer.invoke("agents:scan", refresh),
   launchAgent: (request) => ipcRenderer.invoke("agents:launch", request),
   configStatus: () => ipcRenderer.invoke("config:status"),
-  decideConfig: (decision) => ipcRenderer.invoke("config:decide", decision),
+  decideConfig: (decision, id) => ipcRenderer.invoke("config:decide", decision, id),
   revertConfig: (commit) => ipcRenderer.invoke("config:revert", commit),
   openConfigFolder: () => ipcRenderer.invoke("config:open-folder"),
   onConfigChange(callback) {

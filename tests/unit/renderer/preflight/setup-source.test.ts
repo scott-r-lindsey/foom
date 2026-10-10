@@ -51,8 +51,8 @@ test("Foom config reaches main only through the config bridge", async () => {
   const config = createSetupSource().config;
   if (!config) throw new Error("Expected config source");
   await expect(config.status()).resolves.toBe("status");
-  await expect(config.decide("keep")).resolves.toBe("decided");
-  expect(desktop.decideConfig).toHaveBeenCalledWith("keep");
+  await expect(config.decide("keep", "f".repeat(64))).resolves.toBe("decided");
+  expect(desktop.decideConfig).toHaveBeenCalledWith("keep", "f".repeat(64));
   await expect(config.revert("a".repeat(40))).resolves.toBe("reverted");
   expect(desktop.revertConfig).toHaveBeenCalledWith("a".repeat(40));
   await config.openFolder();

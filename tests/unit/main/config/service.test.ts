@@ -80,6 +80,8 @@ async function fixture({
     write,
     read,
     baseline: () => baseline,
+    /** Decides the proposal currently shown, as the Settings banner does. */
+    decide: (decision: string) => service.decide(decision, service.status().pending?.id),
     settings: (values: object) =>
       write("settings.json", JSON.stringify({ kind: "settings", ...values })),
   };
@@ -187,6 +189,7 @@ test("weakening changes are held; Allow applies and Keep it on restores", async 
   await f.settings({ sound: { ...DEFAULT_SETTINGS.sound, alerts: false } });
   const held = await f.service.refresh();
   expect(held.pending).toEqual({
+    id: digest(await f.read("settings.json")),
     action: "turn off the needs-you sound",
     file: "settings.json",
     detail: "sound.alerts: on → off",
@@ -195,12 +198,12 @@ test("weakening changes are held; Allow applies and Keep it on restores", async 
   expect(f.applied.at(-1)).toEqual({});
   // Re-scanning the same held file keeps one pending entry.
   expect((await f.service.refresh()).changes.filter((c) => c.state === "pending")).toHaveLength(1);
-  const kept = await f.service.decide("keep");
+  const kept = await f.decide("keep");
   expect(kept.pending).toBeNull();
   expect(JSON.parse(await f.read("settings.json"))).toEqual({ kind: "settings" });
   expect(kept.changes[0]).toMatchObject({ state: "rejected", reason: "Declined in Settings" });
-  await expect(f.service.decide("keep")).rejects.toThrow("No change");
-  await expect(f.service.decide("maybe")).rejects.toThrow("Invalid decision");
+  await expect(f.decide("keep")).rejects.toThrow("No change");
+  await expect(f.decide("maybe")).rejects.toThrow("Invalid decision");
 
   await f.settings({ hooks: false, agents: { claude: false, codex: true, agy: true } });
   const both = await f.service.refresh();
@@ -208,7 +211,7 @@ test("weakening changes are held; Allow applies and Keep it on restores", async 
   await f.settings({ hooks: false });
   await f.service.refresh();
   expect(f.service.status().pending?.detail).toBe("hooks: on → off");
-  const allowed = await f.service.decide("allow");
+  const allowed = await f.decide("allow");
   expect(allowed.pending).toBeNull();
   expect(f.applied.at(-1)).toEqual({ hooks: false });
   expect(allowed.changes[0]).toMatchObject({ summary: "Hooks off", state: "applied" });
@@ -224,13 +227,70 @@ test("a held change that changes again must be reviewed again", async () => {
   await f.settings({ sound: { ...DEFAULT_SETTINGS.sound, alertVolume: 0 } });
   expect((await f.service.refresh()).pending?.detail).toBe("sound.alertVolume: 0.5 → 0");
   await f.settings({ sound: { ...DEFAULT_SETTINGS.sound, alertVolume: 0, working: true } });
-  await expect(f.service.decide("allow")).rejects.toThrow("The file changed");
+  await expect(f.decide("allow")).rejects.toThrow("The file changed");
   expect(f.service.status().pending).not.toBeNull();
   // Restoring the applied file clears the held change.
   await f.settings({});
   await f.write("settings.json", `${JSON.stringify({ kind: "settings" }, null, 2)}\n`);
   expect((await f.service.refresh()).pending).toBeNull();
 });
+
+test("a decision applies only to the proposal that was shown", async () => {
+  const f = await fixture();
+  await f.service.initialize();
+  await f.settings({ sound: { ...DEFAULT_SETTINGS.sound, alerts: false } });
+  const shown = (await f.service.refresh()).pending;
+  expect(shown?.id).toMatch(/^[0-9a-f]{64}$/);
+  // An agent swaps in a different weakening and the watcher scans before the click lands.
+  await f.settings({ hooks: false });
+  expect((await f.service.refresh()).pending?.detail).toBe("hooks: on → off");
+  await expect(f.service.decide("allow", shown?.id)).rejects.toThrow("replaced");
+  await expect(f.service.decide("keep", undefined)).rejects.toThrow("replaced");
+  expect(f.applied.at(-1)).toEqual({});
+  // The replacement is still waiting, not applied.
+  expect(f.service.status().changes[0]).toMatchObject({ summary: "Hooks off", state: "pending" });
+  // The new proposal can still be decided once it is the one on screen.
+  expect((await f.decide("allow")).pending).toBeNull();
+  expect(f.applied.at(-1)).toEqual({ hooks: false });
+});
+
+test.skipIf(process.platform === "win32")(
+  "redirected git metadata is refused before Foom commits anywhere",
+  async () => {
+    const f = await fixture();
+    const outside = path.join(f.root, "outside");
+    const git = new ConfigGit(outside, await prepareIsolation(path.join(f.root, "isolation-2")));
+    await mkdir(outside);
+    await git.init();
+    const head = await git.commit(new Map([["a.txt", Buffer.from("a\n")]]), "Outside");
+    await mkdir(f.folder);
+    await symlink(path.join(outside, ".git"), path.join(f.folder, ".git"));
+    await f.service.initialize({ terminalFontSize: 18 });
+    expect(await git.head()).toBe(head);
+    const status = f.service.status();
+    expect(status.available).toBe(false);
+    expect(status.error).toContain(".git points outside");
+    // Settings still apply from the file.
+    expect(f.applied.at(-1)).toEqual({ terminalFontSize: 18 });
+  },
+);
+
+test.skipIf(process.platform === "win32")(
+  "metadata replaced after setup stops commits and says why",
+  async () => {
+    const f = await fixture();
+    await f.service.initialize();
+    const outside = path.join(f.root, "outside");
+    await mkdir(outside);
+    await rm(path.join(f.folder, ".git", "refs"), { recursive: true });
+    await symlink(outside, path.join(f.folder, ".git", "refs"));
+    await f.settings({ terminalFontSize: 15 });
+    const status = await f.service.refresh();
+    expect(status.error).toContain(".git/refs points outside");
+    expect(f.applied.at(-1)).toEqual({ terminalFontSize: 15 });
+    expect(await readdir(outside)).toEqual([]);
+  },
+);
 
 test("an off switch written while Foom was closed is held against the defaults", async () => {
   const f = await fixture({ baseline: "0".repeat(64) });
@@ -327,14 +387,14 @@ test("Revert restores the parent version and a weakening revert asks for approva
   // Turning alerts back on was a tightening; reverting it would weaken attention.
   await f.settings({ sound: { ...DEFAULT_SETTINGS.sound, alerts: false } });
   await f.service.refresh();
-  await f.service.decide("allow");
+  await f.decide("allow");
   await f.settings({});
   const enabled = (await f.service.refresh()).changes[0];
   expect(enabled).toMatchObject({ summary: "Sound", state: "applied" });
   if (!enabled?.commit) throw new Error("Expected a settings commit");
   const held = await f.service.revert(enabled.commit);
   expect(held.pending?.detail).toBe("sound.alerts: on → off");
-  const allowed = await f.service.decide("allow");
+  const allowed = await f.decide("allow");
   expect(allowed.changes[0]?.summary).toBe('Revert "Sound"');
 });
 
@@ -488,7 +548,7 @@ test("Keep it on restores and commits when an agent committed the weakening itse
   await f.write("settings.json", weakened);
   await f.git.commit(new Map([["settings.json", Buffer.from(weakened)]]), "Agent commit");
   expect((await f.service.refresh()).pending?.detail).toBe("hooks: on → off");
-  await f.service.decide("keep");
+  await f.decide("keep");
   expect(JSON.parse(await f.read("settings.json"))).toEqual({ kind: "settings" });
   expect((await f.git.log(1))[0]?.subject).toBe("Restore settings");
 });
@@ -538,7 +598,7 @@ test("Keep it on without a baseline restores a valid default file", async () => 
   await mkdir(f.folder, { recursive: true });
   await f.settings({ hooks: false });
   await f.service.initialize();
-  await f.service.decide("keep");
+  await f.decide("keep");
   expect(JSON.parse(await f.read("settings.json"))).toEqual({ kind: "settings" });
   expect((await f.git.log(1))[0]?.subject).toBe("Restore settings");
 });

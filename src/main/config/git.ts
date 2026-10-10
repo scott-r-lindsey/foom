@@ -153,6 +153,34 @@ export interface CommitChange {
 
 const ZERO = /^0+$/;
 
+/** The repository metadata is not a plain folder of its own; git would follow it elsewhere. */
+export class RedirectedGitError extends Error {
+  constructor(entry: string) {
+    super(`${entry} points outside the Foom config folder. Changes apply but are not recorded.`);
+    this.name = "RedirectedGitError";
+  }
+}
+
+/** Entries git follows to another repository's objects, refs or index. */
+const REDIRECTS = ["commondir", "HEAD", "objects", "refs", "index"];
+
+/**
+ * `.git` must be a real folder, not a symlink or a `gitdir:` file, and must not hand git
+ * another repository through `commondir` or linked HEAD, objects, refs or index. Checked
+ * before every command, so a replacement after initialization is caught too.
+ */
+export async function assertContained(root: string): Promise<void> {
+  const dir = join(root, ".git");
+  const info = await lstat(dir).catch(() => null);
+  if (!info) return;
+  if (!info.isDirectory()) throw new RedirectedGitError(".git");
+  for (const entry of REDIRECTS) {
+    const child = await lstat(join(dir, entry)).catch(() => null);
+    if (child && (entry === "commondir" || child.isSymbolicLink()))
+      throw new RedirectedGitError(`.git/${entry}`);
+  }
+}
+
 /** Hardened git access to the agent-writable config repository. */
 export class ConfigGit {
   private format: "sha1" | "sha256" | undefined;
@@ -164,11 +192,12 @@ export class ConfigGit {
     private readonly env: NodeJS.ProcessEnv = process.env,
   ) {}
 
-  private git(
+  private async git(
     args: readonly string[],
     input?: Uint8Array,
     extra: NodeJS.ProcessEnv = {},
   ): Promise<Buffer> {
+    await assertContained(this.root);
     return this.run([...hardenedArguments(this.root, this.isolation), ...args], {
       env: { ...hardenedEnvironment(this.env, this.isolation), ...extra },
       ...(input ? { input } : {}),

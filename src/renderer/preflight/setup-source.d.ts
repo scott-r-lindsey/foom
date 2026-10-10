@@ -30,7 +30,7 @@ export interface SetupSource {
   apply(selected: readonly string[]): Promise<RepositoryUpdate>;
   config?: {
     status(): Promise<ConfigStatus>;
-    decide(decision: "allow" | "keep"): Promise<ConfigStatus>;
+    decide(decision: "allow" | "keep", id: string): Promise<ConfigStatus>;
     revert(commit: string): Promise<ConfigStatus>;
     openFolder(): Promise<void>;
     subscribe(listener: (status: ConfigStatus) => void): () => void;

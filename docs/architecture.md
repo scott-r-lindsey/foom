@@ -1222,6 +1222,13 @@ or external diff. None of these reads filters, diff or merge drivers. Porcelain
 for comparisons are computed in main from bytes Foom read itself. After a commit
 Foom mirrors the committed paths into the real index, best effort.
 
+Before every git call Foom checks that `.git` is a real folder inside the config
+folder, not a link or a `gitdir:` file, has no `commondir`, and that its `HEAD`,
+`objects`, `refs` and `index` are not links. Otherwise git would follow them to
+another repository and Foom would commit there. Redirected metadata, including a
+replacement after setup, stops recording with a status naming the entry; settings
+still apply from the file.
+
 **Settings.** The allowlisted keys from #206 live in `config/settings.json`. On the
 first launch with a version 1 profile, main writes them into a new `settings.json`
 (an existing file wins and the profile values are dropped), then rewrites the
@@ -1252,8 +1259,10 @@ its own watcher). Sound catalogs still refresh when Settings → Sound opens.
 settings in force, it turns alerts off, sets the alert volume to 0, turns hooks off,
 or turns an agent off. A missing key means the default. Other changes, including
 themes, sizes and turning things on, apply without approval. Settings → Foom config
-and the config row show the held change in amber. **Allow** rechecks that the file
-still has the held content, applies it and commits. **Keep it on** writes back the
+and the config row show the held change in amber. The held change carries an ID,
+the digest of its text, and a decision must name it: if an agent replaced the
+proposal after the banner was shown, the decision is refused and the new one shown.
+**Allow** rechecks that the file still has the held content, applies it and commits. **Keep it on** writes back the
 last applied text (the last commit's bytes when they match it) and commits that if
 the last commit differs. At startup the working file is trusted only if its digest
 matches `configDigest`; otherwise the last commit is trusted if its digest matches;

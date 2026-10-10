@@ -633,12 +633,12 @@ test("Foom config calls pass fixed channels and status events are validated", as
   const api = await bridge();
   mock.invoke.mockResolvedValue({});
   await api.configStatus();
-  await api.decideConfig("keep");
+  await api.decideConfig("keep", "f".repeat(64));
   await api.revertConfig("a".repeat(40));
   await api.openConfigFolder();
   expect(mock.invoke.mock.calls.slice(-4)).toEqual([
     ["config:status"],
-    ["config:decide", "keep"],
+    ["config:decide", "keep", "f".repeat(64)],
     ["config:revert", "a".repeat(40)],
     ["config:open-folder"],
   ]);

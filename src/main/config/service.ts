@@ -11,6 +11,7 @@ import { parseThemeFile } from "../../shared/theme-files";
 import { ThemeValidationError, validThemeFile } from "../../shared/theme-validation";
 import { describe, effective, weakenings } from "./approval";
 import type { EffectiveConfig, Weakening } from "./approval";
+import { RedirectedGitError } from "./git";
 import type { CommitRecord, ConfigGit, TreeEntry } from "./git";
 import { OWNED_FILES, SETTINGS_FILE, THEME_FOLDERS, digest, refreshable } from "./layout";
 
@@ -297,9 +298,12 @@ export class ConfigService {
           files.set(relative, Buffer.from(OWNED_FILES[relative] ?? ""));
         await this.deps.git.commit(files, "Update Foom config docs");
       }
-    } catch {
+    } catch (error) {
       this.available = false;
-      this.error = "Git is unavailable. Changes apply but are not recorded.";
+      this.error =
+        error instanceof RedirectedGitError
+          ? error.message
+          : "Git is unavailable. Changes apply but are not recorded.";
     }
   }
 
@@ -554,8 +558,11 @@ export class ConfigService {
     try {
       this.commitTimes.set(await this.deps.git.commit(files, subject), this.now());
       this.error = undefined;
-    } catch {
-      this.error = "Unable to record the last change in git.";
+    } catch (error) {
+      this.error =
+        error instanceof RedirectedGitError
+          ? error.message
+          : "Unable to record the last change in git.";
     }
   }
 
@@ -649,6 +656,7 @@ export class ConfigService {
       uncommitted: this.uncommitted,
       pending: pending
         ? {
+            id: digest(pending.text),
             action: pending.weak.map((entry) => entry.action).join(" and "),
             file: SETTINGS_FILE,
             detail: pending.weak.map((entry) => entry.detail).join(", "),
@@ -700,13 +708,17 @@ export class ConfigService {
     });
   }
 
-  /** Allow applies the held change and commits it; keep restores the applied file. */
-  decide(decision: unknown): Promise<ConfigStatus> {
+  /**
+   * Allow applies the held change and commits it; keep restores the applied file. `id`
+   * names the proposal the user saw, so a click never approves a later replacement.
+   */
+  decide(decision: unknown, id: unknown): Promise<ConfigStatus> {
     if (decision !== "allow" && decision !== "keep")
       return Promise.reject(new Error("Invalid decision"));
     return this.serial(async () => {
       const pending = this.pending;
       if (!pending) throw new Error("No change is waiting for approval");
+      if (id !== digest(pending.text)) throw new Error("The change was replaced. Review it again.");
       const bytes = await settle(this.read(SETTINGS_FILE), null);
       if (!bytes || bytes.toString("utf8") !== pending.text) {
         await this.scan();

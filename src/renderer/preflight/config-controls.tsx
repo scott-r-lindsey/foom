@@ -23,6 +23,7 @@ export function ConfigControls({ config }: { config: ConfigSource }) {
     now: Date.now(),
   }));
   const { status, now } = view;
+  const pending = status?.pending;
   const setStatus = useCallback((next: ConfigStatus) => {
     setView({ status: next, now: Date.now() });
   }, []);
@@ -77,19 +78,19 @@ export function ConfigControls({ config }: { config: ConfigSource }) {
         </button>
       </div>
       {status?.error && <p className="config-note">{status.error}</p>}
-      {status?.pending && (
+      {pending && (
         <section className="config-pending" aria-label="Change waiting for approval">
           <div>
-            <h3>An agent wants to {status.pending.action}</h3>
+            <h3>An agent wants to {pending.action}</h3>
             <small>
-              {status.pending.file} · {status.pending.detail}
+              {pending.file} · {pending.detail}
             </small>
           </div>
           <button
             type="button"
             disabled={busy}
             onClick={() => {
-              run(() => config.decide("allow"));
+              run(() => config.decide("allow", pending.id));
             }}
           >
             Allow
@@ -99,7 +100,7 @@ export function ConfigControls({ config }: { config: ConfigSource }) {
             className="primary"
             disabled={busy}
             onClick={() => {
-              run(() => config.decide("keep"));
+              run(() => config.decide("keep", pending.id));
             }}
           >
             Keep it on

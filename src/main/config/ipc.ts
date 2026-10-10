@@ -21,13 +21,18 @@ export function attachConfig(
         event.senderFrame.url !== "app://bundle/index.html"
       )
         throw new Error("Untrusted IPC sender");
-      const expected = channel === "config:decide" || channel === "config:revert" ? 1 : 0;
+      const expected = { "config:decide": 2, "config:revert": 1 }[channel] ?? 0;
       if (args.length !== expected) throw new Error("Invalid config arguments");
-      const [value] = args;
+      const [value, id] = args;
       if (channel === "config:status") return service.status();
       if (channel === "config:decide") {
-        if (value !== "allow" && value !== "keep") throw new Error("Invalid config arguments");
-        return service.decide(value);
+        if (
+          (value !== "allow" && value !== "keep") ||
+          typeof id !== "string" ||
+          !/^[0-9a-f]{64}$/.test(id)
+        )
+          throw new Error("Invalid config arguments");
+        return service.decide(value, id);
       }
       if (channel === "config:revert") {
         if (typeof value !== "string" || !/^[0-9a-f]{40}(?:[0-9a-f]{24})?$/.test(value))
