@@ -11,5 +11,6 @@
 @import "./agent-card.css";
 @import "./worktree-dialog.css";
 @import "./settings.css";
+@import "./environment.css";
 
 @import "./tiles.css";

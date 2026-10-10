@@ -8,6 +8,8 @@ export interface BoardRow {
   startedAt?: number | undefined;
   exitCode?: number | undefined;
   launchFlags?: readonly string[] | undefined;
+  /** Names of the variables Foom set from Environment settings; never values. */
+  environment?: readonly string[] | undefined;
   repositoryPath?: string;
   worktree?: string;
   exited?: boolean;

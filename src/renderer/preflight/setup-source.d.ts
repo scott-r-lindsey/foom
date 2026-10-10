@@ -1,4 +1,5 @@
 import type { ThemeKind } from "../../shared/theme-file";
+import type { EnvironmentApi } from "../../shared/environment";
 import type { AgyPluginAction } from "../../shared/agy-plugin";
 import type {
   CodeScan,
@@ -27,6 +28,8 @@ export interface SetupSource {
     onProgress: (progress: ScanProgress) => void,
   ): Promise<CodeScan | null>;
   apply(selected: readonly string[]): Promise<RepositoryUpdate>;
+  /** Settings → Environment; absent where main offers none, such as sample boards. */
+  environment?: EnvironmentApi;
   /** Settings changed in main, for example by a zoom shortcut. */
   subscribe(listener: (state: SetupState) => void): () => void;
 }

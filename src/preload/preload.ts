@@ -388,6 +388,11 @@ const desktop: DesktopApi = {
   openThemesFolder: (kind) => ipcRenderer.invoke("theme:open-folder", kind),
   setupState: () => ipcRenderer.invoke("setup:state"),
   saveSetup: (patch) => ipcRenderer.invoke("setup:save", patch),
+  environmentState: () => ipcRenderer.invoke("environment:state"),
+  saveEnvironment: (change) => ipcRenderer.invoke("environment:save", change),
+  removeEnvironment: (scope, name) => ipcRenderer.invoke("environment:remove", scope, name),
+  readShellEnvironment: () => ipcRenderer.invoke("environment:read-shell"),
+  importEnvironment: (names) => ipcRenderer.invoke("environment:import", [...names]),
   codeSuggestions: () => ipcRenderer.invoke("setup:code-suggestions"),
   scanCode(id, folder, onProgress) {
     const listener = (_event: IpcRendererEvent, scan: unknown, progress: unknown) => {

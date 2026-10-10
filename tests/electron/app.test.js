@@ -681,6 +681,11 @@ test("terminal runs an interactive shell behind an isolated bridge", {
           "openThemesFolder",
           "setupState",
           "saveSetup",
+          "environmentState",
+          "saveEnvironment",
+          "removeEnvironment",
+          "readShellEnvironment",
+          "importEnvironment",
           "codeSuggestions",
           "scanCode",
           "applyRepositories",
@@ -1116,6 +1121,62 @@ test("closing with an exited terminal quits without confirmation", {
           .close();
     }),
   );
+});
+
+test("Environment settings reach a launched shell; main refuses reserved names", {
+  timeout: deadline(45_000),
+}, async (context) => {
+  const app = await launchApp(context, false);
+  const page = await boardPage(app);
+  await page.waitForFunction(() => typeof window.desktop?.saveEnvironment === "function");
+  const refused = await page.evaluate(() =>
+    window.desktop
+      .saveEnvironment({
+        scope: "all",
+        previous: null,
+        name: "FOOM_CONTROL_TOKEN",
+        value: "x",
+        secret: false,
+      })
+      .then(
+        () => "saved",
+        (error) => String(error),
+      ),
+  );
+  assert.match(refused, /FOOM_CONTROL_TOKEN is reserved by Foom/);
+  const state = await page.evaluate(async () => {
+    const save = (scope, name, value) =>
+      window.desktop.saveEnvironment({ scope, previous: null, name, value, secret: false });
+    await save("all", "HTTPS_PROXY", "http://127.0.0.1:9");
+    await save("all", "NO_PROXY", ".corp.example");
+    await save("codex", "AGENT_ONLY_215", "codex");
+    return window.desktop.environmentState();
+  });
+  assert.deepEqual(
+    state.lists.all.map((row) => row.name),
+    ["HTTPS_PROXY", "NO_PROXY"],
+  );
+  const id = await page.evaluate(async () => {
+    const terminal = await window.desktop.create(80, 24);
+    window.environmentExited = false;
+    window.desktop.onExit((exited) => {
+      if (exited === terminal.id) window.environmentExited = true;
+    });
+    return terminal.id;
+  });
+  const command =
+    process.platform === "win32"
+      ? 'Write-Output ("ENV_" + "READ:" + $env:HTTPS_PROXY + "|" + $env:NO_PROXY + "|" + $env:AGENT_ONLY_215 + "|")'
+      : 'printf \'ENV_%s:%s|%s|%s|\\n\' READ "$HTTPS_PROXY" "$NO_PROXY" "$AGENT_ONLY_215"';
+  await page.evaluate(({ id, command }) => window.desktop.input(id, command + "; exit\r"), {
+    id,
+    command,
+  });
+  await page.waitForFunction(() => window.environmentExited);
+  const line = (await page.evaluate((id) => window.desktop.tail(id, 40), id)).find((entry) =>
+    entry.startsWith("ENV_READ:"),
+  );
+  assert.equal(line, "ENV_READ:http://127.0.0.1:9|.corp.example,localhost,127.0.0.1,::1||");
 });
 
 test("utility host survives output floods without losing rows or delaying another PTY", {

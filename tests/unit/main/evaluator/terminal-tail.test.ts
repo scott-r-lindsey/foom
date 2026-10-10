@@ -1,6 +1,10 @@
 import { generateKeyPairSync } from "node:crypto";
 import { expect, it } from "vitest";
-import { prepareTail } from "../../../../src/main/evaluator/terminal-tail";
+import {
+  addTailSecrets,
+  clearTailSecrets,
+  prepareTail,
+} from "../../../../src/main/evaluator/terminal-tail";
 
 it("returns at most 40 physical lines and handles CRLF and embedded newlines", () => {
   const lines = Array.from({ length: 60 }, (_, i) => `line ${String(i)}`);
@@ -119,4 +123,20 @@ it("handles multiple complete and headerless blocks without leaking earlier mate
       "Continue?",
     ]).split("\n"),
   ).toEqual([...Array<string>(8).fill("[REDACTED PRIVATE KEY]"), "Continue?"]);
+});
+
+it("redacts every Environment secret literally, longest first, for the life of the app", () => {
+  addTailSecrets(["hunter2-long", "hunter2", "", "proxy-user:hunter2"]);
+  addTailSecrets(["ab"]);
+  try {
+    expect(prepareTail(["echo hunter2 and hunter2-long", "via proxy-user:hunter2 ab"])).toBe(
+      "echo [REDACTED SECRET] and [REDACTED SECRET]\nvia [REDACTED SECRET] [REDACTED SECRET]",
+    );
+    // A later settings change adds values; replaced secrets stay redacted.
+    addTailSecrets(["other"]);
+    expect(prepareTail(["hunter2 other"])).toBe("[REDACTED SECRET] [REDACTED SECRET]");
+  } finally {
+    clearTailSecrets();
+  }
+  expect(prepareTail(["hunter2"])).toBe("hunter2");
 });

@@ -9,7 +9,16 @@ export const CODEX_EVENTS = [
   "Stop",
 ] as const;
 
-/** Bump the observer version when its behavior changes: Codex hashes definitions, not files. */
+/**
+ * Bump a platform's observer version when its behavior changes: Codex hashes definitions,
+ * not files. Windows v2 bypasses proxies explicitly.
+ */
+export const CODEX_OBSERVER_VERSIONS = { posix: 1, win32: 2 } as const;
+
+export function codexObserverFile(platform: "posix" | "win32"): string {
+  return `codex-v${String(CODEX_OBSERVER_VERSIONS[platform])}.${platform === "win32" ? "ps1" : "sh"}`;
+}
+
 export function codexObserverCommand(
   platform: NodeJS.Platform = process.platform,
   directory = join(__dirname, "../../observers").replace(
@@ -17,7 +26,7 @@ export function codexObserverCommand(
     `app.asar.unpacked${sep}`,
   ),
 ): string {
-  const script = join(directory, `codex-v1.${platform === "win32" ? "ps1" : "sh"}`);
+  const script = join(directory, codexObserverFile(platform === "win32" ? "win32" : "posix"));
   if (platform === "win32") {
     // An encoded, fixed invocation survives both cmd.exe and PowerShell parsing.
     const invocation = `& '${script.replaceAll("'", "''")}' codex`;
@@ -36,7 +45,7 @@ export function codexHookArguments(command: string): string[] {
 /** No output, no decisions, and no stdin read or network request without launch credentials. */
 export function codexObserverSource(platform: "posix" | "win32"): string {
   if (platform === "win32")
-    return `# Foom observe-only Codex hook v1.
+    return `# Foom observe-only Codex hook v2.
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 if (!$env:FOOM_HOOK_URL -or !$env:FOOM_SESSION -or !$env:FOOM_TOKEN) { exit 0 }
@@ -44,7 +53,10 @@ try {
   [Console]::InputEncoding = New-Object System.Text.UTF8Encoding($false)
   $payload = [Console]::In.ReadToEnd()
   $headers = @{ 'Authorization' = $env:FOOM_TOKEN; 'X-Foom-Session' = $env:FOOM_SESSION }
-  Invoke-WebRequest -UseBasicParsing -Method Post -Uri $env:FOOM_HOOK_URL -Headers $headers -ContentType 'application/json' -Body ([System.Text.Encoding]::UTF8.GetBytes($payload)) -TimeoutSec 1 | Out-Null
+  # Loopback only: never use a system or environment proxy (5.1 lacks -NoProxy).
+  $direct = @{}
+  if ($PSVersionTable.PSVersion.Major -ge 6) { $direct['NoProxy'] = $true } else { [System.Net.WebRequest]::DefaultWebProxy = New-Object System.Net.WebProxy }
+  Invoke-WebRequest @direct -UseBasicParsing -Method Post -Uri $env:FOOM_HOOK_URL -Headers $headers -ContentType 'application/json' -Body ([System.Text.Encoding]::UTF8.GetBytes($payload)) -TimeoutSec 1 | Out-Null
 } catch { }
 exit 0
 `;

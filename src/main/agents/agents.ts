@@ -5,6 +5,7 @@ import { codexHookArguments } from "./codex-hooks";
 import { resumeArguments } from "./conversation";
 import type { ControlLaunch } from "../control/types";
 import { parseAgentArguments } from "./default-arguments";
+import { buildLaunchEnvironment, inheritedEnvironment } from "../setup/environment";
 import { execFile } from "node:child_process";
 import { constants } from "node:fs";
 import { access, stat } from "node:fs/promises";
@@ -16,6 +17,7 @@ import type {
   AgentId,
   AgentInstallation,
   AgentLaunch,
+  AgentLaunched,
   AgentScan,
 } from "../../shared/agents";
 import type { TerminalSpec } from "../../shared/desktop";
@@ -195,7 +197,7 @@ export class AgentService {
     return result;
   }
 
-  async launch(request: AgentLaunch): Promise<{ id: string; attention: "hooks" | "evaluator" }> {
+  async launch(request: AgentLaunch): Promise<AgentLaunched> {
     this.ensureOpen();
     if (!ids.includes(request.agent)) throw new Error("Unknown agent");
     if (
@@ -222,9 +224,7 @@ export class AgentService {
     }
   }
 
-  private async start(
-    request: AgentLaunch,
-  ): Promise<{ id: string; attention: "hooks" | "evaluator" }> {
+  private async start(request: AgentLaunch): Promise<AgentLaunched> {
     const defaults = parseAgentArguments(request.agent, request.defaultArguments ?? []);
     const resume =
       request.conversationId === undefined
@@ -297,6 +297,13 @@ export class AgentService {
           if (notify) args.push("-c", `notify=${JSON.stringify(binding.codexCommand)}`);
         }
       }
+      const environment = buildLaunchEnvironment({
+        layers: request.environment ?? [],
+        base: inheritedEnvironment(),
+        path: scan.path,
+        pathFirst: control?.env["FOOM_CLI_DIRECTORY"],
+        foom: { ...control?.env, ...binding?.env },
+      });
       const id = await this.terminals.create({
         ...(request.terminalId === undefined ? {} : { id: request.terminalId }),
         command: agent.path,
@@ -304,13 +311,7 @@ export class AgentService {
         cwd: request.worktree,
         cols: request.cols,
         rows: request.rows,
-        env: {
-          ...control?.env,
-          ...binding?.env,
-          PATH: control?.env["FOOM_CLI_DIRECTORY"]
-            ? `${control.env["FOOM_CLI_DIRECTORY"]}${delimiter}${scan.path}`
-            : scan.path,
-        },
+        env: environment.env,
       });
       this.ensureOpen();
       if (this.earlyExits.has(id)) {
@@ -319,7 +320,11 @@ export class AgentService {
         mcp?.dispose();
         control?.dispose();
         binding?.dispose();
-        return { id, attention: binding ? "hooks" : "evaluator" };
+        return {
+          id,
+          attention: binding ? "hooks" : "evaluator",
+          ...(environment.names.length ? { environment: environment.names } : {}),
+        };
       }
       this.launched.set(id, request.worktree);
       if (mcp) this.mcpBindings.set(id, mcp);
@@ -331,7 +336,11 @@ export class AgentService {
         this.bindings.set(id, binding);
         binding.bind?.(id);
       }
-      return { id, attention: binding ? "hooks" : "evaluator" };
+      return {
+        id,
+        attention: binding ? "hooks" : "evaluator",
+        ...(environment.names.length ? { environment: environment.names } : {}),
+      };
     } catch (error) {
       mcp?.dispose();
       control?.dispose();

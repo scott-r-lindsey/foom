@@ -1,3 +1,4 @@
+import type { EnvironmentApi } from "./environment";
 import type { WindowsApi } from "./windows";
 import type { SoundApi } from "./sound";
 import type { AppMenuApi } from "./app-menu";
@@ -30,7 +31,7 @@ export interface TerminalSpec {
 import type { SetupApi } from "./setup";
 import type { WorkspaceApi } from "./workspace";
 
-export interface DesktopApi extends WorkspaceApi, SetupApi {
+export interface DesktopApi extends WorkspaceApi, SetupApi, EnvironmentApi {
   windows?: WindowsApi;
   sounds: SoundApi;
   readonly isDevelopment: boolean;

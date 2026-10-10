@@ -1,16 +1,36 @@
 /** Likely-secret redaction, not a guarantee for arbitrary unlabelled secrets. */
+let secrets: readonly string[] = [];
+
+/**
+ * Adds literal values to remove from every tail: Environment secrets and proxy URL
+ * credentials. Values are kept for the life of the app, because running sessions and
+ * their output keep a secret after Settings replaces or removes it.
+ */
+export function addTailSecrets(values: readonly string[]): void {
+  secrets = [...new Set([...secrets, ...values.filter((value) => value !== "")])].sort(
+    (a, b) => b.length - a.length,
+  );
+}
+
+/** For tests only: forget every literal secret. */
+export function clearTailSecrets(): void {
+  secrets = [];
+}
+
 export function prepareTail(tail: readonly string[]): string {
   const raw = tail.join("\n").replace(/\r\n?/g, "\n");
   if (raw.length > 131_072) throw new Error("Tail too large");
   // The host may already have removed either PEM marker when selecting its tail.
   // Preserve physical lines throughout redaction so trimming never expands that boundary.
-  const redacted = raw
+  const visible = raw
     .split("")
     .filter(
       (char) =>
         char === "\n" || char === "\t" || (char.charCodeAt(0) >= 32 && char.charCodeAt(0) !== 127),
     )
-    .join("")
+    .join("");
+  const redacted = secrets
+    .reduce((text, secret) => text.split(secret).join("[REDACTED SECRET]"), visible)
     .replace(
       /-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?(?:-----END [A-Z ]*PRIVATE KEY-----|$)/g,
       redactPrivateKey,

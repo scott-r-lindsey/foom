@@ -446,6 +446,20 @@ continue, session-ID and fork-session flags; Codex `resume`/`fork` commands and
 defaults from redirecting Resume or turning New conversation into a continuation.
 Other agent arguments retain the existing validation and literal argv behavior.
 
+Settings → Environment sets environment variables for **All sessions** (every
+shell and agent) and for each agent, edited in place: a name, a value and a
+**Secret** toggle per row, and a blank row to add one. A valid row saves when focus
+leaves it and applies to new sessions; running sessions keep theirs. Agent rows
+override All sessions for that agent. `PATH` only prepends directories. A proxy URL
+with credentials is always secret. Secrets are stored with the system keychain, shown
+masked with **Replace**, and never shown again. Main refuses reserved names (`FOOM_*`,
+`CLAUDECODE`, `TERM`, `COLORTERM`, `TERM_PROGRAM`) and names that load code, with the
+reason beside the row. With any proxy set, Foom appends `localhost,127.0.0.1,::1` to
+`NO_PROXY` so its own endpoints stay direct. **Import from login shell** offers only
+proxy and certificate variables and adds only the ones picked. A session's panel
+lists the names Foom set, never values. The config folder cannot set environment
+variables. See [the launch environment](architecture.md#launch-environment-215).
+
 Settings → Appearance also offers **Panel color: Vivid / Subtle / Plain**,
 with Vivid as the default. It scales header, mark, command-column, chip-fill and
 glow decoration only. Status text and outlines retain color and words. High

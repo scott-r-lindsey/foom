@@ -44,6 +44,8 @@ export interface WorkspaceTerminal {
   startedAt?: number;
   exitCode?: number | undefined;
   launchFlags?: readonly string[];
+  /** Names of the variables Foom set from Environment settings; never values. */
+  environment?: readonly string[];
 }
 
 export interface WorkspaceSnapshot {

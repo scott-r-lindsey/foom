@@ -1,3 +1,4 @@
+import type { EnvironmentVariable } from "./environment";
 import type { AgyPluginStatus } from "./agy-plugin";
 export type CodexHookState = "not-reviewed" | "trusted" | "declined" | "outdated";
 export type AgentId = "claude" | "codex" | "agy";
@@ -48,4 +49,12 @@ export interface AgentLaunch {
   readonly rows: number;
   /** UI must disclose that Foom replaces the user's notifier for this invocation. */
   readonly acknowledgeCodexNotifierReplacement?: boolean;
+  /** Main-only Environment layers (All sessions, then this agent's); never from IPC. */
+  readonly environment?: readonly (readonly EnvironmentVariable[])[];
+}
+export interface AgentLaunched {
+  readonly id: string;
+  readonly attention: "hooks" | "evaluator";
+  /** Names of the variables Foom set from Environment settings; never values. */
+  readonly environment?: readonly string[];
 }
