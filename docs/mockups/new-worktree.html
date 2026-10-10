@@ -9,8 +9,8 @@
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo+Black&family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500;600&display=swap">
 <style>
 /* New worktree without a dialog: choosing New worktree in a repository's panel puts a
-   field next to it, in the same panel. Enter creates the worktree, the panel then offers
-   its launchers, and Enter again starts one. Colors are the brand tokens; the panel
+   field next to it, in the same panel. Enter creates the worktree and starts nothing; the
+   panel closes and the new row arrives in the sidebar. Colors are the brand tokens; the panel
    follows .sidebar-panel in src/renderer/styles/board.css. */
 :root {
   --bg: #f3f0fa; --surface: #e9e4f5; --line: #ddd6ee; --ink: #14101f; --muted: #625a7a;
@@ -72,7 +72,16 @@ button { cursor: pointer; }
 .trow .more:hover, .trow.open .more { border-color: var(--line); color: var(--ink); }
 .trow.wt { padding-left: 24px; font: 12px var(--mono); color: var(--muted); }
 .trow.wt svg { width: 12px; height: 12px; fill: none; stroke: currentColor; stroke-width: 1.2; flex-shrink: 0; }
-.trow.wt.fresh { color: var(--ink); background: color-mix(in srgb, var(--select) 60%, transparent); }
+.trow.wt:focus-visible { outline-offset: -2px; }
+/* Arrival: the row opens its own space, then flares twice in the accent and keeps a quiet
+   tint and edge until it is hovered or focused. Not amber: nothing needs the user yet. */
+.trow.wt.fresh { position: relative; color: var(--ink); background: var(--select); box-shadow: inset 2px 0 0 var(--highlight); animation: arrive 220ms cubic-bezier(.2, .8, .2, 1) both, flare 900ms ease-out 220ms 2; }
+.trow.wt.fresh::after { content: ""; position: absolute; inset: 0; border-radius: inherit; background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--highlight) 45%, transparent), transparent); background-size: 50% 100%; background-repeat: no-repeat; animation: sweep 700ms ease-out 220ms both; pointer-events: none; }
+.trow.wt.fresh svg { color: var(--highlight); }
+@keyframes arrive { from { height: 0; opacity: 0; transform: translateX(-10px); } }
+@keyframes flare { 0% { box-shadow: inset 2px 0 0 var(--highlight), 0 0 0 0 color-mix(in srgb, var(--highlight) 55%, transparent); } 100% { box-shadow: inset 2px 0 0 var(--highlight), 0 0 0 8px transparent; } }
+@keyframes sweep { from { background-position: -100% 0; } to { background-position: 200% 0; opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .trow.wt.fresh, .trow.wt.fresh::after { animation: none; } }
 .srow { display: flex; gap: 8px; padding: 4px 6px 6px 42px; }
 .srow .lines { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
 .srow .top { font: 12px var(--mono); }
@@ -129,16 +138,6 @@ button { cursor: pointer; }
 .what .new { color: var(--accent); }
 .what.err { font: 12px var(--sans); color: var(--failed-ink); }
 .what.err::before { content: ""; width: 7px; height: 7px; border-radius: 1px; background: var(--failed); }
-.made { display: flex; align-items: center; gap: 8px; height: 34px; padding: 0 10px; font: 13px var(--mono); }
-.made .ok { color: var(--done-ink); }
-.made .what { margin-left: auto; }
-.launch { display: flex; flex-direction: column; gap: 1px; padding: 4px 0; }
-.launch button { display: flex; align-items: center; gap: 10px; min-height: 32px; padding: 4px 8px; background: transparent; border: 0; border-radius: 6px; text-align: left; font-size: 13px; }
-.launch button:hover, .launch button:focus-visible { background: var(--raised-hover); outline: none; box-shadow: inset 2px 0 0 var(--highlight); }
-.launch button:disabled { opacity: .45; cursor: default; }
-.launch .k { margin-left: auto; font: 11px var(--mono); color: var(--muted); }
-.disclose { display: flex; gap: 8px; align-items: flex-start; padding: 6px 8px; font-size: 12px; color: var(--ink); }
-.disclose input { accent-color: var(--accent); margin: 2px 0 0; }
 
 /* Mockup controls, not product UI. */
 .mock { position: absolute; right: 14px; bottom: 12px; z-index: 50; display: flex; gap: 14px; align-items: center; padding: 6px 10px; border: 1px dashed var(--line); border-radius: 6px; background: var(--surface); font: 11px var(--mono); color: var(--muted); }
@@ -161,7 +160,6 @@ button { cursor: pointer; }
   </main>
   <div class="note">⋯ on a repository, or ⌘T / Ctrl+Shift+T for the focused tile's repository.</div>
   <div class="mock" aria-label="Mockup controls">
-    <label>Codex disclosure <select id="m-disc"><option value="0">Not needed</option><option value="1">Needed</option></select></label>
     <button id="m-reset">Reset</button>
     <label>Theme <select id="m-theme"><option value="">System</option><option value="light">Light</option><option value="dark">Dark</option></select></label>
   </div>
@@ -193,22 +191,16 @@ const REPO = {
   remote: ["codex/issue-221", "codex/issue-222"],
 };
 const CONVENTIONAL = ["feat/", "fix/", "chore/", "docs/", "refactor/", "test/", "ci/"];
-/* Launchers in last-used order, as the checkout panels list them. */
-const AGENTS = [
-  { id: "codex", mark: "CX", label: "Codex" },
-  { id: "claude", mark: "CC", label: "Claude Code" },
-  { id: "agy", mark: "AG", label: "Antigravity", missing: true },
-  { id: "shell", mark: ">_", label: "Shell (zsh)" },
-];
 const worktrees = [["main", "Main checkout"], ["codex/issue-226", null], ["docs/environment-mockup", null]];
-let fresh = "", launched = null;
+let fresh = "";
 
 function tree() {
   $("#tree").innerHTML = `<div class="trow repo" id="repo-row"><span class="chev">▾</span><span class="name">foom</span><button class="more" id="more" aria-label="foom commands" aria-haspopup="dialog" title="Commands">⋯</button></div>`
-    + worktrees.map(([b, main]) => `<div class="trow wt${b === fresh ? " fresh" : ""}">${WT}<span class="name">${main ? `${main} · ${b}` : esc(b)}</span></div>${
-      b === "codex/issue-226" ? '<div class="srow"><span class="light working"></span><span class="badge">CX</span><div class="lines"><div class="top">codex/issue-226</div><div class="reason">Running npm run check</div></div></div>' : ""}${
-      b === fresh && launched ? `<div class="srow"><span class="light working"></span><span class="badge">${launched.mark}</span><div class="lines"><div class="top">${esc(b)}</div><div class="reason">Starting</div></div></div>` : ""}`).join("");
+    + worktrees.map(([b, main]) => `<div class="trow wt${b === fresh ? " fresh" : ""}" tabindex="-1" data-b="${esc(b)}">${WT}<span class="name">${main ? `${main} · ${b}` : esc(b)}</span></div>${
+      b === "codex/issue-226" ? '<div class="srow"><span class="light working"></span><span class="badge">CX</span><div class="lines"><div class="top">codex/issue-226</div><div class="reason">Running npm run check</div></div></div>' : ""}`).join("");
   $("#more").addEventListener("click", () => (panelOpen() ? closePanel() : openPanel()));
+  const f = $(".trow.wt.fresh");
+  if (f) for (const ev of ["pointerenter", "blur"]) f.addEventListener(ev, settle, { once: true });
 }
 
 /* Completion candidates: the repository's own prefixes first, then its branches. */
@@ -357,53 +349,25 @@ function fieldKeys(e) {
   }
 }
 
-/* Step 2: the worktree exists; its launchers follow in the same place. */
+/* Step 2: the worktree exists and nothing runs in it. The panel closes so the new row
+   is seen arriving; focus moves to it, so Enter or ⋯ opens its launchers as usual.
+   A branch already checked out elsewhere creates nothing: its row is the one that flares. */
 function create(branch, o) {
   $("#branch").disabled = true;
-  $("#what").innerHTML = o.kind === "open" ? `Opening ${REPO.local[branch]}…` : o.kind === "new" ? `Creating from ${REPO.head}…` : "Checking out…";
+  $("#what").innerHTML = o.kind === "new" ? `Creating from ${REPO.head}…` : o.kind === "open" ? "" : "Checking out…";
   setTimeout(() => {
-    const where = o.kind === "open" ? `in ${REPO.local[branch]}` : o.kind === "new" ? `new, from ${REPO.head}` : o.kind === "origin" ? "tracking origin" : "existing";
-    if (o.kind !== "open") {
-      REPO.local[branch] = `foom-${branch.split("/").pop()}`;
-      worktrees.push([branch, null]);
-    }
+    if (o.kind !== "open") REPO.local[branch] = `foom-${branch.split("/").pop()}`;
+    if (!worktrees.some(([b]) => b === branch)) worktrees.push([branch, null]);
+    closePanel();
     fresh = branch;
     tree();
-    $("#repo-row").classList.add("open");
-    $("#nw").innerHTML = `<div class="made"><span class="ok" aria-hidden="true">✓</span>${esc(branch)}<span class="what">${where}</span></div>
-      <div class="launch" role="menu" aria-label="Start in ${esc(branch)}">
-        ${AGENTS.map((ag) => `<button role="menuitem" data-a="${ag.id}" ${ag.missing ? "disabled" : ""}><span class="badge">${ag.mark}</span>${ag.label}${ag.missing ? '<span class="k">not found</span>' : ""}</button>`).join("")}
-      </div><div id="disc"></div>`;
-    const bs = [...document.querySelectorAll(".launch button:not(:disabled)")];
-    const disclose = () => {
-      const need = document.activeElement?.dataset?.a === "codex" && $("#m-disc").value === "1";
-      if (need && $("#ack")) return;
-      $("#disc").innerHTML = need ? '<label class="disclose"><input type="checkbox" id="ack">Foom replaces your Codex notifier for this launch. Your global config is unchanged.</label>' : "";
-    };
-    $(".launch").addEventListener("focusin", disclose);
-    bs[0].focus();
-    $(".launch").addEventListener("keydown", (e) => {
-      const i = bs.indexOf(document.activeElement);
-      if (e.key === "ArrowDown") { e.preventDefault(); bs[(i + 1) % bs.length].focus(); }
-      if (e.key === "ArrowUp") { e.preventDefault(); bs[(i - 1 + bs.length) % bs.length].focus(); }
-    });
-    $(".launch").addEventListener("click", (e) => {
-      const b = e.target.closest("button[data-a]");
-      if (!b) return;
-      if (b.dataset.a === "codex" && $("#ack") && !$("#ack").checked) { $("#ack").focus(); return; }
-      launch(AGENTS.find((ag) => ag.id === b.dataset.a), branch);
-    });
-  }, 500);
+    $(".trow.wt.fresh").focus({ preventScroll: true });
+    $(".trow.wt.fresh").scrollIntoView({ block: "nearest" });
+  }, o.kind === "open" ? 0 : 500);
 }
-function launch(agent, branch) {
-  launched = agent;
-  closePanel();
-  tree();
-  const t = $("#t2");
-  document.querySelectorAll(".tile").forEach((x) => x.classList.remove("focus"));
-  t.classList.add("focus");
-  t.querySelector(".tb").innerHTML = `<span class="no">2</span>${esc(branch)}`;
-  t.querySelector(".term").innerHTML = `<b>${agent.id === "shell" ? "$" : agent.label}</b>`;
+/* The tint and edge clear once the user has looked: on hover, or when focus leaves the row. */
+function settle(e) {
+  setTimeout(() => { fresh = ""; $(".trow.wt.fresh")?.classList.remove("fresh"); }, e.type === "blur" ? 0 : 600);
 }
 
 document.addEventListener("pointerdown", (e) => { if (panelOpen() && !e.target.closest(".panel, #more")) closePanel(); });
