@@ -3,6 +3,7 @@ export type BoardCommand =
   | "next-waiting"
   | "settings"
   | "new-worktree"
+  | "add-repository"
   | "preset-one"
   | "preset-columns"
   | "preset-rows"

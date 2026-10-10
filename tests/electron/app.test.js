@@ -4886,13 +4886,19 @@ test("external Git changes refresh inventory and retain sessions in removed work
 });
 
 test("application menu uses the command registry and supports native keyboard access", {
-  timeout: deadline(45000),
+  timeout: deadline(60000),
 }, async (context) => {
   const app = await launchApp(context);
   const page = await boardPage(app);
-  const commands = await page.evaluate(() => window.desktop.appMenu.commands());
-  assert.ok(commands.some((item) => item.id === "reload"));
-  assert.equal(commands.find((item) => item.id === "new-window").enabled, true);
+  const mac = process.platform === "darwin";
+  const entries = await page.evaluate(() => window.desktop.appMenu.commands());
+  assert.ok(entries.some((entry) => entry?.id === "reload"));
+  assert.equal(entries.find((entry) => entry?.id === "new-window").enabled, true);
+  // Disabled entries are refused through IPC as well as in the menu.
+  await assert.rejects(
+    page.evaluate(() => window.desktop.appMenu.execute("via-claude")),
+    /Unavailable app command/,
+  );
   if (process.platform === "darwin") {
     const labels = await app.evaluate(({ Menu }) =>
       Menu.getApplicationMenu().items.map((item) => item.label),
@@ -4926,13 +4932,13 @@ test("application menu uses the command registry and supports native keyboard ac
       "menu edit probe",
     );
     await page.keyboard.press("Escape");
-    return;
   }
-  assert.equal(await app.evaluate(({ Menu }) => Menu.getApplicationMenu()), null);
+  if (!mac) assert.equal(await app.evaluate(({ Menu }) => Menu.getApplicationMenu()), null);
   const trigger = page.getByRole("button", { name: "Foom menu" });
   await trigger.click();
   const menu = page.getByRole("menu", { name: "Foom" });
   await expect(menu).toBeVisible();
+  await expect(trigger).toHaveAttribute("aria-expanded", "true");
   await page.evaluate(() =>
     Promise.all(
       Array.from(document.querySelectorAll(".row-menu, .row-menu button")).flatMap((element) =>
@@ -4949,35 +4955,104 @@ test("application menu uses the command registry and supports native keyboard ac
       animations: "disabled",
     });
   }
-  await expect(page.getByRole("menuitem", { name: /^New Window/ })).toBeEnabled();
+  await expect(page.getByRole("menuitem", { name: /^New window/ })).toBeEnabled();
+  await expect(
+    page.getByRole("menuitem", { name: "New orchestrator…", exact: true }),
+  ).toBeDisabled();
+  await expect(page.getByRole("menuitem", { name: "Action log", exact: true })).toBeDisabled();
+  await expect(page.getByRole("menuitem", { name: /^(Paste|Focus|Swap|Two by two)/ })).toHaveCount(
+    0,
+  );
   await page.keyboard.press("End");
-  await expect(page.getByRole("menuitem", { name: /Toggle Developer Tools/ })).toBeFocused();
+  await expect(page.getByRole("menuitem", { name: /^Quit Foom/ })).toBeFocused();
   await page.keyboard.press("Home");
-  await expect(page.getByRole("menuitem", { name: "About Foom", exact: true })).toBeFocused();
+  await expect(page.getByRole("menuitem", { name: /^New window/ })).toBeFocused();
   await page.keyboard.press("Escape");
   await expect(menu).not.toBeVisible();
   await expect(trigger).toBeFocused();
-  for (const key of ["F10", "Alt"]) {
-    await app.evaluate(({ BrowserWindow }, keyCode) => {
-      const window = BrowserWindow.getAllWindows().find(
-        (window) => window.webContents.getURL() === "app://bundle/index.html",
-      );
-      window.focus();
-      for (const type of ["keyDown", "keyUp"]) window.webContents.sendInputEvent({ type, keyCode });
-    }, key);
+  const settings = page.getByRole("menuitem", { name: "Settings", exact: true });
+  for (const key of mac ? ["click"] : ["F10", "Alt"]) {
+    if (key === "click") await trigger.click();
+    else
+      await app.evaluate(({ BrowserWindow }, keyCode) => {
+        const window = BrowserWindow.getAllWindows().find(
+          (window) => window.webContents.getURL() === "app://bundle/index.html",
+        );
+        window.focus();
+        for (const type of ["keyDown", "keyUp"])
+          window.webContents.sendInputEvent({ type, keyCode });
+      }, key);
     await expect(menu).toBeVisible();
-    await page.keyboard.press("ArrowDown");
+    // New window, New worktree, Add repository; New orchestrator is skipped.
+    for (let step = 0; step < 3; step++) await page.keyboard.press("ArrowDown");
+    await expect(settings).toBeFocused();
+    await page.keyboard.press("ArrowRight");
+    await expect(settings).toHaveAttribute("aria-expanded", "true");
+    await expect(page.getByRole("menuitem", { name: /^Via Settings UI/ })).toBeFocused();
     await page.keyboard.press("Enter");
     await expect(page.getByRole("heading", { name: "Settings", exact: true })).toBeVisible();
+    await expect(menu).toHaveCount(0);
     await page.getByRole("button", { name: "Back to terminal · Esc" }).click();
   }
-  assert.equal(
-    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].isMenuBarVisible()),
-    false,
-  );
+  // A disabled agent route does nothing when clicked.
+  await trigger.click();
+  await settings.hover();
+  const submenu = page.getByRole("menu", { name: "Settings" });
+  await expect(submenu).toBeVisible();
+  const claude = submenu.getByRole("menuitem", { name: /Via Claude Code/ });
+  await expect(claude).toBeDisabled();
+  await claude.click({ force: true });
+  await expect(submenu).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Settings", exact: true })).toHaveCount(0);
+  await page.keyboard.press("Escape");
+  await expect(menu).toHaveCount(0);
+  // Size steps the interface size and the menu stays open.
+  const zoom = () =>
+    app.evaluate(({ BrowserWindow }) =>
+      BrowserWindow.getAllWindows()
+        .find((window) => window.webContents.getURL() === "app://bundle/index.html")
+        .webContents.getZoomFactor(),
+    );
+  await trigger.click();
+  const size = page.getByRole("group", { name: /^Size/ });
+  await expect(size).toContainText("100%");
+  await page.getByRole("menuitem", { name: "Bigger interface" }).click();
+  await expect(size).toContainText("110%");
+  await expect.poll(zoom).toBeCloseTo(1.1);
+  await expect(menu).toBeVisible();
+  await page.getByRole("menuitem", { name: "Smaller interface" }).click();
+  await expect(size).toContainText("100%");
+  await expect.poll(zoom).toBeCloseTo(1);
+  await page.keyboard.press("Escape");
+  await expect(menu).toHaveCount(0);
+  // The shortcut sheet opens from its binding and from the menu, and returns focus.
+  const filter = page.getByRole("textbox", { name: "Filter repositories and sessions" });
+  await filter.focus();
+  await boardCommand(app, "/", !mac);
+  const sheet = page.getByRole("dialog", { name: "Keyboard shortcuts" });
+  await expect(sheet).toBeVisible();
+  await expect(sheet.getByRole("heading", { name: /^Tiles/ })).toBeVisible();
+  await expect(sheet).toContainText(mac ? "⌘/" : "Ctrl+Shift+/");
+  await assertAccessible(page);
+  await page.keyboard.press("Escape");
+  await expect(sheet).toHaveCount(0);
+  await expect(filter).toBeFocused();
+  await trigger.click();
+  await page.getByRole("menuitem", { name: /^Keyboard shortcuts/ }).click();
+  await expect(sheet).toBeVisible();
+  await page.mouse.click(4, 4);
+  await expect(sheet).toHaveCount(0);
+  await expect(filter).toBeFocused();
+  if (!mac)
+    assert.equal(
+      await app.evaluate(({ BrowserWindow }) =>
+        BrowserWindow.getAllWindows()[0].isMenuBarVisible(),
+      ),
+      false,
+    );
 });
 
-test("application menu restores the edit target and selection before Paste", {
+test("commands removed from the wordmark menu keep their shortcuts", {
   timeout: deadline(45000),
   skip: process.platform === "darwin",
 }, async (context) => {
@@ -4987,47 +5062,16 @@ test("application menu restores the edit target and selection before Paste", {
   await filter.fill("before");
   await filter.evaluate((input) => input.setSelectionRange(2, 5));
   await app.evaluate(({ clipboard }) => clipboard.writeText("AFTER"));
-  await page.getByRole("button", { name: "Foom menu" }).click();
-  await page.getByRole("menuitem", { name: /^Paste/ }).click();
+  await boardCommand(app, "V");
   await expect(filter).toHaveValue("beAFTERe");
-  await expect(filter).toBeFocused();
-  await expect(page.getByRole("menu", { name: "Foom" })).toHaveCount(0);
   await filter.evaluate((input) => input.setSelectionRange(2, 7));
   await app.evaluate(({ clipboard }) => clipboard.writeText("STALE"));
-  await page.getByRole("button", { name: "Foom menu" }).click();
-  await page.getByRole("menuitem", { name: /^Copy/ }).click();
+  await boardCommand(app, "C");
   await expect.poll(() => app.evaluate(({ clipboard }) => clipboard.readText())).toBe("AFTER");
-  await expect(filter).toBeFocused();
   await filter.fill("");
-  const input = page.locator(".xterm-helper-textarea");
-  await input.focus();
-  const command =
-    process.platform === "win32"
-      ? 'Write-Output ("MENU_" + "PASTE_TARGET")'
-      : "printf 'MENU_%s\\n' PASTE_TARGET";
-  await app.evaluate(({ clipboard }, text) => clipboard.writeText(text), command);
-  await page.getByRole("button", { name: "Foom menu" }).click();
-  await page.getByRole("menuitem", { name: /^Paste/ }).click();
-  await expect(input).toBeFocused();
-  await page.keyboard.press("Enter");
-  await expect(page.locator(".xterm-rows")).toContainText("MENU_PASTE_TARGET");
-});
-
-test("application menu closes before focus commands and keeps their destination focused", {
-  timeout: deadline(45000),
-  skip: process.platform === "darwin",
-}, async (context) => {
-  const app = await launchApp(context);
-  const page = await boardPage(app);
-  const menu = page.getByRole("menu", { name: "Foom" });
-  const trigger = page.getByRole("button", { name: "Foom menu" });
-  await trigger.click();
-  await page.getByRole("menuitem", { name: /^Focus sidebar/ }).click();
-  await expect(menu).toHaveCount(0);
+  await boardCommand(app, "B");
   await expect(page.locator(".board-row")).toBeFocused();
-  await trigger.click();
-  await page.getByRole("menuitem", { name: /^Focus tile 1 / }).click();
-  await expect(menu).toHaveCount(0);
+  await boardCommand(app, "1", false);
   await expect(page.locator(".xterm-helper-textarea")).toBeFocused();
 });
 

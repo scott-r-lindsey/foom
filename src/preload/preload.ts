@@ -210,6 +210,7 @@ const desktop: DesktopApi = {
     platform: process.platform,
     setView: (state) => ipcRenderer.invoke("app-menu:view", state),
     commands: () => ipcRenderer.invoke("app-menu:list"),
+    shortcuts: () => ipcRenderer.invoke("app-menu:shortcuts"),
     execute: (id) => ipcRenderer.invoke("app-menu:execute", id),
     onOpen(callback) {
       const listener = () => {
@@ -218,6 +219,15 @@ const desktop: DesktopApi = {
       ipcRenderer.on("app-menu:open", listener);
       return () => {
         ipcRenderer.removeListener("app-menu:open", listener);
+      };
+    },
+    onShortcuts(callback) {
+      const listener = () => {
+        callback();
+      };
+      ipcRenderer.on("app-menu:shortcuts", listener);
+      return () => {
+        ipcRenderer.removeListener("app-menu:shortcuts", listener);
       };
     },
     onSession(callback) {
@@ -237,6 +247,7 @@ const desktop: DesktopApi = {
         command === "next-waiting" ||
         command === "settings" ||
         command === "new-worktree" ||
+        command === "add-repository" ||
         command === "preset-one" ||
         command === "preset-columns" ||
         command === "preset-rows" ||

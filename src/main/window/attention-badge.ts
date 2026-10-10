@@ -63,7 +63,7 @@ export function updateAttention(
           id: newWindow.id,
           label: newWindow.label,
           enabled: newWindow.enabled,
-          click: newWindow.run,
+          click: () => void newWindow.run(),
         },
         ...waiting.map((terminal) => ({
           label: `${terminal.agent} · ${terminal.branch ?? terminal.worktree}`,

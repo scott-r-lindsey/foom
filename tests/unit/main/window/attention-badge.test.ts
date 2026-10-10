@@ -40,10 +40,11 @@ test.each(["linux", "win32", "darwin"] as const)(
       focus: vi.fn(),
       webContents: { send: vi.fn() },
     };
+    const native = vi.fn();
     const command = createCommands(platform, false, {
       board: vi.fn(),
       zoom: vi.fn(),
-      native: vi.fn(),
+      native,
     }).find((item) => item.id === "new-window");
     if (!command) throw new Error("Missing command");
     const update = (terminals: WorkspaceTerminal[]) => {
@@ -60,6 +61,10 @@ test.each(["linux", "win32", "darwin"] as const)(
         if (item.click && item.id !== "new-window")
           item.click({} as Electron.MenuItem, undefined, {});
       expect(window.webContents.send).toHaveBeenCalledWith("app-menu:session", "b");
+      (menu as MenuItemConstructorOptions[])
+        .find((item) => item.id === "new-window")
+        ?.click?.({} as Electron.MenuItem, undefined, {});
+      expect(native).toHaveBeenCalledWith("new-window");
       window.isMinimized.mockReturnValue(false);
       const item = (menu as MenuItemConstructorOptions[])[1];
       item?.click?.({} as Electron.MenuItem, undefined, {});
