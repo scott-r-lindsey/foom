@@ -3619,8 +3619,16 @@ test("sidebar menus escape the scroll area, stay in the window and launch from a
   assert.equal(snapshot.terminals[0].branch, "feature/row-17");
   for (const name of ["repo", "Main checkout", "feature/row-17"]) {
     const label = page.getByRole("button", { name, exact: true });
+    const panel = page.getByRole("dialog", { name: `${name} details and commands` });
+    // Scrolling the sidebar closes panels, so settle the scroll before opening one.
+    await label.scrollIntoViewIfNeeded();
+    await page.evaluate(
+      () => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))),
+    );
     await label.click();
+    await expect(panel).toBeVisible();
     await label.press("Enter");
+    await expect(panel).toHaveCount(0);
     await expect(page.locator(".tile-terminal")).toBeVisible();
     await expect(page.locator(".terminal-tile")).not.toHaveAttribute("inert");
     await expect(page.locator(".location-launchers")).toHaveCount(0);

@@ -807,7 +807,6 @@
 }
 
 .row-menu button[data-armed],
-.location-launchers button[data-armed],
 .worktree-dialog button[data-armed] {
   position: relative;
   background: var(--ink);
@@ -818,7 +817,6 @@
   display: none;
 }
 .row-menu button[data-armed]::after,
-.location-launchers button[data-armed]::after,
 .worktree-dialog button[data-armed]::after {
   content: "";
   position: absolute;
@@ -838,7 +836,6 @@
 }
 @media (prefers-reduced-motion: reduce) {
   .row-menu button[data-armed]::after,
-  .location-launchers button[data-armed]::after,
   .worktree-dialog button[data-armed]::after {
     animation: none;
   }

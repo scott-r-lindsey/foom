@@ -279,18 +279,13 @@ test("groups by first repository appearance and preserves row order across verdi
   expect([...groupRows(reordered).values()].flat().map((row) => row.id)).toEqual(before);
 });
 
-test("hover and focus do not request terminal output", async () => {
-  const source = createSampleSource();
-  const tail = vi.fn(() => Promise.resolve([]));
-  source.tail = tail;
-  const view = render(<Board source={source} />);
+test("hover and focus do not preview terminal output", async () => {
+  const view = render(<Board source={createSampleSource()} />);
   const rows = view.container.querySelectorAll(".board-row");
   fireEvent.mouseOver(rows[0] ?? document.body);
   fireEvent.focus(rows[1] ?? document.body);
   await act(async () => {});
-  expect(tail).not.toHaveBeenCalled();
   expect(view.queryByRole("complementary", { name: "Terminal peek" })).toBeNull();
-  await expect(createSampleSource().tail("missing")).resolves.toEqual([]);
 });
 
 test("opening the same waiting row again keeps its output visible", async () => {

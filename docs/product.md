@@ -53,9 +53,9 @@ Session breadcrumbs also call it **Main checkout**. Other worktrees
 have a branch icon. Pins and repository/worktree expansion choices persist.
 Repositories with running sessions start expanded; idle repositories start collapsed.
 With one repository, everything starts expanded.
-Repository, main-checkout and worktree name clicks leave the terminal tiles unchanged.
-Use their chevrons to expand or collapse and their panels for commands; there is no
-separate launcher page.
+Clicking or pressing Enter on a repository, main-checkout or worktree name opens its panel
+and leaves the terminal tiles unchanged; again closes it. Chevrons expand or collapse.
+There is no separate launcher page.
 
 External Git worktree and branch changes refresh the sidebar automatically and when
 the window gains focus. Sessions in a removed checkout stay alive and show a neutral

@@ -116,20 +116,27 @@ test("filters reasons, highlights, clears hidden attention and pins in persisted
   fireEvent.change(input, { target: { value: "feature" } });
   expect(view.container.querySelector(".board-row")).toBeTruthy();
 });
-test("location labels leave terminal tiles unchanged; menus issue location-specific commands", async () => {
+test("location labels open their panels and leave terminal tiles unchanged; menus issue location-specific commands", async () => {
   const view = setup();
   await act(async () => {
     await Promise.resolve();
   });
   const pane = view.getByRole("region", { name: "Terminal pane" });
   const content = pane.innerHTML;
-  fireEvent.click(view.getByRole("button", { name: "Foom" }));
+  const name = view.getByRole("button", { name: "Foom" });
+  fireEvent.click(name);
   expect(pane.innerHTML).toBe(content);
+  expect(name.getAttribute("aria-expanded")).toBe("true");
+  expect(view.getByRole("menuitem", { name: "Pin to top" })).toBeTruthy();
+  fireEvent.click(name);
+  expect(name.getAttribute("aria-expanded")).toBe("false");
   const checkout = view.getByRole("button", { name: "Main checkout" });
   expect(checkout.textContent).toContain("Main checkout");
   expect(checkout.textContent).toContain("main");
   fireEvent.click(checkout);
   expect(pane.innerHTML).toBe(content);
+  expect(checkout.getAttribute("aria-expanded")).toBe("true");
+  fireEvent.click(checkout);
   const filter = view.getByLabelText("Filter repositories and sessions");
   fireEvent.change(filter, { target: { value: "Main checkout" } });
   expect(
@@ -137,8 +144,11 @@ test("location labels leave terminal tiles unchanged; menus issue location-speci
   ).toBe("Main checkout");
   expect(view.queryByRole("button", { name: "feature" })).toBeNull();
   fireEvent.change(filter, { target: { value: "" } });
-  fireEvent.click(view.getByRole("button", { name: "feature" }));
+  const feature = view.getByRole("button", { name: "feature" });
+  fireEvent.click(feature);
   expect(pane.innerHTML).toBe(content);
+  expect(feature.getAttribute("aria-expanded")).toBe("true");
+  fireEvent.click(feature);
   expect(view.command).not.toHaveBeenCalled();
   for (const [label, expected] of [
     ["Claude Code", { kind: "launch", repository: "/foom", worktree: "/tree", run: "claude" }],
@@ -400,6 +410,7 @@ test.each(["shell", "agent"] as const)(
     expect(view.queryByRole("button", { name: "Actions for feature" })).toBeNull();
     fireEvent.click(view.getByRole("button", { name: "feature" }));
     expect(view.container.querySelector(".location-launchers")).toBeNull();
+    expect(view.queryByLabelText("feature details and commands")).toBeNull();
     fireEvent.click(
       view.getByRole("button", {
         name: `Actions for ${kind === "shell" ? "Shell" : "Claude Code"} in feature`,

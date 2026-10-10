@@ -231,6 +231,13 @@ export function Sidebar({
     },
   });
   const currentActions = new Map<string, (RowAction | null)[]>();
+  // A repository or checkout name opens the same panel as its actions button, if it has
+  // one; the tiles stay unchanged.
+  const togglePanel = (id: string, anchor: HTMLElement) => {
+    if (!currentActions.has(id)) return;
+    if (menu?.id === id && menu.pinned) intent.close();
+    else intent.pin(id, anchor);
+  };
   const actions = (id: string, name: string, items: (RowAction | null)[]) => {
     currentActions.set(id, items);
     return (
@@ -242,16 +249,14 @@ export function Sidebar({
         aria-expanded={menu?.id === id}
         onClick={(event) => {
           event.stopPropagation();
-          if (menu?.id === id && menu.pinned) intent.close();
-          else
-            intent.pin(
-              id,
-              event.currentTarget
-                .closest(".tree-row, .board-row")
-                ?.querySelector<HTMLElement>("[data-nav]") ??
-                event.currentTarget.closest<HTMLElement>(".board-row") ??
-                event.currentTarget,
-            );
+          togglePanel(
+            id,
+            event.currentTarget
+              .closest(".tree-row, .board-row")
+              ?.querySelector<HTMLElement>("[data-nav]") ??
+              event.currentTarget.closest<HTMLElement>(".board-row") ??
+              event.currentTarget,
+          );
         }}
       >
         <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor" aria-hidden="true">
@@ -619,7 +624,16 @@ export function Sidebar({
                         >
                           {repo.expanded ? "▾" : "▸"}
                         </button>
-                        <button type="button" data-nav className="tree-name">
+                        <button
+                          type="button"
+                          data-nav
+                          className="tree-name"
+                          aria-haspopup="dialog"
+                          aria-expanded={menu?.id === rid}
+                          onClick={(event) => {
+                            togglePanel(rid, event.currentTarget);
+                          }}
+                        >
                           <span className="tree-label">
                             <Highlight text={repo.repository.name} filter={filter} />
                           </span>
@@ -728,6 +742,11 @@ export function Sidebar({
                                     data-nav
                                     className="tree-name"
                                     aria-label={name}
+                                    aria-haspopup="dialog"
+                                    aria-expanded={menu?.id === wid}
+                                    onClick={(event) => {
+                                      togglePanel(wid, event.currentTarget);
+                                    }}
                                   >
                                     <svg
                                       role="img"

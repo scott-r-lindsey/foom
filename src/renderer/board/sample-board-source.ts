@@ -26,7 +26,6 @@ export function createSampleSource(initial: readonly BoardRow[] = sampleRows(Dat
         activityListeners.delete(listener);
       };
     },
-    tail: (id) => Promise.resolve(rows.find((row) => row.id === id)?.tail ?? []),
     markSeen: (id) => {
       update(id, { seen: true });
     },
