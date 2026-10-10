@@ -315,6 +315,15 @@ async function launchApp(context, openShell = true, options = {}) {
   }, deadline(90_000));
   watchdog.unref();
   let entry = path.join(__dirname, "../..");
+  // Foom config lives under home and is a git repository Foom commits to. Never let a
+  // test write the developer's real ~/.foom/config.
+  if (!options.home) {
+    options = {
+      ...options,
+      home: options.env?.HOME ?? (await mkdtemp(path.join(tmpdir(), "foom-home-"))),
+    };
+    if (!options.env?.HOME) removeAfterApps(context, options.home);
+  }
   if (options.home) {
     // Electron resolves home from native OS APIs on macOS/Windows, not HOME.
     // A fixture package sets it before application modules construct services.

@@ -61,7 +61,7 @@ export function Board({
   soundSetup?: Pick<SetupSource, "state" | "subscribe">;
   /** Preflight is covering the board; it stays mounted so terminals keep running. */
   inactive?: boolean;
-  onSettings?: () => void;
+  onSettings?: (section?: "config") => void;
   settingsView?: ReactNode;
   onCloseSettings?: () => void;
 }) {
@@ -438,8 +438,18 @@ export function Board({
           const resumed = source.getSnapshot().find((row) => row.id === value.id && !row.exited);
           if (resumed) open(resumed, true);
         }
-        if (value.kind === "launch" || value.kind === "restart" || value.kind === "home-shell") {
-          const created = source.getSnapshot().find((row) => !before.has(row.id));
+        if (
+          value.kind === "launch" ||
+          value.kind === "restart" ||
+          value.kind === "home-shell" ||
+          value.kind === "config-launch"
+        ) {
+          // One config session at a time: a second launch focuses the running one.
+          const created =
+            source.getSnapshot().find((row) => !before.has(row.id)) ??
+            (value.kind === "config-launch"
+              ? source.getSnapshot().find((row) => row.config && !row.exited)
+              : undefined);
           if (created) {
             open(
               created,
@@ -657,6 +667,7 @@ export function Board({
             setRefused(undefined);
           }}
           revealRef={revealRef}
+          {...(onSettings ? { openSettings: onSettings } : {})}
           location={location}
           inactive={inactive || launching}
           rows={rows}
@@ -708,7 +719,13 @@ export function Board({
                 ))}
               </div>
               {onSettings && (
-                <button type="button" onClick={onSettings} aria-pressed={settingsOpen}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    onSettings();
+                  }}
+                  aria-pressed={settingsOpen}
+                >
                   Settings
                 </button>
               )}

@@ -8,6 +8,7 @@ import type { SidebarCommand } from "../../shared/workspace";
 import type { BoardRow } from "./board.d";
 import type { TerminalViewSource } from "../terminal/terminal-view-source.d";
 import type { TerminalActivity } from "../../shared/desktop";
+import type { ConfigStatus } from "../../shared/foom-config";
 
 import type { AgentInstallation, AgentId } from "../../shared/agents";
 import type { Repository } from "../../shared/worktrees";
@@ -40,6 +41,11 @@ export interface BoardSource {
   panelFacts?: (repository: string, worktree: string) => Promise<GitPanelFacts>;
   homeShell?: () => HomeShellFacts | undefined;
   shellName?: () => string;
+  config?: {
+    status(): Promise<ConfigStatus>;
+    subscribe(listener: (status: ConfigStatus) => void): () => void;
+    openFolder(): Promise<void>;
+  };
 
   getSnapshot: () => readonly BoardRow[];
   getRepositories?: () => readonly string[];

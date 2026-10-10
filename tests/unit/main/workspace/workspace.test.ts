@@ -2840,3 +2840,151 @@ test("fact clipboard commands use main-owned values and reject unknown worktrees
   ).rejects.toThrow("Unknown worktree");
   expect(copy).toHaveBeenCalledTimes(2);
 });
+
+const configDep = (check = vi.fn(async () => {})) => ({
+  root: "/home/.foom/config",
+  cliDirectory: "/app/console",
+  check,
+});
+
+test("config sessions run in the config folder with the bundled CLI, one at a time", async () => {
+  const create = vi.spyOn(deps.terminals, "create");
+  deps.config = configDep();
+  const workspace = new Workspace(deps);
+  const no = () => Promise.resolve(false);
+  await workspace.sidebarCommand({ kind: "config-launch", run: "shell" }, no);
+  expect(create).toHaveBeenCalledWith(
+    expect.objectContaining({
+      cwd: "/home/.foom/config",
+      shellIntegration: true,
+      env: { PATH: expect.stringMatching(/^\/app\/console[:;]/) as unknown },
+    }),
+  );
+  expect(workspace.snapshot().terminals[0]).toMatchObject({
+    config: true,
+    kind: "shell",
+    repository: "/home/.foom/config",
+    worktree: "/home/.foom/config",
+  });
+  // A second launch while one runs starts nothing; the renderer focuses the running one.
+  await workspace.sidebarCommand({ kind: "config-launch", run: "claude" }, no);
+  expect(agents.launch).not.toHaveBeenCalled();
+  expect(create).toHaveBeenCalledTimes(1);
+  await workspace.exited("t1", 0);
+  await workspace.sidebarCommand({ kind: "restart", id: "t1" }, no);
+  expect(create).toHaveBeenCalledTimes(2);
+  await workspace.dispose();
+});
+
+test("config agents get hooks and no worktree, and resume in the same row", async () => {
+  deps.config = configDep();
+  agents.launch.mockResolvedValue({ id: "c1", attention: "hooks" });
+  const workspace = new Workspace(deps);
+  const no = () => Promise.resolve(false);
+  await workspace.sidebarCommand({ kind: "config-launch", run: "claude" }, no);
+  expect(agents.launch).toHaveBeenCalledWith(
+    expect.objectContaining({
+      agent: "claude",
+      repository: "/home/.foom/config",
+      worktree: "/home/.foom/config",
+      configCli: "/app/console",
+    }),
+  );
+  expect(deps.worktrees.createWorktree).not.toHaveBeenCalled();
+  expect(workspace.snapshot().terminals[0]).toMatchObject({
+    id: "c1",
+    config: true,
+    agent: "claude",
+    attention: "hooks",
+  });
+  await workspace.exited("c1", 0);
+  await workspace.sidebarCommand({ kind: "new-conversation", id: "c1" }, no);
+  expect(agents.launch).toHaveBeenLastCalledWith(
+    expect.objectContaining({ terminalId: "c1", configCli: "/app/console" }),
+  );
+  await workspace.dispose();
+});
+
+test("config launches refuse when the folder is unavailable or turned-off agents are asked", async () => {
+  const no = () => Promise.resolve(false);
+  await expect(
+    new Workspace(deps).sidebarCommand({ kind: "config-launch", run: "shell" }, no),
+  ).rejects.toThrow("Foom config is unavailable");
+  await expect(
+    new Workspace(deps).sidebarCommand({ kind: "copy-config-path" }, no),
+  ).rejects.toThrow("Foom config is unavailable");
+  deps.config = configDep(
+    vi.fn(() => Promise.reject(new Error("Foom config cannot be inside a repository"))),
+  );
+  const workspace = new Workspace(deps);
+  await expect(
+    workspace.sidebarCommand({ kind: "config-launch", run: "shell" }, no),
+  ).rejects.toThrow("inside a repository");
+  deps.config = configDep();
+  const disabled = new Workspace(deps);
+  disabled.configure({ hooks: true, agents: { claude: false, codex: true, agy: true } });
+  await expect(
+    disabled.sidebarCommand({ kind: "config-launch", run: "claude" }, no),
+  ).rejects.toThrow("turned off");
+  agents.launch.mockRejectedValueOnce(new Error("not installed"));
+  const failing = new Workspace(deps);
+  await expect(
+    failing.sidebarCommand({ kind: "config-launch", run: "claude" }, no),
+  ).rejects.toThrow("not installed");
+  expect(failing.snapshot().terminals).toEqual([]);
+  const copy = vi.fn();
+  deps.copyText = copy;
+  await new Workspace(deps).sidebarCommand({ kind: "copy-config-path" }, no);
+  expect(copy).toHaveBeenCalledWith("/home/.foom/config");
+});
+
+test("config Codex launches ask for the notifier acknowledgement first", async () => {
+  const acknowledge = vi.fn(async () => {});
+  deps.acknowledgeCodex = acknowledge;
+  deps.config = configDep();
+  agents.scan.mockResolvedValue({
+    ...scan,
+    agents: [{ id: "codex", path: "/bin/codex", version: "1", hooks: true, reason: "ok" }],
+  });
+  const workspace = new Workspace(deps);
+  await workspace.sidebarCommand({ kind: "config-launch", run: "codex" }, () =>
+    Promise.resolve(false),
+  );
+  expect(agents.launch).not.toHaveBeenCalled();
+  await workspace.sidebarCommand({ kind: "config-launch", run: "codex" }, () =>
+    Promise.resolve(true),
+  );
+  expect(acknowledge).toHaveBeenCalled();
+  expect(agents.launch).toHaveBeenCalledWith(
+    expect.objectContaining({ agent: "codex", acknowledgeCodexNotifierReplacement: true }),
+  );
+});
+
+test("restores config sessions only for the current config folder", async () => {
+  deps.config = configDep();
+  const stored = {
+    id: "config-1",
+    kind: "agent" as const,
+    agent: "claude" as const,
+    config: true,
+    repository: "/home/.foom/config",
+    worktree: "/home/.foom/config",
+    branch: null,
+    attention: "hooks" as const,
+    state: null,
+    dormant: true,
+  };
+  deps.sessions = {
+    load: () =>
+      Promise.resolve([
+        stored,
+        { ...stored, id: "moved", worktree: "/other", repository: "/other" },
+        { ...stored, id: "split", repository: "/repos/app" },
+      ]),
+    save: () => Promise.resolve(),
+    flush: () => Promise.resolve(),
+  };
+  const workspace = new Workspace(deps);
+  await workspace.restore();
+  expect(workspace.snapshot().terminals.map((entry) => entry.id)).toEqual(["config-1"]);
+});

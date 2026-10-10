@@ -77,6 +77,26 @@ describe("repository discovery", () => {
     expect(() => new WorktreeService("\0")).toThrow("Invalid path");
     expect(new WorktreeService().listRepositories()).toEqual([]);
   });
+  it("never registers a repository holding the Foom config folder", async () => {
+    const config = join(repo, "nested", "config");
+    await mkdir(config, { recursive: true });
+    const fresh = new WorktreeService(root);
+    await fresh.protect(config);
+    await expect(fresh.addRepository(config)).rejects.toThrow("Foom config cannot be inside");
+    await expect(fresh.addRepository(repo)).rejects.toThrow("Foom config cannot be inside");
+    // A subfolder resolves to the repository top level, which holds the folder.
+    await mkdir(join(repo, "other"));
+    await expect(fresh.addRepository(join(repo, "other"))).rejects.toThrow(
+      "Foom config cannot be inside",
+    );
+    expect(fresh.listRepositories()).toEqual([]);
+    await expect(fresh.protect("")).rejects.toThrow("Invalid path");
+    // An unresolved protected path still compares by its absolute form.
+    await fresh.protect(join(temporary, "missing", "config"));
+    expect(await service.managesPath(config)).toBe(true);
+    expect(await service.managesPath(repo)).toBe(true);
+    expect(await service.managesPath(join(temporary, "elsewhere"))).toBe(false);
+  });
   it("ignores inherited Git repository selectors", async () => {
     vi.stubEnv("GIT_DIR", join(temporary, "hostile"));
     expect(await service.addRepository(repo)).toEqual({ path: repo, name: "repo with spaces" });

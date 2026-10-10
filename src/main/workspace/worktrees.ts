@@ -29,6 +29,12 @@ function validatePath(path: string): void {
   if (!path || path.includes("\0")) throw new Error("Invalid path");
 }
 
+/** Whether `path` is `root` or inside it. */
+function within(root: string, path: string): boolean {
+  const child = relative(root, path);
+  return child === "" || (child !== ".." && !child.startsWith(`..${sep}`) && !isAbsolute(child));
+}
+
 function assertInside(root: string, path: string): void {
   const child = relative(root, path);
   if (!child || child === ".." || child.startsWith(`..${sep}`) || isAbsolute(child)) {
@@ -185,13 +191,35 @@ export class WorktreeService {
     this.root = resolve(root);
   }
 
+  private protectedPaths: string[] = [];
+
+  /** Folders that must never sit inside a registered repository, such as Foom config. */
+  async protect(path: string): Promise<void> {
+    validatePath(path);
+    this.protectedPaths.push(await realpath(path).catch(() => resolve(path)));
+  }
+
+  /** Whether `path` is inside (or is) a registered repository. */
+  async managesPath(path: string): Promise<boolean> {
+    const target = await realpath(path).catch(() => resolve(path));
+    return [...this.repositories.keys()].some((repository) => within(repository, target));
+  }
+
+  private refuseProtected(path: string): void {
+    if (this.protectedPaths.some((entry) => within(path, entry) || within(entry, path)))
+      throw new Error("Foom config cannot be inside a repository Foom manages");
+  }
+
   async addRepository(path: string): Promise<Repository> {
     validatePath(path);
     const cwd = await realpath(resolve(path));
+    // Never run repository git commands inside the agent-writable config folder.
+    this.refuseProtected(cwd);
     if ((await git(cwd, ["rev-parse", "--is-inside-work-tree"])).trim() !== "true") {
       throw new Error("Repository must be a Git work tree");
     }
     const top = await realpath((await git(cwd, ["rev-parse", "--show-toplevel"])).slice(0, -1));
+    this.refuseProtected(top);
     const repository = Object.freeze({ path: top, name: basename(top) });
     this.repositories.set(top, repository);
     await this.save();

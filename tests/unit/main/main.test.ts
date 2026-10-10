@@ -12,7 +12,27 @@ vi.mock("../../../src/main/themes/library", () => ({
   },
 }));
 vi.mock("../../../src/main/themes/ipc", () => ({ attachThemes: vi.fn(() => vi.fn()) }));
+vi.mock("../../../src/main/config/service", () => ({
+  ConfigService: class {
+    folder = "/home/.foom/config";
+    ready = true;
+    constructor(deps: ConfigServiceDependencies) {
+      mock.config.deps = deps;
+    }
+    initialize = (legacy: unknown) => mock.config.initialize(legacy);
+    write = (patch: unknown) => mock.config.write(patch);
+    status = () => mock.config.status;
+    dispose = () => Promise.resolve();
+  },
+}));
+vi.mock("../../../src/main/config/git", () => ({
+  ConfigGit: vi.fn(),
+  prepareIsolation: () => Promise.resolve({}),
+}));
+vi.mock("../../../src/main/config/ipc", () => ({ attachConfig: mock.attachConfig }));
 import type { WindowPlacement } from "../../../src/main/window/window-placement";
+import type { ConfigServiceDependencies } from "../../../src/main/config/service";
+import type * as SettingsModule from "../../../src/main/setup/settings";
 vi.mock("../../../src/main/window/window-placement", () => ({
   loadPlacements: mock.loadPlacements,
   savePlacements: mock.savePlacements,
@@ -109,7 +129,10 @@ vi.mock("../../../src/main/agents/hook-receiver", () => ({
   HookReceiver: { listen: mock.listen },
 }));
 vi.mock("../../../src/main/evaluator/verdict-log", () => ({ VerdictLog: mock.VerdictLog }));
-vi.mock("../../../src/main/setup/settings", () => ({ SettingsStore: { open: mock.openSettings } }));
+vi.mock("../../../src/main/setup/settings", async (original) => ({
+  ...(await original<typeof SettingsModule>()),
+  SettingsStore: { open: mock.openSettings },
+}));
 vi.mock("../../../src/main/window/window-state", () => ({
   loadWindowSize: mock.loadWindowSize,
   saveWindowSize: mock.saveWindowSize,
@@ -117,6 +140,7 @@ vi.mock("../../../src/main/window/window-state", () => ({
 vi.mock("../../../src/main/setup/setup", () => ({
   Setup: class {
     state = () => Promise.resolve({ settings: mock.settingsStore.get() });
+    refresh = mock.setupRefresh;
     constructor(deps: ConstructorParameters<typeof Setup>[0]) {
       mock.setup.deps = deps;
     }
@@ -304,7 +328,21 @@ const mock = vi.hoisted(() => {
     loadWindowSize: vi.fn<() => Promise<{ width: number; height: number } | undefined>>(),
     saveWindowSize: vi.fn<() => Promise<void>>(),
     openSettings: vi.fn<() => Promise<unknown>>(),
+    config: {
+      deps: undefined as ConfigServiceDependencies | undefined,
+      initialize: vi.fn<(legacy: unknown) => Promise<unknown>>(),
+      write: vi.fn<(patch: unknown) => Promise<void>>(() => Promise.resolve()),
+      status: { folder: "/home/.foom/config", available: true, changes: [] },
+    },
+    attachConfig: vi.fn(() => vi.fn()),
+    setupRefresh: vi.fn(),
+    managesPath: vi.fn(() => Promise.resolve(false)),
     settingsStore: {
+      legacyConfig: vi.fn(() => ({ terminalFontSize: 16 })),
+      configDigest: vi.fn(() => null),
+      attachConfig: vi.fn(() => Promise.resolve()),
+      setConfig: vi.fn(),
+      setConfigDigest: vi.fn(() => Promise.resolve()),
       update: vi.fn(() => Promise.resolve()),
       get: (): Pick<Settings, "colorMode" | "interfaceScale" | "interfaceTheme"> => ({
         colorMode: "dark",
@@ -439,7 +477,12 @@ beforeEach(() => {
   mock.catalog = { interface: [], terminal: [], errors: [] };
   mock.state.windows = [mock.window];
   mock.ready.mockResolvedValue();
-  mock.openWorktrees.mockResolvedValue({ worktreeRoot: "/home/.foom/worktrees" });
+  mock.openWorktrees.mockResolvedValue({
+    worktreeRoot: "/home/.foom/worktrees",
+    protect: () => Promise.resolve(),
+    managesPath: mock.managesPath,
+  });
+  mock.config.initialize.mockResolvedValue({});
   mock.openSettings.mockResolvedValue(mock.settingsStore);
   mock.attachSetup.mockImplementation(() => mock.setupIpc);
   mock.setupIpc.zoom.mockResolvedValue();
@@ -464,7 +507,7 @@ test("loads worktree state from userData before creating a window", async () => 
     () =>
       new Promise((resolve) => {
         finish = () => {
-          resolve({});
+          resolve({ protect: () => Promise.resolve() });
         };
       }),
   );
@@ -1007,6 +1050,7 @@ test("Settings repository selection uses workspace lifecycle guards", async () =
   const repository = { path: "/repo", name: "repo" };
   mock.openWorktrees.mockResolvedValue({
     worktreeRoot: "/trees",
+    protect: () => Promise.resolve(),
     listRepositories: () => [repository],
   });
   mock.workspace.addRepository.mockResolvedValue(repository);
@@ -1141,7 +1185,11 @@ test("control startup publishes private discovery and binds trusted pairing call
   const { ControlRuntime } = await import("../../../src/main/control/runtime");
   const error = new Error("Private profile unavailable");
   const startControl = vi.spyOn(ControlRuntime, "start").mockRejectedValueOnce(error);
-  mock.openWorktrees.mockResolvedValue({ worktreeRoot: "/trees", listRepositories: () => [] });
+  mock.openWorktrees.mockResolvedValue({
+    worktreeRoot: "/trees",
+    protect: () => Promise.resolve(),
+    listRepositories: () => [],
+  });
   try {
     await start();
     expect(startControl).not.toHaveBeenCalled();
@@ -1465,4 +1513,54 @@ test("live theme catalog changes update native colors, terminal palettes and all
   mock.themeChanged();
   await Promise.resolve();
   expect(mock.window.webContents.send).not.toHaveBeenCalled();
+});
+
+test("Foom config migrates profile values, applies file changes live and broadcasts status", async () => {
+  mock.window.webContents.isDestroyed.mockReturnValue(false);
+  await start();
+  expect(mock.config.initialize).toHaveBeenCalledWith({ terminalFontSize: 16 });
+  expect(mock.settingsStore.attachConfig).toHaveBeenCalledWith(expect.any(Function), {}, null);
+  const [writer] = mock.settingsStore.attachConfig.mock.calls[0] as unknown as [
+    (patch: object) => Promise<void>,
+  ];
+  await writer({ hooks: false });
+  expect(mock.config.write).toHaveBeenCalledWith({ hooks: false });
+  const deps = mock.config.deps;
+  if (!deps) throw new Error("Expected config dependencies");
+  expect(deps.root).toBe(join("/test/user-data", ".foom", "config"));
+  mock.setupRefresh.mockClear();
+  deps.apply({ terminalFontSize: 20 });
+  expect(mock.settingsStore.setConfig).toHaveBeenCalledWith({ terminalFontSize: 20 });
+  expect(mock.setupRefresh).toHaveBeenCalled();
+  // An interface size change from the file resizes the window like a Settings change.
+  const settings = vi.spyOn(mock.settingsStore, "get");
+  settings.mockReturnValueOnce({
+    colorMode: "dark",
+    interfaceScale: 120,
+    interfaceTheme: "follow",
+  });
+  settings.mockReturnValue({ colorMode: "dark", interfaceScale: 140, interfaceTheme: "follow" });
+  deps.apply({ interfaceScale: 140 });
+  settings.mockRestore();
+  deps.onStatus?.(mock.config.status as never);
+  expect(mock.window.webContents.send).toHaveBeenCalledWith("config:changed", mock.config.status);
+  expect(deps.baseline.get()).toBeNull();
+  await deps.baseline.set("d".repeat(64));
+  expect(mock.settingsStore.setConfigDigest).toHaveBeenCalledWith("d".repeat(64));
+  expect(mock.attachConfig).toHaveBeenCalled();
+  const config = mock.workspace.deps?.config;
+  if (!config) throw new Error("Expected config launch dependencies");
+  expect(config.root).toBe(deps.root);
+  await expect(config.check()).resolves.toBeUndefined();
+  mock.managesPath.mockResolvedValueOnce(true);
+  await expect(config.check()).rejects.toThrow("inside a repository");
+});
+
+test("an unusable Foom config folder keeps settings in the profile", async () => {
+  const error = vi.spyOn(console, "error").mockImplementation(() => {});
+  mock.config.initialize.mockRejectedValueOnce(new Error("not a folder"));
+  await start();
+  expect(error).toHaveBeenCalledWith("Foom config is unavailable:", expect.any(Error));
+  expect(mock.settingsStore.attachConfig).not.toHaveBeenCalled();
+  expect(mock.window.loadURL).toHaveBeenCalled();
 });

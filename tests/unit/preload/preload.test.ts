@@ -619,3 +619,27 @@ test("scrim notifications carry only validated visibility and unsubscribe", asyn
   off?.();
   expect(mock.removeListener).toHaveBeenCalledWith("confirmation:scrim", listener);
 });
+test("Foom config calls pass fixed channels and status events are validated", async () => {
+  const api = await bridge();
+  mock.invoke.mockResolvedValue({});
+  await api.configStatus();
+  await api.decideConfig("keep");
+  await api.revertConfig("a".repeat(40));
+  await api.openConfigFolder();
+  expect(mock.invoke.mock.calls.slice(-4)).toEqual([
+    ["config:status"],
+    ["config:decide", "keep"],
+    ["config:revert", "a".repeat(40)],
+    ["config:open-folder"],
+  ]);
+  const callback = vi.fn();
+  const off = api.onConfigChange(callback);
+  const listener = mock.on.mock.calls.find(([name]) => name === "config:changed")?.[1];
+  if (!listener) throw new Error("Missing listener");
+  const status = { folder: "/c", available: true, changes: [] };
+  for (const value of [status, null, { ...status, folder: 1 }, { ...status, changes: {} }])
+    listener({}, value);
+  expect(callback).toHaveBeenCalledExactlyOnceWith(status);
+  off();
+  expect(mock.removeListener).toHaveBeenCalledWith("config:changed", listener);
+});

@@ -6,10 +6,22 @@ import type { BoardCommand } from "../../../../src/shared/board-command";
 import type { TerminalActivity } from "../../../../src/shared/desktop";
 import type { TerminalState, WorkspaceSnapshot } from "../../../../src/shared/workspace";
 import type { SetupState } from "../../../../src/shared/setup";
+import type { ConfigStatus } from "../../../../src/shared/foom-config";
 import { createAppSource } from "../../../../src/renderer/board/live-board-source";
 import { App } from "../../../../src/renderer/app";
 import { installation, report, setupState } from "../../../fixtures/setup";
 const mock = vi.hoisted(() => ({
+  configStatus: vi.fn(() =>
+    Promise.resolve({
+      folder: "/home/.foom/config",
+      available: true,
+      uncommitted: 0,
+      pending: null,
+      changes: [],
+      rejected: 0,
+    } as ConfigStatus),
+  ),
+  configListener: undefined as ((status: ConfigStatus) => void) | undefined,
   viewAvailable: undefined as ((id: string) => boolean) | undefined,
   viewExited: undefined as ((id: string) => boolean) | undefined,
   execution: undefined as ((event: ExecutionTransition) => void) | undefined,
@@ -127,6 +139,16 @@ beforeEach(() => {
       },
       setupState: mock.setupState,
       onSetupChange: () => () => {},
+      configStatus: mock.configStatus,
+      decideConfig: mock.configStatus,
+      revertConfig: mock.configStatus,
+      openConfigFolder: async () => {},
+      onConfigChange: (listener: (status: ConfigStatus) => void) => {
+        mock.configListener = listener;
+        return () => {
+          mock.configListener = undefined;
+        };
+      },
       codeSuggestions: () => Promise.resolve([]),
       saveSetup: (patch: Partial<SetupState["settings"]>) =>
         Promise.resolve(setupState({ ...patch, setupComplete: true })),
@@ -788,4 +810,62 @@ test("main's cosmetic scrim follows visibility and unsubscribes when the app unm
   view.unmount();
   Reflect.deleteProperty(HTMLElement.prototype, "showPopover");
   expect(off).toHaveBeenCalledOnce();
+});
+test("the Foom config row nests its sessions, shows chips, launches there and opens its settings", async () => {
+  const configured = {
+    ...agent("cfg"),
+    config: true,
+    repository: "/home/.foom/config",
+    worktree: "/home/.foom/config",
+    branch: null,
+  };
+  mock.workspace.mockResolvedValue({ repositories: [], terminals: [configured] });
+  const screen = render(<App />);
+  await settle();
+  const row = screen.getByRole("treeitem", { name: "Foom config" });
+  expect(row.querySelector("[role=group]")?.textContent).toContain("Claude Code");
+  expect(row.textContent).not.toContain("Needs you");
+  act(() => {
+    mock.configListener?.({
+      folder: "/home/.foom/config",
+      available: true,
+      uncommitted: 2,
+      pending: { action: "turn hooks off", file: "settings.json", detail: "hooks: on → off" },
+      changes: [
+        {
+          id: "c",
+          time: Date.now(),
+          summary: "Add Deep theme",
+          file: "themes/deep.json",
+          state: "applied",
+          commit: "a".repeat(40),
+          hash: "aaaaaaa",
+        },
+      ],
+      rejected: 1,
+    });
+  });
+  expect(row.textContent).toContain("Needs you");
+  expect(row.textContent).toContain("1 rejected");
+  fireEvent.click(screen.getByRole("button", { name: "Actions for Foom config" }));
+  const panel = screen.getByRole("dialog", { name: "Foom config details and commands" });
+  expect(panel.textContent).toContain("2 uncommitted");
+  expect(panel.textContent).toContain("Add Deep theme");
+  expect(panel.textContent).toContain("hooks: on → off");
+  fireEvent.click(screen.getByRole("button", { name: "/home/.foom/config" }));
+  await settle();
+  expect(mock.sidebarCommand).toHaveBeenCalledWith({ kind: "copy-config-path" });
+  fireEvent.click(screen.getByRole("menuitem", { name: /^Shell/ }));
+  await settle();
+  expect(mock.sidebarCommand).toHaveBeenCalledWith({ kind: "config-launch", run: "shell" });
+  fireEvent.click(screen.getByRole("button", { name: "Actions for Foom config" }));
+  fireEvent.click(screen.getByRole("menuitem", { name: "Open Foom config settings" }));
+  await settle();
+  expect(screen.getByRole("heading", { name: "Foom config" })).toBeTruthy();
+  const sections = screen.getByRole("navigation", { name: "Settings sections" });
+  expect(
+    [...sections.querySelectorAll("button")]
+      .find((button) => button.textContent === "Foom config")
+      ?.getAttribute("aria-current"),
+  ).toBe("page");
 });

@@ -4,6 +4,7 @@ import { contextBridge, ipcRenderer } from "electron";
 import type { IpcRendererEvent } from "electron";
 import type { DesktopApi, TerminalActivity } from "../shared/desktop";
 import type { SetupState } from "../shared/setup";
+import type { ConfigStatus } from "../shared/foom-config";
 import type { TerminalState } from "../shared/workspace";
 
 const states = ["needs_input", "done", "failed", "quiet_ok", "working"];
@@ -53,6 +54,15 @@ function executionTransition(value: unknown): value is ExecutionTransition {
 
 function setupState(value: unknown): value is SetupState {
   return object(value) && object(value["settings"]) && typeof value["worktreeRoot"] === "string";
+}
+
+function configStatus(value: unknown): value is ConfigStatus {
+  return (
+    object(value) &&
+    typeof value["folder"] === "string" &&
+    typeof value["available"] === "boolean" &&
+    Array.isArray(value["changes"])
+  );
 }
 
 // Main sends this after availability notifications. Reply after the current
@@ -373,6 +383,19 @@ const desktop: DesktopApi = {
   changeAgyPlugin: (action) => ipcRenderer.invoke("agents:agy-plugin", action),
   scanAgents: (refresh) => ipcRenderer.invoke("agents:scan", refresh),
   launchAgent: (request) => ipcRenderer.invoke("agents:launch", request),
+  configStatus: () => ipcRenderer.invoke("config:status"),
+  decideConfig: (decision) => ipcRenderer.invoke("config:decide", decision),
+  revertConfig: (commit) => ipcRenderer.invoke("config:revert", commit),
+  openConfigFolder: () => ipcRenderer.invoke("config:open-folder"),
+  onConfigChange(callback) {
+    const listener = (_event: IpcRendererEvent, status: unknown) => {
+      if (configStatus(status)) callback(status);
+    };
+    ipcRenderer.on("config:changed", listener);
+    return () => {
+      ipcRenderer.removeListener("config:changed", listener);
+    };
+  },
   listThemes: () => ipcRenderer.invoke("theme:list"),
   openThemesFolder: (kind) => ipcRenderer.invoke("theme:open-folder", kind),
   setupState: () => ipcRenderer.invoke("setup:state"),

@@ -24,6 +24,7 @@ export function App() {
   const [state, setState] = useState<SetupState>();
   const [preflight, setPreflight] = useState(false);
   const [settings, setSettings] = useState(false);
+  const [section, setSection] = useState<{ name?: "config"; version: number }>({ version: 0 });
   const [board, setBoard] = useState(false);
   useEffect(() => {
     setup.state().then(
@@ -39,7 +40,8 @@ export function App() {
       },
     );
   }, [setup]);
-  const reopen = async () => {
+  const reopen = async (name?: "config") => {
+    setSection((current) => ({ ...(name ? { name } : {}), version: current.version + 1 }));
     try {
       setState(await setup.state());
       setSettings(true);
@@ -65,8 +67,8 @@ export function App() {
           source={source}
           soundSetup={setup}
           inactive={preflight}
-          onSettings={() => {
-            if (!settings) void reopen();
+          onSettings={(name) => {
+            if (!settings || name) void reopen(name);
           }}
           onCloseSettings={() => {
             setSettings(false);
@@ -74,9 +76,11 @@ export function App() {
           settingsView={
             settings && state ? (
               <Preflight
+                key={section.version}
                 source={setup}
                 initial={state}
                 settingsMode
+                {...(section.name ? { initialSection: section.name } : {})}
                 onLaunched={setState}
                 onClose={() => {
                   setSettings(false);

@@ -16,6 +16,8 @@ import type { ThemeDiagnostic } from "../shared/theme-file";
 import { ThemeValidationError, validThemeFile } from "../shared/theme-validation";
 
 import type { ConfigFolderKind as FolderKind } from "../shared/config";
+/** Foom-owned entries in the config root: its repository, docs and schemas. */
+const FOOM_OWNED = [".git", ".gitignore", "README.md", "AGENTS.md", "CLAUDE.md", "schemas"];
 const fail = (reason: ThemeDiagnostic["reason"]): never => {
   throw new ThemeValidationError("$", reason);
 };
@@ -143,7 +145,7 @@ export async function validateConfig(
       const limit = soundKind(kind)
         ? SOUND_FILE_LIMIT
         : kind === "config"
-          ? 4
+          ? 16
           : kind === "sounds"
             ? 4
             : 50;
@@ -157,6 +159,8 @@ export async function validateConfig(
         const name = label ? `${label}/${entry.name}` : entry.name;
         let child: FolderKind | undefined;
         if (kind === "config") {
+          // Foom writes these itself; validation covers only the agent-editable formats.
+          if (FOOM_OWNED.includes(entry.name)) continue;
           if (entry.name === "settings.json") {
             await visitFile(file, name, identity, "settings");
             continue;
@@ -166,6 +170,7 @@ export async function validateConfig(
           if (entry.name === "sounds") child = "sounds";
         } else if (kind === "sounds") child = SOUND_KINDS.find((value) => value === entry.name);
         else {
+          if (soundKind(kind) && entry.name === ".gitkeep") continue;
           if (!(soundKind(kind) ? validSoundFile(entry.name) : validThemeFile(entry.name)))
             report(name, new ThemeValidationError("$", "unsafe-file"));
           else await visitFile(file, name, identity, kind);
