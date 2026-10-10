@@ -13,5 +13,12 @@ export function createSetupSource(): SetupSource {
     suggestions: () => desktop.codeSuggestions(),
     scan: (id, folder, onProgress) => desktop.scanCode(id, folder, onProgress),
     apply: (selected) => desktop.applyRepositories(selected),
+    config: {
+      status: () => desktop.configStatus(),
+      decide: (decision) => desktop.decideConfig(decision),
+      revert: (commit) => desktop.revertConfig(commit),
+      openFolder: () => desktop.openConfigFolder(),
+      subscribe: (listener) => desktop.onConfigChange(listener),
+    },
   };
 }

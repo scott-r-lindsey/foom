@@ -10,6 +10,7 @@ import type {
 } from "../../shared/setup";
 import type { AgentReport } from "../../shared/workspace";
 import type { Repository } from "../../shared/worktrees";
+import type { ConfigStatus } from "../../shared/foom-config";
 
 /** What preflight needs from main. Components use this, never the bridge directly. */
 export interface SetupSource {
@@ -27,6 +28,13 @@ export interface SetupSource {
     onProgress: (progress: ScanProgress) => void,
   ): Promise<CodeScan | null>;
   apply(selected: readonly string[]): Promise<RepositoryUpdate>;
+  config?: {
+    status(): Promise<ConfigStatus>;
+    decide(decision: "allow" | "keep"): Promise<ConfigStatus>;
+    revert(commit: string): Promise<ConfigStatus>;
+    openFolder(): Promise<void>;
+    subscribe(listener: (status: ConfigStatus) => void): () => void;
+  };
   /** Settings changed in main, for example by a zoom shortcut. */
   subscribe(listener: (state: SetupState) => void): () => void;
 }

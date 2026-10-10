@@ -28,9 +28,10 @@ export interface TerminalSpec {
   env?: Readonly<Record<string, string>>;
 }
 import type { SetupApi } from "./setup";
+import type { ConfigApi } from "./foom-config";
 import type { WorkspaceApi } from "./workspace";
 
-export interface DesktopApi extends WorkspaceApi, SetupApi {
+export interface DesktopApi extends WorkspaceApi, SetupApi, ConfigApi {
   windows?: WindowsApi;
   sounds: SoundApi;
   readonly isDevelopment: boolean;

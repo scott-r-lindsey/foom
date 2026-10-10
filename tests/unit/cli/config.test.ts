@@ -202,3 +202,29 @@ test("execute bypasses inherited credentials, pairing and profile discovery and 
     2,
   );
 });
+
+test("a folder Foom set up validates, including its repository, docs, schemas and .gitkeep", async () => {
+  const root = await fixture();
+  const { ConfigService } = await import("../../../src/main/config/service");
+  const { ConfigGit, prepareIsolation } = await import("../../../src/main/config/git");
+  const { configPart } = await import("../../../src/main/config/approval");
+  const { DEFAULT_SETTINGS } = await import("../../../src/main/setup/settings");
+  const folder = join(root, "config");
+  const service = new ConfigService({
+    root: folder,
+    git: new ConfigGit(folder, await prepareIsolation(join(root, "isolation"))),
+    defaults: configPart(DEFAULT_SETTINGS),
+    apply: () => {},
+    baseline: { get: () => null, set: () => Promise.resolve() },
+    watch: () => ({ close: () => {} }),
+  });
+  await service.initialize({ terminalFontSize: 16 });
+  await service.dispose();
+  expect(await validateConfig(folder)).toEqual({ problems: [], code: 0 });
+  expect(await validateConfig(join(folder, "sounds"))).toEqual({ problems: [], code: 0 });
+  // Unknown entries are still refused.
+  await put(folder, "notes.txt", "x");
+  expect((await validateConfig(folder)).problems).toEqual([
+    { file: "notes.txt", path: "$", reason: "unsafe-file" },
+  ]);
+});

@@ -230,16 +230,21 @@ export class AgentService {
       request.conversationId === undefined
         ? []
         : resumeArguments(request.agent, request.conversationId);
-    const trees = await this.worktrees.listWorktrees(request.repository);
-    if (
-      !trees.some(
-        (tree) => tree.path === request.worktree && !tree.bare && !tree.prunable && !tree.locked,
+    const config = request.configCli;
+    if (config === undefined) {
+      const trees = await this.worktrees.listWorktrees(request.repository);
+      if (
+        !trees.some(
+          (tree) => tree.path === request.worktree && !tree.bare && !tree.prunable && !tree.locked,
+        )
       )
-    )
-      throw new Error("Worktree is missing, bare, locked, or prunable");
+        throw new Error("Worktree is missing, bare, locked, or prunable");
+    }
     const checkoutIdentity =
-      request.checkoutIdentity ??
-      (await this.worktrees.launchIdentity(request.repository, request.worktree));
+      config === undefined
+        ? (request.checkoutIdentity ??
+          (await this.worktrees.launchIdentity(request.repository, request.worktree)))
+        : undefined;
     const scan = this.scanResult ?? (await this.scan());
     const agent = scan.agents.find((entry) => entry.id === request.agent);
     if (!agent?.path)
@@ -257,17 +262,22 @@ export class AgentService {
     let control: ControlLaunch | undefined;
     let mcp: Awaited<ReturnType<typeof prepareMcpLaunch>> | undefined;
     try {
-      control = await this.prepareControl?.(
-        request.repository,
-        request.worktree,
-        binding?.env["FOOM_SESSION"],
-      );
+      // Config sessions get no repository-scoped control grant.
+      control =
+        config === undefined
+          ? await this.prepareControl?.(
+              request.repository,
+              request.worktree,
+              binding?.env["FOOM_SESSION"],
+            )
+          : undefined;
       if (control && agent.mcp)
         mcp = await prepareMcpLaunch(agent.id, control.env["FOOM_CONTROL_URL"] ?? "");
       this.ensureOpen();
       if (
+        config === undefined &&
         (await this.worktrees.launchIdentity(request.repository, request.worktree)) !==
-        checkoutIdentity
+          checkoutIdentity
       )
         throw new Error("Worktree has changed. Select it and try again.");
       const args = [
@@ -297,6 +307,7 @@ export class AgentService {
           if (notify) args.push("-c", `notify=${JSON.stringify(binding.codexCommand)}`);
         }
       }
+      const cli = config ?? control?.env["FOOM_CLI_DIRECTORY"];
       const id = await this.terminals.create({
         ...(request.terminalId === undefined ? {} : { id: request.terminalId }),
         command: agent.path,
@@ -307,9 +318,7 @@ export class AgentService {
         env: {
           ...control?.env,
           ...binding?.env,
-          PATH: control?.env["FOOM_CLI_DIRECTORY"]
-            ? `${control.env["FOOM_CLI_DIRECTORY"]}${delimiter}${scan.path}`
-            : scan.path,
+          PATH: cli ? `${cli}${delimiter}${scan.path}` : scan.path,
         },
       });
       this.ensureOpen();

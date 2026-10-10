@@ -15,7 +15,7 @@ import type { ConfirmWorkspace } from "../../shared/confirmation";
 import { EMPTY_AGENT_ARGUMENTS, hasBypassArgument } from "../agents/default-arguments";
 import { detectAgent, ruleRegion } from "../evaluator/agent-rules";
 import type { AgentEvidence } from "../../shared/agent-detection";
-import { basename } from "node:path";
+import { basename, delimiter } from "node:path";
 import type { SidebarCommand, SidebarInventory } from "../../shared/workspace";
 import { AgentService } from "../agents/agents";
 import { prepareHookLaunch } from "../agents/hook-launch";
@@ -107,6 +107,13 @@ export interface WorkspaceDependencies {
     control?: (repository: string, worktree: string, sessionId?: string) => Promise<ControlLaunch>,
   ) => Agents;
   now?: () => number;
+  /** The Foom config folder: sessions there run without a repository or worktree. */
+  config?: {
+    root: string;
+    cliDirectory: string;
+    /** Throws when the folder is unavailable or sits inside a managed repository. */
+    check(): Promise<void>;
+  };
 }
 
 /**
@@ -217,11 +224,13 @@ export class Workspace {
   async restore(): Promise<void> {
     for (const entry of (await this.deps.sessions?.load()) ?? []) {
       if (
-        entry.home
-          ? entry.kind !== "shell" ||
-            entry.worktree !== homeDirectory ||
-            entry.repository !== homeDirectory
-          : !this.deps.worktrees.listRepositories().some((repo) => repo.path === entry.repository)
+        entry.config
+          ? entry.worktree !== this.deps.config?.root || entry.repository !== entry.worktree
+          : entry.home
+            ? entry.kind !== "shell" ||
+              entry.worktree !== homeDirectory ||
+              entry.repository !== homeDirectory
+            : !this.deps.worktrees.listRepositories().some((repo) => repo.path === entry.repository)
       )
         continue;
       this.launched.set(entry.id, entry);
@@ -776,6 +785,139 @@ export class Workspace {
     this.refresh();
   }
 
+  private configStarting = false;
+
+  /**
+   * One config session at a time: while one runs, a second launch starts nothing and the
+   * renderer focuses the running session. No worktree is created.
+   */
+  private async startConfig(
+    run: AgentId | "shell",
+    confirm: ConfirmWorkspace,
+    replacement?: { id: string; conversationId?: string },
+  ): Promise<void> {
+    const config = this.deps.config;
+    if (!config) throw new Error("Foom config is unavailable");
+    const running = [...this.launched.values()].some(
+      (entry) =>
+        entry.config && !entry.dormant && this.terminals.get(entry.id)?.exitCode === undefined,
+    );
+    if (running || this.configStarting) return;
+    this.configStarting = true;
+    try {
+      await config.check();
+      const environment = {
+        PATH: `${config.cliDirectory}${delimiter}${process.env["PATH"] ?? ""}`,
+      };
+      if (run === "shell") {
+        const id = await this.deps.terminals.create({
+          command: shellPath(),
+          args: process.platform === "win32" ? ["-NoLogo"] : ["-l"],
+          shellIntegration: true,
+          cwd: config.root,
+          cols: 80,
+          rows: 24,
+          env: environment,
+        });
+        this.launched.set(id, {
+          id,
+          kind: "shell",
+          agent: "shell",
+          config: true,
+          repository: config.root,
+          worktree: config.root,
+          branch: null,
+          attention: "evaluator",
+          state: null,
+          startedAt: this.now(),
+        });
+        this.track(id);
+        this.persist();
+        this.refresh();
+        return;
+      }
+      if (!this.enabled[run]) throw new Error("This agent is turned off in preflight");
+      const scan = await this.scanAgents(false);
+      if (
+        run === "codex" &&
+        this.hooksEnabled &&
+        !this.acknowledged &&
+        scan.agents.some(
+          (agent) => agent.id === "codex" && agent.hooks && agent.codexHookState !== "trusted",
+        )
+      ) {
+        if (!(await confirm({ kind: "notifier" }))) return;
+        await this.deps.acknowledgeCodex();
+        this.acknowledged = true;
+      }
+      if (replacement) {
+        const old = this.launched.get(replacement.id);
+        if (!old || this.terminals.get(old.id)?.exitCode === undefined)
+          throw new Error("Session is no longer exited");
+        await this.queues.get(old.id);
+        if (!old.dormant) await this.deps.terminals.kill(old.id);
+        old.dormant = true;
+        this.terminals.delete(old.id);
+        this.deps.verdicts.forget(old.id);
+      }
+      const defaultArguments = this.defaultArguments[run];
+      let result: { id: string; attention: "hooks" | "evaluator" };
+      try {
+        result = await this.agents.launch({
+          agent: run,
+          repository: config.root,
+          worktree: config.root,
+          cols: 80,
+          rows: 24,
+          defaultArguments,
+          configCli: config.cliDirectory,
+          acknowledgeCodexNotifierReplacement: this.acknowledged,
+          ...(replacement
+            ? {
+                terminalId: replacement.id,
+                ...(replacement.conversationId === undefined
+                  ? {}
+                  : { conversationId: replacement.conversationId }),
+              }
+            : {}),
+        });
+      } catch (error) {
+        if (replacement) this.track(replacement.id).exitCode = -1;
+        this.deps.onChange?.();
+        throw error;
+      }
+      const launchVersion = replacement
+        ? (this.launched.get(replacement.id)?.launchVersion ?? 0) + 1
+        : undefined;
+      this.launched.set(result.id, {
+        ...(launchVersion === undefined ? {} : { launchVersion }),
+        id: result.id,
+        startedAt: this.now(),
+        launchFlags: [...defaultArguments],
+        kind: "agent",
+        agent: run,
+        config: true,
+        repository: config.root,
+        worktree: config.root,
+        branch: null,
+        attention: result.attention,
+        ...(replacement?.conversationId === undefined
+          ? {}
+          : { conversationId: replacement.conversationId }),
+        bypass: hasBypassArgument(run, defaultArguments),
+        state: null,
+      });
+      const tracked = this.track(result.id);
+      const execution = this.execution(result.id);
+      if (tracked.exitCode !== undefined) execution.transition("exited", "exit");
+      else if (tracked.evidence) void this.evidence(result.id, tracked.evidence, true);
+      this.persist();
+      this.refresh();
+    } finally {
+      this.configStarting = false;
+    }
+  }
+
   async sidebarInventory(): Promise<SidebarInventory> {
     return {
       home: await (this.homeFacts ??= homeShellFacts()),
@@ -799,6 +941,12 @@ export class Workspace {
   async sidebarCommand(command: SidebarCommand, confirm: ConfirmWorkspace): Promise<void> {
     if (this.closed) throw new Error("Workspace is closed");
     if (command.kind === "home-shell") return this.startHomeShell();
+    if (command.kind === "config-launch") return this.startConfig(command.run, confirm);
+    if (command.kind === "copy-config-path") {
+      if (!this.deps.config) throw new Error("Foom config is unavailable");
+      await this.deps.copyText?.(this.deps.config.root);
+      return;
+    }
     if (command.kind === "copy-home-path") {
       await this.deps.copyText?.(homeDirectory);
       return;
@@ -826,12 +974,21 @@ export class Workspace {
       if (command.kind === "resume") resumeArguments(entry.agent, entry.conversationId);
       this.busySessions.add(entry.id);
       try {
-        await this.startExisting(entry.repository, entry.worktree, entry.agent, confirm, {
+        const replacement = {
           id: entry.id,
           ...(command.kind === "resume" && entry.conversationId !== undefined
             ? { conversationId: entry.conversationId }
             : {}),
-        });
+        };
+        if (entry.config) await this.startConfig(entry.agent, confirm, replacement);
+        else
+          await this.startExisting(
+            entry.repository,
+            entry.worktree,
+            entry.agent,
+            confirm,
+            replacement,
+          );
       } finally {
         this.busySessions.delete(entry.id);
       }
@@ -850,7 +1007,8 @@ export class Workspace {
       if (!exited) throw new Error("Session is still running");
       if (command.kind === "restart") {
         if (!entry || entry.kind !== "shell") throw new Error("Only shells can restart");
-        if (entry.home) await this.startHomeShell();
+        if (entry.config) await this.startConfig("shell", confirm);
+        else if (entry.home) await this.startHomeShell();
         else await this.startExisting(entry.repository, entry.worktree, "shell", confirm);
       }
       if (!entry?.dormant) await this.deps.terminals.kill(command.id);

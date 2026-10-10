@@ -1,5 +1,10 @@
 import type { Settings } from "../shared/setup";
 import { ThemeLibrary } from "./themes/library";
+import { ConfigService } from "./config/service";
+import { ConfigGit, prepareIsolation } from "./config/git";
+import { attachConfig } from "./config/ipc";
+import { configPart } from "./config/approval";
+import { DEFAULT_SETTINGS } from "./setup/settings";
 import { attachThemes } from "./themes/ipc";
 import { isUserThemeId } from "../shared/theme-validation";
 import { WindowAudio } from "./window/window-audio";
@@ -47,7 +52,19 @@ const ownsProfile = app.requestSingleInstanceLock();
 export let worktrees: WorktreeService;
 let settings: SettingsStore;
 let themes: ThemeLibrary;
+let config: ConfigService;
+let configRoot: string;
 let disposeThemes = () => {};
+/** A validated config file changed: every window re-applies, including interface size. */
+function configApplied(previous: Settings) {
+  for (const entry of windows.values()) entry.configChanged(previous);
+}
+function configStatusChanged() {
+  const status = config.status();
+  for (const { window } of windows.values())
+    if (!window.webContents.isDestroyed() && window.webContents.mainFrame.url === APP_URL)
+      window.webContents.send("config:changed", status);
+}
 function applyThemeSettings(next: Settings = settings.get()) {
   const catalog = themes.snapshot();
   nativeTheme.themeSource = interfaceThemeSource(next.interfaceTheme, next.colorMode, catalog);
@@ -118,6 +135,7 @@ const windows = new Map<
     workspaceIpc: ReturnType<typeof attachWorkspace>;
     setup: Setup;
     updateBackground(): void;
+    configChanged(previous: Settings): void;
     appMenu: ReturnType<typeof attachAppMenu>;
   }
 >();
@@ -277,14 +295,13 @@ async function buildWindow(savedSize?: Size, saved?: WindowPlacement, initialSes
   const themeIpc = attachThemes(window, themes, ipc);
   const soundIpc = attachSounds(
     window,
-    new SoundLibrary(
-      path.join(__dirname, "../sounds"),
-      path.join(app.getPath("home"), ".foom/config/sounds"),
-    ),
+    new SoundLibrary(path.join(__dirname, "../sounds"), path.join(configRoot, "sounds")),
     path.join(__dirname, "../sounds/NOTICES.txt"),
     ipc,
   );
+  const configIpc = attachConfig(window, config, ipc);
   window.once("closed", () => {
+    configIpc();
     soundIpc();
     themeIpc();
     nativeTheme.removeListener("updated", updateBackground);
@@ -355,6 +372,15 @@ async function buildWindow(savedSize?: Size, saved?: WindowPlacement, initialSes
       },
       // Local rules classify each terminal; the log stores verdict metadata only.
       verdicts: new VerdictLog(app.getPath("userData")),
+      config: {
+        root: configRoot,
+        cliDirectory: path.join(__dirname, "../console").replace("app.asar", "app.asar.unpacked"),
+        check: async () => {
+          if (!config.ready) throw new Error("Foom config is unavailable");
+          if (await worktrees.managesPath(configRoot))
+            throw new Error("Foom config cannot be inside a repository Foom manages");
+        },
+      },
       control: () =>
         ControlRuntime.start(app.getPath("userData"), () => workspace.snapshot().terminals, {
           repository: (path) =>
@@ -480,6 +506,11 @@ async function buildWindow(savedSize?: Size, saved?: WindowPlacement, initialSes
     workspaceIpc,
     setup,
     updateBackground,
+    configChanged: (previous) => {
+      if (settings.get().interfaceScale !== previous.interfaceScale)
+        scale = settings.get().interfaceScale;
+      setup.refresh();
+    },
     appMenu,
     placement: () => ({
       id: windowId,
@@ -592,9 +623,11 @@ async function performQuit() {
                   : entry?.agent === "agy"
                     ? "Antigravity"
                     : path.basename(session.command),
-            location: entry
-              ? `${path.basename(entry.repository)} › ${entry.branch ?? entry.worktree}`
-              : session.cwd,
+            location: entry?.config
+              ? "Foom config"
+              : entry
+                ? `${path.basename(entry.repository)} › ${entry.branch ?? entry.worktree}`
+                : session.cwd,
             state: entry?.state?.state ?? "quiet_ok",
           };
         }),
@@ -614,6 +647,7 @@ async function performQuit() {
       console.error("Unable to save the window size:", error);
     }
     for (const current of windows.values()) current.confirmations.dispose();
+    await config.dispose();
     disposeThemes();
     quitting = true;
     // A resolved shutdown can resume inside a native close callback's microtask
@@ -657,13 +691,44 @@ if (!ownsProfile) {
   app
     .whenReady()
     .then(async () => {
-      worktrees = await WorktreeService.open(app.getPath("userData"));
+      configRoot = path.join(app.getPath("home"), ".foom", "config");
+      worktrees = await WorktreeService.open(app.getPath("userData"), undefined, [configRoot]);
       settings = await SettingsStore.open(app.getPath("userData"));
-      themes = new ThemeLibrary(path.join(app.getPath("home"), ".foom/config"), themesChanged);
+      config = new ConfigService({
+        root: configRoot,
+        git: new ConfigGit(
+          configRoot,
+          await prepareIsolation(path.join(app.getPath("userData"), "config-git")),
+        ),
+        defaults: configPart(DEFAULT_SETTINGS),
+        apply: (values) => {
+          const previous = settings.get();
+          settings.setConfig(values);
+          applyThemeSettings();
+          configApplied(previous);
+        },
+        baseline: {
+          get: () => settings.configDigest(),
+          set: (value) => settings.setConfigDigest(value),
+        },
+        onStatus: configStatusChanged,
+      });
+      themes = new ThemeLibrary(configRoot, themesChanged);
       disposeThemes = () => {
         themes.dispose();
       };
       await themes.initialize();
+      try {
+        const values = await config.initialize(settings.legacyConfig());
+        await settings.attachConfig(
+          (patch) => config.write(patch),
+          values,
+          settings.configDigest(),
+        );
+      } catch (error) {
+        // Settings stay in the profile until the folder is usable.
+        console.error("Foom config is unavailable:", error);
+      }
       applyThemeSettings();
       // Serve only known local assets; arbitrary filesystem access is never exposed.
       const assetHandler = (request: Request) => {

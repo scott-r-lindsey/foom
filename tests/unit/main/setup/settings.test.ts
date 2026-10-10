@@ -78,7 +78,7 @@ test("a missing, corrupt or unsupported file starts from defaults", async () => 
   const file = path.join(dir, "settings.json");
   for (const contents of [
     "not json",
-    JSON.stringify({ version: 2, settings: { setupComplete: true } }),
+    JSON.stringify({ version: 3, settings: { setupComplete: true } }),
     JSON.stringify({ version: 1, settings: { setupComplete: "yes" } }),
     JSON.stringify({ version: 1 }),
     JSON.stringify([]),
@@ -322,4 +322,88 @@ test("key migration reports unreadable profile directories", async () => {
   await writeFile(file, "keep");
   await expect(SettingsStore.open(file)).rejects.toThrow();
   expect(await readFile(file, "utf8")).toBe("keep");
+});
+
+test("attaching Foom config moves agent-editable values out of the profile exactly once", async () => {
+  const dir = await directory();
+  const file = path.join(dir, "settings.json");
+  await writeFile(
+    file,
+    JSON.stringify({
+      version: 1,
+      settings: {
+        setupComplete: true,
+        terminalFontSize: 18,
+        hooks: false,
+        worktreeLocation: "adjacent",
+      },
+    }),
+  );
+  const store = await SettingsStore.open(dir);
+  expect(store.legacyConfig()).toEqual({ terminalFontSize: 18, hooks: false });
+  expect(store.configDigest()).toBeNull();
+  const writes: unknown[] = [];
+  const writer = (patch: object) => {
+    writes.push(patch);
+    store.setConfig({ ...store.get(), ...patch, agents: store.get().agents });
+    return Promise.resolve();
+  };
+  await store.attachConfig(writer, { terminalFontSize: 18, hooks: false }, "a".repeat(64));
+  const stored = JSON.parse(await readFile(file, "utf8")) as Record<string, unknown>;
+  expect(stored).toEqual({
+    version: 2,
+    settings: expect.not.objectContaining({ terminalFontSize: 18 }) as unknown,
+    configDigest: "a".repeat(64),
+  });
+  expect(stored["settings"]).toMatchObject({ setupComplete: true, worktreeLocation: "adjacent" });
+  expect(stored["settings"]).not.toHaveProperty("hooks");
+  expect(store.get()).toMatchObject({ terminalFontSize: 18, hooks: false });
+
+  // Reopening finds nothing left to migrate; config keys come only from the file.
+  const reopened = await SettingsStore.open(dir);
+  expect(reopened.legacyConfig()).toBeUndefined();
+  expect(reopened.configDigest()).toBe("a".repeat(64));
+  expect(reopened.get()).toMatchObject({ terminalFontSize: 14, hooks: true, setupComplete: true });
+
+  // Updates split: config keys go to the writer, profile keys to the profile.
+  await store.update({ terminalFontSize: 22, setupComplete: false });
+  expect(writes).toEqual([{ terminalFontSize: 22 }]);
+  expect(JSON.parse(await readFile(file, "utf8"))).toMatchObject({
+    version: 2,
+    settings: { setupComplete: false },
+  });
+  await store.update({ panelColor: "plain" });
+  expect(writes).toHaveLength(2);
+  await store.setConfigDigest("b".repeat(64));
+  await store.setConfigDigest("b".repeat(64));
+  expect((await SettingsStore.open(dir)).configDigest()).toBe("b".repeat(64));
+  store.setConfig({});
+  expect(store.get().terminalFontSize).toBe(14);
+});
+
+test("a version 2 profile ignores stray config keys and invalid digests", async () => {
+  const dir = await directory();
+  await writeFile(
+    path.join(dir, "settings.json"),
+    JSON.stringify({
+      version: 2,
+      settings: { setupComplete: true, hooks: false, sound: { bad: true } },
+      configDigest: "not-a-digest",
+    }),
+  );
+  const store = await SettingsStore.open(dir);
+  expect(store.get()).toMatchObject({ setupComplete: true, hooks: true });
+  expect(store.get().sound).toEqual(DEFAULT_SETTINGS.sound);
+  expect(store.configDigest()).toBeNull();
+  expect(store.legacyConfig()).toBeUndefined();
+});
+
+test("a failed attach keeps the version 1 profile for the next launch", async () => {
+  const root = await directory();
+  const dir = path.join(root, "blocked");
+  const store = await SettingsStore.open(dir);
+  await writeFile(dir, "a file where the folder should be");
+  await expect(store.attachConfig(async () => {}, { hooks: false }, null)).rejects.toThrow();
+  expect(store.legacyConfig()).toEqual({});
+  expect(store.get().hooks).toBe(true);
 });

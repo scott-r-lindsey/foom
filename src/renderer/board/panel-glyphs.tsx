@@ -60,6 +60,13 @@ const locationPaths = {
       <path d="M.5 6h3.3M8.2 6h3.3" />
     </>
   ),
+  config: (
+    <>
+      <circle cx="6" cy="6" r="1.6" />
+      <circle cx="6" cy="6" r="3.4" />
+      <path d="M6 .8v1.8M6 9.4v1.8M.8 6h1.8M9.4 6h1.8M2.3 2.3l1.3 1.3M8.4 8.4l1.3 1.3M2.3 9.7l1.3-1.3M8.4 3.6l1.3-1.3" />
+    </>
+  ),
 };
 export type LocationMark = keyof typeof locationPaths;
 const isLocation = (mark: string): mark is LocationMark => Object.hasOwn(locationPaths, mark);

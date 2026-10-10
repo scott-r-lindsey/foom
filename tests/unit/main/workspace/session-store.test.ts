@@ -111,3 +111,19 @@ test("home records persist only the shell location marker and reject forged agen
   ])
     expect(() => readSessions([bad])).toThrow();
 });
+test("config sessions keep their discriminator across a save and load", async () => {
+  const { store } = await setup();
+  const config = { ...record, config: true, worktree: root, branch: null };
+  const [restored] = readSessions([config]);
+  if (!restored) throw new Error("Expected a session");
+  expect(restored).toMatchObject({ config: true, repository: root, worktree: root });
+  await store.save([restored]);
+  expect((await store.load())[0]).toMatchObject({ config: true });
+  for (const invalid of [
+    { ...config, config: "yes" },
+    { ...config, worktree: join(root, "tree") },
+    { ...config, branch: "main" },
+    { ...config, home: true, agent: "shell" },
+  ])
+    expect(() => readSessions([invalid])).toThrow();
+});
