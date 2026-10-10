@@ -44,6 +44,16 @@ interface Pending extends Applied {
   weak: Weakening[];
 }
 
+/** Rejections that only mean "unavailable"; the caller falls back. */
+const ignore = (): undefined => undefined;
+async function settle<T, F>(promise: Promise<T>, fallback: F): Promise<T | F> {
+  try {
+    return await promise;
+  } catch {
+    return fallback;
+  }
+}
+
 const watchFolder = (directory: string, listener: (file: string | null) => void) => {
   const watcher = watch(directory, (_event, file) => {
     listener(typeof file === "string" ? file : null);
@@ -145,7 +155,7 @@ export class ConfigService {
   }
 
   private serial<T>(work: () => Promise<T>): Promise<T> {
-    const next = this.queue.catch(() => undefined).then(work);
+    const next = this.queue.catch(ignore).then(work);
     this.queue = next;
     return next;
   }
@@ -191,7 +201,7 @@ export class ConfigService {
   }
 
   private async setUp(legacy?: ConfigSettings): Promise<ConfigSettings> {
-    const info = await lstat(this.deps.root).catch(() => null);
+    const info = await settle(lstat(this.deps.root), null);
     if (info && !info.isDirectory()) throw new Error("Foom config is not a folder");
     for (const folder of [
       "",
@@ -203,14 +213,14 @@ export class ConfigService {
       await mkdir(this.path(folder), { recursive: true });
     const written: string[] = [];
     for (const [relative, content] of Object.entries(OWNED_FILES)) {
-      const current = await readConfigFile(this.path(relative)).catch(() => undefined);
+      const current = await readConfigFile(this.path(relative)).catch(ignore);
       if (current !== undefined && refreshable(relative, current)) {
         await this.writeFile(relative, content);
         written.push(relative);
       }
     }
     let migrated: Applied | undefined;
-    if ((await readConfigFile(this.path(SETTINGS_FILE)).catch(() => undefined)) === null) {
+    if ((await readConfigFile(this.path(SETTINGS_FILE)).catch(ignore)) === null) {
       // Portable palette objects predate theme files and cannot be expressed in this file.
       const values: ConfigSettings = {};
       for (const [key, value] of Object.entries(legacy ?? {})) {
@@ -243,11 +253,11 @@ export class ConfigService {
         await this.deps.git.init();
         const files = new Map<string, Uint8Array>();
         for (const relative of [...Object.keys(OWNED_FILES), ...(await this.themePaths())]) {
-          const bytes = await readConfigFile(this.path(relative)).catch(() => null);
+          const bytes = await settle(readConfigFile(this.path(relative)), null);
           if (bytes && (themeKind(relative) === undefined || this.validTheme(relative, bytes)))
             files.set(relative, bytes);
         }
-        const settings = await readConfigFile(this.path(SETTINGS_FILE)).catch(() => null);
+        const settings = await settle(readConfigFile(this.path(SETTINGS_FILE)), null);
         if (settings && this.validSettings(settings)) files.set(SETTINGS_FILE, settings);
         await this.deps.git.commit(files, "Initialize Foom config");
       } else if (written.length) {
@@ -292,7 +302,7 @@ export class ConfigService {
     const known = this.deps.baseline.get();
     if (!known) return undefined;
     const candidates: Uint8Array[] = [];
-    const working = await readConfigFile(this.path(SETTINGS_FILE)).catch(() => null);
+    const working = await settle(readConfigFile(this.path(SETTINGS_FILE)), null);
     if (working) candidates.push(working);
     const committed = await this.committed(SETTINGS_FILE);
     if (committed) candidates.push(committed);
@@ -327,7 +337,7 @@ export class ConfigService {
   private async themePaths(): Promise<string[]> {
     const paths: string[] = [];
     for (const folder of Object.values(THEME_FOLDERS)) {
-      const names = await readdir(this.path(folder)).catch(() => [] as string[]);
+      const names = await settle(readdir(this.path(folder)), [] as string[]);
       paths.push(
         ...names
           .filter((name) => validThemeFile(name))
@@ -364,7 +374,7 @@ export class ConfigService {
     if (this.closed) return;
     clearTimeout(this.timer);
     this.timer = setTimeout(() => {
-      void this.serial(() => this.scan()).catch(() => undefined);
+      void this.serial(() => this.scan()).catch(ignore);
     }, this.deps.delay ?? 250);
   }
 
@@ -391,7 +401,7 @@ export class ConfigService {
 
   private async scan(): Promise<void> {
     if (this.closed) return;
-    const tree = await this.headTree().catch(() => new Map<string, TreeEntry>());
+    const tree = await settle(this.headTree(), new Map<string, TreeEntry>());
     await this.scanSettings(tree);
     const themes = new Set([
       ...(await this.themePaths()),
@@ -465,7 +475,7 @@ export class ConfigService {
       this.pending = null;
       this.events = this.events.filter((event) => event.state !== "pending");
     }
-    await this.deps.baseline.set(digest(text)).catch(() => undefined);
+    await this.deps.baseline.set(digest(text)).catch(ignore);
   }
 
   /** Commits the applied settings file when it differs from the last commit. */
@@ -558,7 +568,7 @@ export class ConfigService {
       ]);
       let count = 0;
       for (const relative of paths) {
-        const bytes = await readConfigFile(this.path(relative)).catch(() => undefined);
+        const bytes = await readConfigFile(this.path(relative)).catch(ignore);
         const entry = tree.get(relative);
         if (bytes === undefined) count++;
         else if (bytes === null) count += entry ? 1 : 0;
@@ -628,11 +638,11 @@ export class ConfigService {
       void this.serial(async () => {
         await this.commitSettings(
           previous,
-          await this.headTree().catch(() => new Map<string, TreeEntry>()),
+          await settle(this.headTree(), new Map<string, TreeEntry>()),
         );
         await this.countUncommitted();
         this.publish();
-      }).catch(() => undefined);
+      }).catch(ignore);
     });
   }
 
@@ -643,12 +653,12 @@ export class ConfigService {
     return this.serial(async () => {
       const pending = this.pending;
       if (!pending) throw new Error("No change is waiting for approval");
-      const bytes = await readConfigFile(this.path(SETTINGS_FILE)).catch(() => null);
+      const bytes = await settle(readConfigFile(this.path(SETTINGS_FILE)), null);
       if (!bytes || bytes.toString("utf8") !== pending.text) {
         await this.scan();
         throw new Error("The file changed. Review the new change.");
       }
-      const tree = await this.headTree().catch(() => new Map<string, TreeEntry>());
+      const tree = await settle(this.headTree(), new Map<string, TreeEntry>());
       if (decision === "allow") await this.apply(pending.text, pending.values, tree);
       else {
         this.pending = null;
@@ -695,7 +705,7 @@ export class ConfigService {
       )
         throw new Error("Only settings and theme changes can be reverted");
       for (const change of changes) {
-        const bytes = await readConfigFile(this.path(change.path)).catch(() => undefined);
+        const bytes = await readConfigFile(this.path(change.path)).catch(ignore);
         if (bytes === undefined) throw new Error(`${change.path} is unreadable`);
         const current = bytes === null ? null : await this.deps.git.objectId(bytes);
         if (current !== change.after) throw new Error(`${change.path} changed after this change`);
@@ -718,6 +728,6 @@ export class ConfigService {
     clearTimeout(this.timer);
     for (const watcher of this.watchers) watcher.close();
     this.watchers = [];
-    await this.queue.catch(() => undefined);
+    await this.queue.catch(ignore);
   }
 }

@@ -449,3 +449,64 @@ test("the real watcher schedules a scan and closes on dispose", async () => {
   await new Promise((resolve) => setTimeout(resolve, 100));
   expect(f.applied.at(-1)).toEqual({ terminalFontSize: 17 });
 });
+
+test("files already invalid at first launch stay uncommitted and are reported", async () => {
+  const f = await fixture();
+  await mkdir(path.join(f.folder, "themes"), { recursive: true });
+  await writeFile(path.join(f.folder, "settings.json"), Buffer.from([0x7b, 0xff, 0x7d]));
+  await f.write("themes/good.json", theme("Good"));
+  await f.write("themes/bad.json", theme("Bad", { ...palette.colors, bg: "nope" }));
+  await f.service.initialize();
+  const status = f.service.status();
+  expect(status.rejected).toBe(2);
+  expect(status.changes.map((change) => change.reason).filter(Boolean)).toEqual(
+    expect.arrayContaining(["$: malformed-json", "$.colors.bg: not-a-color"]),
+  );
+  const tree = await f.git.tree((await f.git.head()) ?? "");
+  expect(tree.has("themes/good.json")).toBe(true);
+  expect(tree.has("themes/bad.json")).toBe(false);
+  expect(tree.has("settings.json")).toBe(false);
+  expect(status.uncommitted).toBe(2);
+});
+
+test("theme folder events schedule a scan", async () => {
+  const f = await fixture();
+  await f.service.initialize();
+  await f.write("themes/live.json", theme("Live"));
+  f.listeners[1]?.("live.json");
+  await vi.waitFor(async () => {
+    expect((await f.git.log(1))[0]?.subject).toBe("Add Live theme");
+  });
+  // Root events for other files are ignored.
+  f.listeners[0]?.("README.md");
+});
+
+test("Keep it on restores and commits when an agent committed the weakening itself", async () => {
+  const f = await fixture();
+  await f.service.initialize();
+  const weakened = JSON.stringify({ kind: "settings", hooks: false });
+  await f.write("settings.json", weakened);
+  await f.git.commit(new Map([["settings.json", Buffer.from(weakened)]]), "Agent commit");
+  expect((await f.service.refresh()).pending?.detail).toBe("hooks: on → off");
+  await f.service.decide("keep");
+  expect(JSON.parse(await f.read("settings.json"))).toEqual({ kind: "settings" });
+  expect((await f.git.log(1))[0]?.subject).toBe("Restore settings");
+});
+
+test("git failures after setup are reported without losing applied changes", async () => {
+  const f = await fixture();
+  await f.service.initialize();
+  const commit = vi.spyOn(f.git, "commit").mockRejectedValue(new Error("locked"));
+  await f.settings({ terminalFontSize: 25 });
+  let status = await f.service.refresh();
+  expect(status.error).toBe("Unable to record the last change in git.");
+  expect(f.applied.at(-1)).toEqual({ terminalFontSize: 25 });
+  commit.mockRestore();
+  const log = vi.spyOn(f.git, "log").mockRejectedValue(new Error("gone"));
+  status = await f.service.refresh();
+  expect(status.uncommitted).toBeNull();
+  log.mockRestore();
+  vi.spyOn(f.git, "head").mockRejectedValue(new Error("gone"));
+  await f.service.write({ terminalFontSize: 26 });
+  expect(f.applied.at(-1)).toEqual({ terminalFontSize: 26 });
+});

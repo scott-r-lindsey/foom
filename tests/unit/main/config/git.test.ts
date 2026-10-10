@@ -2,6 +2,7 @@ import { chmod, mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from "n
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, expect, test } from "vitest";
+import { gitSync } from "../../../helpers/git.js";
 import {
   ConfigGit,
   hardenedArguments,
@@ -203,3 +204,18 @@ test.skipIf(process.platform === "win32")(
     await expect(readFile(marker, "utf8")).rejects.toThrow();
   },
 );
+
+test("sha256 repositories, missing objects and a locked index", async () => {
+  const { folder, isolation } = await fixture();
+  gitSync(["init", "-q", "--object-format=sha256", folder]);
+  const git = new ConfigGit(folder, isolation);
+  const bytes = Buffer.from("{}\n");
+  const commit = await git.commit(new Map([["a.json", bytes]]), "One");
+  expect((await git.tree(commit)).get("a.json")?.object).toBe(await git.objectId(bytes));
+  expect(await git.objectId(bytes)).toHaveLength(64);
+  await expect(git.blob("0".repeat(64))).rejects.toThrow("Git command failed");
+  // A busy real index does not block the commit itself.
+  await writeFile(path.join(folder, ".git", "index.lock"), "");
+  const second = await git.commit(new Map([["b.json", bytes]]), "Two");
+  expect(await git.head()).toBe(second);
+});
