@@ -1,0 +1,423 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Foom New Worktree</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo+Black&family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500;600&display=swap">
+<style>
+/* New worktree as one field: repository and agent are chips with defaults from context,
+   the branch is typed, and suggestions come from the repository's own branches and
+   prefixes. Colors are the brand tokens; the surface follows .row-menu in board.css. */
+:root {
+  --bg: #f3f0fa; --surface: #e9e4f5; --line: #ddd6ee; --ink: #14101f; --muted: #625a7a;
+  --accent: #5b2bd9; --accent-deep: #3b1a99; --attention: #d98200; --attention-ink: #8c5000;
+  --done: #13804a; --failed: #d6166e; --failed-ink: #b0105a; --idle: #b9b0d3;
+  --badge: #4a4263; --badge-ink: #f4efff; --lift: #ffffff; --hole: #05040a;
+  --shadow: rgba(40, 20, 90, .28);
+  --term-bg: #05040a; --term-line: #251d3f; --term-ink: #f4efff; --term-dim: #6a6188; --term-acc: #c08bff;
+  --display: "Archivo Black", sans-serif;
+  --sans: "Geist", system-ui, sans-serif; --mono: "Geist Mono", ui-monospace, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #05040a; --surface: #0d0a17; --line: #251d3f; --ink: #f4efff; --muted: #9d93bd;
+    --accent: #9b6bff; --accent-deep: #7a3cff; --attention: #ffb23e; --attention-ink: #ffb23e;
+    --done: #6fe0a3; --failed: #ff2e88; --failed-ink: #ff2e88; --idle: #4a4263;
+    --badge: #3a3060; --badge-ink: #f4efff; --lift: #f4efff; --hole: #000000;
+    --shadow: rgba(0, 0, 0, .85);
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #05040a; --surface: #0d0a17; --line: #251d3f; --ink: #f4efff; --muted: #9d93bd;
+  --accent: #9b6bff; --accent-deep: #7a3cff; --attention: #ffb23e; --attention-ink: #ffb23e;
+  --done: #6fe0a3; --failed: #ff2e88; --failed-ink: #ff2e88; --idle: #4a4263;
+  --badge: #3a3060; --badge-ink: #f4efff; --lift: #f4efff; --hole: #000000;
+  --shadow: rgba(0, 0, 0, .85);
+  color-scheme: dark;
+}
+:root {
+  --highlight: var(--accent);
+  --select: color-mix(in srgb, var(--highlight) 18%, var(--surface));
+  --raised-top: color-mix(in srgb, var(--surface) 92%, var(--lift));
+  --raised-bottom: var(--surface);
+  --raised-line: color-mix(in srgb, var(--highlight) 25%, var(--line));
+  --raised-hover: color-mix(in srgb, var(--highlight) 12%, var(--raised-top));
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; }
+body { background: var(--bg); color: var(--ink); font: 13px/1.4 var(--sans); }
+button, input { font: inherit; color: inherit; }
+button { cursor: pointer; }
+:focus-visible { outline: 2px solid var(--highlight); outline-offset: 1px; }
+.frame { height: 100%; overflow-x: auto; }
+.app { position: relative; display: flex; height: 100%; min-width: 1100px; overflow: hidden; }
+
+/* Board slice */
+.side { width: 270px; flex-shrink: 0; display: flex; flex-direction: column; background: var(--surface); border-right: 1px solid var(--line); }
+.head { display: flex; align-items: center; justify-content: space-between; padding: 16px 12px 10px; }
+.wordmark { font: 22px/1 var(--display); }
+.hole { display: inline-block; width: .52em; height: .52em; margin: 0 .035em; border-radius: 50%; background: var(--hole); box-shadow: 0 0 0 2px var(--accent), 0 0 10px var(--accent); }
+.list { padding: 0 6px; }
+.group { display: flex; align-items: center; justify-content: space-between; padding: 10px 8px 4px; font: 600 12px var(--sans); color: var(--muted); }
+.group button { width: 22px; height: 22px; padding: 0; display: grid; place-items: center; background: transparent; border: 1px solid transparent; border-radius: 4px; color: var(--muted); font-size: 15px; line-height: 1; }
+.group button:hover { border-color: var(--line); color: var(--ink); }
+.srow { display: flex; gap: 8px; padding: 6px 8px; border-radius: 6px; }
+.srow.new { background: var(--select); }
+.srow .lines { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.srow .top { font: 12px var(--mono); }
+.srow .reason { font-size: 12px; color: var(--muted); }
+.light { flex-shrink: 0; width: 8px; height: 8px; margin-top: 4px; border-radius: 50%; background: var(--idle); }
+.light.working { background: var(--accent); box-shadow: 0 0 8px var(--accent); }
+.light.done { background: var(--done); }
+.badge { flex-shrink: 0; min-width: 24px; height: 20px; padding: 0 4px; display: inline-flex; align-items: center; justify-content: center; border-radius: 3px; background: var(--badge); color: var(--badge-ink); font: 600 11px var(--mono); }
+.area { flex: 1; min-width: 0; display: grid; grid-template-columns: 1fr 1fr; gap: 6px; padding: 6px; }
+.tile { display: flex; flex-direction: column; background: var(--term-bg); border: 1px solid var(--term-line); border-radius: 6px; overflow: hidden; }
+.tile.focus { border-color: var(--term-acc); }
+.tb { display: flex; align-items: center; gap: 8px; height: 28px; padding: 0 8px; border-bottom: 1px solid var(--term-line); font: 12px var(--mono); color: var(--term-ink); }
+.tb .no { padding: 0 5px; border: 1px solid var(--term-line); border-radius: 4px; color: var(--term-dim); font-size: 10px; }
+.term { flex: 1; padding: 10px 12px; font: 12px/1.6 var(--mono); color: var(--term-dim); white-space: pre; overflow: hidden; }
+.term b { color: var(--term-ink); font-weight: 400; }
+
+/* The dialog: one line, then suggestions */
+.scrim { position: absolute; inset: 0; z-index: 10; background: rgb(0 0 0 / 35%); }
+.nw { position: absolute; z-index: 11; top: 14%; left: 50%; width: 620px; transform: translateX(-50%); background: linear-gradient(180deg, var(--raised-top), var(--raised-bottom)); border: 1px solid var(--raised-line); border-radius: 10px; box-shadow: 0 1px 0 rgb(255 255 255 / 5%) inset, 0 28px 60px -14px var(--shadow), 0 0 32px -10px color-mix(in srgb, var(--highlight) 45%, transparent); animation: nw-open 140ms ease-out; }
+@keyframes nw-open { from { opacity: 0; transform: translate(-50%, -6px) scale(.98); } }
+.line { display: flex; align-items: center; gap: 8px; padding: 10px 10px 10px 12px; }
+.chip { display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 8px; background: color-mix(in srgb, var(--select) 70%, transparent); border: 1px solid transparent; border-radius: 6px; font: 500 12px var(--mono); white-space: nowrap; }
+.chip:hover, .chip[aria-expanded="true"] { border-color: var(--raised-line); }
+.chip svg { width: 10px; height: 10px; fill: none; stroke: var(--muted); stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+.chip .badge { min-width: 22px; height: 18px; font-size: 10px; }
+.chip.agent { padding: 0 6px 0 4px; }
+.field { position: relative; flex: 1; min-width: 0; display: flex; }
+#branch { position: relative; flex: 1; min-width: 0; height: 32px; padding: 0 4px; background: transparent; border: 0; outline: none; font: 15px var(--mono); }
+.ghost { position: absolute; inset: 0; padding: 0 4px; display: flex; align-items: center; font: 15px var(--mono); white-space: pre; pointer-events: none; overflow: hidden; }
+.ghost .typed { color: transparent; }
+.ghost .rest { color: var(--muted); opacity: .6; }
+#branch::placeholder { color: var(--muted); opacity: .7; }
+.enter { flex-shrink: 0; display: grid; place-items: center; width: 30px; height: 26px; border: 1px solid var(--line); border-radius: 5px; font: 13px var(--mono); color: var(--muted); }
+.enter.ready { color: var(--accent); border-color: var(--raised-line); }
+.problem { display: flex; align-items: center; gap: 6px; padding: 0 14px 10px; font-size: 12px; color: var(--failed-ink); }
+.problem::before { content: ""; width: 7px; height: 7px; border-radius: 1px; background: var(--failed); }
+.disclose { display: flex; align-items: flex-start; gap: 8px; margin: 0 12px 10px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 6px; font-size: 12px; }
+.disclose input { accent-color: var(--accent); margin: 2px 0 0; }
+.sugg { margin: 0; padding: 6px; list-style: none; border-top: 1px solid var(--line); max-height: 300px; overflow-y: auto; }
+.sugg li { display: flex; align-items: center; gap: 10px; padding: 7px 8px; border-radius: 5px; font: 12px var(--mono); cursor: pointer; }
+.sugg li[aria-selected="true"] { background: var(--raised-hover); box-shadow: inset 2px 0 0 var(--highlight); }
+.sugg li[aria-disabled="true"] { opacity: .5; cursor: default; }
+.sugg .name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sugg .name mark { background: transparent; color: var(--accent); font-weight: 600; }
+.sugg .fact { flex-shrink: 0; font-size: 11px; color: var(--muted); }
+.sugg .fact.new { color: var(--accent); }
+.sugg .sep { height: 0; padding: 0; margin: 4px 6px; border-top: 1px solid var(--line); border-radius: 0; cursor: default; }
+.busy { padding: 0 14px 12px; font: 12px var(--mono); color: var(--muted); }
+
+/* Chip popovers */
+.pop { position: absolute; z-index: 12; min-width: 220px; padding: 6px; background: linear-gradient(180deg, var(--raised-top), var(--raised-bottom)); border: 1px solid var(--raised-line); border-radius: 8px; box-shadow: 0 18px 40px -12px var(--shadow); }
+.pop button { display: flex; align-items: center; gap: 9px; width: 100%; padding: 7px 9px; background: transparent; border: 0; border-radius: 4px; text-align: left; font-size: 12px; }
+.pop button:hover, .pop button:focus-visible { background: var(--raised-hover); outline: none; }
+.pop button:disabled { opacity: .45; cursor: default; }
+.pop button .k { margin-left: auto; font: 11px var(--mono); color: var(--muted); }
+.pop button[aria-checked="true"] .label::after { content: " ✓"; color: var(--accent); }
+.pop hr { border: 0; border-top: 1px solid var(--line); margin: 5px; }
+
+/* Mockup controls, not product UI. */
+.mock { position: absolute; right: 14px; bottom: 12px; z-index: 50; display: flex; gap: 14px; align-items: center; padding: 6px 10px; border: 1px dashed var(--line); border-radius: 6px; background: var(--surface); font: 11px var(--mono); color: var(--muted); }
+.mock label { display: flex; gap: 6px; align-items: center; }
+.mock select, .mock button { font: inherit; color: var(--ink); background: var(--bg); border: 1px solid var(--line); border-radius: 4px; }
+.note { position: absolute; left: 284px; bottom: 16px; z-index: 4; font: 11px var(--mono); color: var(--term-dim); }
+</style>
+</head>
+<body>
+<div class="frame">
+<div class="app" id="app">
+  <aside class="side">
+    <div class="head"><span class="wordmark">fo<span class="hole"></span>m</span></div>
+    <div class="list" id="list">
+      <div class="group">foom <button data-open="foom" aria-label="New worktree in foom" title="New worktree">+</button></div>
+      <div class="srow"><span class="light working"></span><span class="badge">CX</span><div class="lines"><div class="top">codex/issue-226</div><div class="reason">Running npm run check</div></div></div>
+      <div class="srow"><span class="light done"></span><span class="badge">CC</span><div class="lines"><div class="top">docs/environment-mockup</div><div class="reason">Turn ended</div></div></div>
+      <div class="group">notes <button data-open="notes" aria-label="New worktree in notes" title="New worktree">+</button></div>
+      <div class="srow"><span class="light"></span><span class="badge">&gt;_</span><div class="lines"><div class="top">main</div><div class="reason">Quiet</div></div></div>
+    </div>
+  </aside>
+  <main class="area">
+    <section class="tile focus"><div class="tb"><span class="no">1</span>codex/issue-226</div><div class="term"><b>$ npm run check</b>
+ ✓ format   ✓ lint   ✓ typecheck</div></section>
+    <section class="tile"><div class="tb"><span class="no">2</span>docs/environment-mockup</div><div class="term"><b>● Turn ended.</b></div></section>
+  </main>
+  <div class="note">New worktree: ⌘T / Ctrl+Shift+T, or + on a repository.</div>
+  <div class="mock" aria-label="Mockup controls">
+    <label>Codex disclosure <select id="m-disc"><option value="0">Not needed</option><option value="1">Needed</option></select></label>
+    <button id="m-open">Open dialog</button>
+    <label>Theme <select id="m-theme"><option value="">System</option><option value="light">Light</option><option value="dark">Dark</option></select></label>
+  </div>
+</div>
+</div>
+<script>
+const $ = (s, r = document) => r.querySelector(s);
+const app = $("#app");
+const CHEV = '<svg viewBox="0 0 10 10" aria-hidden="true"><path d="M2.5 4l2.5 2.5L7.5 4"/></svg>';
+
+/* Repository data as main would report it: HEAD, local branches (with the worktree that
+   has each checked out), remote-only branches. */
+const REPOS = {
+  foom: {
+    head: "main",
+    local: {
+      main: "foom", "codex/issue-226": "foom-226", "docs/environment-mockup": "foom-app-menu",
+      "codex/issue-215": null, "codex/issue-217": "foom-217", "codex/issue-220": "foom-220",
+      "codex/200-clean-packaging": "foom-200", "codex/issue-207": null, "codex/issue-211": null,
+      "docs/app-menu-mockup": null, "docs/tile-panels-mockup": null, "fix/sidebar-panel-visuals": "foom-panel-visuals",
+      "fix/bare-repo-hook": null, "spike/159-herdr-backend": "foom-herdr-spike",
+    },
+    remote: ["codex/issue-221", "codex/issue-222"],
+  },
+  notes: { head: "main", local: { main: "notes", drafts: null }, remote: [] },
+};
+const AGENTS = [
+  { id: "claude", mark: "CC", label: "Claude Code" },
+  { id: "codex", mark: "CX", label: "Codex" },
+  { id: "agy", mark: "AG", label: "Antigravity", missing: true },
+  { id: "shell", mark: ">_", label: "Shell" },
+];
+const CONVENTIONAL = ["feat/", "fix/", "chore/", "docs/", "refactor/", "test/", "ci/"];
+const state = { repo: "foom", agent: "codex", text: "", sel: 0, ack: false, open: false };
+
+/* Prefixes the repository already uses, most common first; conventional ones otherwise. */
+function prefixes(repo) {
+  const counts = {};
+  for (const b of [...Object.keys(REPOS[repo].local), ...REPOS[repo].remote]) {
+    const m = b.match(/^([^/]+\/)/);
+    if (m) counts[m[1]] = (counts[m[1]] ?? 0) + 1;
+  }
+  const used = Object.entries(counts).sort((a, b) => b[1] - a[1]);
+  return used.length ? used.map(([p, n]) => ({ p, n })) : CONVENTIONAL.map((p) => ({ p, n: 0 }));
+}
+
+/* git check-ref-format, as the user sees it. */
+function problem(b) {
+  if (!b) return "";
+  if (/^-/.test(b)) return "Can't start with -";
+  if (/\.\./.test(b)) return "Can't contain ..";
+  if (/[~^:?*[\\\x00-\x20\x7f]/.test(b)) return "Can't contain ~ ^ : ? * [ or \\";
+  if (/@\{/.test(b)) return "Can't contain @{";
+  if (/\/\/|^\/|\/\.|^\./.test(b)) return "Each part needs a name and can't start with .";
+  if (/\.lock$|\.$/.test(b)) return "Can't end with . or .lock";
+  if (b === "@") return "Can't be @";
+  return "";
+}
+
+function suggestions() {
+  const r = REPOS[state.repo], t = state.text, out = [];
+  const pre = prefixes(state.repo);
+  const local = Object.entries(r.local).filter(([b]) => b !== r.head);
+  const exact = r.local[t] !== undefined || r.remote.includes(t);
+  if (t && !t.endsWith("/") && !exact && !problem(t)) out.push({ kind: "new", name: t });
+  if (!t.includes("/")) {
+    for (const { p, n } of pre) if (p.startsWith(t) && p !== t) out.push({ kind: "prefix", name: p, n });
+  }
+  const match = (b) => (t ? b.toLowerCase().includes(t.toLowerCase()) : true);
+  const free = local.filter(([b, wt]) => !wt && match(b)).map(([b]) => ({ kind: "local", name: b }));
+  const busy = local.filter(([b, wt]) => wt && match(b)).map(([b, wt]) => ({ kind: "checked", name: b, wt }));
+  const remote = r.remote.filter(match).map((b) => ({ kind: "remote", name: b }));
+  const rest = [...free, ...remote, ...busy];
+  if (out.length && rest.length) out.push({ kind: "sep" });
+  out.push(...rest.slice(0, t ? 8 : 5));
+  return out;
+}
+const hl = (name) => {
+  const t = state.text, i = t ? name.toLowerCase().indexOf(t.toLowerCase()) : -1;
+  const e = (s) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;");
+  return i < 0 ? e(name) : `${e(name.slice(0, i))}<mark>${e(name.slice(i, i + t.length))}</mark>${e(name.slice(i + t.length))}`;
+};
+function fact(s) {
+  const r = REPOS[state.repo];
+  return {
+    new: `<span class="fact new">new, from ${r.head}</span>`,
+    prefix: `<span class="fact">${s.n ? `${s.n} branch${s.n === 1 ? "" : "es"}` : ""}</span>`,
+    local: `<span class="fact">existing</span>`,
+    remote: `<span class="fact">from origin</span>`,
+    checked: `<span class="fact">open in ${s.wt}</span>`,
+  }[s.kind];
+}
+
+/* Dialog */
+function openDialog(repo) {
+  closeDialog();
+  if (repo) state.repo = repo;
+  Object.assign(state, { text: "", sel: 0, ack: false, open: true });
+  app.insertAdjacentHTML("beforeend", `<div class="scrim" id="scrim"></div>
+  <div class="nw" id="nw" role="dialog" aria-modal="true" aria-label="New worktree">
+    <div class="line">
+      <button class="chip" id="repo-chip" aria-haspopup="menu" aria-expanded="false" title="Repository"></button>
+      <span class="field"><span class="ghost" id="ghost" aria-hidden="true"></span><input id="branch" role="combobox" aria-expanded="true" aria-controls="sugg" aria-autocomplete="list" aria-label="Branch" placeholder="branch" spellcheck="false" autocomplete="off"></span>
+      <button class="chip agent" id="agent-chip" aria-haspopup="menu" aria-expanded="false" title="Run"></button>
+      <span class="enter" id="enter" aria-hidden="true">⏎</span>
+    </div>
+    <div id="extra"></div>
+    <ul class="sugg" id="sugg" role="listbox" aria-label="Branches"></ul>
+  </div>`);
+  $("#scrim").addEventListener("pointerdown", closeDialog);
+  $("#repo-chip").addEventListener("click", () => popover("repo"));
+  $("#agent-chip").addEventListener("click", () => popover("agent"));
+  const input = $("#branch");
+  input.addEventListener("input", () => {
+    const pos = input.selectionStart;
+    input.value = input.value.replace(/ /g, "-");
+    input.setSelectionRange(pos, pos);
+    state.text = input.value; state.sel = 0; render();
+  });
+  input.addEventListener("keydown", keys);
+  render();
+  input.focus();
+}
+function closeDialog() {
+  closePop();
+  $("#nw")?.remove(); $("#scrim")?.remove();
+  state.open = false;
+}
+function selectable(list) { return list.map((s, i) => (s.kind !== "sep" ? i : -1)).filter((i) => i >= 0); }
+/* What Enter does: the highlighted suggestion, else the typed name. */
+function target() {
+  const list = suggestions(), s = list[state.sel];
+  if (s && s.kind !== "sep") return s;
+  return state.text && !problem(state.text) && !state.text.endsWith("/") ? { kind: "new", name: state.text } : null;
+}
+function render() {
+  const agent = AGENTS.find((a) => a.id === state.agent);
+  $("#repo-chip").innerHTML = `${state.repo}${CHEV}`;
+  $("#agent-chip").innerHTML = `<span class="badge">${agent.mark}</span>${CHEV}`;
+  $("#agent-chip").setAttribute("aria-label", `Run ${agent.label}`);
+  const list = suggestions();
+  const sel = selectable(list);
+  if (!sel.includes(state.sel)) state.sel = sel[0] ?? -1;
+  $("#sugg").innerHTML = list.map((s, i) => s.kind === "sep" ? '<li class="sep" role="presentation"></li>'
+    : `<li id="s${i}" role="option" data-i="${i}" aria-selected="${i === state.sel}"><span class="name">${hl(s.name)}</span>${fact(s)}</li>`).join("");
+  $("#sugg").hidden = !list.length;
+  $("#branch").setAttribute("aria-activedescendant", state.sel >= 0 ? `s${state.sel}` : "");
+  const c = completion(list), e2 = (x) => x.replace(/&/g, "&amp;").replace(/</g, "&lt;");
+  $("#ghost").innerHTML = c.startsWith(state.text) && state.text ? `<span class="typed">${e2(state.text)}</span><span class="rest">${e2(c.slice(state.text.length))}</span><span class="rest">  ⇥</span>` : "";
+  const p = problem(state.text);
+  const needsAck = state.agent === "codex" && $("#m-disc").value === "1";
+  $("#extra").innerHTML = (p ? `<div class="problem" role="alert">${p}</div>` : "")
+    + (needsAck ? `<label class="disclose"><input type="checkbox" id="ack" ${state.ack ? "checked" : ""}>Foom replaces your Codex notifier for this launch. Your global config is unchanged.</label>` : "");
+  $("#ack")?.addEventListener("change", (e) => { state.ack = e.target.checked; render(); $("#branch").focus(); });
+  const t = target();
+  const ready = t && t.kind !== "prefix" && !p && (!needsAck || state.ack);
+  $("#enter").classList.toggle("ready", Boolean(ready));
+  $("#sugg").onpointerdown = (e) => {
+    const li = e.target.closest("li[data-i]");
+    if (!li) return;
+    e.preventDefault();
+    state.sel = Number(li.dataset.i);
+    accept(true);
+  };
+}
+/* Tab completes: the highlighted row if it extends the text, else the first row that does. */
+function completion(list = suggestions()) {
+  const t = state.text, s = list[state.sel];
+  if (s && s.kind !== "sep" && s.kind !== "new" && s.name !== t) return s.name;
+  return list.find((x) => x.kind !== "sep" && x.kind !== "new" && x.name !== t && x.name.startsWith(t))?.name ?? "";
+}
+function keys(e) {
+  const list = suggestions(), sel = selectable(list);
+  const at = sel.indexOf(state.sel);
+  if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+    e.preventDefault();
+    if (sel.length) state.sel = sel[(at + (e.key === "ArrowDown" ? 1 : -1) + sel.length) % sel.length];
+    render();
+    $(`#s${state.sel}`)?.scrollIntoView({ block: "nearest" });
+  } else if (e.key === "Tab" && !e.shiftKey && completion(list)) {
+    e.preventDefault();
+    complete(completion(list));
+  } else if (e.key === "Enter") {
+    e.preventDefault();
+    accept(false);
+  } else if (e.key === "Escape") {
+    e.preventDefault();
+    closeDialog();
+  }
+}
+function complete(name) {
+  const input = $("#branch");
+  input.value = state.text = name;
+  state.sel = 0;
+  render();
+  input.setSelectionRange(name.length, name.length);
+}
+/* Enter on a prefix fills it in; on a branch it creates or opens. */
+function accept(fromPointer) {
+  const t = target();
+  if (!t) return;
+  if (t.kind === "prefix") { complete(t.name); $("#branch").focus(); return; }
+  if (problem(t.name)) return;
+  if (state.agent === "codex" && $("#m-disc").value === "1" && !state.ack) { $("#ack").focus(); return; }
+  const agent = AGENTS.find((a) => a.id === state.agent);
+  $("#extra").innerHTML = `<div class="busy" role="status">${t.kind === "checked" ? `Opening ${t.wt}…` : t.kind === "new" ? `Creating ${t.name} from ${REPOS[state.repo].head}…` : `Checking out ${t.name}…`}</div>`;
+  $("#sugg").hidden = true;
+  $("#branch").disabled = true;
+  setTimeout(() => {
+    closeDialog();
+    const group = [...document.querySelectorAll(".group")].find((g) => g.textContent.startsWith(state.repo));
+    document.querySelectorAll(".srow.new").forEach((r) => r.classList.remove("new"));
+    group.insertAdjacentHTML("afterend", `<div class="srow new"><span class="light working"></span><span class="badge">${agent.mark}</span><div class="lines"><div class="top">${t.name}</div><div class="reason">Starting</div></div></div>`);
+    const tile = document.querySelectorAll(".tile")[1];
+    document.querySelectorAll(".tile").forEach((x) => x.classList.remove("focus"));
+    tile.classList.add("focus");
+    tile.querySelector(".tb").innerHTML = `<span class="no">2</span>${t.name}`;
+    tile.querySelector(".term").innerHTML = `<b>${agent.id === "shell" ? "$" : agent.label}</b>`;
+  }, 600);
+}
+
+/* Chip popovers */
+function closePop() {
+  const p = $("#pop");
+  if (!p) return;
+  $(`#${p.dataset.owner}`)?.setAttribute("aria-expanded", "false");
+  p.remove();
+}
+function popover(which) {
+  if ($("#pop")?.dataset.owner === `${which}-chip`) { closePop(); return; }
+  closePop();
+  const chip = $(`#${which}-chip`), r = chip.getBoundingClientRect(), a = app.getBoundingClientRect();
+  const items = which === "repo"
+    ? Object.keys(REPOS).map((id) => `<button role="menuitemradio" aria-checked="${id === state.repo}" data-v="${id}"><span class="label">${id}</span><span class="k">${REPOS[id].head}</span></button>`).join("") + '<hr><button data-v="add">Add repository…</button>'
+    : AGENTS.map((ag) => `<button role="menuitemradio" aria-checked="${ag.id === state.agent}" data-v="${ag.id}" ${ag.missing ? "disabled" : ""}><span class="badge">${ag.mark}</span><span class="label">${ag.label}</span>${ag.missing ? '<span class="k">not found</span>' : ""}</button>`).join("");
+  app.insertAdjacentHTML("beforeend", `<div class="pop" id="pop" role="menu" data-owner="${which}-chip">${items}</div>`);
+  const pop = $("#pop");
+  pop.style.top = `${r.bottom - a.top + 6}px`;
+  pop.style.left = which === "repo" ? `${r.left - a.left}px` : `${r.right - a.left - 220}px`;
+  chip.setAttribute("aria-expanded", "true");
+  pop.querySelector("button:not(:disabled)").focus();
+  pop.addEventListener("click", (e) => {
+    const b = e.target.closest("button[data-v]");
+    if (!b) return;
+    if (which === "repo" && b.dataset.v !== "add") { state.repo = b.dataset.v; state.sel = 0; }
+    if (which === "agent") state.agent = b.dataset.v;
+    closePop(); render(); $("#branch").focus();
+  });
+  pop.addEventListener("keydown", (e) => {
+    const bs = [...pop.querySelectorAll("button:not(:disabled)")], i = bs.indexOf(document.activeElement);
+    if (e.key === "ArrowDown") { e.preventDefault(); bs[(i + 1) % bs.length].focus(); }
+    if (e.key === "ArrowUp") { e.preventDefault(); bs[(i - 1 + bs.length) % bs.length].focus(); }
+    if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); closePop(); chip.focus(); }
+  });
+}
+document.addEventListener("pointerdown", (e) => { if ($("#pop") && !e.target.closest(".pop, .chip")) closePop(); });
+document.addEventListener("keydown", (e) => {
+  if ((e.metaKey || (e.ctrlKey && e.shiftKey)) && e.code === "KeyT") { e.preventDefault(); openDialog(); }
+});
+
+/* Entry points and mock controls */
+$("#list").addEventListener("click", (e) => { const b = e.target.closest("[data-open]"); if (b) openDialog(b.dataset.open); });
+$("#m-open").addEventListener("click", () => openDialog());
+$("#m-disc").addEventListener("change", () => { if (state.open) render(); });
+$("#m-theme").addEventListener("change", (e) => { if (e.target.value) document.documentElement.dataset.theme = e.target.value; else delete document.documentElement.dataset.theme; });
+openDialog("foom");
+</script>
+</body>
+</html>
