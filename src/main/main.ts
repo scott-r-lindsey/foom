@@ -24,6 +24,7 @@ import { updateAttention } from "./window/attention-badge";
 import { InventoryWatch } from "./workspace/inventory-watch";
 import { ControlRuntime } from "./control/runtime";
 import { TrustedDialog } from "./confirmations/trusted-dialog";
+import type { DialogContent } from "../shared/confirmation";
 import { selectProfile, clearParentHooks } from "./profile";
 import { interfaceThemeSource, resolveInterfaceTheme } from "../shared/interface-themes";
 import {
@@ -174,6 +175,25 @@ const saveWindows = () => {
     .then(() => savePlacements(app.getPath("userData"), placements));
   return savingWindows;
 };
+/** Shows a session in the window that owns its view, or the focused board. */
+const revealSession = (id: string) => {
+  const entry =
+    [...windows.values()].find(({ window }) => window.isFocused()) ?? windows.values().next().value;
+  void (async () => {
+    const owner = views.owner(id);
+    const target = (owner === undefined ? undefined : windows.get(owner)?.window) ?? entry?.window;
+    if (!target) {
+      await createWindow(undefined, undefined, id);
+      return;
+    }
+    if (target.isMinimized()) target.restore();
+    target.show();
+    target.focus();
+    target.webContents.send("app-menu:session", id);
+  })().catch((error: unknown) => {
+    console.error("Unable to reveal session:", error);
+  });
+};
 const attention = () => {
   const entry =
     [...windows.values()].find(({ window }) => window.isFocused()) ?? windows.values().next().value;
@@ -181,29 +201,10 @@ const attention = () => {
   const targets = process.platform === "win32" ? [...windows.values()] : [entry];
   const snapshot = workspace.snapshot();
   for (const current of targets)
-    updateAttention(current?.window, snapshot, newWindowCommand, (id) => {
-      void (async () => {
-        const owner = views.owner(id);
-        const target =
-          (owner === undefined ? undefined : windows.get(owner)?.window) ?? entry?.window;
-        if (!target) {
-          await createWindow(undefined, undefined, id);
-          return;
-        }
-        if (target.isMinimized()) target.restore();
-        target.show();
-        target.focus();
-        target.webContents.send("app-menu:session", id);
-      })().catch((error: unknown) => {
-        console.error("Unable to reveal waiting session:", error);
-      });
-    });
+    updateAttention(current?.window, snapshot, newWindowCommand, revealSession);
 };
-async function requestPairing(
-  repository: string,
-  code: string,
-  signal: AbortSignal,
-): Promise<boolean> {
+/** A trusted dialog on the focused board, or the first; opens a board when none exists. */
+async function requestTrusted(content: DialogContent, signal: AbortSignal): Promise<boolean> {
   const cancelled = () => signal.aborted || quitting || quitPending;
   if (cancelled()) return false;
   let entry =
@@ -213,7 +214,10 @@ async function requestPairing(
     entry = windows.values().next().value;
   }
   if (!entry || cancelled()) return false;
-  return entry.confirmations.request(
+  return entry.confirmations.request(content, signal);
+}
+function requestPairing(repository: string, code: string, signal: AbortSignal): Promise<boolean> {
+  return requestTrusted(
     {
       title: "Pair this CLI with Foom?",
       accept: "Grant read-only access for 10 minutes",
@@ -406,11 +410,20 @@ async function buildWindow(savedSize?: Size, saved?: WindowPlacement, initialSes
         },
       },
       control: () =>
-        ControlRuntime.start(app.getPath("userData"), () => workspace.snapshot().terminals, {
-          repository: (path) =>
-            worktrees.listRepositories().find((entry) => entry.path === path)?.path,
-          approve: requestPairing,
-        }),
+        ControlRuntime.start(
+          app.getPath("userData"),
+          () => workspace.snapshot().terminals,
+          {
+            repository: (path) =>
+              worktrees.listRepositories().find((entry) => entry.path === path)?.path,
+            approve: requestPairing,
+          },
+          workspace.orchestration,
+        ),
+      dialog: requestTrusted,
+      reveal: (id) => {
+        revealSession(id);
+      },
       receiver: () => HookReceiver.listen((signal) => void workspace.hook(signal)),
       environment: (target) => environment.layers(target),
       onChange: () => {

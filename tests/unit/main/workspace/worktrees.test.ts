@@ -11,6 +11,7 @@ import {
   symlink,
   writeFile,
   utimes,
+  stat,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -180,6 +181,17 @@ describe("creation and listing", () => {
     expect(await service.listWorktrees(repo)).toHaveLength(1);
     await expect(service.removeWorktree(repo, path, true)).rejects.toThrow("main checkout");
     expect(await git("branch", "--list", "feature/one")).toContain("feature/one");
+  });
+  it("refuses an existing branch when a new one is required", async () => {
+    await git("branch", "taken");
+    await expect(
+      service.createWorktree(repo, "taken", { location: "adjacent", newBranch: true }),
+    ).rejects.toThrow("Branch already exists");
+    await expect(stat(join(temporary, "repo with spaces-taken"))).rejects.toThrow();
+    const path = await service.createWorktree(repo, "fresh", { newBranch: true });
+    expect(await service.listWorktrees(repo)).toContainEqual(
+      expect.objectContaining({ path, branch: "fresh", managed: true }),
+    );
   });
   it("supports existing branches and adjacent placement", async () => {
     await git("branch", "existing");

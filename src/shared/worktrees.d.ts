@@ -16,4 +16,6 @@ export interface Worktree {
 
 export interface CreateWorktreeOptions {
   readonly location?: "root" | "adjacent";
+  /** Refuse an existing local branch instead of checking it out (orchestrator children). */
+  readonly newBranch?: boolean;
 }

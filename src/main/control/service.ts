@@ -6,6 +6,10 @@ import { isAbsolute } from "node:path";
 import { ControlError, exact, identifier, object } from "./validation";
 import type { ControlLaunch, Principal, Role } from "./types";
 import type { Operations } from "./operations";
+import { ORCHESTRATION_METHODS } from "./orchestration";
+import type { Orchestration } from "./orchestration";
+
+const READ_ONLY = ["whoami", "sessions", "session_state"];
 
 function digest(value: string): Buffer {
   return createHash("sha256").update(value).digest();
@@ -30,6 +34,7 @@ export class ControlService {
   constructor(
     readonly operations: Operations,
     source: () => readonly WorkspaceTerminal[] = () => [],
+    private readonly orchestration?: Pick<Orchestration, "call">,
   ) {
     this.metadata = new SessionMetadata(source);
   }
@@ -170,10 +175,7 @@ export class ControlService {
           repository: locationId(actor.repository),
           worktree: locationId(actor.worktree),
           name: metadataName(basename(actor.worktree)),
-          capabilities:
-            actor.role === "orchestrator"
-              ? ["whoami", "sessions", "session_state", "operation_status"]
-              : ["whoami", "sessions", "session_state"],
+          capabilities: this.capabilities(actor),
         };
       case "sessions":
       case "session_state": {
@@ -187,6 +189,30 @@ export class ControlService {
       default:
         throw new ControlError("forbidden");
     }
+  }
+
+  /** Orchestration methods are visible only to a main-created orchestrator principal. */
+  capabilities(actor: Principal): string[] {
+    return actor.role === "orchestrator"
+      ? [...READ_ONLY, ...(this.orchestration ? ORCHESTRATION_METHODS : []), "operation_status"]
+      : [...READ_ONLY];
+  }
+
+  /** Adapters' entry point: orchestration actions are asynchronous, the rest delegate to dispatch. */
+  async call(actor: Principal, input: unknown): Promise<unknown> {
+    this.assertActive(actor);
+    const request = object(input);
+    const method = request["method"];
+    if (typeof method !== "string" || !ORCHESTRATION_METHODS.includes(method))
+      return this.dispatch(actor, input);
+    exact(request, ["version", "instanceId", "method", "params"]);
+    if (request["version"] !== 1 || request["instanceId"] !== this.instanceId)
+      throw new ControlError("invalid_request");
+    const params = object(request["params"]);
+    if (actor.role !== "orchestrator" || !this.orchestration) throw new ControlError("forbidden");
+    const result = await this.orchestration.call(actor, method, params, this.operations);
+    this.assertActive(actor);
+    return result;
   }
 
   close(): void {

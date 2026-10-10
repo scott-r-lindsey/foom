@@ -410,6 +410,7 @@ export class WorktreeService {
       "--",
       branch,
     ]);
+    if (exists && options.newBranch) throw new Error("Branch already exists");
     await prepareParent(root, path);
     try {
       // Git creates a new branch when absent and checks out an existing branch otherwise.

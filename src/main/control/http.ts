@@ -148,27 +148,35 @@ export class ControlHttp {
     });
     request.on("end", () => {
       if (response.writableEnded) return;
-      try {
-        const value: unknown = JSON.parse(
-          new TextDecoder("utf-8", { fatal: true }).decode(Buffer.concat(chunks)),
-        );
-        if (mcp) {
-          const result = this.mcp.dispatch(actor, request.headers, value);
-          end(result.status, result.body, result.sessionId);
-        } else end(200, { result: this.service.dispatch(actor, value) });
-      } catch (error) {
-        const code = error instanceof ControlError ? error.code : "invalid_request";
-        end(
-          code === "unauthorized"
-            ? 401
-            : code === "forbidden"
-              ? 403
-              : code === "not_found"
-                ? 404
-                : 400,
-          { error: code },
-        );
-      }
+      void (async () => {
+        try {
+          const value: unknown = JSON.parse(
+            new TextDecoder("utf-8", { fatal: true }).decode(Buffer.concat(chunks)),
+          );
+          // A bounded wait_for may hold the response for up to 30 seconds.
+          request.socket.setTimeout(35000);
+          if (mcp) {
+            const result = await this.mcp.dispatch(actor, request.headers, value);
+            if (!response.writableEnded) end(result.status, result.body, result.sessionId);
+          } else {
+            const result = await this.service.call(actor, value);
+            if (!response.writableEnded) end(200, { result });
+          }
+        } catch (error) {
+          if (response.writableEnded) return;
+          const code = error instanceof ControlError ? error.code : "invalid_request";
+          end(
+            code === "unauthorized"
+              ? 401
+              : code === "forbidden"
+                ? 403
+                : code === "not_found"
+                  ? 404
+                  : 400,
+            { error: code },
+          );
+        }
+      })();
     });
   }
 }

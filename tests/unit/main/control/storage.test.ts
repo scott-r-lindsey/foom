@@ -182,6 +182,22 @@ it("runs the real lazy endpoint, grants fresh credentials, removes discovery on 
     });
     expect(response.status).toBe(200);
     launch.dispose();
+    // Main's launch path selects the role; a child grant records its parent.
+    const parent = runtime.prepare(root, root, undefined, "orchestrator");
+    parent.bind("parent");
+    const child = runtime.prepare(root, root, "child-session", "agent", "parent");
+    child.bind("child");
+    const childActor = runtime.service.authenticate(child.env["FOOM_CONTROL_TOKEN"] ?? "");
+    expect(childActor).toMatchObject({
+      role: "agent",
+      parentId: "parent",
+      sessionId: "child-session",
+    });
+    expect(runtime.service.authenticate(parent.env["FOOM_CONTROL_TOKEN"] ?? "").role).toBe(
+      "orchestrator",
+    );
+    parent.dispose();
+    child.dispose();
     const orchestrator = runtime.service.prepare(root, root, "orchestrator");
     orchestrator.bind("orchestrator");
     const actor = runtime.service.authenticate(orchestrator.env["FOOM_CONTROL_TOKEN"] ?? "");

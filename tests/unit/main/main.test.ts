@@ -1218,6 +1218,8 @@ test("control startup publishes private discovery and binds trusted pairing call
       "/test/user-data",
       expect.any(Function),
       expect.any(Object),
+      // The mocked workspace has no orchestration; production passes Workspace.orchestration.
+      undefined,
     );
     expect(startControl.mock.calls[0]?.[1]?.()).toMatchObject([{ id: "t1" }, { id: "t2" }]);
     expect(mock.workspace.initializeControl).toHaveBeenCalled();

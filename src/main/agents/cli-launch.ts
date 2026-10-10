@@ -1,3 +1,26 @@
+import type { AgentInstallation } from "../../shared/agents";
+
+/**
+ * An orchestrator child's initial prompt as one argv entry. Claude Code and Codex take
+ * it positionally; Antigravity composes it through `--prompt-interactive`.
+ */
+export function initialPrompt(
+  agent: Pick<AgentInstallation, "id" | "cliGuidance">,
+  prompt: string | undefined,
+): { guidance: string[]; positional: string[] } {
+  if (prompt === undefined) return { guidance: [], positional: [] };
+  if (
+    prompt.length === 0 ||
+    Buffer.byteLength(prompt) > 16384 ||
+    prompt.trimStart().startsWith("-") ||
+    /[^\P{Cc}\n\t]/u.test(prompt)
+  )
+    throw new Error("Invalid initial prompt");
+  if (agent.id !== "agy") return { guidance: [], positional: [prompt] };
+  if (!agent.cliGuidance) throw new Error("This Antigravity release cannot take a prompt");
+  return { guidance: ["--prompt-interactive", prompt], positional: [] };
+}
+
 /** Compose initial prompt data using argv only; never install Antigravity MCP config. */
 export function cliGuidance(args: readonly string[]): string[] {
   const result: string[] = [];

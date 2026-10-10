@@ -33,5 +33,6 @@ export interface ConfirmationWindowApi {
 export type WorkspaceConfirmation =
   | { kind: "remove" | "stop" | "shared-agent" | "notifier" }
   | { kind: "merged-worktrees"; worktrees: readonly { branch: string; reason?: string }[] }
-  | { kind: "dirty-worktree"; title: string; changes: string };
+  | { kind: "dirty-worktree"; title: string; changes: string }
+  | { kind: "orchestrator"; agent: "claude" | "codex" | "agy" };
 export type ConfirmWorkspace = (request: WorkspaceConfirmation) => Promise<boolean>;

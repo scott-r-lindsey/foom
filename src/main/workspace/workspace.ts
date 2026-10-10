@@ -11,7 +11,8 @@ import type { SessionStore } from "./session-store";
 import type { InventoryWatch } from "./inventory-watch";
 import type { ControlLaunch } from "../control/types";
 import type { ControlRuntime } from "../control/runtime";
-import type { ConfirmWorkspace } from "../../shared/confirmation";
+import { Orchestration } from "../control/orchestration";
+import type { ConfirmWorkspace, DialogContent } from "../../shared/confirmation";
 import { EMPTY_AGENT_ARGUMENTS, hasBypassArgument } from "../agents/default-arguments";
 import { detectAgent, ruleRegion } from "../evaluator/agent-rules";
 import type { AgentEvidence } from "../../shared/agent-detection";
@@ -22,7 +23,7 @@ import { buildLaunchEnvironment, inheritedEnvironment } from "../setup/environme
 import type { EnvironmentVariable } from "../../shared/environment";
 import { prepareHookLaunch } from "../agents/hook-launch";
 import type { HookRegistrar } from "../agents/hook-launch";
-import type { AgentHooks, AgentId, AgentLaunched } from "../../shared/agents";
+import type { AgentHooks, AgentId, AgentLaunch, AgentLaunched } from "../../shared/agents";
 import type { TerminalSpec, ShellState } from "../../shared/desktop";
 import type { EvaluationInput, VerdictAction, VerdictRecord } from "../../shared/evaluator";
 import type { HookSignal } from "../../shared/hooks";
@@ -106,8 +107,17 @@ export interface WorkspaceDependencies {
   copyText?(text: string): void | Promise<void>;
   agents?: (
     prepare: (agent: AgentId) => Promise<AgentHooks>,
-    control?: (repository: string, worktree: string, sessionId?: string) => Promise<ControlLaunch>,
+    control?: (
+      repository: string,
+      worktree: string,
+      sessionId?: string,
+      role?: AgentLaunch["control"],
+    ) => Promise<ControlLaunch>,
   ) => Agents;
+  /** The trusted app dialog, for confirmations no board click can answer. */
+  dialog?: (content: DialogContent, signal: AbortSignal) => Promise<boolean>;
+  /** Shows an existing session, for example a repository's running orchestrator. */
+  reveal?: (id: string) => void;
   now?: () => number;
   /** Validated Environment layers for a launch: All sessions, then the agent's own. */
   environment?: (target: AgentId | "shell") => readonly (readonly EnvironmentVariable[])[];
@@ -126,6 +136,8 @@ export interface WorkspaceDependencies {
  * identifiers crossing into evaluation; agent text never does.
  */
 export class Workspace {
+  /** Repository orchestrators and their children; the control service delegates here. */
+  readonly orchestration: Orchestration;
   private readonly agents: Agents;
   private readonly codexHooks: CodexHookStatus;
   private launchSequence = 0;
@@ -200,13 +212,40 @@ export class Workspace {
           repository: string,
           worktree: string,
           sessionId?: string,
+          role?: AgentLaunch["control"],
         ): Promise<ControlLaunch> => {
           await this.initializeControl();
           const control = await this.control;
           if (!control) throw new Error("Control service unavailable");
-          return control.prepare(repository, worktree, sessionId);
+          return role === undefined
+            ? control.prepare(repository, worktree, sessionId)
+            : "role" in role
+              ? control.prepare(repository, worktree, sessionId, "orchestrator")
+              : control.prepare(repository, worktree, sessionId, "agent", role.parentId);
         }
       : undefined;
+    this.orchestration = new Orchestration(
+      {
+        terminals: () => this.snapshot().terminals,
+        createWorktree: (repository, branch) => this.createChildWorktree(repository, branch),
+        launch: (parentId, repository, worktree, agent, prompt) =>
+          this.launchChild(parentId, repository, worktree, agent, prompt),
+        stop: (id) => this.deps.terminals.stop(id),
+        tail: (id, lines) => this.deps.terminals.tail(id, lines),
+        remove: async (repository, worktree, confirm) => {
+          const tree = (await this.worktrees(repository)).find((item) => item.path === worktree);
+          if (!tree || tree.path === repository) throw new Error("Worktree is unavailable");
+          const removed = await this.removeTree(repository, worktree, tree.branch, confirm);
+          this.refresh();
+          return removed;
+        },
+        dialog: (content, signal) => this.deps.dialog?.(content, signal) ?? Promise.resolve(false),
+        changed: () => {
+          if (!this.closed) this.deps.onChange?.();
+        },
+      },
+      this.now,
+    );
     this.agents = deps.agents
       ? deps.agents(prepare, prepareControl)
       : new AgentService(deps.worktrees, deps.terminals, prepare, prepareControl, this.agyPlugin);
@@ -265,6 +304,7 @@ export class Workspace {
           : {}),
         state: this.terminals.get(entry.id)?.state ?? null,
         exited: entry.dormant === true || this.terminals.get(entry.id)?.exitCode !== undefined,
+        ...this.orchestrationView(entry.id),
       })),
     };
   }
@@ -416,6 +456,7 @@ export class Workspace {
     sharedCheckout = false,
     checkoutIdentity?: string,
     replacement?: { id: string; conversationId?: string },
+    extra: Pick<AgentLaunch, "control" | "prompt"> = {},
   ): Promise<{ id: string; attention: "hooks" | "evaluator" }> {
     return this.withRepository(request.repository, async () => {
       if (!this.enabled[request.agent]) throw new Error("This agent is turned off in preflight");
@@ -425,9 +466,12 @@ export class Workspace {
       const tree = (await this.deps.worktrees.listWorktrees(request.repository)).find(
         (entry) => entry.path === request.worktree,
       );
-      const defaultArguments = this.defaultArguments[request.agent];
+      // Orchestrator children never inherit the user's (possibly bypass) defaults.
+      const child = extra.control !== undefined && "parentId" in extra.control;
+      const defaultArguments = child ? [] : this.defaultArguments[request.agent];
       const result = await this.agents.launch({
         ...request,
+        ...extra,
         defaultArguments,
         ...(replacement
           ? {
@@ -449,7 +493,7 @@ export class Workspace {
         ...(launchVersion === undefined ? {} : { launchVersion }),
         id: result.id,
         startedAt: this.now(),
-        launchFlags: [...this.defaultArguments[request.agent]],
+        launchFlags: [...defaultArguments],
         ...(result.environment?.length ? { environment: [...result.environment] } : {}),
         kind: "agent",
         agent: request.agent,
@@ -978,6 +1022,10 @@ export class Workspace {
       await this.deps.copyText?.(command.worktree);
       return;
     }
+    if (command.kind === "take-over") {
+      this.orchestration.takeOver(command.id);
+      return;
+    }
     if ("id" in command && this.busySessions.has(command.id)) throw new Error("Session is busy");
     if (
       command.kind === "resume" ||
@@ -1047,6 +1095,8 @@ export class Workspace {
       await this.startExisting(command.repository, command.worktree, command.run, confirm);
       return;
     }
+    if (command.kind === "orchestrate")
+      return this.orchestrate(command.repository, command.run, confirm);
     const tree = (await this.worktrees(command.repository)).find(
       (item) => item.path === command.worktree,
     );
@@ -1069,7 +1119,8 @@ export class Workspace {
     run: AgentId | "shell",
     confirm: ConfirmWorkspace,
     replacement?: { id: string; conversationId?: string },
-  ): Promise<void> {
+    control?: AgentLaunch["control"],
+  ): Promise<string | undefined> {
     return this.withRepository(repository, async () => {
       const tree = (await this.worktrees(repository)).find((item) => item.path === worktree);
       if (!tree) throw new Error("Worktree was removed. Choose another checkout.");
@@ -1105,20 +1156,23 @@ export class Workspace {
             this.deps.verdicts.forget(old.id);
           }
           try {
-            await this.launchAgent(
-              {
-                agent: run,
-                repository,
-                worktree,
-                cols: 80,
-                rows: 24,
-                acknowledgeCodexNotifierReplacement: this.acknowledged,
-              },
-              worktree === repository,
-              true,
-              identity,
-              replacement,
-            );
+            return (
+              await this.launchAgent(
+                {
+                  agent: run,
+                  repository,
+                  worktree,
+                  cols: 80,
+                  rows: 24,
+                  acknowledgeCodexNotifierReplacement: this.acknowledged,
+                },
+                worktree === repository,
+                true,
+                identity,
+                replacement,
+                control === undefined ? {} : { control },
+              )
+            ).id;
           } catch (error) {
             if (replacement) this.track(replacement.id).exitCode = -1;
             this.deps.onChange?.();
@@ -1153,7 +1207,104 @@ export class Workspace {
           this.track(id);
           this.persist();
           this.refresh();
+          return id;
         }
+      } finally {
+        this.busyWorktrees.delete(key);
+      }
+    });
+  }
+
+  private orchestrationView(id: string): Pick<WorkspaceTerminal, "orchestration"> {
+    const view = this.orchestration.view(id);
+    return view ? { orchestration: view } : {};
+  }
+
+  /**
+   * The repository panel's Launch as Foom orchestrator. The slot is reserved before any
+   * async work; a live duplicate reveals the existing parent instead of launching.
+   */
+  private async orchestrate(
+    repository: string,
+    agent: AgentId,
+    confirm: ConfirmWorkspace,
+  ): Promise<void> {
+    this.known(repository);
+    const slot = this.orchestration.reserve(repository);
+    if ("existing" in slot) {
+      this.deps.reveal?.(slot.existing);
+      return;
+    }
+    try {
+      const scan = await this.scanAgents(false);
+      if (!scan.agents.some((entry) => entry.id === agent && entry.mcp))
+        throw new Error("Orchestration needs a Claude Code or Codex release with verified MCP");
+      if (!(await confirm({ kind: "orchestrator", agent }))) return;
+      const id = await this.startExisting(repository, repository, agent, confirm, undefined, {
+        role: "orchestrator",
+      });
+      if (id !== undefined) slot.bind(id);
+    } finally {
+      slot.release();
+    }
+  }
+
+  /** A new branch and worktree for an orchestrator child, under the same branch lock. */
+  private async createChildWorktree(
+    repository: string,
+    branch: string,
+  ): Promise<{ path: string; branch: string }> {
+    return this.withRepository(repository, async () => {
+      const key = `${repository}\0${branch}`;
+      if (this.busyWorktrees.has(key)) throw new Error("This worktree is busy");
+      this.busyWorktrees.add(key);
+      try {
+        await this.deps.worktrees.validateBranch(repository, branch);
+        const path = await this.deps.worktrees.createWorktree(repository, branch, {
+          location: this.location,
+          newBranch: true,
+        });
+        this.refresh();
+        return { path, branch };
+      } finally {
+        this.busyWorktrees.delete(key);
+      }
+    });
+  }
+
+  /** An ordinary child with a read-only grant, no bypass defaults and no confirmation prompts. */
+  private async launchChild(
+    parentId: string,
+    repository: string,
+    worktree: string,
+    agent: AgentId,
+    prompt: string | undefined,
+  ): Promise<string> {
+    return this.withRepository(repository, async () => {
+      const tree = (await this.worktrees(repository)).find((item) => item.path === worktree);
+      if (!tree || tree.bare || tree.locked || tree.prunable || tree.path === repository)
+        throw new Error("Worktree is unavailable");
+      const key = `${repository}\0${tree.branch ?? ""}`;
+      if (this.busyWorktrees.has(key)) throw new Error("This worktree is busy");
+      this.busyWorktrees.add(key);
+      try {
+        const identity = await this.deps.worktrees.launchIdentity(repository, worktree);
+        const launched = await this.launchAgent(
+          {
+            agent,
+            repository,
+            worktree,
+            cols: 80,
+            rows: 24,
+            acknowledgeCodexNotifierReplacement: this.acknowledged,
+          },
+          false,
+          false,
+          identity,
+          undefined,
+          { control: { parentId }, ...(prompt === undefined ? {} : { prompt }) },
+        );
+        return launched.id;
       } finally {
         this.busyWorktrees.delete(key);
       }
@@ -1591,6 +1742,7 @@ export class Workspace {
   /** Exit verdicts ignore replies: the process is gone, so its exit always stands. */
   exited(id: string, code: number): Promise<void> {
     this.agents.release(id);
+    this.orchestration.exited(id);
     const current = this.track(id);
     if (current.execution) this.transition(id, "exited", "exit");
     return this.enqueue(id, async (terminal) => {
@@ -1604,6 +1756,8 @@ export class Workspace {
   /** The terminal was killed and removed from the board. */
   removed(id: string): void {
     this.agents.release(id);
+    this.orchestration.exited(id);
+    this.orchestration.removed(id);
     this.launched.delete(id);
     this.persist();
     this.terminals.delete(id);

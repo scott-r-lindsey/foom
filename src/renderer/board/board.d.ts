@@ -1,4 +1,5 @@
 import type { ExecutionSnapshot } from "../../shared/execution";
+import type { OrchestrationView } from "../../shared/workspace";
 export type BoardState = "working" | "needs_input" | "done" | "failed" | "quiet_ok";
 export interface BoardRow {
   execution?: ExecutionSnapshot | undefined;
@@ -23,6 +24,8 @@ export interface BoardRow {
   worktreeRemoved?: boolean;
   /** Known bypass argument present at launch; does not infer global agent policy. */
   bypass?: boolean;
+  /** Main's orchestrator role and action history, or a child's parent and takeover. */
+  orchestration?: OrchestrationView | undefined;
   kind: "sample" | "shell" | "agent";
   repository: string;
   branch: string;
