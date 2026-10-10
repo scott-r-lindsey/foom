@@ -62,6 +62,14 @@ test("URL credentials are detected, extracted and masked", () => {
   expect(maskCredentials("http://token@proxy")).toBe("http://••••@proxy");
   expect(maskCredentials("http://:pw@proxy")).toBe("http://••••@proxy");
   expect(maskCredentials("/certs/a.pem")).toBe("/certs/a.pem");
+  // URL parsing ends user information at the last @, so a password may contain @.
+  const at = "http://alice:prefix@private-suffix@proxy.example:8080";
+  expect(environmentProblem("HTTPS_PROXY", at, false)).toBeNull();
+  expect(new URL(at).password).toBe("prefix%40private-suffix");
+  expect(urlCredentials(at)).toBe("alice:prefix@private-suffix");
+  expect(maskCredentials(at)).toBe("http://alice:••••@proxy.example:8080");
+  expect(maskCredentials("http://to@ken@proxy/a@b")).toBe("http://••••@proxy/a@b");
+  expect(hasUrlCredentials("http://proxy/a@b")).toBe(false);
   expect(foldName("Path", true)).toBe("PATH");
   expect(foldName("Path", false)).toBe("Path");
 });

@@ -43,15 +43,19 @@ export function foldName(name: string, windows: boolean): string {
   return windows ? name.toUpperCase() : name;
 }
 
+// User information runs to the last `@` before the path, as URL parsing reads it, so a
+// password containing `@` is never split.
+const USERINFO = /^(\s*[a-z][a-z0-9+.-]*:\/\/)([^/?#\s]*)@/i;
+
 /** A URL with user information, such as `http://user:pass@proxy`. Always stored as a secret. */
 export function hasUrlCredentials(value: string): boolean {
-  return /^[a-z][a-z0-9+.-]*:\/\/[^/?#@\s]+@/i.test(value.trim());
+  return urlCredentials(value) !== null;
 }
 
 /** The user information of a URL value, for redaction, or null. */
 export function urlCredentials(value: string): string | null {
-  const match = /^[a-z][a-z0-9+.-]*:\/\/([^/?#@\s]+)@/i.exec(value.trim());
-  return match?.[1] ?? null;
+  const userinfo = USERINFO.exec(value.trim())?.[2];
+  return userinfo ? userinfo : null;
 }
 
 /**
@@ -59,11 +63,10 @@ export function urlCredentials(value: string): string | null {
  * be a token, so it is masked too.
  */
 export function maskCredentials(value: string): string {
-  return value.replace(
-    /^(\s*[a-z][a-z0-9+.-]*:\/\/)([^/?#@\s:]*)(:[^/?#@\s]*)?@/i,
-    (_match, scheme: string, user: string, password?: string) =>
-      `${scheme}${user && password ? `${user}:` : ""}••••@`,
-  );
+  return value.replace(USERINFO, (_match, scheme: string, userinfo: string) => {
+    const separator = userinfo.indexOf(":");
+    return `${scheme}${separator > 0 ? userinfo.slice(0, separator + 1) : ""}••••@`;
+  });
 }
 
 export function nameProblem(name: string): string | null {

@@ -39,6 +39,13 @@ interface Draft {
   error: string;
 }
 type Drafts = Record<EnvironmentScope, Draft[]>;
+/** What a save sent, so its reply keeps edits made while it was in flight. */
+interface Sent {
+  key: number;
+  name: string;
+  value: string | null;
+  secret: boolean;
+}
 
 let nextKey = 0;
 function draft(row: EnvironmentRow): Draft {
@@ -142,13 +149,26 @@ export function EnvironmentSettings({
       current ? { ...current, [scope]: current[scope].filter((row) => row.key !== key) } : current,
     );
   };
-  /** Takes main's rows for a scope, keeping unsaved edits to other rows. */
-  const accept = (next: EnvironmentState, scope: EnvironmentScope, key?: number) => {
+  /**
+   * Takes main's rows for a scope, keeping unsaved edits, including edits made to the saving
+   * row after its save was sent.
+   */
+  const accept = (next: EnvironmentState, scope: EnvironmentScope, sent?: Sent) => {
+    const key = sent?.key;
     setState(next);
     setLists((current) => {
       if (!current) return drafts(next);
       const kept = current[scope];
       const rows = next.lists[scope].map((row) => {
+        if (sent && fold(row.name) === fold(sent.name)) {
+          const entry = kept.find((candidate) => candidate.key === sent.key);
+          if (!entry) return draft(row);
+          const newer =
+            entry.name.trim() !== sent.name ||
+            entry.value !== sent.value ||
+            entry.secret !== sent.secret;
+          return newer ? { ...entry, saved: row.name } : { ...draft(row), key: entry.key };
+        }
         const existing = kept.find(
           (entry) =>
             entry.key !== key &&
@@ -158,9 +178,10 @@ export function EnvironmentSettings({
         );
         if (existing) return existing;
         // Keep keys, so a focused row is not remounted when another row saves.
-        const same =
-          kept.find((entry) => entry.key === key && fold(entry.name) === fold(row.name)) ??
-          kept.find((entry) => entry.saved !== null && fold(entry.saved) === fold(row.name));
+        const same = kept.find(
+          (entry) =>
+            entry.key !== key && entry.saved !== null && fold(entry.saved) === fold(row.name),
+        );
         return same ? { ...draft(row), key: same.key } : draft(row);
       });
       const unsaved = kept.filter((entry) => entry.saved === null && entry.key !== key);
@@ -201,6 +222,7 @@ export function EnvironmentSettings({
     const index = lists[scope].findIndex((entry) => entry.key === row.key);
     if (!row.dirty || problem(scope, row, index)) return;
     try {
+      const sent = { key: row.key, name, value: row.value, secret: row.secret };
       const next = await source.saveEnvironment({
         scope,
         previous: row.saved,
@@ -208,7 +230,7 @@ export function EnvironmentSettings({
         value: row.value,
         secret: row.secret,
       });
-      accept(next, scope, row.key);
+      accept(next, scope, sent);
       saved();
     } catch (caught) {
       update(scope, row.key, { error: message(caught) });

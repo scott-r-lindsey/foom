@@ -142,6 +142,44 @@ test("another row's autosave keeps the focused row mounted", async () => {
   expect(row("All sessions", "PATH")).toBe(path);
 });
 
+test("a save's reply keeps edits made to that row while it was in flight", async () => {
+  const api = source();
+  let reply = (_state: EnvironmentState) => {};
+  api.saveEnvironment.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        reply = resolve;
+      }),
+  );
+  const proxy = await waitFor(() => row("All sessions", "HTTPS_PROXY"));
+  const input = within(proxy).getByLabelText("HTTPS_PROXY value");
+  fireEvent.change(input, { target: { value: "http://first:1" } });
+  fireEvent.focusOut(input);
+  fireEvent.change(input, { target: { value: "http://newer:2" } });
+  const first = state({
+    all: [
+      { name: "HTTPS_PROXY", value: "http://first:1", secret: false },
+      { name: "PATH", value: "/opt/bin", secret: false },
+    ],
+  });
+  await act(async () => {
+    reply(first);
+    await Promise.resolve();
+  });
+  expect(input).toHaveProperty("value", "http://newer:2");
+  api.saveEnvironment.mockResolvedValueOnce(first);
+  fireEvent.focusOut(input);
+  await waitFor(() => {
+    expect(api.saveEnvironment).toHaveBeenLastCalledWith({
+      scope: "all",
+      previous: "HTTPS_PROXY",
+      name: "HTTPS_PROXY",
+      value: "http://newer:2",
+      secret: false,
+    });
+  });
+});
+
 test("import offers main's candidates and adds only the picked ones", async () => {
   const api = source(state({ all: [{ name: "NO_PROXY", value: ".corp", secret: false }] }));
   api.readShellEnvironment.mockResolvedValue([
