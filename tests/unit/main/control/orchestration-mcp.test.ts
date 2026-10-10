@@ -18,7 +18,7 @@ beforeEach(async () => {
   const host = {
     terminals: () => rows,
     createWorktree: (_repository: string, branch: string) =>
-      Promise.resolve({ path: join(repo, branch), branch }),
+      Promise.resolve({ path: join(repo, branch), branch, identity: branch }),
     launch: (_parent: string, _repository: string, worktree: string) => {
       rows.push({
         id: "child",

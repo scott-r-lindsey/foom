@@ -644,7 +644,9 @@ it("launches an orchestrator only with MCP and appends a child's prompt after ev
     expect(controlFor).toHaveBeenLastCalledWith(root, tree, expect.anything(), {
       parentId: "parent",
     });
-    expect(create.mock.calls.at(-1)?.[0].args.at(-1)).toBe("Write tests");
+    expect(create.mock.calls.at(-1)?.[0].args.at(-1)).toMatch(
+      /^Task from your Foom orchestrator[^]*\n\nWrite tests$/u,
+    );
   } finally {
     versions.claude = previous;
   }

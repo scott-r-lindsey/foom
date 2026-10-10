@@ -26,14 +26,18 @@ it("composes Antigravity initial prompt data without invoking a shell or changin
 });
 
 it("passes an orchestrator child's prompt as one argv entry and refuses option-like prompts", () => {
-  const { initialPrompt } = cliLaunch;
+  const { initialPrompt, CHILD_PROMPT } = cliLaunch;
   expect(initialPrompt({ id: "claude" }, undefined)).toEqual({ guidance: [], positional: [] });
   expect(initialPrompt({ id: "codex" }, "Fix it\n\tthen test")).toEqual({
     guidance: [],
-    positional: ["Fix it\n\tthen test"],
+    positional: [`${CHILD_PROMPT}\n\nFix it\n\tthen test`],
   });
+  // A bare subcommand name never reaches the CLI as its own argv entry.
+  expect(initialPrompt({ id: "codex" }, "logout").positional).toEqual([
+    `${CHILD_PROMPT}\n\nlogout`,
+  ]);
   expect(initialPrompt({ id: "agy", cliGuidance: true }, "Plan")).toEqual({
-    guidance: ["--prompt-interactive", "Plan"],
+    guidance: ["--prompt-interactive", `${CHILD_PROMPT}\n\nPlan`],
     positional: [],
   });
   expect(() => initialPrompt({ id: "agy" }, "Plan")).toThrow("cannot take a prompt");

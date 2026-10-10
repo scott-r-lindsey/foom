@@ -69,7 +69,7 @@ beforeEach(() => {
     },
     verdicts: {
       forget: vi.fn(),
-      classify: vi.fn(() => new Promise<VerdictRecord>(() => undefined)),
+      classify: vi.fn(() => Promise.reject<VerdictRecord>(new Error("no evaluator"))),
       commit: vi.fn(async () => {}),
       recordAction: vi.fn(async () => {}),
     },
@@ -304,4 +304,147 @@ it("refuses to launch a child into the main checkout or an unavailable worktree"
     ),
   ).toMatchObject({ status: "failed" });
   expect(launch).toHaveBeenCalledTimes(1);
+});
+
+it("binds child worktrees to the identity captured at creation", async () => {
+  const workspace = new Workspace(deps);
+  await orchestrate(workspace);
+  const operations = new Operations(
+    () => Promise.resolve(),
+    () => undefined,
+  );
+  const actor = principal();
+  const tree = (await workspace.orchestration.call(
+    actor,
+    "create_worktree",
+    { idempotencyKey: "a", branch: "feature" },
+    operations,
+  )) as Operation;
+  // The human replaced the checkout at the same path.
+  vi.mocked(deps.worktrees.launchIdentity).mockResolvedValue("replacement");
+  expect(
+    await workspace.orchestration.call(
+      actor,
+      "launch",
+      { idempotencyKey: "b", worktreeId: tree.resultId, agent: "claude" },
+      operations,
+    ),
+  ).toMatchObject({ status: "failed" });
+  await workspace.orchestration.call(
+    actor,
+    "remove_worktree",
+    { idempotencyKey: "r", worktreeId: tree.resultId },
+    operations,
+  );
+  await vi.waitFor(() => {
+    expect(operations.lookup(actor, { idempotencyKey: "r" })).toMatchObject({
+      status: "failed",
+    });
+  });
+  expect(deps.dialog).not.toHaveBeenCalled();
+  expect(deps.worktrees.removeWorktree).not.toHaveBeenCalled();
+});
+
+it("rechecks running sessions under the removal lock", async () => {
+  const workspace = new Workspace(deps);
+  await orchestrate(workspace);
+  const operations = new Operations(
+    () => Promise.resolve(),
+    () => undefined,
+  );
+  const actor = principal();
+  const tree = (await workspace.orchestration.call(
+    actor,
+    "create_worktree",
+    { idempotencyKey: "a", branch: "feature" },
+    operations,
+  )) as Operation;
+  // A human shell starts in the worktree after the orchestration-level check.
+  vi.mocked(deps.worktrees.listWorktrees).mockImplementationOnce(async () => {
+    await workspace.sidebarCommand(
+      { kind: "launch", repository: repo.path, worktree: child.path, run: "shell" },
+      confirm,
+    );
+    return [main, child];
+  });
+  await workspace.orchestration.call(
+    actor,
+    "remove_worktree",
+    { idempotencyKey: "r", worktreeId: tree.resultId },
+    operations,
+  );
+  await vi.waitFor(() => {
+    expect(operations.lookup(actor, { idempotencyKey: "r" })).toMatchObject({
+      status: "failed",
+    });
+  });
+  expect(deps.dialog).not.toHaveBeenCalled();
+  expect(stop).not.toHaveBeenCalled();
+});
+
+it("reports a creation error as indeterminate when git may have added the checkout", async () => {
+  const workspace = new Workspace(deps);
+  await orchestrate(workspace);
+  const operations = new Operations(
+    () => Promise.resolve(),
+    () => undefined,
+  );
+  const actor = principal();
+  vi.mocked(deps.worktrees.createWorktree).mockRejectedValueOnce(new Error("save failed"));
+  expect(
+    await workspace.orchestration.call(
+      actor,
+      "create_worktree",
+      { idempotencyKey: "a", branch: "feature" },
+      operations,
+    ),
+  ).toMatchObject({ status: "indeterminate" });
+  vi.mocked(deps.worktrees.createWorktree).mockRejectedValueOnce(new Error("invalid"));
+  expect(
+    await workspace.orchestration.call(
+      actor,
+      "create_worktree",
+      { idempotencyKey: "b", branch: "other" },
+      operations,
+    ),
+  ).toMatchObject({ status: "failed" });
+  vi.mocked(deps.worktrees.createWorktree).mockRejectedValueOnce(new Error("invalid"));
+  vi.mocked(deps.worktrees.listWorktrees).mockRejectedValueOnce(new Error("git failed"));
+  expect(
+    await workspace.orchestration.call(
+      actor,
+      "create_worktree",
+      { idempotencyKey: "c", branch: "third" },
+      operations,
+    ),
+  ).toMatchObject({ status: "indeterminate" });
+});
+
+it("a human relaunch of a child's session ends the orchestrator's ownership", async () => {
+  const workspace = new Workspace(deps);
+  await orchestrate(workspace);
+  const operations = new Operations(
+    () => Promise.resolve(),
+    () => undefined,
+  );
+  const actor = principal();
+  const tree = (await workspace.orchestration.call(
+    actor,
+    "create_worktree",
+    { idempotencyKey: "a", branch: "feature" },
+    operations,
+  )) as Operation;
+  launch.mockResolvedValueOnce({ id: "child", attention: "evaluator" });
+  await workspace.orchestration.call(
+    actor,
+    "launch",
+    { idempotencyKey: "b", worktreeId: tree.resultId, agent: "claude" },
+    operations,
+  );
+  await workspace.exited("child", 0);
+  launch.mockResolvedValueOnce({ id: "child", attention: "evaluator" });
+  await workspace.sidebarCommand({ kind: "new-conversation", id: "child" }, confirm);
+  expect(
+    workspace.snapshot().terminals.find((entry) => entry.id === "child")?.orchestration,
+  ).toBeUndefined();
 });

@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { describe, expect, it, vi } from "vitest";
 import { ControlService } from "../../../../src/main/control/service";
 import { Operations } from "../../../../src/main/control/operations";
-import { Orchestration } from "../../../../src/main/control/orchestration";
+import { Orchestration, UncertainEffect } from "../../../../src/main/control/orchestration";
 import type { OrchestrationHost } from "../../../../src/main/control/orchestration";
 import { locationId } from "../../../../src/main/control/metadata";
 import type { Operation, StoredOperation } from "../../../../src/main/control/types";
@@ -32,13 +32,14 @@ function harness() {
   const host = {
     terminals: () => [...rows.values()],
     createWorktree: vi.fn((_repository: string, branch: string) =>
-      Promise.resolve({ path: join(repo, "trees", branch), branch }),
+      Promise.resolve({ path: join(repo, "trees", branch), branch, identity: `id-${branch}` }),
     ),
     launch: vi.fn(
       (
         _parent: string,
         _repository: string,
         worktree: string,
+        _identity: string,
         _agent: string,
         _prompt: string | undefined,
       ) => {
@@ -53,6 +54,7 @@ function harness() {
       (
         _repository: string,
         _worktree: string,
+        _identity: string,
         confirm: (branch: string, changes: string) => Promise<boolean>,
       ) => confirm("feature", ""),
     ),
@@ -252,6 +254,7 @@ describe("worktrees and children", () => {
       "parent",
       repo,
       join(repo, "trees", "feature"),
+      "id-feature",
       "claude",
       undefined,
     );
@@ -269,6 +272,7 @@ describe("worktrees and children", () => {
       "parent",
       repo,
       join(repo, "trees", "prompted"),
+      "id-prompted",
       "agy",
       "Fix it\nthen test",
     );
@@ -308,14 +312,12 @@ describe("worktrees and children", () => {
     await vi.waitFor(() => {
       expect(h.host.launch).toHaveBeenCalledTimes(4);
     });
-    // Worktrees reserved by starting children no longer count as unused.
-    const fifth = await h.mutate("create_worktree", { branch: "e" });
-    await expect(
-      h.mutate("launch", { worktreeId: fifth.resultId, agent: "claude" }),
-    ).rejects.toThrow("capacity");
+    // Starting launches stay charged to the unused-worktree budget until they succeed.
+    await expect(h.mutate("create_worktree", { branch: "early" })).rejects.toThrow("capacity");
     release();
     const launched = await Promise.all(pending);
     expect(launched.every((record) => record.status === "succeeded")).toBe(true);
+    const fifth = await h.mutate("create_worktree", { branch: "e" });
     await expect(
       h.mutate("launch", { worktreeId: fifth.resultId, agent: "claude" }),
     ).rejects.toThrow("capacity");
@@ -325,6 +327,40 @@ describe("worktrees and children", () => {
     expect(await h.mutate("launch", { worktreeId: fifth.resultId, agent: "claude" })).toMatchObject(
       { status: "succeeded" },
     );
+  });
+
+  it("restores the unused budget when every starting launch fails", async () => {
+    const h = harness();
+    const trees: Operation[] = [];
+    for (const branch of ["a", "b", "c", "d"])
+      trees.push(await h.mutate("create_worktree", { branch }));
+    h.host.launch.mockRejectedValue(new Error("spawn failed"));
+    for (const tree of trees)
+      expect(
+        await h.mutate("launch", { worktreeId: tree.resultId, agent: "claude" }),
+      ).toMatchObject({ status: "failed" });
+    await expect(h.mutate("create_worktree", { branch: "e" })).rejects.toThrow("capacity");
+  });
+
+  it("reports a possibly created worktree as indeterminate and keeps it charged", async () => {
+    const h = harness();
+    h.host.createWorktree.mockRejectedValueOnce(new UncertainEffect());
+    expect(await h.mutate("create_worktree", { branch: "maybe" })).toMatchObject({
+      status: "indeterminate",
+      reason: "uncertain",
+    });
+    for (const branch of ["a", "b", "c"]) await h.mutate("create_worktree", { branch });
+    await expect(h.mutate("create_worktree", { branch: "d" })).rejects.toThrow("capacity");
+  });
+
+  it("drops ownership when the human relaunches a child under the same ID", async () => {
+    const h = harness();
+    const { id } = await h.child("feature");
+    h.exit(id);
+    h.orchestration.relaunched(id);
+    expect(h.orchestration.view(id)).toBeUndefined();
+    await expect(h.call("tail", { id })).rejects.toThrow("not_found");
+    await expect(h.mutate("stop", { id })).rejects.toThrow("not_found");
   });
 
   it("records a failed spawn, keeps the worktree usable and counts an early exit", async () => {
@@ -509,7 +545,7 @@ describe("worktree removal", () => {
     const h = harness();
     const tree = await h.mutate("create_worktree", { branch: "dirty" });
     h.host.dialog.mockResolvedValueOnce(false);
-    h.host.remove.mockImplementationOnce((_repository, _worktree, confirm) =>
+    h.host.remove.mockImplementationOnce((_repository, _worktree, _identity, confirm) =>
       confirm("dirty", " M file\0"),
     );
     await h.call("remove_worktree", { idempotencyKey: "r", worktreeId: tree.resultId });
@@ -537,7 +573,7 @@ describe("worktree removal", () => {
       });
     });
     let removed = false;
-    h.host.remove.mockImplementationOnce(async (_repository, _worktree, confirm) => {
+    h.host.remove.mockImplementationOnce(async (_repository, _worktree, _identity, confirm) => {
       removed = await confirm("stale", "");
       return removed;
     });
@@ -559,7 +595,7 @@ describe("worktree removal", () => {
   it("marks a failure after acceptance and refuses foreign or occupied worktrees", async () => {
     const h = harness();
     const tree = await h.mutate("create_worktree", { branch: "racy" });
-    h.host.remove.mockImplementationOnce(async (_repository, _worktree, confirm) => {
+    h.host.remove.mockImplementationOnce(async (_repository, _worktree, _identity, confirm) => {
       await confirm("racy", "");
       throw new Error("Worktree changes have changed");
     });
@@ -580,7 +616,7 @@ describe("worktree removal", () => {
   it("records an indeterminate outcome when the parent exits after the human accepted", async () => {
     const h = harness();
     const tree = await h.mutate("create_worktree", { branch: "late" });
-    h.host.remove.mockImplementationOnce(async (_repository, _worktree, confirm) => {
+    h.host.remove.mockImplementationOnce(async (_repository, _worktree, _identity, confirm) => {
       await confirm("late", "");
       h.exit("parent");
       h.grant.dispose();

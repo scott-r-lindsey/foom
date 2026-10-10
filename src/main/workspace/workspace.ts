@@ -11,7 +11,7 @@ import type { SessionStore } from "./session-store";
 import type { InventoryWatch } from "./inventory-watch";
 import type { ControlLaunch } from "../control/types";
 import type { ControlRuntime } from "../control/runtime";
-import { Orchestration } from "../control/orchestration";
+import { Orchestration, UncertainEffect } from "../control/orchestration";
 import type { ConfirmWorkspace, DialogContent } from "../../shared/confirmation";
 import { EMPTY_AGENT_ARGUMENTS, hasBypassArgument } from "../agents/default-arguments";
 import { detectAgent, ruleRegion } from "../evaluator/agent-rules";
@@ -228,14 +228,38 @@ export class Workspace {
       {
         terminals: () => this.snapshot().terminals,
         createWorktree: (repository, branch) => this.createChildWorktree(repository, branch),
-        launch: (parentId, repository, worktree, agent, prompt) =>
-          this.launchChild(parentId, repository, worktree, agent, prompt),
+        launch: (parentId, repository, worktree, identity, agent, prompt) =>
+          this.launchChild(parentId, repository, worktree, identity, agent, prompt),
         stop: (id) => this.deps.terminals.stop(id),
         tail: (id, lines) => this.deps.terminals.tail(id, lines),
-        remove: async (repository, worktree, confirm) => {
+        remove: async (repository, worktree, identity, confirm) => {
           const tree = (await this.worktrees(repository)).find((item) => item.path === worktree);
           if (!tree || tree.path === repository) throw new Error("Worktree is unavailable");
-          const removed = await this.removeTree(repository, worktree, tree.branch, confirm);
+          // removeTree holds the branch lock while it calls this, so no launch can slip in.
+          const available = async () => {
+            if (
+              [...this.launched.values()].some(
+                (entry) =>
+                  entry.worktree === worktree &&
+                  !entry.dormant &&
+                  this.terminals.get(entry.id)?.exitCode === undefined,
+              )
+            )
+              throw new Error("A session is running in this worktree");
+            if ((await this.deps.worktrees.launchIdentity(repository, worktree)) !== identity)
+              throw new Error("Worktree has changed");
+          };
+          const removed = await this.removeTree(
+            repository,
+            worktree,
+            tree.branch,
+            async (branch, changes) => {
+              await available();
+              const accepted = await confirm(branch, changes);
+              if (accepted) await available();
+              return accepted;
+            },
+          );
           this.refresh();
           return removed;
         },
@@ -1146,6 +1170,7 @@ export class Workspace {
             this.acknowledged = true;
           }
           if (replacement) {
+            this.orchestration.relaunched(replacement.id);
             const old = this.launched.get(replacement.id);
             if (!old || this.terminals.get(old.id)?.exitCode === undefined)
               throw new Error("Session is no longer exited");
@@ -1253,19 +1278,28 @@ export class Workspace {
   private async createChildWorktree(
     repository: string,
     branch: string,
-  ): Promise<{ path: string; branch: string }> {
+  ): Promise<{ path: string; branch: string; identity: string }> {
     return this.withRepository(repository, async () => {
       const key = `${repository}\0${branch}`;
       if (this.busyWorktrees.has(key)) throw new Error("This worktree is busy");
       this.busyWorktrees.add(key);
       try {
         await this.deps.worktrees.validateBranch(repository, branch);
-        const path = await this.deps.worktrees.createWorktree(repository, branch, {
-          location: this.location,
-          newBranch: true,
-        });
-        this.refresh();
-        return { path, branch };
+        try {
+          const path = await this.deps.worktrees.createWorktree(repository, branch, {
+            location: this.location,
+            newBranch: true,
+          });
+          const identity = await this.deps.worktrees.launchIdentity(repository, path);
+          return { path, branch, identity };
+        } catch (error) {
+          // Git may have added the checkout before a later step failed.
+          const trees = await this.deps.worktrees.listWorktrees(repository).catch(() => undefined);
+          if (!trees || trees.some((tree) => tree.branch === branch)) throw new UncertainEffect();
+          throw error;
+        } finally {
+          this.refresh();
+        }
       } finally {
         this.busyWorktrees.delete(key);
       }
@@ -1277,6 +1311,7 @@ export class Workspace {
     parentId: string,
     repository: string,
     worktree: string,
+    created: string,
     agent: AgentId,
     prompt: string | undefined,
   ): Promise<string> {
@@ -1288,7 +1323,9 @@ export class Workspace {
       if (this.busyWorktrees.has(key)) throw new Error("This worktree is busy");
       this.busyWorktrees.add(key);
       try {
+        // Only the checkout the orchestrator created, never a replacement at the same path.
         const identity = await this.deps.worktrees.launchIdentity(repository, worktree);
+        if (identity !== created) throw new Error("Worktree has changed");
         const launched = await this.launchAgent(
           {
             agent,

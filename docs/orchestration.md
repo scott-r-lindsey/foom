@@ -506,14 +506,20 @@ retry with the same key returns that record.
 Prompts and branch names reject control characters other than newline and tab,
 Unicode format characters, and a leading `-`, so they cannot become options.
 Children receive no default arguments, never share a checkout, and get a read-only
-grant naming their parent. Claude Code and Codex take the prompt as the final
-positional argument; Antigravity composes it with the CLI guidance through
-`--prompt-interactive` and refuses a prompt on releases without that option.
+grant naming their parent. The prompt follows a fixed line naming the orchestrator
+as its author, so the argv entry can never equal a subcommand such as `logout`.
+Claude Code and Codex take it as the final positional argument; Antigravity composes
+it with the CLI guidance through `--prompt-interactive` and refuses a prompt on
+releases without that option.
 
 **Limits.** Four children that have not confirmed exit, including starting ones and
 any the human took over, and four created worktrees that no child has used,
-including creations in progress. A worktree serves exactly one launch; a failed
-spawn returns it for reuse. Tails are rate-limited to one per child per second,
+including creations in progress, launches still starting, and creations that ended
+`indeterminate` because Git may have added the checkout before a later step failed.
+A worktree serves exactly one launch; a failed spawn returns it for reuse. Each
+worktree ID is bound to the checkout identity captured at creation; launch and
+removal recheck it, so a replacement at the same path is refused. A human Resume or
+New conversation on a child's row ends the orchestrator's ownership of that ID. Tails are rate-limited to one per child per second,
 read 80 host lines, redact with `prepareTail` (which fails closed above 128 KiB),
 then keep the requested lines and trim whole lines from the start to 16 KiB (a
 single oversized line keeps its end on a UTF-8 boundary). The HTTP adapter extends
@@ -521,7 +527,8 @@ the socket deadline to 35 seconds after a request body arrives, for `wait_for`.
 
 **Removal.** Every removal asks through the trusted dialog, clean or not, naming the
 branch (which is kept) and any changed files. Removal is refused while any session
-in that worktree is running, so a human-controlled child is never stopped by it.
+in that worktree is running, checked again under the removal lock before and after
+the dialog, so a human-controlled session is never stopped by it.
 The answer is bound to the actor, operation and the worktree ID plus the dirty state
 shown, and the workspace sequence rechecks identity and changes before deletion.
 Parent exit aborts the dialog; a later acceptance cannot remove anything.
