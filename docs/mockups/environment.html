@@ -1,0 +1,359 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Foom Environment Settings</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo+Black&family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&display=swap">
+<style>
+/* Settings → Environment (#215): one list for all sessions and one per agent, edited in
+   place. Layout follows the real Settings screen (src/renderer/styles/settings.css):
+   board sidebar, a 170px section list, then the stage. Colors are the brand tokens. */
+:root {
+  --bg: #f3f0fa; --surface: #e9e4f5; --line: #ddd6ee; --ink: #14101f; --muted: #625a7a;
+  --accent: #5b2bd9; --accent-deep: #3b1a99; --attention: #d98200; --attention-ink: #8c5000;
+  --done: #13804a; --done-ink: #0e6b3c; --failed: #d6166e; --failed-ink: #b0105a;
+  --idle: #b9b0d3; --badge: #4a4263; --badge-ink: #f4efff; --badge-fill: #d6cfe9; --hole: #05040a;
+  --display: "Archivo Black", sans-serif;
+  --sans: "Geist", system-ui, sans-serif; --mono: "Geist Mono", ui-monospace, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #05040a; --surface: #0d0a17; --line: #251d3f; --ink: #f4efff; --muted: #9d93bd;
+    --accent: #9b6bff; --accent-deep: #7a3cff; --attention: #ffb23e; --attention-ink: #ffb23e;
+    --done: #6fe0a3; --done-ink: #6fe0a3; --failed: #ff2e88; --failed-ink: #ff2e88;
+    --idle: #4a4263; --badge: #3a3060; --badge-ink: #f4efff; --badge-fill: #1c1632; --hole: #000000;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #05040a; --surface: #0d0a17; --line: #251d3f; --ink: #f4efff; --muted: #9d93bd;
+  --accent: #9b6bff; --accent-deep: #7a3cff; --attention: #ffb23e; --attention-ink: #ffb23e;
+  --done: #6fe0a3; --done-ink: #6fe0a3; --failed: #ff2e88; --failed-ink: #ff2e88;
+  --idle: #4a4263; --badge: #3a3060; --badge-ink: #f4efff; --badge-fill: #1c1632; --hole: #000000;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; }
+body { background: var(--bg); color: var(--ink); font: 13px/1.45 var(--sans); }
+button, input { font: inherit; color: inherit; }
+button { padding: 5px 10px; background: var(--bg); border: 1px solid var(--line); border-radius: 5px; cursor: pointer; }
+button:disabled { opacity: .4; cursor: default; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.frame { height: 100%; overflow-x: auto; }
+.app { position: relative; display: flex; height: 100%; min-width: 1180px; overflow: hidden; }
+
+/* Board sidebar slice */
+.side { width: 270px; flex-shrink: 0; display: flex; flex-direction: column; background: var(--surface); border-right: 1px solid var(--line); }
+.head { padding: 16px 12px 10px; font: 22px/1 var(--display); }
+.hole { display: inline-block; width: .52em; height: .52em; margin: 0 .035em; border-radius: 50%; background: var(--hole); box-shadow: 0 0 0 2px var(--accent), 0 0 10px var(--accent); }
+.group { padding: 10px 14px 4px; font: 600 12px var(--sans); color: var(--muted); }
+.srow { display: flex; gap: 8px; padding: 6px 14px; }
+.srow .lines { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.srow .top { font: 12px var(--mono); }
+.srow .reason { font-size: 12px; color: var(--muted); }
+.light { flex-shrink: 0; width: 8px; height: 8px; margin-top: 4px; border-radius: 50%; background: var(--idle); }
+.light.working { background: var(--accent); box-shadow: 0 0 8px var(--accent); }
+.light.done { background: var(--done); }
+.badge { flex-shrink: 0; min-width: 24px; height: 20px; padding: 0 4px; display: inline-flex; align-items: center; justify-content: center; border-radius: 3px; background: var(--badge); color: var(--badge-ink); font: 600 11px var(--mono); }
+
+/* Settings shell, as settings.css */
+.settings-sections { flex: 0 0 170px; display: flex; flex-direction: column; gap: 6px; padding: 20px 12px; border-right: 1px solid var(--line); }
+.settings-sections h2 { margin: 0 8px 12px; font: 12px var(--mono); color: var(--muted); font-weight: 400; }
+.settings-sections button { text-align: left; border-color: transparent; background: transparent; }
+.settings-sections button[aria-current] { background: var(--badge-fill); }
+.settings-sections .close { margin-top: auto; color: var(--muted); }
+.stage { flex: 1; min-width: 0; overflow: auto; padding: 28px; }
+.inner { max-width: 820px; margin: 0 auto; }
+.page-head { display: flex; align-items: center; gap: 14px; margin: 0 0 22px; }
+.page-head h2 { margin: 0; font: 24px var(--display); font-weight: 400; }
+.page-head .status { font: 12px var(--mono); color: var(--done-ink); }
+.page-head .grow { flex: 1; }
+
+/* Lists */
+.scope { margin-bottom: 26px; }
+.scope h3 { display: flex; align-items: center; gap: 8px; margin: 0 0 6px; font: 600 13px var(--sans); }
+.scope h3 .badge { min-width: 22px; height: 18px; font-size: 10px; }
+.rows { border-top: 1px solid var(--line); }
+.row { display: grid; grid-template-columns: 230px minmax(0, 1fr) 30px 30px; align-items: center; gap: 6px; padding: 3px 0; border-bottom: 1px solid var(--line); }
+.row input { width: 100%; height: 30px; padding: 0 8px; background: transparent; border: 1px solid transparent; border-radius: 5px; font: 12px var(--mono); }
+.row input:hover { border-color: var(--line); }
+.row input:focus { background: var(--bg); border-color: var(--accent); outline: none; }
+.row input::placeholder { color: var(--muted); opacity: .6; }
+.row .name-cell { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.tag { flex-shrink: 0; font: 10px var(--mono); color: var(--muted); white-space: nowrap; }
+.value-cell { display: flex; align-items: center; min-width: 0; }
+.value-cell input { flex: 1; min-width: 0; }
+.suffix { flex-shrink: 0; padding: 0 8px 0 0; font: 12px var(--mono); color: var(--muted); white-space: nowrap; }
+.masked { flex: 1; display: flex; align-items: center; gap: 10px; height: 30px; padding: 0 8px; font: 12px var(--mono); color: var(--muted); }
+.masked button { padding: 2px 8px; font: 11px var(--sans); }
+.icon { width: 30px; height: 30px; display: grid; place-items: center; padding: 0; background: transparent; border-color: transparent; color: var(--muted); }
+.icon:hover { border-color: var(--line); color: var(--ink); }
+.icon svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
+.icon[aria-pressed="true"] { color: var(--accent); }
+.icon[aria-pressed="true"] svg { stroke-width: 1.8; }
+.row.blank .remove { visibility: hidden; }
+.row.locked { color: var(--muted); }
+.row.locked .ro { height: 30px; display: flex; align-items: center; padding: 0 8px; font: 12px var(--mono); }
+.row .error { grid-column: 1 / -1; display: flex; align-items: center; gap: 6px; padding: 0 8px 4px; font-size: 12px; color: var(--failed-ink); }
+.row .error::before { content: ""; width: 7px; height: 7px; border-radius: 1px; background: var(--failed); }
+.row.invalid input { border-color: color-mix(in srgb, var(--failed) 60%, transparent); }
+
+/* Import from login shell */
+.import { margin: -8px 0 24px; padding: 14px 16px; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; }
+.import h3 { margin: 0 0 10px; font: 600 13px var(--sans); }
+.import .reading { font: 12px var(--mono); color: var(--muted); }
+.pick { display: grid; grid-template-columns: 20px 200px minmax(0, 1fr) auto; align-items: center; gap: 8px; padding: 5px 0; font: 12px var(--mono); }
+.pick input { accent-color: var(--accent); width: 15px; height: 15px; margin: 0; }
+.pick .v { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); }
+.pick.taken { opacity: .55; }
+.import .actions { display: flex; gap: 8px; margin-top: 12px; }
+button.primary { background: var(--accent); border-color: var(--accent); color: var(--bg); font-weight: 600; }
+
+/* Mockup controls, not product UI. */
+.mock { position: absolute; right: 14px; bottom: 12px; z-index: 50; display: flex; gap: 14px; align-items: center; padding: 6px 10px; border: 1px dashed var(--line); border-radius: 6px; background: var(--surface); font: 11px var(--mono); color: var(--muted); }
+.mock label { display: flex; gap: 6px; align-items: center; }
+.mock select { font: inherit; color: var(--ink); background: var(--bg); border: 1px solid var(--line); border-radius: 4px; }
+</style>
+</head>
+<body>
+<div class="frame">
+<div class="app">
+  <aside class="side">
+    <div class="head">fo<span class="hole"></span>m</div>
+    <div class="group">foom</div>
+    <div class="srow"><span class="light working"></span><span class="badge">CX</span><div class="lines"><div class="top">Environment variables</div><div class="reason">Running npm run check</div></div></div>
+    <div class="srow"><span class="light done"></span><span class="badge">CC</span><div class="lines"><div class="top">App menu mockup</div><div class="reason">Turn ended</div></div></div>
+  </aside>
+  <nav class="settings-sections" aria-label="Settings sections">
+    <h2>Settings</h2>
+    <button>Agents and hooks</button>
+    <button aria-current="page">Environment</button>
+    <button>Repositories</button>
+    <button>Worktrees</button>
+    <button>Appearance</button>
+    <button>Terminal</button>
+    <button>Themes</button>
+    <button>Sound</button>
+    <button class="close">Back to terminal · Esc</button>
+  </nav>
+  <div class="stage">
+    <div class="inner">
+      <div class="page-head">
+        <h2>Environment</h2>
+        <span class="status" role="status" id="status"></span>
+        <span class="grow"></span>
+        <button id="import-btn">Import from login shell</button>
+      </div>
+      <div id="import"></div>
+      <div id="scopes"></div>
+    </div>
+  </div>
+  <div class="mock" aria-label="Mockup controls">
+    <label>State <select id="m-state"><option value="corp">Corporate proxy</option><option value="empty">Empty</option><option value="errors">With errors</option></select></label>
+    <label>Platform <select id="m-plat"><option value="posix">macOS / Linux</option><option value="win">Windows</option></select></label>
+    <label>Theme <select id="m-theme"><option value="">System</option><option value="light">Light</option><option value="dark">Dark</option></select></label>
+  </div>
+</div>
+</div>
+<script>
+const $ = (s, r = document) => r.querySelector(s);
+const LOCK = '<svg viewBox="0 0 14 14" aria-hidden="true"><rect x="3" y="6.5" width="8" height="5.5" rx="1"/><path d="M4.75 6.5V4.75a2.25 2.25 0 0 1 4.5 0V6.5"/></svg>';
+const CROSS = '<svg viewBox="0 0 14 14" aria-hidden="true"><path d="M4 4l6 6M10 4l-6 6"/></svg>';
+const SCOPES = [
+  { id: "all", label: "All sessions" },
+  { id: "claude", label: "Claude Code", mark: "CC" },
+  { id: "codex", label: "Codex", mark: "CX" },
+  { id: "agy", label: "Antigravity", mark: "AG" },
+];
+const LOOPBACK = "localhost,127.0.0.1,::1";
+const SEED = {
+  corp: {
+    all: [
+      ["HTTPS_PROXY", "http://proxy.corp.example:8080"],
+      ["HTTP_PROXY", "http://proxy.corp.example:8080"],
+      ["NO_PROXY", ".corp.example,10.0.0.0/8"],
+      ["NODE_EXTRA_CA_CERTS", "/Users/sam/certs/corp-root.pem"],
+      ["PATH", "/opt/homebrew/bin"],
+    ],
+    claude: [
+      ["HTTPS_PROXY", "http://sam:hunter2@ai-proxy.corp.example:3128", true, true],
+      ["CLAUDE_CODE_USE_BEDROCK", "1"],
+      ["AWS_REGION", "us-west-2"],
+    ],
+    codex: [["CODEX_HOME", "/Users/sam/.codex-work"]],
+    agy: [],
+  },
+  empty: { all: [], claude: [], codex: [], agy: [] },
+};
+SEED.errors = structuredClone(SEED.corp);
+SEED.errors.all.push(["LD_PRELOAD", "/tmp/hook.so"]);
+SEED.errors.codex.push(["HTTPS_PROXY", "proxy.corp.example:8080"], ["FOOM_CONTROL_URL", "http://127.0.0.1:9"]);
+
+let plat = "posix";
+let lists;
+function load(name) {
+  lists = {};
+  for (const s of SCOPES) lists[s.id] = SEED[name][s.id].map(([n, v, secret, saved]) => ({ name: n, value: v, secret: Boolean(secret), saved: Boolean(saved) }));
+  render();
+}
+
+/* Validation: the same rules main applies on every save and launch. */
+const PROXY = /^(https?|all)_proxy$/i;
+const REFUSED = [/^LD_PRELOAD$/, /^LD_LIBRARY_PATH$/, /^DYLD_/, /^NODE_OPTIONS$/, /^ELECTRON_/, /^BASH_ENV$/, /^ENV$/, /^PROMPT_COMMAND$/];
+const RESERVED = [/^FOOM_/, /^CLAUDECODE$/];
+const fold = (n) => (plat === "win" ? n.toUpperCase() : n);
+function problem(scope, row, index) {
+  const n = row.name.trim();
+  if (!n && !row.value) return "";
+  if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(n)) return "Names use letters, digits and _, and can't start with a digit";
+  const upper = n.toUpperCase();
+  if (RESERVED.some((r) => r.test(upper))) return `${n} is reserved by Foom`;
+  if (REFUSED.some((r) => r.test(upper))) return `${n} can't be set: it loads code into every process`;
+  if (lists[scope].some((o, j) => j < index && fold(o.name.trim()) === fold(n))) return `${n} is already in this list`;
+  if (row.value.includes("\0")) return "Values can't contain NUL";
+  if (row.value.length > 4096) return "Values are at most 4096 characters";
+  if (PROXY.test(n) && row.value && !row.saved && !/^(https?|socks5):\/\/[^\s]+$/.test(row.value)) return "Must be an http://, https:// or socks5:// URL";
+  if (upper === "PATH" && row.value.split(plat === "win" ? ";" : ":").some((d) => d && !(plat === "win" ? /^[A-Za-z]:\\/ : /^\//).test(d))) return "PATH entries must be absolute directories";
+  return "";
+}
+const hasCredentials = (v) => /^[a-z0-9+.-]+:\/\/[^/@\s]+:[^/@\s]*@/i.test(v);
+const proxySet = () => Object.values(lists).some((l) => l.some((r) => PROXY.test(r.name) && r.value));
+
+/* Rendering */
+const esc = (s) => s.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;");
+function rowHTML(scope, row, i) {
+  const err = problem(scope, row, i);
+  const upper = row.name.trim().toUpperCase();
+  const overrides = scope !== "all" && row.name && lists.all.some((g) => fold(g.name) === fold(row.name.trim()));
+  const tags = [
+    overrides ? '<span class="tag">overrides all</span>' : "",
+  ].join("");
+  let value;
+  if (row.secret && row.saved) {
+    value = `<div class="masked">••••••••<button data-act="replace">Replace</button></div>`;
+  } else {
+    const suffix = upper === "PATH" ? `<span class="suffix">${plat === "win" ? ";%PATH%" : ":$PATH"}</span>`
+      : upper === "NO_PROXY" && proxySet() ? `<span class="suffix">,${LOOPBACK}</span>` : "";
+    value = `<div class="value-cell"><input data-f="value" type="${row.secret ? "password" : "text"}" value="${esc(row.value)}" placeholder="value" aria-label="${esc(row.name || "New variable")} value" spellcheck="false" autocomplete="off">${suffix}</div>`;
+  }
+  const forced = hasCredentials(row.value) || (row.secret && row.saved && PROXY.test(row.name));
+  return `<div class="row${err ? " invalid" : ""}" data-scope="${scope}" data-i="${i}">
+    <div class="name-cell"><input data-f="name" value="${esc(row.name)}" placeholder="NAME" aria-label="Variable name" spellcheck="false" autocomplete="off">${tags}</div>
+    ${value}
+    <button class="icon" data-act="secret" aria-pressed="${row.secret}" ${forced ? "disabled" : ""} aria-label="Secret" title="Secret">${LOCK}</button>
+    <button class="icon remove" data-act="remove" aria-label="Remove ${esc(row.name)}" title="Remove">${CROSS}</button>
+    ${err ? `<div class="error" role="alert">${err}</div>` : ""}
+  </div>`;
+}
+const blank = (scope) => `<div class="row blank" data-scope="${scope}" data-i="new">
+    <div class="name-cell"><input data-f="name" placeholder="NAME" aria-label="New variable name" spellcheck="false" autocomplete="off"></div>
+    <div class="value-cell"><input data-f="value" placeholder="value" aria-label="New variable value" spellcheck="false" autocomplete="off"></div>
+    <span></span><button class="icon remove" tabindex="-1" aria-hidden="true">${CROSS}</button>
+  </div>`;
+function loopbackRow() {
+  if (!proxySet() || lists.all.some((r) => r.name.toUpperCase() === "NO_PROXY")) return "";
+  return `<div class="row locked"><span class="ro">NO_PROXY</span><span class="ro">${LOOPBACK}</span><span></span><span></span></div>`;
+}
+function render(focus) {
+  $("#scopes").innerHTML = SCOPES.map((s) => `<section class="scope" aria-label="${s.label}">
+    <h3>${s.mark ? `<span class="badge">${s.mark}</span>` : ""}${s.label}</h3>
+    <div class="rows">${lists[s.id].map((r, i) => rowHTML(s.id, r, i)).join("")}${s.id === "all" ? loopbackRow() : ""}${blank(s.id)}</div>
+  </section>`).join("");
+  if (focus) {
+    const el = $(`.row[data-scope="${focus.scope}"][data-i="${focus.i}"] [data-f="${focus.f}"]`);
+    if (el) { el.focus(); el.setSelectionRange(el.value.length, el.value.length); }
+  }
+}
+let statusTimer;
+function saved() {
+  $("#status").textContent = "Saved for new sessions";
+  clearTimeout(statusTimer);
+  statusTimer = setTimeout(() => ($("#status").textContent = ""), 2200);
+}
+
+/* Editing in place: a valid row saves when focus leaves it. */
+$("#scopes").addEventListener("input", (e) => {
+  const rowEl = e.target.closest(".row"), scope = rowEl.dataset.scope, f = e.target.dataset.f;
+  if (rowEl.dataset.i === "new") {
+    lists[scope].push({ name: "", value: "", secret: false, saved: false });
+    lists[scope].at(-1)[f] = e.target.value;
+    render({ scope, i: lists[scope].length - 1, f });
+    return;
+  }
+  const row = lists[scope][Number(rowEl.dataset.i)];
+  row[f] = f === "name" ? e.target.value.replace(/\s/g, "") : e.target.value;
+  if (hasCredentials(row.value)) row.secret = true;
+  row.saved = false;
+  render({ scope, i: rowEl.dataset.i, f });
+});
+$("#scopes").addEventListener("focusout", (e) => {
+  const rowEl = e.target.closest(".row");
+  if (!rowEl || rowEl.dataset.i === "new" || rowEl.contains(e.relatedTarget)) return;
+  const scope = rowEl.dataset.scope, i = Number(rowEl.dataset.i), row = lists[scope][i];
+  if (!row) return;
+  if (!row.name && !row.value) { lists[scope].splice(i, 1); render(); return; }
+  if (!problem(scope, row, i) && row.name && !row.saved) { row.saved = true; render(); saved(); }
+});
+$("#scopes").addEventListener("click", (e) => {
+  const b = e.target.closest("[data-act]");
+  if (!b) return;
+  const rowEl = b.closest(".row"), scope = rowEl.dataset.scope, i = Number(rowEl.dataset.i), row = lists[scope][i];
+  if (b.dataset.act === "remove") { lists[scope].splice(i, 1); render(); saved(); }
+  else if (b.dataset.act === "secret") { row.secret = !row.secret; render(); if (row.saved) saved(); }
+  else if (b.dataset.act === "replace") { row.value = ""; row.saved = false; render({ scope, i, f: "value" }); }
+});
+
+/* Import from login shell: proxy and certificate variables only, nothing added until picked. */
+const SHELL = [
+  ["HTTPS_PROXY", "http://proxy.corp.example:8080"],
+  ["https_proxy", "http://proxy.corp.example:8080"],
+  ["HTTP_PROXY", "http://proxy.corp.example:8080"],
+  ["NO_PROXY", ".corp.example,10.0.0.0/8"],
+  ["ALL_PROXY", "socks5://socks.corp.example:1080"],
+  ["NODE_EXTRA_CA_CERTS", "/Users/sam/certs/corp-root.pem"],
+  ["SSL_CERT_FILE", "/Users/sam/certs/corp-bundle.pem"],
+];
+$("#import-btn").addEventListener("click", () => {
+  const box = $("#import");
+  $("#import-btn").disabled = true;
+  box.innerHTML = '<div class="import"><span class="reading">Reading login shell…</span></div>';
+  setTimeout(() => {
+    const taken = (n) => lists.all.find((r) => fold(r.name) === fold(n));
+    box.innerHTML = `<div class="import" role="group" aria-label="Import from login shell"><h3>From your login shell</h3>
+      ${SHELL.map(([n, v], k) => {
+        const t = taken(n);
+        const shown = hasCredentials(v) ? v.replace(/:\/\/([^:]+):[^@]*@/, "://$1:••••@") : v;
+        return `<label class="pick${t ? " taken" : ""}"><input type="checkbox" data-k="${k}" ${t ? "" : "checked"}><span>${n}</span><span class="v">${esc(shown)}</span><span class="tag">${t ? (t.value === v ? "already set" : "replaces yours") : ""}</span></label>`;
+      }).join("")}
+      <div class="actions"><button class="primary" data-imp="add">Add selected</button><button data-imp="cancel">Cancel</button></div></div>`;
+    box.querySelector("input")?.focus();
+  }, 450);
+});
+$("#import").addEventListener("click", (e) => {
+  const b = e.target.closest("[data-imp]");
+  if (!b) return;
+  if (b.dataset.imp === "add") {
+    for (const box of document.querySelectorAll("#import input:checked")) {
+      const [n, v] = SHELL[Number(box.dataset.k)];
+      const existing = lists.all.find((r) => fold(r.name) === fold(n));
+      if (existing) Object.assign(existing, { value: v, saved: true, secret: hasCredentials(v) });
+      else lists.all.push({ name: n, value: v, saved: true, secret: hasCredentials(v) });
+    }
+    render(); saved();
+  }
+  $("#import").innerHTML = "";
+  $("#import-btn").disabled = false;
+  $("#import-btn").focus();
+});
+
+/* Mock controls */
+$("#m-state").addEventListener("change", (e) => load(e.target.value));
+$("#m-plat").addEventListener("change", (e) => { plat = e.target.value; render(); });
+$("#m-theme").addEventListener("change", (e) => { if (e.target.value) document.documentElement.dataset.theme = e.target.value; else delete document.documentElement.dataset.theme; });
+load("corp");
+</script>
+</body>
+</html>
