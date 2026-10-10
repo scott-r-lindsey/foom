@@ -460,10 +460,6 @@ export function createAppSource(): BoardSource {
         activityListeners.delete(listener);
       };
     },
-    tail: (id) =>
-      id !== pendingShell && rows.some((row) => row.id === id && !row.dormant)
-        ? window.desktop.tail(id, 40)
-        : Promise.resolve([]),
     markSeen: (id) => {
       rows = rows.map((row) => (row.id === id ? { ...row, seen: true } : row));
       publish();

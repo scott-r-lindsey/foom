@@ -50,7 +50,6 @@ export function Sidebar({
   source,
   dragging,
   revealRef,
-  location,
   inactive,
   rows,
   preferences,
@@ -60,8 +59,6 @@ export function Sidebar({
   sidebar,
   open,
   focus,
-  peek,
-  choose,
   newWorktree,
   command,
   options,
@@ -74,7 +71,6 @@ export function Sidebar({
 }: {
   source: BoardSource;
   dragging?: boolean;
-  location: SidebarLocation | undefined;
   inactive: boolean;
   revealRef: RefObject<((row: BoardRow) => void) | undefined>;
   rows: readonly BoardRow[];
@@ -85,8 +81,6 @@ export function Sidebar({
   sidebar: RefObject<HTMLElement | null>;
   open: (row: BoardRow) => void;
   focus: (id: string) => void;
-  peek: (id?: string) => void;
-  choose: (location: SidebarLocation) => void;
   newWorktree: (repository?: string) => void;
   command: (command: SidebarCommand) => Promise<void>;
   options: LaunchOptions | undefined;
@@ -265,6 +259,13 @@ export function Sidebar({
     },
   });
   const currentActions = new Map<string, (RowAction | null)[]>();
+  // A repository or checkout name opens the same panel as its actions button, if it has
+  // one; the tiles stay unchanged.
+  const togglePanel = (id: string, anchor: HTMLElement) => {
+    if (!currentActions.has(id)) return;
+    if (menu?.id === id && menu.pinned) intent.close();
+    else intent.pin(id, anchor);
+  };
   const actions = (id: string, name: string, items: (RowAction | null)[]) => {
     currentActions.set(id, items);
     return (
@@ -276,17 +277,14 @@ export function Sidebar({
         aria-expanded={menu?.id === id}
         onClick={(event) => {
           event.stopPropagation();
-          peek();
-          if (menu?.id === id && menu.pinned) intent.close();
-          else
-            intent.pin(
-              id,
-              event.currentTarget
-                .closest(".tree-row, .board-row")
-                ?.querySelector<HTMLElement>("[data-nav]") ??
-                event.currentTarget.closest<HTMLElement>(".board-row") ??
-                event.currentTarget,
-            );
+          togglePanel(
+            id,
+            event.currentTarget
+              .closest(".tree-row, .board-row")
+              ?.querySelector<HTMLElement>("[data-nav]") ??
+              event.currentTarget.closest<HTMLElement>(".board-row") ??
+              event.currentTarget,
+          );
         }}
       >
         <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor" aria-hidden="true">
@@ -373,11 +371,11 @@ export function Sidebar({
         {...rowEvents(row.id)}
         className="board-entry session-entry"
         role="none"
-        data-selected={!location && selected === row.id}
+        data-selected={selected === row.id}
       >
         <div
           role="treeitem"
-          aria-selected={!location && selected === row.id}
+          aria-selected={selected === row.id}
           className="board-row"
           draggable
           data-drag-session={row.id}
@@ -395,11 +393,7 @@ export function Sidebar({
           onFocus={(event) => {
             if (event.target === event.currentTarget) {
               focus(row.id);
-              peek(row.id);
             }
-          }}
-          onBlur={() => {
-            peek();
           }}
           onClick={() => {
             open(row);
@@ -412,12 +406,6 @@ export function Sidebar({
               event.preventDefault();
               open(row);
             }
-          }}
-          onMouseEnter={() => {
-            peek(row.id);
-          }}
-          onMouseLeave={(event) => {
-            if (document.activeElement !== event.currentTarget) peek();
           }}
         >
           <span
@@ -717,18 +705,9 @@ export function Sidebar({
                     <div
                       role="treeitem"
                       aria-expanded={repo.expanded}
-                      aria-selected={
-                        location?.repository === repo.repository.path && !location.worktree
-                      }
                       aria-label={repo.repository.name}
                     >
-                      <div
-                        {...rowEvents(rid)}
-                        className="tree-row repository-row"
-                        data-selected={
-                          location?.repository === repo.repository.path && !location.worktree
-                        }
-                      >
+                      <div {...rowEvents(rid)} className="tree-row repository-row">
                         <button
                           type="button"
                           className="tree-chevron"
@@ -743,8 +722,10 @@ export function Sidebar({
                           type="button"
                           data-nav
                           className="tree-name"
-                          onClick={() => {
-                            choose({ repository: repo.repository.path });
+                          aria-haspopup="dialog"
+                          aria-expanded={menu?.id === rid}
+                          onClick={(event) => {
+                            togglePanel(rid, event.currentTarget);
                           }}
                         >
                           <span className="tree-label">
@@ -839,11 +820,7 @@ export function Sidebar({
                                 aria-expanded={expanded}
                                 aria-label={name}
                               >
-                                <div
-                                  {...rowEvents(wid)}
-                                  className="tree-row worktree-row"
-                                  data-selected={location?.worktree === worktree.path}
-                                >
+                                <div {...rowEvents(wid)} className="tree-row worktree-row">
                                   <button
                                     type="button"
                                     className="tree-chevron"
@@ -859,8 +836,10 @@ export function Sidebar({
                                     data-nav
                                     className="tree-name"
                                     aria-label={name}
-                                    onClick={() => {
-                                      choose(target);
+                                    aria-haspopup="dialog"
+                                    aria-expanded={menu?.id === wid}
+                                    onClick={(event) => {
+                                      togglePanel(wid, event.currentTarget);
                                     }}
                                   >
                                     <svg

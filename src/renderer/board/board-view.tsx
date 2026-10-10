@@ -1,6 +1,4 @@
 import type { WindowAudioState } from "../../shared/windows";
-import { AgentBadge } from "./agent-badge";
-import { ConfirmationButton } from "./confirmation-button";
 import { TileArea } from "./tile-area";
 import {
   TILE_STORAGE,
@@ -23,18 +21,11 @@ import type { TileDrag, TileLayout, TilePreset } from "./tiles.d";
 import type { SetupSource } from "../preflight/setup-source.d";
 import { createSoundController } from "../sound/sound-controller";
 import { createAudioSink } from "../sound/web-audio";
-import { Sidebar, launcherActions } from "./sidebar-view";
+import { Sidebar } from "./sidebar-view";
 import { readPreferences, writePreferences, renameSession } from "./sidebar-preferences";
-import type { SidebarLocation } from "./sidebar.d";
 import type { SidebarCommand } from "../../shared/workspace";
 import type { LaunchOptions } from "./board-source.d";
-import {
-  sessionIdentity,
-  repositoryKey,
-  worktreeKey,
-  rowRepository,
-  rowWorktree,
-} from "./sidebar-model";
+import { repositoryKey, worktreeKey, rowRepository, rowWorktree } from "./sidebar-model";
 import { WorktreeDialog } from "./worktree-dialog";
 import {
   useCallback,
@@ -225,7 +216,6 @@ export function Board({
   );
   const [launching, setLaunching] = useState(false);
   const [launchRepository, setLaunchRepository] = useState<string>();
-  const [location, setLocation] = useState<SidebarLocation>();
   const [preferences, setPreferences] = useState(() => readPreferences(localStorage));
   const revealRef = useRef<(row: BoardRow) => void>(undefined);
   const [options, setOptions] = useState<LaunchOptions>();
@@ -255,8 +245,6 @@ export function Board({
   };
   const [selection, setSelection] = useState(rows[0]?.id);
   const selected = rows.some((row) => row.id === selection) ? selection : rows[0]?.id;
-  const [peek, setPeek] = useState<{ id: string }>();
-  const [tail, setTail] = useState<readonly string[]>([]);
   const buttonsRef = useRef(new Map<string, HTMLElement>());
   const terminalRef = useRef<HTMLElement>(null);
   const focusedSession = leaves(layout.tree).find((tile) => tile.id === layout.focused)?.session;
@@ -298,11 +286,11 @@ export function Board({
   useEffect(() => {
     const audio = source.windows?.audio;
     if (!audio) return;
-    void audio.focus(paneInactive || location ? null : (displayedId ?? null)).catch(() => {});
-  }, [source, paneInactive, location, displayedId]);
+    void audio.focus(paneInactive ? null : (displayedId ?? null)).catch(() => {});
+  }, [source, paneInactive, displayedId]);
   useLayoutEffect(() => {
-    soundFocusRef.current = paneInactive || location ? undefined : displayedId;
-  }, [paneInactive, location, displayedId]);
+    soundFocusRef.current = paneInactive ? undefined : displayedId;
+  }, [paneInactive, displayedId]);
   useEffect(() => {
     if (!soundSetup || !audioEnabled) return;
     const controller = createSoundController(source, soundSetup, createAudioSink(), () =>
@@ -318,7 +306,6 @@ export function Board({
       soundControllerRef.current = undefined;
     };
   }, [source, soundSetup, audioEnabled]);
-  const peekRow = rows.find((row) => row.id === peek?.id);
   const sidebarRef = useRef<HTMLElement>(null);
   useEffect(() => {
     const timer = window.setInterval(() => {
@@ -345,23 +332,6 @@ export function Board({
       }),
     [source],
   );
-  const tailId = peek?.id;
-  useEffect(() => {
-    let current = true;
-    if (tailId) {
-      void source.tail(tailId).then(
-        (lines) => {
-          if (current) setTail(lines);
-        },
-        () => {
-          if (current) setTail(["Unable to read terminal output."]);
-        },
-      );
-    }
-    return () => {
-      current = false;
-    };
-  }, [source, tailId, peek]);
   const wasInactiveRef = useRef(paneInactive);
   const focusedInitialRowRef = useRef(false);
   useLayoutEffect(() => {
@@ -396,10 +366,7 @@ export function Board({
         setFocusRequest((value) => value + 1);
         setRefused(undefined);
         setSelection(row.id);
-        setLocation(undefined);
         revealRef.current?.(row);
-        setPeek(undefined);
-        setTail([]);
         // Selecting a row asks for terminal input focus, rather than Escape restoration.
         wasInactiveRef.current = false;
         onCloseSettings?.();
@@ -624,7 +591,6 @@ export function Board({
         }
         event.dataTransfer.effectAllowed = "move";
         event.dataTransfer.setData("text/plain", "Foom tile");
-        setPeek(undefined);
         setDrag(session ? { kind: "session", id: session } : { kind: "tile", id: tile ?? "" });
       }}
       onDragEnd={() => {
@@ -668,7 +634,6 @@ export function Board({
           }}
           revealRef={revealRef}
           {...(onSettings ? { openSettings: onSettings } : {})}
-          location={location}
           inactive={inactive || launching}
           rows={rows}
           preferences={preferences}
@@ -678,15 +643,6 @@ export function Board({
           sidebar={sidebarRef}
           open={open}
           focus={setSelection}
-          peek={(id) => {
-            setTail([]);
-            setPeek(id ? { id } : undefined);
-          }}
-          choose={(next) => {
-            setLocation(next);
-            setPeek(undefined);
-            onCloseSettings?.();
-          }}
           newWorktree={newWorktree}
           command={command}
           options={options}
@@ -741,71 +697,6 @@ export function Board({
           tabIndex={-1}
           ref={terminalRef}
         >
-          {location && (
-            <>
-              <div className="terminal-title">
-                <h2>
-                  {source.getSidebar?.().find((repo) => repo.path === location.repository)?.name ??
-                    location.repository}
-                  {location.worktree &&
-                    ` › ${
-                      location.worktree === location.repository
-                        ? "Main checkout"
-                        : (source
-                            .getSidebar?.()
-                            .find((repo) => repo.path === location.repository)
-                            ?.worktrees.find((tree) => tree.path === location.worktree)?.branch ??
-                          location.worktree)
-                    }`}
-                </h2>
-              </div>
-              <div className="location-launchers">
-                {location.worktree &&
-                source.getSidebar &&
-                !source
-                  .getSidebar()
-                  .some(
-                    (repo) =>
-                      repo.path === location.repository &&
-                      repo.worktrees.some(
-                        (tree) => tree.path === location.worktree && !tree.prunable,
-                      ),
-                  ) ? (
-                  <span className="worktree-removed">
-                    <span aria-hidden="true">⊘</span> Worktree removed
-                  </span>
-                ) : (
-                  launcherActions(options, source.shellName?.()).map((action) => (
-                    <ConfirmationButton
-                      client={source.confirmations}
-                      key={action.label}
-                      action={() => {
-                        return command({
-                          kind: "launch",
-                          repository: location.repository,
-                          worktree: location.worktree ?? location.repository,
-                          run: action.run,
-                        });
-                      }}
-                    >
-                      <AgentBadge mark={action.badge} />
-                      {action.label}
-                    </ConfirmationButton>
-                  ))
-                )}
-                {source.worktrees && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      newWorktree(location.repository);
-                    }}
-                  >
-                    New worktree…
-                  </button>
-                )}
-              </div>
-            </>
-          )}
           <TileArea
             dropLayout={(next) => {
               changeLayout(next);
@@ -821,7 +712,7 @@ export function Board({
             setLayout={changeLayout}
             rows={rows}
             preferences={preferences}
-            inactive={paneInactive || Boolean(location)}
+            inactive={paneInactive}
             action={(tile, action) => {
               if (action === "popout") {
                 const session = leaves(layoutRef.current.tree).find(
@@ -831,20 +722,9 @@ export function Board({
                   void source.windows?.popout(session).catch(() => {
                     setRemoveError("Unable to move session to a new window.");
                   });
-              } else if (action === "restart") {
-                const session = leaves(layoutRef.current.tree).find(
-                  (item) => item.id === tile,
-                )?.session;
-                if (session) void command({ kind: "restart", id: session });
               } else tileAction(tile, action);
             }}
           />
-          <aside className="board-peek" aria-label="Terminal peek" hidden={!peekRow}>
-            <h2>
-              {peekRow && `${sessionIdentity(peekRow, source.shellName?.())} · ${peekRow.branch}`}
-            </h2>
-            <pre>{tail.join("\n")}</pre>
-          </aside>
         </section>
       </div>
     </main>

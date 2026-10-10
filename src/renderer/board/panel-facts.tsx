@@ -41,7 +41,7 @@ function Copy({ value, copy }: { value: string; copy: () => Promise<void> }) {
 }
 /** Chips carry state as tinted text and outline: highlight for information, green for
  * settled, amber only for needs-you and magenta only for failures. Text always names it. */
-type Tone = "neutral" | "info" | "working" | "done" | "needs" | "failed";
+type Tone = "neutral" | "info" | "changes" | "working" | "done" | "needs" | "failed";
 const stateTone: Record<BoardRow["state"], Tone> = {
   working: "working",
   needs_input: "needs",
@@ -262,9 +262,9 @@ export function PanelFacts({
           </Fact>
           <Fact label="Changes">
             {facts?.changes === 0 ? (
-              <Chip tone="done">Clean</Chip>
+              <Sub>Clean</Sub>
             ) : typeof facts?.changes === "number" ? (
-              <Chip tone="info">{facts.changes} changed</Chip>
+              <Chip tone="changes">{facts.changes} changed</Chip>
             ) : (
               <Sub>{unknown}</Sub>
             )}

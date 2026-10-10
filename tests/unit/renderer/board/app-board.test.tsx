@@ -246,9 +246,6 @@ test("source connects independently of views, reconciles events, preserves order
   mock.state?.({ ...verdict("a", 400), verdictId: null });
   await source.resolve("a", "Not attention");
   expect(mock.feedback).toHaveBeenLastCalledWith("a", null, "dismissed");
-  await expect(source.tail("foreign")).resolves.toEqual([]);
-  await expect(source.tail("local-shell")).resolves.toEqual([]);
-  await expect(source.tail("a")).resolves.toEqual(["real output"]);
   mock.exit?.("a", 1);
   mock.state?.(verdict("a", 500));
   expect(source.getSnapshot()[1]?.state).toBe("failed");
@@ -483,7 +480,6 @@ test("restored sessions have no host view or tail and resuming clears previous e
     dormant: true,
     conversationId: "saved",
   });
-  expect(await source.tail("a")).toEqual([]);
   expect(mock.tail).not.toHaveBeenCalled();
   await source.createView?.().open("a");
   expect(mock.open).not.toHaveBeenCalled();
