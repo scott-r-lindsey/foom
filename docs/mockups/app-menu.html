@@ -8,8 +8,8 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo+Black&family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500;600&display=swap">
 <style>
-/* The wordmark menu with everything landed: app-wide commands only, Settings as a
-   submenu (one entry per agent, plus the whole Settings screen), interface size as one
+/* The wordmark menu with everything landed: app-wide commands only; Settings as a
+   submenu of routes (via each agent in ~/.foom/config, #84, or via the Settings UI); size as one
    row. Colors are the brand tokens from src/renderer/styles/tokens.css; the menu surface
    follows .row-menu and .app-menu in src/renderer/styles/board.css. */
 :root {
@@ -78,6 +78,8 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .list { flex: 1; overflow-y: auto; padding: 0 6px 10px; }
 .group { padding: 10px 8px 4px; font: 600 12px var(--sans); color: var(--muted); }
 .srow { display: flex; align-items: flex-start; gap: 8px; padding: 6px 8px; border-radius: 6px; }
+.srow.nested { padding-left: 22px; }
+.group.config { color: var(--ink); }
 .srow .lines { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 .srow .top { display: flex; align-items: center; gap: 6px; font: 12px var(--mono); }
 .srow .reason { font-size: 12px; color: var(--muted); }
@@ -131,21 +133,12 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .settings { position: absolute; inset: 0; z-index: 5; display: flex; background: var(--bg); }
 .settings nav { width: 190px; flex-shrink: 0; padding: 18px 10px; border-right: 1px solid var(--line); }
 .settings nav h2 { margin: 0 8px 12px; font: 600 15px var(--sans); }
-.settings nav .ng { padding: 12px 8px 4px; font: 600 11px var(--sans); color: var(--muted); letter-spacing: .04em; text-transform: uppercase; }
 .settings nav button { display: flex; align-items: center; gap: 8px; width: 100%; padding: 6px 8px; background: transparent; border: 0; border-radius: 5px; text-align: left; font-size: 12px; }
 .settings nav button[aria-current="page"] { background: var(--select); }
-.settings nav .badge { min-width: 22px; height: 18px; font-size: 10px; }
 .pane { flex: 1; min-width: 0; padding: 22px 28px; overflow-y: auto; }
 .pane h3 { display: flex; align-items: center; gap: 10px; margin: 0 0 4px; font: 600 16px var(--sans); }
 .pane .fact { margin: 0 0 22px; font: 11px var(--mono); color: var(--muted); }
-.field { display: grid; grid-template-columns: 170px minmax(0, 520px); gap: 6px 16px; padding: 12px 0; border-top: 1px solid var(--line); }
-.field > span { font-weight: 500; }
-.field textarea { width: 100%; min-height: 70px; padding: 8px; resize: vertical; font: 12px/1.5 var(--mono); color: var(--ink); background: var(--surface); border: 1px solid var(--line); border-radius: 5px; }
-.field .val { font: 12px var(--mono); color: var(--muted); }
-.field.is-planned { opacity: .5; }
 .btn { justify-self: start; padding: 5px 10px; background: var(--surface); border: 1px solid var(--line); border-radius: 5px; font-size: 12px; }
-.kv { display: grid; grid-template-columns: 160px 1fr; gap: 4px 8px; font: 12px var(--mono); }
-.kv span:nth-child(odd) { color: var(--muted); }
 .esc { position: absolute; top: 16px; right: 18px; font: 11px var(--mono); color: var(--muted); }
 
 /* Keyboard shortcuts sheet and About */
@@ -197,7 +190,7 @@ button { font: inherit; color: inherit; cursor: pointer; }
   <div class="mock" aria-label="Mockup controls">
     <label>Platform <select id="m-plat"><option value="lin">Linux / Windows</option><option value="mac">macOS</option></select></label>
     <label>Build <select id="m-dev"><option value="0">Everyday</option><option value="1">Foom Dev</option></select></label>
-    <label>Planned <select id="m-plan"><option value="show">Greyed</option><option value="hide">Hidden (ships)</option></select></label>
+    <label>Planned <select id="m-plan"><option value="landed">Landed</option><option value="greyed">Greyed</option><option value="hidden">Hidden</option></select></label>
     <label>Theme <select id="m-theme"><option value="">System</option><option value="light">Light</option><option value="dark">Dark</option></select></label>
   </div>
 </div>
@@ -205,14 +198,14 @@ button { font: inherit; color: inherit; cursor: pointer; }
 <script>
 const $ = (s, r = document) => r.querySelector(s);
 const app = $("#app"), area = $("#area");
-const state = { plat: "lin", dev: false, planned: true, size: 100, lastSettings: "claude" };
+const state = { plat: "lin", dev: false, planned: "landed", size: 100, lastSettings: "agents" };
 const CHEV_DOWN = '<svg viewBox="0 0 10 10" aria-hidden="true"><path d="M2.5 4l2.5 2.5L7.5 4"/></svg>';
 const CHEV_RIGHT = '<svg class="chev" viewBox="0 0 10 10" aria-hidden="true"><path d="M4 2.5l2.5 2.5L4 7.5"/></svg>';
 const K = (lin, mac) => ({ lin, mac });
 const AGENTS = [
-  { id: "claude", label: "Claude Code", mark: "CC", fact: "claude 2.1.32 · ~/.local/bin/claude", hooks: "--settings, per launch", args: "--model\nopus" },
-  { id: "codex", label: "Codex", mark: "CX", fact: "codex 0.48.0 · /usr/local/bin/codex", hooks: "-c notify, -c hooks, per launch", args: "-s\nworkspace-write" },
-  { id: "agy", label: "Antigravity", mark: "AG", fact: "agy 1.9.2 · ~/.local/bin/agy", hooks: "Foom lifecycle plugin", args: "", plugin: true },
+  { id: "claude", label: "Claude Code", mark: "CC", banner: "Claude Code v2.1.32" },
+  { id: "codex", label: "Codex", mark: "CX", banner: "OpenAI Codex v0.48.0" },
+  { id: "agy", label: "Antigravity", mark: "AG", banner: "Antigravity 1.9.2" },
 ];
 const MENU = () => [
   { id: "new-window", label: "New window", key: K("Ctrl+Shift+O", "⌘N") },
@@ -220,12 +213,13 @@ const MENU = () => [
   { id: "add-repo", label: "Add repository…" },
   { id: "orchestrator", label: "New orchestrator…", planned: 155 },
   "-",
+  // Until #84 lands, Settings has one route and is a plain command.
+  state.planned === "hidden" ? { id: "via-ui", label: "Settings", key: K("Ctrl+Shift+,", "⌘,") } :
   { id: "settings", label: "Settings", sub: [
-    ...AGENTS.map((a) => ({ id: `set-${a.id}`, label: a.label, mark: a.mark })),
+    ...AGENTS.map((a) => ({ id: `via-${a.id}`, label: `Via ${a.label}`, mark: a.mark, planned: 84 })),
     "-",
-    { id: "set-all", label: "All settings…", key: K("Ctrl+Shift+,", "⌘,") },
+    { id: "via-ui", label: "Via Settings UI", key: K("Ctrl+Shift+,", "⌘,") },
   ] },
-  { id: "configure", label: "Set up Foom with an agent…", planned: 84 },
   { kind: "size" },
   "-",
   { id: "action-log", label: "Action log", planned: 157 },
@@ -238,7 +232,7 @@ const MENU = () => [
   "-",
   { id: "quit", label: "Quit Foom", key: K("Ctrl+Shift+Q", "⌘Q") },
 ];
-const visible = (items) => items.filter((i) => i === "-" || state.planned || !i.planned)
+const visible = (items) => items.filter((i) => i === "-" || state.planned !== "hidden" || !i.planned)
   .filter((i, n, all) => i !== "-" || (n > 0 && all[n - 1] !== "-"));
 
 /* Wordmark */
@@ -256,10 +250,11 @@ function itemHTML(i, n) {
   if (i === "-") return "<hr>";
   if (i.kind === "size") return `<div class="size" role="group" aria-label="Interface size"><span class="menu-label">Size</span><button class="step" data-step="-1" aria-label="Smaller interface" title="Smaller interface (${state.plat === "mac" ? "⌘−" : "Ctrl+Shift+−"})">−</button><output aria-live="polite">${state.size}%</output><button class="step" data-step="1" aria-label="Bigger interface" title="Bigger interface (${state.plat === "mac" ? "⌘+" : "Ctrl+Shift+="})">+</button></div>`;
   const hint = i.key ? `<span class="hint">${i.key[state.plat]}</span>` : "";
-  const tag = i.planned ? `<span class="planned">#${i.planned}</span>` : "";
+  const off = i.planned && state.planned === "greyed";
+  const tag = off ? `<span class="planned">#${i.planned}</span>` : "";
   const mark = i.mark ? `<span class="badge" aria-hidden="true">${i.mark}</span>` : "";
   const more = i.sub ? CHEV_RIGHT : "";
-  return `<button class="item" role="menuitem" data-id="${i.id}" ${i.sub ? 'aria-haspopup="menu" aria-expanded="false"' : ""} ${i.planned ? "disabled" : ""}>${mark}<span class="menu-label">${i.label}</span>${tag}${hint}${more}</button>`;
+  return `<button class="item" role="menuitem" data-id="${i.id}" ${i.sub ? 'aria-haspopup="menu" aria-expanded="false"' : ""} ${off ? "disabled" : ""}>${mark}<span class="menu-label">${i.label}</span>${tag}${hint}${more}</button>`;
 }
 function build(items, cls) {
   const el = document.createElement("div");
@@ -355,7 +350,8 @@ document.addEventListener("pointerdown", (e) => {
 /* Destinations */
 function run(id) {
   closeMenu();
-  if (id.startsWith("set-")) settings(id === "set-all" ? state.lastSettings : id.slice(4));
+  if (id === "via-ui") settings(state.lastSettings);
+  else if (id.startsWith("via-")) via(AGENTS.find((a) => a.id === id.slice(4)));
   else if (id === "shortcuts") shortcuts();
   else if (id === "about") about();
   else flash(id);
@@ -365,32 +361,33 @@ function flash(id) {
   n.textContent = `(${id} runs as today)`;
   setTimeout(() => (n.textContent = was), 1400);
 }
-const SECTIONS = [
-  ["Agents", AGENTS.map((a) => [a.id, a.label, a.mark])],
-  ["Workspace", [["repos", "Repositories"], ["worktrees", "Worktrees"]]],
-  ["Interface", [["appearance", "Appearance"], ["terminal", "Terminal"], ["themes", "Themes"], ["sound", "Sound"]]],
-];
+const SECTIONS = [["agents", "Agents and hooks"], ["repos", "Repositories"], ["worktrees", "Worktrees"], ["appearance", "Appearance"], ["terminal", "Terminal"], ["themes", "Themes"], ["sound", "Sound"]];
 function settings(section) {
   state.lastSettings = section;
   $(".settings")?.remove();
   const s = document.createElement("div");
   s.className = "settings";
-  s.innerHTML = `<nav aria-label="Settings"><h2>Settings</h2>${SECTIONS.map(([g, rows]) => `<div class="ng">${g}</div>${rows.map(([id, label, mark]) => `<button data-sec="${id}" ${id === section ? 'aria-current="page"' : ""}>${mark ? `<span class="badge">${mark}</span>` : ""}${label}</button>`).join("")}`).join("")}</nav><div class="pane">${pane(section)}</div><span class="esc">Esc</span>`;
+  s.innerHTML = `<nav aria-label="Settings"><h2>Settings</h2>${SECTIONS.map(([id, label]) => `<button data-sec="${id}" ${id === section ? 'aria-current="page"' : ""}>${label}</button>`).join("")}</nav><div class="pane"><h3>${SECTIONS.find(([id]) => id === section)[1]}</h3><p class="fact">Today's Settings screen, unchanged.</p></div><span class="esc">Esc</span>`;
   area.appendChild(s);
   s.querySelector("nav").addEventListener("click", (e) => { const b = e.target.closest("[data-sec]"); if (b) settings(b.dataset.sec); });
   s.querySelector('[aria-current="page"]').focus();
 }
-function pane(section) {
-  const a = AGENTS.find((x) => x.id === section);
-  if (!a) {
-    const label = SECTIONS.flatMap(([, r]) => r).find(([id]) => id === section)[1];
-    return `<h3>${label}</h3><p class="fact">Unchanged from today.</p>`;
+/* Via an agent: a new session under the Foom config row (#84), in ~/.foom/config. */
+function via(a) {
+  $(".settings")?.remove();
+  const list = $(".list");
+  let group = $("#config-group");
+  if (!group) {
+    list.insertAdjacentHTML("afterbegin", '<div id="config-group"><div class="group config">⚙ Foom config</div></div>');
+    group = $("#config-group");
   }
-  return `<h3><span class="badge">${a.mark}</span>${a.label}</h3><p class="fact">${a.fact}</p>
-  <div class="field"><span>Default arguments</span><div style="display:grid;gap:8px"><textarea spellcheck="false" aria-label="${a.label} default arguments">${a.args}</textarea><button class="btn">Save default arguments</button></div></div>
-  <div class="field"><span>Hooks</span><span class="val">${a.hooks}</span></div>
-  ${a.plugin ? '<div class="field"><span>Lifecycle plugin</span><div style="display:flex;gap:10px;align-items:center"><span class="val">Installed, enabled</span><button class="btn">Uninstall</button></div></div>' : ""}
-  ${state.planned ? `<div class="field is-planned"><span>Environment <span class="planned">#215</span></span><div class="kv"><span>HTTPS_PROXY</span><span>http://proxy.lan:3128</span><span>${a.id === "codex" ? "CODEX_HOME" : "NO_PROXY"}</span><span>${a.id === "codex" ? "~/.codex-foom" : "localhost,127.0.0.1"}</span></div></div>` : ""}`;
+  group.insertAdjacentHTML("beforeend", `<div class="srow nested"><span class="light working"></span><span class="badge">${a.mark}</span><div class="lines"><div class="top"><span>Foom settings</span></div><div class="reason">~/.foom/config</div></div></div>`);
+  const tiles = document.querySelectorAll(".tile");
+  tiles.forEach((t) => t.classList.remove("focus"));
+  const t = tiles[1];
+  t.classList.add("focus");
+  t.querySelector(".tb").innerHTML = `<span class="no">2</span>Foom settings`;
+  t.querySelector(".term").innerHTML = `<b>${a.banner}</b>\n~/.foom/config\n\nReads AGENTS.md: settings.json, themes/,\nterminal-themes/, sounds/. Validate after\nevery edit; Foom commits each change.\n\n<i>›</i> `;
 }
 function overlay(html, cls) {
   closeOverlay();
@@ -413,7 +410,7 @@ function shortcuts() {
   overlay(`<h2>Keyboard shortcuts<span>Esc</span></h2><div class="cols">${groups.map(([g, lead, rows]) => `<div><h4>${g}${lead ? ` <span class="lead">${lead}</span>` : ""}</h4><dl>${rows.map(([a, b]) => `<dt>${a}</dt><dd>${b}</dd>`).join("")}</dl></div>`).join("")}</div>`, "");
 }
 function about() {
-  overlay(`<h1 class="wordmark"><span aria-hidden="true">fo<span class="wordmark-hole"></span>m</span></h1><p>0.1.0-nightly.20261009 · Electron 38</p><p>Apache-2.0</p><div class="links"><button class="btn">Third-party licenses</button><button class="btn">GitHub</button></div>${state.planned ? '<p style="margin-top:12px"><span class="planned">screen is #96; native panel until then</span></p>' : ""}`, "about");
+  overlay(`<h1 class="wordmark"><span aria-hidden="true">fo<span class="wordmark-hole"></span>m</span></h1><p>0.1.0-nightly.20261009 · Electron 38</p><p>Apache-2.0</p><div class="links"><button class="btn">Third-party licenses</button><button class="btn">GitHub</button></div>${state.planned === "greyed" ? '<p style="margin-top:12px"><span class="planned">screen is #96; native panel until then</span></p>' : ""}`, "about");
 }
 document.addEventListener("keydown", (e) => {
   if (e.key === "Escape") {
@@ -426,7 +423,7 @@ document.addEventListener("keydown", (e) => {
 /* Mock controls */
 $("#m-plat").addEventListener("change", (e) => { state.plat = e.target.value; renderWordmark(); closeMenu(); });
 $("#m-dev").addEventListener("change", (e) => { state.dev = e.target.value === "1"; renderWordmark(); closeMenu(); });
-$("#m-plan").addEventListener("change", (e) => { state.planned = e.target.value === "show"; if (menu) openMenu(); });
+$("#m-plan").addEventListener("change", (e) => { state.planned = e.target.value; if (menu) openMenu(); });
 $("#m-theme").addEventListener("change", (e) => { if (e.target.value) document.documentElement.dataset.theme = e.target.value; else delete document.documentElement.dataset.theme; });
 renderWordmark();
 openMenu();
