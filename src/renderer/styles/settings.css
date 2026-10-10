@@ -99,6 +99,16 @@
     padding: 20px;
   }
 }
+/* On a short window, such as a large interface size, the sections scroll away with the page. */
+@media (max-width: 1050px) and (max-height: 480px) {
+  .settings-view {
+    overflow: auto;
+  }
+  .settings-stage {
+    flex: none;
+    overflow: visible;
+  }
+}
 
 .terminal-theme-settings {
   display: grid;

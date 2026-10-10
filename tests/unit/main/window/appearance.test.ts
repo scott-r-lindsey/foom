@@ -10,7 +10,11 @@ import {
 test("interface scale moves between fixed steps and stops at the ends", () => {
   expect(nextScale(100, "in")).toBe(110);
   expect(nextScale(100, "out")).toBe(90);
-  expect(nextScale(150, "in")).toBe(150);
+  expect(nextScale(150, "in")).toBe(175);
+  expect(nextScale(175, "out")).toBe(150);
+  expect(nextScale(250, "in")).toBe(300);
+  expect(nextScale(300, "in")).toBe(300);
+  expect(nextScale(300, "reset")).toBe(100);
   expect(nextScale(80, "out")).toBe(80);
   expect(nextScale(130, "reset")).toBe(100);
   // A value between steps moves to the neighbouring step.
