@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { AppMenuApi, CommandItem } from "../../shared/app-menu";
-import { RowMenu } from "./row-menu";
+import type { AppMenuApi, AppMenuEntry, CommandItem, ShortcutGroup } from "../../shared/app-menu";
+import { Chevron, RowMenu } from "./row-menu";
+import { ShortcutSheet } from "./shortcut-sheet";
 import type { RowAction } from "./row-menu";
 /** Save focus and both form-control and document selections before menu buttons take focus. */
 function captureFocus(): () => void {
@@ -35,27 +36,24 @@ export function AppMenu({
   development?: boolean | undefined;
 }) {
   const [anchor, setAnchor] = useState<HTMLButtonElement | null>(null);
-  const [items, setItems] = useState<CommandItem[]>();
+  const [entries, setEntries] = useState<AppMenuEntry[]>();
+  const [sheet, setSheet] = useState<ShortcutGroup[]>();
   const [error, setError] = useState("");
   const restoreFocusRef = useRef<() => void>(() => {});
+  const restoreSheetFocusRef = useRef<() => void>(() => {});
   const generationRef = useRef({ value: 0 });
   const close = useCallback(() => {
     generationRef.current.value++;
-    setItems(undefined);
+    setEntries(undefined);
   }, []);
-  const open = useCallback(() => {
+  /** Re-reads the projection; a stale reply never reopens a closed menu. */
+  const load = useCallback(() => {
     if (!api) return;
-    // Reopening with Alt/F10 while already in the menu must retain its original target.
-    if (
-      !(document.activeElement instanceof Element) ||
-      !document.activeElement.closest(".app-menu")
-    )
-      restoreFocusRef.current = captureFocus();
     const current = ++generationRef.current.value;
     void api.commands().then(
       (next) => {
         if (current === generationRef.current.value) {
-          setItems(next);
+          setEntries(next);
           setError("");
         }
       },
@@ -64,6 +62,15 @@ export function AppMenu({
       },
     );
   }, [api]);
+  const open = useCallback(() => {
+    // Reopening with Alt/F10 while already in the menu must retain its original target.
+    if (
+      !(document.activeElement instanceof Element) ||
+      !document.activeElement.closest(".app-menu, .row-submenu")
+    )
+      restoreFocusRef.current = captureFocus();
+    load();
+  }, [load]);
   useEffect(() => {
     const generation = generationRef.current;
     const dispose = api?.onOpen(open);
@@ -72,6 +79,16 @@ export function AppMenu({
       dispose?.();
     };
   }, [api, open]);
+  useEffect(
+    () =>
+      api?.onShortcuts(() => {
+        restoreSheetFocusRef.current = captureFocus();
+        void api.shortcuts().then(setSheet, () => {
+          setError("Unable to show keyboard shortcuts.");
+        });
+      }),
+    [api],
+  );
   const select = useCallback(
     (action: RowAction) => {
       close();
@@ -81,67 +98,93 @@ export function AppMenu({
     [close],
   );
   const wordmark = (
-    <>
-      <span aria-hidden="true">
-        fo
-        <span className="wordmark-hole" />m
-      </span>
-      {development && <span className="dev-profile">Dev</span>}
-    </>
+    <span aria-hidden="true">
+      fo
+      <span className="wordmark-hole" />m
+    </span>
   );
-  const actions: (RowAction | null)[] = [];
-  let section = "";
-  for (const item of items ?? []) {
-    if (section && section !== item.section) actions.push(null);
-    section = item.section;
-    actions.push({
-      label: item.label,
-      hint: item.shortcut,
-      disabled: !item.enabled,
-      checked: item.checked,
-      run: async () => {
-        try {
-          await api?.execute(item.id);
-        } catch {
-          setError(`Unable to run ${item.label}.`);
-        }
-      },
-    });
-  }
+  const command = (item: CommandItem, step = false): RowAction => ({
+    label: item.label,
+    hint: item.shortcut,
+    disabled: !item.enabled,
+    checked: item.checked,
+    ...(item.badge ? { badge: item.badge } : {}),
+    run: async () => {
+      try {
+        await api?.execute(item.id);
+        if (step) load();
+      } catch {
+        setError(`Unable to run ${item.label}.`);
+      }
+    },
+  });
+  const actions = (entries ?? []).map((entry): RowAction | null => {
+    if (!entry) return null;
+    if (entry.kind === "submenu")
+      return {
+        label: entry.label,
+        submenu: entry.items.map((item) => item && command(item)),
+        run: () => undefined,
+      };
+    if (entry.kind === "size")
+      return {
+        label: entry.label,
+        // The menu stays open; the row shows the size main settled on.
+        stepper: {
+          value: `${String(entry.scale)}%`,
+          decrease: command(entry.smaller, true),
+          increase: command(entry.bigger, true),
+        },
+        run: () => undefined,
+      };
+    return command(entry);
+  });
   return (
     <>
       <h1 className="wordmark" aria-label={development ? "foom dev" : "foom"}>
-        {api && api.platform !== "darwin" ? (
+        {api ? (
           <button
             ref={setAnchor}
             className="wordmark-menu"
             type="button"
             aria-label="Foom menu"
             aria-haspopup="menu"
-            aria-expanded={Boolean(items)}
+            aria-expanded={Boolean(entries)}
             onPointerDown={(event) => {
               // Keep the edit target and its selection until open() captures them.
               if (event.button === 0) event.preventDefault();
             }}
             onClick={() => {
-              if (items) close();
+              if (entries) close();
               else open();
             }}
           >
             {wordmark}
+            <Chevron direction="down" />
           </button>
         ) : (
           wordmark
         )}
+        {development && <span className="dev-profile">Dev</span>}
       </h1>
-      {items && anchor && (
+      {entries && anchor && (
         <RowMenu
           anchor={anchor}
           actions={actions}
           close={close}
           placement="below"
           label="Foom"
+          keepOnResize
           onAction={select}
+        />
+      )}
+      {sheet && (
+        <ShortcutSheet
+          groups={sheet}
+          close={() => {
+            setSheet(undefined);
+            restoreSheetFocusRef.current();
+          }}
         />
       )}
       {error && <p role="alert">{error}</p>}

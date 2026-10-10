@@ -158,6 +158,8 @@ test("foreign-window navigation focuses an existing tile without replacing eithe
       platform: "darwin" as const,
       setView: vi.fn(() => Promise.resolve()),
       commands: vi.fn(() => Promise.resolve([])),
+      shortcuts: vi.fn(() => Promise.resolve([])),
+      onShortcuts: () => () => {},
       execute: vi.fn(() => Promise.resolve()),
       onOpen: () => () => {},
       onSession: (callback: (id: string) => void) => {

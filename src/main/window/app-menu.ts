@@ -1,7 +1,14 @@
 import type { WindowIpc } from "./window-ipc";
 import { app, Menu, dialog, ipcMain, shell } from "electron";
 import type { BrowserWindow, IpcMainInvokeEvent } from "electron";
-import { createCommands, createShortcuts, nativeMenu, projectCommands } from "./commands";
+import {
+  createCommands,
+  createShortcuts,
+  nativeMenu,
+  projectAppMenu,
+  shortcutSheet,
+} from "./commands";
+import { AGENTS } from "../agents/agent-list";
 import type { ZoomDirection } from "./appearance";
 
 /** The bridge accepts command IDs only, from this window's trusted top-level frame. */
@@ -10,6 +17,8 @@ export function attachAppMenu(
   zoom: (direction: ZoomDirection) => Promise<void>,
   ipc: WindowIpc = ipcMain,
   openWindow: () => void = () => undefined,
+  /** The current interface size in percent, for the menu's Size row. */
+  scale: () => Promise<number> = () => Promise.resolve(100),
 ) {
   const contents = window.webContents;
   const native = (id: string) => {
@@ -38,6 +47,9 @@ export function attachAppMenu(
           .then(({ response }) => {
             if (response === 1) void shell.openExternal("https://github.com/scott-r-lindsey/foom");
           });
+        break;
+      case "shortcuts":
+        contents.send("app-menu:shortcuts");
         break;
       case "github":
         void shell.openExternal("https://github.com/scott-r-lindsey/foom");
@@ -87,17 +99,21 @@ export function attachAppMenu(
         break;
     }
   };
-  const commands = createCommands(process.platform, !app.isPackaged, {
-    native,
-    board: (command) => {
-      contents.send("board:command", command);
+  const commands = createCommands(
+    process.platform,
+    !app.isPackaged,
+    {
+      native,
+      board: (command) => {
+        contents.send("board:command", command);
+      },
+      zoom: (direction) =>
+        zoom(direction).catch((error: unknown) => {
+          console.error("Unable to change interface size:", error);
+        }),
     },
-    zoom: (direction) => {
-      void zoom(direction).catch((error: unknown) => {
-        console.error("Unable to change interface size:", error);
-      });
-    },
-  });
+    AGENTS,
+  );
   app.setAboutPanelOptions({
     applicationName: "Foom",
     applicationVersion: app.getVersion(),
@@ -159,15 +175,20 @@ export function attachAppMenu(
     )
       throw new Error("Untrusted app menu sender");
   };
-  ipc.handle("app-menu:list", (event) => {
+  ipc.handle("app-menu:list", async (event) => {
     trusted(event);
-    return projectCommands(commands);
+    return projectAppMenu(commands, await scale());
   });
-  ipc.handle("app-menu:execute", (event, id: unknown) => {
+  ipc.handle("app-menu:shortcuts", (event) => {
+    trusted(event);
+    return shortcutSheet(commands, process.platform);
+  });
+  ipc.handle("app-menu:execute", async (event, id: unknown) => {
     trusted(event);
     const command = typeof id === "string" && commands.find((command) => command.id === id);
     if (!command || !command.enabled) throw new Error("Unavailable app command");
-    command.run();
+    // Awaited so the Size row can show the size this step produced.
+    await command.run();
   });
   const newWindow = commands.find((command) => command.id === "new-window");
   if (!newWindow) throw new Error("Missing New Window command");
@@ -179,6 +200,7 @@ export function attachAppMenu(
       window.removeListener("focus", refresh);
       ipc.removeHandler("app-menu:view");
       ipc.removeHandler("app-menu:list");
+      ipc.removeHandler("app-menu:shortcuts");
       ipc.removeHandler("app-menu:execute");
     },
   };

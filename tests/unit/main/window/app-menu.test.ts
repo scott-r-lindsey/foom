@@ -71,29 +71,54 @@ function fixture(platform: NodeJS.Platform = "linux") {
     close: vi.fn(),
   });
   const zoom = vi.fn<() => Promise<void>>().mockResolvedValue();
-  const attached = attachAppMenu(window as unknown as BrowserWindow, zoom);
+  const scale = vi.fn(() => Promise.resolve(110));
+  const attached = attachAppMenu(
+    window as unknown as BrowserWindow,
+    zoom,
+    undefined,
+    undefined,
+    scale,
+  );
   const trusted = { sender: contents, senderFrame: frame };
   const invoke = (channel: string, value?: unknown, event: unknown = trusted) =>
     mock.handlers.get(`app-menu:${channel}`)?.(event, value);
-  return { window, contents, attached, invoke, trusted, frame, zoom };
+  /** Every handler, synchronous or not, as a promise. */
+  const call = (channel: string, value?: unknown, event: unknown = trusted) =>
+    Promise.resolve().then(() => invoke(channel, value, event));
+  return { window, contents, attached, invoke, call, trusted, frame, zoom, scale };
 }
-test("validates each sender and command ID, projects data only and disposes handlers", () => {
+test("validates each sender and command ID, projects data only and disposes handlers", async () => {
   const f = fixture();
-  for (const channel of ["list", "execute", "view"]) {
+  for (const channel of ["list", "shortcuts", "execute", "view"]) {
     for (const event of [
       { sender: {}, senderFrame: f.frame },
       { sender: f.contents, senderFrame: null },
       { sender: f.contents, senderFrame: { ...f.frame } },
     ])
-      expect(() => f.invoke(channel, undefined, event)).toThrow("Untrusted");
+      await expect(f.call(channel, undefined, event)).rejects.toThrow("Untrusted");
   }
   f.frame.url = "https://evil.test";
-  expect(() => f.invoke("list")).toThrow("Untrusted");
+  await expect(f.call("list")).rejects.toThrow("Untrusted");
+  await expect(f.call("shortcuts")).rejects.toThrow("Untrusted");
   f.frame.url = "app://bundle/index.html";
-  for (const id of [null, {}, "missing"])
-    expect(() => f.invoke("execute", id)).toThrow("Unavailable");
-  expect(f.invoke("list")).toEqual(
-    expect.arrayContaining([expect.objectContaining({ id: "quit", enabled: true })]),
+  for (const id of [null, {}, "missing", "settings-menu", "size", "via-claude"])
+    await expect(f.call("execute", id)).rejects.toThrow("Unavailable");
+  expect(f.contents.send).not.toHaveBeenCalled();
+  const list = await f.call("list");
+  expect(list).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({ kind: "command", id: "quit", enabled: true }),
+      expect.objectContaining({ kind: "size", scale: 110 }),
+      expect.objectContaining({
+        kind: "submenu",
+        items: expect.arrayContaining([
+          expect.objectContaining({ id: "via-codex", label: "Via Codex", enabled: false }),
+        ]) as unknown,
+      }),
+    ]),
+  );
+  expect(await f.call("shortcuts")).toEqual(
+    expect.arrayContaining([expect.objectContaining({ title: "Tiles" })]),
   );
   expect(mock.menu).toHaveBeenCalledWith(null);
   f.attached.dispose();
@@ -126,26 +151,29 @@ test("dispatches native actions, zoom failures and keyboard gestures", async () 
     "devtools",
     "sidebar",
     "zoom-in",
+    "add-repository",
+    "shortcuts",
   ])
-    f.invoke("execute", id);
-  await Promise.resolve();
+    await f.call("execute", id);
   expect(mock.quit).toHaveBeenCalledOnce();
   expect(f.window.close).toHaveBeenCalledOnce();
   expect(mock.about).toHaveBeenCalledOnce();
   expect(mock.external).toHaveBeenCalledWith("https://github.com/scott-r-lindsey/foom");
   expect(f.contents.send).toHaveBeenCalledWith("board:command", "sidebar");
+  expect(f.contents.send).toHaveBeenCalledWith("board:command", "add-repository");
+  expect(f.contents.send).toHaveBeenCalledWith("app-menu:shortcuts");
+  expect(f.zoom).toHaveBeenCalledWith("in");
   expect(f.contents.reload).toHaveBeenCalledOnce();
   f.window.isMaximized.mockReturnValue(true);
-  f.invoke("execute", "zoom");
+  await f.call("execute", "zoom");
   expect(f.window.unmaximize).toHaveBeenCalledOnce();
   mock.message.mockResolvedValue({ response: 0 });
-  f.invoke("execute", "licenses");
+  await f.call("execute", "licenses");
   const log = vi.spyOn(console, "error").mockImplementation(() => {});
   f.zoom.mockRejectedValue(new Error("disk full"));
-  f.invoke("execute", "zoom-reset");
-  await vi.waitFor(() => {
-    expect(log).toHaveBeenCalled();
-  });
+  // A failed step is logged, not thrown at the renderer.
+  await f.call("execute", "zoom-reset");
+  expect(log).toHaveBeenCalled();
   const event = { preventDefault: vi.fn() };
   f.contents.emit("before-input-event", event, {
     type: "keyDown",
@@ -178,11 +206,11 @@ test("dispatches native actions, zoom failures and keyboard gestures", async () 
   expect(linux.contents.send).toHaveBeenCalledWith("app-menu:open");
   linux.attached.dispose();
 });
-test("packaged execution rejects developer commands and validates view state before updating menus", () => {
+test("packaged execution rejects developer commands and validates view state before updating menus", async () => {
   mock.packaged = true;
   const f = fixture("darwin");
   for (const id of ["reload", "force-reload", "devtools"])
-    expect(() => f.invoke("execute", id)).toThrow("Unavailable");
+    await expect(f.call("execute", id)).rejects.toThrow("Unavailable");
   for (const state of [
     null,
     {},
@@ -196,16 +224,20 @@ test("packaged execution rejects developer commands and validates view state bef
   ])
     expect(() => f.invoke("view", state)).toThrow("Invalid");
   f.invoke("view", { available: true, maximized: false, tiles: 0 });
-  expect(() => f.invoke("execute", "tile-1")).toThrow("Unavailable");
+  await expect(f.call("execute", "tile-1")).rejects.toThrow("Unavailable");
   f.invoke("view", { available: true, maximized: true, tiles: 2 });
-  expect(f.invoke("list")).toEqual(
+  // The macOS menu bar still carries the board commands the wordmark menu leaves out.
+  const bar = (mock.menu.mock.lastCall?.[0] ?? []) as MenuItemConstructorOptions[];
+  const native = bar.flatMap((section) => (Array.isArray(section.submenu) ? section.submenu : []));
+  expect(native).toEqual(
     expect.arrayContaining([
       expect.objectContaining({ id: "maximize", checked: true }),
       expect.objectContaining({ id: "tile-3", enabled: false }),
     ]),
   );
+  expect(JSON.stringify(await f.call("list"))).not.toContain('"maximize"');
   f.invoke("view", { available: false, maximized: false, tiles: 1 });
-  expect(() => f.invoke("execute", "maximize")).toThrow("Unavailable");
+  await expect(f.call("execute", "maximize")).rejects.toThrow("Unavailable");
   f.attached.dispose();
 });
 
