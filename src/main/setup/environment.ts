@@ -310,13 +310,16 @@ export class EnvironmentStore {
         if (row.secret && row.value) values.add(row.value);
         const credentials = urlCredentials(row.value);
         if (credentials) {
+          // A user name alone may be a token; with a password, only the password is secret.
+          const separator = credentials.indexOf(":");
+          const secret = separator < 0 ? credentials : credentials.slice(separator + 1);
           values.add(credentials);
-          for (const part of credentials.split(":")) if (part) values.add(part);
+          if (secret) values.add(secret);
           try {
-            for (const part of credentials.split(":").map(decodeURIComponent))
-              if (part) values.add(part);
+            const decoded = decodeURIComponent(secret);
+            if (decoded) values.add(decoded);
           } catch {
-            // Malformed escapes: the raw parts are already listed.
+            // Malformed escapes: the raw value is already listed.
           }
         }
       }
@@ -391,7 +394,8 @@ export class EnvironmentStore {
       );
       result.push({
         name,
-        display: maskCredentials(value),
+        // A saved secret is never shown, even when the shell holds the same value.
+        display: current?.secret ? "••••••••" : maskCredentials(value),
         status: !current ? "new" : current.value === value ? "same" : "replaces",
       });
     }

@@ -50,7 +50,7 @@ import {
   inheritedEnvironment,
   safeStorageCipher,
 } from "./setup/environment";
-import { setTailSecrets } from "./evaluator/terminal-tail";
+import { addTailSecrets } from "./evaluator/terminal-tail";
 import { initialSize, MINIMUM_SIZE, scaledSize } from "./window/appearance";
 import { loadWindowSize, saveWindowSize } from "./window/window-state";
 import type { Size } from "./window/appearance";
@@ -497,7 +497,7 @@ async function buildWindow(savedSize?: Size, saved?: WindowPlacement, initialSes
     window,
     environment,
     () => {
-      setTailSecrets(environment.redactions());
+      addTailSecrets(environment.redactions());
     },
     ipc,
   );
@@ -691,7 +691,7 @@ if (!ownsProfile) {
         app.getPath("userData"),
         safeStorageCipher(safeStorage),
       );
-      setTailSecrets(environment.redactions());
+      addTailSecrets(environment.redactions());
       themes = new ThemeLibrary(path.join(app.getPath("home"), ".foom/config"), themesChanged);
       disposeThemes = () => {
         themes.dispose();

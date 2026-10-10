@@ -129,6 +129,19 @@ test("secret toggles save at once; Replace and remove use main without reading v
   });
 });
 
+test("another row's autosave keeps the focused row mounted", async () => {
+  const api = source();
+  const path = await waitFor(() => row("All sessions", "PATH"));
+  const proxy = row("All sessions", "HTTPS_PROXY");
+  const input = within(proxy).getByLabelText("HTTPS_PROXY value");
+  fireEvent.change(input, { target: { value: "http://other:1" } });
+  fireEvent.focusOut(input);
+  await waitFor(() => {
+    expect(api.saveEnvironment).toHaveBeenCalledOnce();
+  });
+  expect(row("All sessions", "PATH")).toBe(path);
+});
+
 test("import offers main's candidates and adds only the picked ones", async () => {
   const api = source(state({ all: [{ name: "NO_PROXY", value: ".corp", secret: false }] }));
   api.readShellEnvironment.mockResolvedValue([

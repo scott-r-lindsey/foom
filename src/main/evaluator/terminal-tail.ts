@@ -2,14 +2,19 @@
 let secrets: readonly string[] = [];
 
 /**
- * Literal values to remove from every tail, such as Environment secrets and proxy URL
- * credentials. Values shorter than four characters would redact ordinary text, so they
- * are left to the pattern rules.
+ * Adds literal values to remove from every tail: Environment secrets and proxy URL
+ * credentials. Values are kept for the life of the app, because running sessions and
+ * their output keep a secret after Settings replaces or removes it.
  */
-export function setTailSecrets(values: readonly string[]): void {
-  secrets = [...new Set(values.filter((value) => value.length >= 4))].sort(
+export function addTailSecrets(values: readonly string[]): void {
+  secrets = [...new Set([...secrets, ...values.filter((value) => value !== "")])].sort(
     (a, b) => b.length - a.length,
   );
+}
+
+/** For tests only: forget every literal secret. */
+export function clearTailSecrets(): void {
+  secrets = [];
 }
 
 export function prepareTail(tail: readonly string[]): string {

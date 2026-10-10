@@ -156,10 +156,12 @@ export function EnvironmentSettings({
             entry.saved !== null &&
             fold(entry.saved) === fold(row.name),
         );
-        const mine = kept.find((entry) => entry.key === key);
         if (existing) return existing;
-        if (mine && fold(row.name) === fold(mine.name)) return { ...draft(row), key: mine.key };
-        return draft(row);
+        // Keep keys, so a focused row is not remounted when another row saves.
+        const same =
+          kept.find((entry) => entry.key === key && fold(entry.name) === fold(row.name)) ??
+          kept.find((entry) => entry.saved !== null && fold(entry.saved) === fold(row.name));
+        return same ? { ...draft(row), key: same.key } : draft(row);
       });
       const unsaved = kept.filter((entry) => entry.saved === null && entry.key !== key);
       return { ...current, [scope]: [...rows, ...unsaved] };

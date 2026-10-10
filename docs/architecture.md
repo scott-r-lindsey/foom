@@ -437,8 +437,10 @@ agent's, then global, then the login PATH. Proxy variables must be `http://`,
 `https://` or `socks5://` URLs; an empty value turns an inherited proxy off. A URL with
 user information is always a secret. When any proxy is set, `NO_PROXY` and `no_proxy`
 keep every existing entry and gain `localhost,127.0.0.1,::1`. Session snapshots list
-the names Foom set, never values. Secret values and URL credentials are added to
-`prepareTail` redaction. Import from login shell runs one fixed `-ilc` printf program
+the names Foom set, never values. Every secret value and URL credential (the password,
+or a lone user name, which may be a token) is added to `prepareTail` redaction and kept
+until quit, since running sessions keep replaced secrets. Import previews mask saved
+secrets entirely. Import from login shell runs one fixed `-ilc` printf program
 with NUL delimiters for the proxy and certificate names only (Windows reads the
 inherited environment); values stay in main until the user picks names.
 

@@ -155,6 +155,10 @@ test("secrets are encrypted at rest, masked in replies, renamed without reading,
       "tok-123456",
     ]),
   );
+  expect(store.redactions()).not.toContain("sam");
+  await store.save(change("TOKEN_URL", "http://tok%21en@h", { scope: "codex" }));
+  expect(store.redactions()).toEqual(expect.arrayContaining(["tok%21en", "tok!en"]));
+  await store.remove("codex", "TOKEN_URL");
   const reopened = await EnvironmentStore.open(dir, cipher, { windows: false });
   expect(reopened.layers("shell")).toEqual([
     [
@@ -246,6 +250,13 @@ test("import offers only valid proxy and certificate variables and adds only pic
   await store.save(change("NO_PROXY", ".corp"));
   await store.save(change("SSL_CERT_FILE", "/old.pem"));
   await expect(store.import(["HTTPS_PROXY"])).rejects.toThrow("Read the login shell again");
+  await store.save(change("HTTPS_PROXY", "http://me:pw@proxy:8080"));
+  expect((await store.readShell())[0]).toEqual({
+    name: "HTTPS_PROXY",
+    display: "••••••••",
+    status: "same",
+  });
+  await store.remove("all", "HTTPS_PROXY");
   expect(await store.readShell()).toEqual([
     { name: "HTTPS_PROXY", display: "http://me:••••@proxy:8080", status: "new" },
     { name: "NO_PROXY", display: ".corp", status: "same" },
