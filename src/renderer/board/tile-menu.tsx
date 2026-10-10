@@ -37,7 +37,7 @@ export function TileMenu({
   );
   const item = (key: TileAction, label: string, reason?: string): RowAction => ({
     label,
-    glyph: key === "restart" ? "restart" : key === "close" ? "close" : key,
+    glyph: key,
     ...(reason ? { reason, disabled: true } : {}),
     run: () => {
       close();

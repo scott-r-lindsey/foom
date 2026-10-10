@@ -143,8 +143,8 @@ Approvals depend on permission mode and rules. Manual/default mode displays perm
 
 Interactive launches add `--no-alt-screen` when the bounded `codex --help` probe lists
 that complete flag. This is independent of hook version gating and whether hooks are enabled.
-Codex then draws inline, so normal terminal scrollback is available to wheel scrolling,
-peek and evaluator tails. Missing/failed help probes omit the flag. Launch arguments remain
+Codex then draws inline, so normal terminal scrollback is available to wheel scrolling
+and evaluator tails. Missing/failed help probes omit the flag. Launch arguments remain
 an array, and no global configuration is changed.
 
 The installed CLI documents `-c key=value` as an invocation override with TOML values. Pass an argument array such as `["-c", "notify=[\"/absolute/foom-notify\"]"]`; do not pass a shell command string. This replaces the effective notify command for this launch, so Foom must disclose that an existing notifier is displaced or explicitly compose it. It does not edit the user's config.

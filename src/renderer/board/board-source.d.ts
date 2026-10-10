@@ -26,7 +26,7 @@ export interface WorktreeSource {
   start(request: StartWorktreeRequest): Promise<void>;
   remove(id: string): Promise<boolean>;
 }
-/** Samples and the live source share rows, verdicts, activity batches and tails. */
+/** Samples and the live source share rows, verdicts and activity batches. */
 export interface BoardSource {
   windows?: WindowsApi;
   appMenu?: AppMenuApi;
@@ -46,7 +46,6 @@ export interface BoardSource {
   subscribeCommands?: (listener: (command: BoardCommand) => void) => () => void;
   subscribe: (listener: () => void) => () => void;
   subscribeActivity(listener: (batch: readonly TerminalActivity[]) => void): () => void;
-  tail(id: string): Promise<readonly string[]>;
   markSeen(id: string): void;
   resolve(id: string, reason: string): void | Promise<void>;
   worktrees?: WorktreeSource;

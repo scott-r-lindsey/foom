@@ -138,12 +138,6 @@
   margin: 0;
   line-height: 1.5;
 }
-.board-peek pre {
-  background: var(--terminal-background, var(--bg));
-  color: var(--terminal-foreground, var(--ink));
-  padding: 12px;
-  font-family: var(--font-terminal);
-}
 @media (max-width: 650px) {
   .terminal-theme-choices {
     display: grid;
