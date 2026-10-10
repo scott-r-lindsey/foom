@@ -17,3 +17,22 @@ export interface Worktree {
 export interface CreateWorktreeOptions {
   readonly location?: "root" | "adjacent";
 }
+
+/** What creating a worktree for a branch did: `open` means it was already checked out. */
+export type CreateOutcome = "new" | "existing" | "origin" | "open";
+
+export interface CreatedWorktree {
+  readonly path: string;
+  readonly outcome: CreateOutcome;
+}
+
+/** Refs already present locally; reading them never fetches. */
+export interface BranchInventory {
+  /** The main checkout's branch; null when detached. */
+  readonly head: string | null;
+  /** Local branches and the checkout each is in, if any. */
+  readonly local: readonly { readonly name: string; readonly worktree: string | null }[];
+  readonly remote: string | null;
+  /** The remote's branches, without the remote prefix. */
+  readonly remoteBranches: readonly string[];
+}

@@ -389,6 +389,7 @@ const desktop: DesktopApi = {
   workspace: () => ipcRenderer.invoke("workspace:snapshot"),
   addRepository: () => ipcRenderer.invoke("workspace:add-repository"),
   worktrees: (repository) => ipcRenderer.invoke("workspace:worktrees", repository),
+  branches: (repository) => ipcRenderer.invoke("workspace:branches", repository),
   createWorktree: (repository, branch, location) =>
     ipcRenderer.invoke("workspace:create-worktree", repository, branch, location),
   changeAgyPlugin: (action) => ipcRenderer.invoke("agents:agy-plugin", action),

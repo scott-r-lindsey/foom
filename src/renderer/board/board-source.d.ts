@@ -11,8 +11,7 @@ import type { TerminalActivity } from "../../shared/desktop";
 import type { ConfigStatus } from "../../shared/foom-config";
 
 import type { AgentInstallation, AgentId } from "../../shared/agents";
-import type { Repository } from "../../shared/worktrees";
-import type { StartWorktreeRequest } from "../../shared/workspace";
+import type { BranchInventory, CreateOutcome, Repository, Worktree } from "../../shared/worktrees";
 export interface LaunchOptions {
   repositories: readonly Repository[];
   agents: readonly AgentInstallation[];
@@ -24,7 +23,10 @@ export interface WorktreeSource {
   confirmations?: ConfirmationClient;
   load(): Promise<LaunchOptions>;
   addRepository(): Promise<Repository | null>;
-  start(request: StartWorktreeRequest): Promise<void>;
+  /** Local refs for the branch field. */
+  branches(repository: string): Promise<BranchInventory>;
+  /** Create only; resolves once the sidebar lists the worktree. */
+  create(repository: string, branch: string): Promise<Worktree & { outcome: CreateOutcome }>;
   remove(id: string): Promise<boolean>;
 }
 /** Samples and the live source share rows, verdicts and activity batches. */

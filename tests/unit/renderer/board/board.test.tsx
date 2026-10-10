@@ -340,7 +340,9 @@ test("board opens the launcher without routing typing to shortcuts and reports r
           enabled: { claude: true, codex: true, agy: true },
         }),
       addRepository: () => Promise.resolve(null),
-      start: () => Promise.resolve(),
+      branches: () =>
+        Promise.resolve({ head: "main", local: [], remote: null, remoteBranches: [] }),
+      create: vi.fn(),
       remove,
     },
   };
@@ -349,11 +351,17 @@ test("board opens the launcher without routing typing to shortcuts and reports r
     await Promise.resolve();
     fireEvent.click(screen.getByRole("button", { name: `Actions for ${row.repository}` }));
   });
-  fireEvent.click(screen.getByRole("menuitem", { name: "New worktree…" }));
-  fireEvent.keyDown(screen.getByLabelText("Branch"), { key: "n" });
-  expect(screen.getByRole("dialog")).toBeTruthy();
-  fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
-  expect(screen.queryByRole("dialog")).toBeNull();
+  await act(async () => {
+    fireEvent.click(screen.getByRole("menuitem", { name: "New worktree" }));
+    await Promise.resolve();
+  });
+  // Typing in the branch field never reaches board shortcuts.
+  const field = screen.getByLabelText("Branch for the new worktree");
+  fireEvent.keyDown(field, { key: "n" });
+  expect(document.activeElement).toBe(field);
+  fireEvent.keyDown(field, { key: "Escape" });
+  fireEvent.keyDown(screen.getByRole("menuitem", { name: "New worktree" }), { key: "Escape" });
+  expect(screen.queryByLabelText("Branch for the new worktree")).toBeNull();
   await act(async () => {
     await Promise.resolve();
     fireEvent.click(screen.getByRole("button", { name: "Actions for fix/session-restore" }));

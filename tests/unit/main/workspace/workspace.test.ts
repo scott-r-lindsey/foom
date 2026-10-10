@@ -7,6 +7,7 @@ import type { AgentHooks, AgentId, AgentLaunch, AgentScan } from "../../../../sr
 import type { EvaluationInput, VerdictRecord } from "../../../../src/shared/evaluator";
 import type { HookAgent, HookLaunch, HookSignal } from "../../../../src/shared/hooks";
 import type { TerminalState } from "../../../../src/shared/workspace";
+import type { CreatedWorktree } from "../../../../src/shared/worktrees";
 import { evaluateRules } from "../../../../src/main/evaluator/evaluator";
 import { Workspace } from "../../../../src/main/workspace/workspace";
 import type { WorkspaceDependencies } from "../../../../src/main/workspace/workspace";
@@ -106,7 +107,12 @@ beforeEach(() => {
       deleteMergedBranch: vi.fn(async () => {}),
       removeRepository: vi.fn(async () => {}),
       removeWorktree: vi.fn(async () => {}),
-      createWorktree: vi.fn(() => Promise.resolve(tree.path)),
+      createWorktree: vi.fn(
+        (): Promise<CreatedWorktree> => Promise.resolve({ path: tree.path, outcome: "new" }),
+      ),
+      branches: vi.fn(() =>
+        Promise.resolve({ head: "main", local: [], remote: null, remoteBranches: [] }),
+      ),
     },
     terminals: {
       stop: vi.fn(async () => {}),
@@ -191,10 +197,45 @@ test("adds repositories, lists and creates worktrees through the service", async
   await expect(workspace.addRepository("/repos/app")).resolves.toBe(repo);
   expect(changed).toHaveBeenCalledOnce();
   await expect(workspace.worktrees(repo.path)).resolves.toEqual([tree]);
-  await expect(workspace.createWorktree(repo.path, "feature", "adjacent")).resolves.toBe(tree);
+  const launch = vi.spyOn(deps.terminals, "create");
+  await expect(workspace.createWorktree(repo.path, "feature", "adjacent")).resolves.toEqual({
+    ...tree,
+    outcome: "new",
+  });
   expect(vi.mocked(deps.worktrees.createWorktree)).toHaveBeenCalledWith(repo.path, "feature", {
     location: "adjacent",
   });
+  // Creating refreshes the sidebar and never launches anything.
+  expect(changed).toHaveBeenCalledTimes(2);
+  expect(launch).not.toHaveBeenCalled();
+  vi.mocked(deps.worktrees.createWorktree).mockResolvedValueOnce({
+    path: tree.path,
+    outcome: "open",
+  });
+  await expect(workspace.createWorktree(repo.path, "feature")).resolves.toMatchObject({
+    outcome: "open",
+  });
+  expect(vi.mocked(deps.worktrees.createWorktree)).toHaveBeenLastCalledWith(repo.path, "feature", {
+    location: "root",
+  });
+  await expect(workspace.branches(repo.path)).resolves.toMatchObject({ head: "main" });
+  await expect(workspace.branches("/elsewhere")).rejects.toThrow("not been added");
+  let finish = () => {};
+  vi.mocked(deps.worktrees.createWorktree).mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        finish = () => {
+          resolve({ path: tree.path, outcome: "new" });
+        };
+      }),
+  );
+  const first = workspace.createWorktree(repo.path, "same");
+  await expect(workspace.createWorktree(repo.path, "same")).rejects.toThrow("busy");
+  await vi.waitFor(() => {
+    expect(vi.mocked(deps.worktrees.createWorktree)).toHaveBeenCalledTimes(3);
+  });
+  finish();
+  await first;
   vi.mocked(deps.worktrees.listWorktrees).mockResolvedValue([]);
   await expect(workspace.createWorktree(repo.path, "feature", "root")).rejects.toThrow(
     "Created worktree is missing",

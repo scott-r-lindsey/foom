@@ -419,8 +419,6 @@ test("menu presets and Dock navigation use the same board placement and report v
   expect(screen.getByRole("region", { name: /Tile 1:/ }).textContent).toContain(
     source.getSnapshot()[1]?.repository,
   );
-  send("new-worktree");
-  expect(setView).toHaveBeenLastCalledWith(expect.objectContaining({ available: false }));
   const error = vi.spyOn(console, "error").mockImplementation(() => {});
   setView.mockRejectedValueOnce(new Error("offline"));
   screen.rerender(<Board source={{ ...source }} inactive />);
@@ -646,13 +644,75 @@ test("asynchronous Close focuses the surviving terminal after the command resolv
   expect(views[1]?.focus).toHaveBeenCalledTimes(focusedBefore + 1);
   expect(document.activeElement).toBe(screen.getByRole("region", { name: /Tile 1:/ }));
 });
+test("New worktree opens the focused tile's repository, else the top one, else Add repository", async () => {
+  const { screen, source, send, click, data } = setup();
+  const addRepository = vi.fn(() => Promise.resolve(null));
+  const branches = vi.fn(() =>
+    Promise.resolve({ head: "main", local: [], remote: null, remoteBranches: [] }),
+  );
+  source.worktrees = { load: vi.fn(), branches, create: vi.fn(), remove: vi.fn(), addRepository };
+  const panelTitle = () =>
+    screen
+      .getByLabelText("Branch for the new worktree")
+      .closest(".sidebar-panel")
+      ?.querySelector(".panel-title")?.textContent;
+  const top = screen.container.querySelector(".repository-row .tree-label")?.textContent;
+  send("new-worktree");
+  await act(async () => {
+    await Promise.resolve();
+  });
+  expect(document.activeElement).toBe(screen.getByLabelText("Branch for the new worktree"));
+  expect(panelTitle()).toBe(top);
+  fireEvent.keyDown(screen.getByLabelText("Branch for the new worktree"), { key: "Escape" });
+  fireEvent.keyDown(document.activeElement ?? document.body, { key: "Escape" });
+  const index = data.getSnapshot().findIndex((row) => row.repository !== top);
+  const other = data.getSnapshot()[index]?.repository;
+  click(index);
+  await act(async () => {});
+  send("new-worktree");
+  await act(async () => {
+    await Promise.resolve();
+  });
+  expect(panelTitle()).toBe(other);
+  expect(branches).toHaveBeenLastCalledWith(other);
+  expect(addRepository).not.toHaveBeenCalled();
+});
+test("New worktree with no repositories adds one", () => {
+  const addRepository = vi.fn(() => Promise.resolve(null));
+  let command: ((command: BoardCommand) => void) | undefined;
+  const source: BoardSource = {
+    ...createSampleSource([]),
+    subscribeCommands: (listener) => {
+      command = listener;
+      return () => {};
+    },
+    worktrees: {
+      load: () => new Promise(() => {}),
+      branches: vi.fn(),
+      create: vi.fn(),
+      remove: vi.fn(),
+      addRepository,
+    },
+  };
+  render(<Board source={source} />);
+  act(() => {
+    command?.("new-worktree");
+  });
+  expect(addRepository).toHaveBeenCalledOnce();
+});
 test("the menu's Add repository uses the sidebar's picker and reports failure", async () => {
   const { screen, source, send } = setup();
   const addRepository = vi
     .fn<() => Promise<null>>()
     .mockResolvedValueOnce(null)
     .mockRejectedValueOnce(new Error("denied"));
-  source.worktrees = { load: vi.fn(), start: vi.fn(), remove: vi.fn(), addRepository };
+  source.worktrees = {
+    load: vi.fn(),
+    branches: vi.fn(),
+    create: vi.fn(),
+    remove: vi.fn(),
+    addRepository,
+  };
   send("add-repository");
   expect(addRepository).toHaveBeenCalledOnce();
   send("add-repository");

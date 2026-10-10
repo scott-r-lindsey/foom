@@ -252,12 +252,22 @@ export function attachWorkspace(
       },
     ],
     [
+      "workspace:branches",
+      (...args) => {
+        const [repository] = args;
+        if (args.length !== 1 || !text(repository)) throw new Error("Invalid repository");
+        return workspace.branches(repository);
+      },
+    ],
+    [
       "workspace:create-worktree",
-      (repository, branch, location) => {
+      (...args) => {
+        const [repository, branch, location] = args;
         if (
+          args.length > 3 ||
           !text(repository) ||
           !text(branch, 255) ||
-          (location !== "root" && location !== "adjacent")
+          (location !== undefined && location !== "root" && location !== "adjacent")
         )
           throw new Error("Invalid worktree request");
         return workspace.createWorktree(repository, branch, location);

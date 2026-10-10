@@ -4,7 +4,7 @@ import type { ExecutionSnapshot, ExecutionTransition } from "./execution";
 import type { ConfirmationClient } from "./confirmation";
 import type { AgentId, AgentInstallation } from "./agents";
 import type { VerdictAction, VerdictState } from "./evaluator";
-import type { Repository, Worktree } from "./worktrees";
+import type { BranchInventory, CreateOutcome, Repository, Worktree } from "./worktrees";
 
 /**
  * Main's latest view of a terminal's attention state. `verdictId` is null for user
@@ -91,11 +91,14 @@ export interface WorkspaceApi {
   /** Main shows the directory picker; resolves null when the user cancels. */
   addRepository(): Promise<Repository | null>;
   worktrees(repository: string): Promise<readonly Worktree[]>;
+  /** Local refs for the branch field; never fetches. */
+  branches(repository: string): Promise<BranchInventory>;
+  /** Create only; nothing launches. Without a location, main uses the configured one. */
   createWorktree(
     repository: string,
     branch: string,
-    location: "root" | "adjacent",
-  ): Promise<Worktree>;
+    location?: "root" | "adjacent",
+  ): Promise<Worktree & { outcome: CreateOutcome }>;
   scanAgents(refresh: boolean): Promise<AgentReport>;
   changeAgyPlugin(action: AgyPluginAction): Promise<AgentReport>;
   /** Null means the user cancelled the shared-agent confirmation. */

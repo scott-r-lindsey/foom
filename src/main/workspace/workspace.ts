@@ -27,7 +27,7 @@ import type { TerminalSpec, ShellState } from "../../shared/desktop";
 import type { EvaluationInput, VerdictAction, VerdictRecord } from "../../shared/evaluator";
 import type { HookSignal } from "../../shared/hooks";
 import type { Settings } from "../../shared/setup";
-import type { Repository, Worktree } from "../../shared/worktrees";
+import type { BranchInventory, CreateOutcome, Repository, Worktree } from "../../shared/worktrees";
 import type {
   AgentReport,
   StartWorktreeRequest,
@@ -69,6 +69,7 @@ export interface WorkspaceDependencies {
     | "listRepositories"
     | "addRepository"
     | "listWorktrees"
+    | "branches"
     | "createWorktree"
     | "validateBranch"
     | "changes"
@@ -332,19 +333,44 @@ export class Workspace {
     return this.deps.worktrees.listWorktrees(repository);
   }
 
+  async branches(repository: string): Promise<BranchInventory> {
+    this.known(repository);
+    return this.deps.worktrees.branches(repository);
+  }
+
+  /** Create only: nothing launches. Without a location, the configured one applies. */
   async createWorktree(
     repository: string,
     branch: string,
-    location: "root" | "adjacent",
-  ): Promise<Worktree> {
+    location: "root" | "adjacent" = this.location,
+  ): Promise<Worktree & { outcome: CreateOutcome }> {
     return this.withRepository(repository, async () => {
-      const path = await this.deps.worktrees.createWorktree(repository, branch, { location });
-      const created = (await this.deps.worktrees.listWorktrees(repository)).find(
-        (tree) => tree.path === path,
-      );
-      if (!created) throw new Error("Created worktree is missing");
-      return created;
+      const key = `${repository}\0${branch}`;
+      if (this.busyWorktrees.has(key)) throw new Error("This worktree is busy");
+      this.busyWorktrees.add(key);
+      try {
+        const created = await this.addWorktree(repository, branch, location);
+        this.refresh();
+        return created;
+      } finally {
+        this.busyWorktrees.delete(key);
+      }
     });
+  }
+
+  private async addWorktree(
+    repository: string,
+    branch: string,
+    location: "root" | "adjacent",
+  ): Promise<Worktree & { outcome: CreateOutcome }> {
+    const { path, outcome } = await this.deps.worktrees.createWorktree(repository, branch, {
+      location,
+    });
+    const created = (await this.deps.worktrees.listWorktrees(repository)).find(
+      (tree) => tree.path === path,
+    );
+    if (!created) throw new Error("Created worktree is missing");
+    return { ...created, outcome };
   }
 
   async scanAgents(refresh: boolean): Promise<AgentReport> {
@@ -487,8 +513,7 @@ export class Workspace {
         const trees = await this.worktrees(request.repository);
         const existing = trees.find((tree) => tree.branch === request.branch);
         const tree =
-          existing ??
-          (await this.createWorktree(request.repository, request.branch, this.location));
+          existing ?? (await this.addWorktree(request.repository, request.branch, this.location));
         if (tree.bare || tree.locked || tree.prunable) throw new Error("Worktree is unavailable");
         const identity = await this.deps.worktrees.launchIdentity(request.repository, tree.path);
         if (request.run !== "shell") {

@@ -132,7 +132,7 @@ describe("forgetting repositories", () => {
     await expect(service.removeRepository(repo)).rejects.toThrow("has not been added");
   });
   it("forgets repositories while preserving their worktrees and allowing re-registration", async () => {
-    const first = await service.createWorktree(repo, "one");
+    const first = (await service.createWorktree(repo, "one")).path;
     await service.removeRepository(repo);
     expect(service.listRepositories()).toEqual([]);
     expect(await realpath(first)).toBe(first);
@@ -152,7 +152,7 @@ describe("creation and listing", () => {
     expect(await service.listWorktrees(linked)).toContainEqual(
       expect.objectContaining({ path: bare, bare: true, head: null, managed: false }),
     );
-    const path = await service.createWorktree(linked, "from-bare");
+    const { path } = await service.createWorktree(linked, "from-bare");
     await service.removeWorktree(linked, path);
   });
   it.skipIf(process.platform === "win32")(
@@ -162,7 +162,7 @@ describe("creation and listing", () => {
       await rename(repo, unusual);
       const added = await service.addRepository(unusual);
       expect(added.path).toBe(unusual);
-      const path = await service.createWorktree(unusual, "feature");
+      const { path } = await service.createWorktree(unusual, "feature");
       expect(await service.listWorktrees(unusual)).toContainEqual(
         expect.objectContaining({ path, managed: true }),
       );
@@ -171,7 +171,7 @@ describe("creation and listing", () => {
   );
 
   it("creates nested branches under the configured root and removes owned trees", async () => {
-    const path = await service.createWorktree(repo, "feature/one");
+    const { path } = await service.createWorktree(repo, "feature/one");
     expect(path).toBe(join(root, "repo with spaces", "feature", "one"));
     expect(await service.listWorktrees(repo)).toContainEqual(
       expect.objectContaining({ path, branch: "feature/one", managed: true }),
@@ -181,9 +181,78 @@ describe("creation and listing", () => {
     await expect(service.removeWorktree(repo, path, true)).rejects.toThrow("main checkout");
     expect(await git("branch", "--list", "feature/one")).toContain("feature/one");
   });
+  it("starts new branches from HEAD and reports what it did", async () => {
+    await git("branch", "existing", "main");
+    const created = await service.createWorktree(repo, "fresh");
+    expect(created.outcome).toBe("new");
+    expect(await git("rev-parse", "fresh")).toBe(await git("rev-parse", "HEAD"));
+    expect(await git("config", "--get-regexp", "^branch\\.fresh\\.").catch(() => "")).toBe("");
+    await expect(service.createWorktree(repo, "existing")).resolves.toMatchObject({
+      outcome: "existing",
+    });
+  });
+  it("checks out origin-only branches tracking the remote, and lists local refs only", async () => {
+    const upstream = join(temporary, "upstream.git");
+    await execute(["init", "--bare", upstream], { cwd: temporary });
+    await git("remote", "add", "origin", upstream);
+    await git("push", "origin", "main");
+    await git("checkout", "-b", "remote-only");
+    await git(
+      "-c",
+      "user.name=Test",
+      "-c",
+      "user.email=test@example.com",
+      "commit",
+      "--allow-empty",
+      "-m",
+      "Remote work",
+    );
+    await git("push", "origin", "remote-only");
+    await git("checkout", "main");
+    await git("branch", "-D", "remote-only");
+    await git("remote", "set-head", "origin", "main");
+    // A local branch shaped like the remote ref must not capture the start point.
+    await git("branch", "origin/remote-only", "main");
+    const inventory = await service.branches(repo);
+    expect(inventory).toEqual({
+      head: "main",
+      local: [
+        { name: "main", worktree: repo },
+        { name: "origin/remote-only", worktree: null },
+      ],
+      remote: "origin",
+      remoteBranches: ["main", "remote-only"],
+    });
+    const { path, outcome } = await service.createWorktree(repo, "remote-only");
+    expect(outcome).toBe("origin");
+    expect(await git("rev-parse", "remote-only")).toBe(
+      await git("rev-parse", "refs/remotes/origin/remote-only"),
+    );
+    expect(await git("config", "branch.remote-only.remote")).toBe("origin\n");
+    expect(await git("config", "branch.remote-only.merge")).toBe("refs/heads/remote-only\n");
+    expect((await service.branches(repo)).local).toContainEqual({
+      name: "remote-only",
+      worktree: path,
+    });
+    // Another remote without origin is ambiguous: no remote branches are offered.
+    await git("remote", "rename", "origin", "first");
+    await git("remote", "add", "second", upstream);
+    await expect(service.branches(repo)).resolves.toMatchObject({
+      remote: null,
+      remoteBranches: [],
+    });
+    await expect(service.createWorktree(repo, "unknown")).resolves.toMatchObject({
+      outcome: "new",
+    });
+  });
+  it("reports a detached main checkout without a head branch", async () => {
+    await git("checkout", "--detach");
+    await expect(service.branches(repo)).resolves.toMatchObject({ head: null, remote: null });
+    await expect(service.branches(join(temporary, "missing"))).rejects.toThrow("not been added");
+  });
   it("supports existing branches and adjacent placement", async () => {
     await git("branch", "existing");
-    const path = await service.createWorktree(repo, "existing", { location: "adjacent" });
+    const { path } = await service.createWorktree(repo, "existing", { location: "adjacent" });
     expect(path).toBe(join(temporary, "repo with spaces-existing"));
     expect(await service.listWorktrees(repo)).toContainEqual(
       expect.objectContaining({ path, branch: "existing", managed: true }),
@@ -226,9 +295,23 @@ describe("creation and listing", () => {
     await git("checkout", "main");
     await expect(service.createWorktree(repo, "@{-1}")).rejects.toThrow("shorthand");
   });
-  it("cleans up reservations after Git rejects an already checked out branch", async () => {
-    await expect(service.createWorktree(repo, "main")).rejects.toThrow();
+  it("reports a checked-out branch instead of adding it again", async () => {
+    await expect(service.createWorktree(repo, "main")).resolves.toEqual({
+      path: repo,
+      outcome: "open",
+    });
+    const { path } = await service.createWorktree(repo, "elsewhere");
+    await expect(service.createWorktree(repo, "elsewhere")).resolves.toEqual({
+      path,
+      outcome: "open",
+    });
     await expect(realpath(join(root, "repo with spaces", "main"))).rejects.toThrow();
+    expect(await service.listWorktrees(repo)).toHaveLength(2);
+  });
+  it("cleans up reservations after Git rejects a branch", async () => {
+    // A ref cannot nest under an existing branch, so `git worktree add` fails.
+    await expect(service.createWorktree(repo, "main/nested")).rejects.toThrow();
+    await expect(realpath(join(root, "repo with spaces", "main", "nested"))).rejects.toThrow();
     expect(await service.listWorktrees(repo)).toHaveLength(1);
   });
   it("preserves existing destinations", async () => {
@@ -254,7 +337,7 @@ describe("creation and listing", () => {
   });
   it("passes valid shell metacharacters literally to Git", async () => {
     const branch = "feature;echo-owned";
-    const path = await service.createWorktree(repo, branch);
+    const { path } = await service.createWorktree(repo, branch);
     expect(await service.listWorktrees(repo)).toContainEqual(
       expect.objectContaining({ path, branch, managed: true }),
     );
@@ -270,7 +353,7 @@ describe("creation and listing", () => {
 
 describe("safe removal", () => {
   it.each(["untracked", "tracked", "staged"])("refuses %s changes unless forced", async (kind) => {
-    const path = await service.createWorktree(repo, "dirty");
+    const { path } = await service.createWorktree(repo, "dirty");
     const file = join(path, "file");
     await writeFile(file, "original");
     if (kind !== "untracked") {
@@ -289,7 +372,7 @@ describe("safe removal", () => {
     await expect(realpath(path)).rejects.toThrow();
   });
   it("allows removal after restart but rejects another repository and the main checkout", async () => {
-    const path = await service.createWorktree(repo, "owned");
+    const { path } = await service.createWorktree(repo, "owned");
     const fresh = new WorktreeService(root);
     await fresh.addRepository(repo);
     expect(await fresh.removalIdentity(repo, path)).toBeTruthy();
@@ -304,7 +387,7 @@ describe("safe removal", () => {
     await expect(realpath(path)).rejects.toThrow();
   });
   it("refuses redirected owned worktrees", async () => {
-    const path = await service.createWorktree(repo, "redirected");
+    const { path } = await service.createWorktree(repo, "redirected");
     const moved = join(temporary, "moved");
     await rename(path, moved);
     await symlink(moved, path, "junction");
@@ -312,7 +395,7 @@ describe("safe removal", () => {
     expect(await realpath(moved)).toBe(moved);
   });
   it("respects Git locks, including on forced removal", async () => {
-    const path = await service.createWorktree(repo, "locked");
+    const { path } = await service.createWorktree(repo, "locked");
     await git("worktree", "lock", path);
     await expect(service.removeWorktree(repo, path, true)).rejects.toThrow();
     await git("worktree", "unlock", path);
@@ -323,7 +406,7 @@ describe("safe removal", () => {
 it.each([false, true])(
   "rejects replacements after identity capture (list first: %s)",
   async (listFirst) => {
-    const path = await service.createWorktree(repo, "owned");
+    const { path } = await service.createWorktree(repo, "owned");
     const identity = await service.removalIdentity(repo, path);
     await git("worktree", "remove", path);
     await git("worktree", "add", "-b", "external", path);
@@ -341,7 +424,7 @@ it.each([false, true])(
 );
 
 it("invalidates ownership when metadata disappears", async () => {
-  const path = await service.createWorktree(repo, "missing");
+  const { path } = await service.createWorktree(repo, "missing");
   await rm(join(path, ".git"));
   expect(await service.listWorktrees(repo)).toContainEqual(
     expect.objectContaining({ path, managed: false }),
@@ -350,7 +433,7 @@ it("invalidates ownership when metadata disappears", async () => {
 });
 
 it("preserves ownership across ordinary branch and file changes", async () => {
-  const path = await service.createWorktree(repo, "owned");
+  const { path } = await service.createWorktree(repo, "owned");
   await execute(["checkout", "-b", "renamed"], { cwd: path });
   await writeFile(join(path, "new-file"), "content");
   expect(await service.listWorktrees(repo)).toContainEqual(
@@ -394,7 +477,7 @@ describe("persistent ownership", () => {
     async (location) => {
       service = await restart();
       await service.addRepository(repo);
-      const path = await service.createWorktree(repo, "persist/nested", { location });
+      const { path } = await service.createWorktree(repo, "persist/nested", { location });
       service = await restart();
       expect(service.listRepositories()).toEqual([{ path: repo, name: "repo with spaces" }]);
       expect(await service.listWorktrees(repo)).toContainEqual(
@@ -409,7 +492,7 @@ describe("persistent ownership", () => {
     service = await restart();
     await service.addRepository(repo);
     const paths = await Promise.all(
-      ["one", "two"].map((branch) => service.createWorktree(repo, branch)),
+      ["one", "two"].map(async (branch) => (await service.createWorktree(repo, branch)).path),
     );
     service = await restart();
     for (const path of paths) await service.removeWorktree(repo, path);
@@ -420,7 +503,7 @@ describe("persistent ownership", () => {
     async (kind) => {
       service = await restart();
       await service.addRepository(repo);
-      const path = await service.createWorktree(repo, "persist");
+      const { path } = await service.createWorktree(repo, "persist");
       if (kind === "replace") {
         await git("worktree", "remove", path);
         await git("worktree", "add", "-b", "replacement", path);
@@ -440,7 +523,7 @@ describe("persistent ownership", () => {
   it("persists invalidation from listing even if the original tree returns later", async () => {
     service = await restart();
     await service.addRepository(repo);
-    const path = await service.createWorktree(repo, "persist");
+    const { path } = await service.createWorktree(repo, "persist");
     const metadata = await readFile(join(path, ".git"));
     await rm(join(path, ".git"));
     await service.listWorktrees(repo);
@@ -472,7 +555,7 @@ describe("persistent ownership", () => {
   it("rejects hostile records and derives roots from configuration rather than stored claims", async () => {
     service = await restart();
     await service.addRepository(repo);
-    const path = await service.createWorktree(repo, "persist");
+    const { path } = await service.createWorktree(repo, "persist");
     const state = await saved();
     const entry = state.managed[0];
     if (!entry) throw new Error("Missing record");
@@ -503,7 +586,7 @@ describe("persistent ownership", () => {
   it("does not restore ownership under a previously configured root", async () => {
     service = await restart();
     await service.addRepository(repo);
-    const path = await service.createWorktree(repo, "persist");
+    const { path } = await service.createWorktree(repo, "persist");
     service = await WorktreeService.open(join(temporary, "user-data"), join(temporary, "new-root"));
     await service.removeWorktree(repo, path);
   });
@@ -539,7 +622,7 @@ describe("persistent ownership", () => {
 });
 
 it("reports dirty filenames for registered, unlocked linked worktrees", async () => {
-  const tree = await service.createWorktree(repo, "inspect");
+  const tree = (await service.createWorktree(repo, "inspect")).path;
   expect(await service.changes(repo, tree)).toBe("");
   await writeFile(join(tree, "notes.txt"), "uncommitted");
   expect(await service.changes(repo, tree)).toBe("?? notes.txt\0");
@@ -551,7 +634,7 @@ it("reports dirty filenames for registered, unlocked linked worktrees", async ()
 it.each([false, true])(
   "preserves files created during worktree process shutdown (initially dirty=%s)",
   async (dirty) => {
-    const tree = await service.createWorktree(repo, "shutdown-race");
+    const tree = (await service.createWorktree(repo, "shutdown-race")).path;
     if (dirty) await writeFile(join(tree, "reviewed.txt"), "reviewed");
     const workspace = new Workspace({
       worktrees: service,
@@ -727,7 +810,7 @@ describe("merged worktree containment", () => {
     return remote;
   }
   async function feature() {
-    const path = await service.createWorktree(repo, "feature");
+    const { path } = await service.createWorktree(repo, "feature");
     await writeFile(join(path, "feature.txt"), "feature\n");
     await commit(path, "feature");
     const tree = (await service.listWorktrees(repo)).find((tree) => tree.path === path);
@@ -845,8 +928,8 @@ describe("merged worktree containment", () => {
 it.each(["untracked", "commit"])(
   "merged cleanup preserves a real worktree gaining %s after confirmation",
   async (change) => {
-    const tree = await service.createWorktree(repo, "changed");
-    const removed = await service.createWorktree(repo, "safe");
+    const tree = (await service.createWorktree(repo, "changed")).path;
+    const removed = (await service.createWorktree(repo, "safe")).path;
     const upstream = join(temporary, "remote.git");
     await git("clone", "--bare", repo, upstream);
     await git("remote", "add", "origin", upstream);
@@ -904,7 +987,7 @@ it.each(["untracked", "commit"])(
 );
 
 it("status inspection never refreshes the index during concurrent cleanup", async () => {
-  const path = await service.createWorktree(repo, "status-read");
+  const { path } = await service.createWorktree(repo, "status-read");
   const tracked = join(path, "tracked.txt");
   await writeFile(tracked, "unchanged content");
   await execute(["add", "."], { cwd: path });

@@ -236,8 +236,8 @@ to **Click again for two agents here**. Shell launches need no sharing confirmat
 A Codex launch using the notifier fallback also requires **Click again to replace notifier**
 when the notifier replacement has not already been acknowledged. After trusted lifecycle
 hooks have been observed working, later launches keep the user's notifier and omit
-that disclosure. Setup shows hook health and directs review to Codex's own `/hooks` screen. The New worktree
-form keeps its existing disclosure checkbox.
+that disclosure. Setup shows hook health and directs review to Codex's own `/hooks` screen. Creating a
+worktree launches nothing, so the disclosure stays with the launchers.
 
 Decisions with content use a separate trusted Foom window. Removing a dirty
 worktree lists the exact uncommitted status from Git and offers **Cancel** and
@@ -249,8 +249,37 @@ The board stays visible under a translucent scrim and regains focus on dismissal
 It remains usable if the board renderer crashes or hangs. Confirmation buttons
 use solid ink; amber and magenta retain their status meanings.
 
-Folder pickers stay native. The New worktree form remains a renderer `<dialog>`;
-it collects input and does not grant destructive approval.
+Folder pickers stay native. The New worktree branch field collects input and does not
+grant destructive approval.
+
+### New worktree
+
+**New worktree** in a repository panel puts an empty branch field beside it, over the
+panel's facts; the panel stays open. Right Arrow on the item also opens it. Command+T or
+Ctrl+Shift+T and the app menu open the focused tile's repository panel with the field
+focused, else the top repository in the sidebar; with no repositories they add one.
+Spaces become `-`, and the field has no placeholder or helper copy. A ghost completion
+follows the cursor and Tab accepts it; Up and Down cycle candidates: the repository's own
+prefixes (`codex/`, `docs/`…), most used first (only when it has none, `feat/ fix/ chore/
+docs/ refactor/ test/ ci/`), then branches starting with the text, then branches
+containing it, shown right-aligned. One status line says what Enter does with exactly
+what is typed: `new, from <head>`, `existing` (a local branch not checked out), `from
+origin` (only on the remote), `open in <worktree>` (already checked out), or the Git ref
+rule the name breaks, in the failure color with a matching border. Main validates again.
+Enter does nothing for an invalid name or a bare prefix. Esc, or Left Arrow on an empty
+field, returns to New worktree; Esc again closes the panel.
+
+Enter disables the field and shows `Creating from <head>…` or `Checking out…`; a failure
+shows Git's message there and re-enables the field. Creating starts nothing: the panel
+closes and focus moves to the new worktree's row, whose own panel offers the launchers.
+A branch already checked out creates nothing; its row arrives instead. A branch only on
+the repository's remote (origin, or its only remote) is checked out tracking it; other new
+branches start from the repository's HEAD. Branch data comes from refs already present;
+opening the field never fetches. The arriving row grows into its slot, a highlight sweeps
+across it once and it flares twice in the accent (never amber: nothing needs you yet),
+then keeps a tint and accent edge until hovered or focus leaves it. With reduced motion
+it shows the tint and edge without animating. The arrival is view state: it does not
+survive a reload or appear in other windows.
 
 ## Terminal tiles
 
@@ -416,7 +445,7 @@ Short steps center vertically. Content changes
 re-center over 180 milliseconds (immediately with reduced motion). Back, Continue and
 Launch stay in a footer at the bottom of the window, outside the scrolling content.
 
-The rail also holds **Appearance**: System, Light or Dark, and the interface size (80–150%; the window grows and shrinks with it while the screen has room, around the pointer when you click + or − or scroll over the percentage, so what you pointed at stays under it; also ⌘ +/−/0 on macOS or Ctrl+Shift+=/−/0 elsewhere). Terminal font size is separate and lives in Settings → Terminal. Launch opens the board. The board starts empty. A repository’s **New worktree** action creates or reuses a Git worktree for the branch, regardless of which tool created it, and launches an agent or shell; checkout menus launch sessions in an existing checkout. Sample sessions are available only in an explicit development build. After first run, **Settings** on the board edits the saved choices.
+The rail also holds **Appearance**: System, Light or Dark, and the interface size (80–150%; the window grows and shrinks with it while the screen has room, around the pointer when you click + or − or scroll over the percentage, so what you pointed at stays under it; also ⌘ +/−/0 on macOS or Ctrl+Shift+=/−/0 elsewhere). Terminal font size is separate and lives in Settings → Terminal. Launch opens the board. The board starts empty. A repository’s **New worktree** action creates a Git worktree for the branch, or focuses the checkout that already has it regardless of which tool created it, and launches nothing; checkout panels launch sessions. Sample sessions are available only in an explicit development build. After first run, **Settings** on the board edits the saved choices.
 
 ## Settings
 
