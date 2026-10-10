@@ -98,6 +98,14 @@ show merged state and creation origin. Detached rows show a short hash with a
 detached glyph, and panels say “Detached at <hash>”. **Delete worktree…** names
 the existing folder-removal action.
 
+The **Foom config** row, with a gear mark, sits below the home shell row. Its
+panel shows the folder path (copyable), the working tree (Clean or N uncommitted),
+the last applied change, a **Needs you** chip when a change awaits approval and an
+**N rejected** chip in failure styling. It offers the agent launchers and Shell,
+run in the config folder, **Open Foom config settings** and **Open folder**. Config
+sessions nest beneath it. Only one runs at a time; launching again focuses it. No
+worktree is created, and the session's `PATH` includes the bundled `foom` CLI.
+
 Session panels show location, discovered agent version, state and reason,
 waiting time, recorded launch flags (BYPASS when applicable), start time or exit
 code, tile and conversation ID. A running session offers Stop. An exited agent
@@ -488,6 +496,23 @@ when switched off; Working previews stop after five seconds. Sound credits are i
 Settings → Sound and packaged third-party notices, ready for the future About screen
 (#96). The 17 built-in CC0 recordings include drive chatter, teletype, typewriter,
 projector, bells, percussion and short refusal sounds.
+
+### Foom config
+
+Settings → Foom config shows the config folder (`~/.foom/config`) with **Open
+folder**. Agents configure Foom by editing that folder: `settings.json`, theme
+files and terminal themes. Each valid change applies live and is committed to the
+folder's git repository; an invalid file is rejected whole and the previous
+version stays in effect. Changes that would make Foom less able to say something
+needs you (turning alerts off, alert volume 0, hooks off, or turning an agent off)
+wait in an amber banner, such as "An agent wants to turn off the needs-you sound",
+with **Allow** and **Keep it on**. Keep it on restores the file.
+
+**Recent changes** lists each change with its time, summary, file and state:
+Applied with a short hash and **Revert**, Rejected with its reason, or Pending.
+Revert restores the previous version of that change's files; a revert that would
+weaken attention asks for approval too. Changes made in Settings are written to the
+same file and appear in the list. See the [architecture](architecture.md#foom-config-environment-84).
 
 ## Windows and quitting
 

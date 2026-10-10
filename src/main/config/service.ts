@@ -453,8 +453,12 @@ export class ConfigService {
     tree: Map<string, TreeEntry>,
     subject?: string,
   ): Promise<void> {
-    const before = effective(this.deps.defaults, this.applied.values);
-    const after = effective(this.deps.defaults, values);
+    const before = this.applied.values;
+    await this.applyValues(text, values);
+    await this.commitSettings(before, tree, subject);
+  }
+
+  private async applyValues(text: string, values: ConfigSettings): Promise<void> {
     this.deps.apply(values);
     this.applied = { text, values };
     if (this.pending) {
@@ -462,6 +466,17 @@ export class ConfigService {
       this.events = this.events.filter((event) => event.state !== "pending");
     }
     await this.deps.baseline.set(digest(text)).catch(() => undefined);
+  }
+
+  /** Commits the applied settings file when it differs from the last commit. */
+  private async commitSettings(
+    previous: ConfigSettings,
+    tree: Map<string, TreeEntry>,
+    subject?: string,
+  ): Promise<void> {
+    const { text, values } = this.applied;
+    const before = effective(this.deps.defaults, previous);
+    const after = effective(this.deps.defaults, values);
     const bytes = Buffer.from(text);
     const object = await this.deps.git.objectId(bytes);
     if (tree.get(SETTINGS_FILE)?.object === object) return;
@@ -607,9 +622,17 @@ export class ConfigService {
         });
       }
       await this.writeFile(SETTINGS_FILE, text);
-      await this.apply(text, values, await this.headTree().catch(() => new Map()));
-      await this.countUncommitted();
-      this.publish();
+      const previous = this.applied.values;
+      await this.applyValues(text, values);
+      // Settings responds once the file is written and applied; the commit follows in order.
+      void this.serial(async () => {
+        await this.commitSettings(
+          previous,
+          await this.headTree().catch(() => new Map<string, TreeEntry>()),
+        );
+        await this.countUncommitted();
+        this.publish();
+      }).catch(() => undefined);
     });
   }
 

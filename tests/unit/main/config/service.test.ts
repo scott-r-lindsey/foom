@@ -369,7 +369,7 @@ test("Settings writes go through the file, commit, and replace a held change", a
     kind: "settings",
     terminalFontSize: 21,
   });
-  const status = f.service.status();
+  const status = await f.service.refresh();
   expect(status.pending).toBeNull();
   expect(status.changes[0]).toMatchObject({ summary: "Terminal font size 21", state: "applied" });
   expect(

@@ -680,6 +680,11 @@ test("terminal runs an interactive shell behind an isolated bridge", {
           "changeAgyPlugin",
           "scanAgents",
           "launchAgent",
+          "configStatus",
+          "decideConfig",
+          "revertConfig",
+          "openConfigFolder",
+          "onConfigChange",
           "listThemes",
           "openThemesFolder",
           "setupState",
@@ -2367,7 +2372,18 @@ test("first run goes from no agents to go, launches by keyboard, and can be repl
   const shellRow = page.locator(".board-row[data-kind='shell']");
   await shellRow.waitFor({ timeout: deadline(10000) });
   const saved = JSON.parse(await readFile(path.join(userData, "settings.json"), "utf8"));
-  assert.deepEqual(saved.settings, {
+  // The profile keeps only profile settings; agent-editable ones live in Foom config.
+  assert.equal(saved.version, 2);
+  assert.deepEqual(Object.keys(saved.settings).sort(), [
+    "agentArguments",
+    "agentBypassAcknowledged",
+    "codeFolder",
+    "codexNotifierAcknowledged",
+    "setupComplete",
+    "worktreeLocation",
+  ]);
+  const effective = (await page.evaluate(() => window.desktop.setupState())).settings;
+  assert.deepEqual(effective, {
     codexNotifierAcknowledged: false,
     setupComplete: true,
     hooks: true,
@@ -2433,8 +2449,9 @@ test("appearance switches light and dark, and zoom shortcuts resize the interfac
     page.evaluate(() => getComputedStyle(document.documentElement).backgroundColor);
 
   await page.getByRole("radio", { name: "Dark" }).check();
+  // Media emulation from the loop above can linger; wait for the saved source itself.
+  await expect.poll(() => app.evaluate(({ nativeTheme }) => nativeTheme.themeSource)).toBe("dark");
   await expect.poll(dark).toBe(true);
-  assert.equal(await app.evaluate(({ nativeTheme }) => nativeTheme.themeSource), "dark");
   await expect.poll(background).toBe("rgb(5, 4, 10)");
   await assertAccessible(page);
   await page.getByRole("radio", { name: "Light" }).check();
@@ -5828,7 +5845,9 @@ test("sidebar panels hover, pin, rename and launch a home shell", async (context
   await page.mouse.move(0, 0);
   await expect(panel).toBeVisible();
   await assertAccessible(page);
-  const expectedHome = await app.evaluate(({ app }) => app.getPath("home"));
+  // Home shells use the OS home directory; the harness gives Electron a private one.
+  const expectedHome = (await page.evaluate(() => window.desktop.sidebarInventory())).home
+    .directory;
   await panel.getByRole("button", { name: expectedHome, exact: true }).click();
   await expect.poll(() => app.evaluate(({ clipboard }) => clipboard.readText())).toBe(expectedHome);
   for (const [panelColor, tint] of [
@@ -5851,7 +5870,7 @@ test("sidebar panels hover, pin, rename and launch a home shell", async (context
   await page.getByRole("menuitem", { name: "New shell" }).click();
   const row = page.locator(".board-row");
   await expect(row).toHaveCount(1);
-  const homeDirectory = await app.evaluate(({ app }) => app.getPath("home"));
+  const homeDirectory = expectedHome;
   const snapshot = await page.evaluate(() => window.desktop.workspace());
   assert.equal(snapshot.terminals[0].worktree, homeDirectory);
   assert.equal(snapshot.terminals[0].home, true);
@@ -6228,4 +6247,150 @@ test("legacy inference profiles upgrade without evaluator controls or stored key
     page.getByRole("navigation", { name: "Preflight steps" }).locator("ol").getByRole("button"),
   ).toHaveCount(5);
   await expect(page.getByText(/Evaluator|Run check|API key/)).toHaveCount(0);
+});
+
+test("an agent configures Foom in the config folder with review, approval and revert", {
+  timeout: deadline(90_000),
+  skip: process.platform === "win32" && "The fake agent is a POSIX script",
+}, async (context) => {
+  const { chmod } = require("node:fs/promises");
+  const { interfaceThemes } = require("../../build/shared/interface-themes.js");
+  const { DEFAULT_SOUND } = require("../../build/shared/sounds.js");
+  const root = await realpath(await mkdtemp(path.join(tmpdir(), "foom-config-env-")));
+  const bin = path.join(root, "bin");
+  const home = path.join(root, "home");
+  await mkdir(bin);
+  await mkdir(home);
+  const palette = interfaceThemes["eclipse-dark"];
+  const good = { kind: "theme", name: "Agent", base: palette.base, colors: palette.colors };
+  const bad = { ...good, colors: { ...palette.colors, accent: "not a color" } };
+  // The fake agent edits files when keys arrive, like an agent following AGENTS.md.
+  await writeFile(
+    path.join(bin, "claude"),
+    `#!/usr/bin/env node
+const { spawnSync } = require("node:child_process");
+const { readFileSync, writeFileSync } = require("node:fs");
+const args = process.argv.slice(2);
+if (args[0] === "--version") { console.log("2.1.300 (Claude Code)"); process.exit(0); }
+if (args[0] === "--help") { console.log("  --settings <file-or-json>  Load settings"); process.exit(0); }
+const theme = (value) => writeFileSync("themes/agent.json", JSON.stringify(value));
+process.stdout.write("FOOM_CONFIG_AGENT " + process.cwd() + "\\r\\n");
+process.stdin.setRawMode(true);
+process.stdin.on("data", (key) => {
+  const input = key.toString();
+  if (input === "t" || input === "g") theme(${JSON.stringify(good)});
+  if (input === "i") theme(${JSON.stringify(bad)});
+  if (input === "s") {
+    const settings = JSON.parse(readFileSync("settings.json", "utf8"));
+    settings.sound = { ...${JSON.stringify(DEFAULT_SOUND)}, alerts: false };
+    writeFileSync("settings.json", JSON.stringify(settings));
+  }
+  if (input === "t" || input === "v") {
+    const result = spawnSync("foom", ["config", "validate", "."], { encoding: "utf8" });
+    process.stdout.write("validate exit=" + result.status + "\\r\\n");
+  }
+});
+`,
+  );
+  await chmod(path.join(bin, "claude"), 0o755);
+  const app = await launchApp(context, false, {
+    home,
+    env: { HOME: home, PATH: `${bin}${path.delimiter}${process.env.PATH}` },
+  }).finally(() => {
+    removeAfterApps(context, root);
+  });
+  const page = await boardPage(app);
+  const folder = path.join(home, ".foom", "config");
+  const row = page.getByRole("treeitem", { name: "Foom config" });
+  await expect(row).toBeVisible();
+  // 1. Launch a fake agent in Foom config from the row's panel.
+  await page.getByRole("button", { name: "Actions for Foom config" }).click();
+  const panel = page.getByRole("dialog", { name: "Foom config details and commands" });
+  await expect(panel).toContainText(folder);
+  await expect(panel).toContainText("Clean");
+  await panel.getByRole("menuitem", { name: "Claude Code" }).click();
+  const id = await expect
+    .poll(async () => {
+      const snapshot = await page.evaluate(() => window.desktop.workspace());
+      return snapshot.terminals.find((entry) => entry.config)?.id ?? null;
+    })
+    .not.toBeNull()
+    .then(async () => {
+      const snapshot = await page.evaluate(() => window.desktop.workspace());
+      return snapshot.terminals.find((entry) => entry.config).id;
+    });
+  const tail = () =>
+    page.evaluate(async (id) => (await window.desktop.tail(id, 40)).join("\n"), id);
+  await expect.poll(tail).toContain(`FOOM_CONFIG_AGENT ${folder}`);
+  const snapshot = await page.evaluate(() => window.desktop.workspace());
+  assert.equal(snapshot.terminals.find((entry) => entry.id === id).attention, "hooks");
+  // A second launch focuses the running session instead of starting another.
+  await page.evaluate(() => window.desktop.sidebarCommand({ kind: "config-launch", run: "shell" }));
+  assert.equal(
+    (await page.evaluate(() => window.desktop.workspace())).terminals.filter(
+      (entry) => entry.config,
+    ).length,
+    1,
+  );
+
+  // 2. It writes a theme and validates the folder with the bundled CLI.
+  await page.evaluate((id) => window.desktop.input(id, "t"), id);
+  await expect.poll(tail).toContain("validate exit=0");
+  await boardCommand(app, ",", process.platform !== "darwin");
+  const sections = page.getByRole("navigation", { name: "Settings sections" });
+  await sections.getByRole("button", { name: "Foom config", exact: true }).click();
+  const changes = page.getByRole("list", { name: "Recent changes" });
+  const added = changes.getByRole("listitem").filter({ hasText: "Add Agent theme" });
+  await expect(added).toContainText("Applied");
+  await expect(added).toContainText(/themes\/agent\.json · [0-9a-f]{7}/);
+  await sections.getByRole("button", { name: "Themes", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Agent", exact: true })).toBeVisible();
+
+  // 3. An invalid theme is rejected and the last good colors stay.
+  await page.evaluate((id) => window.desktop.input(id, "i"), id);
+  await sections.getByRole("button", { name: "Foom config", exact: true }).click();
+  const rejected = changes.getByRole("listitem").filter({ hasText: "Rejected themes/agent.json" });
+  await expect(rejected).toContainText("$.colors.accent: not-a-color");
+  const catalog = await page.evaluate(() => window.desktop.listThemes());
+  assert.equal(
+    catalog.interface.find((entry) => entry.theme.name === "Agent").theme.colors.accent,
+    palette.colors.accent,
+  );
+
+  // 4. Turning off the needs-you sound is held; Keep it on restores the file.
+  await page.evaluate((id) => window.desktop.input(id, "s"), id);
+  const banner = page.getByRole("region", { name: "Change waiting for approval" });
+  await expect(banner).toContainText("An agent wants to turn off the needs-you sound");
+  await expect(banner).toHaveCSS("border-top-color", /rgb/);
+  await page.getByRole("button", { name: "Actions for Foom config" }).click();
+  await expect(panel).toContainText("Needs you");
+  await page.keyboard.press("Escape");
+  assert.equal(
+    (await page.evaluate(() => window.desktop.setupState())).settings.sound.alerts,
+    true,
+  );
+  await banner.getByRole("button", { name: "Keep it on" }).click();
+  await expect(banner).toHaveCount(0);
+  const restored = JSON.parse(await readFile(path.join(folder, "settings.json"), "utf8"));
+  assert.notEqual(restored.sound?.alerts, false);
+
+  // 5. Revert on the theme change removes the theme.
+  await page.evaluate((id) => window.desktop.input(id, "g"), id);
+  await expect
+    .poll(() => readFile(path.join(folder, "themes/agent.json"), "utf8"))
+    .toBe(JSON.stringify(good));
+  await expect(rejected).toHaveCount(1);
+  await page.getByRole("button", { name: "Revert Add Agent theme" }).first().click();
+  await expect(
+    changes.getByRole("listitem").filter({ hasText: 'Revert "Add Agent theme"' }),
+  ).toContainText("Applied");
+  await expect
+    .poll(() =>
+      readFile(path.join(folder, "themes/agent.json")).then(
+        () => "present",
+        () => "removed",
+      ),
+    )
+    .toBe("removed");
+  await assertAccessible(page);
 });
