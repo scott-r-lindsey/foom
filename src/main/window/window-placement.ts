@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { SCALES } from "../../shared/config-settings";
 
 export interface WindowPlacement {
   id: string;
@@ -33,8 +34,8 @@ export function parsePlacements(value: unknown): WindowPlacement[] {
       !("scale" in item) ||
       typeof item.scale !== "number" ||
       !Number.isInteger(item.scale) ||
-      item.scale < 80 ||
-      item.scale > 150 ||
+      item.scale < Math.min(...SCALES) ||
+      item.scale > Math.max(...SCALES) ||
       !("bounds" in item)
     )
       return [];

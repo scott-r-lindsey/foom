@@ -3,7 +3,8 @@ import { parseInterfaceTheme } from "./interface-themes";
 import { parseTerminalThemeChoice } from "./terminal-themes";
 import { parseSoundSettings } from "./sounds";
 import { ThemeValidationError, themeRecord } from "./theme-validation";
-export const SCALES: readonly number[] = [80, 90, 100, 110, 120, 130, 140, 150];
+/** Interface zoom steps in percent; above 150 they follow Chromium's zoom steps. */
+export const SCALES: readonly number[] = [80, 90, 100, 110, 120, 130, 140, 150, 175, 200, 250, 300];
 export const CONFIG_SETTINGS = [
   "colorMode",
   "panelColor",

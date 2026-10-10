@@ -43,6 +43,10 @@ test("restores a connected negative-coordinate display and falls back inside the
     ).bounds,
   ).toEqual({ x: 780, y: 525, width: 500, height: 400 });
 });
+test("restores windows saved at the larger interface sizes", () => {
+  for (const scale of [175, 200, 250, 300])
+    expect(parsePlacements([{ ...saved, scale }])).toEqual([{ ...saved, scale }]);
+});
 test("validates persisted windows independently and rejects duplicate identities", () => {
   expect(parsePlacements([saved, saved, { ...saved, id: "two" }])).toEqual([
     saved,
@@ -54,7 +58,7 @@ test("validates persisted windows independently and rejects duplicate identities
     id: [null, "", "a".repeat(65), "../path", 2],
     display: [null, "2", 1.5, Infinity],
     maximized: [null, 1],
-    scale: [null, "100", 80.5, 79, 151],
+    scale: [null, "100", 80.5, 79, 301],
     bounds: [null, "bounds", {}],
   };
   for (const [field, invalids] of Object.entries(fields)) {
