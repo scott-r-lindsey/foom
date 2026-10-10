@@ -5945,6 +5945,31 @@ test("trusted card follows interface scale and clears its scrim on every dismiss
   const app = await launchApp(context);
   const board = await boardPage(app);
   let dialog = await confirmationPage(app);
+  const expectDialogFits = async (zoom) => {
+    await dialog.evaluate(() => document.fonts.ready.then(() => {}));
+    await expect
+      .poll(async () => {
+        const layout = await dialog.evaluate(() => {
+          const card = document.querySelector(".confirmation-window");
+          const content = document.querySelector(".confirmation-content");
+          return {
+            height: card.getBoundingClientRect().height,
+            overflow: content.scrollHeight - content.clientHeight,
+          };
+        });
+        const height = await app.evaluate(
+          ({ BrowserWindow }) =>
+            BrowserWindow.getAllWindows()
+              .find((w) => w.webContents.getURL() === "app://confirmation/confirmation.html")
+              .getBounds().height,
+        );
+        return {
+          heightFits: Math.abs(height - Math.ceil(layout.height * zoom)) <= 2,
+          overflow: layout.overflow,
+        };
+      })
+      .toEqual({ heightFits: true, overflow: 0 });
+  };
   for (const interfaceScale of [125, 80]) {
     await board.evaluate(
       (interfaceScale) =>
@@ -5990,12 +6015,9 @@ test("trusted card follows interface scale and clears its scrim on every dismiss
         width: (440 * interfaceScale) / 100,
       });
     await expect(board.locator(".board-confirmation-scrim:popover-open")).toHaveCount(1);
-    const scaledHeight = await app.evaluate(
-      ({ BrowserWindow }) =>
-        BrowserWindow.getAllWindows()
-          .find((w) => w.webContents.getURL() === "app://confirmation/confirmation.html")
-          .getBounds().height,
-    );
+    // Native width can settle before font layout and resize IPC finish. Check
+    // the rendered content at each scale instead of retaining a transient height.
+    await expectDialogFits(interfaceScale / 100);
     // A settings change while open must update the existing trusted renderer, too.
     await board.evaluate(() =>
       window.desktop.saveSetup({ interfaceScale: 100, colorMode: "dark" }),
@@ -6008,21 +6030,7 @@ test("trusted card follows interface scale and clears its scrim on every dismiss
         })),
       )
       .toEqual({ width: 440, theme: "dark" });
-    await expect
-      .poll(() =>
-        app.evaluate(
-          ({ BrowserWindow }, scaledHeight) => {
-            const child = BrowserWindow.getAllWindows().find(
-              (w) => w.webContents.getURL() === "app://confirmation/confirmation.html",
-            );
-            return (
-              Math.abs(child.getBounds().height - scaledHeight.height / scaledHeight.zoom) <= 2
-            );
-          },
-          { height: scaledHeight, zoom: interfaceScale / 100 },
-        ),
-      )
-      .toBe(true);
+    await expectDialogFits(1);
     await dialog.getByRole("button", { name: "Cancel" }).click();
     await expect(board.locator(".board-confirmation-scrim")).toHaveCount(0);
     await board.evaluate(() => document.getElementById("scrim-test-modal").remove());
