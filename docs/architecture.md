@@ -897,26 +897,48 @@ five seconds for Working (two seconds for other kinds). No synthesis remains.
 
 ## Board shortcut definitions
 
-`main/window/commands.ts` owns the command registry: IDs, labels, platform
-bindings, enabled/checked state, native roles and actions. `app-menu.ts` projects
-this registry to the macOS menu and the sandboxed renderer's menu data. Main owns
-one `before-input-event` dispatcher; native accelerators are display-only
-(`registerAccelerator: false`). Windows/Linux have no native application menu.
-The existing two-second Ctrl+Shift+Space tile leader resolves from the registry;
-blur, timeout and unmatched input cancel it. Alt alone and F10 open the wordmark
-menu. Plain Ctrl letters and numbers reach the terminal.
+`main/window/commands.ts` owns the command registry: IDs, native and wordmark
+labels, platform bindings, enabled/checked state, agent badges, shortcut-sheet
+rows, native roles and actions. `app-menu.ts` projects this one registry two
+ways: every implemented command to the macOS menu bar, and a curated, fixed
+layout to the wordmark menu on every platform. The wordmark projection is data
+only (`AppMenuEntry`): commands, separators, the Settings submenu (the agent
+routes come from `main/agents/agent-list.ts`, followed by Via Settings UI), and a
+`size` row carrying Bigger/Smaller and main's current interface scale. Planned
+commands (Via each agent, New orchestrator, Action log) exist in the registry
+disabled, without bindings, and stay out of the macOS menu bar until they land.
+Main owns one `before-input-event` dispatcher; native accelerators are
+display-only (`registerAccelerator: false`). Windows/Linux have no native
+application menu. The existing two-second Ctrl+Shift+Space tile leader resolves
+from the registry; blur, timeout and unmatched input cancel it. Alt alone and F10
+open the wordmark menu. Plain Ctrl letters and numbers reach the terminal; the
+Keyboard shortcuts binding is Ctrl+Shift+/ (Command+/ on macOS).
 
-The `app-menu:list`, `app-menu:execute` and `app-menu:view` invoke handlers accept
-only the owning window's trusted top-level frame. Execute accepts an existing,
-enabled command ID; it never accepts code, URLs, paths or arbitrary terminal IDs.
-View accepts bounded tile counts and booleans solely for presentation availability
-and the maximize checkmark. The board source exposes this small typed capability.
+The `app-menu:list`, `app-menu:shortcuts`, `app-menu:execute` and `app-menu:view`
+invoke handlers accept only the owning window's trusted top-level frame. Execute
+accepts an existing, enabled command ID and awaits its action, so a Size step
+resolves after main saves the new scale; it never accepts code, URLs, paths or
+arbitrary terminal IDs, and it refuses submenu and row IDs and every disabled
+command. Shortcuts returns the sheet columns generated from the registry for the
+current platform; `app-menu:shortcuts` from main to renderer (no payload) asks
+the board to show it. View accepts bounded tile counts and booleans solely for
+presentation availability and the maximize checkmark. The board source exposes
+this small typed capability. Add repository reaches the board as the
+`add-repository` board command and uses the sidebar's picker path.
+
 The renderer reuses RowMenu's keyboard navigation, portal and dismissal behavior.
-Menu selection and native shortcuts dispatch identical main-owned actions.
-Application-menu actions dismiss before dispatch, independently of row-action
-confirmation cancellation. They restore the previous focus and selection first,
-so native editing targets the original input; navigation commands then own their
-destination focus. Escape continues to return focus to the wordmark.
+RowMenu renders a submenu as a nested portal anchored to its item: the top-level
+menu owns outside-press, scroll and resize dismissal for both, and each level
+handles its own keys. A stepper row is one navigation stop whose buttons run
+without dismissing; the app menu repositions rather than closing when an
+interface size step resizes the window. Menu selection and native shortcuts
+dispatch identical main-owned actions. Application-menu actions dismiss before
+dispatch, independently of row-action confirmation cancellation. They restore
+the previous focus and selection first, so native editing targets the original
+input; navigation commands then own their destination focus. Escape continues to
+return focus to the wordmark, including when a press on a disabled item left
+focus on the body. The shortcut sheet is a modal `<dialog>` that closes itself
+before restoring the focus it captured.
 Development commands are omitted when packaged; packaged webContents also set
 `devTools: false`. Quit goes through the app-level confirmed shutdown; Close Window hides its views unless it is the last Windows/Linux window.
 

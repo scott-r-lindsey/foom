@@ -448,6 +448,10 @@ export function Board({
         if (inactive || launching) return;
         if (command === "settings") {
           onSettings?.();
+        } else if (command === "add-repository") {
+          void source.worktrees?.addRepository().catch(() => {
+            setRemoveError("Unable to add repository.");
+          });
         } else if (command === "new-worktree") {
           if (!settingsOpen) {
             setLaunchRepository(undefined);

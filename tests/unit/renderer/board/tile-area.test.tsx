@@ -388,6 +388,8 @@ test("menu presets and Dock navigation use the same board placement and report v
     platform: "darwin",
     setView,
     commands: vi.fn().mockResolvedValue([]),
+    shortcuts: vi.fn().mockResolvedValue([]),
+    onShortcuts: () => () => {},
     execute: vi.fn().mockResolvedValue(undefined),
     onOpen: () => () => {},
     onSession: (callback) => {
@@ -643,4 +645,19 @@ test("asynchronous Close focuses the surviving terminal after the command resolv
   });
   expect(views[1]?.focus).toHaveBeenCalledTimes(focusedBefore + 1);
   expect(document.activeElement).toBe(screen.getByRole("region", { name: /Tile 1:/ }));
+});
+test("the menu's Add repository uses the sidebar's picker and reports failure", async () => {
+  const { screen, source, send } = setup();
+  const addRepository = vi
+    .fn<() => Promise<null>>()
+    .mockResolvedValueOnce(null)
+    .mockRejectedValueOnce(new Error("denied"));
+  source.worktrees = { load: vi.fn(), start: vi.fn(), remove: vi.fn(), addRepository };
+  send("add-repository");
+  expect(addRepository).toHaveBeenCalledOnce();
+  send("add-repository");
+  expect(await screen.findByRole("alert")).toHaveProperty(
+    "textContent",
+    "Unable to add repository.",
+  );
 });

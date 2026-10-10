@@ -165,20 +165,48 @@ also removed only if it still points to the exact checked commit.
 
 ## Application menu and attention badge
 
-Foom owns its menu and shortcuts. On Windows and Linux, click the sidebar's
-**foom** wordmark, press Alt alone, or press F10 to open the application menu
-below the wordmark. Arrows, Home/End, Enter and Escape navigate it; disabled
-items are skipped and Escape returns focus to the wordmark. The native menu bar
-is absent, including after Alt. The menu uses the same surface and motion as
-row actions, with a scrollable list on short windows.
+Foom owns its menu and shortcuts. Click the sidebar's **foom** wordmark on any
+platform, or press Alt alone or F10 on Windows and Linux, to open the application
+menu below it. A chevron beside the wordmark turns while the menu is open. The
+menu is the same everywhere and lists only app-wide commands:
 
-On macOS, the native menu bar contains Foom (About, Settings, Hide, Hide Others,
-Quit), File (New Window, New Worktree, Close Window), standard Edit roles, View
-(tile actions and presets, interface size, sidebar and longest waiting), Window
-(Minimize, Zoom, Bring All to Front and windows), and Help (licenses and GitHub).
-Windows/Linux flatten the applicable sections into the wordmark menu. New Window
-uses Command+N on macOS and Ctrl+Shift+O on Windows/Linux. About uses the native About panel;
-Licenses links to the source; the consolidated license screen remains #96.
+- New window, New worktree…, Add repository…, New orchestrator… (#155)
+- **Settings ›**, a submenu of routes: Via Claude Code, Via Codex and Via
+  Antigravity (#84: each starts that agent in `~/.foom/config` under the Foom
+  config row), then Via Settings UI, which opens the Settings screen
+- **Size − 100% +**, one row that steps the interface size and stays open
+- Action log (#157), Keyboard shortcuts, About Foom, Third-party licenses
+- Reload, Force reload and Developer tools, in development builds only
+- Quit Foom
+
+Items whose issue hasn't landed are present but disabled, with no explanation.
+Arrows, Home/End, Enter and Escape navigate the menu; disabled items are skipped.
+Right or Enter on Settings opens its submenu and focuses the first enabled
+route; Left or Escape returns to Settings, and hovering opens it without moving
+focus. The submenu flips left when the window has no room on its right. Up and
+Down treat the Size row as one stop; Left and Right move between − and +.
+Escape at the top level returns focus to the wordmark. The menu uses the same
+surface and motion as row actions, with a scrollable list on short windows. The
+native menu bar is absent on Windows and Linux, including after Alt.
+
+Tile, focus, swap and preset commands, Focus sidebar, Longest waiting, Maximize,
+Copy, Paste, Close Window and Foom on GitHub are not in the wordmark menu. Their
+shortcuts still work; presets stay in the sidebar footer. Third-party licenses
+keeps its own item until the About screen (#96); its dialog links to the source
+repository. About uses the native About panel.
+
+**Keyboard shortcuts** (Command+/ or Ctrl+Shift+/) opens a sheet of the current
+platform's bindings in three columns, App, Board and Tiles, generated from the
+same registry as the shortcuts themselves. On Windows and Linux the Tiles heading
+names the Ctrl+Shift+Space leader once. Escape or a click outside closes it and
+returns focus.
+
+On macOS, the native menu bar keeps every command: Foom (About, Settings, Hide,
+Hide Others, Quit), File (New Window, New Worktree, Add Repository, Close Window),
+standard Edit roles, View (tile actions and presets, interface size, sidebar and
+longest waiting), Window (Minimize, Zoom, Bring All to Front and windows), and
+Help (Keyboard Shortcuts, licenses and GitHub). New Window uses Command+N on macOS
+and Ctrl+Shift+O on Windows/Linux.
 
 Foom commands use Command on macOS or Ctrl+Shift on Windows/Linux; plain Ctrl
 letters remain terminal input. Settings is Command+, or Ctrl+Shift+,; Quit is
