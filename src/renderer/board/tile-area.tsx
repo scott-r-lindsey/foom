@@ -268,16 +268,6 @@ function Tile({
               </button>
             </div>
           )}
-          {row.exited && row.kind === "shell" && (
-            <button
-              type="button"
-              onClick={() => {
-                action("restart");
-              }}
-            >
-              Restart shell
-            </button>
-          )}
           {error && <p role="alert">{error}</p>}
           {row.kind === "sample" && (
             <div className="sample-terminal">

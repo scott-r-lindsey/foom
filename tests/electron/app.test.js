@@ -299,6 +299,12 @@ async function launchCheckoutShell(app, page) {
   await page.getByRole("menuitem", { name: /^Shell \(/ }).press("Enter");
 }
 
+async function restartShellFromSidebar(page) {
+  await expect(page.getByRole("button", { name: "Restart shell", exact: true })).toHaveCount(0);
+  await page.locator(".board-row .row-actions").click();
+  await page.getByRole("menuitem", { name: "Restart shell", exact: true }).click();
+}
+
 async function launchApp(context, openShell = true, options = {}) {
   // CI prepares the binary separately. Direct runs also resolve it before the
   // Playwright launch deadline/audit, without downloading during test discovery.
@@ -785,7 +791,7 @@ test("terminal runs an interactive shell behind an isolated bridge", {
     await input.focus();
     await expect(page.locator(".xterm-cursor")).toHaveCount(0);
     console.info("Shell exited");
-    await page.getByRole("button", { name: "Restart shell" }).click();
+    await restartShellFromSidebar(page);
     await page.waitForFunction(
       () => !/Starting|exited|Unable/.test(document.querySelector(".tile-status").textContent),
     );
@@ -1207,7 +1213,7 @@ test("a crashed utility host reports failure and the renderer can restart", {
     return metric.pid;
   });
   await page.getByRole("status").filter({ hasText: "Terminal host failed" }).waitFor();
-  await page.getByRole("button", { name: "Restart shell" }).click();
+  await restartShellFromSidebar(page);
   await page.waitForFunction(
     () => !/Starting|failed|Unable/.test(document.querySelector(".tile-status").textContent),
   );
@@ -1418,7 +1424,7 @@ test("Settings transitions restore background fullscreen output repeatedly", {
   await page.keyboard.type("q");
 });
 
-test("board starts with live terminals only and peeks without opening", async (context) => {
+test("board starts with live terminals only and focuses rows without opening", async (context) => {
   const app = await launchApp(context, false);
   const page = await boardPage(app);
   const row = page.locator(".board-row");
@@ -1427,7 +1433,7 @@ test("board starts with live terminals only and peeks without opening", async (c
   await expect(page.locator(".tile-terminal")).toBeHidden();
   await page.getByLabel("Filter repositories and sessions").click();
   await row.focus();
-  await expect(page.getByRole("complementary", { name: "Terminal peek" })).toBeVisible();
+  await expect(page.getByRole("complementary", { name: "Terminal peek" })).toHaveCount(0);
   await expect(row).toBeFocused();
   await expect(page.locator(".tile-terminal")).toBeHidden();
   await page.keyboard.press("Escape");
@@ -1436,9 +1442,7 @@ test("board starts with live terminals only and peeks without opening", async (c
   await expect(page.locator(".xterm-helper-textarea")).toBeFocused();
   await page.keyboard.type("exit");
   await page.keyboard.press("Enter");
-  const restart = page.getByRole("button", { name: "Restart shell" });
-  await expect(restart).toBeEnabled();
-  await restart.click();
+  await restartShellFromSidebar(page);
   await expect(page.locator(".xterm-helper-textarea")).toBeFocused();
   await page.keyboard.press("Escape");
   await expect(page.locator(".xterm-helper-textarea")).toBeFocused();
@@ -1703,10 +1707,10 @@ test("launches an agent in a managed worktree and routes its attention signals",
     "data-state",
     "needs_input",
   );
-  // Peek reads the real host tail and leaves both focus and attachment alone.
+  // Sidebar focus leaves the terminal attachment alone.
   await agentRow.focus();
   await page.locator(".board-row:focus").focus();
-  await expect(page.locator(".board-peek")).toContainText("FOOM_AGENT_READY");
+  await expect(page.locator(".board-peek")).toHaveCount(0);
   await expect(agentRow).toBeFocused();
   await expect(page.locator(".tile-terminal")).toBeHidden();
   await page.locator('.board-row[data-kind="shell"]').press("Enter");
@@ -2988,7 +2992,7 @@ test("persistent sidebar keeps Escape in the PTY and routes keyboard navigation"
   await expect(page.locator(".tile-terminal")).toBeVisible();
   await boardCommand(app, "B");
   await expect(page.locator(".board-row")).toBeFocused();
-  await expect(page.locator(".board-peek")).toContainText("INPUT_READY");
+  await expect(page.locator(".board-peek")).toHaveCount(0);
   await page.keyboard.press("Enter");
   await expect(page.locator(".xterm-helper-textarea")).toBeFocused();
   const screen = page.locator(".xterm-screen");
@@ -3613,24 +3617,22 @@ test("sidebar menus escape the scroll area, stay in the window and launch from a
   await expect(page.locator(".board-row").filter({ hasText: "feature/row-17" })).toBeVisible();
   const snapshot = await page.evaluate(() => window.desktop.workspace());
   assert.equal(snapshot.terminals[0].branch, "feature/row-17");
-  // Long previews remain passive and bounded, without an inaccessible scroll region.
-  const previewCommand =
-    process.platform === "win32"
-      ? "1..40 | ForEach-Object { 'peek-line' }"
-      : "printf 'peek-line\\n%.0s' {1..40}";
-  await page.evaluate(({ id, command }) => window.desktop.input(id, command + "\r"), {
-    id: snapshot.terminals[0].id,
-    command: previewCommand,
-  });
-  await expect
-    .poll(() =>
-      page.evaluate(
-        async (id) =>
-          (await window.desktop.tail(id, 40)).filter((line) => line.includes("peek-line")).length,
-        snapshot.terminals[0].id,
-      ),
-    )
-    .toBeGreaterThan(20);
+  for (const name of ["repo", "Main checkout", "feature/row-17"]) {
+    const label = page.getByRole("button", { name, exact: true });
+    const panel = page.getByRole("dialog", { name: `${name} details and commands` });
+    // Scrolling the sidebar closes panels, so settle the scroll before opening one.
+    await label.scrollIntoViewIfNeeded();
+    await page.evaluate(
+      () => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))),
+    );
+    await label.click();
+    await expect(panel).toBeVisible();
+    await label.press("Enter");
+    await expect(panel).toHaveCount(0);
+    await expect(page.locator(".tile-terminal")).toBeVisible();
+    await expect(page.locator(".terminal-tile")).not.toHaveAttribute("inert");
+    await expect(page.locator(".location-launchers")).toHaveCount(0);
+  }
   const launchedRow = page.locator(".board-row");
   const filter = page.getByLabel("Filter repositories and sessions");
   await filter.fill("row");
@@ -3649,20 +3651,13 @@ test("sidebar menus escape the scroll area, stay in the window and launch from a
     await expect(page.locator("html")).toHaveCSS("color-scheme", colorScheme);
     await expect(launchedRow).toHaveCSS("outline-color", accent);
     await expect(launchedRow).toHaveCSS("outline-style", "solid");
-    const peek = page.getByRole("complementary", { name: "Terminal peek" });
-    await expect(peek).toBeVisible();
-    await expect(peek).toHaveCSS("overflow", "clip");
+    await expect(page.getByRole("complementary", { name: "Terminal peek" })).toHaveCount(0);
     await assertAccessible(page);
-    const peekBox = await peek.boundingBox();
-    const sidebarBox = await page.locator(".sidebar-shell").boundingBox();
-    assert.ok(
-      peekBox && sidebarBox && peekBox.x >= sidebarBox.x + sidebarBox.width,
-      "peek stays in the terminal pane",
-    );
     await launchedRow.press("Enter");
+    await page.mouse.move(0, 0);
     await page.getByRole("region", { name: "Terminal pane" }).focus();
     await expect(launchedRow).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
-    await expect(page.locator('.board-entry[data-selected="true"]')).not.toHaveCSS(
+    await expect(page.locator('.board-entry[data-selected="true"]')).toHaveCSS(
       "background-color",
       "rgba(0, 0, 0, 0)",
     );
@@ -4864,7 +4859,7 @@ test("external Git changes refresh inventory and retain sessions in removed work
   await expect(actions).toHaveCount(0);
   assert.equal((await page.evaluate(() => window.desktop.workspace())).terminals[0].exited, false);
   await page.getByRole("button", { name: "topic/external", exact: true }).click();
-  await expect(page.locator(".location-launchers")).toContainText("Worktree removed");
+  await expect(page.locator(".location-launchers")).toHaveCount(0);
   await assert.rejects(
     page.evaluate(
       ({ repository, worktree }) =>
@@ -5402,9 +5397,7 @@ test("neutral identity badges keep labels and geometry across themes and interfa
         })
         .toBeCloseTo((basePixelRatio * interfaceScale) / 100, 5);
       await row.focus();
-      const peek = page.getByRole("complementary", { name: "Terminal peek" });
-      await expect(peek).toBeVisible();
-      await expect(peek.getByRole("heading")).toHaveText(/^Shell \(.+\) · /);
+      await expect(page.getByRole("complementary", { name: "Terminal peek" })).toHaveCount(0);
       await expect(row).toHaveAccessibleName(/Build helper · Shell \(.+\)/);
       const badge = row.locator(".board-agent");
       await expect(badge).toHaveText(">_");
@@ -6004,6 +5997,31 @@ test("trusted card follows interface scale and clears its scrim on every dismiss
   const app = await launchApp(context);
   const board = await boardPage(app);
   let dialog = await confirmationPage(app);
+  const expectDialogFits = async (zoom) => {
+    await dialog.evaluate(() => document.fonts.ready.then(() => {}));
+    await expect
+      .poll(async () => {
+        const layout = await dialog.evaluate(() => {
+          const card = document.querySelector(".confirmation-window");
+          const content = document.querySelector(".confirmation-content");
+          return {
+            height: card.getBoundingClientRect().height,
+            overflow: content.scrollHeight - content.clientHeight,
+          };
+        });
+        const height = await app.evaluate(
+          ({ BrowserWindow }) =>
+            BrowserWindow.getAllWindows()
+              .find((w) => w.webContents.getURL() === "app://confirmation/confirmation.html")
+              .getBounds().height,
+        );
+        return {
+          heightFits: Math.abs(height - Math.ceil(layout.height * zoom)) <= 2,
+          overflow: layout.overflow,
+        };
+      })
+      .toEqual({ heightFits: true, overflow: 0 });
+  };
   for (const interfaceScale of [125, 80]) {
     await board.evaluate(
       (interfaceScale) =>
@@ -6049,12 +6067,9 @@ test("trusted card follows interface scale and clears its scrim on every dismiss
         width: (440 * interfaceScale) / 100,
       });
     await expect(board.locator(".board-confirmation-scrim:popover-open")).toHaveCount(1);
-    const scaledHeight = await app.evaluate(
-      ({ BrowserWindow }) =>
-        BrowserWindow.getAllWindows()
-          .find((w) => w.webContents.getURL() === "app://confirmation/confirmation.html")
-          .getBounds().height,
-    );
+    // Native width can settle before font layout and resize IPC finish. Check
+    // the rendered content at each scale instead of retaining a transient height.
+    await expectDialogFits(interfaceScale / 100);
     // A settings change while open must update the existing trusted renderer, too.
     await board.evaluate(() =>
       window.desktop.saveSetup({ interfaceScale: 100, colorMode: "dark" }),
@@ -6067,21 +6082,7 @@ test("trusted card follows interface scale and clears its scrim on every dismiss
         })),
       )
       .toEqual({ width: 440, theme: "dark" });
-    await expect
-      .poll(() =>
-        app.evaluate(
-          ({ BrowserWindow }, scaledHeight) => {
-            const child = BrowserWindow.getAllWindows().find(
-              (w) => w.webContents.getURL() === "app://confirmation/confirmation.html",
-            );
-            return (
-              Math.abs(child.getBounds().height - scaledHeight.height / scaledHeight.zoom) <= 2
-            );
-          },
-          { height: scaledHeight, zoom: interfaceScale / 100 },
-        ),
-      )
-      .toBe(true);
+    await expectDialogFits(1);
     await dialog.getByRole("button", { name: "Cancel" }).click();
     await expect(board.locator(".board-confirmation-scrim")).toHaveCount(0);
     await board.evaluate(() => document.getElementById("scrim-test-modal").remove());
@@ -6263,4 +6264,47 @@ test("legacy inference profiles upgrade without evaluator controls or stored key
     page.getByRole("navigation", { name: "Preflight steps" }).locator("ol").getByRole("button"),
   ).toHaveCount(5);
   await expect(page.getByText(/Evaluator|Run check|API key/)).toHaveCount(0);
+});
+
+test("restored exited sessions hide the unattached terminal until restarted", async (context) => {
+  const profile = await mkdtemp(path.join(tmpdir(), "foom-restored-cursor-"));
+  removeAfterApps(context, profile);
+  const options = { args: [`--user-data-dir=${profile}`] };
+  const app = await launchApp(context, true, options);
+  const page = await boardPage(app);
+  const input = page.locator(".xterm-helper-textarea");
+  await input.pressSequentially("exit");
+  await input.press("Enter");
+  await expect
+    .poll(() => page.evaluate(async () => (await window.desktop.workspace()).terminals[0]?.exited))
+    .toBe(true);
+  await expect
+    .poll(
+      async () => JSON.parse(await readFile(path.join(profile, "sessions.json"), "utf8")).length,
+    )
+    .toBe(1);
+  await quitAndWait(app, () => app.evaluate(({ app }) => app.quit()));
+
+  const restoredApp = await launchApp(context, false, { ...options, emptyBoard: true });
+  const restored = await boardPage(restoredApp);
+  await expect(restored.locator(".board-row")).toHaveCount(1);
+  await restored.locator(".board-row").click();
+  await expect(restored.locator('.terminal-tile[data-empty="false"]')).toBeVisible();
+  await expect(restored.locator(".tile-terminal")).toBeHidden();
+  await expect(restored.locator(".xterm-helper-textarea")).not.toBeFocused();
+  await expect(restored.locator(".xterm-cursor:visible")).toHaveCount(0);
+
+  await restartShellFromSidebar(restored);
+  await expect(restored.locator(".tile-terminal")).toBeVisible();
+  await expect(restored.locator(".xterm-helper-textarea")).toBeFocused();
+  await restored.locator(".xterm-helper-textarea").pressSequentially("echo RESTORED_SHELL_READY");
+  await restored.locator(".xterm-helper-textarea").press("Enter");
+  await expect
+    .poll(() =>
+      restored.evaluate(async () => {
+        const terminal = (await window.desktop.workspace()).terminals[0];
+        return (await window.desktop.tail(terminal.id, 10)).join("\n");
+      }),
+    )
+    .toContain("RESTORED_SHELL_READY");
 });

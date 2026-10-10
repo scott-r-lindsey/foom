@@ -925,7 +925,7 @@ test("selection recovers from a removed terminal whose detach capability was rev
   controller.dispose();
 });
 
-test("live terminal themes also color peek and fixed palettes ignore interface changes", async () => {
+test("live terminal themes update shared colors and fixed palettes ignore interface changes", async () => {
   mock.setupState.mockResolvedValueOnce(setupState({ terminalTheme: "dracula" }));
   const controller = createShell(document.createElement("div"), vi.fn());
   await vi.waitFor(() => {
@@ -959,15 +959,12 @@ test("live terminal themes also color peek and fixed palettes ignore interface c
 });
 
 test("passive tile controllers neither steal focus nor detach another view after being hidden", async () => {
-  const controller = createShell(
-    document.createElement("div"),
-    vi.fn(),
-    false,
-    undefined,
-    false,
-    false,
-  );
+  const container = document.createElement("div");
+  const controller = createShell(container, vi.fn(), false, undefined, false, false);
+  await controller.hide();
+  expect(container.hidden).toBe(true);
   await controller.open("one");
+  expect(container.hidden).toBe(false);
   await controller.open("one");
   expect(mock.focus).not.toHaveBeenCalled();
   expect(mock.attach).toHaveBeenCalledOnce();

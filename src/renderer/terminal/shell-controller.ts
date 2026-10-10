@@ -20,6 +20,9 @@ export function createShell(
   available: (id: string) => boolean = () => true,
   hasExited: (id: string) => boolean = () => false,
 ) {
+  // Restored sessions have no PTY to attach. Keep the initial xterm out of view
+  // until openView makes an actual attachment visible.
+  container.hidden = true;
   const view: ShellView = {
     status: "Starting shell…",
     state: "quiet_ok",

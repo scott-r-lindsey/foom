@@ -301,7 +301,7 @@ test("pointer selection focuses terminal space but keeps title buttons and termi
   expect(views[0]?.focus).toHaveBeenCalledTimes(focusCount + 1);
 });
 
-test("tile restart routes through workspace lifecycle and places the replacement in the same tile", async () => {
+test("shell restart stays in the sidebar menu and places the replacement in the same tile", async () => {
   const { screen, click, source, data, views } = setup();
   source.sidebarCommand = vi.fn(async (command: SidebarCommand) => {
     if (command.kind === "restart") data.update(command.id, { id: "replacement", exited: false });
@@ -313,7 +313,9 @@ test("tile restart routes through workspace lifecycle and places the replacement
   click(0);
   await act(async () => {});
   const original = screen.container.querySelector(".terminal-tile");
-  fireEvent.click(screen.getByRole("button", { name: "Restart shell" }));
+  expect(screen.queryByRole("button", { name: "Restart shell" })).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: /^Actions for .* in fix\/session-restore$/ }));
+  fireEvent.click(screen.getByRole("menuitem", { name: "Restart shell" }));
   await act(async () => {});
   expect(source.sidebarCommand).toHaveBeenCalledWith({ kind: "restart", id: "permission" });
   expect(views[0]?.open).toHaveBeenLastCalledWith("replacement");
