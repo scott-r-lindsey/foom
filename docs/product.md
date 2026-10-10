@@ -49,10 +49,13 @@ highlights matching text and expands ancestors. A banner counts filtered-out ses
 need you; Show clears the filter. Collapsed repository rows show their worktree count and
 most urgent state; collapsed worktrees show the same roll-up. Urgency is Needs you, Failed,
 Working, Done, then Quiet. The main checkout is labeled **Main checkout**, with its branch on a secondary line and a folder icon.
-Location and session breadcrumbs also call it **Main checkout**. Other worktrees
+Session breadcrumbs also call it **Main checkout**. Other worktrees
 have a branch icon. Pins and repository/worktree expansion choices persist.
 Repositories with running sessions start expanded; idle repositories start collapsed.
 With one repository, everything starts expanded.
+Clicking or pressing Enter on a repository, main-checkout or worktree name opens its panel
+and leaves the terminal tiles unchanged; again closes it. Chevrons expand or collapse.
+There is no separate launcher page.
 
 External Git worktree and branch changes refresh the sidebar automatically and when
 the window gains focus. Sessions in a removed checkout stay alive and show a neutral
@@ -62,7 +65,7 @@ and Close still work. The checkout row disappears when its last session closes.
 Session rows show a light, neutral CC / CX / AG badge (or `>_` for shells), name,
 wait and reason. Unknown identities use `?`. Badges share a 20px-high slot with a
 16px visual target; no vendor artwork is bundled. The full agent name or detected
-shell name remains in the accessible row name and hover/focus preview after renaming.
+shell name remains in the accessible row name and session panel after renaming.
 Double-click the name
 to edit it; Enter or blur commits, Escape cancels, and an empty value restores the default.
 Rows launched with a known bypass argument also show a neutral ◇ Bypass label.
@@ -70,7 +73,7 @@ This records launch flags, not inferred global agent policy; changing defaults d
 change existing rows.
 Names persist as local UI metadata keyed by terminal ID. Session rows and recorded
 conversation IDs survive Foom restarts as exited sessions; PTYs and screens do not.
-Hover or focus a session to peek without switching the pane. Click or press Enter to show
+Hover and keyboard focus do not preview terminal output or switch the pane. Click or press Enter to show
 its terminal and focus input, using the placement rules below. Needs you remains; Done and Failed dim once seen.
 
 Each row opens a labelled panel to the right of the sidebar, over the tiles.
@@ -114,7 +117,8 @@ and current launch defaults. New conversation uses that row and checkout without
 resume ID. Failed launches retain the saved conversation for retry. Copy uses the full ID.
 Antigravity conversation IDs are pinned for hook validation but not retained for resumption,
 so Resume remains unavailable for it.
-An exited shell offers **Restart shell**, a separator and **Close**. Close removes the
+An exited shell’s sidebar panel offers **Restart shell**, a separator and **Close**;
+the terminal pane has no restart button. Close removes the
 session and its stored record, never the checkout or the agent's own conversation files.
 Sessions restore without automatically launching agents. If no supported hook/notify event
 arrived before exit (including hooks-disabled launches), no conversation ID is available.
@@ -440,7 +444,7 @@ Changing either view is reflected in the other without restarting.
 Terminal font size applies to every terminal view: 10–32 pixels, 14 by default,
 independent of interface size. The Terminal section previews text size, all 16 ANSI colors, bold, dim and selection.
 Terminal colors default to Follow interface, with Foom Light/Dark, Solarized Light/Dark
-and Dracula built in. Changes apply live to visible and detached terminals and board peek.
+and Dracula built in. Changes apply live to visible and detached terminals.
 Settings → Themes offers System, Eclipse Light, Eclipse Dark, High Contrast,
 Deep Field, Moonlight, Graphite and Midnight Indigo, with a live preview of all six terminal statuses.
 System follows the operating system's light/dark appearance. The other themes have

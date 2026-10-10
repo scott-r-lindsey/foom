@@ -53,6 +53,41 @@ function fixture(initialSession?: string) {
     removed: (id: string) => removed?.(id),
   };
 }
+test("audio focus failures leave terminal selection usable and later focus updates recover", async () => {
+  const f = fixture();
+  f.source.update("permission", { kind: "agent" });
+  const focus = vi
+    .fn<(id: string | null) => Promise<void>>()
+    .mockRejectedValueOnce(new Error("Audio bridge unavailable"))
+    .mockResolvedValue(undefined);
+  const source = {
+    ...f.source,
+    windows: {
+      ...f.windows,
+      audio: {
+        state: () => Promise.resolve({ enabled: false, focusedId: null }),
+        focus,
+        refuse: () => Promise.resolve(),
+        onChanged: () => () => {},
+        onRefuse: () => () => {},
+      },
+    },
+  };
+  const view = render(<Board source={source} />);
+  await act(async () => {});
+  expect(focus).toHaveBeenCalledWith(null);
+  const row = view.container.querySelector<HTMLButtonElement>(".board-row");
+  if (!row || !f.rows[0]) throw new Error("Missing row");
+  await act(async () => {
+    fireEvent.click(row);
+    await Promise.resolve();
+  });
+  expect(view.container.querySelectorAll(".terminal-tile[data-empty=false]")).toHaveLength(1);
+  expect(focus).toHaveBeenLastCalledWith(f.rows[0].id);
+  view.rerender(<Board source={source} settingsView={<div>Settings</div>} />);
+  await act(async () => {});
+  expect(focus).toHaveBeenLastCalledWith(null);
+});
 test("foreign selection focuses its owner while local selection persists a per-window layout", async () => {
   const f = fixture();
   const view = render(<Board source={f.source} />);

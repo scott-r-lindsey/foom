@@ -36,5 +36,4 @@ export type TileAction =
   | "maximize"
   | "hide"
   | "close"
-  | "restart"
   | "popout";
