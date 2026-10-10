@@ -8,13 +8,14 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo+Black&family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500;600&display=swap">
 <style>
-/* New worktree as one field: repository and agent are chips with defaults from context,
-   the branch is typed, and suggestions come from the repository's own branches and
-   prefixes. Colors are the brand tokens; the surface follows .row-menu in board.css. */
+/* New worktree without a dialog: choosing New worktree in a repository's panel puts a
+   field next to it, in the same panel. Enter creates the worktree, the panel then offers
+   its launchers, and Enter again starts one. Colors are the brand tokens; the panel
+   follows .sidebar-panel in src/renderer/styles/board.css. */
 :root {
   --bg: #f3f0fa; --surface: #e9e4f5; --line: #ddd6ee; --ink: #14101f; --muted: #625a7a;
   --accent: #5b2bd9; --accent-deep: #3b1a99; --attention: #d98200; --attention-ink: #8c5000;
-  --done: #13804a; --failed: #d6166e; --failed-ink: #b0105a; --idle: #b9b0d3;
+  --done: #13804a; --done-ink: #0e6b3c; --failed: #d6166e; --failed-ink: #b0105a; --idle: #b9b0d3;
   --badge: #4a4263; --badge-ink: #f4efff; --lift: #ffffff; --hole: #05040a;
   --shadow: rgba(40, 20, 90, .28);
   --term-bg: #05040a; --term-line: #251d3f; --term-ink: #f4efff; --term-dim: #6a6188; --term-acc: #c08bff;
@@ -25,7 +26,7 @@
   :root:not([data-theme="light"]) {
     --bg: #05040a; --surface: #0d0a17; --line: #251d3f; --ink: #f4efff; --muted: #9d93bd;
     --accent: #9b6bff; --accent-deep: #7a3cff; --attention: #ffb23e; --attention-ink: #ffb23e;
-    --done: #6fe0a3; --failed: #ff2e88; --failed-ink: #ff2e88; --idle: #4a4263;
+    --done: #6fe0a3; --done-ink: #6fe0a3; --failed: #ff2e88; --failed-ink: #ff2e88; --idle: #4a4263;
     --badge: #3a3060; --badge-ink: #f4efff; --lift: #f4efff; --hole: #000000;
     --shadow: rgba(0, 0, 0, .85);
     color-scheme: dark;
@@ -34,13 +35,14 @@
 :root[data-theme="dark"] {
   --bg: #05040a; --surface: #0d0a17; --line: #251d3f; --ink: #f4efff; --muted: #9d93bd;
   --accent: #9b6bff; --accent-deep: #7a3cff; --attention: #ffb23e; --attention-ink: #ffb23e;
-  --done: #6fe0a3; --failed: #ff2e88; --failed-ink: #ff2e88; --idle: #4a4263;
+  --done: #6fe0a3; --done-ink: #6fe0a3; --failed: #ff2e88; --failed-ink: #ff2e88; --idle: #4a4263;
   --badge: #3a3060; --badge-ink: #f4efff; --lift: #f4efff; --hole: #000000;
   --shadow: rgba(0, 0, 0, .85);
   color-scheme: dark;
 }
 :root {
   --highlight: var(--accent);
+  --highlight-deep: var(--accent-deep);
   --select: color-mix(in srgb, var(--highlight) 18%, var(--surface));
   --raised-top: color-mix(in srgb, var(--surface) 92%, var(--lift));
   --raised-bottom: var(--surface);
@@ -56,103 +58,111 @@ button { cursor: pointer; }
 .frame { height: 100%; overflow-x: auto; }
 .app { position: relative; display: flex; height: 100%; min-width: 1100px; overflow: hidden; }
 
-/* Board slice */
+/* Sidebar tree slice */
 .side { width: 270px; flex-shrink: 0; display: flex; flex-direction: column; background: var(--surface); border-right: 1px solid var(--line); }
-.head { display: flex; align-items: center; justify-content: space-between; padding: 16px 12px 10px; }
-.wordmark { font: 22px/1 var(--display); }
+.head { padding: 16px 12px 10px; font: 22px/1 var(--display); }
 .hole { display: inline-block; width: .52em; height: .52em; margin: 0 .035em; border-radius: 50%; background: var(--hole); box-shadow: 0 0 0 2px var(--accent), 0 0 10px var(--accent); }
-.list { padding: 0 6px; }
-.group { display: flex; align-items: center; justify-content: space-between; padding: 10px 8px 4px; font: 600 12px var(--sans); color: var(--muted); }
-.group button { width: 22px; height: 22px; padding: 0; display: grid; place-items: center; background: transparent; border: 1px solid transparent; border-radius: 4px; color: var(--muted); font-size: 15px; line-height: 1; }
-.group button:hover { border-color: var(--line); color: var(--ink); }
-.srow { display: flex; gap: 8px; padding: 6px 8px; border-radius: 6px; }
-.srow.new { background: var(--select); }
-.srow .lines { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.tree { padding: 4px 6px; }
+.trow { display: flex; align-items: center; gap: 6px; height: 30px; padding: 0 6px; border-radius: 6px; font-size: 13px; }
+.trow.repo { font-weight: 600; }
+.trow.repo.open { background: var(--select); }
+.trow .chev { width: 12px; color: var(--muted); font-size: 10px; }
+.trow .name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.trow .more { width: 24px; height: 22px; padding: 0; background: transparent; border: 1px solid transparent; border-radius: 4px; color: var(--muted); }
+.trow .more:hover, .trow.open .more { border-color: var(--line); color: var(--ink); }
+.trow.wt { padding-left: 24px; font: 12px var(--mono); color: var(--muted); }
+.trow.wt svg { width: 12px; height: 12px; fill: none; stroke: currentColor; stroke-width: 1.2; flex-shrink: 0; }
+.trow.wt.fresh { color: var(--ink); background: color-mix(in srgb, var(--select) 60%, transparent); }
+.srow { display: flex; gap: 8px; padding: 4px 6px 6px 42px; }
+.srow .lines { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
 .srow .top { font: 12px var(--mono); }
 .srow .reason { font-size: 12px; color: var(--muted); }
 .light { flex-shrink: 0; width: 8px; height: 8px; margin-top: 4px; border-radius: 50%; background: var(--idle); }
 .light.working { background: var(--accent); box-shadow: 0 0 8px var(--accent); }
-.light.done { background: var(--done); }
 .badge { flex-shrink: 0; min-width: 24px; height: 20px; padding: 0 4px; display: inline-flex; align-items: center; justify-content: center; border-radius: 3px; background: var(--badge); color: var(--badge-ink); font: 600 11px var(--mono); }
 .area { flex: 1; min-width: 0; display: grid; grid-template-columns: 1fr 1fr; gap: 6px; padding: 6px; }
 .tile { display: flex; flex-direction: column; background: var(--term-bg); border: 1px solid var(--term-line); border-radius: 6px; overflow: hidden; }
 .tile.focus { border-color: var(--term-acc); }
 .tb { display: flex; align-items: center; gap: 8px; height: 28px; padding: 0 8px; border-bottom: 1px solid var(--term-line); font: 12px var(--mono); color: var(--term-ink); }
 .tb .no { padding: 0 5px; border: 1px solid var(--term-line); border-radius: 4px; color: var(--term-dim); font-size: 10px; }
-.term { flex: 1; padding: 10px 12px; font: 12px/1.6 var(--mono); color: var(--term-dim); white-space: pre; overflow: hidden; }
+.term { flex: 1; padding: 10px 12px; font: 12px/1.6 var(--mono); color: var(--term-dim); white-space: pre; }
 .term b { color: var(--term-ink); font-weight: 400; }
 
-/* The dialog: one line, then suggestions */
-.scrim { position: absolute; inset: 0; z-index: 10; background: rgb(0 0 0 / 35%); }
-.nw { position: absolute; z-index: 11; top: 14%; left: 50%; width: 620px; transform: translateX(-50%); background: linear-gradient(180deg, var(--raised-top), var(--raised-bottom)); border: 1px solid var(--raised-line); border-radius: 10px; box-shadow: 0 1px 0 rgb(255 255 255 / 5%) inset, 0 28px 60px -14px var(--shadow), 0 0 32px -10px color-mix(in srgb, var(--highlight) 45%, transparent); animation: nw-open 140ms ease-out; }
-@keyframes nw-open { from { opacity: 0; transform: translate(-50%, -6px) scale(.98); } }
-.line { display: flex; align-items: center; gap: 8px; padding: 10px 10px 10px 12px; }
-.chip { display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 8px; background: color-mix(in srgb, var(--select) 70%, transparent); border: 1px solid transparent; border-radius: 6px; font: 500 12px var(--mono); white-space: nowrap; }
-.chip:hover, .chip[aria-expanded="true"] { border-color: var(--raised-line); }
-.chip svg { width: 10px; height: 10px; fill: none; stroke: var(--muted); stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
-.chip .badge { min-width: 22px; height: 18px; font-size: 10px; }
-.chip.agent { padding: 0 6px 0 4px; }
-.field { position: relative; flex: 1; min-width: 0; display: flex; }
-#branch { position: relative; flex: 1; min-width: 0; height: 32px; padding: 0 4px; background: transparent; border: 0; outline: none; font: 15px var(--mono); }
-.ghost { position: absolute; inset: 0; padding: 0 4px; display: flex; align-items: center; font: 15px var(--mono); white-space: pre; pointer-events: none; overflow: hidden; }
-.ghost .typed { color: transparent; }
-.ghost .rest { color: var(--muted); opacity: .6; }
-#branch::placeholder { color: var(--muted); opacity: .7; }
-.enter { flex-shrink: 0; display: grid; place-items: center; width: 30px; height: 26px; border: 1px solid var(--line); border-radius: 5px; font: 13px var(--mono); color: var(--muted); }
-.enter.ready { color: var(--accent); border-color: var(--raised-line); }
-.problem { display: flex; align-items: center; gap: 6px; padding: 0 14px 10px; font-size: 12px; color: var(--failed-ink); }
-.problem::before { content: ""; width: 7px; height: 7px; border-radius: 1px; background: var(--failed); }
-.disclose { display: flex; align-items: flex-start; gap: 8px; margin: 0 12px 10px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 6px; font-size: 12px; }
-.disclose input { accent-color: var(--accent); margin: 2px 0 0; }
-.sugg { margin: 0; padding: 6px; list-style: none; border-top: 1px solid var(--line); max-height: 300px; overflow-y: auto; }
-.sugg li { display: flex; align-items: center; gap: 10px; padding: 7px 8px; border-radius: 5px; font: 12px var(--mono); cursor: pointer; }
-.sugg li[aria-selected="true"] { background: var(--raised-hover); box-shadow: inset 2px 0 0 var(--highlight); }
-.sugg li[aria-disabled="true"] { opacity: .5; cursor: default; }
-.sugg .name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.sugg .name mark { background: transparent; color: var(--accent); font-weight: 600; }
-.sugg .fact { flex-shrink: 0; font-size: 11px; color: var(--muted); }
-.sugg .fact.new { color: var(--accent); }
-.sugg .sep { height: 0; padding: 0; margin: 4px 6px; border-top: 1px solid var(--line); border-radius: 0; cursor: default; }
-.busy { padding: 0 14px 12px; font: 12px var(--mono); color: var(--muted); }
+/* Panel: .row-menu.sidebar-panel */
+.panel { position: absolute; z-index: 20; width: 720px; padding: 4px; background: linear-gradient(180deg, var(--raised-top), var(--raised-bottom)); border: 1px solid var(--raised-line); border-radius: 10px; box-shadow: 0 1px 0 rgb(255 255 255 / 5%) inset, 0 22px 48px -12px var(--shadow), 0 8px 16px -8px var(--shadow), 0 0 28px -8px color-mix(in srgb, var(--highlight) 40%, transparent); animation: open 130ms ease-out; }
+@keyframes open { from { opacity: 0; transform: translateX(-6px) scale(.98); } }
+.panel::before { content: ""; position: absolute; left: -6px; top: 18px; width: 10px; height: 10px; background: var(--raised-top); border-left: 1px solid var(--raised-line); border-bottom: 1px solid var(--raised-line); transform: rotate(45deg); }
+.ph { position: relative; display: flex; align-items: center; gap: 10px; padding: 12px 16px; border-bottom: 1px solid var(--line); border-radius: 7px 7px 0 0; background: linear-gradient(100deg, color-mix(in srgb, var(--highlight) 20%, transparent), color-mix(in srgb, var(--highlight) 6%, transparent) 55%, transparent); }
+.ph::before { content: ""; position: absolute; inset: 0 0 auto; height: 2px; border-radius: 7px 7px 0 0; background: linear-gradient(90deg, var(--highlight), var(--highlight-deep) 45%, transparent); }
+.mark { display: grid; place-items: center; width: 32px; height: 32px; border-radius: 8px; background: color-mix(in srgb, var(--highlight) 16%, var(--raised-top)); border: 1px solid color-mix(in srgb, var(--highlight) 35%, var(--line)); }
+.mark svg { width: 14px; height: 14px; fill: none; stroke: var(--highlight); stroke-width: 1.2; }
+.ptitle { flex: 1; font-weight: 600; }
+.kind { padding: 2px 8px; border-radius: 999px; background: color-mix(in srgb, var(--highlight) 12%, transparent); color: var(--muted); font: 11px var(--mono); }
+.pbody { display: grid; grid-template-columns: 248px minmax(0, 1fr); }
+.cmds { display: flex; flex-direction: column; gap: 1px; padding: 8px 8px 8px 4px; border-right: 1px solid var(--line); border-radius: 0 0 0 7px; background: linear-gradient(180deg, color-mix(in srgb, var(--highlight) 7%, transparent), color-mix(in srgb, var(--highlight) 3%, transparent)); }
+.cmds button { position: relative; display: flex; align-items: center; gap: 10px; min-height: 34px; padding: 6px 12px; background: transparent; border: 0; border-radius: 6px; text-align: left; font-size: 13px; }
+.cmds button:hover, .cmds button:focus-visible, .cmds button[aria-expanded="true"] { background: var(--raised-hover); outline: none; }
+.cmds button::before { content: ""; position: absolute; inset: 8px auto 8px 0; width: 2px; background: var(--highlight); border-radius: 2px; transform: scaleY(0); transition: transform 160ms; }
+.cmds button:hover::before, .cmds button:focus-visible::before, .cmds button[aria-expanded="true"]::before { transform: scaleY(1); }
+.cmds .label { flex: 1; }
+.cmds .hint { font: 11px var(--mono); color: var(--muted); }
+.cmds hr { width: calc(100% - 12px); margin: 4px 6px; border: 0; border-top: 1px solid var(--line); }
+.glyph { display: grid; place-items: center; width: 24px; color: var(--muted); }
+.glyph svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round; }
+.right { position: relative; min-width: 0; }
+.facts { display: grid; grid-template-columns: 100px minmax(0, 1fr); align-content: start; gap: 9px 16px; margin: 0; padding: 14px 18px 16px 20px; }
+.facts dt { padding-top: 2px; font-size: 12px; color: var(--muted); }
+.facts dd { margin: 0; font: 12.5px/1.5 var(--mono); overflow-wrap: anywhere; }
+.facts .sub { color: var(--muted); }
+.right.busy .facts { visibility: hidden; }
 
-/* Chip popovers */
-.pop { position: absolute; z-index: 12; min-width: 220px; padding: 6px; background: linear-gradient(180deg, var(--raised-top), var(--raised-bottom)); border: 1px solid var(--raised-line); border-radius: 8px; box-shadow: 0 18px 40px -12px var(--shadow); }
-.pop button { display: flex; align-items: center; gap: 9px; width: 100%; padding: 7px 9px; background: transparent; border: 0; border-radius: 4px; text-align: left; font-size: 12px; }
-.pop button:hover, .pop button:focus-visible { background: var(--raised-hover); outline: none; }
-.pop button:disabled { opacity: .45; cursor: default; }
-.pop button .k { margin-left: auto; font: 11px var(--mono); color: var(--muted); }
-.pop button[aria-checked="true"] .label::after { content: " ✓"; color: var(--accent); }
-.pop hr { border: 0; border-top: 1px solid var(--line); margin: 5px; }
+/* The field, beside New worktree */
+.nw { position: absolute; z-index: 1; left: 12px; right: 12px; top: 8px; display: flex; flex-direction: column; gap: 6px; }
+.box { position: relative; display: flex; align-items: center; height: 34px; background: var(--bg); border: 1px solid var(--highlight); border-radius: 6px; box-shadow: 0 0 0 3px color-mix(in srgb, var(--highlight) 18%, transparent); }
+.box.invalid { border-color: var(--failed); box-shadow: 0 0 0 3px color-mix(in srgb, var(--failed) 15%, transparent); }
+.box input { position: relative; flex: 1; min-width: 0; height: 100%; padding: 0 10px; background: transparent; border: 0; outline: none; font: 13px var(--mono); }
+.ghost { position: absolute; inset: 0; padding: 0 10px; display: flex; align-items: center; font: 13px var(--mono); white-space: pre; pointer-events: none; overflow: hidden; }
+.ghost .typed { color: transparent; }
+.ghost .rest { color: var(--muted); opacity: .65; }
+.ghost .other { margin-left: auto; color: var(--muted); opacity: .8; }
+.what { display: flex; align-items: center; gap: 6px; min-height: 18px; padding: 0 2px; font: 11px var(--mono); color: var(--muted); }
+.what .new { color: var(--accent); }
+.what.err { font: 12px var(--sans); color: var(--failed-ink); }
+.what.err::before { content: ""; width: 7px; height: 7px; border-radius: 1px; background: var(--failed); }
+.made { display: flex; align-items: center; gap: 8px; height: 34px; padding: 0 10px; font: 13px var(--mono); }
+.made .ok { color: var(--done-ink); }
+.made .what { margin-left: auto; }
+.launch { display: flex; flex-direction: column; gap: 1px; padding: 4px 0; }
+.launch button { display: flex; align-items: center; gap: 10px; min-height: 32px; padding: 4px 8px; background: transparent; border: 0; border-radius: 6px; text-align: left; font-size: 13px; }
+.launch button:hover, .launch button:focus-visible { background: var(--raised-hover); outline: none; box-shadow: inset 2px 0 0 var(--highlight); }
+.launch button:disabled { opacity: .45; cursor: default; }
+.launch .k { margin-left: auto; font: 11px var(--mono); color: var(--muted); }
+.disclose { display: flex; gap: 8px; align-items: flex-start; padding: 6px 8px; font-size: 12px; color: var(--ink); }
+.disclose input { accent-color: var(--accent); margin: 2px 0 0; }
 
 /* Mockup controls, not product UI. */
 .mock { position: absolute; right: 14px; bottom: 12px; z-index: 50; display: flex; gap: 14px; align-items: center; padding: 6px 10px; border: 1px dashed var(--line); border-radius: 6px; background: var(--surface); font: 11px var(--mono); color: var(--muted); }
 .mock label { display: flex; gap: 6px; align-items: center; }
 .mock select, .mock button { font: inherit; color: var(--ink); background: var(--bg); border: 1px solid var(--line); border-radius: 4px; }
-.note { position: absolute; left: 284px; bottom: 16px; z-index: 4; font: 11px var(--mono); color: var(--term-dim); }
+.note { position: absolute; left: 284px; bottom: 16px; font: 11px var(--mono); color: var(--term-dim); }
 </style>
 </head>
 <body>
 <div class="frame">
 <div class="app" id="app">
   <aside class="side">
-    <div class="head"><span class="wordmark">fo<span class="hole"></span>m</span></div>
-    <div class="list" id="list">
-      <div class="group">foom <button data-open="foom" aria-label="New worktree in foom" title="New worktree">+</button></div>
-      <div class="srow"><span class="light working"></span><span class="badge">CX</span><div class="lines"><div class="top">codex/issue-226</div><div class="reason">Running npm run check</div></div></div>
-      <div class="srow"><span class="light done"></span><span class="badge">CC</span><div class="lines"><div class="top">docs/environment-mockup</div><div class="reason">Turn ended</div></div></div>
-      <div class="group">notes <button data-open="notes" aria-label="New worktree in notes" title="New worktree">+</button></div>
-      <div class="srow"><span class="light"></span><span class="badge">&gt;_</span><div class="lines"><div class="top">main</div><div class="reason">Quiet</div></div></div>
-    </div>
+    <div class="head">fo<span class="hole"></span>m</div>
+    <div class="tree" id="tree"></div>
   </aside>
   <main class="area">
     <section class="tile focus"><div class="tb"><span class="no">1</span>codex/issue-226</div><div class="term"><b>$ npm run check</b>
  ✓ format   ✓ lint   ✓ typecheck</div></section>
-    <section class="tile"><div class="tb"><span class="no">2</span>docs/environment-mockup</div><div class="term"><b>● Turn ended.</b></div></section>
+    <section class="tile" id="t2"><div class="tb"><span class="no">2</span>docs/environment-mockup</div><div class="term"><b>● Turn ended.</b></div></section>
   </main>
-  <div class="note">New worktree: ⌘T / Ctrl+Shift+T, or + on a repository.</div>
+  <div class="note">⋯ on a repository, or ⌘T / Ctrl+Shift+T for the focused tile's repository.</div>
   <div class="mock" aria-label="Mockup controls">
     <label>Codex disclosure <select id="m-disc"><option value="0">Not needed</option><option value="1">Needed</option></select></label>
-    <button id="m-open">Open dialog</button>
+    <button id="m-reset">Reset</button>
     <label>Theme <select id="m-theme"><option value="">System</option><option value="light">Light</option><option value="dark">Dark</option></select></label>
   </div>
 </div>
@@ -160,264 +170,250 @@ button { cursor: pointer; }
 <script>
 const $ = (s, r = document) => r.querySelector(s);
 const app = $("#app");
-const CHEV = '<svg viewBox="0 0 10 10" aria-hidden="true"><path d="M2.5 4l2.5 2.5L7.5 4"/></svg>';
-
-/* Repository data as main would report it: HEAD, local branches (with the worktree that
-   has each checked out), remote-only branches. */
-const REPOS = {
-  foom: {
-    head: "main",
-    local: {
-      main: "foom", "codex/issue-226": "foom-226", "docs/environment-mockup": "foom-app-menu",
-      "codex/issue-215": null, "codex/issue-217": "foom-217", "codex/issue-220": "foom-220",
-      "codex/200-clean-packaging": "foom-200", "codex/issue-207": null, "codex/issue-211": null,
-      "docs/app-menu-mockup": null, "docs/tile-panels-mockup": null, "fix/sidebar-panel-visuals": "foom-panel-visuals",
-      "fix/bare-repo-hook": null, "spike/159-herdr-backend": "foom-herdr-spike",
-    },
-    remote: ["codex/issue-221", "codex/issue-222"],
-  },
-  notes: { head: "main", local: { main: "notes", drafts: null }, remote: [] },
+const G = {
+  branch: '<circle cx="4.5" cy="3.5" r="1.5"/><circle cx="4.5" cy="12.5" r="1.5"/><circle cx="11.5" cy="5" r="1.5"/><path d="M4.5 5v6M11.5 6.5c0 2.6-4 2.3-6.4 4.6"/>',
+  pin: '<path d="M6 2.5h4M7 2.5v4L4.5 9h7L9 6.5v-4M8 9v4.5"/>',
+  unlist: '<circle cx="8" cy="8" r="5.5"/><path d="M5.5 8h5"/>',
+  trash: '<path d="M3 4.5h10M6.5 4.5V3h3v1.5M4.5 4.5l.7 8.5h5.6l.7-8.5M7 7v4M9 7v4"/>',
 };
-const AGENTS = [
-  { id: "claude", mark: "CC", label: "Claude Code" },
-  { id: "codex", mark: "CX", label: "Codex" },
-  { id: "agy", mark: "AG", label: "Antigravity", missing: true },
-  { id: "shell", mark: ">_", label: "Shell" },
-];
-const CONVENTIONAL = ["feat/", "fix/", "chore/", "docs/", "refactor/", "test/", "ci/"];
-const state = { repo: "foom", agent: "codex", text: "", sel: 0, ack: false, open: false };
+const WT = '<svg viewBox="0 0 12 12" aria-hidden="true"><circle cx="3" cy="2.5" r="1.3"/><circle cx="3" cy="9.5" r="1.3"/><circle cx="9" cy="4" r="1.3"/><path d="M3 3.8v4.4M9 5.3c0 2-3 1.7-5.6 3.3"/></svg>';
+const glyph = (n) => `<span class="glyph" aria-hidden="true"><svg viewBox="0 0 16 16">${G[n]}</svg></span>`;
+const esc = (s) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;");
 
-/* Prefixes the repository already uses, most common first; conventional ones otherwise. */
-function prefixes(repo) {
+/* What main would report for the repository. */
+const REPO = {
+  head: "main",
+  local: {
+    main: "foom", "codex/issue-226": "foom-226", "docs/environment-mockup": "foom-app-menu",
+    "codex/issue-215": null, "codex/issue-217": "foom-217", "codex/issue-220": "foom-220",
+    "codex/200-clean-packaging": "foom-200", "codex/issue-207": null, "codex/issue-211": null,
+    "docs/app-menu-mockup": null, "docs/tile-panels-mockup": null, "fix/sidebar-panel-visuals": "foom-panel-visuals",
+    "fix/bare-repo-hook": null, "spike/159-herdr-backend": "foom-herdr-spike",
+  },
+  remote: ["codex/issue-221", "codex/issue-222"],
+};
+const CONVENTIONAL = ["feat/", "fix/", "chore/", "docs/", "refactor/", "test/", "ci/"];
+/* Launchers in last-used order, as the checkout panels list them. */
+const AGENTS = [
+  { id: "codex", mark: "CX", label: "Codex" },
+  { id: "claude", mark: "CC", label: "Claude Code" },
+  { id: "agy", mark: "AG", label: "Antigravity", missing: true },
+  { id: "shell", mark: ">_", label: "Shell (zsh)" },
+];
+const worktrees = [["main", "Main checkout"], ["codex/issue-226", null], ["docs/environment-mockup", null]];
+let fresh = "", launched = null;
+
+function tree() {
+  $("#tree").innerHTML = `<div class="trow repo" id="repo-row"><span class="chev">▾</span><span class="name">foom</span><button class="more" id="more" aria-label="foom commands" aria-haspopup="dialog" title="Commands">⋯</button></div>`
+    + worktrees.map(([b, main]) => `<div class="trow wt${b === fresh ? " fresh" : ""}">${WT}<span class="name">${main ? `${main} · ${b}` : esc(b)}</span></div>${
+      b === "codex/issue-226" ? '<div class="srow"><span class="light working"></span><span class="badge">CX</span><div class="lines"><div class="top">codex/issue-226</div><div class="reason">Running npm run check</div></div></div>' : ""}${
+      b === fresh && launched ? `<div class="srow"><span class="light working"></span><span class="badge">${launched.mark}</span><div class="lines"><div class="top">${esc(b)}</div><div class="reason">Starting</div></div></div>` : ""}`).join("");
+  $("#more").addEventListener("click", () => (panelOpen() ? closePanel() : openPanel()));
+}
+
+/* Completion candidates: the repository's own prefixes first, then its branches. */
+function prefixes() {
   const counts = {};
-  for (const b of [...Object.keys(REPOS[repo].local), ...REPOS[repo].remote]) {
+  for (const b of [...Object.keys(REPO.local), ...REPO.remote]) {
     const m = b.match(/^([^/]+\/)/);
     if (m) counts[m[1]] = (counts[m[1]] ?? 0) + 1;
   }
-  const used = Object.entries(counts).sort((a, b) => b[1] - a[1]);
-  return used.length ? used.map(([p, n]) => ({ p, n })) : CONVENTIONAL.map((p) => ({ p, n: 0 }));
+  const used = Object.entries(counts).sort((a, b) => b[1] - a[1]).map(([p]) => p);
+  return used.length ? used : CONVENTIONAL;
 }
-
-/* git check-ref-format, as the user sees it. */
+function candidates(t) {
+  const branches = [...Object.keys(REPO.local).filter((b) => b !== REPO.head), ...REPO.remote];
+  const starts = [...(t.includes("/") ? [] : prefixes()), ...branches].filter((c) => c.startsWith(t) && c !== t);
+  const inside = t ? branches.filter((c) => !c.startsWith(t) && c.toLowerCase().includes(t.toLowerCase())) : [];
+  return [...starts, ...inside];
+}
+/* What Enter would do with exactly this name. */
+function outcome(t) {
+  if (!t) return null;
+  const p = problem(t);
+  if (p) return { err: p };
+  if (t.endsWith("/")) return { text: "" };
+  if (REPO.local[t] !== undefined) return REPO.local[t] ? { text: `open in ${REPO.local[t]}`, kind: "open" } : { text: "existing", kind: "existing" };
+  if (REPO.remote.includes(t)) return { text: "from origin", kind: "origin" };
+  return { text: `new, from ${REPO.head}`, kind: "new" };
+}
 function problem(b) {
-  if (!b) return "";
   if (/^-/.test(b)) return "Can't start with -";
   if (/\.\./.test(b)) return "Can't contain ..";
   if (/[~^:?*[\\\x00-\x20\x7f]/.test(b)) return "Can't contain ~ ^ : ? * [ or \\";
   if (/@\{/.test(b)) return "Can't contain @{";
   if (/\/\/|^\/|\/\.|^\./.test(b)) return "Each part needs a name and can't start with .";
   if (/\.lock$|\.$/.test(b)) return "Can't end with . or .lock";
-  if (b === "@") return "Can't be @";
   return "";
 }
 
-function suggestions() {
-  const r = REPOS[state.repo], t = state.text, out = [];
-  const pre = prefixes(state.repo);
-  const local = Object.entries(r.local).filter(([b]) => b !== r.head);
-  const exact = r.local[t] !== undefined || r.remote.includes(t);
-  if (t && !t.endsWith("/") && !exact && !problem(t)) out.push({ kind: "new", name: t });
-  if (!t.includes("/")) {
-    for (const { p, n } of pre) if (p.startsWith(t) && p !== t) out.push({ kind: "prefix", name: p, n });
-  }
-  const match = (b) => (t ? b.toLowerCase().includes(t.toLowerCase()) : true);
-  const free = local.filter(([b, wt]) => !wt && match(b)).map(([b]) => ({ kind: "local", name: b }));
-  const busy = local.filter(([b, wt]) => wt && match(b)).map(([b, wt]) => ({ kind: "checked", name: b, wt }));
-  const remote = r.remote.filter(match).map((b) => ({ kind: "remote", name: b }));
-  const rest = [...free, ...remote, ...busy];
-  if (out.length && rest.length) out.push({ kind: "sep" });
-  out.push(...rest.slice(0, t ? 8 : 5));
-  return out;
+/* The repository panel, as today */
+const panelOpen = () => Boolean($("#panel"));
+function openPanel(withField) {
+  closePanel();
+  const row = $("#repo-row"), r = row.getBoundingClientRect(), a = app.getBoundingClientRect();
+  app.insertAdjacentHTML("beforeend", `<div class="panel" id="panel" role="dialog" aria-label="foom">
+    <div class="ph"><span class="mark"><svg viewBox="0 0 12 12"><path d="M2 2.5h8v7H2zM2 5h8"/></svg></span><span class="ptitle">foom</span><span class="kind">Repository</span></div>
+    <div class="pbody">
+      <div class="cmds" role="menu" aria-label="Commands">
+        <button role="menuitem" id="nw-item" aria-haspopup="true" aria-expanded="false">${glyph("branch")}<span class="label">New worktree</span></button>
+        <hr>
+        <button role="menuitem">${glyph("pin")}<span class="label">Pin to top</span></button>
+        <button role="menuitem">${glyph("unlist")}<span class="label">Remove from Foom…</span><span class="hint">keeps files</span></button>
+        <hr>
+        <button role="menuitem">${glyph("trash")}<span class="label">Delete merged worktrees…</span><span class="hint">3</span></button>
+      </div>
+      <div class="right" id="right">
+        <dl class="facts">
+          <dt>Path</dt><dd>/var/www/html/scott/foom</dd>
+          <dt>Remote</dt><dd>github.com/scott-r-lindsey/foom</dd>
+          <dt>Default branch</dt><dd>main <span class="sub">· fetched 4 min ago</span></dd>
+          <dt>Worktrees</dt><dd>${worktrees.length - 1} <span class="sub">· 3 eligible to delete</span></dd>
+        </dl>
+      </div>
+    </div>
+  </div>`);
+  const p = $("#panel");
+  p.style.left = `${r.right - a.left + 10}px`;
+  p.style.top = `${r.top - a.top - 6}px`;
+  $("#repo-row").classList.add("open");
+  $("#nw-item").addEventListener("click", () => field());
+  p.addEventListener("keydown", panelKeys);
+  if (withField) field(); else $("#nw-item").focus();
 }
-const hl = (name) => {
-  const t = state.text, i = t ? name.toLowerCase().indexOf(t.toLowerCase()) : -1;
-  const e = (s) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;");
-  return i < 0 ? e(name) : `${e(name.slice(0, i))}<mark>${e(name.slice(i, i + t.length))}</mark>${e(name.slice(i + t.length))}`;
-};
-function fact(s) {
-  const r = REPOS[state.repo];
-  return {
-    new: `<span class="fact new">new, from ${r.head}</span>`,
-    prefix: `<span class="fact">${s.n ? `${s.n} branch${s.n === 1 ? "" : "es"}` : ""}</span>`,
-    local: `<span class="fact">existing</span>`,
-    remote: `<span class="fact">from origin</span>`,
-    checked: `<span class="fact">open in ${s.wt}</span>`,
-  }[s.kind];
+function closePanel() {
+  $("#panel")?.remove();
+  $("#repo-row")?.classList.remove("open");
+}
+function panelKeys(e) {
+  if (e.key === "Escape") {
+    e.preventDefault();
+    if ($("#nw")) { endField(); $("#nw-item").focus(); } else { closePanel(); $("#more").focus(); }
+    return;
+  }
+  if (e.target.closest(".cmds")) {
+    const bs = [...document.querySelectorAll(".cmds button")], i = bs.indexOf(document.activeElement);
+    if (e.key === "ArrowDown") { e.preventDefault(); bs[(i + 1) % bs.length].focus(); }
+    if (e.key === "ArrowUp") { e.preventDefault(); bs[(i - 1 + bs.length) % bs.length].focus(); }
+    if (e.key === "ArrowRight" && document.activeElement.id === "nw-item") { e.preventDefault(); field(); }
+  }
 }
 
-/* Dialog */
-function openDialog(repo) {
-  closeDialog();
-  if (repo) state.repo = repo;
-  Object.assign(state, { text: "", sel: 0, ack: false, open: true });
-  app.insertAdjacentHTML("beforeend", `<div class="scrim" id="scrim"></div>
-  <div class="nw" id="nw" role="dialog" aria-modal="true" aria-label="New worktree">
-    <div class="line">
-      <button class="chip" id="repo-chip" aria-haspopup="menu" aria-expanded="false" title="Repository"></button>
-      <span class="field"><span class="ghost" id="ghost" aria-hidden="true"></span><input id="branch" role="combobox" aria-expanded="true" aria-controls="sugg" aria-autocomplete="list" aria-label="Branch" placeholder="branch" spellcheck="false" autocomplete="off"></span>
-      <button class="chip agent" id="agent-chip" aria-haspopup="menu" aria-expanded="false" title="Run"></button>
-      <span class="enter" id="enter" aria-hidden="true">⏎</span>
-    </div>
-    <div id="extra"></div>
-    <ul class="sugg" id="sugg" role="listbox" aria-label="Branches"></ul>
+/* Step 1: the branch field, beside New worktree */
+let text = "", pick = 0;
+function field() {
+  if ($("#nw")) { $("#branch").focus(); return; }
+  text = ""; pick = 0;
+  $("#right").classList.add("busy");
+  $("#nw-item").setAttribute("aria-expanded", "true");
+  $("#right").insertAdjacentHTML("beforeend", `<div class="nw" id="nw">
+    <div class="box" id="box"><span class="ghost" id="ghost" aria-hidden="true"></span><input id="branch" aria-label="Branch for the new worktree" spellcheck="false" autocomplete="off"></div>
+    <div class="what" id="what" role="status"></div>
   </div>`);
-  $("#scrim").addEventListener("pointerdown", closeDialog);
-  $("#repo-chip").addEventListener("click", () => popover("repo"));
-  $("#agent-chip").addEventListener("click", () => popover("agent"));
   const input = $("#branch");
   input.addEventListener("input", () => {
     const pos = input.selectionStart;
     input.value = input.value.replace(/ /g, "-");
     input.setSelectionRange(pos, pos);
-    state.text = input.value; state.sel = 0; render();
+    text = input.value; pick = 0; render();
   });
-  input.addEventListener("keydown", keys);
+  input.addEventListener("keydown", fieldKeys);
   render();
   input.focus();
 }
-function closeDialog() {
-  closePop();
-  $("#nw")?.remove(); $("#scrim")?.remove();
-  state.open = false;
-}
-function selectable(list) { return list.map((s, i) => (s.kind !== "sep" ? i : -1)).filter((i) => i >= 0); }
-/* What Enter does: the highlighted suggestion, else the typed name. */
-function target() {
-  const list = suggestions(), s = list[state.sel];
-  if (s && s.kind !== "sep") return s;
-  return state.text && !problem(state.text) && !state.text.endsWith("/") ? { kind: "new", name: state.text } : null;
+function endField() {
+  $("#nw")?.remove();
+  $("#right")?.classList.remove("busy");
+  $("#nw-item")?.setAttribute("aria-expanded", "false");
 }
 function render() {
-  const agent = AGENTS.find((a) => a.id === state.agent);
-  $("#repo-chip").innerHTML = `${state.repo}${CHEV}`;
-  $("#agent-chip").innerHTML = `<span class="badge">${agent.mark}</span>${CHEV}`;
-  $("#agent-chip").setAttribute("aria-label", `Run ${agent.label}`);
-  const list = suggestions();
-  const sel = selectable(list);
-  if (!sel.includes(state.sel)) state.sel = sel[0] ?? -1;
-  $("#sugg").innerHTML = list.map((s, i) => s.kind === "sep" ? '<li class="sep" role="presentation"></li>'
-    : `<li id="s${i}" role="option" data-i="${i}" aria-selected="${i === state.sel}"><span class="name">${hl(s.name)}</span>${fact(s)}</li>`).join("");
-  $("#sugg").hidden = !list.length;
-  $("#branch").setAttribute("aria-activedescendant", state.sel >= 0 ? `s${state.sel}` : "");
-  const c = completion(list), e2 = (x) => x.replace(/&/g, "&amp;").replace(/</g, "&lt;");
-  $("#ghost").innerHTML = c.startsWith(state.text) && state.text ? `<span class="typed">${e2(state.text)}</span><span class="rest">${e2(c.slice(state.text.length))}</span><span class="rest">  ⇥</span>` : "";
-  const p = problem(state.text);
-  const needsAck = state.agent === "codex" && $("#m-disc").value === "1";
-  $("#extra").innerHTML = (p ? `<div class="problem" role="alert">${p}</div>` : "")
-    + (needsAck ? `<label class="disclose"><input type="checkbox" id="ack" ${state.ack ? "checked" : ""}>Foom replaces your Codex notifier for this launch. Your global config is unchanged.</label>` : "");
-  $("#ack")?.addEventListener("change", (e) => { state.ack = e.target.checked; render(); $("#branch").focus(); });
-  const t = target();
-  const ready = t && t.kind !== "prefix" && !p && (!needsAck || state.ack);
-  $("#enter").classList.toggle("ready", Boolean(ready));
-  $("#sugg").onpointerdown = (e) => {
-    const li = e.target.closest("li[data-i]");
-    if (!li) return;
-    e.preventDefault();
-    state.sel = Number(li.dataset.i);
-    accept(true);
-  };
+  const list = candidates(text), c = list[pick] ?? "";
+  $("#ghost").innerHTML = !c ? ""
+    : c.startsWith(text) ? `<span class="typed">${esc(text)}</span><span class="rest">${esc(c.slice(text.length))}  ⇥</span>`
+    : `<span class="typed">${esc(text)}</span><span class="other">${esc(c)}  ⇥</span>`;
+  const o = outcome(text), what = $("#what");
+  what.className = `what${o?.err ? " err" : ""}`;
+  what.innerHTML = !o ? "" : o.err ? o.err : o.text ? `<span class="${o.kind === "new" ? "new" : ""}">${o.text}</span>` : "";
+  $("#box").classList.toggle("invalid", Boolean(o?.err));
 }
-/* Tab completes: the highlighted row if it extends the text, else the first row that does. */
-function completion(list = suggestions()) {
-  const t = state.text, s = list[state.sel];
-  if (s && s.kind !== "sep" && s.kind !== "new" && s.name !== t) return s.name;
-  return list.find((x) => x.kind !== "sep" && x.kind !== "new" && x.name !== t && x.name.startsWith(t))?.name ?? "";
-}
-function keys(e) {
-  const list = suggestions(), sel = selectable(list);
-  const at = sel.indexOf(state.sel);
-  if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+function fieldKeys(e) {
+  const list = candidates(text);
+  if ((e.key === "ArrowDown" || e.key === "ArrowUp") && list.length) {
     e.preventDefault();
-    if (sel.length) state.sel = sel[(at + (e.key === "ArrowDown" ? 1 : -1) + sel.length) % sel.length];
+    pick = (pick + (e.key === "ArrowDown" ? 1 : -1) + list.length) % list.length;
     render();
-    $(`#s${state.sel}`)?.scrollIntoView({ block: "nearest" });
-  } else if (e.key === "Tab" && !e.shiftKey && completion(list)) {
+  } else if (e.key === "Tab" && !e.shiftKey && list[pick]) {
     e.preventDefault();
-    complete(completion(list));
+    const input = $("#branch");
+    input.value = text = list[pick];
+    pick = 0; render();
+    input.setSelectionRange(text.length, text.length);
+  } else if (e.key === "ArrowLeft" && !text) {
+    e.preventDefault(); endField(); $("#nw-item").focus();
   } else if (e.key === "Enter") {
     e.preventDefault();
-    accept(false);
-  } else if (e.key === "Escape") {
-    e.preventDefault();
-    closeDialog();
+    const o = outcome(text);
+    if (o && !o.err && o.text) create(text, o);
   }
 }
-function complete(name) {
-  const input = $("#branch");
-  input.value = state.text = name;
-  state.sel = 0;
-  render();
-  input.setSelectionRange(name.length, name.length);
-}
-/* Enter on a prefix fills it in; on a branch it creates or opens. */
-function accept(fromPointer) {
-  const t = target();
-  if (!t) return;
-  if (t.kind === "prefix") { complete(t.name); $("#branch").focus(); return; }
-  if (problem(t.name)) return;
-  if (state.agent === "codex" && $("#m-disc").value === "1" && !state.ack) { $("#ack").focus(); return; }
-  const agent = AGENTS.find((a) => a.id === state.agent);
-  $("#extra").innerHTML = `<div class="busy" role="status">${t.kind === "checked" ? `Opening ${t.wt}…` : t.kind === "new" ? `Creating ${t.name} from ${REPOS[state.repo].head}…` : `Checking out ${t.name}…`}</div>`;
-  $("#sugg").hidden = true;
+
+/* Step 2: the worktree exists; its launchers follow in the same place. */
+function create(branch, o) {
   $("#branch").disabled = true;
+  $("#what").innerHTML = o.kind === "open" ? `Opening ${REPO.local[branch]}…` : o.kind === "new" ? `Creating from ${REPO.head}…` : "Checking out…";
   setTimeout(() => {
-    closeDialog();
-    const group = [...document.querySelectorAll(".group")].find((g) => g.textContent.startsWith(state.repo));
-    document.querySelectorAll(".srow.new").forEach((r) => r.classList.remove("new"));
-    group.insertAdjacentHTML("afterend", `<div class="srow new"><span class="light working"></span><span class="badge">${agent.mark}</span><div class="lines"><div class="top">${t.name}</div><div class="reason">Starting</div></div></div>`);
-    const tile = document.querySelectorAll(".tile")[1];
-    document.querySelectorAll(".tile").forEach((x) => x.classList.remove("focus"));
-    tile.classList.add("focus");
-    tile.querySelector(".tb").innerHTML = `<span class="no">2</span>${t.name}`;
-    tile.querySelector(".term").innerHTML = `<b>${agent.id === "shell" ? "$" : agent.label}</b>`;
-  }, 600);
+    const where = o.kind === "open" ? `in ${REPO.local[branch]}` : o.kind === "new" ? `new, from ${REPO.head}` : o.kind === "origin" ? "tracking origin" : "existing";
+    if (o.kind !== "open") {
+      REPO.local[branch] = `foom-${branch.split("/").pop()}`;
+      worktrees.push([branch, null]);
+    }
+    fresh = branch;
+    tree();
+    $("#repo-row").classList.add("open");
+    $("#nw").innerHTML = `<div class="made"><span class="ok" aria-hidden="true">✓</span>${esc(branch)}<span class="what">${where}</span></div>
+      <div class="launch" role="menu" aria-label="Start in ${esc(branch)}">
+        ${AGENTS.map((ag) => `<button role="menuitem" data-a="${ag.id}" ${ag.missing ? "disabled" : ""}><span class="badge">${ag.mark}</span>${ag.label}${ag.missing ? '<span class="k">not found</span>' : ""}</button>`).join("")}
+      </div><div id="disc"></div>`;
+    const bs = [...document.querySelectorAll(".launch button:not(:disabled)")];
+    const disclose = () => {
+      const need = document.activeElement?.dataset?.a === "codex" && $("#m-disc").value === "1";
+      if (need && $("#ack")) return;
+      $("#disc").innerHTML = need ? '<label class="disclose"><input type="checkbox" id="ack">Foom replaces your Codex notifier for this launch. Your global config is unchanged.</label>' : "";
+    };
+    $(".launch").addEventListener("focusin", disclose);
+    bs[0].focus();
+    $(".launch").addEventListener("keydown", (e) => {
+      const i = bs.indexOf(document.activeElement);
+      if (e.key === "ArrowDown") { e.preventDefault(); bs[(i + 1) % bs.length].focus(); }
+      if (e.key === "ArrowUp") { e.preventDefault(); bs[(i - 1 + bs.length) % bs.length].focus(); }
+    });
+    $(".launch").addEventListener("click", (e) => {
+      const b = e.target.closest("button[data-a]");
+      if (!b) return;
+      if (b.dataset.a === "codex" && $("#ack") && !$("#ack").checked) { $("#ack").focus(); return; }
+      launch(AGENTS.find((ag) => ag.id === b.dataset.a), branch);
+    });
+  }, 500);
+}
+function launch(agent, branch) {
+  launched = agent;
+  closePanel();
+  tree();
+  const t = $("#t2");
+  document.querySelectorAll(".tile").forEach((x) => x.classList.remove("focus"));
+  t.classList.add("focus");
+  t.querySelector(".tb").innerHTML = `<span class="no">2</span>${esc(branch)}`;
+  t.querySelector(".term").innerHTML = `<b>${agent.id === "shell" ? "$" : agent.label}</b>`;
 }
 
-/* Chip popovers */
-function closePop() {
-  const p = $("#pop");
-  if (!p) return;
-  $(`#${p.dataset.owner}`)?.setAttribute("aria-expanded", "false");
-  p.remove();
-}
-function popover(which) {
-  if ($("#pop")?.dataset.owner === `${which}-chip`) { closePop(); return; }
-  closePop();
-  const chip = $(`#${which}-chip`), r = chip.getBoundingClientRect(), a = app.getBoundingClientRect();
-  const items = which === "repo"
-    ? Object.keys(REPOS).map((id) => `<button role="menuitemradio" aria-checked="${id === state.repo}" data-v="${id}"><span class="label">${id}</span><span class="k">${REPOS[id].head}</span></button>`).join("") + '<hr><button data-v="add">Add repository…</button>'
-    : AGENTS.map((ag) => `<button role="menuitemradio" aria-checked="${ag.id === state.agent}" data-v="${ag.id}" ${ag.missing ? "disabled" : ""}><span class="badge">${ag.mark}</span><span class="label">${ag.label}</span>${ag.missing ? '<span class="k">not found</span>' : ""}</button>`).join("");
-  app.insertAdjacentHTML("beforeend", `<div class="pop" id="pop" role="menu" data-owner="${which}-chip">${items}</div>`);
-  const pop = $("#pop");
-  pop.style.top = `${r.bottom - a.top + 6}px`;
-  pop.style.left = which === "repo" ? `${r.left - a.left}px` : `${r.right - a.left - 220}px`;
-  chip.setAttribute("aria-expanded", "true");
-  pop.querySelector("button:not(:disabled)").focus();
-  pop.addEventListener("click", (e) => {
-    const b = e.target.closest("button[data-v]");
-    if (!b) return;
-    if (which === "repo" && b.dataset.v !== "add") { state.repo = b.dataset.v; state.sel = 0; }
-    if (which === "agent") state.agent = b.dataset.v;
-    closePop(); render(); $("#branch").focus();
-  });
-  pop.addEventListener("keydown", (e) => {
-    const bs = [...pop.querySelectorAll("button:not(:disabled)")], i = bs.indexOf(document.activeElement);
-    if (e.key === "ArrowDown") { e.preventDefault(); bs[(i + 1) % bs.length].focus(); }
-    if (e.key === "ArrowUp") { e.preventDefault(); bs[(i - 1 + bs.length) % bs.length].focus(); }
-    if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); closePop(); chip.focus(); }
-  });
-}
-document.addEventListener("pointerdown", (e) => { if ($("#pop") && !e.target.closest(".pop, .chip")) closePop(); });
+document.addEventListener("pointerdown", (e) => { if (panelOpen() && !e.target.closest(".panel, #more")) closePanel(); });
 document.addEventListener("keydown", (e) => {
-  if ((e.metaKey || (e.ctrlKey && e.shiftKey)) && e.code === "KeyT") { e.preventDefault(); openDialog(); }
+  if ((e.metaKey || (e.ctrlKey && e.shiftKey)) && e.code === "KeyT") { e.preventDefault(); openPanel(true); }
 });
-
-/* Entry points and mock controls */
-$("#list").addEventListener("click", (e) => { const b = e.target.closest("[data-open]"); if (b) openDialog(b.dataset.open); });
-$("#m-open").addEventListener("click", () => openDialog());
-$("#m-disc").addEventListener("change", () => { if (state.open) render(); });
+$("#m-reset").addEventListener("click", () => location.reload());
 $("#m-theme").addEventListener("change", (e) => { if (e.target.value) document.documentElement.dataset.theme = e.target.value; else delete document.documentElement.dataset.theme; });
-openDialog("foom");
+tree();
+openPanel(true);
 </script>
 </body>
 </html>
