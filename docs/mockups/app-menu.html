@@ -190,7 +190,7 @@ button { font: inherit; color: inherit; cursor: pointer; }
   <div class="mock" aria-label="Mockup controls">
     <label>Platform <select id="m-plat"><option value="lin">Linux / Windows</option><option value="mac">macOS</option></select></label>
     <label>Build <select id="m-dev"><option value="0">Everyday</option><option value="1">Foom Dev</option></select></label>
-    <label>Planned <select id="m-plan"><option value="landed">Landed</option><option value="greyed">Greyed</option><option value="hidden">Hidden</option></select></label>
+    <label>Planned <select id="m-plan"><option value="landed">Landed</option><option value="greyed">Disabled (today)</option></select></label>
     <label>Theme <select id="m-theme"><option value="">System</option><option value="light">Light</option><option value="dark">Dark</option></select></label>
   </div>
 </div>
@@ -213,8 +213,6 @@ const MENU = () => [
   { id: "add-repo", label: "Add repository…" },
   { id: "orchestrator", label: "New orchestrator…", planned: 155 },
   "-",
-  // Until #84 lands, Settings has one route and is a plain command.
-  state.planned === "hidden" ? { id: "via-ui", label: "Settings", key: K("Ctrl+Shift+,", "⌘,") } :
   { id: "settings", label: "Settings", sub: [
     ...AGENTS.map((a) => ({ id: `via-${a.id}`, label: `Via ${a.label}`, mark: a.mark, planned: 84 })),
     "-",
@@ -232,8 +230,7 @@ const MENU = () => [
   "-",
   { id: "quit", label: "Quit Foom", key: K("Ctrl+Shift+Q", "⌘Q") },
 ];
-const visible = (items) => items.filter((i) => i === "-" || state.planned !== "hidden" || !i.planned)
-  .filter((i, n, all) => i !== "-" || (n > 0 && all[n - 1] !== "-"));
+const visible = (items) => items.filter((i, n, all) => i !== "-" || (n > 0 && all[n - 1] !== "-"));
 
 /* Wordmark */
 function renderWordmark() {
@@ -251,7 +248,7 @@ function itemHTML(i, n) {
   if (i.kind === "size") return `<div class="size" role="group" aria-label="Interface size"><span class="menu-label">Size</span><button class="step" data-step="-1" aria-label="Smaller interface" title="Smaller interface (${state.plat === "mac" ? "⌘−" : "Ctrl+Shift+−"})">−</button><output aria-live="polite">${state.size}%</output><button class="step" data-step="1" aria-label="Bigger interface" title="Bigger interface (${state.plat === "mac" ? "⌘+" : "Ctrl+Shift+="})">+</button></div>`;
   const hint = i.key ? `<span class="hint">${i.key[state.plat]}</span>` : "";
   const off = i.planned && state.planned === "greyed";
-  const tag = off ? `<span class="planned">#${i.planned}</span>` : "";
+  const tag = "";
   const mark = i.mark ? `<span class="badge" aria-hidden="true">${i.mark}</span>` : "";
   const more = i.sub ? CHEV_RIGHT : "";
   return `<button class="item" role="menuitem" data-id="${i.id}" ${i.sub ? 'aria-haspopup="menu" aria-expanded="false"' : ""} ${off ? "disabled" : ""}>${mark}<span class="menu-label">${i.label}</span>${tag}${hint}${more}</button>`;
@@ -410,7 +407,7 @@ function shortcuts() {
   overlay(`<h2>Keyboard shortcuts<span>Esc</span></h2><div class="cols">${groups.map(([g, lead, rows]) => `<div><h4>${g}${lead ? ` <span class="lead">${lead}</span>` : ""}</h4><dl>${rows.map(([a, b]) => `<dt>${a}</dt><dd>${b}</dd>`).join("")}</dl></div>`).join("")}</div>`, "");
 }
 function about() {
-  overlay(`<h1 class="wordmark"><span aria-hidden="true">fo<span class="wordmark-hole"></span>m</span></h1><p>0.1.0-nightly.20261009 · Electron 38</p><p>Apache-2.0</p><div class="links"><button class="btn">Third-party licenses</button><button class="btn">GitHub</button></div>${state.planned === "greyed" ? '<p style="margin-top:12px"><span class="planned">screen is #96; native panel until then</span></p>' : ""}`, "about");
+  overlay(`<h1 class="wordmark"><span aria-hidden="true">fo<span class="wordmark-hole"></span>m</span></h1><p>0.1.0-nightly.20261009 · Electron 38</p><p>Apache-2.0</p><div class="links"><button class="btn">Third-party licenses</button><button class="btn">GitHub</button></div>`, "about");
 }
 document.addEventListener("keydown", (e) => {
   if (e.key === "Escape") {
