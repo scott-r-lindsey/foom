@@ -176,15 +176,18 @@ export function createAppSource(): BoardSource {
         ...(entry.dormant
           ? { state: "quiet_ok", reason: "Exited · saved session", seen: false }
           : {}),
-        branch: entry.home
-          ? "~"
-          : ((checkout ? checkout.branch : entry.branch) ??
-            `⏣ ${checkout?.head?.slice(0, 7) ?? "Unknown"}`),
+        branch: entry.config
+          ? "Foom config"
+          : entry.home
+            ? "~"
+            : ((checkout ? checkout.branch : entry.branch) ??
+              `⏣ ${checkout?.head?.slice(0, 7) ?? "Unknown"}`),
         home: entry.home === true,
+        config: entry.config === true,
         startedAt: entry.startedAt,
         exitCode: entry.exitCode,
         launchFlags: entry.launchFlags,
-        worktreeRemoved: !entry.home && (!checkout || checkout.prunable),
+        worktreeRemoved: !entry.home && !entry.config && (!checkout || checkout.prunable),
         exited: entry.exited ?? exits.has(entry.id),
         bypass: entry.bypass === true,
         conversationId: entry.conversationId,
@@ -361,6 +364,11 @@ export function createAppSource(): BoardSource {
     getSidebar: () => sidebar,
     shellName: () => shellName,
     homeShell: () => home,
+    config: {
+      status: () => window.desktop.configStatus(),
+      subscribe: (listener) => window.desktop.onConfigChange(listener),
+      openFolder: () => window.desktop.openConfigFolder(),
+    },
     panelFacts: (repository, worktree) => window.desktop.panelFacts(repository, worktree),
     sidebarCommand: async (command) => {
       if ("id" in command && command.id === shellId && command.kind === "restart") {

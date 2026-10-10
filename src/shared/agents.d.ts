@@ -41,6 +41,11 @@ export interface AgentLaunch {
   /** Main-only identity of an explicitly selected existing checkout. */
   readonly checkoutIdentity?: string;
   readonly sharedCheckout?: boolean;
+  /**
+   * Main-only: a Foom config session. `worktree` is the config folder, no worktree or
+   * control grant is involved, and this bundled CLI directory is prepended to PATH.
+   */
+  readonly configCli?: string;
   readonly agent: AgentId;
   readonly repository: string;
   readonly worktree: string;

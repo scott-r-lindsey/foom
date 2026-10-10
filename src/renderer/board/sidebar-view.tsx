@@ -2,6 +2,8 @@ import { PanelIntent } from "./panel-intent";
 import { PanelFacts, PanelTitle } from "./panel-facts";
 import type { PanelSubject } from "./panel-facts";
 import { AgentBadge } from "./agent-badge";
+import { PanelMark } from "./panel-glyphs";
+import type { ConfigStatus } from "../../shared/foom-config";
 import { AppMenu } from "./app-menu";
 import { useCallback, useEffect, useLayoutEffect, useState, useSyncExternalStore } from "react";
 import type { RefObject, ReactNode, CSSProperties } from "react";
@@ -65,6 +67,7 @@ export function Sidebar({
   otherViews,
   refused,
   clearRefusal,
+  openSettings,
 }: {
   source: BoardSource;
   dragging?: boolean;
@@ -86,11 +89,29 @@ export function Sidebar({
   tileNumbers?: ReadonlyMap<string, { number: number; focused: boolean }>;
   refused?: string | undefined;
   clearRefusal?: () => void;
+  openSettings?: (section: "config") => void;
 }) {
   const [now] = useState(Date.now);
   const [filter, setFilter] = useState("");
   const [error, setError] = useState("");
   const [intent] = useState(() => new PanelIntent());
+  const [configStatus, setConfigStatus] = useState<ConfigStatus>();
+  useEffect(() => {
+    const config = source.config;
+    if (!config) return;
+    let active = true;
+    void config.status().then(
+      (status) => {
+        if (active) setConfigStatus(status);
+      },
+      () => {},
+    );
+    const unsubscribe = config.subscribe(setConfigStatus);
+    return () => {
+      active = false;
+      unsubscribe();
+    };
+  }, [source]);
   const menu = useSyncExternalStore(intent.subscribe, intent.getSnapshot);
   useEffect(
     () => () => {
@@ -136,14 +157,15 @@ export function Sidebar({
     };
   }, []);
   const repositories = sidebarRepositories(
-    rows.filter((row) => !row.home),
+    rows.filter((row) => !row.home && !row.config),
     source.getSidebar?.() ??
       (source.getRepositories?.() ?? []).map((name) => ({ name, path: name, worktrees: [] })),
   );
   const homeRows = rows.filter((row) => row.home);
+  const configRows = rows.filter((row) => row.config);
   const compact = narrow && rows.length > 0;
   const { tree, hiddenNeeds } = buildSidebar(
-    rows.filter((row) => !row.home),
+    rows.filter((row) => !row.home && !row.config),
     repositories,
     preferences,
     compact ? "" : filter,
@@ -172,6 +194,12 @@ export function Sidebar({
     name: `${source.shellName?.() ?? "Shell"} ~`,
     kind: "Home shell",
     mark: ">_",
+  });
+  subjects.set("config", {
+    subject: { kind: "config", status: configStatus, rows: configRows },
+    name: "Foom config",
+    kind: "Settings folder",
+    mark: "config",
   });
   for (const repository of repositories) {
     subjects.set(repositoryKey(repository.path), {
@@ -596,7 +624,73 @@ export function Sidebar({
               )}
             </div>
           )}
+          {!compact && configStatus && (
+            <div
+              role="treeitem"
+              aria-label="Foom config"
+              aria-expanded={preferences.expanded["config"] !== false}
+            >
+              <div className="tree-row home-row config-row" {...rowEvents("config")}>
+                <button
+                  type="button"
+                  className="tree-chevron"
+                  aria-label="Toggle Foom config sessions"
+                  onClick={() => {
+                    toggle("config", preferences.expanded["config"] !== false);
+                  }}
+                >
+                  {preferences.expanded["config"] !== false ? "▾" : "▸"}
+                </button>
+                <button
+                  type="button"
+                  data-nav
+                  className="tree-name"
+                  onClick={(event) => {
+                    intent.pin("config", event.currentTarget);
+                  }}
+                >
+                  <PanelMark mark="config" />
+                  Foom config
+                </button>
+                {configStatus.pending && (
+                  <span className="panel-chip" data-tone="needs">
+                    Needs you
+                  </span>
+                )}
+                {configStatus.rejected > 0 && (
+                  <span className="panel-chip" data-tone="failed">
+                    {configStatus.rejected} rejected
+                  </span>
+                )}
+                {actions("config", "Foom config", [
+                  ...launcherActions(options, source.shellName?.()).map((action) => ({
+                    ...action,
+                    run: () => command({ kind: "config-launch", run: action.run }),
+                  })),
+                  null,
+                  ...(openSettings
+                    ? [
+                        {
+                          label: "Open Foom config settings",
+                          run: () => {
+                            openSettings("config");
+                          },
+                        },
+                      ]
+                    : []),
+                  {
+                    label: "Open folder",
+                    run: () => source.config?.openFolder(),
+                  },
+                ])}
+              </div>
+              {preferences.expanded["config"] !== false && (
+                <div role="group">{configRows.map(session)}</div>
+              )}
+            </div>
+          )}
           {compact && homeRows.map(session)}
+          {compact && configRows.map(session)}
           {compact
             ? tree
                 .flatMap((repo) => repo.worktrees.flatMap((worktree) => worktree.sessions))

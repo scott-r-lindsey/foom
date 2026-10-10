@@ -3,7 +3,7 @@ import { ChildProcess, execFile } from "node:child_process";
 import { statSync } from "node:fs";
 import { access, stat } from "node:fs/promises";
 import { homedir, userInfo } from "node:os";
-import { join } from "node:path";
+import { delimiter, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type * as McpLaunch from "../../../../src/main/agents/mcp-launch";
 import { prepareMcpLaunch } from "../../../../src/main/agents/mcp-launch";
@@ -747,4 +747,24 @@ it("launches an external checkout without a creation record", async () => {
   await service.launch(request);
   expect(launchIdentity).toHaveBeenCalledWith(root, tree);
   expect(create).toHaveBeenCalledWith(expect.objectContaining({ cwd: tree }));
+});
+
+it("config launches skip worktree and control, keep hooks and put the CLI on PATH", async () => {
+  const control = vi.fn(() => Promise.resolve({ env: {}, bind: vi.fn(), dispose: vi.fn() }));
+  service = new AgentService({ listWorktrees, launchIdentity }, { create }, prepare, control);
+  const config = "/home/.foom/config";
+  await service.launch({
+    ...request,
+    repository: config,
+    worktree: config,
+    configCli: "/app/console",
+  });
+  expect(listWorktrees).not.toHaveBeenCalled();
+  expect(launchIdentity).not.toHaveBeenCalled();
+  expect(control).not.toHaveBeenCalled();
+  const spec = create.mock.calls.at(-1)?.[0];
+  expect(spec?.cwd).toBe(config);
+  expect(spec?.args).toContain("--settings");
+  expect(spec?.env?.["PATH"]).toBe(`/app/console${delimiter}${root}`);
+  expect(spec?.env?.["FOOM_CONTROL_TOKEN"]).toBeUndefined();
 });

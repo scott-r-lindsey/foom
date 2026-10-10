@@ -41,6 +41,8 @@ export interface WorkspaceTerminal {
   /** Known bypass argument present at launch; does not infer global agent policy. */
   bypass?: boolean;
   home?: boolean;
+  /** Runs in the Foom config folder; `repository` and `worktree` are that folder. */
+  config?: boolean;
   startedAt?: number;
   exitCode?: number | undefined;
   launchFlags?: readonly string[];
@@ -117,6 +119,8 @@ export interface SidebarInventory {
 export type SidebarCommand =
   | { kind: "home-shell" }
   | { kind: "copy-home-path" }
+  | { kind: "config-launch"; run: AgentId | "shell" }
+  | { kind: "copy-config-path" }
   | { kind: "copy-worktree-path"; repository: string; worktree: string }
   | { kind: "launch"; repository: string; worktree: string; run: AgentId | "shell" }
   | { kind: "remove-worktree"; repository: string; worktree: string }

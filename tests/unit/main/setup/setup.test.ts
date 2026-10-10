@@ -280,3 +280,10 @@ test("Codex sandbox full access requires the same one-time acknowledgement as it
   expect(confirm).toHaveBeenCalledTimes(2);
   expect(settings.agentBypassAcknowledged.codex).toBe(true);
 });
+
+test("refresh re-applies stored settings after a config file change", () => {
+  const setup = new Setup(deps);
+  apply.mockClear();
+  setup.refresh();
+  expect(apply).toHaveBeenCalledExactlyOnceWith(DEFAULT_SETTINGS);
+});

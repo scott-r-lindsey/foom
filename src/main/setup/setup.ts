@@ -45,6 +45,11 @@ export class Setup {
     deps.apply(deps.store.get());
   }
 
+  /** Re-applies stored settings, for example after a validated config file change. */
+  refresh(): void {
+    this.deps.apply(this.deps.store.get());
+  }
+
   state(): Promise<SetupState> {
     return Promise.resolve({
       ...(this.deps.themes ? { themes: this.deps.themes() } : {}),

@@ -278,3 +278,112 @@
   font-size: 10px;
   white-space: nowrap;
 }
+
+/* Settings → Foom config. Amber marks only the held change; magenta only rejections. */
+.config-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.config-controls h3 {
+  margin: 0;
+  font-size: 14px;
+}
+.config-folder {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+.config-folder code {
+  font: 14px var(--mono, monospace);
+  overflow-wrap: anywhere;
+}
+.config-note {
+  margin: 0;
+  color: var(--muted);
+}
+.config-pending {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 16px;
+  background: var(--surface);
+  border: 1px solid var(--attention);
+  border-radius: 8px;
+}
+.config-pending > div {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.config-pending h3 {
+  color: var(--attention-ink);
+}
+.config-pending small,
+.config-change small {
+  font: 12px var(--mono, monospace);
+  color: var(--muted);
+}
+.config-changes {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  overflow: hidden;
+}
+.config-change {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 10px 14px;
+  background: var(--surface);
+}
+.config-change + .config-change {
+  border-top: 1px solid var(--line);
+}
+.config-change time {
+  width: 34px;
+  font: 11px var(--mono, monospace);
+  color: var(--muted);
+}
+.config-change-text {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  font-size: 13px;
+  min-width: 0;
+}
+.config-status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+}
+.config-light {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--done, var(--muted));
+}
+.config-change[data-state="rejected"] .config-light {
+  border-radius: 1px;
+  background: var(--failed);
+}
+.config-change[data-state="rejected"] .config-status {
+  color: var(--failed-ink);
+}
+.config-change[data-state="pending"] .config-light {
+  background: var(--attention);
+}
+.config-change[data-state="pending"] .config-status {
+  color: var(--attention-ink);
+}
+.config-revert {
+  width: 64px;
+}
+.config-row .panel-chip {
+  margin-inline-start: 4px;
+  font-size: 11px;
+}
