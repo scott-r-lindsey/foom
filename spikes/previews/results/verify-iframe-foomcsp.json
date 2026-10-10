@@ -9,19 +9,19 @@
   "previewRequests": 0,
   "cspEvents": [
     {
-      "t": 305,
+      "t": 308,
       "kind": "board-csp",
-      "message": "Framing 'foom-preview://baaac2b0dd3efd928cdeca52fd81b3dd/' violates the following Content Security Policy directive: \"default-src 'none'\". The request has been blocked. Note that 'frame-src' was not e"
+      "message": "Framing 'foom-preview://5c5dfbaad427fc9d0a5abc451640e089/' violates the following Content Security Policy directive: \"default-src 'none'\". The request has been blocked. Note that 'frame-src' was not e"
     },
     {
-      "t": 306,
+      "t": 309,
       "kind": "board-csp",
-      "message": "Framing 'foom-preview://53de4aad04192306674119f5b0eb7870/' violates the following Content Security Policy directive: \"default-src 'none'\". The request has been blocked. Note that 'frame-src' was not e"
+      "message": "Framing 'foom-preview://7f5253f3257d03d3f2f22dd7f89a37a6/' violates the following Content Security Policy directive: \"default-src 'none'\". The request has been blocked. Note that 'frame-src' was not e"
     },
     {
-      "t": 307,
+      "t": 309,
       "kind": "board-csp",
-      "message": "Framing 'foom-preview://c889a7c2b9e98fb87f2f93c44afc6e4b/' violates the following Content Security Policy directive: \"default-src 'none'\". The request has been blocked. Note that 'frame-src' was not e"
+      "message": "Framing 'foom-preview://205d70c1e787a2ab40105a2126017315/' violates the following Content Security Policy directive: \"default-src 'none'\". The request has been blocked. Note that 'frame-src' was not e"
     }
   ]
 }

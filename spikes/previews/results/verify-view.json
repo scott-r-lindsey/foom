@@ -8,7 +8,7 @@
   "hostile": {
     "alert": {
       "ok": true,
-      "value": "returned in 1ms"
+      "value": "returned in 0ms"
     },
     "beacon": {
       "ok": true,
@@ -90,7 +90,7 @@
       "ok": true,
       "value": "denied"
     },
-    "origin": "foom-preview://f4d18375866c388b37aaa1d21b84ac90",
+    "origin": "foom-preview://c389b0d40320dab97a31759ff4325bd1",
     "otherOrigin": {
       "error": "TypeError",
       "ok": false
@@ -165,7 +165,7 @@
     },
     "topHref": {
       "ok": true,
-      "value": "foom-preview://f4d18375866c388b37aaa1d21b84ac90/hostile/hostile.html?port=34163&other=0afb3f2951ef42c618402631e4f703de"
+      "value": "foom-preview://c389b0d40320dab97a31759ff4325bd1/hostile/hostile.html?port=36091&other=592c2375812c9829480dde64062d53e5"
     },
     "topIsSelf": true,
     "websocket": {
@@ -180,14 +180,14 @@
   "storageVisibleToOtherPreview": null,
   "markdown": {
     "hrefs": [
-      "http://127.0.0.1:34163/md-iframe",
+      "http://127.0.0.1:36091/md-iframe",
       "../../../../etc/hostname",
       "../demo/other.md",
       "https://example.com"
     ],
     "iframes": 0,
     "images": [
-      "http://127.0.0.1:34163/md-image"
+      "http://127.0.0.1:36091/md-image"
     ],
     "javascriptLinks": 0,
     "onHandlers": 0,
@@ -201,27 +201,27 @@
   },
   "mdLinkNavigation": "Other page",
   "navigation": {
-    "finalUrl": "foom-preview://<id>/hostile/nav.html?port=34163",
+    "finalUrl": "foom-preview://<id>/hostile/nav.html?port=36091",
     "title": "nav-done",
     "boardUrl": "spike-app://board/index.html",
     "windows": 1,
     "guard": [
       {
         "kind": "navigation-blocked",
-        "url": "http://127.0.0.1:34163/nav",
+        "url": "http://127.0.0.1:36091/nav",
         "isMainFrame": true
       },
       {
         "kind": "external-request",
-        "url": "http://127.0.0.1:34163/nav"
+        "url": "http://127.0.0.1:36091/nav"
       },
       {
         "kind": "window-open-denied",
-        "url": "http://127.0.0.1:34163/popup"
+        "url": "http://127.0.0.1:36091/popup"
       },
       {
-        "kind": "external-request",
-        "url": "http://127.0.0.1:34163/popup"
+        "kind": "external-dropped",
+        "url": "http://127.0.0.1:36091/popup"
       },
       {
         "kind": "window-open-denied",
@@ -245,21 +245,21 @@
       },
       {
         "kind": "navigation-blocked",
-        "url": "http://127.0.0.1:34163/top",
+        "url": "http://127.0.0.1:36091/top",
         "isMainFrame": true
       },
       {
-        "kind": "external-request",
-        "url": "http://127.0.0.1:34163/top"
+        "kind": "external-dropped",
+        "url": "http://127.0.0.1:36091/top"
       },
       {
         "kind": "navigation-blocked",
-        "url": "http://127.0.0.1:34163/refresh",
+        "url": "http://127.0.0.1:36091/refresh",
         "isMainFrame": true
       },
       {
-        "kind": "external-request",
-        "url": "http://127.0.0.1:34163/refresh"
+        "kind": "external-dropped",
+        "url": "http://127.0.0.1:36091/refresh"
       },
       {
         "kind": "navigation-blocked",
@@ -284,27 +284,31 @@
   },
   "liveReload": {
     "directWrite": {
-      "ms": 157,
+      "ms": 153,
       "reloads": 1
     },
     "scrollAfterReload": 1200,
     "atomicRename": {
-      "ms": 172,
+      "ms": 254,
       "reloads": 1
     },
     "burst20": {
-      "ms": 333,
+      "ms": 369,
       "reloads": 1
     },
     "assetCss": {
-      "ms": 176,
+      "ms": 175,
       "reloads": 1
     },
     "deleteThenCreate": {
-      "ms": 302,
+      "ms": 303,
       "reloads": 2
     },
     "titleAfter": "HTML preview"
+  },
+  "symlinkReload": {
+    "ms": 175,
+    "heading": "Replaced link"
   },
   "screenshots": {
     "normal": "spikes/previews/results/view-tiles.png",
@@ -312,12 +316,12 @@
     "panel": "spikes/previews/results/view-panel.png"
   },
   "snapshotMs": [
-    17,
-    9,
-    7,
-    18,
-    17,
-    19
+    26,
+    11,
+    21,
+    6,
+    11,
+    22
   ],
   "network": {
     "serverConnections": 0,
@@ -331,6 +335,8 @@
     "permission-request:geolocation"
   ],
   "blockedRequests": 0,
+  "externalPrompts": 3,
+  "externalDropped": 4,
   "downloadsBlocked": 1,
   "serveRefusals": [
     "404 missing /hostile/blank.txt",
@@ -343,7 +349,8 @@
     "400 hidden /.env",
     "400 hidden /.git/config",
     "413 too-large /big.bin",
-    "404 missing /demo/page.html"
+    "404 missing /demo/page.html",
+    "404 missing /logo.svg"
   ],
   "watchersBeforeClose": 1,
   "watchersAfterClose": 0

@@ -115,7 +115,7 @@ Across both runs, the local counting server saw **0 TCP connections**. The probe
 
 **Permissions:** every request and check is denied: notifications `denied`, camera and clipboard read `NotAllowedError`, geolocation error. `alert()` returns immediately (`disableDialogs`).
 
-**Links:** five of the blocked navigations (including the meta refresh and scripted `location`) would have offered "open externally". Page script can trigger these without a click, so: always confirm, show the full URL, allow only `https:`/`http:`/`mailto:`, keep at most one prompt at a time per preview, and drop requests while one is open. A user-gesture check is not available on `will-frame-navigate`. Do not open without confirming.
+**Links:** page script can request "open externally" without a click (meta refresh, scripted `location`, `window.open`), and `will-frame-navigate` offers no user-gesture check. So: always confirm, show the full URL, allow only `https:`/`http:`/`mailto:`, keep at most one confirmation open per preview, and drop requests made while one is pending. The prototype does this. In the navigation fixture, 2 confirmations opened and 3 requests were dropped while one was pending. Never open a link without confirming.
 
 ## 5. Markdown
 
@@ -141,16 +141,19 @@ The main process watches **only what the page loaded.** The protocol handler rec
 
 Debounce: 120 ms trailing with a 1 s maximum wait, so a long burst cannot starve the preview. Before reloading, main reads `[scrollX, scrollY]` in an isolated world (the page cannot spoof it), validates it, and restores it after `did-finish-load`.
 
-| Change to `page.html` / `style.css` | Write to visible reload | Reloads |
+The handler also watches the name the page requested when it differs from the resolved target. Replacing or retargeting a symlink changes that directory entry, not the old target.
+
+| Change | Write to visible reload | Reloads |
 |---|---|---|
-| Direct write | 157 ms | 1 |
-| Atomic rename (write `.tmp`, rename over) | 172 ms | 1 |
-| 20 writes at 10 ms intervals | 333 ms | 1 |
-| Stylesheet only | 176 ms | 1 |
-| Delete, then recreate 300 ms later | 302 ms | 2 (404 page, then the page) |
+| Direct write to `page.html` | 153 ms | 1 |
+| Atomic rename (write `.tmp`, rename over) | 254 ms | 1 |
+| 20 writes at 10 ms intervals | 369 ms | 1 |
+| `style.css` only | 175 ms | 1 |
+| Delete, then recreate 300 ms later | 303 ms | 2 (404 page, then the page) |
+| Symlink `inside-link.md` atomically replaced by a regular file | 175 ms | 1 |
 | Scroll position kept | 1200 px restored | |
 
-The iframe mode matched these within ±25 ms. Closing a preview closed its watcher (1 → 0) and cleared its storage. With six previews, watching costs one directory handle per distinct asset directory, typically 1–3 per page. Windows and macOS still need the same scenarios run; on Windows, a deleted watched directory raises an error, which the prototype handles by dropping the watch and reloading once.
+These are single runs, measured by polling the page every 100 ms. Across repeated runs and the iframe mode, individual values varied by up to 100 ms. Closing a preview closed its watcher (1 → 0) and cleared its storage. With six previews, watching costs one directory handle per distinct asset directory, typically 1–3 per page. Windows and macOS still need the same scenarios run; on Windows, a deleted watched directory raises an error, which the prototype handles by dropping the watch and reloading once.
 
 ## 7. Theme
 

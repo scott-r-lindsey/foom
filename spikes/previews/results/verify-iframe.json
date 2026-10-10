@@ -90,7 +90,7 @@
       "ok": true,
       "value": "denied"
     },
-    "origin": "foom-preview://bb27e834d8a1a4d42871196cf44b2b26",
+    "origin": "foom-preview://a3df976a6ccbc01eb620d7a37be125c6",
     "otherOrigin": {
       "error": "TypeError",
       "ok": false
@@ -180,14 +180,14 @@
   "storageVisibleToOtherPreview": null,
   "markdown": {
     "hrefs": [
-      "http://127.0.0.1:33827/md-iframe",
+      "http://127.0.0.1:35627/md-iframe",
       "../../../../etc/hostname",
       "../demo/other.md",
       "https://example.com"
     ],
     "iframes": 0,
     "images": [
-      "http://127.0.0.1:33827/md-image"
+      "http://127.0.0.1:35627/md-image"
     ],
     "javascriptLinks": 0,
     "onHandlers": 0,
@@ -208,7 +208,7 @@
     "guard": [
       {
         "kind": "navigation-expected",
-        "url": "foom-preview://<id>/hostile/nav.html?port=33827",
+        "url": "foom-preview://<id>/hostile/nav.html?port=35627",
         "isMainFrame": true
       },
       {
@@ -234,27 +234,31 @@
   },
   "liveReload": {
     "directWrite": {
-      "ms": 156,
+      "ms": 153,
       "reloads": 1
     },
     "scrollAfterReload": 1200,
     "atomicRename": {
-      "ms": 146,
+      "ms": 148,
       "reloads": 1
     },
     "burst20": {
-      "ms": 357,
+      "ms": 361,
       "reloads": 1
     },
     "assetCss": {
-      "ms": 149,
+      "ms": 254,
       "reloads": 1
     },
     "deleteThenCreate": {
-      "ms": 302,
+      "ms": 303,
       "reloads": 2
     },
     "titleAfter": "HTML preview"
+  },
+  "symlinkReload": {
+    "ms": 174,
+    "heading": "Replaced link"
   },
   "screenshots": {
     "normal": "spikes/previews/results/iframe-tiles.png",
@@ -271,6 +275,8 @@
     "permission-request:media"
   ],
   "blockedRequests": 0,
+  "externalPrompts": 0,
+  "externalDropped": 0,
   "downloadsBlocked": 0,
   "serveRefusals": [
     "404 missing /etc/hostname",
@@ -282,7 +288,8 @@
     "400 hidden /.env",
     "400 hidden /.git/config",
     "413 too-large /big.bin",
-    "404 missing /demo/page.html"
+    "404 missing /demo/page.html",
+    "404 missing /logo.svg"
   ],
   "watchersBeforeClose": 1,
   "watchersAfterClose": 0

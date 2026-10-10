@@ -66,6 +66,7 @@ class Preview {
     this.reloads = 0;
     this.view = undefined;
     this.expected = new Set();
+    this.prompting = false;
   }
   get url() {
     return `${this.origin}${this.entry}`;
@@ -166,8 +167,14 @@ function servePreview(request) {
   if (!preview || request.method !== "GET") return new Response("Not found", { status: 404 });
   if (url.pathname.startsWith("/__foom__/")) return runtimeAsset(url.pathname.slice(10));
   const result = readInside(preview.root, url.pathname);
-  if (result.status === 200) preview.watch(result.real);
-  else if (result.status === 404) {
+  if (result.status === 200) {
+    preview.watch(result.real);
+    // Also watch the name the page asked for: replacing or retargeting a
+    // symlink changes that directory entry, not the old target.
+    const parsed = segmentsFor(url.pathname);
+    const requested = parsed.segments && path.join(preview.root, ...parsed.segments);
+    if (requested && requested !== result.real && !parsed.directory) preview.watch(requested);
+  } else if (result.status === 404) {
     // Watch where a missing file would appear, so an agent's later write shows it.
     const parsed = segmentsFor(url.pathname);
     if (parsed.segments) {
@@ -230,12 +237,25 @@ function sameOrigin(preview, url) {
   }
 }
 
-function external(url) {
-  record("external-request", { url });
-  if (MODE !== "demo" || !/^https?:/i.test(url)) return;
-  void dialog
-    .showMessageBox(board, { type: "question", buttons: ["Open", "Cancel"], defaultId: 1, cancelId: 1, message: "Open link in your browser?", detail: url })
-    .then(({ response }) => response === 0 && shell.openExternal(url));
+/**
+ * Page script can request this without a click, so at most one confirmation is
+ * open per preview and requests made meanwhile are dropped, not queued.
+ */
+function external(preview, url) {
+  if (!/^(https?|mailto):/i.test(url)) return record("external-refused", { url: url.slice(0, 120) });
+  if (preview.prompting) return record("external-dropped", { url: url.slice(0, 120) });
+  record("external-request", { url: url.slice(0, 120) });
+  preview.prompting = true;
+  // Evidence runs stand in for the dialog with a one-second pending prompt.
+  const answer =
+    MODE === "demo"
+      ? dialog.showMessageBox(board, { type: "question", buttons: ["Open", "Cancel"], defaultId: 1, cancelId: 1, message: "Open link in your browser?", detail: url })
+      : sleep(1000).then(() => ({ response: 1 }));
+  void answer
+    .then(({ response }) => response === 0 && shell.openExternal(url))
+    .finally(() => {
+      preview.prompting = false;
+    });
 }
 
 /** Main frame: same-origin Markdown only. Subframes: same origin. Else external. */
@@ -247,7 +267,7 @@ function guardNavigation(preview, details, isMainFrame = details.isMainFrame) {
   record(allowed ? "navigation-allowed" : "navigation-blocked", { url: url.slice(0, 120), isMainFrame });
   if (allowed) return;
   details.preventDefault();
-  if (/^(https?|mailto):/i.test(url) && isMainFrame) external(url);
+  if (/^(https?|mailto):/i.test(url) && isMainFrame) external(preview, url);
 }
 
 const FOOM_SHORTCUT = (input) => input.type === "keyDown" && input.control && input.shift && input.key.toLowerCase() === "b";
@@ -276,7 +296,7 @@ function attachView(preview) {
   const wc = view.webContents;
   wc.setWindowOpenHandler(({ url }) => {
     record("window-open-denied", { url: url.slice(0, 120) });
-    if (/^https?:/i.test(url)) external(url);
+    if (/^https?:/i.test(url)) external(preview, url);
     return { action: "deny" };
   });
   wc.on("will-frame-navigate", (details) => guardNavigation(preview, details));
@@ -708,6 +728,27 @@ async function verify() {
   result.liveReload = await liveReload(other, root);
 
   step('// Composition:');
+  step("symlink reload");
+  result.symlinkReload = await (async () => {
+    const link = path.join(root, "inside-link.md");
+    try {
+      if (!fs.lstatSync(link).isSymbolicLink()) return "no symlinks";
+    } catch {
+      return "no symlinks";
+    }
+    md.entry = "/inside-link.md";
+    if (ISOLATION === "view") await md.view.webContents.loadURL(md.url);
+    else await setFrame(md, md.url);
+    await until(() => evaluate(md, "document.querySelector('h1')?.textContent === 'Preview demo'"), 4000);
+    const before = await evaluate(md, "performance.timeOrigin");
+    const started = performance.now();
+    // Atomically replace the link itself with a regular file; the old target is untouched.
+    fs.writeFileSync(`${link}.tmp`, "# Replaced link\n");
+    fs.renameSync(`${link}.tmp`, link);
+    await reloadedSince(md, before).catch(() => null);
+    return { ms: Math.round(performance.now() - started), heading: await evaluate(md, "document.querySelector('h1')?.textContent").catch(() => null) };
+  })();
+
   // Composition: board panel and scrim over the previews.
   result.screenshots = { normal: await screenshot(`${ISOLATION}-tiles`) };
   if (ISOLATION === "view") {
@@ -726,6 +767,8 @@ async function verify() {
   result.network = { serverConnections: server.connections, serverHits: server.hits };
   result.permissionEvents = [...new Set(events.filter((e) => e.kind.startsWith("permission")).map((e) => `${e.kind}:${e.permission}`))];
   result.blockedRequests = events.filter((e) => e.kind === "request-blocked").length;
+  result.externalPrompts = events.filter((e) => e.kind === "external-request").length;
+  result.externalDropped = events.filter((e) => e.kind === "external-dropped").length;
   result.downloadsBlocked = events.filter((e) => e.kind === "download-blocked").length;
   result.serveRefusals = events.filter((e) => e.kind === "serve" && e.status !== 200).map((e) => `${e.status} ${e.reason} ${e.path.slice(0, 60)}`);
 
