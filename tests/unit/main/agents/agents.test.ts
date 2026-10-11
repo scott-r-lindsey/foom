@@ -651,6 +651,50 @@ it("launches an orchestrator only with MCP and appends a child's prompt after ev
     versions.claude = previous;
   }
 });
+it.each([
+  { agent: "claude", hooks: false },
+  { agent: "claude", hooks: true },
+  { agent: "codex", hooks: false },
+  { agent: "codex", hooks: true },
+] as const)("delimits $agent child prompts with hooks=$hooks", async ({ agent, hooks }) => {
+  const previous = versions[agent];
+  versions[agent] = agent === "claude" ? "2.1.293 (Claude Code)" : "codex-cli 0.161.0";
+  help += "\n--mcp-config <configs...>\n--no-alt-screen";
+  const mcpArgs =
+    agent === "claude" ? ["--mcp-config", "/private/mcp.json"] : ["-c", "mcp_servers.foom={}"];
+  vi.mocked(prepareMcpLaunch).mockResolvedValue({ args: mcpArgs, dispose: vi.fn() });
+  service = new AgentService({ listWorktrees, launchIdentity }, { create }, prepare, () =>
+    Promise.resolve({
+      env: { FOOM_CONTROL_URL: "http://127.0.0.1:1234/control/v1" },
+      bind: vi.fn(),
+      dispose: vi.fn(),
+    }),
+  );
+  service.setHooksEnabled(hooks);
+  try {
+    for (const prompt of [undefined, "Write tests\nKeep $(command) literal"]) {
+      await service.launch({
+        ...request,
+        agent,
+        control: { parentId: "parent" },
+        ...(prompt === undefined ? {} : { prompt }),
+        acknowledgeCodexNotifierReplacement: true,
+      });
+      const args = create.mock.calls.at(-1)?.[0].args;
+      expect(args).toEqual(expect.arrayContaining(mcpArgs));
+      if (prompt === undefined) expect(args).not.toContain("--");
+      else
+        expect(args?.slice(-2)).toEqual([
+          "--",
+          `Task from your Foom orchestrator (another agent, not the user):\n\n${prompt}`,
+        ]);
+      expect(prepare).toHaveBeenCalledTimes(hooks ? (prompt === undefined ? 1 : 2) : 0);
+      service.release("terminal-id");
+    }
+  } finally {
+    versions[agent] = previous;
+  }
+});
 it.each(["denied", "spawn", "early-exit"])("cleans MCP launch on %s", async (mode) => {
   const previous = versions.claude;
   versions.claude = "2.1.293 (Claude Code)";
