@@ -1,3 +1,4 @@
+import type { BoardCommand } from "../../../../src/shared/board-command";
 // @vitest-environment jsdom
 import { act, cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
@@ -228,4 +229,41 @@ test("terminal state updates do not reconcile an unchanged view layout", async (
     await Promise.resolve();
   });
   expect(f.windows.sync).not.toHaveBeenCalled();
+});
+
+test("a config menu route focuses its visible tile without disturbing a full layout", async () => {
+  const f = fixture();
+  const a = f.rows[0],
+    b = f.rows[1];
+  if (!a || !b) throw new Error("Missing sessions");
+  f.source.update(a.id, { config: true });
+  const first = placeSession(initialLayout(), a.id);
+  if (!first) throw new Error("Missing first tile");
+  const layout = placeSession(splitTile(first, "horizontal"), b.id);
+  if (!layout) throw new Error("Missing second tile");
+  saveLayout(localStorage, layout, `${TILE_STORAGE}.test-window`);
+  let command: ((command: BoardCommand) => void) | undefined;
+  const source = {
+    ...f.source,
+    sidebarCommand: vi.fn(() => Promise.resolve()),
+    subscribeCommands: (listener: (command: BoardCommand) => void) => {
+      command = listener;
+      return () => {
+        command = undefined;
+      };
+    },
+  };
+  render(<Board source={source} />);
+  await act(async () => {
+    command?.("via-claude");
+    await Promise.resolve();
+  });
+  expect(source.sidebarCommand).toHaveBeenCalledWith({
+    kind: "config-launch",
+    run: "claude",
+    origin: "menu",
+  });
+  const saved = loadLayout(localStorage, `${TILE_STORAGE}.test-window`);
+  expect(saved.tree).toEqual(layout.tree);
+  expect(saved.focused).toBe(leaves(layout.tree)[0]?.id);
 });

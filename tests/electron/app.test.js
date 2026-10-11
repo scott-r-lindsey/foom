@@ -5080,12 +5080,15 @@ test("application menu uses the command registry and supports native keyboard ac
   const app = await launchApp(context);
   const page = await boardPage(app);
   const mac = process.platform === "darwin";
+  await page.evaluate(() =>
+    window.desktop.saveSetup({ agents: { claude: false, codex: false, agy: false } }),
+  );
   const entries = await page.evaluate(() => window.desktop.appMenu.commands());
   assert.ok(entries.some((entry) => entry?.id === "reload"));
   assert.equal(entries.find((entry) => entry?.id === "new-window").enabled, true);
-  // Disabled entries are refused through IPC as well as in the menu.
+  // Planned entries are refused through IPC as well as in the menu.
   await assert.rejects(
-    page.evaluate(() => window.desktop.appMenu.execute("via-claude")),
+    page.evaluate(() => window.desktop.appMenu.execute("new-orchestrator")),
     /Unavailable app command/,
   );
   if (process.platform === "darwin") {
@@ -6650,4 +6653,103 @@ test("restored exited sessions hide the unattached terminal until restarted", as
       }),
     )
     .toContain("RESTORED_SHELL_READY");
+});
+
+test("Settings agent menu launches config and focuses its existing window", {
+  timeout: deadline(60_000),
+}, async (context) => {
+  const { chmod, copyFile } = require("node:fs/promises");
+  const root = await realpath(await mkdtemp(path.join(tmpdir(), "foom-config-menu-")));
+  removeAfterApps(context, root);
+  const bin = path.join(root, "bin");
+  const home = path.join(root, "home");
+  await Promise.all([bin, home].map((directory) => mkdir(directory)));
+  const executable = path.join(bin, process.platform === "win32" ? "claude.exe" : "claude");
+  await copyFile(process.execPath, executable);
+  await chmod(executable, 0o755);
+  const app = await launchApp(context, false, {
+    home,
+    emptyBoard: true,
+    env: { HOME: home, PATH: `${bin}${path.delimiter}${process.env.PATH}` },
+  });
+  const first = await boardPage(app);
+  await first.evaluate(() =>
+    window.desktop.saveSetup({
+      agents: { claude: true, codex: false, agy: false },
+      agentArguments: {
+        claude: ["--eval", "console.log('CONFIG_MENU_READY');process.stdin.resume()"],
+        codex: [],
+        agy: [],
+      },
+    }),
+  );
+  await first.getByRole("button", { name: "Settings", exact: true }).click();
+  await expect(first.getByRole("heading", { name: "Settings", exact: true })).toBeVisible();
+  await first.getByRole("button", { name: "Foom menu" }).click();
+  await first.getByRole("menuitem", { name: "Settings", exact: true }).press("ArrowRight");
+  await expect(first.getByRole("menuitem", { name: "Via Codex" })).toBeDisabled();
+  await expect(first.getByRole("menuitem", { name: "Via Claude Code" })).toBeFocused();
+  await first.getByRole("menuitem", { name: "Via Claude Code" }).press("Enter");
+  await expect(first.getByRole("heading", { name: "Settings", exact: true })).toHaveCount(0);
+  await expect(first.locator(".terminal-tile[data-empty=false]")).toHaveCount(1);
+  let id;
+  await expect
+    .poll(async () => {
+      const sessions = (await first.evaluate(() => window.desktop.workspace())).terminals;
+      id = sessions.find((session) => session.config)?.id;
+      return id;
+    })
+    .toBeTruthy();
+  await expect
+    .poll(async () =>
+      first.evaluate(async (id) => (await window.desktop.tail(id, 40)).join("\n"), id),
+    )
+    .toContain("CONFIG_MENU_READY");
+  assert.equal(
+    (await first.evaluate(() => window.desktop.workspace())).terminals[0].worktree,
+    path.join(home, ".foom", "config"),
+  );
+  await first.screenshot({ path: "test-results/config-menu-launched.png", animations: "disabled" });
+  await first.evaluate(() => window.desktop.appMenu.execute("new-window"));
+  await expect
+    .poll(() => app.windows().filter((page) => page.url() === "app://bundle/index.html").length)
+    .toBe(2);
+  const second = app
+    .windows()
+    .find((page) => page !== first && page.url() === "app://bundle/index.html");
+  await expect(second.getByRole("button", { name: "Foom menu" })).toBeVisible();
+  await expect
+    .poll(async () => {
+      const items = await second.evaluate(() => window.desktop.appMenu.commands());
+      return items
+        .find((entry) => entry?.kind === "submenu")
+        .items.find((entry) => entry?.id === "via-claude").enabled;
+    })
+    .toBe(true);
+  if (process.platform === "darwin") {
+    await second.bringToFront();
+    await expect.poll(() => second.evaluate(() => document.hasFocus())).toBe(true);
+    await app.evaluate(({ BrowserWindow, Menu }) => {
+      BrowserWindow.getFocusedWindow().emit("focus");
+      const menu = Menu.getApplicationMenu();
+      const item = menu.getMenuItemById("via-claude");
+      if (!item.enabled) throw new Error("Native config route is disabled");
+      item.click();
+    });
+  } else await second.evaluate(() => window.desktop.appMenu.execute("via-claude"));
+  await expect.poll(() => first.evaluate(() => document.hasFocus())).toBe(true);
+  assert.equal(
+    (await first.evaluate(() => window.desktop.workspace())).terminals.filter(
+      (session) => session.config,
+    ).length,
+    1,
+  );
+  await expect(second.locator(".terminal-tile[data-empty=false]")).toHaveCount(0);
+  await first.evaluate(() =>
+    window.desktop.saveSetup({ agents: { claude: false, codex: false, agy: false } }),
+  );
+  await assert.rejects(
+    second.evaluate(() => window.desktop.appMenu.execute("via-claude")),
+    /Unavailable app command/,
+  );
 });

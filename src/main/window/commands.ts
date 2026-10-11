@@ -1,3 +1,4 @@
+import type { AgentId } from "../../shared/agents";
 import type { BoardCommand } from "../../shared/board-command";
 import type { Input, MenuItemConstructorOptions } from "electron";
 import type { AppMenuEntry, CommandItem, ShortcutGroup } from "../../shared/app-menu";
@@ -144,7 +145,7 @@ export function createCommands(
   platform: string,
   development: boolean,
   actions: CommandActions,
-  agents: readonly { id: string; name: string; mark: string }[] = [],
+  agents: readonly { id: AgentId; name: string; mark: string }[] = [],
 ): Command[] {
   const mac = platform === "darwin";
   const chord = (code: string, shift = !mac): Binding => ({
@@ -180,10 +181,16 @@ export function createCommands(
   const planned = { enabled: false } as const;
   add("about", "About Foom", "Foom");
   for (const agent of agents)
-    add(`via-${agent.id}`, `Via ${agent.name}`, "Planned", [], undefined, {
-      ...planned,
-      badge: agent.mark,
-    });
+    add(
+      `via-${agent.id}`,
+      `Via ${agent.name}`,
+      "Foom",
+      [],
+      () => {
+        actions.board(`via-${agent.id}`);
+      },
+      { enabled: false, badge: agent.mark },
+    );
   const sheet: Partial<Record<BoardCommand, Command["sheet"]>> = {
     settings: ["App", "Settings"],
     sidebar: ["Board", "Focus sidebar"],
