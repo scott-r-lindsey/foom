@@ -8,6 +8,10 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import assert from "node:assert/strict";
 const execute = promisify(execFile);
+async function phase(name) {
+  if (process.env.FOOM_PROBE_STATUS)
+    await writeFile(process.env.FOOM_PROBE_STATUS, JSON.stringify(name));
+}
 function terminateGroup(pid) {
   if (!pid) return;
   try {
@@ -249,20 +253,26 @@ try {
     const before = calls;
     protocol.length = 0;
     try {
+      await phase("client execution");
       const result = await run(executable, args, { env, cwd: home });
       if (process.env.FOOM_PROBE_DEBUG) console.log(result.stdout, result.stderr);
-      for (const method of ["initialize", "tools/list", "tools/call"])
+      for (const method of ["initialize", "tools/list", "tools/call"]) {
+        await phase(`authenticated ${method}`);
         assert(
           protocol.some((entry) => entry.actor === "synthetic" && entry.method === method),
           `${agent}: missing authenticated ${method}`,
         );
+      }
+      await phase("existing-server coexistence");
       assert(observed.existing, `${agent}: existing user server was not retained`);
+      await phase("configuration preservation");
       if (agent === "codex") assert.equal(await readFile(configPath, "utf8"), existingConfig);
       else
         assert.deepEqual(
           JSON.parse(await readFile(configPath, "utf8")).mcpServers,
           JSON.parse(existingConfig).mcpServers,
         );
+      await phase("authenticated tool call");
       assert(calls > before, `${agent}: no authenticated tool call (${requests} model requests)`);
       console.log(
         `${agent}: authenticated initialize/list/call and existing-server coexistence passed`,
@@ -281,6 +291,7 @@ try {
       const command = process.env[`FOOM_${agent.toUpperCase()}_EXECUTABLE`] ?? agent;
       const deniedBefore = calls;
       observed.existing = false;
+      await phase("managed-policy execution");
       const denied = run(
         "bwrap",
         [
@@ -310,7 +321,9 @@ try {
       );
       const deniedResult = await denied;
       if (process.env.FOOM_PROBE_DEBUG) console.log(deniedResult.stdout, deniedResult.stderr);
+      await phase("managed-policy refusal");
       assert.equal(calls, deniedBefore, `${agent}: managed refusal still allowed a call`);
+      await phase("managed-policy existing-server refusal");
       assert.equal(
         observed.existing,
         false,

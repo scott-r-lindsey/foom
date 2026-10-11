@@ -424,6 +424,19 @@ versions with the flag are available too; malformed and prerelease versions, old
 versions, missing flags and Antigravity remain unavailable. The probe exercises any
 supplied binary without an exact-release assertion.
 
+The **Real CLI MCP probe** CI job (#254) runs nightly even when main is unchanged,
+and on manual CI dispatch. Optional `claude_version` and `codex_version` inputs
+accept stable x.y.z releases (default `latest`) to reproduce a regression. It installs
+both packages into temporary prefixes and logs the validated CLI versions. The
+existing temporary homes, loopback model and `bwrap` policy mounts remain in use;
+no provider credentials or global agent configuration are used. Child output is
+captured privately and discarded. Reports contain only validated versions and
+fixed assertion names. A failure fails this independent job and opens or updates
+one issue labeled `mcp-probe`; a later green run comments on the same issue.
+Closed issues are reopened on regression. The job serializes issue updates, has
+issues write and contents read only, and neither publishes nor blocks nightly
+packages. Setup/API failures remain job failures; no raw logs are uploaded.
+
 Rechecked for #252 on Linux with installed Claude Code **2.1.296** and Codex
 **0.162.1**: authenticated initialize/list/call, existing-server coexistence and
 managed-policy refusal all passed, using the same isolated synthetic model setup.

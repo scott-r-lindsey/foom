@@ -80,3 +80,12 @@ Run `npm run clean` only after `npm run make` and `npm run test:packaged` pass. 
 Open a **draft** pull request after the first coherent commit and push at each working step. CI runs on drafts, so Windows and macOS failures surface while the work is in progress; a newer push cancels the branch's previous run. Watch results with `gh pr checks --watch` and mark the PR ready for review only when it is green. Pass local `npm run check` before each push, reproduce Linux failures locally, and don't push only to re-run CI.
 
 CI repeats these checks and runs Electron and packaging for code, configuration, and unknown-path changes. Every pull request push, `main` push and manual run validates Linux, Windows and macOS; nightly runs do so when `main` changed. Electron jobs start alongside static checks rather than after them. Explicitly allowlisted documentation/reference-only changes (including `inspiration/` and `spikes/`) skip desktop jobs. Development ZIP uploads remain manual opt-in and retained for three days. Scheduled runs with changed main, or manual main runs with publish_nightly, reuse tested ZIPs to update the rolling nightly prerelease only after the Quality gate succeeds. Only the nightly job has contents write permission; pull requests, failed runs and unchanged nights never publish. Nightly packages carry a CI-only version stamp and macOS bundles must pass strict ad-hoc signature verification. Report what ran locally versus what passed remotely. Packages are unsigned development artifacts; release signing/notarization is a separate configuration task.
+
+The independent Real CLI MCP probe job runs on every nightly schedule, including
+unchanged main, and every manual CI dispatch. It installs latest Claude Code and
+Codex in temporary prefixes, or optional stable `claude_version` / `codex_version`
+pins, and tests isolated per-launch MCP with no provider credentials. Only this
+job has issues write permission; it has no contents write permission. Failures
+fail the job and create/update the single `mcp-probe` issue with validated versions
+and fixed assertion names, never terminal/model content. Recovery comments on the
+same issue. It is excluded from the Quality gate and nightly publishing dependencies.
