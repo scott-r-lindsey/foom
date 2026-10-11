@@ -592,7 +592,9 @@ async work; a live duplicate reveals the existing parent. The trusted dialog
 discloses the output path before launch in the main checkout. Child worktree creation requires a new local branch, refuses checked-out branches,
 and starts from HEAD even when a same-named remote ref exists. Children launch with
 no default arguments (so never bypass), `sharedCheckout` off, a read-only grant
-naming their parent, and an optional prompt as one final argv entry. Exit or
+naming their parent, and an optional prompt as one final argv entry. Claude Code
+and Codex place `--` immediately before that prompt, after all launch options, so
+variadic options cannot consume it. Launches without a prompt omit the terminator. Exit or
 removal of the parent revokes its grant, aborts pending removal dialogs and frees
 the slot; children keep running. Snapshots carry a main-computed `orchestration`
 view (role, children, last 20 actions; never persisted). `take-over` is a sidebar

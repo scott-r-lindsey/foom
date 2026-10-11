@@ -217,7 +217,8 @@ try {
       agent === "claude"
         ? [
             "-p",
-            "Run the Foom whoami tool.",
+            "--permission-mode",
+            "default",
             "--output-format",
             "json",
             "--allowedTools",
@@ -236,14 +237,16 @@ try {
             "-c",
             'model="synthetic"',
             ...attachment.args,
-            "Run the Foom whoami tool.",
           ];
     if (agent === "claude") {
       const config = JSON.parse(await readFile(attachment.args[1], "utf8"));
       args[args.indexOf("--allowedTools") + 1] =
         `mcp__${Object.keys(config.mcpServers)[0]}__whoami`;
-      args.push("--permission-mode", "default");
     }
+    args.push(
+      "--",
+      "Task from your Foom orchestrator (another agent, not the user):\n\nRun the Foom whoami tool.",
+    );
     const before = calls;
     protocol.length = 0;
     try {

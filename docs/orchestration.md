@@ -414,7 +414,9 @@ existing user-configured server, and refuse servers under a synthetic managed
 allowlist denying all MCP. The probe checks the existing server definition is
 preserved. Claude may update its own temporary profile bookkeeping. Codex sends
 `_meta.progressToken` on listing; the adapter accepts protocol metadata without
-passing it to the control service. Hook settings are independent of MCP attachment.
+passing it to the control service. Hook settings are independent of MCP attachment. The probe also verifies a final
+child prompt preceded by `--`, including Claude's variadic `--mcp-config` with
+hooks off; the prompt is accepted by both verified releases.
 
 Attachment is enabled only for these exact releases with the appropriate help flag;
 other versions and Antigravity report unverified attachment. Expanding this set
