@@ -13,6 +13,7 @@ export default tseslint.config(
       "build/**",
       "coverage/**",
       "inspiration/**",
+      "spikes/**",
       ".husky/_/**",
     ],
   },

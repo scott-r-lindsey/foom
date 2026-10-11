@@ -1,0 +1,32 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>nav</title></head>
+<body>
+<p>Navigation fixture: every attempt below must leave this page in place.</p>
+<a id="ext" href="https://example.com/">external</a>
+<a id="dl" href="/hostile/nav.html" download="x.html">download</a>
+<form id="form" action="https://example.com/post" method="post"><input name="a" value="b"></form>
+<script>
+const q = new URLSearchParams(location.search);
+const net = `http://127.0.0.1:${q.get("port")}`;
+const steps = [
+  () => { location.href = `${net}/nav`; },
+  () => { location.href = "file:///etc/"; },
+  () => { window.open(`${net}/popup`); },
+  () => { window.open("/hostile/hostile.html"); },
+  () => { document.getElementById("ext").click(); },
+  () => { document.getElementById("dl").click(); },
+  () => { document.getElementById("form").submit(); },
+  () => { top.location.href = `${net}/top`; },
+  () => { const m = document.createElement("meta"); m.httpEquiv = "refresh"; m.content = `0;url=${net}/refresh`; document.head.append(m); },
+  () => { location.href = "javascript:void(document.title='js-url')"; },
+  () => { location.href = "/hostile/page.html"; },
+];
+let i = 0;
+const next = () => {
+  if (i >= steps.length) { document.title = "nav-done"; return; }
+  try { steps[i++](); } catch {}
+  setTimeout(next, 250);
+};
+next();
+</script>
+</body></html>

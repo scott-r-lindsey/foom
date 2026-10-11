@@ -1,0 +1,16 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <!-- Foom's board CSP from src/renderer/index.html; FRAME_SRC is replaced only in iframe mode. -->
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self'; font-src 'self'; connect-src 'none'; base-uri 'none'; form-action 'none'; object-src 'none'FRAME_SRC" />
+    <title>Foom previews spike</title>
+    <link rel="stylesheet" href="xterm.css" />
+    <link rel="stylesheet" href="board.css" />
+  </head>
+  <body>
+    <div id="tiles"></div>
+    <div id="panel" hidden><p>Tile panel (board DOM)</p><button id="close-panel">Close</button></div>
+    <script type="module" src="board.js"></script>
+  </body>
+</html>

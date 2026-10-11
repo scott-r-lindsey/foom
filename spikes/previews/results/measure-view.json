@@ -1,0 +1,74 @@
+{
+  "isolation": "view",
+  "electron": "44.4.5",
+  "baseline": {
+    "total": 505,
+    "byType": {
+      "Browser": {
+        "count": 1,
+        "workingSetMB": 175
+      },
+      "GPU": {
+        "count": 1,
+        "workingSetMB": 145
+      },
+      "Utility": {
+        "count": 1,
+        "workingSetMB": 79
+      },
+      "Tab": {
+        "count": 1,
+        "workingSetMB": 106
+      }
+    }
+  },
+  "sixPreviews": {
+    "total": 1196,
+    "byType": {
+      "Browser": {
+        "count": 1,
+        "workingSetMB": 205
+      },
+      "GPU": {
+        "count": 1,
+        "workingSetMB": 158
+      },
+      "Utility": {
+        "count": 1,
+        "workingSetMB": 81
+      },
+      "Tab": {
+        "count": 7,
+        "workingSetMB": 752
+      }
+    }
+  },
+  "addedMB": 691,
+  "perPreviewMB": 115,
+  "loadSixMs": 157,
+  "resizeMs": {
+    "median": 20,
+    "p90": 31,
+    "max": 36
+  },
+  "overlaySnapshotMs": 102,
+  "zoom": {
+    "viewZoom": 1.5,
+    "viewBounds": {
+      "x": 474,
+      "y": 54,
+      "width": 453,
+      "height": 229
+    },
+    "boardRectCss": {
+      "x": 315.7708435058594,
+      "y": 36,
+      "width": 301.78125,
+      "height": 152.4375
+    }
+  },
+  "blockedHostsFromMockups": [
+    "https://fonts.googleapis.com"
+  ],
+  "screenshot": "spikes/previews/results/view-six.png"
+}

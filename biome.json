@@ -5,6 +5,7 @@
     "includes": [
       "**",
       "!!inspiration",
+      "!!spikes",
       "!!docs/mockups",
       "!!build",
       "!!out",
