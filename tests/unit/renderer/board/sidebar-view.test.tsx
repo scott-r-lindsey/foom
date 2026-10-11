@@ -880,7 +880,7 @@ test("a compact sidebar opens the field beside the sidebar", async () => {
   expect(view.branches).toHaveBeenCalledWith("/alpha");
   vi.unstubAllGlobals();
 });
-test("verified MCP agents offer orchestration; children offer Take over and panels show actions", async () => {
+test("agents with CLI guidance offer orchestration; children offer Take over and panels show actions", async () => {
   const original = sampleRows(0)[0];
   if (!original) throw Error("fixture");
   const row = {
@@ -927,9 +927,9 @@ test("verified MCP agents offer orchestration; children offer Take over and pane
         Promise.resolve({
           repositories: [repository],
           agents: [
-            { ...installation("claude"), mcp: true },
+            { ...installation("claude"), mcp: false },
             { ...installation("codex"), mcp: true },
-            { ...installation("agy"), path: "/agy" },
+            { ...installation("agy"), path: "/agy", cliGuidance: true },
           ],
           enabled: { claude: true, codex: false, agy: true },
           hooks: true,
@@ -948,7 +948,7 @@ test("verified MCP agents offer orchestration; children offer Take over and pane
   });
   fireEvent.click(view.getByRole("button", { name: "Actions for Foom" }));
   expect(view.queryByRole("menuitem", { name: /Codex as Foom orchestrator/u })).toBeNull();
-  expect(view.queryByRole("menuitem", { name: /Antigravity as Foom orchestrator/u })).toBeNull();
+  expect(view.getByRole("menuitem", { name: /Antigravity as Foom orchestrator/u })).toBeTruthy();
   await act(async () => {
     fireEvent.click(
       view.getByRole("menuitem", { name: /Launch Claude Code as Foom orchestrator…/u }),
