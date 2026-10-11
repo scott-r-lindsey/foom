@@ -12,6 +12,14 @@ on:
     - cron: '17 9 * * *'
   workflow_dispatch:
     inputs:
+      claude_version:
+        description: MCP probe Claude Code version (latest or stable x.y.z)
+        type: string
+        default: latest
+      codex_version:
+        description: MCP probe Codex version (latest or stable x.y.z)
+        type: string
+        default: latest
       publish_nightly:
         description: Publish tested main packages to the rolling nightly prerelease
         type: boolean
@@ -217,10 +225,10 @@ jobs:
         # A measured full Windows suite exceeded 10 minutes without a test failure.
         # Two disjoint shards run every test once, in separate runner processes.
         # Individual launches and waits use the shared platform deadline policy.
-        # Run 37880529037: macOS passed 54 cases (580s total) before the 600s
-        # suite cutoff interrupted the final window cases and JUnit flush.
-        # Allow the measured suite plus custom-theme coverage; keep per-test limits.
-        timeout-minutes: ${{ runner.os == 'macOS' && 12 || 10 }}
+        # Run 38175978499: macOS passed 63/69 cases (705s total) before the
+        # 720s suite cutoff truncated JUnit. The six remaining cases need their
+        # measured share plus cleanup; keep per-test deadlines and watchdogs.
+        timeout-minutes: ${{ runner.os == 'macOS' && 15 || 10 }}
         if: runner.os != 'Linux'
         run: npm run test:electron
       - name: Stamp nightly package version
@@ -283,6 +291,58 @@ jobs:
             true:success|false:skipped) exit 0 ;;
             *) exit 1 ;;
           esac
+
+  mcp-probe:
+    name: Real CLI MCP probe
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      issues: write
+    concurrency:
+      group: mcp-probe-issue
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - name: Prepare managed-policy namespaces
+        run: |
+          sudo apt-get -o Acquire::Retries=1 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 update
+          sudo apt-get install -y bubblewrap
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+      - name: Probe real clients
+        id: probe
+        env:
+          FOOM_PROBE_CLAUDE_VERSION: ${{ inputs.claude_version || 'latest' }}
+          FOOM_PROBE_CODEX_VERSION: ${{ inputs.codex_version || 'latest' }}
+          FOOM_PROBE_REPORT: ${{ runner.temp }}/mcp-probe-report.json
+        run: node scripts/mcp-probe-ci.mjs
+      - name: Report compatibility result
+        if: always() && !cancelled()
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+        env:
+          FOOM_PROBE_REPORT: ${{ runner.temp }}/mcp-probe-report.json
+        with:
+          script: |
+            const { readFile } = await import('node:fs/promises');
+            const { reportIssue } = await import(`${process.env.GITHUB_WORKSPACE}/scripts/mcp-probe-ci.mjs`);
+            let report;
+            try {
+              report = JSON.parse(await readFile(process.env.FOOM_PROBE_REPORT, 'utf8'));
+            } catch (error) {
+              if (error.code !== 'ENOENT') throw error;
+              report = ['claude', 'codex'].map(agent => ({
+                agent, version: 'unavailable', assertion: 'startup', passed: false,
+              }));
+            }
+            await reportIssue(github, context, report);
 
   nightly:
     name: Publish nightly
