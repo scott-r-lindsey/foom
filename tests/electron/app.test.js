@@ -7372,7 +7372,7 @@ process.exit(1);
       agent === "claude" ? "--resume" : form,
       "external-123",
     ]);
-    assert.equal(record.cwd, repo);
+    assert.equal(record.cwd, await realpath(repo));
     const label = agent === "claude" ? "Claude Code" : agent === "codex" ? "Codex" : "Antigravity";
     await page.getByRole("button", { name: `Actions for ${label} in main`, exact: true }).click();
     await expect(page.getByRole("menuitem", { name: /^Resume conversation/ })).toBeVisible();
