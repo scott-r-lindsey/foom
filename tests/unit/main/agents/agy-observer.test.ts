@@ -1,36 +1,27 @@
 import { execFile } from "node:child_process";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { basename, join } from "node:path";
-import { promisify } from "node:util";
+import { join } from "node:path";
 import { createServer } from "node:http";
-import { afterEach, expect, test, vi } from "vitest";
+import { afterAll, expect, test, vi } from "vitest";
 import { agyPluginFiles } from "../../../../src/main/agents/agy-observer";
 import { HookReceiver } from "../../../../src/main/agents/hook-receiver";
 import type { HookSignal } from "../../../../src/shared/hooks";
+import { windowsObserver } from "../../../helpers/observer-process";
+import { nativeDeadline } from "../../../helpers/native-test-policy";
 import { UNREACHABLE_PROXY } from "../../../helpers/unreachable-proxy";
 
 const directories: string[] = [];
-afterEach(async () => {
-  for (const dir of directories.splice(0)) {
-    if (process.platform === "win32") {
-      // Detached workers may still be exiting after the parent returns. Observe
-      // their signaled process handles before deleting scripts/current directories.
-      // A PID liveness probe can report exit before Windows releases the cwd handle.
-      await promisify(execFile)(
-        "powershell.exe",
-        [
-          "-NoProfile",
-          "-NonInteractive",
-          "-Command",
-          "$ErrorActionPreference = 'Stop'; Get-CimInstance Win32_Process -Filter \"Name = 'powershell.exe'\" | Where-Object { $_.CommandLine -and $_.CommandLine.Contains($env:FOOM_OBSERVER_TEST_DIRECTORY) } | ForEach-Object { $worker = $null; try { $worker = [System.Diagnostics.Process]::GetProcessById($_.ProcessId) } catch [System.ArgumentException] { }; if ($worker) { try { if (!$worker.WaitForExit(5000)) { throw 'Observer worker did not exit' } } finally { $worker.Dispose() } } }",
-        ],
-        { env: { ...process.env, FOOM_OBSERVER_TEST_DIRECTORY: basename(dir) }, timeout: 10000 },
-      );
-    }
-    await rm(dir, { recursive: true, force: true });
-  }
-});
+const supervisors: Promise<Error | null>[] = [];
+// A job owns every Windows worker from birth, including workers whose command
+// line is already unavailable during exit. Join supervisors before deleting cwd.
+afterAll(async () => {
+  const started = performance.now();
+  const failures = (await Promise.all(supervisors)).filter((error) => error !== null);
+  if (failures.length > 0) throw new AggregateError(failures, "Observer cleanup failed");
+  for (const dir of directories) await rm(dir, { recursive: true, force: true });
+  console.info(`Observer cleanup total: ${String(Math.round(performance.now() - started))}ms`);
+}, nativeDeadline(15000));
 async function fixture() {
   const dir = await mkdtemp(join(tmpdir(), "foom agy's $observer-"));
   directories.push(dir);
@@ -40,28 +31,38 @@ async function fixture() {
   await writeFile(join(dir, "order"), "0");
   return dir;
 }
-function run(dir: string, env: NodeJS.ProcessEnv, event: string, input?: string) {
-  const windows = process.platform === "win32";
-  const command = windows
-    ? `powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File ./observer.ps1 ${event}`
-    : `sh ./observer.sh ${event}`;
-  return new Promise<{ stdout: string; stderr: string }>((resolve, reject) => {
-    const child = execFile(
-      windows ? "cmd.exe" : "sh",
-      windows ? ["/d", "/s", "/c", command] : ["-c", command],
-      {
-        cwd: dir,
-        env: { ...env, FOOM_HOOK_ORDER: join(dir, "order") },
-        timeout: 5000,
-        windowsVerbatimArguments: windows,
-      },
-      (error, stdout, stderr) => {
-        if (error) reject(new Error("Observer failed", { cause: error }));
-        else resolve({ stdout, stderr });
+async function run(dir: string, env: NodeJS.ProcessEnv, event: string, input?: string) {
+  const observerEnv = { ...env, FOOM_HOOK_ORDER: join(dir, "order") };
+  let result: { stdout: string; stderr: string; elapsed: number };
+  if (process.platform === "win32") {
+    const observer = windowsObserver(dir, observerEnv, event, input);
+    supervisors.push(observer.closed);
+    result = await observer.result;
+  } else {
+    const started = performance.now();
+    result = await new Promise<{ stdout: string; stderr: string; elapsed: number }>(
+      (resolve, reject) => {
+        const child = execFile(
+          "sh",
+          ["./observer.sh", event],
+          {
+            cwd: dir,
+            env: observerEnv,
+            timeout: nativeDeadline(5000),
+          },
+          (error, stdout, stderr) => {
+            if (error) reject(new Error("Observer failed", { cause: error }));
+            else resolve({ stdout, stderr, elapsed: performance.now() - started });
+          },
+        );
+        if (input !== undefined) child.stdin?.end(input);
       },
     );
-    if (input !== undefined) child.stdin?.end(input);
-  });
+  }
+  console.info(`Observer ${event} parent exit: ${String(Math.round(result.elapsed))}ms`);
+  // This product deadline is intentionally NOT platform-scaled.
+  expect(result.elapsed).toBeLessThan(3000);
+  return { stdout: result.stdout, stderr: result.stderr };
 }
 
 test("static plugin installs only observer events on both native shells", () => {
@@ -78,6 +79,7 @@ test("static plugin installs only observer events on both native shells", () => 
 
 test.each(["FOOM_HOOK_URL", "FOOM_SESSION", "FOOM_TOKEN"])(
   "inert without %s even when stdin remains open",
+  { timeout: nativeDeadline(15000) },
   async (missing) => {
     const env: NodeJS.ProcessEnv = {
       ...process.env,
@@ -95,6 +97,7 @@ test.each(["FOOM_HOOK_URL", "FOOM_SESSION", "FOOM_TOKEN"])(
 
 test.each(["PreInvocation", "PostToolUse", "Stop"])(
   "native shell delivers literal untrusted %s data and returns an empty result",
+  { timeout: nativeDeadline(15000) },
   async (event) => {
     const signals: HookSignal[] = [];
     const receiver = await HookReceiver.listen((signal) => signals.push(signal));
@@ -122,7 +125,7 @@ test.each(["PreInvocation", "PostToolUse", "Stop"])(
           expect(signals.at(-1)?.signal).toBe(`agy:${event}`);
         },
         {
-          timeout: 3000,
+          timeout: nativeDeadline(3000),
         },
       );
     } finally {
@@ -131,7 +134,9 @@ test.each(["PreInvocation", "PostToolUse", "Stop"])(
   },
 );
 
-test("native shell returns an empty result after the receiver is gone", async () => {
+test("native shell returns an empty result after the receiver is gone", {
+  timeout: nativeDeadline(10000),
+}, async () => {
   const receiver = await HookReceiver.listen(() => undefined);
   const launch = receiver.register("terminal", "agy");
   await receiver.close();
@@ -149,7 +154,9 @@ test("native shell returns an empty result after the receiver is gone", async ()
   ).toEqual({});
 });
 
-test("observer exits before an unresponsive HTTP receiver finishes", async () => {
+test("observer exits before an unresponsive HTTP receiver finishes", {
+  timeout: nativeDeadline(10000),
+}, async () => {
   const payload = JSON.stringify({ conversationId: "session", output: "é 🌑 $(exit 99) `exit`" });
   let received: string | undefined;
   let disconnected = false;
@@ -183,7 +190,7 @@ test("observer exits before an unresponsive HTTP receiver finishes", async () =>
       () => {
         expect(received).toBe(payload);
       },
-      { timeout: 3000 },
+      { timeout: nativeDeadline(3000) },
     );
     expect(disconnected).toBe(false);
     // The parent has returned while the server still has not sent any response.
@@ -197,3 +204,44 @@ test("observer exits before an unresponsive HTTP receiver finishes", async () =>
     );
   }
 });
+
+test.skipIf(process.platform !== "win32")(
+  "supervisor waits for detached workers after publishing the parent result",
+  { timeout: nativeDeadline(15000) },
+  async () => {
+    const dir = await fixture();
+    await writeFile(
+      join(dir, "send.ps1"),
+      "Start-Sleep -Milliseconds 1500; [System.IO.File]::WriteAllText((Join-Path $PSScriptRoot 'finished'), 'done')",
+    );
+    const observer = windowsObserver(
+      dir,
+      {
+        ...process.env,
+        FOOM_HOOK_URL: "http://127.0.0.1:1/hooks",
+        FOOM_SESSION: "session",
+        FOOM_TOKEN: "token",
+        FOOM_HOOK_ORDER: join(dir, "order"),
+      },
+      "Stop",
+      "{}",
+    );
+    supervisors.push(observer.closed);
+    expect(JSON.parse((await observer.result).stdout)).toEqual({});
+    await expect(readFile(join(dir, "finished"))).rejects.toMatchObject({ code: "ENOENT" });
+    expect(await observer.closed).toBeNull();
+    expect(await readFile(join(dir, "finished"), "utf8")).toBe("done");
+  },
+);
+
+test.skipIf(process.platform !== "win32")(
+  "supervisor failures reject the result and remain visible to cleanup",
+  { timeout: nativeDeadline(15000) },
+  async () => {
+    const dir = await fixture();
+    await writeFile(join(dir, "observer.ps1"), "exit 7");
+    const observer = windowsObserver(dir, process.env, "Stop", "{}");
+    await expect(observer.result).rejects.toThrow("Observer supervisor failed");
+    expect(await observer.closed).toBeInstanceOf(Error);
+  },
+);
