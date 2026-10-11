@@ -762,6 +762,12 @@
   .sidebar-footer {
     padding: 4px;
   }
+  /* The tile layouts wrap rather than spill into the terminal pane. */
+  .sidebar-shell[data-compact="true"] .tile-presets {
+    flex-wrap: wrap;
+    justify-content: center;
+    min-width: 0;
+  }
   .sidebar-footer button {
     max-width: 56px;
     padding: 4px;
@@ -972,7 +978,7 @@
 }
 .shortcut-columns {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(200px, 100%), 1fr));
   gap: 18px;
 }
 .shortcut-columns h3 {

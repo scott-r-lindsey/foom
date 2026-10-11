@@ -664,7 +664,7 @@ in the profile. Validation alone grants no approval.
 | `colorMode` | `system`, `light`, `dark` |
 | `panelColor` | `vivid`, `subtle`, `plain` |
 | `interfaceTheme`, `terminalTheme` | `follow`, a corresponding built-in ID, or `user:<filename>.json`; no inline palette objects |
-| `interfaceScale` | 80–150 in steps of 10 |
+| `interfaceScale` | 80–150 in steps of 10, then 175, 200, 250 and 300 |
 | `terminalFontSize` | Integer 10–32 |
 | `sound` | Exact current `shared/sounds.ts` settings format |
 | `agents` | Exactly boolean `claude`, `codex`, `agy` switches |
@@ -692,7 +692,7 @@ is null, false or otherwise harmless in isolation.
 
 `src/main/setup/setup.ts` applies the settings to the running app at startup and on each save, and coordinates repository scanning. Legacy inference fields are discarded only when loading a profile; IPC patches still reject them.
 
-Appearance lives in Settings and the preflight rail through the same `AppearanceControls` component and applies at once. `colorMode` (system, light or dark) sets `nativeTheme.themeSource` for Eclipse; fixed interface themes supply their own base. Main applies the source before the window is created at startup, so the CSS (`prefers-color-scheme`), the window background and terminals using Follow interface all follow it; changing the resolved terminal palette resets colors a program set in the terminal; fixed terminal themes ignore interface changes. `interfaceScale` (80–150% in steps of 10) is Chromium zoom: the window starts with it as `zoomFactor` and later changes use `setZoomFactor`. The window resizes with it in both directions (`src/main/window/window-scale.ts`): main remembers the window's size at 100% and sets the window to that size times the scale, capped to the display's usable area and moved back on screen if needed, so zooming in and back out restores the same size. A resize by the user sets a new size at 100%. On first launch, the window uses 60% of the primary display’s usable width and height. After a successful quit, main saves every window's normal bounds, display, maximized state and interface scale in `windows.json` in user data and restores them on connected displays, clamped to the current work area and minimum. The legacy `window-size.json` remains a fallback for the first window. Missing or invalid saved geometry uses the first-launch size. The minimum size (900 × 640 at 100%) scales too. Maximized and full-screen windows keep their size. Tiling window managers may ignore the resize; zoom still applies. Main handles the zoom keys before the terminal sees them: ⌘ =, − and 0 on macOS, and Ctrl+Shift+= / Ctrl+Shift+− and Ctrl+0 elsewhere, because plain Ctrl+− is readline's undo. A shortcut saves the new scale and sends `setup:changed` so preflight's controls follow. `terminalFontSize` is a separate validated integer setting (10–32 CSS pixels, default 14). Each mounted terminal controller reads it before its initial attachment, subscribes to `setup:changed`, and updates xterm options. Visible attachments refit and send an ID-scoped resize; hidden views use the new size on their next attachment. Disposal removes the subscription.
+Appearance lives in Settings and the preflight rail through the same `AppearanceControls` component and applies at once. `colorMode` (system, light or dark) sets `nativeTheme.themeSource` for Eclipse; fixed interface themes supply their own base. Main applies the source before the window is created at startup, so the CSS (`prefers-color-scheme`), the window background and terminals using Follow interface all follow it; changing the resolved terminal palette resets colors a program set in the terminal; fixed terminal themes ignore interface changes. `interfaceScale` (80–150% in steps of 10, then 175, 200, 250 and 300%, matching Chromium's zoom steps; `SCALES` in `src/shared/config-settings.ts` is the one list) is Chromium zoom: the window starts with it as `zoomFactor` and later changes use `setZoomFactor`. The window resizes with it in both directions (`src/main/window/window-scale.ts`): main remembers the window's size at 100% and sets the window to that size times the scale, capped to the display's usable area and moved back on screen if needed, so zooming in and back out restores the same size. A resize by the user sets a new size at 100%. On first launch, the window uses 60% of the primary display’s usable width and height. After a successful quit, main saves every window's normal bounds, display, maximized state and interface scale in `windows.json` in user data and restores them on connected displays, clamped to the current work area and minimum. The legacy `window-size.json` remains a fallback for the first window. Missing or invalid saved geometry uses the first-launch size. The minimum size (900 × 640 at 100%) scales too. The scaled minimum is capped to the work area, so a large size on a small or OS-scaled display can leave less CSS space than the 100% minimum; the layout compacts instead of refusing the zoom: the page never scrolls sideways, the compact sidebar wraps its tile layouts, Settings scrolls as a whole on a short window, and dialogs (the shortcut sheet, which is portaled so the compact sidebar cannot hide it, and the trusted confirmation, which measures its natural size in fractional pixels so a capped window settles) scroll within themselves. Maximized and full-screen windows keep their size. Tiling window managers may ignore the resize; zoom still applies. Main handles the zoom keys before the terminal sees them: ⌘ =, − and 0 on macOS, and Ctrl+Shift+= / Ctrl+Shift+− and Ctrl+0 elsewhere, because plain Ctrl+− is readline's undo. A shortcut saves the new scale and sends `setup:changed` so preflight's controls follow. `terminalFontSize` is a separate validated integer setting (10–32 CSS pixels, default 14). Each mounted terminal controller reads it before its initial attachment, subscribes to `setup:changed`, and updates xterm options. Visible attachments refit and send an ID-scoped resize; hidden views use the new size on their next attachment. Disposal removes the subscription.
 
 Interface colors are independently stored as `interfaceTheme`: `follow` (default),
 a built-in ID, a `user:<filename>` ID, or a version 1 portable object with `name`, `base` and `colors`.
@@ -948,7 +948,7 @@ layout to the wordmark menu on every platform. The wordmark projection is data
 only (`AppMenuEntry`): commands, separators, the Settings submenu (the agent
 routes come from `main/agents/agent-list.ts`, followed by Via Settings UI), and a
 `size` row carrying Bigger/Smaller and main's current interface scale. Planned
-commands (Via each agent, New orchestrator, Action log) exist in the registry
+commands (New orchestrator, Action log) exist in the registry
 disabled, without bindings, and stay out of the macOS menu bar until they land.
 Main owns one `before-input-event` dispatcher; native accelerators are
 display-only (`registerAccelerator: false`). Windows/Linux have no native
@@ -968,6 +968,18 @@ the board to show it. View accepts bounded tile counts and booleans solely for
 presentation availability and the maximize checkmark. The board source exposes
 this small typed capability. Add repository reaches the board as the
 `add-repository` board command and uses the sidebar's picker path.
+The three `via-<agent>` commands use the same registry for native and wordmark
+menus. Main derives their availability from discovery and saved agent switches;
+the board reports config-launch availability separately from tile availability,
+so Settings can stay open while choosing an agent. Preflight and modal launchers
+disable these routes. Availability refreshes on menu reads, execution, window
+focus and settings updates. The preload accepts only the three fixed route IDs.
+The board dispatches the existing `config-launch` command with `origin: "menu"`,
+awaits the source's refreshed inventory, and opens the running config session
+through normal cross-window selection. This optional, validated origin changes
+only notifier confirmation presentation: main uses a trusted disclosure dialog
+for menu launches and keeps click-again for sidebar launches. It grants no consent
+and cannot change the executable, directory or launch policy.
 
 The renderer reuses RowMenu's keyboard navigation, portal and dismissal behavior.
 RowMenu renders a submenu as a nested portal anchored to its item: the top-level
@@ -1331,7 +1343,8 @@ never installed. One config session runs at a time; a second launch starts
 nothing and the renderer focuses the running session. Session records keep a
 validated `config` flag (folder path equal to itself, no branch) and restore only
 for the current folder. Sidebar commands
-`config-launch` (a run kind only) and `copy-config-path` carry no paths.
+`config-launch` (a run kind and optional menu origin) and `copy-config-path`
+carry no paths.
 `config:status`, `config:decide` (`allow` or `keep`), `config:revert` (a full hex
 commit ID) and `config:open-folder` check the trusted top frame and exact argument
 counts; main pushes `config:changed`. File contents, raw parser messages and

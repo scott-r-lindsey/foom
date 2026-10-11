@@ -59,11 +59,14 @@ export function ConfirmationPage() {
     if (!requestId || !card || !body) return;
     const measure = () => {
       // Keep the natural body height even when its viewport is clamped and scrolling.
+      // Fractional heights: rounded ones change with the clamped viewport under zoom,
+      // and each new size would resize the window again.
       const content = body.parentElement;
       if (!content) return;
+      const height = (element: Element) => element.getBoundingClientRect().height;
       window.confirmation.size({
         width: 440,
-        height: card.offsetHeight - content.clientHeight + body.offsetHeight + 12,
+        height: height(card) - height(content) + height(body) + 12,
       });
     };
     const observer = new ResizeObserver(measure);

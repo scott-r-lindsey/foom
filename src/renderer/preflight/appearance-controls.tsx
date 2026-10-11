@@ -2,6 +2,7 @@ import type { ThemeCatalog } from "../../shared/theme-file";
 import { resolveInterfaceTheme } from "../../shared/interface-themes";
 import { useRef } from "react";
 import type { Settings } from "../../shared/setup";
+import { SCALES } from "../../shared/config-settings";
 
 const MODES = [
   { id: "system", label: "System" },
@@ -10,8 +11,6 @@ const MODES = [
 ] as const;
 /** Scrolling this far changes the size one step: a mouse notch, or a short trackpad swipe. */
 const WHEEL_STEP = 50;
-// Mirrors SCALES in src/main/window/appearance.ts, which main validates against.
-const SCALES = [80, 90, 100, 110, 120, 130, 140, 150];
 const shortcutHint = () =>
   navigator.platform.startsWith("Mac") ? "⌘ + / − / 0" : "Ctrl+Shift+= / − / 0";
 

@@ -123,6 +123,13 @@ vi.mock("../../../src/main/workspace/workspace", () => ({
     hook = mock.workspace.hook;
     dispose = mock.workspace.dispose;
     configure = mock.workspace.configure;
+    scanAgents = () =>
+      Promise.resolve({
+        agents: [
+          { id: "claude", path: "/bin/claude" },
+          { id: "codex", path: null },
+        ],
+      });
     addRepository = mock.workspace.addRepository;
     removeRepository = mock.workspace.removeRepository;
     constructor(deps: WorkspaceDependencies) {
@@ -1581,4 +1588,27 @@ test("an unusable Foom config folder keeps settings in the profile", async () =>
   expect(error).toHaveBeenCalledWith("Foom config is unavailable:", expect.any(Error));
   expect(mock.settingsStore.attachConfig).not.toHaveBeenCalled();
   expect(mock.window.loadURL).toHaveBeenCalled();
+});
+
+test("menu agent availability comes from installation and saved settings", async () => {
+  let settings = setupState({ setupComplete: true }).settings;
+  vi.spyOn(mock.settingsStore, "get").mockImplementation(() => settings);
+  await start();
+  await invokeWindow(0, "app-menu:view", {
+    available: false,
+    configAvailable: true,
+    maximized: false,
+    tiles: 0,
+  });
+  const enabled = async () => JSON.stringify(await invokeWindow(0, "app-menu:list"));
+  expect(await enabled()).toContain(
+    '"id":"via-claude","label":"Via Claude Code","shortcut":"","enabled":true',
+  );
+  expect(await enabled()).toContain(
+    '"id":"via-codex","label":"Via Codex","shortcut":"","enabled":false',
+  );
+  settings = { ...settings, agents: { ...settings.agents, claude: false } };
+  await expect(invokeWindow(0, "app-menu:execute", "via-claude")).rejects.toThrow("Unavailable");
+  settings = { ...settings, setupComplete: false, agents: { ...settings.agents, claude: true } };
+  await expect(invokeWindow(0, "app-menu:execute", "via-claude")).rejects.toThrow("Unavailable");
 });

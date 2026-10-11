@@ -42,6 +42,8 @@ test("patches copy only known, well-formed fields", () => {
     agents: { claude: true, codex: false, agy: true },
   });
   expect(parseSettingsPatch({})).toEqual({});
+  for (const interfaceScale of [175, 200, 250, 300])
+    expect(parseSettingsPatch({ interfaceScale })).toEqual({ interfaceScale });
   for (const bad of [
     null,
     [],
@@ -60,7 +62,8 @@ test("patches copy only known, well-formed fields", () => {
     { inferenceTimeoutMs: "5000" },
     { colorMode: "sepia" },
     { interfaceScale: 105 },
-    { interfaceScale: 200 },
+    { interfaceScale: 160 },
+    { interfaceScale: 400 },
     { interfaceScale: "100" },
     ...[9, 33, 14.5, "14", null, NaN, Infinity].map((terminalFontSize) => ({ terminalFontSize })),
     { codeFolder: "relative/code" },

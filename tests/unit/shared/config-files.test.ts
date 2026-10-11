@@ -28,7 +28,7 @@ test("settings is an optional allowlisted patch with exactly main's value rules"
     expect(parseConfigSettings({ colorMode })).toEqual({ colorMode });
   for (const panelColor of ["vivid", "subtle", "plain"])
     expect(parseConfigSettings({ panelColor })).toEqual({ panelColor });
-  for (const interfaceScale of [80, 90, 100, 110, 120, 130, 140, 150])
+  for (const interfaceScale of [80, 90, 100, 110, 120, 130, 140, 150, 175, 200, 250, 300])
     expect(parseConfigSettings({ interfaceScale })).toEqual({ interfaceScale });
   expect(
     parseSettingsFile('{"kind":"settings","interfaceTheme":"follow","terminalTheme":"dracula"}'),
@@ -56,6 +56,8 @@ test.each([
   ["agents", { claude: true, codex: true, agy: 1 }],
   ["agents", { claude: true, codex: true, agy: true, evil: true }],
   ["interfaceScale", 101],
+  ["interfaceScale", 160],
+  ["interfaceScale", 400],
   ["interfaceScale", "100"],
   ["terminalFontSize", 9],
   ["terminalFontSize", 33],

@@ -256,13 +256,7 @@ test("disabled planned commands never run from a shortcut or the native menu", (
   const calls = actions();
   const commands = createCommands("darwin", false, calls, AGENTS);
   const planned = commands.filter((command) => command.section === "Planned");
-  expect(planned.map((command) => command.id)).toEqual([
-    "via-claude",
-    "via-codex",
-    "via-agy",
-    "new-orchestrator",
-    "action-log",
-  ]);
+  expect(planned.map((command) => command.id)).toEqual(["new-orchestrator", "action-log"]);
   expect(planned.every((command) => !command.enabled && command.bindings.length === 0)).toBe(true);
   const native = nativeMenu(commands).flatMap((section) =>
     Array.isArray(section.submenu) ? section.submenu : [],
@@ -331,4 +325,24 @@ test("the shortcut sheet is generated from the registry for each platform", () =
       "linux",
     )[1]?.rows,
   ).toEqual([{ label: "Mixed", keys: "Ctrl+A, Alt+B" }]);
+});
+
+test("agent settings routes share board actions in native and wordmark menus", async () => {
+  const calls = actions();
+  const commands = createCommands("darwin", false, calls, AGENTS);
+  for (const agent of AGENTS) {
+    const command = commands.find((entry) => entry.id === `via-${agent.id}`);
+    if (!command) throw new Error("Missing agent command");
+    expect(command.enabled).toBe(false);
+    command.enabled = true;
+    await command.run();
+    expect(calls.board).toHaveBeenLastCalledWith(`via-${agent.id}`);
+  }
+  const native = nativeMenu(commands).flatMap((section) =>
+    Array.isArray(section.submenu) ? section.submenu : [],
+  );
+  for (const agent of AGENTS)
+    expect(native).toContainEqual(
+      expect.objectContaining({ id: `via-${agent.id}`, enabled: true }),
+    );
 });

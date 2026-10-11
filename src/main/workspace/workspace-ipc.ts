@@ -63,9 +63,14 @@ function sidebarCommand(value: unknown): SidebarCommand {
   }
   if (kind === "config-launch") {
     const run = value["run"];
-    if (Object.keys(value).length !== 2 || (run !== "shell" && !agent(run)))
+    const origin = value["origin"];
+    if (
+      Object.keys(value).some((key) => !["kind", "run", "origin"].includes(key)) ||
+      (origin !== undefined && origin !== "menu") ||
+      (run !== "shell" && !agent(run))
+    )
       throw new Error("Invalid config launch");
-    return { kind, run };
+    return { kind, run, ...(origin === "menu" ? { origin } : {}) };
   }
   if (
     kind === "stop" ||
@@ -228,7 +233,24 @@ export function attachWorkspace(
         const command = sidebarCommand(value);
         if ("id" in command && !owns(command.id) && !workspace.ownsSession(command.id))
           throw new Error("Unknown or foreign terminal ID");
-        return workspace.sidebarCommand(command, confirmation(JSON.stringify(command)));
+        const confirm = confirmation(JSON.stringify(command));
+        return workspace.sidebarCommand(command, (request) => {
+          if (
+            command.kind === "config-launch" &&
+            command.origin === "menu" &&
+            request.kind === "notifier"
+          ) {
+            if (contents.isDestroyed() || contents.mainFrame.url !== APP_URL)
+              return Promise.resolve(false);
+            return requestDialog({
+              title: "Replace Codex notifier for this launch?",
+              detail:
+                "Foom will replace Codex’s notify command for this invocation so it can report when Codex finishes. Your global Codex configuration is unchanged.",
+              accept: "Replace notifier and launch",
+            });
+          }
+          return confirm(request);
+        });
       },
     ],
     ["workspace:snapshot", () => workspace.snapshot()],
