@@ -1287,8 +1287,12 @@ export class Workspace {
     }
     try {
       const scan = await this.scanAgents(false);
-      if (!scan.agents.some((entry) => entry.id === agent && entry.mcp))
-        throw new Error("Orchestration needs a Claude Code or Codex release with verified MCP");
+      if (
+        !scan.agents.some(
+          (entry) => entry.id === agent && entry.path && (entry.id !== "agy" || entry.cliGuidance),
+        )
+      )
+        throw new Error("Orchestration needs an installed agent with initial prompt support");
       if (!(await confirm({ kind: "orchestrator", agent }))) return;
       const id = await this.startExisting(repository, repository, agent, confirm, undefined, {
         role: "orchestrator",

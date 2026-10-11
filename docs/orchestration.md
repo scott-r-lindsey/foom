@@ -437,7 +437,8 @@ and ad-hoc signs the macOS helper. Electron's fuses remain unchanged.
 
 Online commands are `whoami`, `sessions [--limit N] [--cursor ID]`,
 `session-state ID`, and `operation-status --operation-id ID` (or
-`--idempotency-key KEY`). Main's existing API decides authorization; ordinary
+`--idempotency-key KEY`). Orchestrators also have the commands below; each maps
+to the same control API used by MCP. Main's existing API decides authorization; ordinary
 agents and human CLI grants cannot query orchestration operations. Responses use
 stable `{result}` / `{error}` envelopes; `--json` also makes offline output JSON.
 Exit status is 0 for success, 2 for usage/schema errors, 3 for authentication or
@@ -445,6 +446,27 @@ scope denial, and 4 for unavailable services, capacity, not-found or I/O errors.
 No exception text or credentials are printed. Responses are bounded to 256 KiB,
 including full 100-session pages with Unicode names; pairing responses are limited
 to 4 KiB.
+
+Orchestrator commands (all support `--json`):
+
+```text
+foom create-worktree BRANCH --idempotency-key KEY
+foom launch WORKTREE_ID --agent claude|codex|agy [--prompt TEXT] --idempotency-key KEY
+foom stop ID --idempotency-key KEY
+foom remove-worktree WORKTREE_ID --idempotency-key KEY
+foom tail ID [--lines 1-40]
+foom wait-for ID... [--after '{"ID":"REVISION"}'] [--timeout-ms 0-30000]
+```
+
+The four mutations require an idempotency key. After losing a response, query
+`operation-status --idempotency-key KEY`; reusing a key with different input is
+refused. Removal still needs the trusted app confirmation. `tail` retains secret
+redaction, the 40-line/16 KiB cap and one request per child per second; `wait-for`
+accepts one to four distinct IDs and waits at most 30 seconds. The console gives
+that wait a 35-second transport deadline. Arguments are validated in both the
+console and main. Tokens are never accepted as arguments or printed. Ordinary
+sessions, children (including taken-over children), and human pairing grants
+cannot mutate or read child output through these commands; denial is exit 3.
 
 Human invocations add `--repository ABSOLUTE_REGISTERED_PATH` and optionally
 `--profile ABSOLUTE_PROFILE_PATH` (needed for Foom Dev or custom profiles). Without
@@ -483,9 +505,11 @@ helper; its validation schemas and config-only capabilities remain #84's work.
 ### Orchestrators and children (#155)
 
 **Launch.** Each repository panel lists **Launch <agent> as Foom orchestrator…**
-for enabled agents with verified per-launch MCP (the Claude Code and Codex releases
-above). Antigravity cannot orchestrate: it has no per-launch MCP, and the console
-CLI deliberately has no mutation commands. The wordmark menu's New orchestrator item
+for enabled, installed Claude Code and Codex agents, and Antigravity releases
+with `--prompt-interactive` support. Every orchestrator gets the console directory
+on its process-local PATH and a prompt naming both CLI commands and MCP tools.
+The CLI works even when MCP attachment is unavailable or denied by client policy.
+Antigravity uses only the CLI, without any MCP configuration. The wordmark menu's New orchestrator item
 stays disabled because it has no repository to target. Main reserves the
 repository's slot synchronously, then shows the trusted dialog with the disclosure
 below; a second launch while a parent is live reveals that parent instead. The

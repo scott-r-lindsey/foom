@@ -45,3 +45,10 @@ it("passes an orchestrator child's prompt as one argv entry and refuses option-l
   for (const prompt of ["", "  --yolo", "bell\u0007", "x".repeat(16385)])
     expect(() => initialPrompt({ id: "claude" }, prompt)).toThrow("Invalid initial prompt");
 });
+
+it("gives Antigravity orchestrators CLI mutations instead of read-only guidance", () => {
+  const args = cliGuidance(["-i", "User data"], true);
+  expect(args[1]).toContain("User data");
+  expect(args[1]).toContain("create-worktree/create_worktree");
+  expect(args[1]).not.toContain("mutations are unavailable");
+});
