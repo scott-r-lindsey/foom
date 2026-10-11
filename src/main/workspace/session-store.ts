@@ -40,7 +40,8 @@ export function readSessions(value: unknown): WorkspaceTerminal[] {
         (typeof branch === "string" && branch.length <= 4096 && !/\p{Cc}/u.test(branch))
       ) ||
       (conversation !== undefined &&
-        (!conversationId(conversation) || (agent !== "claude" && agent !== "codex")))
+        (!conversationId(conversation) ||
+          (agent !== "claude" && agent !== "codex" && agent !== "agy")))
     )
       throw new Error("Invalid session");
     if (agent !== "claude" && agent !== "codex" && agent !== "agy" && agent !== "shell")

@@ -719,7 +719,7 @@ export class Workspace {
     if (
       sessions.some(
         (item) =>
-          (item.agent === "claude" || item.agent === "codex") &&
+          (item.agent === "claude" || item.agent === "codex" || item.agent === "agy") &&
           conversationId(item.conversationId),
       )
     )

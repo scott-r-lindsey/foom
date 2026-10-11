@@ -475,9 +475,12 @@ it("passes defaults unchanged without hooks", async () => {
 });
 
 describe("conversation resume", () => {
-  it.each(["claude", "codex"] as const)(
+  it.each(["claude", "codex", "agy"] as const)(
     "resumes %s with fresh per-launch hooks and the same terminal ID",
     async (agent) => {
+      const status = vi
+        .spyOn(AgyPlugin.prototype, "status")
+        .mockResolvedValue({ state: "installed" });
       await service.launch({
         ...request,
         agent,
@@ -488,20 +491,25 @@ describe("conversation resume", () => {
       const spec = create.mock.calls[0]?.[0];
       expect(spec?.id).toBe("original");
       expect(spec?.args.slice(0, 2)).toEqual([
-        agent === "claude" ? "--resume" : "resume",
+        agent === "claude" ? "--resume" : agent === "codex" ? "resume" : "--conversation",
         "conversation-123",
       ]);
-      expect(spec?.args).toContain(agent === "claude" ? "--settings" : "-c");
+      if (agent !== "agy") expect(spec?.args).toContain(agent === "claude" ? "--settings" : "-c");
+      expect(spec?.env).toMatchObject(binding.env);
       expect(prepare).toHaveBeenCalledWith(agent);
+      status.mockRestore();
     },
   );
-  it("rejects malformed IDs before preparing hooks or creating a PTY", async () => {
-    await expect(service.launch({ ...request, conversationId: "--last" })).rejects.toThrow(
-      "Invalid conversation ID",
-    );
-    expect(prepare).not.toHaveBeenCalled();
-    expect(create).not.toHaveBeenCalled();
-  });
+  it.each(["claude", "codex", "agy"] as const)(
+    "rejects malformed %s IDs before preparing hooks or creating a PTY",
+    async (agent) => {
+      await expect(service.launch({ ...request, agent, conversationId: "--last" })).rejects.toThrow(
+        "Invalid conversation ID",
+      );
+      expect(prepare).not.toHaveBeenCalled();
+      expect(create).not.toHaveBeenCalled();
+    },
+  );
 });
 
 it.each([true, false])(

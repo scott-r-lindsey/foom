@@ -1186,8 +1186,9 @@ A validated fully idle Stop recovers the turn identity if its working report was
 overtaken, then classifies the current tail; questions and failures still win.
 The observer sends fixed event and sequence headers with stdin JSON; the receiver validates them
 against the Antigravity launch, pins `conversationId`, and emits only event/action,
-terminal ID and enumerated Stop facts. It never exposes an Antigravity conversation
-ID for Resume. See the [probe record](agents.md#opt-in-antigravity-lifecycle-plugin-178)
+terminal ID, validated conversation ID and enumerated Stop facts. The pinned ID
+is retained as local session metadata for Resume and Copy session ID, using the
+same validation and persistence as Claude and Codex. See the [probe record](agents.md#opt-in-antigravity-lifecycle-plugin-178)
 for the documented-versus-observed Stop spelling and remaining platform verification.
 
 

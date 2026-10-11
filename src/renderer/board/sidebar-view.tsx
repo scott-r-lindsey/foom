@@ -418,7 +418,7 @@ export function Sidebar({
             : [
                 ...(!row.worktreeRemoved &&
                 row.conversationId &&
-                (row.agent === "claude" || row.agent === "codex")
+                (row.agent === "claude" || row.agent === "codex" || row.agent === "agy")
                   ? [
                       {
                         label: "Resume conversation",

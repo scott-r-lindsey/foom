@@ -112,8 +112,8 @@ worktree is created, and the session's `PATH` includes the bundled `foom` CLI.
 Session panels show location, discovered agent version, state and reason,
 waiting time, recorded launch flags (BYPASS when applicable), start time or exit
 code, tile and conversation ID. A running session offers Stop. An exited agent
-offers **Resume conversation** with a short ID hint when a validated Claude Code
-or Codex conversation ID was recorded, **New conversation here**, **Copy session
+offers **Resume conversation** with a short ID hint when a validated Claude Code,
+Codex or Antigravity conversation ID was recorded, **New conversation here**, **Copy session
 ID** when an ID exists, then a separator and **Close**.
 
 Git facts load lazily, locally and with bounded calls; unavailable facts say
@@ -123,8 +123,8 @@ merge checker's last fetch and the eligible count uses its exact cleanup rules.
 Resume starts the same agent in the same checkout and row, with fresh per-launch hooks
 and current launch defaults. New conversation uses that row and checkout without a
 resume ID. Failed launches retain the saved conversation for retry. Copy uses the full ID.
-Antigravity conversation IDs are pinned for hook validation but not retained for resumption,
-so Resume remains unavailable for it.
+Antigravity IDs come only from its opt-in lifecycle plugin. Without the plugin or
+with hooks disabled, no ID is captured and Resume and Copy session ID are unavailable.
 An exited shell’s sidebar panel offers **Restart shell**, a separator and **Close**;
 the terminal pane has no restart button. Close removes the
 session and its stored record, never the checkout or the agent's own conversation files.
@@ -157,7 +157,7 @@ ready. The action always fetches afresh.
 The trusted dialog lists candidate branches, then skipped checkouts with short
 reasons, and offers **Delete** and **Cancel**. Main checkouts, locked,
 prunable or detached worktrees, running sessions, dirty/untracked files and
-exited resumable Claude/Codex conversations are retained. After confirmation,
+exited resumable Claude/Codex/Antigravity conversations are retained. After confirmation,
 Foom fetches again, revalidates each candidate before and after stopping its
 exited terminal resources, then uses the existing safe removal path. Changed
 worktrees are skipped and reported while others continue. The local branch is

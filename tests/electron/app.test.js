@@ -4791,7 +4791,7 @@ test("profile lock focuses the first app, exits duplicates and permits another p
     .toBe(true);
 });
 
-for (const agent of ["claude", "codex"]) {
+for (const agent of ["claude", "codex", "agy"]) {
   test(`resumes exited ${agent} conversations in place after a Foom restart`, {
     timeout: deadline(60_000),
     skip: process.platform === "win32" && "The fake CLI is a POSIX executable",
@@ -4818,6 +4818,14 @@ for (const agent of ["claude", "codex"]) {
       "-qm",
       "init",
     ]);
+    if (agent === "agy") {
+      const plugin = path.join(home, ".gemini/config/plugins/foom");
+      await mkdir(plugin, { recursive: true });
+      await writeFile(
+        path.join(plugin, "plugin.json"),
+        JSON.stringify({ name: "foom", foomObserverVersion: 2 }),
+      );
+    }
     const conversation = "0199abcd-1234-7890-abcd-123456789abc";
     await writeFile(
       path.join(bin, agent),
@@ -4826,16 +4834,25 @@ const { spawn } = require("node:child_process");
 const { writeFileSync, renameSync } = require("node:fs");
 const args = process.argv.slice(2);
 const agent = ${JSON.stringify(agent)};
-if (args[0] === "--version") { console.log(agent === "claude" ? "2.1.300 (Claude Code)" : "codex-cli 0.160.1"); process.exit(0); }
+if (args[0] === "--version") { console.log(agent === "claude" ? "2.1.300 (Claude Code)" : agent === "codex" ? "codex-cli 0.160.1" : "1.3.3"); process.exit(0); }
 if (args[0] === "--help") { console.log("--settings <json> -c, --config <value> --no-alt-screen"); process.exit(0); }
+if (args[0] === "plugin" && args[1] === "list") { console.log(JSON.stringify({ imports: [{ name: "foom" }] })); process.exit(0); }
 const record = process.env.TEST_ARGV + "." + process.pid + ".tmp";
 writeFileSync(record, JSON.stringify({ args, cwd: process.cwd(), token: process.env.FOOM_TOKEN, pid: process.pid }));
 renameSync(record, process.env.TEST_ARGV);
-const resumed = args.includes("--resume") || args.includes("resume");
+const resumed = args.includes("--resume") || args.includes("resume") || args.includes("--conversation");
 if (resumed) {
   console.log("RESUMED_CONVERSATION " + process.pid);
   process.stdin.setRawMode(true);
   process.stdin.on("data", () => process.exit(0));
+} else if (agent === "agy") {
+  const payload = JSON.stringify({ conversationId: ${JSON.stringify(conversation)}, fullyIdle: true, terminationReason: "NO_TOOL_CALL", transcriptPath: "/must/not/read" });
+  const request = require("node:http").request(process.env.FOOM_HOOK_URL, { method: "POST", headers: { Authorization: process.env.FOOM_TOKEN, "X-Foom-Session": process.env.FOOM_SESSION, "X-Foom-Event": "Stop", "X-Foom-Sequence": "1", "Content-Type": "application/json" } }, response => {
+    response.resume();
+    response.on("end", () => { console.log("AGENT_EXITED"); process.exit(response.statusCode === 204 ? 0 : 1); });
+  });
+  request.on("error", error => { console.error(error.message); process.exit(1); });
+  request.end(payload);
 } else {
   const payload = agent === "claude" ? { session_id: ${JSON.stringify(conversation)}, hook_event_name: "Stop" } : { "thread-id": ${JSON.stringify(conversation)}, "turn-id": "turn-1", type: "agent-turn-complete" };
   let command, hookArgs, input;
@@ -4895,7 +4912,8 @@ if (resumed) {
     await expect
       .poll(() => restored.evaluate(async () => (await window.desktop.workspace()).terminals))
       .toMatchObject([{ id, exited: true, dormant: true, conversationId: conversation }]);
-    const agentName = agent === "claude" ? "Claude Code" : "Codex";
+    const agentName =
+      agent === "claude" ? "Claude Code" : agent === "codex" ? "Codex" : "Antigravity";
     await restored
       .getByRole("button", { name: `Actions for ${agentName} in resume-test`, exact: true })
       .click();
@@ -4919,10 +4937,12 @@ if (resumed) {
       `RESUMED_CONVERSATION ${resumedLaunch.pid}`,
     );
     assert.deepEqual(resumedLaunch.args.slice(0, 2), [
-      agent === "claude" ? "--resume" : "resume",
+      agent === "claude" ? "--resume" : agent === "codex" ? "resume" : "--conversation",
       conversation,
     ]);
     assert.equal(resumedLaunch.cwd, firstLaunch.cwd);
+    assert.ok(firstLaunch.token);
+    assert.ok(resumedLaunch.token);
     assert.notEqual(resumedLaunch.token, firstLaunch.token);
     await expect(restored.locator(".xterm-helper-textarea")).toBeFocused();
     await restored.locator(".xterm-helper-textarea").press("q");

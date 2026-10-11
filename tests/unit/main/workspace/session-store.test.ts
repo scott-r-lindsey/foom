@@ -23,25 +23,29 @@ async function setup() {
   directories.push(directory);
   return { directory, store: new SessionStore(directory) };
 }
-test("persists only metadata, restores exited sessions and serializes Close", async () => {
-  const { directory, store } = await setup();
-  expect(await store.load()).toEqual([]);
-  const restored = readSessions([record]);
-  expect(restored[0]).toMatchObject({
-    exited: true,
-    dormant: true,
-    state: null,
-    conversationId: "session-1",
-  });
-  await store.save(restored);
-  expect(await store.load()).toEqual(restored);
-  expect(JSON.parse(await readFile(join(directory, "sessions.json"), "utf8"))).toEqual([record]);
-  if (process.platform !== "win32")
-    expect((await stat(join(directory, "sessions.json"))).mode & 0o777).toBe(0o600);
-  await Promise.all([store.save(restored), store.save([])]);
-  await store.flush();
-  expect(await store.load()).toEqual([]);
-});
+test.each(["claude", "codex", "agy"])(
+  "persists %s metadata, restores exited sessions and serializes Close",
+  async (agent) => {
+    const entry = { ...record, agent };
+    const { directory, store } = await setup();
+    expect(await store.load()).toEqual([]);
+    const restored = readSessions([entry]);
+    expect(restored[0]).toMatchObject({
+      exited: true,
+      dormant: true,
+      state: null,
+      conversationId: "session-1",
+    });
+    await store.save(restored);
+    expect(await store.load()).toEqual(restored);
+    expect(JSON.parse(await readFile(join(directory, "sessions.json"), "utf8"))).toEqual([entry]);
+    if (process.platform !== "win32")
+      expect((await stat(join(directory, "sessions.json"))).mode & 0o777).toBe(0o600);
+    await Promise.all([store.save(restored), store.save([])]);
+    await store.flush();
+    expect(await store.load()).toEqual([]);
+  },
+);
 test.each([
   null,
   {},
@@ -54,7 +58,8 @@ test.each([
   [{ ...record, worktree: "a\0b" }],
   [{ ...record, branch: 12 }],
   [{ ...record, conversationId: "--last" }],
-  [{ ...record, agent: "agy" }],
+  [{ ...record, agent: "shell" }],
+  [{ ...record, agent: "agy", conversationId: "../escape" }],
 ])("rejects corrupt disk records", (value) => {
   expect(() => readSessions(value)).toThrow();
 });

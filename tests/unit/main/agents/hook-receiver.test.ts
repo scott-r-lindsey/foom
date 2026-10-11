@@ -463,11 +463,12 @@ describe("Antigravity lifecycle", () => {
       terminalId: "terminal-1",
       action,
       signal: `agy:${event}`,
+      conversationId: "conversation",
     });
     expect(Object.keys(signals[0] ?? {}).sort()).toEqual(
       event === "Stop"
-        ? ["action", "fullyIdle", "signal", "terminalId", "terminationReason"]
-        : ["action", "signal", "terminalId"],
+        ? ["action", "conversationId", "fullyIdle", "signal", "terminalId", "terminationReason"]
+        : ["action", "conversationId", "signal", "terminalId"],
     );
   });
   it("pins the conversation and rejects invalid or foreign events without learning invalid IDs", async () => {

@@ -9,5 +9,5 @@ export function resumeArguments(agent: AgentId, id: unknown): string[] {
   if (!conversationId(id)) throw new Error("Invalid conversation ID");
   if (agent === "claude") return ["--resume", id];
   if (agent === "codex") return ["resume", id];
-  throw new Error("Conversation resume is unavailable for this agent");
+  return ["--conversation", id];
 }
