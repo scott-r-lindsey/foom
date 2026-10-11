@@ -301,11 +301,11 @@ test("a failed launch save keeps preflight open with the error", async () => {
 });
 
 test("appearance applies at once, follows shortcuts from main, and stays within its steps", async () => {
-  const source = fake(setupState({ interfaceScale: 140 }));
+  const source = fake(setupState({ interfaceScale: 250 }));
   render(
     <Preflight
       source={source}
-      initial={setupState({ interfaceScale: 140 })}
+      initial={setupState({ interfaceScale: 250 })}
       onLaunched={vi.fn()}
     />,
   );
@@ -313,25 +313,25 @@ test("appearance applies at once, follows shortcuts from main, and stays within 
   expect(screen.getByRole("radio", { name: "Dark" })).toHaveProperty("checked", true);
   expect(source.save).toHaveBeenCalledWith({ colorMode: "dark" });
   fireEvent.click(button("Larger"));
-  expect(source.save).toHaveBeenLastCalledWith({ interfaceScale: 150 });
-  expect(screen.getByText("150%")).toBeTruthy();
+  expect(source.save).toHaveBeenLastCalledWith({ interfaceScale: 300 });
+  expect(screen.getByText("300%")).toBeTruthy();
   expect(button("Larger")).toHaveProperty("disabled", true);
   // Scrolling over the size steps it: down is smaller, up is larger.
-  const size = screen.getByText("150%");
+  const size = screen.getByText("300%");
   fireEvent.wheel(size, { deltaY: 100 });
-  expect(screen.getByText("140%")).toBeTruthy();
+  expect(screen.getByText("250%")).toBeTruthy();
   // Small trackpad deltas add up to a step.
-  fireEvent.wheel(screen.getByText("140%"), { deltaY: 30 });
-  expect(screen.getByText("140%")).toBeTruthy();
-  fireEvent.wheel(screen.getByText("140%"), { deltaY: 30 });
-  expect(screen.getByText("130%")).toBeTruthy();
+  fireEvent.wheel(screen.getByText("250%"), { deltaY: 30 });
+  expect(screen.getByText("250%")).toBeTruthy();
+  fireEvent.wheel(screen.getByText("250%"), { deltaY: 30 });
+  expect(screen.getByText("200%")).toBeTruthy();
   // A mouse wheel in line mode: each notch is a step.
-  fireEvent.wheel(screen.getByText("130%"), { deltaY: -3, deltaMode: 1 });
-  expect(screen.getByText("140%")).toBeTruthy();
-  fireEvent.wheel(screen.getByText("140%"), { deltaY: -100 });
-  fireEvent.wheel(screen.getByText("150%"), { deltaY: -100 });
-  expect(screen.getByText("150%")).toBeTruthy();
-  expect(source.save).toHaveBeenLastCalledWith({ interfaceScale: 150 });
+  fireEvent.wheel(screen.getByText("200%"), { deltaY: -3, deltaMode: 1 });
+  expect(screen.getByText("250%")).toBeTruthy();
+  fireEvent.wheel(screen.getByText("250%"), { deltaY: -100 });
+  fireEvent.wheel(screen.getByText("300%"), { deltaY: -100 });
+  expect(screen.getByText("300%")).toBeTruthy();
+  expect(source.save).toHaveBeenLastCalledWith({ interfaceScale: 300 });
   expect(screen.queryByRole("button", { name: "Reset" })).toBeNull();
   // A shortcut handled in main arrives as a settings change.
   await act(async () => {
@@ -349,24 +349,27 @@ test("appearance applies at once, follows shortcuts from main, and stays within 
   fireEvent.click(button("Larger"));
   expect(screen.getByText("90%")).toBeTruthy();
   await screen.findByText("Disk full");
-  // The fake last saved 150, so that is what comes back.
+  // The fake last saved 300, so that is what comes back.
   await waitFor(() => {
-    expect(screen.getByText("150%")).toBeTruthy();
+    expect(screen.getByText("300%")).toBeTruthy();
   });
 });
 
 test("the size control steps down, and shows macOS shortcuts on a Mac", () => {
   const platform = vi.spyOn(navigator, "platform", "get").mockReturnValue("MacIntel");
-  const source = fake(setupState({ interfaceScale: 120 }));
+  const source = fake(setupState({ interfaceScale: 175 }));
   render(
     <Preflight
       source={source}
-      initial={setupState({ interfaceScale: 120 })}
+      initial={setupState({ interfaceScale: 175 })}
       onLaunched={vi.fn()}
     />,
   );
+  // Above 150 the steps follow Chromium's zoom levels.
   fireEvent.click(button("Smaller"));
-  expect(source.save).toHaveBeenCalledWith({ interfaceScale: 110 });
+  expect(source.save).toHaveBeenCalledWith({ interfaceScale: 150 });
+  fireEvent.click(button("Smaller"));
+  expect(source.save).toHaveBeenLastCalledWith({ interfaceScale: 140 });
   expect(screen.getByText("⌘ + / − / 0")).toBeTruthy();
   platform.mockRestore();
 });

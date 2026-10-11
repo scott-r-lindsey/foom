@@ -1,4 +1,5 @@
 import { useEffect, useRef } from "react";
+import { createPortal } from "react-dom";
 import type { ShortcutGroup } from "../../shared/app-menu";
 /** Main's shortcut sheet in columns. Escape or a click outside closes it. */
 export function ShortcutSheet({
@@ -21,7 +22,9 @@ export function ShortcutSheet({
       dialog?.close();
     };
   }, []);
-  return (
+  // Portaled: the compact sidebar hides the header that owns the menu, and a dialog
+  // under a hidden ancestor never renders, even in the top layer.
+  return createPortal(
     <dialog
       ref={ref}
       className="shortcut-sheet"
@@ -58,6 +61,7 @@ export function ShortcutSheet({
           ))}
         </div>
       </div>
-    </dialog>
+    </dialog>,
+    document.body,
   );
 }

@@ -21,7 +21,7 @@ export interface Settings {
   colorMode: "system" | "light" | "dark";
   /** A built-in or complete validated color palette; Follow preserves the legacy mode. */
   interfaceTheme: InterfaceThemeChoice;
-  /** Interface zoom in percent, 80–150 in steps of 10. Terminal font size is separate. */
+  /** Interface zoom in percent, 80–150 in steps of 10, then 175, 200, 250 and 300. Terminal font size is separate. */
   interfaceScale: number;
   /** Terminal text size in CSS pixels, 10–32 in whole pixels. */
   terminalFontSize: number;
