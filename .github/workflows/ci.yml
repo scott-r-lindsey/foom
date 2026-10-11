@@ -225,10 +225,10 @@ jobs:
         # A measured full Windows suite exceeded 10 minutes without a test failure.
         # Two disjoint shards run every test once, in separate runner processes.
         # Individual launches and waits use the shared platform deadline policy.
-        # Run 37880529037: macOS passed 54 cases (580s total) before the 600s
-        # suite cutoff interrupted the final window cases and JUnit flush.
-        # Allow the measured suite plus custom-theme coverage; keep per-test limits.
-        timeout-minutes: ${{ runner.os == 'macOS' && 12 || 10 }}
+        # Run 38175978499: macOS passed 63/69 cases (705s total) before the
+        # 720s suite cutoff truncated JUnit. The six remaining cases need their
+        # measured share plus cleanup; keep per-test deadlines and watchdogs.
+        timeout-minutes: ${{ runner.os == 'macOS' && 15 || 10 }}
         if: runner.os != 'Linux'
         run: npm run test:electron
       - name: Stamp nightly package version
