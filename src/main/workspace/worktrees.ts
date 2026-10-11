@@ -6,7 +6,13 @@ import { lstat, mkdir, readFile, realpath, rename, rm, rmdir, writeFile } from "
 import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { promisify } from "node:util";
-import type { CreateWorktreeOptions, Repository, Worktree } from "../../shared/worktrees";
+import type {
+  BranchInventory,
+  CreatedWorktree,
+  CreateWorktreeOptions,
+  Repository,
+  Worktree,
+} from "../../shared/worktrees";
 
 const execute = promisify(execFile);
 
@@ -71,6 +77,33 @@ async function worktreeIdentity(path: string): Promise<string> {
     }),
   );
   return JSON.stringify([gitDirectory, entries]);
+}
+
+/** The repository's remote: origin, or its only remote. */
+function pickRemote(output: string): string | undefined {
+  const remotes = output.trim().split("\n").filter(Boolean);
+  const remote = remotes.includes("origin")
+    ? "origin"
+    : remotes.length === 1
+      ? remotes[0]
+      : undefined;
+  // A remote name becomes part of a ref pattern and an argument; refuse anything unusual.
+  return remote && !remote.startsWith("-") && !/[\0-\x20\x7f~^:?*[\\]/u.test(remote)
+    ? remote
+    : undefined;
+}
+
+/** Ref names under `prefix`, without it. Git output is bounded before it reaches the renderer. */
+function refNames(output: string, prefix: string): string[] {
+  return (
+    output
+      .split("\n")
+      .filter((line) => line.startsWith(prefix) && line.length - prefix.length <= 255)
+      .map((line) => line.slice(prefix.length))
+      // Git refuses control characters and spaces in ref names; drop anything else it lists.
+      .filter((name) => name && !/[\0-\x20\x7f]/u.test(name))
+      .slice(0, 5000)
+  );
 }
 
 function record(value: unknown): value is Record<string, unknown> {
@@ -387,13 +420,59 @@ export class WorktreeService {
     ]);
   }
 
+  /** Local refs only: the branch field never waits on the network. */
+  async branches(repositoryPath: string): Promise<BranchInventory> {
+    const repository = this.repository(repositoryPath);
+    const [head, locals, remotes, trees] = await Promise.all([
+      git(repository.path, ["symbolic-ref", "--quiet", "--short", "HEAD"]).then(
+        (output) => output.trim() || null,
+        () => null,
+      ),
+      git(repository.path, ["for-each-ref", "--format=%(refname)", "--", "refs/heads/"]),
+      git(repository.path, ["remote"]),
+      this.listWorktrees(repository.path),
+    ]);
+    const remote = pickRemote(remotes);
+    const remoteRefs = remote
+      ? await git(repository.path, [
+          "for-each-ref",
+          "--format=%(refname)",
+          "--",
+          `refs/remotes/${remote}/`,
+        ])
+      : "";
+    return {
+      head,
+      local: refNames(locals, "refs/heads/").map((name) => ({
+        name,
+        worktree: trees.find((tree) => tree.branch === name)?.path ?? null,
+      })),
+      remote: remote ?? null,
+      remoteBranches: refNames(remoteRefs, `refs/remotes/${remote ?? ""}/`).filter(
+        (name) => name !== "HEAD",
+      ),
+    };
+  }
+
+  /**
+   * Check out `branch` in a new worktree: an existing local branch as is, a branch only on
+   * the remote tracking it, and otherwise a new branch from HEAD. A branch that is already
+   * checked out is reported, not added again.
+   */
   async createWorktree(
     repositoryPath: string,
     branch: string,
     options: CreateWorktreeOptions = {},
-  ): Promise<string> {
+  ): Promise<CreatedWorktree> {
     const repository = this.repository(repositoryPath);
     await this.validateBranch(repositoryPath, branch);
+    const checkedOut = (await this.listWorktrees(repository.path)).find(
+      (tree) => tree.branch === branch,
+    );
+    if (checkedOut) {
+      if (options.newBranch) throw new Error("Branch already exists");
+      return { path: checkedOut.path, outcome: "open" };
+    }
     const location = options.location ?? "root";
     const configuredRoot = location === "adjacent" ? dirname(repository.path) : this.root;
     await mkdir(configuredRoot, { recursive: true });
@@ -411,16 +490,24 @@ export class WorktreeService {
       branch,
     ]);
     if (exists && options.newBranch) throw new Error("Branch already exists");
+    const remote =
+      exists || options.newBranch ? undefined : pickRemote(await git(repository.path, ["remote"]));
+    const tracked = `refs/remotes/${remote ?? ""}/${branch}`;
+    const onRemote =
+      remote !== undefined &&
+      (await git(repository.path, ["for-each-ref", "--format=%(refname)", "--", tracked]))
+        .split("\n")
+        .includes(tracked);
     await prepareParent(root, path);
     try {
-      // Git creates a new branch when absent and checks out an existing branch otherwise.
+      // The full remote ref avoids ambiguity with a local branch named like `origin/x`.
       await git(repository.path, [
         "worktree",
         "add",
-        ...(exists ? [] : ["-b", branch]),
+        ...(exists ? [] : onRemote ? ["--track", "-b", branch] : ["-b", branch]),
         "--",
         path,
-        ...(exists ? [branch] : []),
+        ...(exists ? [branch] : onRemote ? [tracked] : []),
       ]);
     } catch (error) {
       // Only remove the empty directory we reserved; never recursively delete on failure.
@@ -433,7 +520,7 @@ export class WorktreeService {
       identity: await worktreeIdentity(path),
     });
     await this.save();
-    return path;
+    return { path, outcome: exists ? "existing" : onRemote ? "origin" : "new" };
   }
 
   private readonly panelCache = new Map<
@@ -458,12 +545,7 @@ export class WorktreeService {
 
   private async readPanelFacts(repository: string, worktree: string): Promise<GitPanelFacts> {
     const read = (args: string[]) => git(worktree, args, 3000).catch(() => null);
-    const remotes = (await read(["remote"]))?.trim().split("\n").filter(Boolean) ?? [];
-    const remoteName = remotes.includes("origin")
-      ? "origin"
-      : remotes.length === 1
-        ? remotes[0]
-        : undefined;
+    const remoteName = pickRemote((await read(["remote"])) ?? "");
     const [status, upstream, log, remote, localDefault, fetchPath] = await Promise.all([
       read(["--no-optional-locks", "status", "--porcelain=v1", "-z", "--untracked-files=normal"]),
       read(["rev-list", "--left-right", "--count", "HEAD...@{upstream}", "--"]),
@@ -535,13 +617,8 @@ export class WorktreeService {
   }
 
   private async fetchDefault(repository: string): Promise<string> {
-    const remotes = (await git(repository, ["remote"])).trim().split("\n").filter(Boolean);
-    const remote = remotes.includes("origin")
-      ? "origin"
-      : remotes.length === 1
-        ? remotes[0]
-        : undefined;
-    if (!remote || remote.startsWith("-")) throw new Error("No unambiguous repository remote");
+    const remote = pickRemote(await git(repository, ["remote"]));
+    if (!remote) throw new Error("No unambiguous repository remote");
     try {
       await git(repository, ["fetch", "--prune", "--", remote]);
       const advertised = await git(repository, ["ls-remote", "--symref", "--", remote, "HEAD"]);

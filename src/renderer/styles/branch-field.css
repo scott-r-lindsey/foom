@@ -1,0 +1,166 @@
+/* New worktree: a branch field over the repository panel's facts, and the new row's arrival. */
+.panel-side {
+  position: relative;
+  min-width: 0;
+}
+.panel-side[data-field] > :not(.branch-field) {
+  visibility: hidden;
+}
+.branch-field {
+  position: absolute;
+  z-index: 1;
+  inset: 8px 12px auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.branch-box {
+  position: relative;
+  display: flex;
+  align-items: center;
+  height: 34px;
+  background: var(--bg);
+  border: 1px solid var(--highlight);
+  border-radius: 6px;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--highlight) 18%, transparent);
+}
+.branch-box[data-invalid] {
+  border-color: var(--failed);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--failed) 15%, transparent);
+}
+.branch-box input {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  padding: 0 10px;
+  background: transparent;
+  border: 0;
+  outline: none;
+  color: var(--ink);
+  font: 13px var(--font-mono);
+}
+.branch-box input:disabled {
+  color: var(--muted);
+}
+.branch-ghost {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  padding: 0 10px;
+  overflow: hidden;
+  font: 13px var(--font-mono);
+  white-space: pre;
+  pointer-events: none;
+}
+.branch-typed {
+  color: transparent;
+}
+.branch-rest {
+  color: var(--muted);
+  opacity: 0.65;
+}
+.branch-other {
+  margin-left: auto;
+  color: var(--muted);
+  opacity: 0.8;
+}
+.branch-status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 18px;
+  padding: 0 2px;
+  overflow-wrap: anywhere;
+  color: var(--muted);
+  font: 11px var(--font-mono);
+}
+.branch-status[data-kind="new"] {
+  color: var(--accent);
+}
+/* Failures are square, so the state never depends on color alone. */
+.branch-status[data-invalid] {
+  color: var(--failed-ink);
+  font: 12px var(--font-interface);
+}
+.branch-status[data-invalid]::before {
+  content: "";
+  flex: 0 0 7px;
+  height: 7px;
+  border-radius: 1px;
+  background: var(--failed);
+}
+
+/* The accent, never amber: nothing needs the user yet. */
+.worktree-row.arriving {
+  position: relative;
+  background: color-mix(in srgb, var(--highlight) 14%, transparent);
+  box-shadow: inset 2px 0 0 var(--highlight);
+  animation:
+    worktree-arrive 220ms cubic-bezier(0.2, 0.8, 0.2, 1) both,
+    worktree-flare 900ms ease-out 220ms 2;
+}
+.worktree-row.arriving .tree-name {
+  color: var(--ink);
+}
+.worktree-row.arriving .tree-name svg {
+  color: var(--highlight);
+}
+.worktree-row.arriving::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: linear-gradient(
+      90deg,
+      transparent,
+      color-mix(in srgb, var(--highlight) 45%, transparent),
+      transparent
+    )
+    no-repeat;
+  background-size: 50% 100%;
+  animation: worktree-sweep 700ms ease-out 220ms both;
+  pointer-events: none;
+}
+@keyframes worktree-arrive {
+  from {
+    max-height: 0;
+    min-height: 0;
+    opacity: 0;
+    transform: translateX(-10px);
+  }
+  to {
+    max-height: 40px;
+  }
+}
+@keyframes worktree-flare {
+  0% {
+    box-shadow:
+      inset 2px 0 0 var(--highlight),
+      0 0 0 0 color-mix(in srgb, var(--highlight) 55%, transparent);
+  }
+  100% {
+    box-shadow:
+      inset 2px 0 0 var(--highlight),
+      0 0 0 8px transparent;
+  }
+}
+@keyframes worktree-sweep {
+  from {
+    background-position: -100% 0;
+  }
+  to {
+    background-position: 200% 0;
+    opacity: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .worktree-row.arriving,
+  .worktree-row.arriving::after {
+    animation: none;
+  }
+  .worktree-row.arriving::after {
+    display: none;
+  }
+}

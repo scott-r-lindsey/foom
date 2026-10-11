@@ -14,6 +14,8 @@ export interface RowAction {
   glyph?: CommandGlyphName;
   hint?: string;
   reason?: string;
+  /** Shows something beside the item, opened by Right, Enter or click; the panel stays open. */
+  expanded?: boolean;
   /** A nested menu, opened by hover, Right, Enter or click. */
   submenu?: readonly (RowAction | null)[];
   /** One stop holding a live value between two step buttons; stepping keeps the menu open. */
@@ -262,7 +264,7 @@ export function RowMenu({
           } else if (
             event.key === "ArrowRight" &&
             active instanceof HTMLButtonElement &&
-            active.getAttribute("aria-haspopup") === "menu"
+            (active.getAttribute("aria-haspopup") === "menu" || active.dataset["expands"])
           ) {
             event.preventDefault();
             active.click();
@@ -328,7 +330,8 @@ export function RowMenu({
                 role={action.checked === undefined ? "menuitem" : "menuitemcheckbox"}
                 aria-checked={action.checked}
                 aria-haspopup={action.submenu ? "menu" : undefined}
-                aria-expanded={action.submenu ? sub?.index === index : undefined}
+                aria-expanded={action.submenu ? sub?.index === index : action.expanded}
+                data-expands={action.expanded === undefined ? undefined : true}
                 data-open={(action.submenu && sub?.index === index) || undefined}
                 disabled={action.disabled}
                 style={{ "--item": index } as CSSProperties}
@@ -346,6 +349,11 @@ export function RowMenu({
                   }
                   if (onAction) {
                     onAction(action);
+                    return;
+                  }
+                  if (action.expanded !== undefined) {
+                    setSub(undefined);
+                    void action.run();
                     return;
                   }
                   if (confirmation.pending && selected !== index) {

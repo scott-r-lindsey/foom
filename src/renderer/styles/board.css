@@ -812,8 +812,7 @@
   }
 }
 
-.row-menu button[data-armed],
-.worktree-dialog button[data-armed] {
+.row-menu button[data-armed] {
   position: relative;
   background: var(--ink);
   color: var(--bg);
@@ -822,8 +821,7 @@
 .row-menu button[data-armed]::before {
   display: none;
 }
-.row-menu button[data-armed]::after,
-.worktree-dialog button[data-armed]::after {
+.row-menu button[data-armed]::after {
   content: "";
   position: absolute;
   left: 10px;

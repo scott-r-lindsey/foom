@@ -26,7 +26,6 @@ import { readPreferences, writePreferences, renameSession } from "./sidebar-pref
 import type { SidebarCommand } from "../../shared/workspace";
 import type { LaunchOptions } from "./board-source.d";
 import { repositoryKey, worktreeKey, rowRepository, rowWorktree } from "./sidebar-model";
-import { WorktreeDialog } from "./worktree-dialog";
 import {
   useCallback,
   useEffect,
@@ -215,10 +214,9 @@ export function Board({
     },
     [changeLayout, source],
   );
-  const [launching, setLaunching] = useState(false);
-  const [launchRepository, setLaunchRepository] = useState<string>();
   const [preferences, setPreferences] = useState(() => readPreferences(localStorage));
   const revealRef = useRef<(row: BoardRow) => void>(undefined);
+  const newWorktreeRef = useRef<(repository?: string) => boolean>(undefined);
   const [options, setOptions] = useState<LaunchOptions>();
   useEffect(() => {
     let current = true;
@@ -239,10 +237,6 @@ export function Board({
     } catch {
       setRemoveError("Unable to save sidebar preferences.");
     }
-  };
-  const newWorktree = (repository?: string) => {
-    setLaunchRepository(repository);
-    setLaunching(true);
   };
   const [selection, setSelection] = useState(rows[0]?.id);
   const selected = rows.some((row) => row.id === selection) ? selection : rows[0]?.id;
@@ -448,21 +442,26 @@ export function Board({
   useEffect(
     () =>
       source.subscribeCommands?.((command) => {
-        if (inactive || launching) return;
+        if (inactive) return;
         if (command === "via-claude" || command === "via-codex" || command === "via-agy") {
           const agent = { "via-claude": "claude", "via-codex": "codex", "via-agy": "agy" } as const;
           void runSidebarCommand({ kind: "config-launch", run: agent[command], origin: "menu" });
         } else if (command === "settings") {
           onSettings?.();
-        } else if (command === "add-repository") {
+        } else if (
+          command === "add-repository" ||
+          (command === "new-worktree" &&
+            !settingsOpen &&
+            // The focused tile's repository, else the sidebar's top one; else add one.
+            !newWorktreeRef.current?.(
+              focusedRow && !focusedRow.home && !focusedRow.config
+                ? rowRepository(focusedRow)
+                : undefined,
+            ))
+        ) {
           void source.worktrees?.addRepository().catch(() => {
             setRemoveError("Unable to add repository.");
           });
-        } else if (command === "new-worktree") {
-          if (!settingsOpen) {
-            setLaunchRepository(undefined);
-            setLaunching(true);
-          }
         } else if (command === "sidebar") {
           const button = selected ? buttonsRef.current.get(selected) : undefined;
           (button ?? sidebarRef.current)?.focus();
@@ -541,7 +540,7 @@ export function Board({
     [
       source,
       inactive,
-      launching,
+      focusedRow,
       selected,
       open,
       onSettings,
@@ -553,19 +552,19 @@ export function Board({
   useEffect(() => {
     void source.appMenu
       ?.setView({
-        available: !inactive && !launching && !settingsOpen,
-        configAvailable: !inactive && !launching,
+        available: !inactive && !settingsOpen,
+        configAvailable: !inactive,
         maximized: Boolean(layout.maximized),
         tiles: terminals(layout.tree).length,
       })
       .catch((error: unknown) => {
         console.error("Unable to update menu state:", error);
       });
-  }, [source, inactive, launching, settingsOpen, layout]);
+  }, [source, inactive, settingsOpen, layout]);
   useEffect(
     () =>
       source.appMenu?.onSession((id) => {
-        if (inactive || launching) return;
+        if (inactive) return;
         const row = source.getSnapshot().find((row) => row.id === id);
         if (row) {
           onCloseSettings?.();
@@ -573,7 +572,7 @@ export function Board({
           open(row, !visible);
         }
       }),
-    [source, inactive, launching, open, onCloseSettings],
+    [source, inactive, open, onCloseSettings],
   );
   return (
     <main
@@ -584,7 +583,6 @@ export function Board({
       onDragStart={(event) => {
         if (
           paneInactive ||
-          launching ||
           !(event.target instanceof HTMLElement) ||
           event.target.closest("button, input")
         ) {
@@ -615,15 +613,6 @@ export function Board({
         }
       }}
     >
-      {launching && source.worktrees && (
-        <WorktreeDialog
-          source={source.worktrees}
-          initialRepository={launchRepository}
-          close={() => {
-            setLaunching(false);
-          }}
-        />
-      )}
       {removeError && <p role="alert">{removeError}</p>}
       <div className="board-workspace">
         <Sidebar
@@ -645,7 +634,7 @@ export function Board({
           }}
           revealRef={revealRef}
           {...(onSettings ? { openSettings: onSettings } : {})}
-          inactive={inactive || launching}
+          inactive={inactive}
           rows={rows}
           preferences={preferences}
           save={save}
@@ -654,7 +643,7 @@ export function Board({
           sidebar={sidebarRef}
           open={open}
           focus={setSelection}
-          newWorktree={newWorktree}
+          newWorktreeRef={newWorktreeRef}
           command={command}
           options={options}
           footer={

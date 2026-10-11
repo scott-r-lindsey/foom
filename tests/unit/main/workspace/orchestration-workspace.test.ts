@@ -46,6 +46,7 @@ beforeEach(() => {
   deps = {
     acknowledgeCodex: vi.fn(async () => {}),
     worktrees: {
+      branches: vi.fn(),
       panelFacts: vi.fn(),
       listRepositories: vi.fn(() => [repo]),
       addRepository: vi.fn(() => Promise.resolve(repo)),
@@ -59,7 +60,7 @@ beforeEach(() => {
       deleteMergedBranch: vi.fn(async () => {}),
       removeRepository: vi.fn(async () => {}),
       removeWorktree: vi.fn(async () => {}),
-      createWorktree: vi.fn(() => Promise.resolve(child.path)),
+      createWorktree: vi.fn(() => Promise.resolve({ path: child.path, outcome: "new" as const })),
     },
     terminals: {
       stop,
@@ -288,7 +289,10 @@ it("refuses to launch a child into the main checkout or an unavailable worktree"
     () => undefined,
   );
   const actor = principal();
-  vi.mocked(deps.worktrees.createWorktree).mockResolvedValueOnce(repo.path);
+  vi.mocked(deps.worktrees.createWorktree).mockResolvedValueOnce({
+    path: repo.path,
+    outcome: "open",
+  });
   const tree = (await workspace.orchestration.call(
     actor,
     "create_worktree",

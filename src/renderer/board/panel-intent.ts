@@ -2,6 +2,8 @@ export interface PanelTarget {
   id: string;
   anchor: HTMLElement;
   pinned: boolean;
+  /** A repository panel showing its New worktree branch field. */
+  field?: boolean;
 }
 /** One intent machine per sidebar; all delayed work is cancelled on disposal. */
 export class PanelIntent {
@@ -45,10 +47,10 @@ export class PanelIntent {
   hold() {
     this.cancel();
   }
-  pin(id: string, anchor: HTMLElement) {
+  pin(id: string, anchor: HTMLElement, field = false) {
     if (this.dragging || (this.current?.pinned && this.current.id !== id)) return;
     this.cancel();
-    this.publish({ id, anchor, pinned: true });
+    this.publish({ id, anchor, pinned: true, ...(field ? { field } : {}) });
   }
   close = () => {
     this.cancel();

@@ -436,9 +436,15 @@ export function createAppSource(): BoardSource {
         };
       },
       addRepository: () => window.desktop.addRepository(),
-      start: async (request) => {
-        await window.desktop.startWorktree(request);
+      branches: (repository) => window.desktop.branches(repository),
+      create: async (repository, branch) => {
+        const created = await window.desktop.createWorktree(repository, branch);
+        const inventory = await window.desktop.sidebarInventory();
+        sidebar = inventory.repositories;
+        shellName = inventory.shell;
+        home = inventory.home;
         snapshot(await window.desktop.workspace());
+        return created;
       },
       remove: async (id) => {
         const removed = await window.desktop.removeWorktree(id);

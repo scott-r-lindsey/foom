@@ -3,9 +3,17 @@ import { PanelFacts, PanelTitle } from "./panel-facts";
 import type { PanelSubject } from "./panel-facts";
 import { AgentBadge } from "./agent-badge";
 import { PanelMark } from "./panel-glyphs";
+import { BranchField } from "./branch-field-view";
 import type { ConfigStatus } from "../../shared/foom-config";
 import { AppMenu } from "./app-menu";
-import { useCallback, useEffect, useLayoutEffect, useState, useSyncExternalStore } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
 import type { RefObject, ReactNode, CSSProperties } from "react";
 import type { BoardSource, LaunchOptions } from "./board-source.d";
 import type { BoardRow } from "./board.d";
@@ -59,7 +67,7 @@ export function Sidebar({
   sidebar,
   open,
   focus,
-  newWorktree,
+  newWorktreeRef,
   command,
   options,
   footer,
@@ -81,7 +89,8 @@ export function Sidebar({
   sidebar: RefObject<HTMLElement | null>;
   open: (row: BoardRow) => void;
   focus: (id: string) => void;
-  newWorktree: (repository?: string) => void;
+  /** Opens a repository's panel with the branch field; false when there is no repository. */
+  newWorktreeRef?: RefObject<((repository?: string) => boolean) | undefined>;
   command: (command: SidebarCommand) => Promise<void>;
   options: LaunchOptions | undefined;
   footer: ReactNode;
@@ -113,6 +122,44 @@ export function Sidebar({
     };
   }, [source]);
   const menu = useSyncExternalStore(intent.subscribe, intent.getSnapshot);
+  // The branch field and a new row's arrival are view state: they never outlive this window.
+  const [arrival, setArrival] = useState<string>();
+  const anchorsRef = useRef(new Map<string, HTMLElement>());
+  // Rows that must render before they can take a panel or focus.
+  const pendingRef = useRef<{ field?: string | undefined; focus?: string | undefined }>({});
+  const settleTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
+  useEffect(
+    () => () => {
+      clearTimeout(settleTimerRef.current);
+    },
+    [],
+  );
+  const settle = (path: string, delay: number) => {
+    clearTimeout(settleTimerRef.current);
+    // Hover settles after a moment, so a row arriving under the pointer still shows its motion.
+    settleTimerRef.current = setTimeout(() => {
+      setArrival((current) => (current === path ? undefined : current));
+    }, delay);
+  };
+  const openField = (id: string, anchor: HTMLElement) => {
+    if (intent.getSnapshot()?.id !== id) intent.close();
+    intent.pin(id, anchor, true);
+  };
+  useLayoutEffect(() => {
+    const pending = pendingRef.current;
+    const anchor = pending.field && anchorsRef.current.get(pending.field);
+    if (pending.field && anchor) {
+      openField(pending.field, anchor);
+      pending.field = undefined;
+    }
+    const row = pending.focus && anchorsRef.current.get(pending.focus);
+    if (row) {
+      row.focus({ preventScroll: true });
+      row.scrollIntoView({ block: "nearest" });
+      pending.focus = undefined;
+    }
+  });
+  const fieldOpen = Boolean(menu?.field);
   useEffect(
     () => () => {
       intent.dispose();
@@ -172,6 +219,47 @@ export function Sidebar({
   );
   const toggle = (id: string, expanded: boolean) => {
     save({ ...preferences, expanded: { ...preferences.expanded, [id]: !expanded } });
+  };
+  useLayoutEffect(() => {
+    if (!newWorktreeRef) return;
+    newWorktreeRef.current = (repository) => {
+      const target =
+        repository && repositories.some((entry) => entry.path === repository)
+          ? repository
+          : // The sidebar's own order, which puts repositories with sessions first.
+            buildSidebar(
+              rows.filter((row) => !row.home && !row.config),
+              repositories,
+              preferences,
+              "",
+            ).tree[0]?.repository.path;
+      if (!target || !source.worktrees) return false;
+      const id = repositoryKey(target);
+      // A compact sidebar lists sessions only, so the panel opens beside the sidebar itself.
+      const anchor = anchorsRef.current.get(id) ?? (compact ? sidebar.current : null);
+      if (anchor) openField(id, anchor);
+      else {
+        // A filter hides the repository; clear it so its row can anchor the panel.
+        pendingRef.current.field = id;
+        setFilter("");
+      }
+      return true;
+    };
+    return () => {
+      newWorktreeRef.current = undefined;
+    };
+  });
+  const arrive = (repository: string, path: string) => {
+    intent.close();
+    // The row may be collapsed or filtered out; focus it once it renders. A compact
+    // sidebar shows no worktree rows, so there is nothing to focus.
+    if (!compact) pendingRef.current.focus = worktreeKey(path);
+    setFilter("");
+    save({
+      ...preferences,
+      expanded: { ...preferences.expanded, [repositoryKey(repository)]: true },
+    });
+    setArrival(path);
   };
   const launchers = (location: SidebarLocation) =>
     launcherActions(options, source.shellName?.()).map((action) => ({
@@ -739,6 +827,10 @@ export function Sidebar({
                         <button
                           type="button"
                           data-nav
+                          ref={(element) => {
+                            if (element) anchorsRef.current.set(rid, element);
+                            else anchorsRef.current.delete(rid);
+                          }}
                           className="tree-name"
                           aria-haspopup="dialog"
                           aria-expanded={menu?.id === rid}
@@ -760,13 +852,18 @@ export function Sidebar({
                           </>
                         )}
                         {actions(rid, repo.repository.name, [
-                          {
-                            label: "New worktree…",
-                            glyph: "branch" as const,
-                            run: () => {
-                              newWorktree(repo.repository.path);
-                            },
-                          },
+                          ...(source.worktrees
+                            ? [
+                                {
+                                  label: "New worktree",
+                                  glyph: "branch" as const,
+                                  expanded: Boolean(menu?.field && menu.id === rid),
+                                  run: () => {
+                                    if (menu) intent.pin(rid, menu.anchor, true);
+                                  },
+                                },
+                              ]
+                            : []),
                           ...orchestrators(repo.repository.path),
                           null,
 
@@ -839,7 +936,14 @@ export function Sidebar({
                                 aria-expanded={expanded}
                                 aria-label={name}
                               >
-                                <div {...rowEvents(wid)} className="tree-row worktree-row">
+                                <div
+                                  {...rowEvents(wid)}
+                                  className={`tree-row worktree-row${arrival === worktree.path ? " arriving" : ""}`}
+                                  onPointerEnter={(event) => {
+                                    rowEvents(wid).onPointerEnter(event);
+                                    if (arrival === worktree.path) settle(worktree.path, 600);
+                                  }}
+                                >
                                   <button
                                     type="button"
                                     className="tree-chevron"
@@ -853,6 +957,13 @@ export function Sidebar({
                                   <button
                                     type="button"
                                     data-nav
+                                    ref={(element) => {
+                                      if (element) anchorsRef.current.set(wid, element);
+                                      else anchorsRef.current.delete(wid);
+                                    }}
+                                    onBlur={() => {
+                                      if (arrival === worktree.path) settle(worktree.path, 0);
+                                    }}
                                     className="tree-name"
                                     aria-label={name}
                                     aria-haspopup="dialog"
@@ -954,9 +1065,27 @@ export function Sidebar({
             mark: subjects.get(menu.id)?.mark ?? "",
             facts: (() => {
               const subject = subjects.get(menu.id)?.subject;
-              return subject ? (
+              const facts = subject ? (
                 <PanelFacts key={menu.id} subject={subject} source={source} options={options} />
               ) : null;
+              return fieldOpen && subject?.kind === "repository" && source.worktrees ? (
+                <div className="panel-side" data-field>
+                  {facts}
+                  <BranchField
+                    key={menu.id}
+                    repository={subject.repository.path}
+                    source={source.worktrees}
+                    back={() => {
+                      intent.pin(menu.id, menu.anchor);
+                    }}
+                    created={(worktree) => {
+                      arrive(subject.repository.path, worktree.path);
+                    }}
+                  />
+                </div>
+              ) : (
+                facts
+              );
             })(),
             pinned: menu.pinned,
             enter: () => {

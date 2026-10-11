@@ -38,7 +38,11 @@ const mock = vi.hoisted(() => ({
   kill: vi.fn(),
   feedback: vi.fn(),
   tail: vi.fn(),
-  startWorktree: vi.fn(),
+  branches: vi.fn(() =>
+    Promise.resolve({ head: "main", local: [], remote: null, remoteBranches: [] }),
+  ),
+  createWorktree: vi.fn(() => Promise.resolve({ path: "/r/feature", outcome: "new" })),
+  sidebarInventory: vi.fn(() => Promise.resolve({ repositories: [], shell: "bash" })),
   removeWorktree: vi.fn(),
   addRepository: vi.fn(),
   sidebarCommand: vi.fn(),
@@ -154,14 +158,15 @@ beforeEach(() => {
         Promise.resolve(setupState({ ...patch, setupComplete: true })),
       scanAgents: () =>
         Promise.resolve(report(installation("claude"), installation("codex"), installation("agy"))),
-      sidebarInventory: () => Promise.resolve({ repositories: [], shell: "bash" }),
+      sidebarInventory: mock.sidebarInventory,
       sidebarCommand: mock.sidebarCommand,
       workspace: mock.workspace,
       create: mock.create,
       kill: mock.kill,
       feedback: mock.feedback,
       tail: mock.tail,
-      startWorktree: mock.startWorktree,
+      branches: mock.branches,
+      createWorktree: mock.createWorktree,
       removeWorktree: mock.removeWorktree,
       addRepository: mock.addRepository,
       onBoardCommand: (listener: (command: BoardCommand) => void) => {
@@ -337,14 +342,16 @@ test("launch, close and worktree actions refresh their inventories", async () =>
   const source = createAppSource();
   expect(await source.worktrees?.load()).toMatchObject({ hooks: true, acknowledged: false });
   expect(await source.worktrees?.addRepository()).toBeNull();
-  const request = {
-    repository: "/r",
-    branch: "feature",
-    run: "shell" as const,
-    acknowledgeCodexNotifierReplacement: false,
-  };
-  await source.worktrees?.start(request);
-  expect(mock.startWorktree).toHaveBeenCalledWith(request);
+  await expect(source.worktrees?.branches("/r")).resolves.toMatchObject({ head: "main" });
+  expect(mock.branches).toHaveBeenCalledWith("/r");
+  const inventories = mock.sidebarInventory.mock.calls.length;
+  await expect(source.worktrees?.create("/r", "feature")).resolves.toEqual({
+    path: "/r/feature",
+    outcome: "new",
+  });
+  // Main picks the location; the sidebar lists the worktree before the field hears back.
+  expect(mock.createWorktree).toHaveBeenCalledWith("/r", "feature");
+  expect(mock.sidebarInventory.mock.calls.length).toBe(inventories + 1);
   mock.removeWorktree.mockResolvedValueOnce(false);
   expect(await source.worktrees?.remove("a")).toBe(false);
   expect(await source.worktrees?.remove("a")).toBe(true);

@@ -41,6 +41,9 @@ const workspace = {
   addRepository: vi.fn((path: string) => Promise.resolve({ path, name: "app" })),
   worktrees: vi.fn(() => Promise.resolve([])),
   createWorktree: vi.fn(() => Promise.resolve({ path: "/t" })),
+  branches: vi.fn(() =>
+    Promise.resolve({ head: "main", local: [], remote: null, remoteBranches: [] }),
+  ),
   changeAgyPlugin: vi.fn(() => Promise.resolve({ warning: null, agents: [] })),
   scanAgents: vi.fn(() => Promise.resolve({ warning: null, agents: [] })),
   launch: vi.fn((_request: unknown) => Promise.resolve({ id: "t1", attention: "evaluator" })),
@@ -76,6 +79,7 @@ test("rejects untrusted senders on every channel", () => {
     "workspace:snapshot",
     "workspace:add-repository",
     "workspace:worktrees",
+    "workspace:branches",
     "workspace:create-worktree",
     "agents:scan",
     "agents:agy-plugin",
@@ -112,9 +116,18 @@ test("validates worktree and scan arguments before calling the workspace", async
   for (const bad of [undefined, "", 7, "a\0b", "x".repeat(4097)])
     expect(() => invoke("workspace:worktrees", [bad])).toThrow("Invalid repository");
 
+  await invoke("workspace:branches", ["/repos/app"]);
+  expect(workspace.branches).toHaveBeenCalledWith("/repos/app");
+  for (const args of [[], [undefined], [""], ["/repos/app", "extra"], ["a\0b"]])
+    expect(() => invoke("workspace:branches", args)).toThrow("Invalid repository");
+
   await invoke("workspace:create-worktree", ["/repos/app", "feature/x", "adjacent"]);
   expect(workspace.createWorktree).toHaveBeenCalledWith("/repos/app", "feature/x", "adjacent");
+  // The branch field leaves the location to main's configured choice.
+  await invoke("workspace:create-worktree", ["/repos/app", "feature/y"]);
+  expect(workspace.createWorktree).toHaveBeenLastCalledWith("/repos/app", "feature/y", undefined);
   for (const args of [
+    ["/repos/app", "b", "root", "extra"],
     ["/repos/app", "b", "elsewhere"],
     ["/repos/app", "", "root"],
     ["/repos/app", "x".repeat(256), "root"],

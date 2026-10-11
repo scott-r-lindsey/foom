@@ -682,6 +682,7 @@ test("terminal runs an interactive shell behind an isolated bridge", {
           "workspace",
           "addRepository",
           "worktrees",
+          "branches",
           "createWorktree",
           "changeAgyPlugin",
           "scanAgents",
@@ -2731,7 +2732,7 @@ test("preflight scans a code folder and adds the repositories worked on recently
   assert.deepEqual(added, ["portal", "recent-app"]);
 });
 
-test("new worktree dialog launches by keyboard and confirms dirty removal", {
+test("the branch field creates a worktree by keyboard without launching; dirty removal confirms", {
   timeout: deadline(60000),
 }, async (context) => {
   const root = await mkdtemp(path.join(tmpdir(), "foom-launch-ui-"));
@@ -2771,22 +2772,6 @@ test("new worktree dialog launches by keyboard and confirms dirty removal", {
     removeAfterApps(context, root);
   });
   const page = await boardPage(app);
-  const tabToField = async (id, reverse = false) => {
-    // Selecting the already-registered repository does not change its value.
-    // Wait for the async add to release the disabled fieldset before sending Tab.
-    await expect(page.locator(`#${id}`)).toBeVisible();
-    await expect(page.locator(`#${id}`)).toBeEnabled();
-    const tabStops = await page
-      .locator(
-        'button:visible:not(:disabled), input:visible:not(:disabled), select:visible:not(:disabled), textarea:visible:not(:disabled), [tabindex="0"]:visible',
-      )
-      .count();
-    for (let step = 0; step <= tabStops; step++) {
-      await page.keyboard.press(reverse ? "Shift+Tab" : "Tab");
-      if ((await page.evaluate(() => document.activeElement?.id)) === id) return;
-    }
-    throw new Error(`Could not reach ${id} by keyboard`);
-  };
   await page.getByRole("button", { name: "Add repository", exact: true }).waitFor();
   await expect(page.locator(".board-row")).toHaveCount(0);
   await page.evaluate(() => window.desktop.saveSetup({ worktreeLocation: "adjacent" }));
@@ -2795,40 +2780,43 @@ test("new worktree dialog launches by keyboard and confirms dirty removal", {
   }, repo);
   await tabTo(page, "Add repository");
   await page.keyboard.press("Enter");
-  await page.getByRole("button", { name: "Actions for app", exact: true }).click();
-  await page.getByRole("menuitem", { name: "New worktree…", exact: true }).press("Enter");
-  await expect(page.getByRole("dialog")).toBeVisible();
-  await expect(page.getByRole("button", { name: "Add repository…" })).toBeEnabled();
-  await tabTo(page, "Add repository…");
-  await page.keyboard.press("Enter");
-  await expect(page.getByLabel("Repository", { exact: true })).not.toHaveValue("");
-  await tabToField("worktree-branch");
-  await expect(page.getByLabel("Branch")).toBeFocused();
+  await page.getByRole("button", { name: "Actions for app", exact: true }).waitFor();
+  // Command+T or Ctrl+Shift+T opens the repository's panel with the branch field focused.
+  await boardCommand(app, "T", process.platform !== "darwin");
+  const field = page.getByLabel("Branch for the new worktree");
+  await expect(field).toBeFocused();
+  const panel = page.getByRole("dialog", { name: "app details and commands" });
+  await expect(panel.getByRole("menuitem", { name: "New worktree" })).toHaveAttribute(
+    "aria-expanded",
+    "true",
+  );
+  const status = panel.locator(".branch-status");
   await page.keyboard.type("--bad");
-  await tabTo(page, "Create and start");
+  await expect(status).toHaveText("Can't start with -");
   await page.keyboard.press("Enter");
-  await expect(page.getByRole("alert")).toContainText("Invalid branch");
-  // Return to the branch field entirely by keyboard.
-  await tabToField("worktree-branch", true);
-  await expect(page.getByLabel("Branch")).toBeFocused();
+  await expect(field).toBeEnabled();
   await page.keyboard.press(process.platform === "darwin" ? "Meta+A" : "Control+A");
   await page.keyboard.type("feature/ui");
-  if (process.platform !== "win32") {
-    await tabToField("worktree-run");
-    await expect(page.getByLabel("Run")).toBeFocused();
-    // Native select type-ahead works without opening an OS-owned popup.
-    await page.keyboard.press("c");
-    await page.keyboard.press("Tab");
-    await expect(page.getByLabel("Run")).toHaveValue("claude");
-  }
+  await expect(status).toHaveText("new, from main");
   await assertAccessible(page);
-  await tabTo(page, "Create and start");
   await page.keyboard.press("Enter");
-  // This includes real Git worktree creation and shell startup, which can take
-  // longer than the default five-second assertion budget on Windows runners.
-  await expect(page.getByRole("dialog")).toHaveCount(0, { timeout: deadline(15000) });
+  // Creating includes real Git worktree creation, which can be slow on Windows runners.
+  await expect(panel).toHaveCount(0, { timeout: deadline(15000) });
+  const created = page.getByRole("button", { name: "feature/ui", exact: true });
+  await expect(created).toBeFocused();
+  await expect(page.locator(".worktree-row.arriving")).toHaveCount(1);
+  assert.match(
+    isolatedGit(["worktree", "list", "--porcelain"], { cwd: repo }).toString(),
+    /\nbranch refs\/heads\/feature\/ui\n/u,
+  );
+  // Creating starts nothing; the new row's own panel offers the launchers.
+  assert.deepEqual((await page.evaluate(() => window.desktop.workspace())).terminals, []);
+  await page.keyboard.press("Enter");
+  await page
+    .getByRole("menuitem", { name: process.platform === "win32" ? /^Shell/u : "Claude Code" })
+    .click();
   const row = page.locator(".board-row").filter({ hasText: "feature/ui" });
-  await expect(row).toBeVisible();
+  await expect(row).toBeVisible({ timeout: deadline(15000) });
   const launched = await page.evaluate(() => window.desktop.workspace());
   const terminal = launched.terminals[0];
   assert.ok(terminal);

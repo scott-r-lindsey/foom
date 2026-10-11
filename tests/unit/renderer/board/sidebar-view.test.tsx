@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { act, cleanup, fireEvent, render } from "@testing-library/react";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
-import { launcherActions } from "../../../../src/renderer/board/sidebar-view";
+import { Sidebar, launcherActions } from "../../../../src/renderer/board/sidebar-view";
 import { Board } from "../../../../src/renderer/board/board-view";
 import { createSampleSource } from "../../../../src/renderer/board/sample-board-source";
 import { boardRows as sampleRows } from "../../../fixtures/board";
@@ -64,20 +64,50 @@ function setup(mainCheckout = false) {
   ]);
   const command = vi.fn(() => Promise.resolve());
   const add = vi.fn(() => Promise.resolve(null));
+  let listed: SidebarRepository[] = [repository];
+  const branches = vi.fn((_repository: string) =>
+    Promise.resolve({
+      head: "main",
+      local: [
+        { name: "main", worktree: "/foom" },
+        { name: "feature", worktree: "/tree" },
+        { name: "codex/old", worktree: null },
+      ],
+      remote: "origin",
+      remoteBranches: ["codex/remote"],
+    }),
+  );
+  const create = vi.fn(async (_repository: string, branch: string) => {
+    await Promise.resolve();
+    const existing = repository.worktrees.find((tree) => tree.branch === branch);
+    if (existing) return { ...existing, outcome: "open" as const };
+    const tree = {
+      path: `/trees/${branch}`,
+      branch,
+      managed: true,
+      bare: false,
+      locked: false,
+      prunable: false,
+      head: "abc",
+    };
+    listed = [{ ...repository, worktrees: [...repository.worktrees, tree] }];
+    return { ...tree, outcome: "new" as const };
+  });
   const source: BoardSource = {
     ...base,
-    getSidebar: () => [repository],
+    getSidebar: () => listed,
     shellName: () => "zsh",
     sidebarCommand: command,
     worktrees: {
       load,
       addRepository: add,
-      start: () => Promise.resolve(),
+      branches,
+      create,
       remove: () => Promise.resolve(true),
     },
   };
   const view = render(<Board source={source} />);
-  return { ...view, base, source, command, add };
+  return { ...view, base, source, command, add, branches, create };
 }
 beforeEach(() => {
   localStorage.clear();
@@ -177,18 +207,113 @@ test("location labels open their panels and leave terminal tiles unchanged; menu
   });
   expect(view.add).toHaveBeenCalledOnce();
 });
-test("repository menu starts a scoped worktree dialog; running and exited sessions have distinct actions", async () => {
+test("New worktree opens a branch field beside it and returns to the item", async () => {
   const view = setup();
   await act(async () => {
     await Promise.resolve();
   });
   fireEvent.click(view.getByRole("button", { name: "Actions for Foom" }));
+  const item = view.getByRole("menuitem", { name: "New worktree" });
+  expect(item.getAttribute("aria-expanded")).toBe("false");
   await act(async () => {
-    fireEvent.click(view.getByRole("menuitem", { name: "New worktree…" }));
+    fireEvent.click(item);
     await Promise.resolve();
   });
-  expect(view.getByLabelText("Repository")).toHaveProperty("value", "/foom");
-  fireEvent.click(view.getByRole("button", { name: "Cancel" }));
+  // The panel stays open, the facts are covered, and the field has focus.
+  const field = view.getByLabelText("Branch for the new worktree");
+  expect(document.activeElement).toBe(field);
+  expect(item.getAttribute("aria-expanded")).toBe("true");
+  expect(view.branches).toHaveBeenCalledWith("/foom");
+  expect(field.closest(".panel-side")?.hasAttribute("data-field")).toBe(true);
+  fireEvent.keyDown(field, { key: "Escape" });
+  expect(view.queryByLabelText("Branch for the new worktree")).toBeNull();
+  expect(document.activeElement).toBe(item);
+  // Right Arrow on the item opens the field; Left Arrow on an empty field returns.
+  fireEvent.keyDown(item, { key: "ArrowRight" });
+  await act(async () => {
+    await Promise.resolve();
+  });
+  fireEvent.keyDown(view.getByLabelText("Branch for the new worktree"), { key: "ArrowLeft" });
+  expect(document.activeElement).toBe(item);
+  // Escape again closes the panel.
+  fireEvent.keyDown(item, { key: "Escape" });
+  expect(view.queryByRole("menuitem", { name: "New worktree" })).toBeNull();
+});
+
+test("creating moves focus to the arriving row, which settles on hover and on blur", async () => {
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+  const scroll = vi.fn();
+  Element.prototype.scrollIntoView = scroll;
+  try {
+    const view = setup();
+    await act(async () => {
+      await Promise.resolve();
+    });
+    fireEvent.click(view.getByRole("button", { name: "Actions for Foom" }));
+    await act(async () => {
+      fireEvent.click(view.getByRole("menuitem", { name: "New worktree" }));
+      await Promise.resolve();
+    });
+    const field = view.getByLabelText("Branch for the new worktree");
+    fireEvent.change(field, { target: { value: "codex/fresh" } });
+    await act(async () => {
+      fireEvent.keyDown(field, { key: "Enter" });
+      await Promise.resolve();
+    });
+    expect(view.create).toHaveBeenCalledWith("/foom", "codex/fresh");
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    // The panel closes and nothing launches; the new row is focused and arriving.
+    expect(view.queryByLabelText("Branch for the new worktree")).toBeNull();
+    expect(view.command).not.toHaveBeenCalled();
+    const row = view.getByRole("button", { name: "codex/fresh" });
+    expect(document.activeElement).toBe(row);
+    expect(scroll).toHaveBeenCalledWith({ block: "nearest" });
+    const tree = row.closest(".tree-row");
+    expect(tree?.classList.contains("arriving")).toBe(true);
+    fireEvent.pointerEnter(tree ?? row);
+    expect(tree?.classList.contains("arriving")).toBe(true);
+    act(() => {
+      vi.advanceTimersByTime(600);
+    });
+    expect(tree?.classList.contains("arriving")).toBe(false);
+
+    // An already checked-out branch creates nothing; its own row arrives instead.
+    fireEvent.click(view.getByRole("button", { name: "Actions for Foom" }));
+    await act(async () => {
+      fireEvent.click(view.getByRole("menuitem", { name: "New worktree" }));
+      await Promise.resolve();
+    });
+    const again = view.getByLabelText("Branch for the new worktree");
+    fireEvent.change(again, { target: { value: "feature" } });
+    expect(again.closest(".branch-field")?.querySelector("[role=status]")?.textContent).toBe(
+      "open in tree",
+    );
+    await act(async () => {
+      fireEvent.keyDown(again, { key: "Enter" });
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    const existing = view.getByRole("button", { name: "feature" });
+    expect(document.activeElement).toBe(existing);
+    expect(existing.closest(".tree-row")?.classList.contains("arriving")).toBe(true);
+    act(() => {
+      existing.blur();
+      vi.advanceTimersByTime(0);
+    });
+    expect(existing.closest(".tree-row")?.classList.contains("arriving")).toBe(false);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test("running and exited sessions have distinct actions", async () => {
+  const view = setup();
+  await act(async () => {
+    await Promise.resolve();
+  });
   fireEvent.click(view.getByRole("button", { name: "Actions for Claude Code in feature" }));
   await act(async () => {
     fireEvent.click(view.getByRole("menuitem", { name: "Stop Claude Code" }));
@@ -668,6 +793,93 @@ test("removed subjects release pinned intent; Escape works outside and the opene
   view.unmount();
   vi.useRealTimers();
 });
+
+function sidebarWithSessions(narrow: boolean) {
+  vi.stubGlobal("matchMedia", () => ({
+    matches: narrow,
+    addEventListener: () => {},
+    removeEventListener: () => {},
+  }));
+  const original = sampleRows(0)[0];
+  if (!original) throw Error("fixture");
+  const rows = [
+    { ...original, repository: "Zulu", repositoryPath: "/zulu", worktree: "/zulu", branch: "main" },
+  ];
+  const repositories = ["Alpha", "Zulu"].map((name) => ({
+    name,
+    path: `/${name.toLowerCase()}`,
+    worktrees: [
+      {
+        path: `/${name.toLowerCase()}`,
+        branch: "main",
+        head: "abc",
+        managed: false,
+        bare: false,
+        locked: false,
+        prunable: false,
+      },
+    ],
+  }));
+  const branches = vi.fn(() =>
+    Promise.resolve({ head: "main", local: [], remote: null, remoteBranches: [] }),
+  );
+  const source: BoardSource = {
+    ...createSampleSource(rows),
+    getSidebar: () => repositories,
+    worktrees: {
+      load: () => new Promise(() => {}),
+      branches,
+      create: vi.fn(),
+      remove: vi.fn(),
+      addRepository: vi.fn(),
+    },
+  };
+  const ref: { current: ((repository?: string) => boolean) | undefined } = { current: undefined };
+  const view = render(
+    <Sidebar
+      source={source}
+      inactive={false}
+      revealRef={{ current: undefined }}
+      rows={rows}
+      preferences={{ pins: [], expanded: {}, names: {} }}
+      save={() => {}}
+      selected={undefined}
+      buttons={{ current: new Map() }}
+      sidebar={{ current: null }}
+      open={() => {}}
+      focus={() => {}}
+      newWorktreeRef={ref}
+      command={() => Promise.resolve()}
+      options={undefined}
+      footer={null}
+    />,
+  );
+  return { ...view, ref, branches };
+}
+
+test("without a focused repository, New worktree opens the sidebar's top repository", async () => {
+  const view = sidebarWithSessions(false);
+  // Repositories with sessions sort first, so Zulu tops the sidebar.
+  expect(view.container.querySelector(".repository-row .tree-label")?.textContent).toBe("Zulu");
+  await act(async () => {
+    expect(view.ref.current?.()).toBe(true);
+    await Promise.resolve();
+  });
+  expect(view.branches).toHaveBeenCalledWith("/zulu");
+  vi.unstubAllGlobals();
+});
+
+test("a compact sidebar opens the field beside the sidebar", async () => {
+  const view = sidebarWithSessions(true);
+  expect(view.container.querySelector(".repository-row")).toBeNull();
+  await act(async () => {
+    expect(view.ref.current?.("/alpha")).toBe(true);
+    await Promise.resolve();
+  });
+  expect(document.activeElement).toBe(view.getByLabelText("Branch for the new worktree"));
+  expect(view.branches).toHaveBeenCalledWith("/alpha");
+  vi.unstubAllGlobals();
+});
 test("verified MCP agents offer orchestration; children offer Take over and panels show actions", async () => {
   const original = sampleRows(0)[0];
   if (!original) throw Error("fixture");
@@ -724,7 +936,9 @@ test("verified MCP agents offer orchestration; children offer Take over and pane
           acknowledged: true,
         }),
       addRepository: () => Promise.resolve(null),
-      start: () => Promise.resolve(),
+      branches: () =>
+        Promise.resolve({ head: "main", local: [], remote: null, remoteBranches: [] }),
+      create: vi.fn(),
       remove: () => Promise.resolve(true),
     },
   };
