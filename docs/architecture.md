@@ -793,6 +793,19 @@ The hook command cannot run Node from the packaged app because the RunAsNode fus
 
 ## Saved conversations
 
+Checkout panels parse pasted resume lines locally; raw pasted text never crosses IPC.
+`workspace:sidebar-command` accepts `{kind: "resume-id", checkout: {repository, worktree},
+agent, id}`. Main validates the exact shape, agent, conversation ID, registered checkout
+identity and current agent availability. The ID uses the shared `conversationId` validator;
+`resumeArguments` and the reserved launch-default selector rules still own argv construction.
+The conversation ID is not a terminal ID and grants no terminal ownership capability.
+Per-conversation launch serialization prevents duplicate concurrent pastes across checkouts.
+An existing live session is revealed through main's window-aware navigation. Otherwise the
+usual manual launch path creates a row with the pasted ID, fresh hooks and credentials,
+current defaults and shared-checkout confirmation. Hook events pin against that ID. CLI
+rejection exits the row normally and keeps the ID; no agent transcript or runtime file is read.
+
+
 Main writes ordered, atomic replacements of private `sessions.json` in the active
 profile. It stores terminal ID, agent, registered repository, worktree, branch and
 validated conversation ID, last known running state and main-owned orchestration provenance (repository identity, parent relationship and bounded action history). Credentials and terminal contents are never stored. Loading validates bounded records and rejects

@@ -3121,3 +3121,79 @@ test("publishes transient MCP connection changes and removes them on revocation"
   expect(workspace.snapshot().terminals[0]?.mcpConnection).toBeUndefined();
   await workspace.dispose();
 });
+
+const pastedResume = {
+  kind: "resume-id",
+  checkout: { repository: repo.path, worktree: tree.path },
+  agent: "claude",
+  id: "external-123",
+} as const;
+test("pasted resumes retain IDs on exit and reuse the resume path with current defaults", async () => {
+  const copy = vi.fn(async () => {});
+  deps.copyText = copy;
+  const workspace = new Workspace(deps);
+  await workspace.sidebarCommand(pastedResume, () => Promise.resolve(true));
+  expect(agents.launch).toHaveBeenCalledWith(
+    expect.objectContaining({
+      agent: "claude",
+      conversationId: "external-123",
+      worktree: tree.path,
+      checkoutIdentity: "identity",
+    }),
+  );
+  expect(workspace.snapshot().terminals[0]).toMatchObject({ conversationId: "external-123" });
+  await workspace.exited("t1", 1);
+  await workspace.sidebarCommand({ kind: "copy-session-id", id: "t1" }, () =>
+    Promise.resolve(true),
+  );
+  expect(copy).toHaveBeenCalledWith("external-123");
+  await workspace.sidebarCommand({ kind: "resume", id: "t1" }, () => Promise.resolve(true));
+  expect(agents.launch).toHaveBeenLastCalledWith(
+    expect.objectContaining({ conversationId: "external-123", terminalId: "t1" }),
+  );
+  await workspace.dispose();
+});
+test("concurrent pasted resumes focus one live conversation, including from another checkout", async () => {
+  deps.reveal = vi.fn();
+  const workspace = new Workspace(deps);
+  await Promise.all([
+    workspace.sidebarCommand(pastedResume, () => Promise.resolve(true)),
+    workspace.sidebarCommand(
+      { ...pastedResume, checkout: { repository: repo.path, worktree: "/other" } },
+      () => Promise.resolve(true),
+    ),
+  ]);
+  expect(agents.launch).toHaveBeenCalledOnce();
+  expect(deps.reveal).toHaveBeenCalledWith("t1");
+  await workspace.dispose();
+});
+test("pasted resumes reject unavailable agents, invalid IDs and stale checkouts", async () => {
+  const workspace = new Workspace(deps);
+  await expect(
+    workspace.sidebarCommand({ ...pastedResume, id: "--last" }, () => Promise.resolve(true)),
+  ).rejects.toThrow();
+  await expect(
+    workspace.sidebarCommand({ ...pastedResume, agent: "agy" }, () => Promise.resolve(true)),
+  ).rejects.toThrow("unavailable");
+  vi.mocked(deps.worktrees.launchIdentity).mockRejectedValueOnce(new Error("stale checkout"));
+  await expect(workspace.sidebarCommand(pastedResume, () => Promise.resolve(true))).rejects.toThrow(
+    "stale checkout",
+  );
+  expect(agents.launch).not.toHaveBeenCalled();
+  await workspace.dispose();
+});
+test("pasted resumes honor shared-checkout cancellation and release failed launch locks", async () => {
+  const workspace = new Workspace(deps);
+  await workspace.sidebarCommand(pastedResume, () => Promise.resolve(true));
+  const confirm = vi.fn(() => Promise.resolve(false));
+  await workspace.sidebarCommand({ ...pastedResume, id: "another" }, confirm);
+  expect(confirm).toHaveBeenCalledWith({ kind: "shared-agent" });
+  expect(agents.launch).toHaveBeenCalledOnce();
+  agents.launch.mockRejectedValueOnce(new Error("spawn failed"));
+  await expect(
+    workspace.sidebarCommand({ ...pastedResume, id: "another" }, () => Promise.resolve(true)),
+  ).rejects.toThrow("spawn failed");
+  await workspace.sidebarCommand({ ...pastedResume, id: "another" }, () => Promise.resolve(true));
+  expect(agents.launch).toHaveBeenCalledTimes(3);
+  await workspace.dispose();
+});

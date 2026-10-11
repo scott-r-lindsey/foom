@@ -167,6 +167,12 @@ export type SidebarCommand =
   | { kind: "close"; id: string }
   | { kind: "restart"; id: string }
   | { kind: "resume"; id: string }
+  | {
+      kind: "resume-id";
+      checkout: { repository: string; worktree: string };
+      agent: AgentId;
+      id: string;
+    }
   | { kind: "new-conversation"; id: string }
   | { kind: "copy-session-id"; id: string }
   | { kind: "orchestrate"; repository: string; run: AgentId }

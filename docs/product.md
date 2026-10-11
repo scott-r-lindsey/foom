@@ -95,7 +95,11 @@ it and restart in home when they were running at quit and Restore sessions on la
 and running count. Repository panels show path, remote, default branch, last
 fetch status, worktree/creation/eligible-merged counts and session states; they
 offer New worktree, pinning, Delete merged worktrees and **Remove from Foom…**
-(with “keeps files”). Launchers belong to checkout panels. Checkout facts show
+(with “keeps files”). Launchers belong to checkout panels. Beside them, **Resume conversation…** opens an inline
+field with no dialog or helper copy. Paste `claude --resume <id>` (or `-r <id>`),
+`codex resume <id>` or `agy --conversation <id>`, or a bare ID and choose a detected,
+enabled agent (CC / CX / AG). Enter launches; Escape cancels. Invalid entries mark
+the field without prose. Checkout facts show
 branch, path, changes, upstream counts and last commit; linked worktrees also
 show merged state and creation origin. Detached rows show a short hash with a
 detached glyph, and panels say “Detached at <hash>”. **Delete worktree…** names
@@ -123,12 +127,19 @@ merge checker's last fetch and the eligible count uses its exact cleanup rules.
 Resume starts the same agent in the same checkout and row, with fresh per-launch hooks
 and current launch defaults. New conversation uses that row and checkout without a
 resume ID. Failed launches retain the saved conversation for retry. Copy uses the full ID.
-Antigravity IDs come only from its opt-in lifecycle plugin. Without the plugin or
-with hooks disabled, no ID is captured and Resume and Copy session ID are unavailable.
+Pasted IDs create a new row with the ID already recorded, using the same hooks,
+launch defaults and shared-checkout confirmation as Resume. A conversation already
+running in Foom is focused instead. Exit the conversation's other process first
+when bringing it from outside Foom: Foom cannot detect that process. Foom never reads
+agent transcripts or runtime files to locate or check conversations. CLI errors
+(such as an unknown ID or a different project directory) remain in the terminal;
+the exited row retains its ID for copying and retrying in the right checkout.
+Antigravity captures IDs through its opt-in lifecycle plugin. Without supported
+hooks, IDs must be pasted to make Resume and Copy session ID available.
 An exited shell’s sidebar panel offers **Restart shell**, a separator and **Close**;
 the terminal pane has no restart button. Close removes the
 session and its stored record, never the checkout or the agent's own conversation files.
-With **Restore sessions on launch** on (the default), agents running at quit resume their recorded conversations in the same rows and tiles. Agents without a conversation ID stay exited and offer New conversation here; Foom never substitutes a new conversation. If no supported hook/notify event
+With **Restore sessions on launch** on (the default), agents running at quit resume their recorded conversations in the same rows and tiles. Agents without a conversation ID stay exited and offer New conversation here; Foom never substitutes a new conversation. If no ID was pasted and no supported hook/notify event
 arrived before exit (including hooks-disabled launches), no conversation ID is available.
 
 Worktree removal is available for linked checkouts created by any tool. It requires

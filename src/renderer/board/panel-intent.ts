@@ -2,7 +2,7 @@ export interface PanelTarget {
   id: string;
   anchor: HTMLElement;
   pinned: boolean;
-  /** A repository panel showing its New worktree branch field. */
+  /** A panel showing its inline branch or conversation field. */
   field?: boolean;
 }
 /** One intent machine per sidebar; all delayed work is cancelled on disposal. */

@@ -402,6 +402,7 @@ export function Board({
         }
         if (
           value.kind === "launch" ||
+          value.kind === "resume-id" ||
           value.kind === "restart" ||
           value.kind === "home-shell" ||
           value.kind === "config-launch"
@@ -435,6 +436,7 @@ export function Board({
         }
       })
       .catch((error: unknown) => {
+        if (value.kind === "resume-id") throw error;
         setRemoveError(error instanceof Error ? error.message : "Unable to update workspace.");
       });
   };

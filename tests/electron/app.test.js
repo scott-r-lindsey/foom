@@ -7278,3 +7278,99 @@ req.end(JSON.stringify(payload));
       .poll(() => rows(off))
       .toMatchObject(saved.map(({ id }) => ({ id, exited: true, dormant: true })));
   });
+
+for (const [agent, form] of [
+  ["claude", "--resume"],
+  ["claude", "-r"],
+  ["codex", "resume"],
+  ["agy", "--conversation"],
+]) {
+  test(`pastes ${agent} ${form} in a checkout and retains rejected conversations`, {
+    timeout: deadline(60_000),
+    skip: process.platform === "win32" && "The fake CLI is a POSIX executable",
+  }, async (context) => {
+    const { chmod } = require("node:fs/promises");
+    const root = await mkdtemp(path.join(tmpdir(), "foom-pasted-"));
+    removeAfterApps(context, root);
+    const bin = path.join(root, "bin"),
+      repo = path.join(root, "repo"),
+      home = path.join(root, "home");
+    const profile = path.join(root, "profile"),
+      argvFile = path.join(root, "argv.json");
+    await Promise.all([mkdir(bin), mkdir(repo), mkdir(home)]);
+    isolatedGit(["init", "-q", "-b", "main", repo]);
+    isolatedGit([
+      "-C",
+      repo,
+      "-c",
+      "user.name=Foom",
+      "-c",
+      "user.email=foom@example.com",
+      "commit",
+      "--allow-empty",
+      "-qm",
+      "init",
+    ]);
+    await writeFile(
+      path.join(bin, agent),
+      `#!/usr/bin/env node
+const { writeFileSync, renameSync } = require("node:fs");
+const args = process.argv.slice(2);
+if (args[0] === "--version") { console.log("1.0.0"); process.exit(0); }
+if (args[0] === "--help") { console.log("resume"); process.exit(0); }
+if (args[0] === "plugin") { console.log("{}"); process.exit(0); }
+const record = process.env.TEST_ARGV + ".tmp";
+writeFileSync(record, JSON.stringify({ args, cwd: process.cwd() }));
+renameSync(record, process.env.TEST_ARGV);
+console.log("UNKNOWN_CONVERSATION " + args[1]);
+process.exit(1);
+`,
+    );
+    await chmod(path.join(bin, agent), 0o755);
+    const app = await launchApp(context, false, {
+      emptyBoard: true,
+      args: [`--user-data-dir=${profile}`],
+      env: { HOME: home, PATH: `${bin}${path.delimiter}${process.env.PATH}`, TEST_ARGV: argvFile },
+    });
+    const page = await boardPage(app);
+    await app.evaluate(({ dialog }, directory) => {
+      dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [directory] });
+    }, repo);
+    await page.evaluate(async () => {
+      await window.desktop.addRepository();
+    });
+    const panel = page.getByRole("button", { name: "Actions for Main checkout", exact: true });
+    await panel.click();
+    await page.getByRole("menuitem", { name: "Resume conversation…", exact: true }).click();
+    const input = page.getByRole("textbox", { name: "Conversation ID or resume command" });
+    await expect(input).toBeFocused();
+    await input.fill(`${agent} ${form} external-123`);
+    await input.press("Escape");
+    await expect(input).toHaveCount(0);
+    assert.equal((await page.evaluate(() => window.desktop.workspace())).terminals.length, 0);
+    await page.getByRole("menuitem", { name: "Resume conversation…", exact: true }).click();
+    await input.fill(`${agent} ${form} external-123 --extra`);
+    await input.press("Enter");
+    await expect(input).toHaveAttribute("aria-invalid", "true");
+    assert.equal((await page.evaluate(() => window.desktop.workspace())).terminals.length, 0);
+    await input.fill(`${agent} ${form} external-123`);
+    await input.press("Enter");
+    await expect
+      .poll(() => page.evaluate(async () => (await window.desktop.workspace()).terminals))
+      .toMatchObject([{ agent, exited: true, conversationId: "external-123" }]);
+    await expect(page.locator(".xterm-rows")).toContainText("UNKNOWN_CONVERSATION external-123");
+    const record = JSON.parse(await readFile(argvFile, "utf8"));
+    assert.deepEqual(record.args.slice(0, 2), [
+      agent === "claude" ? "--resume" : form,
+      "external-123",
+    ]);
+    assert.equal(record.cwd, repo);
+    const label = agent === "claude" ? "Claude Code" : agent === "codex" ? "Codex" : "Antigravity";
+    await page.getByRole("button", { name: `Actions for ${label} in main`, exact: true }).click();
+    await expect(page.getByRole("menuitem", { name: /^Resume conversation/ })).toBeVisible();
+    await page.getByRole("menuitem", { name: "Copy session ID", exact: true }).click();
+    await expect
+      .poll(() => app.evaluate(({ clipboard }) => clipboard.readText()))
+      .toBe("external-123");
+  });
+}

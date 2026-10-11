@@ -681,6 +681,7 @@ test("worktree menus offer only enabled launchers and deletion with an agent run
   expect(view.getAllByRole("menuitem").map((item) => item.textContent)).toEqual([
     "CCClaude Code",
     ">_Shell (zsh)",
+    "Resume conversation…",
     "Delete worktree…",
   ]);
 });
@@ -993,3 +994,42 @@ test("agents with CLI guidance offer orchestration; children offer Take over and
   expect(actions?.textContent).toContain("Launch feature · done");
   expect(actions?.querySelector('[data-status="failed"]')).toBeTruthy();
 });
+
+test.each([true, false])(
+  "checkout resume field parses locally, filters agents and cancels (%s)",
+  async (main) => {
+    const view = setup(main);
+    await act(async () => {
+      await Promise.resolve();
+    });
+    fireEvent.click(
+      view.getByRole("button", {
+        name: main ? "Actions for Main checkout" : "Actions for feature",
+      }),
+    );
+    const item = view.getByRole("menuitem", { name: "Resume conversation…" });
+    fireEvent.click(item);
+    let input = view.getByLabelText("Conversation ID or resume command");
+    fireEvent.change(input, { target: { value: "external-123" } });
+    expect(view.getByRole("button", { name: "Claude Code" })).toBeTruthy();
+    expect(view.queryByRole("button", { name: "Codex" })).toBeNull();
+    expect(view.queryByRole("button", { name: "Antigravity" })).toBeNull();
+    fireEvent.keyDown(input, { key: "Escape" });
+    expect(view.queryByLabelText("Conversation ID or resume command")).toBeNull();
+    expect(document.activeElement).toBe(item);
+    expect(view.command).not.toHaveBeenCalled();
+    fireEvent.click(item);
+    input = view.getByLabelText("Conversation ID or resume command");
+    fireEvent.change(input, { target: { value: "claude -r external-123" } });
+    await act(async () => {
+      fireEvent.keyDown(input, { key: "Enter" });
+      await Promise.resolve();
+    });
+    expect(view.command).toHaveBeenCalledWith({
+      kind: "resume-id",
+      checkout: { repository: "/foom", worktree: main ? "/foom" : "/tree" },
+      agent: "claude",
+      id: "external-123",
+    });
+  },
+);

@@ -1,0 +1,4 @@
+/** IDs are opaque CLI data, never options, paths, shell text or display names. */
+export function conversationId(value: unknown): value is string {
+  return typeof value === "string" && /^[a-zA-Z0-9][a-zA-Z0-9_-]{0,199}$/u.test(value);
+}
