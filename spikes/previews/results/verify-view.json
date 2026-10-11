@@ -1,0 +1,357 @@
+{
+  "isolation": "view",
+  "previewCsp": true,
+  "boardCsp": "foom (unchanged)",
+  "electron": "44.4.5",
+  "chrome": "152.0.7977.130",
+  "platform": "linux",
+  "hostile": {
+    "alert": {
+      "ok": true,
+      "value": "returned in 0ms"
+    },
+    "beacon": {
+      "ok": true,
+      "value": true
+    },
+    "bridge": {
+      "desktop": "undefined",
+      "electron": "undefined",
+      "ipcRenderer": "undefined",
+      "process": "undefined",
+      "require": "undefined",
+      "spike": "undefined"
+    },
+    "camera": {
+      "error": "NotAllowedError",
+      "ok": false
+    },
+    "clipboardRead": {
+      "error": "NotAllowedError",
+      "ok": false
+    },
+    "cookie": {
+      "ok": true,
+      "value": ""
+    },
+    "cssUrl": {
+      "ok": true,
+      "value": "set"
+    },
+    "dynamicImport": {
+      "error": "TypeError",
+      "ok": false
+    },
+    "eventSource": {
+      "ok": true,
+      "value": "error"
+    },
+    "fetch": {
+      "error": "TypeError",
+      "ok": false
+    },
+    "fetchFile": {
+      "error": "TypeError",
+      "ok": false
+    },
+    "fetchHttps": {
+      "error": "TypeError",
+      "ok": false
+    },
+    "fetchNoCors": {
+      "error": "TypeError",
+      "ok": false
+    },
+    "geolocation": {
+      "error": "Error",
+      "ok": false
+    },
+    "iframeFile": {
+      "ok": true,
+      "value": "timeout"
+    },
+    "iframeHttp": {
+      "ok": true,
+      "value": "load"
+    },
+    "image": {
+      "ok": true,
+      "value": "error"
+    },
+    "imageFile": {
+      "ok": true,
+      "value": "error"
+    },
+    "localStorage": {
+      "ok": true,
+      "value": "1"
+    },
+    "notification": {
+      "ok": true,
+      "value": "denied"
+    },
+    "origin": "foom-preview://c389b0d40320dab97a31759ff4325bd1",
+    "otherOrigin": {
+      "error": "TypeError",
+      "ok": false
+    },
+    "parentDocument": {
+      "ok": true,
+      "value": "hostile"
+    },
+    "parentPostMessage": {
+      "ok": true,
+      "value": "sent"
+    },
+    "parentSpike": {
+      "ok": true,
+      "value": "undefined"
+    },
+    "path_backslash": {
+      "ok": true,
+      "value": "400:<!doctype html><meta cha"
+    },
+    "path_dotEnv": {
+      "ok": true,
+      "value": "400:<!doctype html><meta cha"
+    },
+    "path_dotdot": {
+      "ok": true,
+      "value": "404:<!doctype html><meta cha"
+    },
+    "path_encodedDotdot": {
+      "ok": true,
+      "value": "404:<!doctype html><meta cha"
+    },
+    "path_encodedSlash": {
+      "ok": true,
+      "value": "400:<!doctype html><meta cha"
+    },
+    "path_gitConfig": {
+      "ok": true,
+      "value": "400:<!doctype html><meta cha"
+    },
+    "path_insideLink": {
+      "ok": true,
+      "value": "200:# Preview demo\n\nEdit thi"
+    },
+    "path_sibling": {
+      "ok": true,
+      "value": "200:inside the worktree; rea"
+    },
+    "path_symlinkDir": {
+      "ok": true,
+      "value": "403:<!doctype html><meta cha"
+    },
+    "path_symlinkFile": {
+      "ok": true,
+      "value": "403:<!doctype html><meta cha"
+    },
+    "path_tooLarge": {
+      "ok": true,
+      "value": "413:<!doctype html><meta cha"
+    },
+    "script": {
+      "ok": true,
+      "value": "error"
+    },
+    "serviceWorker": {
+      "error": "TypeError",
+      "ok": false
+    },
+    "stylesheet": {
+      "ok": true,
+      "value": "error"
+    },
+    "topHref": {
+      "ok": true,
+      "value": "foom-preview://c389b0d40320dab97a31759ff4325bd1/hostile/hostile.html?port=36091&other=592c2375812c9829480dde64062d53e5"
+    },
+    "topIsSelf": true,
+    "websocket": {
+      "ok": true,
+      "value": "error"
+    },
+    "worker": {
+      "ok": true,
+      "value": "blocked"
+    }
+  },
+  "storageVisibleToOtherPreview": null,
+  "markdown": {
+    "hrefs": [
+      "http://127.0.0.1:36091/md-iframe",
+      "../../../../etc/hostname",
+      "../demo/other.md",
+      "https://example.com"
+    ],
+    "iframes": 0,
+    "images": [
+      "http://127.0.0.1:36091/md-image"
+    ],
+    "javascriptLinks": 0,
+    "onHandlers": 0,
+    "pwned": null,
+    "rawHtmlShownAsText": true,
+    "rendered": true,
+    "scripts": [
+      "application/json",
+      "/__foom__/markdown.js"
+    ]
+  },
+  "mdLinkNavigation": "Other page",
+  "navigation": {
+    "finalUrl": "foom-preview://<id>/hostile/nav.html?port=36091",
+    "title": "nav-done",
+    "boardUrl": "spike-app://board/index.html",
+    "windows": 1,
+    "guard": [
+      {
+        "kind": "navigation-blocked",
+        "url": "http://127.0.0.1:36091/nav",
+        "isMainFrame": true
+      },
+      {
+        "kind": "external-request",
+        "url": "http://127.0.0.1:36091/nav"
+      },
+      {
+        "kind": "window-open-denied",
+        "url": "http://127.0.0.1:36091/popup"
+      },
+      {
+        "kind": "external-dropped",
+        "url": "http://127.0.0.1:36091/popup"
+      },
+      {
+        "kind": "window-open-denied",
+        "url": "foom-preview://<id>/hostile/hostile.html"
+      },
+      {
+        "kind": "navigation-blocked",
+        "url": "https://example.com/",
+        "isMainFrame": true
+      },
+      {
+        "kind": "external-request",
+        "url": "https://example.com/"
+      },
+      {
+        "kind": "download-blocked",
+        "url": "foom-preview://<id>/hostile/nav.html"
+      },
+      {
+        "kind": "preview-csp"
+      },
+      {
+        "kind": "navigation-blocked",
+        "url": "http://127.0.0.1:36091/top",
+        "isMainFrame": true
+      },
+      {
+        "kind": "external-dropped",
+        "url": "http://127.0.0.1:36091/top"
+      },
+      {
+        "kind": "navigation-blocked",
+        "url": "http://127.0.0.1:36091/refresh",
+        "isMainFrame": true
+      },
+      {
+        "kind": "external-dropped",
+        "url": "http://127.0.0.1:36091/refresh"
+      },
+      {
+        "kind": "navigation-blocked",
+        "url": "foom-preview://<id>/hostile/page.html",
+        "isMainFrame": true
+      }
+    ]
+  },
+  "shortcut": {
+    "boardBeforeInputSaw": [],
+    "forwardedFromPreview": 1
+  },
+  "theme": {
+    "dark": {
+      "html": true,
+      "markdownBg": "rgb(5, 4, 10)"
+    },
+    "light": {
+      "html": false,
+      "markdownBg": "rgb(243, 240, 250)"
+    }
+  },
+  "liveReload": {
+    "directWrite": {
+      "ms": 153,
+      "reloads": 1
+    },
+    "scrollAfterReload": 1200,
+    "atomicRename": {
+      "ms": 254,
+      "reloads": 1
+    },
+    "burst20": {
+      "ms": 369,
+      "reloads": 1
+    },
+    "assetCss": {
+      "ms": 175,
+      "reloads": 1
+    },
+    "deleteThenCreate": {
+      "ms": 303,
+      "reloads": 2
+    },
+    "titleAfter": "HTML preview"
+  },
+  "symlinkReload": {
+    "ms": 175,
+    "heading": "Replaced link"
+  },
+  "screenshots": {
+    "normal": "spikes/previews/results/view-tiles.png",
+    "panelWithoutSnapshots": "spikes/previews/results/view-panel-covered.png",
+    "panel": "spikes/previews/results/view-panel.png"
+  },
+  "snapshotMs": [
+    26,
+    11,
+    21,
+    6,
+    11,
+    22
+  ],
+  "network": {
+    "serverConnections": 0,
+    "serverHits": []
+  },
+  "permissionEvents": [
+    "permission-check:background-sync",
+    "permission-request:notifications",
+    "permission-request:media",
+    "permission-request:clipboard-read",
+    "permission-request:geolocation"
+  ],
+  "blockedRequests": 0,
+  "externalPrompts": 3,
+  "externalDropped": 4,
+  "downloadsBlocked": 1,
+  "serveRefusals": [
+    "404 missing /hostile/blank.txt",
+    "404 missing /etc/hostname",
+    "404 missing /etc/hostname",
+    "400 separator /..%2f..%2f..%2fetc%2fhostname",
+    "400 separator /..%5c..%5cetc%5chostname",
+    "403 escape /escape-dir/secret.txt",
+    "403 escape /escape-file.txt",
+    "400 hidden /.env",
+    "400 hidden /.git/config",
+    "413 too-large /big.bin",
+    "404 missing /demo/page.html",
+    "404 missing /logo.svg"
+  ],
+  "watchersBeforeClose": 1,
+  "watchersAfterClose": 0
+}

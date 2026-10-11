@@ -1,0 +1,62 @@
+{
+  "isolation": "iframe",
+  "electron": "44.4.5",
+  "baseline": {
+    "total": 504,
+    "byType": {
+      "Browser": {
+        "count": 1,
+        "workingSetMB": 175
+      },
+      "GPU": {
+        "count": 1,
+        "workingSetMB": 145
+      },
+      "Utility": {
+        "count": 1,
+        "workingSetMB": 79
+      },
+      "Tab": {
+        "count": 1,
+        "workingSetMB": 105
+      }
+    }
+  },
+  "sixPreviews": {
+    "total": 1195,
+    "byType": {
+      "Browser": {
+        "count": 1,
+        "workingSetMB": 201
+      },
+      "GPU": {
+        "count": 1,
+        "workingSetMB": 166
+      },
+      "Utility": {
+        "count": 1,
+        "workingSetMB": 80
+      },
+      "Tab": {
+        "count": 7,
+        "workingSetMB": 748
+      }
+    }
+  },
+  "addedMB": 691,
+  "perPreviewMB": 115,
+  "loadSixMs": 208,
+  "resizeMs": {
+    "median": 21,
+    "p90": 36,
+    "max": 40
+  },
+  "overlaySnapshotMs": 1,
+  "zoom": {
+    "frameDevicePixelRatio": 1.5
+  },
+  "blockedHostsFromMockups": [
+    "https://fonts.googleapis.com"
+  ],
+  "screenshot": "spikes/previews/results/iframe-six.png"
+}
