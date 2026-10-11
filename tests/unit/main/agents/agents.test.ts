@@ -614,7 +614,7 @@ it.each([true, false])(
     }
   },
 );
-it("launches an orchestrator only with MCP and appends a child's prompt after every option", async () => {
+it("launches an orchestrator with a CLI fallback and appends a child's prompt after every option", async () => {
   const controlFor = vi.fn((..._args: unknown[]) =>
     Promise.resolve({
       env: { FOOM_CONTROL_URL: "http://127.0.0.1:1234/control/v1" },
@@ -623,9 +623,9 @@ it("launches an orchestrator only with MCP and appends a child's prompt after ev
     }),
   );
   service = new AgentService({ listWorktrees, launchIdentity }, { create }, prepare, controlFor);
-  await expect(service.launch({ ...request, control: { role: "orchestrator" } })).rejects.toThrow(
-    "verified MCP",
-  );
+  await service.launch({ ...request, control: { role: "orchestrator" } });
+  expect(create.mock.calls.at(-1)?.[0].args.at(-1)).toContain("foom CLI on PATH");
+  service.release("terminal-id");
   const previous = versions.claude;
   versions.claude = "2.1.293 (Claude Code)";
   help += "\n--mcp-config <file>";
@@ -794,34 +794,40 @@ it.each(["not-installed", "installed", "outdated", "disabled", "unavailable"] as
     }
   },
 );
-it("launches Antigravity with a process-local CLI PATH and composed initial guidance", async () => {
-  help += "\n--prompt-interactive <prompt>";
-  const inheritedPath = process.env["PATH"];
-  service = new AgentService({ listWorktrees, launchIdentity }, { create }, prepare, () =>
-    Promise.resolve({
-      env: {
-        FOOM_CLI_DIRECTORY: join(root, "console 日本語"),
-        FOOM_CONTROL_TOKEN: "control-secret",
-      },
-      bind: vi.fn(),
-      dispose: vi.fn(),
-    }),
-  );
-  await service.launch({
-    ...request,
-    agent: "agy",
-    defaultArguments: ["--prompt-interactive", "literal $(text)"],
-  });
-  const spec = create.mock.calls.at(-1)?.[0];
-  expect(spec?.args).toEqual([
-    "--prompt-interactive",
-    expect.stringContaining("literal $(text)\n\nFoom"),
-  ]);
-  expect(spec?.env?.["PATH"]).toContain(join(root, "console 日本語"));
-  expect(spec?.args.join(" ")).not.toContain("control-secret");
-  expect(process.env["PATH"]).toBe(inheritedPath);
-  expect(prepareMcpLaunch).not.toHaveBeenCalled();
-});
+it.each([false, true])(
+  "launches Antigravity with process-local CLI PATH (orchestrator=%s)",
+  async (orchestrator) => {
+    help += "\n--prompt-interactive <prompt>";
+    const inheritedPath = process.env["PATH"];
+    service = new AgentService({ listWorktrees, launchIdentity }, { create }, prepare, () =>
+      Promise.resolve({
+        env: {
+          FOOM_CLI_DIRECTORY: join(root, "console 日本語"),
+          FOOM_CONTROL_TOKEN: "control-secret",
+        },
+        bind: vi.fn(),
+        dispose: vi.fn(),
+      }),
+    );
+    await service.launch({
+      ...request,
+      agent: "agy",
+      defaultArguments: ["--prompt-interactive", "literal $(text)"],
+      ...(orchestrator ? { control: { role: "orchestrator" as const } } : {}),
+    });
+    const spec = create.mock.calls.at(-1)?.[0];
+    expect(spec?.args).toEqual([
+      "--prompt-interactive",
+      expect.stringContaining(
+        orchestrator ? "literal $(text)\n\nYou are" : "literal $(text)\n\nFoom",
+      ),
+    ]);
+    expect(spec?.env?.["PATH"]).toContain(join(root, "console 日本語"));
+    expect(spec?.args.join(" ")).not.toContain("control-secret");
+    expect(process.env["PATH"]).toBe(inheritedPath);
+    expect(prepareMcpLaunch).not.toHaveBeenCalled();
+  },
+);
 
 it("launches an external checkout without a creation record", async () => {
   listWorktrees.mockResolvedValue([{ path: tree, managed: false, bare: false, prunable: false }]);
@@ -859,4 +865,17 @@ it("config launches skip worktree and control, keep hooks and put the CLI on PAT
   expect(create.mock.calls.at(-1)?.[0].env?.["PATH"]).toBe(
     ["/app/console", "/opt/bin", root].join(delimiter),
   );
+});
+
+it("refuses orchestrators without a control binding or Antigravity prompt support", async () => {
+  service = new AgentService({ listWorktrees, launchIdentity }, { create });
+  await expect(service.launch({ ...request, control: { role: "orchestrator" } })).rejects.toThrow(
+    "control credentials",
+  );
+  service = new AgentService({ listWorktrees, launchIdentity }, { create }, undefined, () =>
+    Promise.resolve({ env: {}, bind: vi.fn(), dispose: vi.fn() }),
+  );
+  await expect(
+    service.launch({ ...request, agent: "agy", control: { role: "orchestrator" } }),
+  ).rejects.toThrow("initial prompt support");
 });

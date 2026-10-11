@@ -129,13 +129,13 @@ it("launches an orchestrator in the main checkout after the trusted disclosure, 
   expect(workspace.snapshot().terminals[0]?.orchestration).toMatchObject({ active: false });
 });
 
-it("refuses agents without verified MCP and releases the slot after refusal, decline or failure", async () => {
+it("refuses unavailable agents and releases the slot after refusal, decline or failure", async () => {
   let workspace = new Workspace(deps);
-  scanned = scan(false);
-  await expect(orchestrate(workspace)).rejects.toThrow("verified MCP");
+  scanned = { ...scan(false), agents: [] };
+  await expect(orchestrate(workspace)).rejects.toThrow("installed agent");
   // Discovery is cached until a rescan, so a fresh workspace sees the upgraded agent.
   scanned = scan(true);
-  await expect(orchestrate(workspace)).rejects.toThrow("verified MCP");
+  await expect(orchestrate(workspace)).rejects.toThrow("installed agent");
   workspace = new Workspace(deps);
   confirm.mockResolvedValueOnce(false);
   await orchestrate(workspace);
@@ -451,4 +451,40 @@ it("a human relaunch of a child's session ends the orchestrator's ownership", as
   expect(
     workspace.snapshot().terminals.find((entry) => entry.id === "child")?.orchestration,
   ).toBeUndefined();
+});
+
+it("permits CLI-only orchestrators and requires Antigravity interactive prompts", async () => {
+  scanned = scan(false);
+  await orchestrate(new Workspace(deps));
+  scanned = {
+    ...scan(false),
+    agents: [
+      {
+        id: "agy",
+        path: "/bin/agy",
+        version: "1",
+        hooks: false,
+        mcp: false,
+        cliGuidance: false,
+        reason: "ok",
+      },
+    ],
+  };
+  await expect(
+    new Workspace(deps).sidebarCommand(
+      { kind: "orchestrate", repository: repo.path, run: "agy" },
+      confirm,
+    ),
+  ).rejects.toThrow("initial prompt");
+  scanned = {
+    ...scanned,
+    agents: scanned.agents.map((agent) => ({ ...agent, cliGuidance: true })),
+  };
+  await new Workspace(deps).sidebarCommand(
+    { kind: "orchestrate", repository: repo.path, run: "agy" },
+    confirm,
+  );
+  expect(launch).toHaveBeenLastCalledWith(
+    expect.objectContaining({ agent: "agy", control: { role: "orchestrator" } }),
+  );
 });

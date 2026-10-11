@@ -56,6 +56,7 @@ export function exchange(
   body: unknown,
   token?: string,
   onLine?: (value: unknown) => void,
+  timeoutMs = 5000,
 ): Promise<unknown> {
   return new Promise((resolve, reject) => {
     const req = request(
@@ -125,7 +126,7 @@ export function exchange(
         reject(new ControlError("unavailable"));
         req.destroy();
       },
-      onLine ? 65000 : 5000,
+      onLine ? 65000 : timeoutMs,
     );
     req.on("close", () => {
       clearTimeout(timer);
@@ -156,6 +157,8 @@ export async function call(connection: Connection, command: Command): Promise<un
       connection.endpoint,
       { version: 1, instanceId: connection.instanceId, ...command },
       connection.token,
+      undefined,
+      command.method === "wait_for" ? 35000 : 5000,
     ),
   );
   exact(value, ["result", "error"]);

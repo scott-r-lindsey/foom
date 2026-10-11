@@ -23,7 +23,7 @@ export async function execute(
   try {
     if (
       args.length > 32 ||
-      args.some((value) => value.length > 4096) ||
+      args.some((value) => Buffer.byteLength(value) > 16384) ||
       args.filter((value) => value === "--json").length > 1
     )
       throw new ControlError("invalid_request");

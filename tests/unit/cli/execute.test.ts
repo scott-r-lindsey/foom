@@ -112,3 +112,42 @@ it("release failure cannot leak credentials or replace the successful result", a
     .mockRejectedValueOnce(new Error("disconnected"));
   expect(await execute(["whoami", "--repository", "/repo"], "1", io(), {}, "/foom")).toBe(0);
 });
+
+it.each([
+  ["create-worktree", "branch", "--idempotency-key", "key"],
+  [
+    "launch",
+    "tree",
+    "--agent",
+    "claude",
+    "--prompt",
+    "x".repeat(16384),
+    "--idempotency-key",
+    "key",
+  ],
+  ["stop", "child", "--idempotency-key", "key"],
+  ["remove-worktree", "tree", "--idempotency-key", "key"],
+  ["tail", "child"],
+  ["wait-for", "child"],
+  ["operation-status", "--idempotency-key", "key"],
+])("preserves envelopes and exit codes for %s", async (...args) => {
+  vi.mocked(inherited).mockReturnValue({ token: "SECRET", endpoint: "local", instanceId: "id" });
+  const output = io();
+  expect(await execute(args, "1", output, {}, "/foom")).toBe(0);
+  expect(output.out).toHaveBeenCalledWith('{"result":{"state":"quiet_ok"}}\n');
+  for (const [error, code] of [
+    ["invalid_request", 2],
+    ["unauthorized", 3],
+    ["forbidden", 3],
+    ["capacity", 4],
+    ["not_found", 4],
+    ["conflict", 4],
+    ["unavailable", 4],
+  ] as const) {
+    vi.mocked(call).mockRejectedValueOnce(new ControlError(error));
+    expect(await execute(args, "1", output, {}, "/foom")).toBe(code);
+    expect(output.error).toHaveBeenLastCalledWith(`${JSON.stringify({ error })}\n`);
+  }
+  expect(pair).not.toHaveBeenCalled();
+  expect(JSON.stringify(vi.mocked(output.error).mock.calls)).not.toContain("SECRET");
+});
