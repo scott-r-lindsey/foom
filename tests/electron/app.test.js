@@ -3777,6 +3777,10 @@ test("sidebar menus escape the scroll area, stay in the window and launch from a
   await launchItem.focus();
   await page.keyboard.press("End");
   await page.keyboard.press("ArrowUp");
+  await expect(
+    page.getByRole("menuitem", { name: "Resume conversation…", exact: true }),
+  ).toBeFocused();
+  await page.keyboard.press("ArrowUp");
   await expect(launchItem).toBeFocused();
   await expect(badge).toHaveCSS("background-color", "rgb(122, 60, 255)");
   await expect
@@ -3785,6 +3789,10 @@ test("sidebar menus escape the scroll area, stay in the window and launch from a
 
   await page.keyboard.press("End");
   await expect(page.getByRole("menuitem", { name: "Delete worktree…" })).toBeFocused();
+  await page.keyboard.press("ArrowUp");
+  await expect(
+    page.getByRole("menuitem", { name: "Resume conversation…", exact: true }),
+  ).toBeFocused();
   await page.keyboard.press("ArrowUp");
   await expect(page.getByRole("menuitem", { name: /^Shell \(/ })).toBeFocused();
   await page.keyboard.press("Escape");
