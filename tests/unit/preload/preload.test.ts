@@ -535,6 +535,9 @@ test("preload accepts menu board commands and rejects unknown values", async () 
   for (const command of [
     "new-worktree",
     "add-repository",
+    "via-claude",
+    "via-codex",
+    "via-agy",
     "preset-one",
     "preset-columns",
     "preset-rows",
@@ -545,7 +548,7 @@ test("preload accepts menu board commands and rejects unknown values", async () 
     listener?.({}, command);
   listener?.({}, "reload");
   listener?.({}, {});
-  expect(callback).toHaveBeenCalledTimes(8);
+  expect(callback).toHaveBeenCalledTimes(11);
   off();
 });
 

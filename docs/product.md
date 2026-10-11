@@ -173,7 +173,9 @@ menu is the same everywhere and lists only app-wide commands:
 - New window, New worktree…, Add repository…, New orchestrator… (#155)
 - **Settings ›**, a submenu of routes: Via Claude Code, Via Codex and Via
   Antigravity (#84: each starts that agent in `~/.foom/config` under the Foom
-  config row), then Via Settings UI, which opens the Settings screen
+  config row), then Via Settings UI, which opens the Settings screen. Agent routes
+  are enabled for installed, enabled agents after preflight, including while
+  Settings is open. An existing config session is focused in its owning window.
 - **Size − 100% +**, one row that steps the interface size and stays open
 - Action log (#157), Keyboard shortcuts, About Foom, Third-party licenses
 - Reload, Force reload and Developer tools, in development builds only
@@ -234,7 +236,9 @@ when removing a repository. Removing a worktree keeps its branch.
 Launching an agent in a checkout with another running agent changes the launcher
 to **Click again for two agents here**. Shell launches need no sharing confirmation.
 A Codex launch using the notifier fallback also requires **Click again to replace notifier**
-when the notifier replacement has not already been acknowledged. After trusted lifecycle
+when the notifier replacement has not already been acknowledged. Application-menu
+config launches use a trusted dialog with the same disclosure because that menu
+closes on selection. After trusted lifecycle
 hooks have been observed working, later launches keep the user's notifier and omit
 that disclosure. Setup shows hook health and directs review to Codex's own `/hooks` screen. Creating a
 worktree launches nothing, so the disclosure stays with the launchers.

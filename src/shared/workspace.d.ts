@@ -124,7 +124,7 @@ export interface SidebarInventory {
 export type SidebarCommand =
   | { kind: "home-shell" }
   | { kind: "copy-home-path" }
-  | { kind: "config-launch"; run: AgentId | "shell" }
+  | { kind: "config-launch"; run: AgentId | "shell"; origin?: "menu" }
   | { kind: "copy-config-path" }
   | { kind: "copy-worktree-path"; repository: string; worktree: string }
   | { kind: "launch"; repository: string; worktree: string; run: AgentId | "shell" }
