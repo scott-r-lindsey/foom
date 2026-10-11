@@ -1,3 +1,4 @@
+import { conversationId } from "../../shared/conversation";
 import type { WindowIpc } from "../window/window-ipc";
 import type { ExecutionTransition } from "../../shared/execution";
 import { ConfirmationArming } from "../confirmations/arming";
@@ -60,6 +61,25 @@ function sidebarCommand(value: unknown): SidebarCommand {
   if (kind === "home-shell" || kind === "copy-home-path" || kind === "copy-config-path") {
     if (Object.keys(value).length !== 1) throw new Error("Invalid home shell request");
     return { kind };
+  }
+  if (kind === "resume-id") {
+    const checkout = value["checkout"];
+    if (
+      Object.keys(value).some((key) => !["kind", "checkout", "agent", "id"].includes(key)) ||
+      !record(checkout) ||
+      Object.keys(checkout).length !== 2 ||
+      !text(checkout["repository"]) ||
+      !text(checkout["worktree"]) ||
+      !agent(value["agent"]) ||
+      !conversationId(value["id"])
+    )
+      throw new Error("Invalid resume request");
+    return {
+      kind,
+      checkout: { repository: checkout["repository"], worktree: checkout["worktree"] },
+      agent: value["agent"],
+      id: value["id"],
+    };
   }
   if (kind === "config-launch") {
     const run = value["run"];
@@ -258,7 +278,12 @@ export function attachWorkspace(
       "workspace:sidebar-command",
       (value) => {
         const command = sidebarCommand(value);
-        if ("id" in command && !owns(command.id) && !workspace.ownsSession(command.id))
+        if (
+          command.kind !== "resume-id" &&
+          "id" in command &&
+          !owns(command.id) &&
+          !workspace.ownsSession(command.id)
+        )
           throw new Error("Unknown or foreign terminal ID");
         const confirm = confirmation(JSON.stringify(command));
         return workspace.sidebarCommand(command, (request) => {

@@ -1,3 +1,4 @@
+import { ResumeField } from "./resume-field-view";
 import { PanelIntent } from "./panel-intent";
 import { PanelFacts, PanelTitle } from "./panel-facts";
 import type { PanelSubject } from "./panel-facts";
@@ -1020,6 +1021,14 @@ export function Sidebar({
                                   {!worktree.removed &&
                                     actions(wid, name, [
                                       ...launchers(target),
+                                      {
+                                        label: "Resume conversation…",
+                                        expanded: menu?.id === wid && fieldOpen,
+                                        run: () => {
+                                          const anchor = anchorsRef.current.get(wid);
+                                          if (anchor) openField(wid, anchor);
+                                        },
+                                      },
                                       ...(!main && !worktree.bare
                                         ? [
                                             null,
@@ -1071,6 +1080,34 @@ export function Sidebar({
               const facts = subject ? (
                 <PanelFacts key={menu.id} subject={subject} source={source} options={options} />
               ) : null;
+              if (fieldOpen && subject?.kind === "worktree")
+                return (
+                  <div className="panel-side" data-field>
+                    {facts}
+                    <ResumeField
+                      confirmations={source.confirmations}
+                      key={menu.id}
+                      agents={(options?.agents ?? [])
+                        .filter((agent) => agent.path && options?.enabled[agent.id])
+                        .map((agent) => agent.id)}
+                      back={() => {
+                        intent.pin(menu.id, menu.anchor);
+                      }}
+                      done={intent.close}
+                      launch={async (agent, id) => {
+                        await command({
+                          kind: "resume-id",
+                          checkout: {
+                            repository: subject.repository.path,
+                            worktree: subject.tree.path,
+                          },
+                          agent,
+                          id,
+                        });
+                      }}
+                    />
+                  </div>
+                );
               return fieldOpen && subject?.kind === "repository" && source.worktrees ? (
                 <div className="panel-side" data-field>
                   {facts}

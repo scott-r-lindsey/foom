@@ -531,3 +531,39 @@ test.each(["destroyed", "navigated"])(
     expect(requestDialog).not.toHaveBeenCalled();
   },
 );
+
+test("resume-id validates the exact payload and does not confuse conversation IDs with terminal IDs", async () => {
+  const command = vi.fn(async () => {});
+  Object.assign(workspace, { sidebarCommand: command });
+  const valid = {
+    kind: "resume-id",
+    checkout: { repository: "/repo", worktree: "/tree" },
+    agent: "claude",
+    id: "conversation-123",
+  };
+  await invoke("workspace:sidebar-command", [valid]);
+  expect(command).toHaveBeenCalledWith(valid, expect.any(Function));
+  command.mockClear();
+  for (const payload of [
+    { ...valid, id: "--last" },
+    { ...valid, id: "a".repeat(201) },
+    { ...valid, id: 4 },
+    { ...valid, agent: "shell" },
+    { ...valid, agent: "unknown" },
+    { ...valid, checkout: null },
+    { ...valid, checkout: [] },
+    { ...valid, checkout: { repository: "/repo" } },
+    { ...valid, checkout: { repository: "", worktree: "/tree" } },
+    { ...valid, checkout: { repository: "/repo", worktree: "x\0y" } },
+    { ...valid, checkout: { ...valid.checkout, identity: "forged" } },
+    { ...valid, raw: "claude --resume conversation-123" },
+  ])
+    expect(() => invoke("workspace:sidebar-command", [payload])).toThrow();
+  expect(() =>
+    invoke("workspace:sidebar-command", [valid], {
+      sender: contents,
+      senderFrame: { url: frame.url },
+    }),
+  ).toThrow();
+  expect(command).not.toHaveBeenCalled();
+});

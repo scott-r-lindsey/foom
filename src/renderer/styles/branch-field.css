@@ -164,3 +164,42 @@
     display: none;
   }
 }
+
+.resume-field input {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  padding: 8px 24px 8px 8px;
+  background: var(--bg);
+  color: var(--ink);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  font: inherit;
+}
+.resume-field input[aria-invalid="true"] {
+  border-color: var(--failed);
+}
+.resume-invalid {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  color: var(--failed-ink);
+}
+.resume-agents {
+  display: flex;
+  gap: 6px;
+  margin-top: 8px;
+}
+.row-menu .resume-agents button {
+  animation: none;
+  width: auto;
+  background: var(--surface);
+  color: var(--ink);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 4px 8px;
+  font: inherit;
+}
+.resume-agents button[aria-pressed="true"] {
+  border-color: var(--highlight);
+}

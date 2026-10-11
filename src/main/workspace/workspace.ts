@@ -159,6 +159,7 @@ export class Workspace {
   private acknowledged = false;
   private hooksEnabled = true;
   private defaultArguments = EMPTY_AGENT_ARGUMENTS;
+  private readonly resumeStarts = new Map<string, Promise<void>>();
   private readonly busySessions = new Set<string>();
   private readonly busyWorktrees = new Set<string>();
   private readonly repositoryOperations = new Map<string, Set<symbol>>();
@@ -676,7 +677,7 @@ export class Workspace {
     sharedCheckout = false,
     checkoutIdentity?: string,
     replacement?: { id: string; conversationId?: string },
-    extra: Pick<AgentLaunch, "control" | "prompt"> = {},
+    extra: Pick<AgentLaunch, "control" | "prompt" | "conversationId"> = {},
   ): Promise<{ id: string; attention: "hooks" | "evaluator" }> {
     return this.withRepository(request.repository, async () => {
       if (!this.enabled[request.agent]) throw new Error("This agent is turned off in preflight");
@@ -723,9 +724,9 @@ export class Workspace {
         worktree: request.worktree,
         branch: tree?.branch ?? null,
         attention: result.attention,
-        ...(replacement?.conversationId === undefined
+        ...((replacement?.conversationId ?? extra.conversationId) === undefined
           ? {}
-          : { conversationId: replacement.conversationId }),
+          : { conversationId: replacement?.conversationId ?? extra.conversationId }),
         bypass: hasBypassArgument(request.agent, defaultArguments),
         state: null,
       });
@@ -1231,6 +1232,7 @@ export class Workspace {
 
   async sidebarCommand(command: SidebarCommand, confirm: ConfirmWorkspace): Promise<void> {
     if (this.closed) throw new Error("Workspace is closed");
+    if (command.kind === "resume-id") return this.resumeId(command, confirm);
     if (command.kind === "home-shell") return this.startHomeShell();
     if (command.kind === "config-launch") return this.startConfig(command.run, confirm);
     if (command.kind === "copy-config-path") {
@@ -1338,6 +1340,53 @@ export class Workspace {
     this.refresh();
   }
 
+  private async resumeId(
+    command: Extract<SidebarCommand, { kind: "resume-id" }>,
+    confirm: ConfirmWorkspace,
+  ): Promise<void> {
+    const { checkout, agent, id } = command;
+    resumeArguments(agent, id);
+    const key = `${agent}\0${id}`;
+    // Serialize by conversation across checkouts, including confirmations and spawn.
+    const previous = this.resumeStarts.get(key);
+    const pending = (async () => {
+      if (previous) await previous.catch(() => undefined);
+      this.known(checkout.repository);
+      await this.deps.worktrees.launchIdentity(checkout.repository, checkout.worktree);
+      const scan = await this.scanAgents(false);
+      if (!this.enabled[agent] || !scan.agents.some((entry) => entry.id === agent && entry.path))
+        throw new Error("Agent is unavailable");
+      const running = [...this.launched.values()].find(
+        (entry) =>
+          entry.agent === agent &&
+          entry.conversationId === id &&
+          !entry.dormant &&
+          this.terminals.get(entry.id)?.exitCode === undefined,
+      );
+      if (running) {
+        this.deps.reveal?.(running.id);
+        return;
+      }
+      await this.startExisting(
+        checkout.repository,
+        checkout.worktree,
+        agent,
+        confirm,
+        undefined,
+        undefined,
+        false,
+        undefined,
+        id,
+      );
+    })();
+    this.resumeStarts.set(key, pending);
+    try {
+      await pending;
+    } finally {
+      if (this.resumeStarts.get(key) === pending) this.resumeStarts.delete(key);
+    }
+  }
+
   private async startExisting(
     repository: string,
     worktree: string,
@@ -1347,6 +1396,7 @@ export class Workspace {
     control?: AgentLaunch["control"],
     restoring = false,
     authorityIdentity?: string,
+    pastedId?: string,
   ): Promise<string | undefined> {
     return this.withRepository(repository, async () => {
       const tree = (await this.worktrees(repository)).find((item) => item.path === worktree);
@@ -1401,12 +1451,15 @@ export class Workspace {
                 true,
                 identity,
                 replacement,
-                control === undefined
-                  ? {}
-                  : {
-                      control,
-                      ...("parentId" in control ? { prompt: "Resume your previous task." } : {}),
-                    },
+                {
+                  ...(pastedId === undefined ? {} : { conversationId: pastedId }),
+                  ...(control === undefined
+                    ? {}
+                    : {
+                        control,
+                        ...("parentId" in control ? { prompt: "Resume your previous task." } : {}),
+                      }),
+                },
               )
             ).id;
           } catch (error) {
