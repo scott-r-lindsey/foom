@@ -534,7 +534,9 @@ it("restores running parents and owned children with new launches and retains hi
       running: false,
     },
   ]);
-  const save = vi.fn(async () => {});
+  const save = vi.fn<NonNullable<WorkspaceDependencies["sessions"]>["save"]>(() =>
+    Promise.resolve(),
+  );
   deps.sessions = { load: () => Promise.resolve(entries), save, flush: async () => {} };
   launch.mockImplementation((request) =>
     Promise.resolve({
@@ -589,7 +591,11 @@ it("restores running parents and owned children with new launches and retains hi
   await expect(
     workspace.orchestration.call(actor, "tail", { id: "taken" }, operations),
   ).rejects.toThrow();
+  workspace.orchestration.takeOver("child");
   await workspace.prepareQuit();
+  expect(save.mock.calls.at(-1)?.[0].find((entry) => entry.id === "child")).not.toHaveProperty(
+    "parentId",
+  );
   const before = save.mock.calls.length;
   await workspace.exited("parent", 0);
   expect(save).toHaveBeenCalledTimes(before);
@@ -689,3 +695,86 @@ it.each(["shell", "home", "config", "missing", "missing-repository", "no-convers
     await workspace.dispose();
   },
 );
+
+it.each([false, true])(
+  "does not grant notifier consent during automatic restore (config=%s)",
+  async (config) => {
+    const { readSessions } = await import("../../../../src/main/workspace/session-store");
+    scanned = {
+      path: "/bin",
+      warning: null,
+      agents: [
+        {
+          id: "codex",
+          path: "/bin/codex",
+          version: "codex-cli 0.161.0",
+          hooks: true,
+          mcp: true,
+          reason: "",
+        },
+      ],
+    };
+    deps.config = { root: "/config", cliDirectory: "/cli", check: () => Promise.resolve() };
+    const acknowledge = vi.fn(() => Promise.resolve());
+    deps.acknowledgeCodex = acknowledge;
+    const location = config ? "/config" : repo.path;
+    const saved = readSessions([
+      {
+        id: "codex",
+        agent: "codex",
+        repository: location,
+        worktree: location,
+        branch: config ? null : "main",
+        ...(config ? { config: true } : {}),
+        running: true,
+        conversationId: "saved-codex",
+      },
+    ]);
+    deps.sessions = {
+      load: () => Promise.resolve(saved),
+      save: () => Promise.resolve(),
+      flush: () => Promise.resolve(),
+    };
+    const workspace = new Workspace(deps);
+    await workspace.restore();
+    await workspace.restartSaved();
+    expect(launch).not.toHaveBeenCalled();
+    expect(acknowledge).not.toHaveBeenCalled();
+    expect(workspace.snapshot().terminals).toMatchObject([
+      { exited: true, conversationId: "saved-codex" },
+    ]);
+    await workspace.dispose();
+  },
+);
+
+it("binds re-granted authority to the saved identity across asynchronous launch checks", async () => {
+  const { readSessions } = await import("../../../../src/main/workspace/session-store");
+  const saved = readSessions([
+    {
+      id: "parent",
+      agent: "claude",
+      repository: repo.path,
+      worktree: repo.path,
+      branch: "main",
+      conversationId: "saved",
+      running: true,
+      orchestrator: { identity: "identity", history: [] },
+    },
+  ]);
+  deps.sessions = {
+    load: () => Promise.resolve(saved),
+    save: () => Promise.resolve(),
+    flush: () => Promise.resolve(),
+  };
+  vi.mocked(deps.worktrees, true)
+    .launchIdentity.mockResolvedValueOnce("identity")
+    .mockResolvedValue("replacement");
+  const workspace = new Workspace(deps);
+  await workspace.restore();
+  await workspace.restartSaved();
+  expect(launch).not.toHaveBeenCalled();
+  expect(workspace.snapshot().terminals).toMatchObject([
+    { exited: true, conversationId: "saved", roleNotRestored: true },
+  ]);
+  await workspace.dispose();
+});

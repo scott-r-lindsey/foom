@@ -2453,6 +2453,7 @@ test("first run goes from no agents to go, launches by keyboard, and can be repl
     codexNotifierAcknowledged: false,
     setupComplete: true,
     hooks: true,
+    restoreSessions: true,
     agents: { claude: true, codex: true, agy: true },
     agentArguments: { claude: [], codex: [], agy: [] },
     agentBypassAcknowledged: { claude: false, codex: false, agy: false },
@@ -7209,9 +7210,21 @@ req.end(JSON.stringify(payload));
     const quit = async (current) =>
       quitAndWait(current, async () => {
         await current.evaluate(({ app }) => app.quit());
-        await (await confirmationPage(current))
-          .getByRole("button", { name: "Stop all and quit" })
-          .click();
+        let dialog;
+        await expect
+          .poll(async () => {
+            for (const candidate of current
+              .windows()
+              .filter((window) => window.url() === "app://confirmation/confirmation.html")) {
+              if (await candidate.getByRole("button", { name: "Stop all and quit" }).count()) {
+                dialog = candidate;
+                return true;
+              }
+            }
+            return false;
+          })
+          .toBe(true);
+        await dialog.getByRole("button", { name: "Stop all and quit" }).click();
       });
     await quit(app);
     const saved = JSON.parse(await readFile(path.join(profile, "sessions.json"), "utf8"));

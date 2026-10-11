@@ -507,6 +507,13 @@ test("Settings shares setup controls, saves immediately and exposes planned sect
   fireEvent.click(button("Themes"));
   fireEvent.click(button("Open themes folder"));
   expect(screen.getByRole("group", { name: "Interface themes" })).toBeTruthy();
+  fireEvent.click(button("General"));
+  const restore = screen.getByRole("checkbox", { name: "Restore sessions on launch" });
+  expect(restore).toHaveProperty("checked", true);
+  fireEvent.click(restore);
+  await waitFor(() => {
+    expect(source.save).toHaveBeenCalledWith({ restoreSessions: false });
+  });
   fireEvent.click(button("Sound"));
   expect(screen.getByRole("checkbox", { name: "Alerts on" })).toBeTruthy();
   fireEvent.keyDown(screen.getByRole("region", { name: "Settings" }), { key: "a" });

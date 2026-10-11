@@ -235,6 +235,7 @@ export class Workspace {
         launch: (parentId, repository, worktree, identity, agent, prompt) =>
           this.launchChild(parentId, repository, worktree, identity, agent, prompt),
         stop: (id) => this.deps.terminals.stop(id),
+        starting: (id) => this.restoring.has(id),
         tail: (id, lines) => this.deps.terminals.tail(id, lines),
         remove: async (repository, worktree, identity, confirm) => {
           const tree = (await this.worktrees(repository)).find((item) => item.path === worktree);
@@ -396,6 +397,7 @@ export class Workspace {
         this.track(entry.id).exitCode = -1;
         this.orchestration.exited(entry.id);
       } finally {
+        if (this.launched.get(entry.id)?.dormant) this.orchestration.exited(entry.id);
         this.restoring.delete(entry.id);
         this.busySessions.delete(entry.id);
         this.saved.delete(entry.id);
@@ -411,7 +413,7 @@ export class Workspace {
       id: entry.id,
       ...(entry.conversationId === undefined ? {} : { conversationId: entry.conversationId }),
     };
-    const confirm: ConfirmWorkspace = () => Promise.resolve(true);
+    const confirm: ConfirmWorkspace = () => Promise.resolve(false);
     if (entry.home) {
       await this.startHomeShell(entry.id);
       return;
@@ -421,6 +423,7 @@ export class Workspace {
       return;
     }
     let control: AgentLaunch["control"];
+    let authorityIdentity: string | undefined;
     let slot: ReturnType<Orchestration["reserve"]> | undefined;
     if (entry.orchestrator) {
       this.unrestoredRoles.add(entry.id);
@@ -439,6 +442,7 @@ export class Workspace {
         slot = this.orchestration.reserve(entry.repository);
         if (!("existing" in slot)) {
           control = { role: "orchestrator" };
+          authorityIdentity = identity;
           if (identity !== undefined) this.repositoryIdentities.set(entry.repository, identity);
         }
       }
@@ -454,6 +458,7 @@ export class Workspace {
         replacement,
         control,
         true,
+        authorityIdentity,
       );
       if (id && slot && !("existing" in slot)) {
         slot.bind(id);
@@ -1341,6 +1346,7 @@ export class Workspace {
     replacement?: { id: string; conversationId?: string },
     control?: AgentLaunch["control"],
     restoring = false,
+    authorityIdentity?: string,
   ): Promise<string | undefined> {
     return this.withRepository(repository, async () => {
       const tree = (await this.worktrees(repository)).find((item) => item.path === worktree);
@@ -1351,6 +1357,8 @@ export class Workspace {
       this.busyWorktrees.add(key);
       try {
         const identity = await this.deps.worktrees.launchIdentity(repository, worktree);
+        if (authorityIdentity !== undefined && identity !== authorityIdentity)
+          throw new Error("Repository identity changed during restore");
         if (run !== "shell" && !restoring && !(await this.confirmAgentLaunch(worktree, confirm)))
           return;
         if (run !== "shell") {

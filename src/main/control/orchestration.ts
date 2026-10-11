@@ -56,6 +56,8 @@ export interface OrchestrationHost {
     prompt: string | undefined,
   ): Promise<string>;
   stop(id: string): Promise<void>;
+  /** Starting restored sessions do not yet have a stoppable PTY. */
+  starting?(id: string): boolean;
   tail(id: string, lines: number): Promise<string[]>;
   /** The workspace removal sequence: identity and changes are rechecked after `confirm`. */
   remove(
@@ -426,6 +428,8 @@ export class Orchestration {
     this.note(parent, this.entry(operation, label));
     if (child.exited)
       return this.finish(actor, parent, operations, operation, label, "succeeded", id);
+    if (this.host.starting?.(id))
+      return this.refuse(actor, parent, operations, operation, label, "conflict");
     try {
       await this.host.stop(id);
     } catch {

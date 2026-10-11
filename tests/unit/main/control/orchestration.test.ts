@@ -629,3 +629,40 @@ describe("worktree removal", () => {
     });
   });
 });
+
+it("rejects stop while a restored child is queued instead of claiming it stopped", async () => {
+  const fixture = harness();
+  const starting = vi.fn(() => true);
+  const orchestration = new Orchestration({ ...fixture.host, starting });
+  const slot = orchestration.reserve(repo);
+  if ("existing" in slot) throw new Error("unexpected parent");
+  slot.bind("parent");
+  const row: WorkspaceTerminal = {
+    id: "queued",
+    kind: "agent",
+    agent: "claude",
+    repository: repo,
+    worktree: join(repo, "child"),
+    branch: "child",
+    attention: "evaluator",
+    state: null,
+  };
+  expect(orchestration.restoreChild("parent", row)).toBe(true);
+  await expect(
+    orchestration.call(
+      fixture.actor,
+      "stop",
+      { id: row.id, idempotencyKey: "queued-stop" },
+      fixture.operations,
+    ),
+  ).rejects.toThrow();
+  expect(fixture.host.stop).not.toHaveBeenCalled();
+  starting.mockReturnValue(false);
+  await orchestration.call(
+    fixture.actor,
+    "stop",
+    { id: row.id, idempotencyKey: "ready-stop" },
+    fixture.operations,
+  );
+  expect(fixture.host.stop).toHaveBeenCalledWith(row.id);
+});
