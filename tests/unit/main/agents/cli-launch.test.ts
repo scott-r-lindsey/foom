@@ -30,10 +30,11 @@ it("passes an orchestrator child's prompt as one argv entry and refuses option-l
   expect(initialPrompt({ id: "claude" }, undefined)).toEqual({ guidance: [], positional: [] });
   expect(initialPrompt({ id: "codex" }, "Fix it\n\tthen test")).toEqual({
     guidance: [],
-    positional: [`${CHILD_PROMPT}\n\nFix it\n\tthen test`],
+    positional: ["--", `${CHILD_PROMPT}\n\nFix it\n\tthen test`],
   });
   // A bare subcommand name never reaches the CLI as its own argv entry.
   expect(initialPrompt({ id: "codex" }, "logout").positional).toEqual([
+    "--",
     `${CHILD_PROMPT}\n\nlogout`,
   ]);
   expect(initialPrompt({ id: "agy", cliGuidance: true }, "Plan")).toEqual({
