@@ -78,7 +78,8 @@ function sidebarCommand(value: unknown): SidebarCommand {
     kind === "restart" ||
     kind === "resume" ||
     kind === "new-conversation" ||
-    kind === "copy-session-id"
+    kind === "copy-session-id" ||
+    kind === "take-over"
   ) {
     if (!text(value["id"])) throw new Error("Invalid terminal ID");
     return { kind, id: value["id"] };
@@ -87,6 +88,11 @@ function sidebarCommand(value: unknown): SidebarCommand {
   const repository = value["repository"];
   if (kind === "remove-repository" || kind === "delete-merged-worktrees")
     return { kind, repository };
+  if (kind === "orchestrate") {
+    const run = value["run"];
+    if (Object.keys(value).length !== 3 || !agent(run)) throw new Error("Invalid orchestrator");
+    return { kind, repository, run };
+  }
   if (!text(value["worktree"])) throw new Error("Invalid worktree");
   const worktree = value["worktree"];
   if (kind === "remove-worktree" || kind === "copy-worktree-path")
@@ -94,6 +100,18 @@ function sidebarCommand(value: unknown): SidebarCommand {
   if (kind === "launch" && (value["run"] === "shell" || agent(value["run"])))
     return { kind, repository, worktree, run: value["run"] };
   throw new Error("Invalid sidebar command");
+}
+
+const agentNames = { claude: "Claude Code", codex: "Codex", agy: "Antigravity" } as const;
+
+/** Granting orchestration widens permissions, so it always uses the trusted dialog. */
+export function orchestratorDisclosure(id: keyof typeof agentNames): DialogContent {
+  return {
+    title: `Launch ${agentNames[id]} as Foom orchestrator?`,
+    accept: "Launch orchestrator",
+    detail:
+      "It can create worktrees and run up to four child agents in this repository, stop them, and ask you to remove worktrees it created. It can read the last 40 lines of each child's terminal, with likely secrets redacted. Those lines may be sent to this agent's model provider under its own settings; redaction cannot catch every secret, and repeated reads collect more. Children cannot orchestrate and do not inherit your launch flags. Its actions appear in its panel, and Take over returns a child to you.",
+  };
 }
 
 /**
@@ -128,7 +146,10 @@ export function attachWorkspace(
     "shared-agent": "Click again for two agents here",
     notifier: "Click again to replace notifier",
   } satisfies Record<
-    Exclude<Parameters<ConfirmWorkspace>[0]["kind"], "dirty-worktree" | "merged-worktrees">,
+    Exclude<
+      Parameters<ConfirmWorkspace>[0]["kind"],
+      "dirty-worktree" | "merged-worktrees" | "orchestrator"
+    >,
     string
   >;
   const confirmation = (target: string): ConfirmWorkspace => {
@@ -143,6 +164,12 @@ export function attachWorkspace(
           accept: "Delete",
           worktrees: request.worktrees,
         });
+      }
+      if (request.kind === "orchestrator") {
+        if (contents.isDestroyed() || contents.mainFrame.url !== APP_URL)
+          return Promise.resolve(false);
+        contents.send("confirmation:dialog");
+        return requestDialog(orchestratorDisclosure(request.agent));
       }
       if (request.kind === "dirty-worktree") {
         const { title, changes } = request;

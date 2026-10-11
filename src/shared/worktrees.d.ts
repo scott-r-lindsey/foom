@@ -16,6 +16,8 @@ export interface Worktree {
 
 export interface CreateWorktreeOptions {
   readonly location?: "root" | "adjacent";
+  /** Require a new local branch from HEAD; never reuse or track existing refs (orchestrator children). */
+  readonly newBranch?: boolean;
 }
 
 /** What creating a worktree for a branch did: `open` means it was already checked out. */

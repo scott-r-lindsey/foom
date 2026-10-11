@@ -281,7 +281,7 @@ Every channel checks the sender (a registered app window, its main frame, `app:/
 | `terminal:state` | main → renderer | `{ id, verdictId, state, reason, signal, confidence, timestamp }`; `verdictId` is null for user actions and unstored verdicts |
 | `terminal:feedback` | renderer → main (invoke) | `id`, `verdictId` (null only for the current unstored verdict), `replied` / `dismissed` / `ignored` |
 | `workspace:sidebar` | renderer → main (invoke) | → repositories with complete worktree inventories and the main-selected shell name |
-| `workspace:sidebar-command` | renderer → main (invoke) | validated discriminated command: launch by registered repository/worktree and agent ID, stop/close/restart by owned terminal ID, remove linked worktree by validated path, or forget repository; main owns confirmations |
+| `workspace:sidebar-command` | renderer → main (invoke) | validated discriminated command: launch by registered repository/worktree and agent ID, orchestrate by repository and agent ID, stop/close/restart/take-over by owned terminal ID, remove linked worktree by validated path, or forget repository; main owns confirmations |
 | `workspace:snapshot` | renderer → main (invoke) | → `{ repositories, terminals }`, each launched terminal with its agent, repository, worktree, branch, and latest state |
 | `workspace:add-repository` | renderer → main (invoke) | none; main shows the directory picker → repository or null |
 | `workspace:changed` | main → renderer | invalidates the workspace snapshot after launch or removal; no payload |
@@ -460,10 +460,11 @@ receiver behind any proxy. That change made the Windows Codex observer `codex-v2
 **Foundation implemented in #152.** `main/control/` owns the service, launch grants,
 versioned HTTP adapter, private discovery, operation records and audit storage.
 The workspace starts it when the window is composed so human pairing is available before an agent launches. A failed startup leaves the window usable and can retry on agent launch.
-All current launches receive the immutable `agent` role. The exposed methods
-are `whoami`, `sessions`, `session_state` and actor-scoped `operation_status`
-(the latter requires a main-issued orchestrator grant, which has no user launch path yet). Unknown methods, role/force
-flags and unknown fields fail closed. No orchestration mutations are exposed.
+Launches receive the immutable `agent` role unless main's repository-panel path
+grants `orchestrator` (#155). The read methods are `whoami`, `sessions`,
+`session_state` and actor-scoped `operation_status` (orchestrators only). Unknown
+methods, role/force flags and unknown fields fail closed. Orchestration methods are
+described under **Orchestrators and children** below.
 
 `POST /control/v1` requires `Authorization: Bearer <token>` and a JSON envelope
 `{ version: 1, instanceId, method, params }`. Identity takes empty params; operation
@@ -577,8 +578,28 @@ with no file/network access. Missing duration is invalid.
 This checks container metadata, not sample decoding; playback still verifies that
 Chromium can decode the audio and checks its samples.
 
+**Orchestrators and children implemented in #155.** `main/control/orchestration.ts`
+owns slots, limits, ownership and the action history; `Workspace` supplies main's
+existing effects (worktree creation, agent launch, stop, host tail, removal) and
+the service delegates `create_worktree`, `launch`, `stop`, `remove_worktree`,
+`tail` and `wait_for` to it through an asynchronous `call`. MCP lists these tools,
+plus `operation_status`, only to an orchestrator principal; `reply` stays hidden
+and refused until #156. See [the implementation record](orchestration.md#orchestrators-and-children-155).
+
+The repository panel offers **Launch … as Foom orchestrator…** for each enabled
+agent with verified per-launch MCP. Main reserves the repository's slot before any
+async work; a live duplicate reveals the existing parent. The trusted dialog
+discloses the output path before launch in the main checkout. Child worktree creation requires a new local branch, refuses checked-out branches,
+and starts from HEAD even when a same-named remote ref exists. Children launch with
+no default arguments (so never bypass), `sharedCheckout` off, a read-only grant
+naming their parent, and an optional prompt as one final argv entry. Exit or
+removal of the parent revokes its grant, aborts pending removal dialogs and frees
+the slot; children keep running. Snapshots carry a main-computed `orchestration`
+view (role, children, last 20 actions; never persisted). `take-over` is a sidebar
+command that removes the orchestrator's stop, tail and wait access to that child.
+
 **Remaining target from #119.** See [orchestration research](orchestration.md) for
-per-agent evidence and follow-ups #155–#157. Orchestration remains future work. Existing terminal ownership, utility-host
+per-agent evidence and follow-ups #156–#157. Existing terminal ownership, utility-host
 parsing and renderer boundaries remain in force.
 
 Main owns one control service over the workspace, agent, evaluator and terminal-host

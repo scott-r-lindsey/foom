@@ -11,6 +11,7 @@ import {
   symlink,
   writeFile,
   utimes,
+  stat,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -234,6 +235,15 @@ describe("creation and listing", () => {
       name: "remote-only",
       worktree: path,
     });
+    // Orchestrator children still start from HEAD, even if a remote-only name exists.
+    await git("update-ref", "refs/remotes/origin/child-only", "refs/remotes/origin/remote-only");
+    await expect(
+      service.createWorktree(repo, "child-only", { newBranch: true }),
+    ).resolves.toMatchObject({
+      outcome: "new",
+    });
+    expect(await git("rev-parse", "child-only")).toBe(await git("rev-parse", "HEAD"));
+    expect(await git("config", "--get-regexp", "^branch\\.child-only\\.").catch(() => "")).toBe("");
     // Another remote without origin is ambiguous: no remote branches are offered.
     await git("remote", "rename", "origin", "first");
     await git("remote", "add", "second", upstream);
@@ -249,6 +259,20 @@ describe("creation and listing", () => {
     await git("checkout", "--detach");
     await expect(service.branches(repo)).resolves.toMatchObject({ head: null, remote: null });
     await expect(service.branches(join(temporary, "missing"))).rejects.toThrow("not been added");
+  });
+  it("refuses an existing branch when a new one is required", async () => {
+    await git("branch", "taken");
+    await expect(
+      service.createWorktree(repo, "taken", { location: "adjacent", newBranch: true }),
+    ).rejects.toThrow("Branch already exists");
+    await expect(stat(join(temporary, "repo with spaces-taken"))).rejects.toThrow();
+    await expect(service.createWorktree(repo, "main", { newBranch: true })).rejects.toThrow(
+      "Branch already exists",
+    );
+    const { path } = await service.createWorktree(repo, "fresh", { newBranch: true });
+    expect(await service.listWorktrees(repo)).toContainEqual(
+      expect.objectContaining({ path, branch: "fresh", managed: true }),
+    );
   });
   it("supports existing branches and adjacent placement", async () => {
     await git("branch", "existing");

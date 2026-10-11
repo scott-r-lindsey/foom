@@ -1,3 +1,30 @@
+import type { AgentInstallation } from "../../shared/agents";
+
+export const CHILD_PROMPT = "Task from your Foom orchestrator (another agent, not the user):";
+
+/**
+ * An orchestrator child's initial prompt as one argv entry. Claude Code and Codex take
+ * it positionally; Antigravity composes it through `--prompt-interactive`. A fixed
+ * provenance line comes first, so the entry can never name a subcommand (`logout`).
+ */
+export function initialPrompt(
+  agent: Pick<AgentInstallation, "id" | "cliGuidance">,
+  prompt: string | undefined,
+): { guidance: string[]; positional: string[] } {
+  if (prompt === undefined) return { guidance: [], positional: [] };
+  if (
+    prompt.length === 0 ||
+    Buffer.byteLength(prompt) > 16384 ||
+    prompt.trimStart().startsWith("-") ||
+    /[^\P{Cc}\n\t]/u.test(prompt)
+  )
+    throw new Error("Invalid initial prompt");
+  const task = `${CHILD_PROMPT}\n\n${prompt}`;
+  if (agent.id !== "agy") return { guidance: [], positional: [task] };
+  if (!agent.cliGuidance) throw new Error("This Antigravity release cannot take a prompt");
+  return { guidance: ["--prompt-interactive", task], positional: [] };
+}
+
 /** Compose initial prompt data using argv only; never install Antigravity MCP config. */
 export function cliGuidance(args: readonly string[]): string[] {
   const result: string[] = [];

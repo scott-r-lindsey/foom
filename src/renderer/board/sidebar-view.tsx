@@ -273,6 +273,15 @@ export function Sidebar({
         });
       },
     }));
+  // Only verified per-launch MCP clients can orchestrate.
+  const orchestrators = (repository: string): RowAction[] =>
+    (options?.agents ?? [])
+      .filter((agent) => agent.mcp && agent.path && options?.enabled[agent.id])
+      .map((agent) => ({
+        label: `Launch ${agentNames.get(agent.id) ?? agent.id} as Foom orchestrator…`,
+        badge: agentBadges.get(agent.id) ?? agent.id,
+        run: () => command({ kind: "orchestrate", repository, run: agent.id }),
+      }));
   const subjects = new Map<
     string,
     { subject: PanelSubject; name: string; kind: string; mark: string }
@@ -445,6 +454,15 @@ export function Sidebar({
           },
         ]
       : [
+          ...(row.orchestration?.role === "child" && !row.orchestration.takenOver
+            ? [
+                {
+                  label: "Take over",
+                  glyph: "resume" as const,
+                  run: () => command({ kind: "take-over", id: row.id }),
+                },
+              ]
+            : []),
           {
             glyph: "stop" as const,
             label: `Stop ${row.kind === "shell" ? "shell" : (agentNames.get(row.agent) ?? row.agent)}`,
@@ -844,9 +862,10 @@ export function Sidebar({
                                     if (menu) intent.pin(rid, menu.anchor, true);
                                   },
                                 },
-                                null,
                               ]
                             : []),
+                          ...orchestrators(repo.repository.path),
+                          null,
 
                           {
                             label: repo.pinned ? "Unpin" : "Pin to top",

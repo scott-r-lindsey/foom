@@ -170,7 +170,8 @@ platform, or press Alt alone or F10 on Windows and Linux, to open the applicatio
 menu below it. A chevron beside the wordmark turns while the menu is open. The
 menu is the same everywhere and lists only app-wide commands:
 
-- New window, New worktree…, Add repository…, New orchestrator… (#155)
+- New window, New worktree…, Add repository…, New orchestrator… (disabled: orchestrators
+  launch from a repository's panel, #155)
 - **Settings ›**, a submenu of routes: Via Claude Code, Via Codex and Via
   Antigravity (#84: each starts that agent in `~/.foom/config` under the Foom
   config row), then Via Settings UI, which opens the Settings screen. Agent routes
@@ -389,18 +390,18 @@ There is no model tier: local signals cover the useful verdicts without sending 
 
 Every verdict and the user's next action (replied, dismissed, ignored) go into a local log. Dismissing an alert counts as feedback. The log becomes the test set for improving the evaluator.
 
-## Orchestration and privacy (planned)
+## Orchestration and privacy
 
 The [control-plane design](orchestration.md) has an authentication and HTTP
-foundation, read-only MCP tools and a packaged console CLI; orchestration remains planned. Current agent
-launches receive a private credential for their own identity, with no mutation
-capabilities. Verified Claude Code and Codex releases launched by Foom receive read-only MCP access
+foundation, read-only MCP tools, a packaged console CLI and repository
+orchestrators. Ordinary agent launches receive a private credential for their own
+identity, with no mutation capabilities. Verified Claude Code and Codex releases launched by Foom receive read-only MCP access
 to session metadata in their own repository, independently of hooks. Unverified versions
 and Antigravity do not attach MCP; managed client policy may deny attachment. These tools
-never return terminal output. **Launch as Foom orchestrator** in a repository's menu will grant one
-agent permission to create worktrees and run up to four children in that repository.
-Children cannot orchestrate through Foom. Their sessions and actions remain visible;
-you can stop them or take over. Agents launched outside Foom receive no automatic
+never return terminal output. **Launch as Foom orchestrator** in a repository's panel grants one
+verified Claude Code or Codex session permission to create worktrees and run up to four children in that repository.
+Children cannot orchestrate through Foom and never inherit your launch flags. The orchestrator's panel lists its
+actions and their outcomes; you can stop a child or take it over, which ends the orchestrator's access to it. Agents launched outside Foom receive no automatic
 access. Agent configuration is attached per launch, never installed globally or
 written into the repository.
 
@@ -417,7 +418,7 @@ with likely secrets redacted and each response capped at 16 KiB. These results m
 be sent to the orchestrator agent's model provider, under that agent's own provider settings. Repeated reads can collect more output over time. Foom does
 not read files, diffs, transcripts or keystrokes for this API; a terminal may print
 file contents, diffs or echoed input, and redaction cannot catch every secret.
-The launch flow will disclose this data path. The agent's own tools and provider
+The launch dialog discloses this data path. The agent's own tools and provider
 settings continue to govern its other data access.
 
 Permission and credential prompts always stay with you. With the current agent

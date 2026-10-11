@@ -880,3 +880,107 @@ test("a compact sidebar opens the field beside the sidebar", async () => {
   expect(view.branches).toHaveBeenCalledWith("/alpha");
   vi.unstubAllGlobals();
 });
+test("verified MCP agents offer orchestration; children offer Take over and panels show actions", async () => {
+  const original = sampleRows(0)[0];
+  if (!original) throw Error("fixture");
+  const row = {
+    ...original,
+    repository: "Foom",
+    repositoryPath: "/foom",
+    kind: "agent" as const,
+    agent: "claude",
+    managed: true,
+    exited: false,
+  };
+  const base = createSampleSource([
+    {
+      ...row,
+      id: "parent",
+      worktree: "/foom",
+      branch: "main",
+      orchestration: {
+        role: "orchestrator",
+        active: true,
+        children: 1,
+        history: [
+          { id: "o1", action: "launch", label: "feature", status: "succeeded", at: 1 },
+          { id: "o2", action: "remove_worktree", label: "old", status: "failed", at: 2 },
+        ],
+      },
+    },
+    {
+      ...row,
+      id: "child",
+      worktree: "/tree",
+      branch: "feature",
+      orchestration: { role: "child", parentId: "parent", takenOver: false },
+    },
+  ]);
+  const command = vi.fn(() => Promise.resolve());
+  const source: BoardSource = {
+    ...base,
+    getSidebar: () => [repository],
+    shellName: () => "zsh",
+    sidebarCommand: command,
+    worktrees: {
+      load: () =>
+        Promise.resolve({
+          repositories: [repository],
+          agents: [
+            { ...installation("claude"), mcp: true },
+            { ...installation("codex"), mcp: true },
+            { ...installation("agy"), path: "/agy" },
+          ],
+          enabled: { claude: true, codex: false, agy: true },
+          hooks: true,
+          acknowledged: true,
+        }),
+      addRepository: () => Promise.resolve(null),
+      branches: () =>
+        Promise.resolve({ head: "main", local: [], remote: null, remoteBranches: [] }),
+      create: vi.fn(),
+      remove: () => Promise.resolve(true),
+    },
+  };
+  const view = render(<Board source={source} />);
+  await act(async () => {
+    await Promise.resolve();
+  });
+  fireEvent.click(view.getByRole("button", { name: "Actions for Foom" }));
+  expect(view.queryByRole("menuitem", { name: /Codex as Foom orchestrator/u })).toBeNull();
+  expect(view.queryByRole("menuitem", { name: /Antigravity as Foom orchestrator/u })).toBeNull();
+  await act(async () => {
+    fireEvent.click(
+      view.getByRole("menuitem", { name: /Launch Claude Code as Foom orchestrator…/u }),
+    );
+    await Promise.resolve();
+  });
+  expect(command).toHaveBeenLastCalledWith({
+    kind: "orchestrate",
+    repository: "/foom",
+    run: "claude",
+  });
+  fireEvent.click(view.getByRole("button", { name: "Actions for Claude Code in feature" }));
+  expect(view.getByText(/Can stop and read this session/u)).toBeTruthy();
+  await act(async () => {
+    fireEvent.click(view.getByRole("menuitem", { name: "Take over" }));
+    await Promise.resolve();
+  });
+  expect(command).toHaveBeenLastCalledWith({ kind: "take-over", id: "child" });
+  act(() => {
+    base.update("child", { orchestration: { role: "child", parentId: "parent", takenOver: true } });
+  });
+  fireEvent.click(view.getByRole("button", { name: "Actions for Claude Code in feature" }));
+  expect(view.queryByRole("menuitem", { name: "Take over" })).toBeNull();
+  expect(view.getByText(/You took over/u)).toBeTruthy();
+  fireEvent.keyDown(document.activeElement ?? document.body, { key: "Escape" });
+  fireEvent.click(
+    view.getByRole("button", { name: /^Actions for Claude Code in (main|Main checkout)$/u }),
+  );
+  expect(view.getByText("Active")).toBeTruthy();
+  expect(view.getByText(/1 child running/u)).toBeTruthy();
+  const actions = document.querySelector(".panel-actions");
+  expect(actions?.textContent).toContain("Remove worktree old · failed");
+  expect(actions?.textContent).toContain("Launch feature · done");
+  expect(actions?.querySelector('[data-status="failed"]')).toBeTruthy();
+});

@@ -469,7 +469,10 @@ export class WorktreeService {
     const checkedOut = (await this.listWorktrees(repository.path)).find(
       (tree) => tree.branch === branch,
     );
-    if (checkedOut) return { path: checkedOut.path, outcome: "open" };
+    if (checkedOut) {
+      if (options.newBranch) throw new Error("Branch already exists");
+      return { path: checkedOut.path, outcome: "open" };
+    }
     const location = options.location ?? "root";
     const configuredRoot = location === "adjacent" ? dirname(repository.path) : this.root;
     await mkdir(configuredRoot, { recursive: true });
@@ -486,7 +489,9 @@ export class WorktreeService {
       "--",
       branch,
     ]);
-    const remote = exists ? undefined : pickRemote(await git(repository.path, ["remote"]));
+    if (exists && options.newBranch) throw new Error("Branch already exists");
+    const remote =
+      exists || options.newBranch ? undefined : pickRemote(await git(repository.path, ["remote"]));
     const tracked = `refs/remotes/${remote ?? ""}/${branch}`;
     const onRemote =
       remote !== undefined &&

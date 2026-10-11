@@ -48,7 +48,34 @@ export interface WorkspaceTerminal {
   launchFlags?: readonly string[];
   /** Names of the variables Foom set from Environment settings; never values. */
   environment?: readonly string[];
+  /** Main-computed orchestration role and visible action history; never persisted. */
+  orchestration?: OrchestrationView;
 }
+
+/** One orchestrator action. Labels are redacted, bounded metadata, never prompts or output. */
+export interface OrchestrationEntry {
+  id: string;
+  action: "create_worktree" | "launch" | "stop" | "remove_worktree" | "take_over";
+  label: string;
+  status:
+    | "pending_confirmation"
+    | "running"
+    | "succeeded"
+    | "failed"
+    | "declined"
+    | "cancelled"
+    | "indeterminate";
+  at: number;
+}
+
+export type OrchestrationView =
+  | {
+      role: "orchestrator";
+      active: boolean;
+      children: number;
+      history: readonly OrchestrationEntry[];
+    }
+  | { role: "child"; parentId: string; takenOver: boolean };
 
 export interface WorkspaceSnapshot {
   repositories: readonly Repository[];
@@ -136,4 +163,6 @@ export type SidebarCommand =
   | { kind: "restart"; id: string }
   | { kind: "resume"; id: string }
   | { kind: "new-conversation"; id: string }
-  | { kind: "copy-session-id"; id: string };
+  | { kind: "copy-session-id"; id: string }
+  | { kind: "orchestrate"; repository: string; run: AgentId }
+  | { kind: "take-over"; id: string };

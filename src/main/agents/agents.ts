@@ -1,5 +1,5 @@
 import { AgyPlugin } from "./agy-plugin";
-import { cliGuidance } from "./cli-launch";
+import { cliGuidance, initialPrompt } from "./cli-launch";
 import { prepareMcpLaunch, supportsMcp } from "./mcp-launch";
 import { codexHookArguments } from "./codex-hooks";
 import { resumeArguments } from "./conversation";
@@ -159,6 +159,7 @@ export class AgentService {
       repository: string,
       worktree: string,
       sessionId?: string,
+      control?: AgentLaunch["control"],
     ) => Promise<ControlLaunch>,
     private readonly agyPlugin = new AgyPlugin(),
   ) {}
@@ -269,6 +270,7 @@ export class AgentService {
               request.repository,
               request.worktree,
               binding?.env["FOOM_SESSION"],
+              request.control,
             )
           : undefined;
       if (control && agent.mcp)
@@ -280,9 +282,14 @@ export class AgentService {
           checkoutIdentity
       )
         throw new Error("Worktree has changed. Select it and try again.");
+      if (request.control && "role" in request.control && !mcp)
+        throw new Error("Orchestration needs a Claude Code or Codex release with verified MCP");
+      const prompt = initialPrompt(agent, request.prompt);
       const args = [
         ...resume,
-        ...(control && agent.cliGuidance ? cliGuidance(defaults) : defaults),
+        ...(control && agent.cliGuidance
+          ? cliGuidance([...defaults, ...prompt.guidance])
+          : [...defaults, ...prompt.guidance]),
         ...(agent.inline ? ["--no-alt-screen"] : []),
         ...(mcp?.args ?? []),
       ];
@@ -307,6 +314,8 @@ export class AgentService {
           if (notify) args.push("-c", `notify=${JSON.stringify(binding.codexCommand)}`);
         }
       }
+      // A positional prompt goes last, after every option Foom adds.
+      args.push(...prompt.positional);
       const environment = buildLaunchEnvironment({
         layers: request.environment ?? [],
         base: inheritedEnvironment(),
