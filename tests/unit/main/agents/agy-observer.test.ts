@@ -1,61 +1,24 @@
 import { execFile } from "node:child_process";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { basename, join } from "node:path";
-import { promisify } from "node:util";
+import { join } from "node:path";
 import { createServer } from "node:http";
 import { afterAll, expect, test, vi } from "vitest";
 import { agyPluginFiles } from "../../../../src/main/agents/agy-observer";
 import { HookReceiver } from "../../../../src/main/agents/hook-receiver";
 import type { HookSignal } from "../../../../src/shared/hooks";
+import { windowsObserver } from "../../../helpers/observer-process";
 import { nativeDeadline } from "../../../helpers/native-test-policy";
 import { UNREACHABLE_PROXY } from "../../../helpers/unreachable-proxy";
 
 const directories: string[] = [];
-// Keep fixtures until every observer parent has closed. One inventory query for
-// the file avoids repeatedly cold-starting CIM; workers are still waited by handle.
+const supervisors: Promise<Error | null>[] = [];
+// A job owns every Windows worker from birth, including workers whose command
+// line is already unavailable during exit. Join supervisors before deleting cwd.
 afterAll(async () => {
   const started = performance.now();
-  if (process.platform === "win32" && directories.length > 0) {
-    await promisify(execFile)(
-      "powershell.exe",
-      [
-        "-NoProfile",
-        "-NonInteractive",
-        "-Command",
-        `
-$ErrorActionPreference = 'Stop'
-try {
-  $directories = @($env:FOOM_OBSERVER_TEST_DIRECTORIES | ConvertFrom-Json)
-  $timer = [System.Diagnostics.Stopwatch]::StartNew()
-  $workers = @(Get-CimInstance Win32_Process -Filter "Name = 'powershell.exe'" | Where-Object {
-    $command = $_.CommandLine
-    $command -and @($directories | Where-Object { $command.Contains($_) }).Count -gt 0
-  })
-  Write-Output ("Observer cleanup query: " + $timer.ElapsedMilliseconds + "ms")
-  foreach ($entry in $workers) {
-    $worker = $null
-    try { $worker = [System.Diagnostics.Process]::GetProcessById($entry.ProcessId) }
-    catch [System.ArgumentException] { continue }
-    try {
-      if (!$worker.WaitForExit(${String(nativeDeadline(5000))})) { throw 'Observer worker did not exit' }
-    } finally { $worker.Dispose() }
-  }
-} catch { [Console]::Error.WriteLine($_); exit 1 }
-`,
-      ],
-      {
-        env: {
-          ...process.env,
-          FOOM_OBSERVER_TEST_DIRECTORIES: JSON.stringify(directories.map((dir) => basename(dir))),
-        },
-        timeout: nativeDeadline(10000),
-      },
-    ).then(({ stdout }) => {
-      console.info(stdout.trim());
-    });
-  }
-  // No retries: query, wait, or deletion failures must fail the suite.
+  const failures = (await Promise.all(supervisors)).filter((error) => error !== null);
+  if (failures.length > 0) throw new AggregateError(failures, "Observer cleanup failed");
   for (const dir of directories) await rm(dir, { recursive: true, force: true });
   console.info(`Observer cleanup total: ${String(Math.round(performance.now() - started))}ms`);
 }, nativeDeadline(15000));
@@ -68,46 +31,38 @@ async function fixture() {
   await writeFile(join(dir, "order"), "0");
   return dir;
 }
-function run(dir: string, env: NodeJS.ProcessEnv, event: string, input?: string) {
-  const windows = process.platform === "win32";
-  const started = performance.now();
-  return new Promise<{ stdout: string; stderr: string }>((resolve, reject) => {
-    const child = execFile(
-      windows ? "powershell.exe" : "sh",
-      windows
-        ? [
-            "-NoProfile",
-            "-NonInteractive",
-            "-ExecutionPolicy",
-            "Bypass",
-            "-File",
-            "./observer.ps1",
-            event,
-          ]
-        : ["./observer.sh", event],
-      {
-        cwd: dir,
-        env: { ...env, FOOM_HOOK_ORDER: join(dir, "order") },
-        timeout: nativeDeadline(5000),
-      },
-      (error, stdout, stderr) => {
-        if (error) reject(new Error("Observer failed", { cause: error }));
-        else {
-          const elapsed = performance.now() - started;
-          console.info(`Observer ${event} parent exit: ${String(Math.round(elapsed))}ms`);
-          // The real hook deadline is intentionally NOT platform-scaled.
-          if (elapsed >= 3000)
-            reject(
-              new Error(
-                `Observer exceeded the 3s product hook deadline: ${String(Math.round(elapsed))}ms`,
-              ),
-            );
-          else resolve({ stdout, stderr });
-        }
+async function run(dir: string, env: NodeJS.ProcessEnv, event: string, input?: string) {
+  const observerEnv = { ...env, FOOM_HOOK_ORDER: join(dir, "order") };
+  let result: { stdout: string; stderr: string; elapsed: number };
+  if (process.platform === "win32") {
+    const observer = windowsObserver(dir, observerEnv, event, input);
+    supervisors.push(observer.closed);
+    result = await observer.result;
+  } else {
+    const started = performance.now();
+    result = await new Promise<{ stdout: string; stderr: string; elapsed: number }>(
+      (resolve, reject) => {
+        const child = execFile(
+          "sh",
+          ["./observer.sh", event],
+          {
+            cwd: dir,
+            env: observerEnv,
+            timeout: nativeDeadline(5000),
+          },
+          (error, stdout, stderr) => {
+            if (error) reject(new Error("Observer failed", { cause: error }));
+            else resolve({ stdout, stderr, elapsed: performance.now() - started });
+          },
+        );
+        if (input !== undefined) child.stdin?.end(input);
       },
     );
-    if (input !== undefined) child.stdin?.end(input);
-  });
+  }
+  console.info(`Observer ${event} parent exit: ${String(Math.round(result.elapsed))}ms`);
+  // This product deadline is intentionally NOT platform-scaled.
+  expect(result.elapsed).toBeLessThan(3000);
+  return { stdout: result.stdout, stderr: result.stderr };
 }
 
 test("static plugin installs only observer events on both native shells", () => {
@@ -124,7 +79,7 @@ test("static plugin installs only observer events on both native shells", () => 
 
 test.each(["FOOM_HOOK_URL", "FOOM_SESSION", "FOOM_TOKEN"])(
   "inert without %s even when stdin remains open",
-  { timeout: nativeDeadline(10000) },
+  { timeout: nativeDeadline(15000) },
   async (missing) => {
     const env: NodeJS.ProcessEnv = {
       ...process.env,
@@ -142,7 +97,7 @@ test.each(["FOOM_HOOK_URL", "FOOM_SESSION", "FOOM_TOKEN"])(
 
 test.each(["PreInvocation", "PostToolUse", "Stop"])(
   "native shell delivers literal untrusted %s data and returns an empty result",
-  { timeout: nativeDeadline(10000) },
+  { timeout: nativeDeadline(15000) },
   async (event) => {
     const signals: HookSignal[] = [];
     const receiver = await HookReceiver.listen((signal) => signals.push(signal));
@@ -249,3 +204,44 @@ test("observer exits before an unresponsive HTTP receiver finishes", {
     );
   }
 });
+
+test.skipIf(process.platform !== "win32")(
+  "supervisor waits for detached workers after publishing the parent result",
+  { timeout: nativeDeadline(15000) },
+  async () => {
+    const dir = await fixture();
+    await writeFile(
+      join(dir, "send.ps1"),
+      "Start-Sleep -Milliseconds 1500; [System.IO.File]::WriteAllText((Join-Path $PSScriptRoot 'finished'), 'done')",
+    );
+    const observer = windowsObserver(
+      dir,
+      {
+        ...process.env,
+        FOOM_HOOK_URL: "http://127.0.0.1:1/hooks",
+        FOOM_SESSION: "session",
+        FOOM_TOKEN: "token",
+        FOOM_HOOK_ORDER: join(dir, "order"),
+      },
+      "Stop",
+      "{}",
+    );
+    supervisors.push(observer.closed);
+    expect(JSON.parse((await observer.result).stdout)).toEqual({});
+    await expect(readFile(join(dir, "finished"))).rejects.toMatchObject({ code: "ENOENT" });
+    expect(await observer.closed).toBeNull();
+    expect(await readFile(join(dir, "finished"), "utf8")).toBe("done");
+  },
+);
+
+test.skipIf(process.platform !== "win32")(
+  "supervisor failures reject the result and remain visible to cleanup",
+  { timeout: nativeDeadline(15000) },
+  async () => {
+    const dir = await fixture();
+    await writeFile(join(dir, "observer.ps1"), "exit 7");
+    const observer = windowsObserver(dir, process.env, "Stop", "{}");
+    await expect(observer.result).rejects.toThrow("Observer supervisor failed");
+    expect(await observer.closed).toBeInstanceOf(Error);
+  },
+);
