@@ -3,9 +3,10 @@
 Research for [#119](https://github.com/scott-r-lindsey/foom/issues/119), checked
 2026-10-05 on Linux. This document specifies the complete target. The security and
 HTTP foundation is implemented in #152; see the [current architecture](architecture.md#control-plane)
-for its exposed methods and storage contract. Read-only MCP is implemented in #153;
-CLI packaging/pairing and orchestration actions remain follow-up work. The original #119 research changed no
-application code.
+for its exposed methods and storage contract. Read-only MCP is implemented in #153,
+the console CLI and pairing in #154, and orchestrators with their children in #155;
+reviewed replies (#156) and the full hierarchy and log view (#157) remain. The
+original #119 research changed no application code.
 
 ## Decision
 
@@ -476,5 +477,67 @@ Until those schemas ship, it returns `config_schema_unavailable` and exit 2,
 without reading the path, pairing, opening a window, or accessing profile data.
 #84's earlier Electron-based console recipe is superseded by this standalone
 helper; its validation schemas and config-only capabilities remain #84's work.
+
+### Orchestrators and children (#155)
+
+**Launch.** Each repository panel lists **Launch <agent> as Foom orchestrator…**
+for enabled agents with verified per-launch MCP (the Claude Code and Codex releases
+above). Antigravity cannot orchestrate: it has no per-launch MCP, and the console
+CLI deliberately has no mutation commands. The wordmark menu's New orchestrator item
+stays disabled because it has no repository to target. Main reserves the
+repository's slot synchronously, then shows the trusted dialog with the disclosure
+below; a second launch while a parent is live reveals that parent instead. The
+orchestrator runs in the main checkout with the user's own launch defaults.
+
+**Tools.** Every mutation takes an `idempotencyKey` (`[a-zA-Z0-9_-]{1,200}`) and
+returns the operation record. Limits and foreign targets are recorded as
+`failed`/`refused` and then rejected (`capacity`, `conflict` or `not_found`), so a
+retry with the same key returns that record.
+
+| Tool | Parameters | Result |
+|---|---|---|
+| `create_worktree` | `branch` | New local branch only (an existing branch is refused); `resultId` is the opaque worktree ID |
+| `launch` | `worktreeId`, `agent` (`claude`, `codex`, `agy`), optional `prompt` ≤16 KiB | `resultId` is the child session ID |
+| `stop` | `id` | Existing graceful stop; an already exited child succeeds; a stop error is `indeterminate` |
+| `remove_worktree` | `worktreeId` | Returns `pending_confirmation`; poll `operation_status` |
+| `tail` | `id`, optional `lines` 1–40 | `{ id, revision, timestamp, lines, truncated, untrusted: true, notice }` |
+| `wait_for` | `ids` (1–4), optional `after` map of ID → revision, `timeoutMs` 0–30000 | `{ sessions, changed, timedOut }` |
+
+Prompts and branch names reject control characters other than newline and tab,
+Unicode format characters, and a leading `-`, so they cannot become options.
+Children receive no default arguments, never share a checkout, and get a read-only
+grant naming their parent. The prompt follows a fixed line naming the orchestrator
+as its author, so the argv entry can never equal a subcommand such as `logout`.
+Claude Code and Codex take it as the final positional argument; Antigravity composes
+it with the CLI guidance through `--prompt-interactive` and refuses a prompt on
+releases without that option.
+
+**Limits.** Four children that have not confirmed exit, including starting ones and
+any the human took over, and four created worktrees that no child has used,
+including creations in progress, launches still starting, and creations that ended
+`indeterminate` because Git may have added the checkout before a later step failed.
+A worktree serves exactly one launch; a failed spawn returns it for reuse. Each
+worktree ID is bound to the checkout identity captured at creation; launch and
+removal recheck it, so a replacement at the same path is refused. A human Resume or
+New conversation on a child's row ends the orchestrator's ownership of that ID. Tails are rate-limited to one per child per second,
+read 80 host lines, redact with `prepareTail` (which fails closed above 128 KiB),
+then keep the requested lines and trim whole lines from the start to 16 KiB (a
+single oversized line keeps its end on a UTF-8 boundary). The HTTP adapter extends
+the socket deadline to 35 seconds after a request body arrives, for `wait_for`.
+
+**Removal.** Every removal asks through the trusted dialog, clean or not, naming the
+branch (which is kept) and any changed files. Removal is refused while any session
+in that worktree is running, checked again under the removal lock before and after
+the dialog, so a human-controlled session is never stopped by it.
+The answer is bound to the actor, operation and the worktree ID plus the dirty state
+shown, and the workspace sequence rechecks identity and changes before deletion.
+Parent exit aborts the dialog; a later acceptance cannot remove anything.
+
+**Visibility and takeover.** The orchestrator's session panel shows Active or Exited,
+its running children and its last actions as text with outcomes; failures are also
+magenta. A child's panel names its orchestrator and offers **Take over**, after which
+the orchestrator can no longer stop, tail or wait for it. Takeover does not stop the
+child, and the child keeps counting toward the limit until it exits. The full
+nested hierarchy and searchable log remain #157.
 
 As of #217, Foom never emits `checking` in control API or MCP session states. Any existing client schema may retain it as deprecated for backward compatibility. Quiet debounce and classification do not introduce an intermediate state.

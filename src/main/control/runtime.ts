@@ -6,7 +6,8 @@ import { ControlHttp } from "./http";
 import { Operations } from "./operations";
 import { ControlStore } from "./store";
 import { atomicPrivate, privateDirectory } from "./private-files";
-import type { ControlLaunch, PairingOptions } from "./types";
+import type { Orchestration } from "./orchestration";
+import type { ControlLaunch, PairingOptions, Role } from "./types";
 
 /** Lazy app-owned endpoint. Startup failure never leaves published credentials or a listener. */
 export class ControlRuntime {
@@ -19,6 +20,7 @@ export class ControlRuntime {
     userData: string,
     source?: () => readonly WorkspaceTerminal[],
     pairing?: PairingOptions,
+    orchestration?: Pick<Orchestration, "call">,
   ): Promise<ControlRuntime> {
     const directory = await privateDirectory(userData);
     const store = new ControlStore(directory);
@@ -29,7 +31,7 @@ export class ControlRuntime {
         service.assertActive(actor);
       },
     );
-    const service = new ControlService(operations, source);
+    const service = new ControlService(operations, source, orchestration);
     const http = await ControlHttp.listen(service, pairing);
     try {
       await atomicPrivate(directory, "discovery.json", {
@@ -43,8 +45,15 @@ export class ControlRuntime {
       throw error;
     }
   }
-  prepare(repository: string, worktree: string, sessionId?: string): ControlLaunch {
-    const launch = this.service.prepare(repository, worktree, "agent", null, sessionId);
+  /** Roles come from main's launch path only: an orchestrator, or a child naming its parent. */
+  prepare(
+    repository: string,
+    worktree: string,
+    sessionId?: string,
+    role: Exclude<Role, "cli"> = "agent",
+    parentId: string | null = null,
+  ): ControlLaunch {
+    const launch = this.service.prepare(repository, worktree, role, parentId, sessionId);
     return {
       ...launch,
       env: {

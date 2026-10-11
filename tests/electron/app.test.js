@@ -6655,6 +6655,191 @@ test("restored exited sessions hide the unattached terminal until restarted", as
     .toContain("RESTORED_SHELL_READY");
 });
 
+// A verified-MCP Claude Code stand-in: records its control environment and argv per checkout.
+const FAKE_ORCHESTRATED_CLAUDE = `#!/usr/bin/env node
+const { readFileSync, writeFileSync } = require("node:fs");
+const path = require("node:path");
+const args = process.argv.slice(2);
+if (args[0] === "--version") { console.log("2.1.293 (Claude Code)"); process.exit(0); }
+if (args[0] === "--help") { console.log("  --settings <file-or-json>  Load settings\\n  --mcp-config <configs...>  Load MCP servers"); process.exit(0); }
+const config = args.includes("--mcp-config") ? JSON.parse(readFileSync(args[args.indexOf("--mcp-config") + 1], "utf8")) : null;
+writeFileSync(process.env.TEST_FAKE_CREDENTIALS + "." + path.basename(process.cwd()), JSON.stringify({
+  controlUrl: process.env.FOOM_CONTROL_URL, controlToken: process.env.FOOM_CONTROL_TOKEN,
+  instanceId: process.env.FOOM_CONTROL_INSTANCE, mcp: config, args,
+}));
+process.stdout.write("FOOM_AGENT_READY\\r\\n");
+process.stdin.setRawMode(true);
+process.stdin.on("data", (key) => { if (key.toString() === "q") process.exit(0); });
+`;
+
+test("an orchestrator launched from the repository panel manages only its own children", {
+  timeout: deadline(90_000),
+  skip: process.platform === "win32" && "The fake agent is a POSIX script",
+}, async (context) => {
+  const { chmod, mkdir, readdir, readFile, symlink, writeFile } = require("node:fs/promises");
+  const { existsSync } = require("node:fs");
+  const root = await mkdtemp(path.join(tmpdir(), "foom-orchestrator-"));
+  const bin = path.join(root, "bin");
+  const repo = path.join(root, "app");
+  const home = path.join(root, "home");
+  await mkdir(bin);
+  await mkdir(repo);
+  await mkdir(home);
+  await writeFile(path.join(bin, "claude"), FAKE_ORCHESTRATED_CLAUDE);
+  await chmod(path.join(bin, "claude"), 0o755);
+  // Only the fake agent and system tools: real agents on PATH write their own state when probed.
+  await symlink(process.execPath, path.join(bin, "node"));
+  const git = (...args) =>
+    isolatedGit(["-c", "user.name=Foom", "-c", "user.email=foom@example.com", ...args], {
+      cwd: repo,
+    });
+  git("init", "-q", "-b", "main");
+  git("commit", "-q", "--allow-empty", "-m", "init");
+  const credentials = path.join(root, "credentials.json");
+  const app = await launchApp(context, false, {
+    args: [`--user-data-dir=${path.join(root, "user-data")}`],
+    env: {
+      HOME: home,
+      PATH: [bin, "/usr/local/bin", "/usr/bin", "/bin"].join(path.delimiter),
+      TEST_FAKE_CREDENTIALS: credentials,
+    },
+  }).finally(() => {
+    removeAfterApps(context, root);
+  });
+  const page = await boardPage(app);
+  await app.evaluate(({ dialog }, directory) => {
+    dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [directory] });
+  }, repo);
+  const repository = await page.evaluate(async () => (await window.desktop.addRepository()).path);
+  const claude = await page.evaluate(async () =>
+    (await window.desktop.scanAgents(true)).agents.find((agent) => agent.id === "claude"),
+  );
+  assert.equal(claude.mcp, true, `Fake agent lacks MCP: ${JSON.stringify(claude)}`);
+  const read = async (name) => JSON.parse(await readFile(`${credentials}.${name}`, "utf8"));
+
+  await page.getByRole("button", { name: `Actions for ${path.basename(repo)}` }).click();
+  await page.getByRole("menuitem", { name: "Launch Claude Code as Foom orchestrator…" }).click();
+  const confirmation = await confirmationPage(app);
+  await expect(
+    confirmation.getByRole("heading", { name: "Launch Claude Code as Foom orchestrator?" }),
+  ).toBeVisible();
+  await expect(confirmation.getByText(/model provider/)).toBeVisible();
+  await confirmation.getByRole("button", { name: "Launch orchestrator" }).click();
+  await expect
+    .poll(() => existsSync(`${credentials}.app`), { timeout: deadline(15000) })
+    .toBe(true);
+  const parent = await read("app");
+  // Per-launch MCP with an environment-sourced header; no token in argv or the file.
+  assert.ok(parent.args.includes("--mcp-config"));
+  const server = Object.values(parent.mcp.mcpServers)[0];
+  assert.equal(server.headers.Authorization, "Bearer ${FOOM_CONTROL_TOKEN}");
+  assert.ok(!JSON.stringify(parent.args).includes(parent.controlToken));
+  const call = async (token, method, params = {}) => {
+    const response = await fetch(parent.controlUrl, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ version: 1, instanceId: parent.instanceId, method, params }),
+    });
+    return { status: response.status, body: await response.json() };
+  };
+  const whoami = await call(parent.controlToken, "whoami");
+  assert.equal(whoami.body.result.role, "orchestrator");
+  assert.ok(whoami.body.result.capabilities.includes("launch"));
+  const parentId = whoami.body.result.terminalId;
+
+  const tree = await call(parent.controlToken, "create_worktree", {
+    idempotencyKey: "tree-1",
+    branch: "child-one",
+  });
+  assert.equal(tree.body.result.status, "succeeded");
+  const launched = await call(parent.controlToken, "launch", {
+    idempotencyKey: "launch-1",
+    worktreeId: tree.body.result.resultId,
+    agent: "claude",
+    prompt: "Summarize the README",
+  });
+  assert.equal(launched.body.result.status, "succeeded", JSON.stringify(launched.body));
+  const childId = launched.body.result.resultId;
+  await expect.poll(() => existsSync(`${credentials}.child-one`)).toBe(true);
+  const child = await read("child-one");
+  assert.match(child.args.at(-1), /^Task from your Foom orchestrator.*\n\nSummarize the README$/s);
+  const childIdentity = (await call(child.controlToken, "whoami")).body.result;
+  assert.equal(childIdentity.role, "agent");
+  assert.equal(childIdentity.parentId, parentId);
+  // No grandchildren: a child's credential cannot reach orchestration.
+  assert.equal(
+    (await call(child.controlToken, "create_worktree", { idempotencyKey: "x", branch: "nested" }))
+      .status,
+    403,
+  );
+  await expect
+    .poll(
+      async () => {
+        const tail = await call(parent.controlToken, "tail", { id: childId, lines: 5 });
+        return tail.body.result?.lines?.join("\n") ?? "";
+      },
+      { intervals: [1100], timeout: deadline(15000) },
+    )
+    .toContain("FOOM_AGENT_READY");
+  const stopped = await call(parent.controlToken, "stop", {
+    idempotencyKey: "stop-1",
+    id: childId,
+  });
+  assert.equal(stopped.body.result.status, "succeeded");
+  await expect
+    .poll(
+      async () =>
+        (await page.evaluate(() => window.desktop.workspace())).terminals.find(
+          (row) => row.orchestration?.role === "child",
+        )?.exited,
+    )
+    .toBe(true);
+
+  const removal = await call(parent.controlToken, "remove_worktree", {
+    idempotencyKey: "remove-1",
+    worktreeId: tree.body.result.resultId,
+  });
+  assert.equal(removal.body.result.status, "pending_confirmation");
+  await expect(confirmation.getByRole("heading", { name: "Remove child-one?" })).toBeVisible();
+  await confirmation.getByRole("button", { name: "Remove worktree" }).click();
+  await expect
+    .poll(
+      async () =>
+        (await call(parent.controlToken, "operation_status", { idempotencyKey: "remove-1" })).body
+          .result.status,
+    )
+    .toBe("succeeded");
+  assert.match(String(git("branch", "--list", "child-one")), /child-one/);
+
+  // A duplicate launch reveals the existing parent instead of starting another.
+  await page.evaluate(
+    (repository) =>
+      window.desktop.sidebarCommand({ kind: "orchestrate", repository, run: "claude" }),
+    repository,
+  );
+  const orchestrators = (await page.evaluate(() => window.desktop.workspace())).terminals.filter(
+    (row) => row.orchestration?.role === "orchestrator",
+  );
+  assert.equal(orchestrators.length, 1);
+
+  // Parent exit revokes its credential; the snapshot keeps its history.
+  await page.evaluate((id) => window.desktop.input(id, "q"), parentId);
+  await expect.poll(async () => (await call(parent.controlToken, "whoami")).status).toBe(401);
+  const after = (await page.evaluate(() => window.desktop.workspace())).terminals.find(
+    (row) => row.id === parentId,
+  );
+  assert.equal(after.orchestration.active, false);
+  assert.ok(after.orchestration.history.some((entry) => entry.action === "remove_worktree"));
+
+  // Attachment is per launch: nothing written to the user's agent config or the repository.
+  const homeEntries = await readdir(home);
+  for (const name of [".claude", ".claude.json", ".codex", ".gemini"])
+    assert.ok(!homeEntries.includes(name), `${name} was written`);
+  const repoEntries = await readdir(repo);
+  for (const name of [".mcp.json", ".claude", ".codex"])
+    assert.ok(!repoEntries.includes(name), `${name} was written to the repository`);
+});
+
 test("Settings agent menu launches config and focuses its existing window", {
   timeout: deadline(60_000),
 }, async (context) => {

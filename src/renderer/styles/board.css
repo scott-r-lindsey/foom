@@ -1325,6 +1325,14 @@
 .panel-environment {
   color: var(--highlight);
 }
+.panel-actions {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.panel-actions li[data-status="failed"] .panel-sub {
+  color: var(--failed);
+}
 .panel-bypass {
   padding: 1px 6px;
   border-radius: 4px;

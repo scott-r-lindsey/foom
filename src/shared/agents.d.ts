@@ -54,6 +54,13 @@ export interface AgentLaunch {
   readonly rows: number;
   /** UI must disclose that Foom replaces the user's notifier for this invocation. */
   readonly acknowledgeCodexNotifierReplacement?: boolean;
+  /**
+   * Main-only control role: the repository panel's orchestrator, or an orchestrator's
+   * child (an ordinary agent naming its parent). Never copied from IPC or the control API.
+   */
+  readonly control?: { readonly role: "orchestrator" } | { readonly parentId: string };
+  /** Main-validated initial prompt for an orchestrator's child, passed as one argv entry. */
+  readonly prompt?: string;
   /** Main-only Environment layers (All sessions, then this agent's); never from IPC. */
   readonly environment?: readonly (readonly EnvironmentVariable[])[];
 }

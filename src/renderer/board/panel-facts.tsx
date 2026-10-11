@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef, useCallback } from "react";
 import type { ReactNode } from "react";
-import type { SidebarCommand } from "../../shared/workspace";
+import type { OrchestrationEntry, OrchestrationView, SidebarCommand } from "../../shared/workspace";
 import type { GitPanelFacts, HomeShellFacts } from "../../shared/panel";
 import type { ConfigStatus } from "../../shared/foom-config";
 import type { BoardSource, LaunchOptions } from "./board-source.d";
@@ -66,6 +66,62 @@ function ago(now: number, timestamp: number) {
   const hours = Math.floor(minutes / 60);
   return hours < 48 ? `${String(hours)} h ago` : `${String(Math.floor(hours / 24))} days ago`;
 }
+const actionNames: Record<OrchestrationEntry["action"], string> = {
+  create_worktree: "New worktree",
+  launch: "Launch",
+  stop: "Stop",
+  remove_worktree: "Remove worktree",
+  take_over: "You took over",
+};
+const statusNames: Record<OrchestrationEntry["status"], string> = {
+  pending_confirmation: "awaiting your confirmation",
+  running: "running",
+  succeeded: "done",
+  failed: "failed",
+  declined: "declined",
+  cancelled: "cancelled",
+  indeterminate: "outcome unknown",
+};
+
+/** Basic orchestration visibility: role, children and the latest actions, as text. */
+function OrchestrationFacts({ view, source }: { view: OrchestrationView; source: BoardSource }) {
+  if (view.role === "child") {
+    const parent = source.getSnapshot().find((row) => row.id === view.parentId);
+    return (
+      <Fact label="Orchestrator">
+        {parent ? `${parent.repository} › ${parent.branch}` : "Closed"}{" "}
+        <Sub>{view.takenOver ? "· You took over" : "· Can stop and read this session"}</Sub>
+      </Fact>
+    );
+  }
+  return (
+    <>
+      <Fact label="Orchestrator">
+        {view.active ? "Active" : "Exited"}{" "}
+        <Sub>
+          · {view.children} {view.children === 1 ? "child" : "children"} running
+        </Sub>
+      </Fact>
+      <Fact label="Actions">
+        {view.history.length === 0 ? (
+          <Sub>None yet</Sub>
+        ) : (
+          <ul className="panel-actions">
+            {view.history
+              .slice(-6)
+              .reverse()
+              .map((entry) => (
+                <li key={entry.id} data-status={entry.status}>
+                  {actionNames[entry.action]} {entry.label} <Sub>· {statusNames[entry.status]}</Sub>
+                </li>
+              ))}
+          </ul>
+        )}
+      </Fact>
+    </>
+  );
+}
+
 function Fact({ label, children }: { label: string; children: ReactNode }) {
   return (
     <>
@@ -342,6 +398,9 @@ export function PanelFacts({
               <Sub>—</Sub>
             )}
           </Fact>
+          {subject.row.orchestration && (
+            <OrchestrationFacts view={subject.row.orchestration} source={source} />
+          )}
           <Fact label="Launch flags">
             {subject.row.bypass && <strong className="panel-bypass">BYPASS</strong>}{" "}
             {subject.row.launchFlags?.join(" ") || <Sub>None recorded</Sub>}

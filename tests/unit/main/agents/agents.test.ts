@@ -519,7 +519,7 @@ it.each([true, false])(
     service = new AgentService({ listWorktrees, launchIdentity }, { create }, prepare, control);
     service.setHooksEnabled(hooks);
     await service.launch(request);
-    expect(control).toHaveBeenCalledWith(root, tree, hooks ? "session" : undefined);
+    expect(control).toHaveBeenCalledWith(root, tree, hooks ? "session" : undefined, undefined);
     expect(create.mock.calls.at(-1)?.[0].env).toMatchObject({
       FOOM_CONTROL_TOKEN: "control-secret",
       FOOM_SESSION: hooks ? "session" : "control-session",
@@ -614,6 +614,43 @@ it.each([true, false])(
     }
   },
 );
+it("launches an orchestrator only with MCP and appends a child's prompt after every option", async () => {
+  const controlFor = vi.fn((..._args: unknown[]) =>
+    Promise.resolve({
+      env: { FOOM_CONTROL_URL: "http://127.0.0.1:1234/control/v1" },
+      bind: vi.fn(),
+      dispose: vi.fn(),
+    }),
+  );
+  service = new AgentService({ listWorktrees, launchIdentity }, { create }, prepare, controlFor);
+  await expect(service.launch({ ...request, control: { role: "orchestrator" } })).rejects.toThrow(
+    "verified MCP",
+  );
+  const previous = versions.claude;
+  versions.claude = "2.1.293 (Claude Code)";
+  help += "\n--mcp-config <file>";
+  vi.mocked(prepareMcpLaunch).mockResolvedValue({
+    args: ["--mcp-config", "/private/mcp.json"],
+    dispose: vi.fn(),
+  });
+  try {
+    await service.scan();
+    await service.launch({ ...request, control: { role: "orchestrator" } });
+    expect(controlFor).toHaveBeenLastCalledWith(root, tree, expect.anything(), {
+      role: "orchestrator",
+    });
+    service.release("terminal-id");
+    await service.launch({ ...request, control: { parentId: "parent" }, prompt: "Write tests" });
+    expect(controlFor).toHaveBeenLastCalledWith(root, tree, expect.anything(), {
+      parentId: "parent",
+    });
+    expect(create.mock.calls.at(-1)?.[0].args.at(-1)).toMatch(
+      /^Task from your Foom orchestrator[^]*\n\nWrite tests$/u,
+    );
+  } finally {
+    versions.claude = previous;
+  }
+});
 it.each(["denied", "spawn", "early-exit"])("cleans MCP launch on %s", async (mode) => {
   const previous = versions.claude;
   versions.claude = "2.1.293 (Claude Code)";
