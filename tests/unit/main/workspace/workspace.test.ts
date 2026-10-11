@@ -3089,3 +3089,14 @@ test("restores config sessions only for the current config folder", async () => 
   await workspace.restore();
   expect(workspace.snapshot().terminals.map((entry) => entry.id)).toEqual(["config-1"]);
 });
+
+test("publishes transient MCP connection changes and removes them on revocation", async () => {
+  const workspace = await launched();
+  for (const state of ["connecting", "not-connected", "connected"] as const) {
+    workspace.mcpConnectionChanged("t1", state);
+    expect(workspace.snapshot().terminals[0]?.mcpConnection).toBe(state);
+  }
+  workspace.mcpConnectionChanged("t1", undefined);
+  expect(workspace.snapshot().terminals[0]?.mcpConnection).toBeUndefined();
+  await workspace.dispose();
+});

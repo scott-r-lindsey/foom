@@ -418,9 +418,24 @@ passing it to the control service. Hook settings are independent of MCP attachme
 child prompt preceded by `--`, including Claude's variadic `--mcp-config` with
 hooks off; the prompt is accepted by both verified releases.
 
-Attachment is enabled only for these exact releases with the appropriate help flag;
-other versions and Antigravity report unverified attachment. Expanding this set
-requires repeating the probe. Managed policy is still enforced by the client and
+These tested releases establish the minimum supported stable versions: Claude Code
+2.1.293 with `--mcp-config` in help, and Codex 0.161.0 with `-c` in help. Later stable
+versions with the flag are available too; malformed and prerelease versions, older
+versions, missing flags and Antigravity remain unavailable. The probe exercises any
+supplied binary without an exact-release assertion.
+
+Rechecked for #252 on Linux with installed Claude Code **2.1.296** and Codex
+**0.162.1**: authenticated initialize/list/call, existing-server coexistence and
+managed-policy refusal all passed, using the same isolated synthetic model setup.
+
+For each attached launch, main waits up to 30 seconds after binding the terminal
+for its first successful authenticated MCP request. The session panel shows
+**Connecting…**, then **Connected**, or **Not connected** after the deadline.
+Not connected is a magenta failure only for orchestrators; ordinary session panels
+record it neutrally, without an alert. A later successful MCP request changes it to
+Connected. CLI requests and rejected MCP requests do not count. The observation is
+bound to the live launch principal and cleared on revocation or shutdown; it is
+not a continuous liveness check and is never persisted. Managed policy is still enforced by the client and
 can deny an otherwise supported attachment; Foom does not override that policy.
 Windows/macOS real-client policy probes remain unverified. The packaged CLI fallback
 remains #154; this change does not promise a fallback executable before it exists.

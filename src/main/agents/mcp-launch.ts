@@ -1,3 +1,4 @@
+import { meetsMinimum } from "./version";
 import { randomUUID } from "node:crypto";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -5,13 +6,19 @@ import { join } from "node:path";
 import { atomicPrivate, privateDirectory } from "../control/private-files";
 import type { AgentId } from "../../shared/agents";
 
-/** Only releases exercised by the synthetic real-CLI protocol suite are enabled. */
+/** The real-client probe establishes a stable release floor, not a release allowlist. */
 export function supportsMcp(agent: AgentId, version: string, help: string): boolean {
   return (
     (agent === "claude" &&
-      version === "2.1.293 (Claude Code)" &&
+      meetsMinimum(
+        version,
+        /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?: \(Claude Code\))?$/u,
+        [2, 1, 293],
+      ) &&
       /(?:^|\s)--mcp-config(?:[ =,]|$)/mu.test(help)) ||
-    (agent === "codex" && version === "codex-cli 0.161.0" && /(?:^|\s)-c(?:[ ,]|$)/mu.test(help))
+    (agent === "codex" &&
+      meetsMinimum(version, /^codex-cli (0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/u, [0, 161, 0]) &&
+      /(?:^|\s)-c(?:[ ,]|$)/mu.test(help))
   );
 }
 

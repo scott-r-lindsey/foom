@@ -111,6 +111,9 @@ export function AgentsStep({
                     <span className="badge-label">Version</span>
                     <span className="badge-value">{versionNumber(agent.version) ?? "unknown"}</span>
                   </span>
+                  <Tooltip className="chip" label={agent.mcp ? "MCP available" : "MCP unavailable"}>
+                    {agent.mcpReason ?? "Per-launch MCP is unavailable."}
+                  </Tooltip>
                   <Tooltip className="chip chip-signal" label={SIGNAL_LABEL[how]}>
                     {SIGNALS[how]}
                     {note && <span>{note}</span>}

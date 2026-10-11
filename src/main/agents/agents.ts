@@ -1,3 +1,4 @@
+import { meetsMinimum } from "./version";
 import { AgyPlugin } from "./agy-plugin";
 import { cliGuidance, initialPrompt, ORCHESTRATOR_PROMPT } from "./cli-launch";
 import { prepareMcpLaunch, supportsMcp } from "./mcp-launch";
@@ -69,20 +70,6 @@ async function findExecutable(id: AgentId, path: string): Promise<string | null>
   return null;
 }
 
-/** Accept stable numeric releases, retaining the full probe string for display. */
-function meetsMinimum(version: string, pattern: RegExp, minimum: readonly number[]): boolean {
-  const match = pattern.exec(version);
-  if (!match) return false;
-  const parts = match.slice(1).map(Number);
-  if (!parts.every(Number.isSafeInteger)) return false;
-  for (const [index, floor] of minimum.entries()) {
-    const part = parts[index];
-    if (part === undefined) throw new Error("Incomplete version pattern");
-    if (part !== floor) return part > floor;
-  }
-  return true;
-}
-
 async function detect(id: AgentId, path: string): Promise<AgentInstallation> {
   const executable = await findExecutable(id, path);
   if (!executable)
@@ -117,7 +104,7 @@ async function detect(id: AgentId, path: string): Promise<AgentInstallation> {
       mcp: supportsMcp(id, version, help),
       mcpReason: supportsMcp(id, version, help)
         ? "Per-launch MCP supported; managed policy may deny attachment."
-        : "Unverified per-launch MCP support; attachment unavailable.",
+        : "Per-launch MCP unavailable: requires a supported version and attachment flag.",
       ...(id === "codex" &&
       meetsMinimum(version, /^codex-cli (0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/u, [0, 161, 0])
         ? { codexLifecycle: true }
@@ -351,7 +338,7 @@ export class AgentService {
       this.launched.set(id, request.worktree);
       if (mcp) this.mcpBindings.set(id, mcp);
       if (control) {
-        control.bind(id);
+        control.bind(id, Boolean(mcp));
         this.controls.set(id, control);
       }
       if (binding) {

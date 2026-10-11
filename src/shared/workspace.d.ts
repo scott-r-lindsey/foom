@@ -22,7 +22,11 @@ export interface TerminalState {
 }
 
 /** A terminal Foom launched in a managed worktree. Paths identify; the renderer never picks them. */
+export type McpConnection = "connecting" | "connected" | "not-connected";
+
 export interface WorkspaceTerminal {
+  /** Main-observed attachment for this live launch; never persisted. */
+  mcpConnection?: McpConnection | undefined;
   execution?: ExecutionSnapshot | undefined;
   id: string;
   kind: "agent" | "shell";

@@ -1,3 +1,4 @@
+import type { McpConnection } from "../../shared/workspace";
 import type { ExecutionSnapshot } from "../../shared/execution";
 import type { OrchestrationView } from "../../shared/workspace";
 export type BoardState = "working" | "needs_input" | "done" | "failed" | "quiet_ok";
@@ -25,6 +26,7 @@ export interface BoardRow {
   /** Known bypass argument present at launch; does not infer global agent policy. */
   bypass?: boolean;
   /** Main's orchestrator role and action history, or a child's parent and takeover. */
+  mcpConnection?: McpConnection | undefined;
   orchestration?: OrchestrationView | undefined;
   kind: "sample" | "shell" | "agent";
   repository: string;

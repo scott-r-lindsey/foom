@@ -1,4 +1,4 @@
-import type { WorkspaceTerminal } from "../../shared/workspace";
+import type { McpConnection, WorkspaceTerminal } from "../../shared/workspace";
 import { rm } from "node:fs/promises";
 import { join } from "node:path";
 import { ControlService } from "./service";
@@ -21,6 +21,7 @@ export class ControlRuntime {
     source?: () => readonly WorkspaceTerminal[],
     pairing?: PairingOptions,
     orchestration?: Pick<Orchestration, "call">,
+    connectionChanged?: (id: string, state: McpConnection | undefined) => void,
   ): Promise<ControlRuntime> {
     const directory = await privateDirectory(userData);
     const store = new ControlStore(directory);
@@ -31,7 +32,7 @@ export class ControlRuntime {
         service.assertActive(actor);
       },
     );
-    const service = new ControlService(operations, source, orchestration);
+    const service = new ControlService(operations, source, orchestration, connectionChanged);
     const http = await ControlHttp.listen(service, pairing);
     try {
       await atomicPrivate(directory, "discovery.json", {

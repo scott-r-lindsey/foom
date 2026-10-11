@@ -398,6 +398,26 @@ export function PanelFacts({
               <Sub>—</Sub>
             )}
           </Fact>
+          {subject.row.mcpConnection && (
+            <Fact label="MCP">
+              <Chip
+                tone={
+                  subject.row.mcpConnection === "not-connected" &&
+                  subject.row.orchestration?.role === "orchestrator"
+                    ? "failed"
+                    : "neutral"
+                }
+              >
+                {
+                  {
+                    connecting: "Connecting…",
+                    connected: "Connected",
+                    "not-connected": "Not connected",
+                  }[subject.row.mcpConnection]
+                }
+              </Chip>
+            </Fact>
+          )}
           {subject.row.orchestration && (
             <OrchestrationFacts view={subject.row.orchestration} source={source} />
           )}
