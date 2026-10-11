@@ -646,3 +646,28 @@ test("agent setup waits for explicit plugin installation, refreshes status and r
   await screen.findByText("Plugin command failed");
   expect(button("Remove Foom plugin")).toHaveProperty("disabled", false);
 });
+
+test("agent settings report capability-gated MCP availability and policy limits", async () => {
+  const available = {
+    ...installation("claude"),
+    mcp: true,
+    mcpReason: "Managed policy may deny attachment.",
+  };
+  const unavailable = {
+    ...installation("codex"),
+    mcp: false,
+    mcpReason: "Version below the supported floor.",
+  };
+  render(
+    <Preflight
+      source={fake(setupState(), report(available, unavailable))}
+      initial={setupState()}
+      onLaunched={vi.fn()}
+    />,
+  );
+  fireEvent.click(button("Start preflight"));
+  await screen.findByRole("button", { name: "MCP available" });
+  expect(screen.getByRole("button", { name: "MCP unavailable" })).toBeTruthy();
+  expect(screen.getByText("Managed policy may deny attachment.")).toBeTruthy();
+  expect(screen.getByText("Version below the supported floor.")).toBeTruthy();
+});

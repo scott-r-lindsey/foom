@@ -6648,7 +6648,7 @@ const FAKE_ORCHESTRATED_CLAUDE = `#!/usr/bin/env node
 const { readFileSync, writeFileSync } = require("node:fs");
 const path = require("node:path");
 const args = process.argv.slice(2);
-if (args[0] === "--version") { console.log("2.1.293 (Claude Code)"); process.exit(0); }
+if (args[0] === "--version") { console.log("2.1.296 (Claude Code)"); process.exit(0); }
 if (args[0] === "--help") { console.log("  --settings <file-or-json>  Load settings\\n  --mcp-config <configs...>  Load MCP servers"); process.exit(0); }
 const config = args.includes("--mcp-config") ? JSON.parse(readFileSync(args[args.indexOf("--mcp-config") + 1], "utf8")) : null;
 writeFileSync(process.env.TEST_FAKE_CREDENTIALS + "." + path.basename(process.cwd()), JSON.stringify({
@@ -6691,7 +6691,7 @@ for (const cliOnly of [false, true])
     if (cliOnly) {
       await writeFile(
         path.join(bin, "agy"),
-        FAKE_ORCHESTRATED_CLAUDE.replace("2.1.293 (Claude Code)", "1.2.13 (Antigravity)").replace(
+        FAKE_ORCHESTRATED_CLAUDE.replace("2.1.296 (Claude Code)", "1.2.13 (Antigravity)").replace(
           "--mcp-config <configs...>",
           "--prompt-interactive <prompt>",
         ),
@@ -6801,6 +6801,57 @@ for (const cliOnly of [false, true])
     assert.ok(whoami.body.result.capabilities.includes("launch"));
     parentId = whoami.body.result.terminalId;
 
+    const connection = async (id) =>
+      (await page.evaluate(() => window.desktop.workspace())).terminals.find((row) => row.id === id)
+        ?.mcpConnection;
+    const connect = async (client) => {
+      const response = await fetch(client.controlUrl.replace("/control/v1", "/mcp"), {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${client.controlToken}`,
+          "Content-Type": "application/json",
+          Accept: "application/json, text/event-stream",
+        },
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: 1,
+          method: "initialize",
+          params: {
+            protocolVersion: "2025-11-25",
+            capabilities: {},
+            clientInfo: { name: "fixture", version: "1" },
+          },
+        }),
+      });
+      assert.equal(response.status, 200);
+      await response.json();
+    };
+    if (!cliOnly) {
+      // The fake client never calls MCP. CLI traffic cannot prove attachment.
+      assert.equal(await connection(parentId), "connecting");
+      await expect
+        .poll(() => connection(parentId), { timeout: deadline(35000) })
+        .toBe("not-connected");
+      const parentRow = page
+        .locator(".session-entry")
+        .filter({ has: page.locator(`[data-drag-session="${parentId}"]`) });
+      await parentRow.getByRole("button", { name: /^Actions for/ }).click();
+      await expect(page.getByText("Not connected", { exact: true })).toBeVisible();
+      await expect(page.getByText("Not connected", { exact: true })).toHaveAttribute(
+        "data-tone",
+        "failed",
+      );
+      await connect(parent);
+      await expect.poll(() => connection(parentId)).toBe("connected");
+      await expect(page.getByText("Connected", { exact: true })).toHaveAttribute(
+        "data-tone",
+        "neutral",
+      );
+      await page.keyboard.press("Escape");
+    } else {
+      assert.equal(await connection(parentId), undefined);
+    }
+
     const tree = await call(parent.controlToken, "create_worktree", {
       idempotencyKey: "tree-1",
       branch: "child-one",
@@ -6832,6 +6883,9 @@ for (const cliOnly of [false, true])
     const childIdentity = (await call(child.controlToken, "whoami")).body.result;
     assert.equal(childIdentity.role, "agent");
     assert.equal(childIdentity.parentId, parentId);
+    assert.equal(await connection(childId), "connecting");
+    await connect(child);
+    await expect.poll(() => connection(childId)).toBe("connected");
     // No grandchildren: a child's credential cannot reach orchestration.
     assert.equal(
       (await call(child.controlToken, "create_worktree", { idempotencyKey: "x", branch: "nested" }))

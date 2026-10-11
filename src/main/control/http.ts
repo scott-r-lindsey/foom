@@ -157,6 +157,7 @@ export class ControlHttp {
           request.socket.setTimeout(35000);
           if (mcp) {
             const result = await this.mcp.dispatch(actor, request.headers, value);
+            this.service.mcpConnected(actor);
             if (!response.writableEnded) end(result.status, result.body, result.sessionId);
           } else {
             const result = await this.service.call(actor, value);

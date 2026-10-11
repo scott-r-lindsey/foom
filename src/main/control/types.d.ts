@@ -10,7 +10,7 @@ export interface Principal {
 }
 export interface ControlLaunch {
   readonly env: Readonly<Record<string, string>>;
-  bind(terminalId: string): void;
+  bind(terminalId: string, mcp?: boolean): void;
   dispose(): void;
 }
 export type Action = "create_worktree" | "launch" | "stop" | "remove_worktree" | "reply";

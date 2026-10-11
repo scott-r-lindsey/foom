@@ -38,7 +38,7 @@ const bundle = join(scratch, "control.mjs");
 await build({
   stdin: {
     contents:
-      'export { ControlMcp } from "./src/main/control/mcp"; export { ControlService } from "./src/main/control/service"; export { ControlHttp } from "./src/main/control/http"; export { Operations } from "./src/main/control/operations"; export { prepareMcpLaunch, supportsMcp } from "./src/main/agents/mcp-launch";',
+      'export { ControlMcp } from "./src/main/control/mcp"; export { ControlService } from "./src/main/control/service"; export { ControlHttp } from "./src/main/control/http"; export { Operations } from "./src/main/control/operations"; export { prepareMcpLaunch } from "./src/main/agents/mcp-launch";',
     resolveDir: process.cwd(),
   },
   bundle: true,
@@ -46,8 +46,9 @@ await build({
   format: "esm",
   outfile: bundle,
 });
-const { ControlMcp, ControlService, ControlHttp, Operations, prepareMcpLaunch, supportsMcp } =
-  await import(bundle);
+const { ControlMcp, ControlService, ControlHttp, Operations, prepareMcpLaunch } = await import(
+  bundle
+);
 const protocol = [];
 const mcpDispatch = ControlMcp.prototype.dispatch;
 ControlMcp.prototype.dispatch = function (actor, headers, input) {
@@ -175,8 +176,6 @@ try {
   for (const agent of process.argv.slice(2).length ? process.argv.slice(2) : ["claude", "codex"]) {
     const executable = process.env[`FOOM_${agent.toUpperCase()}_EXECUTABLE`] ?? agent;
     const version = (await execute(executable, ["--version"])).stdout.trim();
-    const help = (await execute(executable, ["--help"])).stdout;
-    assert(supportsMcp(agent, version, help), `Unverified release: ${version}`);
     console.log(`Probing ${version}`);
     const home = join(scratch, agent);
     await mkdir(home);
