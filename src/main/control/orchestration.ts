@@ -186,6 +186,33 @@ export class Orchestration {
     };
   }
 
+  /** Restore main-owned history without carrying an old principal or pending work. */
+  restoreHistory(id: string, history: readonly OrchestrationEntry[]): void {
+    const parent = this.parents.get(id);
+    if (parent) parent.history.push(...history.slice(-HISTORY));
+  }
+
+  /** Reserve restored children before launches, so they count against the live limit. */
+  restoreChild(parentId: string, entry: WorkspaceTerminal): boolean {
+    const parent = this.parents.get(parentId);
+    const existing = parent?.children.get(entry.id);
+    if (existing) return parent?.active === true && !existing.takenOver;
+    if (
+      !parent?.active ||
+      parent.repository !== entry.repository ||
+      this.running(parent) >= CHILD_LIMIT
+    )
+      return false;
+    parent.children.set(entry.id, {
+      worktreeId: locationId(entry.worktree),
+      exited: false,
+      takenOver: false,
+      tailAt: 0,
+    });
+    this.host.changed();
+    return true;
+  }
+
   /** Exit revokes the parent's authority; children keep running under human control. */
   exited(id: string): void {
     const parent = this.parents.get(id);

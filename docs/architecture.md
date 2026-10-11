@@ -795,10 +795,8 @@ The hook command cannot run Node from the packaged app because the RunAsNode fus
 
 Main writes ordered, atomic replacements of private `sessions.json` in the active
 profile. It stores terminal ID, agent, registered repository, worktree, branch and
-validated conversation ID only. Loading validates bounded records and rejects
-malformed IDs, paths, agents and duplicate terminal IDs. Unregistered repositories
-are omitted. Restored records grant sidebar actions only, never a host capability;
-views do not attach or request tails until a successful explicit relaunch.
+validated conversation ID, last known running state and main-owned orchestration provenance (repository identity, parent relationship and bounded action history). Credentials and terminal contents are never stored. Loading validates bounded records and rejects
+malformed IDs, paths, agents and duplicate terminal IDs. Unregistered repositories keep exited rows without launch authority. With restore enabled, eligible running records launch after all saved windows are shown, at most three at a time, with parents first and shared checkouts serialized. Every launch uses the manual resume path and fresh credentials; views attach only once the new host exists. Orchestrator re-grants additionally require the saved repository identity and a verified Claude Code or Codex CLI; see orchestration.md. Shutdown freezes the running records before terminating PTYs, so shutdown exits cannot overwrite the saved state.
 
 Resume and New conversation retain the terminal ID. Main drains the previous
 terminal's evaluation queue, removes its exited host screen and launches a fresh
@@ -1216,7 +1214,7 @@ Fact-copy actions use validated sidebar commands and main’s clipboard capabili
 `home-shell` is a path-free sidebar command. Main chooses the home directory and
 shell, starts a normal sandboxed-host PTY and records `home: true` alongside
 ordinary session metadata. Restore accepts home records only for shells with
-matching home paths; it never launches automatically. Restart uses the same
+matching home paths; previously running home shells restart when restore is enabled. Restart uses the same
 main-owned launch path. Home sessions remain outside the Git repository tree
 and repository-scoped agent control; no arbitrary cwd or executable capability
 is added. The bounded shell version probe is main-owned and cached.

@@ -699,7 +699,13 @@ async function performQuit() {
     await saveWindows().catch((error: unknown) => {
       console.error("Unable to save windows:", error);
     });
-    await terminals.shutdown();
+    await workspace.prepareQuit();
+    try {
+      await terminals.shutdown();
+    } catch (error) {
+      workspace.cancelQuit();
+      throw error;
+    }
     // Terminals have stopped: revoke every hook credential and stop listening.
     await workspace.dispose();
     await terminals.dispose();
@@ -835,6 +841,8 @@ if (!ownsProfile) {
       if (placements.length)
         for (const placement of placements) await createWindow(undefined, placement);
       else await createWindow(await loadWindowSize(app.getPath("userData")));
+      workspace.configure(settings.get());
+      void workspace.restartSaved();
     })
     .catch((error: unknown) => {
       console.error("Unable to start the application:", error);

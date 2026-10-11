@@ -83,10 +83,19 @@ test("owned files refresh only when missing or matching an earlier Foom version"
       "sound",
       "agents",
       "hooks",
+      "restoreSessions",
     ].sort(),
   );
   for (const file of ["schemas/theme.schema.json", "schemas/terminal-theme.schema.json"])
     expect(() => {
       JSON.parse(OWNED_FILES[file] ?? "");
     }).not.toThrow();
+});
+
+test("enabling automatic restore requires approval, disabling it does not", () => {
+  const off = effective(base, { restoreSessions: false });
+  expect(weakenings(off, base)).toEqual([
+    { action: "restore sessions on launch", detail: "restoreSessions: off → on" },
+  ]);
+  expect(weakenings(base, off)).toEqual([]);
 });

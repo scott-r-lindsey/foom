@@ -410,3 +410,20 @@ test("a failed attach keeps the version 1 profile for the next launch", async ()
   expect(store.legacyConfig()).toEqual({});
   expect(store.get().hooks).toBe(true);
 });
+
+test("session restore defaults on, validates boolean patches and isolates an invalid stored value", async () => {
+  expect(DEFAULT_SETTINGS.restoreSessions).toBe(true);
+  expect(parseSettingsPatch({ restoreSessions: false })).toEqual({ restoreSessions: false });
+  for (const value of [null, 1, "true", []])
+    expect(() => parseSettingsPatch({ restoreSessions: value })).toThrow();
+  const dir = await directory();
+  await writeFile(
+    path.join(dir, "settings.json"),
+    JSON.stringify({
+      version: 1,
+      settings: { restoreSessions: "bad", hooks: false, interfaceScale: 120 },
+    }),
+  );
+  const store = await SettingsStore.open(dir);
+  expect(store.get()).toMatchObject({ restoreSessions: true, hooks: false, interfaceScale: 120 });
+});

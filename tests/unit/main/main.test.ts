@@ -90,6 +90,9 @@ vi.mock("../../../src/main/setup/environment-ipc", () => ({
 vi.mock("../../../src/main/workspace/workspace", () => ({
   Workspace: class {
     restore = async () => {};
+    restartSaved = async () => {};
+    prepareQuit = async () => {};
+    cancelQuit = () => {};
     snapshot = () => ({
       terminals: [
         {

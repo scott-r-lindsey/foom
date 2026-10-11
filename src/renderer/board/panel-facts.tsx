@@ -418,6 +418,7 @@ export function PanelFacts({
               </Chip>
             </Fact>
           )}
+          {subject.row.roleNotRestored && <Fact label="Orchestrator">Role was not restored</Fact>}
           {subject.row.orchestration && (
             <OrchestrationFacts view={subject.row.orchestration} source={source} />
           )}

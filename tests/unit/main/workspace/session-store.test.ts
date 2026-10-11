@@ -132,3 +132,78 @@ test("config sessions keep their discriminator across a save and load", async ()
   ])
     expect(() => readSessions([invalid])).toThrow();
 });
+
+test("round trips running state and main-owned roles, discarding invented capabilities", async () => {
+  const { store } = await setup();
+  const role = {
+    identity: "repo-identity",
+    history: [{ id: "action", action: "stop", label: "child", status: "succeeded", at: 1 }],
+  };
+  const entries = readSessions([
+    { ...record, running: true, orchestrator: role, controlToken: "never", command: "/untrusted" },
+    { ...record, id: "child", running: true, parentId: record.id },
+  ]);
+  await store.save(entries);
+  expect(await store.load()).toEqual(entries);
+  expect(entries[0]).not.toHaveProperty("controlToken");
+  expect(entries[0]).not.toHaveProperty("command");
+});
+
+test.each([
+  { running: "true" },
+  { parentId: "bad/id" },
+  { parentId: record.id },
+  { agent: "shell", conversationId: undefined, parentId: "parent" },
+  { orchestrator: null },
+  { orchestrator: 1 },
+  { orchestrator: {} },
+  { orchestrator: { identity: "", history: [] } },
+  { orchestrator: { identity: "x".repeat(4097), history: [] } },
+  { orchestrator: { identity: "ok", history: {} } },
+  { orchestrator: { identity: "ok", history: Array(21).fill({}) } },
+  { orchestrator: { identity: "ok", history: [null] } },
+  { orchestrator: { identity: "ok", history: [{}] } },
+  { orchestrator: { identity: "ok", history: [] }, parentId: "parent" },
+])("rejects malformed persisted restore provenance %j", (extra) => {
+  expect(() => readSessions([{ ...record, ...extra }])).toThrow();
+});
+
+test("validates every action-log field without restoring pending operations", () => {
+  const history = { id: "a", action: "launch", label: "child", status: "succeeded", at: 1 };
+  for (const extra of [
+    { id: 1 },
+    { id: "x".repeat(257) },
+    { label: false },
+    { label: "x".repeat(4097) },
+    { at: "now" },
+    { at: NaN },
+    { action: "reply" },
+    { status: "approved" },
+  ]) {
+    expect(() =>
+      readSessions([
+        { ...record, orchestrator: { identity: "ok", history: [{ ...history, ...extra }] } },
+      ]),
+    ).toThrow();
+  }
+  for (const action of ["create_worktree", "launch", "stop", "remove_worktree", "take_over"]) {
+    for (const status of [
+      "pending_confirmation",
+      "running",
+      "succeeded",
+      "failed",
+      "declined",
+      "cancelled",
+      "indeterminate",
+    ]) {
+      expect(
+        readSessions([
+          {
+            ...record,
+            orchestrator: { identity: "ok", history: [{ ...history, action, status }] },
+          },
+        ])[0]?.orchestrator?.history,
+      ).toHaveLength(1);
+    }
+  }
+});

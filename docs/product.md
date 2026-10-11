@@ -72,7 +72,7 @@ Rows launched with a known bypass argument also show a neutral ◇ Bypass label.
 This records launch flags, not inferred global agent policy; changing defaults does not
 change existing rows.
 Names persist as local UI metadata keyed by terminal ID. Session rows and recorded
-conversation IDs survive Foom restarts as exited sessions; PTYs and screens do not.
+conversation IDs survive Foom restarts. Sessions running at quit restart when Restore sessions on launch is on; exited sessions stay exited. Terminal screens and scrollback are never persisted.
 Hover and keyboard focus do not preview terminal output or switch the pane. Click or press Enter to show
 its terminal and focus input, using the placement rules below. Needs you remains; Done and Failed dim once seen.
 
@@ -91,7 +91,7 @@ same Enter/blur, Escape and empty-name behavior as sidebar double-click rename.
 
 The home shell row (`>_ shell ~`) sits above repositories. Its name and **New
 shell** command launch in the main-owned home directory. Shells group beneath
-it and restore as exited sessions. Its panel shows home, executable, version
+it and restart in home when they were running at quit and Restore sessions on launch is on. Its panel shows home, executable, version
 and running count. Repository panels show path, remote, default branch, last
 fetch status, worktree/creation/eligible-merged counts and session states; they
 offer New worktree, pinning, Delete merged worktrees and **Remove from Foom…**
@@ -128,7 +128,7 @@ with hooks disabled, no ID is captured and Resume and Copy session ID are unavai
 An exited shell’s sidebar panel offers **Restart shell**, a separator and **Close**;
 the terminal pane has no restart button. Close removes the
 session and its stored record, never the checkout or the agent's own conversation files.
-Sessions restore without automatically launching agents. If no supported hook/notify event
+With **Restore sessions on launch** on (the default), agents running at quit resume their recorded conversations in the same rows and tiles. Agents without a conversation ID stay exited and offer New conversation here; Foom never substitutes a new conversation. If no supported hook/notify event
 arrived before exit (including hooks-disabled launches), no conversation ID is available.
 
 Worktree removal is available for linked checkouts created by any tool. It requires
@@ -362,7 +362,7 @@ are unchanged. The main-process command list drives menus and shortcut handling.
 Plain terminal control keys remain terminal input. The split tree, ratios, leaf
 identities, focus and assigned session IDs persist as local view preferences.
 Maximize is temporary. On restart, unavailable sessions leave empty tiles; terminal
-PTYs and screens are not restored. WebGL remains separate future work.
+PTYs are recreated for eligible running sessions; screens and scrollback are not restored. WebGL remains separate future work.
 
 Drag a sidebar session onto a tile center to replace its session (the previous
 session keeps running hidden), or onto one of its four edges to split it in half.
@@ -468,6 +468,8 @@ Open **Settings** from the board, or press ⌘, on macOS and Ctrl+Shift+, elsewh
 It replaces the terminal tiles beside the persistent sidebar in the same window.
 Esc returns to the tiles and restores the same focused sidebar row.
 Selecting a terminal in the sidebar also leaves Settings; terminals keep running throughout.
+
+General offers **Restore sessions on launch**, on by default. Turning it on through agent-edited config requires Allow because it also permits restoring orchestrator control.
 
 Agents and hooks, Repositories, and Worktrees use the same controls as
 preflight. Changes apply immediately and persist. A repository scan in Settings
@@ -622,8 +624,7 @@ trusted dialogs attach to the window that requested them.
 
 Each window saves its display, normal bounds, maximized state, interface size and
 tile tree. At launch Foom restores those windows. Missing displays fall back to the
-primary display and bounds are clamped to its work area. Sessions restore as exited
-rows and never restart automatically. Closing a window removes it from the saved
+primary display and bounds are clamped to its work area. After showing all windows, Foom restarts sessions that were running at quit (or their last known state before a crash), up to three launches at a time. Shells use their saved checkout or home; agents resume only with a saved conversation ID. Missing checkouts keep exited rows with the Worktree removed label. Failed launches retain their conversations for retry. Restores use current defaults, fresh credentials and reserved conversation selectors, and skip the shared-checkout warning. Turning Restore sessions on launch off restores every row exited. Closing a window removes it from the saved
 window set. Interface size is independent per window; other settings are shared.
 The attention badge counts sessions once for the app. One window plays app sounds,
 with attention suppression following the focused terminal in any window.

@@ -1,7 +1,8 @@
 import { readFile, mkdir, writeFile, rename } from "node:fs/promises";
 import { isAbsolute, join } from "node:path";
 import { conversationId } from "../agents/conversation";
-import type { WorkspaceTerminal } from "../../shared/workspace";
+import type { StoredSession } from "./session-restore.d";
+import type { OrchestrationEntry } from "../../shared/workspace";
 
 function path(value: unknown): value is string {
   return (
@@ -9,8 +10,8 @@ function path(value: unknown): value is string {
   );
 }
 
-/** Restore metadata only. Disk records never authorize executables or automatic launches. */
-export function readSessions(value: unknown): WorkspaceTerminal[] {
+/** Validated main-owned metadata; executable paths and credentials are never stored. */
+export function readSessions(value: unknown): StoredSession[] {
   if (!Array.isArray(value) || value.length > 1000) throw new Error("Invalid sessions");
   const ids = new Set<string>();
   return value.map((entry: unknown) => {
@@ -25,12 +26,18 @@ export function readSessions(value: unknown): WorkspaceTerminal[] {
       conversationId: conversation,
       home,
       config,
+      running,
+      orchestrator,
+      parentId,
     } = data;
     if (
       (home !== undefined &&
         (home !== true || agent !== "shell" || repository !== worktree || branch !== null)) ||
       (config !== undefined &&
         (config !== true || home !== undefined || repository !== worktree || branch !== null)) ||
+      (running !== undefined && typeof running !== "boolean") ||
+      (parentId !== undefined &&
+        (!conversationId(parentId) || parentId === id || agent === "shell")) ||
       !conversationId(id) ||
       ids.has(id) ||
       !path(repository) ||
@@ -46,9 +53,15 @@ export function readSessions(value: unknown): WorkspaceTerminal[] {
       throw new Error("Invalid session");
     if (agent !== "claude" && agent !== "codex" && agent !== "agy" && agent !== "shell")
       throw new Error("Invalid agent");
+    const role = readOrchestrator(orchestrator);
+    if (role && (parentId !== undefined || agent === "shell" || home || config))
+      throw new Error("Invalid role");
     ids.add(id);
     return {
       id,
+      ...(running === undefined ? {} : { running }),
+      ...(role === undefined ? {} : { orchestrator: role }),
+      ...(parentId === undefined ? {} : { parentId }),
       ...(home === true ? { home: true } : {}),
       ...(config === true ? { config: true } : {}),
       agent,
@@ -68,7 +81,7 @@ export function readSessions(value: unknown): WorkspaceTerminal[] {
 export class SessionStore {
   private pending = Promise.resolve();
   constructor(private readonly directory: string) {}
-  async load(): Promise<WorkspaceTerminal[]> {
+  async load(): Promise<StoredSession[]> {
     try {
       const contents = await readFile(join(this.directory, "sessions.json"), "utf8");
       if (contents.length > 1024 * 1024) return [];
@@ -78,18 +91,35 @@ export class SessionStore {
       return [];
     }
   }
-  save(entries: readonly WorkspaceTerminal[]): Promise<void> {
+  save(entries: readonly StoredSession[]): Promise<void> {
     const data = JSON.stringify(
-      entries.map(({ id, agent, repository, worktree, branch, conversationId, home, config }) => ({
-        ...(home ? { home: true } : {}),
-        ...(config ? { config: true } : {}),
-        id,
-        agent,
-        repository,
-        worktree,
-        branch,
-        conversationId,
-      })),
+      entries.map(
+        ({
+          id,
+          agent,
+          repository,
+          worktree,
+          branch,
+          conversationId,
+          home,
+          config,
+          running,
+          orchestrator,
+          parentId,
+        }) => ({
+          running,
+          orchestrator,
+          parentId,
+          ...(home ? { home: true } : {}),
+          ...(config ? { config: true } : {}),
+          id,
+          agent,
+          repository,
+          worktree,
+          branch,
+          conversationId,
+        }),
+      ),
     );
     const next = this.pending
       .catch(() => {})
@@ -105,4 +135,46 @@ export class SessionStore {
   flush(): Promise<void> {
     return this.pending;
   }
+}
+
+function readOrchestrator(value: unknown): StoredSession["orchestrator"] {
+  if (value === undefined) return undefined;
+  if (typeof value !== "object" || value === null) throw new Error("Invalid role");
+  const data: Record<string, unknown> = { ...value };
+  if (
+    typeof data["identity"] !== "string" ||
+    !data["identity"] ||
+    data["identity"].length > 4096 ||
+    !Array.isArray(data["history"]) ||
+    data["history"].length > 20
+  )
+    throw new Error("Invalid role");
+  const history: OrchestrationEntry[] = data["history"].map((item: unknown) => {
+    if (typeof item !== "object" || item === null) throw new Error("Invalid history");
+    const row: Record<string, unknown> = { ...item };
+    const { id, action, label, status, at } = row;
+    if (
+      typeof id !== "string" ||
+      id.length > 256 ||
+      typeof label !== "string" ||
+      label.length > 4096 ||
+      typeof at !== "number" ||
+      !Number.isFinite(at) ||
+      (action !== "create_worktree" &&
+        action !== "launch" &&
+        action !== "stop" &&
+        action !== "remove_worktree" &&
+        action !== "take_over") ||
+      (status !== "pending_confirmation" &&
+        status !== "running" &&
+        status !== "succeeded" &&
+        status !== "failed" &&
+        status !== "declined" &&
+        status !== "cancelled" &&
+        status !== "indeterminate")
+    )
+      throw new Error("Invalid history");
+    return { id, action, label, status, at };
+  });
+  return { identity: data["identity"], history };
 }

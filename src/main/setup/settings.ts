@@ -22,6 +22,7 @@ export const DEFAULT_SETTINGS: Settings = Object.freeze({
   setupComplete: false,
   codexNotifierAcknowledged: false,
   hooks: true,
+  restoreSessions: true,
   agents: Object.freeze({ claude: true, codex: true, agy: true }),
   agentArguments: EMPTY_AGENT_ARGUMENTS,
   agentBypassAcknowledged: Object.freeze({ claude: false, codex: false, agy: false }),
@@ -146,6 +147,8 @@ export class SettingsStore {
             }
           }
         }
+        if (kept["restoreSessions"] !== undefined && typeof kept["restoreSessions"] !== "boolean")
+          delete kept["restoreSessions"];
         const parsed = parseSettingsPatch(kept);
         store.settings = {
           ...DEFAULT_SETTINGS,
