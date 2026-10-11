@@ -189,6 +189,7 @@ export function createAppSource(): BoardSource {
         launchFlags: entry.launchFlags,
         environment: entry.environment,
         orchestration: entry.orchestration,
+        mcpConnection: entry.mcpConnection,
         worktreeRemoved: !entry.home && !entry.config && (!checkout || checkout.prunable),
         exited: entry.exited ?? exits.has(entry.id),
         bypass: entry.bypass === true,

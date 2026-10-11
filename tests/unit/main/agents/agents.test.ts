@@ -524,7 +524,7 @@ it.each([true, false])(
       FOOM_CONTROL_TOKEN: "control-secret",
       FOOM_SESSION: hooks ? "session" : "control-session",
     });
-    expect(bindControl).toHaveBeenCalledWith("terminal-id");
+    expect(bindControl).toHaveBeenCalledWith("terminal-id", false);
     service.release("terminal-id");
     expect(disposeControl).toHaveBeenCalledTimes(1);
   },
@@ -577,7 +577,7 @@ it("rotates control credentials when resuming the same terminal", async () => {
     id: "terminal-id",
     env: { FOOM_CONTROL_TOKEN: "second" },
   });
-  expect(second.bind).toHaveBeenCalledWith("terminal-id");
+  expect(second.bind).toHaveBeenCalledWith("terminal-id", false);
   expect(second.dispose).not.toHaveBeenCalled();
   service.release("terminal-id");
   expect(second.dispose).toHaveBeenCalledOnce();
@@ -588,9 +588,10 @@ it.each([true, false])(
   "attaches MCP independently of hooks=%s and disposes on exit",
   async (hooks) => {
     const previous = versions.claude;
-    versions.claude = "2.1.293 (Claude Code)";
+    versions.claude = "2.1.296 (Claude Code)";
     help += "\n--mcp-config <file>";
     const dispose = vi.fn();
+    const bind = vi.fn();
     vi.mocked(prepareMcpLaunch).mockResolvedValue({
       args: ["--mcp-config", "/private/mcp.json"],
       dispose,
@@ -598,7 +599,7 @@ it.each([true, false])(
     service = new AgentService({ listWorktrees, launchIdentity }, { create }, prepare, () =>
       Promise.resolve({
         env: { FOOM_CONTROL_URL: "http://127.0.0.1:1234/control/v1" },
-        bind: vi.fn(),
+        bind,
         dispose: vi.fn(),
       }),
     );
@@ -606,6 +607,7 @@ it.each([true, false])(
     try {
       expect((await service.scan()).agents[0]?.mcp).toBe(true);
       await service.launch(request);
+      expect(bind).toHaveBeenCalledWith("terminal-id", true);
       expect(create.mock.calls.at(-1)?.[0].args).toContain("--mcp-config");
       service.release("terminal-id");
       expect(dispose).toHaveBeenCalledOnce();
@@ -624,7 +626,7 @@ it("launches an orchestrator only with MCP and appends a child's prompt after ev
   );
   service = new AgentService({ listWorktrees, launchIdentity }, { create }, prepare, controlFor);
   await expect(service.launch({ ...request, control: { role: "orchestrator" } })).rejects.toThrow(
-    "verified MCP",
+    "supported MCP",
   );
   const previous = versions.claude;
   versions.claude = "2.1.293 (Claude Code)";

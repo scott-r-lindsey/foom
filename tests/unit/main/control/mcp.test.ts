@@ -9,7 +9,9 @@ let http: ControlHttp;
 let token: string;
 let session: string;
 let revoke: () => void;
+const connectionChanged = vi.fn();
 beforeEach(async () => {
+  connectionChanged.mockClear();
   service = new ControlService(
     new Operations(
       () => Promise.resolve(),
@@ -17,10 +19,13 @@ beforeEach(async () => {
         service.assertActive(actor);
       },
     ),
+    undefined,
+    undefined,
+    connectionChanged,
   );
   http = await ControlHttp.listen(service);
   const launch = service.prepare(tmpdir(), tmpdir());
-  launch.bind("terminal");
+  launch.bind("terminal", true);
   token = launch.env["FOOM_CONTROL_TOKEN"] ?? "";
   revoke = () => {
     launch.dispose();
@@ -210,4 +215,17 @@ it("rechecks revocation after accepting a partial MCP initialize body", async ()
   revoke();
   req.end(body.slice(10));
   expect(await completed.promise).toBe(401);
+});
+
+it("records only authenticated valid MCP traffic and clears the state on revocation", async () => {
+  expect(connectionChanged).toHaveBeenLastCalledWith("terminal", "connecting");
+  expect((await send(initialize, { Authorization: "Bearer bad" })).status).toBe(401);
+  expect((await send({ jsonrpc: "2.0", method: "initialize" })).status).toBe(400);
+  expect(connectionChanged).toHaveBeenCalledTimes(1);
+  await init();
+  expect(connectionChanged).toHaveBeenLastCalledWith("terminal", "connected");
+  expect(connectionChanged).toHaveBeenCalledTimes(2);
+  revoke();
+  expect(connectionChanged).toHaveBeenLastCalledWith("terminal", undefined);
+  expect((await send(initialize)).status).toBe(401);
 });

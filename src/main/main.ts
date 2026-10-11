@@ -430,6 +430,9 @@ async function buildWindow(savedSize?: Size, saved?: WindowPlacement, initialSes
             approve: requestPairing,
           },
           workspace.orchestration,
+          (id, state) => {
+            workspace.mcpConnectionChanged(id, state);
+          },
         ),
       dialog: requestTrusted,
       reveal: (id) => {

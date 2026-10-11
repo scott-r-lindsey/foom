@@ -1,3 +1,4 @@
+import type { McpConnection } from "../../shared/workspace";
 import { homeDirectory, homeShellFacts, shellPath } from "./home-shell";
 import type { AgyPluginAction } from "../../shared/agy-plugin";
 import { AgyPlugin } from "../agents/agy-plugin";
@@ -316,6 +317,14 @@ export class Workspace {
     });
   }
 
+  private readonly mcpConnections = new Map<string, McpConnection>();
+
+  mcpConnectionChanged(id: string, state: McpConnection | undefined): void {
+    if (state === undefined) this.mcpConnections.delete(id);
+    else this.mcpConnections.set(id, state);
+    this.refresh();
+  }
+
   snapshot(): WorkspaceSnapshot {
     return {
       repositories: this.deps.worktrees.listRepositories(),
@@ -330,6 +339,7 @@ export class Workspace {
         state: this.terminals.get(entry.id)?.state ?? null,
         exited: entry.dormant === true || this.terminals.get(entry.id)?.exitCode !== undefined,
         ...this.orchestrationView(entry.id),
+        mcpConnection: this.mcpConnections.get(entry.id),
       })),
     };
   }

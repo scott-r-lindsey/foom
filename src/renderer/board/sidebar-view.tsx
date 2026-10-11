@@ -273,7 +273,7 @@ export function Sidebar({
         });
       },
     }));
-  // Only verified per-launch MCP clients can orchestrate.
+  // Only capability-gated per-launch MCP clients can orchestrate.
   const orchestrators = (repository: string): RowAction[] =>
     (options?.agents ?? [])
       .filter((agent) => agent.mcp && agent.path && options?.enabled[agent.id])

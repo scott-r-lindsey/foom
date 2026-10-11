@@ -293,3 +293,40 @@ test("fact chips keep amber for needs-you, magenta for failures and name every s
     ["failed", "1"],
   ]);
 });
+
+test.each(["connecting", "connected", "not-connected"] as const)(
+  "shows MCP %s in session panels and reserves failure tone for orchestrators",
+  (mcpConnection) => {
+    const label = {
+      connecting: "Connecting…",
+      connected: "Connected",
+      "not-connected": "Not connected",
+    }[mcpConnection];
+    const base = { ...row, mcpConnection };
+    const view = render(
+      <PanelFacts
+        subject={{ kind: "session", row: base, tile: undefined }}
+        source={source}
+        options={undefined}
+      />,
+    );
+    expect(view.getByText(label).getAttribute("data-tone")).toBe("neutral");
+    view.rerender(
+      <PanelFacts
+        subject={{
+          kind: "session",
+          row: {
+            ...base,
+            orchestration: { role: "orchestrator", active: true, children: 0, history: [] },
+          },
+          tile: undefined,
+        }}
+        source={source}
+        options={undefined}
+      />,
+    );
+    expect(view.getByText(label).getAttribute("data-tone")).toBe(
+      mcpConnection === "not-connected" ? "failed" : "neutral",
+    );
+  },
+);

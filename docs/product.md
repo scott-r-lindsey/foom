@@ -395,13 +395,19 @@ Every verdict and the user's next action (replied, dismissed, ignored) go into a
 The [control-plane design](orchestration.md) has an authentication and HTTP
 foundation, read-only MCP tools, a packaged console CLI and repository
 orchestrators. Ordinary agent launches receive a private credential for their own
-identity, with no mutation capabilities. Verified Claude Code and Codex releases launched by Foom receive read-only MCP access
-to session metadata in their own repository, independently of hooks. Unverified versions
-and Antigravity do not attach MCP; managed client policy may deny attachment. These tools
+identity, with no mutation capabilities. Claude Code 2.1.293+ and Codex 0.161.0+ stable releases with their per-launch MCP
+help flag receive read-only MCP access to session metadata in their own repository,
+independently of hooks. These tested releases are the version floors. Older or
+unparseable versions, missing flags and Antigravity do not attach MCP; managed client policy may deny attachment. These tools
 never return terminal output. **Launch as Foom orchestrator** in a repository's panel grants one
-verified Claude Code or Codex session permission to create worktrees and run up to four children in that repository.
+supported Claude Code or Codex session permission to create worktrees and run up to four children in that repository.
 Children cannot orchestrate through Foom and never inherit your launch flags. The orchestrator's panel lists its
-actions and their outcomes; you can stop a child or take it over, which ends the orchestrator's access to it. Agents launched outside Foom receive no automatic
+actions and their outcomes. Each attached session panel shows MCP Connecting…,
+Connected after the first successful authenticated request, or Not connected after
+30 seconds. Only the orchestrator uses magenta for this failure; ordinary sessions
+record it without alerting. A later request clears the failure. Settings → Agents
+shows MCP available or unavailable from the version and capability gate.
+You can stop a child or take it over, which ends the orchestrator's access to it. Agents launched outside Foom receive no automatic
 access. Agent configuration is attached per launch, never installed globally or
 written into the repository.
 

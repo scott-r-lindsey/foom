@@ -113,6 +113,7 @@ vi.mock("../../../src/main/workspace/workspace", () => ({
     output = mock.workspace.output;
     evidence = mock.workspace.evidence;
     shellState = mock.workspace.shellState;
+    mcpConnectionChanged = mock.workspace.mcpConnectionChanged;
     ownsSession = mock.workspace.ownsSession;
     initializeControl = mock.workspace.initializeControl;
     refresh = mock.workspace.refresh;
@@ -283,6 +284,7 @@ const mock = vi.hoisted(() => {
     output: vi.fn(),
     evidence: vi.fn(),
     shellState: vi.fn(),
+    mcpConnectionChanged: vi.fn(),
     ownsSession: vi.fn(() => true),
     initializeControl: vi.fn<() => Promise<void>>(() => Promise.resolve()),
     refresh: vi.fn(),
@@ -1227,9 +1229,12 @@ test("control startup publishes private discovery and binds trusted pairing call
       expect.any(Object),
       // The mocked workspace has no orchestration; production passes Workspace.orchestration.
       undefined,
+      expect.any(Function),
     );
     expect(startControl.mock.calls[0]?.[1]?.()).toMatchObject([{ id: "t1" }, { id: "t2" }]);
     expect(mock.workspace.initializeControl).toHaveBeenCalled();
+    startControl.mock.calls[0]?.[4]?.("t1", "connected");
+    expect(mock.workspace.mcpConnectionChanged).toHaveBeenCalledWith("t1", "connected");
     const pairing = startControl.mock.calls[0]?.[2];
     expect(pairing?.repository("/foreign")).toBeUndefined();
     const { worktrees } = await import("../../../src/main/main");

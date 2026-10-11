@@ -1,3 +1,5 @@
+import type { McpConnection } from "../../shared/workspace";
+
 import { createHash, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import { locationId, metadataName, SessionMetadata } from "./metadata";
 import { basename } from "node:path";
@@ -9,25 +11,29 @@ import type { Operations } from "./operations";
 import { ORCHESTRATION_METHODS } from "./orchestration";
 import type { Orchestration } from "./orchestration";
 
+/** Allow client startup and managed-policy evaluation before showing attachment failure. */
+export const MCP_CONNECTION_DEADLINE_MS = 30000;
+
 const READ_ONLY = ["whoami", "sessions", "session_state"];
 
 function digest(value: string): Buffer {
   return createHash("sha256").update(value).digest();
 }
 
+interface Grant {
+  digest: Buffer;
+  principal: Principal | null;
+  calls: number;
+  expiresAt?: number;
+  timer?: ReturnType<typeof setTimeout>;
+  mcp?: McpConnection;
+  mcpTimer?: ReturnType<typeof setTimeout>;
+}
+
 /** Main owns roles and scope. Adapters can only authenticate and dispatch validated requests. */
 export class ControlService {
   readonly instanceId = randomUUID();
-  private readonly grants = new Map<
-    string,
-    {
-      digest: Buffer;
-      principal: Principal | null;
-      calls: number;
-      expiresAt?: number;
-      timer?: ReturnType<typeof setTimeout>;
-    }
-  >();
+  private readonly grants = new Map<string, Grant>();
   private readonly unknown = digest(randomBytes(32).toString("hex"));
   private closed = false;
   private readonly metadata: SessionMetadata;
@@ -35,6 +41,10 @@ export class ControlService {
     readonly operations: Operations,
     source: () => readonly WorkspaceTerminal[] = () => [],
     private readonly orchestration?: Pick<Orchestration, "call">,
+    private readonly connectionChanged: (
+      id: string,
+      state: McpConnection | undefined,
+    ) => void = () => undefined,
   ) {
     this.metadata = new SessionMetadata(source);
   }
@@ -58,7 +68,7 @@ export class ControlService {
     if (sessionId !== undefined) identifier(sessionId);
     const generation = randomUUID();
     const token = randomBytes(32).toString("hex");
-    const grant = { digest: digest(token), principal: null as Principal | null, calls: 0 };
+    const grant: Grant = { digest: digest(token), principal: null, calls: 0 };
     this.grants.set(generation, grant);
     return {
       env: Object.freeze({
@@ -66,7 +76,7 @@ export class ControlService {
         FOOM_CONTROL_INSTANCE: this.instanceId,
         FOOM_SESSION: sessionId ?? generation,
       }),
-      bind: (terminalId) => {
+      bind: (terminalId, mcp = false) => {
         identifier(terminalId);
         if (this.grants.get(generation) !== grant || grant.principal)
           throw new ControlError("unauthorized");
@@ -79,14 +89,35 @@ export class ControlService {
           parentId,
           terminalId,
         });
+        if (mcp) {
+          grant.mcp = "connecting";
+          grant.mcpTimer = setTimeout(() => {
+            grant.mcp = "not-connected";
+            this.connectionChanged(terminalId, "not-connected");
+          }, MCP_CONNECTION_DEADLINE_MS);
+          grant.mcpTimer.unref();
+          this.connectionChanged(terminalId, "connecting");
+        }
       },
       dispose: () => {
-        if (this.grants.get(generation) === grant && grant.principal)
-          this.operations.revoke(grant.principal);
-        clearTimeout(this.grants.get(generation)?.timer);
+        if (this.grants.get(generation) !== grant) return;
+        if (grant.principal) this.operations.revoke(grant.principal);
+        clearTimeout(grant.timer);
+        clearTimeout(grant.mcpTimer);
+        if (grant.principal) this.connectionChanged(grant.principal.terminalId, undefined);
         this.grants.delete(generation);
       },
     };
+  }
+
+  /** Called only by the MCP adapter after a successful authenticated request. */
+  mcpConnected(actor: Principal): void {
+    this.assertActive(actor);
+    const grant = this.grants.get(actor.generation);
+    if (!grant?.mcp || grant.mcp === "connected") return;
+    clearTimeout(grant.mcpTimer);
+    grant.mcp = "connected";
+    this.connectionChanged(actor.terminalId, "connected");
   }
 
   grantCli(repository: string): { token: string; expiresAt: number } {
@@ -219,6 +250,8 @@ export class ControlService {
     this.closed = true;
     for (const grant of this.grants.values()) {
       clearTimeout(grant.timer);
+      clearTimeout(grant.mcpTimer);
+      if (grant.principal) this.connectionChanged(grant.principal.terminalId, undefined);
       if (grant.principal) this.operations.revoke(grant.principal);
     }
     this.grants.clear();
