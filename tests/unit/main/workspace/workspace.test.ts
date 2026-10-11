@@ -141,10 +141,15 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-async function launched(): Promise<Workspace> {
+async function launched(agent: "claude" | "agy" = "claude"): Promise<Workspace> {
+  if (agent === "agy")
+    agents.scan.mockResolvedValue({
+      ...scan,
+      agents: [{ id: "agy", path: "/bin/agy", version: "1.3.3", hooks: true, reason: "installed" }],
+    });
   const workspace = new Workspace(deps);
   await workspace.launch({
-    agent: "claude",
+    agent,
     repository: repo.path,
     worktree: tree.path,
     cols: 80,
@@ -500,8 +505,8 @@ function held<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
 }
 
 /** Prepares and binds a Claude launch to t1, returning its hook key. */
-async function bound(): Promise<string> {
-  const hooks = await prepare?.("claude");
+async function bound(agent: "claude" | "agy" = "claude"): Promise<string> {
+  const hooks = await prepare?.(agent);
   hooks?.bind?.("t1");
   return receiver.register.mock.calls.at(-1)?.[0] ?? "";
 }
@@ -1756,48 +1761,60 @@ test("slow repeated classification preserves the verdict ID while pending", asyn
   }
 });
 
-test("captures an ID, copies it and resumes in place, then starts a fresh conversation", async () => {
-  const copy = vi.fn();
-  deps.copyText = copy;
-  const workspace = await launched();
-  const key = await bound();
-  await workspace.hook({
-    terminalId: key,
-    action: "classify",
-    signal: "claude:Stop",
-    conversationId: "conversation-123",
-  });
-  expect(workspace.snapshot().terminals[0]?.conversationId).toBe("conversation-123");
-  await expect(
-    workspace.sidebarCommand({ kind: "resume", id: "t1" }, () => Promise.resolve(true)),
-  ).rejects.toThrow("still running");
-  await workspace.exited("t1", 0);
-  await workspace.sidebarCommand({ kind: "copy-session-id", id: "t1" }, () =>
-    Promise.resolve(true),
-  );
-  expect(copy).toHaveBeenCalledWith("conversation-123");
-  await workspace.sidebarCommand({ kind: "resume", id: "t1" }, () => Promise.resolve(true));
-  expect(agents.launch).toHaveBeenLastCalledWith(
-    expect.objectContaining({
-      terminalId: "t1",
+test.each(["claude", "agy"] as const)(
+  "%s: captures an ID, copies it and resumes in place, then starts a fresh conversation",
+  async (agent) => {
+    const copy = vi.fn();
+    deps.copyText = copy;
+    const workspace = await launched(agent);
+    const key = await bound(agent);
+    await workspace.hook({
+      terminalId: key,
+      action: "classify",
+      signal: agent === "claude" ? "claude:Stop" : "agy:Stop",
       conversationId: "conversation-123",
-      worktree: tree.path,
-      sharedCheckout: true,
-    }),
-  );
-  expect(workspace.snapshot().terminals).toHaveLength(1);
-  expect(workspace.snapshot().terminals[0]).toMatchObject({
-    id: "t1",
-    exited: false,
-    conversationId: "conversation-123",
-  });
-  await workspace.exited("t1", 1);
-  await workspace.sidebarCommand({ kind: "new-conversation", id: "t1" }, () =>
-    Promise.resolve(true),
-  );
-  expect(workspace.snapshot().terminals[0]?.conversationId).toBeUndefined();
-  await workspace.dispose();
-});
+    });
+    expect(workspace.snapshot().terminals[0]?.conversationId).toBe("conversation-123");
+    await expect(
+      workspace.sidebarCommand({ kind: "resume", id: "t1" }, () => Promise.resolve(true)),
+    ).rejects.toThrow("still running");
+    await workspace.exited("t1", 0);
+    await workspace.sidebarCommand({ kind: "copy-session-id", id: "t1" }, () =>
+      Promise.resolve(true),
+    );
+    expect(copy).toHaveBeenCalledWith("conversation-123");
+    agents.launch.mockRejectedValueOnce(new Error("launch failed"));
+    await expect(
+      workspace.sidebarCommand({ kind: "resume", id: "t1" }, () => Promise.resolve(true)),
+    ).rejects.toThrow("launch failed");
+    expect(workspace.snapshot().terminals[0]).toMatchObject({
+      id: "t1",
+      exited: true,
+      conversationId: "conversation-123",
+    });
+    await workspace.sidebarCommand({ kind: "resume", id: "t1" }, () => Promise.resolve(true));
+    expect(agents.launch).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        terminalId: "t1",
+        conversationId: "conversation-123",
+        worktree: tree.path,
+        sharedCheckout: true,
+      }),
+    );
+    expect(workspace.snapshot().terminals).toHaveLength(1);
+    expect(workspace.snapshot().terminals[0]).toMatchObject({
+      id: "t1",
+      exited: false,
+      conversationId: "conversation-123",
+    });
+    await workspace.exited("t1", 1);
+    await workspace.sidebarCommand({ kind: "new-conversation", id: "t1" }, () =>
+      Promise.resolve(true),
+    );
+    expect(workspace.snapshot().terminals[0]?.conversationId).toBeUndefined();
+    await workspace.dispose();
+  },
+);
 
 test("missing IDs cannot resume or copy; failed launch keeps the saved row for retry", async () => {
   const workspace = await launched();
@@ -2491,33 +2508,36 @@ test("merged cleanup cancels, refuses stale fetches and hides ineligible invento
   await workspace.dispose();
 });
 
-test("merged cleanup protects running and resumable sessions and rechecks after stopping exited resources", async () => {
-  const workspace = await launched();
-  const spare = { ...tree, path: "/spare", branch: "spare" };
-  vi.mocked(deps.worktrees.listWorktrees).mockResolvedValue([tree, spare]);
-  vi.mocked(deps.worktrees.mergedCommit).mockResolvedValue(true);
-  const command = { kind: "delete-merged-worktrees", repository: repo.path } as const;
-  const confirm = vi.fn<ConfirmWorkspace>(() => Promise.resolve(false));
-  await workspace.sidebarCommand(command, confirm);
-  expect(confirm).toHaveBeenLastCalledWith({
-    kind: "merged-worktrees",
-    worktrees: [{ branch: "feature", reason: "running" }, { branch: "spare" }],
-  });
-  await workspace.hook({
-    terminalId: await bound(),
-    action: "classify",
-    signal: "claude:Stop",
-    conversationId: "saved-123",
-  });
-  await workspace.exited("t1", 0);
-  await workspace.sidebarCommand(command, confirm);
-  expect(confirm).toHaveBeenLastCalledWith({
-    kind: "merged-worktrees",
-    worktrees: [{ branch: "feature", reason: "resumable conversation" }, { branch: "spare" }],
-  });
-  expect(vi.mocked(deps.terminals, true).stop.mock.calls).toHaveLength(0);
-  await workspace.dispose();
-});
+test.each(["claude", "agy"] as const)(
+  "%s: merged cleanup protects running and resumable sessions and rechecks after stopping exited resources",
+  async (agent) => {
+    const workspace = await launched(agent);
+    const spare = { ...tree, path: "/spare", branch: "spare" };
+    vi.mocked(deps.worktrees.listWorktrees).mockResolvedValue([tree, spare]);
+    vi.mocked(deps.worktrees.mergedCommit).mockResolvedValue(true);
+    const command = { kind: "delete-merged-worktrees", repository: repo.path } as const;
+    const confirm = vi.fn<ConfirmWorkspace>(() => Promise.resolve(false));
+    await workspace.sidebarCommand(command, confirm);
+    expect(confirm).toHaveBeenLastCalledWith({
+      kind: "merged-worktrees",
+      worktrees: [{ branch: "feature", reason: "running" }, { branch: "spare" }],
+    });
+    await workspace.hook({
+      terminalId: await bound(agent),
+      action: "classify",
+      signal: agent === "claude" ? "claude:Stop" : "agy:Stop",
+      conversationId: "saved-123",
+    });
+    await workspace.exited("t1", 0);
+    await workspace.sidebarCommand(command, confirm);
+    expect(confirm).toHaveBeenLastCalledWith({
+      kind: "merged-worktrees",
+      worktrees: [{ branch: "feature", reason: "resumable conversation" }, { branch: "spare" }],
+    });
+    expect(vi.mocked(deps.terminals, true).stop.mock.calls).toHaveLength(0);
+    await workspace.dispose();
+  },
+);
 
 test("merged cleanup rechecks content after exiting terminal resources", async () => {
   const workspace = await launched();

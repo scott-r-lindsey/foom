@@ -18,11 +18,12 @@ Only help/version, two synthetic model calls, and startup PTY behavior were test
 
 Checked installed CLI help on Linux on 2026-10-07: Claude Code supports
 `--resume <id>`; Codex supports `resume <SESSION_ID>`; Antigravity supports
-`--conversation <id>`. Foom offers Resume for Claude and Codex only: Antigravity
-has no verified invocation-scoped adapter for capturing its conversation ID.
+`--conversation <id>`. Foom offers Resume for all three when an authenticated
+launch event supplied an ID; Antigravity requires its opt-in lifecycle plugin.
+See the [Antigravity resume probe](#antigravity-conversation-resume-249).
 
-The authenticated receiver captures Claude `session_id` and Codex `thread-id`
-from supported hook/notify events. IDs must be 1–200 ASCII letters, digits,
+The authenticated receiver captures Claude `session_id`, Codex `thread-id` and
+Antigravity `conversationId` from supported hook/notify events. IDs must be 1–200 ASCII letters, digits,
 underscores or hyphens, starting with a letter or digit. Options, paths, whitespace,
 control characters and shell syntax are rejected. Each launch pins its first ID;
 mismatched subsequent events are rejected. IDs are local metadata, never model input.
@@ -402,8 +403,8 @@ an integer, never credentials; observers allocate its sequence before detaching.
 The receiver ignores duplicate or older reports so a delayed working event cannot
 undo Stop and an old Stop cannot end a newer turn. Counter failure drops the report
 without blocking the agent. The receiver authenticates each launch,
-pins conversation identity, and discards all fields except the fixed event and
-validated completion facts. Antigravity conversation resumption remains unavailable.
+pins conversation identity, and retains only the fixed event, validated completion
+facts and conversation ID. The ID supports resumption after #249.
 
 Native Windows tests exercise `cmd /c`, Windows PowerShell, inherited credentials,
 literal UTF-8 stdin and detached reporting. The first CI run caught use of
@@ -414,3 +415,26 @@ the caller pipes open. The worker uses an explicit native handle allowlist conta
 only its input pipe and NUL output, so it cannot inherit the agent's output handles.
 Real Windows CLI timing and plugin trust behavior remain unmeasured; the real-client
 measurements above are Linux-only.
+
+## Antigravity conversation resume (#249)
+
+Linux probe on 2026-10-11 with Antigravity **1.3.3**, using an empty workspace
+and disposable HOME and XDG config/cache/data/state directories under the
+development worktree. A probe plugin installed and removed through `agy plugin`
+recorded only event names and `conversationId`; no transcript or runtime files
+were read, and the user's global configuration was untouched.
+
+- A synthetic `--print` turn asked the agent to remember “tangerine” and reply OK.
+  PreInvocation and Stop supplied the same hyphenated UUID (8-4-4-4-12 hex digits).
+- After that process exited, `agy --conversation <captured-id> --print` asked for
+  the word. It replied “tangerine”; both resumed hooks carried exactly the original
+  ID. This verifies ID equality and conversation continuity across launches.
+- An unknown UUID printed `warning: conversation "<id>" not found`, then completed
+  the synthetic prompt in a **new conversation**, with a different hook ID and
+  exit code 0. Foom leaves this CLI behavior visible; a fresh launch pins its first
+  observed ID, so the new ID replaces the saved one if the CLI starts over.
+
+Resume supplies `--conversation` and the validated ID as separate argv elements,
+with current defaults and fresh launch credentials in the same checkout and row.
+Without plugin events (including hooks-disabled launches), no new ID is captured.
+Conversation/continue selectors remain reserved in launch defaults.

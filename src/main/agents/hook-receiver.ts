@@ -64,6 +64,7 @@ function reduceEvent(
     return {
       terminalId: session.terminalId,
       signal: `agy:${event}`,
+      conversationId: agentId,
       action:
         event !== "Stop"
           ? "working"

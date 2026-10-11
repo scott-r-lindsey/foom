@@ -478,20 +478,29 @@ test.each([false, true])(
   },
 );
 
-test("exited agent menus expose only supported recorded conversations", async () => {
+test.each([
+  ["claude", "Claude Code"],
+  ["codex", "Codex"],
+  ["agy", "Antigravity"],
+] as const)("exited %s menus expose only recorded conversations", async (agent, name) => {
   const view = setup();
   await act(async () => {
     await Promise.resolve();
   });
   act(() => {
-    view.base.update("a", { exited: true, state: "done", conversationId: "conversation-123" });
+    view.base.update("a", {
+      agent,
+      exited: true,
+      state: "done",
+      conversationId: "conversation-123",
+    });
   });
   for (const [label, kind] of [
     [/^Resume conversation/, "resume"],
     ["Copy session ID", "copy-session-id"],
     ["New conversation here", "new-conversation"],
   ] as const) {
-    fireEvent.click(view.getByRole("button", { name: "Actions for Claude Code in feature" }));
+    fireEvent.click(view.getByRole("button", { name: `Actions for ${name} in feature` }));
     expect(view.getByText("conversa…")).toBeTruthy();
     await act(async () => {
       fireEvent.click(view.getByRole("menuitem", { name: label }));
