@@ -1,0 +1,5 @@
+:root { color-scheme: light dark; }
+body { font: 15px system-ui, sans-serif; margin: 24px; background: Canvas; color: CanvasText; }
+h1 { color: #5b2bd9; }
+@media (prefers-color-scheme: dark) { h1 { color: #9b6bff; } }
+.tall { height: 3000px; border-left: 4px solid #9b6bff; padding-left: 8px; }

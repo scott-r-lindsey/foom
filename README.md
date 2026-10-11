@@ -69,7 +69,7 @@ Main, host, and preload compile to CommonJS. esbuild bundles the renderer and xt
 | `npm run build` | Compile application code, bundle xterm, and copy assets |
 | `npm run package` / `npm run make` | Create an executable application / a distributable ZIP |
 
-Biome owns formatting, and ESLint owns lint rules. Strict TypeScript includes checked indexed access, exact optional properties, explicit overrides, and unused-code checks. ESLint uses type information to catch unsafe values and mishandled promises. No generated output or `inspiration/` content is checked or packaged.
+Biome owns formatting, and ESLint owns lint rules. Strict TypeScript includes checked indexed access, exact optional properties, explicit overrides, and unused-code checks. ESLint uses type information to catch unsafe values and mishandled promises. No generated output, `inspiration/` reference or `spikes/` prototype is checked or packaged.
 
 ## Tests and coverage
 
