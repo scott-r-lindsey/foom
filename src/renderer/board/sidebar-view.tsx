@@ -273,10 +273,13 @@ export function Sidebar({
         });
       },
     }));
-  // Only capability-gated per-launch MCP clients can orchestrate.
+  // Every orchestrator has the CLI fallback; Antigravity needs interactive prompts.
   const orchestrators = (repository: string): RowAction[] =>
     (options?.agents ?? [])
-      .filter((agent) => agent.mcp && agent.path && options?.enabled[agent.id])
+      .filter(
+        (agent) =>
+          agent.path && options?.enabled[agent.id] && (agent.id !== "agy" || agent.cliGuidance),
+      )
       .map((agent) => ({
         label: `Launch ${agentNames.get(agent.id) ?? agent.id} as Foom orchestrator…`,
         badge: agentBadges.get(agent.id) ?? agent.id,

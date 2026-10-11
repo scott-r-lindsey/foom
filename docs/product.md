@@ -400,7 +400,7 @@ help flag receive read-only MCP access to session metadata in their own reposito
 independently of hooks. These tested releases are the version floors. Older or
 unparseable versions, missing flags and Antigravity do not attach MCP; managed client policy may deny attachment. These tools
 never return terminal output. **Launch as Foom orchestrator** in a repository's panel grants one
-supported Claude Code or Codex session permission to create worktrees and run up to four children in that repository.
+Claude Code, Codex or Antigravity session permission to create worktrees and run up to four children in that repository.
 Children cannot orchestrate through Foom and never inherit your launch flags. The orchestrator's panel lists its
 actions and their outcomes. Each attached session panel shows MCP Connecting…,
 Connected after the first successful authenticated request, or Not connected after
@@ -411,7 +411,11 @@ You can stop a child or take it over, which ends the orchestrator's access to it
 access. Agent configuration is attached per launch, never installed globally or
 written into the repository.
 
-The packaged `foom` console can inspect session metadata. Agents launched by Foom
+The packaged `foom` console can inspect session metadata and, for explicitly
+launched orchestrators, create worktrees, launch and stop children, request worktree
+removal, and read bounded tails or wait for child state. Every orchestrator gets
+the CLI on its process-local PATH, including when MCP is unavailable. Antigravity
+requires interactive prompt support and orchestrates through the CLI alone. Agents launched by Foom
 use only their inherited repository scope. Humans and scripts request pairing with
 `--repository PATH`: compare the code in the CLI and Foom's trusted dialog, then
 grant read-only access for ten minutes. Pairing expires after 60 seconds and never

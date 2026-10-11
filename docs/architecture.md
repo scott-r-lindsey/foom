@@ -594,7 +594,9 @@ plus `operation_status`, only to an orchestrator principal; `reply` stays hidden
 and refused until #156. See [the implementation record](orchestration.md#orchestrators-and-children-155).
 
 The repository panel offers **Launch … as Foom orchestrator…** for each enabled
-agent with capability-gated per-launch MCP. Main reserves the repository's slot before any
+Claude Code or Codex agent, and for Antigravity when it supports interactive initial
+prompts. Every orchestrator has the CLI fallback; MCP attachment additionally uses
+the version and capability gate above. Main reserves the repository's slot before any
 async work; a live duplicate reveals the existing parent. The trusted dialog
 discloses the output path before launch in the main checkout. Child worktree creation requires a new local branch, refuses checked-out branches,
 and starts from HEAD even when a same-named remote ref exists. Children launch with

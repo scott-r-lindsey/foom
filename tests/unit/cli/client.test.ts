@@ -242,3 +242,58 @@ it("rejects interrupted responses instead of accepting partial JSON", async () =
     );
   }
 });
+
+it("ordinary, child and human credentials cannot use any CLI orchestration command", async () => {
+  const { execute } = await import("../../../src/cli/execute");
+  const root = await mkdtemp(join(tmpdir(), "foom-cli-denial-"));
+  scratch.push(root);
+  const runtime = await ControlRuntime.start(root, () => [], {
+    repository: () => root,
+    approve: () => Promise.resolve(true),
+  });
+  try {
+    const human = await pair(root, root, () => undefined);
+    const agent = runtime.prepare(root, root);
+    agent.bind("ordinary");
+    const child = runtime.prepare(root, root, undefined, "agent", "parent");
+    child.bind("child");
+    for (const env of [
+      agent.env,
+      child.env,
+      {
+        FOOM_CONTROL_URL: human.endpoint,
+        FOOM_CONTROL_TOKEN: human.token,
+        FOOM_CONTROL_INSTANCE: human.instanceId,
+      },
+    ]) {
+      for (const args of [
+        ["create-worktree", "branch", "--idempotency-key", "key"],
+        ["launch", "tree", "--agent", "agy", "--idempotency-key", "key"],
+        ["stop", "child", "--idempotency-key", "key"],
+        ["remove-worktree", "tree", "--idempotency-key", "key"],
+        ["tail", "child"],
+        ["wait-for", "child"],
+        ["operation-status", "--idempotency-key", "key"],
+      ]) {
+        let error = "";
+        const code = await execute(
+          args,
+          "1",
+          {
+            out: () => undefined,
+            error: (text) => {
+              error += text;
+            },
+            input: (async function* () {})(),
+          },
+          env,
+          "/foom",
+        );
+        expect(code).toBe(3);
+        expect(error).toBe('{"error":"forbidden"}\n');
+      }
+    }
+  } finally {
+    await runtime.close();
+  }
+});
