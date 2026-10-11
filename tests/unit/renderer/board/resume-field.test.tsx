@@ -132,3 +132,48 @@ test("shared-checkout confirmation waits for main and prevents duplicate submiss
   expect(confirm).toHaveBeenCalledWith(arm);
   expect(document.activeElement).toBe(input);
 });
+
+test("confirmation expiry preserves the paste and agent choice for retry", async () => {
+  let receive: (arm: ArmedConfirmation | null, accepted?: boolean) => void = () => {};
+  const operation = Promise.withResolvers<undefined>();
+  const client: ConfirmationClient = {
+    subscribe(callback) {
+      receive = callback;
+      return () => {};
+    },
+    confirm: () => Promise.resolve(),
+    cancel: () => Promise.resolve(),
+  };
+  const done = vi.fn();
+  const launch = vi.fn(() => operation.promise);
+  const view = render(
+    <ResumeField
+      agents={["claude"]}
+      confirmations={client}
+      launch={launch}
+      back={() => {}}
+      done={done}
+    />,
+  );
+  const input = view.getByRole("textbox");
+  fireEvent.change(input, { target: { value: "external-123" } });
+  fireEvent.click(view.getByRole("button", { name: "Claude Code" }));
+  fireEvent.keyDown(input, { key: "Enter" });
+  act(() => {
+    receive({ nonce: "n", target: "t", label: "Click again" });
+  });
+  await act(async () => {
+    receive(null, false);
+    operation.resolve(undefined);
+    await operation.promise;
+  });
+  expect(done).not.toHaveBeenCalled();
+  expect(view.getByDisplayValue("external-123")).toBe(input);
+  expect(document.activeElement).toBe(input);
+  await act(async () => {
+    fireEvent.keyDown(input, { key: "Enter" });
+    await Promise.resolve();
+  });
+  expect(launch).toHaveBeenCalledTimes(2);
+  expect(done).toHaveBeenCalledOnce();
+});

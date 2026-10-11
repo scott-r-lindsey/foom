@@ -1093,6 +1093,7 @@ export function Sidebar({
                       back={() => {
                         intent.pin(menu.id, menu.anchor);
                       }}
+                      done={intent.close}
                       launch={async (agent, id) => {
                         await command({
                           kind: "resume-id",
@@ -1103,7 +1104,6 @@ export function Sidebar({
                           agent,
                           id,
                         });
-                        intent.close();
                       }}
                     />
                   </div>

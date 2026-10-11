@@ -10,10 +10,12 @@ export function ResumeField({
   confirmations,
   back,
   launch,
+  done,
 }: {
   agents: readonly AgentId[];
   confirmations?: ConfirmationClient | undefined;
   back: () => void;
+  done?: () => void;
   launch: (agent: AgentId, id: string) => Promise<void>;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
@@ -42,7 +44,7 @@ export function ResumeField({
       return;
     }
     try {
-      await confirmation.run(() => launch(agent, parsed.id));
+      await confirmation.run(() => launch(agent, parsed.id), done);
     } catch {
       setFailed(true);
     }
