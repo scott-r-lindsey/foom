@@ -467,6 +467,8 @@ test("config sidebar commands accept only a run kind, never a path", async () =>
   for (const command of [
     { kind: "config-launch" },
     { kind: "config-launch", run: "bash" },
+    { kind: "config-launch", run: "codex", origin: true },
+    { kind: "config-launch", run: "codex", origin: "sidebar" },
     { kind: "config-launch", run: "claude", cwd: "/elsewhere" },
     { kind: "copy-config-path", path: "/etc" },
   ])
@@ -480,3 +482,39 @@ test("config sidebar commands accept only a run kind, never a path", async () =>
     { kind: "copy-config-path" },
   ]);
 });
+
+test.each([false, true])(
+  "menu config launches retain notifier disclosure (accepted %s)",
+  async (accepted) => {
+    requestDialog.mockResolvedValue(accepted);
+    const command = vi.fn(async (_value: unknown, confirm: ConfirmWorkspace) => {
+      expect(await confirm({ kind: "notifier" })).toBe(accepted);
+    });
+    Object.assign(workspace, { sidebarCommand: command });
+    await invoke("workspace:sidebar-command", [
+      { kind: "config-launch", run: "codex", origin: "menu" },
+    ]);
+    expect(requestDialog).toHaveBeenCalledWith({
+      title: "Replace Codex notifier for this launch?",
+      detail: expect.stringContaining("for this invocation") as unknown,
+      accept: "Replace notifier and launch",
+    });
+    expect(contents.send).not.toHaveBeenCalledWith("confirmation:armed", expect.anything());
+  },
+);
+
+test.each(["destroyed", "navigated"])(
+  "menu disclosure is refused after its board is %s",
+  async (state) => {
+    const command = vi.fn(async (_value: unknown, confirm: ConfirmWorkspace) => {
+      if (state === "destroyed") contents.isDestroyed.mockReturnValue(true);
+      else frame.url = "https://elsewhere.test";
+      expect(await confirm({ kind: "notifier" })).toBe(false);
+    });
+    Object.assign(workspace, { sidebarCommand: command });
+    await invoke("workspace:sidebar-command", [
+      { kind: "config-launch", run: "codex", origin: "menu" },
+    ]);
+    expect(requestDialog).not.toHaveBeenCalled();
+  },
+);

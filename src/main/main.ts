@@ -107,6 +107,7 @@ function themesChanged() {
           entry.window.webContents.mainFrame.url === APP_URL
         )
           entry.window.webContents.send("setup:changed", state);
+        void entry.appMenu.refreshAgents();
       })
       .catch(() => {});
   }
@@ -341,6 +342,16 @@ async function buildWindow(savedSize?: Size, saved?: WindowPlacement, initialSes
     ipc,
     openWindow,
     async () => (await setup.state()).settings.interfaceScale,
+    async () => {
+      if (!initialized || !config.ready) return [];
+      const report = await workspace.scanAgents(false);
+      const current = settings.get();
+      return current.setupComplete
+        ? report.agents
+            .filter((agent) => agent.path && current.agents[agent.id])
+            .map((agent) => agent.id)
+        : [];
+    },
   );
   newWindowCommand = appMenu.newWindow;
   // Terminal events and state updates only arrive after both objects exist.
@@ -521,6 +532,7 @@ async function buildWindow(savedSize?: Size, saved?: WindowPlacement, initialSes
             .then((state) => {
               if (!entry.window.webContents.isDestroyed())
                 entry.window.webContents.send("setup:changed", state);
+              void entry.appMenu.refreshAgents();
             })
             .catch((error: unknown) => {
               console.error("Unable to refresh settings:", error);

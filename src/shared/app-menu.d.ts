@@ -26,7 +26,12 @@ export interface ShortcutGroup {
 }
 export interface AppMenuApi {
   readonly platform: string;
-  setView: (state: { available: boolean; maximized: boolean; tiles: number }) => Promise<void>;
+  setView: (state: {
+    available: boolean;
+    configAvailable?: boolean;
+    maximized: boolean;
+    tiles: number;
+  }) => Promise<void>;
   commands: () => Promise<AppMenuEntry[]>;
   shortcuts: () => Promise<ShortcutGroup[]>;
   execute: (id: string) => Promise<void>;

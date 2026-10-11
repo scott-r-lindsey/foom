@@ -1,3 +1,4 @@
+import type { AgentId } from "../../../../src/shared/agents";
 import { afterEach, expect, test, vi } from "vitest";
 import { EventEmitter } from "node:events";
 import type { BrowserWindow, MenuItemConstructorOptions } from "electron";
@@ -43,7 +44,7 @@ afterEach(() => {
   mock.handlers.clear();
   mock.packaged = false;
 });
-function fixture(platform: NodeJS.Platform = "linux") {
+function fixture(platform: NodeJS.Platform = "linux", defaults = false) {
   vi.spyOn(process, "platform", "get").mockReturnValue(platform);
   const frame = { url: "app://bundle/index.html" };
   const contents = Object.assign(new EventEmitter(), {
@@ -72,12 +73,14 @@ function fixture(platform: NodeJS.Platform = "linux") {
   });
   const zoom = vi.fn<() => Promise<void>>().mockResolvedValue();
   const scale = vi.fn(() => Promise.resolve(110));
+  const configAgents = vi.fn<() => Promise<readonly AgentId[]>>().mockResolvedValue([]);
   const attached = attachAppMenu(
     window as unknown as BrowserWindow,
     zoom,
     undefined,
     undefined,
-    scale,
+    defaults ? undefined : scale,
+    defaults ? undefined : configAgents,
   );
   const trusted = { sender: contents, senderFrame: frame };
   const invoke = (channel: string, value?: unknown, event: unknown = trusted) =>
@@ -85,7 +88,7 @@ function fixture(platform: NodeJS.Platform = "linux") {
   /** Every handler, synchronous or not, as a promise. */
   const call = (channel: string, value?: unknown, event: unknown = trusted) =>
     Promise.resolve().then(() => invoke(channel, value, event));
-  return { window, contents, attached, invoke, call, trusted, frame, zoom, scale };
+  return { window, contents, attached, invoke, call, trusted, frame, zoom, scale, configAgents };
 }
 test("validates each sender and command ID, projects data only and disposes handlers", async () => {
   const f = fixture();
@@ -218,6 +221,7 @@ test("packaged execution rejects developer commands and validates view state bef
     { available: true },
     { available: true, maximized: false },
     { available: true, maximized: false, tiles: "1" },
+    { available: true, configAvailable: "yes", maximized: false, tiles: 1 },
     { available: true, maximized: false, tiles: -1 },
     { available: true, maximized: false, tiles: 257 },
     { available: true, maximized: false, tiles: 1.5 },
@@ -273,4 +277,68 @@ test("windowless macOS menu keeps native New Window and Quit accelerators withou
     ["Command+Q", true],
     ["Command+N", true],
   ]);
+});
+
+test("config routes follow discovery and settings, including while Settings hides the tiles", async () => {
+  const f = fixture("darwin");
+  f.configAgents.mockResolvedValue(["claude", "codex"]);
+  await f.call("view", { available: false, configAvailable: true, maximized: false, tiles: 0 });
+  await f.call("execute", "via-claude");
+  expect(f.contents.send).toHaveBeenLastCalledWith("board:command", "via-claude");
+  await expect(f.call("execute", "via-agy")).rejects.toThrow("Unavailable");
+  const list = JSON.stringify(await f.call("list"));
+  expect(list).toContain('"id":"via-codex","label":"Via Codex","shortcut":"","enabled":true');
+  f.configAgents.mockResolvedValue(["agy"]);
+  await f.attached.refreshAgents();
+  await expect(f.call("execute", "via-codex")).rejects.toThrow("Unavailable");
+  await f.call("execute", "via-agy");
+  expect(f.contents.send).toHaveBeenLastCalledWith("board:command", "via-agy");
+  await f.call("view", { available: false, configAvailable: false, maximized: false, tiles: 0 });
+  await expect(f.call("execute", "via-agy")).rejects.toThrow("Unavailable");
+  await f.call("view", { available: true, maximized: false, tiles: 0 });
+  f.configAgents.mockRejectedValue(new Error("Scan failed"));
+  await expect(f.call("execute", "via-agy")).rejects.toThrow("Unavailable");
+  f.attached.dispose();
+});
+
+test("late config availability cannot overwrite newer state or a disposed menu", async () => {
+  const f = fixture("darwin");
+  await f.call("view", { available: true, maximized: false, tiles: 0 });
+  let resolve: ((agents: readonly AgentId[]) => void) | undefined;
+  f.configAgents.mockReturnValueOnce(
+    new Promise((done) => {
+      resolve = done;
+    }),
+  );
+  const old = f.attached.refreshAgents();
+  f.configAgents.mockResolvedValue(["codex"]);
+  await f.attached.refreshAgents();
+  resolve?.(["claude"]);
+  await old;
+  const menus = mock.menu.mock.calls.at(-1)?.[0] as MenuItemConstructorOptions[];
+  const items = menus.flatMap((section) => (Array.isArray(section.submenu) ? section.submenu : []));
+  expect(items).toContainEqual(expect.objectContaining({ id: "via-claude", enabled: false }));
+  expect(items).toContainEqual(expect.objectContaining({ id: "via-codex", enabled: true }));
+  f.configAgents.mockReturnValueOnce(
+    new Promise((done) => {
+      resolve = done;
+    }),
+  );
+  const pending = f.attached.refreshAgents();
+  f.attached.dispose();
+  mock.menu.mockClear();
+  resolve?.(["claude"]);
+  await pending;
+  expect(mock.menu).not.toHaveBeenCalled();
+});
+
+test("an adapter without config services keeps agent routes unavailable", async () => {
+  const f = fixture("linux", true);
+  await f.call("view", { available: true, maximized: false, tiles: 0 });
+  await expect(f.call("execute", "via-claude")).rejects.toThrow("Unavailable");
+  expect(await f.call("list")).toContainEqual(
+    expect.objectContaining({ kind: "size", scale: 100 }),
+  );
+  await f.call("execute", "new-window");
+  f.attached.dispose();
 });
