@@ -28,6 +28,7 @@ export interface BoardRow {
   /** Main's orchestrator role and action history, or a child's parent and takeover. */
   mcpConnection?: McpConnection | undefined;
   orchestration?: OrchestrationView | undefined;
+  roleNotRestored?: boolean | undefined;
   kind: "sample" | "shell" | "agent";
   repository: string;
   branch: string;

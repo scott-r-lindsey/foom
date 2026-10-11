@@ -56,6 +56,8 @@ export interface OrchestrationHost {
     prompt: string | undefined,
   ): Promise<string>;
   stop(id: string): Promise<void>;
+  /** Starting restored sessions do not yet have a stoppable PTY. */
+  starting?(id: string): boolean;
   tail(id: string, lines: number): Promise<string[]>;
   /** The workspace removal sequence: identity and changes are rechecked after `confirm`. */
   remove(
@@ -184,6 +186,33 @@ export class Orchestration {
           this.slots.delete(repository);
       },
     };
+  }
+
+  /** Restore main-owned history without carrying an old principal or pending work. */
+  restoreHistory(id: string, history: readonly OrchestrationEntry[]): void {
+    const parent = this.parents.get(id);
+    if (parent) parent.history.push(...history.slice(-HISTORY));
+  }
+
+  /** Reserve restored children before launches, so they count against the live limit. */
+  restoreChild(parentId: string, entry: WorkspaceTerminal): boolean {
+    const parent = this.parents.get(parentId);
+    const existing = parent?.children.get(entry.id);
+    if (existing) return parent?.active === true && !existing.takenOver;
+    if (
+      !parent?.active ||
+      parent.repository !== entry.repository ||
+      this.running(parent) >= CHILD_LIMIT
+    )
+      return false;
+    parent.children.set(entry.id, {
+      worktreeId: locationId(entry.worktree),
+      exited: false,
+      takenOver: false,
+      tailAt: 0,
+    });
+    this.host.changed();
+    return true;
   }
 
   /** Exit revokes the parent's authority; children keep running under human control. */
@@ -399,6 +428,8 @@ export class Orchestration {
     this.note(parent, this.entry(operation, label));
     if (child.exited)
       return this.finish(actor, parent, operations, operation, label, "succeeded", id);
+    if (this.host.starting?.(id))
+      return this.refuse(actor, parent, operations, operation, label, "conflict");
     try {
       await this.host.stop(id);
     } catch {

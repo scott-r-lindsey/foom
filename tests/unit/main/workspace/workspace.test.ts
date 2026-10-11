@@ -1869,17 +1869,18 @@ test("restores metadata without PTYs, allows Resume and Close, and drains persis
   const workspace = new Workspace(deps);
   await workspace.restore();
   expect(workspace.ownsSession("t1")).toBe(true);
-  expect(workspace.ownsSession("foreign")).toBe(false);
-  expect(workspace.snapshot().terminals).toHaveLength(1);
+  expect(workspace.ownsSession("foreign")).toBe(true);
+  expect(workspace.snapshot().terminals).toHaveLength(2);
   expect(agents.launch).not.toHaveBeenCalled();
   await workspace.sidebarCommand({ kind: "resume", id: "t1" }, () => Promise.resolve(true));
   expect(vi.mocked(deps.terminals, true).kill.mock.calls).toHaveLength(0);
   expect(save).toHaveBeenLastCalledWith([
     expect.objectContaining({ id: "t1", conversationId: "saved-123" }),
+    expect.objectContaining({ id: "foreign", exited: true }),
   ]);
   await workspace.exited("t1", 0);
   await workspace.sidebarCommand({ kind: "close", id: "t1" }, () => Promise.resolve(true));
-  expect(save).toHaveBeenLastCalledWith([]);
+  expect(save).toHaveBeenLastCalledWith([expect.objectContaining({ id: "foreign", exited: true })]);
   await workspace.dispose();
   expect(flush).toHaveBeenCalledOnce();
   const restored = new Workspace(deps);

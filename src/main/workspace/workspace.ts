@@ -8,6 +8,8 @@ import { createHash } from "node:crypto";
 import { AgentExecution } from "../agents/execution";
 import type { ExecutionPhase, ExecutionSource, ExecutionTransition } from "../../shared/execution";
 import { conversationId, resumeArguments } from "../agents/conversation";
+import { restorePlan, restoreAuthority, runRestore } from "./session-restore";
+import type { StoredSession } from "./session-restore.d";
 import type { SessionStore } from "./session-store";
 import type { InventoryWatch } from "./inventory-watch";
 import type { ControlLaunch } from "../control/types";
@@ -233,6 +235,7 @@ export class Workspace {
         launch: (parentId, repository, worktree, identity, agent, prompt) =>
           this.launchChild(parentId, repository, worktree, identity, agent, prompt),
         stop: (id) => this.deps.terminals.stop(id),
+        starting: (id) => this.restoring.has(id),
         tail: (id, lines) => this.deps.terminals.tail(id, lines),
         remove: async (repository, worktree, identity, confirm) => {
           const tree = (await this.worktrees(repository)).find((item) => item.path === worktree);
@@ -267,7 +270,10 @@ export class Workspace {
         },
         dialog: (content, signal) => this.deps.dialog?.(content, signal) ?? Promise.resolve(false),
         changed: () => {
-          if (!this.closed) this.deps.onChange?.();
+          if (!this.closed) {
+            this.persist();
+            this.deps.onChange?.();
+          }
         },
       },
       this.now,
@@ -280,8 +286,14 @@ export class Workspace {
   /** Setup's choices apply to later launches; running agents keep theirs. */
   configure(
     settings: Pick<Settings, "hooks" | "agents"> &
-      Partial<Pick<Settings, "worktreeLocation" | "codexNotifierAcknowledged" | "agentArguments">>,
+      Partial<
+        Pick<
+          Settings,
+          "worktreeLocation" | "codexNotifierAcknowledged" | "agentArguments" | "restoreSessions"
+        >
+      >,
   ): void {
+    this.restoreEnabled = settings.restoreSessions ?? true;
     this.agents.setHooksEnabled(settings.hooks);
     this.hooksEnabled = settings.hooks;
     this.defaultArguments = settings.agentArguments ?? EMPTY_AGENT_ARGUMENTS;
@@ -289,6 +301,14 @@ export class Workspace {
     this.location = settings.worktreeLocation ?? "root";
     this.acknowledged = settings.codexNotifierAcknowledged ?? false;
   }
+
+  private restoreEnabled = true;
+  private readonly saved = new Map<string, StoredSession>();
+  private readonly repositoryIdentities = new Map<string, string>();
+  private readonly restoring = new Set<string>();
+  private readonly unrestoredRoles = new Set<string>();
+  private restoreWork: Promise<void> | undefined;
+  private quitting = false;
 
   async restore(): Promise<void> {
     for (const entry of (await this.deps.sessions?.load()) ?? []) {
@@ -299,10 +319,15 @@ export class Workspace {
             ? entry.kind !== "shell" ||
               entry.worktree !== homeDirectory ||
               entry.repository !== homeDirectory
-            : !this.deps.worktrees.listRepositories().some((repo) => repo.path === entry.repository)
+            : false
       )
         continue;
-      this.launched.set(entry.id, entry);
+      this.saved.set(entry.id, entry);
+      const row = { ...entry };
+      delete row.running;
+      delete row.orchestrator;
+      delete row.parentId;
+      this.launched.set(entry.id, row);
       this.track(entry.id).exitCode = -1;
     }
   }
@@ -311,10 +336,142 @@ export class Workspace {
     return this.launched.has(id);
   }
 
+  private records(): StoredSession[] {
+    return this.snapshot().terminals.map((entry) => {
+      const role = this.orchestration.view(entry.id);
+      const identity = this.repositoryIdentities.get(entry.repository);
+      const saved = this.restoring.has(entry.id) ? this.saved.get(entry.id) : undefined;
+      return {
+        ...entry,
+        ...(saved?.orchestrator ? { orchestrator: saved.orchestrator } : {}),
+        ...(saved?.parentId ? { parentId: saved.parentId } : {}),
+        running: this.restoring.has(entry.id) || !entry.exited,
+        ...(role?.role === "orchestrator" && role.active && identity !== undefined
+          ? { orchestrator: { identity, history: role.history } }
+          : {}),
+        ...(role?.role === "child" && !role.takenOver ? { parentId: role.parentId } : {}),
+      };
+    });
+  }
+
   private persist(): void {
-    void this.deps.sessions?.save([...this.launched.values()]).catch((error: unknown) => {
+    if (this.quitting) return;
+    void this.deps.sessions?.save(this.records()).catch((error: unknown) => {
       console.error("Unable to save sessions:", error);
     });
+  }
+
+  /** Freeze the pre-shutdown state, before stopping PTYs reports their exits. */
+  async prepareQuit(): Promise<void> {
+    await this.restoreWork;
+    this.quitting = true;
+    try {
+      await this.deps.sessions?.save(this.records());
+      await this.deps.sessions?.flush();
+    } catch (error) {
+      this.quitting = false;
+      throw error;
+    }
+  }
+
+  cancelQuit(): void {
+    this.quitting = false;
+    this.persist();
+  }
+
+  /** Called only after all saved windows have been shown. */
+  restartSaved(): Promise<void> {
+    if (this.restoreWork) return this.restoreWork;
+    const plan = restorePlan([...this.saved.values()], this.restoreEnabled);
+    for (const entry of plan) {
+      this.restoring.add(entry.id);
+      this.busySessions.add(entry.id);
+    }
+    this.deps.onChange?.();
+    this.restoreWork = runRestore(plan, async (entry) => {
+      try {
+        if (this.quitting || this.closed || !this.restoreEnabled || !this.launched.has(entry.id))
+          return;
+        await this.restartSavedEntry(entry);
+      } catch {
+        this.track(entry.id).exitCode = -1;
+        this.orchestration.exited(entry.id);
+      } finally {
+        if (this.launched.get(entry.id)?.dormant) this.orchestration.exited(entry.id);
+        this.restoring.delete(entry.id);
+        this.busySessions.delete(entry.id);
+        this.saved.delete(entry.id);
+        this.persist();
+        this.deps.onChange?.();
+      }
+    });
+    return this.restoreWork;
+  }
+
+  private async restartSavedEntry(entry: StoredSession): Promise<void> {
+    const replacement = {
+      id: entry.id,
+      ...(entry.conversationId === undefined ? {} : { conversationId: entry.conversationId }),
+    };
+    const confirm: ConfirmWorkspace = () => Promise.resolve(false);
+    if (entry.home) {
+      await this.startHomeShell(entry.id);
+      return;
+    }
+    if (entry.config) {
+      await this.startConfig(entry.agent, confirm, replacement);
+      return;
+    }
+    let control: AgentLaunch["control"];
+    let authorityIdentity: string | undefined;
+    let slot: ReturnType<Orchestration["reserve"]> | undefined;
+    if (entry.orchestrator) {
+      this.unrestoredRoles.add(entry.id);
+      const identity = await this.deps.worktrees
+        .launchIdentity(entry.repository, entry.repository)
+        .catch(() => undefined);
+      const scan = await this.scanAgents(false);
+      if (
+        restoreAuthority(
+          entry,
+          identity,
+          scan.agents.find((agent) => agent.id === entry.agent),
+          this.restoreEnabled,
+        )
+      ) {
+        slot = this.orchestration.reserve(entry.repository);
+        if (!("existing" in slot)) {
+          control = { role: "orchestrator" };
+          authorityIdentity = identity;
+          if (identity !== undefined) this.repositoryIdentities.set(entry.repository, identity);
+        }
+      }
+    } else if (entry.parentId && this.orchestration.restoreChild(entry.parentId, entry)) {
+      control = { parentId: entry.parentId };
+    }
+    try {
+      const id = await this.startExisting(
+        entry.repository,
+        entry.worktree,
+        entry.agent,
+        confirm,
+        replacement,
+        control,
+        true,
+        authorityIdentity,
+      );
+      if (id && slot && !("existing" in slot)) {
+        slot.bind(id);
+        this.orchestration.restoreHistory(id, entry.orchestrator?.history ?? []);
+        this.unrestoredRoles.delete(id);
+        for (const child of this.saved.values()) {
+          if (child.parentId === id && this.restoring.has(child.id))
+            this.orchestration.restoreChild(id, child);
+        }
+      }
+    } finally {
+      if (slot && !("existing" in slot)) slot.release();
+    }
   }
 
   private readonly mcpConnections = new Map<string, McpConnection>();
@@ -337,8 +494,11 @@ export class Workspace {
           ? { exitCode: this.terminals.get(entry.id)?.exitCode }
           : {}),
         state: this.terminals.get(entry.id)?.state ?? null,
-        exited: entry.dormant === true || this.terminals.get(entry.id)?.exitCode !== undefined,
+        exited:
+          !this.restoring.has(entry.id) &&
+          (entry.dormant === true || this.terminals.get(entry.id)?.exitCode !== undefined),
         ...this.orchestrationView(entry.id),
+        ...(this.unrestoredRoles.has(entry.id) ? { roleNotRestored: true } : {}),
         mcpConnection: this.mcpConnections.get(entry.id),
       })),
     };
@@ -549,6 +709,8 @@ export class Workspace {
       const launchVersion = replacement
         ? (this.launched.get(replacement.id)?.launchVersion ?? 0) + 1
         : undefined;
+      if (extra.control && "role" in extra.control && checkoutIdentity !== undefined)
+        this.repositoryIdentities.set(request.repository, checkoutIdentity);
       this.launched.set(result.id, {
         ...(launchVersion === undefined ? {} : { launchVersion }),
         id: result.id,
@@ -879,10 +1041,12 @@ export class Workspace {
       : { env: {}, names: [] };
   }
 
-  private async startHomeShell(): Promise<void> {
+  private async startHomeShell(restoreId?: string): Promise<void> {
     const windows = process.platform === "win32";
     const environment = this.shellEnvironment();
+    if (restoreId !== undefined) this.terminals.delete(restoreId);
     const id = await this.deps.terminals.create({
+      ...(restoreId === undefined ? {} : { id: restoreId }),
       command: shellPath(),
       args: windows ? ["-NoLogo"] : ["-l"],
       shellIntegration: true,
@@ -932,7 +1096,9 @@ export class Workspace {
       await config.check();
       if (run === "shell") {
         const environment = this.shellEnvironment(config.cliDirectory);
+        if (replacement) this.terminals.delete(replacement.id);
         const id = await this.deps.terminals.create({
+          ...(replacement ? { id: replacement.id } : {}),
           command: shellPath(),
           args: process.platform === "win32" ? ["-NoLogo"] : ["-l"],
           shellIntegration: true,
@@ -1179,6 +1345,8 @@ export class Workspace {
     confirm: ConfirmWorkspace,
     replacement?: { id: string; conversationId?: string },
     control?: AgentLaunch["control"],
+    restoring = false,
+    authorityIdentity?: string,
   ): Promise<string | undefined> {
     return this.withRepository(repository, async () => {
       const tree = (await this.worktrees(repository)).find((item) => item.path === worktree);
@@ -1189,7 +1357,10 @@ export class Workspace {
       this.busyWorktrees.add(key);
       try {
         const identity = await this.deps.worktrees.launchIdentity(repository, worktree);
-        if (run !== "shell" && !(await this.confirmAgentLaunch(worktree, confirm))) return;
+        if (authorityIdentity !== undefined && identity !== authorityIdentity)
+          throw new Error("Repository identity changed during restore");
+        if (run !== "shell" && !restoring && !(await this.confirmAgentLaunch(worktree, confirm)))
+          return;
         if (run !== "shell") {
           const scan = await this.scanAgents(false);
           if (
@@ -1205,7 +1376,7 @@ export class Workspace {
             this.acknowledged = true;
           }
           if (replacement) {
-            this.orchestration.relaunched(replacement.id);
+            if (!restoring) this.orchestration.relaunched(replacement.id);
             const old = this.launched.get(replacement.id);
             if (!old || this.terminals.get(old.id)?.exitCode === undefined)
               throw new Error("Session is no longer exited");
@@ -1230,7 +1401,12 @@ export class Workspace {
                 true,
                 identity,
                 replacement,
-                control === undefined ? {} : { control },
+                control === undefined
+                  ? {}
+                  : {
+                      control,
+                      ...("parentId" in control ? { prompt: "Resume your previous task." } : {}),
+                    },
               )
             ).id;
           } catch (error) {
@@ -1243,7 +1419,9 @@ export class Workspace {
             throw new Error("Worktree has changed. Select it and try again.");
           const windows = process.platform === "win32";
           const environment = this.shellEnvironment();
+          if (replacement) this.terminals.delete(replacement.id);
           const id = await this.deps.terminals.create({
+            ...(replacement ? { id: replacement.id } : {}),
             command: windows ? "powershell.exe" : process.env["SHELL"] || "/bin/bash",
             args: windows ? ["-NoLogo"] : ["-l"],
             shellIntegration: true,
@@ -1307,7 +1485,9 @@ export class Workspace {
       const id = await this.startExisting(repository, repository, agent, confirm, undefined, {
         role: "orchestrator",
       });
-      if (id !== undefined) slot.bind(id);
+      if (id !== undefined) {
+        slot.bind(id);
+      }
     } finally {
       slot.release();
     }
@@ -1824,6 +2004,7 @@ export class Workspace {
     return this.enqueue(id, async (terminal) => {
       if (terminal.exitCode !== undefined) return;
       terminal.exitCode = code;
+      this.persist();
       delete terminal.hook;
       await this.evaluate(id, terminal);
     });

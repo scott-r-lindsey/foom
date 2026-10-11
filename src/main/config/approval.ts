@@ -30,6 +30,8 @@ export interface Weakening {
  */
 export function weakenings(before: EffectiveConfig, after: EffectiveConfig): Weakening[] {
   const result: Weakening[] = [];
+  if (!before.restoreSessions && after.restoreSessions)
+    result.push({ action: "restore sessions on launch", detail: "restoreSessions: off → on" });
   if (before.sound.alerts && !after.sound.alerts)
     result.push({ action: "turn off the needs-you sound", detail: "sound.alerts: on → off" });
   if (before.sound.alertVolume > 0 && after.sound.alertVolume <= 0)
@@ -58,6 +60,7 @@ const LABELS: Record<ConfigSetting, string> = {
   sound: "Sound",
   agents: "Agents",
   hooks: "Hooks",
+  restoreSessions: "Restore sessions on launch",
 };
 
 /** Short commit subject naming what changed, such as "Terminal font size 15". */

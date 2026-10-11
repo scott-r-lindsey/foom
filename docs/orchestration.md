@@ -207,7 +207,9 @@ and shutdown. No control registration depends on hooks being enabled. Scrub all
 inherited Foom credentials before constructing each child's environment, then add
 fresh child-scoped values. Never return tokens to the renderer, logs, MCP results
 or error text. New Foom instances and resumed sessions receive fresh credentials;
-#115 must not restore authority from historical metadata.
+automatic restore may re-grant orchestrator control only from Foom's main-owned session store, when restore is enabled, the orchestrator was active at quit, the same repository identity is still registered and the CLI is a verified Claude Code or Codex release. Hook data, conversation metadata, agent output and environment flags never grant roles. Otherwise the session resumes ordinarily and its panel says the role was not restored. Every re-grant has a new principal generation and token. The verified repository identity is carried into the launch and rechecked before spawning. Tokens, confirmations, replies, waits and in-flight mutations never survive; unresolved persisted operation intents still require human reconciliation.
+
+Restored parents launch before their running, non-taken-over children. Those children keep child launch rules (no user defaults and an orchestrator prompt prefix), count toward the four-child limit, and may be stopped, tailed and waited for by the new parent. Stop returns a conflict while a restored child is still starting; it cannot report success for a PTY that does not exist yet. Taken-over children and children without a re-granted parent resume ordinarily. The active panel and its action history continue without a restore badge.
 
 A CLI invocation with agent credentials uses exactly that scope. It never falls
 back to a stronger principal when authentication fails. A person running `foom`
@@ -295,7 +297,7 @@ returns an operation ID, so agents cannot hold the HTTP connection indefinitely.
 Stopping a child needs no extra confirmation after the user has launched its
 orchestrator; stopping unrelated sessions is forbidden. Parent exit revokes its
 authority and cancels pending mutations/replies, but leaves children running for
-the human. A replacement orchestrator does not inherit those children. Quit keeps
+the human. A manually launched replacement orchestrator does not inherit those children; automatic restore reattaches only the saved running children that had not been taken over, under the re-grant checks above. Quit keeps
 the existing confirmation and stops all PTYs.
 
 ## Reply gate

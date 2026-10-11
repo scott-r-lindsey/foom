@@ -15,6 +15,7 @@ export const CONFIG_SETTINGS = [
   "sound",
   "agents",
   "hooks",
+  "restoreSessions",
 ] as const;
 export function isConfigSetting(key: string): key is ConfigSetting {
   return CONFIG_SETTINGS.some((allowed) => allowed === key);
@@ -28,6 +29,8 @@ export function parseConfigSettings(value: unknown): ConfigSettings {
     if (key === "interfaceTheme") result.interfaceTheme = parseInterfaceTheme(entry);
     else if (key === "terminalTheme") result.terminalTheme = parseTerminalThemeChoice(entry);
     else if (key === "sound") result.sound = parseSoundSettings(entry);
+    else if (key === "restoreSessions" && typeof entry === "boolean")
+      result.restoreSessions = entry;
     else if (key === "hooks" && typeof entry === "boolean") result.hooks = entry;
     else if (key === "agents") {
       if (typeof entry !== "object" || entry === null || Array.isArray(entry))

@@ -167,14 +167,22 @@ export function createAppSource(): BoardSource {
           entry.repository,
         agent: entry.agent,
         state: entry.dormant || entry.kind === "agent" ? "quiet_ok" : "working",
-        reason: entry.dormant ? "Exited · saved session" : "Running",
+        reason: entry.dormant
+          ? entry.exited === false
+            ? "Starting"
+            : "Exited · saved session"
+          : "Running",
         rate: rates.get(entry.id) ?? 0,
         waitingSince: 0,
         seen: false,
         tail: [],
         ...known.get(entry.id),
         ...(entry.dormant
-          ? { state: "quiet_ok", reason: "Exited · saved session", seen: false }
+          ? {
+              state: "quiet_ok",
+              reason: entry.exited === false ? "Starting" : "Exited · saved session",
+              seen: false,
+            }
           : {}),
         branch: entry.config
           ? "Foom config"
@@ -189,6 +197,7 @@ export function createAppSource(): BoardSource {
         launchFlags: entry.launchFlags,
         environment: entry.environment,
         orchestration: entry.orchestration,
+        roleNotRestored: entry.roleNotRestored,
         mcpConnection: entry.mcpConnection,
         worktreeRemoved: !entry.home && !entry.config && (!checkout || checkout.prunable),
         exited: entry.exited ?? exits.has(entry.id),

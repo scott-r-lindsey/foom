@@ -54,6 +54,7 @@ export interface WorkspaceTerminal {
   environment?: readonly string[];
   /** Main-computed orchestration role and visible action history; never persisted. */
   orchestration?: OrchestrationView;
+  roleNotRestored?: boolean;
 }
 
 /** One orchestrator action. Labels are redacted, bounded metadata, never prompts or output. */

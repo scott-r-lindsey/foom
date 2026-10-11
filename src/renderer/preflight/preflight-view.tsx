@@ -26,6 +26,7 @@ import type { CodeSelection, Scanning } from "./repository-picker";
 import type { SetupSource } from "./setup-source.d";
 
 const SETTINGS_SECTIONS = [
+  { step: 11, label: "General" },
   { step: 1, label: "Agents and hooks" },
   { step: 10, label: "Environment" },
   { step: 2, label: "Repositories" },
@@ -396,6 +397,24 @@ export function Preflight({
           Foom config
         </h2>
         <ConfigControls config={source.config} />
+      </>
+    );
+  } else if (step === 11) {
+    content = (
+      <>
+        <h2 ref={headingRef} tabIndex={-1}>
+          General
+        </h2>
+        <label className="check">
+          <input
+            type="checkbox"
+            checked={state.settings.restoreSessions}
+            onChange={(event) => {
+              save({ restoreSessions: event.target.checked });
+            }}
+          />
+          <span>Restore sessions on launch</span>
+        </label>
       </>
     );
   } else if (step === 8) {

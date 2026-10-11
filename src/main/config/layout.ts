@@ -81,6 +81,7 @@ const settingsSchema = schema("foom:settings", {
       },
     },
     hooks: { type: "boolean" },
+    restoreSessions: { type: "boolean" },
   },
 });
 
@@ -130,7 +131,7 @@ can be reviewed and reverted from Settings → Foom config.
 
 - \`settings.json\`: \`{ "kind": "settings", ... }\` with any of the allowed keys:
   \`colorMode\`, \`panelColor\`, \`interfaceTheme\`, \`terminalTheme\`, \`interfaceScale\`,
-  \`terminalFontSize\`, \`sound\`, \`agents\` and \`hooks\`. Any other key rejects the file.
+  \`terminalFontSize\`, \`sound\`, \`agents\` \`hooks\` and \`restoreSessions\`. Any other key rejects the file.
   Launch arguments, consent records, paths and secrets are not configurable here.
 - \`themes/*.json\`: interface themes, \`{ "kind": "theme", "name", "base", "colors" }\`.
   Select one with \`"interfaceTheme": "user:<filename>.json"\`.
@@ -146,7 +147,7 @@ can be reviewed and reverted from Settings → Foom config.
   and the last good version stays in effect.
 - Changes that make Foom less able to tell the user something needs them wait for the
   user's approval: turning alerts off, setting the alert volume to 0, turning hooks
-  off, or turning an agent off. Do not try to work around this.
+  off, turning an agent off, or enabling restoreSessions (which can restore orchestrator control). Do not try to work around this.
 - Themes, sizes and turning sounds on apply without approval.
 - Foom commits applied changes itself. Do not rewrite history.
 - Foom owns this guide, AGENTS.md, CLAUDE.md, .gitignore and schemas/. It refreshes
@@ -174,7 +175,14 @@ export const OWNED_FILES: Readonly<Record<string, string>> = {
  * SHA-256 digests of every earlier version Foom wrote. A file matching one of these
  * is unedited and is replaced on upgrade; anything else belongs to the user.
  */
-export const OWNED_HISTORY: Readonly<Record<string, readonly string[]>> = {};
+export const OWNED_HISTORY: Readonly<Record<string, readonly string[]>> = {
+  "README.md": ["35a362caf6cfdec503b113efd0b66a6b89be3dc835b597e39f1fb8679b20875f"],
+  "AGENTS.md": ["35a362caf6cfdec503b113efd0b66a6b89be3dc835b597e39f1fb8679b20875f"],
+  "CLAUDE.md": ["35a362caf6cfdec503b113efd0b66a6b89be3dc835b597e39f1fb8679b20875f"],
+  "schemas/settings.schema.json": [
+    "e975ab7aba189e009bbcd16becb6c096679dc5c46017d585a46cbda130af804e",
+  ],
+};
 
 export function digest(bytes: Uint8Array | string): string {
   return createHash("sha256").update(bytes).digest("hex");

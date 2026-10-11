@@ -488,3 +488,293 @@ it("permits CLI-only orchestrators and requires Antigravity interactive prompts"
     expect.objectContaining({ agent: "agy", control: { role: "orchestrator" } }),
   );
 });
+
+it("restores running parents and owned children with new launches and retains history", async () => {
+  const { readSessions } = await import("../../../../src/main/workspace/session-store");
+  const entries = readSessions([
+    {
+      id: "parent",
+      agent: "claude",
+      repository: repo.path,
+      worktree: repo.path,
+      branch: "main",
+      conversationId: "parent-conversation",
+      running: true,
+      orchestrator: {
+        identity: "identity",
+        history: [{ id: "old", action: "launch", label: "child", status: "succeeded", at: 1 }],
+      },
+    },
+    {
+      id: "child",
+      agent: "claude",
+      repository: repo.path,
+      worktree: child.path,
+      branch: "feature",
+      conversationId: "child-conversation",
+      running: true,
+      parentId: "parent",
+    },
+    {
+      id: "taken",
+      agent: "claude",
+      repository: repo.path,
+      worktree: child.path,
+      branch: "feature",
+      conversationId: "taken-conversation",
+      running: true,
+    },
+    {
+      id: "exited",
+      agent: "claude",
+      repository: repo.path,
+      worktree: child.path,
+      branch: "feature",
+      conversationId: "exited-conversation",
+      running: false,
+    },
+  ]);
+  const save = vi.fn<NonNullable<WorkspaceDependencies["sessions"]>["save"]>(() =>
+    Promise.resolve(),
+  );
+  deps.sessions = { load: () => Promise.resolve(entries), save, flush: async () => {} };
+  launch.mockImplementation((request) =>
+    Promise.resolve({
+      id: request.terminalId ?? "new",
+      attention: "evaluator",
+    }),
+  );
+  const workspace = new Workspace(deps);
+  workspace.configure({
+    hooks: false,
+    agents: { claude: true, codex: true, agy: true },
+    agentArguments: { claude: ["--verbose"], codex: [], agy: [] },
+  });
+  await workspace.restore();
+  expect(launch).not.toHaveBeenCalled();
+  await workspace.restartSaved();
+  expect(launch.mock.calls.map(([request]) => request.terminalId)).toEqual([
+    "parent",
+    "child",
+    "taken",
+  ]);
+  expect(launch.mock.calls[0]?.[0]).toMatchObject({
+    control: { role: "orchestrator" },
+    conversationId: "parent-conversation",
+    defaultArguments: ["--verbose"],
+  });
+  expect(launch.mock.calls[1]?.[0]).toMatchObject({
+    control: { parentId: "parent" },
+    conversationId: "child-conversation",
+    defaultArguments: [],
+    prompt: "Resume your previous task.",
+  });
+  expect(launch.mock.calls[2]?.[0].control).toBeUndefined();
+  expect(confirm).not.toHaveBeenCalled();
+  expect(workspace.snapshot().terminals[0]?.orchestration).toMatchObject({
+    active: true,
+    children: 1,
+    history: [{ id: "old" }],
+  });
+  const operations = new Operations(
+    async () => {},
+    () => 1000,
+  );
+  const actor = { ...principal(), generation: "fresh-generation" };
+  await workspace.orchestration.call(
+    actor,
+    "stop",
+    { id: "child", idempotencyKey: "restored-stop" },
+    operations,
+  );
+  expect(stop).toHaveBeenCalledWith("child");
+  await expect(
+    workspace.orchestration.call(actor, "tail", { id: "taken" }, operations),
+  ).rejects.toThrow();
+  workspace.orchestration.takeOver("child");
+  await workspace.prepareQuit();
+  expect(save.mock.calls.at(-1)?.[0].find((entry) => entry.id === "child")).not.toHaveProperty(
+    "parentId",
+  );
+  const before = save.mock.calls.length;
+  await workspace.exited("parent", 0);
+  expect(save).toHaveBeenCalledTimes(before);
+  await workspace.dispose();
+});
+
+it.each(["disabled", "unverified", "identity", "failed"])(
+  "restoration handles %s without inheriting authority",
+  async (mode) => {
+    const { readSessions } = await import("../../../../src/main/workspace/session-store");
+    const entries = readSessions([
+      {
+        id: "parent",
+        agent: "claude",
+        repository: repo.path,
+        worktree: repo.path,
+        branch: "main",
+        conversationId: "saved",
+        running: true,
+        orchestrator: { identity: mode === "identity" ? "old" : "identity", history: [] },
+      },
+    ]);
+    deps.sessions = {
+      load: () => Promise.resolve(entries),
+      save: async () => {},
+      flush: async () => {},
+    };
+    if (mode === "unverified") scanned = scan(false);
+    if (mode === "failed") launch.mockRejectedValue(new Error("spawn failed"));
+    const workspace = new Workspace(deps);
+    workspace.configure({
+      hooks: false,
+      agents: { claude: true, codex: true, agy: true },
+      restoreSessions: mode !== "disabled",
+    });
+    await workspace.restore();
+    await workspace.restartSaved();
+    await workspace.restartSaved();
+    expect(launch).toHaveBeenCalledTimes(mode === "disabled" ? 0 : 1);
+    if (mode === "disabled" || mode === "failed")
+      expect(workspace.snapshot().terminals[0]).toMatchObject({
+        exited: true,
+        conversationId: "saved",
+      });
+    else {
+      expect(launch.mock.calls[0]?.[0].control).toBeUndefined();
+      expect(workspace.snapshot().terminals[0]).toMatchObject({ roleNotRestored: true });
+    }
+    await workspace.dispose();
+  },
+);
+
+it.each(["shell", "home", "config", "missing", "missing-repository", "no-conversation"])(
+  "restores the %s case without inventing a conversation or location",
+  async (mode) => {
+    const { homedir } = await import("node:os");
+    const { readSessions } = await import("../../../../src/main/workspace/session-store");
+    const home = homedir();
+    const location = mode === "home" ? home : mode === "config" ? "/config" : repo.path;
+    deps.config = { root: "/config", cliDirectory: "/cli", check: () => Promise.resolve() };
+    const record = {
+      id: "restored",
+      agent: mode === "no-conversation" ? "claude" : "shell",
+      repository: location,
+      worktree: location,
+      branch: mode === "home" || mode === "config" ? null : "main",
+      running: true,
+      ...(mode === "home" ? { home: true } : {}),
+      ...(mode === "config" ? { config: true } : {}),
+    };
+    if (mode === "missing") record.worktree = "/gone";
+    if (mode === "missing-repository") record.repository = "/unregistered";
+    const saved = readSessions([record]);
+    const save = vi.fn<NonNullable<WorkspaceDependencies["sessions"]>["save"]>(() =>
+      Promise.resolve(),
+    );
+    deps.sessions = { load: () => Promise.resolve(saved), save, flush: () => Promise.resolve() };
+    const create = vi.fn<WorkspaceDependencies["terminals"]["create"]>((spec) =>
+      Promise.resolve(spec.id ?? "new"),
+    );
+    deps.terminals.create = create;
+    const workspace = new Workspace(deps);
+    await workspace.restore();
+    await workspace.restartSaved();
+    const succeeds = ["shell", "home", "config"].includes(mode);
+    expect(workspace.snapshot().terminals).toMatchObject([{ id: "restored", exited: !succeeds }]);
+    expect(create).toHaveBeenCalledTimes(succeeds ? 1 : 0);
+    expect(launch).not.toHaveBeenCalled();
+    if (succeeds) {
+      expect(create).toHaveBeenCalledWith(
+        expect.objectContaining({ id: "restored", cwd: location }),
+      );
+      await workspace.exited("restored", 0);
+      expect(save.mock.calls.at(-1)?.[0][0]?.running).toBe(false);
+      workspace.cancelQuit();
+    }
+    await workspace.dispose();
+  },
+);
+
+it.each([false, true])(
+  "does not grant notifier consent during automatic restore (config=%s)",
+  async (config) => {
+    const { readSessions } = await import("../../../../src/main/workspace/session-store");
+    scanned = {
+      path: "/bin",
+      warning: null,
+      agents: [
+        {
+          id: "codex",
+          path: "/bin/codex",
+          version: "codex-cli 0.161.0",
+          hooks: true,
+          mcp: true,
+          reason: "",
+        },
+      ],
+    };
+    deps.config = { root: "/config", cliDirectory: "/cli", check: () => Promise.resolve() };
+    const acknowledge = vi.fn(() => Promise.resolve());
+    deps.acknowledgeCodex = acknowledge;
+    const location = config ? "/config" : repo.path;
+    const saved = readSessions([
+      {
+        id: "codex",
+        agent: "codex",
+        repository: location,
+        worktree: location,
+        branch: config ? null : "main",
+        ...(config ? { config: true } : {}),
+        running: true,
+        conversationId: "saved-codex",
+      },
+    ]);
+    deps.sessions = {
+      load: () => Promise.resolve(saved),
+      save: () => Promise.resolve(),
+      flush: () => Promise.resolve(),
+    };
+    const workspace = new Workspace(deps);
+    await workspace.restore();
+    await workspace.restartSaved();
+    expect(launch).not.toHaveBeenCalled();
+    expect(acknowledge).not.toHaveBeenCalled();
+    expect(workspace.snapshot().terminals).toMatchObject([
+      { exited: true, conversationId: "saved-codex" },
+    ]);
+    await workspace.dispose();
+  },
+);
+
+it("binds re-granted authority to the saved identity across asynchronous launch checks", async () => {
+  const { readSessions } = await import("../../../../src/main/workspace/session-store");
+  const saved = readSessions([
+    {
+      id: "parent",
+      agent: "claude",
+      repository: repo.path,
+      worktree: repo.path,
+      branch: "main",
+      conversationId: "saved",
+      running: true,
+      orchestrator: { identity: "identity", history: [] },
+    },
+  ]);
+  deps.sessions = {
+    load: () => Promise.resolve(saved),
+    save: () => Promise.resolve(),
+    flush: () => Promise.resolve(),
+  };
+  vi.mocked(deps.worktrees, true)
+    .launchIdentity.mockResolvedValueOnce("identity")
+    .mockResolvedValue("replacement");
+  const workspace = new Workspace(deps);
+  await workspace.restore();
+  await workspace.restartSaved();
+  expect(launch).not.toHaveBeenCalled();
+  expect(workspace.snapshot().terminals).toMatchObject([
+    { exited: true, conversationId: "saved", roleNotRestored: true },
+  ]);
+  await workspace.dispose();
+});
