@@ -240,10 +240,10 @@ jobs:
         if: matrix.shard != '2/2'
         run: npm run make
       - name: Verify macOS ad-hoc signature after packaging and fuses
-        if: runner.os == 'macOS'
+        if: runner.os == 'macOS' && matrix.shard != '2/2'
         run: codesign --verify --deep --strict out/Foom-darwin-arm64/Foom.app
       - name: Test packaged terminal host on Linux
-        if: runner.os == 'Linux'
+        if: runner.os == 'Linux' && matrix.shard != '2/2'
         run: xvfb-run -a npm run test:packaged
       - name: Test packaged terminal host on macOS and Windows
         if: runner.os != 'Linux' && matrix.shard != '2/2'
