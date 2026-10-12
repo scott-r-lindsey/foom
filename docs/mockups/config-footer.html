@@ -1,0 +1,306 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Foom Config Footer</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo+Black&family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500;600&display=swap">
+<style>
+/* Foom config leaves the tree for the sidebar footer. The footer bar keeps the tile
+   presets and Tidy and ends in one gear, the same size as the preset icons, which
+   replaces the Settings text button and opens the Foom config panel. Above the bar a
+   dock appears only when config has something to show: a held change (amber, with
+   text), rejected files (magenta, with a count) or the one config session. Colors are
+   the brand tokens; rows follow .board-row and the panel follows sidebar-panels.html. */
+:root {
+  --bg: #f3f0fa; --surface: #e9e4f5; --line: #ddd6ee; --ink: #14101f; --muted: #625a7a;
+  --accent: #5b2bd9; --accent-deep: #3b1a99; --attention: #d98200; --attention-ink: #8c5000;
+  --done: #13804a; --done-ink: #0e6b3c; --failed: #d6166e; --failed-ink: #b0105a;
+  --badge: #4a4263; --badge-ink: #f4efff; --lift: #ffffff; --hole: #05040a; --neutral: #4a4263;
+  --shadow: rgba(40, 20, 90, .28);
+  --term-bg: #05040a; --term-line: #251d3f; --term-dim: #6a6188;
+  --display: "Archivo Black", sans-serif;
+  --sans: "Geist", system-ui, sans-serif; --mono: "Geist Mono", ui-monospace, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #05040a; --surface: #0d0a17; --line: #251d3f; --ink: #f4efff; --muted: #9d93bd;
+    --accent: #9b6bff; --accent-deep: #7a3cff; --attention: #ffb23e; --attention-ink: #ffb23e;
+    --done: #6fe0a3; --done-ink: #6fe0a3; --failed: #ff2e88; --failed-ink: #ff2e88;
+    --badge: #3a3060; --badge-ink: #f4efff; --lift: #f4efff; --hole: #000000; --neutral: #c9c0e6;
+    --shadow: rgba(0, 0, 0, .85);
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #05040a; --surface: #0d0a17; --line: #251d3f; --ink: #f4efff; --muted: #9d93bd;
+  --accent: #9b6bff; --accent-deep: #7a3cff; --attention: #ffb23e; --attention-ink: #ffb23e;
+  --done: #6fe0a3; --done-ink: #6fe0a3; --failed: #ff2e88; --failed-ink: #ff2e88;
+  --badge: #3a3060; --badge-ink: #f4efff; --lift: #f4efff; --hole: #000000; --neutral: #c9c0e6;
+  --shadow: rgba(0, 0, 0, .85);
+  color-scheme: dark;
+}
+:root {
+  --highlight: var(--accent); --highlight-deep: var(--accent-deep);
+  --select: color-mix(in srgb, var(--highlight) 18%, var(--surface));
+  --raised-top: color-mix(in srgb, var(--surface) 92%, var(--lift));
+  --raised-bottom: var(--surface);
+  --raised-line: color-mix(in srgb, var(--highlight) 25%, var(--line));
+  --raised-hover: color-mix(in srgb, var(--highlight) 12%, var(--raised-top));
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; }
+body { background: var(--bg); color: var(--ink); font: 13px/1.4 var(--sans); }
+button { font: inherit; color: inherit; cursor: pointer; }
+:focus-visible { outline: 2px solid var(--highlight); outline-offset: 1px; }
+.frame { height: 100%; overflow-x: auto; }
+.app { position: relative; display: flex; height: 100%; min-width: 1100px; min-height: 640px; overflow: hidden; }
+.icon { width: 12px; height: 12px; fill: none; stroke: currentColor; stroke-width: 1.2; stroke-linecap: round; }
+
+/* Sidebar slice */
+.side { width: 300px; flex-shrink: 0; display: flex; flex-direction: column; background: var(--surface); border-right: 1px solid var(--line); }
+.head { display: flex; align-items: baseline; gap: 8px; padding: 14px 12px 8px; }
+.word { font: 22px/1 var(--display); }
+.hole { display: inline-block; width: .52em; height: .52em; margin: 0 .035em; border-radius: 50%; background: var(--hole); box-shadow: 0 0 0 2px var(--accent), 0 0 10px var(--accent); }
+.counts { margin-left: auto; font: 11px var(--mono); color: var(--muted); }
+.counts b { font-weight: 500; color: var(--attention-ink); }
+.filter { display: flex; gap: 6px; padding: 0 12px 10px; border-bottom: 1px solid var(--line); }
+.filter span { flex: 1; height: 30px; padding: 6px 8px; border: 1px solid var(--line); border-radius: 5px; background: var(--bg); color: var(--muted); font: 12px var(--mono); }
+.filter button { width: 30px; height: 30px; border: 1px solid var(--line); border-radius: 5px; background: var(--bg); }
+.tree { flex: 1; min-height: 0; overflow: auto; padding: 6px 8px 12px; }
+.row { display: flex; align-items: center; gap: 6px; min-height: 28px; padding: 0 6px; border-radius: 5px; }
+.row:hover { background: color-mix(in srgb, var(--highlight) 8%, transparent); }
+.chev { width: 12px; flex-shrink: 0; color: var(--muted); font-size: 10px; text-align: center; }
+.repo { font-weight: 600; }
+.checkout { padding-left: 20px; }
+.checkout .icon { color: var(--muted); }
+.checkout .br { font: 11px var(--mono); color: var(--muted); }
+.srow { padding-left: 38px; }
+.srow.home { padding-left: 6px; }
+.srow.docked { padding-left: 24px; }
+.badge { flex-shrink: 0; display: inline-grid; place-items: center; min-width: 20px; height: 16px; padding: 0 3px; border-radius: 4px; background: var(--badge); color: var(--badge-ink); font: 600 9px var(--mono); letter-spacing: .02em; }
+.name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.prog { flex-shrink: 0; font: 12px var(--mono); color: var(--muted); }
+.empty { padding: 3px 4px 6px 36px; font: 12px/1.4 var(--mono); color: var(--muted); }
+.light { flex-shrink: 0; width: 10px; height: 10px; border-radius: 50%; background: var(--c); --c: var(--accent); }
+.light[data-state="working"] { box-shadow: 0 0 8px 1px color-mix(in srgb, var(--c) 55%, transparent); }
+.light[data-state="needs"] { --c: var(--attention); box-shadow: 0 0 0 4px color-mix(in srgb, var(--attention) 22%, transparent); }
+.light[data-state="shell"] { --c: var(--neutral); }
+.light[data-exited] { background: transparent; box-shadow: inset 0 0 0 2px var(--c); opacity: .85; }
+.srow[data-exited] .name, .srow[data-exited] .badge { opacity: .5; }
+.srow .tail { margin-left: auto; font: 11px var(--mono); color: var(--muted); }
+
+/* Before: today's Foom config row, with the large glowing mark. */
+.big-mark { flex-shrink: 0; width: 32px; height: 32px; display: grid; place-items: center; border-radius: 8px; background: color-mix(in srgb, var(--highlight) 16%, var(--raised-top)); border: 1px solid color-mix(in srgb, var(--highlight) 35%, var(--line)); box-shadow: 0 0 14px -4px color-mix(in srgb, var(--highlight) 70%, transparent); color: var(--highlight); }
+.big-mark .icon { width: 14px; height: 14px; }
+.config-row { min-height: 40px; }
+
+/* The footer: an optional dock above a fixed bar. */
+.foot { border-top: 1px solid var(--line); }
+.dock { display: flex; flex-direction: column; gap: 1px; padding: 6px 8px 0; }
+.dock .row { min-height: 28px; }
+.dock-head { width: 100%; background: transparent; border: 0; text-align: left; }
+.dock-head .icon { color: var(--muted); }
+.dock-head[data-tone="needs"] .icon { color: var(--attention-ink); }
+.chips { display: flex; gap: 4px; margin-left: auto; }
+.dock .name { flex-shrink: 0; }
+.dock .chips { gap: 3px; }
+.dock .chip { padding: 0 5px; gap: 4px; font-size: 11px; }
+.chip { display: inline-flex; align-items: center; gap: 5px; height: 19px; padding: 0 7px; border-radius: 999px; font: 11.5px var(--mono); white-space: nowrap; background: color-mix(in srgb, var(--tone) 14%, transparent); border: 1px solid color-mix(in srgb, var(--tone) 32%, transparent); color: var(--tone-ink); }
+.chip.needs { --tone: var(--attention); --tone-ink: var(--attention-ink); }
+.chip.failed { --tone: var(--failed); --tone-ink: var(--failed-ink); }
+.chip.working { --tone: var(--accent); --tone-ink: var(--accent); }
+.chip .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--tone); }
+.bar { display: flex; align-items: center; gap: 4px; padding: 10px 12px 12px; }
+.bar .tool { display: grid; place-items: center; width: 26px; height: 24px; padding: 0; background: transparent; border: 1px solid transparent; border-radius: 5px; color: var(--muted); }
+.bar .tool:hover { color: var(--ink); background: color-mix(in srgb, var(--highlight) 8%, transparent); }
+.bar .tool svg { width: 18px; height: 14px; fill: none; stroke: currentColor; }
+.bar .gear { position: relative; margin-left: auto; }
+.bar .gear svg { width: 15px; height: 15px; stroke-width: 1.1; }
+.bar .gear[aria-expanded="true"] { color: var(--ink); border-color: var(--highlight); background: var(--select); }
+/* A status mark on the gear repeats the dock; the dock's text carries the meaning. */
+.bar .gear[data-tone]::after { content: ""; position: absolute; top: 2px; right: 2px; width: 6px; height: 6px; border-radius: 50%; background: var(--tone); box-shadow: 0 0 0 2px var(--surface); }
+.bar .gear[data-tone="needs"] { --tone: var(--attention); }
+.bar .gear[data-tone="failed"] { --tone: var(--failed); border-radius: 5px; }
+.bar .gear[data-tone="failed"]::after { border-radius: 1px; }
+.settings-btn { margin-left: auto; height: 26px; padding: 0 10px; border: 1px solid var(--line); border-radius: 5px; background: var(--bg); font-size: 11px; }
+
+/* Tiles, as pictures. */
+.main { position: relative; flex: 1; min-width: 0; display: grid; grid-template-columns: 1fr 1fr; gap: 6px; padding: 6px; }
+.tile { display: flex; flex-direction: column; min-width: 0; border: 1px solid var(--term-line); border-radius: 6px; background: var(--term-bg); overflow: hidden; }
+.tile.focus { border-color: var(--highlight); }
+.tbar { display: flex; align-items: center; gap: 7px; height: 28px; padding: 0 9px; background: var(--surface); border-bottom: 1px solid var(--line); font-size: 12px; }
+.tbar .loc { font: 11px var(--mono); color: var(--muted); }
+.tbar .num { margin-left: auto; font: 600 11px var(--mono); color: var(--muted); }
+.screen { flex: 1; padding: 8px 10px; display: flex; flex-direction: column; justify-content: flex-end; font: 11.5px/1.5 var(--mono); color: var(--term-dim); }
+
+/* The panel: right of the sidebar, bottom-aligned, pointing at the gear or the dock. */
+.panel { position: absolute; z-index: 30; left: 306px; bottom: 10px; width: 660px; padding: 4px; background: linear-gradient(180deg, var(--raised-top), var(--raised-bottom)); border: 1px solid color-mix(in srgb, var(--highlight) 55%, var(--raised-line)); border-radius: 10px; box-shadow: 0 1px 0 rgba(255, 255, 255, .05) inset, 0 22px 48px -12px var(--shadow), 0 8px 16px -8px var(--shadow), 0 0 28px -8px color-mix(in srgb, var(--highlight) 40%, transparent); animation: panel-in 160ms cubic-bezier(.2, .8, .2, 1) both; transform-origin: 0 100%; }
+.panel::before { content: ""; position: absolute; left: -6px; bottom: var(--arrow, 18px); width: 10px; height: 10px; background: var(--raised-bottom); border-left: 1px solid var(--raised-line); border-bottom: 1px solid var(--raised-line); transform: rotate(45deg); }
+@keyframes panel-in { from { opacity: 0; transform: scale(.97) translateX(-6px); } }
+.p-head { display: flex; align-items: center; gap: 10px; padding: 12px 16px; border-bottom: 1px solid var(--line); border-radius: 7px 7px 0 0; background: linear-gradient(100deg, color-mix(in srgb, var(--highlight) 20%, transparent), color-mix(in srgb, var(--highlight) 6%, transparent) 55%, transparent); }
+.p-head .big-mark { width: 28px; height: 28px; }
+.p-title { font-weight: 600; }
+.p-kind { font: 11px var(--mono); color: var(--muted); }
+.p-body { display: grid; grid-template-columns: 236px minmax(0, 1fr); }
+.p-actions { display: flex; flex-direction: column; gap: 1px; padding: 8px 8px 8px 4px; border-right: 1px solid var(--line); background: color-mix(in srgb, var(--highlight) 5%, transparent); border-radius: 0 0 0 7px; }
+.p-actions hr { width: calc(100% - 12px); height: 1px; margin: 4px 6px; border: 0; background: var(--line); }
+.item { display: flex; align-items: center; gap: 10px; width: 100%; height: 32px; padding: 0 12px; background: transparent; border: 0; border-radius: 6px; text-align: left; }
+.item:hover, .item:focus-visible { background: var(--raised-hover); outline: none; }
+.item .key { margin-left: auto; font: 11px var(--mono); color: var(--muted); }
+.item .badge { min-width: 24px; }
+.facts { display: grid; grid-template-columns: 96px minmax(0, 1fr); align-content: start; gap: 9px 16px; margin: 0; padding: 14px 18px 16px 20px; }
+.facts dt { padding-top: 2px; font-size: 12px; color: var(--muted); }
+.facts dd { margin: 0; min-width: 0; font: 12.5px/1.5 var(--mono); overflow-wrap: anywhere; }
+.facts .sub { color: var(--muted); }
+.hash { color: var(--highlight); }
+
+/* Mockup controls: not app chrome. */
+.controls { position: absolute; z-index: 40; top: 44px; right: 14px; width: 250px; padding: 10px 12px 12px; border: 1px dashed var(--muted); border-radius: 8px; background: color-mix(in srgb, var(--bg) 92%, transparent); font-size: 12px; }
+.controls h2 { margin: 0 0 8px; font: 600 10px var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+.ctl { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; margin-bottom: 8px; }
+.ctl > span { width: 100%; color: var(--muted); font-size: 11px; }
+.ctl button { height: 24px; padding: 0 8px; border: 1px solid var(--line); border-radius: 4px; background: var(--surface); font-size: 11px; }
+.ctl button[aria-pressed="true"] { border-color: var(--highlight); background: var(--select); }
+.note { margin: 6px 0 0; color: var(--muted); font-size: 11px; line-height: 1.45; }
+</style>
+</head>
+<body>
+<div class="frame">
+<div class="app" id="app">
+  <aside class="side" id="side"></aside>
+  <main class="main">
+    <section class="tile focus">
+      <div class="tbar"><span class="light" data-state="working"></span><span class="badge">CC</span>Claude Code<span class="loc">foom › main</span><span class="num">1</span></div>
+      <div class="screen"><div>● Reading src/renderer/board/sidebar-view.tsx</div><div>● Editing board.css</div><div>&gt; _</div></div>
+    </section>
+    <section class="tile">
+      <div class="tbar"><span class="light" data-state="shell"></span><span class="badge">&gt;_</span>Shell<span class="loc">foom › main</span><span class="num">2</span></div>
+      <div class="screen"><div>~/code/foom $ npm run check</div><div>✓ 2053 tests</div><div>~/code/foom $ _</div></div>
+    </section>
+    <div class="controls" aria-label="Mockup controls">
+      <h2>Mockup</h2>
+      <div class="ctl" data-key="mode"><span>Layout</span><button data-v="before">Before (main)</button><button data-v="after">After</button></div>
+      <div class="ctl" data-key="hold"><span>Held config change</span><button data-v="off">None</button><button data-v="on">Waiting</button></div>
+      <div class="ctl" data-key="rejected"><span>Rejected files</span><button data-v="0">0</button><button data-v="2">2</button></div>
+      <div class="ctl" data-key="session"><span>Config session</span><button data-v="none">None</button><button data-v="running">Running</button><button data-v="exited">Exited</button></div>
+      <div class="ctl" data-key="theme"><span>Theme</span><button data-v="system">System</button><button data-v="light">Light</button><button data-v="dark">Dark</button></div>
+      <p class="note">Click the gear, or the dock's Foom config line, to open the panel. A launcher in the panel starts the config session; another launch focuses it.</p>
+    </div>
+  </main>
+  <div id="panel-slot"></div>
+</div>
+</div>
+<script>
+const GEAR = '<svg class="icon" viewBox="0 0 12 12" aria-hidden="true"><circle cx="6" cy="6" r="1.6"/><circle cx="6" cy="6" r="3.4"/><path d="M6 .8v1.8M6 9.4v1.8M.8 6h1.8M9.4 6h1.8M2.3 2.3l1.3 1.3M8.4 8.4l1.3 1.3M2.3 9.7l1.3-1.3M8.4 3.6l1.3-1.3"/></svg>';
+const FOLDER = '<svg class="icon" viewBox="0 0 12 12" aria-hidden="true"><path d="M1 3h3.5l1 1.2H11V10H1z"/></svg>';
+const PRESETS = [
+  ["One", "M1 1h14v10H1z"], ["Two side by side", "M1 1h14v10H1z M8 1v10"], ["Two stacked", "M1 1h14v10H1z M1 6h14"],
+  ["Two by two", "M1 1h14v10H1z M8 1v10 M1 6h14"], ["One and two", "M1 1h14v10H1z M9 1v10 M9 6h6"],
+  ["One and three", "M1 1h14v10H1z M9 1v10 M9 4h6 M9 8h6"], ["Tidy tiles", "M1 1h6v4H1z M9 1h6v4H9z M1 7h6v4H1z M9 7h6v4H9z"],
+];
+const state = { mode: "after", hold: "on", rejected: "0", session: "none", theme: "system", panel: false, agent: "CX" };
+const AGENTS = { CC: "Claude Code", CX: "Codex", AG: "Antigravity", ">_": "Shell" };
+
+const presets = () => PRESETS.map(([label, d]) =>
+  `<button class="tool" type="button" aria-label="${label}" title="${label}"><svg viewBox="0 0 16 12" aria-hidden="true"><path d="${d}"/></svg></button>`).join("");
+
+function sessionRow(cls) {
+  if (state.session === "none") return "";
+  const exited = state.session === "exited";
+  const shell = state.agent === ">_";
+  return `<div class="row srow ${cls}"${exited ? " data-exited" : ""}>
+    <span class="light" data-state="${shell ? "shell" : "working"}"${exited ? " data-exited" : ""}></span>
+    <span class="badge">${state.agent.replace(">", "&gt;")}</span><span class="name">${AGENTS[state.agent]}</span>
+    ${exited ? '<span class="tail">exited</span>' : shell ? '<span class="prog">vim</span>' : ""}</div>`;
+}
+
+function chips() {
+  return `${state.hold === "on" ? '<span class="chip needs"><span class="dot"></span>Needs you</span>' : ""}${state.rejected !== "0" ? `<span class="chip failed">${state.rejected} rejected</span>` : ""}`;
+}
+
+function sidebar() {
+  const needs = 1 + (state.hold === "on" ? 1 : 0);
+  const before = state.mode === "before";
+  const tree = `
+    <div class="row srow home"><span class="chev">▾</span><span class="badge">&gt;_</span><span class="name">bash ~</span></div>
+    ${before ? `<div class="row config-row"><span class="chev">▾</span><span class="big-mark">${GEAR}</span><span class="name">Foom config</span><span class="chips">${chips()}</span></div>
+      ${state.session === "none" ? '<div class="empty">Nothing here yet</div>' : sessionRow("")}` : ""}
+    <div class="row repo"><span class="chev">▾</span>foom</div>
+    <div class="row checkout"><span class="chev">▾</span>${FOLDER}<span class="name">Main checkout</span><span class="br">main</span></div>
+    <div class="row srow"><span class="light" data-state="working"></span><span class="badge">CC</span><span class="name">Claude Code</span></div>
+    <div class="row srow"><span class="light" data-state="shell"></span><span class="badge">&gt;_</span><span class="name">Shell</span><span class="prog">npm</span></div>
+    <div class="row checkout"><span class="chev">▾</span>${FOLDER}<span class="name">codex/issue-270</span></div>
+    <div class="row srow"><span class="light" data-state="needs"></span><span class="badge">CX</span><span class="name">Codex</span><span class="tail" style="color:var(--attention-ink)">2m</span></div>
+    <div class="row repo"><span class="chev">▸</span>herdr</div>
+    <div class="row repo"><span class="chev">▸</span>scott.to</div>`;
+  const tone = state.hold === "on" ? "needs" : state.rejected !== "0" ? "failed" : "";
+  const label = `Foom config${state.hold === "on" ? ", needs you" : ""}${state.rejected !== "0" ? `, ${state.rejected} rejected` : ""}`;
+  const dockHead = (state.hold === "on" || state.rejected !== "0" || state.session !== "none")
+    ? `<button class="row dock-head" type="button" data-open${tone ? ` data-tone="${tone}"` : ""}>${GEAR}<span class="name">Foom config</span><span class="chips">${chips()}</span></button>${sessionRow("docked")}`
+    : "";
+  const foot = before
+    ? `<div class="bar">${presets()}<button class="settings-btn" type="button">Settings</button></div>`
+    : `${dockHead ? `<div class="dock">${dockHead}</div>` : ""}<div class="bar">${presets()}<button class="tool gear" type="button" data-open aria-label="${label}" title="Foom config" aria-expanded="${state.panel}"${tone ? ` data-tone="${tone}"` : ""}><svg viewBox="0 0 12 12" aria-hidden="true"><circle cx="6" cy="6" r="1.6"/><circle cx="6" cy="6" r="3.4"/><path d="M6 .8v1.8M6 9.4v1.8M.8 6h1.8M9.4 6h1.8M2.3 2.3l1.3 1.3M8.4 8.4l1.3 1.3M2.3 9.7l1.3-1.3M8.4 3.6l1.3-1.3"/></svg></button></div>`;
+  return `<div class="head"><span class="word">fo<span class="hole"></span>m</span><span class="counts"><b>${needs} need you</b> · 1 working</span></div>
+    <div class="filter"><span>Filter…</span><button type="button" aria-label="Add">+</button></div>
+    <div class="tree">${tree}</div><div class="foot">${foot}</div>`;
+}
+
+function panel() {
+  if (!state.panel || state.mode === "before") return "";
+  const running = state.session === "running";
+  const launch = Object.entries(AGENTS).map(([badge, name]) =>
+    `<button class="item" type="button" data-launch="${badge}"><span class="badge">${badge.replace(">", "&gt;")}</span>${name}${running && state.agent === badge ? '<span class="key">running</span>' : ""}</button>`).join("");
+  const facts = [
+    ["Folder", '<span>~/.foom/config</span>'],
+    ["Working tree", "Clean"],
+    ["Last change", `Ember theme <span class="sub"><span class="hash">a41c9e2</span> · 12 min ago</span>`],
+    ...(state.hold === "on" ? [["Approval", '<span class="chip needs"><span class="dot"></span>Needs you</span> <span class="sub">themes/ember.json: attention-distinctness</span>']] : []),
+    ...(state.rejected !== "0" ? [["Rejected", `<span class="chip failed">${state.rejected} rejected</span>`]] : []),
+    ["Sessions", `<span class="chip working">${running ? 1 : 0} running</span>`],
+  ];
+  const dock = state.hold === "on" || state.rejected !== "0" || state.session !== "none";
+  return `<div class="panel" role="dialog" aria-label="Foom config" style="--arrow:${dock ? (state.session !== "none" ? 64 : 36) : 16}px">
+    <div class="p-head"><span class="big-mark">${GEAR}</span><span class="p-title">Foom config</span><span class="p-kind">~/.foom/config</span></div>
+    <div class="p-body">
+      <div class="p-actions">
+        <button class="item" type="button">Settings<span class="key">${navigator.platform.startsWith("Mac") ? "⌘," : "Ctrl+,"}</span></button>
+        <hr>${launch}<hr>
+        <button class="item" type="button">Open Foom config settings</button>
+        <button class="item" type="button">Open folder</button>
+      </div>
+      <dl class="facts">${facts.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join("")}</dl>
+    </div></div>`;
+}
+
+function render() {
+  document.documentElement.dataset.theme = state.theme === "system" ? "" : state.theme;
+  if (state.theme === "system") delete document.documentElement.dataset.theme;
+  document.getElementById("side").innerHTML = sidebar();
+  document.getElementById("panel-slot").innerHTML = panel();
+  for (const ctl of document.querySelectorAll(".ctl"))
+    for (const b of ctl.querySelectorAll("button")) b.setAttribute("aria-pressed", String(state[ctl.dataset.key] === b.dataset.v));
+}
+
+document.addEventListener("click", (event) => {
+  const ctl = event.target.closest(".ctl button");
+  if (ctl) { state[ctl.closest(".ctl").dataset.key] = ctl.dataset.v; render(); return; }
+  if (event.target.closest("[data-open]")) { state.panel = !state.panel; render(); return; }
+  const launch = event.target.closest("[data-launch]");
+  if (launch) {
+    // Only one config session runs; launching again focuses it.
+    if (state.session !== "running") { state.agent = launch.dataset.launch; state.session = "running"; }
+    state.panel = false; render(); return;
+  }
+  if (state.panel && !event.target.closest(".panel")) { state.panel = false; render(); }
+});
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && state.panel) { state.panel = false; render(); }
+});
+render();
+</script>
+</body>
+</html>
