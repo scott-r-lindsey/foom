@@ -74,8 +74,6 @@ export function Sidebar({
   footer,
   tileNumbers,
   otherViews,
-  refused,
-  clearRefusal,
   openSettings,
 }: {
   source: BoardSource;
@@ -97,8 +95,6 @@ export function Sidebar({
   footer: ReactNode;
   otherViews?: ReadonlySet<string>;
   tileNumbers?: ReadonlyMap<string, { number: number; focused: boolean }>;
-  refused?: string | undefined;
-  clearRefusal?: () => void;
   openSettings?: (section: "config") => void;
 }) {
   const [now] = useState(Date.now);
@@ -493,8 +489,6 @@ export function Sidebar({
           className="board-row"
           draggable
           data-drag-session={row.id}
-          data-refused={refused === row.id}
-          onAnimationEnd={clearRefusal}
           data-nav
           data-kind={row.kind}
           data-state={row.state}

@@ -190,25 +190,9 @@
   border: 0;
   background: transparent;
 }
-.board-row[data-refused="true"] {
-  animation: tile-refusal 320ms ease;
-}
-@keyframes tile-refusal {
-  20%,
-  80% {
-    transform: translateX(-2px);
-  }
-  40%,
-  60% {
-    transform: translateX(3px);
-  }
-}
 @media (prefers-reduced-motion: reduce) {
   .terminal-tile {
     transition: none;
-  }
-  .board-row[data-refused="true"] {
-    animation: none;
   }
 }
 

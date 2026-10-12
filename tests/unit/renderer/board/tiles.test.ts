@@ -1,5 +1,6 @@
 import { expect, test } from "vitest";
 import {
+  blankColumns,
   growTile,
   growTarget,
   terminals,
@@ -28,28 +29,24 @@ function place(layout: TileLayout, session: string, replace = false) {
   if (!next) throw new Error("No space");
   return next;
 }
-test("arbitrary nested splits retain leaf identity; closing gives the sibling the space", () => {
-  const start = place(initialLayout(), "a"),
-    original = leaves(start.tree)[0];
-  const right = splitTile(start, "horizontal");
-  const filled = place(right, "b");
-  const down = splitTile(filled, "vertical");
-  expect(leaves(down.tree).map((tile) => tile.session)).toEqual(["a", "b", null]);
-  expect(leaves(down.tree)[0]).toBe(original);
-  expect(rectangles(down.tree).tiles.map((item) => item.rect)).toEqual([
-    { x: 0, y: 0, width: 50, height: 100 },
-    { x: 50, y: 0, width: 50, height: 50 },
-    { x: 50, y: 50, width: 50, height: 50 },
-  ]);
-  const closed = closeTile({ ...down, focused: down.landing ?? "" });
-  expect(leaves(closed.tree)).toEqual(leaves(filled.tree));
-  expect(closed.focused).toBe(filled.focused);
-  const single = closeTile({ ...closed, focused: original?.id ?? "" });
-  expect(leaves(single.tree).map((tile) => tile.session)).toEqual(["b"]);
-  const last = closeTile(single);
-  expect(leaves(last.tree).map((tile) => tile.session)).toEqual([null]);
-  expect(last.focused).toBe(last.tree.id);
-  expect(last.maximized).toBeNull();
+test("hide and close retain geometry and identity and make the space the landing spot", () => {
+  let layout = place(initialLayout(), "a");
+  layout = place(splitTile(layout, "horizontal"), "b");
+  layout = place(splitTile(layout, "vertical"), "c");
+  const geometry = rectangles(layout.tree).tiles.map((item) => item.rect);
+  for (const hide of [hideSession, closeTile]) {
+    const next = hide(layout);
+    expect(rectangles(next.tree).tiles.map((item) => item.rect)).toEqual(geometry);
+    expect(leaves(next.tree).map((tile) => tile.id)).toEqual(
+      leaves(layout.tree).map((tile) => tile.id),
+    );
+    expect(landingSpace(next)?.id).toBe(layout.focused);
+    expect(place(next, "d").focused).toBe(layout.focused);
+    expect(next.maximized).toBeNull();
+  }
+  const empty = closeTile(place(initialLayout(), "only"));
+  expect(empty.tree).toMatchObject({ session: null });
+  expect(empty.focused).toBe(empty.tree.id);
 });
 test("gutters clamp finite ratios and leave leaves untouched", () => {
   expect([-0.1, 0.2, 2, NaN, Infinity].map(clampRatio)).toEqual([0.15, 0.2, 0.85, 0.5, 0.5]);
@@ -59,7 +56,7 @@ test("gutters clamp finite ratios and leave leaves untouched", () => {
   expect(resized.tree).toMatchObject({ ratio: 0.85 });
   expect(rectangles(resized.tree).gutters[0]?.rect.y).toBe(85);
 });
-test("placing focuses visible sessions, uses focused empty then first empty, refuses full, and explicit replace moves once", () => {
+test("placing focuses visible sessions, uses focused empty then first empty, replaces the oldest eligible when full, and explicit replace moves once", () => {
   let layout = preset(initialLayout(), "main2");
   const ids = leaves(layout.tree).map((tile) => tile.id);
   layout = place({ ...layout, focused: ids[1] ?? "" }, "a");
@@ -68,14 +65,14 @@ test("placing focuses visible sessions, uses focused empty then first empty, ref
   expect(layout.focused).toBe(ids[0]);
   layout = place(layout, "c");
   expect(layout.focused).toBe(ids[2]);
-  expect(placeSession(layout, "d")).toBeNull();
+  expect(leaves(place(layout, "d").tree).map((tile) => tile.session)).toEqual(["d", "a", "c"]);
   layout = place({ ...layout, maximized: layout.focused }, "b");
   expect(layout.focused).toBe(ids[0]);
   expect(layout.maximized).toBe(ids[0]);
   layout = place(layout, "a", true);
   expect(leaves(layout.tree).map((tile) => tile.session)).toEqual(["a", null, "c"]);
   layout = hideSession(layout);
-  expect(leaves(layout.tree).map((tile) => tile.session)).toEqual([null, "c"]);
+  expect(leaves(layout.tree).map((tile) => tile.session)).toEqual([null, null, "c"]);
   expect(placeSession({ ...layout, focused: "missing" }, "d", true)).toBeNull();
 });
 test.each<[TilePreset, number]>([
@@ -216,26 +213,6 @@ test("split construction stays within restore bounds and ignores an absent focus
   expect(splitTile(wide, "vertical")).toBe(wide);
 });
 
-test("closing a nested tile focuses the first leaf of its replacement sibling", () => {
-  let layout = preset(initialLayout(), "main3");
-  for (const session of ["a", "b", "c", "d"]) layout = place(layout, session);
-  const tiles = leaves(layout.tree);
-  for (const [closed, focused] of [
-    [3, 2],
-    [2, 3],
-    [1, 2],
-    [0, 1],
-  ]) {
-    const target = tiles[closed ?? -1];
-    const sibling = tiles[focused ?? -1];
-    if (!target || !sibling) throw new Error("Missing tile");
-    const next = closeTile({ ...layout, focused: target.id, maximized: target.id });
-    expect(next.focused).toBe(sibling.id);
-    expect(next.maximized).toBeNull();
-    expect(leaves(next.tree)).not.toContain(target);
-  }
-});
-
 test.each(["left", "right", "up", "down"] as const)(
   "session drop splits %s and visible sessions move only once",
   (zone) => {
@@ -371,4 +348,78 @@ test("filling narrow space restores terminal minimums for placement, drops and s
   const leftSpace = place(splitTile(initialLayout(), "horizontal"), "a");
   const squeezed = resizeSplit(leftSpace, leftSpace.tree.id, 0.1);
   expect(place(squeezed, "b").tree).toMatchObject({ ratio: 0.15 });
+});
+
+test("full columns scale proportionally and preserve nested rows", () => {
+  let layout = preset(initialLayout(), "main3");
+  for (const session of ["a", "b", "c", "d"]) layout = place(layout, session);
+  const before = rectangles(layout.tree).tiles;
+  const next = placeSession(layout, "new", false, { columns: 400 });
+  if (!next) throw new Error("Missing layout");
+  const after = rectangles(next.tree).tiles;
+  before.forEach((item, index) => {
+    expect(after[index]?.rect.width).toBeCloseTo((item.rect.width * 2) / 3);
+    expect(after[index]?.rect.height).toBe(item.rect.height);
+    expect(after[index]?.rect.y).toBe(item.rect.y);
+    expect(after[index]?.tile).toBe(item.tile);
+  });
+  expect(after.at(-1)?.rect.width).toBeCloseTo(100 / 3);
+  expect(after.at(-1)?.rect.x).toBeCloseTo(200 / 3);
+});
+test("a vertical root becomes the left half of a new two-column root", () => {
+  let layout = preset(initialLayout(), "rows");
+  layout = place(place(layout, "a"), "b");
+  expect(placeSession(layout, "c", false, { columns: 180 })?.tree).toMatchObject({
+    direction: "horizontal",
+    ratio: 0.5,
+    first: layout.tree,
+    second: { session: "c" },
+  });
+});
+test("minimum width uses LRU, protects focus and attention, and falls back to focused non-attention", () => {
+  let layout = preset(initialLayout(), "grid");
+  for (const session of ["a", "b", "c", "d"]) layout = place(layout, session);
+  const ids = leaves(layout.tree).map((tile) => tile.id);
+  const focusedAt = new Map(ids.map((id, index) => [id, [3, 1, 2, 4][index] ?? 0]));
+  const options = { columns: 100, focusedAt, needsYou: new Set(["b"]) };
+  const next = placeSession(layout, "new", false, options);
+  expect(next && leaves(next.tree).map((tile) => tile.session)).toEqual(["a", "b", "new", "d"]);
+  const fallback = placeSession(layout, "new", false, {
+    ...options,
+    needsYou: new Set(["a", "b", "c"]),
+  });
+  expect(fallback?.focused).toBe(layout.focused);
+  const protectedAll = placeSession(layout, "new", false, {
+    ...options,
+    needsYou: new Set(["a", "b", "c", "d"]),
+  });
+  expect(protectedAll && leaves(protectedAll.tree)).toHaveLength(5);
+});
+test("blank widths produce 1–3 equal columns, but arranged layouts are not re-split", () => {
+  expect([0, 99, 199, 200, 299, 300, 450, NaN, Infinity].map(blankColumns)).toEqual([
+    1, 1, 1, 2, 2, 3, 3, 1, 1,
+  ]);
+  const start = initialLayout();
+  const next = placeSession(start, "a", false, { columns: 400 });
+  if (!next) throw new Error("Missing layout");
+  expect(leaves(next.tree).map((tile) => tile.session)).toEqual(["a", null, null]);
+  rectangles(next.tree).tiles.forEach((item) => {
+    expect(item.rect.width).toBeCloseTo(100 / 3);
+  });
+  expect(placeSession(next, "b", false, { columns: 400 })?.focused).toBe(leaves(next.tree)[1]?.id);
+  const arranged = splitTile(start, "vertical");
+  expect(placeSession(arranged, "a", false, { columns: 400 })?.tree).toMatchObject({
+    direction: "vertical",
+  });
+});
+test("column growth preserves automatic ratios on focus and persistence", () => {
+  let layout = place(initialLayout(), "a");
+  for (let index = 0; index < 8; index++) {
+    const next = placeSession(layout, String(index), false, { columns: 1000 });
+    if (!next) throw new Error("Missing layout");
+    layout = next;
+  }
+  const focused = placeSession(layout, "a");
+  expect(focused?.tree).toEqual(layout.tree);
+  expect(restoreLayout(JSON.stringify({ version: 1, ...layout })).tree).toEqual(layout.tree);
 });

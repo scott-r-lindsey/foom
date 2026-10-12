@@ -1,4 +1,5 @@
 import type {
+  TilePlacement,
   TileDrag,
   DropZone,
   TileLayout,
@@ -51,7 +52,7 @@ export function splitTile(layout: TileLayout, direction: TileSplit["direction"])
     landing: next.id,
   };
 }
-export function closeTile(layout: TileLayout): TileLayout {
+function removeTile(layout: TileLayout): TileLayout {
   let focused = layout.focused;
   const remove = (node: TileNode): TileNode | null => {
     if (node.id === layout.focused) return null;
@@ -76,8 +77,41 @@ export function closeTile(layout: TileLayout): TileLayout {
     maximized: null,
   };
 }
-export function hideSession(layout: TileLayout): TileLayout {
-  return closeTile(layout);
+export function closeTile(layout: TileLayout): TileLayout {
+  const tree = update(layout.tree, layout.focused, (node) =>
+    node.kind === "tile" ? { ...node, session: null } : node,
+  );
+  return {
+    ...layout,
+    tree,
+    landing: layout.focused,
+    focused: terminals(tree)[0]?.id ?? layout.focused,
+    maximized: null,
+  };
+}
+export const hideSession = closeTile;
+
+/** Horizontal descendants of the root are columns; vertical subtrees stay intact. */
+function columns(tree: TileNode, width = 1): { tree: TileNode; width: number }[] {
+  return tree.kind === "split" && tree.direction === "horizontal"
+    ? [
+        ...columns(tree.first, width * tree.ratio),
+        ...columns(tree.second, width * (1 - tree.ratio)),
+      ]
+    : [{ tree, width }];
+}
+export function blankColumns(width: number): number {
+  return Number.isFinite(width) ? Math.max(1, Math.min(3, Math.floor(width / 100))) : 1;
+}
+function addColumn(layout: TileLayout, session: string): TileLayout {
+  const count = columns(layout.tree).length;
+  const next = { ...newTile(), session };
+  return {
+    ...layout,
+    tree: split(layout.tree, next, "horizontal", count / (count + 1)),
+    focused: next.id,
+    maximized: null,
+  };
 }
 export const terminals = (tree: TileNode): TileLeaf[] =>
   leaves(tree).filter((tile) => tile.session !== null);
@@ -113,14 +147,22 @@ export function ratioLimits(node: TileSplit): [number, number] {
   return [terminals(node.first).length ? 0.15 : 0, terminals(node.second).length ? 0.85 : 1];
 }
 /** Occupancy can change after resizing space; every occupied side regains its minimum. */
-function fitRatios(tree: TileNode): TileNode {
+function fitRatios(tree: TileNode, previous?: TileNode): TileNode {
   if (tree.kind === "tile") return tree;
-  const [min, max] = ratioLimits(tree);
+  const old = previous
+    ? rectangles(previous).gutters.find((item) => item.split.id === tree.id)?.split
+    : undefined;
+  const [min, max] = old
+    ? [
+        terminals(old.first).length ? 0 : ratioLimits(tree)[0],
+        terminals(old.second).length ? 1 : ratioLimits(tree)[1],
+      ]
+    : ratioLimits(tree);
   return {
     ...tree,
     ratio: Math.max(min, Math.min(max, tree.ratio)),
-    first: fitRatios(tree.first),
-    second: fitRatios(tree.second),
+    first: fitRatios(tree.first, previous),
+    second: fitRatios(tree.second, previous),
   };
 }
 export function resizeSplit(
@@ -146,7 +188,17 @@ export function placeSession(
   layout: TileLayout,
   session: string,
   replace = false,
+  placement: TilePlacement = { columns: 0 },
 ): TileLayout | null {
+  if (!replace && layout.tree.kind === "tile" && layout.tree.session === null) {
+    const count = blankColumns(placement.columns);
+    if (count > 1) {
+      let tree: TileNode = layout.tree;
+      for (let index = 1; index < count; index++)
+        tree = split(tree, newTile(), "horizontal", index / (index + 1));
+      layout = { ...layout, tree };
+    }
+  }
   const tiles = leaves(layout.tree);
   const visible = tiles.find((tile) => tile.session === session);
   const focused = tiles.find((tile) => tile.id === layout.focused);
@@ -158,14 +210,33 @@ export function placeSession(
         : focused?.session === null
           ? focused
           : landingSpace(layout)));
-  if (!target) return null;
+  if (!target) {
+    if (replace) return null;
+    const cols = columns(layout.tree);
+    const scale = cols.length / (cols.length + 1);
+    const fits =
+      Math.min(1 / (cols.length + 1), ...cols.map((col) => col.width * scale)) *
+        placement.columns >=
+      60;
+    const depth = (node: TileNode): number =>
+      node.kind === "tile" ? 0 : 1 + Math.max(depth(node.first), depth(node.second));
+    const canGrow = tiles.length < 256 && depth(layout.tree) < 64;
+    if (fits && canGrow) return addColumn(layout, session);
+    const eligible = tiles.filter((tile) => tile.session && !placement.needsYou?.has(tile.session));
+    const unfocused = eligible.filter((tile) => tile.id !== layout.focused);
+    const oldest = (unfocused.length ? unfocused : eligible).sort(
+      (a, b) => (placement.focusedAt?.get(a.id) ?? 0) - (placement.focusedAt?.get(b.id) ?? 0),
+    )[0];
+    if (oldest) return placeSession({ ...layout, focused: oldest.id }, session, true);
+    return canGrow ? addColumn(layout, session) : null;
+  }
   let tree = layout.tree;
   if (replace && visible && visible.id !== target.id)
     tree = update(tree, visible.id, (node) => ({ ...node, session: null }));
   tree = update(tree, target.id, (node) => ({ ...node, session }));
   return {
     ...layout,
-    tree: fitRatios(tree),
+    tree: fitRatios(tree, layout.tree),
     focused: target.id,
     maximized: layout.maximized ? target.id : null,
   };
@@ -316,7 +387,7 @@ export function restoreLayout(raw: string | null): TileLayout {
         kind: "split",
         id: node.id,
         direction: node.direction,
-        ratio: clampRatio(node.ratio),
+        ratio: node.ratio > 0 && node.ratio < 1 ? node.ratio : clampRatio(node.ratio),
         first: parse(node.first, depth + 1),
         second: parse(node.second, depth + 1),
       };
@@ -422,7 +493,7 @@ export function dropTile(
     if (drag.kind === "tile") return swapTiles(layout, drag.id, target);
     return placeSession({ ...layout, focused: target }, drag.id, true) ?? layout;
   }
-  const base = drag.kind === "tile" ? closeTile({ ...layout, focused: drag.id }) : layout;
+  const base = drag.kind === "tile" ? removeTile({ ...layout, focused: drag.id }) : layout;
   const added = splitTile(
     { ...base, focused: target },
     zone === "left" || zone === "right" ? "horizontal" : "vertical",

@@ -3934,7 +3934,7 @@ test("Bash command status reaches the sidebar without closing the shell", {
   await expect(row).toHaveAttribute("data-state", "done");
 });
 
-test("tiles build irregular layouts, preserve views, refuse full placement and replace only for attention", {
+test("tiles build irregular layouts, preserve views and replace explicitly for attention", {
   timeout: deadline(60000),
 }, async (context) => {
   const root = await realpath(await mkdtemp(path.join(tmpdir(), "foom-tiles-")));
@@ -4005,21 +4005,6 @@ test("tiles build irregular layouts, preserve views, refuse full placement and r
   await page.evaluate(() => {
     window.soundTones = [];
   });
-  await rows.nth(3).click();
-  await expect(rows.nth(3)).toHaveAttribute("data-refused", "true");
-  await expect.poll(() => page.evaluate(() => window.soundTones.length)).toBe(1);
-  assert.ok((await page.evaluate(() => window.soundTones[0])) <= 0.3);
-  await rows.nth(3).click();
-  await expect.poll(() => page.evaluate(() => window.soundTones.length)).toBe(2);
-  await expect(tiles.nth(2)).toContainText("Shell");
-  assert.equal(
-    await page.evaluate(
-      () =>
-        JSON.parse(localStorage.getItem(`foom.tiles.v1.${window.desktop.windows.id}`)).tree.second
-          .second.session,
-    ),
-    sessions[2].id,
-  );
   const gutter = page.getByRole("separator").first();
   const box = await gutter.boundingBox();
   assert.ok(box);
@@ -4095,14 +4080,14 @@ test("tiles build irregular layouts, preserve views, refuse full placement and r
     localStorage.getItem(`foom.tiles.v1.${window.desktop.windows.id}`),
   );
   await page.reload();
-  await expect(tiles).toHaveCount(3);
+  await expect(tiles).toHaveCount(4);
   assert.equal(
     await page.evaluate(() => localStorage.getItem(`foom.tiles.v1.${window.desktop.windows.id}`)),
     persisted,
   );
 });
 
-test("launching into full tiles replaces focus and empty tiles support mouse controls", async (context) => {
+test("launching into a narrow full tile uses the focused fallback and empty tiles support mouse controls", async (context) => {
   const app = await launchApp(context);
   const page = await boardPage(app);
   await page.emulateMedia({ reducedMotion: "reduce" });
@@ -4205,7 +4190,8 @@ test("tile leader avoids AltGr chords and cancels unmatched keys", {
   await page.keyboard.press("r");
   await expect(tiles).toHaveCount(2);
   await leader("W");
-  await expect(tiles).toHaveCount(1);
+  await expect(tiles).toHaveCount(2);
+  await expect(page.locator('.terminal-tile[data-empty="true"]')).toHaveCount(2);
 });
 
 test("tile terminal viewport has no native overflow bars", async (context) => {
@@ -7478,4 +7464,53 @@ test("merged cleanup opens checking, continues hidden, reopens progress and stop
   const inventory = await page.evaluate((repo) => window.desktop.worktrees(repo), repo);
   assert.equal(inventory.length, 5); // main, dirty, and three never-started worktrees
   assert.equal(await readFile(path.join(root, "dirty", "keep.txt"), "utf8"), "keep");
+});
+
+test("wide blank tiles start as columns, full boards grow right, and hide refills without moving siblings", async (context) => {
+  const app = await launchApp(context, false, { emptyBoard: true });
+  const page = await boardPage(app);
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await app.evaluate(({ BrowserWindow }) => {
+    BrowserWindow.getAllWindows()
+      .find((window) => window.webContents.getURL() === "app://bundle/index.html")
+      .setSize(3200, 900);
+  });
+  const launch = async () => {
+    await page.getByRole("button", { name: "Actions for Home shell", exact: true }).click();
+    await page.getByRole("menuitem", { name: "New shell", exact: true }).click();
+  };
+  await launch();
+  const tiles = page.locator(".terminal-tile");
+  await expect(tiles).toHaveCount(3);
+  await expect(page.locator('.terminal-tile[data-empty="false"]')).toHaveCount(1);
+  await launch();
+  await launch();
+  await expect(page.locator('.terminal-tile[data-empty="false"]')).toHaveCount(3);
+  const geometry = () =>
+    tiles.evaluateAll((items) =>
+      items.map((item) => ({
+        left: item.style.left,
+        width: item.style.width,
+        top: item.style.top,
+        height: item.style.height,
+      })),
+    );
+  const before = await geometry();
+  await page.getByRole("button", { name: "Hide", exact: true }).first().click();
+  await expect(page.locator('.terminal-tile[data-empty="true"]')).toHaveCount(1);
+  assert.deepEqual(await geometry(), before);
+  await page.locator(".board-row").first().click();
+  await expect(page.locator('.terminal-tile[data-empty="false"]')).toHaveCount(3);
+  assert.deepEqual(await geometry(), before);
+  await launch();
+  await expect(tiles).toHaveCount(4);
+  const after = await geometry();
+  for (const item of after) assert.ok(Math.abs(parseFloat(item.width) - 25) < 0.01);
+  await page.getByRole("button", { name: "Hide", exact: true }).last().click();
+  await page.getByRole("separator").first().press("End");
+  await expect(tiles).toHaveCount(3);
+  await page.locator(".board-row").last().click();
+  await expect(tiles).toHaveCount(4);
+  assert.deepEqual(await geometry(), after);
+  await page.screenshot({ path: path.join(tmpdir(), "foom-264-tiles.png") });
 });
