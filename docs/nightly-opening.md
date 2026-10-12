@@ -39,6 +39,8 @@ sudo apparmor_parser -r /etc/apparmor.d/foom-nightly
 /opt/foom-nightly/Foom
 ```
 
+When upgrading from an older nightly with the lowercase `foom` executable, re-run the profile steps above so AppArmor matches `/opt/foom-nightly/Foom`.
+
 This permits Foom to create Chromium's sandbox. The profile's `unconfined` flag
 is AppArmor's application mode; Electron's renderer sandbox remains enabled.
 See [Ubuntu's user-namespace guidance](https://documentation.ubuntu.com/release-notes/24.04/).

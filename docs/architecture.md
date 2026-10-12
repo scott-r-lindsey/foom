@@ -225,6 +225,7 @@ last one closes; Windows/Linux route the last close through confirmed quit.
 [ConPTY handle-table synchronization fix](https://github.com/microsoft/node-pty/pull/922).
 The stable 1.1.0 release can race native exit watchers against other exits, creation,
 resize and termination, crashing the utility host during multi-terminal shutdown.
+Replace this prerelease pin with the next stable release containing the fix when it ships.
 The exact prerelease pin avoids a local native patch; Electron tests exercise
 concurrent terminal exits and shutdown, and all three platforms validate packaging.
 
