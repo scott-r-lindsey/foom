@@ -7405,6 +7405,10 @@ test("merged cleanup opens checking, continues hidden, reopens progress and stop
     git("worktree", "add", "-b", branch, path.join(root, branch));
   await writeFile(path.join(root, "dirty", "keep.txt"), "keep");
   const app = await launchApp(context, false, { emptyBoard: true, home });
+  fixtureCleanup(context).apps.unshift(async () => {
+    // Run before launchApp's close callback, including after an assertion failure.
+    await app.evaluate(() => globalThis.cleanupRestore?.()).catch(() => {});
+  });
   const page = await boardPage(app);
   // Gates stop at real service boundaries; releasing them runs the original Git operations.
   await app.evaluate(({ app, dialog }, repo) => {
@@ -7418,6 +7422,12 @@ test("merged cleanup opens checking, continues hidden, reopens progress and stop
       globalThis.cleanupFetchRelease = resolve;
     });
     globalThis.cleanupRemovals = [];
+    globalThis.cleanupRestore = () => {
+      WorktreeService.prototype.mergedDefault = fetch;
+      WorktreeService.prototype.removeWorktree = remove;
+      globalThis.cleanupFetchRelease();
+      for (const finish of globalThis.cleanupRemovals.splice(0)) finish();
+    };
     WorktreeService.prototype.mergedDefault = async function (...args) {
       await gate;
       return fetch.apply(this, args);
