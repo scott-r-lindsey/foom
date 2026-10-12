@@ -288,7 +288,12 @@ async function prepareProfile(options) {
     });
   }
   return {
-    args: [...(options.args ?? []), ...(owned ? [`--user-data-dir=${owned}`] : [])],
+    args: [
+      ...(options.args ?? []),
+      ...(owned ? [`--user-data-dir=${owned}`] : []),
+      // Sounds still decode and play; Chromium drops them at the output device.
+      "--mute-audio",
+    ],
     owned,
   };
 }
@@ -395,6 +400,8 @@ async function launchApp(context, openShell = true, options = {}) {
     });
   const child = app.process();
   cleanup.audit.add(child.pid);
+  // Tests must never play through the developer's speakers, even under Xvfb.
+  assert.equal(await app.evaluate(({ app }) => app.commandLine.hasSwitch("mute-audio")), true);
   app.context().setDefaultTimeout(deadline(10_000));
   const staleTerminalErrors = [];
   app.on("window", (page) => {
@@ -5055,7 +5062,7 @@ test("profile lock focuses the first app, exits duplicates and permits another p
   });
   child = require("node:child_process").spawn(
     require("electron"),
-    [path.join(__dirname, "../.."), `--user-data-dir=${profile}`],
+    [path.join(__dirname, "../.."), `--user-data-dir=${profile}`, "--mute-audio"],
     { env, stdio: "ignore" },
   );
   exited = new Promise((resolve, reject) => {

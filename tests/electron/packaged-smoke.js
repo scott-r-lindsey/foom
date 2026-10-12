@@ -130,6 +130,7 @@ test("packaged utility host runs native PTYs with RunAsNode disabled", {
     [
       "--remote-debugging-port=0",
       `--user-data-dir=${profile}`,
+      "--mute-audio",
       ...(process.platform === "darwin" ? ["--use-mock-keychain"] : []),
     ],
     {
