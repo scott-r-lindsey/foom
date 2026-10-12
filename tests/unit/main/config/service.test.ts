@@ -698,6 +698,45 @@ test("active theme edits are held before display, Keep restores and Allow accept
   expect(f.service.status().changes.some((change) => change.warnings)).toBe(true);
 });
 
+test("a delayed library review cannot clear a newer held theme edit", async () => {
+  const f = await fixture();
+  await f.service.initialize();
+  const file = "themes/personal.json";
+  const original = theme("Personal");
+  await f.write(file, original);
+  await f.service.refresh();
+  await f.service.write({ interfaceTheme: "user:personal.json" });
+  const proposed = theme("Personal", { ...palette.colors, attention: palette.colors.ink });
+  await f.write(file, proposed);
+  await f.service.refresh();
+  const pending = f.service.status().pending;
+  expect(pending?.file).toBe(file);
+  // The library read the safe version before the edit, but its review was queued
+  // behind the config scan that held the newer proposal.
+  expect(await f.service.reviewTheme(file, original, parseThemeFile(original, "theme"))).toEqual(
+    parseThemeFile(original, "theme"),
+  );
+  expect(f.service.status().pending).toEqual(pending);
+  await f.decide("keep");
+  expect(await f.read(file)).toBe(original);
+});
+
+test("a delayed library review cannot resurrect a removed theme or its approval baseline", async () => {
+  const f = await fixture();
+  await f.service.initialize();
+  const file = "themes/personal.json";
+  const original = theme("Personal");
+  await f.write(file, original);
+  await f.service.refresh();
+  await rm(path.join(f.folder, file));
+  await f.service.refresh();
+  expect(
+    await f.service.reviewTheme(file, original, parseThemeFile(original, "theme")),
+  ).toBeUndefined();
+  expect(f.themeBaselines.has(file)).toBe(false);
+  expect(f.service.status().pending).toBeNull();
+});
+
 test("inactive themes and hue-only warnings apply; file selection is held and UI selection is direct", async () => {
   const f = await fixture();
   await f.service.initialize();

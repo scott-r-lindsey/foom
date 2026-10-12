@@ -586,6 +586,11 @@ export class ConfigService {
     parsed: ParsedThemeFile,
   ): Promise<ParsedThemeFile | undefined> {
     return this.serial(async () => {
+      // The library reads before joining this queue. A config scan may already
+      // have reviewed a newer edit, so an old snapshot must not clear its hold
+      // or replace the profile's approval baseline.
+      const bytes = await settle(this.read(file), null);
+      if (!bytes || decode(bytes) !== text) return this.appliedThemes.get(file)?.parsed;
       const accepted = await this.reviewThemeValue(file, text, parsed);
       this.publish();
       return accepted;
