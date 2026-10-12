@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act, cleanup, fireEvent, render } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, within } from "@testing-library/react";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { Sidebar, launcherActions } from "../../../../src/renderer/board/sidebar-view";
 import { Board } from "../../../../src/renderer/board/board-view";
@@ -7,6 +7,7 @@ import { createSampleSource } from "../../../../src/renderer/board/sample-board-
 import { boardRows as sampleRows } from "../../../fixtures/board";
 import { installation } from "../../../fixtures/setup";
 import type { SidebarRepository } from "../../../../src/renderer/board/sidebar.d";
+import type { BoardRow } from "../../../../src/renderer/board/board.d";
 import type { BoardSource } from "../../../../src/renderer/board/board-source.d";
 const repository: SidebarRepository = {
   path: "/foom",
@@ -116,6 +117,96 @@ beforeEach(() => {
   };
 });
 afterEach(cleanup);
+async function emptySections(rows: readonly BoardRow[] = []) {
+  const source: BoardSource = {
+    ...createSampleSource(rows),
+    getSidebar: () => [repository, { name: "Empty repo", path: "/empty", worktrees: [] }],
+    config: {
+      status: () =>
+        Promise.resolve({
+          folder: "/config",
+          available: true,
+          uncommitted: 0,
+          pending: null,
+          changes: [],
+          rejected: 0,
+        }),
+      subscribe: () => () => {},
+      openFolder: () => Promise.resolve(),
+    },
+  };
+  const view = render(<Board source={source} />);
+  await act(async () => {
+    await Promise.resolve();
+  });
+  return view;
+}
+
+test("expanded empty Home, Config, repository and worktrees explain that they are empty", async () => {
+  const view = await emptySections();
+  fireEvent.click(view.getByRole("button", { name: "Expand Empty repo" }));
+  fireEvent.click(view.getByRole("button", { name: "Expand Foom" }));
+  for (const name of ["Home shell", "Foom config", "Empty repo", "Main checkout", "feature"]) {
+    const section = within(view.getByRole("treeitem", { name }));
+    expect(section.getByText("Nothing here yet")).toBeTruthy();
+    expect(section.queryByText("No matches")).toBeNull();
+  }
+  for (const name of [
+    "Toggle home shells",
+    "Toggle Foom config sessions",
+    "Collapse Empty repo",
+    "Collapse Foom",
+  ])
+    fireEvent.click(view.getByRole("button", { name }));
+  expect(view.queryByText("Nothing here yet")).toBeNull();
+});
+
+test.each(["empty", "home", "config"] as const)(
+  "unmatched filters show one tree-wide message with %s sessions",
+  async (location) => {
+    const row = sampleRows(0)[0];
+    if (!row) throw Error("fixture");
+    const view = await emptySections(
+      location === "empty"
+        ? []
+        : [
+            {
+              ...row,
+              home: location === "home",
+              config: location === "config",
+              reason: "Unique session reason",
+            },
+          ],
+    );
+    const input = view.getByLabelText("Filter repositories and sessions");
+    fireEvent.change(input, { target: { value: "no-such-session" } });
+    expect(view.getAllByText("No matches")).toHaveLength(1);
+    expect(view.queryByText("Nothing here yet")).toBeNull();
+    expect(view.container.querySelector(".board-row")).toBeNull();
+    if (location !== "empty") {
+      fireEvent.change(input, { target: { value: "Unique session reason" } });
+      expect(view.queryByText("No matches")).toBeNull();
+      expect(view.queryByText("Nothing here yet")).toBeNull();
+      expect(view.container.querySelectorAll(".board-row")).toHaveLength(1);
+    }
+    fireEvent.click(view.getByRole("button", { name: "Clear filter" }));
+    expect(view.queryByText("No matches")).toBeNull();
+    expect(view.getAllByText("Nothing here yet").length).toBeGreaterThan(0);
+  },
+);
+
+test("filtering to empty repository or worktree names does not show unfiltered empty hints", async () => {
+  const view = await emptySections();
+  for (const name of ["Empty repo", "feature"]) {
+    fireEvent.change(view.getByLabelText("Filter repositories and sessions"), {
+      target: { value: name },
+    });
+    expect(view.getByRole("treeitem", { name })).toBeTruthy();
+    expect(view.queryByText("Nothing here yet")).toBeNull();
+    expect(view.queryByText("No matches")).toBeNull();
+  }
+});
+
 test("filters reasons, highlights, clears hidden attention and pins in persisted order", async () => {
   const view = setup();
   await act(async () => {

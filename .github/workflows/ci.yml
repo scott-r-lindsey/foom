@@ -264,7 +264,7 @@ jobs:
           (github.event_name == 'workflow_dispatch' && inputs.publish_nightly))))
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
-          name: foom-${{ matrix.os }}
+          name: Foom-${{ matrix.os }}
           path: out/make/**/*.zip
           if-no-files-found: error
           retention-days: 3
@@ -372,7 +372,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           RUN_ID: ${{ github.run_id }}
-        run: gh run download "$RUN_ID" --name foom-ubuntu-24.04 --name foom-windows-2025 --name foom-macos-15 --dir nightly-packages
+        run: gh run download "$RUN_ID" --name Foom-ubuntu-24.04 --name Foom-windows-2025 --name Foom-macos-15 --dir nightly-packages
       - name: Publish rolling prerelease
         uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
         with:

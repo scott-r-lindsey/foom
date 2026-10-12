@@ -118,7 +118,7 @@ test("complete asset set is validated before publication; hashes cover exact byt
   const { info, context } = fixture(t);
   const packages = assets("nightly-packages", info);
   assert.equal(packages.length, 3);
-  assert.match(checksums(packages), /^[a-f0-9]{64} {2}foom-nightly-/);
+  assert.match(checksums(packages), /^[a-f0-9]{64} {2}Foom-nightly-/);
   assert.equal(checksums(packages).split("\n").filter(Boolean).length, 3);
   rmSync(`nightly-packages/Foom-linux-x64-${info.version}.zip`);
   const mock = api();

@@ -123,6 +123,143 @@ afterEach(() => {
   cleanup();
 });
 
+test.each([
+  ["Working volume", "workingVolume"],
+  ["Alert volume", "alertVolume"],
+] as const)("%s keeps the latest edit through save replies and broadcasts", async (label, key) => {
+  const initial = setupState({ setupComplete: true });
+  const source = fake(initial);
+  const writes: { state: SetupState; resolve: (state: SetupState) => void }[] = [];
+  source.save.mockImplementation(
+    (patch) =>
+      new Promise<SetupState>((resolve) => {
+        writes.push({ state: setupState({ ...initial.settings, ...patch }), resolve });
+      }),
+  );
+  render(<Preflight source={source} initial={initial} settingsMode onLaunched={vi.fn()} />);
+  fireEvent.click(button("Sound"));
+  const slider = screen.getByLabelText(label);
+  for (const value of ["20", "40", "80"]) fireEvent.change(slider, { target: { value } });
+  expect(slider).toHaveProperty("value", "80");
+  const first = writes[0];
+  if (!first) throw Error("Missing first save");
+  act(() =>
+    changed?.({ ...first.state, settings: { ...first.state.settings, interfaceScale: 150 } }),
+  );
+  expect(slider).toHaveProperty("value", "80");
+  expect(source.save).toHaveBeenCalledTimes(1);
+  await act(async () => {
+    first.resolve(first.state);
+    await Promise.resolve();
+  });
+  expect(slider).toHaveProperty("value", "80");
+  expect(source.save).toHaveBeenCalledTimes(2);
+  expect(source.save).toHaveBeenLastCalledWith({
+    sound: { ...initial.settings.sound, [key]: 0.8 },
+  });
+  const last = writes[1];
+  if (!last) throw Error("Missing final save");
+  await act(async () => {
+    changed?.(last.state);
+    last.resolve(last.state);
+    await Promise.resolve();
+  });
+  expect(slider).toHaveProperty("value", "80");
+  act(() => changed?.(setupState({ sound: { ...initial.settings.sound, [key]: 0.3 } })));
+  expect(slider).toHaveProperty("value", "30");
+});
+
+test("sound saves preserve later edits after failure and finish after Settings closes", async () => {
+  const initial = setupState({ setupComplete: true });
+  const source = fake(initial);
+  let reject: (error: Error) => void = () => {};
+  source.save.mockImplementationOnce(
+    () =>
+      new Promise<SetupState>((_resolve, fail) => {
+        reject = fail;
+      }),
+  );
+  const view = render(
+    <Preflight source={source} initial={initial} settingsMode onLaunched={vi.fn()} />,
+  );
+  fireEvent.click(button("Sound"));
+  const slider = screen.getByLabelText("Working volume");
+  fireEvent.change(slider, { target: { value: "20" } });
+  fireEvent.change(slider, { target: { value: "80" } });
+  fireEvent.change(screen.getByLabelText("Alert volume"), { target: { value: "60" } });
+  fireEvent.click(screen.getByLabelText("Alerts on"));
+  view.unmount();
+  await act(async () => {
+    reject(Error("Disk full"));
+    await Promise.resolve();
+  });
+  expect(source.state).toHaveBeenCalled();
+  expect(source.save).toHaveBeenCalledTimes(2);
+  expect(source.save).toHaveBeenLastCalledWith({
+    sound: { ...initial.settings.sound, workingVolume: 0.8, alertVolume: 0.6, alerts: false },
+  });
+});
+
+test("closing Settings submits queued sound edits before a reopened view saves", async () => {
+  const initial = setupState({ setupComplete: true });
+  const source = fake(initial);
+  let finish: (state: SetupState) => void = () => {};
+  source.save.mockImplementationOnce(
+    () =>
+      new Promise<SetupState>((resolve) => {
+        finish = resolve;
+      }),
+  );
+  const view = render(
+    <Preflight source={source} initial={initial} settingsMode onLaunched={vi.fn()} />,
+  );
+  fireEvent.click(button("Sound"));
+  fireEvent.change(screen.getByLabelText("Working volume"), { target: { value: "20" } });
+  fireEvent.change(screen.getByLabelText("Working volume"), { target: { value: "80" } });
+  view.unmount();
+  expect(source.save).toHaveBeenCalledTimes(2);
+  render(
+    <Preflight source={source} initial={await source.state()} settingsMode onLaunched={vi.fn()} />,
+  );
+  fireEvent.click(button("Sound"));
+  await act(async () => {
+    fireEvent.change(screen.getByLabelText("Working volume"), { target: { value: "60" } });
+    finish(setupState({ sound: { ...initial.settings.sound, workingVolume: 0.2 } }));
+    await Promise.resolve();
+  });
+  expect(source.save).toHaveBeenCalledTimes(3);
+  expect((await source.state()).settings.sound.workingVolume).toBe(0.6);
+  expect(screen.getByLabelText("Working volume")).toHaveProperty("value", "60");
+});
+
+test("a rejected final sound save restores main's settings and permits another edit", async () => {
+  const initial = setupState({ setupComplete: true });
+  const source = fake(initial);
+  source.save.mockRejectedValueOnce(Error("Disk full"));
+  render(<Preflight source={source} initial={initial} settingsMode onLaunched={vi.fn()} />);
+  fireEvent.click(button("Sound"));
+  const slider = screen.getByLabelText("Working volume");
+  await act(async () => {
+    fireEvent.change(slider, { target: { value: "80" } });
+    await Promise.resolve();
+  });
+  expect(screen.getByRole("alert").textContent).toBe("Disk full");
+  expect(slider).toHaveProperty("value", "15");
+  source.save.mockRejectedValueOnce(Error("Offline"));
+  source.state.mockRejectedValueOnce(Error("Offline"));
+  await act(async () => {
+    fireEvent.change(slider, { target: { value: "70" } });
+    await Promise.resolve();
+  });
+  expect(screen.getByRole("alert").textContent).toBe("Offline");
+  await act(async () => {
+    fireEvent.change(slider, { target: { value: "60" } });
+    await Promise.resolve();
+  });
+  expect(slider).toHaveProperty("value", "60");
+  expect((await source.state()).settings.sound.workingVolume).toBe(0.6);
+});
+
 test("first run walks every step, saves each choice, and launches", async () => {
   const source = fake(setupState());
   const launched = vi.fn();

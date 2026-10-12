@@ -1274,6 +1274,85 @@ test("utility host survives output floods without losing rows or delaying anothe
   assert.ok(sorted[29] < 1000, "echo remains responsive during a flood (CI ceiling: 1s)");
 });
 
+test("utility host survives concurrent terminal exits and drains multi-terminal shutdown", {
+  timeout: deadline(45_000),
+}, async (context) => {
+  const app = await launchApp(context, false, { emptyBoard: true });
+  fixtureCleanup(context).apps.unshift(async () => {
+    await app.evaluate(async () => {
+      const host = globalThis.ptyRaceHost;
+      if (!host) return;
+      try {
+        await host.shutdown();
+      } finally {
+        await host.dispose();
+      }
+    });
+  });
+  await boardPage(app);
+  await app.evaluate(({ app }) => {
+    const load = process
+      .getBuiltinModule("node:module")
+      .createRequire(app.getAppPath() + "/package.json");
+    const { TerminalHostClient } = load("./build/main/terminals/terminal-host-client.js");
+    globalThis.ptyRaceExits = [];
+    globalThis.ptyRaceHost = new TerminalHostClient((id, code) =>
+      globalThis.ptyRaceExits.push({ id, code }),
+    );
+  });
+  // Every batch must succeed; this is concurrent native lifecycle coverage, not a retry.
+  for (const shutdown of [false, true]) {
+    const ids = await app.evaluate(
+      async ({ app }, { node, probe }) => {
+        const host = globalThis.ptyRaceHost;
+        return Promise.all(
+          Array.from({ length: 12 }, () =>
+            host.create({
+              command: node,
+              args: [probe, "echo"],
+              cwd: app.getPath("temp"),
+              cols: 80,
+              rows: 24,
+            }),
+          ),
+        );
+      },
+      { node: process.execPath, probe: path.join(__dirname, "host-probe.js") },
+    );
+    await expect
+      .poll(() =>
+        app.evaluate(async (_electron, ids) => {
+          const lines = await Promise.all(ids.map((id) => globalThis.ptyRaceHost.tail(id, 5)));
+          return lines.every((tail) => tail.some((line) => line.includes("READY")));
+        }, ids),
+      )
+      .toBe(true);
+    await app.evaluate(
+      async (_electron, { ids, shutdown }) => {
+        const host = globalThis.ptyRaceHost;
+        // Resizes run while native exit watchers remove other sessions' handles.
+        if (shutdown) await host.shutdown();
+        else
+          await Promise.all(
+            ids.map(async (id, index) => {
+              host.resize(id, 90 + index, 30);
+              await host.stop(id);
+            }),
+          );
+      },
+      { ids, shutdown },
+    );
+    await expect.poll(() => app.evaluate(() => globalThis.ptyRaceHost.runningCount)).toBe(0);
+    if (!shutdown) {
+      await expect.poll(() => app.evaluate(() => globalThis.ptyRaceExits.length)).toBe(12);
+      assert.equal(
+        await app.evaluate(() => globalThis.ptyRaceExits.some(({ code }) => code === -1)),
+        false,
+      );
+    }
+  }
+});
+
 test("a crashed utility host reports failure and the renderer can restart", {
   timeout: deadline(45_000),
 }, async (context) => {
@@ -3082,13 +3161,13 @@ process.stdin.resume();
     await page.getByRole("button", { name: "Actions for agent", exact: true }).click();
     await page.getByRole("menuitem", { name: "Claude Code", exact: true }).click();
     await expect(
-      page.getByRole("menuitem", { name: "Click again for two agents here" }),
+      page.getByRole("menuitem", { name: "Click again for multiple agents here" }),
     ).toBeVisible();
     await page.keyboard.press("Escape");
     assert.equal((await sharedSessions()).length, 3, "Cancel must not create an agent");
     await page.getByRole("button", { name: "Actions for agent", exact: true }).click();
     await page.getByRole("menuitem", { name: "Claude Code", exact: true }).click();
-    const sharedArm = page.getByRole("menuitem", { name: "Click again for two agents here" });
+    const sharedArm = page.getByRole("menuitem", { name: "Click again for multiple agents here" });
     await expect(sharedArm).toBeVisible();
     // Measure the minimum interval from main's arm, not from the async launch request.
     await page.waitForTimeout(310);
@@ -4342,6 +4421,75 @@ test("every interface theme applies live to native chrome and passes axe on boar
   });
   await assertAccessible(page);
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
+});
+
+test("volume sliders keep the dragged value while sound saves settle", async (context) => {
+  const app = await launchApp(context, false, { emptyBoard: true });
+  fixtureCleanup(context).apps.unshift(async () => {
+    await app.evaluate(() => globalThis.soundSaveRestore?.()).catch(() => {});
+  });
+  const page = await boardPage(app);
+  // Hold real persistence at the service boundary, then deliver its actual
+  // settings broadcasts and replies after the pointer has moved farther.
+  await app.evaluate(({ app }) => {
+    const load = process
+      .getBuiltinModule("node:module")
+      .createRequire(app.getAppPath() + "/package.json");
+    const { Setup } = load("./build/main/setup/setup.js");
+    const save = Setup.prototype.save;
+    globalThis.soundSaveGates = [];
+    globalThis.soundSaveCount = 0;
+    globalThis.soundSaveRestore = () => {
+      Setup.prototype.save = save;
+      for (const release of globalThis.soundSaveGates.splice(0)) release();
+    };
+    Setup.prototype.save = async function (patch) {
+      if (patch.sound) {
+        globalThis.soundSaveCount++;
+        await new Promise((resolve) => globalThis.soundSaveGates.push(resolve));
+      }
+      return save.call(this, patch);
+    };
+  });
+  await boardCommand(app, ",", process.platform !== "darwin");
+  await page.getByRole("button", { name: "Sound", exact: true }).click();
+  const working = page.getByLabel("Working volume", { exact: true });
+  await working.scrollIntoViewIfNeeded();
+  const box = await working.boundingBox();
+  assert.ok(box);
+  await page.mouse.move(box.x + box.width * 0.2, box.y + box.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(box.x + box.width - 1, box.y + box.height / 2, { steps: 8 });
+  await page.mouse.up();
+  await expect(working).toHaveValue("100");
+  await expect.poll(() => app.evaluate(() => globalThis.soundSaveCount)).toBe(1);
+  await app.evaluate(() => globalThis.soundSaveGates.shift()());
+  await expect.poll(() => app.evaluate(() => globalThis.soundSaveCount)).toBe(2);
+  await expect(working).toHaveValue("100");
+  await expect(page.getByText("Working volume · 100%", { exact: true })).toBeVisible();
+  await app.evaluate(() => globalThis.soundSaveGates.shift()());
+  await expect
+    .poll(() =>
+      page.evaluate(async () => (await window.desktop.setupState()).settings.sound.workingVolume),
+    )
+    .toBe(1);
+
+  const alerts = page.getByLabel("Alert volume", { exact: true });
+  await alerts.press("Home");
+  await alerts.press("ArrowRight");
+  await alerts.press("ArrowRight");
+  await expect(alerts).toHaveValue("2");
+  await expect.poll(() => app.evaluate(() => globalThis.soundSaveCount)).toBe(3);
+  await alerts.press("Escape");
+  await expect(alerts).toHaveCount(0);
+  await app.evaluate(() => globalThis.soundSaveGates.shift()());
+  await expect.poll(() => app.evaluate(() => globalThis.soundSaveCount)).toBe(4);
+  await app.evaluate(() => globalThis.soundSaveGates.shift()());
+  await expect
+    .poll(() =>
+      page.evaluate(async () => (await window.desktop.setupState()).settings.sound.alertVolume),
+    )
+    .toBe(0.02);
 });
 
 test("recorded sounds refresh and preview user files while shell attention and completion stay silent", {

@@ -351,7 +351,7 @@ test.each(["destroyed", "navigated"])(
 test.each([
   ["remove", "Click again to remove"],
   ["stop", "Click again to stop"],
-  ["shared-agent", "Click again for two agents here"],
+  ["shared-agent", "Click again for multiple agents here"],
   ["notifier", "Click again to replace notifier"],
 ] as const)("typed %s requests select their exact consequence", async (kind, label) => {
   Object.assign(workspace, {
