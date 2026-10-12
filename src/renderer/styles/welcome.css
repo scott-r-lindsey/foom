@@ -14,7 +14,7 @@
   --ring-glow-opacity: 1;
   position: relative;
   display: inline-block;
-  border-radius: 7px;
+  border-radius: var(--shape-panel-radius, 7px);
 }
 .preflight .ignite button.primary {
   position: relative;

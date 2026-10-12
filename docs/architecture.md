@@ -1291,8 +1291,9 @@ Main creates `~/.foom/config/themes/` for interface themes and
 `foom config validate` command. Interface files contain exactly
 `{ "kind": "theme", "name": "…", "base": "light" | "dark", "colors": { … } }`.
 Colors require the original 19 interface tokens; `highlight` and `highlight-deep`
-are optional only as a pair. The existing contrast, violet accent, reserved amber
-and magenta, color-distance, background/base and black-hole rules all apply.
+are optional only as a pair. Contrast remains mandatory. User themes report
+brand-policy deviations as warnings; version 2 extensions and approval rules are
+defined below. Built-in themes retain their strict validation.
 
 Terminal files contain exactly `{ "kind": "terminal-theme", "name": "…",
 "background": "#rrggbb", "foreground": "#rrggbb", "cursor": "#rrggbb",
@@ -1402,8 +1403,8 @@ its own watcher). Sound catalogs still refresh when Settings → Sound opens.
 
 **Approval.** A change is held instead of applied when, compared with the effective
 settings in force, it turns alerts off, sets the alert volume to 0, turns hooks off,
-or turns an agent off. A missing key means the default. Other changes, including
-themes, sizes and turning things on, apply without approval. Settings → Foom config
+or turns an agent off. A missing key means the default. Sizes and turning things on apply without approval. Theme changes follow the
+attention-distinctness hold described below. Settings → Foom config
 and the config row show the held change in amber. The held change carries an ID,
 the digest of its text, and a decision must name it: if an agent replaced the
 proposal after the banner was shown, the decision is refused and the new one shown.
@@ -1445,3 +1446,40 @@ never holds secrets; Foom sends nothing from it to any network service.
 ### Foreground shell program names
 
 For explicit shell launches, the terminal host reads node-pty’s foreground process name on Linux and macOS. Output triggers at most one lookup per second, coalescing throttled output into one trailing lookup so the final prompt clears names in shells without lifecycle markers; Bash lifecycle markers force a refresh and prompt completion clears the name. Because PS0 precedes the fork, command start also schedules one lookup after 100 ms for silent commands. Completion, removal and exit cancel it; no idle terminal is polled. The host suppresses the launched shell’s own name, rejects paths, whitespace and control characters, and bounds the name to 32 printable characters. Windows never queries ConPTY for this metadata. A validated ID-scoped host event reaches main only for live owned terminals, updates the existing workspace session snapshot, and passes through the board source as text. Session persistence omits the field.
+
+## User interface themes version 2 (#246)
+
+User theme files accept `{ version: 2, name, base, colors, areas?, states?, shape? }`
+with optional `kind: "theme"`. Legacy kind-based files and version 1 remain valid;
+built-ins retain their strict version 1 validation. Terminal themes are unchanged.
+The global colors and optional paired highlight colors remain required as before.
+Every nested object has exact keys, colors are opaque six-digit hex, files are at
+most 64 KiB, and no file data becomes a selector or raw CSS.
+
+Areas override a subset of colors: sidebar on `.sidebar-shell`, tiles on
+`.tile-area` and `.terminal-tile` chrome (terminal content retains its independent
+palette), panels on `.row-menu.sidebar-panel` (including tile panels), dialogs on
+Settings, preflight and confirmation/dialog roots, menus on row menus/submenus and
+the wordmark menu. Portal roots get their own area variables. Raised colors derive
+at each root from its effective palette. State colors override selected, hover,
+focus and scrollbar colors; omitted values retain existing derivations. Shape
+supports radius 0–12 px, panel-radius 0–16 px, border 0–2 px and shadow 0–1.
+Panel radius inherits an explicit control radius when omitted. Existing
+per-element radius fallbacks preserve built-in geometry; circles and
+intentional zeros remain literal.
+
+Contrast below 4.5:1 rejects the whole file, retaining the last good theme. It is
+checked globally and against every area's effective bg/surface for ink, muted,
+accent, highlight and status inks, plus badge and space-ink pairs. Brand hue,
+reserved-color, color-distance, base-luminance and hole deviations are warnings.
+Warnings contain a filename, fixed JSON path, fixed reason and warning severity;
+Settings lists Applied · N warnings and the CLI prints them with exit status 0.
+Parser exceptions and file contents never travel to the renderer.
+
+Both the config scanner and theme library pass through a serialized main-owned
+approval gate. A new attention-distinctness warning in the active theme's file
+holds the palette; selecting a warned theme through settings.json also holds.
+Inactive themes, hue-only warnings and direct Appearance selections do not hold.
+Allow verifies the proposal digest and current bytes; Keep it on restores the
+previous applied file. Attention distinctness includes separation from readable
+ink as well as failure, accent, highlight and done, with the ΔE 40 threshold.

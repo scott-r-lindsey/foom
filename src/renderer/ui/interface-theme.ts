@@ -1,3 +1,4 @@
+import { interfaceAreas, interfaceStates } from "../../shared/user-interface-theme";
 import type { ThemeCatalog } from "../../shared/theme-file";
 import {
   interfaceColorNames,
@@ -21,6 +22,12 @@ export function attachInterfaceTheme(
   let catalog: ThemeCatalog | undefined;
   let disposed = false;
   let revision = 0;
+  const properties = new Set<string>();
+  const property = (key: string, value: string | undefined) => {
+    properties.add(key);
+    if (value === undefined) target.style.removeProperty(key);
+    else target.style.setProperty(key, value);
+  };
   const apply = () => {
     const dark = settings.colorMode === "system" ? media.matches : settings.colorMode === "dark";
     const theme = resolveInterfaceTheme(settings.interfaceTheme, dark, catalog);
@@ -30,6 +37,28 @@ export function attachInterfaceTheme(
       "--highlight-deep",
       theme.colors["highlight-deep"] ?? theme.colors["accent-deep"],
     );
+    for (const key of [...interfaceColorNames, ...interfaceHighlightNames]) {
+      const value =
+        theme.colors[key] ?? theme.colors[key === "highlight" ? "accent" : "accent-deep"];
+      property(`--theme-${key}`, value);
+      for (const area of interfaceAreas) {
+        const colors = { ...theme.colors, ...theme.areas?.[area] };
+        property(
+          `--theme-${area}-${key}`,
+          colors[key] ?? colors[key === "highlight" ? "accent" : "accent-deep"],
+        );
+      }
+    }
+    for (const key of interfaceStates) property(`--state-${key}`, theme.states?.[key]);
+    for (const key of ["radius", "panel-radius", "border", "shadow"] as const) {
+      const value =
+        theme.shape?.[key] ?? (key === "panel-radius" ? theme.shape?.radius : undefined);
+      property(
+        `--shape-${key}`,
+        value === undefined ? undefined : `${String(value)}${key === "shadow" ? "" : "px"}`,
+      );
+    }
+    target.dataset["themeReady"] = "true";
     target.style.colorScheme = theme.base;
     target.dataset["panelColor"] = settings.panelColor;
     target.dataset["panelContrast"] =
@@ -59,7 +88,9 @@ export function attachInterfaceTheme(
     media.removeEventListener("change", apply);
     for (const key of [...interfaceColorNames, ...interfaceHighlightNames])
       target.style.removeProperty(`--${key}`);
+    for (const key of properties) target.style.removeProperty(key);
     target.style.removeProperty("color-scheme");
+    delete target.dataset["themeReady"];
     delete target.dataset["panelColor"];
     delete target.dataset["panelContrast"];
   };

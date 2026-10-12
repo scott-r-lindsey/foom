@@ -50,7 +50,9 @@ export async function execute(
       if (json) output(result.problems);
       else
         for (const problem of result.problems)
-          output(`${JSON.stringify(problem.file)}: ${problem.path}: ${problem.reason}`);
+          output(
+            `${JSON.stringify(problem.file)}: ${problem.path}: ${problem.severity === "warning" ? "warning: " : ""}${problem.reason}`,
+          );
       return result.code;
     }
     const connection = inherited(env);

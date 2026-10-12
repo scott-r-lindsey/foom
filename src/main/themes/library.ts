@@ -24,6 +24,11 @@ export class ThemeLibrary {
   constructor(
     private readonly root: string,
     private readonly changed: () => void = () => {},
+    private readonly review?: (
+      file: string,
+      text: string,
+      theme: ParsedThemeFile,
+    ) => Promise<ParsedThemeFile | undefined>,
   ) {}
   folder(kind: ThemeKind): string {
     return join(this.root, kind === "theme" ? "themes" : "terminal-themes");
@@ -136,6 +141,10 @@ export class ThemeLibrary {
           }
           if (!theme) continue;
           retained.set(key, theme);
+          if (theme.kind === "theme")
+            next.errors.push(
+              ...(theme.warnings ?? []).map((warning) => ({ ...warning, file, kind })),
+            );
           if (theme.kind === "theme") {
             const collision = Object.values(interfaceThemes).some(
               (builtin) => builtin.name.toLowerCase() === theme.theme.name.toLowerCase(),
@@ -165,7 +174,7 @@ export class ThemeLibrary {
     });
     return this.queue;
   }
-  private async read(kind: ThemeKind, name: string): Promise<ParsedThemeFile> {
+  private async read(kind: ThemeKind, name: string): Promise<ParsedThemeFile | undefined> {
     const directory = this.folder(kind);
     if (!(await lstat(directory)).isDirectory()) throw new ThemeValidationError("$", "unsafe-file");
     const root = await realpath(directory);
@@ -199,7 +208,15 @@ export class ThemeLibrary {
         current.mtimeMs !== info.mtimeMs
       )
         throw new ThemeValidationError("$", "unsafe-file");
-      return parseThemeFile(bytes.subarray(0, size).toString("utf8"), kind);
+      const text = bytes.subarray(0, size).toString("utf8");
+      const parsed = parseThemeFile(text, kind);
+      return this.review
+        ? await this.review(
+            `${kind === "theme" ? "themes" : "terminal-themes"}/${name}`,
+            text,
+            parsed,
+          )
+        : parsed;
     } finally {
       await handle.close();
     }

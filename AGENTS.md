@@ -21,7 +21,7 @@ Read `docs/product.md` and `docs/architecture.md` before changing terminal, eval
 - Foom sends no terminal content to any model or network service. Use Electron `safeStorage` for any secret Foom stores; never write secrets in plain text or send them to the renderer.
 - Follow the Renderer section of `docs/architecture.md`: components use React 19 and TSX with plain token-based CSS. Keep board data behind the source interface; components hold view state only. Subscribe to activity outside React state and dispose subscriptions on unmount. Preserve the imperative terminal controller’s attachment ordering and create one xterm per mounted shell.
 - For UI work, open the matching mockup in `docs/mockups/` and read its README first. Mockups show layout and interaction; the docs win when they disagree. Treat `docs/mockups/` as read-only reference, like `inspiration/`.
-- Follow `docs/brand.md` for color and type. Amber means "needs you" and is used for nothing else; magenta is only for failures. Status must not depend on color alone.
+- Follow `docs/brand.md` for color and type. In built-in themes and UI code, amber means "needs you" and magenta is only for failures. User themes may override these rules with warnings; file changes that weaken attention distinctness require approval. Status must not depend on color alone.
 
 ## Building Foom inside Foom
 

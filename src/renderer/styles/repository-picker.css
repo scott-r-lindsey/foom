@@ -11,8 +11,8 @@
   max-width: 720px;
   padding: 12px 14px 14px;
   background: var(--surface);
-  border: 1px solid var(--line);
-  border-radius: 8px;
+  border: var(--shape-border, 1px) solid var(--line);
+  border-radius: var(--shape-panel-radius, 8px);
 }
 .repo-found h3 {
   margin: 0 0 10px;
@@ -36,8 +36,8 @@
   padding: 9px 12px;
   text-align: left;
   background: var(--bg);
-  border: 1px solid var(--line);
-  border-radius: 6px;
+  border: var(--shape-border, 1px) solid var(--line);
+  border-radius: var(--shape-radius, 6px);
 }
 .preflight .repo-found li button:hover {
   border-color: var(--highlight);
@@ -89,12 +89,12 @@
   padding: 6px 8px;
   color: var(--ink);
   background: var(--bg);
-  border: 1px solid var(--line);
-  border-radius: 5px;
+  border: var(--shape-border, 1px) solid var(--line);
+  border-radius: var(--shape-radius, 5px);
   width: 200px;
 }
 .preflight .repo-tools input[type="search"]:focus-visible {
-  outline: 2px solid var(--highlight);
+  outline: 2px solid var(--state-focus, var(--highlight));
 }
 .repo-count {
   margin-left: auto;
@@ -114,8 +114,8 @@
   list-style: none;
   margin: 0;
   padding: 0;
-  border: 1px solid var(--line);
-  border-radius: 8px;
+  border: var(--shape-border, 1px) solid var(--line);
+  border-radius: var(--shape-panel-radius, 8px);
   background: var(--surface);
   max-height: 320px;
   overflow: auto;
@@ -129,7 +129,7 @@
   font-size: 13px;
 }
 .repo-row + .repo-row {
-  border-top: 1px solid var(--line);
+  border-top: var(--shape-border, 1px) solid var(--line);
 }
 .repo-row label {
   display: flex;

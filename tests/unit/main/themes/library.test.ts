@@ -49,17 +49,6 @@ test("loads namespaced palettes, disambiguates names, returns copies and retains
       "not-a-color",
     ],
     [
-      JSON.stringify({ ...valid(), colors: { ...valid().colors, accent: "#ffb23e" } }),
-      "reserved-color",
-    ],
-    [
-      JSON.stringify({
-        ...valid(),
-        colors: { ...valid().colors, highlight: "#ff2e88", "highlight-deep": "#7a3cff" },
-      }),
-      "reserved-color",
-    ],
-    [
       JSON.stringify({ ...valid(), colors: { ...valid().colors, ink: valid().colors.bg } }),
       "contrast",
     ],

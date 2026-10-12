@@ -20,7 +20,7 @@ header {
   align-items: center;
   padding: 10px 16px;
   background: var(--surface);
-  border-bottom: 1px solid var(--line);
+  border-bottom: var(--shape-border, 1px) solid var(--line);
   font-size: 12px;
 }
 strong {
@@ -42,8 +42,8 @@ button {
   padding: 5px 10px;
   color: inherit;
   background: var(--bg);
-  border: 1px solid var(--line);
-  border-radius: 5px;
+  border: var(--shape-border, 1px) solid var(--line);
+  border-radius: var(--shape-radius, 5px);
   cursor: pointer;
 }
 button:disabled {
@@ -51,7 +51,7 @@ button:disabled {
   cursor: default;
 }
 button:focus-visible {
-  outline: 2px solid var(--highlight);
+  outline: 2px solid var(--state-focus, var(--highlight));
 }
 #terminal {
   flex: 1;

@@ -1,9 +1,5 @@
 import type { ParsedThemeFile, ThemeKind } from "./theme-file";
-import {
-  interfaceColorNames,
-  interfaceHighlightNames,
-  parseInterfaceTheme,
-} from "./interface-themes";
+import { parseUserInterfaceTheme, userThemeWarnings } from "./user-interface-theme";
 import { ansiNames, isTerminalTheme } from "./terminal-themes";
 import { ThemeValidationError, themeColor, themeKeys, themeRecord } from "./theme-validation";
 /** Browser-safe parser shared by the app and the future offline CLI. */
@@ -20,35 +16,24 @@ export function parseThemeFile(text: string, kind: ThemeKind): ParsedThemeFile {
   themeKeys(
     value,
     kind === "theme"
-      ? ["kind", "name", "base", "colors"]
+      ? [Object.hasOwn(value, "kind") ? "kind" : "version", "name", "base", "colors"]
       : ["kind", "name", "background", "foreground", "cursor", "ansi"],
     "$",
+    kind === "theme"
+      ? ["version", ...(value["version"] === 2 ? ["areas", "states", "shape"] : [])]
+      : [],
   );
-  if (value["kind"] !== kind) throw new ThemeValidationError("$.kind", "invalid-value");
+  if ((Object.hasOwn(value, "kind") || kind !== "theme") && value["kind"] !== kind)
+    throw new ThemeValidationError("$.kind", "invalid-value");
   const name = value["name"];
   if (typeof name !== "string" || !/^[\p{L}\p{N} ._-]{1,40}$/u.test(name) || !name.trim())
     throw new ThemeValidationError("$.name", "invalid-value");
   if (kind === "theme") {
-    const colors = themeRecord(value["colors"], "$.colors");
-    themeKeys(colors, interfaceColorNames, "$.colors", interfaceHighlightNames);
-    for (const key of [...interfaceColorNames, ...interfaceHighlightNames])
-      if (Object.hasOwn(colors, key)) themeColor(colors[key], `$.colors.${key}`);
-    for (const key of interfaceHighlightNames)
-      if (
-        Object.hasOwn(colors, key) &&
-        !Object.hasOwn(colors, key === "highlight" ? "highlight-deep" : "highlight")
-      )
-        throw new ThemeValidationError(
-          `$.colors.${key === "highlight" ? "highlight-deep" : "highlight"}`,
-          "missing-key",
-        );
-    const base = value["base"];
-    if (base !== "dark" && base !== "light")
-      throw new ThemeValidationError("$.base", "invalid-value");
-    const theme = parseInterfaceTheme({ version: 1, name, base, colors });
-    if (typeof theme === "string") throw new ThemeValidationError("$", "invalid-value");
-    return { kind, theme };
+    const theme = parseUserInterfaceTheme(value);
+    const warnings = userThemeWarnings(theme);
+    return { kind, theme, ...(warnings.length ? { warnings } : {}) };
   }
+
   const background = themeColor(value["background"], "$.background");
   const foreground = themeColor(value["foreground"], "$.foreground");
   const cursor = themeColor(value["cursor"], "$.cursor");

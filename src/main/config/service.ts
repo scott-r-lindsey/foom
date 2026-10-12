@@ -6,7 +6,7 @@ import type { ConfigSettings } from "../../shared/config";
 import { parseSettingsFile } from "../../shared/config-files";
 import type { ConfigChange, ConfigStatus } from "../../shared/foom-config";
 import { SOUND_KINDS } from "../../shared/sounds";
-import type { ThemeKind } from "../../shared/theme-file";
+import type { ParsedThemeFile, ThemeDiagnostic, ThemeKind } from "../../shared/theme-file";
 import { parseThemeFile } from "../../shared/theme-files";
 import { ThemeValidationError, validThemeFile } from "../../shared/theme-validation";
 import { describe, effective, weakenings } from "./approval";
@@ -31,6 +31,7 @@ export interface ConfigServiceDependencies {
   /** The profile's digest of the settings file it last applied: the approval baseline. */
   baseline: { get(): string | null; set(value: string): Promise<void> };
   onStatus?(status: ConfigStatus): void;
+  onThemeDecision?(): void;
   now?: () => number;
   watch?: (directory: string, listener: (file: string | null) => void) => { close(): void };
   delay?: number;
@@ -137,6 +138,9 @@ export class ConfigService {
   private applied: Applied = DEFAULTS;
   private pending: Pending | null = null;
   private events: ConfigChange[] = [];
+  private appliedThemes = new Map<string, { text: string; parsed: ParsedThemeFile }>();
+  private heldThemes = new Map<string, { text: string; previous: string | null }>();
+  private themeWarnings = new Map<string, readonly ThemeDiagnostic[]>();
   private rejected = new Map<string, string>();
   private history: CommitRecord[] = [];
   /** When this process made each commit; git records whole seconds only. */
@@ -500,7 +504,10 @@ export class ConfigService {
     this.rejected.delete(SETTINGS_FILE);
     const before = effective(this.deps.defaults, this.applied.values);
     const after = effective(this.deps.defaults, values);
-    const weak = weakenings(before, after);
+    const weak = [
+      ...weakenings(before, after),
+      ...(await this.themeSelectionWeakening(before, after)),
+    ];
     if (weak.length) {
       if (this.pending?.text === text) return;
       this.events = this.events.filter((event) => event.state !== "pending");
@@ -566,6 +573,86 @@ export class ConfigService {
     }
   }
 
+  /** Both watchers pass through this serialized gate before a palette reaches any window. */
+  reviewTheme(
+    file: string,
+    text: string,
+    parsed: ParsedThemeFile,
+  ): Promise<ParsedThemeFile | undefined> {
+    return this.serial(async () => {
+      const accepted = await this.reviewThemeValue(file, text, parsed);
+      this.publish();
+      return accepted;
+    });
+  }
+
+  private async reviewThemeValue(
+    file: string,
+    text: string,
+    parsed: ParsedThemeFile,
+  ): Promise<ParsedThemeFile | undefined> {
+    let previous = this.appliedThemes.get(file);
+    if (!previous) {
+      const bytes = await this.committed(file);
+      if (bytes)
+        try {
+          const oldText = decode(bytes);
+          const kind = themeKind(file);
+          if (kind) previous = { text: oldText, parsed: parseThemeFile(oldText, kind) };
+        } catch {
+          /* Invalid history is never an approval baseline. */
+        }
+    }
+    const distinct = (value: ParsedThemeFile | undefined) =>
+      value?.kind === "theme" &&
+      value.warnings?.some((warning) => warning.reason === "attention-distinctness");
+    const active = effective(this.deps.defaults, this.applied.values).interfaceTheme;
+    if (
+      active === `user:${file.slice("themes/".length)}` &&
+      distinct(parsed) &&
+      !distinct(previous?.parsed)
+    ) {
+      this.heldThemes.set(file, { text, previous: previous?.text ?? null });
+      if (previous) this.appliedThemes.set(file, previous);
+      return previous?.parsed;
+    }
+    this.heldThemes.delete(file);
+    this.appliedThemes.set(file, { text, parsed });
+    this.themeWarnings.set(file, parsed.kind === "theme" ? (parsed.warnings ?? []) : []);
+    return parsed;
+  }
+
+  private async themeSelectionWeakening(
+    before: EffectiveConfig,
+    after: EffectiveConfig,
+  ): Promise<Weakening[]> {
+    if (
+      before.interfaceTheme === after.interfaceTheme ||
+      typeof after.interfaceTheme !== "string" ||
+      !after.interfaceTheme.startsWith("user:")
+    )
+      return [];
+    const file = `themes/${after.interfaceTheme.slice(5)}`;
+    try {
+      const bytes = await this.read(file);
+      if (!bytes) return [];
+      const parsed = parseThemeFile(decode(bytes), "theme");
+      if (
+        parsed.kind === "theme" &&
+        parsed.warnings?.some((warning) => warning.reason === "attention-distinctness")
+      )
+        return [
+          {
+            action: "use a theme where needs-you is hard to tell apart",
+            detail: "interfaceTheme: attention-distinctness",
+          },
+        ];
+    } catch {
+      /* An invalid selection falls back to the current catalog. */
+    }
+    return [];
+  }
+
   private async scanTheme(relative: string, tree: Map<string, TreeEntry>): Promise<void> {
     const kind = themeKind(relative);
     if (!kind) return;
@@ -579,6 +666,9 @@ export class ConfigService {
     }
     const revert = this.revertSubjects.get(relative);
     if (bytes === null) {
+      this.appliedThemes.delete(relative);
+      this.heldThemes.delete(relative);
+      this.themeWarnings.delete(relative);
       this.rejected.delete(relative);
       if (!entry) return;
       this.revertSubjects.delete(relative);
@@ -589,13 +679,11 @@ export class ConfigService {
       return;
     }
     const object = await this.deps.git.objectId(bytes);
-    if (entry?.object === object) {
-      this.rejected.delete(relative);
-      return;
-    }
     let name: string;
     try {
       const parsed = parseThemeFile(decode(bytes), kind);
+      await this.reviewThemeValue(relative, decode(bytes), parsed);
+      if (this.heldThemes.has(relative)) return;
       name = parsed.kind === "theme" ? parsed.theme.name : parsed.name;
     } catch (error) {
       this.reject(relative, object, invalid(error));
@@ -603,6 +691,7 @@ export class ConfigService {
     }
     this.rejected.delete(relative);
     this.revertSubjects.delete(relative);
+    if (entry?.object === object) return;
     const noun = kind === "theme" ? `${name} theme` : `${name} terminal colors`;
     await this.commit(
       new Map([[relative, bytes]]),
@@ -639,6 +728,16 @@ export class ConfigService {
     }
   }
 
+  private warningStatus(files: readonly string[]): Pick<ConfigChange, "warnings" | "reason"> {
+    const warnings = files.flatMap((file) => this.themeWarnings.get(file) ?? []);
+    return warnings.length
+      ? {
+          warnings: warnings.length,
+          reason: warnings.map((warning) => `${warning.path}: ${warning.reason}`).join(" · "),
+        }
+      : {};
+  }
+
   status(): ConfigStatus {
     const applied: ConfigChange[] = this.history.map((entry) => ({
       id: entry.commit,
@@ -648,8 +747,10 @@ export class ConfigService {
       state: "applied",
       commit: entry.commit,
       hash: entry.commit.slice(0, 7),
+      ...this.warningStatus(entry.files),
     }));
     const pending = this.pending;
+    const held = this.heldThemes.entries().next().value;
     return {
       folder: this.deps.root,
       available: this.available,
@@ -661,7 +762,14 @@ export class ConfigService {
             file: SETTINGS_FILE,
             detail: pending.weak.map((entry) => entry.detail).join(", "),
           }
-        : null,
+        : held
+          ? {
+              id: digest(held[0] + held[1].text),
+              file: held[0],
+              action: "use a theme where needs-you is hard to tell apart",
+              detail: "attention-distinctness",
+            }
+          : null,
       changes: [...this.events, ...applied].sort((a, b) => b.time - a.time).slice(0, MAX_EVENTS),
       rejected: this.rejected.size,
       ...(this.error ? { error: this.error } : {}),
@@ -717,7 +825,27 @@ export class ConfigService {
       return Promise.reject(new Error("Invalid decision"));
     return this.serial(async () => {
       const pending = this.pending;
-      if (!pending) throw new Error("No change is waiting for approval");
+      if (!pending) {
+        const held = this.heldThemes.entries().next().value;
+        if (!held) throw new Error("No change is waiting for approval");
+        const [file, proposal] = held;
+        if (id !== digest(file + proposal.text))
+          throw new Error("The change was replaced. Review it again.");
+        const bytes = await settle(this.read(file), null);
+        if (!bytes || decode(bytes) !== proposal.text) {
+          await this.scan();
+          throw new Error("The file changed. Review the new change.");
+        }
+        if (decision === "allow") {
+          const parsed = parseThemeFile(proposal.text, "theme");
+          this.appliedThemes.set(file, { text: proposal.text, parsed });
+        } else if (proposal.previous === null) await rm(this.path(file));
+        else await this.writeFile(file, proposal.previous);
+        this.heldThemes.delete(file);
+        await this.scan();
+        this.deps.onThemeDecision?.();
+        return this.status();
+      }
       if (id !== digest(pending.text)) throw new Error("The change was replaced. Review it again.");
       const bytes = await settle(this.read(SETTINGS_FILE), null);
       if (!bytes || bytes.toString("utf8") !== pending.text) {

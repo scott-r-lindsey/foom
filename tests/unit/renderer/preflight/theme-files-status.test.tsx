@@ -40,3 +40,28 @@ test("shows fixed diagnostic text for the relevant kind and handles folder failu
   expect(screen.queryByRole("status")).toBeNull();
   expect(screen.queryByRole("button")).toBeNull();
 });
+
+test("warnings describe applied themes without rejection styling", () => {
+  render(
+    <ThemeFilesStatus
+      kind="theme"
+      catalog={{
+        interface: [],
+        terminal: [],
+        errors: [
+          {
+            kind: "theme",
+            file: "personal.json",
+            path: "$.colors.ink",
+            reason: "reserved-color",
+            severity: "warning",
+          },
+        ],
+      }}
+    />,
+  );
+  expect(screen.getByRole("status").textContent).toBe(
+    "Warning personal.json · $.colors.ink: reserved-color",
+  );
+  expect(screen.getByRole("status").className).toBe("preflight-note");
+});

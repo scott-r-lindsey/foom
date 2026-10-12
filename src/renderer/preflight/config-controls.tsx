@@ -126,6 +126,7 @@ export function ConfigControls({ config }: { config: ConfigSource }) {
               <span className="config-status">
                 <span className="config-light" aria-hidden="true" />
                 {LABELS[change.state]}
+                {change.warnings ? ` · ${String(change.warnings)} warnings` : ""}
               </span>
               {change.state === "applied" && change.commit ? (
                 <button

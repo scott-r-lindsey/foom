@@ -636,6 +636,8 @@ projector, bells, percussion and short refusal sounds.
 
 ### Foom config
 
+User themes may apply with brand warnings, shown in Foom config and by the CLI; file changes that make needs-you hard to distinguish wait for approval.
+
 Settings → Foom config shows the config folder (`~/.foom/config`) with **Open
 folder**. Agents configure Foom by editing that folder: `settings.json`, theme
 files and terminal themes. Each valid change applies live and is committed to the

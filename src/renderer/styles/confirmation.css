@@ -13,7 +13,7 @@ body {
   max-height: 100vh;
   display: flex;
   flex-direction: column;
-  border: 1px solid var(--raised-line);
+  border: var(--shape-border, 1px) solid var(--raised-line);
   background: linear-gradient(var(--raised-top), var(--raised-bottom));
   box-shadow: inset 0 0 40px -12px color-mix(in srgb, var(--accent) 40%, transparent);
 }
@@ -39,8 +39,8 @@ pre {
   margin: 0;
   padding: 12px;
   background: var(--bg);
-  border: 1px solid var(--line);
-  border-radius: 8px;
+  border: var(--shape-border, 1px) solid var(--line);
+  border-radius: var(--shape-panel-radius, 8px);
 }
 ul {
   list-style: none;
@@ -91,8 +91,8 @@ button {
   font: inherit;
   height: 34px;
   padding: 0 14px;
-  border: 1px solid var(--line);
-  border-radius: 7px;
+  border: var(--shape-border, 1px) solid var(--line);
+  border-radius: var(--shape-panel-radius, 7px);
   color: var(--ink);
   background: transparent;
   cursor: pointer;
@@ -104,13 +104,13 @@ button {
   font-weight: 600;
 }
 button:focus-visible {
-  outline: 2px solid var(--highlight);
+  outline: 2px solid var(--state-focus, var(--highlight));
   outline-offset: 3px;
 }
 .confirmation-skipped {
   color: var(--muted);
   margin-top: 12px;
-  border-top: 1px solid var(--line);
+  border-top: var(--shape-border, 1px) solid var(--line);
 }
 
 progress {

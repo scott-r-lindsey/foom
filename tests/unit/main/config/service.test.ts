@@ -641,3 +641,65 @@ test("a replaced theme folder gets a new watcher", async () => {
     expect((await f.git.log(1))[0]?.subject).toBe("Add Again theme");
   });
 });
+
+test("active theme edits are held before display, Keep restores and Allow accepts the exact proposal", async () => {
+  const f = await fixture();
+  await f.service.initialize();
+  const original = theme("Personal");
+  await f.write("themes/personal.json", original);
+  await f.service.refresh();
+  await f.service.write({ interfaceTheme: "user:personal.json" });
+  const proposed = theme("Personal", { ...palette.colors, attention: palette.colors.ink });
+  await f.write("themes/personal.json", proposed);
+  await f.service.refresh();
+  expect(f.service.status().pending).toMatchObject({
+    file: "themes/personal.json",
+    detail: "attention-distinctness",
+  });
+  const { parseThemeFile } = await import("../../../../src/shared/theme-files");
+  expect(
+    await f.service.reviewTheme(
+      "themes/personal.json",
+      proposed,
+      parseThemeFile(proposed, "theme"),
+    ),
+  ).toEqual(parseThemeFile(original, "theme"));
+  await expect(f.service.decide("allow", "old")).rejects.toThrow("replaced");
+  await f.decide("keep");
+  expect(await f.read("themes/personal.json")).toBe(original);
+  await f.write("themes/personal.json", proposed);
+  await f.service.refresh();
+  await f.decide("allow");
+  expect(f.service.status().pending).toBeNull();
+  expect(
+    await f.service.reviewTheme(
+      "themes/personal.json",
+      proposed,
+      parseThemeFile(proposed, "theme"),
+    ),
+  ).toEqual(parseThemeFile(proposed, "theme"));
+  expect(f.service.status().changes.some((change) => change.warnings)).toBe(true);
+});
+
+test("inactive themes and hue-only warnings apply; file selection is held and UI selection is direct", async () => {
+  const f = await fixture();
+  await f.service.initialize();
+  await f.write(
+    "themes/personal.json",
+    theme("Personal", { ...palette.colors, attention: palette.colors.ink }),
+  );
+  await f.service.refresh();
+  expect(f.service.status().pending).toBeNull();
+  await f.settings({ interfaceTheme: "user:personal.json" });
+  await f.service.refresh();
+  expect(f.service.status().pending?.detail).toBe("interfaceTheme: attention-distinctness");
+  await f.decide("keep");
+  await f.service.write({ interfaceTheme: "user:personal.json" });
+  expect(f.service.status().pending).toBeNull();
+  await f.write(
+    "themes/personal.json",
+    theme("Personal", { ...palette.colors, attention: "#00ffff" }),
+  );
+  await f.service.refresh();
+  expect(f.service.status().pending).toBeNull();
+});
