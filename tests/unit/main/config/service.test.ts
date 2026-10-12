@@ -703,3 +703,42 @@ test("inactive themes and hue-only warnings apply; file selection is held and UI
   await f.service.refresh();
   expect(f.service.status().pending).toBeNull();
 });
+
+test("a replaced theme proposal cannot be approved, and invalid replacements clear the obsolete hold", async () => {
+  const f = await fixture();
+  await f.service.initialize();
+  await f.write("themes/personal.json", theme("Personal"));
+  await f.service.refresh();
+  await f.service.write({ interfaceTheme: "user:personal.json" });
+  await f.write(
+    "themes/personal.json",
+    theme("Personal", { ...palette.colors, attention: palette.colors.ink }),
+  );
+  await f.service.refresh();
+  const id = f.service.status().pending?.id;
+  await f.write("themes/personal.json", "{");
+  await expect(f.service.decide("allow", id)).rejects.toThrow("file changed");
+  expect(f.service.status().pending).toBeNull();
+  expect(f.service.status().changes[0]).toMatchObject({
+    state: "rejected",
+    reason: "$: malformed-json",
+  });
+});
+
+test("warning counts belong to the applied commit, not a later version of the file", async () => {
+  const f = await fixture();
+  await f.service.initialize();
+  await f.write("themes/personal.json", theme("Personal", { ...palette.colors, ink: "#ffb23e" }));
+  await f.service.refresh();
+  const warned = f.service
+    .status()
+    .changes.find((change) => change.file === "themes/personal.json");
+  expect(warned?.warnings).toBeGreaterThan(0);
+  await f.write("themes/personal.json", theme("Personal"));
+  await f.service.refresh();
+  const changes = f.service
+    .status()
+    .changes.filter((change) => change.file === "themes/personal.json");
+  expect(changes.find((change) => change.id === warned?.id)?.warnings).toBe(warned?.warnings);
+  expect(changes.find((change) => change.id !== warned?.id)?.warnings).toBeUndefined();
+});

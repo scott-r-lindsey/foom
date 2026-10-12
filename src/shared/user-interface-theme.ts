@@ -74,10 +74,16 @@ export function userThemeWarnings(theme: InterfaceTheme): ThemeDiagnostic[] {
     }
     if (colors.highlight !== undefined && colorDistance(colors.accent, colors.highlight) < 40)
       warn(`${path}.accent`, "color-distance");
-    // Attention versus readable text also matters: matching ink must require approval.
-    for (const other of ["ink", "muted", "failed", "accent", "highlight", "done"] as const)
-      if (colorDistance(colors.attention, colors[other] ?? colors.accent) < 40)
+    // The paired attention ink intentionally shares its hue; every other role must be distinct.
+    for (const other of colorNames) {
+      const color = colors[other];
+      if (
+        !other.startsWith("attention") &&
+        color !== undefined &&
+        colorDistance(colors.attention, color) < 40
+      )
         warn(`${path}.attention`, "attention-distinctness");
+    }
     for (const [a, b] of [
       ["attention-ink", "failed-ink"],
       ["attention-ink", "accent"],

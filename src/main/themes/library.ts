@@ -143,7 +143,12 @@ export class ThemeLibrary {
           retained.set(key, theme);
           if (theme.kind === "theme")
             next.errors.push(
-              ...(theme.warnings ?? []).map((warning) => ({ ...warning, file, kind })),
+              ...(theme.warnings ?? [])
+                .slice(
+                  0,
+                  Math.max(0, 100 - next.errors.filter((error) => error.kind === kind).length),
+                )
+                .map((warning) => ({ ...warning, file, kind })),
             );
           if (theme.kind === "theme") {
             const collision = Object.values(interfaceThemes).some(

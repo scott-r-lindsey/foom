@@ -20,7 +20,8 @@
   background: var(--bg);
   border: var(--shape-border, 1px) solid var(--line);
   border-radius: var(--shape-radius, 6px);
-  box-shadow: 0 6px 20px color-mix(in srgb, var(--hole) 35%, transparent);
+  box-shadow: 0 6px 20px
+    color-mix(in srgb, var(--hole) calc(35% * var(--shape-shadow, 1)), transparent);
   text-transform: none;
   letter-spacing: 0;
 }

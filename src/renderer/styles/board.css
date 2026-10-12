@@ -638,10 +638,11 @@
   border-radius: var(--shape-panel-radius, 8px);
   padding: 6px;
   box-shadow:
-    0 1px 0 rgb(255 255 255 / 5%) inset,
+    0 1px 0 rgb(255 255 255 / calc(5% * var(--shape-shadow, 1))) inset,
     0 22px 48px -12px var(--raised-shadow),
     0 8px 16px -8px var(--raised-shadow),
-    0 0 28px -8px color-mix(in srgb, var(--highlight) 40%, transparent);
+    0 0 28px -8px
+    color-mix(in srgb, var(--highlight) calc(40% * var(--shape-shadow, 1)), transparent);
   transform-origin: 0 var(--notch);
   animation: menu-open 130ms ease-out;
 }
@@ -1085,10 +1086,15 @@
   padding: 4px;
   border-radius: var(--shape-panel-radius, 10px);
   box-shadow:
-    0 1px 0 rgb(255 255 255 / 5%) inset,
+    0 1px 0 rgb(255 255 255 / calc(5% * var(--shape-shadow, 1))) inset,
     0 22px 48px -12px var(--raised-shadow),
     0 8px 16px -8px var(--raised-shadow),
-    0 0 28px -8px color-mix(in srgb, var(--highlight) calc(40% * var(--panel-tint)), transparent);
+    0 0 28px -8px
+    color-mix(
+      in srgb,
+      var(--highlight) calc(40% * var(--panel-tint) * var(--shape-shadow, 1)),
+      transparent
+    );
 }
 .sidebar-panel[data-pinned="true"] {
   border-color: color-mix(in srgb, var(--highlight) 55%, var(--raised-line));

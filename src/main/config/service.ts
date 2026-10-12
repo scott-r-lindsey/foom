@@ -140,7 +140,7 @@ export class ConfigService {
   private events: ConfigChange[] = [];
   private appliedThemes = new Map<string, { text: string; parsed: ParsedThemeFile }>();
   private heldThemes = new Map<string, { text: string; previous: string | null }>();
-  private themeWarnings = new Map<string, readonly ThemeDiagnostic[]>();
+  private commitWarnings = new Map<string, readonly ThemeDiagnostic[]>();
   private rejected = new Map<string, string>();
   private history: CommitRecord[] = [];
   /** When this process made each commit; git records whole seconds only. */
@@ -618,7 +618,6 @@ export class ConfigService {
     }
     this.heldThemes.delete(file);
     this.appliedThemes.set(file, { text, parsed });
-    this.themeWarnings.set(file, parsed.kind === "theme" ? (parsed.warnings ?? []) : []);
     return parsed;
   }
 
@@ -661,6 +660,7 @@ export class ConfigService {
     try {
       bytes = await this.read(relative);
     } catch (error) {
+      this.heldThemes.delete(relative);
       this.reject(relative, invalid(error), invalid(error));
       return;
     }
@@ -668,7 +668,6 @@ export class ConfigService {
     if (bytes === null) {
       this.appliedThemes.delete(relative);
       this.heldThemes.delete(relative);
-      this.themeWarnings.delete(relative);
       this.rejected.delete(relative);
       if (!entry) return;
       this.revertSubjects.delete(relative);
@@ -686,6 +685,7 @@ export class ConfigService {
       if (this.heldThemes.has(relative)) return;
       name = parsed.kind === "theme" ? parsed.theme.name : parsed.name;
     } catch (error) {
+      this.heldThemes.delete(relative);
       this.reject(relative, object, invalid(error));
       return;
     }
@@ -723,13 +723,36 @@ export class ConfigService {
       }
       this.uncommitted = count;
       this.history = await this.deps.git.log(MAX_EVENTS);
+      for (const entry of this.history) {
+        if (this.commitWarnings.has(entry.commit)) continue;
+        const warnings: ThemeDiagnostic[] = [];
+        const files = entry.files.filter((file) => themeKind(file) === "theme");
+        if (files.length) {
+          const committed = await this.deps.git.tree(entry.commit);
+          for (const file of files) {
+            const object = committed.get(file)?.object;
+            if (!object) continue;
+            try {
+              const parsed = parseThemeFile(decode(await this.deps.git.blob(object)), "theme");
+              if (parsed.kind === "theme")
+                warnings.push(...(parsed.warnings ?? []).map((warning) => ({ ...warning, file })));
+            } catch {
+              /* Agent-authored invalid history is not an applied warning. */
+            }
+          }
+        }
+        this.commitWarnings.set(entry.commit, warnings);
+      }
+      for (const commit of this.commitWarnings.keys())
+        if (!this.history.some((entry) => entry.commit === commit))
+          this.commitWarnings.delete(commit);
     } catch {
       this.uncommitted = null;
     }
   }
 
-  private warningStatus(files: readonly string[]): Pick<ConfigChange, "warnings" | "reason"> {
-    const warnings = files.flatMap((file) => this.themeWarnings.get(file) ?? []);
+  private warningStatus(commit: string): Pick<ConfigChange, "warnings" | "reason"> {
+    const warnings = this.commitWarnings.get(commit) ?? [];
     return warnings.length
       ? {
           warnings: warnings.length,
@@ -747,7 +770,7 @@ export class ConfigService {
       state: "applied",
       commit: entry.commit,
       hash: entry.commit.slice(0, 7),
-      ...this.warningStatus(entry.files),
+      ...this.warningStatus(entry.commit),
     }));
     const pending = this.pending;
     const held = this.heldThemes.entries().next().value;

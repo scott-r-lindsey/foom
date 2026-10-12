@@ -213,3 +213,21 @@ test("retained unsafe replacements still consume a registry slot", async () => {
     ]),
   );
 });
+
+test("warning diagnostics stay bounded while every valid theme remains available", async () => {
+  const { folder, library } = await fixture();
+  for (let index = 0; index < 20; index++)
+    await writeFile(
+      join(folder, `warn-${String(index)}.json`),
+      JSON.stringify({
+        ...valid(),
+        version: 2,
+        colors: { ...valid().colors, ink: "#ffb23e" },
+        areas: { sidebar: {}, tiles: {}, panels: {}, dialogs: {}, menus: {} },
+      }),
+    );
+  await library.reload();
+  expect(library.snapshot().interface).toHaveLength(20);
+  expect(library.snapshot().errors).toHaveLength(100);
+  expect(library.snapshot().errors.every((entry) => entry.severity === "warning")).toBe(true);
+});
