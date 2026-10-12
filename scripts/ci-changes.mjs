@@ -23,11 +23,9 @@ export function requiresDesktop(paths) {
 /** Every run, including draft pull requests, validates all three platforms. */
 export const allPlatforms = ["ubuntu-24.04", "windows-2025", "macos-15"];
 
-/** Windows runs two disjoint test shards. */
+/** Every platform runs two disjoint Electron test shards. */
 export function desktopMatrix(platforms = allPlatforms) {
-  return platforms.flatMap((os) =>
-    (os === "windows-2025" ? ["1/2", "2/2"] : ["1/1"]).map((shard) => ({ os, shard })),
-  );
+  return platforms.flatMap((os) => ["1/2", "2/2"].map((shard) => ({ os, shard })));
 }
 
 export function detectDesktop(

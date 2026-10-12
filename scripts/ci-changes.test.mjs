@@ -79,14 +79,19 @@ test("manual runs, unknown events, new branches, and empty diffs require desktop
   );
 });
 
-test("desktop jobs run every platform and shard Windows exactly twice", () => {
+test("desktop jobs shard every platform exactly twice", () => {
   assert.deepEqual(desktopMatrix(), [
-    { os: "ubuntu-24.04", shard: "1/1" },
+    { os: "ubuntu-24.04", shard: "1/2" },
+    { os: "ubuntu-24.04", shard: "2/2" },
     { os: "windows-2025", shard: "1/2" },
     { os: "windows-2025", shard: "2/2" },
-    { os: "macos-15", shard: "1/1" },
+    { os: "macos-15", shard: "1/2" },
+    { os: "macos-15", shard: "2/2" },
   ]);
-  assert.deepEqual(desktopMatrix(["ubuntu-24.04"]), [{ os: "ubuntu-24.04", shard: "1/1" }]);
+  assert.deepEqual(desktopMatrix(["ubuntu-24.04"]), [
+    { os: "ubuntu-24.04", shard: "1/2" },
+    { os: "ubuntu-24.04", shard: "2/2" },
+  ]);
 });
 
 test("draft pull requests run CI and desktop jobs start without waiting for static checks", async () => {
@@ -234,4 +239,73 @@ sudo() {
   const failure = run("1", "1");
   assert.equal(failure.status, 17);
   assert.doesNotMatch(failure.stdout, /install -y|sysctl/);
+});
+
+test("desktop setup and diagnostics run on both shards; native tests and packaging run once", async () => {
+  const { readFileSync } = await import("node:fs");
+  const workflow = readFileSync(new URL("../.github/workflows/ci.yml", import.meta.url), "utf8");
+  const desktop = workflow.split("\n  desktop:\n")[1].split("\n  quality:\n")[0];
+  const step = (name) => desktop.split(`      - name: ${name}\n`)[1].split("      - name:")[0];
+  for (const name of [
+    "Prepare Windows PowerShell runtime",
+    "Test hooks and control storage with native OS tools",
+    "Test Antigravity observer alone",
+    "Test Git inventory paths on native filesystem",
+    "Stamp nightly package version",
+    "Package desktop application",
+    "Verify macOS ad-hoc signature after packaging and fuses",
+    "Test packaged terminal host on Linux",
+    "Test packaged terminal host on macOS and Windows",
+    "Upload unsigned development package",
+  ]) {
+    assert.match(step(name), /if:[\s\S]*?matrix\.shard != '2\/2'/, name);
+  }
+  for (const name of [
+    "Prepare Electron binary",
+    "Prepare Linux display and sandbox",
+    "Test Electron on Linux",
+    "Test Electron on macOS and Windows",
+    "Upload Electron timing and process diagnostics",
+  ]) {
+    assert.doesNotMatch(step(name), /matrix\.shard !=/, name);
+  }
+  assert.match(step("Prepare Linux display and sandbox"), /if: runner\.os == 'Linux'/);
+  assert.match(step("Upload Electron timing and process diagnostics"), /if: always\(\)/);
+  assert.match(desktop, /FOOM_ELECTRON_SHARD: \$\{\{ matrix\.shard \}\}/);
+  assert.match(desktop, /fail-fast: false/);
+  assert.match(
+    desktop,
+    /name: electron-results-\$\{\{ matrix\.os \}\}-\$\{\{ strategy\.job-index \}\}/,
+  );
+});
+
+test("Quality gate rejects failed, cancelled or skipped required desktop shards", {
+  skip: process.platform === "win32",
+}, async () => {
+  const { readFileSync } = await import("node:fs");
+  const { spawnSync } = await import("node:child_process");
+  const workflow = readFileSync(new URL("../.github/workflows/ci.yml", import.meta.url), "utf8");
+  const quality = workflow.split("\n  quality:\n")[1].split("\n  mcp-probe:\n")[0];
+  assert.match(quality, /if: always\(\)/);
+  assert.match(quality, /DESKTOP: \$\{\{ needs\.desktop\.result \}\}/);
+  const script = quality.split("        run: |\n")[1].replace(/^ {10}/gm, "");
+  const run = (required, result) =>
+    spawnSync("bash", ["-e", "-c", script], {
+      env: {
+        ...process.env,
+        CHANGES: "success",
+        CHECKS: "success",
+        UNIT: "success",
+        DESKTOP_REQUIRED: required,
+        DESKTOP: result,
+      },
+    }).status;
+  assert.equal(run("true", "success"), 0);
+  assert.equal(run("false", "skipped"), 0);
+  // GitHub aggregates the six matrix jobs into needs.desktop.result.
+  for (const { os, shard } of desktopMatrix()) {
+    for (const result of ["failure", "cancelled", "skipped"]) {
+      assert.notEqual(run("true", result), 0, `${os} ${shard}: ${result}`);
+    }
+  }
 });
