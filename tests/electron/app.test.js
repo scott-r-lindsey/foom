@@ -3645,9 +3645,9 @@ else {
   await expect(row).toContainText("Approval requested");
   await expect(row).toContainText("rules:codex:osc_title_blocked");
   await page.evaluate((id) => window.desktop.input(id, "i"), id);
-  await expect(row).toHaveAttribute("data-state", "quiet_ok");
-  await expect(row).toContainText("Agent turn ended; checking output");
-  await expect(row).toContainText("rules:codex:osc_title_idle");
+  await expect(row).toHaveAttribute("data-state", "needs_input");
+  await expect(row).toContainText("Agent asks a question");
+  await expect(row).toContainText("pattern:question");
   await page.evaluate((id) => window.desktop.input(id, "w"), id);
   await expect(row).toHaveAttribute("data-state", "working");
   await page.evaluate((id) => window.desktop.input(id, "n"), id);
@@ -3655,7 +3655,7 @@ else {
   const events = await page.evaluate(() => window.executionEvents);
   assert.deepEqual(
     events.map((event) => event.to),
-    ["working", "blocked", "idle", "working", "idle"],
+    ["working", "blocked", "idle", "blocked", "working", "idle"],
   );
   assert.equal(events.at(-1).source, "hook");
   assert.equal(events.at(-1).turn, 2);
