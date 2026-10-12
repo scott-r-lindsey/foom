@@ -1438,7 +1438,7 @@ test("host answers color queries once through real view transitions and system t
   await page.waitForFunction(() => window.probeId);
   for (const theme of ["light", "dark", "dracula"]) {
     if (theme === "dracula") {
-      await page.getByRole("button", { name: "Settings", exact: true }).click();
+      await openSettingsScreen(page);
       await page.getByRole("button", { name: "Terminal", exact: true }).click();
       await page.getByRole("button", { name: "Dracula", exact: true }).click();
       await expect
@@ -1506,7 +1506,7 @@ test("Settings transitions restore background fullscreen output repeatedly", {
   const marker = path.join(directory, "stage");
   const app = await launchApp(context);
   const page = await boardPage(app);
-  const hide = page.getByRole("button", { name: "Settings", exact: true });
+  const hide = page.locator(".config-gear");
   const open = page.locator(".board-row[data-kind='shell']");
   await expect(hide).toBeEnabled();
   await page.evaluate(() => {
@@ -1522,7 +1522,7 @@ test("Settings transitions restore background fullscreen output repeatedly", {
   await page.keyboard.press("Enter");
   const rows = page.locator(".xterm-rows");
   await expect(rows).toContainText("NORMAL_VIEW_READY");
-  await hide.click();
+  await openSettingsScreen(page);
   await expect(page.getByRole("region", { name: "Settings" })).toBeVisible();
   await expect(open).toBeEnabled();
   await expect(page.locator(".tile-terminal")).toBeHidden();
@@ -1541,7 +1541,7 @@ test("Settings transitions restore background fullscreen output repeatedly", {
     await expect(rows).toContainText("ALTERNATE_HIDDEN_OUTPUT");
     await expect(rows).not.toContainText("NORMAL_VIEW_READY");
     await expect(page.locator(".xterm-helper-textarea")).toBeFocused();
-    await hide.click();
+    await openSettingsScreen(page);
     await expect(page.getByRole("region", { name: "Settings" })).toBeVisible();
     await expect(page.getByRole("region", { name: "Settings" })).toBeVisible();
     await expect(open).toBeEnabled();
@@ -1559,7 +1559,7 @@ test("Settings transitions restore background fullscreen output repeatedly", {
   // Continue scrolling after restoration, including origin-relative positioning,
   // repeated attachments, and transitions between both buffers.
   for (const mode of ["a", "n", "a", "n"]) {
-    await hide.click();
+    await openSettingsScreen(page);
     await expect(page.getByRole("region", { name: "Settings" })).toBeVisible();
     await expect(page.getByRole("region", { name: "Settings" })).toBeVisible();
     await expect(open).toBeEnabled();
@@ -1595,7 +1595,7 @@ test("Settings transitions restore background fullscreen output repeatedly", {
           .toEqual(expected);
         const tail = await page.evaluate(() => window.desktop.tail(window.viewId, 10000));
         assert.deepEqual(tail.slice(-6), expected);
-        await hide.click();
+        await openSettingsScreen(page);
         await expect(page.getByRole("region", { name: "Settings" })).toBeVisible();
         await expect(open).toBeEnabled();
       }
@@ -2591,7 +2591,7 @@ test("first run goes from no agents to go, launches by keyboard, and can be repl
 
   // Settings returns to the same sidebar row.
   await shellRow.focus();
-  await page.getByRole("button", { name: "Settings" }).click();
+  await openSettingsScreen(page);
   await page.getByRole("region", { name: "Settings" }).waitFor();
   await expect(page.locator(".board-terminal")).toBeHidden();
   await page.keyboard.press("Escape");
@@ -2691,7 +2691,7 @@ test("the board stays usable at 300% in a small window", async (context) => {
   await expect(sheet).toHaveCount(0);
 
   // Settings opens and scrolls within itself.
-  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  await openSettingsScreen(page);
   const settings = page.getByRole("region", { name: "Settings" });
   await expect(settings).toBeVisible();
   assert.equal(await pageScrolls(), false, "Settings does not widen the page");
@@ -3722,7 +3722,7 @@ test("Settings shares live preflight values, sizes the terminal and restores key
 test("every Settings section passes axe in light and dark, including the narrow layout", async (context) => {
   const app = await launchApp(context, false);
   const page = await boardPage(app);
-  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  await openSettingsScreen(page);
   for (const name of [
     "Agents and hooks",
     "Repositories",
@@ -4366,7 +4366,7 @@ test("tile terminal viewport has no native overflow bars", async (context) => {
   const app = await launchApp(context);
   const page = await boardPage(app);
   await page.emulateMedia({ reducedMotion: "reduce" });
-  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  await openSettingsScreen(page);
   await page.getByRole("button", { name: "Terminal", exact: true }).click();
   await page.getByRole("button", { name: "Dracula", exact: true }).click();
   await expect
@@ -4875,7 +4875,7 @@ test("Settings persists literal agent defaults and discloses bypass once per age
   }, repo);
   const repository = await page.evaluate(() => window.desktop.addRepository());
   assert.ok(repository);
-  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  await openSettingsScreen(page);
   const input = page.getByLabel("Claude Code default arguments");
   await expect(input).toBeVisible();
   await input.fill("--settings={}");
@@ -5802,7 +5802,7 @@ process.stdin.on('data', data => {
   await expect
     .poll(() => page.evaluate((id) => window.desktop.tail(id, 40), later))
     .toContain("USER NOTIFIER PRESERVED");
-  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  await openSettingsScreen(page);
   await page
     .getByRole("navigation", { name: "Settings sections" })
     .getByRole("button", { name: "Agents and hooks", exact: true })
@@ -6193,7 +6193,7 @@ process.stdin.on('data', (data) => {
     env: { HOME: home, PATH: `${bin}${path.delimiter}${process.env.PATH}` },
   });
   const page = await boardPage(app);
-  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  await openSettingsScreen(page);
   await page.getByRole("button", { name: "Agents and hooks", exact: true }).click();
   await expect(page.getByText("Not installed", { exact: true })).toBeVisible();
   await expect(page.getByText(/They report working and turn-end signals/u)).toBeVisible();
@@ -6695,7 +6695,7 @@ test("legacy inference profiles upgrade without evaluator controls or stored key
     ),
     [],
   );
-  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  await openSettingsScreen(page);
   await page.getByRole("navigation", { name: "Settings sections" }).waitFor();
   await expect(page.getByText(/Evaluator|Run check|API key/)).toHaveCount(0);
   await page.evaluate(() => window.desktop.saveSetup({ setupComplete: false }));
@@ -6760,10 +6760,11 @@ process.stdin.on("data", (key) => {
   });
   const page = await boardPage(app);
   const folder = path.join(home, ".foom", "config");
-  const row = page.getByRole("treeitem", { name: "Foom config" });
-  await expect(row).toBeVisible();
-  // 1. Launch a fake agent in Foom config from the row's panel.
-  await page.getByRole("button", { name: "Actions for Foom config" }).click();
+  const gear = page.locator(".config-gear");
+  await expect(gear).toBeVisible();
+  await expect(page.getByRole("treeitem", { name: "Foom config" })).toHaveCount(0);
+  // 1. Launch a fake agent in Foom config from the footer panel.
+  await page.locator(".config-gear").click();
   const panel = page.getByRole("dialog", { name: "Foom config details and commands" });
   await expect(panel).toContainText(folder);
   await expect(panel).toContainText("Clean");
@@ -6826,7 +6827,49 @@ process.stdin.on("data", (key) => {
   const banner = page.getByRole("region", { name: "Change waiting for approval" });
   await expect(banner).toContainText("An agent wants to turn off the needs-you sound");
   await expect(banner).toHaveCSS("border-top-color", /rgb/);
-  await page.getByRole("button", { name: "Actions for Foom config" }).click();
+  await page.locator(".config-gear").click();
+  await expect(page.locator(".config-dock")).toContainText("Needs you");
+  await expect(gear).toHaveAttribute("aria-label", /needs you/);
+  await expect(gear).toHaveAttribute("data-tone", "needs");
+  // Both statuses remain readable inside the forced compact rail.
+  const originalSize = await app.evaluate(({ BrowserWindow }) => {
+    const window = BrowserWindow.getAllWindows().find(
+      (window) => window.webContents.getURL() === "app://bundle/index.html",
+    );
+    const size = window.getContentBounds();
+    window.setMinimumSize(1, 1);
+    window.setContentSize(640, 720);
+    return size;
+  });
+  const sidebar = page.locator(".sidebar-shell");
+  await expect(sidebar).toHaveAttribute("data-compact", "true");
+  const dockChips = page.locator(".config-dock-head .panel-chip");
+  await expect(dockChips).toHaveCount(2);
+  assert.equal(
+    await dockChips.evaluateAll((chips) =>
+      chips.every((chip) => {
+        const bounds = chip.getBoundingClientRect();
+        const rail = chip.closest(".sidebar-shell").getBoundingClientRect();
+        return (
+          bounds.left >= rail.left &&
+          bounds.right <= rail.right &&
+          chip.scrollWidth <= chip.clientWidth + 1
+        );
+      }),
+    ),
+    true,
+  );
+  await expect(page.locator(".config-dock .board-row")).toBeVisible();
+  await page.screenshot({ path: "test-results/config-footer-compact.png", animations: "disabled" });
+  await app.evaluate(({ BrowserWindow }, size) => {
+    BrowserWindow.getAllWindows()
+      .find((window) => window.webContents.getURL() === "app://bundle/index.html")
+      .setContentSize(size.width, size.height);
+  }, originalSize);
+  await expect(sidebar).toHaveAttribute("data-compact", "false");
+  // Resizing dismisses the panel; reopen it to inspect its approval facts.
+  await gear.click();
+
   await expect(panel).toContainText("Needs you");
   await page.keyboard.press("Escape");
   assert.equal(
@@ -7250,7 +7293,7 @@ test("Settings agent menu launches config and focuses its existing window", {
       },
     }),
   );
-  await first.getByRole("button", { name: "Settings", exact: true }).click();
+  await openSettingsScreen(first);
   await expect(first.getByRole("heading", { name: "Settings", exact: true })).toBeVisible();
   await first.getByRole("button", { name: "Foom menu" }).click();
   await first.getByRole("menuitem", { name: "Settings", exact: true }).press("ArrowRight");
@@ -7967,4 +8010,33 @@ test("version 2 themes scope portaled colors, shape and warnings and hold attent
   );
   await page.getByRole("button", { name: "Keep it on", exact: true }).click();
   await expect.poll(() => readFile(file, "utf8")).toBe(original);
+});
+
+async function openSettingsScreen(page) {
+  // These tests exercise Settings and terminal transitions. The dedicated footer
+  // test below covers reaching Settings through the gear's config panel.
+  await page.evaluate(() => window.desktop.appMenu.execute("settings"));
+  await expect(page.getByRole("region", { name: "Settings" })).toBeVisible();
+}
+
+test("footer config gear opens Settings and launches a docked Shell", async (context) => {
+  const app = await launchApp(context, false, { emptyBoard: true });
+  const page = await boardPage(app);
+  const gear = page.locator(".config-gear");
+  const dock = page.locator(".config-dock");
+  await expect(dock).toHaveCount(0);
+  await gear.press("Enter");
+  const panel = page.getByRole("dialog", { name: "Foom config details and commands" });
+  await expect(gear).toHaveAttribute("aria-expanded", "true");
+  await expect(panel.getByRole("menuitem").first()).toContainText("Settings");
+  await panel.getByRole("menuitem", { name: /^Shell/ }).click();
+  const session = dock.locator(".board-row");
+  await expect(session).toBeVisible();
+  await session.press("Enter");
+  await expect(page.locator(".xterm-helper-textarea")).toBeFocused();
+  await gear.click();
+  await expect(panel.getByRole("menuitem", { name: /^Shell/ })).toContainText("running");
+  await panel.getByRole("menuitem", { name: /^Settings/ }).click();
+  await expect(page.getByRole("region", { name: "Settings" })).toBeVisible();
+  await assertAccessible(page);
 });
