@@ -883,11 +883,11 @@ export class Workspace {
       const identity = await this.deps.worktrees.removalIdentity(entry.repository, entry.worktree);
       const changes = await this.deps.worktrees.changes(entry.repository, entry.worktree, identity);
       if (!(await confirm(entry.branch ?? entry.worktree, changes))) return false;
+      await revalidate?.();
       if (
         (await this.deps.worktrees.changes(entry.repository, entry.worktree, identity)) !== changes
       )
         throw new Error("Worktree changes have changed. Review them and try again.");
-      await revalidate?.();
       const entries = [...this.launched.values()].filter(
         (item) => item.worktree === entry.worktree,
       );
