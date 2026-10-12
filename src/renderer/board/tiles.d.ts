@@ -37,3 +37,10 @@ export type TileAction =
   | "hide"
   | "close"
   | "popout";
+
+export interface TilePlacement {
+  /** Available tile-area width in terminal character cells at the current font size. */
+  columns: number;
+  needsYou?: ReadonlySet<string>;
+  focusedAt?: ReadonlyMap<string, number>;
+}

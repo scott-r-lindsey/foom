@@ -3291,3 +3291,65 @@ test("cleanup retains branch reservations until the checked-ref transaction sett
   await expect(workspace.createWorktree(repo.path, "feature")).resolves.toHaveProperty("path");
   await workspace.dispose();
 });
+
+test("cleanup drains superseded eligibility scans and does not rescan while removing", async () => {
+  const releases: (() => void)[] = [];
+  const changes = vi.mocked(deps.worktrees.changes);
+  for (let index = 0; index < 2; index++) {
+    changes.mockImplementationOnce(
+      () =>
+        new Promise<string>((resolve) => {
+          releases.push(() => {
+            resolve("");
+          });
+        }),
+    );
+  }
+  vi.mocked(deps.worktrees.mergedCommit).mockResolvedValue(true);
+  const workspace = new Workspace(deps);
+  await workspace.sidebarInventory();
+  await vi.waitFor(() => {
+    expect(releases).toHaveLength(1);
+  });
+  vi.mocked(deps.worktrees.listWorktrees).mockResolvedValue([{ ...tree, head: "new-head" }]);
+  await workspace.sidebarInventory();
+  await vi.waitFor(() => {
+    expect(releases).toHaveLength(2);
+  });
+  let started = false;
+  const cleanup = workspace.sidebarCommand(
+    { kind: "delete-merged-worktrees", repository: repo.path },
+    async (request) => {
+      if (request.kind !== "merged-worktrees" || !request.feed) throw new Error("Missing feed");
+      const feed = request.feed;
+      await vi.waitFor(() => {
+        expect(feed.current().stage).toBe("ready");
+      });
+      feed.act();
+      started = true;
+      return false; // Hide while the run waits for readers to finish.
+    },
+  );
+  await vi.waitFor(() => {
+    expect(started).toBe(true);
+  });
+  const scans = vi.mocked(deps.worktrees.mergedDefault).mock.calls.length;
+  await workspace.sidebarInventory();
+  expect(deps.worktrees.mergedDefault).toHaveBeenCalledTimes(scans);
+  releases[1]?.();
+  await vi.waitFor(() => {
+    expect(deps.worktrees.mergedCommit).toHaveBeenCalledTimes(2);
+  });
+  expect(deps.worktrees.removeWorktree).not.toHaveBeenCalled();
+  vi.mocked(deps.worktrees.removeWorktree).mockImplementation(async () => {
+    const before = vi.mocked(deps.worktrees.changes).mock.calls.length;
+    // An inventory event caused by deletion must not start new Git readers.
+    vi.mocked(deps.worktrees.listWorktrees).mockResolvedValue([]);
+    await workspace.sidebarInventory();
+    expect(deps.worktrees.changes).toHaveBeenCalledTimes(before);
+  });
+  releases[0]?.();
+  await cleanup;
+  expect(deps.worktrees.removeWorktree).toHaveBeenCalledOnce();
+  await workspace.dispose();
+});

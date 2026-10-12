@@ -3141,7 +3141,9 @@ process.stdin.resume();
     // Inventory arrives before the launch command finishes revealing the row and
     // focusing its terminal. Revealing clears any open menu, so wait for focus
     // before opening the next one.
-    await expect(page.locator(".xterm-helper-textarea").first()).toBeFocused();
+    await expect(
+      page.locator('.terminal-tile[data-focused="true"] .xterm-helper-textarea'),
+    ).toBeFocused();
   }
   if (process.platform !== "win32") {
     await page.getByRole("button", { name: "Actions for agent", exact: true }).click();
@@ -3173,7 +3175,9 @@ process.stdin.resume();
     await expect
       .poll(async () => (await sharedSessions()).filter((t) => t.kind === "agent").length)
       .toBe(2);
-    await expect(page.locator(".xterm-helper-textarea").first()).toBeFocused();
+    await expect(
+      page.locator('.terminal-tile[data-focused="true"] .xterm-helper-textarea'),
+    ).toBeFocused();
   }
   const shell = (await sharedSessions()).find((t) => t.kind === "shell");
   assert.ok(shell);
@@ -4013,7 +4017,7 @@ test("Bash command status reaches the sidebar without closing the shell", {
   await expect(row).toHaveAttribute("data-state", "done");
 });
 
-test("tiles build irregular layouts, preserve views, refuse full placement and replace only for attention", {
+test("tiles build irregular layouts, preserve views and replace explicitly for attention", {
   timeout: deadline(60000),
 }, async (context) => {
   const root = await realpath(await mkdtemp(path.join(tmpdir(), "foom-tiles-")));
@@ -4084,21 +4088,6 @@ test("tiles build irregular layouts, preserve views, refuse full placement and r
   await page.evaluate(() => {
     window.soundTones = [];
   });
-  await rows.nth(3).click();
-  await expect(rows.nth(3)).toHaveAttribute("data-refused", "true");
-  await expect.poll(() => page.evaluate(() => window.soundTones.length)).toBe(1);
-  assert.ok((await page.evaluate(() => window.soundTones[0])) <= 0.3);
-  await rows.nth(3).click();
-  await expect.poll(() => page.evaluate(() => window.soundTones.length)).toBe(2);
-  await expect(tiles.nth(2)).toContainText("Shell");
-  assert.equal(
-    await page.evaluate(
-      () =>
-        JSON.parse(localStorage.getItem(`foom.tiles.v1.${window.desktop.windows.id}`)).tree.second
-          .second.session,
-    ),
-    sessions[2].id,
-  );
   const gutter = page.getByRole("separator").first();
   const box = await gutter.boundingBox();
   assert.ok(box);
@@ -4174,14 +4163,14 @@ test("tiles build irregular layouts, preserve views, refuse full placement and r
     localStorage.getItem(`foom.tiles.v1.${window.desktop.windows.id}`),
   );
   await page.reload();
-  await expect(tiles).toHaveCount(3);
+  await expect(tiles).toHaveCount(4);
   assert.equal(
     await page.evaluate(() => localStorage.getItem(`foom.tiles.v1.${window.desktop.windows.id}`)),
     persisted,
   );
 });
 
-test("launching into full tiles replaces focus and empty tiles support mouse controls", async (context) => {
+test("launching into a narrow full tile uses the focused fallback and empty tiles support mouse controls", async (context) => {
   const app = await launchApp(context);
   const page = await boardPage(app);
   await page.emulateMedia({ reducedMotion: "reduce" });
@@ -4284,7 +4273,8 @@ test("tile leader avoids AltGr chords and cancels unmatched keys", {
   await page.keyboard.press("r");
   await expect(tiles).toHaveCount(2);
   await leader("W");
-  await expect(tiles).toHaveCount(1);
+  await expect(tiles).toHaveCount(2);
+  await expect(page.locator('.terminal-tile[data-empty="true"]')).toHaveCount(2);
 });
 
 test("tile terminal viewport has no native overflow bars", async (context) => {
@@ -7345,6 +7335,7 @@ req.end(JSON.stringify(payload));
     await expect
       .poll(async () => (await rows(first)).find((row) => row.id === childId)?.conversationId)
       .toBe("saved-child");
+    const oldChild = await readCredentials("child");
     await first.evaluate(() => window.desktop.appMenu.execute("new-window"));
     let second;
     await expect
@@ -7398,9 +7389,22 @@ req.end(JSON.stringify(payload));
     await expect
       .poll(async () => (await rows(page)).filter((row) => !row.exited && !row.dormant).length)
       .toBe(3);
-    const newParent = await readCredentials("repo");
-    assert.notEqual(newParent.controlToken, oldParent.controlToken);
-    const restoredChild = await readCredentials("child");
+    // PTY registration precedes the fake agent writing its per-launch credentials.
+    // Wait for both new processes rather than reading the previous launch's files.
+    const waitForCredentials = async (name, previous) => {
+      await expect
+        .poll(async () => {
+          try {
+            return (await readCredentials(name)).controlToken !== previous.controlToken;
+          } catch {
+            return false; // The fixture may be in the middle of rewriting the file.
+          }
+        })
+        .toBe(true);
+      return readCredentials(name);
+    };
+    const newParent = await waitForCredentials("repo", oldParent);
+    const restoredChild = await waitForCredentials("child", oldChild);
     assert.ok(restoredChild.args.includes(agent === "claude" ? "--resume" : "resume"));
     assert.ok(restoredChild.args.some((arg) => arg.startsWith("Task from your Foom orchestrator")));
     for (const window of pages) {
@@ -7570,21 +7574,27 @@ test("merged cleanup opens checking, continues hidden, reopens progress and stop
       globalThis.cleanupFetchRelease = resolve;
     });
     globalThis.cleanupRemovals = [];
-    globalThis.cleanupRestore = () => {
+    globalThis.cleanupRestore = async () => {
       WorktreeService.prototype.mergedDefault = fetch;
       WorktreeService.prototype.removeWorktree = remove;
       globalThis.cleanupFetchRelease();
-      for (const finish of globalThis.cleanupRemovals.splice(0)) finish();
+      await Promise.allSettled(globalThis.cleanupRemovals.splice(0).map((finish) => finish()));
     };
     WorktreeService.prototype.mergedDefault = async function (...args) {
       await gate;
       return fetch.apply(this, args);
     };
-    WorktreeService.prototype.removeWorktree = async function (...args) {
-      await new Promise((resolve) => {
-        globalThis.cleanupRemovals.push(resolve);
+    WorktreeService.prototype.removeWorktree = function (...args) {
+      let release;
+      const gate = new Promise((resolve) => {
+        release = resolve;
       });
-      return remove.apply(this, args);
+      const operation = gate.then(() => remove.apply(this, args));
+      globalThis.cleanupRemovals.push(async () => {
+        release();
+        await operation;
+      });
+      return operation;
     };
     dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [repo] });
   }, repo);
@@ -7615,8 +7625,9 @@ test("merged cleanup opens checking, continues hidden, reopens progress and stop
     "1",
   );
   await confirmation.getByRole("button", { name: "Stop", exact: true }).click();
-  await app.evaluate(() => {
-    for (const finish of globalThis.cleanupRemovals.splice(0)) finish();
+  await expect(confirmation.getByText(/Finishing in-flight removals/)).toBeVisible();
+  await app.evaluate(async () => {
+    await Promise.all(globalThis.cleanupRemovals.splice(0).map((finish) => finish()));
   });
   await expect(confirmation.getByRole("button", { name: "Done", exact: true })).toBeVisible();
   await expect(confirmation.getByRole("list", { name: "Cleanup checklist" })).toContainText(
@@ -7626,4 +7637,73 @@ test("merged cleanup opens checking, continues hidden, reopens progress and stop
   const inventory = await page.evaluate((repo) => window.desktop.worktrees(repo), repo);
   assert.equal(inventory.length, 5); // main, dirty, and three never-started worktrees
   assert.equal(await readFile(path.join(root, "dirty", "keep.txt"), "utf8"), "keep");
+});
+
+test("wide blank tiles start as columns, full boards grow right, and hide refills without moving siblings", async (context) => {
+  const app = await launchApp(context, false, { emptyBoard: true });
+  const page = await boardPage(app);
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await app.evaluate(({ BrowserWindow }) => {
+    BrowserWindow.getAllWindows()
+      .find((window) => window.webContents.getURL() === "app://bundle/index.html")
+      .setSize(3200, 900);
+  });
+  const launch = async () => {
+    const count = await page.locator(".board-row").count();
+    // Keep the pointer out of rows while navigating menus with the keyboard.
+    // Selection can leave a hover panel open; a pinned panel blocks another panel.
+    await page.mouse.move(0, 0);
+    const actions = page.getByRole("button", { name: "Actions for Home shell", exact: true });
+    await actions.press("Escape");
+    await expect(page.locator(".row-menu")).toHaveCount(0);
+    await actions.press("Enter");
+    await page.getByRole("menuitem", { name: "New shell", exact: true }).press("Enter");
+    await expect(page.locator(".board-row")).toHaveCount(count + 1);
+    await expect(
+      page.locator('.terminal-tile[data-focused="true"] .xterm-helper-textarea'),
+    ).toBeFocused();
+  };
+  await launch();
+  const tiles = page.locator(".terminal-tile");
+  await expect(tiles).toHaveCount(3);
+  await expect(page.locator('.terminal-tile[data-empty="false"]')).toHaveCount(1);
+  await launch();
+  await launch();
+  await expect(page.locator('.terminal-tile[data-empty="false"]')).toHaveCount(3);
+  const geometry = () =>
+    tiles.evaluateAll((items) =>
+      items.map((item) => ({
+        left: item.style.left,
+        width: item.style.width,
+        top: item.style.top,
+        height: item.style.height,
+      })),
+    );
+  const before = await geometry();
+  await page.getByRole("button", { name: "Hide", exact: true }).first().click();
+  await expect(page.locator('.terminal-tile[data-empty="true"]')).toHaveCount(1);
+  assert.deepEqual(await geometry(), before);
+  await page.locator(".board-row").first().click();
+  await expect(page.locator('.terminal-tile[data-empty="false"]')).toHaveCount(3);
+  assert.deepEqual(await geometry(), before);
+  // Explicitly exercise the already-open panel state that caused the CI timeout.
+  await page.getByRole("button", { name: "Actions for Home shell", exact: true }).press("Escape");
+  await expect(page.locator(".row-menu")).toHaveCount(0);
+  await page
+    .locator(".board-row")
+    .first()
+    .getByRole("button", { name: /Actions for/ })
+    .press("Enter");
+  await expect(page.locator('.row-menu[data-pinned="true"]')).toBeVisible();
+  await launch();
+  await expect(tiles).toHaveCount(4);
+  const after = await geometry();
+  for (const item of after) assert.ok(Math.abs(parseFloat(item.width) - 25) < 0.01);
+  await page.getByRole("button", { name: "Hide", exact: true }).last().click();
+  await page.getByRole("separator").first().press("End");
+  await expect(tiles).toHaveCount(3);
+  await page.locator(".board-row").last().click();
+  await expect(tiles).toHaveCount(4);
+  assert.deepEqual(await geometry(), after);
+  await page.screenshot({ path: path.join(tmpdir(), "foom-264-tiles.png") });
 });

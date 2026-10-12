@@ -114,46 +114,36 @@ test("irregular splits, presets and maximize retain leaf elements and mounted co
   expect(screen.container.contains(first)).toBe(true);
   expect(views.slice(0, 3).map((view) => view.open.mock.calls.length)).toEqual(opens);
 });
-test("placement uses empty tiles, refuses full without replacement, and next-waiting deliberately replaces focus", async () => {
-  vi.useFakeTimers();
+test("full narrow placement replaces without refusal; hide retains space and refill reuses the view", async () => {
   const { screen, click, send, row, views } = setup();
   click(1);
   await act(async () => {});
-  const id: unknown = views[0]?.open.mock.calls[0]?.[0];
   click(0);
-  expect(row(0).dataset["refused"]).toBe("true");
-  expect(views[0]?.open).toHaveBeenLastCalledWith(id);
-  act(() => {
-    vi.advanceTimersByTime(350);
-  });
-  expect(row(0).dataset["refused"]).toBe("false");
+  await act(async () => {});
+  expect(row(0).dataset["refused"]).toBeUndefined();
+  expect(views[0]?.open).toHaveBeenLastCalledWith("permission");
+  send("split-right");
+  click(1);
+  send("tile-1");
   send("next-waiting");
   await act(async () => {});
   expect(views[0]?.open).toHaveBeenLastCalledWith("permission");
-  fireEvent.click(screen.getByRole("button", { name: "Two side by side" }));
-  click(1);
-  await act(async () => {});
-  send("tile-1");
-  expect(screen.container.querySelectorAll(".terminal-tile")[0]?.getAttribute("data-focused")).toBe(
-    "true",
+  const before = [...screen.container.querySelectorAll<HTMLElement>(".terminal-tile")].map(
+    (tile) => tile.style.cssText,
   );
-  send("next-waiting");
+  send("hide-session");
   await act(async () => {});
   expect(screen.container.querySelectorAll(".terminal-tile")).toHaveLength(2);
-  fireEvent.click(
-    within(screen.getByRole("region", { name: /Tile 1:/ })).getByRole("button", {
-      name: "Hide",
-    }),
-  );
-  await act(async () => {});
+  expect(
+    [...screen.container.querySelectorAll<HTMLElement>(".terminal-tile")].map(
+      (tile) => tile.style.cssText,
+    ),
+  ).toEqual(before);
   expect(views[0]?.hide).toHaveBeenCalled();
-  send("split-right");
   click(2);
   await act(async () => {});
-  expect(views[2]?.open).toHaveBeenLastCalledWith("check");
-  send("close-tile");
-  expect(screen.container.querySelectorAll(".terminal-tile")).toHaveLength(1);
-  expect(views[0]?.dispose).toHaveBeenCalledOnce();
+  expect(views[0]?.open).toHaveBeenLastCalledWith("check");
+  expect(views[0]?.dispose).not.toHaveBeenCalled();
 });
 test("keyboard-only splits, spatial focus, hide, close and empty layouts remain operable", async () => {
   const { screen, send, click } = setup();
@@ -176,7 +166,7 @@ test("keyboard-only splits, spatial focus, hide, close and empty layouts remain 
   send("close-tile");
   send("close-tile");
   send("close-tile");
-  expect(screen.container.querySelectorAll(".terminal-tile")).toHaveLength(1);
+  expect(screen.container.querySelectorAll(".terminal-tile")).toHaveLength(3);
   expect(
     screen.container.querySelector<HTMLElement>('[data-empty="true"]') ?? document.body,
   ).toBeTruthy();
@@ -726,3 +716,46 @@ test("the menu's Add repository uses the sidebar's picker and reports failure", 
     "Unable to add repository.",
   );
 });
+
+test.each(["empty", "reassigned", "removed"] as const)(
+  "restart remembers its own tile through inventory pruning (%s destination)",
+  async (mode) => {
+    const { screen, click, source, data, views, send } = setup();
+    let finish: (() => void) | undefined;
+    source.sidebarCommand = vi.fn(async (command: SidebarCommand) => {
+      if (command.kind === "restart") {
+        data.update(command.id, { id: "replacement", exited: false });
+        await new Promise<void>((resolve) => {
+          finish = resolve;
+        });
+      }
+    });
+    act(() => {
+      data.update("permission", { kind: "shell", exited: true, state: "done" });
+    });
+    click(0);
+    send("split-right");
+    click(1);
+    await act(async () => {});
+    fireEvent.click(
+      screen.getByRole("button", { name: /^Actions for .* in fix\/session-restore$/ }),
+    );
+    fireEvent.click(screen.getByRole("menuitem", { name: "Restart shell" }));
+    await act(async () => {});
+    expect(screen.container.querySelector('.terminal-tile[data-empty="true"]')).not.toBeNull();
+    if (mode === "reassigned") click(2);
+    if (mode === "removed") send("preset-one");
+    await act(async () => {
+      finish?.();
+      await Promise.resolve();
+    });
+    if (mode === "empty") {
+      expect(views[0]?.open).toHaveBeenLastCalledWith("replacement");
+      expect(views[1]?.open).toHaveBeenLastCalledWith("build");
+    } else {
+      expect(views[1]?.open).toHaveBeenLastCalledWith("replacement");
+      if (mode === "reassigned") expect(views[0]?.open).toHaveBeenLastCalledWith("check");
+      else expect(views[0]?.dispose).toHaveBeenCalledOnce();
+    }
+  },
+);

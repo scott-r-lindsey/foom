@@ -102,8 +102,15 @@ on pointer release or keyboard commit past 8%/92%. Each attached terminal retain
 its own PTY size. The controller publishes fitted columns/rows with its view
 snapshot for tile panel facts; terminal output and activity stay outside React.
 Tile panels reuse the sidebar panel's portal, keyboard navigation and styling.
-Hide removes the leaf without stopping its session; exited-only Close uses the
+Hide clears the leaf in place and records it as the landing spot without stopping
+its session; exited-only Close uses the
 existing validated sidebar command and retains the view if that command fails.
+Placement fills space, then grows a rightmost column with proportional existing
+column widths, or selects the least recently focused non-attention tile when
+columns would fall below 60 terminal cells. The board measures the available area
+at the current terminal font size and tracks focus recency outside persisted data.
+All-attention boards may grow below that minimum. Blank single-leaf windows start
+with 1–3 equal columns of about 100 cells; arranged trees retain their geometry.
 Drag origins come only from local sidebar/title-bar gestures; external drag payloads
 are never interpreted. Drop-time inventory and tree lookups reject stale origins
 and targets. Edge drops obey the same depth and leaf limits as ordinary splits;
@@ -122,7 +129,9 @@ controllers. Hidden terminals keep consuming output in the host.
 Versioned `foom.tiles.v1.<window-id>` localStorage metadata stores the tree, ratios, leaf IDs,
 focus, optional landing-space ID and terminal assignments. The version stays at 1;
 existing empty tiles restore as spaces. Restore validates untrusted JSON with size, depth,
-node-count and uniqueness bounds; ratios clamp to 15–85%. Split construction
+node-count and uniqueness bounds; finite ratios strictly between zero and one
+persist unchanged (including automatically added columns); out-of-range ratios
+clamp to 15–85%. Split construction
 shares the restore limits of 256 leaves and 64 levels, so every constructed tree
 can be restored. Missing sessions are
 pruned only after the source's first inventory completes, so an asynchronous load
@@ -416,7 +425,11 @@ revalidation callback. Candidate path, filesystem identity, branch and commit
 are captured before the trusted dialog. Both revalidation passes check Git membership and captured identity,
 session eligibility, clean status and `merge-tree` containment against a freshly
 fetched default commit. A failed post-confirmation fetch prevents every removal.
-Main owns one `CleanupRun` per repository. Four workers run the existing removal
+Main owns one `CleanupRun` per repository. While it is pending, inventory does not
+start background eligibility scans. Before deletion begins, cleanup drains all
+existing scans, including superseded scans whose results will be discarded, so
+Windows directory handles held by their Git processes cannot block removal.
+Four workers run the existing removal
 path, retaining both revalidation passes. Successful removals retain their branch
 launch locks through the ref transaction so Foom cannot recreate those branches
 while they are being deleted. Failed candidates release their locks immediately. Git removes
@@ -1009,7 +1022,7 @@ completion is consumed. Settings must load before sound; later settings events t
 precedence over a pending initial load. No terminal text enters audio.
 
 `renderer/sound/web-audio.ts` owns one loop, one verdict voice and an independent
-Refusal voice. A refused placement calls Refusal immediately, obeying Alerts and its
+Refusal voice. Full tile placement no longer calls Refusal. The retained Refusal preview obeys Alerts and its
 volume without verdict settling or debounce. Context resume, gain ramps, asynchronous
 decode cancellation and cleanup are owned here. Audio failure leaves terminals and
 visual status operational. Settings previews stop on replacement/unmount and after
