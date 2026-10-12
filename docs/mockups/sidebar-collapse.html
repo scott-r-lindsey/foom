@@ -1,0 +1,284 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Foom Sidebar Collapse</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo+Black&family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500;600&display=swap">
+<style>
+/* Collapsing the sidebar to the rail. The collapse button sits at the right of the
+   header row; collapsed, the sidebar becomes the existing 64px compact rail at any
+   window width: an expand button, the needs-you count, every session's light and
+   badge, and the Foom config gear (#277) with its status dot. Narrow windows still
+   force the rail; there, expand opens the full sidebar over the tiles. Colors are the
+   brand tokens; the footer follows config-footer.html. */
+:root {
+  --bg: #f3f0fa; --surface: #e9e4f5; --line: #ddd6ee; --ink: #14101f; --muted: #625a7a;
+  --accent: #5b2bd9; --accent-deep: #3b1a99; --attention: #d98200; --attention-ink: #8c5000;
+  --done: #13804a; --done-ink: #0e6b3c; --failed: #d6166e; --failed-ink: #b0105a;
+  --badge: #4a4263; --badge-ink: #f4efff; --lift: #ffffff; --hole: #05040a; --neutral: #4a4263;
+  --shadow: rgba(40, 20, 90, .28);
+  --term-bg: #05040a; --term-line: #251d3f;
+  --display: "Archivo Black", sans-serif;
+  --sans: "Geist", system-ui, sans-serif; --mono: "Geist Mono", ui-monospace, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #05040a; --surface: #0d0a17; --line: #251d3f; --ink: #f4efff; --muted: #9d93bd;
+    --accent: #9b6bff; --accent-deep: #7a3cff; --attention: #ffb23e; --attention-ink: #ffb23e;
+    --done: #6fe0a3; --done-ink: #6fe0a3; --failed: #ff2e88; --failed-ink: #ff2e88;
+    --badge: #3a3060; --badge-ink: #f4efff; --lift: #f4efff; --hole: #000000; --neutral: #c9c0e6;
+    --shadow: rgba(0, 0, 0, .85);
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #05040a; --surface: #0d0a17; --line: #251d3f; --ink: #f4efff; --muted: #9d93bd;
+  --accent: #9b6bff; --accent-deep: #7a3cff; --attention: #ffb23e; --attention-ink: #ffb23e;
+  --done: #6fe0a3; --done-ink: #6fe0a3; --failed: #ff2e88; --failed-ink: #ff2e88;
+  --badge: #3a3060; --badge-ink: #f4efff; --lift: #f4efff; --hole: #000000; --neutral: #c9c0e6;
+  --shadow: rgba(0, 0, 0, .85);
+  color-scheme: dark;
+}
+:root {
+  --highlight: var(--accent);
+  --select: color-mix(in srgb, var(--highlight) 18%, var(--surface));
+  --raised-top: color-mix(in srgb, var(--surface) 92%, var(--lift));
+  --raised-bottom: var(--surface);
+  --raised-line: color-mix(in srgb, var(--highlight) 25%, var(--line));
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; }
+body { background: var(--bg); color: var(--ink); font: 13px/1.4 var(--sans); }
+button { font: inherit; color: inherit; cursor: pointer; }
+:focus-visible { outline: 2px solid var(--highlight); outline-offset: 1px; }
+.frame { height: 100%; overflow-x: auto; }
+.app { position: relative; display: flex; height: 100%; min-width: 1100px; min-height: 640px; overflow: hidden; }
+.app[data-window="narrow"] { min-width: 0; width: 700px; border-right: 1px dashed var(--muted); }
+.icon { width: 12px; height: 12px; fill: none; stroke: currentColor; stroke-width: 1.2; stroke-linecap: round; }
+
+/* Sidebar */
+.side { position: relative; z-index: 20; width: 300px; flex-shrink: 0; display: flex; flex-direction: column; background: var(--surface); border-right: 1px solid var(--line); transition: width 160ms cubic-bezier(.2, .8, .2, 1); }
+.side[data-rail] { width: 64px; }
+.side[data-overlay] { position: absolute; top: 0; bottom: 0; left: 0; box-shadow: 0 22px 48px -12px var(--shadow), 0 8px 16px -8px var(--shadow); }
+@media (prefers-reduced-motion: reduce) { .side { transition: none; } }
+.head { display: flex; align-items: center; gap: 8px; padding: 12px 8px 8px 12px; }
+.word { font: 22px/1 var(--display); }
+.hole { display: inline-block; width: .52em; height: .52em; margin: 0 .035em; border-radius: 50%; background: var(--hole); box-shadow: 0 0 0 2px var(--accent), 0 0 10px var(--accent); }
+.counts { margin-left: auto; font: 11px var(--mono); color: var(--muted); white-space: nowrap; }
+.counts b { font-weight: 500; color: var(--attention-ink); }
+.tool { display: grid; place-items: center; width: 26px; height: 24px; padding: 0; flex-shrink: 0; background: transparent; border: 1px solid transparent; border-radius: 5px; color: var(--muted); }
+.tool:hover { color: var(--ink); background: color-mix(in srgb, var(--highlight) 8%, transparent); }
+.tool svg { width: 16px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.1; }
+.filter { display: flex; gap: 6px; padding: 0 12px 10px; border-bottom: 1px solid var(--line); }
+.filter span { flex: 1; height: 30px; padding: 6px 8px; border: 1px solid var(--line); border-radius: 5px; background: var(--bg); color: var(--muted); font: 12px var(--mono); }
+.filter button { width: 30px; height: 30px; border: 1px solid var(--line); border-radius: 5px; background: var(--bg); }
+.tree { flex: 1; min-height: 0; overflow: auto; padding: 6px 8px 12px; }
+.row { display: flex; align-items: center; gap: 6px; min-height: 28px; padding: 0 6px; border-radius: 5px; }
+.row:hover { background: color-mix(in srgb, var(--highlight) 8%, transparent); }
+.chev { width: 12px; flex-shrink: 0; color: var(--muted); font-size: 10px; text-align: center; }
+.repo { font-weight: 600; }
+.checkout { padding-left: 20px; }
+.checkout .icon { color: var(--muted); }
+.checkout .br { font: 11px var(--mono); color: var(--muted); }
+.srow { padding-left: 38px; }
+.srow.home { padding-left: 6px; }
+.badge { flex-shrink: 0; display: inline-grid; place-items: center; min-width: 20px; height: 16px; padding: 0 3px; border-radius: 4px; background: var(--badge); color: var(--badge-ink); font: 600 9px var(--mono); letter-spacing: .02em; }
+.name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.prog { flex-shrink: 0; font: 12px var(--mono); color: var(--muted); }
+.tail { margin-left: auto; font: 11px var(--mono); color: var(--muted); }
+.tail.needs { color: var(--attention-ink); }
+.light { flex-shrink: 0; width: 10px; height: 10px; border-radius: 50%; background: var(--c); --c: var(--accent); }
+.light[data-state="working"] { box-shadow: 0 0 8px 1px color-mix(in srgb, var(--c) 55%, transparent); }
+.light[data-state="needs"] { --c: var(--attention); box-shadow: 0 0 0 4px color-mix(in srgb, var(--attention) 22%, transparent); }
+.light[data-state="done"] { --c: var(--done); }
+.light[data-state="shell"] { --c: var(--neutral); }
+.foot { border-top: 1px solid var(--line); }
+.bar { display: flex; align-items: center; gap: 4px; padding: 10px 12px 12px; }
+.bar .tool svg { width: 18px; }
+.gear { position: relative; }
+.bar .gear { margin-left: auto; }
+.gear svg { width: 15px !important; height: 15px !important; }
+.gear[data-tone]::after { content: ""; position: absolute; top: 2px; right: 2px; width: 6px; height: 6px; border-radius: 50%; background: var(--attention); box-shadow: 0 0 0 2px var(--surface); }
+.dock { padding: 6px 8px 0; }
+.dock .row { width: 100%; background: transparent; border: 0; text-align: left; }
+.dock .icon { color: var(--attention-ink); }
+.chip { display: inline-flex; align-items: center; gap: 4px; height: 19px; margin-left: auto; padding: 0 6px; border-radius: 999px; font: 11px var(--mono); white-space: nowrap; background: color-mix(in srgb, var(--attention) 14%, transparent); border: 1px solid color-mix(in srgb, var(--attention) 32%, transparent); color: var(--attention-ink); }
+.chip .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--attention); }
+
+/* The rail: the compact sidebar, by choice or by window width. */
+.rail { display: flex; flex-direction: column; align-items: center; height: 100%; }
+.rail-top { display: flex; flex-direction: column; align-items: center; gap: 8px; width: 100%; padding: 12px 0 10px; border-bottom: 1px solid var(--line); }
+/* The needs-you count is text; amber repeats it. */
+.rail-needs { display: flex; flex-direction: column; align-items: center; gap: 1px; padding: 4px 6px; border-radius: 6px; background: color-mix(in srgb, var(--attention) 14%, transparent); color: var(--attention-ink); font: 500 9px/1.1 var(--mono); text-align: center; }
+.rail-needs b { font: 600 14px/1 var(--mono); }
+.rail-list { flex: 1; min-height: 0; width: 100%; overflow: auto; padding: 6px 0; }
+.rail-group + .rail-group { margin-top: 4px; padding-top: 4px; border-top: 1px solid var(--line); }
+.rail-row { display: flex; align-items: center; justify-content: center; gap: 6px; width: 48px; height: 28px; margin: 1px auto; padding: 0; background: transparent; border: 1px solid transparent; border-radius: 5px; }
+.rail-row:hover, .rail-row[aria-expanded="true"] { background: color-mix(in srgb, var(--highlight) 10%, transparent); }
+.rail-row[aria-expanded="true"] { border-color: var(--highlight); }
+.rail-row .badge { min-width: 22px; }
+.rail-foot { display: flex; flex-direction: column; align-items: center; gap: 4px; width: 100%; padding: 8px 0 12px; border-top: 1px solid var(--line); }
+
+/* A row's panel beside the rail, as in the narrow window today. */
+.peek { position: absolute; z-index: 30; left: 70px; width: 300px; padding: 12px 14px; background: linear-gradient(180deg, var(--raised-top), var(--raised-bottom)); border: 1px solid color-mix(in srgb, var(--highlight) 55%, var(--raised-line)); border-radius: 10px; box-shadow: 0 22px 48px -12px var(--shadow), 0 8px 16px -8px var(--shadow); }
+.peek::before { content: ""; position: absolute; left: -6px; top: 12px; width: 10px; height: 10px; background: var(--raised-top); border-left: 1px solid var(--raised-line); border-bottom: 1px solid var(--raised-line); transform: rotate(45deg); }
+.peek h3 { display: flex; align-items: center; gap: 7px; margin: 0 0 6px; font-size: 13px; }
+.peek p { margin: 0; font: 12px/1.5 var(--mono); color: var(--muted); }
+.peek .note { margin-top: 8px; font-family: var(--sans); font-size: 11px; }
+
+/* Tiles, as pictures. */
+.main { position: relative; flex: 1; min-width: 0; display: grid; grid-template-columns: 1fr 1fr; gap: 6px; padding: 6px; }
+.app[data-window="narrow"] .main { grid-template-columns: 1fr; }
+.app[data-window="narrow"] .tile + .tile { display: none; }
+.tile { display: flex; flex-direction: column; min-width: 0; border: 1px solid var(--term-line); border-radius: 6px; background: var(--term-bg); overflow: hidden; }
+.tile.focus { border-color: var(--highlight); }
+.tbar { display: flex; align-items: center; gap: 7px; height: 28px; padding: 0 9px; background: var(--surface); border-bottom: 1px solid var(--line); font-size: 12px; }
+.tbar .loc { font: 11px var(--mono); color: var(--muted); }
+.tbar .num { margin-left: auto; font: 600 11px var(--mono); color: var(--muted); }
+.screen { flex: 1; padding: 8px 10px; display: flex; flex-direction: column; justify-content: flex-end; font: 11.5px/1.5 var(--mono); color: #6a6188; }
+
+/* Mockup controls: not app chrome. */
+.controls { position: fixed; z-index: 40; top: 44px; right: 14px; width: 250px; padding: 10px 12px 12px; border: 1px dashed var(--muted); border-radius: 8px; background: color-mix(in srgb, var(--bg) 92%, transparent); font-size: 12px; }
+.controls h2 { margin: 0 0 8px; font: 600 10px var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+.ctl { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; margin-bottom: 8px; }
+.ctl > span { width: 100%; color: var(--muted); font-size: 11px; }
+.ctl button { height: 24px; padding: 0 8px; border: 1px solid var(--line); border-radius: 4px; background: var(--surface); font-size: 11px; }
+.ctl button[aria-pressed="true"] { border-color: var(--highlight); background: var(--select); }
+.cnote { margin: 6px 0 0; color: var(--muted); font-size: 11px; line-height: 1.45; }
+kbd { font: 10.5px var(--mono); padding: 0 4px; border: 1px solid var(--line); border-radius: 3px; }
+</style>
+</head>
+<body>
+<div class="frame">
+<div class="app" id="app">
+  <aside class="side" id="side" aria-label="Sidebar"></aside>
+  <main class="main">
+    <section class="tile focus">
+      <div class="tbar"><span class="light" data-state="working"></span><span class="badge">CC</span>Claude Code<span class="loc">foom › main</span><span class="num">1</span></div>
+      <div class="screen"><div>● Reading src/renderer/board/sidebar-view.tsx</div><div>● Editing board.css</div><div>&gt; _</div></div>
+    </section>
+    <section class="tile">
+      <div class="tbar"><span class="light" data-state="shell"></span><span class="badge">&gt;_</span>Shell<span class="loc">foom › main</span><span class="num">2</span></div>
+      <div class="screen"><div>~/code/foom $ npm run check</div><div>✓ 2053 tests</div><div>~/code/foom $ _</div></div>
+    </section>
+  </main>
+  <div id="peek-slot"></div>
+</div>
+</div>
+<div class="controls" aria-label="Mockup controls">
+  <h2>Mockup</h2>
+  <div class="ctl" data-key="collapsed"><span>Sidebar</span><button data-v="no">Expanded</button><button data-v="yes">Collapsed</button></div>
+  <div class="ctl" data-key="window"><span>Window</span><button data-v="wide">Wide</button><button data-v="narrow">Narrow (&lt; 720px)</button></div>
+  <div class="ctl" data-key="hold"><span>Held config change</span><button data-v="off">None</button><button data-v="on">Waiting</button></div>
+  <div class="ctl" data-key="theme"><span>Theme</span><button data-v="system">System</button><button data-v="light">Light</button><button data-v="dark">Dark</button></div>
+  <p class="cnote">Collapse and expand with the header and rail buttons or <kbd id="kbd">Ctrl+Shift+B</kbd>. Click a rail row to see its panel. A narrow window always shows the rail; there, expand opens the sidebar over the tiles.</p>
+</div>
+<script>
+const mac = navigator.platform.startsWith("Mac");
+const KEY = mac ? "⌘B" : "Ctrl+Shift+B";
+document.getElementById("kbd").textContent = KEY;
+const GEAR = '<svg class="icon" viewBox="0 0 12 12" aria-hidden="true"><circle cx="6" cy="6" r="1.6"/><circle cx="6" cy="6" r="3.4"/><path d="M6 .8v1.8M6 9.4v1.8M.8 6h1.8M9.4 6h1.8M2.3 2.3l1.3 1.3M8.4 8.4l1.3 1.3M2.3 9.7l1.3-1.3M8.4 3.6l1.3-1.3"/></svg>';
+const FOLDER = '<svg class="icon" viewBox="0 0 12 12" aria-hidden="true"><path d="M1 3h3.5l1 1.2H11V10H1z"/></svg>';
+// Panel toggle: a sidebar edge with an arrow pointing the way it will move.
+const toggle = (dir) => `<svg viewBox="0 0 16 14" aria-hidden="true"><rect x="1" y="1" width="14" height="12" rx="2"/><path d="M6 1v12"/><path d="${dir === "in" ? "M11.5 5 9.5 7l2 2" : "M9.5 5l2 2-2 2"}"/></svg>`;
+const PRESETS = ["M1 1h14v10H1z", "M1 1h14v10H1z M8 1v10", "M1 1h14v10H1z M1 6h14", "M1 1h14v10H1z M8 1v10 M1 6h14", "M1 1h14v10H1z M9 1v10 M9 6h6", "M1 1h14v10H1z M9 1v10 M9 4h6 M9 8h6", "M1 1h6v4H1z M9 1h6v4H9z M1 7h6v4H1z M9 7h6v4H9z"];
+const SESSIONS = [
+  { group: "home", badge: ">_", name: "bash ~", state: "shell", where: "~" },
+  { group: "foom", badge: "CC", name: "Claude Code", state: "working", where: "foom › main", tile: 1 },
+  { group: "foom", badge: ">_", name: "Shell", state: "shell", prog: "npm", where: "foom › main", tile: 2 },
+  { group: "foom", badge: "CX", name: "Codex", state: "needs", wait: "2m", where: "foom › codex/issue-270" },
+  { group: "herdr", badge: "CC", name: "Claude Code", state: "done", where: "herdr › main" },
+];
+const state = { collapsed: "yes", window: "wide", hold: "on", theme: "system", peek: null, overlay: false };
+const esc = (s) => s.replace(">", "&gt;");
+const needs = () => SESSIONS.filter((s) => s.state === "needs").length + (state.hold === "on" ? 1 : 0);
+const rail = () => state.window === "narrow" ? !state.overlay : state.collapsed === "yes";
+
+function expanded() {
+  const row = (s, home) => `<div class="row srow${home ? " home" : ""}"><span class="light" data-state="${s.state}"></span><span class="badge">${esc(s.badge)}</span><span class="name">${s.name}</span>${s.prog ? `<span class="prog">${s.prog}</span>` : ""}${s.wait ? `<span class="tail needs">${s.wait}</span>` : ""}</div>`;
+  const label = state.window === "narrow" ? "Close sidebar" : "Collapse sidebar";
+  return `<div class="head"><span class="word">fo<span class="hole"></span>m</span><span class="counts"><b>${needs()} need you</b> · 1 working</span>
+      <button class="tool" type="button" data-toggle aria-label="${label}" title="${label} (${KEY})">${toggle("in")}</button></div>
+    <div class="filter"><span>Filter…</span><button type="button" aria-label="Add">+</button></div>
+    <div class="tree">
+      ${row(SESSIONS[0], true)}
+      <div class="row repo"><span class="chev">▾</span>foom</div>
+      <div class="row checkout"><span class="chev">▾</span>${FOLDER}<span class="name">Main checkout</span><span class="br">main</span></div>
+      ${row(SESSIONS[1])}${row(SESSIONS[2])}
+      <div class="row checkout"><span class="chev">▾</span>${FOLDER}<span class="name">codex/issue-270</span></div>
+      ${row(SESSIONS[3])}
+      <div class="row repo"><span class="chev">▾</span>herdr</div>
+      <div class="row checkout"><span class="chev">▾</span>${FOLDER}<span class="name">Main checkout</span><span class="br">main</span></div>
+      ${row(SESSIONS[4])}
+    </div>
+    <div class="foot">
+      ${state.hold === "on" ? `<div class="dock"><button class="row" type="button">${GEAR}<span class="name">Foom config</span><span class="chip"><span class="dot"></span>Needs you</span></button></div>` : ""}
+      <div class="bar">${PRESETS.map((d) => `<button class="tool" type="button"><svg viewBox="0 0 16 12" aria-hidden="true"><path d="${d}"/></svg></button>`).join("")}
+        <button class="tool gear" type="button" aria-label="Foom config${state.hold === "on" ? ", needs you" : ""}"${state.hold === "on" ? ' data-tone="needs"' : ""}>${GEAR}</button></div>
+    </div>`;
+}
+
+function collapsed() {
+  const groups = [...new Set(SESSIONS.map((s) => s.group))];
+  const forced = state.window === "narrow";
+  const label = forced ? "Open sidebar" : "Expand sidebar";
+  return `<div class="rail">
+    <div class="rail-top">
+      <button class="tool" type="button" data-toggle aria-label="${label}" title="${label} (${KEY})">${toggle("out")}</button>
+      ${needs() ? `<div class="rail-needs" role="status" aria-label="${needs()} need you"><b>${needs()}</b>need<br>you</div>` : ""}
+    </div>
+    <div class="rail-list">${groups.map((g) => `<div class="rail-group">${SESSIONS.map((s, i) => s.group !== g ? "" :
+      `<button class="rail-row" type="button" data-peek="${i}" aria-label="${s.name}, ${s.where}${s.state === "needs" ? ", needs you" : ""}" aria-expanded="${state.peek === i}"><span class="light" data-state="${s.state}"></span><span class="badge">${esc(s.badge)}</span></button>`).join("")}</div>`).join("")}</div>
+    <div class="rail-foot">
+      <button class="tool gear" type="button" aria-label="Foom config${state.hold === "on" ? ", needs you" : ""}" title="Foom config"${state.hold === "on" ? ' data-tone="needs"' : ""}>${GEAR}</button>
+    </div></div>`;
+}
+
+function render() {
+  const root = document.documentElement;
+  if (state.theme === "system") delete root.dataset.theme; else root.dataset.theme = state.theme;
+  document.getElementById("app").dataset.window = state.window;
+  const side = document.getElementById("side");
+  side.toggleAttribute("data-rail", rail());
+  side.toggleAttribute("data-overlay", state.window === "narrow" && state.overlay);
+  side.innerHTML = rail() ? collapsed() : expanded();
+  const slot = document.getElementById("peek-slot");
+  if (rail() && state.peek !== null) {
+    const s = SESSIONS[state.peek];
+    const top = document.querySelector(`[data-peek="${state.peek}"]`).getBoundingClientRect().top - document.getElementById("app").getBoundingClientRect().top - 4;
+    slot.innerHTML = `<div class="peek" style="top:${top}px"><h3><span class="light" data-state="${s.state}"></span><span class="badge">${esc(s.badge)}</span>${s.name}</h3><p>${s.where}${s.wait ? ` · needs you ${s.wait}` : ""}${s.tile ? ` · tile ${s.tile}` : ""}</p><p class="note">The row's full panel opens here, beside the rail, as it does in a narrow window today.</p></div>`;
+  } else slot.innerHTML = "";
+  for (const ctl of document.querySelectorAll(".ctl"))
+    for (const b of ctl.querySelectorAll("button")) b.setAttribute("aria-pressed", String(state[ctl.dataset.key] === b.dataset.v));
+}
+
+function flip() {
+  state.peek = null;
+  if (state.window === "narrow") state.overlay = !state.overlay;
+  else state.collapsed = state.collapsed === "yes" ? "no" : "yes";
+  render();
+}
+
+document.addEventListener("click", (event) => {
+  const ctl = event.target.closest(".ctl button");
+  if (ctl) { state[ctl.closest(".ctl").dataset.key] = ctl.dataset.v; state.peek = null; state.overlay = false; render(); return; }
+  if (event.target.closest("[data-toggle]")) { flip(); return; }
+  const peek = event.target.closest("[data-peek]");
+  if (peek) { const i = Number(peek.dataset.peek); state.peek = state.peek === i ? null : i; render(); return; }
+  let changed = false;
+  if (state.peek !== null && !event.target.closest(".peek")) { state.peek = null; changed = true; }
+  // The overlay closes on any click outside it, like a panel.
+  if (state.overlay && !event.target.closest(".side")) { state.overlay = false; changed = true; }
+  if (changed) render();
+});
+document.addEventListener("keydown", (event) => {
+  if (event.key.toLowerCase() === "b" && (mac ? event.metaKey : event.ctrlKey && event.shiftKey)) { event.preventDefault(); flip(); }
+  if (event.key === "Escape") { state.peek = null; state.overlay = false; render(); }
+});
+render();
+</script>
+</body>
+</html>
