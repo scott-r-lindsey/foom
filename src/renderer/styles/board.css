@@ -1486,6 +1486,27 @@
   .sidebar-shell[data-compact="true"] .config-dock-head {
     max-width: none;
   }
+  .sidebar-shell[data-compact="true"] .config-dock .panel-chip {
+    max-width: 100%;
+    box-sizing: border-box;
+    height: auto;
+    min-height: 19px;
+    margin-right: 0;
+    padding: 2px 3px;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    font-size: 9px;
+  }
+  .sidebar-shell[data-compact="true"] .config-dock .board-entry {
+    flex-wrap: wrap;
+  }
+  .sidebar-shell[data-compact="true"] .config-dock .board-row {
+    flex-basis: 100%;
+    box-sizing: border-box;
+  }
+  .sidebar-shell[data-compact="true"] .config-dock .row-actions {
+    margin-left: auto;
+  }
 }
 
 .config-gear .panel-mark svg,

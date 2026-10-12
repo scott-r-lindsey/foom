@@ -6824,6 +6824,45 @@ process.stdin.on("data", (key) => {
   await expect(page.locator(".config-dock")).toContainText("Needs you");
   await expect(gear).toHaveAttribute("aria-label", /needs you/);
   await expect(gear).toHaveAttribute("data-tone", "needs");
+  // Both statuses remain readable inside the forced compact rail.
+  const originalSize = await app.evaluate(({ BrowserWindow }) => {
+    const window = BrowserWindow.getAllWindows().find(
+      (window) => window.webContents.getURL() === "app://bundle/index.html",
+    );
+    const size = window.getContentBounds();
+    window.setMinimumSize(1, 1);
+    window.setContentSize(640, 720);
+    return size;
+  });
+  const sidebar = page.locator(".sidebar-shell");
+  await expect(sidebar).toHaveAttribute("data-compact", "true");
+  const dockChips = page.locator(".config-dock-head .panel-chip");
+  await expect(dockChips).toHaveCount(2);
+  assert.equal(
+    await dockChips.evaluateAll((chips) =>
+      chips.every((chip) => {
+        const bounds = chip.getBoundingClientRect();
+        const rail = chip.closest(".sidebar-shell").getBoundingClientRect();
+        return (
+          bounds.left >= rail.left &&
+          bounds.right <= rail.right &&
+          chip.scrollWidth <= chip.clientWidth + 1
+        );
+      }),
+    ),
+    true,
+  );
+  await expect(page.locator(".config-dock .board-row")).toBeVisible();
+  await page.screenshot({ path: "test-results/config-footer-compact.png", animations: "disabled" });
+  await app.evaluate(({ BrowserWindow }, size) => {
+    BrowserWindow.getAllWindows()
+      .find((window) => window.webContents.getURL() === "app://bundle/index.html")
+      .setContentSize(size.width, size.height);
+  }, originalSize);
+  await expect(sidebar).toHaveAttribute("data-compact", "false");
+  // Resizing dismisses the panel; reopen it to inspect its approval facts.
+  await gear.click();
+
   await expect(panel).toContainText("Needs you");
   await page.keyboard.press("Escape");
   assert.equal(
