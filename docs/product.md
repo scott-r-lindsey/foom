@@ -314,21 +314,30 @@ survive a reload or appear in other windows.
 The layout is a binary split tree. Each leaf is a tile with a stable identity and
 at most one session; each split has a horizontal or vertical direction and a ratio.
 Split right and Split down add empty space, keep focus in the original terminal,
-and make the newest space the landing spot. Hide removes a terminal's tile and gives
-its sibling the room; the session keeps running in the sidebar. For exited sessions,
-Close removes the tile and closes the session through the sidebar command. Tile
-chrome never stops a running process. Presets also leave hidden sessions running.
+and make the newest space the landing spot. Hide and exited-session Close leave
+empty space in place, with sibling geometry unchanged, and make it the landing spot.
+Hide keeps the session running; Close closes it through the sidebar command.
+Tile chrome never stops a running process. Reclaim space with Grow, gutters
+(including Home/End), or presets. Presets leave hidden sessions running.
 
-Clicking a visible session focuses its tile. A hidden session fills the newest
-space (the landing spot), otherwise the first empty space in tree order. When all tiles are
-full, nothing is replaced: the sidebar row briefly shakes (disabled with reduced
-motion). Refusal plays immediately on each refused click when Alerts is enabled.
+Clicking a visible session focuses its tile. Clicking a hidden session or launching
+one fills the landing spot, then the first empty space in tree order. A full board
+adds a column at the far right. Columns are the children of the root's horizontal
+split chain; any other root is one column. With N columns, existing widths scale
+by N/(N+1), the new column gets 1/(N+1), and nested row ratios stay unchanged.
+If any resulting column would have fewer than about 60 terminal cells at the
+current font size, replace the least recently focused non-Needs-you tile, excluding
+the focused tile. If none qualifies, use the oldest-focused non-Needs-you tile,
+even if focused. Its session keeps running hidden. If all tiles need attention,
+add the column despite the minimum width. Tree resource limits still apply.
+Full tiles produce no refusal shake or sound.
 
-Launching a session fills the landing spot, then the first empty space, or
-replaces the focused tile when all tiles are full. Its previous session becomes
-hidden and keeps running. Restart replaces the focused tile. The longest-waiting
-shortcut places that session in the focused tile and hides
-its previous occupant. If the waiting session was in another tile, that tile empties.
+A single empty tile is a blank window: on first placement it becomes K equal
+columns, where K is the number of 100-terminal-cell widths that fit, clamped to
+1–3. The session fills the leftmost column. An arranged tree is never re-split.
+Restart replaces its own tile. The longest-waiting shortcut explicitly replaces
+the focused tile and hides its previous occupant. If the waiting session was in
+another tile, that tile empties.
 
 Title bars show the state light, agent badge, location and session name, followed by
 an always-visible tile number with a chevron ("Tile N menu"). Maximize/Restore and
@@ -361,8 +370,7 @@ space previews collapse and is removed on release. Focus a gutter and use its
 axis's arrow keys to resize by five percentage points; Home/End select the limits
 and collapse an empty side. Keyboard changes commit immediately. Maximize expands
 one tile from its own position while the others fade and stay mounted and attached.
-Restoring returns to the saved split geometry. Reduced motion disables movement
-and refusal animation.
+Restoring returns to the saved split geometry. Reduced motion disables tile movement.
 
 Use Ctrl on Linux/Windows, or ⌘ on macOS:
 
@@ -590,8 +598,7 @@ turn, including in the focused tile. Initial readiness is not a completion. Comp
 replayed. Attention reminders resume after two minutes away or after unmuting.
 Verdicts settle for one second before sounding. Simultaneous alerts play once, with
 Needs you taking precedence; verdict alerts are at least two seconds apart.
-Refusal plays immediately on each refused placement, independently of that debounce.
-Reduced motion disables the refusal shake, not its sound. Visual status always stays on.
+Full tile placement does not play Refusal. Visual status always stays on.
 
 **Open sounds folder** opens `~/.foom/config/sounds/` in the file manager. Add files
 to `working/`, `done/`, `needs-you/` or `refusal/`, then reopen Settings → Sound to

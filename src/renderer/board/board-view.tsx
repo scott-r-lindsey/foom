@@ -71,10 +71,40 @@ export function Board({
       return restoreLayout(null);
     }
   });
+  const boardRef = useRef<HTMLDivElement>(null);
+  const fontSizeRef = useRef(14);
+  const focusedAtRef = useRef(new Map<string, number>());
+  const focusClockRef = useRef(0);
+  useEffect(() => {
+    if (!soundSetup) return;
+    let active = true;
+    let changed = false;
+    const off = soundSetup.subscribe((state) => {
+      changed = true;
+      fontSizeRef.current = state.settings.terminalFontSize;
+    });
+    void soundSetup
+      .state()
+      .then((state) => {
+        if (active && !changed) fontSizeRef.current = state.settings.terminalFontSize;
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+      off();
+    };
+  }, [soundSetup]);
   const layoutRef = useRef(layout);
   const [focusRequest, setFocusRequest] = useState(0);
   const changeLayout = useCallback(
     (next: TileLayout) => {
+      if (
+        next.focused !== layoutRef.current.focused ||
+        leaves(next.tree).find((tile) => tile.id === next.focused)?.session !==
+          leaves(layoutRef.current.tree).find((tile) => tile.id === next.focused)?.session
+      ) {
+        focusedAtRef.current.set(next.focused, ++focusClockRef.current);
+      }
       layoutRef.current = next;
       setLayout(next);
       try {
@@ -159,16 +189,6 @@ export function Board({
         setRemoveError("Unable to reserve terminal views.");
       });
   }, [source, rows, layout, changeLayout]);
-  const [refused, setRefused] = useState<string>();
-  useEffect(() => {
-    if (!refused) return;
-    const timer = window.setTimeout(() => {
-      setRefused(undefined);
-    }, 350);
-    return () => {
-      window.clearTimeout(timer);
-    };
-  }, [refused]);
   const tileAction = useCallback(
     (
       tile: string,
@@ -342,24 +362,44 @@ export function Board({
     wasInactiveRef.current = paneInactive;
   }, [paneInactive, selected]);
   const open = useCallback(
-    (row: BoardRow, replace = false) => {
+    (row: BoardRow, replace = false, destination?: { tile: string; session: string }) => {
       const present = () => {
-        const next = placeSession(layoutRef.current, row.id, replace);
+        const area = boardRef.current?.querySelector(".tile-area");
+        const probe = document.createElement("span");
+        probe.style.cssText = `position:absolute;visibility:hidden;font:${String(fontSizeRef.current)}px "Hack Nerd Font Mono", "Geist Mono", monospace`;
+        probe.textContent = "M";
+        boardRef.current?.append(probe);
+        const cell = probe.getBoundingClientRect().width || fontSizeRef.current * 0.6;
+        probe.remove();
+        const current = layoutRef.current;
+        const own =
+          destination &&
+          leaves(current.tree).find(
+            (tile) =>
+              tile.id === destination.tile &&
+              (tile.session === null || tile.session === destination.session),
+          );
+        const next = placeSession(
+          own ? { ...current, focused: own.id } : current,
+          row.id,
+          replace || Boolean(own),
+          {
+            columns: (area?.getBoundingClientRect().width ?? 0) / cell,
+            needsYou: new Set(
+              source
+                .getSnapshot()
+                .filter((item) => item.state === "needs_input")
+                .map((item) => item.id),
+            ),
+            focusedAt: focusedAtRef.current,
+          },
+        );
         if (!next) {
-          if (soundControllerRef.current) soundControllerRef.current.refuse();
-          else void source.windows?.audio?.refuse().catch(() => {});
-          setRefused(row.id);
+          setRemoveError("The tile layout has reached its size limit.");
           return;
         }
-        layoutRef.current = next;
-        setLayout(next);
-        try {
-          saveLayout(localStorage, next, storageKey);
-        } catch {
-          setRemoveError("Unable to save tile layout.");
-        }
+        changeLayout(next);
         setFocusRequest((value) => value + 1);
-        setRefused(undefined);
         setSelection(row.id);
         revealRef.current?.(row);
         // Selecting a row asks for terminal input focus, rather than Escape restoration.
@@ -378,7 +418,7 @@ export function Board({
           });
       } else present();
     },
-    [source, onCloseSettings, storageKey],
+    [source, onCloseSettings, changeLayout],
   );
   const initialSessionOpenedRef = useRef(false);
   useEffect(() => {
@@ -387,13 +427,20 @@ export function Board({
     if (!initialSessionOpenedRef.current && row) {
       initialSessionOpenedRef.current = true;
       void Promise.resolve().then(() => {
-        open(row, true);
+        open(row);
       });
     }
   }, [source, rows, open]);
   const command = (value: SidebarCommand) => {
     setRemoveError("");
     const before = new Set(source.getSnapshot().map((row) => row.id));
+    const original =
+      value.kind === "restart"
+        ? leaves(layoutRef.current.tree).find((tile) => tile.session === value.id)
+        : undefined;
+    const destination = original?.session
+      ? { tile: original.id, session: original.session }
+      : undefined;
     return (source.sidebarCommand?.(value) ?? Promise.resolve())
       .then(() => {
         if (value.kind === "resume" || value.kind === "new-conversation") {
@@ -413,13 +460,7 @@ export function Board({
               ? source.getSnapshot().find((row) => row.config && !row.exited)
               : source.getSnapshot().find((row) => !before.has(row.id));
           if (created) {
-            const tiles = leaves(layoutRef.current.tree);
-            open(
-              created,
-              value.kind === "restart" ||
-                (tiles.every((tile) => tile.session !== null) &&
-                  !tiles.some((tile) => tile.session === created.id)),
-            );
+            open(created, false, destination);
             const name = value.kind === "restart" ? preferences.names[value.id] : undefined;
             if (name) {
               const renamed = renameSession(preferences, created.id, name);
@@ -579,6 +620,7 @@ export function Board({
   return (
     <main
       className="board-home"
+      ref={boardRef}
       aria-label="Board"
       hidden={inactive}
       inert={inactive}
@@ -630,10 +672,6 @@ export function Board({
               ),
             )
           }
-          refused={refused}
-          clearRefusal={() => {
-            setRefused(undefined);
-          }}
           revealRef={revealRef}
           {...(onSettings ? { openSettings: onSettings } : {})}
           inactive={inactive}
