@@ -28,10 +28,14 @@ async function measure() {
       : path.join(root, process.platform === "win32" ? "Foom.exe" : "Foom");
   const env = { ...process.env };
   delete env.ELECTRON_RUN_AS_NODE;
-  const child = spawn(executable, ["--remote-debugging-port=0", `--user-data-dir=${profile}`], {
-    env,
-    stdio: ["ignore", "ignore", "pipe"],
-  });
+  const child = spawn(
+    executable,
+    ["--remote-debugging-port=0", `--user-data-dir=${profile}`, "--mute-audio"],
+    {
+      env,
+      stdio: ["ignore", "ignore", "pipe"],
+    },
+  );
   let browser;
   const watchdog = setTimeout(() => child.kill("SIGKILL"), 45000);
   try {
