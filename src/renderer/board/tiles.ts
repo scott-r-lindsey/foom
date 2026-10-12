@@ -147,22 +147,14 @@ export function ratioLimits(node: TileSplit): [number, number] {
   return [terminals(node.first).length ? 0.15 : 0, terminals(node.second).length ? 0.85 : 1];
 }
 /** Occupancy can change after resizing space; every occupied side regains its minimum. */
-function fitRatios(tree: TileNode, previous?: TileNode): TileNode {
+function fitRatios(tree: TileNode): TileNode {
   if (tree.kind === "tile") return tree;
-  const old = previous
-    ? rectangles(previous).gutters.find((item) => item.split.id === tree.id)?.split
-    : undefined;
-  const [min, max] = old
-    ? [
-        terminals(old.first).length ? 0 : ratioLimits(tree)[0],
-        terminals(old.second).length ? 1 : ratioLimits(tree)[1],
-      ]
-    : ratioLimits(tree);
+  const [min, max] = ratioLimits(tree);
   return {
     ...tree,
     ratio: Math.max(min, Math.min(max, tree.ratio)),
-    first: fitRatios(tree.first, previous),
-    second: fitRatios(tree.second, previous),
+    first: fitRatios(tree.first),
+    second: fitRatios(tree.second),
   };
 }
 export function resizeSplit(
@@ -236,7 +228,7 @@ export function placeSession(
   tree = update(tree, target.id, (node) => ({ ...node, session }));
   return {
     ...layout,
-    tree: fitRatios(tree, layout.tree),
+    tree,
     focused: target.id,
     maximized: layout.maximized ? target.id : null,
   };

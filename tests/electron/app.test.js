@@ -3062,7 +3062,9 @@ process.stdin.resume();
     // Inventory arrives before the launch command finishes revealing the row and
     // focusing its terminal. Revealing clears any open menu, so wait for focus
     // before opening the next one.
-    await expect(page.locator(".xterm-helper-textarea").first()).toBeFocused();
+    await expect(
+      page.locator('.terminal-tile[data-focused="true"] .xterm-helper-textarea'),
+    ).toBeFocused();
   }
   if (process.platform !== "win32") {
     await page.getByRole("button", { name: "Actions for agent", exact: true }).click();
@@ -3094,7 +3096,9 @@ process.stdin.resume();
     await expect
       .poll(async () => (await sharedSessions()).filter((t) => t.kind === "agent").length)
       .toBe(2);
-    await expect(page.locator(".xterm-helper-textarea").first()).toBeFocused();
+    await expect(
+      page.locator('.terminal-tile[data-focused="true"] .xterm-helper-textarea'),
+    ).toBeFocused();
   }
   const shell = (await sharedSessions()).find((t) => t.kind === "shell");
   assert.ok(shell);

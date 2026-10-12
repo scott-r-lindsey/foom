@@ -716,3 +716,46 @@ test("the menu's Add repository uses the sidebar's picker and reports failure", 
     "Unable to add repository.",
   );
 });
+
+test.each(["empty", "reassigned", "removed"] as const)(
+  "restart remembers its own tile through inventory pruning (%s destination)",
+  async (mode) => {
+    const { screen, click, source, data, views, send } = setup();
+    let finish: (() => void) | undefined;
+    source.sidebarCommand = vi.fn(async (command: SidebarCommand) => {
+      if (command.kind === "restart") {
+        data.update(command.id, { id: "replacement", exited: false });
+        await new Promise<void>((resolve) => {
+          finish = resolve;
+        });
+      }
+    });
+    act(() => {
+      data.update("permission", { kind: "shell", exited: true, state: "done" });
+    });
+    click(0);
+    send("split-right");
+    click(1);
+    await act(async () => {});
+    fireEvent.click(
+      screen.getByRole("button", { name: /^Actions for .* in fix\/session-restore$/ }),
+    );
+    fireEvent.click(screen.getByRole("menuitem", { name: "Restart shell" }));
+    await act(async () => {});
+    expect(screen.container.querySelector('.terminal-tile[data-empty="true"]')).not.toBeNull();
+    if (mode === "reassigned") click(2);
+    if (mode === "removed") send("preset-one");
+    await act(async () => {
+      finish?.();
+      await Promise.resolve();
+    });
+    if (mode === "empty") {
+      expect(views[0]?.open).toHaveBeenLastCalledWith("replacement");
+      expect(views[1]?.open).toHaveBeenLastCalledWith("build");
+    } else {
+      expect(views[1]?.open).toHaveBeenLastCalledWith("replacement");
+      if (mode === "reassigned") expect(views[0]?.open).toHaveBeenLastCalledWith("check");
+      else expect(views[0]?.dispose).toHaveBeenCalledOnce();
+    }
+  },
+);

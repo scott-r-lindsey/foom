@@ -362,7 +362,7 @@ export function Board({
     wasInactiveRef.current = paneInactive;
   }, [paneInactive, selected]);
   const open = useCallback(
-    (row: BoardRow, replace = false) => {
+    (row: BoardRow, replace = false, destination?: { tile: string; session: string }) => {
       const present = () => {
         const area = boardRef.current?.querySelector(".tile-area");
         const probe = document.createElement("span");
@@ -371,16 +371,29 @@ export function Board({
         boardRef.current?.append(probe);
         const cell = probe.getBoundingClientRect().width || fontSizeRef.current * 0.6;
         probe.remove();
-        const next = placeSession(layoutRef.current, row.id, replace, {
-          columns: (area?.getBoundingClientRect().width ?? 0) / cell,
-          needsYou: new Set(
-            source
-              .getSnapshot()
-              .filter((item) => item.state === "needs_input")
-              .map((item) => item.id),
-          ),
-          focusedAt: focusedAtRef.current,
-        });
+        const current = layoutRef.current;
+        const own =
+          destination &&
+          leaves(current.tree).find(
+            (tile) =>
+              tile.id === destination.tile &&
+              (tile.session === null || tile.session === destination.session),
+          );
+        const next = placeSession(
+          own ? { ...current, focused: own.id } : current,
+          row.id,
+          replace || Boolean(own),
+          {
+            columns: (area?.getBoundingClientRect().width ?? 0) / cell,
+            needsYou: new Set(
+              source
+                .getSnapshot()
+                .filter((item) => item.state === "needs_input")
+                .map((item) => item.id),
+            ),
+            focusedAt: focusedAtRef.current,
+          },
+        );
         if (!next) {
           setRemoveError("The tile layout has reached its size limit.");
           return;
@@ -414,13 +427,20 @@ export function Board({
     if (!initialSessionOpenedRef.current && row) {
       initialSessionOpenedRef.current = true;
       void Promise.resolve().then(() => {
-        open(row, true);
+        open(row);
       });
     }
   }, [source, rows, open]);
   const command = (value: SidebarCommand) => {
     setRemoveError("");
     const before = new Set(source.getSnapshot().map((row) => row.id));
+    const original =
+      value.kind === "restart"
+        ? leaves(layoutRef.current.tree).find((tile) => tile.session === value.id)
+        : undefined;
+    const destination = original?.session
+      ? { tile: original.id, session: original.session }
+      : undefined;
     return (source.sidebarCommand?.(value) ?? Promise.resolve())
       .then(() => {
         if (value.kind === "resume" || value.kind === "new-conversation") {
@@ -440,11 +460,7 @@ export function Board({
               ? source.getSnapshot().find((row) => row.config && !row.exited)
               : source.getSnapshot().find((row) => !before.has(row.id));
           if (created) {
-            if (value.kind === "restart") {
-              const own = leaves(layoutRef.current.tree).find((tile) => tile.session === value.id);
-              if (own) changeLayout({ ...layoutRef.current, focused: own.id });
-            }
-            open(created, value.kind === "restart");
+            open(created, false, destination);
             const name = value.kind === "restart" ? preferences.names[value.id] : undefined;
             if (name) {
               const renamed = renameSession(preferences, created.id, name);
