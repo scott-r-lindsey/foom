@@ -152,7 +152,7 @@ Below 720 CSS pixels, once sessions exist, the tree becomes a flat column with o
 names. ⌘⇧B on macOS or Ctrl+Shift+B elsewhere focuses the sidebar; arrow keys navigate.
 ⌘⇧N or Ctrl+Shift+N reveals and opens the session that has waited longest for you, clearing
 its filter and expanding its ancestors. Other terminal keys, including Escape, remain input.
-Settings and the six tile preset icons stay at the bottom of the sidebar. Launch actions live in repository and checkout menus. An empty sidebar labels its starting action **Add repository**.
+Settings, the six tile preset icons and Tidy tiles stay at the bottom of the sidebar. Launch actions live in repository and checkout menus. An empty sidebar labels its starting action **Add repository**.
 
 ### Delete merged worktrees
 
@@ -365,7 +365,19 @@ stacked, Two by two, One and two, and One and three. They keep the focused sessi
 first, then other occupied leaves in tree order, then empty leaves. Existing leaves keep
 their views; additional leaves start empty, and sessions that no longer fit hide.
 
-Between two terminal-containing sides, gutters stay between 15% and 85%.
+Double-click a gutter, or press Enter while it is focused, to give every member
+of its run an equal share. A run follows consecutive splits on the same axis;
+perpendicular subtrees and their nested ratios stay unchanged. Equal shares of
+runs longer than two members can exceed the usual ratio limits.
+
+**Tidy tiles** removes every empty space, collapses single-child splits and evens
+every run. Tile order, session assignments, focus and surviving leaf identities
+stay unchanged. An all-empty layout keeps one empty space. Tidy restores any
+maximized tile first and uses the existing tile resize motion (immediate with
+reduced motion). It applies only to the focused window, from the sidebar footer
+icon after the six presets, View → Tidy tiles, or its shortcut.
+
+When resizing between two terminal-containing sides, gutters stay between 15% and 85%.
 An all-space side has no minimum. Below 8% (or above 92% for the second side),
 space previews collapse and is removed on release. Focus a gutter and use its
 axis's arrow keys to resize by five percentage points; Home/End select the limits
@@ -378,6 +390,7 @@ Use Ctrl on Linux/Windows, or ⌘ on macOS:
 | Shortcut | Action |
 |---|---|
 | ⌘ + 1–9 (macOS); leader, then 1–9 (Windows/Linux) | Focus tile by number |
+| ⌘ + Alt + Shift + T (macOS); leader, then T (Windows/Linux) | Tidy tiles |
 | Ctrl/⌘ + Shift + Enter | Toggle focused tile maximize |
 | Ctrl/⌘ + Shift + N | Replace focused tile with the longest-waiting session |
 | ⌘ + Alt + Shift + arrow (macOS); leader, then arrow (Windows/Linux) | Focus the nearest tile in that direction |

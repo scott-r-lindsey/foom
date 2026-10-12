@@ -176,6 +176,60 @@ export function resizeSplit(
   };
 }
 
+/** Count the members of one uninterrupted same-axis run. */
+function runSize(node: TileNode, direction: TileSplit["direction"]): number {
+  return node.kind === "split" && node.direction === direction
+    ? runSize(node.first, direction) + runSize(node.second, direction)
+    : 1;
+}
+function evenRun(node: TileNode, direction: TileSplit["direction"]): TileNode {
+  if (node.kind === "tile" || node.direction !== direction) return node;
+  const first = runSize(node.first, direction);
+  return {
+    ...node,
+    ratio: first / (first + runSize(node.second, direction)),
+    first: evenRun(node.first, direction),
+    second: evenRun(node.second, direction),
+  };
+}
+/** Ascend only through consecutive same-axis parents of the chosen gutter. */
+export function evenSplitRun(layout: TileLayout, target: string): TileLayout {
+  const find = (node: TileNode, run?: TileSplit): TileSplit | undefined => {
+    if (node.kind === "tile") return undefined;
+    const root = run?.direction === node.direction ? run : node;
+    return node.id === target ? root : (find(node.first, root) ?? find(node.second, root));
+  };
+  const run = find(layout.tree);
+  return run
+    ? { ...layout, tree: update(layout.tree, run.id, (node) => evenRun(node, run.direction)) }
+    : layout;
+}
+/** Remove spaces before evening: collapsing a split can join previously separate runs. */
+export function tidyTiles(layout: TileLayout): TileLayout {
+  const prune = (node: TileNode): TileNode | null => {
+    if (node.kind === "tile") return node.session === null ? null : node;
+    const first = prune(node.first),
+      second = prune(node.second);
+    return first && second ? { ...node, first, second } : (first ?? second);
+  };
+  const even = (node: TileNode): TileNode => {
+    if (node.kind === "tile") return node;
+    return evenRun({ ...node, first: even(node.first), second: even(node.second) }, node.direction);
+  };
+  const firstLeaf = (node: TileNode): TileLeaf =>
+    node.kind === "tile" ? node : firstLeaf(node.first);
+  const tree = even(
+    prune(layout.tree) ??
+      leaves(layout.tree).find((tile) => tile.id === layout.focused) ??
+      firstLeaf(layout.tree),
+  );
+  return {
+    tree,
+    focused: leaves(tree).find((tile) => tile.id === layout.focused)?.id ?? firstLeaf(tree).id,
+    maximized: null,
+  };
+}
+
 export function placeSession(
   layout: TileLayout,
   session: string,

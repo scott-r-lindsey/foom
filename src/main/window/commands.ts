@@ -25,6 +25,7 @@ export const BOARD_COMMANDS = [
       ["split-down", "Split down", "KeyD"],
       ["close-tile", "Close tile", "KeyW"],
       ["hide-session", "Hide session", "KeyH"],
+      ["tidy-tiles", "Tidy tiles", "KeyT"],
     ] as const
   ).map(([id, label, code]) => ({ id, label, code, shift: true, alt: true, leader: true })),
   ...(
@@ -208,6 +209,7 @@ export function createCommands(
     "split-down": ["Tiles", "Split down"],
     "hide-session": ["Tiles", "Hide"],
     "close-tile": ["Tiles", "Close"],
+    "tidy-tiles": ["Tiles", "Tidy tiles"],
   };
   for (const entry of BOARD_COMMANDS) {
     const binding: Binding =

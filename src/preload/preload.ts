@@ -267,6 +267,7 @@ const desktop: DesktopApi = {
         command === "preset-grid" ||
         command === "preset-main2" ||
         command === "preset-main3" ||
+        command === "tidy-tiles" ||
         command === "maximize" ||
         command === "left" ||
         command === "right" ||

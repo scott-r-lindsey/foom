@@ -8,6 +8,7 @@ import {
   leaves,
   placeSession,
   preset,
+  tidyTiles,
   splitTile,
   closeTile,
   hideSession,
@@ -536,6 +537,8 @@ export function Board({
               "preset-main3": "main3",
             } as const;
             changeLayout(preset(current, presets[command]));
+          } else if (command === "tidy-tiles") {
+            changeLayout(tidyTiles(current));
           } else if (
             command === "swap-left" ||
             command === "swap-right" ||
@@ -719,6 +722,22 @@ export function Board({
                     </svg>
                   </button>
                 ))}
+                <button
+                  type="button"
+                  aria-label="Tidy tiles"
+                  title="Tidy tiles"
+                  onClick={() => {
+                    changeLayout(tidyTiles(layoutRef.current));
+                  }}
+                >
+                  <svg width="18" height="14" viewBox="0 0 16 12" aria-hidden="true">
+                    <path
+                      d="M1 1h6v4H1z M9 1h6v4H9z M1 7h6v4H1z M9 7h6v4H9z"
+                      fill="none"
+                      stroke="currentColor"
+                    />
+                  </svg>
+                </button>
               </div>
               {onSettings && (
                 <button

@@ -27,6 +27,7 @@ import {
 import {
   rectangles,
   resizeSplit,
+  evenSplitRun,
   dropTile,
   dropZone,
   terminals,
@@ -303,11 +304,13 @@ function Gutter({
   rect,
   area,
   change,
+  even,
 }: {
   node: TileSplit;
   rect: TileRect;
   area: TileRect;
   change: (id: string, ratio: number, commit?: boolean) => void;
+  even: () => void;
 }) {
   const [dragging, setDragging] = useState(false);
   const [min, max] = ratioLimits(node);
@@ -325,6 +328,7 @@ function Gutter({
       data-direction={node.direction}
       data-dragging={dragging}
       style={position(rect)}
+      onDoubleClick={even}
       onPointerDown={(event) => {
         event.preventDefault();
         event.currentTarget.setPointerCapture(event.pointerId);
@@ -351,6 +355,11 @@ function Gutter({
         setDragging(false);
       }}
       onKeyDown={(event) => {
+        if (event.key === "Enter") {
+          event.preventDefault();
+          even();
+          return;
+        }
         const decrease = horizontal ? "ArrowLeft" : "ArrowUp",
           increase = horizontal ? "ArrowRight" : "ArrowDown";
         if (
@@ -539,6 +548,9 @@ export function TileArea({
             node={split}
             rect={rect}
             area={area}
+            even={() => {
+              setLayout(evenSplitRun(layout, split.id));
+            }}
             change={(id, ratio, commit) => {
               const next = resizeSplit(layout, id, ratio, commit);
               if (leaves(next.tree).length < leaves(layout.tree).length) dropLayout(next);
