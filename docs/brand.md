@@ -4,6 +4,12 @@ The direction is **Event Horizon: Eclipse**. It's a black hole with a glowing ri
 
 ## Rules
 
+These color rules govern built-in themes and UI code. User themes may override
+them with warnings; contrast remains mandatory. File edits that newly weaken
+needs-you distinctness in the active theme, or select such a theme, wait for
+Allow / Keep it on. In-app Appearance selections are direct. Shapes and text
+still communicate every status.
+
 1. **Amber means "needs you" and nothing else.** No amber or orange in the logo, marketing, or decoration.
 2. **The black hole is always black** (`#06050B`), in both modes. Only the sky around it changes.
 3. **Magenta (redshift) is only for failures.**
@@ -52,7 +58,7 @@ Badges and chips use the badge fills and stay neutral: no amber, magenta, or sta
 | Midnight Indigo | Dark | Rich indigo surfaces with a lavender-violet accent |
 
 Themes are complete color-token data, not CSS. `src/shared/interface-theme.d.ts`
-defines the version 1 schema: `{ version: 1, name, base, colors }`. `colors` contains
+defines the original version 1 schema: `{ version: 1, name, base, colors }`. `colors` contains
 all 19 required color tokens from `src/renderer/styles/tokens.css`, including `space-ink`;
 font tokens stay fixed. The optional `highlight` and `highlight-deep` keys must be
 supplied together; older themes fall back to `accent` and `accent-deep`. Names contain 1–40 letters, numbers, spaces, dots, hyphens
@@ -60,7 +66,8 @@ or underscores. Every color is an opaque six-digit `#RRGGBB` value. Extra and
 missing fields are rejected. `base` must agree with the background's lightness
 (white has higher contrast than black on a dark background, and vice versa).
 
-Built-in and future user themes share these enforced invariants:
+Built-in themes enforce these invariants. User themes retain the contrast checks;
+brand hue, reserved-color, distance, base-luminance and hole rules produce warnings:
 
 - `hole` is exactly `#06050B`.
 - Attention and attention ink have HSL hues 25–50°; failure and failure ink
@@ -82,6 +89,9 @@ Built-in and future user themes share these enforced invariants:
 - Status labels, the Needs you halo and the square Failed light remain visible;
   color is never the only signal. Real-app axe checks cover the board and Settings
   in every built-in theme.
+
+Version 2 user files additionally support per-area colors, explicit state colors
+and bounded shape values; see the architecture theme format. Typography stays fixed.
 
 Choosing System, Light or Dark in Appearance or preflight returns to Eclipse.
 Changing interface size preserves the theme. Terminal schemes remain independent;

@@ -79,7 +79,7 @@ async function validateFile(
   path: string,
   parent: ConfigDirectory,
   kind?: FolderKind,
-): Promise<void> {
+): Promise<readonly ThemeDiagnostic[]> {
   if (kind && soundKind(kind)) {
     if (!validSoundFile(basename(path))) fail("unsafe-file");
     const bytes = await read(path, soundSizeLimit(kind), parent);
@@ -98,11 +98,12 @@ async function validateFile(
     } catch {
       return fail("malformed-json");
     }
-    validateConfigJson(
+    return validateConfigJson(
       text,
       kind === "settings" || kind === "theme" || kind === "terminal-theme" ? kind : undefined,
     );
   }
+  return [];
 }
 /** Offline, read-only: only the explicitly supplied file/tree is ever inspected. */
 export async function validateConfig(
@@ -125,7 +126,8 @@ export async function validateConfig(
     kind?: FolderKind,
   ) => {
     try {
-      await validateFile(file, parent, kind);
+      const warnings = await validateFile(file, parent, kind);
+      problems.push(...warnings.map((warning) => ({ ...warning, file: label })));
     } catch (error) {
       report(label, error);
     }
@@ -211,5 +213,8 @@ export async function validateConfig(
     report(basename(absolute), error);
   }
   problems.sort((a, b) => a.file.localeCompare(b.file) || a.path.localeCompare(b.path));
-  return { problems, code: status.ioError ? 2 : problems.length ? 1 : 0 };
+  return {
+    problems,
+    code: status.ioError ? 2 : problems.some((problem) => problem.severity !== "warning") ? 1 : 0,
+  };
 }

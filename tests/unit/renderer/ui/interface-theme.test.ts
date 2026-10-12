@@ -104,3 +104,34 @@ test("ignores stale initial reads and results after disposal; unreadable setting
   expect(document.documentElement.style.length).toBe(0);
   failed();
 });
+
+test("v2 installs portal-area, state and shape values and removes them on theme changes", async () => {
+  media();
+  let changed: ((state: SetupState) => void) | undefined;
+  const theme = {
+    ...interfaceThemes["eclipse-dark"],
+    version: 2 as const,
+    areas: { panels: { surface: "#111111" }, menus: { surface: "#222222" } },
+    states: { selected: "#123456" },
+    shape: { radius: 0, shadow: 0.4 },
+  };
+  const dispose = attachInterfaceTheme({
+    state: () => Promise.resolve(setupState({ interfaceTheme: theme })),
+    subscribe: (cb) => {
+      changed = cb;
+      return () => {};
+    },
+  });
+  await Promise.resolve();
+  const style = document.documentElement.style;
+  expect(style.getPropertyValue("--theme-panels-surface")).toBe("#111111");
+  expect(style.getPropertyValue("--theme-menus-surface")).toBe("#222222");
+  expect(style.getPropertyValue("--state-selected")).toBe("#123456");
+  expect(style.getPropertyValue("--shape-radius")).toBe("0px");
+  expect(style.getPropertyValue("--shape-panel-radius")).toBe("0px");
+  expect(style.getPropertyValue("--shape-shadow")).toBe("0.4");
+  changed?.(setupState());
+  expect(style.getPropertyValue("--shape-radius")).toBe("");
+  expect(style.getPropertyValue("--state-selected")).toBe("");
+  dispose();
+});

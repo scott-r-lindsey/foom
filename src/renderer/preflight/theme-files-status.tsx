@@ -33,8 +33,13 @@ export function ThemeFilesStatus({
       {catalog?.errors
         .filter((entry) => entry.kind === kind)
         .map((entry, index) => (
-          <p className="preflight-error" role="status" key={`${entry.file}-${String(index)}`}>
-            Rejected {entry.file} · {entry.path}: {entry.reason}
+          <p
+            className={entry.severity === "warning" ? "preflight-note" : "preflight-error"}
+            role="status"
+            key={`${entry.file}-${String(index)}`}
+          >
+            {entry.severity === "warning" ? "Warning" : "Rejected"} {entry.file} · {entry.path}:{" "}
+            {entry.reason}
           </p>
         ))}
     </div>

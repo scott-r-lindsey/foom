@@ -7,6 +7,10 @@ export type ThemeReason =
   | "unknown-key"
   | "missing-key"
   | "not-a-color"
+  | "attention-distinctness"
+  | "color-distance"
+  | "base-luminance"
+  | "hole-color"
   | "contrast"
   | "reserved-color"
   | "too-large"
@@ -15,12 +19,13 @@ export type ThemeReason =
   | "invalid-value"
   | "unreadable";
 export interface ThemeDiagnostic {
+  severity?: "error" | "warning";
   file: string;
   path: string;
   reason: ThemeReason;
 }
 export type ParsedThemeFile =
-  | { kind: "theme"; theme: InterfaceTheme }
+  | { kind: "theme"; theme: InterfaceTheme; warnings?: readonly ThemeDiagnostic[] }
   | { kind: "terminal-theme"; name: string; theme: TerminalTheme };
 export interface ThemeCatalog {
   interface: readonly { id: UserThemeId; theme: InterfaceTheme }[];

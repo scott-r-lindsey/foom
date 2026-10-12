@@ -11,6 +11,7 @@ export interface ConfigChange {
   hash?: string;
   /** Fixed reason for a rejected change: a JSON path and reason code, never file text. */
   reason?: string;
+  warnings?: number;
 }
 
 /** A change held because it would weaken attention, awaiting Allow or Keep it on. */

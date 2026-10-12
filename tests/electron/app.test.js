@@ -494,8 +494,28 @@ test("terminal runs an interactive shell behind an isolated bridge", {
     const page = await boardPage(app);
     console.info("Window opened");
     // The hidden confirmation window can be the first CDP target on a cold
-    // display. Activate the board before testing xterm painting and selection.
+    // display. CDP activation alone does not show/focus the native board window.
+    // Exercise that state explicitly before testing xterm painting and selection.
+    await app.evaluate(({ BrowserWindow }) => {
+      const window = BrowserWindow.getAllWindows().find(
+        (window) => window.webContents.getURL() === "app://bundle/index.html",
+      );
+      window.hide();
+    });
+    await app.evaluate(({ BrowserWindow }) => {
+      const window = BrowserWindow.getAllWindows().find(
+        (window) => window.webContents.getURL() === "app://bundle/index.html",
+      );
+      window.show();
+      window.focus();
+      window.webContents.focus();
+    });
     await page.bringToFront();
+    await expect
+      .poll(() =>
+        page.evaluate(() => document.visibilityState === "visible" && document.hasFocus()),
+      )
+      .toBe(true);
     await page.waitForLoadState("domcontentloaded");
     assert.equal(await page.title(), "Foom");
     await page.waitForFunction(
@@ -7870,4 +7890,74 @@ test("gutter double-click evens three columns and Tidy tiles removes holes throu
   }, process.platform === "darwin");
   await expect.poll(widths).toEqual([5000, 5000]);
   await assertAccessible(page);
+});
+
+test("version 2 themes scope portaled colors, shape and warnings and hold attention edits", {
+  timeout: deadline(45000),
+}, async (context) => {
+  const root = await mkdtemp(path.join(tmpdir(), "foom-v2-theme-"));
+  removeAfterApps(context, root);
+  const app = await launchApp(context, true, { home: root });
+  const page = await boardPage(app);
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  const { interfaceThemes } = require("../../build/shared/interface-themes.js");
+  const theme = {
+    ...interfaceThemes["eclipse-dark"],
+    version: 2,
+    name: "Personal v2",
+    colors: { ...interfaceThemes["eclipse-dark"].colors, ink: "#ffb23e" },
+    areas: {
+      sidebar: { bg: "#010203", surface: "#010203" },
+      tiles: { surface: "#141414" },
+      panels: { surface: "#202020" },
+      menus: { surface: "#161616" },
+    },
+    shape: { radius: 0 },
+  };
+  const file = path.join(root, ".foom/config/themes/personal.json");
+  await writeFile(file, JSON.stringify(theme));
+  await boardCommand(app, ",", process.platform !== "darwin");
+  await page.getByRole("button", { name: "Appearance", exact: true }).click();
+  await page.getByRole("button", { name: "Personal v2", exact: true }).click();
+  await expect(page.locator(".sidebar-shell")).toHaveCSS("background-color", "rgb(1, 2, 3)");
+  await page
+    .getByRole("region", { name: "Settings", exact: true })
+    .getByRole("button", { name: "Foom config", exact: true })
+    .click();
+  await expect(
+    page.locator(".config-change").filter({ hasText: "themes/personal.json" }).first(),
+  ).toContainText(/Applied · \d+ warnings/);
+  await page.getByRole("button", { name: "Back to terminal · Esc", exact: true }).click();
+  await expect(page.locator(".tile-title").first()).toHaveCSS("--surface", "#141414");
+  await expect(page.locator(".board-row").first()).toHaveCSS("border-radius", "0px");
+  await page.getByRole("button", { name: "Actions for Main checkout", exact: true }).press("Enter");
+  await expect(page.locator(".sidebar-panel")).toHaveCSS("--surface", "#202020");
+  await expect(page.locator(".sidebar-panel")).toHaveCSS("border-radius", "0px");
+  await page.keyboard.press("Escape");
+  await page.locator(".wordmark-menu").click();
+  await expect(page.locator(".app-menu")).toHaveCSS("--surface", "#161616");
+  await page.keyboard.press("Escape");
+  // First restore distinct attention; the next edit must newly introduce the warning.
+  theme.colors.ink = "#f4efff";
+  await writeFile(file, JSON.stringify(theme));
+  await expect
+    .poll(() => page.evaluate(() => document.documentElement.style.getPropertyValue("--ink")))
+    .toBe("#f4efff");
+  const original = JSON.stringify(theme);
+  theme.colors.attention = theme.colors.ink;
+  await writeFile(file, JSON.stringify(theme));
+  await boardCommand(app, ",", process.platform !== "darwin");
+  await page
+    .getByRole("region", { name: "Settings", exact: true })
+    .getByRole("button", { name: "Foom config", exact: true })
+    .click();
+  await expect(page.getByRole("region", { name: "Change waiting for approval" })).toContainText(
+    "needs-you is hard to tell apart",
+  );
+  assert.equal(
+    await page.evaluate(() => document.documentElement.style.getPropertyValue("--attention")),
+    "#ffb23e",
+  );
+  await page.getByRole("button", { name: "Keep it on", exact: true }).click();
+  await expect.poll(() => readFile(file, "utf8")).toBe(original);
 });

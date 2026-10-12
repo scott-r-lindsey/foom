@@ -366,6 +366,25 @@ test("attaching Foom config moves agent-editable values out of the profile exact
   const reopened = await SettingsStore.open(dir);
   expect(reopened.legacyConfig()).toBeUndefined();
   expect(reopened.configDigest()).toBe("a".repeat(64));
+  // Theme baselines persist per file, and only valid entries survive a reopen.
+  await reopened.setThemeDigest("themes/mine.json", "b".repeat(64));
+  await reopened.setThemeDigest("themes/mine.json", "b".repeat(64));
+  expect((await SettingsStore.open(dir)).themeDigest("themes/mine.json")).toBe("b".repeat(64));
+  await reopened.setThemeDigest("themes/mine.json", null);
+  expect((await SettingsStore.open(dir)).themeDigest("themes/mine.json")).toBeNull();
+  const raw = JSON.parse(await readFile(file, "utf8")) as Record<string, unknown>;
+  await writeFile(
+    file,
+    JSON.stringify({
+      ...raw,
+      themeDigests: { "themes/ok.json": "c".repeat(64), "../x": "c".repeat(64), "themes/y": 1 },
+    }),
+  );
+  const filtered = await SettingsStore.open(dir);
+  expect(filtered.themeDigest("themes/ok.json")).toBe("c".repeat(64));
+  expect(filtered.themeDigest("../x")).toBeNull();
+  expect(filtered.themeDigest("themes/y")).toBeNull();
+  await writeFile(file, JSON.stringify(raw));
   expect(reopened.get()).toMatchObject({ terminalFontSize: 14, hooks: true, setupComplete: true });
 
   // Updates split: config keys go to the writer, profile keys to the profile.

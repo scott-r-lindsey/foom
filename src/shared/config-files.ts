@@ -1,7 +1,7 @@
 import { parseConfigSettings, CONFIG_SETTINGS } from "./config-settings";
 import type { ConfigSettings } from "./config";
 import { parseThemeFile } from "./theme-files";
-import type { ThemeKind } from "./theme-file";
+import type { ThemeDiagnostic, ThemeKind } from "./theme-file";
 import { ThemeValidationError, themeKeys, themeRecord } from "./theme-validation";
 export function configJson(text: string): Record<string, unknown> {
   if (new TextEncoder().encode(text).length > 65536)
@@ -44,14 +44,21 @@ export function parseSettingsFile(text: string): ConfigSettings {
   }
   return result;
 }
-export function validateConfigJson(text: string, expected?: "settings" | ThemeKind): void {
+export function validateConfigJson(
+  text: string,
+  expected?: "settings" | ThemeKind,
+): readonly ThemeDiagnostic[] {
   const value = configJson(text);
-  const kind = value["kind"];
+  const kind = value["kind"] ?? (value["version"] !== undefined ? "theme" : undefined);
   if (
     (expected && kind !== expected) ||
     (kind !== "settings" && kind !== "theme" && kind !== "terminal-theme")
   )
     throw new ThemeValidationError("$.kind", "invalid-value");
   if (kind === "settings") parseSettingsFile(text);
-  else parseThemeFile(text, kind);
+  else {
+    const parsed = parseThemeFile(text, kind);
+    return parsed.kind === "theme" ? (parsed.warnings ?? []) : [];
+  }
+  return [];
 }

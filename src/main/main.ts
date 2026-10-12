@@ -787,13 +787,21 @@ if (!ownsProfile) {
           get: () => settings.configDigest(),
           set: (value) => settings.setConfigDigest(value),
         },
+        themeBaseline: {
+          get: (file) => settings.themeDigest(file),
+          set: (file, value) => settings.setThemeDigest(file, value),
+        },
         onStatus: configStatusChanged,
+        onThemeDecision: () => {
+          void themes.reload();
+        },
       });
-      themes = new ThemeLibrary(configRoot, themesChanged);
+      themes = new ThemeLibrary(configRoot, themesChanged, (file, text, theme) =>
+        config.reviewTheme(file, text, theme),
+      );
       disposeThemes = () => {
         themes.dispose();
       };
-      await themes.initialize();
       try {
         const values = await config.initialize(settings.legacyConfig());
         await settings.attachConfig(
@@ -805,6 +813,7 @@ if (!ownsProfile) {
         // Settings stay in the profile until the folder is usable.
         console.error("Foom config is unavailable:", error);
       }
+      await themes.initialize();
       applyThemeSettings();
       // Serve only known local assets; arbitrary filesystem access is never exposed.
       const assetHandler = (request: Request) => {

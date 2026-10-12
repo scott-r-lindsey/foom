@@ -18,9 +18,10 @@
   font: 12px / 1.5 var(--font-interface);
   color: var(--ink);
   background: var(--bg);
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  box-shadow: 0 6px 20px color-mix(in srgb, var(--hole) 35%, transparent);
+  border: var(--shape-border, 1px) solid var(--line);
+  border-radius: var(--shape-panel-radius, 6px);
+  box-shadow: 0 6px 20px
+    color-mix(in srgb, var(--hole) calc(35% * var(--shape-shadow, 1)), transparent);
   text-transform: none;
   letter-spacing: 0;
 }

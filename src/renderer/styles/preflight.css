@@ -13,7 +13,7 @@
   gap: 24px;
   padding: 24px 16px;
   background: var(--surface);
-  border-right: 1px solid var(--line);
+  border-right: var(--shape-border, 1px) solid var(--line);
 }
 .preflight-brand {
   margin: 0 8px;
@@ -165,8 +165,8 @@
   align-items: center;
   padding: 12px 14px;
   background: var(--surface);
-  border: 1px solid var(--line);
-  border-radius: 8px;
+  border: var(--shape-border, 1px) solid var(--line);
+  border-radius: var(--shape-radius, 8px);
 }
 .preflight-item > :not(input, .preflight-name, .agent-title, .preflight-found) {
   grid-column: 2 / -1;
@@ -206,8 +206,8 @@
   align-items: start;
   padding: 12px 14px;
   margin-top: 8px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
+  border: var(--shape-border, 1px) solid var(--line);
+  border-radius: var(--shape-radius, 8px);
 }
 .preflight-check {
   margin-top: 20px;
@@ -248,15 +248,15 @@
   padding: 6px 8px;
   color: var(--ink);
   background: var(--bg);
-  border: 1px solid var(--line);
-  border-radius: 5px;
+  border: var(--shape-border, 1px) solid var(--line);
+  border-radius: var(--shape-radius, 5px);
 }
 :is(.preflight, .settings-view) input.mono {
   font-family: var(--font-mono);
 }
 :is(.preflight, .settings-view) input:focus-visible,
 :is(.preflight, .settings-view) select:focus-visible {
-  outline: 2px solid var(--highlight);
+  outline: 2px solid var(--state-focus, var(--highlight));
 }
 .preflight-key {
   font-size: 13px;
@@ -264,8 +264,8 @@
 .preflight-test {
   margin-top: 20px;
   padding: 14px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
+  border: var(--shape-border, 1px) solid var(--line);
+  border-radius: var(--shape-panel-radius, 8px);
 }
 .preflight-test-head {
   display: flex;
@@ -281,7 +281,7 @@
   padding: 10px 12px;
   background: var(--hole);
   color: var(--space-ink);
-  border-radius: 6px;
+  border-radius: var(--shape-radius, 6px);
   font: 12px / 1.6 var(--font-mono);
   white-space: pre-wrap;
 }
@@ -314,8 +314,8 @@
   align-items: center;
   padding: 12px 14px;
   background: var(--surface);
-  border: 1px solid var(--line);
-  border-radius: 8px;
+  border: var(--shape-border, 1px) solid var(--line);
+  border-radius: var(--shape-radius, 8px);
 }
 .preflight-system {
   font: 11px var(--font-mono);
@@ -330,8 +330,8 @@
 .preflight-pill {
   font: 11px var(--font-mono);
   padding: 3px 8px;
-  border-radius: 4px;
-  border: 1px solid currentColor;
+  border-radius: var(--shape-radius, 4px);
+  border: var(--shape-border, 1px) solid currentColor;
   color: var(--done-ink);
 }
 .preflight-poll li[data-go="false"] .preflight-pill {
@@ -350,7 +350,7 @@
 .preflight-footer {
   flex: none;
   /* Reserve the full navigation height; the stage yields space and scrolls. */
-  border-top: 1px solid var(--line);
+  border-top: var(--shape-border, 1px) solid var(--line);
   background: var(--bg);
 }
 .board-preflight {
@@ -370,7 +370,7 @@
     gap: 8px;
     padding: 10px 16px;
     border-right: 0;
-    border-bottom: 1px solid var(--line);
+    border-bottom: var(--shape-border, 1px) solid var(--line);
   }
   .preflight-rail ol {
     max-width: 100%;

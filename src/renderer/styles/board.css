@@ -29,7 +29,7 @@
 .board-help {
   padding: 12px 24px;
   margin: 0;
-  border-bottom: 1px solid var(--line);
+  border-bottom: var(--shape-border, 1px) solid var(--line);
 }
 .board-row {
   display: grid;
@@ -44,6 +44,7 @@
   font: 12px var(--font-mono);
 }
 .board-row[aria-current="true"] {
+  background: var(--state-selected, var(--surface));
   border-color: var(--highlight);
 }
 .board-branch {
@@ -83,8 +84,8 @@
   background: var(--muted);
 }
 .board-terminal {
-  border: 1px solid var(--line);
-  border-radius: 8px;
+  border: var(--shape-border, 1px) solid var(--line);
+  border-radius: var(--shape-panel-radius, 8px);
   background: var(--surface);
   padding: 16px;
   margin-top: 16px;
@@ -95,7 +96,7 @@
   font: 13px / 1.7 var(--font-mono);
 }
 .board-terminal:focus {
-  outline: 2px solid var(--highlight);
+  outline: 2px solid var(--state-focus, var(--highlight));
 }
 .board-terminal p {
   color: var(--muted);
@@ -185,7 +186,7 @@
   margin: 0;
   padding: 0;
   border: 0;
-  border-left: 1px solid var(--line);
+  border-left: var(--shape-border, 1px) solid var(--line);
   border-radius: 0;
   background: var(--bg);
 }
@@ -195,7 +196,7 @@
   align-items: center;
   gap: 12px;
   padding: 12px 16px;
-  border-bottom: 1px solid var(--line);
+  border-bottom: var(--shape-border, 1px) solid var(--line);
 }
 .terminal-title h2 {
   margin: 0;
@@ -377,14 +378,14 @@
   padding: 4px 8px;
   overflow: auto;
   scrollbar-width: thin;
-  scrollbar-color: var(--line) transparent;
+  scrollbar-color: var(--state-scrollbar, var(--line)) transparent;
 }
 .sidebar-footer {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
   padding: 12px;
-  border-top: 1px solid var(--line);
+  border-top: var(--shape-border, 1px) solid var(--line);
 }
 .sidebar-footer button {
   font-size: 11px;
@@ -396,7 +397,7 @@
   position: relative;
   gap: 5px;
   padding-right: 2px;
-  border-radius: 5px;
+  border-radius: var(--shape-radius, 5px);
 }
 .tree-row button {
   border: 0;
@@ -450,7 +451,7 @@
 }
 .tree-separator {
   border: 0;
-  border-top: 1px solid var(--line);
+  border-top: var(--shape-border, 1px) solid var(--line);
   margin: 10px 4px;
 }
 .worktree-count {
@@ -461,7 +462,7 @@
   display: flex;
   align-items: center;
   margin-left: 32px;
-  border-radius: 5px;
+  border-radius: var(--shape-radius, 5px);
 }
 .sidebar-shell .board-row {
   display: flex;
@@ -470,14 +471,14 @@
   padding: 5px 4px;
   margin: 0;
   border: 0;
-  border-radius: 4px;
+  border-radius: var(--shape-radius, 4px);
   min-width: 0;
   flex: 1;
   cursor: pointer;
   background: transparent;
 }
 .sidebar-shell .board-row:focus-visible {
-  outline: 2px solid var(--highlight);
+  outline: 2px solid var(--state-focus, var(--highlight));
   outline-offset: 1px;
 }
 .sidebar-shell .board-row .board-light {
@@ -515,7 +516,7 @@
   font: 600 11px / 16px var(--font-mono);
   color: var(--badge-ink);
   background: var(--badge-fill);
-  border-radius: 3px;
+  border-radius: var(--shape-radius, 3px);
 }
 .board-agent > span {
   min-width: 16px;
@@ -552,15 +553,15 @@
   padding: 0;
   display: grid;
   place-items: center;
-  border: 1px solid var(--line);
-  border-radius: 5px;
+  border: var(--shape-border, 1px) solid var(--line);
+  border-radius: var(--shape-radius, 5px);
   background: transparent;
   color: var(--muted);
   opacity: 0;
 }
 .sidebar-shell .row-actions:hover,
 .sidebar-shell .row-actions[aria-expanded="true"] {
-  background: color-mix(in srgb, var(--highlight) 8%, transparent);
+  background: var(--state-hover, color-mix(in srgb, var(--highlight) 8%, transparent));
   color: var(--ink);
 }
 .sidebar-shell .row-actions[aria-expanded="true"] {
@@ -570,7 +571,7 @@
 .tree-row:focus-within,
 .board-entry:hover,
 .board-entry:focus-within {
-  background: color-mix(in srgb, var(--highlight) 8%, transparent);
+  background: var(--state-hover, color-mix(in srgb, var(--highlight) 8%, transparent));
 }
 .tree-row:hover .row-actions,
 .tree-row:focus-within .row-actions,
@@ -610,7 +611,7 @@
 .sidebar-shell mark {
   color: var(--ink);
   background: color-mix(in srgb, var(--highlight) 35%, transparent);
-  border-radius: 2px;
+  border-radius: var(--shape-radius, 2px);
 }
 .visually-hidden {
   position: absolute;
@@ -633,14 +634,15 @@
   max-height: calc(100vh - 16px);
   overflow: visible;
   background: linear-gradient(180deg, var(--raised-top), var(--raised-bottom));
-  border: 1px solid var(--raised-line);
-  border-radius: 8px;
+  border: var(--shape-border, 1px) solid var(--raised-line);
+  border-radius: var(--shape-panel-radius, 8px);
   padding: 6px;
   box-shadow:
-    0 1px 0 rgb(255 255 255 / 5%) inset,
+    0 1px 0 rgb(255 255 255 / calc(5% * var(--shape-shadow, 1))) inset,
     0 22px 48px -12px var(--raised-shadow),
     0 8px 16px -8px var(--raised-shadow),
-    0 0 28px -8px color-mix(in srgb, var(--highlight) 40%, transparent);
+    0 0 28px -8px
+    color-mix(in srgb, var(--highlight) calc(40% * var(--shape-shadow, 1)), transparent);
   transform-origin: 0 var(--notch);
   animation: menu-open 130ms ease-out;
 }
@@ -652,8 +654,8 @@
   width: 10px;
   height: 10px;
   background: var(--raised-top);
-  border-left: 1px solid var(--raised-line);
-  border-bottom: 1px solid var(--raised-line);
+  border-left: var(--shape-border, 1px) solid var(--raised-line);
+  border-bottom: var(--shape-border, 1px) solid var(--raised-line);
   transform: translateY(-50%) rotate(45deg);
 }
 .row-menu button {
@@ -680,7 +682,7 @@
   inset: 5px auto 5px 0;
   width: 2px;
   background: var(--highlight);
-  border-radius: 2px;
+  border-radius: var(--shape-radius, 2px);
   transform: scaleY(0);
   transition: transform 160ms cubic-bezier(0.2, 0.8, 0.2, 1);
 }
@@ -709,7 +711,7 @@
 }
 .row-menu hr {
   border: 0;
-  border-top: 1px solid var(--line);
+  border-top: var(--shape-border, 1px) solid var(--line);
   margin: 5px;
 }
 @keyframes menu-open {
@@ -789,8 +791,8 @@
 
 .sidebar-filter input,
 .session-rename {
-  border: 1px solid var(--line);
-  border-radius: 5px;
+  border: var(--shape-border, 1px) solid var(--line);
+  border-radius: var(--shape-radius, 5px);
   color: var(--ink);
   background: var(--bg);
   font: 12px var(--font-mono);
@@ -801,7 +803,7 @@
 }
 .sidebar-filter input:focus-visible,
 .session-rename:focus-visible {
-  outline: 2px solid var(--highlight);
+  outline: 2px solid var(--state-focus, var(--highlight));
   outline-offset: 1px;
 }
 
@@ -875,7 +877,7 @@
   font: inherit;
   color: inherit;
   border: 0;
-  border-radius: 5px;
+  border-radius: var(--shape-radius, 5px);
   background: transparent;
   padding: 2px 4px;
   margin: -2px -4px;
@@ -941,8 +943,8 @@
   width: 26px;
   height: 24px;
   padding: 0;
-  border: 1px solid var(--line);
-  border-radius: 4px;
+  border: var(--shape-border, 1px) solid var(--line);
+  border-radius: var(--shape-radius, 4px);
   font: 13px var(--font-mono);
   animation: none;
 }
@@ -965,8 +967,8 @@
   padding: 0;
   color: var(--ink);
   background: linear-gradient(180deg, var(--raised-top), var(--raised-bottom));
-  border: 1px solid var(--raised-line);
-  border-radius: 10px;
+  border: var(--shape-border, 1px) solid var(--raised-line);
+  border-radius: var(--shape-panel-radius, 10px);
   box-shadow: 0 22px 48px -12px var(--raised-shadow);
 }
 .shortcut-sheet::backdrop {
@@ -1082,12 +1084,17 @@
 .sidebar-panel {
   width: 720px;
   padding: 4px;
-  border-radius: 10px;
+  border-radius: var(--shape-panel-radius, 10px);
   box-shadow:
-    0 1px 0 rgb(255 255 255 / 5%) inset,
+    0 1px 0 rgb(255 255 255 / calc(5% * var(--shape-shadow, 1))) inset,
     0 22px 48px -12px var(--raised-shadow),
     0 8px 16px -8px var(--raised-shadow),
-    0 0 28px -8px color-mix(in srgb, var(--highlight) calc(40% * var(--panel-tint)), transparent);
+    0 0 28px -8px
+    color-mix(
+      in srgb,
+      var(--highlight) calc(40% * var(--panel-tint) * var(--shape-shadow, 1)),
+      transparent
+    );
 }
 .sidebar-panel[data-pinned="true"] {
   border-color: color-mix(in srgb, var(--highlight) 55%, var(--raised-line));
@@ -1098,8 +1105,8 @@
   align-items: center;
   gap: 10px;
   padding: 12px 16px;
-  border-bottom: 1px solid var(--line);
-  border-radius: 7px 7px 0 0;
+  border-bottom: var(--shape-border, 1px) solid var(--line);
+  border-radius: var(--shape-panel-radius, 7px) var(--shape-panel-radius, 7px) 0 0;
   background: linear-gradient(
     100deg,
     color-mix(in srgb, var(--highlight) calc(20% * var(--panel-tint)), transparent),
@@ -1112,7 +1119,7 @@
   position: absolute;
   inset: 0 0 auto;
   height: 2px;
-  border-radius: 7px 7px 0 0;
+  border-radius: var(--shape-panel-radius, 7px) var(--shape-panel-radius, 7px) 0 0;
   background: linear-gradient(90deg, var(--highlight), var(--highlight-deep) 45%, transparent);
   opacity: var(--panel-tint);
 }
@@ -1122,9 +1129,9 @@
   place-items: center;
   width: 32px;
   height: 32px;
-  border-radius: 8px;
+  border-radius: var(--shape-radius, 8px);
   background: color-mix(in srgb, var(--highlight) calc(16% * var(--panel-tint)), var(--raised-top));
-  border: 1px solid
+  border: var(--shape-border, 1px) solid
     color-mix(in srgb, var(--highlight) calc(10% + 25% * var(--panel-tint)), var(--line));
   box-shadow: 0 0 14px -4px
     color-mix(in srgb, var(--highlight) calc(70% * var(--panel-tint)), transparent);
@@ -1164,8 +1171,8 @@
   gap: 1px;
   max-height: none;
   padding: 8px 8px 8px 4px;
-  border-right: 1px solid var(--line);
-  border-radius: 0 0 0 7px;
+  border-right: var(--shape-border, 1px) solid var(--line);
+  border-radius: 0 0 0 var(--shape-panel-radius, 7px);
   background: linear-gradient(
     180deg,
     color-mix(in srgb, var(--highlight) calc(7% * var(--panel-tint)), transparent),
@@ -1176,7 +1183,7 @@
   gap: 10px;
   min-height: 34px;
   padding: 6px 12px;
-  border-radius: 6px;
+  border-radius: var(--shape-radius, 6px);
   font-size: 13px;
 }
 .sidebar-panel .row-menu-items button::before {
@@ -1256,7 +1263,7 @@
   animation: none;
 }
 .sidebar-panel .panel-copy {
-  border-bottom: 1px dotted var(--muted);
+  border-bottom: var(--shape-border, 1px) dotted var(--muted);
 }
 .sidebar-panel .panel-copy:hover,
 .sidebar-panel .panel-copy:focus-visible {
@@ -1290,7 +1297,8 @@
   white-space: nowrap;
   font: 11.5px var(--font-mono);
   color: var(--chip-ink);
-  border: 1px solid color-mix(in srgb, var(--chip) var(--panel-chip-line), transparent);
+  border: var(--shape-border, 1px) solid
+    color-mix(in srgb, var(--chip) var(--panel-chip-line), transparent);
   background: color-mix(in srgb, var(--chip) calc(14% * var(--panel-tint)), transparent);
 }
 .panel-chip[data-tone="info"] {
@@ -1339,7 +1347,7 @@
 }
 .panel-bypass {
   padding: 1px 6px;
-  border-radius: 4px;
+  border-radius: var(--shape-radius, 4px);
   background: var(--ink);
   color: var(--bg);
   font: 600 10.5px var(--font-mono);
@@ -1401,4 +1409,8 @@
     animation: none;
     display: none;
   }
+}
+
+.sidebar-shell .board-row[aria-selected="true"] {
+  background: var(--state-selected, transparent);
 }

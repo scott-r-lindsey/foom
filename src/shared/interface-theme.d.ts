@@ -21,7 +21,10 @@ export type InterfaceColor =
   | "badge-fill"
   | "badge-ink";
 export interface InterfaceTheme {
-  version: 1;
+  version: 1 | 2;
+  areas?: Partial<Record<InterfaceArea, Partial<InterfaceTheme["colors"]>>>;
+  states?: Partial<Record<InterfaceState, string>>;
+  shape?: Partial<Record<InterfaceShape, number>>;
   name: string;
   base: "light" | "dark";
   colors: Readonly<
@@ -38,3 +41,7 @@ export type InterfaceThemeId =
   | "midnight-indigo";
 /** Follow preserves the preflight System/Light/Dark preference and existing profiles. */
 export type InterfaceThemeChoice = "follow" | InterfaceThemeId | UserThemeId | InterfaceTheme;
+
+export type InterfaceArea = "sidebar" | "tiles" | "panels" | "dialogs" | "menus";
+export type InterfaceState = "selected" | "hover" | "focus" | "scrollbar";
+export type InterfaceShape = "radius" | "panel-radius" | "border" | "shadow";

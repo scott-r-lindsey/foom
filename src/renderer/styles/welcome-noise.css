@@ -27,8 +27,8 @@
   overflow: hidden;
   text-align: left;
   background: var(--term-bg);
-  border: 1px solid var(--term-line);
-  border-radius: 4px;
+  border: var(--shape-border, 1px) solid var(--term-line);
+  border-radius: var(--shape-radius, 4px);
   /* Theme colors switch together: fading the background alone breaks text contrast. */
   transition:
     left 900ms var(--ease) var(--delay),
@@ -45,7 +45,7 @@
   height: calc(10% - 4px);
   background: var(--surface);
   border-color: var(--line);
-  border-radius: 6px;
+  border-radius: var(--shape-radius, 6px);
 }
 .noise-title {
   height: 16px;
@@ -55,7 +55,7 @@
   white-space: nowrap;
   color: var(--term-dim);
   background: var(--term-bar);
-  border-bottom: 1px solid var(--term-line);
+  border-bottom: var(--shape-border, 1px) solid var(--term-line);
   transition: opacity 400ms ease calc(var(--delay) + 450ms);
 }
 /* New lines push up from the bottom, like a real terminal. */
