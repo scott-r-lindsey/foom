@@ -8,6 +8,7 @@ import { boardRows as sampleRows } from "../../../fixtures/board";
 import { installation } from "../../../fixtures/setup";
 import type { SidebarRepository } from "../../../../src/renderer/board/sidebar.d";
 import type { BoardRow } from "../../../../src/renderer/board/board.d";
+import type { ConfigStatus } from "../../../../src/shared/foom-config";
 import type { BoardSource } from "../../../../src/renderer/board/board-source.d";
 const repository: SidebarRepository = {
   path: "/foom",
@@ -142,21 +143,16 @@ async function emptySections(rows: readonly BoardRow[] = []) {
   return view;
 }
 
-test("expanded empty Home, Config, repository and worktrees explain that they are empty", async () => {
+test("expanded empty Home, repository and worktrees explain that they are empty", async () => {
   const view = await emptySections();
   fireEvent.click(view.getByRole("button", { name: "Expand Empty repo" }));
   fireEvent.click(view.getByRole("button", { name: "Expand Foom" }));
-  for (const name of ["Home shell", "Foom config", "Empty repo", "Main checkout", "feature"]) {
+  for (const name of ["Home shell", "Empty repo", "Main checkout", "feature"]) {
     const section = within(view.getByRole("treeitem", { name }));
     expect(section.getByText("Nothing here yet")).toBeTruthy();
     expect(section.queryByText("No matches")).toBeNull();
   }
-  for (const name of [
-    "Toggle home shells",
-    "Toggle Foom config sessions",
-    "Collapse Empty repo",
-    "Collapse Foom",
-  ])
+  for (const name of ["Toggle home shells", "Collapse Empty repo", "Collapse Foom"])
     fireEvent.click(view.getByRole("button", { name }));
   expect(view.queryByText("Nothing here yet")).toBeNull();
 });
@@ -182,8 +178,8 @@ test.each(["empty", "home", "config"] as const)(
     fireEvent.change(input, { target: { value: "no-such-session" } });
     expect(view.getAllByText("No matches")).toHaveLength(1);
     expect(view.queryByText("Nothing here yet")).toBeNull();
-    expect(view.container.querySelector(".board-row")).toBeNull();
-    if (location !== "empty") {
+    expect(view.container.querySelector(".board-list .board-row")).toBeNull();
+    if (location === "home") {
       fireEvent.change(input, { target: { value: "Unique session reason" } });
       expect(view.queryByText("No matches")).toBeNull();
       expect(view.queryByText("Nothing here yet")).toBeNull();
@@ -191,7 +187,8 @@ test.each(["empty", "home", "config"] as const)(
     }
     fireEvent.click(view.getByRole("button", { name: "Clear filter" }));
     expect(view.queryByText("No matches")).toBeNull();
-    expect(view.getAllByText("Nothing here yet").length).toBeGreaterThan(0);
+    if (location !== "home")
+      expect(view.getAllByText("Nothing here yet").length).toBeGreaterThan(0);
   },
 );
 
@@ -232,7 +229,7 @@ test("filters reasons, highlights, clears hidden attention and pins in persisted
   expect(view.getByLabelText("Needs you")).toBeTruthy();
   fireEvent.click(view.getByRole("button", { name: "Expand Foom" }));
   fireEvent.click(view.getByRole("button", { name: "Collapse feature" }));
-  expect(view.container.querySelector(".board-row")).toBeNull();
+  expect(view.container.querySelector(".board-list .board-row")).toBeNull();
   fireEvent.change(input, { target: { value: "yes" } });
   fireEvent.change(input, { target: { value: "feature" } });
   expect(view.container.querySelector(".board-row")).toBeTruthy();
@@ -870,7 +867,7 @@ test("home grouping, name launch, hover traversal and drag suppression", async (
   });
   expect(view.getByRole("treeitem", { name: "Home shell" }).textContent).toContain("Shell");
   fireEvent.click(view.getByRole("button", { name: "Toggle home shells" }));
-  expect(view.container.querySelector(".board-row")).toBeNull();
+  expect(view.container.querySelector(".board-list .board-row")).toBeNull();
   fireEvent.click(view.getByRole("button", { name: "Toggle home shells" }));
   await act(async () => {
     fireEvent.click(view.getByRole("button", { name: "zsh ~" }));
@@ -1214,4 +1211,201 @@ test("cleanup progress and finished results remain reachable without folding rec
   expect(view.getByText("uncommitted changes")).toBeTruthy();
   fireEvent.focus(view.getByRole("button", { name: /^feature$/ }));
   expect(view.queryByText("uncommitted changes")).toBeNull();
+});
+
+test.each([
+  [false, 0, false],
+  [true, 0, false],
+  [false, 2, false],
+  [true, 2, false],
+  [false, 0, true],
+  [true, 0, true],
+  [false, 2, true],
+  [true, 2, true],
+] as const)("config dock: held=%s rejected=%s session=%s", async (held, rejected, hasSession) => {
+  const original = sampleRows(0)[0];
+  if (!original) throw Error("fixture");
+  const row = { ...original, id: "config-session", config: true, exited: false };
+  const status = {
+    folder: "/config",
+    available: true,
+    uncommitted: 0,
+    rejected,
+    changes: [],
+    pending: held
+      ? { id: "held", action: "turn off alerts", file: "settings.json", detail: "alerts" }
+      : null,
+  };
+  const base = createSampleSource(hasSession ? [row] : []);
+  const source: BoardSource = {
+    ...base,
+    config: {
+      status: () => Promise.resolve(status),
+      subscribe: () => () => {},
+      openFolder: () => Promise.resolve(),
+    },
+  };
+  const view = render(<Board source={source} />);
+  await act(async () => {
+    await Promise.resolve();
+  });
+  const gear = view.container.querySelector<HTMLButtonElement>(".config-gear");
+  if (!gear) throw Error("gear");
+  expect(gear.getAttribute("aria-label")).toBe(
+    `Foom config${held ? ", needs you" : ""}${rejected ? ", 2 rejected" : ""}`,
+  );
+  expect(gear.getAttribute("data-tone")).toBe(held ? "needs" : rejected ? "failed" : null);
+  expect(gear.title).toBe("Foom config");
+  expect(view.queryByRole("treeitem", { name: "Foom config" })).toBeNull();
+  const dock = view.container.querySelector(".config-dock");
+  expect(Boolean(dock)).toBe(held || rejected > 0 || hasSession);
+  expect(dock?.querySelector(".config-dock-head")?.textContent.includes("Needs you") ?? false).toBe(
+    held,
+  );
+  expect(dock?.textContent.includes("2 rejected") ?? false).toBe(rejected > 0);
+  expect(view.container.querySelector(".board-summary")?.textContent).toContain(
+    `${String((held ? 1 : 0) + (hasSession && row.state === "needs_input" ? 1 : 0))} need you`,
+  );
+  fireEvent.change(view.getByLabelText("Filter repositories and sessions"), {
+    target: { value: "Foom config" },
+  });
+  expect(view.queryByRole("treeitem", { name: "Foom config" })).toBeNull();
+  if (hasSession) {
+    const session = view.container.querySelector<HTMLElement>(".config-dock .board-row");
+    if (!session) throw Error("session");
+    expect(session.tabIndex).toBe(0);
+    fireEvent.keyDown(session, { key: "Enter" });
+    expect(view.container.querySelector(".terminal-tile[data-empty=false]")).toBeTruthy();
+    fireEvent.keyDown(session, { key: "F10", shiftKey: true });
+    expect(view.getByRole("dialog")).toBeTruthy();
+    fireEvent.keyDown(view.getByRole("dialog"), { key: "Escape" });
+  }
+  fireEvent.click(gear);
+  expect(gear.getAttribute("aria-expanded")).toBe("true");
+  fireEvent.keyDown(view.getByRole("dialog"), { key: "Escape" });
+  expect(gear.getAttribute("aria-expanded")).toBe("false");
+});
+
+test("config panel orders Settings, launchers and folder commands; dock uses the gear anchor", async () => {
+  const original = sampleRows(0)[0];
+  if (!original) throw Error("fixture");
+  const command = vi.fn(() => Promise.resolve());
+  const settings = vi.fn();
+  const openFolder = vi.fn(() => Promise.resolve());
+  const base = createSampleSource([{ ...original, config: true, agent: "claude", exited: false }]);
+  const view = render(
+    <Board
+      source={{
+        ...base,
+        sidebarCommand: command,
+        worktrees: {
+          load,
+          branches: () =>
+            Promise.resolve({ head: "main", local: [], remote: null, remoteBranches: [] }),
+          addRepository: () => Promise.resolve(null),
+          create: () => Promise.reject(Error("unused")),
+          remove: () => Promise.resolve(false),
+        },
+        config: {
+          status: () =>
+            Promise.resolve({
+              folder: "/config",
+              available: true,
+              uncommitted: 0,
+              pending: null,
+              rejected: 0,
+              changes: [],
+            }),
+          subscribe: () => () => {},
+          openFolder,
+        },
+      }}
+      onSettings={settings}
+    />,
+  );
+  await act(async () => {
+    await Promise.resolve();
+  });
+  const gear = view.container.querySelector<HTMLButtonElement>(".config-gear");
+  const dock = view.container.querySelector<HTMLButtonElement>(".config-dock-head");
+  if (!gear || !dock) throw Error("footer");
+  fireEvent.click(dock);
+  const panel = view.getByRole("dialog");
+  const items = within(panel).getAllByRole("menuitem");
+  expect(items.map((item) => item.textContent)).toEqual([
+    "SettingsCtrl+,",
+    "CCClaude Coderunning",
+    ">_Shell",
+    "Open Foom config settings",
+    "Open folder",
+  ]);
+  expect(items[0]).toBe(document.activeElement);
+  fireEvent.click(items[0] ?? panel);
+  expect(settings).toHaveBeenLastCalledWith();
+  fireEvent.click(gear);
+  fireEvent.click(view.getByRole("menuitem", { name: "Open Foom config settings" }));
+  expect(settings).toHaveBeenLastCalledWith("config");
+  fireEvent.click(gear);
+  fireEvent.click(view.getByRole("menuitem", { name: /^Claude Code/ }));
+  expect(command).toHaveBeenCalledWith({ kind: "config-launch", run: "claude" });
+  await act(async () => {
+    await Promise.resolve();
+  });
+  fireEvent.click(gear);
+  fireEvent.click(view.getByRole("menuitem", { name: "Open folder" }));
+  expect(openFolder).toHaveBeenCalledOnce();
+  await act(async () => {
+    await Promise.resolve();
+  });
+  fireEvent.click(gear);
+  fireEvent.pointerDown(document.body);
+  expect(view.queryByRole("dialog")).toBeNull();
+});
+
+test("config status changes remove an empty dock, retain an exited session and dispose the subscription", async () => {
+  const original = sampleRows(0)[0];
+  if (!original) throw Error("fixture");
+  const base = createSampleSource([]);
+  const off = vi.fn();
+  let notify: ((status: ConfigStatus) => void) | undefined;
+  const clean = {
+    folder: "/config",
+    available: true,
+    uncommitted: 0,
+    pending: null,
+    rejected: 0,
+    changes: [],
+  };
+  const source: BoardSource = {
+    ...base,
+    config: {
+      status: () => Promise.reject(Error("unavailable")),
+      subscribe: (callback) => {
+        notify = callback;
+        return off;
+      },
+      openFolder: () => Promise.resolve(),
+    },
+  };
+  const view = render(<Board source={source} />);
+  await act(async () => {
+    await Promise.resolve();
+  });
+  expect(view.container.querySelector(".config-dock")).toBeNull();
+  act(() => {
+    notify?.({ ...clean, rejected: 1 });
+  });
+  expect(view.container.querySelector(".config-dock")?.textContent).toContain("1 rejected");
+  act(() => {
+    notify?.(clean);
+  });
+  expect(view.container.querySelector(".config-dock")).toBeNull();
+  const exited = createSampleSource([{ ...original, config: true, exited: true, state: "done" }]);
+  view.rerender(<Board source={{ ...source, getSnapshot: exited.getSnapshot }} />);
+  expect(view.container.querySelector(".config-dock .board-row")?.getAttribute("data-exited")).toBe(
+    "true",
+  );
+  expect(view.container.querySelector(".config-dock")?.textContent).toContain("exited");
+  view.unmount();
+  expect(off).toHaveBeenCalled();
 });

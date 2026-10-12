@@ -382,7 +382,7 @@
 }
 .sidebar-footer {
   display: flex;
-  flex-wrap: wrap;
+  flex-direction: column;
   gap: 6px;
   padding: 12px;
   border-top: var(--shape-border, 1px) solid var(--line);
@@ -1411,6 +1411,105 @@
   }
 }
 
-.sidebar-shell .board-row[aria-selected="true"] {
+.sidebar-shell .board-row[aria-selected="true"],
+.config-dock .board-entry[data-selected="true"] .board-row {
   background: var(--state-selected, transparent);
+}
+
+.sidebar-footer-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.sidebar-footer-bar .config-gear {
+  position: relative;
+  flex-shrink: 0;
+  margin-left: auto;
+  padding: 2px;
+  width: 24px;
+  height: 26px;
+  border: 0;
+  background: transparent;
+}
+.config-gear .panel-mark,
+.config-dock-head .panel-mark {
+  border: 0;
+  width: 16px;
+  height: 16px;
+  color: var(--muted);
+  background: transparent;
+  box-shadow: none;
+}
+.config-gear[data-tone]::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--attention);
+}
+.config-gear[data-tone="failed"]::after {
+  background: var(--failed);
+  border-radius: 1px;
+}
+.config-gear[aria-expanded="true"] {
+  outline: 1px solid var(--highlight);
+}
+.config-dock-head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+  width: 100%;
+  text-align: left;
+  padding: 4px 0;
+  border: 0;
+  background: transparent;
+}
+.config-dock-name {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+.config-dock .board-entry {
+  margin-left: 0;
+}
+@media (max-width: 719px) {
+  .sidebar-shell[data-compact="true"] .sidebar-footer-bar {
+    flex-wrap: wrap;
+  }
+  .sidebar-shell[data-compact="true"] .config-dock-name {
+    display: none;
+  }
+  .sidebar-shell[data-compact="true"] .config-dock-head {
+    max-width: none;
+  }
+  .sidebar-shell[data-compact="true"] .config-dock .panel-chip {
+    max-width: 100%;
+    box-sizing: border-box;
+    height: auto;
+    min-height: 19px;
+    margin-right: 0;
+    padding: 2px 3px;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    font-size: 9px;
+  }
+  .sidebar-shell[data-compact="true"] .config-dock .board-entry {
+    flex-wrap: wrap;
+  }
+  .sidebar-shell[data-compact="true"] .config-dock .board-row {
+    flex-basis: 100%;
+    box-sizing: border-box;
+  }
+  .sidebar-shell[data-compact="true"] .config-dock .row-actions {
+    margin-left: auto;
+  }
+}
+
+.config-gear .panel-mark svg,
+.config-dock-head .panel-mark svg {
+  stroke: currentColor;
 }

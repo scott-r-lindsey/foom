@@ -396,7 +396,8 @@ test("board starts empty, launches into a tile, and Settings keeps its view moun
   expect(document.activeElement?.className).toBe("board-row");
   const error = vi.spyOn(console, "error").mockImplementation(() => {});
   mock.setupState.mockRejectedValueOnce(new Error("gone"));
-  fireEvent.click(screen.getByRole("button", { name: "Settings" }));
+  fireEvent.click(screen.container.querySelector(".config-gear") ?? document.body);
+  fireEvent.click(screen.getByRole("menuitem", { name: /^Settings/ }));
   await settle();
   expect(error).toHaveBeenCalledWith("Unable to load setup:", expect.any(Error));
 });
@@ -823,7 +824,7 @@ test("main's cosmetic scrim follows visibility and unsubscribes when the app unm
   Reflect.deleteProperty(HTMLElement.prototype, "showPopover");
   expect(off).toHaveBeenCalledOnce();
 });
-test("the Foom config row nests its sessions, shows chips, launches there and opens its settings", async () => {
+test("the Foom config dock contains its sessions, shows chips, launches there and opens its settings", async () => {
   const configured = {
     ...agent("cfg"),
     config: true,
@@ -834,8 +835,10 @@ test("the Foom config row nests its sessions, shows chips, launches there and op
   mock.workspace.mockResolvedValue({ repositories: [], terminals: [configured] });
   const screen = render(<App />);
   await settle();
-  const row = screen.getByRole("treeitem", { name: "Foom config" });
-  expect(row.querySelector("[role=group]")?.textContent).toContain("Claude Code");
+  const row = screen.container.querySelector(".config-dock");
+  if (!row) throw Error("config dock");
+  expect(row.querySelector(".board-row")?.textContent).toContain("Claude Code");
+  expect(screen.queryByRole("treeitem", { name: "Foom config" })).toBeNull();
   expect(row.textContent).not.toContain("Needs you");
   act(() => {
     mock.configListener?.({
@@ -864,7 +867,7 @@ test("the Foom config row nests its sessions, shows chips, launches there and op
   });
   expect(row.textContent).toContain("Needs you");
   expect(row.textContent).toContain("1 rejected");
-  fireEvent.click(screen.getByRole("button", { name: "Actions for Foom config" }));
+  fireEvent.click(screen.container.querySelector(".config-gear") ?? document.body);
   const panel = screen.getByRole("dialog", { name: "Foom config details and commands" });
   expect(panel.textContent).toContain("2 uncommitted");
   expect(panel.textContent).toContain("Add Deep theme");
@@ -875,7 +878,7 @@ test("the Foom config row nests its sessions, shows chips, launches there and op
   fireEvent.click(screen.getByRole("menuitem", { name: /^Shell/ }));
   await settle();
   expect(mock.sidebarCommand).toHaveBeenCalledWith({ kind: "config-launch", run: "shell" });
-  fireEvent.click(screen.getByRole("button", { name: "Actions for Foom config" }));
+  fireEvent.click(screen.container.querySelector(".config-gear") ?? document.body);
   fireEvent.click(screen.getByRole("menuitem", { name: "Open Foom config settings" }));
   await settle();
   expect(screen.getByRole("heading", { name: "Foom config" })).toBeTruthy();

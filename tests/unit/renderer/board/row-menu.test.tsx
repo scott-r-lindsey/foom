@@ -162,3 +162,47 @@ test("an armed menu item confirms in place; choosing another item only disarms",
   view.unmount();
   anchor.remove();
 });
+
+test("footer panel aligns its bottom with the gear and points at it", () => {
+  const sidebar = document.createElement("aside");
+  sidebar.className = "sidebar-shell";
+  const anchor = document.createElement("button");
+  sidebar.append(anchor);
+  document.body.append(sidebar);
+  const rect = vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue({
+    x: 100,
+    y: 500,
+    left: 100,
+    top: 500,
+    bottom: 526,
+    right: 280,
+    width: 24,
+    height: 26,
+    toJSON: () => ({}),
+  });
+  const height = vi.spyOn(HTMLElement.prototype, "offsetHeight", "get").mockReturnValue(200);
+  const width = vi.spyOn(HTMLElement.prototype, "offsetWidth", "get").mockReturnValue(400);
+  const view = render(
+    <RowMenu
+      anchor={anchor}
+      bottomAligned
+      close={() => {}}
+      actions={[{ label: "Settings", run: () => {} }]}
+      panel={{
+        title: "Foom config",
+        kind: "Settings folder",
+        mark: "config",
+        facts: null,
+        pinned: true,
+      }}
+    />,
+  );
+  const panel = view.getByRole("dialog");
+  expect(panel.style.top).toBe("326px");
+  expect(panel.style.left).toBe("290px");
+  expect(panel.style.getPropertyValue("--notch")).toBe("187px");
+  rect.mockRestore();
+  height.mockRestore();
+  width.mockRestore();
+  sidebar.remove();
+});
