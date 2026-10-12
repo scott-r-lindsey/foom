@@ -1,0 +1,348 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Foom Resume Conversation</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo+Black&family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500;600&display=swap">
+<style>
+/* Resume conversation from a checkout's panel, including conversations that started
+   outside Foom. The paste field comes first and says what it takes; once it recognizes
+   the text, a line says exactly what will run and offers Resume. Below it, each agent's
+   own picker opens in this checkout. Colors are the brand tokens; the panel follows
+   .sidebar-panel and the field follows branch-field.css. */
+:root {
+  --bg: #f3f0fa; --surface: #e9e4f5; --line: #ddd6ee; --ink: #14101f; --muted: #625a7a;
+  --accent: #5b2bd9; --accent-deep: #3b1a99; --attention: #d98200; --attention-ink: #8c5000;
+  --done: #13804a; --done-ink: #0e6b3c; --failed: #d6166e; --failed-ink: #b0105a; --idle: #b9b0d3;
+  --badge: #4a4263; --badge-ink: #f4efff; --lift: #ffffff; --hole: #05040a;
+  --shadow: rgba(40, 20, 90, .28);
+  --term-bg: #05040a; --term-line: #251d3f; --term-ink: #f4efff; --term-dim: #6a6188; --term-acc: #c08bff;
+  --display: "Archivo Black", sans-serif;
+  --sans: "Geist", system-ui, sans-serif; --mono: "Geist Mono", ui-monospace, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #05040a; --surface: #0d0a17; --line: #251d3f; --ink: #f4efff; --muted: #9d93bd;
+    --accent: #9b6bff; --accent-deep: #7a3cff; --attention: #ffb23e; --attention-ink: #ffb23e;
+    --done: #6fe0a3; --done-ink: #6fe0a3; --failed: #ff2e88; --failed-ink: #ff2e88; --idle: #4a4263;
+    --badge: #3a3060; --badge-ink: #f4efff; --lift: #f4efff; --hole: #000000;
+    --shadow: rgba(0, 0, 0, .85);
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #05040a; --surface: #0d0a17; --line: #251d3f; --ink: #f4efff; --muted: #9d93bd;
+  --accent: #9b6bff; --accent-deep: #7a3cff; --attention: #ffb23e; --attention-ink: #ffb23e;
+  --done: #6fe0a3; --done-ink: #6fe0a3; --failed: #ff2e88; --failed-ink: #ff2e88; --idle: #4a4263;
+  --badge: #3a3060; --badge-ink: #f4efff; --lift: #f4efff; --hole: #000000;
+  --shadow: rgba(0, 0, 0, .85);
+  color-scheme: dark;
+}
+:root {
+  --highlight: var(--accent);
+  --highlight-deep: var(--accent-deep);
+  --select: color-mix(in srgb, var(--highlight) 18%, var(--surface));
+  --raised-top: color-mix(in srgb, var(--surface) 92%, var(--lift));
+  --raised-bottom: var(--surface);
+  --raised-line: color-mix(in srgb, var(--highlight) 25%, var(--line));
+  --raised-hover: color-mix(in srgb, var(--highlight) 12%, var(--raised-top));
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; }
+body { background: var(--bg); color: var(--ink); font: 13px/1.4 var(--sans); }
+button, input { font: inherit; color: inherit; }
+button { cursor: pointer; }
+:focus-visible { outline: 2px solid var(--highlight); outline-offset: 1px; }
+.frame { height: 100%; overflow-x: auto; }
+.app { position: relative; display: flex; height: 100%; min-width: 1100px; min-height: 620px; overflow: hidden; }
+
+/* Sidebar tree slice */
+.side { width: 270px; flex-shrink: 0; display: flex; flex-direction: column; background: var(--surface); border-right: 1px solid var(--line); }
+.head { padding: 16px 12px 10px; font: 22px/1 var(--display); }
+.hole { display: inline-block; width: .52em; height: .52em; margin: 0 .035em; border-radius: 50%; background: var(--hole); box-shadow: 0 0 0 2px var(--accent), 0 0 10px var(--accent); }
+.tree { padding: 4px 6px; }
+.trow { display: flex; align-items: center; gap: 6px; height: 30px; padding: 0 6px; border-radius: 6px; font-size: 13px; }
+.trow.repo { font-weight: 600; }
+.trow .chev { width: 12px; color: var(--muted); font-size: 10px; }
+.trow .name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.trow .more { width: 24px; height: 22px; padding: 0; background: transparent; border: 1px solid transparent; border-radius: 4px; color: var(--muted); }
+.trow .more:hover, .trow.open .more { border-color: var(--line); color: var(--ink); }
+.trow.wt { padding-left: 24px; font: 12px var(--mono); color: var(--muted); }
+.trow.wt.open { background: var(--select); color: var(--ink); }
+.trow.wt svg { width: 12px; height: 12px; fill: none; stroke: currentColor; stroke-width: 1.2; flex-shrink: 0; }
+.srow { display: flex; gap: 8px; padding: 4px 6px 6px 42px; }
+.srow.fresh { background: var(--select); box-shadow: inset 2px 0 0 var(--highlight); border-radius: 6px; }
+.srow .lines { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.srow .top { display: flex; gap: 6px; align-items: center; font-size: 12.5px; }
+.srow .reason { font-size: 12px; color: var(--muted); }
+.light { flex-shrink: 0; width: 8px; height: 8px; margin-top: 5px; border-radius: 50%; background: var(--idle); }
+.light.working { background: var(--accent); box-shadow: 0 0 8px var(--accent); }
+.badge { flex-shrink: 0; min-width: 22px; height: 18px; padding: 0 4px; display: inline-flex; align-items: center; justify-content: center; border-radius: 3px; background: var(--badge); color: var(--badge-ink); font: 600 10px var(--mono); }
+
+/* Tiles */
+.area { flex: 1; min-width: 0; display: grid; grid-template-columns: 1fr 1fr; gap: 6px; padding: 6px; }
+.tile { display: flex; flex-direction: column; min-width: 0; background: var(--term-bg); border: 1px solid var(--term-line); border-radius: 6px; overflow: hidden; }
+.tile.focus { border-color: var(--term-acc); }
+.tb { display: flex; align-items: center; gap: 8px; height: 28px; padding: 0 8px; border-bottom: 1px solid var(--term-line); font: 12px var(--mono); color: var(--term-dim); }
+.tb .no { padding: 0 5px; border: 1px solid var(--term-line); border-radius: 4px; color: var(--term-dim); font-size: 10px; }
+.term { flex: 1; padding: 10px 12px; font: 12px/1.6 var(--mono); color: var(--term-dim); white-space: pre; overflow: hidden; }
+.term b { color: var(--term-ink); font-weight: 400; }
+.term .sel { color: var(--term-acc); }
+.term .hd { color: var(--term-ink); font-weight: 600; }
+.empty { display: grid; place-items: center; border: 1px dashed var(--line); border-radius: 6px; color: var(--muted); font: 11px var(--mono); }
+
+/* Panel: .row-menu.sidebar-panel */
+.panel { position: absolute; z-index: 20; width: 740px; padding: 4px; background: linear-gradient(180deg, var(--raised-top), var(--raised-bottom)); border: 1px solid var(--raised-line); border-radius: 10px; box-shadow: 0 1px 0 rgb(255 255 255 / 5%) inset, 0 22px 48px -12px var(--shadow), 0 8px 16px -8px var(--shadow), 0 0 28px -8px color-mix(in srgb, var(--highlight) 40%, transparent); animation: open 130ms ease-out; }
+@keyframes open { from { opacity: 0; transform: translateX(-6px) scale(.98); } }
+.panel::before { content: ""; position: absolute; left: -6px; top: 18px; width: 10px; height: 10px; background: var(--raised-top); border-left: 1px solid var(--raised-line); border-bottom: 1px solid var(--raised-line); transform: rotate(45deg); }
+.ph { position: relative; display: flex; align-items: center; gap: 10px; padding: 12px 16px; border-bottom: 1px solid var(--line); border-radius: 7px 7px 0 0; background: linear-gradient(100deg, color-mix(in srgb, var(--highlight) 20%, transparent), color-mix(in srgb, var(--highlight) 6%, transparent) 55%, transparent); }
+.ph::before { content: ""; position: absolute; inset: 0 0 auto; height: 2px; border-radius: 7px 7px 0 0; background: linear-gradient(90deg, var(--highlight), var(--highlight-deep) 45%, transparent); }
+.mark { display: grid; place-items: center; width: 32px; height: 32px; border-radius: 8px; background: color-mix(in srgb, var(--highlight) 16%, var(--raised-top)); }
+.mark svg { width: 14px; height: 14px; fill: none; stroke: var(--highlight); stroke-width: 1.2; }
+.ptitle { flex: 1; font-weight: 600; font-family: var(--mono); font-size: 13px; }
+.kind { padding: 2px 8px; border-radius: 999px; background: color-mix(in srgb, var(--highlight) 12%, transparent); color: var(--muted); font: 11px var(--mono); }
+.pbody { display: grid; grid-template-columns: 248px minmax(0, 1fr); min-height: 268px; }
+.cmds { display: flex; flex-direction: column; gap: 1px; padding: 8px 8px 8px 4px; border-right: 1px solid var(--line); }
+.cmds button { position: relative; display: flex; align-items: center; gap: 10px; min-height: 32px; padding: 5px 12px; background: transparent; border: 0; border-radius: 6px; text-align: left; }
+.cmds button:hover, .cmds button:focus-visible, .cmds button[aria-expanded="true"] { background: var(--raised-hover); outline: none; }
+.cmds button::before { content: ""; position: absolute; inset: 8px auto 8px 0; width: 2px; background: var(--highlight); border-radius: 2px; transform: scaleY(0); transition: transform 120ms; }
+.cmds button:hover::before, .cmds button:focus-visible::before, .cmds button[aria-expanded="true"]::before { transform: scaleY(1); }
+.cmds .label { flex: 1; }
+.cmds hr { width: calc(100% - 12px); margin: 4px 6px; border: 0; border-top: 1px solid var(--line); }
+.glyph { display: grid; place-items: center; width: 24px; color: var(--muted); }
+.glyph svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round; }
+.glyph .badge { min-width: 22px; }
+.right { position: relative; min-width: 0; }
+.facts { display: grid; grid-template-columns: 100px minmax(0, 1fr); align-content: start; gap: 9px 16px; margin: 0; padding: 14px 18px 16px 20px; }
+.facts dt { padding-top: 2px; font-size: 12px; color: var(--muted); }
+.facts dd { margin: 0; font: 12.5px/1.5 var(--mono); overflow-wrap: anywhere; }
+.facts .sub { color: var(--muted); }
+
+/* Resume, beside the command. Paste first, then the agents' own pickers. */
+.rs { display: flex; flex-direction: column; gap: 6px; padding: 10px 14px 14px; }
+.box { position: relative; display: flex; align-items: center; height: 34px; background: var(--bg); border: 1px solid var(--highlight); border-radius: 6px; box-shadow: 0 0 0 3px color-mix(in srgb, var(--highlight) 18%, transparent); }
+.box.invalid { border-color: var(--failed); box-shadow: 0 0 0 3px color-mix(in srgb, var(--failed) 15%, transparent); }
+.box input { flex: 1; min-width: 0; height: 100%; padding: 0 10px; background: transparent; border: 0; outline: none; font: 12.5px var(--mono); }
+.box input::placeholder { color: var(--muted); opacity: .75; }
+/* What Enter will do. Recognized text becomes one line: agent, ID, and a caution. */
+.what { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; min-height: 30px; padding: 0 2px; font: 12px var(--mono); color: var(--muted); }
+.what .warn { flex-basis: 100%; order: 3; }
+.what .id { color: var(--ink); }
+.what .warn { color: var(--muted); font-family: var(--sans); }
+.what.err { font: 12px var(--sans); color: var(--failed-ink); }
+.what.err::before { content: ""; width: 7px; height: 7px; border-radius: 1px; background: var(--failed); }
+.go { margin-left: auto; display: inline-flex; align-items: center; gap: 8px; height: 28px; padding: 0 12px; border: 0; border-radius: 6px; background: var(--highlight); color: #fff; font: 600 12px var(--sans); }
+.go:disabled { opacity: .4; cursor: default; }
+.go kbd { font: 11px var(--mono); opacity: .8; }
+.choose { display: inline-flex; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; font-family: var(--sans); }
+.choose button { display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 9px; border: 0; background: transparent; color: var(--ink); font-size: 12px; }
+.choose button + button { border-left: 1px solid var(--line); }
+.choose button[aria-pressed="true"] { background: var(--select); font-weight: 600; }
+.choose .badge { min-width: 20px; height: 16px; font-size: 9px; }
+.sect { margin: 10px 2px 2px; font: 600 10px var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+.pick { display: flex; flex-direction: column; gap: 1px; }
+.pick button { display: flex; align-items: center; gap: 10px; min-height: 32px; padding: 5px 10px; background: transparent; border: 0; border-radius: 6px; text-align: left; }
+.pick button:hover, .pick button:focus-visible { background: var(--raised-hover); outline: none; }
+.pick .label { flex: 1; }
+.pick .hint { font: 11px var(--mono); color: var(--muted); }
+
+/* Mockup controls, not product UI. */
+.mock { position: absolute; right: 14px; bottom: 12px; z-index: 50; display: flex; flex-wrap: wrap; gap: 10px 14px; align-items: center; max-width: 760px; padding: 6px 10px; border: 1px dashed var(--line); border-radius: 6px; background: var(--surface); font: 11px var(--mono); color: var(--muted); }
+.mock label { display: flex; gap: 6px; align-items: center; }
+.mock select, .mock button { font: inherit; color: var(--ink); background: var(--bg); border: 1px solid var(--line); border-radius: 4px; }
+@media (prefers-reduced-motion: reduce) { .panel { animation: none; } .cmds button::before { transition: none; } }
+</style>
+</head>
+<body>
+<div class="frame">
+<div class="app" id="app">
+  <aside class="side">
+    <div class="head">fo<span class="hole"></span>m</div>
+    <div class="tree" id="tree"></div>
+  </aside>
+  <main class="area" id="area"></main>
+  <div class="mock" aria-label="Mockup controls">
+    <label>Paste <select id="m-paste">
+      <option value="">—</option>
+      <option value="claude --resume 683aa1e2-6afe-4cbd-84c2-a350b5681a27">claude --resume line</option>
+      <option value="codex resume 01a12d85-987d-7202-9364-9491256cae4e">codex resume line</option>
+      <option value="agy --conversation 9f1c3b2e-7a44-4d0b-8c2e-51d0a7e3b6f1">agy --conversation line</option>
+      <option value="01a12d85-987d-7202-9364-9491256cae4e">bare ID (v7, Codex-shaped)</option>
+      <option value="683aa1e2-6afe-4cbd-84c2-a350b5681a27">bare ID (v4)</option>
+      <option value="claude --resume 683aa1e2 && rm -rf ~">not an ID</option>
+    </select></label>
+    <label><input type="checkbox" id="m-agy" checked> Antigravity on</label>
+    <label><input type="checkbox" id="m-codex" checked> Codex on</label>
+    <button type="button" id="m-reset">Reset</button>
+    <label>Theme <select id="m-theme"><option value="">System</option><option>light</option><option>dark</option></select></label>
+  </div>
+</div>
+</div>
+<script>
+const $ = (s) => document.querySelector(s);
+const esc = (s) => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/"/g, "&quot;");
+const app = $("#app");
+const G = {
+  resume: '<path d="M3 8a5 5 0 1 0 1.5-3.5M3 2.5V5h2.5"/><path d="M7 6l3 2-3 2z"/>',
+  trash: '<path d="M3 4.5h10M6.5 4.5V3h3v1.5M4.5 4.5l.7 8.5h5.6l.7-8.5M7 7v4M9 7v4"/>',
+};
+const WT = '<svg viewBox="0 0 12 12" aria-hidden="true"><circle cx="3" cy="2.5" r="1.3"/><circle cx="3" cy="9.5" r="1.3"/><circle cx="9" cy="4" r="1.3"/><path d="M3 3.8v4.4M9 5.3c0 2-3 1.7-5.6 3.3"/></svg>';
+const glyph = (n) => `<span class="glyph" aria-hidden="true"><svg viewBox="0 0 16 16">${G[n]}</svg></span>`;
+const badgeGlyph = (b) => `<span class="glyph" aria-hidden="true"><span class="badge">${esc(b)}</span></span>`;
+const AGENTS = { claude: { name: "Claude Code", badge: "CC" }, codex: { name: "Codex", badge: "CX" }, agy: { name: "Antigravity", badge: "AG" } };
+const enabled = () => ["claude", ...($("#m-codex").checked ? ["codex"] : []), ...($("#m-agy").checked ? ["agy"] : [])];
+let sessions = [{ agent: "codex", name: "codex/issue-270", reason: "Running npm run check" }];
+let launched = null;
+
+/* Exactly these shapes, after trimming; anything else is not a conversation. */
+const ID = /^[A-Za-z0-9][A-Za-z0-9_-]{0,199}$/;
+function parse(text) {
+  const t = text.trim(); if (!t) return null;
+  const forms = [[/^claude\s+(?:--resume|-r)\s+(\S+)$/, "claude"], [/^codex\s+resume\s+(\S+)$/, "codex"], [/^agy\s+--conversation\s+(\S+)$/, "agy"]];
+  for (const [re, agent] of forms) { const m = t.match(re); if (m) return ID.test(m[1]) ? { agent, id: m[1] } : { bad: true }; }
+  return ID.test(t) ? { id: t } : { bad: true };
+}
+/* A bare UUID's version digit suggests the agent: Codex IDs are time-ordered (v7). A v4 ID
+   could be Claude Code or Antigravity, so it is suggested only when Antigravity is off. */
+function suggest(id) {
+  const m = id.match(/^[0-9a-f]{8}-[0-9a-f]{4}-([0-9a-f])[0-9a-f]{3}-[0-9a-f]{4}-[0-9a-f]{12}$/i);
+  if (!m) return undefined;
+  if (m[1] === "7" && enabled().includes("codex")) return "codex";
+  if (m[1] === "4" && !enabled().includes("agy")) return "claude";
+  return undefined;
+}
+
+function tree() {
+  $("#tree").innerHTML = `<div class="trow repo"><span class="chev">▾</span><span class="name">foom</span></div>
+    <div class="trow wt${$("#panel") ? " open" : ""}" id="wt-row">${WT}<span class="name">foom · main</span><button class="more" id="more" aria-label="main commands" aria-haspopup="dialog" title="Commands">⋯</button></div>
+    ${launched ? `<div class="srow fresh"><span class="light working"></span><div class="lines"><div class="top"><span class="badge">${AGENTS[launched.agent].badge}</span>${esc(launched.title)}</div><div class="reason">${esc(launched.reason)}</div></div></div>` : ""}
+    <div class="trow wt">${WT}<span class="name">codex/issue-270</span></div>
+    ${sessions.map((s) => `<div class="srow"><span class="light working"></span><div class="lines"><div class="top"><span class="badge">${AGENTS[s.agent].badge}</span>${esc(s.name)}</div><div class="reason">${esc(s.reason)}</div></div></div>`).join("")}`;
+  $("#more").onclick = () => openPanel();
+}
+function tiles() {
+  const t2 = launched ? `<section class="tile focus"><div class="tb"><span class="no">2</span>${AGENTS[launched.agent].badge} · main</div><div class="term">${launched.screen}</div></section>` : `<div class="empty">empty</div>`;
+  $("#area").innerHTML = `<section class="tile${launched ? "" : " focus"}"><div class="tb"><span class="no">1</span>CX · codex/issue-270</div><div class="term"><b>• Ran npm run check</b>
+  └ ✓ format  ✓ lint  ✓ typecheck
+• Editing src/renderer/board/lights.ts</div></section>${t2}`;
+}
+
+function openPanel(resume = false) {
+  $("#panel")?.remove();
+  const row = $("#wt-row").getBoundingClientRect();
+  app.insertAdjacentHTML("beforeend", `<div class="panel" id="panel" role="dialog" aria-label="main" style="left:${row.right + 12}px; top:${row.top - 12}px">
+    <div class="ph"><span class="mark"><svg viewBox="0 0 12 12"><circle cx="3" cy="2.5" r="1.3"/><circle cx="3" cy="9.5" r="1.3"/><circle cx="9" cy="4" r="1.3"/><path d="M3 3.8v4.4M9 5.3c0 2-3 1.7-5.6 3.3"/></svg></span><span class="ptitle">main</span><span class="kind">Main checkout</span></div>
+    <div class="pbody">
+      <div class="cmds" role="menu" aria-label="Commands">
+        ${enabled().map((a) => `<button role="menuitem">${badgeGlyph(AGENTS[a].badge)}<span class="label">${AGENTS[a].name}</span></button>`).join("")}
+        <button role="menuitem">${badgeGlyph(">_")}<span class="label">Shell (bash)</span></button>
+        <hr>
+        <button role="menuitem" id="rs-item" aria-haspopup="true" aria-expanded="false">${glyph("resume")}<span class="label">Resume conversation</span></button>
+      </div>
+      <div class="right" id="right">
+        <dl class="facts">
+          <dt>Path</dt><dd>/var/www/html/scott/foom</dd>
+          <dt>Branch</dt><dd>main <span class="sub">· up to date</span></dd>
+          <dt>Changes</dt><dd>none</dd>
+          <dt>Sessions</dt><dd>none running</dd>
+        </dl>
+      </div>
+    </div>
+  </div>`);
+  tree();
+  $("#rs-item").onclick = openResume;
+  if (resume) openResume();
+}
+function closePanel() { $("#panel")?.remove(); tree(); }
+
+function openResume() {
+  $("#rs-item").setAttribute("aria-expanded", "true");
+  const pickers = enabled().map((a) => a === "agy"
+    ? `<button data-pick="agy">${badgeGlyph("AG")}<span class="label">Antigravity</span><span class="hint">latest</span></button>`
+    : `<button data-pick="${a}">${badgeGlyph(AGENTS[a].badge)}<span class="label">${AGENTS[a].name}…</span></button>`).join("");
+  $("#right").innerHTML = `<div class="rs">
+    <div class="box" id="box"><input id="paste" aria-label="Resume command or conversation ID" placeholder="claude --resume …, codex resume …, or an ID" spellcheck="false" autocomplete="off"></div>
+    <div class="what" id="what" role="status"></div>
+    <div class="sect" id="sect">In this checkout</div>
+    <div class="pick" role="group" aria-labelledby="sect">${pickers}</div>
+  </div>`;
+  const input = $("#paste");
+  input.oninput = () => { choice = undefined; update(); };
+  input.onkeydown = (e) => { if (e.key === "Enter") { e.preventDefault(); resume(); } if (e.key === "Escape") { e.preventDefault(); openPanel(); $("#rs-item").focus(); } };
+  for (const b of document.querySelectorAll("[data-pick]")) b.onclick = () => pick(b.dataset.pick);
+  input.focus();
+  update();
+}
+let choice;
+function current() {
+  const p = parse($("#paste")?.value ?? "");
+  if (!p || p.bad) return { p };
+  const agent = p.agent ?? choice ?? suggest(p.id);
+  return { p, agent };
+}
+function update() {
+  const what = $("#what"), box = $("#box"); if (!what) return;
+  const { p, agent } = current();
+  box.classList.toggle("invalid", !!p?.bad || (!!p?.agent && !enabled().includes(p.agent)));
+  what.className = "what";
+  if (!p) { what.innerHTML = ""; return; }
+  if (p.bad) { what.className = "what err"; what.textContent = "Not a conversation ID"; return; }
+  if (p.agent && !enabled().includes(p.agent)) { what.className = "what err"; what.textContent = `${AGENTS[p.agent].name} is turned off`; return; }
+  const short = p.id.length > 13 ? p.id.slice(0, 13) + "…" : p.id;
+  const who = p.agent
+    ? `<span class="badge">${AGENTS[p.agent].badge}</span><span>${AGENTS[p.agent].name}</span>`
+    : `<span class="choose" role="group" aria-label="Agent">${enabled().map((a) => `<button type="button" data-choose="${a}" aria-pressed="${a === agent}"><span class="badge">${AGENTS[a].badge}</span>${AGENTS[a].name}</button>`).join("")}</span>`;
+  what.innerHTML = `${who}${p.agent ? `<span class="id" title="${esc(p.id)}">${esc(short)}</span>` : ""}<button class="go" id="go" ${agent ? "" : "disabled"}>Resume <kbd>↵</kbd></button><span class="warn">If it's still open in another terminal, close it there first.</span>`;
+  for (const b of what.querySelectorAll("[data-choose]")) b.onclick = () => { choice = b.dataset.choose; update(); $("#paste").focus(); };
+  $("#go").onclick = resume;
+}
+function resume() {
+  const { p, agent } = current();
+  if (!p || p.bad || !agent || !enabled().includes(agent)) { update(); return; }
+  const argv = agent === "claude" ? `claude --resume ${p.id}` : agent === "codex" ? `codex resume ${p.id}` : `agy --conversation ${p.id}`;
+  launched = { agent, title: "main", reason: `Resumed ${p.id.slice(0, 8)}`, screen: `<b>$ ${esc(argv)}</b>
+<span class="hd">${agent === "claude" ? "✻ Resuming conversation" : "Resuming session"} ${esc(p.id.slice(0, 8))}…</span>
+
+  …earlier messages above…
+
+<b>› </b>` };
+  closePanel(); tiles();
+}
+function pick(agent) {
+  const screens = {
+    claude: `<span class="hd">Resume Session</span>
+
+<span class="sel">❯ Lights mockup: glow and trace</span>          2m ago · 214 msgs
+  Delete merged worktrees speedup         3h ago · 88 msgs
+  Theme files v2 write-up                 yesterday · 41 msgs
+  Review #237 control plane               2d ago · 156 msgs
+
+  ↑↓ select · enter resume · / search · esc cancel`,
+    codex: `<span class="hd">Resume a previous session</span>
+
+<span class="sel">› Implement lights (#270)</span>                 12m ago
+  Tiles: right column when full (#264)    1h ago
+  Config agent: launch arguments          3h ago
+
+  ↑↓ select · enter resume · --all for every folder`,
+    agy: `<b>$ agy --continue</b>
+Continuing the most recent conversation in this folder…
+
+<b>› </b>`,
+  };
+  launched = { agent, title: "main", reason: agent === "agy" ? "Continuing latest" : "Picking a conversation", screen: screens[agent] };
+  closePanel(); tiles();
+}
+
+$("#m-paste").onchange = (e) => { if (!$("#paste")) openPanel(true); $("#paste").value = e.target.value; choice = undefined; update(); $("#paste").focus(); };
+$("#m-agy").onchange = $("#m-codex").onchange = () => { if ($("#panel")) openPanel(!!$("#paste")); };
+$("#m-reset").onclick = () => { launched = null; $("#m-paste").value = ""; closePanel(); tiles(); };
+$("#m-theme").onchange = (e) => { if (e.target.value) document.documentElement.dataset.theme = e.target.value; else delete document.documentElement.dataset.theme; };
+addEventListener("keydown", (e) => { if (e.key === "Escape" && $("#panel") && !$("#paste")) closePanel(); });
+tree(); tiles(); openPanel(true);
+</script>
+</body>
+</html>
