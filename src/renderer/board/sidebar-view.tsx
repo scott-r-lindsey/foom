@@ -280,18 +280,6 @@ export function Sidebar({
         });
       },
     }));
-  // Every orchestrator has the CLI fallback; Antigravity needs interactive prompts.
-  const orchestrators = (repository: string): RowAction[] =>
-    (options?.agents ?? [])
-      .filter(
-        (agent) =>
-          agent.path && options?.enabled[agent.id] && (agent.id !== "agy" || agent.cliGuidance),
-      )
-      .map((agent) => ({
-        label: `Launch ${agentNames.get(agent.id) ?? agent.id} as Foom orchestrator…`,
-        badge: agentBadges.get(agent.id) ?? agent.id,
-        run: () => command({ kind: "orchestrate", repository, run: agent.id }),
-      }));
   const subjects = new Map<
     string,
     { subject: PanelSubject; name: string; kind: string; mark: string }
@@ -518,7 +506,19 @@ export function Sidebar({
                   run: () => command({ kind: "take-over", id: row.id }),
                 },
               ]
-            : []),
+            : row.kind === "agent" && !row.config
+              ? [
+                  row.orchestration?.role === "orchestrator" && row.orchestration.active
+                    ? {
+                        label: "Revoke orchestrator",
+                        run: () => command({ kind: "revoke-orchestrator", id: row.id }),
+                      }
+                    : {
+                        label: "Make orchestrator…",
+                        run: () => command({ kind: "make-orchestrator", id: row.id }),
+                      },
+                ]
+              : []),
           {
             glyph: "stop" as const,
             label: `Stop ${row.kind === "shell" ? "shell" : (agentNames.get(row.agent) ?? row.agent)}`,
@@ -884,7 +884,6 @@ export function Sidebar({
                                 },
                               ]
                             : []),
-                          ...orchestrators(repo.repository.path),
                           null,
 
                           {

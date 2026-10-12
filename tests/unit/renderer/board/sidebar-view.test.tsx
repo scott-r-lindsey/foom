@@ -1053,7 +1053,7 @@ test("a compact sidebar opens the field beside the sidebar", async () => {
   expect(view.branches).toHaveBeenCalledWith("/alpha");
   vi.unstubAllGlobals();
 });
-test("agents with CLI guidance offer orchestration; children offer Take over and panels show actions", async () => {
+test("sessions offer Make and Revoke orchestrator; children offer Take over and panels show actions", async () => {
   const original = sampleRows(0)[0];
   if (!original) throw Error("fixture");
   const row = {
@@ -1120,19 +1120,8 @@ test("agents with CLI guidance offer orchestration; children offer Take over and
     await Promise.resolve();
   });
   fireEvent.click(view.getByRole("button", { name: "Actions for Foom" }));
-  expect(view.queryByRole("menuitem", { name: /Codex as Foom orchestrator/u })).toBeNull();
-  expect(view.getByRole("menuitem", { name: /Antigravity as Foom orchestrator/u })).toBeTruthy();
-  await act(async () => {
-    fireEvent.click(
-      view.getByRole("menuitem", { name: /Launch Claude Code as Foom orchestrator…/u }),
-    );
-    await Promise.resolve();
-  });
-  expect(command).toHaveBeenLastCalledWith({
-    kind: "orchestrate",
-    repository: "/foom",
-    run: "claude",
-  });
+  expect(view.queryByRole("menuitem", { name: /orchestrator/u })).toBeNull();
+  fireEvent.keyDown(document.activeElement ?? document.body, { key: "Escape" });
   fireEvent.click(view.getByRole("button", { name: "Actions for Claude Code in feature" }));
   expect(view.getByText(/Can stop and read this session/u)).toBeTruthy();
   await act(async () => {
@@ -1146,16 +1135,26 @@ test("agents with CLI guidance offer orchestration; children offer Take over and
   fireEvent.click(view.getByRole("button", { name: "Actions for Claude Code in feature" }));
   expect(view.queryByRole("menuitem", { name: "Take over" })).toBeNull();
   expect(view.getByText(/You took over/u)).toBeTruthy();
-  fireEvent.keyDown(document.activeElement ?? document.body, { key: "Escape" });
+  await act(async () => {
+    fireEvent.click(view.getByRole("menuitem", { name: "Make orchestrator…" }));
+    await Promise.resolve();
+  });
+  expect(command).toHaveBeenLastCalledWith({ kind: "make-orchestrator", id: "child" });
   fireEvent.click(
     view.getByRole("button", { name: /^Actions for Claude Code in (main|Main checkout)$/u }),
   );
+  expect(view.queryByRole("menuitem", { name: "Make orchestrator…" })).toBeNull();
   expect(view.getByText("Active")).toBeTruthy();
   expect(view.getByText(/1 child running/u)).toBeTruthy();
   const actions = document.querySelector(".panel-actions");
   expect(actions?.textContent).toContain("Remove worktree old · failed");
   expect(actions?.textContent).toContain("Launch feature · done");
   expect(actions?.querySelector('[data-status="failed"]')).toBeTruthy();
+  await act(async () => {
+    fireEvent.click(view.getByRole("menuitem", { name: "Revoke orchestrator" }));
+    await Promise.resolve();
+  });
+  expect(command).toHaveBeenLastCalledWith({ kind: "revoke-orchestrator", id: "parent" });
 });
 
 test.each([true, false])(

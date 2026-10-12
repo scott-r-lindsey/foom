@@ -1,5 +1,5 @@
 import { expect, it } from "vitest";
-import { cliGuidance } from "../../../../src/main/agents/cli-launch";
+import { CLI_GUIDANCE, cliGuidance } from "../../../../src/main/agents/cli-launch";
 import * as cliLaunch from "../../../../src/main/agents/cli-launch";
 it("composes Antigravity initial prompt data without invoking a shell or changing MCP", () => {
   expect(cliGuidance([])).toEqual([
@@ -46,9 +46,9 @@ it("passes an orchestrator child's prompt as one argv entry and refuses option-l
     expect(() => initialPrompt({ id: "claude" }, prompt)).toThrow("Invalid initial prompt");
 });
 
-it("gives Antigravity orchestrators CLI mutations instead of read-only guidance", () => {
-  const args = cliGuidance(["-i", "User data"], true);
-  expect(args[1]).toContain("User data");
-  expect(args[1]).toContain("create-worktree/create_worktree");
-  expect(args[1]).not.toContain("mutations are unavailable");
+it("gives Antigravity one CLI guidance for either role, after the user's own prompt", () => {
+  const args = cliGuidance(["-i", "User data"]);
+  expect(args).toEqual(["--prompt-interactive", `User data\n\n${CLI_GUIDANCE}`]);
+  expect(CLI_GUIDANCE).toContain("foom whoami --json lists your current capabilities");
+  expect(CLI_GUIDANCE).not.toContain("mutations are unavailable");
 });

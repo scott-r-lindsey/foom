@@ -196,6 +196,9 @@ it("runs the real lazy endpoint, grants fresh credentials, removes discovery on 
     expect(runtime.service.authenticate(parent.env["FOOM_CONTROL_TOKEN"] ?? "").role).toBe(
       "orchestrator",
     );
+    // The human's revoke and grant reach the same credential through the runtime.
+    runtime.setRole("parent", "agent");
+    expect(runtime.service.authenticate(parent.env["FOOM_CONTROL_TOKEN"] ?? "").role).toBe("agent");
     parent.dispose();
     child.dispose();
     const orchestrator = runtime.service.prepare(root, root, "orchestrator");

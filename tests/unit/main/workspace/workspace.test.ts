@@ -1795,7 +1795,11 @@ test.each(["shell", "claude", "remove"] as const)(
 
 test("starts control lazily once, retries failed initialization and closes independently of hooks", async () => {
   const binding = { env: {}, bind: vi.fn(), dispose: vi.fn() };
-  const runtime = { prepare: vi.fn(() => binding), close: vi.fn(() => Promise.resolve()) };
+  const runtime = {
+    prepare: vi.fn(() => binding),
+    close: vi.fn(() => Promise.resolve()),
+    setRole: vi.fn(),
+  };
   const start = vi.fn(() => Promise.resolve(runtime));
   start.mockRejectedValueOnce(new Error("private directory unavailable"));
   let control: Parameters<NonNullable<WorkspaceDependencies["agents"]>>[1];

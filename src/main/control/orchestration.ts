@@ -177,6 +177,12 @@ export class Orchestration {
       bind: (terminalId) => {
         if (this.slots.get(repository) !== parent || parent.terminalId !== null) return;
         parent.terminalId = terminalId;
+        // A session made orchestrator again keeps its earlier, retired action history.
+        const previous = this.parents.get(terminalId);
+        if (previous && previous !== parent) {
+          parent.history.push(...previous.history.slice(-HISTORY));
+          this.retire(previous);
+        }
         this.parents.set(terminalId, parent);
         if (this.early.delete(terminalId)) this.retire(parent);
         this.host.changed();
@@ -213,6 +219,18 @@ export class Orchestration {
     });
     this.host.changed();
     return true;
+  }
+
+  /** The live orchestrator's session in a repository, if any. */
+  active(repository: string): string | undefined {
+    const parent = this.slots.get(repository);
+    return parent?.active && parent.terminalId !== null ? parent.terminalId : undefined;
+  }
+
+  /** The human revoked the role: authority ends as on exit, and the session keeps running. */
+  revoke(id: string): void {
+    const parent = this.parents.get(id);
+    if (parent) this.retire(parent);
   }
 
   /** Exit revokes the parent's authority; children keep running under human control. */

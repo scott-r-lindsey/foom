@@ -46,7 +46,7 @@ export class ControlRuntime {
       throw error;
     }
   }
-  /** Roles come from main's launch path only: an orchestrator, or a child naming its parent. */
+  /** Roles come from main only: a restored orchestrator, or a child naming its parent. */
   prepare(
     repository: string,
     worktree: string,
@@ -66,6 +66,10 @@ export class ControlRuntime {
         ),
       },
     };
+  }
+  /** The human's elevate or revoke for a running session; see ControlService.setRole. */
+  setRole(terminalId: string, role: "agent" | "orchestrator"): void {
+    this.service.setRole(terminalId, role);
   }
   async close(): Promise<void> {
     await this.http.close();

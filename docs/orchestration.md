@@ -16,8 +16,11 @@ launch to supported agents; use the CLI fallback for Antigravity. Never install
 agent configuration, plugins or skills globally or into a repository. MCP server
 instructions and tool descriptions explain the workflow and limits.
 
-Only the repository menu's **Launch as Foom orchestrator** grants orchestration.
-Main permits one active orchestrator per canonical repository, with at most four
+Only the human grants orchestration, from a running agent session's menu: **Make
+orchestrator…** (a trusted confirmation) and **Revoke orchestrator** (#303). There
+is no orchestrator launch; any Foom-launched agent session can be elevated,
+including one running with bypass permissions. Main permits one active orchestrator
+per canonical repository, with at most four
 running children, each in a new worktree in that repository. Children get ordinary
 read-only credentials and cannot create grandchildren through Foom. Agent-native
 subagents and processes outside Foom are not controlled by this limit.
@@ -199,7 +202,8 @@ Mint a separate random 256-bit `FOOM_CONTROL_TOKEN`; hook credentials must never
 authorize control operations. `FOOM_SESSION` is correlation only. Main maps token
 digests to a principal with immutable role, repository identity, terminal ID,
 parent ID and generation. Neither a tool argument nor an environment role flag can
-promote it. Compare fixed-length digests in constant time; unknown and revoked
+promote it; only main changes a grant's role, when the human makes the session the
+orchestrator or revokes it (see [elevation](#elevation-303)). Compare fixed-length digests in constant time; unknown and revoked
 tokens produce the same authentication error.
 
 Bind credentials before exposing a session; revoke on spawn failure, exit, removal
@@ -294,10 +298,10 @@ key; unresolved outcomes require human reconciliation.
 Removal confirmation is tied to the actor, worktree identity and dirty state;
 recheck all three before deletion using the existing service. Pending confirmation
 returns an operation ID, so agents cannot hold the HTTP connection indefinitely.
-Stopping a child needs no extra confirmation after the user has launched its
+Stopping a child needs no extra confirmation after the user has made its parent the
 orchestrator; stopping unrelated sessions is forbidden. Parent exit revokes its
 authority and cancels pending mutations/replies, but leaves children running for
-the human. A manually launched replacement orchestrator does not inherit those children; automatic restore reattaches only the saved running children that had not been taken over, under the re-grant checks above. Quit keeps
+the human. Revoking the role has the same effect. A replacement orchestrator does not inherit those children; automatic restore reattaches only the saved running children that had not been taken over, under the re-grant checks above. Quit keeps
 the existing confirmation and stops all PTYs.
 
 ## Reply gate
@@ -534,16 +538,13 @@ helper; its validation schemas and config-only capabilities remain #84's work.
 
 ### Orchestrators and children (#155)
 
-**Launch.** Each repository panel lists **Launch <agent> as Foom orchestrator…**
-for enabled, installed Claude Code and Codex agents, and Antigravity releases
-with `--prompt-interactive` support. Every orchestrator gets the console directory
-on its process-local PATH and a prompt naming both CLI commands and MCP tools.
-The CLI works even when MCP attachment is unavailable or denied by client policy.
-Antigravity uses only the CLI, without any MCP configuration. The wordmark menu's New orchestrator item
-stays disabled because it has no repository to target. Main reserves the
-repository's slot synchronously, then shows the trusted dialog with the disclosure
-below; a second launch while a parent is live reveals that parent instead. The
-orchestrator runs in the main checkout with the user's own launch defaults.
+**Launch.** Superseded by [elevation](#elevation-303): the repository panel's
+orchestrator launch and the disabled New orchestrator menu item were removed. As
+#155 shipped them, the panel listed **Launch <agent> as Foom orchestrator…**, which
+launched an agent in the main checkout with an orchestrator grant and a prompt
+naming the CLI and MCP tools. Every agent still gets the console directory on its
+process-local PATH, and the CLI works when MCP attachment is unavailable or denied
+by client policy. Antigravity uses only the CLI, without any MCP configuration.
 
 **Tools.** Every mutation takes an `idempotencyKey` (`[a-zA-Z0-9_-]{1,200}`) and
 returns the operation record. Limits and foreign targets are recorded as
@@ -597,3 +598,33 @@ child, and the child keeps counting toward the limit until it exits. The full
 nested hierarchy and searchable log remain #157.
 
 As of #217, Foom never emits `checking` in control API or MCP session states. Any existing client schema may retain it as deprecated for backward compatibility. Quiet debounce and classification do not introduce an intermediate state.
+
+### Elevation (#303)
+
+Roles are no longer fixed at launch. Every agent launch gets an ordinary grant; the
+session menu's **Make orchestrator…** asks through the trusted dialog, then main
+replaces that grant's principal with an orchestrator principal for the same token
+and generation, reserves the repository's slot and binds it to the running session.
+Nothing is relaunched or re-attached. When another orchestrator is active, the same
+dialog names it; accepting revokes it first and its children stay with the human.
+Children that the human has not taken over cannot be elevated. **Revoke
+orchestrator** swaps the principal back and retires the parent exactly as exit does:
+in-flight operations end as `revoked` or `indeterminate`, confirmations close, and
+the panel keeps the history. Elevating the same session again continues that
+history. Automatic restore re-grants an orchestrator that was active at quit under
+the rules above, without a launch prompt.
+
+MCP protocol sessions are keyed by grant generation, so they survive the swap, and
+the next request sees the new role. Clients fetch tools once: checked 2026-10-12
+with Claude Code 2.1.296 and Codex 0.162.1 against a stub Streamable HTTP server and
+a scripted loopback model (no credentials, no provider), Claude Code opened the GET
+stream and refetched `tools/list` within milliseconds of
+`notifications/tools/list_changed`, and its next turn used the new tool. Codex opened
+the GET stream but ignored the notification, sent there or inline in a POST
+response, and kept its startup list for the session. Foom therefore sends no
+notification and lists every orchestration tool to every agent from the start.
+Each orchestration tool's description begins "Orchestrator only: the human grants
+this role, and whoami shows whether you hold it"; a call without the role returns
+an error naming `whoami`. Server instructions and Antigravity's launch guidance
+describe both roles. Codex's TUI asked to approve an MCP tool without
+annotations, so the tools keep accurate `readOnlyHint` and `destructiveHint`.

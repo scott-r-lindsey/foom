@@ -261,10 +261,6 @@ export function createCommands(
     },
     { menuLabel: "Add repository…" },
   );
-  add("new-orchestrator", "New Orchestrator…", "Planned", [], undefined, {
-    ...planned,
-    menuLabel: "New orchestrator…",
-  });
   add(
     "close-window",
     "Close Window",
@@ -362,7 +358,6 @@ const appMenuLayout = (agents: readonly string[]): readonly Layout[] => [
   "new-window",
   "new-worktree",
   "add-repository",
-  "new-orchestrator",
   null,
   {
     submenu: "settings-menu",

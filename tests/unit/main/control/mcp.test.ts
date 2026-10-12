@@ -78,12 +78,25 @@ it("authenticates initialization, listing, calls, reconnects and deletion", asyn
   ).text();
   for (const name of ["sessions", "session_state", "whoami"])
     expect(listed).toContain(`"name":"${name}"`);
+  // Listed so a later grant needs no new tool list; refused with the fix until then.
+  expect(listed).toContain('"name":"operation_status"');
+  expect(listed).toContain("Orchestrator only: the human grants this role");
+  const refused = await (
+    await send({
+      jsonrpc: "2.0",
+      id: 3,
+      method: "tools/call",
+      params: { name: "operation_status", arguments: { operationId: "x" } },
+    })
+  ).text();
+  expect(refused).toContain('"isError":true');
+  expect(refused).toContain("call whoami to check");
+  // Without an orchestration host there is nothing more to list.
   for (const name of [
     "tail",
     "launch",
     "reply",
     "stop",
-    "operation_status",
     "create_worktree",
     "remove_worktree",
     "wait_for",

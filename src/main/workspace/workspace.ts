@@ -25,6 +25,7 @@ import type { AgentEvidence } from "../../shared/agent-detection";
 import { basename, delimiter } from "node:path";
 import type { SidebarCommand, SidebarInventory } from "../../shared/workspace";
 import { AgentService } from "../agents/agents";
+import { AGENTS } from "../agents/agent-list";
 import { buildLaunchEnvironment, inheritedEnvironment } from "../setup/environment";
 import type { EnvironmentVariable } from "../../shared/environment";
 import { prepareHookLaunch } from "../agents/hook-launch";
@@ -104,7 +105,7 @@ export interface WorkspaceDependencies {
     recordAction(terminalId: string, verdictId: string, action: VerdictAction): Promise<void>;
   };
   /** Started on the first agent launch, independently of hook support. */
-  control?: () => Promise<Pick<ControlRuntime, "prepare" | "close">>;
+  control?: () => Promise<Pick<ControlRuntime, "prepare" | "close" | "setRole">>;
   /** Started on the first launch that attaches hooks, then reused. */
   receiver: () => Promise<HookRegistrar & { close(): Promise<void> }>;
   onExecution?(event: ExecutionTransition): void;
@@ -156,7 +157,7 @@ export class Workspace {
   private readonly agyPlugin = new AgyPlugin();
   private readonly hookKeys = new Map<string, string>();
   private readonly queues = new Map<string, Promise<void>>();
-  private control: Promise<Pick<ControlRuntime, "prepare" | "close">> | undefined;
+  private control: Promise<Pick<ControlRuntime, "prepare" | "close" | "setRole">> | undefined;
   private receiver: ReturnType<WorkspaceDependencies["receiver"]> | undefined;
   private scanned: ReturnType<Agents["scan"]> | undefined;
   private closed = false;
@@ -1350,6 +1351,8 @@ export class Workspace {
       this.orchestration.takeOver(command.id);
       return;
     }
+    if (command.kind === "make-orchestrator") return this.makeOrchestrator(command.id, confirm);
+    if (command.kind === "revoke-orchestrator") return this.revokeOrchestrator(command.id);
     if ("id" in command && this.busySessions.has(command.id)) throw new Error("Session is busy");
     if (
       command.kind === "resume" ||
@@ -1419,8 +1422,6 @@ export class Workspace {
       await this.startExisting(command.repository, command.worktree, command.run, confirm);
       return;
     }
-    if (command.kind === "orchestrate")
-      return this.orchestrate(command.repository, command.run, confirm);
     const tree = (await this.worktrees(command.repository)).find(
       (item) => item.path === command.worktree,
     );
@@ -1609,37 +1610,68 @@ export class Workspace {
   }
 
   /**
-   * The repository panel's Launch as Foom orchestrator. The slot is reserved before any
-   * async work; a live duplicate reveals the existing parent instead of launching.
+   * The session menu's Make orchestrator: main swaps the running session's grant, so no
+   * relaunch or reconnect is needed. One orchestrator per repository; another active one
+   * is revoked once the human accepts the transfer, and its children stay with the human.
    */
-  private async orchestrate(
-    repository: string,
-    agent: AgentId,
-    confirm: ConfirmWorkspace,
-  ): Promise<void> {
-    this.known(repository);
-    const slot = this.orchestration.reserve(repository);
-    if ("existing" in slot) {
-      this.deps.reveal?.(slot.existing);
-      return;
-    }
-    try {
-      const scan = await this.scanAgents(false);
+  private async makeOrchestrator(id: string, confirm: ConfirmWorkspace): Promise<void> {
+    const running = () => {
+      const entry = this.launched.get(id);
       if (
-        !scan.agents.some(
-          (entry) => entry.id === agent && entry.path && (entry.id !== "agy" || entry.cliGuidance),
-        )
+        !entry ||
+        entry.agent === "shell" ||
+        entry.config ||
+        this.restoring.has(id) ||
+        this.terminals.get(id)?.exitCode !== undefined
       )
-        throw new Error("Orchestration needs an installed agent with initial prompt support");
-      if (!(await confirm({ kind: "orchestrator", agent }))) return;
-      const id = await this.startExisting(repository, repository, agent, confirm, undefined, {
-        role: "orchestrator",
-      });
-      if (id !== undefined) {
-        slot.bind(id);
-      }
+        throw new Error("Only a running agent session can orchestrate");
+      const view = this.orchestration.view(id);
+      if (view?.role === "child" && !view.takenOver)
+        throw new Error("Take over this session first");
+      return { entry, agent: entry.agent, active: view?.role === "orchestrator" && view.active };
+    };
+    const { entry, agent, active } = running();
+    if (active) return;
+    await this.initializeControl();
+    const control = await this.control;
+    if (!control) throw new Error("Control service unavailable");
+    const identity = await this.deps.worktrees.launchIdentity(entry.repository, entry.repository);
+    const current = this.orchestration.active(entry.repository);
+    const replaced = current === undefined ? undefined : this.launched.get(current);
+    const accepted = await confirm({
+      kind: "orchestrator",
+      agent,
+      ...(replaced && replaced.agent !== "shell"
+        ? {
+            replacing: `${AGENTS.find((item) => item.id === replaced.agent)?.name ?? replaced.agent} on ${replaced.branch ?? "its checkout"}`,
+          }
+        : {}),
+    });
+    if (!accepted) return;
+    // The dialog took time: recheck everything it described.
+    running();
+    if (this.orchestration.active(entry.repository) !== current)
+      throw new Error("The orchestrator changed. Try again.");
+    if (current !== undefined) await this.revokeOrchestrator(current);
+    const slot = this.orchestration.reserve(entry.repository);
+    if ("existing" in slot) throw new Error("The orchestrator changed. Try again.");
+    try {
+      control.setRole(id, "orchestrator");
+      slot.bind(id);
+      this.repositoryIdentities.set(entry.repository, identity);
     } finally {
       slot.release();
+    }
+  }
+
+  /** Ends orchestration as exit does; the session keeps running as an ordinary agent. */
+  private async revokeOrchestrator(id: string): Promise<void> {
+    const view = this.orchestration.view(id);
+    if (view?.role !== "orchestrator" || !view.active) return;
+    try {
+      (await this.control)?.setRole(id, "agent");
+    } finally {
+      this.orchestration.revoke(id);
     }
   }
 
