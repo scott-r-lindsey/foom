@@ -976,6 +976,7 @@ test("a detached host answers foreground, background and palette queries with th
 });
 
 test("owned Bash lifecycle markers cross the terminal bridge; arbitrary OSC payloads do not", async () => {
+  vi.spyOn(process, "platform", "get").mockReturnValue("linux");
   const onForeground = vi.fn();
   const onShellState = vi.fn();
   terminalControl = attachTerminal(window as unknown as BrowserWindow, {
