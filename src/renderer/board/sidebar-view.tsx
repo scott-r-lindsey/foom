@@ -96,7 +96,7 @@ export function Sidebar({
   footer: ReactNode;
   otherViews?: ReadonlySet<string>;
   tileNumbers?: ReadonlyMap<string, { number: number; focused: boolean }>;
-  openSettings?: (section: "config") => void;
+  openSettings?: (section?: "config") => void;
 }) {
   const [now] = useState(Date.now);
   const [filter, setFilter] = useState("");
@@ -217,11 +217,6 @@ export function Sidebar({
       .includes(filter.trim().toLocaleLowerCase()),
   );
   const configRows = rows.filter((row) => row.config);
-  const visibleConfigRows = configRows.filter((row) =>
-    `${sessionName(row, preferences)} ${row.reason} Foom config`
-      .toLocaleLowerCase()
-      .includes(filter.trim().toLocaleLowerCase()),
-  );
   const compact = narrow && rows.length > 0;
   const { tree, hiddenNeeds } = buildSidebar(
     rows.filter((row) => !row.home && !row.config),
@@ -407,7 +402,53 @@ export function Sidebar({
       </button>
     );
   };
-  const session = (row: BoardRow) => {
+  currentActions.set("config", [
+    ...(openSettings
+      ? [
+          {
+            label: "Settings",
+            hint: navigator.platform.startsWith("Mac") ? "⌘," : "Ctrl+,",
+            run: () => {
+              openSettings();
+            },
+          },
+          null,
+        ]
+      : []),
+    ...launcherActions(options, source.shellName?.()).map((action) => ({
+      ...action,
+      ...(configRows.some(
+        (row) =>
+          !row.exited && (action.run === "shell" ? row.kind === "shell" : row.agent === action.run),
+      )
+        ? { hint: "running" }
+        : {}),
+      run: () => command({ kind: "config-launch", run: action.run }),
+    })),
+    null,
+    ...(openSettings
+      ? [
+          {
+            label: "Open Foom config settings",
+            run: () => {
+              openSettings("config");
+            },
+          },
+        ]
+      : []),
+    { label: "Open folder", run: () => source.config?.openFolder() },
+  ]);
+  const configTone = configStatus?.pending
+    ? "needs"
+    : configStatus?.rejected
+      ? "failed"
+      : undefined;
+  const configLabel = `Foom config${configStatus?.pending ? ", needs you" : ""}${configStatus?.rejected ? `, ${String(configStatus.rejected)} rejected` : ""}`;
+  const configGearRef = useRef<HTMLButtonElement>(null);
+  const configPanel = () => {
+    if (configGearRef.current) togglePanel("config", configGearRef.current);
+  };
+  const session = (row: BoardRow, docked = false) => {
     const name = sessionName(row, preferences);
     const identity = sessionIdentity(row, source.shellName?.());
     const exited =
@@ -495,8 +536,8 @@ export function Sidebar({
         data-selected={selected === row.id}
       >
         <div
-          role="treeitem"
-          aria-selected={selected === row.id}
+          role={docked ? "button" : "treeitem"}
+          aria-selected={docked ? undefined : selected === row.id}
           className="board-row"
           draggable
           data-drag-session={row.id}
@@ -504,7 +545,7 @@ export function Sidebar({
           data-kind={row.kind}
           data-state={lightState(row)}
           data-exited={Boolean(row.exited)}
-          tabIndex={row.id === selected ? 0 : -1}
+          tabIndex={docked || row.id === selected ? 0 : -1}
           aria-label={`${row.branch} · ${name}${name === identity ? "" : ` · ${identity}`} · ${light(row).label}${row.foregroundProgram ? ` · ${row.foregroundProgram}` : ""}${row.kind === "shell" ? "" : ` · ${row.reason}`}${row.bypass ? " · Bypass" : ""}${row.worktreeRemoved ? " · Worktree removed" : ""}`}
           ref={(element) => {
             if (element) buttons.current.set(row.id, element);
@@ -604,8 +645,9 @@ export function Sidebar({
             )}
             <span className="visually-hidden board-state">{light(row).label}</span>
           </span>
-          {actions(row.id, `${name} in ${row.branch}`, items)}
+          {!docked && actions(row.id, `${name} in ${row.branch}`, items)}
         </div>
+        {docked && actions(row.id, `${name} in ${row.branch}`, items)}
       </div>
     );
   };
@@ -620,8 +662,9 @@ export function Sidebar({
       <header className="board-top">
         <AppMenu api={source.appMenu} development={source.isDevelopment} />
         <p className="board-summary" role="status">
-          {rows.filter((row) => row.state === "needs_input").length} need you ·{" "}
-          {rows.filter((row) => row.state === "working").length} working
+          {rows.filter((row) => row.state === "needs_input").length +
+            (configStatus?.pending ? 1 : 0)}{" "}
+          need you · {rows.filter((row) => row.state === "working").length} working
         </p>
         <div className="sidebar-filter">
           <input
@@ -752,92 +795,20 @@ export function Sidebar({
               {preferences.expanded["home"] !== false && (
                 <div role="group">
                   {visibleHomeRows.length
-                    ? visibleHomeRows.map(session)
+                    ? visibleHomeRows.map((row) => session(row))
                     : !filter.trim() && <p className="tree-empty">Nothing here yet</p>}
                 </div>
               )}
             </div>
           )}
-          {!compact && configStatus && (
-            <div
-              role="treeitem"
-              aria-label="Foom config"
-              aria-expanded={preferences.expanded["config"] !== false}
-            >
-              <div className="tree-row home-row config-row" {...rowEvents("config")}>
-                <button
-                  type="button"
-                  className="tree-chevron"
-                  aria-label="Toggle Foom config sessions"
-                  onClick={() => {
-                    toggle("config", preferences.expanded["config"] !== false);
-                  }}
-                >
-                  {preferences.expanded["config"] !== false ? "▾" : "▸"}
-                </button>
-                <button
-                  type="button"
-                  data-nav
-                  className="tree-name"
-                  onClick={(event) => {
-                    intent.pin("config", event.currentTarget);
-                  }}
-                >
-                  <PanelMark mark="config" />
-                  Foom config
-                </button>
-                {configStatus.pending && (
-                  <span className="panel-chip" data-tone="needs">
-                    Needs you
-                  </span>
-                )}
-                {configStatus.rejected > 0 && (
-                  <span className="panel-chip" data-tone="failed">
-                    {configStatus.rejected} rejected
-                  </span>
-                )}
-                {actions("config", "Foom config", [
-                  ...launcherActions(options, source.shellName?.()).map((action) => ({
-                    ...action,
-                    run: () => command({ kind: "config-launch", run: action.run }),
-                  })),
-                  null,
-                  ...(openSettings
-                    ? [
-                        {
-                          label: "Open Foom config settings",
-                          run: () => {
-                            openSettings("config");
-                          },
-                        },
-                      ]
-                    : []),
-                  {
-                    label: "Open folder",
-                    run: () => source.config?.openFolder(),
-                  },
-                ])}
-              </div>
-              {preferences.expanded["config"] !== false && (
-                <div role="group">
-                  {visibleConfigRows.length
-                    ? visibleConfigRows.map(session)
-                    : !filter.trim() && <p className="tree-empty">Nothing here yet</p>}
-                </div>
-              )}
-            </div>
+          {compact && homeRows.map((row) => session(row))}
+          {!compact && filter.trim() && tree.length === 0 && visibleHomeRows.length === 0 && (
+            <p className="tree-empty">No matches</p>
           )}
-          {compact && homeRows.map(session)}
-          {compact && configRows.map(session)}
-          {!compact &&
-            filter.trim() &&
-            tree.length === 0 &&
-            visibleHomeRows.length === 0 &&
-            visibleConfigRows.length === 0 && <p className="tree-empty">No matches</p>}
           {compact
             ? tree
                 .flatMap((repo) => repo.worktrees.flatMap((worktree) => worktree.sessions))
-                .map(session)
+                .map((row) => session(row))
             : tree.map((repo, index) => {
                 const rid = repositoryKey(repo.repository.path);
                 const cleanup = repo.repository.cleanup;
@@ -1125,7 +1096,7 @@ export function Sidebar({
                                 {expanded && (
                                   <div role="group">
                                     {sessions.length
-                                      ? sessions.map(session)
+                                      ? sessions.map((row) => session(row))
                                       : !filter.trim() && (
                                           <p className="tree-empty">Nothing here yet</p>
                                         )}
@@ -1142,7 +1113,49 @@ export function Sidebar({
               })}
         </div>
       </nav>
-      <footer className="sidebar-footer">{footer}</footer>
+      <footer className="sidebar-footer">
+        {(configStatus?.pending || configStatus?.rejected || configRows.length > 0) && (
+          <div className="config-dock">
+            <button
+              type="button"
+              className="config-dock-head"
+              aria-label={configLabel}
+              aria-expanded={menu?.id === "config"}
+              onClick={configPanel}
+            >
+              <PanelMark mark="config" />
+              <span className="config-dock-name">Foom config</span>
+              {configStatus?.pending && (
+                <span className="panel-chip" data-tone="needs">
+                  Needs you
+                </span>
+              )}
+              {!!configStatus?.rejected && (
+                <span className="panel-chip" data-tone="failed">
+                  {configStatus.rejected} rejected
+                </span>
+              )}
+            </button>
+            {configRows.map((row) => session(row, true))}
+          </div>
+        )}
+        <div className="sidebar-footer-bar">
+          {footer}
+          <button
+            ref={configGearRef}
+            type="button"
+            className="config-gear"
+            title="Foom config"
+            aria-label={configLabel}
+            aria-haspopup="dialog"
+            aria-expanded={menu?.id === "config"}
+            data-tone={configTone}
+            onClick={configPanel}
+          >
+            <PanelMark mark="config" />
+          </button>
+        </div>
+      </footer>
       {menu && subjects.has(menu.id) && !inactive && (
         <RowMenu
           panel={{
@@ -1224,6 +1237,7 @@ export function Sidebar({
           }}
           label={`${subjects.get(menu.id)?.name ?? "Row"} details and commands`}
           confirmations={source.confirmations}
+          bottomAligned={menu.id === "config"}
           anchor={menu.anchor}
           actions={currentActions.get(menu.id) ?? []}
           close={closeMenu}

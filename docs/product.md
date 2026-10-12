@@ -106,13 +106,29 @@ show merged state and creation origin. Detached rows show a short hash with a
 detached glyph, and panels say “Detached at <hash>”. **Delete worktree…** names
 the existing folder-removal action.
 
-The **Foom config** row, with a gear mark, sits below the home shell row. Its
-panel shows the folder path (copyable), the working tree (Clean or N uncommitted),
-the last applied change, a **Needs you** chip when a change awaits approval and an
-**N rejected** chip in failure styling. It offers the agent launchers and Shell,
-run in the config folder, **Open Foom config settings** and **Open folder**. Config
-sessions nest beneath it. Only one runs at a time; launching again focuses it. No
-worktree is created, and the session's `PATH` includes the bundled `foom` CLI.
+The sidebar footer holds the tile presets, Tidy and a **Foom config** gear the
+size of a preset button. The gear replaces the Settings text button and opens a
+pinned panel to the right, bottom-aligned and pointing at the gear. **Settings**
+is its first command, with its shortcut; ⌘, / Ctrl+, and the app menu still open
+Settings directly. Then come the agent launchers and Shell (run in the config
+folder), **Open Foom config settings** and **Open folder**. A launcher for the
+running session says “running”; launching again focuses it.
+
+A dock above the footer bar appears only while a config change is held, files
+are rejected or a config session exists. Its small gear and **Foom config** name
+open the same panel, beside **Needs you** and **N rejected** chips as applicable.
+The session row beneath it focuses its tile and retains the normal light, ring
+and panel behavior, including after exit. The tree has no config row or group;
+repositories follow the home shell directly. Filtering the tree leaves the dock
+reachable. In a compact sidebar the dock name hides, keeping the gear, chips and
+session reachable. The gear repeats held changes with an amber dot, otherwise
+rejections with a magenta square dot; its accessible name includes these statuses.
+Held config changes count in “N need you” and the app badge.
+
+The panel shows the folder path (copyable), working tree (Clean or N uncommitted),
+last applied change, Approval with **Needs you**, Rejected and Sessions. Only one
+config session runs at a time. No worktree is created, and the session's `PATH`
+includes the bundled `foom` CLI.
 
 Session panels show location, discovered agent version, state and reason,
 waiting time, recorded launch flags (BYPASS when applicable), start time or exit
@@ -197,8 +213,8 @@ menu is the same everywhere and lists app-wide commands plus the whole-layout Ti
 - New window, New worktree…, Add repository…, New orchestrator… (disabled: orchestrators
   launch from a repository's panel, #155)
 - **Settings ›**, a submenu of routes: Via Claude Code, Via Codex and Via
-  Antigravity (#84: each starts that agent in `~/.foom/config` under the Foom
-  config row), then Via Settings UI, which opens the Settings screen. Agent routes
+  Antigravity (#84: each starts that agent in `~/.foom/config` in the Foom
+  config dock), then Via Settings UI, which opens the Settings screen. Agent routes
   are enabled for installed, enabled agents after preflight, including while
   Settings is open. An existing config session is focused in its owning window.
 - **View › Tidy tiles**, which removes empty spaces and evens every run in the focused window

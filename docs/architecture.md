@@ -1405,7 +1405,7 @@ its own watcher). Sound catalogs still refresh when Settings → Sound opens.
 settings in force, it turns alerts off, sets the alert volume to 0, turns hooks off,
 or turns an agent off. A missing key means the default. Sizes and turning things on apply without approval. Theme changes follow the
 attention-distinctness hold described below. Settings → Foom config
-and the config row show the held change in amber. The held change carries an ID,
+and the config footer dock show the held change in amber. The held change carries an ID,
 the digest of its text, and a decision must name it: if an agent replaced the
 proposal after the banner was shown, the decision is refused and the new one shown.
 **Allow** rechecks that the file still has the held content, applies it and commits. **Keep it on** writes back the
@@ -1426,7 +1426,7 @@ committed as `Revert "<subject>"` like any other change. This replaces the
 `git revert` the issue proposed, whose merge machinery can run repository-configured
 merge drivers and checkout filters.
 
-**Sessions and IPC.** The board's Foom config row runs agents and shells in the
+**Sessions and IPC.** The board's Foom config footer panel runs agents and shells in the
 folder: no worktree, no repository-scoped control grant, the usual per-launch hooks
 and evaluator, the same Environment layers as other sessions, and the bundled
 console directory first on `PATH`, ahead of Environment entries, even if the CLI was

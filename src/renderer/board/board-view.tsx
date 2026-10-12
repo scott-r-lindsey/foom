@@ -739,17 +739,6 @@ export function Board({
                   </svg>
                 </button>
               </div>
-              {onSettings && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    onSettings();
-                  }}
-                  aria-pressed={settingsOpen}
-                >
-                  Settings
-                </button>
-              )}
             </>
           }
         />
