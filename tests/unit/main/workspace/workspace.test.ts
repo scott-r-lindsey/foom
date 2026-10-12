@@ -809,9 +809,121 @@ test("serializes branch launches and unlocks after failure", async () => {
   await workspace.dispose();
 });
 
+test.each([
+  ["id", "claude"],
+  ["id", "shell"],
+  ["sidebar", "claude"],
+  ["sidebar", "shell"],
+] as const)("%s removal refuses running %s sessions before confirmation", async (path, run) => {
+  const workspace = new Workspace(deps);
+  await workspace.startWorktree({ ...start, run });
+  const confirm = vi.fn(() => Promise.resolve(true));
+  const remove = () =>
+    path === "id"
+      ? workspace.removeWorktree("t1", confirm)
+      : workspace.sidebarCommand(
+          { kind: "remove-worktree", repository: repo.path, worktree: tree.path },
+          confirm,
+        );
+  await expect(remove()).rejects.toThrow("A session is running in this worktree");
+  expect(confirm).not.toHaveBeenCalled();
+  expect(vi.spyOn(deps.terminals, "stop")).not.toHaveBeenCalled();
+  expect(vi.spyOn(deps.terminals, "kill")).not.toHaveBeenCalled();
+  expect(vi.mocked(deps.worktrees.removeWorktree)).not.toHaveBeenCalled();
+  await workspace.exited("t1", 0);
+  await remove();
+  expect(workspace.snapshot().terminals).toEqual([]);
+  await workspace.dispose();
+});
+
+test.each(["id", "sidebar"] as const)(
+  "%s removal revalidates a session launched during confirmation before stopping anything",
+  async (path) => {
+    const workspace = new Workspace(deps);
+    await workspace.startWorktree(start);
+    await workspace.exited("t1", 0);
+    const confirm = vi.fn(async () => {
+      // A changed branch name gives the concurrent launch a different branch lock.
+      vi.mocked(deps.worktrees.listWorktrees).mockResolvedValue([{ ...tree, branch: "renamed" }]);
+      vi.spyOn(deps.terminals, "create").mockResolvedValue("t2");
+      await workspace.sidebarCommand(
+        { kind: "launch", repository: repo.path, worktree: tree.path, run: "shell" },
+        () => Promise.resolve(true),
+      );
+      return true;
+    });
+    const removal =
+      path === "id"
+        ? workspace.removeWorktree("t1", confirm)
+        : workspace.sidebarCommand(
+            { kind: "remove-worktree", repository: repo.path, worktree: tree.path },
+            confirm,
+          );
+    await expect(removal).rejects.toThrow("A session is running in this worktree");
+    expect(confirm).toHaveBeenCalledOnce();
+    expect(vi.spyOn(deps.terminals, "stop")).not.toHaveBeenCalled();
+    expect(vi.spyOn(deps.terminals, "kill")).not.toHaveBeenCalled();
+    expect(vi.mocked(deps.worktrees.removeWorktree)).not.toHaveBeenCalled();
+    expect(workspace.snapshot().terminals.find((entry) => entry.id === "t2")?.exited).toBe(false);
+    expect(workspace.snapshot().terminals).toHaveLength(2);
+    await workspace.exited("t2", 0);
+    await workspace.removeWorktree("t1", () => Promise.resolve(true));
+    expect(workspace.snapshot().terminals).toEqual([]);
+    await workspace.dispose();
+  },
+);
+
+test("manual removal protects restoring sessions, but dormant exited sessions can be cleared", async () => {
+  const stored = {
+    id: "t1",
+    kind: "shell" as const,
+    agent: "shell" as const,
+    repository: repo.path,
+    worktree: tree.path,
+    branch: tree.branch,
+    attention: "evaluator" as const,
+    state: null,
+    dormant: true,
+    exited: true,
+    running: true,
+  };
+  deps.sessions = {
+    load: () => Promise.resolve([stored]),
+    save: async () => {},
+    flush: async () => {},
+  };
+  const workspace = new Workspace(deps);
+  await workspace.restore();
+  const launching = Promise.withResolvers<string>();
+  vi.spyOn(deps.terminals, "create").mockReturnValue(launching.promise);
+  const restarting = workspace.restartSaved();
+  const confirm = vi.fn(() => Promise.resolve(true));
+  await expect(workspace.removeWorktree("t1", confirm)).rejects.toThrow(
+    "A session is running in this worktree",
+  );
+  await expect(
+    workspace.sidebarCommand(
+      { kind: "remove-worktree", repository: repo.path, worktree: tree.path },
+      confirm,
+    ),
+  ).rejects.toThrow("A session is running in this worktree");
+  expect(confirm).not.toHaveBeenCalled();
+  expect(vi.spyOn(deps.terminals, "stop")).not.toHaveBeenCalled();
+  expect(vi.mocked(deps.worktrees.removeWorktree)).not.toHaveBeenCalled();
+  await vi.waitFor(() => {
+    expect(vi.spyOn(deps.terminals, "create")).toHaveBeenCalled();
+  });
+  launching.reject(new Error("restore failed"));
+  await restarting;
+  expect(await workspace.removeWorktree("t1", confirm)).toBe(true);
+  expect(workspace.snapshot().terminals).toEqual([]);
+  await workspace.dispose();
+});
+
 test("cancelled or stale dirty-file confirmations never kill or remove", async () => {
   const workspace = new Workspace(deps);
   await workspace.startWorktree(start);
+  await workspace.exited("t1", 0);
   const dirty = " M file.ts\0?? notes.txt\0";
   vi.spyOn(deps.worktrees, "changes").mockResolvedValue(dirty);
   const confirm = vi.fn(() => Promise.resolve(false));
@@ -829,10 +941,11 @@ test("cancelled or stale dirty-file confirmations never kill or remove", async (
 });
 
 test.each(["", "?? file.txt\0"])(
-  "confirmed removal stops the terminal and removes only its owned worktree (%s)",
+  "confirmed removal clears the exited terminal and removes only its owned worktree (%s)",
   async (changes) => {
     const workspace = new Workspace(deps);
     await workspace.startWorktree(start);
+    await workspace.exited("t1", 0);
     vi.spyOn(deps.worktrees, "changes").mockResolvedValue(changes);
     expect(await workspace.removeWorktree("t1", () => Promise.resolve(true))).toBe(true);
     expect(vi.spyOn(deps.terminals, "kill")).toHaveBeenCalledWith("t1");
@@ -853,6 +966,7 @@ test.each(["", "?? file.txt\0"])(
 test("failed removal leaves the row available for retry and excludes overlapping operations", async () => {
   const workspace = new Workspace(deps);
   await workspace.startWorktree(start);
+  await workspace.exited("t1", 0);
   const confirmation = Promise.withResolvers<boolean>();
   const removing = workspace.removeWorktree("t1", () => confirmation.promise);
   await expect(workspace.removeWorktree("t1", () => Promise.resolve(true))).rejects.toThrow("busy");
@@ -871,6 +985,7 @@ test.each(["", "?? reviewed.txt\0"])(
   async (changes) => {
     const workspace = new Workspace(deps);
     await workspace.startWorktree(start);
+    await workspace.exited("t1", 0);
     const changed = changes + "?? NEW-AFTER-CONFIRM.txt\0";
     vi.spyOn(deps.worktrees, "changes").mockResolvedValue(changes);
     const shutdown = Promise.withResolvers<undefined>();
@@ -889,7 +1004,7 @@ test.each(["", "?? reviewed.txt\0"])(
     expect(vi.spyOn(deps.terminals, "kill")).not.toHaveBeenCalled();
     expect(vi.mocked(deps.worktrees.removeWorktree)).not.toHaveBeenCalled();
     expect(workspace.snapshot().terminals).toHaveLength(1);
-    expect(workspace.snapshot().terminals[0]?.state?.state).toBe("failed");
+    expect(workspace.snapshot().terminals[0]?.state?.state).toBe("done");
     const confirm = vi.fn(() => Promise.resolve(true));
     await workspace.removeWorktree("t1", confirm);
     expect(confirm).toHaveBeenCalledWith("feature", changed);
@@ -1456,7 +1571,7 @@ test("simultaneous legacy launches cannot bypass the active-agent warning", asyn
   expect(await workspace.startWorktree({ ...start, run: "claude" })).toBeNull();
 });
 
-test("removing a shared worktree stops every session before the final status check and removal", async () => {
+test("removing a shared worktree clears all exited sessions before the final status check and removal", async () => {
   const workspace = new Workspace(deps);
   vi.spyOn(deps.terminals, "create").mockResolvedValueOnce("s1").mockResolvedValueOnce("s2");
   await workspace.startWorktree(start);
@@ -1468,7 +1583,10 @@ test("removing a shared worktree stops every session before the final status che
     stopped.push(id);
     return Promise.resolve();
   });
-  for (const id of ["s1", "s2", "a1"]) tails.set(id, []);
+  for (const id of ["s1", "s2", "a1"]) {
+    tails.set(id, []);
+    await workspace.exited(id, 0);
+  }
   vi.mocked(deps.worktrees.changes)
     .mockResolvedValueOnce("")
     .mockResolvedValueOnce("")
@@ -2464,9 +2582,9 @@ test("merged cleanup lists every skip rule and continues after a changed candida
       { branch: "unavailable", reason: "unavailable" },
     ],
   });
-  expect(deps.worktrees.removeWorktree).toHaveBeenCalledTimes(2);
+  expect(vi.mocked(deps.worktrees.removeWorktree)).toHaveBeenCalledTimes(2);
   for (const candidate of [tree, external]) {
-    expect(deps.worktrees.removeWorktree).toHaveBeenCalledWith(
+    expect(vi.mocked(deps.worktrees.removeWorktree)).toHaveBeenCalledWith(
       repo.path,
       candidate.path,
       false,
@@ -2504,7 +2622,7 @@ test.each(["dirty", "unmerged", "replaced", "renamed", "missing"])(
         },
       ),
     ).resolves.toBeUndefined();
-    expect(deps.worktrees.removeWorktree).not.toHaveBeenCalled();
+    expect(vi.mocked(deps.worktrees.removeWorktree)).not.toHaveBeenCalled();
     expect(deps.worktrees.deleteMergedBranch).not.toHaveBeenCalled();
     await workspace.dispose();
   },
@@ -2522,14 +2640,14 @@ test("merged cleanup cancels, refuses stale fetches and hides ineligible invento
   ).resolves.toBeUndefined();
   vi.mocked(deps.worktrees.mergedCommit).mockResolvedValue(true);
   await cleanupCommand(workspace, command, () => Promise.resolve(false));
-  expect(deps.worktrees.removeWorktree).not.toHaveBeenCalled();
+  expect(vi.mocked(deps.worktrees.removeWorktree)).not.toHaveBeenCalled();
   await expect(
     cleanupCommand(workspace, command, () => {
       vi.mocked(deps.worktrees.mergedDefault).mockRejectedValue(new Error("fetch failed"));
       return Promise.resolve(true);
     }),
   ).resolves.toBeUndefined();
-  expect(deps.worktrees.removeWorktree).not.toHaveBeenCalled();
+  expect(vi.mocked(deps.worktrees.removeWorktree)).not.toHaveBeenCalled();
   await expect
     .poll(async () => (await workspace.sidebarInventory()).repositories[0]?.mergedError)
     .toBe("fetch failed");
@@ -2580,7 +2698,7 @@ test("merged cleanup rechecks content after exiting terminal resources", async (
       Promise.resolve(true),
     ),
   ).resolves.toBeUndefined();
-  expect(deps.worktrees.removeWorktree).not.toHaveBeenCalled();
+  expect(vi.mocked(deps.worktrees.removeWorktree)).not.toHaveBeenCalled();
   expect(deps.worktrees.deleteMergedBranch).not.toHaveBeenCalled();
   await workspace.dispose();
 });
@@ -2602,7 +2720,7 @@ test("a session launched during confirmation is skipped", async () => {
       },
     ),
   ).resolves.toBeUndefined();
-  expect(deps.worktrees.removeWorktree).not.toHaveBeenCalled();
+  expect(vi.mocked(deps.worktrees.removeWorktree)).not.toHaveBeenCalled();
   await workspace.dispose();
 });
 
@@ -3346,7 +3464,7 @@ test("cleanup drains superseded eligibility scans and does not rescan while remo
   await vi.waitFor(() => {
     expect(deps.worktrees.mergedCommit).toHaveBeenCalledTimes(2);
   });
-  expect(deps.worktrees.removeWorktree).not.toHaveBeenCalled();
+  expect(vi.mocked(deps.worktrees.removeWorktree)).not.toHaveBeenCalled();
   vi.mocked(deps.worktrees.removeWorktree).mockImplementation(async () => {
     const before = vi.mocked(deps.worktrees.changes).mock.calls.length;
     // An inventory event caused by deletion must not start new Git readers.
@@ -3356,6 +3474,6 @@ test("cleanup drains superseded eligibility scans and does not rescan while remo
   });
   releases[0]?.();
   await cleanup;
-  expect(deps.worktrees.removeWorktree).toHaveBeenCalledOnce();
+  expect(vi.mocked(deps.worktrees.removeWorktree)).toHaveBeenCalledOnce();
   await workspace.dispose();
 });

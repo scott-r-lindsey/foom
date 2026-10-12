@@ -88,6 +88,29 @@ async function installSoundSink(page) {
   await page.waitForFunction(() => window.soundDecoded >= 4);
 }
 
+async function stopSession(page, id) {
+  await page.evaluate(() => {
+    window.confirmationArm = null;
+    window.stopConfirmationSubscription = window.desktop.confirmations.subscribe((arm) => {
+      window.confirmationArm = arm;
+    });
+  });
+  const stopping = page.evaluate((id) => window.desktop.sidebarCommand({ kind: "stop", id }), id);
+  await page.waitForFunction(() => window.confirmationArm !== null);
+  // The confirmation deliberately requires a minimum interval before the second click.
+  await page.waitForTimeout(310);
+  await page.evaluate(() => window.desktop.confirmations.confirm(window.confirmationArm));
+  await stopping;
+  await expect
+    .poll(
+      async () =>
+        (await page.evaluate(() => window.desktop.workspace())).terminals.find((t) => t.id === id)
+          ?.exited,
+    )
+    .toBe(true);
+  await page.evaluate(() => window.stopConfirmationSubscription());
+}
+
 async function confirmationPage(app) {
   let page;
   await expect
@@ -2949,6 +2972,7 @@ test("the branch field creates a worktree by keyboard without launching; dirty r
   await row.click();
   await expect(page.locator(".xterm-helper-textarea")).toBeFocused();
   await expect(page.locator(".tile-terminal")).toBeVisible();
+  await stopSession(page, terminal.id);
   const dirty = path.join(terminal.worktree, "unsaved.txt");
   await writeFile(dirty, "preserve unless confirmed");
   await page.getByRole("button", { name: "Actions for feature/ui", exact: true }).click();
@@ -2999,10 +3023,11 @@ test("the branch field creates a worktree by keyboard without launching; dirty r
   );
 });
 
-test("external worktrees offer confirmed removal while preserving branches and the main checkout", {
+test("sidebar refuses deletion of a running shell and enables it after exit, preserving branches and the main checkout", {
   timeout: deadline(45000),
 }, async (context) => {
-  const root = await mkdtemp(path.join(tmpdir(), "foom-external-removal-"));
+  // Match main’s canonical paths on macOS temp aliases and Windows short paths.
+  const root = await realpath(await mkdtemp(path.join(tmpdir(), "foom-external-removal-")));
   const repo = path.join(root, "repo");
   const external = path.join(root, "external");
   await mkdir(repo);
@@ -3034,6 +3059,38 @@ test("external worktrees offer confirmed removal while preserving branches and t
   await page.getByRole("button", { name: "Add repository", exact: true }).click();
   const row = page.getByRole("button", { name: "Actions for external", exact: true });
   await row.click();
+  await page.getByRole("menuitem", { name: /^Shell \(/ }).click();
+  await expect(page.locator(".board-row").filter({ hasText: "external" })).toHaveCount(1);
+  const shell = (await page.evaluate(() => window.desktop.workspace())).terminals.find(
+    (t) => t.worktree === external,
+  );
+  assert.ok(shell);
+  await row.click();
+  await expect(page.getByRole("menuitem", { name: "Delete worktree…" })).toBeDisabled();
+  await assert.rejects(
+    page.evaluate(
+      ({ repository, worktree }) =>
+        window.desktop.sidebarCommand({ kind: "remove-worktree", repository, worktree }),
+      { repository: repo, worktree: external },
+    ),
+    /A session is running in this worktree/u,
+  );
+  await expect(page.locator(".board-confirmation-scrim")).toHaveCount(0);
+  assert.equal(await readFile(dirty, "utf8"), "keep until confirmed");
+  await page.keyboard.press("Escape");
+  await page.locator(".board-row").filter({ hasText: "external" }).click();
+  await expect(page.locator(".xterm-helper-textarea")).toBeFocused();
+  await page.evaluate((id) => window.desktop.input(id, "exit\r"), shell.id);
+  await expect
+    .poll(
+      async () =>
+        (await page.evaluate(() => window.desktop.workspace())).terminals.find(
+          (t) => t.id === shell.id,
+        )?.exited,
+    )
+    .toBe(true);
+  await row.click();
+  await expect(page.getByRole("menuitem", { name: "Delete worktree…" })).toBeEnabled();
   await page.getByRole("menuitem", { name: "Delete worktree…" }).click();
   const confirmation = await confirmationPage(app);
   await expect(confirmation.getByLabel("Uncommitted changes")).toContainText("unsaved.txt");
@@ -3235,6 +3292,9 @@ process.stdin.resume();
     inventory.repositories[0].worktrees.every((tree) => !tree.managed),
     "Launching must not adopt external checkouts",
   );
+  for (const session of await sharedSessions()) {
+    if (!session.exited) await stopSession(page, session.id);
+  }
   const removal = page.evaluate(
     ({ repository, worktree }) =>
       window.desktop.sidebarCommand({ kind: "remove-worktree", repository, worktree }),
