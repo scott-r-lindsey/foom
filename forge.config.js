@@ -33,7 +33,7 @@ module.exports = {
   },
   packagerConfig: {
     asar: { unpack: "**/build/{observers,console}/**/*", unpackDir: "**/node_modules/node-pty/**" },
-    executableName: "foom",
+    executableName: "Foom",
     appBundleId: "com.foom.desktop",
     // Include production dependencies; native PTY binaries and helpers must live outside ASAR.
     ignore: (file) =>
