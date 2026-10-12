@@ -7412,21 +7412,27 @@ test("merged cleanup opens checking, continues hidden, reopens progress and stop
       globalThis.cleanupFetchRelease = resolve;
     });
     globalThis.cleanupRemovals = [];
-    globalThis.cleanupRestore = () => {
+    globalThis.cleanupRestore = async () => {
       WorktreeService.prototype.mergedDefault = fetch;
       WorktreeService.prototype.removeWorktree = remove;
       globalThis.cleanupFetchRelease();
-      for (const finish of globalThis.cleanupRemovals.splice(0)) finish();
+      await Promise.allSettled(globalThis.cleanupRemovals.splice(0).map((finish) => finish()));
     };
     WorktreeService.prototype.mergedDefault = async function (...args) {
       await gate;
       return fetch.apply(this, args);
     };
-    WorktreeService.prototype.removeWorktree = async function (...args) {
-      await new Promise((resolve) => {
-        globalThis.cleanupRemovals.push(resolve);
+    WorktreeService.prototype.removeWorktree = function (...args) {
+      let release;
+      const gate = new Promise((resolve) => {
+        release = resolve;
       });
-      return remove.apply(this, args);
+      const operation = gate.then(() => remove.apply(this, args));
+      globalThis.cleanupRemovals.push(async () => {
+        release();
+        await operation;
+      });
+      return operation;
     };
     dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [repo] });
   }, repo);
@@ -7457,8 +7463,11 @@ test("merged cleanup opens checking, continues hidden, reopens progress and stop
     "1",
   );
   await confirmation.getByRole("button", { name: "Stop", exact: true }).click();
-  await app.evaluate(() => {
-    for (const finish of globalThis.cleanupRemovals.splice(0)) finish();
+  await expect(confirmation.getByText(/Finishing in-flight removals/)).toBeVisible();
+  // The four-worker gate above verifies concurrency. Release native Git operations
+  // individually so this progress/Stop test does not race Windows directory handles.
+  await app.evaluate(async () => {
+    for (const finish of globalThis.cleanupRemovals.splice(0)) await finish();
   });
   await expect(confirmation.getByRole("button", { name: "Done", exact: true })).toBeVisible();
   await expect(confirmation.getByRole("list", { name: "Cleanup checklist" })).toContainText(
