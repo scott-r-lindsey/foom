@@ -417,7 +417,11 @@ revalidation callback. Candidate path, filesystem identity, branch and commit
 are captured before the trusted dialog. Both revalidation passes check Git membership and captured identity,
 session eligibility, clean status and `merge-tree` containment against a freshly
 fetched default commit. A failed post-confirmation fetch prevents every removal.
-Main owns one `CleanupRun` per repository. Four workers run the existing removal
+Main owns one `CleanupRun` per repository. While it is pending, inventory does not
+start background eligibility scans. Before deletion begins, cleanup drains all
+existing scans, including superseded scans whose results will be discarded, so
+Windows directory handles held by their Git processes cannot block removal.
+Four workers run the existing removal
 path, retaining both revalidation passes. Successful removals retain their branch
 launch locks through the ref transaction so Foom cannot recreate those branches
 while they are being deleted. Failed candidates release their locks immediately. Git removes

@@ -7187,6 +7187,7 @@ req.end(JSON.stringify(payload));
     await expect
       .poll(async () => (await rows(first)).find((row) => row.id === childId)?.conversationId)
       .toBe("saved-child");
+    const oldChild = await readCredentials("child");
     await first.evaluate(() => window.desktop.appMenu.execute("new-window"));
     let second;
     await expect
@@ -7240,9 +7241,22 @@ req.end(JSON.stringify(payload));
     await expect
       .poll(async () => (await rows(page)).filter((row) => !row.exited && !row.dormant).length)
       .toBe(3);
-    const newParent = await readCredentials("repo");
-    assert.notEqual(newParent.controlToken, oldParent.controlToken);
-    const restoredChild = await readCredentials("child");
+    // PTY registration precedes the fake agent writing its per-launch credentials.
+    // Wait for both new processes rather than reading the previous launch's files.
+    const waitForCredentials = async (name, previous) => {
+      await expect
+        .poll(async () => {
+          try {
+            return (await readCredentials(name)).controlToken !== previous.controlToken;
+          } catch {
+            return false; // The fixture may be in the middle of rewriting the file.
+          }
+        })
+        .toBe(true);
+      return readCredentials(name);
+    };
+    const newParent = await waitForCredentials("repo", oldParent);
+    const restoredChild = await waitForCredentials("child", oldChild);
     assert.ok(restoredChild.args.includes(agent === "claude" ? "--resume" : "resume"));
     assert.ok(restoredChild.args.some((arg) => arg.startsWith("Task from your Foom orchestrator")));
     for (const window of pages) {
@@ -7464,10 +7478,8 @@ test("merged cleanup opens checking, continues hidden, reopens progress and stop
   );
   await confirmation.getByRole("button", { name: "Stop", exact: true }).click();
   await expect(confirmation.getByText(/Finishing in-flight removals/)).toBeVisible();
-  // The four-worker gate above verifies concurrency. Release native Git operations
-  // individually so this progress/Stop test does not race Windows directory handles.
   await app.evaluate(async () => {
-    for (const finish of globalThis.cleanupRemovals.splice(0)) await finish();
+    await Promise.all(globalThis.cleanupRemovals.splice(0).map((finish) => finish()));
   });
   await expect(confirmation.getByRole("button", { name: "Done", exact: true })).toBeVisible();
   await expect(confirmation.getByRole("list", { name: "Cleanup checklist" })).toContainText(
@@ -7490,7 +7502,13 @@ test("wide blank tiles start as columns, full boards grow right, and hide refill
   });
   const launch = async () => {
     const count = await page.locator(".board-row").count();
-    await page.getByRole("button", { name: "Actions for Home shell", exact: true }).press("Enter");
+    // Keep the pointer out of rows while navigating menus with the keyboard.
+    // Selection can leave a hover panel open; a pinned panel blocks another panel.
+    await page.mouse.move(0, 0);
+    const actions = page.getByRole("button", { name: "Actions for Home shell", exact: true });
+    await actions.press("Escape");
+    await expect(page.locator(".row-menu")).toHaveCount(0);
+    await actions.press("Enter");
     await page.getByRole("menuitem", { name: "New shell", exact: true }).press("Enter");
     await expect(page.locator(".board-row")).toHaveCount(count + 1);
     await expect(
@@ -7520,6 +7538,15 @@ test("wide blank tiles start as columns, full boards grow right, and hide refill
   await page.locator(".board-row").first().click();
   await expect(page.locator('.terminal-tile[data-empty="false"]')).toHaveCount(3);
   assert.deepEqual(await geometry(), before);
+  // Explicitly exercise the already-open panel state that caused the CI timeout.
+  await page.getByRole("button", { name: "Actions for Home shell", exact: true }).press("Escape");
+  await expect(page.locator(".row-menu")).toHaveCount(0);
+  await page
+    .locator(".board-row")
+    .first()
+    .getByRole("button", { name: /Actions for/ })
+    .press("Enter");
+  await expect(page.locator('.row-menu[data-pinned="true"]')).toBeVisible();
   await launch();
   await expect(tiles).toHaveCount(4);
   const after = await geometry();

@@ -169,6 +169,7 @@ export class Workspace {
   private readonly repositoryOperations = new Map<string, Set<symbol>>();
   private readonly removingRepositories = new Set<string>();
   private readonly cleanupRuns = new Map<string, CleanupRun>();
+  private readonly mergeScans = new Map<string, Set<Promise<void>>>();
   private readonly mergeEligibility = new Map<
     string,
     {
@@ -947,7 +948,12 @@ export class Workspace {
     }
     return this.withRepository(repository, async () => {
       const run = new CleanupRun({
-        fetch: () => this.deps.worktrees.mergedDefault(repository, true),
+        fetch: async () => {
+          // Windows cannot remove a checkout while a background Git process uses it as cwd.
+          // Include superseded scans too: their publication is discarded, but they still run.
+          await Promise.all([...(this.mergeScans.get(repository) ?? [])]);
+          return this.deps.worktrees.mergedDefault(repository, true);
+        },
         changed: () => {
           this.refresh();
         },
@@ -1023,6 +1029,8 @@ export class Workspace {
 
   /** Never let remote discovery hold up local inventory or session publication. */
   private cachedMergeEligibility(repository: string, worktrees: readonly Worktree[]) {
+    if (this.cleanupRuns.get(repository)?.pending)
+      return this.mergeEligibility.get(repository)?.result ?? { canDeleteMerged: false };
     if (this.closed || !worktrees.some((tree) => tree.path !== repository && !tree.bare)) {
       this.mergeEligibility.delete(repository);
       return { canDeleteMerged: false };
@@ -1048,21 +1056,29 @@ export class Workspace {
       entry.expires = this.now() + 60_000;
       this.deps.onChange?.();
     };
-    void this.mergedPlan(repository, false, worktrees).then(
-      (plan) => {
-        entry.plan = plan;
-        publish({
-          canDeleteMerged: plan.some((item) => !item.reason),
-          mergedCount: plan.filter((item) => !item.reason).length,
-        });
-      },
-      (error: unknown) => {
-        publish({
-          canDeleteMerged: false,
-          mergedError: error instanceof Error ? error.message : String(error),
-        });
-      },
-    );
+    const scans = this.mergeScans.get(repository) ?? new Set<Promise<void>>();
+    this.mergeScans.set(repository, scans);
+    const scan: Promise<void> = this.mergedPlan(repository, false, worktrees)
+      .then(
+        (plan) => {
+          entry.plan = plan;
+          publish({
+            canDeleteMerged: plan.some((item) => !item.reason),
+            mergedCount: plan.filter((item) => !item.reason).length,
+          });
+        },
+        (error: unknown) => {
+          publish({
+            canDeleteMerged: false,
+            mergedError: error instanceof Error ? error.message : String(error),
+          });
+        },
+      )
+      .finally(() => {
+        scans.delete(scan);
+        if (scans.size === 0) this.mergeScans.delete(repository);
+      });
+    scans.add(scan);
     return entry.result;
   }
 
