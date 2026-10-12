@@ -395,17 +395,38 @@ one minute, starts a background scan for a new local worktree/session inventory
 or an expired result, and emits a workspace change when it finishes. Matching
 in-flight scans are shared; superseded scans, removed repositories and disposed
 workspaces cannot publish late results. Git status reads use `--no-optional-locks`
-so index refreshes cannot race deletion of per-worktree metadata. Cleanup still
-fetches afresh.
+so index refreshes cannot race deletion of per-worktree metadata. Cleanup reuses a completed plan younger than 60 seconds for presentation; otherwise
+it opens checking before awaiting the fresh plan. Approval always fetches afresh.
+Default discovery runs `ls-remote --symref` alongside `fetch --prune`, then tests
+the advertised commit with `cat-file -e`. Only an absent object needs the explicit
+default-ref fetch. Either failed network operation refuses cleanup.
 
 Merged cleanup uses the same removal sequence with an additional main-owned
 revalidation callback. Candidate path, filesystem identity, branch and commit
 are captured before the trusted dialog. Both revalidation passes check Git membership and captured identity,
 session eligibility, clean status and `merge-tree` containment against a freshly
 fetched default commit. A failed post-confirmation fetch prevents every removal.
-Local branch removal uses `update-ref --no-deref -d <ref> <expected-commit>` for atomic
-compare-and-delete, providing forced deletion for squash merges without the
-check/delete race of `branch -D`. It refuses branches checked out elsewhere.
+Main owns one `CleanupRun` per repository. Four workers run the existing removal
+path, retaining both revalidation passes and branch launch locks. Git removes
+separate per-worktree admin directories and checkout indexes; these operations
+need no shared main-index write. Status disables optional index locking; merge-tree
+writes content-addressed objects. Persistence remains serialized by the service.
+After all workers finish, a single `update-ref --no-deref --stdin` transaction
+serializes shared ref/packed-refs mutation using Git's ref locks. It compares each
+checked SHA, excludes moved and checked-out branches, and retains all transaction
+refs if a concurrent change prevents commit.
+
+The sidebar inventory carries main-owned total, done, phase, stopped and fixed
+per-worktree states/reasons. Removed rows remain as presentation tombstones to
+fold away. `CleanupFeed` is a main-only subscription capability, stripped before
+sending any dialog request. The trusted window receives branch labels and opaque
+row IDs, never cleanup paths. Its existing ID-scoped, exact-window/top-frame/URL
+validated boolean answer approves only a ready plan, stops only an active run,
+or closes the presentation. Checking cannot approve. Main publishes current state
+on the existing render channel; stale IDs and non-boolean payloads are ignored.
+Hide/close/Escape unsubscribe without stopping; reopening subscribes to the same
+run. The repository reservation lasts until workers settle, including while hidden.
+Shutdown stops scheduling new removals and waits for in-flight work.
 As with ordinary removal, this does not isolate concurrent filesystem mutations
 by external local processes. Fetches disable interactive credential prompts and
 Git commands have a 30-second process deadline.

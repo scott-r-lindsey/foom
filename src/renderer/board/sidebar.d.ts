@@ -1,3 +1,4 @@
+import type { CleanupProgress } from "../../shared/cleanup";
 import type { Repository, Worktree } from "../../shared/worktrees";
 import type { BoardRow } from "./board.d";
 export interface SidebarPreferences {
@@ -9,6 +10,7 @@ export interface SidebarWorktree extends Worktree {
   removed?: boolean;
 }
 export interface SidebarRepository extends Repository {
+  cleanup?: CleanupProgress | undefined;
   canDeleteMerged?: boolean;
   mergedCount?: number;
   mergedError?: string;

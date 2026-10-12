@@ -16,18 +16,20 @@ import type {
 
 const execute = promisify(execFile);
 
-async function git(cwd: string, args: string[], timeout = 30_000): Promise<string> {
+async function git(cwd: string, args: string[], timeout = 30_000, input?: string): Promise<string> {
   // Ignore inherited repository selectors: the validated cwd selects the repository.
   const env = Object.fromEntries(
     Object.entries(process.env).filter(([key]) => !key.startsWith("GIT_")),
   );
-  const { stdout } = await execute("git", args, {
+  const operation = execute("git", args, {
     cwd,
     env: { ...env, GIT_TERMINAL_PROMPT: "0" },
     timeout,
     encoding: "utf8",
     maxBuffer: 16 * 1024 * 1024,
   });
+  operation.child.stdin?.end(input);
+  const { stdout } = await operation;
   return stdout;
 }
 
@@ -620,14 +622,20 @@ export class WorktreeService {
     const remote = pickRemote(await git(repository, ["remote"]));
     if (!remote) throw new Error("No unambiguous repository remote");
     try {
-      await git(repository, ["fetch", "--prune", "--", remote]);
-      const advertised = await git(repository, ["ls-remote", "--symref", "--", remote, "HEAD"]);
+      const [, advertised] = await Promise.all([
+        git(repository, ["fetch", "--prune", "--", remote]),
+        git(repository, ["ls-remote", "--symref", "--", remote, "HEAD"]),
+      ]);
       const ref = /^ref: (refs\/heads\/[^\n\t]+)\tHEAD$/mu.exec(advertised)?.[1];
       const head = /^([a-f0-9]{40,64})\tHEAD$/mu.exec(advertised)?.[1];
       if (!ref || !head) throw new Error("Remote default branch is unavailable");
       await this.validateBranch(repository, ref.slice("refs/heads/".length));
-      // Fetch explicitly as well: a custom fetch refspec may omit the default branch.
-      await git(repository, ["fetch", "--no-write-fetch-head", "--", remote, ref]);
+      // Custom refspecs can omit the advertised default. Fetch it only if absent.
+      try {
+        await git(repository, ["cat-file", "-e", `${head}^{commit}`]);
+      } catch {
+        await git(repository, ["fetch", "--no-write-fetch-head", "--", remote, ref]);
+      }
       const commit = (await git(repository, ["rev-parse", "--verify", `${head}^{commit}`])).trim();
       this.fetchFacts.set(repository, {
         branch: ref.slice("refs/heads/".length),
@@ -672,6 +680,40 @@ export class WorktreeService {
     // Compare-and-delete atomically, unlike branch -D's unconditional ref deletion.
     // This also removes squash-merged refs without an ancestry-based merged check.
     await git(repository, ["update-ref", "--no-deref", "-d", `refs/heads/${branch}`, head]);
+  }
+
+  async deleteMergedBranches(
+    repository: string,
+    branches: readonly { branch: string; head: string }[],
+  ): Promise<readonly string[]> {
+    const checkedOut = new Set((await this.listWorktrees(repository)).map((tree) => tree.branch));
+    const kept: string[] = [];
+    const commands: string[] = [];
+    for (const { branch, head } of branches) {
+      await this.validateBranch(repository, branch);
+      if (!/^[a-f0-9]{40,64}$/u.test(head)) throw new Error("Invalid commit ID");
+      const current = await git(repository, [
+        "rev-parse",
+        "--verify",
+        `refs/heads/${branch}`,
+      ]).catch(() => "");
+      if (checkedOut.has(branch) || current.trim() !== head) kept.push(branch);
+      else commands.push(`delete refs/heads/${branch} ${head}`);
+    }
+    if (commands.length) {
+      // One transaction locks refs together. A race aborts it; preserve every ref on failure.
+      try {
+        await git(
+          repository,
+          ["update-ref", "--no-deref", "--stdin"],
+          30_000,
+          ["start", ...commands, "prepare", "commit", ""].join("\n"),
+        );
+      } catch {
+        return branches.map((item) => item.branch);
+      }
+    }
+    return kept;
   }
 
   async removeWorktree(

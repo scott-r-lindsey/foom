@@ -1,3 +1,4 @@
+import type { CleanupDialog, CleanupFeed } from "./cleanup";
 import type { InterfaceTheme } from "./interface-theme";
 export interface ArmedConfirmation {
   nonce: string;
@@ -12,6 +13,9 @@ export interface ConfirmationClient {
   cancel(): Promise<void>;
 }
 export interface DialogContent {
+  cleanup?: CleanupDialog;
+  /** Main-only; stripped before rendering. */
+  feed?: CleanupFeed;
   title: string;
   accept: string;
   detail?: string;
@@ -19,7 +23,7 @@ export interface DialogContent {
   changes?: string;
   sessions?: readonly { id: string; name: string; location: string; state: string }[];
 }
-export interface DialogRequest extends DialogContent {
+export interface DialogRequest extends Omit<DialogContent, "feed"> {
   id: string;
   theme: InterfaceTheme;
 }
@@ -32,7 +36,11 @@ export interface ConfirmationWindowApi {
 /** Main-only requests: click-again is misclick protection, not a trust boundary. */
 export type WorkspaceConfirmation =
   | { kind: "remove" | "stop" | "shared-agent" | "notifier" }
-  | { kind: "merged-worktrees"; worktrees: readonly { branch: string; reason?: string }[] }
+  | {
+      kind: "merged-worktrees";
+      feed?: CleanupFeed;
+      worktrees: readonly { branch: string; reason?: string }[];
+    }
   | { kind: "dirty-worktree"; title: string; changes: string }
   | { kind: "orchestrator"; agent: "claude" | "codex" | "agy" };
 export type ConfirmWorkspace = (request: WorkspaceConfirmation) => Promise<boolean>;

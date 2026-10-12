@@ -57,6 +57,7 @@ beforeEach(() => {
       changes: vi.fn(() => Promise.resolve("")),
       mergedDefault: vi.fn(() => Promise.resolve("base")),
       mergedCommit: vi.fn(() => Promise.resolve(false)),
+      deleteMergedBranches: vi.fn(() => Promise.resolve([])),
       deleteMergedBranch: vi.fn(async () => {}),
       removeRepository: vi.fn(async () => {}),
       removeWorktree: vi.fn(async () => {}),

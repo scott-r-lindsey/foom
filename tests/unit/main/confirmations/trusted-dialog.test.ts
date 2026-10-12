@@ -48,7 +48,7 @@ vi.mock("electron", () => ({
     removeListener: (channel: string) => mock.ipc.delete(channel),
   },
 }));
-import { TrustedDialog } from "../../../../src/main/confirmations/trusted-dialog";
+import { TrustedDialog, CONFIRMATION_URL } from "../../../../src/main/confirmations/trusted-dialog";
 const theme = resolveInterfaceTheme("follow", false);
 const parent = Object.assign(new EventEmitter(), {
   isEnabled: () => true,
@@ -290,4 +290,48 @@ test("size requires a pending trusted main frame and finite positive dimensions 
   dialog.dispose();
   dialog.refresh();
   resize(valid);
+});
+
+test("live cleanup updates stay in the trusted window; malformed actions cannot start or stop it", async () => {
+  const dialog = setup();
+  let publish = () => {};
+  let stage: "checking" | "ready" | "run" = "checking";
+  const action = vi.fn();
+  const unsubscribe = vi.fn();
+  const feed = {
+    current: () => ({
+      stage,
+      progress: { total: 1, done: 0, phase: "fetch" as const, stopped: false, items: [] },
+    }),
+    subscribe: (listener: () => void) => {
+      publish = listener;
+      return unsubscribe;
+    },
+    act: action,
+  };
+  const result = dialog.request({ ...content, feed });
+  const id = await shown();
+  expect(window().webContents.send.mock.calls.at(-1)?.[1]).not.toHaveProperty("feed");
+  answer(id, "true");
+  answer("stale", true);
+  answer(id, true, { sender: parent.webContents, senderFrame: window().webContents.mainFrame });
+  answer(id, true, { sender: window().webContents, senderFrame: { url: CONFIRMATION_URL } });
+  expect(action).not.toHaveBeenCalled();
+  stage = "ready";
+  publish();
+  expect(window().webContents.send.mock.calls.at(-1)?.[1]).toMatchObject({
+    cleanup: { stage: "ready" },
+  });
+  answer(id, true);
+  expect(action).toHaveBeenCalledOnce();
+  stage = "run";
+  publish();
+  answer(id, true);
+  expect(action).toHaveBeenCalledTimes(2);
+  answer(id, false);
+  expect(await result).toBe(false);
+  expect(unsubscribe).toHaveBeenCalledOnce();
+  publish();
+  expect(action).toHaveBeenCalledTimes(2);
+  dialog.dispose();
 });

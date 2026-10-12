@@ -13,6 +13,8 @@ export class TrustedDialog {
   private pending:
     | { id: string; request: DialogRequest; resolve: (answer: boolean) => void }
     | undefined;
+  private feed: DialogContent["feed"];
+  private unsubscribe: (() => void) | undefined;
   private queue: Promise<unknown> = Promise.resolve();
   private size: { width: number; height: number } | undefined;
   private disposed = false;
@@ -38,6 +40,10 @@ export class TrustedDialog {
       id !== this.pending.id
     )
       return;
+    if (accepted && this.feed) {
+      this.feed.act();
+      return;
+    }
     this.finish(accepted);
   };
   private readonly resize = (event: IpcMainEvent, value: unknown) => {
@@ -145,10 +151,22 @@ export class TrustedDialog {
       const window = this.window;
       if (!window || signal?.aborted) return false;
       const id = randomUUID();
-      const request: DialogRequest = { ...content, id, theme: this.theme() };
+      const { feed, ...renderContent } = content;
+      this.feed = feed;
+      const request: DialogRequest = {
+        ...renderContent,
+        id,
+        theme: this.theme(),
+        ...(feed ? { cleanup: feed.current() } : {}),
+      };
       this.size = undefined;
       const answer = new Promise<boolean>((resolve) => {
         this.pending = { id, request, resolve };
+      });
+      this.unsubscribe = feed?.subscribe(() => {
+        if (this.pending?.id !== id) return;
+        this.pending.request = { ...this.pending.request, cleanup: feed.current() };
+        this.refresh();
       });
       const cancel = () => {
         if (this.pending?.id === id) this.finish(false);
@@ -214,6 +232,9 @@ export class TrustedDialog {
     const pending = this.pending;
     this.pending = undefined;
     if (!pending) return;
+    this.unsubscribe?.();
+    this.unsubscribe = undefined;
+    this.feed = undefined;
     this.window?.webContents.send("confirmation:render", null);
     this.window?.hide();
     this.parent.removeListener("move", this.syncBounds);

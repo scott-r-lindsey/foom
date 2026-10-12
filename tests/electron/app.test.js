@@ -5701,10 +5701,10 @@ test("merged cleanup deletes external worktrees and branches while preserving a 
   await page.getByRole("button", { name: "Actions for repo", exact: true }).click();
   await page.getByRole("menuitem", { name: /Delete merged worktrees…/ }).click();
   const confirmation = await confirmationPage(app);
-  await expect(confirmation.getByRole("list", { name: "Worktrees to delete" })).toHaveText(
-    "merged-onemerged-two",
+  await expect(confirmation.getByRole("list", { name: "Cleanup checklist" })).toContainText(
+    "merged-onequeued",
   );
-  await expect(confirmation.getByRole("list", { name: "Skipped worktrees" })).toContainText(
+  await expect(confirmation.getByRole("list", { name: "Cleanup checklist" })).toContainText(
     "dirtyuncommitted changes",
   );
   await expect(confirmation.getByRole("button", { name: "Cancel" })).toBeFocused();
@@ -5718,8 +5718,8 @@ test("merged cleanup deletes external worktrees and branches while preserving a 
   assert.ok((git("branch", "--list", "merged-one") || "").includes("merged-one"));
   await page.getByRole("button", { name: "Actions for repo", exact: true }).click();
   await page.getByRole("menuitem", { name: /Delete merged worktrees…/ }).click();
-  await expect(confirmation.getByRole("button", { name: "Delete", exact: true })).toBeVisible();
-  await confirmation.getByRole("button", { name: "Delete", exact: true }).click();
+  await expect(confirmation.getByRole("button", { name: "Delete 2", exact: true })).toBeVisible();
+  await confirmation.getByRole("button", { name: "Delete 2", exact: true }).click();
   await expect
     .poll(
       async () =>

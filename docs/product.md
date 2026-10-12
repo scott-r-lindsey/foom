@@ -163,16 +163,28 @@ the default branch's tree: merging it would change nothing. This works for merge
 squash and rebase merges without GitHub access. A failed fetch refuses cleanup;
 Foom never falls back to a stale default branch. Local inventory returns immediately;
 background cleanup eligibility is cached for up to one minute and published when
-ready. The action always fetches afresh.
+ready. A plan less than one minute old fills the dialog immediately without fetching.
+An older plan opens the dialog immediately in a checking state with Delete disabled.
+Approving Delete always fetches afresh.
 
 The trusted dialog lists candidate branches, then skipped checkouts with short
-reasons, and offers **Delete** and **Cancel**. Main checkouts, locked,
+reasons, and offers **Delete** and **Cancel**. During cleanup it becomes a live
+checklist with a count, progress bar, **Stop** and **Hide**. Stop finishes the
+in-flight removals and starts no more; Hide and Escape close only the window.
+There is one run per repository, and the repository panel reopens its checklist.
+Finished runs offer **Done**. The sidebar shows the same count and queued, removing,
+removed, kept or error tags; a completion status reports the result when hidden.
+Removing uses the highlight, errors use failure ink, and reduced motion disables
+sweep and fold animations. Main checkouts, locked,
 prunable or detached worktrees, running sessions, dirty/untracked files and
 exited resumable Claude/Codex/Antigravity conversations are retained. After confirmation,
 Foom fetches again, revalidates each candidate before and after stopping its
-exited terminal resources, then uses the existing safe removal path. Changed
+exited terminal resources, then uses the existing safe removal path with at most
+four candidates in flight. The sidebar refreshes after every candidate. Changed
 worktrees are skipped and reported while others continue. The local branch is
-also removed only if it still points to the exact checked commit.
+also removed only if it still points to the exact checked commit. Branch deletions
+share one checked-ref transaction after removals. Moved or checked-out branches
+are kept and reported; a concurrent ref race aborts the transaction safely.
 
 ## Application menu and attention badge
 

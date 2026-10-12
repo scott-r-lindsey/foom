@@ -979,7 +979,12 @@ it.each(["untracked", "commit"])(
       await expect(
         workspace.sidebarCommand(
           { kind: "delete-merged-worktrees", repository: repo },
-          async () => {
+          async (request) => {
+            if (request.kind !== "merged-worktrees" || !request.feed)
+              throw new Error("Missing cleanup");
+            await vi.waitFor(() => {
+              expect(request.feed?.current().stage).toBe("ready");
+            });
             await writeFile(join(tree, "new.txt"), "must survive");
             if (change === "commit") {
               await execute(["add", "."], { cwd: tree });
@@ -999,7 +1004,7 @@ it.each(["untracked", "commit"])(
             return true;
           },
         ),
-      ).rejects.toThrow("Skipped: changed:");
+      ).resolves.toBeUndefined();
       expect(await readFile(join(tree, "new.txt"), "utf8")).toBe("must survive");
       expect(await git("branch", "--list", "changed")).toContain("changed");
       await expect(realpath(removed)).rejects.toThrow();
@@ -1072,4 +1077,43 @@ it("repository panels read local default branch and fetch time without network o
   expect(facts.upstream).toEqual({ ahead: 0, behind: 0 });
   expect(facts.fetchFailed).toBe(false);
   expect(await service.listWorktrees(repo)).toHaveLength(1);
+});
+
+it("deletes checked branches in one transaction, retaining moved and checked-out refs", async () => {
+  const head = (await git("rev-parse", "HEAD")).trim();
+  await git("branch", "deleted");
+  await git("branch", "moved");
+  await git(
+    "-c",
+    "user.name=Test",
+    "-c",
+    "user.email=test@example.com",
+    "commit",
+    "--allow-empty",
+    "-m",
+    "next",
+  );
+  const next = (await git("rev-parse", "HEAD")).trim();
+  await git("update-ref", "refs/heads/moved", next);
+  expect(
+    await service.deleteMergedBranches(repo, [
+      { branch: "deleted", head },
+      { branch: "moved", head },
+      { branch: "main", head: next },
+    ]),
+  ).toEqual(["moved", "main"]);
+  expect(await git("branch", "--list", "deleted")).toBe("");
+  expect((await git("rev-parse", "moved")).trim()).toBe(next);
+  await expect(
+    service.deleteMergedBranches(repo, [{ branch: "invalid", head: "--bad" }]),
+  ).rejects.toThrow("Invalid commit ID");
+  expect(await service.deleteMergedBranches(repo, [{ branch: "absent", head }])).toEqual([
+    "absent",
+  ]);
+  await git("branch", "locked-ref");
+  await writeFile(join(repo, ".git", "refs", "heads", "locked-ref.lock"), "");
+  expect(await service.deleteMergedBranches(repo, [{ branch: "locked-ref", head: next }])).toEqual([
+    "locked-ref",
+  ]);
+  expect((await git("rev-parse", "locked-ref")).trim()).toBe(next);
 });

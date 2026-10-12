@@ -1,3 +1,6 @@
+import { CleanupRun, KeptWorktree } from "./cleanup-run";
+import type { CleanupCandidate } from "./cleanup-run";
+import type { CleanupReason } from "../../shared/cleanup";
 import type { McpConnection } from "../../shared/workspace";
 import { homeDirectory, homeShellFacts, shellPath } from "./home-shell";
 import type { AgyPluginAction } from "../../shared/agy-plugin";
@@ -84,6 +87,7 @@ export interface WorkspaceDependencies {
     | "mergedDefault"
     | "mergedCommit"
     | "deleteMergedBranch"
+    | "deleteMergedBranches"
     | "panelFacts"
   >;
   terminals: {
@@ -164,11 +168,13 @@ export class Workspace {
   private readonly busyWorktrees = new Set<string>();
   private readonly repositoryOperations = new Map<string, Set<symbol>>();
   private readonly removingRepositories = new Set<string>();
+  private readonly cleanupRuns = new Map<string, CleanupRun>();
   private readonly mergeEligibility = new Map<
     string,
     {
       key: string;
       expires: number;
+      plan?: readonly CleanupCandidate[];
       result: { canDeleteMerged: boolean; mergedCount?: number; mergedError?: string };
     }
   >();
@@ -875,7 +881,7 @@ export class Workspace {
     }
   }
 
-  private sessionSkip(worktree: string): string | undefined {
+  private sessionSkip(worktree: string): CleanupReason | undefined {
     const sessions = [...this.launched.values()].filter((item) => item.worktree === worktree);
     if (sessions.some((item) => this.terminals.get(item.id)?.exitCode === undefined))
       return "running";
@@ -896,7 +902,7 @@ export class Workspace {
     const base = await this.deps.worktrees.mergedDefault(repository, refresh);
     return Promise.all(
       trees.map(async (tree) => {
-        let reason: string | undefined;
+        let reason: CleanupReason | undefined;
         if (tree.path === repository || tree.bare) reason = "main checkout";
         else if (tree.locked || tree.prunable || !tree.branch) reason = "unavailable";
         else reason = this.sessionSkip(tree.path);
@@ -910,61 +916,59 @@ export class Workspace {
             reason = "unavailable";
           }
         }
-        return { tree, reason };
+        if (reason) return { tree, reason };
+        try {
+          return {
+            tree,
+            reason,
+            identity: await this.deps.worktrees.removalIdentity(repository, tree.path),
+          };
+        } catch {
+          return { tree, reason: "unavailable" as const };
+        }
       }),
     );
   }
 
   private async deleteMerged(repository: string, confirm: ConfirmWorkspace): Promise<void> {
+    this.known(repository);
+    const existing = this.cleanupRuns.get(repository);
+    if (existing?.pending) {
+      await confirm({ kind: "merged-worktrees", worktrees: [], feed: existing });
+      return;
+    }
     return this.withRepository(repository, async () => {
-      const plan = await this.mergedPlan(repository, true);
-      const candidates = plan.filter((item) => !item.reason);
-      if (!candidates.length) throw new Error("No merged worktrees can be deleted");
-      const identities = new Map(
-        await Promise.all(
-          candidates.map(
-            async ({ tree }) =>
-              [
-                tree.path,
-                await this.deps.worktrees.removalIdentity(repository, tree.path),
-              ] as const,
+      const run = new CleanupRun({
+        fetch: () => this.deps.worktrees.mergedDefault(repository, true),
+        changed: () => {
+          this.refresh();
+        },
+        branches: (removed) =>
+          this.deps.worktrees.deleteMergedBranches(
+            repository,
+            removed.flatMap(({ tree }) =>
+              tree.branch && tree.head ? [{ branch: tree.branch, head: tree.head }] : [],
+            ),
           ),
-        ),
-      );
-      if (
-        !(await confirm({
-          kind: "merged-worktrees",
-          worktrees: plan.map(({ tree, reason }) => ({
-            branch: tree.branch ?? tree.path,
-            ...(reason ? { reason } : {}),
-          })),
-        }))
-      )
-        return;
-      // A failed fresh fetch refuses the entire action before any removal.
-      const base = await this.deps.worktrees.mergedDefault(repository, true);
-      const skipped: string[] = [];
-      for (const { tree } of candidates) {
-        const revalidate = async () => {
-          const current = (await this.worktrees(repository)).find(
-            (item) => item.path === tree.path,
-          );
-          if (
-            !current ||
-            current.branch !== tree.branch ||
-            current.head !== tree.head ||
-            (await this.deps.worktrees.removalIdentity(repository, tree.path)) !==
-              identities.get(tree.path)
-          )
-            throw new Error("worktree changed");
-          const reason = this.sessionSkip(tree.path);
-          if (reason) throw new Error(reason);
-          if (await this.deps.worktrees.changes(repository, tree.path))
-            throw new Error("uncommitted changes");
-          if (!(await this.deps.worktrees.mergedCommit(repository, current, base)))
-            throw new Error("not merged");
-        };
-        try {
+        remove: async ({ tree, identity }, base) => {
+          const revalidate = async () => {
+            const current = (await this.worktrees(repository)).find(
+              (item) => item.path === tree.path,
+            );
+            if (
+              !current ||
+              current.branch !== tree.branch ||
+              current.head !== tree.head ||
+              (await this.deps.worktrees.removalIdentity(repository, tree.path)) !== identity
+            )
+              throw new KeptWorktree("worktree changed");
+            const reason = this.sessionSkip(tree.path);
+            if (reason) throw new KeptWorktree(reason);
+            if (await this.deps.worktrees.changes(repository, tree.path))
+              throw new KeptWorktree("uncommitted changes");
+            if (!(await this.deps.worktrees.mergedCommit(repository, current, base)))
+              throw new KeptWorktree("not merged");
+          };
           await this.removeTree(
             repository,
             tree.path,
@@ -975,16 +979,26 @@ export class Workspace {
             },
             revalidate,
           );
-          if (tree.branch && tree.head)
-            await this.deps.worktrees.deleteMergedBranch(repository, tree.branch, tree.head);
-        } catch (error) {
-          skipped.push(
-            `${tree.branch ?? tree.path}: ${error instanceof Error ? error.message : String(error)}`,
-          );
-        }
+        },
+      });
+      this.cleanupRuns.set(repository, run);
+      const cached = this.mergeEligibility.get(repository);
+      const prepare =
+        cached?.plan && this.now() < cached.expires
+          ? Promise.resolve(cached.plan)
+          : this.mergedPlan(repository, true);
+      if (cached?.plan && this.now() < cached.expires) run.ready(cached.plan);
+      // Request presentation before awaiting network or filesystem checks.
+      const answer = confirm({ kind: "merged-worktrees", worktrees: [], feed: run });
+      try {
+        run.ready(await prepare);
+      } catch {
+        run.failed();
       }
-      this.refresh();
-      if (skipped.length) throw new Error(`Skipped: ${skipped.join("; ")}`);
+      if (await answer) run.act();
+      // Hide resolves presentation, but the repository reservation lasts through the run.
+      await run.settled();
+      if (run.current().stage !== "run") this.cleanupRuns.delete(repository);
     });
   }
 
@@ -997,7 +1011,12 @@ export class Workspace {
     const key = JSON.stringify(worktrees.map((tree) => [tree, this.sessionSkip(tree.path)]));
     const cached = this.mergeEligibility.get(repository);
     if (cached?.key === key && this.now() < cached.expires) return cached.result;
-    const entry = { key, expires: Number.POSITIVE_INFINITY, result: { canDeleteMerged: false } };
+    const entry: {
+      key: string;
+      expires: number;
+      result: { canDeleteMerged: boolean; mergedCount?: number; mergedError?: string };
+      plan?: readonly CleanupCandidate[];
+    } = { key, expires: Number.POSITIVE_INFINITY, result: { canDeleteMerged: false } };
     this.mergeEligibility.set(repository, entry);
     const publish = (result: {
       canDeleteMerged: boolean;
@@ -1012,6 +1031,7 @@ export class Workspace {
     };
     void this.mergedPlan(repository, false, worktrees).then(
       (plan) => {
+        entry.plan = plan;
         publish({
           canDeleteMerged: plan.some((item) => !item.reason),
           mergedCount: plan.filter((item) => !item.reason).length,
@@ -1218,8 +1238,18 @@ export class Workspace {
           const worktrees = await this.worktrees(repository.path);
           return {
             ...repository,
-            worktrees,
+            worktrees: [
+              ...worktrees,
+              ...(this.cleanupRuns
+                .get(repository.path)
+                ?.removedTrees.filter(
+                  (tree) => !worktrees.some((current) => current.path === tree.path),
+                ) ?? []),
+            ],
             ...this.cachedMergeEligibility(repository.path, worktrees),
+            ...(this.cleanupRuns.has(repository.path)
+              ? { cleanup: this.cleanupRuns.get(repository.path)?.progress }
+              : {}),
           };
         }),
       ),
@@ -2145,6 +2175,8 @@ export class Workspace {
   async dispose(): Promise<void> {
     if (this.closed) return;
     this.closed = true;
+    for (const run of this.cleanupRuns.values()) run.stop();
+    await Promise.all([...this.cleanupRuns.values()].map((run) => run.settled()));
     this.mergeEligibility.clear();
     this.executionListeners.clear();
     this.deps.watcher?.dispose();
