@@ -132,10 +132,19 @@ Same exit codes as today: 0 success, 2 usage or schema, 3 auth or scope, 4 capac
 
 ## Follow-up implementation tickets
 
-These depend on #221's follow-ups, which are listed in [previews.md](previews.md#follow-up-implementation-tickets) but not yet filed as issues. Each needs the preview host and the tile content kinds first.
+Filed with #221's follow-ups. The keystroke result made "never take focus" a requirement of the preview host itself, so it is part of #291 and not a separate ticket.
 
-1. **Preview host: never take focus.** Detached load, then attach, for every preview. Focus a preview only on a human click. An Electron test types into a focused terminal while a hostile page loads and asserts that no key reaches the page. Part of, or right after, #221's "preview host in main".
-2. **Preview tools in the control plane.** Broker with authority, ownership, placement, limits, dismissal, revocation, and audit that refuses on failure; service methods and capabilities; MCP tools; console commands (`open-preview`, `previews`, `close-preview`). Unit tests port `broker.test.cjs`; extend `scripts/probe-mcp.mjs` to call `open_preview` with both real CLIs. Depends on 1 and on #221's tile content kinds and preview host. Updates `architecture.md` and `orchestration.md`.
-3. **Attribution and visibility.** Tile chrome and sidebar rows for agent-opened previews, the arrival highlight, a session-panel action entry, and the sticky human close. Depends on 2. Updates `product.md`. Needs a mockup first.
-4. **Claude Code approval and discovery.** Per-launch `--allowedTools` for the preview tools when MCP is attached, combined with the user's own default arguments. Add server instruction text, and run the real-model discovery check from §5 with recorded versions and transcripts. Depends on 2.
-5. **Later, optional:** an orchestrator opening previews in its own children's worktrees, and previews for config sessions (for example, a theme sample). Neither has a grant today.
+- #288: mockup of preview tiles, sidebar rows and agent attribution. It blocks the UI tickets.
+- #221's tickets:
+  - #289: contained file protocol;
+  - #290: tile content kinds and layout v2;
+  - #291: preview host in main, **never taking focus** (detached load, click-only focus, keystroke test);
+  - #292: composition with board overlays and shortcuts;
+  - #293: Markdown renderer;
+  - #294: live reload;
+  - #295: external links and Allow network;
+  - #296: opening a preview from the worktree panel.
+- #297: the preview tools in the control plane. Broker, service methods, MCP tools and console commands; ports `broker.test.cjs` and extends `scripts/probe-mcp.mjs`.
+- #298: attribution and visibility for agent-opened previews.
+- #299: per-launch Claude Code approval for the preview tools, and the real-model discovery check from §5.
+- Later, optional and not filed: an orchestrator opening previews in its own children's worktrees, and previews for config sessions, such as a theme sample. Neither has a grant today.
