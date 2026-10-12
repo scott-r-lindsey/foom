@@ -1,0 +1,273 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Foom Lights</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo+Black&family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500;600&display=swap">
+<style>
+/* Session lights. Motion is output: a running session's light swells and glows with
+   its output rate, strongly enough to read at a glance. Exited is a shape: a hollow
+   ring (a square outline for failures) that keeps the final color, with the name
+   dimmed. Shells have no status colors and no second line: a neutral light, the
+   foreground program's name, and amber only when they need the user. Colors are the
+   brand tokens; rows follow .board-row and tile title bars follow tiles.css. */
+:root {
+  --bg: #f3f0fa; --surface: #e9e4f5; --line: #ddd6ee; --ink: #14101f; --muted: #625a7a;
+  --accent: #5b2bd9; --accent-deep: #3b1a99; --attention: #d98200; --attention-ink: #8c5000;
+  --done: #13804a; --done-ink: #0e6b3c; --failed: #d6166e; --failed-ink: #b0105a; --idle: #b9b0d3;
+  --badge: #4a4263; --badge-ink: #f4efff; --lift: #ffffff; --hole: #05040a;
+  --neutral: #4a4263;
+  --term-bg: #05040a; --term-line: #251d3f; --term-ink: #f4efff; --term-dim: #6a6188;
+  --display: "Archivo Black", sans-serif;
+  --sans: "Geist", system-ui, sans-serif; --mono: "Geist Mono", ui-monospace, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #05040a; --surface: #0d0a17; --line: #251d3f; --ink: #f4efff; --muted: #9d93bd;
+    --accent: #9b6bff; --accent-deep: #7a3cff; --attention: #ffb23e; --attention-ink: #ffb23e;
+    --done: #6fe0a3; --done-ink: #6fe0a3; --failed: #ff2e88; --failed-ink: #ff2e88; --idle: #4a4263;
+    --badge: #3a3060; --badge-ink: #f4efff; --lift: #f4efff; --hole: #000000;
+    --neutral: #c9c0e6;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #05040a; --surface: #0d0a17; --line: #251d3f; --ink: #f4efff; --muted: #9d93bd;
+  --accent: #9b6bff; --accent-deep: #7a3cff; --attention: #ffb23e; --attention-ink: #ffb23e;
+  --done: #6fe0a3; --done-ink: #6fe0a3; --failed: #ff2e88; --failed-ink: #ff2e88; --idle: #4a4263;
+  --badge: #3a3060; --badge-ink: #f4efff; --lift: #f4efff; --hole: #000000;
+  --neutral: #c9c0e6;
+  color-scheme: dark;
+}
+:root {
+  --highlight: var(--accent);
+  --select: color-mix(in srgb, var(--highlight) 18%, var(--surface));
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; }
+body { background: var(--bg); color: var(--ink); font: 13px/1.4 var(--sans); }
+button { font: inherit; color: inherit; cursor: pointer; }
+:focus-visible { outline: 2px solid var(--highlight); outline-offset: 1px; }
+.frame { height: 100%; overflow-x: auto; }
+.app { position: relative; display: flex; height: 100%; min-width: 1100px; min-height: 640px; overflow: hidden; }
+
+/* Sidebar slice */
+.side { width: 300px; flex-shrink: 0; display: flex; flex-direction: column; background: var(--surface); border-right: 1px solid var(--line); overflow-y: auto; }
+.head { padding: 16px 12px 10px; font: 22px/1 var(--display); }
+.hole { display: inline-block; width: .52em; height: .52em; margin: 0 .035em; border-radius: 50%; background: var(--hole); box-shadow: 0 0 0 2px var(--accent), 0 0 10px var(--accent); }
+.tree { padding: 4px 6px 16px; }
+.group { display: flex; align-items: center; gap: 6px; height: 28px; padding: 0 6px; font-weight: 600; }
+.group .chev { width: 12px; color: var(--muted); font-size: 10px; }
+.checkout { display: flex; align-items: center; gap: 6px; height: 24px; padding: 0 6px 0 22px; font: 12px var(--mono); color: var(--muted); }
+.checkout svg { width: 12px; height: 12px; fill: none; stroke: currentColor; stroke-width: 1.2; }
+
+.srow { display: grid; grid-template-columns: 16px minmax(0, 1fr); column-gap: 6px; align-items: center; padding: 5px 6px 5px 38px; border-radius: 6px; }
+.srow:hover { background: color-mix(in srgb, var(--highlight) 8%, transparent); }
+.srow.sel { background: var(--select); }
+.srow.home { padding-left: 6px; }
+.top { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.badge { flex-shrink: 0; display: inline-grid; place-items: center; min-width: 20px; height: 16px; padding: 0 3px; border-radius: 4px; background: var(--badge); color: var(--badge-ink); font: 600 9px var(--mono); letter-spacing: .02em; }
+.name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.prog { flex-shrink: 0; font: 12px var(--mono); color: var(--muted); }
+.wait { margin-left: auto; flex-shrink: 0; font: 500 11px var(--mono); color: var(--attention-ink); font-variant-numeric: tabular-nums; }
+.reason { grid-column: 2; font-size: 12px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.srow[data-exited] .name, .srow[data-exited] .badge { opacity: .5; }
+.srow[data-exited] .reason { opacity: .7; }
+
+/* The light. --a is the smoothed output level, 0–1, written by script. */
+.light { position: relative; justify-self: center; width: 10px; height: 10px; border-radius: 50%; background: var(--c); --c: var(--accent); --a: 0; }
+.light[data-state="needs"] { --c: var(--attention); box-shadow: 0 0 0 4px color-mix(in srgb, var(--attention) 22%, transparent); }
+.light[data-state="done"] { --c: var(--done); }
+.light[data-state="failed"] { --c: var(--failed); border-radius: 1px; }
+.light[data-state="quiet"] { --c: var(--idle); }
+.light[data-state="shell"] { --c: var(--neutral); }
+/* Exited: hollow, in the final color. Shape, not color, says the process is gone. */
+.light[data-exited] { background: transparent; box-shadow: inset 0 0 0 2px var(--c); opacity: .85; }
+.light[data-exited][data-state="shell"] { --c: var(--muted); }
+
+/* Activity treatments, chosen in the mockup panel. */
+/* Current: what ships today, opacity .35–1 on Working only. */
+[data-activity="current"] .light[data-moving] { opacity: calc(.35 + .65 * var(--a)); transition: opacity 500ms linear; }
+/* Glow: the light swells and throws a halo with output; idle running lights sit dimmer. */
+[data-activity="glow"] .light[data-moving] {
+  opacity: calc(.5 + .5 * var(--a));
+  transform: scale(calc(1 + .45 * var(--a)));
+  box-shadow: 0 0 0 calc(4px * var(--a)) color-mix(in srgb, var(--c) 30%, transparent), 0 0 calc(14px * var(--a)) calc(2px * var(--a)) color-mix(in srgb, var(--c) 55%, transparent);
+}
+/* Glow + trace: the same light, plus a small output trace for the last eight seconds. */
+[data-activity="trace"] .light[data-moving] {
+  opacity: calc(.5 + .5 * var(--a));
+  transform: scale(calc(1 + .3 * var(--a)));
+  box-shadow: 0 0 calc(10px * var(--a)) calc(1px * var(--a)) color-mix(in srgb, var(--c) 55%, transparent);
+}
+.trace { display: none; flex-shrink: 0; width: 34px; height: 12px; }
+[data-activity="trace"] .trace { display: block; }
+.trace path { fill: none; stroke: var(--c, var(--accent)); stroke-width: 1.2; stroke-linejoin: round; opacity: .8; }
+
+/* Tiles: title bars use the same light and the same shell treatment. */
+.main { flex: 1; min-width: 0; display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; gap: 6px; padding: 6px; background: var(--bg); }
+.tile { display: flex; flex-direction: column; min-width: 0; min-height: 0; border: 1px solid var(--term-line); border-radius: 6px; background: var(--term-bg); overflow: hidden; }
+.tile.focus { border-color: var(--highlight); }
+.tile.needs { border-color: var(--attention); }
+.tbar { display: flex; align-items: center; gap: 7px; height: 28px; padding: 0 9px; background: var(--surface); border-bottom: 1px solid var(--line); font-size: 12px; }
+.tbar .loc { font: 11px var(--mono); color: var(--muted); }
+.tbar .num { margin-left: auto; font: 600 11px var(--mono); color: var(--muted); }
+.tile .light { width: 9px; height: 9px; }
+.screen { flex: 1; min-height: 0; padding: 8px 10px; overflow: hidden; display: flex; flex-direction: column; justify-content: flex-end; font: 11.5px/1.5 var(--mono); color: var(--term-dim); }
+.screen div { white-space: pre; overflow: hidden; text-overflow: ellipsis; }
+.screen .hi { color: var(--term-ink); }
+.screen .warn { color: #ffb23e; }
+
+/* Mockup controls, not app chrome. */
+.mock { margin: auto 10px 12px; display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; border: 1px dashed var(--muted); border-radius: 8px; background: color-mix(in srgb, var(--bg) 92%, transparent); font-size: 12px; }
+.mock b { font: 600 10px var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+.seg { display: flex; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+.seg button { padding: 4px 10px; border: 0; background: transparent; }
+.seg button[aria-pressed="true"] { background: var(--select); font-weight: 600; }
+.mock label { display: flex; align-items: center; gap: 6px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .light { transition: none !important; }
+}
+[data-reduced] .light { transition: none !important; }
+</style>
+</head>
+<body>
+<div class="frame">
+<div class="app" id="app" data-activity="glow">
+  <aside class="side" aria-label="Sidebar">
+    <div class="head">fo<span class="hole"></span><span class="hole"></span>m</div>
+    <div class="tree" id="tree"></div>
+    <div class="mock" aria-label="Mockup controls">
+      <b>Mockup</b>
+      <div class="seg" role="group" aria-label="Activity">
+        <button type="button" data-act="current">Current</button>
+        <button type="button" data-act="glow" aria-pressed="true">Glow</button>
+        <button type="button" data-act="trace">Glow + trace</button>
+      </div>
+      <label><input type="checkbox" id="reduced"> Reduced motion</label>
+      <div class="seg" role="group" aria-label="Theme">
+        <button type="button" data-theme-set="">System</button>
+        <button type="button" data-theme-set="light">Light</button>
+        <button type="button" data-theme-set="dark">Dark</button>
+      </div>
+    </div>
+  </aside>
+  <main class="main" id="tiles" aria-label="Tiles"></main>
+</div>
+</div>
+<script>
+const FOLDER = '<svg viewBox="0 0 12 12" aria-hidden="true"><path d="M1.5 3.5h3l1 1h5v5h-9z"/></svg>';
+// state: working | needs | done | failed | quiet | shell. exited: the process is gone.
+// out(t): output in bytes/s at time t (seconds); undefined means no output motion.
+const burst = (period, len, rate, phase = 0) => (t) => ((t + phase) % period) < len ? rate * (0.6 + 0.4 * Math.sin(t * 9)) : 0;
+const steady = (rate, wobble = 0.3) => (t) => rate * (1 - wobble + wobble * Math.sin(t * 2.3));
+const sporadic = (seed) => (t) => { const k = Math.floor(t * 2 + seed); return ((k * 2654435761) % 97) < 14 ? 900 : 0; };
+const SESSIONS = [
+  { id: "home", home: true, kind: "shell", name: "Shell", state: "shell", prog: "", out: () => 0 },
+  { group: "foom", checkout: "main" },
+  { id: "a1", kind: "CC", name: "review delete-merged", state: "working", reason: "Editing src/main/workspace/workspace.ts · hook: PostToolUse", out: (t) => burst(5, 3.2, 5200)(t) + burst(1.7, .5, 1800, .4)(t), tile: 1, sel: true },
+  { id: "s1", kind: "shell", name: "Shell", state: "shell", prog: "vim", out: sporadic(3), tile: 2 },
+  { checkout: "codex/issue-264" },
+  { id: "a2", kind: "CX", name: "issue-264", state: "working", reason: "Running npm test · hook: PreToolUse", out: (t) => burst(9, 6.5, 3000, 2)(t) },
+  { id: "s2", kind: "shell", name: "Shell", state: "shell", prog: "npm", out: steady(260, .5), tile: 3 },
+  { checkout: "codex/issue-265" },
+  { id: "a3", kind: "CX", name: "issue-265", state: "needs", reason: "Wants to run git push · pattern: approval", wait: "2m", tile: 4 },
+  { id: "s3", kind: "shell", name: "Shell", state: "needs", prog: "sudo", wait: "14s" },
+  { id: "a4", kind: "CC", name: "tidy tiles", state: "quiet", reason: "Waiting for your prompt · hook: Stop" },
+  { checkout: "codex/issue-252" },
+  { id: "a5", kind: "CX", name: "issue-252", state: "done", reason: "Finished · hook: Stop" },
+  { id: "a6", kind: "CX", name: "issue-252 probe", state: "done", exited: true, reason: "Exited 0 · finished" },
+  { id: "a7", kind: "CC", name: "mcp gate", state: "failed", exited: true, reason: "Exited 1 · API error" },
+  { id: "s4", kind: "shell", name: "Shell", state: "shell", exited: true, prog: "" },
+];
+const SCREENS = {
+  1: ["● Update(src/main/workspace/workspace.ts)", "  ⎿  Updated with 14 additions and 3 removals", "● Bash(npx vitest run tests/unit/main/workspace)", "  ⎿  ✓ 212 passed", "● Reading delete-merged.html…"],
+  2: ["  42   const plan = await mergedPlan(repository, true);", "  43   if (!plan.candidates.length) return;", "  44   const run = this.runs.start(repository, plan);", "~", "-- INSERT --"],
+  3: ["  VITE v6.3.1  ready in 412 ms", "  ➜  Local:   http://localhost:5173/", "12:41:07 [vite] hmr update /src/board.tsx", "12:41:22 [vite] hmr update /src/tiles.css"],
+  4: ["• Ran npm run check", "  └ ✓ format  ✓ lint  ✓ typecheck  ✓ 1,904 tests", "", "Would you like to run the following command?", "  $ git push -u origin codex/issue-265", "› 1. Yes   2. Yes, and don't ask again   3. No"],
+};
+const levels = new Map(), history = new Map();
+const tree = document.getElementById("tree"), tiles = document.getElementById("tiles"), app = document.getElementById("app");
+const running = (s) => !s.exited;
+const moving = (s) => running(s) && (s.state === "working" || s.state === "shell");
+function lightHTML(s) {
+  return `<span class="light" data-light="${s.id}" data-state="${s.state}"${s.exited ? " data-exited" : ""}${moving(s) ? " data-moving" : ""} aria-hidden="true"></span>`;
+}
+function label(s) {
+  const state = s.exited ? "Exited" : { working: "Working", needs: "Needs you", done: "Done", failed: "Failed", quiet: "Quiet", shell: "Running" }[s.state];
+  return [s.kind === "shell" ? "Shell" : s.name, s.prog, state, s.reason].filter(Boolean).join(" · ");
+}
+function render() {
+  tree.innerHTML = SESSIONS.map((s) => {
+    if (s.group) return `<div class="group"><span class="chev">▾</span>${s.group}</div>` + (s.checkout ? `<div class="checkout">${FOLDER}${s.checkout}</div>` : "");
+    if (s.checkout) return `<div class="checkout">${FOLDER}${s.checkout}</div>`;
+    const shell = s.kind === "shell";
+    const prog = shell ? (s.exited ? "exited" : s.prog) : (s.exited ? "exited" : "");
+    return `<div class="srow${s.home ? " home" : ""}${s.sel ? " sel" : ""}" ${s.exited ? "data-exited" : ""} role="button" tabindex="${s.sel ? 0 : -1}" aria-label="${label(s)}">
+      ${lightHTML(s)}
+      <span class="top"><span class="badge">${shell ? "&gt;_" : s.kind}</span><span class="name">${shell ? "Shell" : s.name}</span>${prog ? `<span class="prog">${prog}</span>` : ""}<svg class="trace" data-trace="${s.id}" viewBox="0 0 34 12" aria-hidden="true" style="--c: var(--${s.state === "shell" ? "neutral" : "accent"})"><path d=""/></svg>${s.wait ? `<span class="wait">${s.wait}</span>` : ""}</span>
+      ${!shell && s.reason ? `<span class="reason">${s.reason}</span>` : ""}
+    </div>`;
+  }).join("");
+  tiles.innerHTML = SESSIONS.filter((s) => s.tile).sort((a, b) => a.tile - b.tile).map((s) => {
+    const shell = s.kind === "shell";
+    const loc = SESSIONS.slice(0, SESSIONS.indexOf(s)).reverse().find((x) => x.checkout)?.checkout ?? "~";
+    return `<section class="tile${s.sel ? " focus" : ""}${s.state === "needs" ? " needs" : ""}" aria-label="Tile ${s.tile}">
+      <div class="tbar">${lightHTML(s)}<span class="badge">${shell ? "&gt;_" : s.kind}</span><span class="loc">${loc}</span><span>${shell ? "Shell" : s.name}</span>${shell && s.prog ? `<span class="prog">${s.prog}</span>` : ""}<span class="num">${s.tile} ▾</span></div>
+      <div class="screen" data-screen="${s.tile}">${SCREENS[s.tile].map((l, i, a) => `<div class="${i === a.length - 1 ? "hi" : ""}${s.state === "needs" && i >= 3 ? " warn" : ""}">${l.replace(/&/g, "&amp;").replace(/</g, "&lt;")}</div>`).join("")}</div>
+    </section>`;
+  }).join("");
+}
+render();
+// Smooth the output rate into a level: fast attack, slow release, so the light follows
+// bursts without flicker (well under 3 Hz). Reduced motion updates once a second in steps.
+const ATTACK = 0.12, RELEASE = 0.7, FULL = 4000;
+let last = performance.now(), sinceStep = 0;
+const reduced = () => document.getElementById("reduced").checked || matchMedia("(prefers-reduced-motion: reduce)").matches;
+const lines = { 1: ["● Bash(npm run check)", "  ⎿  ✓ format ✓ lint", "● Update(tests/unit/main/workspace/delete-merged.test.ts)", "  ⎿  Updated with 31 additions", "● Read(src/main/workspace/worktrees.ts)"], 2: ["  45   for (const tree of plan.candidates)", "  46     await queue.add(() => this.removeTree(tree));"], 3: ["12:42:03 [vite] hmr update /src/lights.css", "12:42:09 [vite] page reload src/main.tsx"] };
+const tick = (now) => {
+  const dt = Math.min(0.1, (now - last) / 1000); last = now; sinceStep += dt;
+  const t = now / 1000, step = reduced() ? sinceStep >= 1 : true;
+  if (step) sinceStep = 0;
+  for (const s of SESSIONS) {
+    if (!s.id || !moving(s)) continue;
+    // Logarithmic: a dev server trickling 200 B/s is visible; a build streaming 4 KB/s is full.
+    const target = Math.min(1, Math.log1p((s.out?.(t) ?? 0) / 40) / Math.log1p(FULL / 40));
+    const prev = levels.get(s.id) ?? 0;
+    const k = 1 - Math.exp(-dt / (target > prev ? ATTACK : RELEASE));
+    const level = prev + (target - prev) * k;
+    levels.set(s.id, level);
+    const h = history.get(s.id) ?? []; if ((h.t ?? 0) + 0.25 < t) { h.push(level); h.t = t; if (h.length > 32) h.shift(); history.set(s.id, h); }
+    if (!step) continue;
+    const shown = reduced() ? Math.round(level * 3) / 3 : level;
+    for (const el of document.querySelectorAll(`[data-light="${s.id}"]`)) el.style.setProperty("--a", shown.toFixed(3));
+    const path = document.querySelector(`[data-trace="${s.id}"] path`);
+    if (path) path.setAttribute("d", h.map((v, i) => `${i ? "L" : "M"}${(34 - (h.length - 1 - i) * 34 / 31).toFixed(1)} ${(11 - v * 10).toFixed(1)}`).join(" "));
+    // Terminal text moves with output too, so the light visibly matches the screen.
+    if (s.tile && lines[s.tile] && target > 0.15 && Math.random() < dt * 4 * target) {
+      const screen = document.querySelector(`[data-screen="${s.tile}"]`);
+      const div = document.createElement("div"); div.className = "hi";
+      div.textContent = lines[s.tile][Math.floor(Math.random() * lines[s.tile].length)];
+      screen.lastElementChild?.classList.remove("hi"); screen.append(div);
+      while (screen.children.length > 14) screen.firstElementChild.remove();
+    }
+  }
+  requestAnimationFrame(tick);
+};
+requestAnimationFrame(tick);
+for (const b of document.querySelectorAll("[data-act]")) b.addEventListener("click", () => {
+  app.dataset.activity = b.dataset.act;
+  for (const x of document.querySelectorAll("[data-act]")) x.setAttribute("aria-pressed", String(x === b));
+});
+document.getElementById("reduced").addEventListener("change", (e) => { if (e.target.checked) app.dataset.reduced = ""; else delete app.dataset.reduced; });
+for (const b of document.querySelectorAll("[data-theme-set]")) b.addEventListener("click", () => {
+  if (b.dataset.themeSet) document.documentElement.dataset.theme = b.dataset.themeSet; else delete document.documentElement.dataset.theme;
+  for (const x of document.querySelectorAll("[data-theme-set]")) x.setAttribute("aria-pressed", String(x === b));
+});
+</script>
+</body>
+</html>
