@@ -210,8 +210,8 @@ platform, or press Alt alone or F10 on Windows and Linux, to open the applicatio
 menu below it. A chevron beside the wordmark turns while the menu is open. The
 menu is the same everywhere and lists app-wide commands plus the whole-layout Tidy action:
 
-- New window, New worktree…, Add repository…, New orchestrator… (disabled: orchestrators
-  launch from a repository's panel, #155)
+- New window, New worktree…, Add repository… (orchestration is granted from a
+  session's menu, #303)
 - **Settings ›**, a submenu of routes: Via Claude Code, Via Codex and Via
   Antigravity (#84: each starts that agent in `~/.foom/config` in the Foom
   config dock), then Via Settings UI, which opens the Settings screen. Agent routes
@@ -461,8 +461,13 @@ identity, with no mutation capabilities. Claude Code 2.1.293+ and Codex 0.161.0+
 help flag receive read-only MCP access to session metadata in their own repository,
 independently of hooks. These tested releases are the version floors. Older or
 unparseable versions, missing flags and Antigravity do not attach MCP; managed client policy may deny attachment. These tools
-never return terminal output. **Launch as Foom orchestrator** in a repository's panel grants one
-Claude Code, Codex or Antigravity session permission to create worktrees and run up to four children in that repository.
+never return terminal output. **Make orchestrator…** in a running Claude Code, Codex or
+Antigravity session's menu grants that session permission to create worktrees and run up to
+four children in its repository, without restarting it; **Revoke orchestrator** takes it back.
+One session per repository holds the role: making another the orchestrator asks once and
+revokes the first. The session keeps its own launch flags, including bypass. Every
+agent sees the orchestration tools from launch, refused until you grant the role; tell
+the agent when you do.
 Children cannot orchestrate through Foom and never inherit your launch flags. The orchestrator's panel lists its
 actions and their outcomes. Each attached session panel shows MCP Connecting…,
 Connected after the first successful authenticated request, or Not connected after
@@ -473,11 +478,11 @@ You can stop a child or take it over, which ends the orchestrator's access to it
 access. Agent configuration is attached per launch, never installed globally or
 written into the repository.
 
-The packaged `foom` console can inspect session metadata and, for explicitly
-launched orchestrators, create worktrees, launch and stop children, request worktree
+The packaged `foom` console can inspect session metadata and, for sessions you
+made orchestrator, create worktrees, launch and stop children, request worktree
 removal, and read bounded tails or wait for child state. Every orchestrator gets
 the CLI on its process-local PATH, including when MCP is unavailable. Antigravity
-requires interactive prompt support and orchestrates through the CLI alone. Agents launched by Foom
+orchestrates through the CLI alone. Agents launched by Foom
 use only their inherited repository scope. Humans and scripts request pairing with
 `--repository PATH`: compare the code in the CLI and Foom's trusted dialog, then
 grant read-only access for ten minutes. Pairing expires after 60 seconds and never
@@ -490,7 +495,7 @@ with likely secrets redacted and each response capped at 16 KiB. These results m
 be sent to the orchestrator agent's model provider, under that agent's own provider settings. Repeated reads can collect more output over time. Foom does
 not read files, diffs, transcripts or keystrokes for this API; a terminal may print
 file contents, diffs or echoed input, and redaction cannot catch every secret.
-The launch dialog discloses this data path. The agent's own tools and provider
+The Make orchestrator dialog discloses this data path. The agent's own tools and provider
 settings continue to govern its other data access.
 
 Permission and credential prompts always stay with you. With the current agent

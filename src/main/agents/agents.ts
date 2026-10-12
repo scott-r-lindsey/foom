@@ -1,6 +1,6 @@
 import { meetsMinimum } from "./version";
 import { AgyPlugin } from "./agy-plugin";
-import { cliGuidance, initialPrompt, ORCHESTRATOR_PROMPT } from "./cli-launch";
+import { cliGuidance, initialPrompt } from "./cli-launch";
 import { prepareMcpLaunch, supportsMcp } from "./mcp-launch";
 import { codexHookArguments } from "./codex-hooks";
 import { resumeArguments } from "./conversation";
@@ -269,14 +269,13 @@ export class AgentService {
           checkoutIdentity
       )
         throw new Error("Worktree has changed. Select it and try again.");
-      const orchestrator = request.control !== undefined && "role" in request.control;
-      if (orchestrator && (!control || (agent.id === "agy" && !agent.cliGuidance)))
-        throw new Error("Orchestration needs control credentials and initial prompt support");
+      if (request.control !== undefined && "role" in request.control && !control)
+        throw new Error("Orchestration needs control credentials");
       const prompt = initialPrompt(agent, request.prompt);
       const args = [
         ...resume,
         ...(control && agent.cliGuidance
-          ? cliGuidance([...defaults, ...prompt.guidance], orchestrator)
+          ? cliGuidance([...defaults, ...prompt.guidance])
           : [...defaults, ...prompt.guidance]),
         ...(agent.inline ? ["--no-alt-screen"] : []),
         ...(mcp?.args ?? []),
@@ -303,9 +302,7 @@ export class AgentService {
         }
       }
       // A positional prompt goes last, after every option Foom adds.
-      args.push(
-        ...(orchestrator && agent.id !== "agy" ? ["--", ORCHESTRATOR_PROMPT] : prompt.positional),
-      );
+      args.push(...prompt.positional);
       const environment = buildLaunchEnvironment({
         layers: request.environment ?? [],
         base: inheritedEnvironment(),

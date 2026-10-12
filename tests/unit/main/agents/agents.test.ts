@@ -8,6 +8,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type * as McpLaunch from "../../../../src/main/agents/mcp-launch";
 import { prepareMcpLaunch } from "../../../../src/main/agents/mcp-launch";
 import { AgentService, loginPath } from "../../../../src/main/agents/agents";
+import { CLI_GUIDANCE } from "../../../../src/main/agents/cli-launch";
 import type { TerminalSpec } from "../../../../src/shared/desktop";
 import type { AgentHooks, AgentLaunch } from "../../../../src/shared/agents";
 
@@ -624,7 +625,7 @@ it.each([true, false])(
     }
   },
 );
-it("launches an orchestrator with a CLI fallback and appends a child's prompt after every option", async () => {
+it("restores an orchestrator's role without a launch prompt and appends a child's prompt after every option", async () => {
   const controlFor = vi.fn((..._args: unknown[]) =>
     Promise.resolve({
       env: { FOOM_CONTROL_URL: "http://127.0.0.1:1234/control/v1" },
@@ -634,7 +635,7 @@ it("launches an orchestrator with a CLI fallback and appends a child's prompt af
   );
   service = new AgentService({ listWorktrees, launchIdentity }, { create }, prepare, controlFor);
   await service.launch({ ...request, control: { role: "orchestrator" } });
-  expect(create.mock.calls.at(-1)?.[0].args.at(-1)).toContain("foom CLI on PATH");
+  expect(create.mock.calls.at(-1)?.[0].args.join("\n")).not.toMatch(/orchestrator|foom CLI/u);
   service.release("terminal-id");
   const previous = versions.claude;
   versions.claude = "2.1.293 (Claude Code)";
@@ -826,12 +827,7 @@ it.each([false, true])(
       ...(orchestrator ? { control: { role: "orchestrator" as const } } : {}),
     });
     const spec = create.mock.calls.at(-1)?.[0];
-    expect(spec?.args).toEqual([
-      "--prompt-interactive",
-      expect.stringContaining(
-        orchestrator ? "literal $(text)\n\nYou are" : "literal $(text)\n\nFoom",
-      ),
-    ]);
+    expect(spec?.args).toEqual(["--prompt-interactive", `literal $(text)\n\n${CLI_GUIDANCE}`]);
     expect(spec?.env?.["PATH"]).toContain(join(root, "console 日本語"));
     expect(spec?.args.join(" ")).not.toContain("control-secret");
     expect(process.env["PATH"]).toBe(inheritedPath);
@@ -877,15 +873,9 @@ it("config launches skip worktree and control, keep hooks and put the CLI on PAT
   );
 });
 
-it("refuses orchestrators without a control binding or Antigravity prompt support", async () => {
+it("refuses orchestrators without a control binding", async () => {
   service = new AgentService({ listWorktrees, launchIdentity }, { create });
   await expect(service.launch({ ...request, control: { role: "orchestrator" } })).rejects.toThrow(
     "control credentials",
   );
-  service = new AgentService({ listWorktrees, launchIdentity }, { create }, undefined, () =>
-    Promise.resolve({ env: {}, bind: vi.fn(), dispose: vi.fn() }),
-  );
-  await expect(
-    service.launch({ ...request, agent: "agy", control: { role: "orchestrator" } }),
-  ).rejects.toThrow("initial prompt support");
 });

@@ -283,3 +283,48 @@ it("shares hook correlation without sharing the credential or generation", () =>
   first.dispose();
   expect(service.authenticate(second.env["FOOM_CONTROL_TOKEN"] ?? "")).toBe(secondActor);
 });
+
+it("the human's role change keeps the token, replaces the principal and revokes its operations", async () => {
+  const { service, operations, actor, token, request } = fixture();
+  const pending = await operations.begin(actor, "stop", "key", "[]");
+  expect(service.live(actor.generation)).toBe(true);
+  service.setRole("terminal", "orchestrator");
+  expect(service.authenticate(token)).toBe(actor);
+  service.setRole("terminal", "agent");
+  const agent = service.authenticate(token);
+  expect(agent).toMatchObject({ generation: actor.generation, role: "agent", parentId: null });
+  expect(Object.isFrozen(agent)).toBe(true);
+  // The old principal stops working, and its in-flight operation needs reconciliation.
+  expect(() => service.dispatch(actor, request("whoami"))).toThrow("unauthorized");
+  expect(service.live(actor.generation)).toBe(true);
+  expect(() => operations.lookup(agent, { operationId: pending.operationId })).toThrow("forbidden");
+  service.setRole("terminal", "orchestrator");
+  const again = service.authenticate(token);
+  expect(operations.lookup(again, { operationId: pending.operationId })).toMatchObject({
+    status: "indeterminate",
+    reason: "uncertain",
+  });
+  expect(service.capabilities(again)).toContain("operation_status");
+  expect(service.listed(agent)).toEqual(service.capabilities(again));
+  // Pairing grants are never sessions, and a child's parent link ends with the change.
+  const cli = service.grantCli(repo);
+  expect(service.listed(service.authenticate(cli.token))).toEqual(
+    service.capabilities(service.authenticate(cli.token)),
+  );
+  const child = service.prepare(repo, repo, "agent", "terminal");
+  child.bind("child");
+  service.setRole("child", "orchestrator");
+  expect(service.authenticate(child.env["FOOM_CONTROL_TOKEN"] ?? "").parentId).toBeNull();
+  expect(() => {
+    service.setRole("missing", "orchestrator");
+  }).toThrow("not_found");
+  expect(() => {
+    service.setRole("bad id", "agent");
+  }).toThrow("invalid_request");
+  expect(service.live("unknown")).toBe(false);
+  service.close();
+  expect(service.live(actor.generation)).toBe(false);
+  expect(() => {
+    service.setRole("terminal", "agent");
+  }).toThrow("unavailable");
+});

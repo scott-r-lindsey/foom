@@ -160,7 +160,6 @@ test("the wordmark menu is curated, the same on every platform, with planned ite
       "new-window",
       "new-worktree",
       "add-repository",
-      "new-orchestrator",
       "-",
       { "settings-menu": ["via-claude", "via-codex", "via-agy", "-", "settings"] },
       { "view-menu": ["tidy-tiles"] },
@@ -198,13 +197,7 @@ test("the wordmark menu is curated, the same on every platform, with planned ite
           : [entry],
     );
     const disabled = flat.flatMap((item) => (item.enabled ? [] : [item.id]));
-    expect(disabled).toEqual([
-      "new-orchestrator",
-      "via-claude",
-      "via-codex",
-      "via-agy",
-      "action-log",
-    ]);
+    expect(disabled).toEqual(["via-claude", "via-codex", "via-agy", "action-log"]);
     // Disabled entries carry no explanation, issue number or shortcut.
     for (const item of flat) if (!item.enabled) expect(item.shortcut).toBe("");
   }
@@ -229,7 +222,9 @@ test("the wordmark menu is curated, the same on every platform, with planned ite
     bigger: { id: "zoom-in", label: "Bigger interface" },
   });
   expect(linux[0]).toMatchObject({ label: "New window", shortcut: "Ctrl+Shift+O" });
-  expect(linux[3]).toMatchObject({ label: "New orchestrator…", enabled: false });
+  expect(linux[2]).toMatchObject({ label: "Add repository…", enabled: true });
+  // Orchestration is granted per session, so the menu has no orchestrator item.
+  expect(entryIds(linux)).not.toContain("new-orchestrator");
   expect(
     linux.find((entry) => entry?.kind === "command" && entry.id === "shortcuts"),
   ).toMatchObject({
@@ -270,7 +265,7 @@ test("disabled planned commands never run from a shortcut or the native menu", (
   const calls = actions();
   const commands = createCommands("darwin", false, calls, AGENTS);
   const planned = commands.filter((command) => command.section === "Planned");
-  expect(planned.map((command) => command.id)).toEqual(["new-orchestrator", "action-log"]);
+  expect(planned.map((command) => command.id)).toEqual(["action-log"]);
   expect(planned.every((command) => !command.enabled && command.bindings.length === 0)).toBe(true);
   const native = nativeMenu(commands).flatMap((section) =>
     Array.isArray(section.submenu) ? section.submenu : [],

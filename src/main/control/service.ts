@@ -222,11 +222,52 @@ export class ControlService {
     }
   }
 
-  /** Orchestration methods are visible only to a main-created orchestrator principal. */
+  /**
+   * Main-only: the human makes a running session the orchestrator or revokes it. The token
+   * stays and the next request sees the new principal; the old one stops authenticating, so
+   * a revoked orchestrator's in-flight operations end as they do when it exits.
+   */
+  setRole(terminalId: string, role: "agent" | "orchestrator"): void {
+    if (this.closed) throw new ControlError("unavailable");
+    identifier(terminalId);
+    const grant = [...this.grants.values()].find(
+      (entry) => entry.principal?.terminalId === terminalId && entry.principal.role !== "cli",
+    );
+    const current = grant?.principal;
+    // An exited session has nothing left to revoke.
+    if (!grant || !current) {
+      if (role === "agent") return;
+      throw new ControlError("not_found");
+    }
+    if (current.role === role) return;
+    grant.principal = Object.freeze({ ...current, role, parentId: null });
+    if (current.role === "orchestrator") this.operations.revoke(current);
+  }
+
+  /** Whether a grant generation still has a principal; protocol state lives no longer. */
+  live(generation: string): boolean {
+    const grant = this.grants.get(generation);
+    if (!grant?.principal) return false;
+    try {
+      this.assertActive(grant.principal);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  /** Granted methods. Orchestration methods need a main-granted orchestrator principal. */
   capabilities(actor: Principal): string[] {
     return actor.role === "orchestrator"
       ? [...READ_ONLY, ...(this.orchestration ? ORCHESTRATION_METHODS : []), "operation_status"]
       : [...READ_ONLY];
+  }
+
+  /** Every method an agent could be granted; listing one grants nothing. */
+  listed(actor: Principal): string[] {
+    return actor.role === "cli"
+      ? this.capabilities(actor)
+      : this.capabilities({ ...actor, role: "orchestrator" });
   }
 
   /** Adapters' entry point: orchestration actions are asynchronous, the rest delegate to dispatch. */

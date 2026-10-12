@@ -42,5 +42,5 @@ export type WorkspaceConfirmation =
       worktrees: readonly { branch: string; reason?: string }[];
     }
   | { kind: "dirty-worktree"; title: string; changes: string }
-  | { kind: "orchestrator"; agent: "claude" | "codex" | "agy" };
+  | { kind: "orchestrator"; agent: "claude" | "codex" | "agy"; replacing?: string };
 export type ConfirmWorkspace = (request: WorkspaceConfirmation) => Promise<boolean>;

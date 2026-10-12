@@ -3,6 +3,7 @@ import { Workspace } from "../../../../src/main/workspace/workspace";
 import type { WorkspaceDependencies } from "../../../../src/main/workspace/workspace";
 import { Operations } from "../../../../src/main/control/operations";
 import type { Operation, Principal } from "../../../../src/main/control/types";
+import type { ControlRuntime } from "../../../../src/main/control/runtime";
 import type { AgentLaunch, AgentScan } from "../../../../src/shared/agents";
 import type { WorkspaceConfirmation } from "../../../../src/shared/confirmation";
 import type { VerdictRecord } from "../../../../src/shared/evaluator";
@@ -34,6 +35,7 @@ let scanned: AgentScan;
 let stop: ReturnType<typeof vi.fn<(id: string) => Promise<void>>>;
 let tail: ReturnType<typeof vi.fn<(id: string, lines: number) => Promise<string[]>>>;
 let confirm: ReturnType<typeof vi.fn<(request: WorkspaceConfirmation) => Promise<boolean>>>;
+let setRole: ReturnType<typeof vi.fn<ControlRuntime["setRole"]>>;
 
 beforeEach(() => {
   scanned = scan(true);
@@ -43,7 +45,14 @@ beforeEach(() => {
   stop = vi.fn(async (_id: string) => {});
   tail = vi.fn((_id: string, _lines: number) => Promise.resolve(["done"]));
   confirm = vi.fn((_request: WorkspaceConfirmation) => Promise.resolve(true));
+  setRole = vi.fn<ControlRuntime["setRole"]>();
   deps = {
+    control: () =>
+      Promise.resolve({
+        prepare: vi.fn<ControlRuntime["prepare"]>(),
+        close: vi.fn(async () => {}),
+        setRole,
+      }),
     acknowledgeCodex: vi.fn(async () => {}),
     worktrees: {
       branches: vi.fn(),
@@ -91,8 +100,16 @@ beforeEach(() => {
   };
 });
 
-const orchestrate = (workspace: Workspace) =>
-  workspace.sidebarCommand({ kind: "orchestrate", repository: repo.path, run: "claude" }, confirm);
+const make = (workspace: Workspace, id = "parent") =>
+  workspace.sidebarCommand({ kind: "make-orchestrator", id }, confirm);
+/** An ordinary agent in the main checkout, then elevated from its session menu. */
+const orchestrate = async (workspace: Workspace) => {
+  await workspace.sidebarCommand(
+    { kind: "launch", repository: repo.path, worktree: repo.path, run: "claude" },
+    confirm,
+  );
+  await make(workspace);
+};
 
 function principal(): Principal {
   return Object.freeze({
@@ -106,46 +123,170 @@ function principal(): Principal {
   });
 }
 
-it("launches an orchestrator in the main checkout after the trusted disclosure, once per repository", async () => {
+it("makes a running agent the orchestrator after the trusted disclosure, without relaunching it", async () => {
   const workspace = new Workspace(deps);
   await orchestrate(workspace);
-  expect(confirm).toHaveBeenCalledWith({ kind: "orchestrator", agent: "claude" });
-  expect(launch).toHaveBeenCalledWith(
-    expect.objectContaining({
-      worktree: repo.path,
-      mainCheckout: true,
-      control: { role: "orchestrator" },
-    }),
-  );
+  expect(launch).toHaveBeenCalledOnce();
+  expect(launch.mock.calls[0]?.[0].control).toBeUndefined();
+  expect(confirm).toHaveBeenLastCalledWith({ kind: "orchestrator", agent: "claude" });
+  expect(setRole).toHaveBeenCalledExactlyOnceWith("parent", "orchestrator");
   expect(workspace.snapshot().terminals[0]?.orchestration).toEqual({
     role: "orchestrator",
     active: true,
     children: 0,
     history: [],
   });
-  await orchestrate(workspace);
-  expect(deps.reveal).toHaveBeenCalledWith("parent");
-  expect(launch).toHaveBeenCalledTimes(1);
+  // Already the orchestrator: nothing to confirm.
+  confirm.mockClear();
+  await make(workspace);
+  expect(confirm).not.toHaveBeenCalled();
   void workspace.exited("parent", 0);
   expect(workspace.snapshot().terminals[0]?.orchestration).toMatchObject({ active: false });
 });
 
-it("refuses unavailable agents and releases the slot after refusal, decline or failure", async () => {
-  let workspace = new Workspace(deps);
-  scanned = { ...scan(false), agents: [] };
-  await expect(orchestrate(workspace)).rejects.toThrow("installed agent");
-  // Discovery is cached until a rescan, so a fresh workspace sees the upgraded agent.
-  scanned = scan(true);
-  await expect(orchestrate(workspace)).rejects.toThrow("installed agent");
-  workspace = new Workspace(deps);
+it("transfers the role only after the human accepts, revoking the previous orchestrator", async () => {
+  const workspace = new Workspace(deps);
+  await orchestrate(workspace);
+  launch.mockResolvedValueOnce({ id: "second", attention: "evaluator" });
+  await workspace.sidebarCommand(
+    { kind: "launch", repository: repo.path, worktree: child.path, run: "claude" },
+    confirm,
+  );
   confirm.mockResolvedValueOnce(false);
+  await make(workspace, "second");
+  expect(confirm).toHaveBeenLastCalledWith({
+    kind: "orchestrator",
+    agent: "claude",
+    replacing: "Claude Code on main",
+  });
+  expect(workspace.orchestration.active(repo.path)).toBe("parent");
+  expect(setRole).not.toHaveBeenCalledWith("parent", "agent");
+  await make(workspace, "second");
+  expect(setRole.mock.calls.slice(1)).toEqual([
+    ["parent", "agent"],
+    ["second", "orchestrator"],
+  ]);
+  expect(workspace.orchestration.active(repo.path)).toBe("second");
+  expect(workspace.orchestration.view("parent")).toMatchObject({ active: false });
+});
+
+it("rechecks the session and the current orchestrator after the dialog", async () => {
+  const workspace = new Workspace(deps);
+  await workspace.sidebarCommand(
+    { kind: "launch", repository: repo.path, worktree: repo.path, run: "claude" },
+    confirm,
+  );
+  confirm.mockImplementationOnce(async () => {
+    await workspace.exited("parent", 0);
+    return true;
+  });
+  await expect(make(workspace)).rejects.toThrow("Only a running agent session");
+  expect(setRole).not.toHaveBeenCalled();
+
+  const other = new Workspace(deps);
+  launch.mockResolvedValueOnce({ id: "first", attention: "evaluator" });
+  await other.sidebarCommand(
+    { kind: "launch", repository: repo.path, worktree: repo.path, run: "claude" },
+    confirm,
+  );
+  launch.mockResolvedValueOnce({ id: "second", attention: "evaluator" });
+  await other.sidebarCommand(
+    { kind: "launch", repository: repo.path, worktree: child.path, run: "claude" },
+    confirm,
+  );
+  confirm.mockImplementationOnce(async () => {
+    await make(other, "first");
+    return true;
+  });
+  await expect(make(other, "second")).rejects.toThrow("orchestrator changed");
+  expect(other.orchestration.active(repo.path)).toBe("first");
+});
+
+it("revokes like an exit: the session keeps running and a later grant keeps its history", async () => {
+  const workspace = new Workspace(deps);
   await orchestrate(workspace);
-  launch.mockRejectedValueOnce(new Error("spawn failed"));
-  await expect(orchestrate(workspace)).rejects.toThrow("spawn failed");
-  expect(launch).toHaveBeenCalledTimes(1);
+  const operations = new Operations(
+    () => Promise.resolve(),
+    () => undefined,
+  );
+  await workspace.orchestration.call(
+    principal(),
+    "create_worktree",
+    { idempotencyKey: "a", branch: "feature" },
+    operations,
+  );
+  await workspace.sidebarCommand({ kind: "revoke-orchestrator", id: "parent" }, confirm);
+  expect(setRole).toHaveBeenLastCalledWith("parent", "agent");
+  expect(workspace.orchestration.view("parent")).toMatchObject({ active: false });
+  expect(workspace.snapshot().terminals[0]?.exited).toBeFalsy();
+  await expect(
+    workspace.orchestration.call(principal(), "tail", { id: "child" }, operations),
+  ).rejects.toMatchObject({ code: "forbidden" });
+  // Revoking an ordinary session does nothing.
+  setRole.mockClear();
+  await workspace.sidebarCommand({ kind: "revoke-orchestrator", id: "parent" }, confirm);
+  expect(setRole).not.toHaveBeenCalled();
+  await make(workspace);
+  const view = workspace.orchestration.view("parent");
+  expect(view).toMatchObject({ role: "orchestrator", active: true });
+  expect(view?.role === "orchestrator" && view.history.map((entry) => entry.action)).toEqual([
+    "create_worktree",
+  ]);
+});
+
+it("refuses shells, config sessions, owned children and a missing control service", async () => {
+  let workspace = new Workspace(deps);
+  await workspace.sidebarCommand(
+    { kind: "launch", repository: repo.path, worktree: repo.path, run: "shell" },
+    confirm,
+  );
+  await expect(make(workspace, "shell")).rejects.toThrow("Only a running agent session");
+  await expect(make(workspace, "unknown")).rejects.toThrow("Only a running agent session");
   await orchestrate(workspace);
-  expect(launch).toHaveBeenCalledTimes(2);
-  expect(deps.reveal).not.toHaveBeenCalled();
+  const operations = new Operations(
+    () => Promise.resolve(),
+    () => undefined,
+  );
+  const tree = (await workspace.orchestration.call(
+    principal(),
+    "create_worktree",
+    { idempotencyKey: "a", branch: "feature" },
+    operations,
+  )) as Operation;
+  launch.mockResolvedValueOnce({ id: "child", attention: "evaluator" });
+  await workspace.orchestration.call(
+    principal(),
+    "launch",
+    { idempotencyKey: "b", worktreeId: tree.resultId, agent: "claude" },
+    operations,
+  );
+  await expect(make(workspace, "child")).rejects.toThrow("Take over this session first");
+  await workspace.sidebarCommand({ kind: "take-over", id: "child" }, confirm);
+  await make(workspace, "child");
+  expect(workspace.orchestration.active(repo.path)).toBe("child");
+
+  delete deps.control;
+  workspace = new Workspace(deps);
+  await workspace.sidebarCommand(
+    { kind: "launch", repository: repo.path, worktree: repo.path, run: "claude" },
+    confirm,
+  );
+  await expect(make(workspace)).rejects.toThrow("Control service unavailable");
+});
+
+it("releases the slot when the session has no control grant", async () => {
+  const workspace = new Workspace(deps);
+  await workspace.sidebarCommand(
+    { kind: "launch", repository: repo.path, worktree: repo.path, run: "claude" },
+    confirm,
+  );
+  setRole.mockImplementationOnce(() => {
+    throw new Error("not_found");
+  });
+  await expect(make(workspace)).rejects.toThrow("not_found");
+  expect(workspace.orchestration.active(repo.path)).toBeUndefined();
+  await make(workspace);
+  expect(workspace.orchestration.active(repo.path)).toBe("parent");
 });
 
 it("creates fresh branches and launches children without bypass defaults or confirmation", async () => {
@@ -454,9 +595,7 @@ it("a human relaunch of a child's session ends the orchestrator's ownership", as
   ).toBeUndefined();
 });
 
-it("permits CLI-only orchestrators and requires Antigravity interactive prompts", async () => {
-  scanned = scan(false);
-  await orchestrate(new Workspace(deps));
+it("makes CLI-only agents orchestrators, including Antigravity without interactive prompts", async () => {
   scanned = {
     ...scan(false),
     agents: [
@@ -471,23 +610,14 @@ it("permits CLI-only orchestrators and requires Antigravity interactive prompts"
       },
     ],
   };
-  await expect(
-    new Workspace(deps).sidebarCommand(
-      { kind: "orchestrate", repository: repo.path, run: "agy" },
-      confirm,
-    ),
-  ).rejects.toThrow("initial prompt");
-  scanned = {
-    ...scanned,
-    agents: scanned.agents.map((agent) => ({ ...agent, cliGuidance: true })),
-  };
-  await new Workspace(deps).sidebarCommand(
-    { kind: "orchestrate", repository: repo.path, run: "agy" },
+  const workspace = new Workspace(deps);
+  await workspace.sidebarCommand(
+    { kind: "launch", repository: repo.path, worktree: repo.path, run: "agy" },
     confirm,
   );
-  expect(launch).toHaveBeenLastCalledWith(
-    expect.objectContaining({ agent: "agy", control: { role: "orchestrator" } }),
-  );
+  await make(workspace);
+  expect(confirm).toHaveBeenLastCalledWith({ kind: "orchestrator", agent: "agy" });
+  expect(setRole).toHaveBeenCalledWith("parent", "orchestrator");
 });
 
 it("restores running parents and owned children with new launches and retains history", async () => {
