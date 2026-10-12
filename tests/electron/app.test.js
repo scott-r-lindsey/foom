@@ -1882,9 +1882,21 @@ test("launches an agent in a managed worktree and routes its attention signals",
   const listed = await (
     await mcpRequest({ id: 2, method: "tools/list", params: { _meta: { progressToken: 1 } } })
   ).json();
+  // Every agent lists the orchestration tools (#303); an ordinary agent's calls are refused.
   assert.deepEqual(
     listed.result.tools.map((tool) => tool.name),
-    ["whoami", "sessions", "session_state"],
+    [
+      "whoami",
+      "sessions",
+      "session_state",
+      "create_worktree",
+      "launch",
+      "stop",
+      "remove_worktree",
+      "tail",
+      "wait_for",
+      "operation_status",
+    ],
   );
   const metadata = await (
     await mcpRequest({ id: 3, method: "tools/call", params: { name: "sessions", arguments: {} } })
@@ -1901,6 +1913,7 @@ test("launches an agent in a managed worktree and routes its attention signals",
     await mcpRequest({ id: 4, method: "tools/call", params: { name: "tail", arguments: { id } } })
   ).json();
   assert.equal(forbidden.result.isError, true);
+  assert.match(forbidden.result.content[0].text, /call whoami/);
 
   await page.evaluate(async (repository) => {
     const tree = await window.desktop.createWorktree(repository, "feature/newer", "adjacent");
