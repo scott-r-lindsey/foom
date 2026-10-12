@@ -1431,7 +1431,7 @@ test("host answers color queries once through real view transitions and system t
   await page.waitForFunction(() => window.probeId);
   for (const theme of ["light", "dark", "dracula"]) {
     if (theme === "dracula") {
-      await openFooterSettings(page);
+      await openSettingsScreen(page);
       await page.getByRole("button", { name: "Terminal", exact: true }).click();
       await page.getByRole("button", { name: "Dracula", exact: true }).click();
       await expect
@@ -1515,7 +1515,7 @@ test("Settings transitions restore background fullscreen output repeatedly", {
   await page.keyboard.press("Enter");
   const rows = page.locator(".xterm-rows");
   await expect(rows).toContainText("NORMAL_VIEW_READY");
-  await openFooterSettings(page);
+  await openSettingsScreen(page);
   await expect(page.getByRole("region", { name: "Settings" })).toBeVisible();
   await expect(open).toBeEnabled();
   await expect(page.locator(".tile-terminal")).toBeHidden();
@@ -1534,7 +1534,7 @@ test("Settings transitions restore background fullscreen output repeatedly", {
     await expect(rows).toContainText("ALTERNATE_HIDDEN_OUTPUT");
     await expect(rows).not.toContainText("NORMAL_VIEW_READY");
     await expect(page.locator(".xterm-helper-textarea")).toBeFocused();
-    await openFooterSettings(page);
+    await openSettingsScreen(page);
     await expect(page.getByRole("region", { name: "Settings" })).toBeVisible();
     await expect(page.getByRole("region", { name: "Settings" })).toBeVisible();
     await expect(open).toBeEnabled();
@@ -1552,7 +1552,7 @@ test("Settings transitions restore background fullscreen output repeatedly", {
   // Continue scrolling after restoration, including origin-relative positioning,
   // repeated attachments, and transitions between both buffers.
   for (const mode of ["a", "n", "a", "n"]) {
-    await openFooterSettings(page);
+    await openSettingsScreen(page);
     await expect(page.getByRole("region", { name: "Settings" })).toBeVisible();
     await expect(page.getByRole("region", { name: "Settings" })).toBeVisible();
     await expect(open).toBeEnabled();
@@ -1588,7 +1588,7 @@ test("Settings transitions restore background fullscreen output repeatedly", {
           .toEqual(expected);
         const tail = await page.evaluate(() => window.desktop.tail(window.viewId, 10000));
         assert.deepEqual(tail.slice(-6), expected);
-        await openFooterSettings(page);
+        await openSettingsScreen(page);
         await expect(page.getByRole("region", { name: "Settings" })).toBeVisible();
         await expect(open).toBeEnabled();
       }
@@ -2584,7 +2584,7 @@ test("first run goes from no agents to go, launches by keyboard, and can be repl
 
   // Settings returns to the same sidebar row.
   await shellRow.focus();
-  await openFooterSettings(page);
+  await openSettingsScreen(page);
   await page.getByRole("region", { name: "Settings" }).waitFor();
   await expect(page.locator(".board-terminal")).toBeHidden();
   await page.keyboard.press("Escape");
@@ -2684,7 +2684,7 @@ test("the board stays usable at 300% in a small window", async (context) => {
   await expect(sheet).toHaveCount(0);
 
   // Settings opens and scrolls within itself.
-  await openFooterSettings(page);
+  await openSettingsScreen(page);
   const settings = page.getByRole("region", { name: "Settings" });
   await expect(settings).toBeVisible();
   assert.equal(await pageScrolls(), false, "Settings does not widen the page");
@@ -3715,7 +3715,7 @@ test("Settings shares live preflight values, sizes the terminal and restores key
 test("every Settings section passes axe in light and dark, including the narrow layout", async (context) => {
   const app = await launchApp(context, false);
   const page = await boardPage(app);
-  await openFooterSettings(page);
+  await openSettingsScreen(page);
   for (const name of [
     "Agents and hooks",
     "Repositories",
@@ -4359,7 +4359,7 @@ test("tile terminal viewport has no native overflow bars", async (context) => {
   const app = await launchApp(context);
   const page = await boardPage(app);
   await page.emulateMedia({ reducedMotion: "reduce" });
-  await openFooterSettings(page);
+  await openSettingsScreen(page);
   await page.getByRole("button", { name: "Terminal", exact: true }).click();
   await page.getByRole("button", { name: "Dracula", exact: true }).click();
   await expect
@@ -4868,7 +4868,7 @@ test("Settings persists literal agent defaults and discloses bypass once per age
   }, repo);
   const repository = await page.evaluate(() => window.desktop.addRepository());
   assert.ok(repository);
-  await openFooterSettings(page);
+  await openSettingsScreen(page);
   const input = page.getByLabel("Claude Code default arguments");
   await expect(input).toBeVisible();
   await input.fill("--settings={}");
@@ -5795,7 +5795,7 @@ process.stdin.on('data', data => {
   await expect
     .poll(() => page.evaluate((id) => window.desktop.tail(id, 40), later))
     .toContain("USER NOTIFIER PRESERVED");
-  await openFooterSettings(page);
+  await openSettingsScreen(page);
   await page
     .getByRole("navigation", { name: "Settings sections" })
     .getByRole("button", { name: "Agents and hooks", exact: true })
@@ -6186,7 +6186,7 @@ process.stdin.on('data', (data) => {
     env: { HOME: home, PATH: `${bin}${path.delimiter}${process.env.PATH}` },
   });
   const page = await boardPage(app);
-  await openFooterSettings(page);
+  await openSettingsScreen(page);
   await page.getByRole("button", { name: "Agents and hooks", exact: true }).click();
   await expect(page.getByText("Not installed", { exact: true })).toBeVisible();
   await expect(page.getByText(/They report working and turn-end signals/u)).toBeVisible();
@@ -6688,7 +6688,7 @@ test("legacy inference profiles upgrade without evaluator controls or stored key
     ),
     [],
   );
-  await openFooterSettings(page);
+  await openSettingsScreen(page);
   await page.getByRole("navigation", { name: "Settings sections" }).waitFor();
   await expect(page.getByText(/Evaluator|Run check|API key/)).toHaveCount(0);
   await page.evaluate(() => window.desktop.saveSetup({ setupComplete: false }));
@@ -7286,7 +7286,7 @@ test("Settings agent menu launches config and focuses its existing window", {
       },
     }),
   );
-  await openFooterSettings(first);
+  await openSettingsScreen(first);
   await expect(first.getByRole("heading", { name: "Settings", exact: true })).toBeVisible();
   await first.getByRole("button", { name: "Foom menu" }).click();
   await first.getByRole("menuitem", { name: "Settings", exact: true }).press("ArrowRight");
@@ -8005,12 +8005,11 @@ test("version 2 themes scope portaled colors, shape and warnings and hold attent
   await expect.poll(() => readFile(file, "utf8")).toBe(original);
 });
 
-async function openFooterSettings(page) {
-  await page.locator(".config-gear").click();
-  await page
-    .getByRole("dialog", { name: "Foom config details and commands" })
-    .getByRole("menuitem", { name: /^Settings/ })
-    .click();
+async function openSettingsScreen(page) {
+  // These tests exercise Settings and terminal transitions. The dedicated footer
+  // test below covers reaching Settings through the gear's config panel.
+  await page.evaluate(() => window.desktop.appMenu.execute("settings"));
+  await expect(page.getByRole("region", { name: "Settings" })).toBeVisible();
 }
 
 test("footer config gear opens Settings and launches a docked Shell", async (context) => {

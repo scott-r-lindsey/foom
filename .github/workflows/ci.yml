@@ -216,9 +216,11 @@ jobs:
       # The full suite includes preflight and sidebar flows; per-test deadlines
       # and the Electron worker watchdog still bound individual hangs.
       - name: Test Electron on Linux
-        # Run 37725461331 reached 300s before the last menu cases and report flush.
-        # Keep per-test deadlines; allow the measured full suite plus cleanup.
-        timeout-minutes: 8
+        # Run 38287864116 passed 80 cases before the 480s cutoff; matched cases
+        # took 460s versus 366s in green run 38232497712, with more cases remaining.
+        # Allow the expanded suite and runner variation; keep individual deadlines
+        # and the worker watchdog unchanged.
+        timeout-minutes: 10
         if: runner.os == 'Linux'
         run: xvfb-run -a npm run test:electron
       - name: Test Electron on macOS and Windows
