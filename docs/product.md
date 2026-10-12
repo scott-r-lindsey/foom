@@ -216,7 +216,10 @@ menu is the same everywhere and lists app-wide commands plus the whole-layout Ti
   Antigravity (#84: each starts that agent in `~/.foom/config` in the Foom
   config dock), then Via Settings UI, which opens the Settings screen. Agent routes
   are enabled for installed, enabled agents after preflight, including while
-  Settings is open. An existing config session is focused in its owning window.
+  Settings is open. A new config session starts with a fixed greeting describing
+  what it can change and asking what the user wants; resuming a conversation adds
+  no greeting. Antigravity releases without interactive prompt support open
+  without the greeting. An existing config session is focused in its owning window.
 - **View › Tidy tiles**, which removes empty spaces and evens every run in the focused window
 - **Size − 100% +**, one row that steps the interface size and stays open
 - Action log (#157), Keyboard shortcuts, About Foom, Third-party licenses

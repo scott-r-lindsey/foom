@@ -3116,34 +3116,76 @@ test("config sessions run in the config folder with the bundled CLI, one at a ti
   await workspace.dispose();
 });
 
-test("config agents get hooks and no worktree, and resume in the same row", async () => {
-  deps.config = configDep();
-  agents.launch.mockResolvedValue({ id: "c1", attention: "hooks" });
-  const workspace = new Workspace(deps);
-  const no = () => Promise.resolve(false);
-  await workspace.sidebarCommand({ kind: "config-launch", run: "claude" }, no);
-  expect(agents.launch).toHaveBeenCalledWith(
-    expect.objectContaining({
-      agent: "claude",
-      repository: "/home/.foom/config",
-      worktree: "/home/.foom/config",
-      configCli: "/app/console",
-    }),
-  );
-  expect(deps.worktrees.createWorktree).not.toHaveBeenCalled();
-  expect(workspace.snapshot().terminals[0]).toMatchObject({
-    id: "c1",
-    config: true,
-    agent: "claude",
-    attention: "hooks",
-  });
-  await workspace.exited("c1", 0);
-  await workspace.sidebarCommand({ kind: "new-conversation", id: "c1" }, no);
-  expect(agents.launch).toHaveBeenLastCalledWith(
-    expect.objectContaining({ terminalId: "c1", configCli: "/app/console" }),
-  );
-  await workspace.dispose();
-});
+test.each(["claude", "codex", "agy"] as const)(
+  "config %s agents preserve defaults and resume in the same row",
+  async (agent) => {
+    deps.config = configDep();
+    agents.launch.mockResolvedValue({ id: "c1", attention: "hooks" });
+    const workspace = new Workspace(deps);
+    workspace.configure({
+      hooks: true,
+      agents: { claude: true, codex: true, agy: true },
+      agentArguments: {
+        claude: ["--model", "test"],
+        codex: ["--model", "test"],
+        agy: ["-i", "user greeting"],
+      },
+    });
+    const defaults = agent === "agy" ? ["-i", "user greeting"] : ["--model", "test"];
+    const no = () => Promise.resolve(false);
+    await workspace.sidebarCommand({ kind: "config-launch", run: agent }, no);
+    expect(agents.launch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        agent,
+        repository: "/home/.foom/config",
+        worktree: "/home/.foom/config",
+        configCli: "/app/console",
+        defaultArguments: defaults,
+      }),
+    );
+    expect(deps.worktrees.createWorktree).not.toHaveBeenCalled();
+    expect(workspace.snapshot().terminals[0]).toMatchObject({
+      id: "c1",
+      config: true,
+      agent,
+      attention: "hooks",
+    });
+    await workspace.exited("c1", 0);
+    await workspace.sidebarCommand({ kind: "new-conversation", id: "c1" }, no);
+    expect(agents.launch.mock.calls.at(-1)?.[0].conversationId).toBeUndefined();
+    const hooks = await prepare?.(agent);
+    hooks?.bind?.("c1");
+    const key = receiver.register.mock.calls.at(-1)?.[0] ?? "";
+    await workspace.hook({
+      terminalId: key,
+      action: "classify",
+      signal:
+        agent === "agy"
+          ? "agy:Stop"
+          : agent === "codex"
+            ? "codex:agent-turn-complete"
+            : "claude:Stop",
+      conversationId: "saved-id",
+    });
+    await workspace.exited("c1", 0);
+    await workspace.sidebarCommand({ kind: "resume", id: "c1" }, no);
+    expect(agents.launch).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        terminalId: "c1",
+        configCli: "/app/console",
+        conversationId: "saved-id",
+        defaultArguments: defaults,
+      }),
+    );
+    await workspace.exited("c1", 0);
+    await workspace.sidebarCommand({ kind: "new-conversation", id: "c1" }, no);
+    expect(agents.launch).toHaveBeenLastCalledWith(
+      expect.objectContaining({ terminalId: "c1", configCli: "/app/console" }),
+    );
+    expect(agents.launch.mock.calls.at(-1)?.[0].conversationId).toBeUndefined();
+    await workspace.dispose();
+  },
+);
 
 test("config sessions get Environment layers with the bundled CLI first on PATH", async () => {
   deps.config = configDep();
