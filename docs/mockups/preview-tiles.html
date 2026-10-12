@@ -1,0 +1,664 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Foom Preview Tiles</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo+Black&family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&display=swap">
+<style>
+/* Preview tiles (#221, #222): Markdown and HTML files in tiles beside terminals, and previews an
+   agent opened. Tokens, title bar and panels follow tile-panels.html and sidebar-panels.html. */
+:root {
+  --bg: #f3f0fa; --surface: #e9e4f5; --line: #ddd6ee; --ink: #14101f; --muted: #625a7a;
+  --accent: #5b2bd9; --accent-deep: #3b1a99; --attention: #d98200; --attention-ink: #8c5000;
+  --done: #13804a; --done-ink: #0e6b3c; --failed: #d6166e; --failed-ink: #b0105a;
+  --idle: #b9b0d3; --badge: #4a4263; --badge-ink: #f4efff; --lift: #ffffff;
+  --shadow: rgba(40, 20, 90, .28);
+  --term-bg: #05040a; --term-line: #251d3f; --term-ink: #f4efff; --term-dim: #6a6188; --term-acc: #c08bff;
+  --page: #ffffff; --page-ink: #1b1726; --page-muted: #6b6480; --page-line: #e6e1f0; --page-code: #f4f1fa;
+  --display: "Archivo Black", sans-serif;
+  --sans: "Geist", system-ui, sans-serif; --mono: "Geist Mono", ui-monospace, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #05040a; --surface: #0d0a17; --line: #251d3f; --ink: #f4efff; --muted: #9d93bd;
+    --accent: #9b6bff; --accent-deep: #7a3cff; --attention: #ffb23e; --attention-ink: #ffb23e;
+    --done: #6fe0a3; --done-ink: #6fe0a3; --failed: #ff2e88; --failed-ink: #ff2e88;
+    --idle: #4a4263; --badge: #3a3060; --badge-ink: #f4efff; --lift: #f4efff;
+    --shadow: rgba(0, 0, 0, .85);
+    --page: #0f0c1a; --page-ink: #ebe6f7; --page-muted: #9d93bd; --page-line: #2a2342; --page-code: #171226;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #05040a; --surface: #0d0a17; --line: #251d3f; --ink: #f4efff; --muted: #9d93bd;
+  --accent: #9b6bff; --accent-deep: #7a3cff; --attention: #ffb23e; --attention-ink: #ffb23e;
+  --done: #6fe0a3; --done-ink: #6fe0a3; --failed: #ff2e88; --failed-ink: #ff2e88;
+  --idle: #4a4263; --badge: #3a3060; --badge-ink: #f4efff; --lift: #f4efff;
+  --shadow: rgba(0, 0, 0, .85);
+  --page: #0f0c1a; --page-ink: #ebe6f7; --page-muted: #9d93bd; --page-line: #2a2342; --page-code: #171226;
+  color-scheme: dark;
+}
+:root {
+  --highlight: var(--accent);
+  --highlight-deep: var(--accent-deep);
+  --select: color-mix(in srgb, var(--highlight) 18%, var(--surface));
+  --halo: color-mix(in srgb, var(--attention) 25%, transparent);
+  --raised-top: color-mix(in srgb, var(--surface) 92%, var(--lift));
+  --raised-bottom: var(--surface);
+  --raised-line: color-mix(in srgb, var(--highlight) 25%, var(--line));
+  --raised-hover: color-mix(in srgb, var(--highlight) 12%, var(--raised-top));
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; }
+body { background: var(--bg); color: var(--ink); font: 13px/1.4 var(--sans); }
+button { font: inherit; color: inherit; cursor: pointer; }
+:focus-visible { outline: 2px solid var(--highlight); outline-offset: 1px; }
+.frame { height: 100%; overflow: auto; }
+.app { position: relative; display: flex; height: 100%; min-width: 1100px; overflow: hidden; }
+.app.scaled { zoom: 1.5; min-width: 734px; }
+
+/* Sidebar slice */
+.side { width: 290px; flex-shrink: 0; display: flex; flex-direction: column; background: var(--surface); border-right: 1px solid var(--line); }
+.app.narrow .side { width: 220px; }
+.head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 2px 10px; padding: 16px 14px 12px; }
+.head b { font: 22px var(--display); font-weight: 400; color: var(--accent); }
+.head span { font: 11px var(--mono); color: var(--muted); }
+.list { flex: 1; overflow-y: auto; padding: 0 6px 10px; }
+.group { padding: 10px 8px 4px; font: 600 12px var(--sans); color: var(--muted); }
+.wt { display: flex; align-items: center; gap: 6px; padding: 6px 8px 2px; font: 12px var(--mono); color: var(--muted); }
+.wt svg { width: 12px; height: 12px; fill: none; stroke: currentColor; stroke-width: 1.4; }
+.srow { position: relative; display: flex; align-items: flex-start; gap: 8px; width: 100%; padding: 6px 8px; background: transparent; border: 0; border-radius: 6px; text-align: left; }
+.srow:hover { background: color-mix(in srgb, var(--select) 55%, transparent); }
+.srow.sel { background: var(--select); }
+.srow.off { opacity: .7; }
+.srow .light { margin-top: 4px; }
+.srow .lines { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.srow .top { display: flex; align-items: center; gap: 6px; font: 12px var(--mono); }
+.srow .top .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.srow .reason { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; color: var(--muted); }
+.srow .reason.needs { color: var(--attention-ink); }
+.srow.child { padding-left: 26px; }
+.srow .more { opacity: 0; margin-left: 2px; width: 20px; height: 18px; display: grid; place-items: center; border-radius: 4px; color: var(--muted); }
+.srow:hover .more, .srow .more[aria-expanded="true"] { opacity: 1; }
+.srow .more:hover { background: var(--raised-hover); color: var(--ink); }
+/* A preview row: a document glyph where a session has its light. Previews have no attention state. */
+.doc { flex-shrink: 0; width: 12px; height: 14px; margin-top: 1px; color: var(--muted); }
+.doc svg { width: 12px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.3; stroke-linejoin: round; }
+.srow .dir { color: var(--muted); }
+.srow.arrived { background: color-mix(in srgb, var(--highlight) 10%, transparent); box-shadow: inset 2px 0 0 var(--highlight); }
+.srow.arrived.flare { animation: flare 900ms ease 2; }
+@keyframes flare { 50% { background: color-mix(in srgb, var(--highlight) 28%, transparent); } }
+.tile-no { margin-left: auto; flex-shrink: 0; min-width: 16px; height: 16px; padding: 0 4px; display: inline-grid; place-items: center; border: 1px solid var(--line); border-radius: 4px; font: 10px var(--mono); color: var(--muted); }
+.light { flex-shrink: 0; width: 8px; height: 8px; border-radius: 50%; background: var(--idle); }
+.light.needs { background: var(--attention); box-shadow: 0 0 0 4px var(--halo); }
+.light.working { background: var(--accent); box-shadow: 0 0 8px var(--accent); }
+.light.done { background: var(--done); }
+.badge { flex-shrink: 0; min-width: 24px; height: 20px; padding: 0 4px; display: inline-flex; align-items: center; justify-content: center; border-radius: 4px; background: var(--badge); color: var(--badge-ink); font: 600 11px var(--mono); }
+.badge.sm { min-width: 20px; height: 16px; font-size: 10px; }
+
+/* Tile area: columns of tiles; enough for the states this mockup shows. */
+.area { position: relative; flex: 1; min-width: 0; display: flex; gap: 6px; padding: 6px; background: var(--bg); }
+.col { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+.tile { container-type: inline-size; position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; background: var(--term-bg); border: 1px solid var(--term-line); border-radius: 6px; }
+.tile.focus { border-color: var(--term-acc); }
+.tile.needs { border-color: var(--attention); }
+.tile.front { position: absolute; inset: 6px; z-index: 5; }
+.area.maxed .tile:not(.front), .area.maxed .space { visibility: hidden; }
+.tb { display: flex; align-items: center; gap: 8px; height: 30px; flex-shrink: 0; padding: 0 4px 0 10px; background: #0d0a17; border-bottom: 1px solid var(--term-line); color: #9d93bd; font: 12px var(--mono); user-select: none; }
+.tile.focus .tb { background: #15111f; color: var(--term-ink); }
+.tb .badge { background: #3a3060; color: #f4efff; height: 18px; }
+.tb .badge.kind { background: transparent; border: 1px solid #3a3060; color: #c9c0e6; }
+.tb .loc { flex-shrink: 6; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #6a6188; }
+.tb .name { flex-shrink: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #c9c0e6; }
+.tile.focus .tb .name { color: var(--term-ink); }
+.tb .by { flex-shrink: 0; display: inline-flex; align-items: center; gap: 5px; color: #6a6188; white-space: nowrap; }
+.tb .by .badge { height: 16px; min-width: 20px; font-size: 10px; }
+.tb .net { flex-shrink: 0; display: inline-flex; align-items: center; gap: 4px; padding: 0 6px; height: 18px; border: 1px solid color-mix(in srgb, var(--term-acc) 45%, transparent); border-radius: 999px; color: var(--term-acc); font-size: 11px; }
+.tb .net svg { width: 11px; height: 11px; }
+.tb .grow { flex: 1; }
+/* A narrow tile drops the location first; the sidebar still shows it. */
+@container (max-width: 520px) { .tb .loc { display: none; } }
+@container (max-width: 400px) { .tb .by-t { display: none; } }
+.tb .doc { color: #9d93bd; margin-top: 0; }
+.tb button { flex-shrink: 0; height: 22px; padding: 0; display: grid; place-items: center; background: transparent; border: 1px solid transparent; border-radius: 5px; color: #9d93bd; }
+.tb button:hover { background: #1c1632; color: #f4efff; }
+.tb .no { display: flex; gap: 3px; min-width: 22px; padding: 0 3px 0 6px; border-color: #251d3f; font: 11px var(--mono); }
+.tb .no svg { width: 10px; height: 10px; stroke-width: 1.6; color: #6a6188; }
+.tile.focus .tb .no { border-color: var(--term-acc); color: #f4efff; }
+.tb .no[aria-expanded="true"] { background: #2a2147; border-color: var(--term-acc); color: #f4efff; }
+.tb .ctl { width: 24px; opacity: 0; transition: opacity 120ms ease; }
+.tile:hover .ctl, .tile.focus .ctl, .tile:focus-within .ctl { opacity: 1; }
+.tb svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round; }
+.out { flex: 1; margin: 0; padding: 10px 14px; overflow: hidden; color: var(--term-ink); font: 13px/1.5 "Hack Nerd Font Mono", "Geist Mono", monospace; white-space: pre; }
+.tile:not(.focus) .out { opacity: .78; }
+.t-dim { color: var(--term-dim); } .t-acc { color: var(--term-acc); } .t-att { color: #ffb23e; }
+/* An agent's preview arriving: the accent flares twice, then a tint and edge stay until hover or focus. */
+.tile.arrived { border-color: color-mix(in srgb, var(--highlight) 70%, var(--term-line)); box-shadow: 0 0 0 1px color-mix(in srgb, var(--highlight) 40%, transparent); }
+.tile.arrived .tb { background: color-mix(in srgb, var(--highlight) 22%, #0d0a17); }
+.tile.arrived.flare { animation: tile-flare 900ms ease 2; }
+@keyframes tile-flare { 50% { box-shadow: 0 0 0 3px color-mix(in srgb, var(--highlight) 55%, transparent), 0 0 24px color-mix(in srgb, var(--highlight) 45%, transparent); } }
+
+/* Preview content: the page itself, drawn by the file, not by Foom. */
+.view { position: relative; flex: 1; min-height: 0; overflow: auto; background: var(--page); color: var(--page-ink); }
+.view.snap::after { content: "snapshot"; position: absolute; right: 8px; bottom: 8px; padding: 2px 6px; border: 1px dashed var(--page-muted); border-radius: 4px; font: 10px var(--mono); color: var(--page-muted); background: var(--page); }
+.md { max-width: 640px; padding: 18px 26px 28px; font: 14px/1.6 var(--sans); }
+.md h1 { margin: 0 0 10px; font: 600 22px/1.25 var(--sans); }
+.md h2 { margin: 20px 0 6px; font: 600 16px/1.3 var(--sans); padding-bottom: 4px; border-bottom: 1px solid var(--page-line); }
+.md p, .md ul { margin: 8px 0; }
+.md code { padding: 1px 5px; border-radius: 4px; background: var(--page-code); font: 12.5px var(--mono); }
+.md pre { margin: 10px 0; padding: 10px 12px; border-radius: 6px; background: var(--page-code); font: 12.5px/1.5 var(--mono); overflow: auto; }
+.md pre .k { color: var(--accent); } .md pre .s { color: var(--done-ink); }
+.md ul.tasks { list-style: none; padding-left: 4px; }
+.md ul.tasks li::before { content: "☐ "; color: var(--page-muted); }
+.md ul.tasks li.done::before { content: "☑ "; color: var(--done-ink); }
+.md a { color: var(--accent); }
+.md a.ext::after { content: " ↗"; font-size: 11px; }
+.mock-page { min-height: 100%; display: grid; place-items: center; padding: 20px; background: #0f0d18; color: #ece8f6; font: 15px/1.5 system-ui, sans-serif; }
+.mock-page .card { width: min(360px, 90%); display: grid; gap: 12px; padding: 24px 28px; border-radius: 14px; background: #1a1726; }
+.mock-page h1 { margin: 0; font-size: 20px; }
+.mock-page .row { display: flex; justify-content: space-between; color: #9b94b4; }
+.mock-page .total { display: flex; justify-content: space-between; padding-top: 10px; border-top: 1px solid #2c2840; font-weight: 600; }
+.mock-page .pay { padding: 10px; border: 0; border-radius: 9px; background: #7c6cff; color: #fff; font: inherit; font-weight: 600; }
+.mock-page a { color: #a99cff; font-size: 13px; }
+/* Foom's own page for a missing file: no scripts, served by the protocol handler. */
+.missing { height: 100%; display: grid; place-content: center; gap: 6px; text-align: center; padding: 24px; color: var(--page-muted); font: 13px var(--sans); }
+.missing b { color: var(--page-ink); font: 500 14px var(--sans); }
+.missing code { font: 12px var(--mono); }
+
+.space { flex: 1; min-height: 0; border: 1px dashed color-mix(in srgb, var(--muted) 35%, transparent); border-radius: 6px; }
+.space.landing { border-color: color-mix(in srgb, var(--highlight) 60%, transparent); background: color-mix(in srgb, var(--highlight) 5%, transparent); }
+
+/* Panels: commands left, facts right (tile-panels.html, sidebar-panels.html). */
+.panel { position: absolute; z-index: 30; width: 600px; padding: 4px; background: linear-gradient(180deg, var(--raised-top), var(--raised-bottom)); border: 1px solid var(--raised-line); border-radius: 10px; box-shadow: 0 1px 0 rgba(255, 255, 255, .05) inset, 0 22px 48px -12px var(--shadow), 0 8px 16px -8px var(--shadow), 0 0 28px -8px color-mix(in srgb, var(--highlight) 40%, transparent); animation: panel-in 160ms cubic-bezier(.2, .8, .2, 1) both; }
+.p-head { position: relative; display: flex; align-items: center; gap: 10px; padding: 12px 16px; border-bottom: 1px solid var(--line); border-radius: 7px 7px 0 0; background: linear-gradient(100deg, color-mix(in srgb, var(--highlight) 20%, transparent), color-mix(in srgb, var(--highlight) 6%, transparent) 55%, transparent); }
+.p-head::before { content: ""; position: absolute; left: 0; right: 0; top: 0; height: 2px; border-radius: 7px 7px 0 0; background: linear-gradient(90deg, var(--highlight), var(--highlight-deep) 45%, transparent); }
+.p-mark { flex-shrink: 0; width: 32px; height: 32px; display: grid; place-items: center; border-radius: 8px; background: color-mix(in srgb, var(--highlight) 16%, var(--raised-top)); border: 1px solid color-mix(in srgb, var(--highlight) 35%, var(--line)); font: 600 13px var(--mono); color: var(--highlight); }
+.p-mark .doc { width: 14px; height: 16px; color: var(--highlight); margin: 0; }
+.p-mark .doc svg { width: 14px; height: 16px; }
+.p-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 500 13px var(--mono); }
+.p-kind { flex-shrink: 0; padding: 2px 8px; border-radius: 999px; background: color-mix(in srgb, var(--highlight) 12%, transparent); color: var(--highlight); font: 11px var(--mono); }
+.p-body { display: grid; grid-template-columns: 236px minmax(0, 1fr); }
+.p-actions { display: flex; flex-direction: column; gap: 1px; padding: 8px 8px 8px 4px; border-right: 1px solid var(--line); border-radius: 0 0 0 7px; background: linear-gradient(180deg, color-mix(in srgb, var(--highlight) 7%, transparent), color-mix(in srgb, var(--highlight) 3%, transparent)); }
+.panel hr { height: 1px; width: calc(100% - 12px); margin: 4px 6px; border: 0; background: var(--line); }
+.item { position: relative; display: flex; align-items: center; gap: 10px; width: 100%; min-height: 34px; padding: 6px 12px; background: transparent; border: 0; border-radius: 6px; text-align: left; }
+.item::before { content: ""; position: absolute; left: 0; top: 8px; bottom: 8px; width: 2px; border-radius: 2px; background: var(--highlight); transform: scaleY(0); transition: transform 160ms cubic-bezier(.2, .8, .2, 1); }
+.item:hover:not(:disabled), .item:focus-visible { background: var(--raised-hover); outline: none; }
+.item:hover:not(:disabled)::before, .item:focus-visible::before { transform: scaleY(1); }
+.item:disabled { cursor: default; color: var(--muted); }
+.item:disabled .glyph { opacity: .5; }
+.item .label { flex: 1; min-width: 0; }
+.item .label small { display: block; font: 11px var(--mono); color: var(--muted); }
+.item .hint { flex-shrink: 0; font: 11px var(--mono); color: var(--muted); }
+.glyph { flex-shrink: 0; width: 24px; display: grid; place-items: center; color: var(--muted); }
+.glyph svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.3; stroke-linecap: round; stroke-linejoin: round; }
+.glyph svg .new { stroke: var(--highlight); stroke-dasharray: 1.6 1.6; }
+.glyph svg .fill { fill: color-mix(in srgb, var(--highlight) 30%, transparent); stroke: none; }
+.item:hover:not(:disabled) .glyph, .item:focus-visible .glyph { color: var(--ink); }
+.facts { display: grid; grid-template-columns: 96px minmax(0, 1fr); align-content: start; gap: 9px 16px; margin: 0; padding: 14px 18px 16px 20px; }
+.facts dt { padding-top: 2px; font-size: 12px; color: var(--muted); }
+.facts dd { margin: 0; min-width: 0; font: 12.5px/1.5 var(--mono); overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
+.facts dd .sub { color: var(--muted); }
+.facts dd ul { margin: 0; padding: 0; list-style: none; display: grid; gap: 3px; }
+.chip { display: inline-flex; align-items: center; gap: 5px; padding: 0 7px; height: 19px; border-radius: 999px; font: 11.5px var(--mono); white-space: nowrap; background: color-mix(in srgb, var(--tone) 14%, transparent); border: 1px solid color-mix(in srgb, var(--tone) 32%, transparent); color: var(--tone-ink); }
+.chip.working { --tone: var(--accent); --tone-ink: var(--accent); }
+.chip.needs { --tone: var(--attention); --tone-ink: var(--attention-ink); }
+.chip.neutral { --tone: var(--muted); --tone-ink: var(--ink); }
+.chip.on { --tone: var(--accent); --tone-ink: var(--accent); }
+@keyframes panel-in { from { opacity: 0; transform: translateY(-6px) scale(.97); } }
+
+/* Trusted confirmation: the board dims, previews included; the card is Foom's (confirmations.html). */
+.scrim { position: absolute; inset: 0; z-index: 40; display: grid; place-items: center; background: color-mix(in srgb, #05040a 55%, transparent); animation: fade 140ms ease both; }
+.card { width: 460px; padding: 22px 24px 18px; border-radius: 12px; background: var(--raised-top); border: 1px solid var(--raised-line); box-shadow: 0 30px 60px -20px var(--shadow); display: grid; gap: 12px; }
+.card h2 { margin: 0; font: 600 16px var(--sans); }
+.card p { margin: 0; color: var(--muted); }
+.card .url { padding: 8px 10px; border-radius: 6px; background: var(--surface); border: 1px solid var(--line); font: 12.5px/1.45 var(--mono); overflow-wrap: anywhere; color: var(--ink); }
+.card .where { font: 12px var(--mono); color: var(--muted); }
+.card .btns { display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px; }
+.card .btns button { height: 32px; padding: 0 14px; border-radius: 7px; border: 1px solid var(--line); background: transparent; }
+.card .btns .go { background: var(--accent); border-color: var(--accent); color: #fff; }
+@keyframes fade { from { opacity: 0; } }
+
+/* Mockup controls, not part of the design. */
+.mock { position: fixed; right: 12px; bottom: 12px; z-index: 60; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; justify-content: flex-end; max-width: calc(100vw - 24px); }
+.mock button, .mock select { height: 30px; padding: 0 10px; background: var(--bg); border: 1px dashed var(--line); border-radius: 6px; color: var(--muted); font-size: 12px; }
+.mock span { max-width: 520px; font-size: 12px; color: var(--muted); }
+@media (prefers-reduced-motion: reduce) {
+  .panel, .scrim, .tile.arrived.flare, .srow.arrived.flare, .item::before { animation: none; transition: none; }
+}
+</style>
+</head>
+<body>
+<div class="frame">
+<div class="app" id="app">
+  <nav class="side" aria-label="Sessions">
+    <div class="head"><b>foom</b><span id="status" role="status"></span></div>
+    <div class="list" id="list"></div>
+  </nav>
+  <main class="area" id="area" aria-label="Tiles"></main>
+</div>
+</div>
+<div class="mock">
+  <span id="note"></span>
+  <select id="scene" aria-label="Mockup: scene">
+    <option value="human">Scene: previews you opened</option>
+    <option value="agent">Scene: an agent opened a preview</option>
+    <option value="full">Scene: board full, agent preview waits in the sidebar</option>
+    <option value="missing">Scene: file deleted, waiting</option>
+  </select>
+  <button type="button" id="arrive">Agent opens a preview</button>
+  <button type="button" id="links">Page asks to open 3 links</button>
+  <select id="theme" aria-label="Mockup: color mode"><option value="">System</option><option value="light">Light</option><option value="dark">Dark</option></select>
+  <select id="size" aria-label="Mockup: sidebar and scale"><option value="">Sidebar: normal, 100%</option><option value="narrow">Sidebar: narrow</option><option value="scaled">Interface: 150%</option></select>
+</div>
+<script>
+const AGENT = { claude: "CC", codex: "CX", agy: "AG", shell: ">_" };
+const NAME = { claude: "Claude Code", codex: "Codex", agy: "Antigravity" };
+const STATE = { needs: "Needs you", working: "Working", done: "Done", quiet: "Quiet" };
+const DOC = `<span class="doc" aria-hidden="true"><svg viewBox="0 0 12 14"><path d="M2 1.5h5l3 3v8H2z"/><path d="M7 1.5v3h3M4 7.5h4M4 10h4"/></svg></span>`;
+const ICON = {
+  max: `<svg viewBox="0 0 14 14"><path d="M8.5 2.5h3v3M5.5 11.5h-3v-3M11.5 2.5L8 6M2.5 11.5L6 8"/></svg>`,
+  restore: `<svg viewBox="0 0 14 14"><path d="M4 7h3v3M10 7H7V4M7 7L2.5 11.5M7 7l4.5-4.5"/></svg>`,
+  close: `<svg viewBox="0 0 14 14"><path d="M3.5 3.5l7 7M10.5 3.5l-7 7"/></svg>`,
+  hide: `<svg viewBox="0 0 14 14"><path d="M3 10.5h8"/></svg>`,
+  menu: `<svg viewBox="0 0 10 10"><path d="M2.5 4l2.5 2.5L7.5 4"/></svg>`,
+  globe: `<svg viewBox="0 0 12 12"><circle cx="6" cy="6" r="4.5"/><path d="M1.5 6h9M6 1.5c1.4 1.3 2 2.8 2 4.5s-.6 3.2-2 4.5c-1.4-1.3-2-2.8-2-4.5s.6-3.2 2-4.5"/></svg>`,
+  more: `<svg viewBox="0 0 14 14" width="14" height="14"><circle cx="3.5" cy="7" r="1" fill="currentColor"/><circle cx="7" cy="7" r="1" fill="currentColor"/><circle cx="10.5" cy="7" r="1" fill="currentColor"/></svg>`,
+  branch: `<svg viewBox="0 0 12 12"><circle cx="3" cy="2.5" r="1.3"/><circle cx="3" cy="9.5" r="1.3"/><circle cx="9" cy="4" r="1.3"/><path d="M3 3.8v4.4M9 5.3c0 2-6 1.6-6 2.9"/></svg>`,
+};
+const DIAGRAM = {
+  right: `<svg viewBox="0 0 18 18"><rect x="2" y="3" width="14" height="12" rx="1.5"/><rect class="new" x="9.5" y="4.5" width="5" height="9" rx=".8"/></svg>`,
+  down: `<svg viewBox="0 0 18 18"><rect x="2" y="3" width="14" height="12" rx="1.5"/><rect class="new" x="3.5" y="9.5" width="11" height="4" rx=".8"/></svg>`,
+  growx: `<svg viewBox="0 0 18 18"><rect class="fill" x="6" y="5" width="6" height="8"/><rect x="2" y="3" width="14" height="12" rx="1.5"/><path d="M5.5 9H2.8M12.5 9h2.7M4 7.5L2.6 9 4 10.5M14 7.5l1.4 1.5-1.4 1.5"/></svg>`,
+  growy: `<svg viewBox="0 0 18 18"><rect class="fill" x="5" y="6" width="8" height="6"/><rect x="2" y="2" width="14" height="14" rx="1.5"/><path d="M9 5.5V2.8M9 12.5v2.7M7.5 4L9 2.6 10.5 4M7.5 14L9 15.4 10.5 14"/></svg>`,
+  max: `<svg viewBox="0 0 18 18"><rect x="2" y="3" width="14" height="12" rx="1.5"/><path d="M10.5 5.5h3v3M7.5 12.5h-3v-3M13.5 5.5L10 9M4.5 12.5L8 9"/></svg>`,
+  restore: `<svg viewBox="0 0 18 18"><rect x="2" y="3" width="14" height="12" rx="1.5"/><path d="M6 9h3v3M12 9H9V6"/></svg>`,
+  reload: `<svg viewBox="0 0 18 18"><path d="M14 9a5 5 0 1 1-1.5-3.6M14 3.5v3h-3"/></svg>`,
+  net: `<svg viewBox="0 0 18 18"><circle cx="9" cy="9" r="6"/><path d="M3 9h12M9 3c1.9 1.7 2.7 3.7 2.7 6s-.8 4.3-2.7 6c-1.9-1.7-2.7-3.7-2.7-6S7.1 4.7 9 3"/></svg>`,
+  close: `<svg viewBox="0 0 18 18"><rect x="2" y="3" width="14" height="12" rx="1.5"/><path d="M6.5 6.5l5 5M11.5 6.5l-5 5"/></svg>`,
+  show: `<svg viewBox="0 0 18 18"><rect x="2" y="3" width="14" height="12" rx="1.5"/><path d="M6 9.5l2 2 4-4.5"/></svg>`,
+  focus: `<svg viewBox="0 0 18 18"><rect x="2" y="3" width="14" height="12" rx="1.5"/><path d="M6 6.5l3 2.5-3 2.5"/></svg>`,
+};
+
+/* Content. Pages are drawn by their files; Foom draws only the tile around them. */
+const PAGES = {
+  "docs/previews.md": `<article class="md"><h1>Preview tiles</h1>
+    <p>Show each preview in its own <code>WebContentsView</code>, in an in-memory partition, served from <code>foom-preview://&lt;id&gt;/</code>.</p>
+    <h2>Follow-ups</h2><ul class="tasks"><li class="done">Research spike (#221)</li><li>Contained file protocol</li><li>Preview host in main</li><li>Live reload</li></ul>
+    <h2>Example</h2><pre><span class="k">const</span> view = <span class="k">new</span> WebContentsView({ webPreferences: { sandbox: <span class="k">true</span> } });
+view.webContents.once(<span class="s">"did-finish-load"</span>, () =&gt; win.contentView.addChildView(view));</pre>
+    <p>See the <a class="ext" href="#" data-ext="https://www.electronjs.org/docs/latest/api/web-contents-view">WebContentsView docs</a> and the <a href="#">containment rules</a>.</p></article>`,
+  "docs/mockups/checkout.html": `<div class="mock-page"><div class="card"><h1>Checkout</h1>
+    <div class="row"><span>2 × Field notebook</span><span>$24.00</span></div><div class="row"><span>Shipping</span><span>$4.50</span></div>
+    <div class="total"><span>Total</span><span>$28.50</span></div><button class="pay" type="button">Pay $28.50</button>
+    <a href="#" data-ext="https://github.com/scott-r-lindsey/foom/issues/297">Spec: #297</a></div></div>`,
+  "docs/notes.md": `<article class="md"><h1>Notes</h1><p>Totals round half up. Shipping is free over $50.</p></article>`,
+};
+const MISSING = (p) => `<div class="missing"><b>File not found. Waiting for it to appear.</b><code>${p}</code></div>`;
+
+let state;
+const SCENES = {
+  human: () => ({
+    sessions: [
+      { id: "s1", agent: "claude", name: "Preview host", wt: "issue-291", light: "needs", reason: "Apply this edit?",
+        out: `<span class="t-acc">●</span> The view now loads detached and attaches after load.\n\n  Edit src/main/previews/host.ts\n  <span class="t-dim">│</span> 88 +  view.webContents.once("did-finish-load", attach);\n\n  <span class="t-att">Apply this edit?</span>\n  <span class="t-acc">❯ 1. Yes</span>\n    2. No` },
+      { id: "s2", agent: "shell", name: "bash", wt: "issue-291", light: "quiet", reason: "", out: `<span class="t-dim">$</span> ` },
+    ],
+    previews: [
+      { id: "p1", path: "docs/previews.md", kind: "Markdown", wt: "issue-291", size: "18.4 KB", files: 1 },
+      { id: "p2", path: "docs/mockups/checkout.html", kind: "HTML", wt: "issue-291", size: "3.1 KB", files: 3 },
+    ],
+    cols: [["s1", "s2"], ["p1"], ["p2"]],
+    focused: "s1",
+  }),
+  agent: () => ({
+    sessions: [
+      { id: "s1", agent: "codex", name: "Checkout page", wt: "issue-297", light: "working", reason: "Writing docs/notes.md",
+        out: `<span class="t-dim">•</span> Wrote docs/mockups/checkout.html\n<span class="t-dim">•</span> Called foom.open_preview docs/mockups/checkout.html\n\n  Here's the mockup, in the tile to the right.\n\n<span class="t-acc">⠙</span> Writing docs/notes.md` },
+      { id: "s2", agent: "claude", name: "Review", wt: "issue-293", light: "done", reason: "Turn ended", out: `<span class="t-acc">●</span> Markdown renderer reviewed. Two comments on the PR.\n\n<span class="t-dim">✳ Done</span>` },
+    ],
+    previews: [
+      { id: "p2", path: "docs/mockups/checkout.html", kind: "HTML", wt: "issue-297", size: "3.1 KB", files: 3, by: "s1", arrived: true },
+    ],
+    cols: [["s1", "s2"], ["p2"]],
+    focused: "s1",
+  }),
+  full: () => ({
+    sessions: [
+      { id: "s1", agent: "codex", name: "Checkout page", wt: "issue-297", light: "needs", reason: "Which rounding rule?",
+        out: `<span class="t-dim">•</span> Called foom.open_preview docs/notes.md\n  <span class="t-dim">placement: sidebar (no empty space)</span>\n\n  <span class="t-att">Should totals round half up or half even?</span>` },
+      { id: "s2", agent: "claude", name: "Review", wt: "issue-293", light: "working", reason: "Reading host.ts", out: `<span class="t-acc">⠹</span> Reading src/main/previews/host.ts` },
+      { id: "s3", agent: "shell", name: "npm test", wt: "issue-293", light: "working", reason: "vitest", out: `<span class="t-dim">$</span> npm test\n\n <span class="t-dim">✓ previews/containment.test.ts (41)</span>` },
+    ],
+    previews: [
+      { id: "p2", path: "docs/mockups/checkout.html", kind: "HTML", wt: "issue-297", size: "3.1 KB", files: 3, by: "s1" },
+      { id: "p3", path: "docs/notes.md", kind: "Markdown", wt: "issue-297", size: "0.2 KB", files: 1, by: "s1", sidebarOnly: true },
+    ],
+    cols: [["s1", "s2"], ["p2", "s3"]],
+    focused: "s2",
+  }),
+  missing: () => ({
+    sessions: [{ id: "s1", agent: "claude", name: "Restructure docs", wt: "issue-296", light: "working", reason: "Moving files", out: `<span class="t-acc">●</span> git mv docs/previews.md docs/previews/index.md` }],
+    previews: [{ id: "p1", path: "docs/previews.md", kind: "Markdown", wt: "issue-296", size: "—", files: 1, missing: true }],
+    cols: [["s1"], ["p1"]],
+    focused: "s1",
+  }),
+};
+const NOTES = {
+  human: "Previews are numbered with terminals. Tile menu: the number. Click a preview to focus it; nothing else focuses it.",
+  agent: "Codex opened the mockup into the landing spot. Focus stayed in Codex's tile. Hover the preview or its row to settle the arrival.",
+  full: "No empty space: the agent's second preview waits as a row under its session. Click the row to show it; the board adds a column as for any launch.",
+  missing: "The file was moved. Foom's own page waits for it; the preview recovers when it reappears.",
+};
+
+const sById = (id) => state.sessions.find((s) => s.id === id);
+const pById = (id) => state.previews.find((p) => p.id === id);
+const order = () => state.cols.flat().filter((x) => x && x !== "space" && x !== "landing");
+const numberOf = (id) => order().indexOf(id) + 1;
+let panel = null, modal = null, maxed = null;
+
+function load(name) {
+  state = SCENES[name]();
+  state.scene = name;
+  panel = modal = maxed = null;
+  note(NOTES[name]);
+  render(true);
+}
+
+function render(first) {
+  renderTiles(first);
+  renderList(first);
+  if (panel) renderPanel();
+  else document.querySelector(".panel")?.remove();
+  renderModal();
+}
+
+function renderTiles(first) {
+  const area = document.getElementById("area");
+  area.className = "area" + (maxed ? " maxed" : "");
+  const covered = Boolean(panel || modal);
+  area.innerHTML = state.cols.map((col) => `<div class="col">${col.map((id) => {
+    if (id === "space" || id === "landing") return `<div class="space${id === "landing" ? " landing" : ""}" aria-hidden="true"></div>`;
+    return pById(id) ? previewTile(pById(id), covered, first) : terminalTile(sById(id));
+  }).join("")}</div>`).join("");
+}
+
+function controls(id, closeOnly) {
+  const n = numberOf(id), full = maxed === id, open = panel?.kind === "tile" && panel.id === id;
+  return `<button type="button" class="no" data-act="panel" data-id="${id}" aria-haspopup="dialog" aria-expanded="${open}" aria-label="Tile ${n} menu" title="Tile ${n} menu">${n}${ICON.menu}</button>
+    <button type="button" class="ctl" data-act="max" data-id="${id}" aria-label="${full ? "Restore tile" : "Maximize tile"}">${full ? ICON.restore : ICON.max}</button>
+    ${closeOnly ? `<button type="button" class="ctl" data-act="close" data-id="${id}" aria-label="Close preview" title="Close">${ICON.close}</button>`
+      : `<button type="button" class="ctl" data-act="hide" data-id="${id}" aria-label="Hide">${ICON.hide}</button>`}`;
+}
+
+function terminalTile(s) {
+  const cls = ["tile"];
+  if (state.focused === s.id) cls.push("focus");
+  if (s.light === "needs") cls.push("needs");
+  if (maxed === s.id) cls.push("front");
+  return `<section class="${cls.join(" ")}" data-tile="${s.id}" tabindex="0" aria-label="Tile ${numberOf(s.id)}: ${s.name}">
+    <header class="tb"><span class="light ${s.light}" role="img" aria-label="${STATE[s.light]}"></span><span class="badge">${AGENT[s.agent]}</span>
+    <span class="loc">foom › ${s.wt}</span><span class="name">${s.name}</span><span class="grow"></span>${controls(s.id, false)}</header>
+    <div class="out">${s.out}</div></section>`;
+}
+
+/* Preview tile: document glyph where a terminal has its light (no attention state), the kind where a
+   terminal has its agent badge, the worktree-relative path as the name, and for an agent's preview,
+   who opened it. Close instead of Hide: there is no process to keep running. */
+function previewTile(p, covered, first) {
+  const cls = ["tile", "preview"];
+  if (state.focused === p.id) cls.push("focus");
+  if (maxed === p.id) cls.push("front");
+  if (p.arrived) cls.push("arrived");
+  if (p.arrived && first) cls.push("flare");
+  const opener = p.by && sById(p.by);
+  const n = numberOf(p.id);
+  return `<section class="${cls.join(" ")}" data-tile="${p.id}" aria-label="Tile ${n}: preview ${p.path}${opener ? `, opened by ${NAME[opener.agent]}` : ""}">
+    <header class="tb">${DOC}<span class="badge kind">${p.kind === "Markdown" ? "MD" : "HTML"}</span>
+      <span class="loc">foom › ${p.wt}</span><span class="name">${p.path}</span>
+      ${opener ? `<span class="by" title="Opened by ${NAME[opener.agent]}"><span class="by-t">opened by</span><span class="badge">${AGENT[opener.agent]}</span></span>` : ""}
+      ${p.network ? `<span class="net" title="Network allowed">${ICON.globe}network</span>` : ""}
+      <span class="grow"></span>${controls(p.id, true)}</header>
+    <div class="view${covered ? " snap" : ""}" data-view="${p.id}">${p.missing ? MISSING(p.path) : PAGES[p.path]}</div></section>`;
+}
+
+function renderList(first) {
+  const needs = state.sessions.filter((s) => s.light === "needs").length;
+  const working = state.sessions.filter((s) => s.light === "working").length;
+  document.getElementById("status").textContent = `${needs} need you · ${working} working`;
+  const wts = [...new Set([...state.sessions.map((s) => s.wt), ...state.previews.map((p) => p.wt)])];
+  const rows = [];
+  for (const wt of wts) {
+    rows.push(`<div class="wt">${ICON.branch}${wt}</div>`);
+    for (const s of state.sessions.filter((x) => x.wt === wt)) {
+      rows.push(sessionRow(s));
+      // An agent's previews nest under the session that opened them.
+      for (const p of state.previews.filter((x) => x.by === s.id)) rows.push(previewRow(p, true, first));
+    }
+    for (const p of state.previews.filter((x) => x.wt === wt && !x.by)) rows.push(previewRow(p, false, first));
+  }
+  document.getElementById("list").innerHTML = `<div class="group">foom</div>` + rows.join("");
+}
+function sessionRow(s) {
+  const shown = order().includes(s.id);
+  const open = panel?.kind === "session" && panel.id === s.id;
+  return `<button type="button" class="srow${state.focused === s.id ? " sel" : ""}${shown ? "" : " off"}" data-row="${s.id}">
+    <span class="light ${s.light}" role="img" aria-label="${STATE[s.light]}"></span>
+    <span class="lines"><span class="top"><span class="badge">${AGENT[s.agent]}</span><span class="nm">${s.name}</span>${shown ? `<span class="tile-no">${numberOf(s.id)}</span>` : ""}
+    <span class="more" data-more="${s.id}" role="button" aria-label="Actions for ${s.name}" aria-expanded="${open}">${ICON.more}</span></span>
+    ${s.reason ? `<span class="reason${s.light === "needs" ? " needs" : ""}">${s.reason}</span>` : ""}</span></button>`;
+}
+function previewRow(p, child, first) {
+  const shown = order().includes(p.id);
+  const slash = p.path.lastIndexOf("/");
+  return `<button type="button" class="srow${child ? " child" : ""}${state.focused === p.id ? " sel" : ""}${shown ? "" : " off"}${p.arrived ? " arrived" : ""}${p.arrived && first ? " flare" : ""}" data-row="${p.id}" aria-label="Preview ${p.path}${shown ? `, tile ${numberOf(p.id)}` : ", not shown"}">
+    ${DOC}<span class="lines"><span class="top"><span class="nm"><span class="dir">${p.path.slice(0, slash + 1)}</span>${p.path.slice(slash + 1)}</span>${shown ? `<span class="tile-no">${numberOf(p.id)}</span>` : ""}</span></span></button>`;
+}
+
+/* Panels */
+function openPanel(kind, id) { panel = { kind, id }; render(); document.querySelector(".panel .item:not(:disabled)")?.focus({ preventScroll: true }); }
+function closePanel() { if (!panel) return; panel = null; render(); }
+function renderPanel() {
+  document.querySelector(".panel")?.remove();
+  const html = panel.kind === "tile" ? (pById(panel.id) ? previewPanel(pById(panel.id)) : terminalPanel(sById(panel.id))) : sessionPanel(sById(panel.id));
+  const app = document.getElementById("app");
+  app.insertAdjacentHTML("beforeend", html);
+  const el = document.querySelector(".panel");
+  const ar = app.getBoundingClientRect();
+  const z = app.classList.contains("scaled") ? 1.5 : 1;
+  let x, y;
+  if (panel.kind === "tile") {
+    const b = document.querySelector(`.tb .no[data-id="${panel.id}"]`).getBoundingClientRect();
+    x = (b.right - ar.left) / z - el.offsetWidth + 30; y = (b.bottom - ar.top) / z + 8;
+  } else {
+    const b = document.querySelector(`[data-row="${panel.id}"]`).getBoundingClientRect();
+    x = (b.right - ar.left) / z + 8; y = (b.top - ar.top) / z - 6;
+  }
+  el.style.left = Math.max(8, Math.min(x, ar.width / z - el.offsetWidth - 8)) + "px";
+  el.style.top = Math.max(8, Math.min(y, ar.height / z - el.offsetHeight - 8)) + "px";
+}
+const item = (cmd, label, glyph, opts = {}) => `<button type="button" class="item" role="menuitem" data-cmd="${cmd}"${opts.off ? " disabled" : ""}><span class="glyph">${glyph}</span><span class="label">${label}${opts.off ? `<small>${opts.off}</small>` : ""}</span>${opts.hint ? `<span class="hint">${opts.hint}</span>` : ""}</button>`;
+function previewPanel(p) {
+  const opener = p.by && sById(p.by);
+  const n = numberOf(p.id), full = maxed === p.id;
+  return `<div class="panel" role="dialog" aria-label="Tile ${n}">
+    <div class="p-head"><span class="p-mark">${n}</span><span class="p-title">${p.path}</span><span class="p-kind">${p.kind} preview</span></div>
+    <div class="p-body"><div class="p-actions" role="menu">
+      ${item("right", "Split right", DIAGRAM.right)}${item("down", "Split down", DIAGRAM.down)}
+      ${item("growx", "Grow sideways", DIAGRAM.growx, { off: "Next to a terminal" })}${item("growy", "Grow vertically", DIAGRAM.growy, { off: "Already full height" })}
+      <hr>${item("max", full ? "Restore" : "Maximize", full ? DIAGRAM.restore : DIAGRAM.max, { hint: "⇧⌘↵" })}${item("reload", "Reload", DIAGRAM.reload, { hint: "⌘R" })}
+      <hr>${p.network ? item("net", "Block network", DIAGRAM.net) : item("net", "Allow network…", DIAGRAM.net)}
+      <hr>${item("close", "Close", DIAGRAM.close, { hint: "⌥⇧⌘W" })}
+    </div><dl class="facts">
+      <dt>Path</dt><dd>${p.path} <span class="sub">in foom › ${p.wt}</span></dd>
+      <dt>Kind</dt><dd>${p.kind} <span class="sub">${p.size}</span></dd>
+      <dt>Reloaded</dt><dd>${p.missing ? `Waiting for the file <span class="sub">since 14:08</span>` : `14:12:07 <span class="sub">watching ${p.files} file${p.files === 1 ? "" : "s"}</span>`}</dd>
+      <dt>Network</dt><dd>${p.network ? `<span class="chip on">${ICON.globe.replace("<svg", '<svg width="11" height="11" fill="none" stroke="currentColor"')} On</span> <span class="sub">https only, until restart</span>` : `Off`}</dd>
+      ${opener ? `<dt>Opened by</dt><dd><span class="badge sm">${AGENT[opener.agent]}</span> ${opener.name} <span class="sub">foom › ${opener.wt}</span></dd>` : ""}
+    </dl></div></div>`;
+}
+function terminalPanel(s) {
+  const n = numberOf(s.id);
+  return `<div class="panel" role="dialog" aria-label="Tile ${n}">
+    <div class="p-head"><span class="p-mark">${n}</span><span class="p-title">${s.name}</span><span class="p-kind">Tile ${n} of ${order().length}</span></div>
+    <div class="p-body"><div class="p-actions" role="menu">${item("right", "Split right", DIAGRAM.right)}${item("down", "Split down", DIAGRAM.down)}<hr>${item("max", "Maximize", DIAGRAM.max, { hint: "⇧⌘↵" })}<hr>${item("hide", "Hide", DIAGRAM.close, { hint: "⌥⇧⌘W" })}</div>
+    <dl class="facts"><dt>Session</dt><dd><span class="chip ${s.light === "quiet" ? "neutral" : s.light}">${STATE[s.light]}</span> <span class="sub">${s.reason}</span></dd><dt>Location</dt><dd>foom › ${s.wt}</dd><dt>Agent</dt><dd><span class="badge">${AGENT[s.agent]}</span></dd></dl></div></div>`;
+}
+/* The opener's session panel lists what it did to the view, beside its other facts. */
+function sessionPanel(s) {
+  const mine = state.previews.filter((p) => p.by === s.id);
+  return `<div class="panel" role="dialog" aria-label="${s.name}">
+    <div class="p-head"><span class="p-mark">${AGENT[s.agent]}</span><span class="p-title">${s.name}</span><span class="p-kind">${NAME[s.agent] ?? "Shell"}</span></div>
+    <div class="p-body"><div class="p-actions" role="menu">${item("focus", order().includes(s.id) ? "Focus tile" : "Show", DIAGRAM.focus)}${mine.filter((p) => !order().includes(p.id)).map((p) => item("show:" + p.id, `Show ${p.path.split("/").pop()}`, DIAGRAM.show)).join("")}<hr>${item("stop", "Stop", DIAGRAM.close)}</div>
+    <dl class="facts">
+      <dt>State</dt><dd><span class="chip ${s.light === "quiet" ? "neutral" : s.light}">${STATE[s.light]}</span> <span class="sub">${s.reason}</span></dd>
+      <dt>Location</dt><dd>foom › ${s.wt}</dd>
+      ${mine.length ? `<dt>Previews</dt><dd><ul>${mine.map((p) => `<li>${p.path} <span class="sub">${order().includes(p.id) ? `tile ${numberOf(p.id)}` : "not shown"}</span></li>`).join("")}</ul></dd>
+      <dt>Recent</dt><dd><ul>${mine.map((p, i) => `<li>Opened preview ${p.path} <span class="sub">${i ? "just now" : "2 min ago"}</span></li>`).reverse().join("")}${state.closedByYou ? `<li>Opened preview docs/mockups/checkout.html <span class="sub">kept in the sidebar: you closed it</span></li>` : ""}</ul></dd>` : ""}
+    </dl></div></div>`;
+}
+
+/* Trusted confirmations: Allow network, and external links (one at a time per preview). */
+function renderModal() {
+  document.querySelector(".scrim")?.remove();
+  if (!modal) return;
+  const p = pById(modal.id);
+  const html = modal.kind === "net"
+    ? `<div class="scrim"><div class="card" role="dialog" aria-modal="true" aria-label="Allow network">
+        <h2>Allow network for this preview?</h2>
+        <p>This page can send files from this worktree to the internet.</p>
+        <div class="where">${p.path} · foom › ${p.wt}</div>
+        <p>Only https. It turns off when Foom restarts.</p>
+        <div class="btns"><button type="button" data-modal="cancel">Cancel</button><button type="button" class="go" data-modal="ok">Allow network</button></div></div></div>`
+    : `<div class="scrim"><div class="card" role="dialog" aria-modal="true" aria-label="Open link">
+        <h2>Open this link?</h2>
+        <div class="url">${modal.url}</div>
+        <div class="where">Requested by ${p.path}${modal.dropped ? ` · ${modal.dropped} more request${modal.dropped === 1 ? "" : "s"} ignored` : ""}</div>
+        <div class="btns"><button type="button" data-modal="cancel">Cancel</button><button type="button" class="go" data-modal="ok">Open in browser</button></div></div></div>`;
+  document.getElementById("app").insertAdjacentHTML("beforeend", html);
+  document.querySelector('.scrim [data-modal="cancel"]').focus();
+}
+
+/* Placement for the human: landing spot, then empty space, else a new column at the right. */
+function show(id) {
+  const p = pById(id);
+  if (p) { p.sidebarOnly = false; }
+  for (const col of state.cols) {
+    const i = col.indexOf("landing") >= 0 ? col.indexOf("landing") : col.indexOf("space");
+    if (i >= 0) { col[i] = id; state.focused = id; render(); return; }
+  }
+  state.cols.push([id]);
+  state.focused = id;
+  render();
+}
+function closePreview(id) {
+  for (const col of state.cols) { const i = col.indexOf(id); if (i >= 0) col[i] = "landing"; }
+  const p = pById(id);
+  if (p?.by) state.closedByYou = true; // the agent can reopen it, but only as a sidebar row
+  state.previews = state.previews.filter((x) => x.id !== id);
+  if (state.focused === id) state.focused = order()[0];
+  if (maxed === id) maxed = null;
+}
+function run(cmd) {
+  const id = panel.id;
+  const p = pById(id);
+  if (cmd === "right") { const c = state.cols.findIndex((col) => col.includes(id)); state.cols.splice(c + 1, 0, ["landing"]); }
+  if (cmd === "down") { const col = state.cols.find((x) => x.includes(id)); col.splice(col.indexOf(id) + 1, 0, "landing"); }
+  if (cmd === "max") maxed = maxed === id ? null : id;
+  if (cmd === "reload") note(`Reloaded ${p.path}. Scroll position kept. Focus didn't move.`);
+  if (cmd === "close") closePreview(id);
+  if (cmd === "hide") { for (const col of state.cols) { const i = col.indexOf(id); if (i >= 0) col[i] = "landing"; } }
+  if (cmd === "focus") { order().includes(id) ? (state.focused = id) : show(id); }
+  if (cmd.startsWith("show:")) { panel = null; show(cmd.slice(5)); return; }
+  if (cmd === "stop") note("Mockup: Stop is the session's existing command.");
+  if (cmd === "net") {
+    panel = null;
+    if (p.network) { p.network = false; render(); } else { modal = { kind: "net", id }; render(); }
+    return;
+  }
+  panel = null;
+  render();
+}
+function note(t) { document.getElementById("note").textContent = t; }
+
+/* Events */
+document.addEventListener("click", (e) => {
+  const m = e.target.closest("[data-modal]");
+  if (m) {
+    const p = pById(modal.id);
+    if (modal.kind === "net" && m.dataset.modal === "ok") { p.network = true; note("Network allowed for this preview only. The title bar and facts say so."); }
+    if (modal.kind === "link") note(m.dataset.modal === "ok" ? `Mockup: ${modal.url} would open in your browser.` : "Nothing opened.");
+    modal = null; render(); return;
+  }
+  if (modal) return;
+  const it = e.target.closest(".panel .item");
+  if (it) { if (!it.disabled) run(it.dataset.cmd); return; }
+  if (e.target.closest(".panel")) return;
+  const more = e.target.closest("[data-more]");
+  if (more) { e.stopPropagation(); panel?.kind === "session" && panel.id === more.dataset.more ? closePanel() : openPanel("session", more.dataset.more); return; }
+  const act = e.target.closest("[data-act]");
+  if (act) {
+    const id = act.dataset.id;
+    if (act.dataset.act === "panel") { panel?.kind === "tile" && panel.id === id ? closePanel() : openPanel("tile", id); return; }
+    if (act.dataset.act === "max") { maxed = maxed === id ? null : id; render(); return; }
+    if (act.dataset.act === "close") { closePreview(id); panel = null; render(); return; }
+    if (act.dataset.act === "hide") { for (const col of state.cols) { const i = col.indexOf(id); if (i >= 0) col[i] = "landing"; } render(); return; }
+  }
+  const link = e.target.closest("[data-ext]");
+  if (link) { e.preventDefault(); const t = link.closest("[data-view]").dataset.view; modal = { kind: "link", id: t, url: link.dataset.ext }; render(); return; }
+  if (panel) { closePanel(); return; }
+  const row = e.target.closest("[data-row]");
+  if (row) {
+    const id = row.dataset.row;
+    const p = pById(id);
+    if (p) p.arrived = false;
+    order().includes(id) ? (state.focused = id, render()) : show(id);
+    return;
+  }
+  // A preview takes focus only from a click on it.
+  const tile = e.target.closest("[data-tile]");
+  if (tile && state.focused !== tile.dataset.tile) { const p = pById(tile.dataset.tile); if (p) p.arrived = false; state.focused = tile.dataset.tile; render(); }
+});
+document.addEventListener("pointerover", (e) => {
+  const t = e.target.closest(".tile.arrived, .srow.arrived");
+  if (!t) return;
+  const p = pById(t.dataset.tile ?? t.dataset.row);
+  if (p?.arrived) { p.arrived = false; setTimeout(render, 600); }
+});
+document.addEventListener("keydown", (e) => {
+  if (e.key !== "Escape") return;
+  if (modal) { modal = null; render(); } else closePanel();
+});
+document.getElementById("arrive").addEventListener("click", () => {
+  load("agent");
+  // Replay the arrival: the space is the landing spot until the preview fills it.
+  const col = state.cols[1];
+  col[0] = "landing";
+  render();
+  note("Codex calls open_preview. The landing spot fills; focus stays in tile 1.");
+  setTimeout(() => { col[0] = "p2"; pById("p2").arrived = true; render(true); }, 700);
+});
+document.getElementById("links").addEventListener("click", () => {
+  const p = state.previews.find((x) => order().includes(x.id) && !x.missing);
+  if (!p) { note("No preview on the board."); return; }
+  modal = { kind: "link", id: p.id, url: "https://example.com/collect?from=preview", dropped: 2 };
+  note("The page asked three times without a click. One prompt shows; the others are dropped.");
+  render();
+});
+document.getElementById("scene").addEventListener("change", (e) => load(e.target.value));
+document.getElementById("theme").addEventListener("change", (e) => {
+  if (e.target.value) document.documentElement.dataset.theme = e.target.value;
+  else delete document.documentElement.dataset.theme;
+});
+document.getElementById("size").addEventListener("change", (e) => {
+  const app = document.getElementById("app");
+  app.classList.toggle("narrow", e.target.value === "narrow");
+  app.classList.toggle("scaled", e.target.value === "scaled");
+  render();
+});
+load("human");
+</script>
+</body>
+</html>

@@ -1,0 +1,46 @@
+{
+  "agent": "2.1.296 (Claude Code)",
+  "exit": 0,
+  "events": [
+    {
+      "action": "open_preview",
+      "path": "docs/mockup.html",
+      "outcome": "landing"
+    },
+    {
+      "action": "open_preview",
+      "path": "docs/notes.md",
+      "outcome": "sidebar"
+    },
+    {
+      "action": "open_preview",
+      "path": "docs/mockup.html",
+      "outcome": "existing"
+    }
+  ],
+  "boardFocusUnchanged": true,
+  "previewViewFocused": false,
+  "boardFocusedAtEnd": true,
+  "focusStrategy": "detached",
+  "focusLog": [
+    {
+      "preview": "docs/mockup.html",
+      "event": "created (not attached)",
+      "viewFocused": false,
+      "boardFocused": true
+    },
+    {
+      "preview": "docs/mockup.html",
+      "event": "attached after load",
+      "viewFocused": false,
+      "boardFocused": true
+    },
+    {
+      "preview": "docs/mockup.html",
+      "event": "loaded",
+      "viewFocused": false,
+      "boardFocused": true
+    }
+  ],
+  "previewTitle": "Checkout mockup"
+}
