@@ -192,7 +192,7 @@ are kept and reported; a concurrent ref race aborts the transaction safely.
 Foom owns its menu and shortcuts. Click the sidebar's **foom** wordmark on any
 platform, or press Alt alone or F10 on Windows and Linux, to open the application
 menu below it. A chevron beside the wordmark turns while the menu is open. The
-menu is the same everywhere and lists only app-wide commands:
+menu is the same everywhere and lists app-wide commands plus the whole-layout Tidy action:
 
 - New window, New worktree…, Add repository…, New orchestrator… (disabled: orchestrators
   launch from a repository's panel, #155)
@@ -201,6 +201,7 @@ menu is the same everywhere and lists only app-wide commands:
   config row), then Via Settings UI, which opens the Settings screen. Agent routes
   are enabled for installed, enabled agents after preflight, including while
   Settings is open. An existing config session is focused in its owning window.
+- **View › Tidy tiles**, which removes empty spaces and evens every run in the focused window
 - **Size − 100% +**, one row that steps the interface size and stays open
 - Action log (#157), Keyboard shortcuts, About Foom, Third-party licenses
 - Reload, Force reload and Developer tools, in development builds only
@@ -216,7 +217,7 @@ Escape at the top level returns focus to the wordmark. The menu uses the same
 surface and motion as row actions, with a scrollable list on short windows. The
 native menu bar is absent on Windows and Linux, including after Alt.
 
-Tile, focus, swap and preset commands, Focus sidebar, Longest waiting, Maximize,
+Individual tile, focus, swap and preset commands, Focus sidebar, Longest waiting, Maximize,
 Copy, Paste, Close Window and Foom on GitHub are not in the wordmark menu. Their
 shortcuts still work; presets stay in the sidebar footer. Third-party licenses
 keeps its own item until the About screen (#96); its dialog links to the source

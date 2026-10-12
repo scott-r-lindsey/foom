@@ -7831,7 +7831,14 @@ test("gutter double-click evens three columns and Tidy tiles removes holes throu
       const item = Menu.getApplicationMenu().getMenuItemById("tidy-tiles");
       item.click(undefined, BrowserWindow.getFocusedWindow());
     });
-  } else await page.evaluate(() => window.desktop.appMenu.execute("tidy-tiles"));
+  } else {
+    await page.getByRole("button", { name: "Foom menu", exact: true }).click();
+    await page.getByRole("menuitem", { name: "View", exact: true }).hover();
+    const view = page.getByRole("menu", { name: "View", exact: true });
+    await expect(view).toBeVisible();
+    await view.getByRole("menuitem", { name: /^Tidy tiles/ }).click();
+    await expect(view).toHaveCount(0);
+  }
   await expect(tiles).toHaveCount(2);
   await expect.poll(widths).toEqual([5000, 5000]);
   await expect(page.locator('[data-maximized="true"]')).toHaveCount(0);

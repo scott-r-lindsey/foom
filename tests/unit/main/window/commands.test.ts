@@ -163,6 +163,7 @@ test("the wordmark menu is curated, the same on every platform, with planned ite
       "new-orchestrator",
       "-",
       { "settings-menu": ["via-claude", "via-codex", "via-agy", "-", "settings"] },
+      { "view-menu": ["tidy-tiles"] },
       "size:120",
       "-",
       "action-log",
@@ -176,6 +177,19 @@ test("the wordmark menu is curated, the same on every platform, with planned ite
       "-",
       "quit",
     ]);
+    expect(
+      menu.find((entry) => entry?.kind === "submenu" && entry.id === "view-menu"),
+    ).toMatchObject({
+      label: "View",
+      items: [
+        {
+          id: "tidy-tiles",
+          label: "Tidy tiles",
+          enabled: true,
+          shortcut: platform === "darwin" ? "⌥⇧⌘T" : "Ctrl+Shift+Space, T",
+        },
+      ],
+    });
     const flat = menu.flatMap((entry): CommandItem[] =>
       entry === null || entry.kind === "size"
         ? []

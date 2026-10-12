@@ -355,7 +355,7 @@ export function createCommands(
 }
 type Layout = string | null | { submenu: string; label: string; items: readonly (string | null)[] };
 /**
- * The curated wordmark menu: app-wide commands only. Everything else keeps its
+ * The curated wordmark menu: app-wide commands and whole-layout Tidy. Everything else keeps its
  * shortcut and stays in the macOS menu bar. `size` is the interface size row.
  */
 const appMenuLayout = (agents: readonly string[]): readonly Layout[] => [
@@ -369,6 +369,7 @@ const appMenuLayout = (agents: readonly string[]): readonly Layout[] => [
     label: "Settings",
     items: [...agents.map((agent) => `via-${agent}`), null, "settings"],
   },
+  { submenu: "view-menu", label: "View", items: ["tidy-tiles"] },
   "size",
   null,
   "action-log",
