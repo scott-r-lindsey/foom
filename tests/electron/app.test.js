@@ -7331,7 +7331,6 @@ test("Settings agent menu launches config and focuses its existing window", {
   const { chmod, copyFile } = require("node:fs/promises");
   const root = await realpath(await mkdtemp(path.join(tmpdir(), "foom-config-menu-")));
   removeAfterApps(context, root);
-  const argvFile = path.join(root, "config-argv.json");
   const bin = path.join(root, "bin");
   const home = path.join(root, "home");
   await Promise.all([bin, home].map((directory) => mkdir(directory)));
@@ -7344,20 +7343,18 @@ test("Settings agent menu launches config and focuses its existing window", {
     env: { HOME: home, PATH: `${bin}${path.delimiter}${process.env.PATH}` },
   });
   const first = await boardPage(app);
-  await first.evaluate(
-    (argvFile) =>
-      window.desktop.saveSetup({
-        agents: { claude: true, codex: false, agy: false },
-        agentArguments: {
-          claude: [
-            "--eval",
-            `require('node:fs').writeFileSync(${JSON.stringify(argvFile)}, JSON.stringify(process.argv.slice(1)));console.log('CONFIG_MENU_READY');process.stdin.resume()`,
-          ],
-          codex: [],
-          agy: [],
-        },
-      }),
-    argvFile,
+  await first.evaluate(() =>
+    window.desktop.saveSetup({
+      agents: { claude: true, codex: false, agy: false },
+      agentArguments: {
+        claude: [
+          "--eval",
+          "console.log('CONFIG_MENU_READY '+JSON.stringify(process.argv.slice(1)));process.stdin.resume()",
+        ],
+        codex: [],
+        agy: [],
+      },
+    }),
   );
   await openSettingsScreen(first);
   await expect(first.getByRole("heading", { name: "Settings", exact: true })).toBeVisible();
@@ -7381,15 +7378,16 @@ test("Settings agent menu launches config and focuses its existing window", {
       first.evaluate(async (id) => (await window.desktop.tail(id, 40)).join("\n"), id),
     )
     .toContain("CONFIG_MENU_READY");
-  const args = JSON.parse(await readFile(argvFile, "utf8"));
-  // Node consumes the option terminator before exposing argv to this fixture.
-  assert.deepEqual(args.slice(-1), [
-    "Read AGENTS.md, then greet the user in two or three sentences: you are working in Foom's config folder and can change settings, interface and terminal themes, and sounds. Foom reviews every change, and any change can be reverted. Ask what they would like to change.",
-  ]);
   assert.equal(
     (await first.evaluate(() => window.desktop.workspace())).terminals[0].worktree,
     path.join(home, ".foom", "config"),
   );
+  const greetingTail = await first.evaluate(
+    async (id) => (await window.desktop.tail(id, 40)).join(""),
+    id,
+  );
+  assert.match(greetingTail, /CONFIG_MENU_READY \["Read AGENTS\.md, then greet the user/);
+  assert.match(greetingTail, /Ask what they would like to change\."\]/);
   await first.screenshot({ path: "test-results/config-menu-launched.png", animations: "disabled" });
   await first.evaluate(() => window.desktop.appMenu.execute("new-window"));
   await expect

@@ -272,11 +272,12 @@ export class AgentService {
       const orchestrator = request.control !== undefined && "role" in request.control;
       if (orchestrator && (!control || (agent.id === "agy" && !agent.cliGuidance)))
         throw new Error("Orchestration needs control credentials and initial prompt support");
+      const configGreeting = config !== undefined && request.conversationId === undefined;
       const prompt = initialPrompt(agent, request.prompt);
       const args = [
         ...resume,
-        ...(control && agent.cliGuidance
-          ? cliGuidance([...defaults, ...prompt.guidance], orchestrator)
+        ...((control || configGreeting) && agent.cliGuidance
+          ? cliGuidance([...defaults, ...prompt.guidance], orchestrator, configGreeting)
           : [...defaults, ...prompt.guidance]),
         ...(agent.inline ? ["--no-alt-screen"] : []),
         ...(mcp?.args ?? []),
@@ -304,13 +305,12 @@ export class AgentService {
       }
       // A positional prompt goes last, after every option Foom adds.
       args.push(
-        ...(orchestrator && agent.id !== "agy" ? ["--", ORCHESTRATOR_PROMPT] : prompt.positional),
+        ...(configGreeting && agent.id !== "agy"
+          ? ["--", CONFIG_PROMPT]
+          : orchestrator && agent.id !== "agy"
+            ? ["--", ORCHESTRATOR_PROMPT]
+            : prompt.positional),
       );
-      if (config !== undefined && request.conversationId === undefined) {
-        if (agent.id !== "agy") args.push("--", CONFIG_PROMPT);
-        else if (agent.cliGuidance)
-          args.splice(0, args.length, ...cliGuidance(args, false, CONFIG_PROMPT));
-      }
       const environment = buildLaunchEnvironment({
         layers: request.environment ?? [],
         base: inheritedEnvironment(),

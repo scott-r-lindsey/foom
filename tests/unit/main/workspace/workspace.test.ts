@@ -3117,53 +3117,70 @@ test("config sessions run in the config folder with the bundled CLI, one at a ti
 });
 
 test.each(["claude", "codex", "agy"] as const)(
-  "config %s agents preserve defaults and distinguish fresh replacements from resumes",
+  "config %s agents preserve defaults and resume in the same row",
   async (agent) => {
     deps.config = configDep();
+    agents.launch.mockResolvedValue({ id: "c1", attention: "hooks" });
     const workspace = new Workspace(deps);
     workspace.configure({
       hooks: true,
       agents: { claude: true, codex: true, agy: true },
       agentArguments: {
-        claude: ["--model", "custom"],
-        codex: ["--model", "custom"],
-        agy: ["-i", "custom"],
+        claude: ["--model", "test"],
+        codex: ["--model", "test"],
+        agy: ["-i", "user greeting"],
       },
     });
-    const no = () => Promise.resolve(true);
+    const defaults = agent === "agy" ? ["-i", "user greeting"] : ["--model", "test"];
+    const no = () => Promise.resolve(false);
     await workspace.sidebarCommand({ kind: "config-launch", run: agent }, no);
-    expect(agents.launch).toHaveBeenLastCalledWith(
+    expect(agents.launch).toHaveBeenCalledWith(
       expect.objectContaining({
         agent,
+        repository: "/home/.foom/config",
+        worktree: "/home/.foom/config",
         configCli: "/app/console",
-        defaultArguments: agent === "agy" ? ["-i", "custom"] : ["--model", "custom"],
+        defaultArguments: defaults,
       }),
     );
-    expect(agents.launch.mock.calls.at(-1)?.[0].conversationId).toBeUndefined();
-    expect(agents.launch.mock.calls.at(-1)?.[0].prompt).toBeUndefined();
     expect(deps.worktrees.createWorktree).not.toHaveBeenCalled();
+    expect(workspace.snapshot().terminals[0]).toMatchObject({
+      id: "c1",
+      config: true,
+      agent,
+      attention: "hooks",
+    });
+    await workspace.exited("c1", 0);
+    await workspace.sidebarCommand({ kind: "new-conversation", id: "c1" }, no);
+    expect(agents.launch.mock.calls.at(-1)?.[0].conversationId).toBeUndefined();
     const hooks = await prepare?.(agent);
-    hooks?.bind?.("t1");
+    hooks?.bind?.("c1");
+    const key = receiver.register.mock.calls.at(-1)?.[0] ?? "";
     await workspace.hook({
-      terminalId: receiver.register.mock.calls.at(-1)?.[0] ?? "",
+      terminalId: key,
       action: "classify",
-      signal: `${agent}:Stop`,
+      signal:
+        agent === "agy"
+          ? "agy:Stop"
+          : agent === "codex"
+            ? "codex:agent-turn-complete"
+            : "claude:Stop",
       conversationId: "saved-id",
     });
-    expect(workspace.snapshot().terminals[0]?.conversationId).toBe("saved-id");
-    await workspace.exited("t1", 0);
-    await workspace.sidebarCommand({ kind: "resume", id: "t1" }, no);
+    await workspace.exited("c1", 0);
+    await workspace.sidebarCommand({ kind: "resume", id: "c1" }, no);
     expect(agents.launch).toHaveBeenLastCalledWith(
       expect.objectContaining({
-        terminalId: "t1",
+        terminalId: "c1",
         configCli: "/app/console",
         conversationId: "saved-id",
+        defaultArguments: defaults,
       }),
     );
-    await workspace.exited("t1", 0);
-    await workspace.sidebarCommand({ kind: "new-conversation", id: "t1" }, no);
+    await workspace.exited("c1", 0);
+    await workspace.sidebarCommand({ kind: "new-conversation", id: "c1" }, no);
     expect(agents.launch).toHaveBeenLastCalledWith(
-      expect.objectContaining({ terminalId: "t1", configCli: "/app/console" }),
+      expect.objectContaining({ terminalId: "c1", configCli: "/app/console" }),
     );
     expect(agents.launch.mock.calls.at(-1)?.[0].conversationId).toBeUndefined();
     await workspace.dispose();

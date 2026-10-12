@@ -892,76 +892,72 @@ it("refuses orchestrators without a control binding or Antigravity prompt suppor
 });
 
 it.each(["claude", "codex", "agy"] as const)(
-  "greets fresh %s config sessions after options and skips resumed greetings",
+  "greets fresh %s config sessions, including replacements, but never resumes",
   async (agent) => {
-    help += "\n--prompt-interactive <prompt>\n--no-alt-screen";
-    const launch = {
-      ...request,
-      agent,
-      configCli: "/app/console",
-      defaultArguments: ["--model", "literal $(text)"],
-      acknowledgeCodexNotifierReplacement: true,
-    };
-    await service.launch(launch);
-    const args = create.mock.calls.at(-1)?.[0].args;
-    expect(args?.slice(-2)).toEqual([
-      agent === "agy" ? "--prompt-interactive" : "--",
-      CONFIG_PROMPT,
-    ]);
-    expect(args?.slice(0, 2)).toEqual(launch.defaultArguments);
-    service.release("terminal-id");
-    await service.launch({ ...launch, conversationId: "saved-id" });
-    expect(create.mock.calls.at(-1)?.[0].args).not.toContain(CONFIG_PROMPT);
-    expect(create.mock.calls.at(-1)?.[0].args).toContain("saved-id");
+    help += "\n--prompt-interactive <prompt>";
+    for (const conversationId of [undefined, "saved-id"]) {
+      service = new AgentService({ listWorktrees, launchIdentity }, { create }, prepare);
+      await service.launch({
+        ...request,
+        agent,
+        configCli: "/app/console",
+        terminalId: "replacement",
+        ...(conversationId === undefined ? {} : { conversationId }),
+        defaultArguments:
+          agent === "agy"
+            ? [
+                "--model",
+                "test",
+                "-i",
+                "literal $(text)",
+                "--prompt-interactive=another",
+                "-i=third",
+              ]
+            : ["--model", "test"],
+        acknowledgeCodexNotifierReplacement: true,
+      });
+      const args = create.mock.calls.at(-1)?.[0].args ?? [];
+      expect(args).toContain("--model");
+      expect(args).toContain("test");
+      if (conversationId !== undefined) {
+        expect(args.join("\n")).not.toContain(CONFIG_PROMPT);
+        expect(args).toContain("saved-id");
+      } else if (agent === "agy") {
+        expect(args).toEqual([
+          "--model",
+          "test",
+          "--prompt-interactive",
+          `literal $(text)\n\nanother\n\nthird\n\n${CONFIG_PROMPT}`,
+        ]);
+      } else {
+        expect(args.slice(-2)).toEqual(["--", CONFIG_PROMPT]);
+        expect(args).toContain(agent === "claude" ? "--settings" : "-c");
+      }
+    }
   },
 );
 
-it.each([true, false])(
-  "Antigravity config greeting support=%s preserves defaults",
-  async (supported) => {
-    if (supported) help += "\n--prompt-interactive <prompt>";
-    const defaults = [
-      "--model",
-      "literal $(text)",
-      "-i",
-      "first",
-      "--prompt-interactive=second",
-      "-i=third",
-    ];
-    await service.launch({
+it("launches config Antigravity without a greeting when unsupported", async () => {
+  await service.launch({
+    ...request,
+    agent: "agy",
+    configCli: "/app/console",
+    defaultArguments: ["--model", "test"],
+  });
+  expect(create.mock.calls.at(-1)?.[0].args).toEqual(["--model", "test"]);
+});
+
+it("releases a failed config greeting launch so it can be retried", async () => {
+  help += "\n--prompt-interactive <prompt>";
+  await expect(
+    service.launch({
       ...request,
       agent: "agy",
       configCli: "/app/console",
-      defaultArguments: defaults,
-    });
-    expect(create.mock.calls.at(-1)?.[0].args).toEqual(
-      supported
-        ? [
-            "--model",
-            "literal $(text)",
-            "--prompt-interactive",
-            `first\n\nsecond\n\nthird\n\n${CONFIG_PROMPT}`,
-          ]
-        : defaults,
-    );
-  },
-);
-
-it("rejects a missing Antigravity config interactive prompt without spawning and cleans hooks", async () => {
-  help += "\n--prompt-interactive <prompt>";
-  const status = vi.spyOn(AgyPlugin.prototype, "status").mockResolvedValue({ state: "installed" });
-  try {
-    await expect(
-      service.launch({
-        ...request,
-        agent: "agy",
-        configCli: "/app/console",
-        defaultArguments: ["-i"],
-      }),
-    ).rejects.toThrow("missing its value");
-    expect(create).not.toHaveBeenCalled();
-    expect(cleanup).toHaveBeenCalledOnce();
-  } finally {
-    status.mockRestore();
-  }
+      defaultArguments: ["-i"],
+    }),
+  ).rejects.toThrow("Interactive prompt is missing its value");
+  expect(create).not.toHaveBeenCalled();
+  await service.launch({ ...request, agent: "agy", configCli: "/app/console" });
+  expect(create.mock.calls.at(-1)?.[0].args).toEqual(["--prompt-interactive", CONFIG_PROMPT]);
 });

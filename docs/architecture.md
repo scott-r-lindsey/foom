@@ -1430,11 +1430,10 @@ merge drivers and checkout filters.
 folder: no worktree, no repository-scoped control grant, the usual per-launch hooks
 and evaluator, the same Environment layers as other sessions, and the bundled
 console directory first on `PATH`, ahead of Environment entries, even if the CLI was
-never installed. Fresh agent config sessions receive the fixed main-only
-`CONFIG_PROMPT` after all launch options: Claude Code and Codex use `--` followed
-by the prompt; Antigravity merges user interactive prompts through
-`--prompt-interactive` when supported, otherwise launches without a greeting.
-Resuming a conversation ID adds no greeting. No prompt is supplied through IPC.
+never installed. A new agent config session receives a fixed, main-only greeting
+that asks what the user wants to change; resuming a conversation adds no greeting.
+Antigravity receives it only when interactive prompts are supported, preserving
+any user default prompts. `config-launch` carries no prompt.
 One config session runs at a time; a second launch starts
 nothing and the renderer focuses the running session. Session records keep a
 validated `config` flag (folder path equal to itself, no branch) and restore only
