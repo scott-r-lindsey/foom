@@ -31,6 +31,7 @@ import {
   rowRepository,
   rowWorktree,
 } from "./sidebar-model";
+import { lightState, movingLight } from "./light-activity";
 import { light, waitTime } from "./board";
 import { RowMenu } from "./row-menu";
 import type { RowAction } from "./row-menu";
@@ -501,9 +502,10 @@ export function Sidebar({
           data-drag-session={row.id}
           data-nav
           data-kind={row.kind}
-          data-state={row.state}
+          data-state={lightState(row)}
+          data-exited={Boolean(row.exited)}
           tabIndex={row.id === selected ? 0 : -1}
-          aria-label={`${row.branch} · ${name}${name === identity ? "" : ` · ${identity}`} · ${light(row).label} · ${row.reason}${row.bypass ? " · Bypass" : ""}${row.worktreeRemoved ? " · Worktree removed" : ""}`}
+          aria-label={`${row.branch} · ${name}${name === identity ? "" : ` · ${identity}`} · ${light(row).label}${row.foregroundProgram ? ` · ${row.foregroundProgram}` : ""}${row.kind === "shell" ? "" : ` · ${row.reason}`}${row.bypass ? " · Bypass" : ""}${row.worktreeRemoved ? " · Worktree removed" : ""}`}
           ref={(element) => {
             if (element) buttons.current.set(row.id, element);
             else buttons.current.delete(row.id);
@@ -528,6 +530,9 @@ export function Sidebar({
         >
           <span
             className="board-light"
+            data-light-state={lightState(row)}
+            data-moving={movingLight(row)}
+            data-exited={Boolean(row.exited)}
             style={{ "--light-opacity": light(row).opacity } as CSSProperties}
             aria-hidden="true"
           />
@@ -568,6 +573,21 @@ export function Sidebar({
                   save(renameSession(preferences, row.id, value));
                 }}
               />
+              {(row.exited || row.foregroundProgram) && (
+                <span className="session-program">
+                  {row.exited ? "exited" : row.foregroundProgram}
+                </span>
+              )}
+              {movingLight(row) && (
+                <svg
+                  className="activity-trace"
+                  data-light-state={lightState(row)}
+                  viewBox="0 0 34 12"
+                  aria-hidden="true"
+                >
+                  <path d="" />
+                </svg>
+              )}
               {row.state === "needs_input" && (
                 <span className="board-wait">{waitTime(row, now)}</span>
               )}
@@ -577,9 +597,11 @@ export function Sidebar({
                 <span aria-hidden="true">⊘</span> Worktree removed
               </span>
             )}
-            <span className="board-reason" title={row.reason}>
-              <Highlight text={row.reason} filter={filter} />
-            </span>
+            {row.kind !== "shell" && (
+              <span className="board-reason" title={row.reason}>
+                <Highlight text={row.reason} filter={filter} />
+              </span>
+            )}
             <span className="visually-hidden board-state">{light(row).label}</span>
           </span>
           {actions(row.id, `${name} in ${row.branch}`, items)}

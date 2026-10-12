@@ -1509,6 +1509,7 @@ test("Settings transitions restore background fullscreen output repeatedly", {
     await page.keyboard.press("Escape");
     await expect(page.getByRole("region", { name: "Settings" })).toBeHidden();
     await open.click();
+    await expect(page.locator(".xterm-helper-textarea")).toBeFocused();
     await expect(hide).toBeEnabled();
     await expect(rows).toContainText("ALTERNATE_HIDDEN_OUTPUT");
     await expect(rows).not.toContainText("NORMAL_VIEW_READY");
@@ -1523,6 +1524,7 @@ test("Settings transitions restore background fullscreen output repeatedly", {
   await page.keyboard.press("Escape");
   await expect(page.getByRole("region", { name: "Settings" })).toBeHidden();
   await open.click();
+  await expect(page.locator(".xterm-helper-textarea")).toBeFocused();
   await expect(hide).toBeEnabled();
   await expect(rows).toContainText("NORMAL_VIEW_READY");
   await expect(rows).toContainText("NORMAL_HIDDEN_OUTPUT");
@@ -1543,6 +1545,7 @@ test("Settings transitions restore background fullscreen output repeatedly", {
         await page.keyboard.press("Escape");
         await expect(page.getByRole("region", { name: "Settings" })).toBeHidden();
         await open.click();
+        await expect(page.locator(".xterm-helper-textarea")).toBeFocused();
         await expect(hide).toBeEnabled();
         await expect(rows).toContainText("FOOTER");
         await page.keyboard.type("j");
@@ -1573,6 +1576,7 @@ test("Settings transitions restore background fullscreen output repeatedly", {
     await page.keyboard.press("Escape");
     await expect(page.getByRole("region", { name: "Settings" })).toBeHidden();
     await open.click();
+    await expect(page.locator(".xterm-helper-textarea")).toBeFocused();
     await expect(hide).toBeEnabled();
   }
   // Reopening restores interactive input as well as the screen.
@@ -1892,7 +1896,7 @@ test("launches an agent in a managed worktree and routes its attention signals",
     .poll(() =>
       agentRow
         .locator(".board-light")
-        .evaluate((element) => Number(element.style.getPropertyValue("--light-opacity"))),
+        .evaluate((element) => Number(element.style.getPropertyValue("--activity"))),
     )
     .toBeGreaterThan(0.9);
   await expect(agentRow).toHaveAttribute("data-state", "needs_input");
@@ -2916,6 +2920,7 @@ test("the branch field creates a worktree by keyboard without launching; dirty r
     terminal.repository,
   );
   await row.click();
+  await expect(page.locator(".xterm-helper-textarea")).toBeFocused();
   await expect(page.locator(".tile-terminal")).toBeVisible();
   const dirty = path.join(terminal.worktree, "unsaved.txt");
   await writeFile(dirty, "preserve unless confirmed");
@@ -3279,7 +3284,7 @@ test("persistent sidebar keeps Escape in the PTY and routes keyboard navigation"
     feedbackBefore,
   );
   await page.keyboard.press("ArrowDown");
-  await expect(page.locator(".board-row")).toHaveAttribute("data-state", "working");
+  await expect(page.locator(".board-row")).toHaveAttribute("data-state", "shell");
   await page.keyboard.type("m");
   await expect(page.locator(".xterm-rows")).toContainText("MOUSE_READY");
   await writeFile(marker, "");
@@ -3932,10 +3937,9 @@ test("sidebar menus escape the scroll area, stay in the window and launch from a
     );
     const rowBox = await launchedRow.boundingBox();
     const headerBox = await page.locator(".sidebar-shell .board-top").boundingBox();
-    assert.ok(rowBox && rowBox.height <= 50, "session keeps two compact readable lines");
+    assert.ok(rowBox && rowBox.height <= 50, "shell session keeps a compact readable line");
     assert.ok(headerBox && headerBox.height <= 100, "header preserves tree space");
-    await expect(launchedRow.locator(".board-reason")).toHaveCSS("font-size", "12px");
-    await expect(launchedRow.locator(".board-reason")).toHaveCSS("white-space", "nowrap");
+    await expect(launchedRow.locator(".board-reason")).toHaveCount(0);
     if (process.env.FOOM_SCREENSHOTS)
       await page.screenshot({
         path: path.join(tmpdir(), `foom-review-session-${colorScheme}.png`),
@@ -3995,26 +3999,80 @@ test("Bash command status reaches the sidebar without closing the shell", {
   timeout: deadline(30_000),
   skip: process.platform !== "linux" && "Requires Bash 4.4 or newer",
 }, async (context) => {
-  const app = await launchApp(context, true, { env: { SHELL: "/bin/bash" } });
+  const root = await mkdtemp(path.join(tmpdir(), "foom-program-"));
+  removeAfterApps(context, root);
+  await require("node:fs/promises").copyFile("/bin/sleep", path.join(root, "vim"));
+  const app = await launchApp(context, true, {
+    env: { SHELL: "/bin/bash", PATH: `${root}${path.delimiter}${process.env.PATH}` },
+  });
   const page = await boardPage(app);
   const row = page.locator(".board-row[data-kind='shell']");
-  await expect(row).toContainText("Shell is ready");
-  await expect(row).toHaveAttribute("data-state", "quiet_ok");
+  await expect(row).toHaveAttribute("data-state", "shell");
+  await expect(row.locator(".board-reason")).toHaveCount(0);
+  const state = () =>
+    page.evaluate(
+      async () =>
+        (await window.desktop.workspace()).terminals.find((t) => t.kind === "shell")?.state?.state,
+    );
+  await expect.poll(state).toBe("quiet_ok");
   const input = page.locator(".xterm-helper-textarea");
   await input.focus();
-  await page.keyboard.type("sleep 1");
+  for (const program of ["sleep", "vim"]) {
+    await page.keyboard.type(`${program} 2`);
+    await page.keyboard.press("Enter");
+    await expect(row.locator(".session-program")).toHaveText(program);
+    await expect(page.locator(".tile-title .session-program")).toHaveText(program);
+    await expect(row).toHaveAttribute("data-state", "shell");
+    await expect.poll(state).toBe("done");
+    await expect(row.locator(".session-program")).toHaveCount(0);
+  }
+  await page.keyboard.type(
+    `node -e 'setInterval(() => process.stdout.write("x".repeat(512) + "\\n"), 100)'`,
+  );
   await page.keyboard.press("Enter");
-  await expect(row).toHaveAttribute("data-state", "working");
-  await expect(row).toHaveAttribute("data-state", "done");
+  await expect(row.locator(".session-program")).toHaveText("node");
+  await row.evaluate((element) => {
+    window.activityRow = element;
+    window.activityRowChanges = 0;
+    window.activityObserver = new MutationObserver((records) => {
+      window.activityRowChanges += records.length;
+    });
+    window.activityObserver.observe(element, { childList: true, subtree: true });
+  });
+  await expect
+    .poll(() =>
+      row
+        .locator(".board-light")
+        .evaluate((element) => Number(element.style.getPropertyValue("--activity"))),
+    )
+    .toBeGreaterThan(0.9);
+  await expect.poll(() => row.locator(".activity-trace path").getAttribute("d")).toContain("L");
+  assert.equal(
+    await row.evaluate(
+      (element) => window.activityRow === element && window.activityRowChanges === 0,
+    ),
+    true,
+  );
+  await page.evaluate(() => window.activityObserver.disconnect());
+  if (process.env.FOOM_SCREENSHOTS)
+    await page.screenshot({ path: path.join(tmpdir(), "foom-270-glow.png") });
+  await page.keyboard.press("Control+c");
+  await expect(row.locator(".session-program")).toHaveCount(0);
   await page.keyboard.type("false");
   await page.keyboard.press("Enter");
-  await expect(row).toHaveAttribute("data-state", "failed");
-  await page.waitForTimeout(2500);
-  await expect(row).toHaveAttribute("data-state", "failed");
+  await expect.poll(state).toBe("failed");
+  await expect(row).toHaveAttribute("data-state", "shell");
   await page.keyboard.type("echo next");
-  await expect(row).toHaveAttribute("data-state", "failed");
   await page.keyboard.press("Enter");
-  await expect(row).toHaveAttribute("data-state", "done");
+  await expect.poll(state).toBe("done");
+  await page.keyboard.type("exit");
+  await page.keyboard.press("Enter");
+  await expect(row).toHaveAttribute("data-exited", "true");
+  await expect(row).toHaveAccessibleName(/Exited/);
+  await expect(row.locator(".session-program")).toHaveText("exited");
+  await assertAccessible(page);
+  if (process.env.FOOM_SCREENSHOTS)
+    await page.screenshot({ path: path.join(tmpdir(), "foom-270-exited.png") });
 });
 
 test("tiles build irregular layouts, preserve views and replace explicitly for attention", {
@@ -4570,7 +4628,8 @@ test("recorded sounds refresh and preview user files while shell attention and c
   // The launch command queues exit after the probe, avoiding input before PowerShell
   // has resumed. Process exit is a Done verdict on every supported platform.
   await page.evaluate(() => window.desktop.input(window.soundTerminal, "q"));
-  await expect(page.locator(".board-row")).toHaveAttribute("data-state", "done");
+  await expect(page.locator(".board-row")).toHaveAttribute("data-state", "shell");
+  await expect(page.locator(".board-row")).toHaveAttribute("data-exited", "true");
   await page.waitForTimeout(2200);
   assert.deepEqual(await page.evaluate(() => window.soundTones), [0.25]);
   await page.getByLabel("Alerts on", { exact: true }).uncheck();
@@ -5454,6 +5513,9 @@ test("tile drag drops replace, split every edge, swap and move without reattachm
   const rows = page.locator(".board-row");
   await expect(rows).toHaveCount(3);
   await rows.nth(0).click();
+  await expect(
+    page.locator(".terminal-tile[data-focused='true'] .xterm-helper-textarea"),
+  ).toBeFocused();
   const tiles = page.locator(".terminal-tile");
   const drag = async (source, target, x, y, cancel = false) => {
     const before = await saved();
@@ -5506,6 +5568,9 @@ test("tile drag drops replace, split every edge, swap and move without reattachm
   }
   await page.getByRole("button", { name: "Two side by side", exact: true }).click();
   await rows.nth(0).click();
+  await expect(
+    page.locator(".terminal-tile[data-focused='true'] .xterm-helper-textarea"),
+  ).toBeFocused();
   await page.evaluate(() => {
     window.dragTiles = [...document.querySelectorAll(".terminal-tile")];
     window.dragXterms = [...document.querySelectorAll(".xterm")];
@@ -6789,7 +6854,8 @@ test("restored exited sessions hide the unattached terminal until restarted", as
   const restoredApp = await launchApp(context, false, { ...options, emptyBoard: true });
   const restored = await boardPage(restoredApp);
   await expect(restored.locator(".board-row")).toHaveCount(1);
-  await restored.locator(".board-row").click();
+  // The restored terminal cannot take input focus; activate its row directly.
+  await restored.locator(".board-row").press("Enter");
   await expect(restored.locator('.terminal-tile[data-empty="false"]')).toBeVisible();
   await expect(restored.locator(".tile-terminal")).toBeHidden();
   await expect(restored.locator(".xterm-helper-textarea")).not.toBeFocused();
@@ -7519,6 +7585,17 @@ process.exit(1);
       .poll(() => page.evaluate(async () => (await window.desktop.workspace()).terminals))
       .toMatchObject([{ agent, exited: true, conversationId: "external-123" }]);
     await expect(page.locator(".xterm-rows")).toContainText("UNKNOWN_CONVERSATION external-123");
+    const exitedRow = page.locator(".board-row[data-kind='agent']");
+    await expect(exitedRow).toHaveAccessibleName(/Exited/);
+    await expect(exitedRow.locator(".session-program")).toHaveText("exited");
+    for (const bulb of [
+      exitedRow.locator(".board-light"),
+      page.locator(".tile-title .board-light"),
+    ]) {
+      await expect(bulb).toHaveAttribute("data-exited", "true");
+      await expect(bulb).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+      await expect(bulb).toHaveCSS("border-radius", "0px");
+    }
     const record = JSON.parse(await readFile(argvFile, "utf8"));
     assert.deepEqual(record.args.slice(0, 2), [
       agent === "claude" ? "--resume" : form,

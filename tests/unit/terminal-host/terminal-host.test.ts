@@ -182,6 +182,8 @@ test("forwards activity batches and quiet IDs from the host meter", () => {
 });
 
 test("forwards terminal-scoped shell lifecycle events", () => {
+  mock.events.onForeground?.("one", "vim");
+  expect(port.postMessage).toHaveBeenCalledWith({ type: "foreground", id: "one", name: "vim" });
   mock.events.onShellState?.("one", { phase: "running" });
   expect(port.postMessage).toHaveBeenCalledWith({
     type: "shell-state",

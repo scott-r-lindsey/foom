@@ -79,6 +79,8 @@ export class TerminalHostClient {
       const session = this.sessions.get(message.id);
       if (message.type === "evidence") {
         if (session?.alive) this.events.onEvidence?.(message.id, message.evidence);
+      } else if (message.type === "foreground") {
+        if (session?.alive) this.events.onForeground?.(message.id, message.name);
       } else if (message.type === "shell-state") {
         if (session?.alive) this.events.onShellState?.(message.id, message.state);
       } else if (message.type === "output") {

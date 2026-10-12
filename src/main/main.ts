@@ -366,6 +366,9 @@ async function buildWindow(savedSize?: Size, saved?: WindowPlacement, initialSes
           void workspace.evidence(id, evidence);
         },
         onQuiet: (id) => void workspace.quiet(id),
+        onForeground: (id, name) => {
+          workspace.foreground(id, name);
+        },
         onShellState: (id, state) => {
           workspace.shellState(id, state);
         },

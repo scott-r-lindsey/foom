@@ -16,12 +16,12 @@ The target is about 10 concurrent agents. Supported agents are Claude Code (`cla
 
 The light carries two separate signals.
 
-- **Motion is activity.** Brightness follows the terminal's real output rate. It pulses, but it never strobes: keep it under 3 Hz and respect reduced-motion settings.
+- **Motion is activity.** Working agents and running shells glow with output: a logarithmic level makes 200 B/s visible and reaches full strength around 4 KB/s. Brightness rises in about 120 ms and falls in about 700 ms; rate targets change no faster than 3 Hz. The light grows up to 1.3× and casts a halo in its own color. Sidebar rows also show an eight-second trace sampled four times a second; tile title bars have glow only. Reduced motion removes scaling and transitions and updates brightness in four steps, and the trace, once a second. Other states hold still.
 - **Color is execution and attention state.** Agent lifecycle signals establish Working; the evaluator classifies attention and results.
 
 | State | Light | Meaning |
 |---|---|---|
-| Working | Brand violet, brightness follows output | Agent is executing, or a shell command is running |
+| Working | Brand violet, brightness follows output | Agent is executing |
 | Needs you | Amber, steady, with a halo | Waiting for input or approval |
 | Done | Green | Finished successfully |
 | Failed | Magenta, square | Exited with an error or gave up |
@@ -30,6 +30,7 @@ The light carries two separate signals.
 - Done and Failed dim once the user has looked at them.
 - Agent Needs you clears when supported evidence shows execution resumed, or when the user dismisses attention. Typing and terminal output alone do not prove resumed execution. Shell attention retains reply/output behavior. Opening a terminal never clears attention.
 - Failed uses a square light, so the state never depends on color alone.
+- A solid light means the process is running. Exited sessions have a hollow ring (square outline for Failed), green after Done, magenta after Failed and muted otherwise. Their name and badge dim, a muted `exited` follows the name, and the accessible name includes Exited.
 - Every verdict carries a one-line reason and the signal that produced it, for example `Wants to edit src/main/main.ts · pattern: (y/n)`.
 
 With Claude hooks attached, an idle title stops working audio but stays Quiet until
@@ -63,7 +64,7 @@ the window gains focus. Sessions in a removed checkout stay alive and show a neu
 and Close still work. The checkout row disappears when its last session closes.
 
 Session rows show a light, neutral CC / CX / AG badge (or `>_` for shells), name,
-wait and reason. Unknown identities use `?`. Badges share a 20px-high slot with a
+wait and reason for agents. Shells have no reason line or state colors: a neutral light while running, a muted ring after exit, and amber only for Needs you, with its wait time. After Shell, muted monospace text shows the foreground program name (never arguments or paths), empty at the prompt. Linux and macOS use the host’s foreground process name; Windows shows plain Shell because ConPTY does not expose it. Shell attention detection and exclusion from attention counts except Needs you are unchanged. Unknown identities use `?`. Badges share a 20px-high slot with a
 16px visual target; no vendor artwork is bundled. The full agent name or detected
 shell name remains in the accessible row name and session panel after renaming.
 Double-click the name

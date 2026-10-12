@@ -87,6 +87,7 @@ function fakePty() {
     emitExit,
     write: vi.fn(),
     resize: vi.fn(),
+    process: "bash",
     pause: vi.fn(),
     resume: vi.fn(),
     kill: vi.fn(emitExit),
@@ -975,8 +976,13 @@ test("a detached host answers foreground, background and palette queries with th
 });
 
 test("owned Bash lifecycle markers cross the terminal bridge; arbitrary OSC payloads do not", async () => {
+  vi.spyOn(process, "platform", "get").mockReturnValue("linux");
+  const onForeground = vi.fn();
   const onShellState = vi.fn();
-  terminalControl = attachTerminal(window as unknown as BrowserWindow, { onShellState });
+  terminalControl = attachTerminal(window as unknown as BrowserWindow, {
+    onShellState,
+    onForeground,
+  });
   const id = await terminalControl.create({ ...spec, shellIntegration: true });
   const args: unknown = mock.spawn.mock.calls.at(-1)?.[1];
   if (!Array.isArray(args) || typeof args[1] !== "string")
@@ -984,8 +990,10 @@ test("owned Bash lifecycle markers cross the terminal bridge; arbitrary OSC payl
   const { readFileSync } = await import("node:fs");
   const token = /633;([a-f0-9-]+);prompt/.exec(readFileSync(args[1], "utf8"))?.[1];
   if (!token) throw new Error("Missing integration token");
+  pty().process = "vim";
   output(`\x1b]633;${token};running\x07`);
   await terminalControl.tail(id, 1);
+  expect(onForeground).toHaveBeenCalledWith(id, "vim");
   expect(onShellState).toHaveBeenCalledWith(id, { phase: "running" });
   output("\x1b]633;foreign;running\x07");
   await terminalControl.tail(id, 1);

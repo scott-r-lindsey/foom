@@ -319,16 +319,22 @@ test("fixed themes apply to existing and new terminals and ignore interface chan
 });
 
 test("shell events are delivered only for live owned sessions", async () => {
+  const onForeground = vi.fn();
   const onShellState = vi.fn();
-  client = new TerminalHostClient(exited, { onShellState });
+  client = new TerminalHostClient(exited, { onShellState, onForeground });
   const id = await create();
   const state = { phase: "prompt", exitCode: 1 };
+  child.emit("message", { type: "foreground", id, name: "vim" });
+  expect(onForeground).toHaveBeenCalledWith(id, "vim");
+  child.emit("message", { type: "foreground", id: "foreign", name: "vim" });
   child.emit("message", { type: "shell-state", id, state });
   expect(onShellState).toHaveBeenCalledWith(id, state);
   child.emit("message", { type: "shell-state", id: "foreign", state });
   child.emit("message", { type: "shell-state", id, state: { phase: "prompt", exitCode: -1 } });
   child.emit("message", { type: "exit", id, code: 0 });
   child.emit("message", { type: "shell-state", id, state });
+  child.emit("message", { type: "foreground", id, name: "vim" });
+  expect(onForeground).toHaveBeenCalledTimes(1);
   expect(onShellState).toHaveBeenCalledTimes(1);
 });
 

@@ -59,6 +59,7 @@ type Terminal = {
   dismissedAttention?: string;
   evidence?: AgentEvidence;
   shellRunning?: boolean;
+  foregroundProgram?: string;
   exitCode?: number;
   hook?: HookSignal;
   permissionReply?: boolean;
@@ -501,6 +502,10 @@ export class Workspace {
         ...(this.terminals.get(entry.id)?.exitCode !== undefined
           ? { exitCode: this.terminals.get(entry.id)?.exitCode }
           : {}),
+        foregroundProgram:
+          this.terminals.get(entry.id)?.exitCode === undefined
+            ? (this.terminals.get(entry.id)?.foregroundProgram ?? "")
+            : "",
         state: this.terminals.get(entry.id)?.state ?? null,
         exited:
           !this.restoring.has(entry.id) &&
@@ -1935,6 +1940,14 @@ export class Workspace {
     }
     if (stale()) return;
     this.publish(id, terminal, { verdictId, ...record.verdict });
+  }
+
+  /** Validated host metadata, excluded from persisted sessions. */
+  foreground(id: string, name: string): void {
+    const terminal = this.track(id);
+    if (terminal.exitCode !== undefined || terminal.foregroundProgram === name) return;
+    terminal.foregroundProgram = name;
+    this.refresh();
   }
 
   /** Invocation-scoped shell markers, never prompt text guessed from screen contents. */

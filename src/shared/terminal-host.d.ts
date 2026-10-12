@@ -15,6 +15,7 @@ export type HostRequest = RequestBase &
     | { type: "tail"; lines: number }
   );
 export type HostResponse =
+  | { type: "foreground"; id: string; name: string }
   | { type: "evidence"; id: string; evidence: AgentEvidence }
   | { type: "shell-state"; id: string; state: ShellState }
   | { type: "activity"; entries: TerminalActivity[] }

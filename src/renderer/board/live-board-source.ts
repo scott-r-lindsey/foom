@@ -194,6 +194,7 @@ export function createAppSource(): BoardSource {
         config: entry.config === true,
         startedAt: entry.startedAt,
         exitCode: entry.exitCode,
+        foregroundProgram: entry.foregroundProgram ?? "",
         launchFlags: entry.launchFlags,
         environment: entry.environment,
         orchestration: entry.orchestration,
@@ -474,6 +475,7 @@ export function createAppSource(): BoardSource {
     },
     subscribeActivity: (listener) => {
       activityListeners.add(listener);
+      if (rates.size) listener([...rates].map(([id, rate]) => ({ id, rate })));
       return () => {
         activityListeners.delete(listener);
       };

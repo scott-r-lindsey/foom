@@ -1,3 +1,4 @@
+import { ForegroundProgram } from "./foreground-program";
 import { cleanTitle, parseProgress } from "../shared/agent-evidence";
 import type { AgentEvidence } from "../shared/agent-detection";
 import { prepareShell } from "./shell-integration";
@@ -107,9 +108,23 @@ export class TerminalManager {
       terminationRequested: false,
       generation: 0,
     };
+    const foreground = spec.shellIntegration
+      ? new ForegroundProgram(
+          spec.command,
+          () => pty.process,
+          (name) => {
+            this.events.onForeground?.(id, name);
+          },
+        )
+      : undefined;
     this.sessions.set(id, session);
     this.activity.start(id);
     session.subscriptions = [
+      {
+        dispose: () => {
+          foreground?.dispose();
+        },
+      },
       screen.onTitleChange((title) => {
         const cleaned = cleanTitle(title);
         if (session.evidence.title !== cleaned) {
@@ -137,6 +152,7 @@ export class TerminalManager {
         if (data && !session.exited) {
           this.events.onOutput?.(id);
           this.activity.output(id, data);
+          foreground?.refresh(Date.now());
         }
         session.parserPending += data.length;
         if (session.parserPending > 262144) session.parserBlocked = true;
@@ -159,7 +175,10 @@ export class TerminalManager {
       session.subscriptions.push(
         screen.parser.registerOscHandler(633, (data) => {
           const state = shell.parse(data);
-          if (state) this.events.onShellState?.(id, state);
+          if (state && !session.exited) {
+            foreground?.refresh(Date.now(), state);
+            this.events.onShellState?.(id, state);
+          }
           return Boolean(state);
         }),
       );
@@ -171,6 +190,7 @@ export class TerminalManager {
     // Keep this subscription after kill: killing a PTY only requests termination.
     const exitSubscription = pty.onExit(({ exitCode }) => {
       session.exited = true;
+      foreground?.dispose();
       shell?.dispose();
       this.activity.remove(id);
       this.pendingExits.delete(session);

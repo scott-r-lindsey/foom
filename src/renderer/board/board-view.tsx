@@ -38,7 +38,8 @@ import {
 import type { ReactNode } from "react";
 import type { BoardSource } from "./board-source.d";
 import type { BoardRow } from "./board.d";
-import { light, nextWaiting, waitTime } from "./board";
+import { subscribeLights } from "./light-activity";
+import { nextWaiting, waitTime } from "./board";
 
 export function Board({
   source,
@@ -335,16 +336,21 @@ export function Board({
   }, [source]);
   useEffect(
     () =>
-      source.subscribeActivity((batch) => {
-        for (const { id, rate } of batch) {
-          const row = source.getSnapshot().find((item) => item.id === id);
-          if (row)
-            buttonsRef.current
-              .get(id)
-              ?.querySelector<HTMLElement>(".board-light")
-              ?.style.setProperty("--light-opacity", String(light({ ...row, rate }).opacity));
-        }
-      }),
+      subscribeLights(source, () =>
+        source.getSnapshot().flatMap((row) => {
+          const button = buttonsRef.current.get(row.id);
+          const element = button?.querySelector<HTMLElement>(".board-light");
+          return element
+            ? [
+                {
+                  row,
+                  element,
+                  trace: button?.querySelector<SVGPathElement>(".activity-trace path"),
+                },
+              ]
+            : [];
+        }),
+      ),
     [source],
   );
   const wasInactiveRef = useRef(paneInactive);

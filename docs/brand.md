@@ -9,7 +9,7 @@ The direction is **Event Horizon: Eclipse**. It's a black hole with a glowing ri
 3. **Magenta (redshift) is only for failures.**
 4. **Brand violet is for activity and identity**, never for a status that needs action.
 5. **Accent is the brand and the working state; highlight is decoration.**
-6. **Status never depends on color alone.** Failed is square. Needs you has a halo.
+6. **Status never depends on color alone.** Failed is square. Needs you has a steady halo. Exited lights are hollow rings (square outlines for failures); running lights are solid. Shell lights stay neutral except amber Needs you. Output glow uses the light’s own color and only moves for Working agents and running shells, with an eight-second sidebar trace. Reduced motion uses discrete brightness steps without scaling.
 
 ## Color
 
