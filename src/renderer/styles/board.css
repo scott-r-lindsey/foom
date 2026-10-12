@@ -442,6 +442,12 @@
   color: var(--muted);
   font-size: 11px;
 }
+.tree-empty {
+  margin: 0;
+  padding: 5px 4px 7px 36px;
+  color: var(--muted);
+  font: 12px / 1.4 var(--font-voice);
+}
 .tree-separator {
   border: 0;
   border-top: 1px solid var(--line);

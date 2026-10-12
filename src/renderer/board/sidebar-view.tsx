@@ -210,6 +210,11 @@ export function Sidebar({
       (source.getRepositories?.() ?? []).map((name) => ({ name, path: name, worktrees: [] })),
   );
   const homeRows = rows.filter((row) => row.home);
+  const visibleHomeRows = homeRows.filter((row) =>
+    `${sessionName(row, preferences)} ${row.reason} ~`
+      .toLocaleLowerCase()
+      .includes(filter.trim().toLocaleLowerCase()),
+  );
   const configRows = rows.filter((row) => row.config);
   const compact = narrow && rows.length > 0;
   const { tree, hiddenNeeds } = buildSidebar(
@@ -721,15 +726,13 @@ export function Sidebar({
               </div>
               {preferences.expanded["home"] !== false && (
                 <div role="group">
-                  {homeRows
-                    .filter(
-                      (row) =>
-                        !filter ||
-                        `${sessionName(row, preferences)} ${row.reason} ~`
-                          .toLocaleLowerCase()
-                          .includes(filter.toLocaleLowerCase()),
-                    )
-                    .map(session)}
+                  {visibleHomeRows.length ? (
+                    visibleHomeRows.map(session)
+                  ) : (
+                    <p className="tree-empty">
+                      {homeRows.length ? "No matches" : "Nothing here yet"}
+                    </p>
+                  )}
                 </div>
               )}
             </div>
@@ -795,12 +798,21 @@ export function Sidebar({
                 ])}
               </div>
               {preferences.expanded["config"] !== false && (
-                <div role="group">{configRows.map(session)}</div>
+                <div role="group">
+                  {configRows.length ? (
+                    configRows.map(session)
+                  ) : (
+                    <p className="tree-empty">Nothing here yet</p>
+                  )}
+                </div>
               )}
             </div>
           )}
           {compact && homeRows.map(session)}
           {compact && configRows.map(session)}
+          {!compact && filter.trim() && repositories.length > 0 && tree.length === 0 && (
+            <p className="tree-empty">No matches</p>
+          )}
           {compact
             ? tree
                 .flatMap((repo) => repo.worktrees.flatMap((worktree) => worktree.sessions))
@@ -923,6 +935,9 @@ export function Sidebar({
                       </div>
                       {repo.expanded && (
                         <div role="group">
+                          {repo.worktrees.length === 0 && (
+                            <p className="tree-empty">Nothing here yet</p>
+                          )}
                           {repo.worktrees.map(({ tree: worktree, expanded, rollup, sessions }) => {
                             const wid = worktreeKey(worktree.path);
                             const branch =
@@ -1046,7 +1061,15 @@ export function Sidebar({
                                         : []),
                                     ])}
                                 </div>
-                                {expanded && <div role="group">{sessions.map(session)}</div>}
+                                {expanded && (
+                                  <div role="group">
+                                    {sessions.length ? (
+                                      sessions.map(session)
+                                    ) : (
+                                      <p className="tree-empty">Nothing here yet</p>
+                                    )}
+                                  </div>
+                                )}
                               </div>
                             );
                           })}
