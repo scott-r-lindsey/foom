@@ -123,6 +123,10 @@ const terminalThemeSchema = schema("foom:terminal-theme", {
 
 const guide = `# Foom config
 
+You are running inside Foom, the user's terminal workspace for coding agents, in its
+config folder. When the user asks to change how Foom looks, sounds or behaves, or how
+it launches agents, they mean Foom, not your own agent configuration.
+
 This folder configures Foom. Foom watches it, validates every change and applies
 valid changes live. It is a git repository: every applied change is a commit, so it
 can be reviewed and reverted from Settings → Foom config.
@@ -141,8 +145,24 @@ can be reviewed and reverted from Settings → Foom config.
 - \`sounds/{working,done,needs-you,refusal}/\`: recordings. They are not committed.
 - \`schemas/\`: JSON Schemas for the three JSON formats.
 
+## Not in this folder
+
+These are set in Foom's Settings window, not here. Tell the user exactly what to enter:
+
+- Agent default launch arguments, such as approval mode, sandbox or model flags:
+  Settings → Agents and hooks → Default launch arguments, one argument per line.
+- Environment variables: Settings → Environment.
+- Repositories, the code folder and where worktrees are created: Settings.
+
 ## Rules
 
+- Change Foom only by editing files in this folder and checking them with the
+  \`foom\` CLI. Do not drive Foom's windows or any other GUI (xdotool, wmctrl, ydotool,
+  screenshots, AppleScript, accessibility APIs), attach a debugger or remote-debugging
+  port, or edit Foom's profile, app data or source code. If a request needs something
+  this folder can't do, stop and tell the user where to make it in Settings.
+- Never edit the user's global agent configuration (\`~/.claude\`, \`~/.codex\`,
+  \`~/.gemini\`, or their AGENTS.md or CLAUDE.md files).
 - Run \`foom config validate .\` after every edit. An invalid file is rejected whole
   and the last good version stays in effect.
 - Changes that make Foom less able to tell the user something needs them wait for the
@@ -176,9 +196,18 @@ export const OWNED_FILES: Readonly<Record<string, string>> = {
  * is unedited and is replaced on upgrade; anything else belongs to the user.
  */
 export const OWNED_HISTORY: Readonly<Record<string, readonly string[]>> = {
-  "README.md": ["35a362caf6cfdec503b113efd0b66a6b89be3dc835b597e39f1fb8679b20875f"],
-  "AGENTS.md": ["35a362caf6cfdec503b113efd0b66a6b89be3dc835b597e39f1fb8679b20875f"],
-  "CLAUDE.md": ["35a362caf6cfdec503b113efd0b66a6b89be3dc835b597e39f1fb8679b20875f"],
+  "README.md": [
+    "35a362caf6cfdec503b113efd0b66a6b89be3dc835b597e39f1fb8679b20875f",
+    "878a20cc974fb5cee577361660f8153f9adbcb3ca815ee5fc4eca26047b8d858",
+  ],
+  "AGENTS.md": [
+    "35a362caf6cfdec503b113efd0b66a6b89be3dc835b597e39f1fb8679b20875f",
+    "878a20cc974fb5cee577361660f8153f9adbcb3ca815ee5fc4eca26047b8d858",
+  ],
+  "CLAUDE.md": [
+    "35a362caf6cfdec503b113efd0b66a6b89be3dc835b597e39f1fb8679b20875f",
+    "878a20cc974fb5cee577361660f8153f9adbcb3ca815ee5fc4eca26047b8d858",
+  ],
   "schemas/settings.schema.json": [
     "e975ab7aba189e009bbcd16becb6c096679dc5c46017d585a46cbda130af804e",
   ],
