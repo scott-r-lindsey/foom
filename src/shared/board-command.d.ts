@@ -6,6 +6,7 @@ export type BoardCommand =
   | "settings"
   | "new-worktree"
   | "add-repository"
+  | "tidy-tiles"
   | "preset-one"
   | "preset-columns"
   | "preset-rows"

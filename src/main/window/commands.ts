@@ -25,6 +25,7 @@ export const BOARD_COMMANDS = [
       ["split-down", "Split down", "KeyD"],
       ["close-tile", "Close tile", "KeyW"],
       ["hide-session", "Hide session", "KeyH"],
+      ["tidy-tiles", "Tidy tiles", "KeyT"],
     ] as const
   ).map(([id, label, code]) => ({ id, label, code, shift: true, alt: true, leader: true })),
   ...(
@@ -208,6 +209,7 @@ export function createCommands(
     "split-down": ["Tiles", "Split down"],
     "hide-session": ["Tiles", "Hide"],
     "close-tile": ["Tiles", "Close"],
+    "tidy-tiles": ["Tiles", "Tidy tiles"],
   };
   for (const entry of BOARD_COMMANDS) {
     const binding: Binding =
@@ -353,7 +355,7 @@ export function createCommands(
 }
 type Layout = string | null | { submenu: string; label: string; items: readonly (string | null)[] };
 /**
- * The curated wordmark menu: app-wide commands only. Everything else keeps its
+ * The curated wordmark menu: app-wide commands and whole-layout Tidy. Everything else keeps its
  * shortcut and stays in the macOS menu bar. `size` is the interface size row.
  */
 const appMenuLayout = (agents: readonly string[]): readonly Layout[] => [
@@ -367,6 +369,7 @@ const appMenuLayout = (agents: readonly string[]): readonly Layout[] => [
     label: "Settings",
     items: [...agents.map((agent) => `via-${agent}`), null, "settings"],
   },
+  { submenu: "view-menu", label: "View", items: ["tidy-tiles"] },
   "size",
   null,
   "action-log",

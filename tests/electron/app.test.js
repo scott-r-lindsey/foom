@@ -7784,3 +7784,90 @@ test("wide blank tiles start as columns, full boards grow right, and hide refill
   assert.deepEqual(await geometry(), after);
   await page.screenshot({ path: path.join(tmpdir(), "foom-264-tiles.png") });
 });
+
+test("gutter double-click evens three columns and Tidy tiles removes holes through the menu", async (context) => {
+  const app = await launchApp(context, false, { emptyBoard: true });
+  const page = await boardPage(app);
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await app.evaluate(({ BrowserWindow }) => {
+    BrowserWindow.getAllWindows()
+      .find((window) => window.webContents.getURL() === "app://bundle/index.html")
+      .setSize(3200, 900);
+  });
+  for (let count = 1; count <= 3; count++) {
+    await page.mouse.move(0, 0);
+    const actions = page.getByRole("button", { name: "Actions for Home shell", exact: true });
+    await actions.press("Escape");
+    await expect(page.locator(".row-menu")).toHaveCount(0);
+    await actions.press("Enter");
+    await page.getByRole("menuitem", { name: "New shell", exact: true }).press("Enter");
+    await expect(page.locator('.terminal-tile[data-empty="false"]')).toHaveCount(count);
+  }
+  const tiles = page.locator(".terminal-tile");
+  await expect(tiles).toHaveCount(3);
+  const widths = () =>
+    tiles.evaluateAll((items) =>
+      items.map((item) => Math.round(parseFloat(item.style.width) * 100)),
+    );
+  const ids = await tiles.evaluateAll((items) => items.map((item) => item.dataset.tile));
+  await page.getByRole("separator").first().press("Home");
+  await expect.poll(widths).not.toEqual([3333, 3333, 3333]);
+  await page.getByRole("separator").last().dblclick();
+  await expect.poll(widths).toEqual([3333, 3333, 3333]);
+  await page.getByRole("separator").first().press("End");
+  await page.getByRole("separator").last().press("Enter");
+  await expect.poll(widths).toEqual([3333, 3333, 3333]);
+  await page.getByRole("button", { name: "Hide", exact: true }).nth(1).click();
+  await expect(page.locator('.terminal-tile[data-empty="true"]')).toHaveCount(1);
+  const focused = await page
+    .locator('.terminal-tile[data-focused="true"]')
+    .getAttribute("data-tile");
+  await page
+    .locator('.terminal-tile[data-focused="true"]')
+    .getByRole("button", { name: "Maximize tile", exact: true })
+    .click();
+  if (process.platform === "darwin") {
+    await app.evaluate(({ Menu, BrowserWindow }) => {
+      const item = Menu.getApplicationMenu().getMenuItemById("tidy-tiles");
+      item.click(undefined, BrowserWindow.getFocusedWindow());
+    });
+  } else {
+    await page.getByRole("button", { name: "Foom menu", exact: true }).click();
+    await page.getByRole("menuitem", { name: "View", exact: true }).hover();
+    const view = page.getByRole("menu", { name: "View", exact: true });
+    await expect(view).toBeVisible();
+    await view.getByRole("menuitem", { name: /^Tidy tiles/ }).click();
+    await expect(view).toHaveCount(0);
+  }
+  await expect(tiles).toHaveCount(2);
+  await expect.poll(widths).toEqual([5000, 5000]);
+  await expect(page.locator('[data-maximized="true"]')).toHaveCount(0);
+  assert.deepEqual(await tiles.evaluateAll((items) => items.map((item) => item.dataset.tile)), [
+    ids[0],
+    ids[2],
+  ]);
+  await expect(page.locator('.terminal-tile[data-focused="true"]')).toHaveAttribute(
+    "data-tile",
+    focused,
+  );
+  await page.screenshot({ path: path.join(tmpdir(), "foom-265-tidy-tiles.png") });
+  // The same action travels through each platform's real keyboard dispatcher.
+  await page.getByRole("separator").press("Home");
+  await page.locator('.terminal-tile[data-focused="true"] .xterm-helper-textarea').focus();
+  await app.evaluate(({ BrowserWindow }, mac) => {
+    const contents = BrowserWindow.getAllWindows().find(
+      (window) => window.webContents.getURL() === "app://bundle/index.html",
+    ).webContents;
+    if (!mac)
+      for (const type of ["keyDown", "keyUp"])
+        contents.sendInputEvent({ type, keyCode: "Space", modifiers: ["control", "shift"] });
+    for (const type of ["keyDown", "keyUp"])
+      contents.sendInputEvent({
+        type,
+        keyCode: "T",
+        modifiers: mac ? ["meta", "alt", "shift"] : [],
+      });
+  }, process.platform === "darwin");
+  await expect.poll(widths).toEqual([5000, 5000]);
+  await assertAccessible(page);
+});

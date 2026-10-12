@@ -544,11 +544,12 @@ test("preload accepts menu board commands and rejects unknown values", async () 
     "preset-grid",
     "preset-main2",
     "preset-main3",
+    "tidy-tiles",
   ])
     listener?.({}, command);
   listener?.({}, "reload");
   listener?.({}, {});
-  expect(callback).toHaveBeenCalledTimes(11);
+  expect(callback).toHaveBeenCalledTimes(12);
   off();
 });
 

@@ -759,3 +759,35 @@ test.each(["empty", "reassigned", "removed"] as const)(
     }
   },
 );
+
+test("gutter double-click and Enter even a run; footer and command tidy keep occupied views and focus", async () => {
+  const { screen, send, click, views } = setup();
+  click(0);
+  send("split-right");
+  click(1);
+  send("split-right");
+  click(2);
+  await act(async () => {});
+  const tiles = () => [...screen.container.querySelectorAll<HTMLElement>(".terminal-tile")];
+  const original = tiles();
+  const gutters = screen.getAllByRole("separator");
+  fireEvent.doubleClick(gutters[1] ?? document.body);
+  tiles().forEach((tile) => {
+    expect(parseFloat(tile.style.width)).toBeCloseTo(100 / 3);
+  });
+  fireEvent.keyDown(gutters[0] ?? document.body, { key: "ArrowRight" });
+  fireEvent.keyDown(gutters[1] ?? document.body, { key: "Enter" });
+  tiles().forEach((tile) => {
+    expect(parseFloat(tile.style.width)).toBeCloseTo(100 / 3);
+  });
+  send("split-down");
+  send("maximize");
+  fireEvent.click(screen.getByRole("button", { name: "Tidy tiles" }));
+  expect(tiles()).toEqual(original);
+  expect(tiles().every((tile) => tile.dataset["maximized"] === "false")).toBe(true);
+  expect(tiles()[2]?.dataset["focused"]).toBe("true");
+  send("split-right");
+  send("tidy-tiles");
+  expect(tiles()).toEqual(original);
+  expect(views.slice(0, 3).every((view) => view.dispose.mock.calls.length === 0)).toBe(true);
+});

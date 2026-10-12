@@ -1,6 +1,8 @@
 import { expect, test } from "vitest";
 import {
   blankColumns,
+  evenSplitRun,
+  tidyTiles,
   growTile,
   growTarget,
   terminals,
@@ -424,4 +426,108 @@ test("column growth preserves automatic ratios on focus and persistence", () => 
   const focused = placeSession(layout, "a");
   expect(focused?.tree).toEqual(layout.tree);
   expect(restoreLayout(JSON.stringify({ version: 1, ...layout })).tree).toEqual(layout.tree);
+});
+
+const leaf = (id: string, session: string | null = id): TileNode => ({ kind: "tile", id, session });
+const branch = (
+  id: string,
+  direction: "horizontal" | "vertical",
+  first: TileNode,
+  second: TileNode,
+  ratio = 0.2,
+): TileNode => ({ kind: "split", id, direction, first, second, ratio });
+test.each(["horizontal", "vertical"] as const)(
+  "evening a %s run crosses both same-axis branches but stops at perpendicular splits",
+  (axis) => {
+    const other = axis === "horizontal" ? "vertical" : "horizontal";
+    const nested = branch("nested", other, leaf("c"), leaf("d"), 0.7);
+    const run = branch(
+      "run",
+      axis,
+      branch("left", axis, leaf("a"), leaf("b")),
+      branch("right", axis, nested, leaf("e")),
+    );
+    const outside = branch("outside", axis, leaf("f"), leaf("g"), 0.8);
+    const layout = {
+      tree: branch("root", other, run, outside, 0.6),
+      focused: "d",
+      maximized: null,
+    };
+    for (const target of ["run", "left", "right"]) {
+      const next = evenSplitRun(layout, target);
+      expect(next.tree).toMatchObject({
+        ratio: 0.6,
+        first: { ratio: 0.5, first: { ratio: 0.5 }, second: { ratio: 0.5, first: nested } },
+        second: outside,
+      });
+      expect(leaves(next.tree)).toEqual(leaves(layout.tree));
+      leaves(next.tree).forEach((tile, i) => {
+        expect(tile).toBe(leaves(layout.tree)[i]);
+      });
+      expect(next.focused).toBe("d");
+    }
+    expect(evenSplitRun(layout, "missing")).toBe(layout);
+    expect(evenSplitRun(layout, "a")).toBe(layout);
+  },
+);
+test("long runs use equal shares beyond 15–85 percent and persist them", () => {
+  let tree = leaf("0");
+  for (let i = 1; i < 10; i++) tree = branch(`s${String(i)}`, "horizontal", tree, leaf(String(i)));
+  const next = evenSplitRun({ tree, focused: "0", maximized: null }, tree.id);
+  expect(next.tree).toMatchObject({ ratio: 0.9 });
+  for (const { rect } of rectangles(next.tree).tiles) expect(rect.width).toBeCloseTo(10);
+  expect(restoreLayout(JSON.stringify({ version: 1, ...next }))).toEqual(next);
+  const pair = {
+    tree: branch("pair", "vertical", leaf("a"), leaf("b")),
+    focused: "a",
+    maximized: null,
+  };
+  expect(evenSplitRun(pair, "pair").tree).toMatchObject({ ratio: 0.5 });
+});
+test("tidy removes spaces, collapses parents before joining runs, and preserves occupied identities and focus", () => {
+  const nested = branch("stack", "vertical", leaf("c"), leaf("d"), 0.8);
+  const joined = branch("joined", "horizontal", leaf("b"), nested);
+  const tree = branch(
+    "root",
+    "horizontal",
+    branch("hole", "vertical", leaf("empty", null), leaf("a")),
+    branch("collapse", "vertical", joined, leaf("empty2", null)),
+  );
+  const next = tidyTiles({ tree, focused: "d", maximized: "d", landing: "empty" });
+  expect(next).toMatchObject({
+    focused: "d",
+    maximized: null,
+    tree: {
+      ratio: 1 / 3,
+      first: { id: "a" },
+      second: { id: "joined", ratio: 0.5, second: { ratio: 0.5 } },
+    },
+  });
+  expect(next.landing).toBeUndefined();
+  const old = terminals(tree);
+  leaves(next.tree).forEach((tile, i) => {
+    expect(tile).toBe(old[i]);
+  });
+  expect(tidyTiles(next)).toEqual(next);
+  expect(tidyTiles({ tree, focused: "empty", maximized: null }).focused).toBe("a");
+});
+test("tidy retains one existing empty leaf, preferring focus, and leaves a single terminal alone", () => {
+  const empty = branch(
+    "root",
+    "vertical",
+    leaf("a", null),
+    branch("inner", "horizontal", leaf("b", null), leaf("c", null)),
+  );
+  expect(tidyTiles({ tree: empty, focused: "b", maximized: null })).toEqual({
+    tree: leaf("b", null),
+    focused: "b",
+    maximized: null,
+  });
+  expect(tidyTiles({ tree: empty, focused: "missing", maximized: null })).toEqual({
+    tree: leaf("a", null),
+    focused: "a",
+    maximized: null,
+  });
+  const single = { tree: leaf("a"), focused: "a", maximized: null };
+  expect(tidyTiles(single)).toEqual(single);
 });

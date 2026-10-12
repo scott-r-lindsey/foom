@@ -163,6 +163,7 @@ test("the wordmark menu is curated, the same on every platform, with planned ite
       "new-orchestrator",
       "-",
       { "settings-menu": ["via-claude", "via-codex", "via-agy", "-", "settings"] },
+      { "view-menu": ["tidy-tiles"] },
       "size:120",
       "-",
       "action-log",
@@ -176,6 +177,19 @@ test("the wordmark menu is curated, the same on every platform, with planned ite
       "-",
       "quit",
     ]);
+    expect(
+      menu.find((entry) => entry?.kind === "submenu" && entry.id === "view-menu"),
+    ).toMatchObject({
+      label: "View",
+      items: [
+        {
+          id: "tidy-tiles",
+          label: "Tidy tiles",
+          enabled: true,
+          shortcut: platform === "darwin" ? "⌥⇧⌘T" : "Ctrl+Shift+Space, T",
+        },
+      ],
+    });
     const flat = menu.flatMap((entry): CommandItem[] =>
       entry === null || entry.kind === "size"
         ? []
@@ -293,6 +307,7 @@ test("the shortcut sheet is generated from the registry for each platform", () =
     { label: "Split down", keys: "D" },
     { label: "Close", keys: "W" },
     { label: "Hide", keys: "H" },
+    { label: "Tidy tiles", keys: "T" },
     { label: "Swap", keys: "Shift+← → ↑ ↓" },
     { label: "Focus tile", keys: "1–9" },
   ]);
@@ -346,3 +361,27 @@ test("agent settings routes share board actions in native and wordmark menus", a
       expect.objectContaining({ id: `via-${agent.id}`, enabled: true }),
     );
 });
+
+test.each(["linux", "win32", "darwin"])(
+  "%s Tidy tiles is a View command with a terminal-safe shortcut",
+  (platform) => {
+    const calls = actions();
+    const commands = createCommands(platform, false, calls);
+    const tidy = commands.find((command) => command.id === "tidy-tiles");
+    expect(tidy).toMatchObject({
+      label: "Tidy tiles",
+      section: "View",
+      sheet: ["Tiles", "Tidy tiles"],
+    });
+    const shortcuts = createShortcuts(commands, platform, vi.fn());
+    expect(shortcuts.handle(key("KeyT"))).toBe(false);
+    expect(shortcuts.handle(key("KeyT", { control: true }))).toBe(false);
+    if (platform === "darwin")
+      expect(shortcuts.handle(key("KeyT", { meta: true, alt: true, shift: true }))).toBe(true);
+    else {
+      expect(shortcuts.handle(key("Space", { control: true, shift: true }))).toBe(true);
+      expect(shortcuts.handle(key("KeyT"))).toBe(true);
+    }
+    expect(calls.board).toHaveBeenCalledExactlyOnceWith("tidy-tiles");
+  },
+);
