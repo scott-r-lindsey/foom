@@ -213,22 +213,19 @@ jobs:
           fi
           # Permit Chromium's user-namespace sandbox on this ephemeral CI runner.
           sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
-      # The full suite includes preflight and sidebar flows; per-test deadlines
-      # and the Electron worker watchdog still bound individual hangs.
+      # The full suite runs as two disjoint named-test shards on each platform.
+      # Per-test deadlines and the Electron worker watchdog still bound hangs.
       - name: Test Electron on Linux
-        # Run 37725461331 reached 300s before the last menu cases and report flush.
-        # Keep per-test deadlines; allow the measured full suite plus cleanup.
-        timeout-minutes: 8
+        # Run 38290731834: Linux shards took 3m48s and 4m00s (including the
+        # known shell-row failure). Six minutes leaves startup/cleanup headroom.
+        timeout-minutes: 6
         if: runner.os == 'Linux'
         run: xvfb-run -a npm run test:electron
       - name: Test Electron on macOS and Windows
-        # A measured full Windows suite exceeded 10 minutes without a test failure.
-        # Two disjoint shards run every test once, in separate runner processes.
-        # Individual launches and waits use the shared platform deadline policy.
-        # Run 38175978499: macOS passed 63/69 cases (705s total) before the
-        # 720s suite cutoff truncated JUnit. The six remaining cases need their
-        # measured share plus cleanup; keep per-test deadlines and watchdogs.
-        timeout-minutes: ${{ runner.os == 'macOS' && 15 || 10 }}
+        # Run 38290731834: macOS shards took 6m24s/6m46s; Windows took
+        # 6m01s/7m08s. Ten minutes leaves runner variation and cleanup room;
+        # keep the shared per-test deadline policy and worker watchdog.
+        timeout-minutes: 10
         if: runner.os != 'Linux'
         run: npm run test:electron
       - name: Stamp nightly package version
