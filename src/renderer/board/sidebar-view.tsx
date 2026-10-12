@@ -104,6 +104,10 @@ export function Sidebar({
   const [now] = useState(Date.now);
   const [filter, setFilter] = useState("");
   const [error, setError] = useState("");
+  const [dismissedCleanup, setDismissedCleanup] = useState<ReadonlySet<string>>(() => new Set());
+  const dismissCleanup = (key: string) => {
+    setDismissedCleanup((previous) => (previous.has(key) ? previous : new Set([...previous, key])));
+  };
   const [intent] = useState(() => new PanelIntent());
   const [configStatus, setConfigStatus] = useState<ConfigStatus>();
   useEffect(() => {
@@ -863,7 +867,7 @@ export function Sidebar({
                           <>
                             {roll(repo.rollup)}
                             <span className="worktree-count">
-                              {repo.repository.worktrees.length}
+                              {repo.repository.worktrees.filter((tree) => !tree.removed).length}
                             </span>
                           </>
                         )}
@@ -906,13 +910,15 @@ export function Sidebar({
                               });
                             },
                           },
-                          ...(repo.repository.canDeleteMerged || deleting
+                          ...(repo.repository.canDeleteMerged || cleanup
                             ? [
                                 null,
                                 {
                                   label: deleting
                                     ? "Deleting merged worktrees"
-                                    : "Delete merged worktrees…",
+                                    : cleanup
+                                      ? "Cleanup results"
+                                      : "Delete merged worktrees…",
                                   glyph: "trash" as const,
                                   hint: deleting
                                     ? `${String(cleanup.done)}/${String(cleanup.total)}`
@@ -942,8 +948,11 @@ export function Sidebar({
                           {repo.worktrees.map(({ tree: worktree, expanded, rollup, sessions }) => {
                             const wid = worktreeKey(worktree.path);
                             const cleanupItem = cleanup?.items.find(
-                              (item) => item.path === worktree.path,
+                              (item) =>
+                                item.path === worktree.path &&
+                                (item.state !== "removed" || worktree.removed),
                             );
+                            const cleanupKey = `${cleanup?.id ?? ""}:${worktree.path}`;
                             const branch =
                               worktree.branch ?? `⏣ ${worktree.head?.slice(0, 7) ?? "Unknown"}`;
                             const main = worktree.path === repo.repository.path;
@@ -956,6 +965,7 @@ export function Sidebar({
                               <div
                                 key={wid}
                                 data-cleanup={cleanupItem?.state}
+                                aria-hidden={cleanupItem?.state === "removed" ? true : undefined}
                                 role="treeitem"
                                 aria-expanded={expanded}
                                 aria-label={name}
@@ -963,9 +973,13 @@ export function Sidebar({
                                 <div
                                   {...rowEvents(wid)}
                                   data-cleanup={cleanupItem?.state}
+                                  onFocus={() => {
+                                    if (cleanupItem?.state === "kept") dismissCleanup(cleanupKey);
+                                  }}
                                   className={`tree-row worktree-row${arrival === worktree.path ? " arriving" : ""}`}
                                   onPointerEnter={(event) => {
                                     rowEvents(wid).onPointerEnter(event);
+                                    if (cleanupItem?.state === "kept") dismissCleanup(cleanupKey);
                                     if (arrival === worktree.path) settle(worktree.path, 600);
                                   }}
                                 >
@@ -1033,11 +1047,15 @@ export function Sidebar({
                                       </span>
                                     </span>
                                   </button>
-                                  {cleanupItem && (
-                                    <span className="cleanup-tag">
-                                      {cleanupItem.reason ?? cleanupItem.state}
-                                    </span>
-                                  )}
+                                  {cleanupItem &&
+                                    !(
+                                      cleanupItem.state === "kept" &&
+                                      dismissedCleanup.has(cleanupKey)
+                                    ) && (
+                                      <span className="cleanup-tag">
+                                        {cleanupItem.reason ?? cleanupItem.state}
+                                      </span>
+                                    )}
                                   {worktree.removed && (
                                     <span className="worktree-removed">
                                       <span aria-hidden="true">⊘</span> Worktree removed

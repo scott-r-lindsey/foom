@@ -547,14 +547,23 @@ test("inventory refresh marks missing checkout sessions without losing state or 
     prunable: false,
     managed: false,
   };
-  const inventory = vi
-    .spyOn(window.desktop, "sidebarInventory")
-    .mockResolvedValue({ repositories: [{ ...repository, worktrees: [tree] }], shell: "bash" });
+  const cleanupProgress = {
+    total: 1,
+    done: 0,
+    phase: "remove" as const,
+    stopped: false,
+    items: [],
+  };
+  const inventory = vi.spyOn(window.desktop, "sidebarInventory").mockResolvedValue({
+    repositories: [{ ...repository, worktrees: [tree], cleanup: cleanupProgress }],
+    shell: "bash",
+  });
   mock.workspace.mockResolvedValue({ repositories: [repository], terminals: [entry] });
   const source = createAppSource();
   const disconnect = source.connect?.();
   await settle();
   expect(source.getSnapshot()[0]?.worktreeRemoved).toBe(false);
+  expect(source.getSidebar?.()[0]?.cleanup).toEqual(cleanupProgress);
   inventory.mockResolvedValue({ repositories: [{ ...repository, worktrees: [] }], shell: "bash" });
   mock.changed?.();
   await settle();

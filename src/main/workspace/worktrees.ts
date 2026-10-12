@@ -1,3 +1,4 @@
+import { fetchAdvertisedDefault } from "./fetch-default";
 import type { GitPanelFacts } from "../../shared/panel";
 import { inventoryWatchPaths } from "./inventory-watch";
 import { randomUUID } from "node:crypto";
@@ -613,7 +614,9 @@ export class WorktreeService {
     this.repository(repository);
     const cached = this.mergeDefaults.get(repository);
     if (!refresh && cached && Date.now() - cached.time < 60_000) return cached.result;
-    const result = this.fetchDefault(repository);
+    const result = (cached?.result.catch(() => undefined) ?? Promise.resolve()).then(() =>
+      this.fetchDefault(repository),
+    );
     this.mergeDefaults.set(repository, { time: Date.now(), result });
     return result;
   }
@@ -622,23 +625,13 @@ export class WorktreeService {
     const remote = pickRemote(await git(repository, ["remote"]));
     if (!remote) throw new Error("No unambiguous repository remote");
     try {
-      const [, advertised] = await Promise.all([
-        git(repository, ["fetch", "--prune", "--", remote]),
-        git(repository, ["ls-remote", "--symref", "--", remote, "HEAD"]),
-      ]);
-      const ref = /^ref: (refs\/heads\/[^\n\t]+)\tHEAD$/mu.exec(advertised)?.[1];
-      const head = /^([a-f0-9]{40,64})\tHEAD$/mu.exec(advertised)?.[1];
-      if (!ref || !head) throw new Error("Remote default branch is unavailable");
-      await this.validateBranch(repository, ref.slice("refs/heads/".length));
-      // Custom refspecs can omit the advertised default. Fetch it only if absent.
-      try {
-        await git(repository, ["cat-file", "-e", `${head}^{commit}`]);
-      } catch {
-        await git(repository, ["fetch", "--no-write-fetch-head", "--", remote, ref]);
-      }
-      const commit = (await git(repository, ["rev-parse", "--verify", `${head}^{commit}`])).trim();
+      const { branch, commit } = await fetchAdvertisedDefault(
+        remote,
+        (args) => git(repository, args),
+        (branch) => this.validateBranch(repository, branch),
+      );
       this.fetchFacts.set(repository, {
-        branch: ref.slice("refs/heads/".length),
+        branch,
         time: Date.now(),
         failed: false,
         head: commit,

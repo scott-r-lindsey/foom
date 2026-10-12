@@ -1033,3 +1033,56 @@ test.each([true, false])(
     });
   },
 );
+
+test("cleanup progress and finished results remain reachable without folding recreated live rows", async () => {
+  const view = setup();
+  let progress: NonNullable<SidebarRepository["cleanup"]> = {
+    total: 1,
+    done: 0,
+    phase: "remove",
+    stopped: false,
+    items: [{ id: "1", path: "/tree", branch: "feature", state: "removing" }],
+  };
+  view.source.getSidebar = () => [{ ...repository, cleanup: progress }];
+  view.rerender(<Board source={view.source} />);
+  expect(view.getByText("deleting 0/1")).toBeTruthy();
+  fireEvent.click(view.getByRole("button", { name: "Actions for Foom" }));
+  await act(async () => {
+    fireEvent.click(view.getByRole("menuitem", { name: /Deleting merged worktrees/ }));
+    await Promise.resolve();
+  });
+  expect(view.command).toHaveBeenLastCalledWith({
+    kind: "delete-merged-worktrees",
+    repository: "/foom",
+  });
+  progress = {
+    ...progress,
+    done: 1,
+    phase: "finished",
+    items: [{ id: "1", path: "/tree", branch: "feature", state: "removed", reason: "branch kept" }],
+  };
+  view.rerender(<Board source={view.source} />);
+  expect(view.getByRole("treeitem", { name: /^feature$/ }).getAttribute("data-cleanup")).toBeNull();
+  fireEvent.click(view.getByRole("button", { name: "Actions for Foom" }));
+  expect(view.getByRole("menuitem", { name: /Cleanup results/ })).toBeTruthy();
+  progress = {
+    ...progress,
+    id: "first",
+    items: [
+      { id: "1", path: "/tree", branch: "feature", state: "kept", reason: "uncommitted changes" },
+    ],
+  };
+  view.rerender(<Board source={view.source} />);
+  expect(view.getByText("uncommitted changes")).toBeTruthy();
+  const row = view.getByRole("treeitem", { name: /^feature$/ }).querySelector(".worktree-row");
+  if (!row) throw new Error("Missing row");
+  fireEvent.pointerEnter(row);
+  fireEvent.pointerLeave(row);
+  fireEvent.pointerEnter(row);
+  expect(view.queryByText("uncommitted changes")).toBeNull();
+  progress = { ...progress, id: "next" };
+  view.rerender(<Board source={view.source} />);
+  expect(view.getByText("uncommitted changes")).toBeTruthy();
+  fireEvent.focus(view.getByRole("button", { name: /^feature$/ }));
+  expect(view.queryByText("uncommitted changes")).toBeNull();
+});

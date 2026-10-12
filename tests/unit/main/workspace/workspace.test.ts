@@ -3261,3 +3261,33 @@ test("fresh cached plan opens without fetching, stale plan opens checking, and a
   await first;
   await workspace.dispose();
 });
+
+test("hidden finished cleanup reopens its retained results without another fetch", async () => {
+  vi.mocked(deps.worktrees.mergedCommit).mockResolvedValue(true);
+  const workspace = new Workspace(deps);
+  const command = { kind: "delete-merged-worktrees", repository: repo.path } as const;
+  await cleanupCommand(workspace, command, () => Promise.resolve(true));
+  const fetches = vi.mocked(deps.worktrees.mergedDefault).mock.calls.length;
+  await workspace.sidebarCommand(command, (request) => {
+    if (request.kind !== "merged-worktrees" || !request.feed) throw new Error("Missing results");
+    expect(request.feed.current().progress.phase).toBe("finished");
+    expect(request.feed.current().progress.items[0]?.state).toBe("removed");
+    return Promise.resolve(false);
+  });
+  expect(deps.worktrees.mergedDefault).toHaveBeenCalledTimes(fetches);
+  await workspace.dispose();
+});
+
+test("cleanup retains branch reservations until the checked-ref transaction settles", async () => {
+  vi.mocked(deps.worktrees.mergedCommit).mockResolvedValue(true);
+  const workspace = new Workspace(deps);
+  vi.mocked(deps.worktrees.deleteMergedBranches).mockImplementation(async () => {
+    await expect(workspace.createWorktree(repo.path, "feature")).rejects.toThrow("busy");
+    throw new Error("ref lock failed");
+  });
+  await cleanupCommand(workspace, { kind: "delete-merged-worktrees", repository: repo.path }, () =>
+    Promise.resolve(true),
+  );
+  await expect(workspace.createWorktree(repo.path, "feature")).resolves.toHaveProperty("path");
+  await workspace.dispose();
+});

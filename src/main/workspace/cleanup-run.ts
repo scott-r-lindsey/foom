@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import type {
   CleanupDialog,
   CleanupFeed,
@@ -15,6 +16,7 @@ export interface CleanupCandidate {
 
 /** Main owns the lifetime; closing a presentation only unsubscribes it. */
 export class CleanupRun implements CleanupFeed {
+  private readonly id = randomUUID();
   private stage: CleanupDialog["stage"] = "checking";
   private listeners = new Set<() => void>();
   private plan: readonly CleanupCandidate[] = [];
@@ -50,6 +52,7 @@ export class CleanupRun implements CleanupFeed {
   }
   get progress(): CleanupProgress {
     return {
+      id: this.id,
       total: this.total,
       done: this.done,
       phase: this.phase,
@@ -106,7 +109,7 @@ export class CleanupRun implements CleanupFeed {
     this.publish();
   }
   act(): void {
-    if (this.stage === "ready" && this.total > 0) {
+    if (this.stage === "ready" && this.total > 0 && !this.stopped) {
       this.stage = "run";
       this.publish();
       this.operation = this.run();

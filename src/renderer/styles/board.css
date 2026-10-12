@@ -1364,10 +1364,6 @@
 [data-cleanup="error"] .cleanup-tag {
   color: var(--failed-ink);
 }
-[data-cleanup="kept"]:hover .cleanup-tag,
-[data-cleanup="kept"]:focus-within .cleanup-tag {
-  visibility: hidden;
-}
 @keyframes cleanup-sweep {
   to {
     background-position: -200% 0;

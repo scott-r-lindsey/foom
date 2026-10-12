@@ -18,6 +18,7 @@ export interface CleanupItem {
   reason?: CleanupReason;
 }
 export interface CleanupProgress {
+  id?: string;
   total: number;
   done: number;
   phase: "fetch" | "remove" | "finished";

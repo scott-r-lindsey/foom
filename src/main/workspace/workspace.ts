@@ -562,6 +562,7 @@ export class Workspace {
       if (confirm && !(await confirm())) return;
       checkSessions();
       await this.deps.worktrees.removeRepository(repository);
+      this.cleanupRuns.delete(repository);
       this.mergeEligibility.delete(repository);
       this.refresh();
     } finally {
@@ -839,11 +840,13 @@ export class Workspace {
     branch: string | null,
     confirm: (branch: string, changes: string) => Promise<boolean>,
     revalidate?: () => Promise<void>,
+    retainBranchLock = false,
   ): Promise<boolean> {
     const entry = { repository, worktree, branch };
     const key = `${entry.repository}\0${entry.branch ?? ""}`;
     if (this.busyWorktrees.has(key)) throw new Error("This worktree is busy");
     this.busyWorktrees.add(key);
+    let removed = false;
     try {
       const identity = await this.deps.worktrees.removalIdentity(entry.repository, entry.worktree);
       const changes = await this.deps.worktrees.changes(entry.repository, entry.worktree, identity);
@@ -860,11 +863,11 @@ export class Workspace {
         await this.deps.terminals.stop(item.id);
         await this.exited(item.id, -1);
       }
+      await revalidate?.();
       if (
         (await this.deps.worktrees.changes(entry.repository, entry.worktree, identity)) !== changes
       )
         throw new Error("Worktree changes have changed. Review them and try again.");
-      await revalidate?.();
       await this.deps.worktrees.removeWorktree(
         entry.repository,
         entry.worktree,
@@ -875,9 +878,10 @@ export class Workspace {
         if (!item.dormant) await this.deps.terminals.kill(item.id);
         this.removed(item.id);
       }
+      removed = true;
       return true;
     } finally {
-      this.busyWorktrees.delete(key);
+      if (!retainBranchLock || !removed) this.busyWorktrees.delete(key);
     }
   }
 
@@ -933,8 +937,12 @@ export class Workspace {
   private async deleteMerged(repository: string, confirm: ConfirmWorkspace): Promise<void> {
     this.known(repository);
     const existing = this.cleanupRuns.get(repository);
-    if (existing?.pending) {
+    if (existing && (existing.pending || existing.current().stage === "run")) {
       await confirm({ kind: "merged-worktrees", worktrees: [], feed: existing });
+      if (!existing.pending) {
+        this.cleanupRuns.delete(repository);
+        this.refresh();
+      }
       return;
     }
     return this.withRepository(repository, async () => {
@@ -943,13 +951,19 @@ export class Workspace {
         changed: () => {
           this.refresh();
         },
-        branches: (removed) =>
-          this.deps.worktrees.deleteMergedBranches(
-            repository,
-            removed.flatMap(({ tree }) =>
-              tree.branch && tree.head ? [{ branch: tree.branch, head: tree.head }] : [],
-            ),
-          ),
+        branches: async (removed) => {
+          try {
+            return await this.deps.worktrees.deleteMergedBranches(
+              repository,
+              removed.flatMap(({ tree }) =>
+                tree.branch && tree.head ? [{ branch: tree.branch, head: tree.head }] : [],
+              ),
+            );
+          } finally {
+            for (const { tree } of removed)
+              this.busyWorktrees.delete(`${repository}\0${tree.branch ?? ""}`);
+          }
+        },
         remove: async ({ tree, identity }, base) => {
           const revalidate = async () => {
             const current = (await this.worktrees(repository)).find(
@@ -978,6 +992,7 @@ export class Workspace {
               return true;
             },
             revalidate,
+            true,
           );
         },
       });
@@ -996,9 +1011,13 @@ export class Workspace {
         run.failed();
       }
       if (await answer) run.act();
+      const reviewed = run.current().stage === "run" && !run.pending;
       // Hide resolves presentation, but the repository reservation lasts through the run.
       await run.settled();
-      if (run.current().stage !== "run") this.cleanupRuns.delete(repository);
+      if (reviewed || run.current().stage !== "run") {
+        this.cleanupRuns.delete(repository);
+        this.refresh();
+      }
     });
   }
 
@@ -1247,7 +1266,7 @@ export class Workspace {
                 ) ?? []),
             ],
             ...this.cachedMergeEligibility(repository.path, worktrees),
-            ...(this.cleanupRuns.has(repository.path)
+            ...(this.cleanupRuns.get(repository.path)?.current().stage === "run"
               ? { cleanup: this.cleanupRuns.get(repository.path)?.progress }
               : {}),
           };
@@ -2177,6 +2196,7 @@ export class Workspace {
     this.closed = true;
     for (const run of this.cleanupRuns.values()) run.stop();
     await Promise.all([...this.cleanupRuns.values()].map((run) => run.settled()));
+    this.cleanupRuns.clear();
     this.mergeEligibility.clear();
     this.executionListeners.clear();
     this.deps.watcher?.dispose();

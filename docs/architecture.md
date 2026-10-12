@@ -397,6 +397,8 @@ in-flight scans are shared; superseded scans, removed repositories and disposed
 workspaces cannot publish late results. Git status reads use `--no-optional-locks`
 so index refreshes cannot race deletion of per-worktree metadata. Cleanup reuses a completed plan younger than 60 seconds for presentation; otherwise
 it opens checking before awaiting the fresh plan. Approval always fetches afresh.
+Fetch operations are queued per repository, including background and explicit scans.
+Each waits for both subprocesses to settle before releasing the queue on failure.
 Default discovery runs `ls-remote --symref` alongside `fetch --prune`, then tests
 the advertised commit with `cat-file -e`. Only an absent object needs the explicit
 default-ref fetch. Either failed network operation refuses cleanup.
@@ -407,7 +409,9 @@ are captured before the trusted dialog. Both revalidation passes check Git membe
 session eligibility, clean status and `merge-tree` containment against a freshly
 fetched default commit. A failed post-confirmation fetch prevents every removal.
 Main owns one `CleanupRun` per repository. Four workers run the existing removal
-path, retaining both revalidation passes and branch launch locks. Git removes
+path, retaining both revalidation passes. Successful removals retain their branch
+launch locks through the ref transaction so Foom cannot recreate those branches
+while they are being deleted. Failed candidates release their locks immediately. Git removes
 separate per-worktree admin directories and checkout indexes; these operations
 need no shared main-index write. Status disables optional index locking; merge-tree
 writes content-addressed objects. Persistence remains serialized by the service.
