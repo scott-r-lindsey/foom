@@ -5701,10 +5701,10 @@ test("merged cleanup deletes external worktrees and branches while preserving a 
   await page.getByRole("button", { name: "Actions for repo", exact: true }).click();
   await page.getByRole("menuitem", { name: /Delete merged worktrees…/ }).click();
   const confirmation = await confirmationPage(app);
-  await expect(confirmation.getByRole("list", { name: "Worktrees to delete" })).toHaveText(
-    "merged-onemerged-two",
+  await expect(confirmation.getByRole("list", { name: "Cleanup checklist" })).toContainText(
+    "merged-onequeued",
   );
-  await expect(confirmation.getByRole("list", { name: "Skipped worktrees" })).toContainText(
+  await expect(confirmation.getByRole("list", { name: "Cleanup checklist" })).toContainText(
     "dirtyuncommitted changes",
   );
   await expect(confirmation.getByRole("button", { name: "Cancel" })).toBeFocused();
@@ -5718,8 +5718,8 @@ test("merged cleanup deletes external worktrees and branches while preserving a 
   assert.ok((git("branch", "--list", "merged-one") || "").includes("merged-one"));
   await page.getByRole("button", { name: "Actions for repo", exact: true }).click();
   await page.getByRole("menuitem", { name: /Delete merged worktrees…/ }).click();
-  await expect(confirmation.getByRole("button", { name: "Delete", exact: true })).toBeVisible();
-  await confirmation.getByRole("button", { name: "Delete", exact: true }).click();
+  await expect(confirmation.getByRole("button", { name: "Delete 2", exact: true })).toBeVisible();
+  await confirmation.getByRole("button", { name: "Delete 2", exact: true }).click();
   await expect
     .poll(
       async () =>
@@ -7382,3 +7382,100 @@ process.exit(1);
       .toBe("external-123");
   });
 }
+
+test("merged cleanup opens checking, continues hidden, reopens progress and stops unstarted worktrees", {
+  timeout: deadline(60000),
+}, async (context) => {
+  const root = await realpath(await mkdtemp(path.join(tmpdir(), "foom-cleanup-progress-")));
+  removeAfterApps(context, root);
+  const repo = path.join(root, "repo");
+  const home = path.join(root, "home");
+  await mkdir(repo);
+  await mkdir(home);
+  const git = (...args) =>
+    isolatedGit(["-c", "user.name=Test", "-c", "user.email=test@example.com", ...args], {
+      cwd: repo,
+    });
+  git("init", "-q", "-b", "main");
+  git("commit", "-q", "--allow-empty", "-m", "init");
+  const remote = path.join(root, "remote.git");
+  git("clone", "--bare", repo, remote);
+  git("remote", "add", "origin", remote);
+  for (const branch of [...Array.from({ length: 8 }, (_, i) => `merged-${i}`), "dirty"])
+    git("worktree", "add", "-b", branch, path.join(root, branch));
+  await writeFile(path.join(root, "dirty", "keep.txt"), "keep");
+  const app = await launchApp(context, false, { emptyBoard: true, home });
+  fixtureCleanup(context).apps.unshift(async () => {
+    // Run before launchApp's close callback, including after an assertion failure.
+    await app.evaluate(() => globalThis.cleanupRestore?.()).catch(() => {});
+  });
+  const page = await boardPage(app);
+  // Gates stop at real service boundaries; releasing them runs the original Git operations.
+  await app.evaluate(({ app, dialog }, repo) => {
+    const load = process
+      .getBuiltinModule("node:module")
+      .createRequire(app.getAppPath() + "/package.json");
+    const { WorktreeService } = load("./build/main/workspace/worktrees.js");
+    const fetch = WorktreeService.prototype.mergedDefault;
+    const remove = WorktreeService.prototype.removeWorktree;
+    const gate = new Promise((resolve) => {
+      globalThis.cleanupFetchRelease = resolve;
+    });
+    globalThis.cleanupRemovals = [];
+    globalThis.cleanupRestore = () => {
+      WorktreeService.prototype.mergedDefault = fetch;
+      WorktreeService.prototype.removeWorktree = remove;
+      globalThis.cleanupFetchRelease();
+      for (const finish of globalThis.cleanupRemovals.splice(0)) finish();
+    };
+    WorktreeService.prototype.mergedDefault = async function (...args) {
+      await gate;
+      return fetch.apply(this, args);
+    };
+    WorktreeService.prototype.removeWorktree = async function (...args) {
+      await new Promise((resolve) => {
+        globalThis.cleanupRemovals.push(resolve);
+      });
+      return remove.apply(this, args);
+    };
+    dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [repo] });
+  }, repo);
+  await page.getByRole("button", { name: "Add repository", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Actions for repo", exact: true })).toBeVisible();
+  await page.evaluate((repo) => {
+    void window.desktop.sidebarCommand({ kind: "delete-merged-worktrees", repository: repo });
+  }, repo);
+  const confirmation = await confirmationPage(app);
+  await expect(confirmation.getByText("Fetching remote and checking worktrees…")).toBeVisible();
+  await expect(confirmation.getByRole("button", { name: "Delete 0", exact: true })).toBeDisabled();
+  await app.evaluate(() => globalThis.cleanupFetchRelease());
+  await expect(confirmation.getByRole("button", { name: "Delete 8", exact: true })).toBeEnabled();
+  await expect(confirmation.getByRole("list", { name: "Cleanup checklist" })).toContainText(
+    "dirtyuncommitted changes",
+  );
+  await confirmation.getByRole("button", { name: "Delete 8", exact: true }).click();
+  await expect.poll(() => app.evaluate(() => globalThis.cleanupRemovals.length)).toBe(4);
+  await confirmation.getByRole("button", { name: "Hide", exact: true }).click();
+  await expect(page.getByText("deleting 0/8", { exact: true })).toBeVisible();
+  await app.evaluate(() => globalThis.cleanupRemovals.shift()());
+  await expect(page.getByText("deleting 1/8", { exact: true })).toBeVisible();
+  await expect.poll(() => app.evaluate(() => globalThis.cleanupRemovals.length)).toBe(4);
+  await page.getByRole("button", { name: "Actions for repo", exact: true }).click();
+  await page.getByRole("menuitem", { name: /Deleting merged worktrees/ }).click();
+  await expect(confirmation.getByRole("progressbar", { name: "Cleanup progress" })).toHaveAttribute(
+    "value",
+    "1",
+  );
+  await confirmation.getByRole("button", { name: "Stop", exact: true }).click();
+  await app.evaluate(() => {
+    for (const finish of globalThis.cleanupRemovals.splice(0)) finish();
+  });
+  await expect(confirmation.getByRole("button", { name: "Done", exact: true })).toBeVisible();
+  await expect(confirmation.getByRole("list", { name: "Cleanup checklist" })).toContainText(
+    "not started",
+  );
+  await confirmation.getByRole("button", { name: "Done", exact: true }).click();
+  const inventory = await page.evaluate((repo) => window.desktop.worktrees(repo), repo);
+  assert.equal(inventory.length, 5); // main, dirty, and three never-started worktrees
+  assert.equal(await readFile(path.join(root, "dirty", "keep.txt"), "utf8"), "keep");
+});
