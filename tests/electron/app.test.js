@@ -4354,6 +4354,75 @@ test("every interface theme applies live to native chrome and passes axe on boar
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
 });
 
+test("volume sliders keep the dragged value while sound saves settle", async (context) => {
+  const app = await launchApp(context, false, { emptyBoard: true });
+  fixtureCleanup(context).apps.unshift(async () => {
+    await app.evaluate(() => globalThis.soundSaveRestore?.()).catch(() => {});
+  });
+  const page = await boardPage(app);
+  // Hold real persistence at the service boundary, then deliver its actual
+  // settings broadcasts and replies after the pointer has moved farther.
+  await app.evaluate(({ app }) => {
+    const load = process
+      .getBuiltinModule("node:module")
+      .createRequire(app.getAppPath() + "/package.json");
+    const { Setup } = load("./build/main/setup/setup.js");
+    const save = Setup.prototype.save;
+    globalThis.soundSaveGates = [];
+    globalThis.soundSaveCount = 0;
+    globalThis.soundSaveRestore = () => {
+      Setup.prototype.save = save;
+      for (const release of globalThis.soundSaveGates.splice(0)) release();
+    };
+    Setup.prototype.save = async function (patch) {
+      if (patch.sound) {
+        globalThis.soundSaveCount++;
+        await new Promise((resolve) => globalThis.soundSaveGates.push(resolve));
+      }
+      return save.call(this, patch);
+    };
+  });
+  await boardCommand(app, ",", process.platform !== "darwin");
+  await page.getByRole("button", { name: "Sound", exact: true }).click();
+  const working = page.getByLabel("Working volume", { exact: true });
+  await working.scrollIntoViewIfNeeded();
+  const box = await working.boundingBox();
+  assert.ok(box);
+  await page.mouse.move(box.x + box.width * 0.2, box.y + box.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(box.x + box.width - 1, box.y + box.height / 2, { steps: 8 });
+  await page.mouse.up();
+  await expect(working).toHaveValue("100");
+  await expect.poll(() => app.evaluate(() => globalThis.soundSaveCount)).toBe(1);
+  await app.evaluate(() => globalThis.soundSaveGates.shift()());
+  await expect.poll(() => app.evaluate(() => globalThis.soundSaveCount)).toBe(2);
+  await expect(working).toHaveValue("100");
+  await expect(page.getByText("Working volume · 100%", { exact: true })).toBeVisible();
+  await app.evaluate(() => globalThis.soundSaveGates.shift()());
+  await expect
+    .poll(() =>
+      page.evaluate(async () => (await window.desktop.setupState()).settings.sound.workingVolume),
+    )
+    .toBe(1);
+
+  const alerts = page.getByLabel("Alert volume", { exact: true });
+  await alerts.press("Home");
+  await alerts.press("ArrowRight");
+  await alerts.press("ArrowRight");
+  await expect(alerts).toHaveValue("2");
+  await expect.poll(() => app.evaluate(() => globalThis.soundSaveCount)).toBe(3);
+  await alerts.press("Escape");
+  await expect(alerts).toHaveCount(0);
+  await app.evaluate(() => globalThis.soundSaveGates.shift()());
+  await expect.poll(() => app.evaluate(() => globalThis.soundSaveCount)).toBe(4);
+  await app.evaluate(() => globalThis.soundSaveGates.shift()());
+  await expect
+    .poll(() =>
+      page.evaluate(async () => (await window.desktop.setupState()).settings.sound.alertVolume),
+    )
+    .toBe(0.02);
+});
+
 test("recorded sounds refresh and preview user files while shell attention and completion stay silent", {
   timeout: deadline(45000),
 }, async (context) => {
