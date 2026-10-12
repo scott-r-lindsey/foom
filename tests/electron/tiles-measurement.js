@@ -24,8 +24,8 @@ async function measure() {
   const root = path.join(__dirname, "../..", "out", `Foom-${process.platform}-${process.arch}`);
   const executable =
     process.platform === "darwin"
-      ? path.join(root, "Foom.app", "Contents", "MacOS", "foom")
-      : path.join(root, process.platform === "win32" ? "foom.exe" : "foom");
+      ? path.join(root, "Foom.app", "Contents", "MacOS", "Foom")
+      : path.join(root, process.platform === "win32" ? "Foom.exe" : "Foom");
   const env = { ...process.env };
   delete env.ELECTRON_RUN_AS_NODE;
   const child = spawn(executable, ["--remote-debugging-port=0", `--user-data-dir=${profile}`], {

@@ -26,8 +26,8 @@ test("packaged utility host runs native PTYs with RunAsNode disabled", {
   const root = path.join(__dirname, "../..", "out", `Foom-${process.platform}-${process.arch}`);
   const executable =
     process.platform === "darwin"
-      ? path.join(root, "Foom.app", "Contents", "MacOS", "foom")
-      : path.join(root, process.platform === "win32" ? "foom.exe" : "foom");
+      ? path.join(root, "Foom.app", "Contents", "MacOS", "Foom")
+      : path.join(root, process.platform === "win32" ? "Foom.exe" : "Foom");
   if (process.platform === "win32") {
     const pty = path.join(root, "resources", "app.asar.unpacked", "node_modules", "node-pty");
     const directory = ["build/Release", "build/Debug", `prebuilds/win32-${process.arch}`]

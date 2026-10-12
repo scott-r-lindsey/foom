@@ -7,6 +7,7 @@ import { ConfigControls } from "./config-controls";
 import { TerminalThemePicker } from "./terminal-theme-picker";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { SetupState } from "../../shared/setup";
+import type { SoundSettings } from "../../shared/sound";
 import type { AgentReport } from "../../shared/workspace";
 import type { Repository } from "../../shared/worktrees";
 import { AppearanceControls } from "./appearance-controls";
@@ -68,6 +69,25 @@ export function Preflight({
   const [error, setError] = useState<string>();
   const [applying, setApplying] = useState(false);
   const [launching, setLaunching] = useState(false);
+  const pendingSoundRef = useRef<SoundSettings>(undefined);
+  const queuedSoundRef = useRef<SoundSettings>(undefined);
+  const savingSoundRef = useRef(false);
+  useEffect(
+    () => () => {
+      // Submit the last edit before a reopened Settings view can save newer edits.
+      const sound = queuedSoundRef.current;
+      queuedSoundRef.current = undefined;
+      if (sound) void source.save({ sound }).catch(() => undefined);
+    },
+    [source],
+  );
+  const receiveState = useCallback((next: SetupState) => {
+    // Persisted snapshots may describe an earlier point in the same drag.
+    setState({
+      ...next,
+      settings: { ...next.settings, sound: pendingSoundRef.current ?? next.settings.sound },
+    });
+  }, []);
   const headingRef = useRef<HTMLHeadingElement>(null);
   const stageRef = useRef<HTMLDivElement>(null);
   const innerRef = useRef<HTMLDivElement>(null);
@@ -131,7 +151,7 @@ export function Preflight({
     };
   }, [source]);
   // A zoom shortcut changes settings in main; keep the controls in step.
-  useEffect(() => source.subscribe(setState), [source]);
+  useEffect(() => source.subscribe(receiveState), [source, receiveState]);
   useEffect(() => {
     // Each step starts at its heading, including the first, so keys reach preflight.
     headingRef.current?.focus();
@@ -220,17 +240,49 @@ export function Preflight({
     if (settingsMode) void applySelection(selection);
   };
 
+  // Keep at most one sound save in flight and one latest edit behind it. The
+  // queue drains even when Settings closes, so the final drag position is saved.
+  const saveSound = async (sound: SoundSettings) => {
+    pendingSoundRef.current = sound;
+    queuedSoundRef.current = sound;
+    if (savingSoundRef.current) return;
+    savingSoundRef.current = true;
+    const takeQueued = () => {
+      const next = queuedSoundRef.current;
+      queuedSoundRef.current = undefined;
+      return next;
+    };
+    let nextSound = takeQueued();
+    while (nextSound) {
+      let saved: SetupState | undefined;
+      try {
+        saved = await source.save({ sound: nextSound });
+      } catch (caught) {
+        setError(message(caught));
+        saved = await source.state().catch(() => undefined);
+      }
+      nextSound = takeQueued();
+      if (!nextSound) pendingSoundRef.current = undefined;
+      if (saved) receiveState(saved);
+    }
+    savingSoundRef.current = false;
+  };
+
   /** Shows the change at once; if main refuses it, shows main's settings again. */
   const save = (patch: Parameters<SetupSource["save"]>[0]) => {
     setState((current) => ({ ...current, settings: { ...current.settings, ...patch } }));
-    source.save(patch).then(setState, (caught: unknown) => {
+    if (patch.sound && Object.keys(patch).length === 1) {
+      void saveSound(patch.sound);
+      return;
+    }
+    source.save(patch).then(receiveState, (caught: unknown) => {
       setError(message(caught));
-      source.state().then(setState, () => undefined);
+      source.state().then(receiveState, () => undefined);
     });
   };
   const launch = async () => {
     try {
-      setState(await source.save({ setupComplete: true }));
+      receiveState(await source.save({ setupComplete: true }));
       setLaunching(true);
     } catch (caught) {
       setError(message(caught));
@@ -296,7 +348,7 @@ export function Preflight({
           <AgentDefaultArguments
             defaults={state.settings.agentArguments}
             save={async (agentArguments) => {
-              setState(await source.save({ agentArguments }));
+              receiveState(await source.save({ agentArguments }));
             }}
           />
         )}
