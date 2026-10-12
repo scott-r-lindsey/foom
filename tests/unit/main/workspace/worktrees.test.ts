@@ -691,6 +691,7 @@ it.each([false, true])(
         run: "shell",
         acknowledgeCodexNotifierReplacement: false,
       });
+      await workspace.exited("terminal", 0);
       await expect(
         workspace.removeWorktree("terminal", () => Promise.resolve(true)),
       ).rejects.toThrow("Review them");
