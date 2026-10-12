@@ -7368,7 +7368,10 @@ test("Settings agent menu launches config and focuses its existing window", {
     window.desktop.saveSetup({
       agents: { claude: true, codex: false, agy: false },
       agentArguments: {
-        claude: ["--eval", "console.log('CONFIG_MENU_READY');process.stdin.resume()"],
+        claude: [
+          "--eval",
+          "console.log('CONFIG_MENU_READY '+JSON.stringify(process.argv.slice(1)));process.stdin.resume()",
+        ],
         codex: [],
         agy: [],
       },
@@ -7400,6 +7403,12 @@ test("Settings agent menu launches config and focuses its existing window", {
     (await first.evaluate(() => window.desktop.workspace())).terminals[0].worktree,
     path.join(home, ".foom", "config"),
   );
+  const greetingTail = await first.evaluate(
+    async (id) => (await window.desktop.tail(id, 40)).join(""),
+    id,
+  );
+  assert.match(greetingTail, /CONFIG_MENU_READY \["Read AGENTS\.md, then greet the user/);
+  assert.match(greetingTail, /Ask what they would like to change\."\]/);
   await first.screenshot({ path: "test-results/config-menu-launched.png", animations: "disabled" });
   await first.evaluate(() => window.desktop.appMenu.execute("new-window"));
   await expect
