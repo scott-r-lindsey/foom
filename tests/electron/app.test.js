@@ -4596,7 +4596,7 @@ test("volume sliders keep the dragged value while sound saves settle", async (co
       return save.call(this, patch);
     };
   });
-  await boardCommand(app, ",", process.platform !== "darwin");
+  await openSettingsScreen(page);
   await page.getByRole("button", { name: "Sound", exact: true }).click();
   const working = page.getByLabel("Working volume", { exact: true });
   await working.scrollIntoViewIfNeeded();
@@ -8080,7 +8080,9 @@ test("version 2 themes scope portaled colors, shape and warnings and hold attent
     "#ffb23e",
   );
   await page.getByRole("button", { name: "Keep it on", exact: true }).click();
-  await expect.poll(() => readFile(file, "utf8")).toBe(original);
+  // Wait for the write to finish before opening the file on Windows.
+  await expect(page.getByRole("region", { name: "Change waiting for approval" })).toHaveCount(0);
+  assert.equal(await readFile(file, "utf8"), original);
 });
 
 async function openSettingsScreen(page) {
