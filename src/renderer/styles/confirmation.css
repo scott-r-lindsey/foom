@@ -92,7 +92,7 @@ button {
   height: 34px;
   padding: 0 14px;
   border: var(--shape-border, 1px) solid var(--line);
-  border-radius: var(--shape-panel-radius, 7px);
+  border-radius: var(--shape-radius, 7px);
   color: var(--ink);
   background: transparent;
   cursor: pointer;

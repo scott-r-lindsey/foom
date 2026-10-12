@@ -166,7 +166,7 @@
   padding: 12px 14px;
   background: var(--surface);
   border: var(--shape-border, 1px) solid var(--line);
-  border-radius: var(--shape-panel-radius, 8px);
+  border-radius: var(--shape-radius, 8px);
 }
 .preflight-item > :not(input, .preflight-name, .agent-title, .preflight-found) {
   grid-column: 2 / -1;
@@ -207,7 +207,7 @@
   padding: 12px 14px;
   margin-top: 8px;
   border: var(--shape-border, 1px) solid var(--line);
-  border-radius: var(--shape-panel-radius, 8px);
+  border-radius: var(--shape-radius, 8px);
 }
 .preflight-check {
   margin-top: 20px;
@@ -315,7 +315,7 @@
   padding: 12px 14px;
   background: var(--surface);
   border: var(--shape-border, 1px) solid var(--line);
-  border-radius: var(--shape-panel-radius, 8px);
+  border-radius: var(--shape-radius, 8px);
 }
 .preflight-system {
   font: 11px var(--font-mono);
