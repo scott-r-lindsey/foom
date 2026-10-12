@@ -494,8 +494,28 @@ test("terminal runs an interactive shell behind an isolated bridge", {
     const page = await boardPage(app);
     console.info("Window opened");
     // The hidden confirmation window can be the first CDP target on a cold
-    // display. Activate the board before testing xterm painting and selection.
+    // display. CDP activation alone does not show/focus the native board window.
+    // Exercise that state explicitly before testing xterm painting and selection.
+    await app.evaluate(({ BrowserWindow }) => {
+      const window = BrowserWindow.getAllWindows().find(
+        (window) => window.webContents.getURL() === "app://bundle/index.html",
+      );
+      window.hide();
+    });
+    await app.evaluate(({ BrowserWindow }) => {
+      const window = BrowserWindow.getAllWindows().find(
+        (window) => window.webContents.getURL() === "app://bundle/index.html",
+      );
+      window.show();
+      window.focus();
+      window.webContents.focus();
+    });
     await page.bringToFront();
+    await expect
+      .poll(() =>
+        page.evaluate(() => document.visibilityState === "visible" && document.hasFocus()),
+      )
+      .toBe(true);
     await page.waitForLoadState("domcontentloaded");
     assert.equal(await page.title(), "Foom");
     await page.waitForFunction(
