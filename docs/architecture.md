@@ -1477,9 +1477,19 @@ Settings lists Applied · N warnings and the CLI prints them with exit status 0.
 Parser exceptions and file contents never travel to the renderer.
 
 Both the config scanner and theme library pass through a serialized main-owned
-approval gate. A new attention-distinctness warning in the active theme's file
-holds the palette; selecting a warned theme through settings.json also holds.
-Inactive themes, hue-only warnings and direct Appearance selections do not hold.
-Allow verifies the proposal digest and current bytes; Keep it on restores the
-previous applied file. Attention distinctness includes separation from readable
-ink as well as failure, accent, highlight and done, with the ΔE 40 threshold.
+approval gate. An edit to the active theme's file holds the palette when it adds
+an attention conflict: a color pair within ΔE 40 of attention, globally or in an
+area, that the approved version lacks. Pairs are compared individually, so an
+approved pair never approves a new one on the same color. Selecting a warned
+theme through settings.json also holds. Inactive themes, hue-only warnings and
+direct Appearance selections do not hold. Attention distinctness includes
+separation from readable ink as well as failure, accent, highlight and done.
+
+The approved version is the one this profile last applied, recorded as a
+per-file digest in the profile like the settings baseline. Agents can commit in
+the config folder, so a commit alone never approves a palette: after a restart,
+a committed theme counts only if its digest matches. Allow verifies the proposal
+digest and current bytes and records the new digest. Keep it on restores the
+approved version, or a committed version with no attention conflicts; when
+neither exists it switches `interfaceTheme` back to the default and leaves the
+file in place.

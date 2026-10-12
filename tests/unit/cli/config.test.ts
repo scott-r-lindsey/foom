@@ -216,6 +216,7 @@ test("a folder Foom set up validates, including its repository, docs, schemas an
     defaults: configPart(DEFAULT_SETTINGS),
     apply: () => {},
     baseline: { get: () => null, set: () => Promise.resolve() },
+    themeBaseline: { get: () => null, set: () => Promise.resolve() },
     watch: () => ({ close: () => {} }),
   });
   await service.initialize({ terminalFontSize: 16 });

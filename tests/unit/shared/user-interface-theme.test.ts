@@ -2,7 +2,7 @@ import { expect, test } from "vitest";
 import { interfaceThemes } from "../../../src/shared/interface-themes";
 import { parseThemeFile } from "../../../src/shared/theme-files";
 import { validateConfigJson } from "../../../src/shared/config-files";
-import { userThemeWarnings } from "../../../src/shared/user-interface-theme";
+import { attentionConflicts, userThemeWarnings } from "../../../src/shared/user-interface-theme";
 const base = interfaceThemes["eclipse-dark"];
 const theme = () => ({ ...base, version: 2 });
 const parse = (value: unknown) => parseThemeFile(JSON.stringify(value), "theme");
@@ -78,4 +78,27 @@ test("brand deviations warn and contrast still rejects", () => {
   expect(warnings).toContainEqual(
     expect.objectContaining({ path: "$.areas.panels.attention", reason: "attention-distinctness" }),
   );
+});
+
+test("attention conflicts name each pair, and areas list only pairs the palette lacks", () => {
+  const colors = { ...base.colors, attention: base.colors.done };
+  expect(attentionConflicts({ ...base, colors })).toEqual([
+    "colors:attention~done",
+    "colors:attention~done-ink",
+  ]);
+  // An area inheriting the global pair adds nothing; its own new pair is listed.
+  expect(
+    attentionConflicts({
+      ...base,
+      colors,
+      areas: { sidebar: {}, menus: { muted: base.colors.done } },
+    }),
+  ).toEqual(["colors:attention~done", "colors:attention~done-ink", "menus:attention~muted"]);
+  expect(
+    attentionConflicts({
+      ...base,
+      colors: { ...base.colors, "attention-ink": base.colors["failed-ink"] },
+    }),
+  ).toContain("colors:attention-ink~failed-ink");
+  expect(attentionConflicts(base)).toEqual([]);
 });

@@ -33,6 +33,41 @@ function palette(value: unknown, path: string, partial = false): Partial<Interfa
   return result;
 }
 
+/** Colors within ΔE 40 of attention, as `role~other`. The paired attention ink shares its hue. */
+function attentionPartners(colors: InterfaceTheme["colors"]): string[] {
+  const partners: string[] = [];
+  for (const other of colorNames) {
+    const color = colors[other];
+    if (
+      !other.startsWith("attention") &&
+      color !== undefined &&
+      colorDistance(colors.attention, color) < 40
+    )
+      partners.push(`attention~${other}`);
+  }
+  for (const other of ["failed-ink", "accent"] as const)
+    if (colorDistance(colors["attention-ink"], colors[other]) < 40)
+      partners.push(`attention-ink~${other}`);
+  return partners;
+}
+
+/**
+ * Every pair that makes needs-you hard to tell apart, globally and per area. An area
+ * lists only pairs the global palette doesn't already have, so adding an area that
+ * inherits an approved pair is not new. The approval hold compares these sets.
+ */
+export function attentionConflicts(theme: InterfaceTheme): string[] {
+  const global = attentionPartners(theme.colors);
+  const conflicts = global.map((partner) => `colors:${partner}`);
+  for (const area of interfaceAreas) {
+    const colors = theme.areas?.[area];
+    if (!colors) continue;
+    for (const partner of attentionPartners({ ...theme.colors, ...colors }))
+      if (!global.includes(partner)) conflicts.push(`${area}:${partner}`);
+  }
+  return conflicts;
+}
+
 /** User themes retain the accessibility gate, but report brand policy as fixed warnings. */
 export function userThemeWarnings(theme: InterfaceTheme): ThemeDiagnostic[] {
   const warnings: ThemeDiagnostic[] = [];
@@ -74,19 +109,9 @@ export function userThemeWarnings(theme: InterfaceTheme): ThemeDiagnostic[] {
     }
     if (colors.highlight !== undefined && colorDistance(colors.accent, colors.highlight) < 40)
       warn(`${path}.accent`, "color-distance");
-    // The paired attention ink intentionally shares its hue; every other role must be distinct.
-    for (const other of colorNames) {
-      const color = colors[other];
-      if (
-        !other.startsWith("attention") &&
-        color !== undefined &&
-        colorDistance(colors.attention, color) < 40
-      )
-        warn(`${path}.attention`, "attention-distinctness");
-    }
+    for (const partner of attentionPartners(colors))
+      warn(`${path}.${partner.split("~")[0] ?? "attention"}`, "attention-distinctness");
     for (const [a, b] of [
-      ["attention-ink", "failed-ink"],
-      ["attention-ink", "accent"],
       ["failed", "accent"],
       ["failed-ink", "accent"],
       ["failed", "highlight"],
@@ -94,7 +119,7 @@ export function userThemeWarnings(theme: InterfaceTheme): ThemeDiagnostic[] {
       ["accent", "done"],
     ] as const)
       if (colorDistance(colors[a], colors[b] ?? colors.accent) < 40)
-        warn(`${path}.${a}`, a === "attention-ink" ? "attention-distinctness" : "color-distance");
+        warn(`${path}.${a}`, "color-distance");
   };
   check(theme.colors, "$.colors");
   for (const area of interfaceAreas)

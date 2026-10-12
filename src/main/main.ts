@@ -787,6 +787,10 @@ if (!ownsProfile) {
           get: () => settings.configDigest(),
           set: (value) => settings.setConfigDigest(value),
         },
+        themeBaseline: {
+          get: (file) => settings.themeDigest(file),
+          set: (file, value) => settings.setThemeDigest(file, value),
+        },
         onStatus: configStatusChanged,
         onThemeDecision: () => {
           void themes.reload();

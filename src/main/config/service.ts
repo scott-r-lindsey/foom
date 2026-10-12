@@ -8,6 +8,7 @@ import type { ConfigChange, ConfigStatus } from "../../shared/foom-config";
 import { SOUND_KINDS } from "../../shared/sounds";
 import type { ParsedThemeFile, ThemeDiagnostic, ThemeKind } from "../../shared/theme-file";
 import { parseThemeFile } from "../../shared/theme-files";
+import { attentionConflicts } from "../../shared/user-interface-theme";
 import { ThemeValidationError, validThemeFile } from "../../shared/theme-validation";
 import { describe, effective, weakenings } from "./approval";
 import type { EffectiveConfig, Weakening } from "./approval";
@@ -30,6 +31,11 @@ export interface ConfigServiceDependencies {
   apply(values: ConfigSettings): void;
   /** The profile's digest of the settings file it last applied: the approval baseline. */
   baseline: { get(): string | null; set(value: string): Promise<void> };
+  /** The profile's digest of each interface theme file it last applied, by config path. */
+  themeBaseline: {
+    get(file: string): string | null;
+    set(file: string, value: string | null): Promise<void>;
+  };
   onStatus?(status: ConfigStatus): void;
   onThemeDecision?(): void;
   now?: () => number;
@@ -591,37 +597,56 @@ export class ConfigService {
     text: string,
     parsed: ParsedThemeFile,
   ): Promise<ParsedThemeFile | undefined> {
+    const kind = themeKind(file);
+    if (kind !== "theme" || parsed.kind !== "theme") {
+      this.appliedThemes.set(file, { text, parsed });
+      return parsed;
+    }
+    // Agents can commit in this folder, so a commit alone is never an approval baseline:
+    // only the version this profile last applied, matched by the digest it keeps.
     let previous = this.appliedThemes.get(file);
+    let committed: { text: string; parsed: ParsedThemeFile } | undefined;
     if (!previous) {
       const bytes = await this.committed(file);
       if (bytes)
         try {
           const oldText = decode(bytes);
-          const kind = themeKind(file);
-          if (kind) previous = { text: oldText, parsed: parseThemeFile(oldText, kind) };
+          committed = { text: oldText, parsed: parseThemeFile(oldText, kind) };
+          if (digest(bytes) === this.deps.themeBaseline.get(file)) previous = committed;
         } catch {
           /* Invalid history is never an approval baseline. */
         }
     }
-    const attentionWarnings = (value: ParsedThemeFile | undefined) =>
-      value?.kind === "theme"
-        ? (value.warnings ?? []).filter((warning) => warning.reason === "attention-distinctness")
-        : [];
-    const acceptedPaths = new Set(
-      attentionWarnings(previous?.parsed).map((warning) => warning.path),
-    );
+    const conflicts = (value: ParsedThemeFile | undefined) =>
+      value?.kind === "theme" ? attentionConflicts(value.theme) : [];
+    const approved = new Set(conflicts(previous?.parsed));
     const active = effective(this.deps.defaults, this.applied.values).interfaceTheme;
     if (
       active === `user:${file.slice("themes/".length)}` &&
-      attentionWarnings(parsed).some((warning) => !acceptedPaths.has(warning.path))
+      conflicts(parsed).some((conflict) => !approved.has(conflict))
     ) {
-      this.heldThemes.set(file, { text, previous: previous?.text ?? null });
-      if (previous) this.appliedThemes.set(file, previous);
-      return previous?.parsed;
+      // Keep it on restores a version with no conflicts: the approved one, or an
+      // unapproved commit that is safe anyway. Without one it leaves the theme instead.
+      const safe = committed && conflicts(committed.parsed).length === 0 ? committed.text : null;
+      this.heldThemes.set(file, { text, previous: previous?.text ?? safe });
+      if (previous) {
+        this.appliedThemes.set(file, previous);
+        return previous.parsed;
+      }
+      return safe === null ? undefined : committed?.parsed;
     }
+    await this.acceptTheme(file, text, parsed);
+    return parsed;
+  }
+
+  private async acceptTheme(file: string, text: string, parsed: ParsedThemeFile): Promise<void> {
     this.heldThemes.delete(file);
     this.appliedThemes.set(file, { text, parsed });
-    return parsed;
+    try {
+      await this.deps.themeBaseline.set(file, digest(text));
+    } catch {
+      /* An unrecorded baseline only means a later restart holds this palette again. */
+    }
   }
 
   private async themeSelectionWeakening(
@@ -672,6 +697,7 @@ export class ConfigService {
     if (bytes === null) {
       this.appliedThemes.delete(relative);
       this.heldThemes.delete(relative);
+      if (kind === "theme") await settle(this.deps.themeBaseline.set(relative, null), undefined);
       this.rejected.delete(relative);
       if (!entry) return;
       this.revertSubjects.delete(relative);
@@ -809,38 +835,40 @@ export class ConfigService {
 
   /** Settings UI writes go through the same file, so they appear in Recent changes too. */
   write(patch: ConfigSettings): Promise<void> {
-    return this.serial(async () => {
-      const text = `${JSON.stringify({ kind: "settings", ...this.applied.values, ...patch }, null, 2)}\n`;
-      let values: ConfigSettings;
-      try {
-        values = parseSettingsFile(text);
-      } catch {
-        throw new Error("This setting cannot be stored in the Foom config folder");
-      }
-      if (this.pending) {
-        this.record({
-          summary: "Held change replaced in Settings",
-          file: SETTINGS_FILE,
-          state: "rejected",
-          reason: "Replaced by a change in Settings",
-        });
-      }
-      await this.writeFile(SETTINGS_FILE, text);
-      const previous = this.applied.values;
-      await this.applyValues(text, values);
-      // Settings responds once the file is written and applied; the commit follows in
-      // order, from this write's own snapshot.
-      void this.serial(async () => {
-        await this.commitSettings(
-          previous,
-          await settle(this.headTree(), new Map<string, TreeEntry>()),
-          undefined,
-          { text, values },
-        );
-        await this.countUncommitted();
-        this.publish();
-      }).catch(ignore);
-    });
+    return this.serial(() => this.writeSettings(patch));
+  }
+
+  private async writeSettings(patch: ConfigSettings): Promise<void> {
+    const text = `${JSON.stringify({ kind: "settings", ...this.applied.values, ...patch }, null, 2)}\n`;
+    let values: ConfigSettings;
+    try {
+      values = parseSettingsFile(text);
+    } catch {
+      throw new Error("This setting cannot be stored in the Foom config folder");
+    }
+    if (this.pending) {
+      this.record({
+        summary: "Held change replaced in Settings",
+        file: SETTINGS_FILE,
+        state: "rejected",
+        reason: "Replaced by a change in Settings",
+      });
+    }
+    await this.writeFile(SETTINGS_FILE, text);
+    const previous = this.applied.values;
+    await this.applyValues(text, values);
+    // Settings responds once the file is written and applied; the commit follows in
+    // order, from this write's own snapshot.
+    void this.serial(async () => {
+      await this.commitSettings(
+        previous,
+        await settle(this.headTree(), new Map<string, TreeEntry>()),
+        undefined,
+        { text, values },
+      );
+      await this.countUncommitted();
+      this.publish();
+    }).catch(ignore);
   }
 
   /**
@@ -863,10 +891,10 @@ export class ConfigService {
           await this.scan();
           throw new Error("The file changed. Review the new change.");
         }
-        if (decision === "allow") {
-          const parsed = parseThemeFile(proposal.text, "theme");
-          this.appliedThemes.set(file, { text: proposal.text, parsed });
-        } else if (proposal.previous === null) await rm(this.path(file));
+        if (decision === "allow")
+          await this.acceptTheme(file, proposal.text, parseThemeFile(proposal.text, "theme"));
+        else if (proposal.previous === null)
+          await this.writeSettings({ interfaceTheme: this.deps.defaults.interfaceTheme });
         else await this.writeFile(file, proposal.previous);
         this.heldThemes.delete(file);
         await this.scan();

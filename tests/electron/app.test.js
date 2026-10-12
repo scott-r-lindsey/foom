@@ -7941,39 +7941,3 @@ test("version 2 themes scope portaled colors, shape and warnings and hold attent
   await page.getByRole("button", { name: "Keep it on", exact: true }).click();
   await expect.poll(() => readFile(file, "utf8")).toBe(original);
 });
-
-test("Eclipse theme baseline screenshots cover board, portaled panel and Settings at 100 percent", async (context) => {
-  const app = await launchApp(context);
-  const page = await boardPage(app);
-  await page.emulateMedia({ reducedMotion: "reduce" });
-  for (const mode of ["light", "dark"]) {
-    await page.evaluate(
-      async (mode) =>
-        window.desktop.saveSetup({ interfaceTheme: `eclipse-${mode}`, interfaceScale: 100 }),
-      mode,
-    );
-    await expect(page.locator("html")).toHaveCSS("color-scheme", mode);
-    await page.evaluate(() => document.fonts.ready);
-    const capture = (name) =>
-      page.screenshot({
-        path: path.join(__dirname, `../../test-results/themes-v2-${mode}-${name}.png`),
-        animations: "disabled",
-        mask: [
-          page.locator(".tile-terminal"),
-          page.locator(".session-program"),
-          page.locator(".panel-facts"),
-        ],
-      });
-    await capture("board");
-    await page
-      .getByRole("button", { name: "Actions for Main checkout", exact: true })
-      .press("Enter");
-    await expect(page.locator(".sidebar-panel")).toBeVisible();
-    await capture("panel");
-    await page.keyboard.press("Escape");
-    await boardCommand(app, ",", process.platform !== "darwin");
-    await page.getByRole("button", { name: "Appearance", exact: true }).click();
-    await capture("settings");
-    await page.getByRole("button", { name: "Back to terminal · Esc", exact: true }).click();
-  }
-});

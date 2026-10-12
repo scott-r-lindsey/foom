@@ -17,6 +17,8 @@ import type { AgentId } from "../../shared/agents";
 import type { Settings, SettingsPatch } from "../../shared/setup";
 
 const AGENTS: readonly AgentId[] = ["claude", "codex", "agy"];
+/** Twice the theme folder limit, so renames settle before old entries are removed. */
+const MAX_THEME_DIGESTS = 100;
 
 export const DEFAULT_SETTINGS: Settings = Object.freeze({
   setupComplete: false,
@@ -105,6 +107,8 @@ export class SettingsStore {
   private legacy: ConfigSettings | undefined;
   private migrated = false;
   private digest: string | null = null;
+  /** Digests of the interface theme files this profile last applied, by config path. */
+  private themeDigests: Readonly<Record<string, string>> = {};
   private writer: ConfigWriter | undefined;
 
   private constructor(private readonly file: string) {}
@@ -161,6 +165,18 @@ export class SettingsStore {
           const digest = state["configDigest"];
           store.digest =
             typeof digest === "string" && /^[0-9a-f]{64}$/.test(digest) ? digest : null;
+          const themes = state["themeDigests"];
+          if (record(themes)) {
+            const kept: Record<string, string> = {};
+            for (const [file, value] of Object.entries(themes).slice(0, MAX_THEME_DIGESTS))
+              if (
+                /^themes\/[^/]{1,200}$/.test(file) &&
+                typeof value === "string" &&
+                /^[0-9a-f]{64}$/.test(value)
+              )
+                kept[file] = value;
+            store.themeDigests = kept;
+          }
         } else {
           store.legacy = Object.fromEntries(
             CONFIG_SETTINGS.filter(
@@ -214,6 +230,23 @@ export class SettingsStore {
     this.settings = { ...this.settings, ...CONFIG_DEFAULTS, ...values };
   }
 
+  /** Digest of the theme file this profile last applied: that theme's approval baseline. */
+  themeDigest(file: string): string | null {
+    return Object.hasOwn(this.themeDigests, file) ? (this.themeDigests[file] ?? null) : null;
+  }
+
+  async setThemeDigest(file: string, digest: string | null): Promise<void> {
+    if (this.themeDigest(file) === digest) return;
+    const next: Record<string, string> = Object.fromEntries(
+      Object.entries(this.themeDigests).filter(([key]) => key !== file),
+    );
+    if (digest !== null) next[file] = digest;
+    if (Object.keys(next).length > MAX_THEME_DIGESTS) return;
+    await this.write(() => {
+      this.themeDigests = next;
+    });
+  }
+
   async setConfigDigest(digest: string): Promise<void> {
     if (digest === this.digest) return;
     await this.write(() => {
@@ -243,6 +276,7 @@ export class SettingsStore {
           settings: this.settings,
           migrated: this.migrated,
           digest: this.digest,
+          themeDigests: this.themeDigests,
           writer: this.writer,
           legacy: this.legacy,
         };
@@ -255,7 +289,14 @@ export class SettingsStore {
               temporary,
               JSON.stringify(
                 this.migrated
-                  ? { version: 2, settings: profileOnly(this.settings), configDigest: this.digest }
+                  ? {
+                      version: 2,
+                      settings: profileOnly(this.settings),
+                      configDigest: this.digest,
+                      ...(Object.keys(this.themeDigests).length
+                        ? { themeDigests: this.themeDigests }
+                        : {}),
+                    }
                   : { version: 1, settings: this.settings },
               ),
               { flag: "wx", mode: 0o600 },
@@ -268,6 +309,7 @@ export class SettingsStore {
           this.settings = snapshot.settings;
           this.migrated = snapshot.migrated;
           this.digest = snapshot.digest;
+          this.themeDigests = snapshot.themeDigests;
           this.writer = snapshot.writer;
           this.legacy = snapshot.legacy;
           throw error;
