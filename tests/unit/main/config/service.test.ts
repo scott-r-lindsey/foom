@@ -7,6 +7,8 @@ import { ConfigGit, prepareIsolation } from "../../../../src/main/config/git";
 import { OWNED_FILES, digest } from "../../../../src/main/config/layout";
 import { ConfigService, revertable } from "../../../../src/main/config/service";
 import type { ConfigServiceDependencies } from "../../../../src/main/config/service";
+import { ThemeLibrary } from "../../../../src/main/themes/library";
+import { parseThemeFile } from "../../../../src/shared/theme-files";
 import { DEFAULT_SETTINGS } from "../../../../src/main/setup/settings";
 import { interfaceThemes } from "../../../../src/shared/interface-themes";
 import type { ConfigSettings } from "../../../../src/shared/config";
@@ -741,4 +743,91 @@ test("warning counts belong to the applied commit, not a later version of the fi
     .changes.filter((change) => change.file === "themes/personal.json");
   expect(changes.find((change) => change.id === warned?.id)?.warnings).toBe(warned?.warnings);
   expect(changes.find((change) => change.id !== warned?.id)?.warnings).toBeUndefined();
+});
+
+test("file selection checks the warned palette retained after an invalid edit", async () => {
+  const f = await fixture();
+  await f.service.initialize();
+  const library = new ThemeLibrary(f.folder, undefined, (file, text, parsed) =>
+    f.service.reviewTheme(file, text, parsed),
+  );
+  try {
+    await library.initialize();
+    await f.write(
+      "themes/personal.json",
+      theme("Personal", {
+        ...palette.colors,
+        attention: palette.colors.ink,
+      }),
+    );
+    await library.reload();
+    await f.service.refresh();
+    const retained = library.snapshot().interface;
+    expect(retained).toHaveLength(1);
+    await f.write("themes/personal.json", "{");
+    await library.reload();
+    await f.service.refresh();
+    expect(library.snapshot().interface).toEqual(retained);
+    await f.settings({ interfaceTheme: "user:personal.json" });
+    expect((await f.service.refresh()).pending?.detail).toBe(
+      "interfaceTheme: attention-distinctness",
+    );
+    expect(f.applied.at(-1)?.interfaceTheme).not.toBe("user:personal.json");
+    await f.decide("keep");
+    expect(f.service.status().pending).toBeNull();
+    await f.settings({ interfaceTheme: "user:personal.json" });
+    await f.service.refresh();
+    await f.decide("allow");
+    expect(f.applied.at(-1)?.interfaceTheme).toBe("user:personal.json");
+  } finally {
+    library.dispose();
+  }
+});
+
+test("an accepted area warning does not approve a newly weakened area", async () => {
+  const f = await fixture();
+  await f.service.initialize();
+  const menu = { attention: palette.colors.ink };
+  const original = JSON.stringify({
+    version: 2,
+    name: "Personal",
+    base: palette.base,
+    colors: palette.colors,
+    areas: { menus: menu },
+  });
+  const proposed = JSON.stringify({
+    version: 2,
+    name: "Personal",
+    base: palette.base,
+    colors: palette.colors,
+    areas: { menus: menu, sidebar: menu },
+  });
+  await f.write("themes/personal.json", original);
+  await f.service.refresh();
+  await f.service.write({ interfaceTheme: "user:personal.json" });
+  await f.service.refresh();
+  const head = await f.git.head();
+  await f.write("themes/personal.json", proposed);
+  expect((await f.service.refresh()).pending?.file).toBe("themes/personal.json");
+  expect(await f.git.head()).toBe(head);
+  expect(
+    await f.service.reviewTheme(
+      "themes/personal.json",
+      proposed,
+      parseThemeFile(proposed, "theme"),
+    ),
+  ).toEqual(parseThemeFile(original, "theme"));
+  await f.decide("keep");
+  expect(await f.read("themes/personal.json")).toBe(original);
+  await f.write("themes/personal.json", proposed);
+  await f.service.refresh();
+  await f.decide("allow");
+  expect((await f.service.refresh()).pending).toBeNull();
+  expect(
+    await f.service.reviewTheme(
+      "themes/personal.json",
+      proposed,
+      parseThemeFile(proposed, "theme"),
+    ),
+  ).toEqual(parseThemeFile(proposed, "theme"));
 });

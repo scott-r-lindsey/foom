@@ -603,14 +603,17 @@ export class ConfigService {
           /* Invalid history is never an approval baseline. */
         }
     }
-    const distinct = (value: ParsedThemeFile | undefined) =>
-      value?.kind === "theme" &&
-      value.warnings?.some((warning) => warning.reason === "attention-distinctness");
+    const attentionWarnings = (value: ParsedThemeFile | undefined) =>
+      value?.kind === "theme"
+        ? (value.warnings ?? []).filter((warning) => warning.reason === "attention-distinctness")
+        : [];
+    const acceptedPaths = new Set(
+      attentionWarnings(previous?.parsed).map((warning) => warning.path),
+    );
     const active = effective(this.deps.defaults, this.applied.values).interfaceTheme;
     if (
       active === `user:${file.slice("themes/".length)}` &&
-      distinct(parsed) &&
-      !distinct(previous?.parsed)
+      attentionWarnings(parsed).some((warning) => !acceptedPaths.has(warning.path))
     ) {
       this.heldThemes.set(file, { text, previous: previous?.text ?? null });
       if (previous) this.appliedThemes.set(file, previous);
@@ -632,23 +635,24 @@ export class ConfigService {
     )
       return [];
     const file = `themes/${after.interfaceTheme.slice(5)}`;
+    let parsed = this.appliedThemes.get(file)?.parsed;
     try {
       const bytes = await this.read(file);
       if (!bytes) return [];
-      const parsed = parseThemeFile(decode(bytes), "theme");
-      if (
-        parsed.kind === "theme" &&
-        parsed.warnings?.some((warning) => warning.reason === "attention-distinctness")
-      )
-        return [
-          {
-            action: "use a theme where needs-you is hard to tell apart",
-            detail: "interfaceTheme: attention-distinctness",
-          },
-        ];
+      parsed = parseThemeFile(decode(bytes), "theme");
     } catch {
-      /* An invalid selection falls back to the current catalog. */
+      /* Invalid or unreadable edits retain the catalog's last accepted palette. */
     }
+    if (
+      parsed?.kind === "theme" &&
+      parsed.warnings?.some((warning) => warning.reason === "attention-distinctness")
+    )
+      return [
+        {
+          action: "use a theme where needs-you is hard to tell apart",
+          detail: "interfaceTheme: attention-distinctness",
+        },
+      ];
     return [];
   }
 
