@@ -268,6 +268,9 @@ test("location labels open their panels and leave terminal tiles unchanged; menu
   expect(feature.getAttribute("aria-expanded")).toBe("true");
   fireEvent.click(feature);
   expect(view.command).not.toHaveBeenCalled();
+  act(() => {
+    view.base.update("a", { exited: true });
+  });
   for (const [label, expected] of [
     ["Claude Code", { kind: "launch", repository: "/foom", worktree: "/tree", run: "claude" }],
     ["Shell (zsh)", { kind: "launch", repository: "/foom", worktree: "/tree", run: "shell" }],
@@ -396,6 +399,78 @@ test("creating moves focus to the arriving row, which settles on hover and on bl
     vi.useRealTimers();
   }
 });
+
+test("worktree deletion remains disabled when filtering hides its running session", async () => {
+  const original = sampleRows(0)[0];
+  if (!original) throw new Error("Missing fixture");
+  const row = {
+    ...original,
+    repository: "Foom",
+    repositoryPath: "/foom",
+    worktree: "/tree",
+    branch: "feature",
+  };
+  const base = createSampleSource([
+    { ...row, id: "exited", exited: true, reason: "Visible session" },
+    {
+      ...row,
+      id: "running",
+      exited: false,
+      kind: "shell",
+      agent: "shell",
+      reason: "Hidden session",
+    },
+  ]);
+  const source: BoardSource = { ...base, getSidebar: () => [repository] };
+  const view = render(<Board source={source} />);
+  fireEvent.change(view.getByLabelText("Filter repositories and sessions"), {
+    target: { value: "Visible session" },
+  });
+  expect(view.container.querySelectorAll(".board-row")).toHaveLength(1);
+  fireEvent.click(view.getByRole("button", { name: "Actions for feature" }));
+  const item = () => view.getByRole("menuitem", { name: "Delete worktree…" });
+  expect(item().hasAttribute("disabled")).toBe(true);
+  await act(async () => {
+    base.update("running", { exited: true });
+    await Promise.resolve();
+  });
+  expect(item().hasAttribute("disabled")).toBe(false);
+});
+
+test.each(["agent", "shell"] as const)(
+  "worktree deletion follows %s session exit state in an open panel",
+  async (kind) => {
+    const view = setup();
+    act(() => {
+      view.base.update("a", { kind });
+    });
+    fireEvent.click(view.getByRole("button", { name: "Actions for feature" }));
+    const item = () => view.getByRole("menuitem", { name: "Delete worktree…" });
+    expect(item().hasAttribute("disabled")).toBe(true);
+    fireEvent.click(item());
+    expect(view.command).not.toHaveBeenCalled();
+    act(() => {
+      view.base.update("a", { exited: true });
+    });
+    expect(item().hasAttribute("disabled")).toBe(false);
+    act(() => {
+      view.base.update("a", { exited: false });
+    });
+    expect(item().hasAttribute("disabled")).toBe(true);
+    act(() => {
+      view.base.update("a", { exited: true });
+    });
+    await act(async () => {
+      fireEvent.click(item());
+      await Promise.resolve();
+    });
+    expect(view.command).toHaveBeenCalledWith({
+      kind: "remove-worktree",
+      repository: "/foom",
+      worktree: "/tree",
+    });
+  },
+);
 
 test("running and exited sessions have distinct actions", async () => {
   const view = setup();

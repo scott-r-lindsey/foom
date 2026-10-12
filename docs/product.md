@@ -104,7 +104,7 @@ the field without prose. Checkout facts show
 branch, path, changes, upstream counts and last commit; linked worktrees also
 show merged state and creation origin. Detached rows show a short hash with a
 detached glyph, and panels say “Detached at <hash>”. **Delete worktree…** names
-the existing folder-removal action.
+the existing folder-removal action and is unavailable while a session runs there.
 
 The sidebar footer holds the tile presets, Tidy and a **Foom config** gear the
 size of a preset button. The gear replaces the Settings text button and opens a

@@ -325,7 +325,7 @@ test("focusing another row leaves the selected pane unchanged", async () => {
 test("board opens the launcher without routing typing to shortcuts and reports removal errors", async () => {
   const row = sampleRows(0)[0];
   if (!row) throw new Error("Missing sample");
-  const base = createSampleSource([{ ...row, kind: "shell", managed: true }]);
+  const base = createSampleSource([{ ...row, kind: "shell", managed: true, exited: true }]);
   const remove = vi.fn(() => Promise.reject(new Error("Worktree changed")));
   const source = {
     ...base,

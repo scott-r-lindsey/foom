@@ -251,15 +251,7 @@ export class Workspace {
           if (!tree || tree.path === repository) throw new Error("Worktree is unavailable");
           // removeTree holds the branch lock while it calls this, so no launch can slip in.
           const available = async () => {
-            if (
-              [...this.launched.values()].some(
-                (entry) =>
-                  entry.worktree === worktree &&
-                  !entry.dormant &&
-                  this.terminals.get(entry.id)?.exitCode === undefined,
-              )
-            )
-              throw new Error("A session is running in this worktree");
+            this.requireIdleWorktree(worktree);
             if ((await this.deps.worktrees.launchIdentity(repository, worktree)) !== identity)
               throw new Error("Worktree has changed");
           };
@@ -837,7 +829,41 @@ export class Workspace {
   ): Promise<boolean> {
     const entry = this.launched.get(id);
     if (!entry) throw new Error("Unknown worktree terminal");
-    return this.removeTree(entry.repository, entry.worktree, entry.branch, confirm);
+    return this.removeIdleTree(entry.repository, entry.worktree, entry.branch, confirm);
+  }
+
+  private hasRunningSession(worktree: string): boolean {
+    return [...this.launched.values()].some(
+      (entry) =>
+        entry.worktree === worktree &&
+        (this.restoring.has(entry.id) ||
+          (!entry.dormant && this.terminals.get(entry.id)?.exitCode === undefined)),
+    );
+  }
+
+  private requireIdleWorktree(worktree: string): void {
+    if (this.hasRunningSession(worktree)) throw new Error("A session is running in this worktree");
+  }
+
+  private async removeIdleTree(
+    repository: string,
+    worktree: string,
+    branch: string | null,
+    confirm: (branch: string, changes: string) => Promise<boolean>,
+  ): Promise<boolean> {
+    this.requireIdleWorktree(worktree);
+    return this.removeTree(
+      repository,
+      worktree,
+      branch,
+      (name, changes) => {
+        this.requireIdleWorktree(worktree);
+        return confirm(name, changes);
+      },
+      () => {
+        this.requireIdleWorktree(worktree);
+      },
+    );
   }
 
   private async removeTree(
@@ -845,7 +871,7 @@ export class Workspace {
     worktree: string,
     branch: string | null,
     confirm: (branch: string, changes: string) => Promise<boolean>,
-    revalidate?: () => Promise<void>,
+    revalidate?: () => void | Promise<void>,
     retainBranchLock = false,
   ): Promise<boolean> {
     const entry = { repository, worktree, branch };
@@ -857,6 +883,7 @@ export class Workspace {
       const identity = await this.deps.worktrees.removalIdentity(entry.repository, entry.worktree);
       const changes = await this.deps.worktrees.changes(entry.repository, entry.worktree, identity);
       if (!(await confirm(entry.branch ?? entry.worktree, changes))) return false;
+      await revalidate?.();
       if (
         (await this.deps.worktrees.changes(entry.repository, entry.worktree, identity)) !== changes
       )
@@ -1400,7 +1427,7 @@ export class Workspace {
     if (!tree) throw new Error("Worktree was removed. Choose another checkout.");
     if (tree.path === command.repository)
       throw new Error("Worktree is missing or is the main checkout");
-    await this.removeTree(command.repository, tree.path, tree.branch, (branch, changes) =>
+    await this.removeIdleTree(command.repository, tree.path, tree.branch, (branch, changes) =>
       confirm(
         changes
           ? { kind: "dirty-worktree", title: `Remove ${branch}?`, changes }

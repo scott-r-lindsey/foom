@@ -1081,6 +1081,12 @@ export function Sidebar({
                                             null,
                                             {
                                               label: "Delete worktree…",
+                                              disabled: rows.some(
+                                                (session) =>
+                                                  rowRepository(session) === target.repository &&
+                                                  rowWorktree(session) === target.worktree &&
+                                                  !session.exited,
+                                              ),
                                               glyph: "trash" as const,
                                               run: () => {
                                                 return command({
