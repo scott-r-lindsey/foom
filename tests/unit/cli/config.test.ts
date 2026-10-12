@@ -216,6 +216,7 @@ test("a folder Foom set up validates, including its repository, docs, schemas an
     defaults: configPart(DEFAULT_SETTINGS),
     apply: () => {},
     baseline: { get: () => null, set: () => Promise.resolve() },
+    themeBaseline: { get: () => null, set: () => Promise.resolve() },
     watch: () => ({ close: () => {} }),
   });
   await service.initialize({ terminalFontSize: 16 });
@@ -227,4 +228,32 @@ test("a folder Foom set up validates, including its repository, docs, schemas an
   expect((await validateConfig(folder)).problems).toEqual([
     { file: "notes.txt", path: "$", reason: "unsafe-file" },
   ]);
+});
+
+test("theme warnings print with fixed severity and exit successfully", async () => {
+  const root = await fixture();
+  const base = interfaceThemes["eclipse-dark"];
+  const file = await put(
+    root,
+    "personal.json",
+    JSON.stringify({ ...base, version: 2, colors: { ...base.colors, ink: "#ffb23e" } }),
+  );
+  const result = await validateConfig(file);
+  expect(result.code).toBe(0);
+  expect(result.problems).toContainEqual({
+    file: "personal.json",
+    path: "$.colors.ink",
+    reason: "reserved-color",
+    severity: "warning",
+  });
+  const out = vi.fn();
+  const io = {
+    out,
+    error: vi.fn(),
+    input: (async function* () {
+      yield await Promise.resolve("");
+    })(),
+  };
+  expect(await execute(["config", "validate", file], "1", io, {}, "/foom")).toBe(0);
+  expect(out).toHaveBeenCalledWith('"personal.json": $.colors.ink: warning: reserved-color\n');
 });

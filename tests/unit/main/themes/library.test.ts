@@ -49,17 +49,6 @@ test("loads namespaced palettes, disambiguates names, returns copies and retains
       "not-a-color",
     ],
     [
-      JSON.stringify({ ...valid(), colors: { ...valid().colors, accent: "#ffb23e" } }),
-      "reserved-color",
-    ],
-    [
-      JSON.stringify({
-        ...valid(),
-        colors: { ...valid().colors, highlight: "#ff2e88", "highlight-deep": "#7a3cff" },
-      }),
-      "reserved-color",
-    ],
-    [
       JSON.stringify({ ...valid(), colors: { ...valid().colors, ink: valid().colors.bg } }),
       "contrast",
     ],
@@ -223,4 +212,22 @@ test("retained unsafe replacements still consume a registry slot", async () => {
       expect.objectContaining({ reason: "too-many-files" }),
     ]),
   );
+});
+
+test("warning diagnostics stay bounded while every valid theme remains available", async () => {
+  const { folder, library } = await fixture();
+  for (let index = 0; index < 20; index++)
+    await writeFile(
+      join(folder, `warn-${String(index)}.json`),
+      JSON.stringify({
+        ...valid(),
+        version: 2,
+        colors: { ...valid().colors, ink: "#ffb23e" },
+        areas: { sidebar: {}, tiles: {}, panels: {}, dialogs: {}, menus: {} },
+      }),
+    );
+  await library.reload();
+  expect(library.snapshot().interface).toHaveLength(20);
+  expect(library.snapshot().errors).toHaveLength(100);
+  expect(library.snapshot().errors.every((entry) => entry.severity === "warning")).toBe(true);
 });

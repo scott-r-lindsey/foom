@@ -30,14 +30,14 @@
   display: block;
   padding: 5px 0;
   text-align: center;
-  border: 1px solid var(--line);
+  border: var(--shape-border, 1px) solid var(--line);
   background: var(--bg);
 }
 .appearance-mode label:first-of-type span {
-  border-radius: 5px 0 0 5px;
+  border-radius: var(--shape-radius, 5px) 0 0 var(--shape-radius, 5px);
 }
 .appearance-mode label:last-of-type span {
-  border-radius: 0 5px 5px 0;
+  border-radius: 0 var(--shape-radius, 5px) var(--shape-radius, 5px) 0;
 }
 .appearance-mode label + label span {
   border-left: 0;
@@ -48,7 +48,7 @@
   color: var(--bg);
 }
 .appearance-mode input:focus-visible + span {
-  outline: 2px solid var(--highlight);
+  outline: 2px solid var(--state-focus, var(--highlight));
   outline-offset: 2px;
 }
 .appearance-size {

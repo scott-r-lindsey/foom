@@ -15,8 +15,8 @@
   min-width: 0;
   min-height: 0;
   overflow: hidden;
-  border: 1px solid var(--line);
-  border-radius: 6px;
+  border: var(--shape-border, 1px) solid var(--line);
+  border-radius: var(--shape-panel-radius, 6px);
   background: var(--terminal-background, var(--bg));
   background-clip: padding-box;
   transition:
@@ -80,8 +80,8 @@
 .tile-number {
   flex-shrink: 0;
   font: 10px var(--font-mono);
-  border: 1px solid var(--line);
-  border-radius: 3px;
+  border: var(--shape-border, 1px) solid var(--line);
+  border-radius: var(--shape-radius, 3px);
   padding: 1px 3px;
   color: var(--muted);
 }

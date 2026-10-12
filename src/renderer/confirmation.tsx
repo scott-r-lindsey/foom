@@ -17,16 +17,27 @@ export function ConfirmationPage() {
   useEffect(() => window.confirmation.render(setRequest), []);
   useEffect(() => {
     if (!request) return;
-    for (const [key, color] of Object.entries(request.theme.colors))
+    const colors = { ...request.theme.colors, ...request.theme.areas?.dialogs };
+    for (const [key, color] of Object.entries(colors))
       document.documentElement.style.setProperty(`--${key}`, color);
-    document.documentElement.style.setProperty(
-      "--highlight",
-      request.theme.colors.highlight ?? request.theme.colors.accent,
-    );
+    document.documentElement.style.setProperty("--highlight", colors.highlight ?? colors.accent);
     document.documentElement.style.setProperty(
       "--highlight-deep",
-      request.theme.colors["highlight-deep"] ?? request.theme.colors["accent-deep"],
+      colors["highlight-deep"] ?? colors["accent-deep"],
     );
+    const style = document.documentElement.style;
+    for (const key of ["radius", "panel-radius", "border", "shadow"] as const) {
+      const value =
+        request.theme.shape?.[key] ??
+        (key === "panel-radius" ? request.theme.shape?.radius : undefined);
+      if (value === undefined) style.removeProperty(`--shape-${key}`);
+      else style.setProperty(`--shape-${key}`, `${String(value)}${key === "shadow" ? "" : "px"}`);
+    }
+    for (const key of ["selected", "hover", "focus", "scrollbar"] as const) {
+      const value = request.theme.states?.[key];
+      if (value === undefined) style.removeProperty(`--state-${key}`);
+      else style.setProperty(`--state-${key}`, value);
+    }
     document.documentElement.style.colorScheme = request.theme.base;
   }, [request]);
   const requestId = request?.id;

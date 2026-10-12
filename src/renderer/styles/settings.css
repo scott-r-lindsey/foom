@@ -3,7 +3,7 @@
   flex: 1;
   min-width: 0;
   min-height: 0;
-  border-left: 1px solid var(--line);
+  border-left: var(--shape-border, 1px) solid var(--line);
 }
 .settings-sections {
   flex: 0 0 170px;
@@ -11,7 +11,7 @@
   flex-direction: column;
   gap: 6px;
   padding: 20px 12px;
-  border-right: 1px solid var(--line);
+  border-right: var(--shape-border, 1px) solid var(--line);
   overflow: auto;
 }
 .settings-sections h2 {
@@ -70,8 +70,8 @@
 }
 .settings-terminal-preview {
   background: var(--surface);
-  border: 1px solid var(--line);
-  border-radius: 8px;
+  border: var(--shape-border, 1px) solid var(--line);
+  border-radius: var(--shape-panel-radius, 8px);
   padding: 20px;
   overflow: auto;
   font-family: var(--font-terminal);
@@ -86,7 +86,7 @@
     flex-wrap: wrap;
     padding: 12px;
     border-right: 0;
-    border-bottom: 1px solid var(--line);
+    border-bottom: var(--shape-border, 1px) solid var(--line);
   }
   .settings-sections h2 {
     width: 100%;
@@ -174,7 +174,7 @@
   text-align: left;
 }
 .interface-theme-choices button[aria-pressed="true"] {
-  outline: 2px solid var(--highlight);
+  outline: 2px solid var(--state-focus, var(--highlight));
   outline-offset: 2px;
 }
 .theme-description {
@@ -185,8 +185,8 @@
   display: flex;
   height: 20px;
   overflow: hidden;
-  border: 1px solid var(--line);
-  border-radius: 4px;
+  border: var(--shape-border, 1px) solid var(--line);
+  border-radius: var(--shape-radius, 4px);
 }
 .interface-theme-swatches i {
   flex: 1;
@@ -195,8 +195,8 @@
   padding: 16px;
   background: var(--bg);
   color: var(--ink);
-  border: 1px solid var(--line);
-  border-radius: 8px;
+  border: var(--shape-border, 1px) solid var(--line);
+  border-radius: var(--shape-panel-radius, 8px);
 }
 .interface-theme-preview h3 {
   margin: 0 0 14px;
@@ -228,8 +228,8 @@
   align-content: start;
   gap: 16px;
   padding: 20px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
+  border: var(--shape-border, 1px) solid var(--line);
+  border-radius: var(--shape-panel-radius, 8px);
   background: var(--surface);
 }
 .sound-panel h3 {
@@ -276,8 +276,8 @@
   padding: 10px;
   color: var(--ink);
   background: var(--bg);
-  border: 1px solid var(--line);
-  border-radius: 6px;
+  border: var(--shape-border, 1px) solid var(--line);
+  border-radius: var(--shape-radius, 6px);
   font-family: var(--font-mono);
 }
 .agent-defaults button {
@@ -318,8 +318,8 @@
   gap: 14px;
   padding: 14px 16px;
   background: var(--surface);
-  border: 1px solid var(--attention);
-  border-radius: 8px;
+  border: var(--shape-border, 1px) solid var(--attention);
+  border-radius: var(--shape-panel-radius, 8px);
 }
 .config-pending > div {
   flex: 1;
@@ -339,8 +339,8 @@
   margin: 0;
   padding: 0;
   list-style: none;
-  border: 1px solid var(--line);
-  border-radius: 8px;
+  border: var(--shape-border, 1px) solid var(--line);
+  border-radius: var(--shape-panel-radius, 8px);
   overflow: hidden;
 }
 .config-change {
@@ -351,7 +351,7 @@
   background: var(--surface);
 }
 .config-change + .config-change {
-  border-top: 1px solid var(--line);
+  border-top: var(--shape-border, 1px) solid var(--line);
 }
 .config-change time {
   width: 34px;
@@ -378,7 +378,7 @@
   background: var(--done, var(--muted));
 }
 .config-change[data-state="rejected"] .config-light {
-  border-radius: 1px;
+  border-radius: var(--shape-radius, 1px);
   background: var(--failed);
 }
 .config-change[data-state="rejected"] .config-status {

@@ -1,3 +1,8 @@
+import {
+  interfaceAreas,
+  interfaceStates,
+  interfaceShapeBounds,
+} from "../../shared/user-interface-theme";
 import { createHash } from "node:crypto";
 import { interfaceColorNames, interfaceThemes } from "../../shared/interface-themes";
 import { SCALES } from "../../shared/config-settings";
@@ -85,13 +90,14 @@ const settingsSchema = schema("foom:settings", {
   },
 });
 
-const themeSchema = schema("foom:theme", {
+const legacyThemeBody = {
   title: "Foom interface theme",
   type: "object",
   additionalProperties: false,
   required: ["kind", "name", "base", "colors"],
   properties: {
     kind: { const: "theme" },
+    version: { const: 1 },
     name,
     base: { enum: ["light", "dark"] },
     colors: {
@@ -104,6 +110,60 @@ const themeSchema = schema("foom:theme", {
       ),
     },
   },
+};
+
+const areaColors = {
+  type: "object",
+  additionalProperties: false,
+  properties: Object.fromEntries(
+    [...interfaceColorNames, "highlight", "highlight-deep"].map((key) => [key, color]),
+  ),
+};
+const themeSchema = schema("foom:theme", {
+  title: "Foom interface theme",
+  oneOf: [
+    {
+      ...legacyThemeBody,
+      required: ["name", "base", "colors"],
+      anyOf: [{ required: ["kind"] }, { required: ["version"] }],
+    },
+    {
+      type: "object",
+      additionalProperties: false,
+      required: ["version", "name", "base", "colors"],
+      properties: {
+        kind: { const: "theme" },
+        version: { const: 2 },
+        name,
+        base: { enum: ["light", "dark"] },
+        colors: {
+          ...areaColors,
+          required: interfaceColorNames,
+          dependentRequired: { highlight: ["highlight-deep"], "highlight-deep": ["highlight"] },
+        },
+        areas: {
+          type: "object",
+          additionalProperties: false,
+          properties: Object.fromEntries(interfaceAreas.map((area) => [area, areaColors])),
+        },
+        states: {
+          type: "object",
+          additionalProperties: false,
+          properties: Object.fromEntries(interfaceStates.map((key) => [key, color])),
+        },
+        shape: {
+          type: "object",
+          additionalProperties: false,
+          properties: Object.fromEntries(
+            Object.entries(interfaceShapeBounds).map(([key, maximum]) => [
+              key,
+              { type: "number", minimum: 0, maximum },
+            ]),
+          ),
+        },
+      },
+    },
+  ],
 });
 
 const terminalThemeSchema = schema("foom:terminal-theme", {
@@ -168,7 +228,14 @@ These are set in Foom's Settings window, not here. Tell the user exactly what to
 - Changes that make Foom less able to tell the user something needs them wait for the
   user's approval: turning alerts off, setting the alert volume to 0, turning hooks
   off, turning an agent off, or enabling restoreSessions (which can restore orchestrator control). Do not try to work around this.
-- Themes, sizes and turning sounds on apply without approval.
+- User themes may use version 2 with optional areas (sidebar, tiles, panels, dialogs,
+  menus), states (selected, hover, focus, scrollbar), and shape (radius 0–12,
+  panel-radius 0–16, border 0–2 px, shadow 0–1). Colors are six-digit hex only.
+  Area colors override global colors. Text contrast must remain at least 4.5:1
+  within every area. Brand deviations apply with warnings, printed by the CLI.
+- A file edit that newly makes needs-you hard to distinguish in the active theme,
+  or selects such a theme, waits for approval. Hue-only warnings do not wait.
+  Sizes and turning sounds on apply without approval.
 - Foom commits applied changes itself. Do not rewrite history.
 - Foom owns this guide, AGENTS.md, CLAUDE.md, .gitignore and schemas/. It refreshes
   them on upgrade unless you have edited them.
@@ -197,17 +264,21 @@ export const OWNED_FILES: Readonly<Record<string, string>> = {
  */
 export const OWNED_HISTORY: Readonly<Record<string, readonly string[]>> = {
   "README.md": [
+    "205d3cac8e70f43434c221c43f8611ba846c580084e3b6b2a53d9a966e410810",
     "35a362caf6cfdec503b113efd0b66a6b89be3dc835b597e39f1fb8679b20875f",
     "878a20cc974fb5cee577361660f8153f9adbcb3ca815ee5fc4eca26047b8d858",
   ],
   "AGENTS.md": [
+    "205d3cac8e70f43434c221c43f8611ba846c580084e3b6b2a53d9a966e410810",
     "35a362caf6cfdec503b113efd0b66a6b89be3dc835b597e39f1fb8679b20875f",
     "878a20cc974fb5cee577361660f8153f9adbcb3ca815ee5fc4eca26047b8d858",
   ],
   "CLAUDE.md": [
+    "205d3cac8e70f43434c221c43f8611ba846c580084e3b6b2a53d9a966e410810",
     "35a362caf6cfdec503b113efd0b66a6b89be3dc835b597e39f1fb8679b20875f",
     "878a20cc974fb5cee577361660f8153f9adbcb3ca815ee5fc4eca26047b8d858",
   ],
+  "schemas/theme.schema.json": ["831094a9c9c8c13c87ab7ff227b70803dcd3a9f9f59b6f1cc352f67b43a8e1cc"],
   "schemas/settings.schema.json": [
     "e975ab7aba189e009bbcd16becb6c096679dc5c46017d585a46cbda130af804e",
   ],

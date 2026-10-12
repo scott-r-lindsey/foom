@@ -42,11 +42,21 @@ test("focuses Cancel for every request, traps Tab, and renders untrusted content
     changes: "?? <img src=x>\0",
     detail: "<script>disclosure</script>",
     accept: "Discard 1 change and remove",
-    theme: resolveInterfaceTheme("follow", false),
+    theme: {
+      ...resolveInterfaceTheme("follow", false),
+      version: 2,
+      areas: { dialogs: { ink: "#010203" } },
+      states: { focus: "#223344" },
+      shape: { radius: 0, shadow: 0.4 },
+    },
   };
   act(() => {
     receive(request);
   });
+  expect(document.documentElement.style.getPropertyValue("--ink")).toBe("#010203");
+  expect(document.documentElement.style.getPropertyValue("--shape-radius")).toBe("0px");
+  expect(document.documentElement.style.getPropertyValue("--shape-shadow")).toBe("0.4");
+  expect(document.documentElement.style.getPropertyValue("--state-focus")).toBe("#223344");
   expect(view.getByRole("alertdialog").textContent).toContain("<img src=x>");
   expect(view.container.querySelector("img")).toBeNull();
   expect(view.getByText("<script>disclosure</script>")).toBeTruthy();

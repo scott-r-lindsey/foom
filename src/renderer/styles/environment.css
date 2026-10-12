@@ -26,7 +26,7 @@
   font: 600 13px var(--font-interface);
 }
 .environment-rows {
-  border-top: 1px solid var(--line);
+  border-top: var(--shape-border, 1px) solid var(--line);
 }
 .environment-row {
   display: grid;
@@ -34,15 +34,15 @@
   align-items: center;
   gap: 6px;
   padding: 3px 0;
-  border-bottom: 1px solid var(--line);
+  border-bottom: var(--shape-border, 1px) solid var(--line);
 }
 .environment-row input {
   width: 100%;
   height: 30px;
   padding: 0 8px;
   background: transparent;
-  border: 1px solid transparent;
-  border-radius: 5px;
+  border: var(--shape-border, 1px) solid transparent;
+  border-radius: var(--shape-radius, 5px);
   font: 12px var(--font-mono);
 }
 .environment-row input:hover {
@@ -145,7 +145,7 @@
   content: "";
   width: 7px;
   height: 7px;
-  border-radius: 1px;
+  border-radius: var(--shape-radius, 1px);
   background: var(--failed);
 }
 .environment-reading {
@@ -156,8 +156,8 @@
   margin: -8px 0 24px;
   padding: 14px 16px;
   background: var(--surface);
-  border: 1px solid var(--line);
-  border-radius: 8px;
+  border: var(--shape-border, 1px) solid var(--line);
+  border-radius: var(--shape-panel-radius, 8px);
 }
 .environment-pick {
   display: grid;

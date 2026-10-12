@@ -38,14 +38,14 @@
   display: inline-flex;
   align-items: center;
   line-height: 1;
-  border-radius: 6px;
+  border-radius: var(--shape-radius, 6px);
   font: 12px / 1 var(--font-mono);
 }
 .preflight button.chip {
   padding: 0 7px;
   color: var(--badge-ink);
   background: var(--badge-fill);
-  border: 1px solid transparent;
+  border: var(--shape-border, 1px) solid transparent;
   cursor: help;
 }
 .preflight button.chip:not(.chip-signal):hover {
@@ -87,8 +87,8 @@
 .agy-plugin {
   margin: 16px 0;
   padding: 12px 16px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
+  border: var(--shape-border, 1px) solid var(--line);
+  border-radius: var(--shape-panel-radius, 8px);
   overflow-wrap: anywhere;
 }
 .agy-plugin p {

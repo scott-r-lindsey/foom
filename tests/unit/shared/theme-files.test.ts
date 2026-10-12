@@ -16,7 +16,7 @@ test("built-in interface palettes pass the file gate", () => {
         JSON.stringify({ kind: "theme", name: theme.name, base: theme.base, colors: theme.colors }),
         "theme",
       ),
-    ).toEqual({ kind: "theme", theme });
+    ).toMatchObject({ kind: "theme", theme });
 });
 test("built-in terminal palettes pass the portable ANSI file gate", () => {
   for (const theme of Object.values(terminalThemes)) {
@@ -48,7 +48,6 @@ test.each([
   [JSON.stringify({ ...valid(), name: "<script>" }), "invalid-value", "$.name"],
   [JSON.stringify({ ...valid(), name: " " }), "invalid-value", "$.name"],
   [JSON.stringify({ ...valid(), base: "other" }), "invalid-value", "$.base"],
-  [JSON.stringify({ ...valid(), base: "light" }), "invalid-value", "$.base"],
   [JSON.stringify({ ...valid(), colors: null }), "invalid-value", "$.colors"],
   [
     JSON.stringify({ ...valid(), colors: { ...valid().colors, extra: "#000000" } }),
@@ -61,21 +60,6 @@ test.each([
     "not-a-color",
     "$.colors.accent",
   ]),
-  ...["#ffb23e", "#ff2e88"].flatMap((color) =>
-    ["accent", "highlight"].map((key) => [
-      JSON.stringify({
-        ...valid(),
-        colors: {
-          ...valid().colors,
-          highlight: "#9b6bff",
-          "highlight-deep": "#7a3cff",
-          [key]: color,
-        },
-      }),
-      "reserved-color",
-      `$.colors.${key}`,
-    ]),
-  ),
   [
     JSON.stringify({ ...valid(), colors: { ...valid().colors, ink: "#05040a" } }),
     "contrast",
