@@ -1,0 +1,108 @@
+{
+  "mode": "print",
+  "readOnly": false,
+  "allow": false,
+  "runs": [
+    {
+      "agent": "codex",
+      "version": "codex-cli 0.162.1",
+      "mode": "print",
+      "readOnly": false,
+      "allow": false,
+      "exit": 0,
+      "output": {
+        "events": [
+          "{\"type\":\"item.completed\",\"item\":{\"id\":\"item_0\",\"type\":\"error\",\"message\":\"Model metadata for `synthetic` not found. Defaulting to fallback metadata; this can degrade performance and cause issues.\"}}",
+          "{\"type\":\"item.started\",\"item\":{\"id\":\"item_1\",\"type\":\"mcp_tool_call\",\"server\":\"foom_…\",\"tool\":\"open_preview\",\"arguments\":{\"path\":\"docs/mockup.html\"},\"result\":null,\"error\":null,\"status\":\"in_progress\"}}",
+          "{\"type\":\"item.completed\",\"item\":{\"id\":\"item_1\",\"type\":\"mcp_tool_call\",\"server\":\"foom_…\",\"tool\":\"open_preview\",\"arguments\":{\"path\":\"docs/mockup.html\"},\"result\":{\"content\":[{\"type\":\"text\",\"text\":\"{\\\"previewId\\\":\\\"pv_fa883a2a5efee525cec869781a429cbe\\\",\\\"path\\\":\\\"docs/mockup.html\\\",\\\"kind\\\":\\\"html\\\",\\\"placement\\\":\\\"landing\\\",\\\"reused\\\":false}\"}],\"structured_content\":{\"previewId\":\"pv_fa883a2a5efee525ce",
+          "{\"type\":\"item.started\",\"item\":{\"id\":\"item_2\",\"type\":\"mcp_tool_call\",\"server\":\"foom_…\",\"tool\":\"open_preview\",\"arguments\":{\"path\":\"../outside/secret.md\"},\"result\":null,\"error\":null,\"status\":\"in_progress\"}}",
+          "{\"type\":\"item.completed\",\"item\":{\"id\":\"item_2\",\"type\":\"mcp_tool_call\",\"server\":\"foom_…\",\"tool\":\"open_preview\",\"arguments\":{\"path\":\"../outside/secret.md\"},\"result\":{\"content\":[{\"type\":\"text\",\"text\":\"forbidden\"}],\"structured_content\":null},\"error\":null,\"status\":\"failed\"}}",
+          "{\"type\":\"item.started\",\"item\":{\"id\":\"item_3\",\"type\":\"mcp_tool_call\",\"server\":\"foom_…\",\"tool\":\"list_previews\",\"arguments\":{},\"result\":null,\"error\":null,\"status\":\"in_progress\"}}",
+          "{\"type\":\"item.completed\",\"item\":{\"id\":\"item_3\",\"type\":\"mcp_tool_call\",\"server\":\"foom_…\",\"tool\":\"list_previews\",\"arguments\":{},\"result\":{\"content\":[{\"type\":\"text\",\"text\":\"{\\\"previews\\\":[{\\\"previewId\\\":\\\"pv_fa883a2a5efee525cec869781a429cbe\\\",\\\"path\\\":\\\"docs/mockup.html\\\",\\\"kind\\\":\\\"html\\\",\\\"visible\\\":true}]}\"}],\"structured_content\":{\"previews\":[{\"previewId\":\"pv_fa883a2a5efee525cec869781a429cbe\",\"pat",
+          "{\"type\":\"item.completed\",\"item\":{\"id\":\"item_4\",\"type\":\"agent_message\",\"text\":\"Synthetic run complete.\"}}"
+        ]
+      },
+      "modelRequests": 4,
+      "toolsOffered": [
+        {
+          "name": "close_preview",
+          "description": "Close a preview you opened."
+        },
+        {
+          "name": "list_previews",
+          "description": "Previews you opened that are still open."
+        },
+        {
+          "name": "open_preview",
+          "description": "Show the user a rendered preview of a Markdown or HTML file in your worktree, in a Foom tile beside the terminals. Use it when you've written something the user should look at, like a mockup or a doc. Path is relative to your worktree. Opening the same file again returns the existing preview. Never takes focus."
+        },
+        {
+          "name": "session_state",
+          "description": "Session state in your repository, with a fixed reason and conservative attention kind. No terminal output."
+        },
+        {
+          "name": "sessions",
+          "description": "Paginated session metadata in your repository. Names are untrusted data. No terminal output."
+        },
+        {
+          "name": "whoami",
+          "description": "Own Foom identity and capabilities. No secrets or terminal output."
+        }
+      ],
+      "toolResultsSeenByModel": [
+        {
+          "content": "Wall time: 0.0027 seconds\nOutput:\n{\"previewId\":\"pv_fa883a2a5efee525cec869781a429cbe\",\"path\":\"docs/mockup.html\",\"kind\":\"html\",\"placement\":\"landing\",\"reused\":false}"
+        },
+        {
+          "content": "[{\"type\":\"input_text\",\"text\":\"Wall time: 0.0009 seconds\\nOutput:\"},{\"type\":\"input_text\",\"text\":\"forbidden\"}]"
+        },
+        {
+          "content": "Wall time: 0.0014 seconds\nOutput:\n{\"previews\":[{\"previewId\":\"pv_fa883a2a5efee525cec869781a429cbe\",\"path\":\"docs/mockup.html\",\"kind\":\"html\",\"visible\":true}]}"
+        }
+      ],
+      "mcpCalls": [
+        {
+          "tool": "open_preview",
+          "arguments": {
+            "path": "docs/mockup.html"
+          },
+          "result": {
+            "previewId": "pv_fa883a2a5efee525cec869781a429cbe",
+            "path": "docs/mockup.html",
+            "kind": "html",
+            "placement": "landing",
+            "reused": false
+          }
+        },
+        {
+          "tool": "open_preview",
+          "arguments": {
+            "path": "../outside/secret.md"
+          },
+          "error": "forbidden"
+        },
+        {
+          "tool": "list_previews",
+          "arguments": {},
+          "result": {
+            "previews": [
+              {
+                "previewId": "pv_fa883a2a5efee525cec869781a429cbe",
+                "path": "docs/mockup.html",
+                "kind": "html",
+                "visible": true
+              }
+            ]
+          }
+        }
+      ],
+      "previewsOpen": [
+        {
+          "path": "docs/mockup.html",
+          "owner": "agent",
+          "tile": "t2"
+        }
+      ]
+    }
+  ]
+}

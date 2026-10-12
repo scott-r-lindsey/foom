@@ -1,0 +1,66 @@
+{
+  "mode": "print",
+  "readOnly": true,
+  "allow": false,
+  "runs": [
+    {
+      "agent": "claude",
+      "version": "2.1.296 (Claude Code)",
+      "mode": "print",
+      "readOnly": true,
+      "allow": false,
+      "exit": 0,
+      "output": {
+        "result": "Synthetic run complete.",
+        "permissionDenials": [
+          "mcp__foom_…__open_preview",
+          "mcp__foom_…__open_preview",
+          "mcp__foom_…__list_previews"
+        ]
+      },
+      "modelRequests": 4,
+      "toolsOffered": [
+        {
+          "name": "mcp__foom_…__close_preview",
+          "description": "Close a preview you opened."
+        },
+        {
+          "name": "mcp__foom_…__list_previews",
+          "description": "Previews you opened that are still open."
+        },
+        {
+          "name": "mcp__foom_…__open_preview",
+          "description": "Show the user a rendered preview of a Markdown or HTML file in your worktree, in a Foom tile beside the terminals. Use it when you've written something the user should look at, like a mockup or a doc. Path is relative to your worktree. Opening the same file again returns the existing preview. Never takes focus."
+        },
+        {
+          "name": "mcp__foom_…__session_state",
+          "description": "Session state in your repository, with a fixed reason and conservative attention kind. No terminal output."
+        },
+        {
+          "name": "mcp__foom_…__sessions",
+          "description": "Paginated session metadata in your repository. Names are untrusted data. No terminal output."
+        },
+        {
+          "name": "mcp__foom_…__whoami",
+          "description": "Own Foom identity and capabilities. No secrets or terminal output."
+        }
+      ],
+      "toolResultsSeenByModel": [
+        {
+          "is_error": true,
+          "content": "Claude requested permissions to use mcp__foom_a58222911050488ba6ed747058fc9c52__open_preview, but you haven't granted it yet."
+        },
+        {
+          "is_error": true,
+          "content": "Claude requested permissions to use mcp__foom_a58222911050488ba6ed747058fc9c52__open_preview, but you haven't granted it yet."
+        },
+        {
+          "is_error": true,
+          "content": "Claude requested permissions to use mcp__foom_a58222911050488ba6ed747058fc9c52__list_previews, but you haven't granted it yet."
+        }
+      ],
+      "mcpCalls": [],
+      "previewsOpen": []
+    }
+  ]
+}

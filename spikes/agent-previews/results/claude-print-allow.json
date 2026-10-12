@@ -1,0 +1,103 @@
+{
+  "mode": "print",
+  "readOnly": true,
+  "allow": true,
+  "runs": [
+    {
+      "agent": "claude",
+      "version": "2.1.296 (Claude Code)",
+      "mode": "print",
+      "readOnly": true,
+      "allow": true,
+      "exit": 0,
+      "output": {
+        "result": "Synthetic run complete.",
+        "permissionDenials": []
+      },
+      "modelRequests": 4,
+      "toolsOffered": [
+        {
+          "name": "mcp__foom_…__close_preview",
+          "description": "Close a preview you opened."
+        },
+        {
+          "name": "mcp__foom_…__list_previews",
+          "description": "Previews you opened that are still open."
+        },
+        {
+          "name": "mcp__foom_…__open_preview",
+          "description": "Show the user a rendered preview of a Markdown or HTML file in your worktree, in a Foom tile beside the terminals. Use it when you've written something the user should look at, like a mockup or a doc. Path is relative to your worktree. Opening the same file again returns the existing preview. Never takes focus."
+        },
+        {
+          "name": "mcp__foom_…__session_state",
+          "description": "Session state in your repository, with a fixed reason and conservative attention kind. No terminal output."
+        },
+        {
+          "name": "mcp__foom_…__sessions",
+          "description": "Paginated session metadata in your repository. Names are untrusted data. No terminal output."
+        },
+        {
+          "name": "mcp__foom_…__whoami",
+          "description": "Own Foom identity and capabilities. No secrets or terminal output."
+        }
+      ],
+      "toolResultsSeenByModel": [
+        {
+          "is_error": false,
+          "content": "{\"previewId\":\"pv_0f5e07813bbcc5caad6b88514f761607\",\"path\":\"docs/mockup.html\",\"kind\":\"html\",\"placement\":\"landing\",\"reused\":false}"
+        },
+        {
+          "is_error": true,
+          "content": "forbidden"
+        },
+        {
+          "is_error": false,
+          "content": "{\"previews\":[{\"previewId\":\"pv_0f5e07813bbcc5caad6b88514f761607\",\"path\":\"docs/mockup.html\",\"kind\":\"html\",\"visible\":true}]}"
+        }
+      ],
+      "mcpCalls": [
+        {
+          "tool": "open_preview",
+          "arguments": {
+            "path": "docs/mockup.html"
+          },
+          "result": {
+            "previewId": "pv_0f5e07813bbcc5caad6b88514f761607",
+            "path": "docs/mockup.html",
+            "kind": "html",
+            "placement": "landing",
+            "reused": false
+          }
+        },
+        {
+          "tool": "open_preview",
+          "arguments": {
+            "path": "../outside/secret.md"
+          },
+          "error": "forbidden"
+        },
+        {
+          "tool": "list_previews",
+          "arguments": {},
+          "result": {
+            "previews": [
+              {
+                "previewId": "pv_0f5e07813bbcc5caad6b88514f761607",
+                "path": "docs/mockup.html",
+                "kind": "html",
+                "visible": true
+              }
+            ]
+          }
+        }
+      ],
+      "previewsOpen": [
+        {
+          "path": "docs/mockup.html",
+          "owner": "agent",
+          "tile": "t2"
+        }
+      ]
+    }
+  ]
+}
