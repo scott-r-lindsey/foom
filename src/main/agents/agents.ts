@@ -1,6 +1,6 @@
 import { meetsMinimum } from "./version";
 import { AgyPlugin } from "./agy-plugin";
-import { cliGuidance, initialPrompt, ORCHESTRATOR_PROMPT } from "./cli-launch";
+import { cliGuidance, CONFIG_PROMPT, initialPrompt, ORCHESTRATOR_PROMPT } from "./cli-launch";
 import { prepareMcpLaunch, supportsMcp } from "./mcp-launch";
 import { codexHookArguments } from "./codex-hooks";
 import { resumeArguments } from "./conversation";
@@ -306,6 +306,11 @@ export class AgentService {
       args.push(
         ...(orchestrator && agent.id !== "agy" ? ["--", ORCHESTRATOR_PROMPT] : prompt.positional),
       );
+      if (config !== undefined && request.conversationId === undefined) {
+        if (agent.id !== "agy") args.push("--", CONFIG_PROMPT);
+        else if (agent.cliGuidance)
+          args.splice(0, args.length, ...cliGuidance(args, false, CONFIG_PROMPT));
+      }
       const environment = buildLaunchEnvironment({
         layers: request.environment ?? [],
         base: inheritedEnvironment(),

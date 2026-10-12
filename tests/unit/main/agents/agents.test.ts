@@ -1,3 +1,4 @@
+import { CONFIG_PROMPT } from "../../../../src/main/agents/cli-launch";
 import { AgyPlugin } from "../../../../src/main/agents/agy-plugin";
 import { ChildProcess, execFile } from "node:child_process";
 import { statSync } from "node:fs";
@@ -888,4 +889,79 @@ it("refuses orchestrators without a control binding or Antigravity prompt suppor
   await expect(
     service.launch({ ...request, agent: "agy", control: { role: "orchestrator" } }),
   ).rejects.toThrow("initial prompt support");
+});
+
+it.each(["claude", "codex", "agy"] as const)(
+  "greets fresh %s config sessions after options and skips resumed greetings",
+  async (agent) => {
+    help += "\n--prompt-interactive <prompt>\n--no-alt-screen";
+    const launch = {
+      ...request,
+      agent,
+      configCli: "/app/console",
+      defaultArguments: ["--model", "literal $(text)"],
+      acknowledgeCodexNotifierReplacement: true,
+    };
+    await service.launch(launch);
+    const args = create.mock.calls.at(-1)?.[0].args;
+    expect(args?.slice(-2)).toEqual([
+      agent === "agy" ? "--prompt-interactive" : "--",
+      CONFIG_PROMPT,
+    ]);
+    expect(args?.slice(0, 2)).toEqual(launch.defaultArguments);
+    service.release("terminal-id");
+    await service.launch({ ...launch, conversationId: "saved-id" });
+    expect(create.mock.calls.at(-1)?.[0].args).not.toContain(CONFIG_PROMPT);
+    expect(create.mock.calls.at(-1)?.[0].args).toContain("saved-id");
+  },
+);
+
+it.each([true, false])(
+  "Antigravity config greeting support=%s preserves defaults",
+  async (supported) => {
+    if (supported) help += "\n--prompt-interactive <prompt>";
+    const defaults = [
+      "--model",
+      "literal $(text)",
+      "-i",
+      "first",
+      "--prompt-interactive=second",
+      "-i=third",
+    ];
+    await service.launch({
+      ...request,
+      agent: "agy",
+      configCli: "/app/console",
+      defaultArguments: defaults,
+    });
+    expect(create.mock.calls.at(-1)?.[0].args).toEqual(
+      supported
+        ? [
+            "--model",
+            "literal $(text)",
+            "--prompt-interactive",
+            `first\n\nsecond\n\nthird\n\n${CONFIG_PROMPT}`,
+          ]
+        : defaults,
+    );
+  },
+);
+
+it("rejects a missing Antigravity config interactive prompt without spawning and cleans hooks", async () => {
+  help += "\n--prompt-interactive <prompt>";
+  const status = vi.spyOn(AgyPlugin.prototype, "status").mockResolvedValue({ state: "installed" });
+  try {
+    await expect(
+      service.launch({
+        ...request,
+        agent: "agy",
+        configCli: "/app/console",
+        defaultArguments: ["-i"],
+      }),
+    ).rejects.toThrow("missing its value");
+    expect(create).not.toHaveBeenCalled();
+    expect(cleanup).toHaveBeenCalledOnce();
+  } finally {
+    status.mockRestore();
+  }
 });
