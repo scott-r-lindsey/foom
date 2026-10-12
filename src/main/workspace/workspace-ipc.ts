@@ -183,6 +183,7 @@ export function attachWorkspace(
           title: "Delete merged worktrees?",
           accept: "Delete",
           worktrees: request.worktrees,
+          ...(request.feed ? { feed: request.feed } : {}),
         });
       }
       if (request.kind === "orchestrator") {

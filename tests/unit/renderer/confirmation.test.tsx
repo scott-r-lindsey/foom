@@ -140,3 +140,77 @@ test("focuses Cancel for every request, traps Tab, and renders untrusted content
   expect(disconnect).toHaveBeenCalled();
   vi.unstubAllGlobals();
 });
+
+test("cleanup checking, ready and run controls follow main state; Escape only hides", () => {
+  let receive: (request: DialogRequest | null) => void = () => {};
+  const answer = vi.fn();
+  vi.stubGlobal(
+    "ResizeObserver",
+    class {
+      observe() {}
+      disconnect() {}
+    },
+  );
+  Object.defineProperty(window, "confirmation", {
+    configurable: true,
+    value: {
+      render(callback: typeof receive) {
+        receive = callback;
+        return () => {};
+      },
+      answer,
+      size: vi.fn(),
+    },
+  });
+  const view = render(<ConfirmationPage />);
+  const base: DialogRequest = {
+    id: "cleanup",
+    title: "Delete merged worktrees?",
+    accept: "Delete",
+    theme: resolveInterfaceTheme("follow", false),
+  };
+  const progress = {
+    total: 1,
+    done: 0,
+    phase: "fetch" as const,
+    stopped: false,
+    items: [{ id: "0", branch: "<script>", state: "queued" as const }],
+  };
+  act(() => {
+    receive({ ...base, cleanup: { stage: "checking", progress } });
+  });
+  expect(view.getByRole("button", { name: "Delete 1" }).hasAttribute("disabled")).toBe(true);
+  act(() => {
+    receive({ ...base, cleanup: { stage: "ready", progress } });
+  });
+  fireEvent.click(view.getByRole("button", { name: "Delete 1" }));
+  expect(answer).toHaveBeenLastCalledWith("cleanup", true);
+  act(() => {
+    receive({ ...base, cleanup: { stage: "run", progress } });
+  });
+  fireEvent.click(view.getByRole("button", { name: "Stop" }));
+  expect(answer).toHaveBeenLastCalledWith("cleanup", true);
+  act(() => {
+    receive({
+      ...base,
+      cleanup: { stage: "run", progress: { ...progress, phase: "remove", stopped: true } },
+    });
+  });
+  expect(view.getByRole("button", { name: "Stop" }).hasAttribute("disabled")).toBe(true);
+  fireEvent.keyDown(view.getByRole("button", { name: "Hide" }), { key: "Escape" });
+  expect(answer).toHaveBeenLastCalledWith("cleanup", false);
+  act(() => {
+    receive({
+      ...base,
+      cleanup: {
+        stage: "run",
+        progress: { ...progress, phase: "finished" },
+        error: "fetch failed",
+      },
+    });
+  });
+  expect(view.getByText("fetch failed")).toBeTruthy();
+  expect(view.queryByRole("button", { name: "Stop" })).toBeNull();
+  fireEvent.click(view.getByRole("button", { name: "Done" }));
+  expect(answer).toHaveBeenLastCalledWith("cleanup", false);
+});

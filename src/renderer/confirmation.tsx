@@ -78,6 +78,13 @@ export function ConfirmationPage() {
     };
   }, [requestId]);
   if (!request) return null;
+  const cleanup = request.cleanup;
+  const running = cleanup?.stage === "run";
+  const finished = running && cleanup.progress.phase === "finished";
+  const disabled =
+    cleanup?.stage === "checking" ||
+    (cleanup?.stage === "ready" && cleanup.progress.total === 0) ||
+    (running && cleanup.progress.stopped);
   const answer = (accepted: boolean) => {
     window.confirmation.answer(request.id, accepted);
   };
@@ -91,7 +98,9 @@ export function ConfirmationPage() {
         if (event.key === "Tab") {
           event.preventDefault();
           const content = bodyRef.current?.parentElement;
-          const targets = [cancelRef.current, acceptRef.current];
+          const targets = [cancelRef.current, acceptRef.current].filter(
+            (element) => element && !element.disabled,
+          );
           const focusable =
             content && content.scrollHeight > content.clientHeight
               ? [...targets, content]
@@ -111,9 +120,37 @@ export function ConfirmationPage() {
         aria-modal="true"
         aria-labelledby="confirmation-title"
       >
-        <h1 id="confirmation-title">{request.title}</h1>
+        <h1 id="confirmation-title">{running ? "Deleting merged worktrees" : request.title}</h1>
         <div className="confirmation-content" tabIndex={0} role="region" aria-label="Details">
           <div ref={bodyRef}>
+            {cleanup && (
+              <div aria-live="polite">
+                {cleanup.error && <p>{cleanup.error}</p>}
+                <p>
+                  {cleanup.stage === "checking"
+                    ? "Fetching remote and checking worktrees…"
+                    : running
+                      ? `${String(cleanup.progress.done)}/${String(cleanup.progress.total)} · ${finished ? "Finished" : cleanup.progress.stopped ? "Finishing in-flight removals…" : cleanup.progress.phase === "fetch" ? "Fetching remote…" : "Removing worktrees…"}`
+                      : `${String(cleanup.progress.total)} worktrees to delete`}
+                </p>
+                {running && (
+                  <progress
+                    aria-label="Cleanup progress"
+                    value={cleanup.progress.done}
+                    max={Math.max(1, cleanup.progress.total)}
+                  />
+                )}
+                {cleanup.stage === "checking" && <p className="confirmation-location">Checking…</p>}
+                <ul aria-label="Cleanup checklist">
+                  {cleanup.progress.items.map((item) => (
+                    <li key={item.id} data-cleanup={item.state}>
+                      <span>{item.branch}</span>
+                      <span className="confirmation-location">{item.reason ?? item.state}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
             {request.detail !== undefined && <p>{request.detail}</p>}
             {request.changes !== undefined && (
               <pre aria-label="Uncommitted changes">
@@ -167,18 +204,25 @@ export function ConfirmationPage() {
               answer(false);
             }}
           >
-            Cancel
+            {finished ? "Done" : running ? "Hide" : "Cancel"}
           </button>
-          <button
-            type="button"
-            ref={acceptRef}
-            className="confirmation-accept"
-            onClick={() => {
-              answer(true);
-            }}
-          >
-            {request.accept}
-          </button>
+          {!finished && (
+            <button
+              type="button"
+              disabled={disabled}
+              ref={acceptRef}
+              className="confirmation-accept"
+              onClick={() => {
+                answer(true);
+              }}
+            >
+              {running
+                ? "Stop"
+                : cleanup
+                  ? `Delete ${String(cleanup.progress.total)}`
+                  : request.accept}
+            </button>
+          )}
         </footer>
       </section>
     </main>

@@ -104,6 +104,10 @@ export function Sidebar({
   const [now] = useState(Date.now);
   const [filter, setFilter] = useState("");
   const [error, setError] = useState("");
+  const [dismissedCleanup, setDismissedCleanup] = useState<ReadonlySet<string>>(() => new Set());
+  const dismissCleanup = (key: string) => {
+    setDismissedCleanup((previous) => (previous.has(key) ? previous : new Set([...previous, key])));
+  };
   const [intent] = useState(() => new PanelIntent());
   const [configStatus, setConfigStatus] = useState<ConfigStatus>();
   useEffect(() => {
@@ -807,6 +811,8 @@ export function Sidebar({
                 .map(session)
             : tree.map((repo, index) => {
                 const rid = repositoryKey(repo.repository.path);
+                const cleanup = repo.repository.cleanup;
+                const deleting = cleanup && cleanup.phase !== "finished";
                 return (
                   <div key={rid}>
                     {index > 0 && tree[index - 1]?.section !== repo.section && (
@@ -847,11 +853,21 @@ export function Sidebar({
                           </span>
                           {repo.pinned && <span aria-label="Pinned">⌖</span>}
                         </button>
+                        {deleting && (
+                          <span className="cleanup-tag">
+                            deleting {cleanup.done}/{cleanup.total}
+                          </span>
+                        )}
+                        {cleanup?.phase === "finished" && (
+                          <span role="status" className="cleanup-tag">
+                            Cleanup finished: {cleanup.done}/{cleanup.total}
+                          </span>
+                        )}
                         {!repo.expanded && (
                           <>
                             {roll(repo.rollup)}
                             <span className="worktree-count">
-                              {repo.repository.worktrees.length}
+                              {repo.repository.worktrees.filter((tree) => !tree.removed).length}
                             </span>
                           </>
                         )}
@@ -894,13 +910,19 @@ export function Sidebar({
                               });
                             },
                           },
-                          ...(repo.repository.canDeleteMerged
+                          ...(repo.repository.canDeleteMerged || cleanup
                             ? [
                                 null,
                                 {
-                                  label: "Delete merged worktrees…",
+                                  label: deleting
+                                    ? "Deleting merged worktrees"
+                                    : cleanup
+                                      ? "Cleanup results"
+                                      : "Delete merged worktrees…",
                                   glyph: "trash" as const,
-                                  hint: String(repo.repository.mergedCount ?? ""),
+                                  hint: deleting
+                                    ? `${String(cleanup.done)}/${String(cleanup.total)}`
+                                    : String(repo.repository.mergedCount ?? ""),
                                   run: () =>
                                     command({
                                       kind: "delete-merged-worktrees",
@@ -925,6 +947,12 @@ export function Sidebar({
                         <div role="group">
                           {repo.worktrees.map(({ tree: worktree, expanded, rollup, sessions }) => {
                             const wid = worktreeKey(worktree.path);
+                            const cleanupItem = cleanup?.items.find(
+                              (item) =>
+                                item.path === worktree.path &&
+                                (item.state !== "removed" || worktree.removed),
+                            );
+                            const cleanupKey = `${cleanup?.id ?? ""}:${worktree.path}`;
                             const branch =
                               worktree.branch ?? `⏣ ${worktree.head?.slice(0, 7) ?? "Unknown"}`;
                             const main = worktree.path === repo.repository.path;
@@ -936,15 +964,22 @@ export function Sidebar({
                             return (
                               <div
                                 key={wid}
+                                data-cleanup={cleanupItem?.state}
+                                aria-hidden={cleanupItem?.state === "removed" ? true : undefined}
                                 role="treeitem"
                                 aria-expanded={expanded}
                                 aria-label={name}
                               >
                                 <div
                                   {...rowEvents(wid)}
+                                  data-cleanup={cleanupItem?.state}
+                                  onFocus={() => {
+                                    if (cleanupItem?.state === "kept") dismissCleanup(cleanupKey);
+                                  }}
                                   className={`tree-row worktree-row${arrival === worktree.path ? " arriving" : ""}`}
                                   onPointerEnter={(event) => {
                                     rowEvents(wid).onPointerEnter(event);
+                                    if (cleanupItem?.state === "kept") dismissCleanup(cleanupKey);
                                     if (arrival === worktree.path) settle(worktree.path, 600);
                                   }}
                                 >
@@ -1012,6 +1047,15 @@ export function Sidebar({
                                       </span>
                                     </span>
                                   </button>
+                                  {cleanupItem &&
+                                    !(
+                                      cleanupItem.state === "kept" &&
+                                      dismissedCleanup.has(cleanupKey)
+                                    ) && (
+                                      <span className="cleanup-tag">
+                                        {cleanupItem.reason ?? cleanupItem.state}
+                                      </span>
+                                    )}
                                   {worktree.removed && (
                                     <span className="worktree-removed">
                                       <span aria-hidden="true">⊘</span> Worktree removed

@@ -1,3 +1,4 @@
+import type { CleanupProgress } from "./cleanup";
 import type { GitPanelFacts, HomeShellFacts } from "./panel";
 import type { AgyPluginAction } from "./agy-plugin";
 import type { ExecutionSnapshot, ExecutionTransition } from "./execution";
@@ -146,6 +147,7 @@ export interface WorkspaceApi {
 export interface SidebarInventory {
   repositories: readonly (Repository & {
     worktrees: readonly Worktree[];
+    cleanup?: CleanupProgress | undefined;
     canDeleteMerged?: boolean;
     mergedCount?: number;
     mergedError?: string;
