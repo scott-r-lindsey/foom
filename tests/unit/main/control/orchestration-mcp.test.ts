@@ -11,6 +11,7 @@ const repo = tmpdir();
 let service: ControlService;
 let http: ControlHttp;
 let tokens: { orchestrator: string; agent: string };
+let orchestration: Orchestration;
 const rows: WorkspaceTerminal[] = [];
 
 beforeEach(async () => {
@@ -38,7 +39,7 @@ beforeEach(async () => {
     dialog: () => Promise.resolve(false),
     changed: vi.fn(),
   };
-  const orchestration = new Orchestration(host);
+  orchestration = new Orchestration(host);
   service = new ControlService(
     new Operations(
       () => Promise.resolve(),
@@ -141,13 +142,13 @@ it("lists orchestration tools only to the orchestrator and runs them through the
   ).toMatchObject({ isError: true, content: [{ text: "conflict" }] });
 
   const agent = client(tokens.agent);
-  expect(JSON.stringify(await agent.init())).not.toMatch(/orchestrator/u);
-  const agentTools = JSON.stringify(await agent.send("tools/list"));
-  expect(agentTools).not.toContain("create_worktree");
-  expect(await agent.tool("stop", { idempotencyKey: "x", id: "child" })).toMatchObject({
-    isError: true,
-    content: [{ text: "forbidden" }],
-  });
+  expect(JSON.stringify(await agent.init())).toMatch(
+    /may make you this repository's Foom orchestrator/u,
+  );
+  expect(JSON.stringify(await agent.send("tools/list"))).toBe(listed);
+  const refused = await agent.tool("stop", { idempotencyKey: "x", id: "child" });
+  expect(refused.isError).toBe(true);
+  expect(refused.content[0]?.text).toMatch(/^forbidden: you are not this repository's/u);
   const direct = await fetch(http.endpoint, {
     method: "POST",
     headers: { Authorization: `Bearer ${tokens.agent}`, "Content-Type": "application/json" },
@@ -159,6 +160,38 @@ it("lists orchestration tools only to the orchestrator and runs them through the
     }),
   });
   expect(direct.status).toBe(403);
+});
+
+it("a human transfer takes effect on the next call over each client's existing MCP session", async () => {
+  const parent = client(tokens.orchestrator);
+  await parent.init();
+  const agent = client(tokens.agent);
+  await agent.init();
+  expect(await agent.tool("whoami", {})).toMatchObject({
+    structuredContent: { role: "agent", capabilities: ["whoami", "sessions", "session_state"] },
+  });
+  service.setRole("parent", "agent");
+  orchestration.revoke("parent");
+  const slot = orchestration.reserve(repo);
+  if ("existing" in slot) throw new Error("unexpected");
+  service.setRole("agent", "orchestrator");
+  slot.bind("agent");
+  expect(await agent.tool("whoami", {})).toMatchObject({
+    structuredContent: { role: "orchestrator", parentId: null },
+  });
+  expect(
+    (await agent.tool("create_worktree", { idempotencyKey: "a", branch: "next" }))
+      .structuredContent,
+  ).toMatchObject({ status: "succeeded" });
+  const revoked = await parent.tool("create_worktree", { idempotencyKey: "b", branch: "other" });
+  expect(revoked.isError).toBe(true);
+  expect(revoked.content[0]?.text).toMatch(/call whoami/u);
+  // Revoking twice, or a session that has exited, is a no-op; granting one is not.
+  service.setRole("parent", "agent");
+  service.setRole("gone", "agent");
+  expect(() => {
+    service.setRole("gone", "orchestrator");
+  }).toThrow(expect.objectContaining({ code: "not_found" }));
 });
 
 it("holds a bounded wait_for open past the five-second transport deadline", async () => {

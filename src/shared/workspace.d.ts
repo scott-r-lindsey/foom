@@ -179,5 +179,6 @@ export type SidebarCommand =
     }
   | { kind: "new-conversation"; id: string }
   | { kind: "copy-session-id"; id: string }
-  | { kind: "orchestrate"; repository: string; run: AgentId }
+  | { kind: "make-orchestrator"; id: string }
+  | { kind: "revoke-orchestrator"; id: string }
   | { kind: "take-over"; id: string };

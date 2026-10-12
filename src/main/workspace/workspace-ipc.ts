@@ -99,7 +99,9 @@ function sidebarCommand(value: unknown): SidebarCommand {
     kind === "resume" ||
     kind === "new-conversation" ||
     kind === "copy-session-id" ||
-    kind === "take-over"
+    kind === "take-over" ||
+    kind === "make-orchestrator" ||
+    kind === "revoke-orchestrator"
   ) {
     if (!text(value["id"])) throw new Error("Invalid terminal ID");
     return { kind, id: value["id"] };
@@ -108,11 +110,6 @@ function sidebarCommand(value: unknown): SidebarCommand {
   const repository = value["repository"];
   if (kind === "remove-repository" || kind === "delete-merged-worktrees")
     return { kind, repository };
-  if (kind === "orchestrate") {
-    const run = value["run"];
-    if (Object.keys(value).length !== 3 || !agent(run)) throw new Error("Invalid orchestrator");
-    return { kind, repository, run };
-  }
   if (!text(value["worktree"])) throw new Error("Invalid worktree");
   const worktree = value["worktree"];
   if (kind === "remove-worktree" || kind === "copy-worktree-path")
@@ -125,12 +122,14 @@ function sidebarCommand(value: unknown): SidebarCommand {
 const agentNames = { claude: "Claude Code", codex: "Codex", agy: "Antigravity" } as const;
 
 /** Granting orchestration widens permissions, so it always uses the trusted dialog. */
-export function orchestratorDisclosure(id: keyof typeof agentNames): DialogContent {
+export function orchestratorDisclosure(
+  id: keyof typeof agentNames,
+  replacing?: string,
+): DialogContent {
   return {
-    title: `Launch ${agentNames[id]} as Foom orchestrator?`,
-    accept: "Launch orchestrator",
-    detail:
-      "It can create worktrees and run up to four child agents in this repository, stop them, and ask you to remove worktrees it created. It can read the last 40 lines of each child's terminal, with likely secrets redacted. Those lines may be sent to this agent's model provider under its own settings; redaction cannot catch every secret, and repeated reads collect more. Children cannot orchestrate and do not inherit your launch flags. Its actions appear in its panel, and Take over returns a child to you.",
+    title: `Make ${agentNames[id]} the Foom orchestrator?`,
+    accept: "Make orchestrator",
+    detail: `${replacing ? `${replacing} stops orchestrating; its children stay with you. ` : ""}It can create worktrees and run up to four child agents in this repository, stop them, and ask you to remove worktrees it created. It keeps its own launch flags; children do not inherit them and cannot orchestrate. It can read the last 40 lines of each child's terminal, with likely secrets redacted. Those lines may be sent to this agent's model provider under its own settings; redaction cannot catch every secret, and repeated reads collect more. Its actions appear in its panel. Take over returns a child to you, and Revoke orchestrator ends its access.`,
   };
 }
 
@@ -190,7 +189,7 @@ export function attachWorkspace(
         if (contents.isDestroyed() || contents.mainFrame.url !== APP_URL)
           return Promise.resolve(false);
         contents.send("confirmation:dialog");
-        return requestDialog(orchestratorDisclosure(request.agent));
+        return requestDialog(orchestratorDisclosure(request.agent, request.replacing));
       }
       if (request.kind === "dirty-worktree") {
         const { title, changes } = request;

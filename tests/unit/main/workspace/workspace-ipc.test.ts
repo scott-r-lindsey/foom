@@ -300,6 +300,8 @@ test("sidebar commands copy known fields, validate IDs and paths, and keep confi
     { kind: "new-conversation", id: "t1" },
     { kind: "copy-session-id", id: "restored" },
     { kind: "take-over", id: "t1" },
+    { kind: "make-orchestrator", id: "t1" },
+    { kind: "revoke-orchestrator", id: "t1" },
   ]) {
     await invoke("workspace:sidebar-command", [
       { ...value, executable: "/evil", sharedCheckout: true, conversationId: "forged" },
@@ -395,7 +397,7 @@ test.each(["trusted", "destroyed", "navigated"])(
 );
 
 test.each(["trusted", "destroyed", "navigated"])(
-  "orchestrator launch discloses through the trusted dialog with a %s board",
+  "making an orchestrator discloses through the trusted dialog with a %s board",
   async (state) => {
     Object.assign(workspace, {
       sidebarCommand: (_command: unknown, confirm: ConfirmWorkspace) => {
@@ -406,9 +408,7 @@ test.each(["trusted", "destroyed", "navigated"])(
     });
     requestDialog.mockResolvedValue(true);
     await expect(
-      invoke("workspace:sidebar-command", [
-        { kind: "orchestrate", repository: "/repo", run: "codex" },
-      ]),
+      invoke("workspace:sidebar-command", [{ kind: "make-orchestrator", id: "t1" }]),
     ).resolves.toBe(state === "trusted");
     if (state === "trusted")
       expect(requestDialog).toHaveBeenCalledWith(orchestratorDisclosure("codex"));
@@ -416,29 +416,26 @@ test.each(["trusted", "destroyed", "navigated"])(
   },
 );
 
-test("orchestrator launch accepts exactly a repository and an agent ID", async () => {
+test("orchestrator commands name only an owned terminal; the disclosure names a transfer", () => {
   const command = vi.fn(async () => {});
   Object.assign(workspace, { sidebarCommand: command });
-  await invoke("workspace:sidebar-command", [
-    { kind: "orchestrate", repository: "/repo", run: "claude" },
-  ]);
-  expect(command).toHaveBeenLastCalledWith(
-    { kind: "orchestrate", repository: "/repo", run: "claude" },
-    expect.any(Function),
-  );
   for (const value of [
-    { kind: "orchestrate", repository: "/repo", run: "shell" },
-    { kind: "orchestrate", repository: "/repo", run: "evil" },
-    { kind: "orchestrate", repository: "/repo", run: "claude", role: "orchestrator" },
-    { kind: "orchestrate", repository: "", run: "claude" },
+    { kind: "make-orchestrator", id: "foreign" },
+    { kind: "revoke-orchestrator", id: "" },
+    { kind: "orchestrate", repository: "/repo", run: "claude" },
   ])
     expect(() => invoke("workspace:sidebar-command", [value])).toThrow();
-  expect(command).toHaveBeenCalledOnce();
+  expect(command).not.toHaveBeenCalled();
   const disclosure = orchestratorDisclosure("claude");
-  expect(disclosure.title).toBe("Launch Claude Code as Foom orchestrator?");
+  expect(disclosure.title).toBe("Make Claude Code the Foom orchestrator?");
+  expect(disclosure.accept).toBe("Make orchestrator");
   expect(disclosure.detail).toMatch(/model provider/u);
   expect(disclosure.detail).toMatch(/redaction cannot catch every secret/u);
+  expect(disclosure.detail).not.toMatch(/stops orchestrating/u);
   expect(orchestratorDisclosure("agy").title).toContain("Antigravity");
+  expect(orchestratorDisclosure("codex", "Claude Code on main").detail).toMatch(
+    /^Claude Code on main stops orchestrating; its children stay with you\. /u,
+  );
 });
 
 test("Antigravity plugin IPC accepts only one fixed operation, never paths or CLI arguments", async () => {

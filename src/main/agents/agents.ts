@@ -1,6 +1,6 @@
 import { meetsMinimum } from "./version";
 import { AgyPlugin } from "./agy-plugin";
-import { cliGuidance, CONFIG_PROMPT, initialPrompt, ORCHESTRATOR_PROMPT } from "./cli-launch";
+import { cliGuidance, CONFIG_PROMPT, initialPrompt } from "./cli-launch";
 import { prepareMcpLaunch, supportsMcp } from "./mcp-launch";
 import { codexHookArguments } from "./codex-hooks";
 import { resumeArguments } from "./conversation";
@@ -269,15 +269,14 @@ export class AgentService {
           checkoutIdentity
       )
         throw new Error("Worktree has changed. Select it and try again.");
-      const orchestrator = request.control !== undefined && "role" in request.control;
-      if (orchestrator && (!control || (agent.id === "agy" && !agent.cliGuidance)))
-        throw new Error("Orchestration needs control credentials and initial prompt support");
+      if (request.control !== undefined && "role" in request.control && !control)
+        throw new Error("Orchestration needs control credentials");
       const configGreeting = config !== undefined && request.conversationId === undefined;
       const prompt = initialPrompt(agent, request.prompt);
       const args = [
         ...resume,
         ...((control || configGreeting) && agent.cliGuidance
-          ? cliGuidance([...defaults, ...prompt.guidance], orchestrator, configGreeting)
+          ? cliGuidance([...defaults, ...prompt.guidance], configGreeting)
           : [...defaults, ...prompt.guidance]),
         ...(agent.inline ? ["--no-alt-screen"] : []),
         ...(mcp?.args ?? []),
@@ -305,11 +304,7 @@ export class AgentService {
       }
       // A positional prompt goes last, after every option Foom adds.
       args.push(
-        ...(configGreeting && agent.id !== "agy"
-          ? ["--", CONFIG_PROMPT]
-          : orchestrator && agent.id !== "agy"
-            ? ["--", ORCHESTRATOR_PROMPT]
-            : prompt.positional),
+        ...(configGreeting && agent.id !== "agy" ? ["--", CONFIG_PROMPT] : prompt.positional),
       );
       const environment = buildLaunchEnvironment({
         layers: request.environment ?? [],

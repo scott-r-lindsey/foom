@@ -1882,9 +1882,21 @@ test("launches an agent in a managed worktree and routes its attention signals",
   const listed = await (
     await mcpRequest({ id: 2, method: "tools/list", params: { _meta: { progressToken: 1 } } })
   ).json();
+  // Every agent lists the orchestration tools (#303); an ordinary agent's calls are refused.
   assert.deepEqual(
     listed.result.tools.map((tool) => tool.name),
-    ["whoami", "sessions", "session_state"],
+    [
+      "whoami",
+      "sessions",
+      "session_state",
+      "create_worktree",
+      "launch",
+      "stop",
+      "remove_worktree",
+      "tail",
+      "wait_for",
+      "operation_status",
+    ],
   );
   const metadata = await (
     await mcpRequest({ id: 3, method: "tools/call", params: { name: "sessions", arguments: {} } })
@@ -1901,6 +1913,7 @@ test("launches an agent in a managed worktree and routes its attention signals",
     await mcpRequest({ id: 4, method: "tools/call", params: { name: "tail", arguments: { id } } })
   ).json();
   assert.equal(forbidden.result.isError, true);
+  assert.match(forbidden.result.content[0].text, /call whoami/);
 
   await page.evaluate(async (repository) => {
     const tree = await window.desktop.createWorktree(repository, "feature/newer", "adjacent");
@@ -5389,7 +5402,7 @@ test("application menu uses the command registry and supports native keyboard ac
   assert.equal(entries.find((entry) => entry?.id === "new-window").enabled, true);
   // Planned entries are refused through IPC as well as in the menu.
   await assert.rejects(
-    page.evaluate(() => window.desktop.appMenu.execute("new-orchestrator")),
+    page.evaluate(() => window.desktop.appMenu.execute("action-log")),
     /Unavailable app command/,
   );
   if (process.platform === "darwin") {
@@ -5449,9 +5462,7 @@ test("application menu uses the command registry and supports native keyboard ac
     });
   }
   await expect(page.getByRole("menuitem", { name: /^New window/ })).toBeEnabled();
-  await expect(
-    page.getByRole("menuitem", { name: "New orchestrator…", exact: true }),
-  ).toBeDisabled();
+  await expect(page.getByRole("menuitem", { name: /orchestrator/i })).toHaveCount(0);
   await expect(page.getByRole("menuitem", { name: "Action log", exact: true })).toBeDisabled();
   await expect(page.getByRole("menuitem", { name: /^(Paste|Focus|Swap|Two by two)/ })).toHaveCount(
     0,
@@ -5476,7 +5487,7 @@ test("application menu uses the command registry and supports native keyboard ac
           window.webContents.sendInputEvent({ type, keyCode });
       }, key);
     await expect(menu).toBeVisible();
-    // New window, New worktree, Add repository; New orchestrator is skipped.
+    // New window, New worktree, Add repository, then Settings.
     for (let step = 0; step < 3; step++) await page.keyboard.press("ArrowDown");
     await expect(settings).toBeFocused();
     await page.keyboard.press("ArrowRight");
@@ -7037,7 +7048,7 @@ process.stdin.on("data", (key) => {
 for (const cliOnly of [false, true])
   test(cliOnly
     ? "an Antigravity orchestrator manages children through the packaged console"
-    : "an orchestrator launched from the repository panel manages only its own children", {
+    : "an agent made orchestrator from its session menu manages only its own children", {
     timeout: deadline(90_000),
     skip: process.platform === "win32" && "The fake agent is a POSIX script",
   }, async (context) => {
@@ -7092,20 +7103,11 @@ for (const cliOnly of [false, true])
     assert.equal(claude.mcp, true, `Fake agent lacks MCP: ${JSON.stringify(claude)}`);
     const read = async (name) => JSON.parse(await readFile(`${credentials}.${name}`, "utf8"));
 
-    await page.getByRole("button", { name: `Actions for ${path.basename(repo)}` }).click();
-    await page
-      .getByRole("menuitem", {
-        name: `Launch ${cliOnly ? "Antigravity" : "Claude Code"} as Foom orchestrator…`,
-      })
-      .click();
-    const confirmation = await confirmationPage(app);
-    await expect(
-      confirmation.getByRole("heading", {
-        name: `Launch ${cliOnly ? "Antigravity" : "Claude Code"} as Foom orchestrator?`,
-      }),
-    ).toBeVisible();
-    await expect(confirmation.getByText(/model provider/)).toBeVisible();
-    await confirmation.getByRole("button", { name: "Launch orchestrator" }).click();
+    await page.evaluate(
+      ({ repository, run }) =>
+        window.desktop.sidebarCommand({ kind: "launch", repository, worktree: repository, run }),
+      { repository, run: cliOnly ? "agy" : "claude" },
+    );
     await expect
       .poll(() => existsSync(`${credentials}.app`), { timeout: deadline(15000) })
       .toBe(true);
@@ -7114,7 +7116,7 @@ for (const cliOnly of [false, true])
     if (cliOnly) {
       assert.equal(parent.mcp, null);
       assert.ok(parent.args.includes("--prompt-interactive"));
-      assert.ok(parent.args.some((arg) => arg.includes("create-worktree/create_worktree")));
+      assert.ok(parent.args.some((arg) => arg.includes("foom whoami --json lists your current")));
     } else {
       assert.ok(parent.args.includes("--mcp-config"));
       const server = Object.values(parent.mcp.mcpServers)[0];
@@ -7123,8 +7125,9 @@ for (const cliOnly of [false, true])
     assert.ok(!JSON.stringify(parent.args).includes(parent.controlToken));
     let requestId = 0;
     let parentId;
+    let elevated = false;
     const call = async (token, method, params = {}) => {
-      if (cliOnly && parentId && token === parent.controlToken && method !== "whoami") {
+      if (cliOnly && elevated && token === parent.controlToken && method !== "whoami") {
         const args = [method.replaceAll("_", "-")];
         if (params.branch) args.push(params.branch);
         if (params.worktreeId) args.push(params.worktreeId);
@@ -7159,10 +7162,37 @@ for (const cliOnly of [false, true])
       });
       return { status: response.status, body: await response.json() };
     };
+    const ordinary = await call(parent.controlToken, "whoami");
+    assert.equal(ordinary.body.result.role, "agent");
+    assert.ok(!ordinary.body.result.capabilities.includes("launch"));
+    parentId = ordinary.body.result.terminalId;
+    assert.equal(
+      (await call(parent.controlToken, "create_worktree", { idempotencyKey: "early", branch: "x" }))
+        .status,
+      403,
+    );
+
+    // The human grants the role from the session menu; the agent keeps running.
+    const parentRow = page
+      .locator(".session-entry")
+      .filter({ has: page.locator(`[data-drag-session="${parentId}"]`) });
+    await parentRow.getByRole("button", { name: /^Actions for/ }).click();
+    await page.getByRole("menuitem", { name: "Make orchestrator…" }).click();
+    const confirmation = await confirmationPage(app);
+    await expect(
+      confirmation.getByRole("heading", {
+        name: `Make ${cliOnly ? "Antigravity" : "Claude Code"} the Foom orchestrator?`,
+      }),
+    ).toBeVisible();
+    await expect(confirmation.getByText(/model provider/)).toBeVisible();
+    await confirmation.getByRole("button", { name: "Make orchestrator" }).click();
+    await expect
+      .poll(async () => (await call(parent.controlToken, "whoami")).body.result?.role)
+      .toBe("orchestrator");
+    elevated = true;
     const whoami = await call(parent.controlToken, "whoami");
-    assert.equal(whoami.body.result.role, "orchestrator");
     assert.ok(whoami.body.result.capabilities.includes("launch"));
-    parentId = whoami.body.result.terminalId;
+    assert.equal(whoami.body.result.terminalId, parentId);
 
     const connection = async (id) =>
       (await page.evaluate(() => window.desktop.workspace())).terminals.find((row) => row.id === id)
@@ -7195,9 +7225,6 @@ for (const cliOnly of [false, true])
       await expect
         .poll(() => connection(parentId), { timeout: deadline(35000) })
         .toBe("not-connected");
-      const parentRow = page
-        .locator(".session-entry")
-        .filter({ has: page.locator(`[data-drag-session="${parentId}"]`) });
       await parentRow.getByRole("button", { name: /^Actions for/ }).click();
       await expect(page.getByText("Not connected", { exact: true })).toBeVisible();
       await expect(page.getByText("Not connected", { exact: true })).toHaveAttribute(
@@ -7296,18 +7323,25 @@ for (const cliOnly of [false, true])
       .toBe("succeeded");
     assert.match(String(git("branch", "--list", "child-one")), /child-one/);
 
-    // A duplicate launch reveals the existing parent instead of starting another.
+    // Making the orchestrator again is a no-op without a dialog.
     await page.evaluate(
-      (repository) =>
-        window.desktop.sidebarCommand({ kind: "orchestrate", repository, run: "claude" }),
-      repository,
+      (id) => window.desktop.sidebarCommand({ kind: "make-orchestrator", id }),
+      parentId,
     );
     const orchestrators = (await page.evaluate(() => window.desktop.workspace())).terminals.filter(
       (row) => row.orchestration?.role === "orchestrator",
     );
     assert.equal(orchestrators.length, 1);
 
-    // Parent exit revokes its credential; the snapshot keeps its history.
+    // Revoke ends orchestration on the same credential; the session keeps running.
+    await parentRow.getByRole("button", { name: /^Actions for/ }).click();
+    await page.getByRole("menuitem", { name: "Revoke orchestrator" }).click();
+    await expect
+      .poll(async () => (await call(parent.controlToken, "whoami")).body.result?.role)
+      .toBe("agent");
+    assert.equal((await call(parent.controlToken, "tail", { id: childId, lines: 1 })).status, 403);
+
+    // Exit revokes the credential itself; the snapshot keeps the history.
     await page.evaluate((id) => window.desktop.input(id, "q"), parentId);
     await expect.poll(async () => (await call(parent.controlToken, "whoami")).status).toBe(401);
     const after = (await page.evaluate(() => window.desktop.workspace())).terminals.find(
@@ -7496,21 +7530,26 @@ req.end(JSON.stringify(payload));
       await window.desktop.addRepository();
       await window.desktop.saveSetup({ codexNotifierAcknowledged: true });
     });
-    await first.getByRole("button", { name: "Actions for repo", exact: true }).click();
-    await first
-      .getByRole("menuitem", {
-        name: `Launch ${agent === "claude" ? "Claude Code" : "Codex"} as Foom orchestrator…`,
-        exact: true,
-      })
-      .click();
-    await (await confirmationPage(app))
-      .getByRole("button", { name: "Launch orchestrator" })
-      .click();
     const rows = (page) => page.evaluate(async () => (await window.desktop.workspace()).terminals);
+    await first.evaluate(
+      ({ repo, agent }) =>
+        window.desktop.sidebarCommand({
+          kind: "launch",
+          repository: repo,
+          worktree: repo,
+          run: agent,
+        }),
+      { repo, agent },
+    );
     await expect
       .poll(() => rows(first))
       .toMatchObject([{ conversationId: "saved-repo", exited: false }]);
     const parentId = (await rows(first))[0].id;
+    await first.evaluate((id) => {
+      void window.desktop.sidebarCommand({ kind: "make-orchestrator", id });
+    }, parentId);
+    await (await confirmationPage(app)).getByRole("button", { name: "Make orchestrator" }).click();
+    await expect.poll(async () => (await rows(first))[0].orchestration?.active).toBe(true);
     const readCredentials = async (name) =>
       JSON.parse(await readFile(`${credentials}.${name}`, "utf8"));
     const oldParent = await readCredentials("repo");
@@ -7609,6 +7648,8 @@ req.end(JSON.stringify(payload));
       return readCredentials(name);
     };
     const newParent = await waitForCredentials("repo", oldParent);
+    // The role is re-granted from main's store; the resumed agent gets no launch prompt.
+    assert.ok(!newParent.args.some((arg) => /orchestrator/i.test(arg)));
     const restoredChild = await waitForCredentials("child", oldChild);
     assert.ok(restoredChild.args.includes(agent === "claude" ? "--resume" : "resume"));
     assert.ok(restoredChild.args.some((arg) => arg.startsWith("Task from your Foom orchestrator")));

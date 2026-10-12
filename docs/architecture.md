@@ -506,8 +506,9 @@ receiver behind any proxy. That change made the Windows Codex observer `codex-v2
 **Foundation implemented in #152.** `main/control/` owns the service, launch grants,
 versioned HTTP adapter, private discovery, operation records and audit storage.
 The workspace starts it when the window is composed so human pairing is available before an agent launches. A failed startup leaves the window usable and can retry on agent launch.
-Launches receive the immutable `agent` role unless main's repository-panel path
-grants `orchestrator` (#155). The read methods are `whoami`, `sessions`,
+Launches receive the `agent` role; only main changes it, when the human makes a
+running session the orchestrator or revokes it (#303), or when restore re-grants an
+orchestrator (#155). The read methods are `whoami`, `sessions`,
 `session_state` and actor-scoped `operation_status` (orchestrators only). Unknown
 methods, role/force flags and unknown fields fail closed. Orchestration methods are
 described under **Orchestrators and children** below.
@@ -554,11 +555,13 @@ and takeover must ship together in later issues.
 **Read-only MCP implemented in #153.** `POST /mcp` uses the same authentication,
 body/header/connection limits and service authorization as the versioned endpoint.
 It negotiates MCP 2025-03-26, 2025-06-18 or 2025-11-25, returns JSON responses and
-binds one random protocol session to each live principal. Reinitializing replaces
-that principal's old protocol session; DELETE terminates it. GET authenticates and
+binds one random protocol session to each live grant generation, so it survives a
+role change. Reinitializing replaces that grant's old protocol session; DELETE terminates it. GET authenticates and
 validates the session before returning 405 (no SSE stream). Revocation is rechecked
-at dispatch. Only `whoami`, `sessions` and `session_state` are listed or callable
-through MCP; hidden orchestration methods are refused even by direct invocation.
+at dispatch. Ordinary agents can call only `whoami`, `sessions` and `session_state`.
+Because clients fetch tools once (#303), MCP lists the orchestration tools to every
+agent; calls without the role are refused with a message naming `whoami`, here and
+by direct invocation.
 
 The service reads a main-owned workspace snapshot, never a terminal tail. Sessions
 are repository-scoped, paginated by the preceding terminal ID and limited to 100
@@ -635,23 +638,26 @@ Chromium can decode the audio and checks its samples.
 owns slots, limits, ownership and the action history; `Workspace` supplies main's
 existing effects (worktree creation, agent launch, stop, host tail, removal) and
 the service delegates `create_worktree`, `launch`, `stop`, `remove_worktree`,
-`tail` and `wait_for` to it through an asynchronous `call`. MCP lists these tools,
-plus `operation_status`, only to an orchestrator principal; `reply` stays hidden
-and refused until #156. See [the implementation record](orchestration.md#orchestrators-and-children-155).
+`tail` and `wait_for` to it through an asynchronous `call`. MCP lists these tools
+and `operation_status` to every agent but runs them only for an orchestrator
+principal; `reply` stays hidden and refused until #156. See [the implementation record](orchestration.md#orchestrators-and-children-155).
 
-The repository panel offers **Launch … as Foom orchestrator…** for each enabled
-Claude Code or Codex agent, and for Antigravity when it supports interactive initial
-prompts. Every orchestrator has the CLI fallback; MCP attachment additionally uses
-the version and capability gate above. Main reserves the repository's slot before any
-async work; a live duplicate reveals the existing parent. The trusted dialog
-discloses the output path before launch in the main checkout. Child worktree creation requires a new local branch, refuses checked-out branches,
+A running agent session's menu offers **Make orchestrator…**, and **Revoke
+orchestrator** on the active one (#303). There is no orchestrator launch. Main checks
+the session is a running, non-config agent that is not an un-taken-over child, then
+asks through the trusted dialog, which discloses the output path and names any
+orchestrator it would replace. After the dialog it rechecks the session and the
+current orchestrator, revokes the old one, reserves the repository's slot, swaps
+the grant's principal (`ControlService.setRole`) and binds the slot. Every
+orchestrator has the CLI fallback; Antigravity can be elevated without interactive
+prompt support. Child worktree creation requires a new local branch, refuses checked-out branches,
 and starts from HEAD even when a same-named remote ref exists. Children launch with
 no default arguments (so never bypass), `sharedCheckout` off, a read-only grant
 naming their parent, and an optional prompt as one final argv entry. Claude Code
 and Codex place `--` immediately before that prompt, after all launch options, so
-variadic options cannot consume it. Launches without a prompt omit the terminator. Exit or
-removal of the parent revokes its grant, aborts pending removal dialogs and frees
-the slot; children keep running. Snapshots carry a main-computed `orchestration`
+variadic options cannot consume it. Launches without a prompt omit the terminator. Exit,
+removal or revocation of the parent ends its authority, aborts pending removal
+dialogs and frees the slot; children keep running. Snapshots carry a main-computed `orchestration`
 view (role, children, last 20 actions; never persisted). `take-over` is a sidebar
 command that removes the orchestrator's stop, tail and wait access to that child.
 
@@ -671,18 +677,18 @@ A separate 256-bit control token shares the hook launch's lifecycle but never it
 secret or authority. Main stores a digest mapped to role, canonical repository,
 terminal, parent and generation. Caller-supplied roles and MCP session IDs grant
 nothing. Authenticate initialization and every subsequent request, bind protocol
-sessions to principals, validate every payload and target at runtime, and recheck
+sessions to grant generations, validate every payload and target at runtime, and recheck
 revocation before effects. Reject browser origins and unexpected Host values; bind
 only `127.0.0.1` on an ephemeral port. Never expose tokens through renderer IPC,
 logs, argv or tool results. Child launches scrub inherited credentials and receive
 fresh read-only tokens. Exit, failed launch and shutdown revoke grants.
 
-Ordinary agents see `sessions`, `session_state` and `whoami` for their repository,
-without terminal contents. Only a main-created orchestrator principal sees
-`create_worktree`, `launch`, `tail`, `reply`, `stop`, `remove_worktree`, `wait_for`
-and `operation_status`.
-Enforce authorization again in the service even for hidden tools. The repository
-menu reserves one orchestrator slot atomically; reserve at most four child slots,
+Ordinary agents can use `sessions`, `session_state` and `whoami` for their
+repository, without terminal contents. Only a main-granted orchestrator principal
+can use `create_worktree`, `launch`, `tail`, `reply`, `stop`, `remove_worktree`,
+`wait_for` and `operation_status`; listing a tool grants nothing.
+Enforce authorization in the service for every call. Making a session the
+orchestrator reserves one slot per repository atomically; reserve at most four child slots,
 including starting/stopping children. Children run only in new worktrees created by
 that orchestrator. No child can gain orchestration through the API. #84 config-only
 roles and #67 remote access are separate capabilities, not implicit extensions.
@@ -1038,7 +1044,7 @@ layout to the wordmark menu on every platform. The wordmark projection is data
 only (`AppMenuEntry`): commands, separators, the Settings submenu (the agent
 routes come from `main/agents/agent-list.ts`, followed by Via Settings UI), and a
 `size` row carrying Bigger/Smaller and main's current interface scale. Planned
-commands (New orchestrator, Action log) exist in the registry
+commands (Action log) exist in the registry
 disabled, without bindings, and stay out of the macOS menu bar until they land.
 Main owns one `before-input-event` dispatcher; native accelerators are
 display-only (`registerAccelerator: false`). Windows/Linux have no native
