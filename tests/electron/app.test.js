@@ -1274,6 +1274,85 @@ test("utility host survives output floods without losing rows or delaying anothe
   assert.ok(sorted[29] < 1000, "echo remains responsive during a flood (CI ceiling: 1s)");
 });
 
+test("utility host survives concurrent terminal exits and drains multi-terminal shutdown", {
+  timeout: deadline(45_000),
+}, async (context) => {
+  const app = await launchApp(context, false, { emptyBoard: true });
+  fixtureCleanup(context).apps.unshift(async () => {
+    await app.evaluate(async () => {
+      const host = globalThis.ptyRaceHost;
+      if (!host) return;
+      try {
+        await host.shutdown();
+      } finally {
+        await host.dispose();
+      }
+    });
+  });
+  await boardPage(app);
+  await app.evaluate(({ app }) => {
+    const load = process
+      .getBuiltinModule("node:module")
+      .createRequire(app.getAppPath() + "/package.json");
+    const { TerminalHostClient } = load("./build/main/terminals/terminal-host-client.js");
+    globalThis.ptyRaceExits = [];
+    globalThis.ptyRaceHost = new TerminalHostClient((id, code) =>
+      globalThis.ptyRaceExits.push({ id, code }),
+    );
+  });
+  // Every batch must succeed; this is concurrent native lifecycle coverage, not a retry.
+  for (const shutdown of [false, true]) {
+    const ids = await app.evaluate(
+      async ({ app }, { node, probe }) => {
+        const host = globalThis.ptyRaceHost;
+        return Promise.all(
+          Array.from({ length: 12 }, () =>
+            host.create({
+              command: node,
+              args: [probe, "echo"],
+              cwd: app.getPath("temp"),
+              cols: 80,
+              rows: 24,
+            }),
+          ),
+        );
+      },
+      { node: process.execPath, probe: path.join(__dirname, "host-probe.js") },
+    );
+    await expect
+      .poll(() =>
+        app.evaluate(async (_electron, ids) => {
+          const lines = await Promise.all(ids.map((id) => globalThis.ptyRaceHost.tail(id, 5)));
+          return lines.every((tail) => tail.some((line) => line.includes("READY")));
+        }, ids),
+      )
+      .toBe(true);
+    await app.evaluate(
+      async (_electron, { ids, shutdown }) => {
+        const host = globalThis.ptyRaceHost;
+        // Resizes run while native exit watchers remove other sessions' handles.
+        if (shutdown) await host.shutdown();
+        else
+          await Promise.all(
+            ids.map(async (id, index) => {
+              host.resize(id, 90 + index, 30);
+              await host.stop(id);
+            }),
+          );
+      },
+      { ids, shutdown },
+    );
+    await expect.poll(() => app.evaluate(() => globalThis.ptyRaceHost.runningCount)).toBe(0);
+    if (!shutdown) {
+      await expect.poll(() => app.evaluate(() => globalThis.ptyRaceExits.length)).toBe(12);
+      assert.equal(
+        await app.evaluate(() => globalThis.ptyRaceExits.some(({ code }) => code === -1)),
+        false,
+      );
+    }
+  }
+});
+
 test("a crashed utility host reports failure and the renderer can restart", {
   timeout: deadline(45_000),
 }, async (context) => {
