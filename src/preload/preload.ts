@@ -22,6 +22,14 @@ function terminalState(value: unknown): value is TerminalState {
     typeof value["signal"] === "string" &&
     typeof value["confidence"] === "number" &&
     typeof value["timestamp"] === "number" &&
+    (value["attentionKind"] === undefined ||
+      (typeof value["attentionKind"] === "string" &&
+        ["question", "permission", "credential", "unknown"].includes(value["attentionKind"]))) &&
+    ["outputRevision", "inputRevision"].every(
+      (key) =>
+        value[key] === undefined ||
+        (typeof value[key] === "number" && Number.isSafeInteger(value[key]) && value[key] >= 0),
+    ) &&
     (value["execution"] === undefined || executionSnapshot(value["execution"]))
   );
 }

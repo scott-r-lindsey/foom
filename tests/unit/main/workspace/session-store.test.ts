@@ -177,7 +177,7 @@ test("validates every action-log field without restoring pending operations", ()
     { label: "x".repeat(4097) },
     { at: "now" },
     { at: NaN },
-    { action: "reply" },
+    { action: "input" },
     { status: "approved" },
   ]) {
     expect(() =>
@@ -186,7 +186,14 @@ test("validates every action-log field without restoring pending operations", ()
       ]),
     ).toThrow();
   }
-  for (const action of ["create_worktree", "launch", "stop", "remove_worktree", "take_over"]) {
+  for (const action of [
+    "create_worktree",
+    "launch",
+    "stop",
+    "remove_worktree",
+    "reply",
+    "take_over",
+  ]) {
     for (const status of [
       "pending_confirmation",
       "running",

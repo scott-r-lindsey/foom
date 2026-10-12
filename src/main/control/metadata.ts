@@ -52,10 +52,14 @@ export class SessionMetadata {
 
   private row(row: WorkspaceTerminal) {
     const execution = row.execution;
+    const fresh =
+      (row.state?.outputRevision ?? 0) === (row.outputRevision ?? 0) &&
+      (row.state?.inputRevision ?? 0) === (row.inputRevision ?? 0);
     const current =
-      !execution ||
-      (row.state?.execution?.launch === execution.launch &&
-        row.state.execution.revision === execution.revision);
+      fresh &&
+      (!execution ||
+        (row.state?.execution?.launch === execution.launch &&
+          row.state.execution.revision === execution.revision));
     let state = current ? (row.state?.state ?? "quiet_ok") : "quiet_ok";
     if (execution?.phase === "working") state = "working";
     else if (execution?.phase === "blocked" && !current) state = "needs_input";
@@ -81,10 +85,18 @@ export class SessionMetadata {
             execution?.revision ?? 0,
             row.state?.timestamp ?? 0,
             reported,
+            row.outputRevision ?? 0,
+            row.inputRevision ?? 0,
           ]),
         )
         .digest("hex"),
-      attentionKind: reported === "needs_input" ? "unknown" : null,
+      attentionKind:
+        reported === "needs_input"
+          ? current
+            ? (row.state?.attentionKind ?? "unknown")
+            : "unknown"
+          : null,
+      verdictId: current ? (row.state?.verdictId ?? null) : null,
       untrusted: true,
     };
   }
