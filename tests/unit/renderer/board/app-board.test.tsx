@@ -970,3 +970,16 @@ test("fresh foreground names replace cached row metadata and clear at the prompt
   }
   disconnect?.();
 });
+
+test("activity subscribers receive the final cached zero when views remount", async () => {
+  const source = createAppSource();
+  const disconnect = source.connect?.();
+  await settle();
+  mock.activity?.([{ id: "a", rate: 4000 }]);
+  mock.activity?.([{ id: "a", rate: 0 }]);
+  const listener = vi.fn();
+  const off = source.subscribeActivity(listener);
+  expect(listener).toHaveBeenCalledWith([{ id: "a", rate: 0 }]);
+  off();
+  disconnect?.();
+});

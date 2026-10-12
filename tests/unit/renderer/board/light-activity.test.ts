@@ -108,3 +108,32 @@ test("reduced-motion DOM levels and trace update only on the one second cadence"
   expect(element.style.getPropertyValue("--activity")).toBe("1");
   stop();
 });
+
+test("a hidden row retains the final zero before remount, but not across relaunch or close", () => {
+  vi.useFakeTimers();
+  const fixture = boardRows(0)[1];
+  if (!fixture) throw new Error("Missing fixture");
+  const row = { ...fixture, rate: 4000 };
+  const source = createSampleSource([row]);
+  const element = document.createElement("span");
+  let visible = true;
+  const stop = subscribeLights(source, () =>
+    visible ? source.getSnapshot().map((row) => ({ row, element })) : [],
+  );
+  vi.advanceTimersByTime(1000);
+  visible = false;
+  vi.advanceTimersByTime(50);
+  visible = true;
+  source.setActivity(row.id, 0);
+  vi.advanceTimersByTime(10000);
+  expect(Number(element.style.getPropertyValue("--activity"))).toBe(0);
+  source.update(row.id, { launchVersion: 1 });
+  vi.advanceTimersByTime(1000);
+  expect(Number(element.style.getPropertyValue("--activity"))).toBeGreaterThan(0.99);
+  source.setActivity(row.id, 0);
+  source.update(row.id, { exited: true });
+  source.setActivity(row.id, 4000);
+  vi.advanceTimersByTime(50);
+  stop();
+  expect(vi.getTimerCount()).toBe(0);
+});

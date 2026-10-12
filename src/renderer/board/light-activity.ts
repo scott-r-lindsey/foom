@@ -56,10 +56,11 @@ type Target = { row: BoardRow; element: HTMLElement; trace?: SVGPathElement | nu
 /** DOM-only activity, owned and disposed by the mounted sidebar or tile. */
 export function subscribeLights(source: BoardSource, targets: () => Target[]): () => void {
   const meters = new Map<string, { history: LightHistory; rate: number; version: number }>();
+  const latest = new Map<string, { rate: number; version: number }>();
   const off = source.subscribeActivity((batch) => {
     for (const { id, rate } of batch) {
-      const meter = meters.get(id);
-      if (meter) meter.rate = rate;
+      const row = source.getSnapshot().find((item) => item.id === id);
+      if (row && !row.exited) latest.set(id, { rate, version: row.launchVersion ?? 0 });
     }
   });
   let last = performance.now();
@@ -68,6 +69,10 @@ export function subscribeLights(source: BoardSource, targets: () => Target[]): (
     const reduced =
       typeof matchMedia !== "undefined" && matchMedia("(prefers-reduced-motion: reduce)").matches;
     const retained = new Set<string>();
+    for (const [id, rate] of latest) {
+      const row = source.getSnapshot().find((item) => item.id === id);
+      if (!row || row.exited || rate.version !== (row.launchVersion ?? 0)) latest.delete(id);
+    }
     for (const { row, element, trace } of targets()) {
       if (!movingLight(row)) {
         trace?.setAttribute("d", "");
@@ -79,6 +84,7 @@ export function subscribeLights(source: BoardSource, targets: () => Target[]): (
         meter = { history: new LightHistory(), rate: row.rate, version: row.launchVersion ?? 0 };
         meters.set(row.id, meter);
       }
+      meter.rate = latest.get(row.id)?.rate ?? meter.rate;
       const sample = meter.history.step(meter.rate, now, now - last, reduced);
       if (!reduced || sample)
         element.style.setProperty(
@@ -96,5 +102,6 @@ export function subscribeLights(source: BoardSource, targets: () => Target[]): (
     off();
     window.clearInterval(timer);
     meters.clear();
+    latest.clear();
   };
 }

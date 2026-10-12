@@ -475,6 +475,7 @@ export function createAppSource(): BoardSource {
     },
     subscribeActivity: (listener) => {
       activityListeners.add(listener);
+      if (rates.size) listener([...rates].map(([id, rate]) => ({ id, rate })));
       return () => {
         activityListeners.delete(listener);
       };

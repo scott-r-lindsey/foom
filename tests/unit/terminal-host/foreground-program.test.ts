@@ -58,3 +58,29 @@ test("ConPTY never queries a foreground name", () => {
   expect(read).not.toHaveBeenCalled();
   expect(publish).not.toHaveBeenCalled();
 });
+
+test("unintegrated shells coalesce final prompt output into one trailing refresh and then stop", () => {
+  vi.useFakeTimers();
+  vi.setSystemTime(0);
+  const read = vi.fn(() => "vim"),
+    publish = vi.fn();
+  const program = new ForegroundProgram("/bin/zsh", read, publish, "darwin");
+  program.refresh(Date.now());
+  expect(publish).toHaveBeenLastCalledWith("vim");
+  vi.advanceTimersByTime(100);
+  read.mockReturnValue("zsh");
+  program.refresh(Date.now());
+  program.refresh(Date.now());
+  expect(vi.getTimerCount()).toBe(1);
+  vi.advanceTimersByTime(900);
+  expect(publish).toHaveBeenLastCalledWith("");
+  expect(read).toHaveBeenCalledTimes(2);
+  vi.advanceTimersByTime(10000);
+  expect(read).toHaveBeenCalledTimes(2);
+  program.refresh(Date.now());
+  vi.advanceTimersByTime(100);
+  program.refresh(Date.now());
+  program.dispose();
+  vi.advanceTimersByTime(1000);
+  expect(read).toHaveBeenCalledTimes(3);
+});

@@ -32,10 +32,13 @@
   opacity: 0.85;
 }
 :is(.board-row, .terminal-tile)[data-exited="true"] :is(.session-name, .tile-name, .board-agent) {
-  opacity: 0.5;
+  color: color-mix(in srgb, var(--muted) 85%, var(--ink));
+}
+:is(.board-row, .terminal-tile)[data-exited="true"] .board-agent {
+  background: var(--surface);
 }
 .session-program {
-  color: var(--muted);
+  color: color-mix(in srgb, var(--muted) 85%, var(--ink));
   font: 12px var(--font-mono);
   flex-shrink: 0;
 }

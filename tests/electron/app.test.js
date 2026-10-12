@@ -1509,6 +1509,7 @@ test("Settings transitions restore background fullscreen output repeatedly", {
     await page.keyboard.press("Escape");
     await expect(page.getByRole("region", { name: "Settings" })).toBeHidden();
     await open.click();
+    await expect(page.locator(".xterm-helper-textarea")).toBeFocused();
     await expect(hide).toBeEnabled();
     await expect(rows).toContainText("ALTERNATE_HIDDEN_OUTPUT");
     await expect(rows).not.toContainText("NORMAL_VIEW_READY");
@@ -1523,6 +1524,7 @@ test("Settings transitions restore background fullscreen output repeatedly", {
   await page.keyboard.press("Escape");
   await expect(page.getByRole("region", { name: "Settings" })).toBeHidden();
   await open.click();
+  await expect(page.locator(".xterm-helper-textarea")).toBeFocused();
   await expect(hide).toBeEnabled();
   await expect(rows).toContainText("NORMAL_VIEW_READY");
   await expect(rows).toContainText("NORMAL_HIDDEN_OUTPUT");
@@ -1543,6 +1545,7 @@ test("Settings transitions restore background fullscreen output repeatedly", {
         await page.keyboard.press("Escape");
         await expect(page.getByRole("region", { name: "Settings" })).toBeHidden();
         await open.click();
+        await expect(page.locator(".xterm-helper-textarea")).toBeFocused();
         await expect(hide).toBeEnabled();
         await expect(rows).toContainText("FOOTER");
         await page.keyboard.type("j");
@@ -1573,6 +1576,7 @@ test("Settings transitions restore background fullscreen output repeatedly", {
     await page.keyboard.press("Escape");
     await expect(page.getByRole("region", { name: "Settings" })).toBeHidden();
     await open.click();
+    await expect(page.locator(".xterm-helper-textarea")).toBeFocused();
     await expect(hide).toBeEnabled();
   }
   // Reopening restores interactive input as well as the screen.
@@ -2916,6 +2920,7 @@ test("the branch field creates a worktree by keyboard without launching; dirty r
     terminal.repository,
   );
   await row.click();
+  await expect(page.locator(".xterm-helper-textarea")).toBeFocused();
   await expect(page.locator(".tile-terminal")).toBeVisible();
   const dirty = path.join(terminal.worktree, "unsaved.txt");
   await writeFile(dirty, "preserve unless confirmed");
@@ -3932,10 +3937,9 @@ test("sidebar menus escape the scroll area, stay in the window and launch from a
     );
     const rowBox = await launchedRow.boundingBox();
     const headerBox = await page.locator(".sidebar-shell .board-top").boundingBox();
-    assert.ok(rowBox && rowBox.height <= 50, "session keeps two compact readable lines");
+    assert.ok(rowBox && rowBox.height <= 50, "shell session keeps a compact readable line");
     assert.ok(headerBox && headerBox.height <= 100, "header preserves tree space");
-    await expect(launchedRow.locator(".board-reason")).toHaveCSS("font-size", "12px");
-    await expect(launchedRow.locator(".board-reason")).toHaveCSS("white-space", "nowrap");
+    await expect(launchedRow.locator(".board-reason")).toHaveCount(0);
     if (process.env.FOOM_SCREENSHOTS)
       await page.screenshot({
         path: path.join(tmpdir(), `foom-review-session-${colorScheme}.png`),
@@ -4050,6 +4054,8 @@ test("Bash command status reaches the sidebar without closing the shell", {
     true,
   );
   await page.evaluate(() => window.activityObserver.disconnect());
+  if (process.env.FOOM_SCREENSHOTS)
+    await page.screenshot({ path: path.join(tmpdir(), "foom-270-glow.png") });
   await page.keyboard.press("Control+c");
   await expect(row.locator(".session-program")).toHaveCount(0);
   await page.keyboard.type("false");
@@ -4064,6 +4070,9 @@ test("Bash command status reaches the sidebar without closing the shell", {
   await expect(row).toHaveAttribute("data-exited", "true");
   await expect(row).toHaveAccessibleName(/Exited/);
   await expect(row.locator(".session-program")).toHaveText("exited");
+  await assertAccessible(page);
+  if (process.env.FOOM_SCREENSHOTS)
+    await page.screenshot({ path: path.join(tmpdir(), "foom-270-exited.png") });
 });
 
 test("tiles build irregular layouts, preserve views and replace explicitly for attention", {
@@ -5504,6 +5513,9 @@ test("tile drag drops replace, split every edge, swap and move without reattachm
   const rows = page.locator(".board-row");
   await expect(rows).toHaveCount(3);
   await rows.nth(0).click();
+  await expect(
+    page.locator(".terminal-tile[data-focused='true'] .xterm-helper-textarea"),
+  ).toBeFocused();
   const tiles = page.locator(".terminal-tile");
   const drag = async (source, target, x, y, cancel = false) => {
     const before = await saved();
@@ -5556,6 +5568,9 @@ test("tile drag drops replace, split every edge, swap and move without reattachm
   }
   await page.getByRole("button", { name: "Two side by side", exact: true }).click();
   await rows.nth(0).click();
+  await expect(
+    page.locator(".terminal-tile[data-focused='true'] .xterm-helper-textarea"),
+  ).toBeFocused();
   await page.evaluate(() => {
     window.dragTiles = [...document.querySelectorAll(".terminal-tile")];
     window.dragXterms = [...document.querySelectorAll(".xterm")];
@@ -6839,7 +6854,8 @@ test("restored exited sessions hide the unattached terminal until restarted", as
   const restoredApp = await launchApp(context, false, { ...options, emptyBoard: true });
   const restored = await boardPage(restoredApp);
   await expect(restored.locator(".board-row")).toHaveCount(1);
-  await restored.locator(".board-row").click();
+  // The restored terminal cannot take input focus; activate its row directly.
+  await restored.locator(".board-row").press("Enter");
   await expect(restored.locator('.terminal-tile[data-empty="false"]')).toBeVisible();
   await expect(restored.locator(".tile-terminal")).toBeHidden();
   await expect(restored.locator(".xterm-helper-textarea")).not.toBeFocused();
