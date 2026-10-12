@@ -3019,7 +3019,8 @@ test("the branch field creates a worktree by keyboard without launching; dirty r
 test("sidebar refuses deletion of a running shell and enables it after exit, preserving branches and the main checkout", {
   timeout: deadline(45000),
 }, async (context) => {
-  const root = await mkdtemp(path.join(tmpdir(), "foom-external-removal-"));
+  // Match main’s canonical paths on macOS temp aliases and Windows short paths.
+  const root = await realpath(await mkdtemp(path.join(tmpdir(), "foom-external-removal-")));
   const repo = path.join(root, "repo");
   const external = path.join(root, "external");
   await mkdir(repo);
