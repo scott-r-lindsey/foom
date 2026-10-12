@@ -46,7 +46,7 @@ export function assets(directory, info) {
     if (matches.length !== 1) throw new Error(`Missing or duplicate ${platform} nightly ZIP`);
     const data = readFileSync(matches[0]);
     if (data.length < 4 || data.readUInt32LE(0) !== 0x04034b50) throw new Error("Invalid ZIP");
-    return { name: `foom-nightly-${info.day}-${info.short}-${platform}.zip`, data };
+    return { name: `Foom-nightly-${info.day}-${info.short}-${platform}.zip`, data };
   });
 }
 

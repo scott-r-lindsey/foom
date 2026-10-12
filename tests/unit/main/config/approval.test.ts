@@ -1,6 +1,11 @@
 import { expect, test } from "vitest";
 import { configPart, describe, effective, weakenings } from "../../../../src/main/config/approval";
-import { OWNED_FILES, digest, refreshable } from "../../../../src/main/config/layout";
+import {
+  OWNED_FILES,
+  OWNED_HISTORY,
+  digest,
+  refreshable,
+} from "../../../../src/main/config/layout";
 import { DEFAULT_SETTINGS } from "../../../../src/main/setup/settings";
 
 const base = configPart(DEFAULT_SETTINGS);
@@ -65,6 +70,11 @@ test("owned files refresh only when missing or matching an earlier Foom version"
   expect(refreshable("unknown.md", Buffer.from("x"))).toBe(false);
   expect(digest("abc")).toMatch(/^[0-9a-f]{64}$/);
   expect(OWNED_FILES["AGENTS.md"]).toContain("foom config validate .");
+  // Agents here must read requests as about Foom and stay out of global agent config.
+  expect(OWNED_FILES["AGENTS.md"]).toContain("they mean Foom, not your own agent configuration");
+  expect(OWNED_FILES["AGENTS.md"]).toContain("Default launch arguments");
+  expect(OWNED_FILES["AGENTS.md"]).toContain("Never edit the user's global agent configuration");
+  expect(OWNED_FILES["AGENTS.md"]).toContain("Do not drive Foom's windows or any other GUI");
   expect(OWNED_FILES["CLAUDE.md"]).toBe(OWNED_FILES["AGENTS.md"]);
   const schema = JSON.parse(OWNED_FILES["schemas/settings.schema.json"] ?? "{}") as {
     properties: Record<string, unknown>;
@@ -98,4 +108,13 @@ test("enabling automatic restore requires approval, disabling it does not", () =
     { action: "restore sessions on launch", detail: "restoreSessions: off → on" },
   ]);
   expect(weakenings(base, off)).toEqual([]);
+});
+
+test("unedited earlier guides refresh to the current one", () => {
+  for (const file of ["README.md", "AGENTS.md", "CLAUDE.md"]) {
+    const history = OWNED_HISTORY[file] ?? [];
+    // The guide shipped with restoreSessions, before the launch-argument guidance.
+    expect(history).toContain("878a20cc974fb5cee577361660f8153f9adbcb3ca815ee5fc4eca26047b8d858");
+    expect(history).not.toContain(digest(OWNED_FILES[file] ?? ""));
+  }
 });

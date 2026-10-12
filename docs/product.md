@@ -258,7 +258,7 @@ changing focus, Escape, closing the menu or expiry disarms it. Files stay untouc
 when removing a repository. Removing a worktree keeps its branch.
 
 Launching an agent in a checkout with another running agent changes the launcher
-to **Click again for two agents here**. Shell launches need no sharing confirmation.
+to **Click again for multiple agents here**. Shell launches need no sharing confirmation.
 A Codex launch using the notifier fallback also requires **Click again to replace notifier**
 when the notifier replacement has not already been acknowledged. Application-menu
 config launches use a trusted dialog with the same disclosure because that menu

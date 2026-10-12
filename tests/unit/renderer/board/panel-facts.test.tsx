@@ -137,6 +137,26 @@ test("renders local facts, unknowns, state chips and copy buttons", async () => 
   });
   expect(view.getByRole("status").textContent).toBe("Unable to copy");
 });
+test.each([false, true])(
+  "Created by Foom uses an unpunctuated label and explicit value (%s)",
+  async (managed) => {
+    const view = render(
+      <PanelFacts
+        subject={{ kind: "worktree", repository, tree: { ...tree, managed } }}
+        source={source}
+        options={undefined}
+      />,
+    );
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(view.getByText("Created by Foom", { exact: true }).nextElementSibling?.textContent).toBe(
+      managed ? "Yes" : "No",
+    );
+    expect(view.queryByText("Created by Foom:", { exact: true })).toBeNull();
+  },
+);
+
 test("all row types remain useful without available facts", async () => {
   const subjects: PanelSubject[] = [
     { kind: "home", home: undefined, rows: [] },
@@ -237,7 +257,7 @@ test("fact chips keep amber for needs-you, magenta for failures and name every s
     ["neutral", "default"],
     ["changes", "3 changed"],
     ["neutral", "Not merged into default branch"],
-    ["info", "Foom"],
+    ["info", "Yes"],
   ]);
   expect(view.container.textContent).toContain("In sync");
   expect(view.container.textContent).toContain("3 h ago");
