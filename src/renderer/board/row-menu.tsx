@@ -62,7 +62,9 @@ export function RowMenu({
   point,
   keepOnResize = false,
   nested,
+  bottomAligned = false,
 }: {
+  bottomAligned?: boolean;
   /** Reposition rather than close when the window resizes, as interface size steps do. */
   keepOnResize?: boolean;
   nested?: Nested;
@@ -122,7 +124,13 @@ export function RowMenu({
       const top = Math.max(
         8,
         Math.min(
-          point ? point.y : placement === "below" ? button.bottom + 8 : button.top,
+          point
+            ? point.y
+            : bottomAligned
+              ? button.bottom - bounds.height
+              : placement === "below"
+                ? button.bottom + 8
+                : button.top,
           window.innerHeight - bounds.height - 8,
         ),
       );
@@ -144,7 +152,7 @@ export function RowMenu({
       observer?.disconnect();
       window.removeEventListener("resize", position);
     };
-  }, [anchor, placement, focusOnOpen, isPanel, point, keepOnResize, isNested]);
+  }, [anchor, placement, focusOnOpen, isPanel, point, keepOnResize, isNested, bottomAligned]);
   useEffect(() => {
     // The top-level menu owns dismissal for its submenu.
     if (isNested) return;
@@ -198,7 +206,7 @@ export function RowMenu({
       document.removeEventListener("scroll", scroll, true);
       window.removeEventListener("resize", close);
     };
-  }, [anchor, close, isPanel, keepOnResize, isNested]);
+  }, [anchor, close, isPanel, keepOnResize, isNested, bottomAligned]);
   const openSub = (index: number, item: HTMLButtonElement, focus: boolean) => {
     setSub((current) =>
       current?.index === index && (current.focus || !focus)
