@@ -26,6 +26,8 @@ export interface TerminalState {
 export type McpConnection = "connecting" | "connected" | "not-connected";
 
 export interface WorkspaceTerminal {
+  /** Host-observed foreground process name; never persisted. */
+  foregroundProgram?: string;
   /** Main-observed attachment for this live launch; never persisted. */
   mcpConnection?: McpConnection | undefined;
   execution?: ExecutionSnapshot | undefined;

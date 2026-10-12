@@ -11,6 +11,9 @@ const manager = new TerminalManager(
     send({ type: "exit", id, code });
   },
   {
+    onForeground: (id, name) => {
+      send({ type: "foreground", id, name });
+    },
     onEvidence: (id, evidence) => {
       send({ type: "evidence", id, evidence });
     },

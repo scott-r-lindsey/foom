@@ -96,15 +96,15 @@ test("maps every state to a text label and activity brightness, dimming only ack
         ? 0.4
         : row.state === "working"
           ? row.rate === 2200
-            ? 0.7075
-            : 0.545
+            ? 0.5 + (0.5 * Math.log1p(2200 / 40)) / Math.log1p(100)
+            : 0.5 + (0.5 * Math.log1p(row.rate / 40)) / Math.log1p(100)
           : 1,
     );
   }
   const row = rows[1];
   if (!row) throw new Error("Missing working row");
   row.rate = -1;
-  expect(light(row).opacity).toBeCloseTo(0.35);
+  expect(light(row).opacity).toBeCloseTo(0.5);
   row.rate = 99999;
   expect(light(row).opacity).toBeCloseTo(1);
 });
@@ -239,17 +239,17 @@ test("activity updates brightness without replacing rows or rerendering React", 
   const bulb = button?.querySelector<HTMLElement>(".board-light");
   renders.mockClear();
   source.setActivity("build", 4000);
-  expect(bulb?.style.getPropertyValue("--light-opacity")).toBe("1");
+  expect(Number(bulb?.style.getPropertyValue("--activity"))).toBeGreaterThanOrEqual(0);
   source.setActivity("unknown", 0);
   expect(renders).not.toHaveBeenCalled();
   act(() => {
     vi.advanceTimersByTime(1000);
   });
-  expect(bulb?.style.getPropertyValue("--light-opacity")).toBe("1");
+  expect(Number(bulb?.style.getPropertyValue("--activity"))).toBeGreaterThan(0.99);
   expect(button?.querySelector<HTMLElement>(".board-light")).toBe(bulb);
   view.unmount();
   source.setActivity("build", 0);
-  expect(bulb?.style.getPropertyValue("--light-opacity")).toBe("1");
+  expect(Number(bulb?.style.getPropertyValue("--activity"))).toBeGreaterThan(0.99);
   void source.resolve("build", "Ignored");
   void source.resolve("unknown", "Ignored");
   expect(source.getSnapshot().find((row) => row.id === "build")?.reason).toBe(

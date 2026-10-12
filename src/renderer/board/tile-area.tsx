@@ -15,6 +15,7 @@ import type {
   TileSplit,
 } from "./tiles.d";
 import type { TerminalViewSource } from "../terminal/terminal-view-source.d";
+import { subscribeLights, lightState, movingLight } from "./light-activity";
 import { light } from "./board";
 import {
   sessionIdentity,
@@ -108,17 +109,14 @@ function Tile({
   const menuRef = useRef<HTMLButtonElement>(null);
   const lightRef = useRef<HTMLSpanElement>(null);
   const elementRef = useRef<HTMLElement>(null);
+  const rowId = row?.id;
   useEffect(
     () =>
-      source.subscribeActivity((batch) => {
-        const activity = batch.find((item) => item.id === row?.id);
-        if (activity && row)
-          lightRef.current?.style.setProperty(
-            "--light-opacity",
-            String(light({ ...row, rate: activity.rate }).opacity),
-          );
+      subscribeLights(source, () => {
+        const current = source.getSnapshot().find((item) => item.id === rowId);
+        return current && lightRef.current ? [{ row: current, element: lightRef.current }] : [];
       }),
-    [source, row],
+    [source, rowId],
   );
   const lastFocusRef = useRef(0);
   useEffect(() => {
@@ -137,7 +135,9 @@ function Tile({
       data-focused={Boolean(row) && focused}
       data-landing={!row && landingSpace(layout)?.id === tile.id}
       data-collapsing={collapsing}
-      data-state={row?.state}
+      data-state={row ? lightState(row) : undefined}
+      data-exited={row?.exited}
+      data-kind={row?.kind}
       data-empty={!row}
       data-maximized={maximized}
       data-behind={behind}
@@ -183,6 +183,9 @@ function Tile({
               <h2 className="visually-hidden">{`${row.repository} › ${rowWorktree(row) === rowRepository(row) ? "Main checkout" : row.branch} › ${sessionName(row, preferences)}`}</h2>
               <span
                 ref={lightRef}
+                data-light-state={lightState(row)}
+                data-moving={movingLight(row)}
+                data-exited={Boolean(row.exited)}
                 className="board-light"
                 style={{ "--light-opacity": light(row).opacity } as CSSProperties}
                 role="img"
@@ -195,6 +198,11 @@ function Tile({
               <span className="tile-name" title={sessionIdentity(row, source.shellName?.())}>
                 {sessionName(row, preferences)}
               </span>
+              {(row.exited || row.foregroundProgram) && (
+                <span className="session-program">
+                  {row.exited ? "exited" : row.foregroundProgram}
+                </span>
+              )}
             </>
           }
           <button

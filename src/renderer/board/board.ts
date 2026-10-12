@@ -1,3 +1,4 @@
+import { movingLight, outputLevel } from "./light-activity";
 import type { BoardRow, BoardState } from "./board.d";
 
 const labels: Record<BoardState, string> = {
@@ -9,10 +10,19 @@ const labels: Record<BoardState, string> = {
 };
 export function light(row: BoardRow): { label: string; opacity: number } {
   let opacity = 1;
-  if (row.state === "working") opacity = 0.35 + 0.65 * Math.min(1, Math.max(0, row.rate) / 4000);
+  if (movingLight(row)) opacity = 0.5 + 0.5 * outputLevel(row.rate);
   if (row.state === "quiet_ok" || ((row.state === "done" || row.state === "failed") && row.seen))
     opacity = 0.4;
-  return { label: labels[row.state], opacity };
+  if (row.kind === "shell") opacity = 1;
+  if (row.exited) opacity = 0.85;
+  return {
+    label: row.exited
+      ? `Exited · ${row.kind === "shell" ? "Shell" : labels[row.state]}`
+      : row.kind === "shell" && row.state !== "needs_input"
+        ? "Running"
+        : labels[row.state],
+    opacity,
+  };
 }
 export function nextWaiting(rows: readonly BoardRow[]): BoardRow | undefined {
   return rows

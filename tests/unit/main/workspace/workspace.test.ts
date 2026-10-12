@@ -734,6 +734,11 @@ test("launches multiple shells in a managed worktree", async () => {
     expect.objectContaining({ cwd: tree.path, cols: 80, rows: 24 }),
   );
   expect(workspace.snapshot().terminals[0]).toMatchObject({ kind: "shell", branch: "feature" });
+  workspace.foreground("t1", "vim");
+  workspace.foreground("t1", "vim");
+  expect(workspace.snapshot().terminals[0]?.foregroundProgram).toBe("vim");
+  workspace.foreground("t1", "");
+  expect(workspace.snapshot().terminals[0]?.foregroundProgram).toBe("");
   vi.spyOn(deps.terminals, "create").mockResolvedValueOnce("t2");
   expect(await workspace.startWorktree(start)).toBe("t2");
   expect(workspace.snapshot().terminals).toHaveLength(2);
@@ -1494,6 +1499,7 @@ test("shell lifecycle reports ready, working, done and failed, preserving comple
   workspace.shellState("t1", { phase: "prompt", exitCode: 7 });
   expect(states.at(-1)).toMatchObject({ state: "failed", reason: "Command exited with status 7" });
   await workspace.exited("t1", 0);
+  workspace.foreground("t1", "vim");
   workspace.shellState("t1", { phase: "running" });
   expect(states.at(-1)).toMatchObject({ state: "done", signal: "process:exit" });
 });

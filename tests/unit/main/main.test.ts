@@ -115,6 +115,7 @@ vi.mock("../../../src/main/workspace/workspace", () => ({
     });
     output = mock.workspace.output;
     evidence = mock.workspace.evidence;
+    foreground = mock.workspace.foreground;
     shellState = mock.workspace.shellState;
     mcpConnectionChanged = mock.workspace.mcpConnectionChanged;
     ownsSession = mock.workspace.ownsSession;
@@ -286,6 +287,7 @@ const mock = vi.hoisted(() => {
     deps: undefined as WorkspaceDependencies | undefined,
     output: vi.fn(),
     evidence: vi.fn(),
+    foreground: vi.fn(),
     shellState: vi.fn(),
     mcpConnectionChanged: vi.fn(),
     ownsSession: vi.fn(() => true),
@@ -1470,10 +1472,13 @@ test("routes output, evidence and shell state into app-owned workspace", async (
   const events = mock.terminalEvents as {
     onOutput(id: string): void;
     onEvidence(id: string, evidence: unknown): void;
+    onForeground(id: string, name: string): void;
     onShellState(id: string, state: unknown): void;
   };
   events.onOutput("t1");
   events.onEvidence("t1", { text: "untrusted" });
+  events.onForeground("t1", "vim");
+  expect(mock.workspace.foreground).toHaveBeenCalledWith("t1", "vim");
   events.onShellState("t1", "ready");
   expect(mock.workspace.output).toHaveBeenCalledWith("t1");
   expect(mock.workspace.evidence).toHaveBeenCalledWith("t1", { text: "untrusted" });

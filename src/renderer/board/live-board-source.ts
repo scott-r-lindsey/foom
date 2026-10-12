@@ -194,6 +194,7 @@ export function createAppSource(): BoardSource {
         config: entry.config === true,
         startedAt: entry.startedAt,
         exitCode: entry.exitCode,
+        foregroundProgram: entry.foregroundProgram ?? "",
         launchFlags: entry.launchFlags,
         environment: entry.environment,
         orchestration: entry.orchestration,

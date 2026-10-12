@@ -10,6 +10,7 @@ export interface TerminalActivity {
 }
 export type ShellState = { phase: "running" } | { phase: "prompt"; exitCode: number };
 export interface TerminalTelemetry {
+  onForeground?(id: string, name: string): void;
   onEvidence?(id: string, evidence: AgentEvidence): void;
   onShellState?(id: string, state: ShellState): void;
   onOutput?(id: string): void;

@@ -309,7 +309,7 @@ test("fact chips keep amber for needs-you, magenta for failures and name every s
     />,
   );
   expect(tones(view)).toEqual([
-    ["failed", "Failed"],
+    ["failed", "Exited · Failed"],
     ["failed", "1"],
   ]);
 });
