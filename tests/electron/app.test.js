@@ -7480,8 +7480,13 @@ test("wide blank tiles start as columns, full boards grow right, and hide refill
       .setSize(3200, 900);
   });
   const launch = async () => {
-    await page.getByRole("button", { name: "Actions for Home shell", exact: true }).click();
-    await page.getByRole("menuitem", { name: "New shell", exact: true }).click();
+    const count = await page.locator(".board-row").count();
+    await page.getByRole("button", { name: "Actions for Home shell", exact: true }).press("Enter");
+    await page.getByRole("menuitem", { name: "New shell", exact: true }).press("Enter");
+    await expect(page.locator(".board-row")).toHaveCount(count + 1);
+    await expect(
+      page.locator('.terminal-tile[data-focused="true"] .xterm-helper-textarea'),
+    ).toBeFocused();
   };
   await launch();
   const tiles = page.locator(".terminal-tile");
