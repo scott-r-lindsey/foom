@@ -1110,6 +1110,7 @@ export function Sidebar({
                                             null,
                                             {
                                               label: "Delete worktree…",
+                                              disabled: sessions.some((session) => !session.exited),
                                               glyph: "trash" as const,
                                               run: () => {
                                                 return command({

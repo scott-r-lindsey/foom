@@ -271,6 +271,9 @@ test("location labels open their panels and leave terminal tiles unchanged; menu
   expect(feature.getAttribute("aria-expanded")).toBe("true");
   fireEvent.click(feature);
   expect(view.command).not.toHaveBeenCalled();
+  act(() => {
+    view.base.update("a", { exited: true });
+  });
   for (const [label, expected] of [
     ["Claude Code", { kind: "launch", repository: "/foom", worktree: "/tree", run: "claude" }],
     ["Shell (zsh)", { kind: "launch", repository: "/foom", worktree: "/tree", run: "shell" }],
@@ -399,6 +402,41 @@ test("creating moves focus to the arriving row, which settles on hover and on bl
     vi.useRealTimers();
   }
 });
+
+test.each(["agent", "shell"] as const)(
+  "worktree deletion follows %s session exit state in an open panel",
+  async (kind) => {
+    const view = setup();
+    act(() => {
+      view.base.update("a", { kind });
+    });
+    fireEvent.click(view.getByRole("button", { name: "Actions for feature" }));
+    const item = () => view.getByRole("menuitem", { name: "Delete worktree…" });
+    expect(item().hasAttribute("disabled")).toBe(true);
+    fireEvent.click(item());
+    expect(view.command).not.toHaveBeenCalled();
+    act(() => {
+      view.base.update("a", { exited: true });
+    });
+    expect(item().hasAttribute("disabled")).toBe(false);
+    act(() => {
+      view.base.update("a", { exited: false });
+    });
+    expect(item().hasAttribute("disabled")).toBe(true);
+    act(() => {
+      view.base.update("a", { exited: true });
+    });
+    await act(async () => {
+      fireEvent.click(item());
+      await Promise.resolve();
+    });
+    expect(view.command).toHaveBeenCalledWith({
+      kind: "remove-worktree",
+      repository: "/foom",
+      worktree: "/tree",
+    });
+  },
+);
 
 test("running and exited sessions have distinct actions", async () => {
   const view = setup();

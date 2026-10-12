@@ -104,7 +104,7 @@ the field without prose. Checkout facts show
 branch, path, changes, upstream counts and last commit; linked worktrees also
 show merged state and creation origin. Detached rows show a short hash with a
 detached glyph, and panels say “Detached at <hash>”. **Delete worktree…** names
-the existing folder-removal action.
+the existing folder-removal action and is unavailable while a session runs there.
 
 The **Foom config** row, with a gear mark, sits below the home shell row. Its
 panel shows the folder path (copyable), the working tree (Clean or N uncommitted),
