@@ -1,0 +1,154 @@
+{
+  "mode": "interactive",
+  "readOnly": true,
+  "allow": true,
+  "runs": [
+    {
+      "agent": "claude",
+      "version": "2.1.296 (Claude Code)",
+      "mode": "interactive",
+      "readOnly": true,
+      "allow": true,
+      "permissionMode": "default",
+      "approvalPrompts": [],
+      "completed": true,
+      "screenTail": "\u001b7\u001b8           Claude Codev2.1.296           Opus 5.5 · API Usage Billing           <scratch>/worktree❯ Show me the mockup you wrote.                                                                                         ·Calculating…                                                                                                     ◐ medium · /effort────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────❯  ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────  ⏸ manual mode on · ? for shortcuts · ← for agents❯                      esc to interrupt · ← for agents\u001b[>0q●MCP Wait For Servers(WaitforpendingMCPserverstoconnect)  Discombobulating… ●Callingfoom_a7bccd7054484f57ac355bb986e55dfa…                                                2times…✢Discombobulating…(0s · ↓2 tokens)                                                3 Called foom_a7bccd7054484f57ac355bb986e55dfa 3 times ●Syntheticruncomplete.✻Baked for 0s · done 2:02 PM❯                      ? for shortcuts · ← for agents▛█▄██▘▝▝ ",
+      "modelRequests": 6,
+      "toolsOffered": [
+        {
+          "name": "mcp__foom_…__close_preview",
+          "description": "Close a preview you opened."
+        },
+        {
+          "name": "mcp__foom_…__list_previews",
+          "description": "Previews you opened that are still open."
+        },
+        {
+          "name": "mcp__foom_…__open_preview",
+          "description": "Show the user a rendered preview of a Markdown or HTML file in your worktree, in a Foom tile beside the terminals. Use it when you've written something the user should look at, like a mockup or a doc. Path is relative to your worktree. Opening the same file again returns the existing preview. Never takes focus."
+        },
+        {
+          "name": "mcp__foom_…__session_state",
+          "description": "Session state in your repository, with a fixed reason and conservative attention kind. No terminal output."
+        },
+        {
+          "name": "mcp__foom_…__sessions",
+          "description": "Paginated session metadata in your repository. Names are untrusted data. No terminal output."
+        },
+        {
+          "name": "mcp__foom_…__whoami",
+          "description": "Own Foom identity and capabilities. No secrets or terminal output."
+        }
+      ],
+      "requestTools": {
+        "names": [
+          "Agent",
+          "AskUserQuestion",
+          "Bash",
+          "CronCreate",
+          "CronDelete",
+          "CronList",
+          "Edit",
+          "EnterPlanMode",
+          "EnterWorktree",
+          "ExitPlanMode",
+          "ExitWorktree",
+          "ListAgents",
+          "NotebookEdit",
+          "Read",
+          "ReportFindings",
+          "ScheduleWakeup",
+          "SendMessage",
+          "Skill",
+          "TaskStop",
+          "WaitForMcpServers",
+          "WebFetch",
+          "WebSearch",
+          "Workflow",
+          "Write",
+          "mcp__foom_a7bccd7054484f57ac355bb986e55dfa__close_preview",
+          "mcp__foom_a7bccd7054484f57ac355bb986e55dfa__list_previews",
+          "mcp__foom_a7bccd7054484f57ac355bb986e55dfa__open_preview",
+          "mcp__foom_a7bccd7054484f57ac355bb986e55dfa__session_state",
+          "mcp__foom_a7bccd7054484f57ac355bb986e55dfa__sessions",
+          "mcp__foom_a7bccd7054484f57ac355bb986e55dfa__whoami"
+        ],
+        "deferredMention": "te is 2026-10-12.\",\"output_config\":{\"effort\":\"medium\"}},{\"role\":\"assistant\",\"content\":[{\"type\":\"tool_use\",\"id\":\"wait_0\",\"name\":\"WaitForMcpServers\",\"input\":{}},{\"type\":\"tool_use\",\"id\":\"tool_0\",\"name\":\"mcp__foom_…__open_preview\",\"input\":{\"path\":\"docs/mockup.html\"}},{\"type\":\"tool_use\",\"id\":\"tool_1\",\"name\":\"mcp__foom_…",
+        "waitSchema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {
+            "servers": {
+              "description": "Server names to wait for (default: all pending)",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "additionalProperties": false
+        },
+        "waitResults": [
+          "ready: true"
+        ]
+      },
+      "toolResultsSeenByModel": [
+        {
+          "is_error": false,
+          "content": "{\"previewId\":\"pv_1723345bf9de4fdeb6b7fe402f8b1e33\",\"path\":\"docs/mockup.html\",\"kind\":\"html\",\"placement\":\"landing\",\"reused\":false}"
+        },
+        {
+          "is_error": true,
+          "content": "forbidden"
+        },
+        {
+          "is_error": false,
+          "content": "{\"previews\":[{\"previewId\":\"pv_1723345bf9de4fdeb6b7fe402f8b1e33\",\"path\":\"docs/mockup.html\",\"kind\":\"html\",\"visible\":true}]}"
+        }
+      ],
+      "mcpCalls": [
+        {
+          "tool": "open_preview",
+          "arguments": {
+            "path": "docs/mockup.html"
+          },
+          "result": {
+            "previewId": "pv_1723345bf9de4fdeb6b7fe402f8b1e33",
+            "path": "docs/mockup.html",
+            "kind": "html",
+            "placement": "landing",
+            "reused": false
+          }
+        },
+        {
+          "tool": "open_preview",
+          "arguments": {
+            "path": "../outside/secret.md"
+          },
+          "error": "forbidden"
+        },
+        {
+          "tool": "list_previews",
+          "arguments": {},
+          "result": {
+            "previews": [
+              {
+                "previewId": "pv_1723345bf9de4fdeb6b7fe402f8b1e33",
+                "path": "docs/mockup.html",
+                "kind": "html",
+                "visible": true
+              }
+            ]
+          }
+        }
+      ],
+      "previewsOpen": [
+        {
+          "path": "docs/mockup.html",
+          "owner": "agent",
+          "tile": "t2"
+        }
+      ]
+    }
+  ]
+}

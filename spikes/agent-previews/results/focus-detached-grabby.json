@@ -1,0 +1,49 @@
+{
+  "agent": "codex-cli 0.162.1",
+  "exit": 0,
+  "events": [
+    {
+      "action": "open_preview",
+      "path": "docs/mockup.html",
+      "outcome": "landing"
+    },
+    {
+      "action": "open_preview",
+      "path": "docs/notes.md",
+      "outcome": "sidebar"
+    },
+    {
+      "action": "open_preview",
+      "path": "docs/mockup.html",
+      "outcome": "existing"
+    }
+  ],
+  "boardFocusUnchanged": true,
+  "previewViewFocused": false,
+  "boardFocusedAtEnd": true,
+  "focusStrategy": "detached",
+  "focusLog": [
+    {
+      "preview": "docs/mockup.html",
+      "event": "created (not attached)",
+      "viewFocused": false,
+      "boardFocused": true
+    },
+    {
+      "preview": "docs/mockup.html",
+      "event": "attached after load",
+      "viewFocused": false,
+      "boardFocused": true
+    },
+    {
+      "preview": "docs/mockup.html",
+      "event": "loaded",
+      "viewFocused": false,
+      "boardFocused": true
+    }
+  ],
+  "keysTyped": 300,
+  "keysInBoard": 300,
+  "keysInPreview": 0,
+  "previewTitle": "Checkout mockup"
+}

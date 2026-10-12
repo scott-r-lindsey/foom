@@ -1,0 +1,67 @@
+[
+  {
+    "who": "agent (Antigravity)",
+    "method": "whoami → capabilities",
+    "status": 200,
+    "body": [
+      "whoami",
+      "sessions",
+      "session_state",
+      "open_preview",
+      "list_previews",
+      "close_preview"
+    ]
+  },
+  {
+    "who": "agent (Antigravity)",
+    "method": "open_preview docs/plan.md",
+    "status": 200,
+    "body": {
+      "result": {
+        "previewId": "pv_…",
+        "path": "docs/plan.md",
+        "kind": "markdown",
+        "placement": "landing",
+        "reused": false
+      }
+    }
+  },
+  {
+    "who": "agent (Antigravity)",
+    "method": "open_preview docs/plan.md again",
+    "status": 200,
+    "body": {
+      "result": {
+        "previewId": "pv_…",
+        "path": "docs/plan.md",
+        "kind": "markdown",
+        "placement": "existing",
+        "reused": true
+      }
+    }
+  },
+  {
+    "who": "agent (Antigravity)",
+    "method": "open_preview with a caller-supplied worktree",
+    "status": 400,
+    "body": {
+      "error": "invalid_request"
+    }
+  },
+  {
+    "who": "paired human CLI",
+    "method": "open_preview docs/plan.md",
+    "status": 403,
+    "body": {
+      "error": "forbidden"
+    }
+  },
+  {
+    "who": "agent after exit",
+    "method": "list_previews",
+    "status": 401,
+    "body": {
+      "error": "unauthorized"
+    }
+  }
+]
