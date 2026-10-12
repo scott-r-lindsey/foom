@@ -347,9 +347,9 @@ export function PanelFacts({
                   <Chip tone="neutral">Not merged into default branch</Chip>
                 )}
               </Fact>
-              <Fact label="Created by">
+              <Fact label="Created by Foom:">
                 <Chip tone={subject.tree.managed ? "info" : "neutral"}>
-                  {subject.tree.managed ? "Foom" : "Elsewhere"}
+                  {subject.tree.managed ? "Yes" : "No"}
                 </Chip>
               </Fact>
             </>

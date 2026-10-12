@@ -237,7 +237,7 @@ test("fact chips keep amber for needs-you, magenta for failures and name every s
     ["neutral", "default"],
     ["changes", "3 changed"],
     ["neutral", "Not merged into default branch"],
-    ["info", "Foom"],
+    ["info", "Yes"],
   ]);
   expect(view.container.textContent).toContain("In sync");
   expect(view.container.textContent).toContain("3 h ago");
