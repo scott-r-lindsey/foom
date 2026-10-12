@@ -3080,13 +3080,13 @@ process.stdin.resume();
     await page.getByRole("button", { name: "Actions for agent", exact: true }).click();
     await page.getByRole("menuitem", { name: "Claude Code", exact: true }).click();
     await expect(
-      page.getByRole("menuitem", { name: "Click again for two agents here" }),
+      page.getByRole("menuitem", { name: "Click again for multiple agents here" }),
     ).toBeVisible();
     await page.keyboard.press("Escape");
     assert.equal((await sharedSessions()).length, 3, "Cancel must not create an agent");
     await page.getByRole("button", { name: "Actions for agent", exact: true }).click();
     await page.getByRole("menuitem", { name: "Claude Code", exact: true }).click();
-    const sharedArm = page.getByRole("menuitem", { name: "Click again for two agents here" });
+    const sharedArm = page.getByRole("menuitem", { name: "Click again for multiple agents here" });
     await expect(sharedArm).toBeVisible();
     // Measure the minimum interval from main's arm, not from the async launch request.
     await page.waitForTimeout(310);

@@ -99,7 +99,11 @@ test("launch errors mark the field and it can be edited and retried", async () =
 test("shared-checkout confirmation waits for main and prevents duplicate submission", async () => {
   let receive: (arm: ArmedConfirmation | null, accepted?: boolean) => void = () => {};
   const operation = Promise.withResolvers<undefined>();
-  const arm = { nonce: "main-owned", target: "resume", label: "Click again for two agents here" };
+  const arm = {
+    nonce: "main-owned",
+    target: "resume",
+    label: "Click again for multiple agents here",
+  };
   const confirm = vi.fn(() => {
     receive(null, true);
     operation.resolve(undefined);

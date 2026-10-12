@@ -163,7 +163,7 @@ export function attachWorkspace(
   const labels = {
     remove: "Click again to remove",
     stop: "Click again to stop",
-    "shared-agent": "Click again for two agents here",
+    "shared-agent": "Click again for multiple agents here",
     notifier: "Click again to replace notifier",
   } satisfies Record<
     Exclude<
