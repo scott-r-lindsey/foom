@@ -1,0 +1,10 @@
+{
+  "agent": "codex",
+  "version": "f6aca7dc461d6a9e0ae12828cd04845c31dd504e",
+  "platform": "upstream-render-snapshot",
+  "date": "2026-10-13",
+  "source": "https://github.com/openai/codex/blob/f6aca7dc461d6a9e0ae12828cd04845c31dd504e/codex-rs/tui/src/chatwidget/snapshots/codex_tui__chatwidget__tests__rate_limit_exceeded_error.snap",
+  "rules": ["provider_rate_limit"],
+  "titles": [],
+  "tail": ["■ rate limit exceeded: Please try again in 10s."]
+}

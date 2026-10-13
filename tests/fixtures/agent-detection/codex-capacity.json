@@ -1,0 +1,10 @@
+{
+  "agent": "codex",
+  "version": "unknown (reported child in #339)",
+  "platform": "reported-terminal-line",
+  "date": "2026-10-13",
+  "source": "https://github.com/scott-r-lindsey/foom/issues/339",
+  "rules": ["provider_capacity"],
+  "titles": [],
+  "tail": ["Selected model is at capacity"]
+}

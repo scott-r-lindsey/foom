@@ -164,3 +164,56 @@ it("tracks current execution and changes revisions on relaunch, attention and ex
   row.exited = true;
   expect(call()).toMatchObject({ state: "exited" });
 });
+
+it("reports only fixed provider metadata while the verdict is current", () => {
+  const repo = tmpdir();
+  const row: WorkspaceTerminal = {
+    id: "child",
+    kind: "agent",
+    agent: "codex",
+    repository: repo,
+    worktree: repo,
+    branch: null,
+    attention: "evaluator",
+    outputRevision: 1,
+    state: {
+      id: "child",
+      verdictId: "v1",
+      state: "needs_input",
+      attentionKind: "provider",
+      reason: "private provider output",
+      signal: "private signal",
+      confidence: 1,
+      timestamp: 1,
+      outputRevision: 1,
+    },
+  };
+  const service = new ControlService(
+    new Operations(
+      () => Promise.resolve(),
+      () => undefined,
+    ),
+    () => [row],
+  );
+  const grant = service.prepare(repo, repo);
+  grant.bind("parent");
+  const actor = service.authenticate(grant.env["FOOM_CONTROL_TOKEN"] ?? "");
+  const call = () =>
+    service.dispatch(actor, {
+      version: 1,
+      instanceId: service.instanceId,
+      method: "session_state",
+      params: { id: "child" },
+    });
+  const stalled = call();
+  expect(stalled).toMatchObject({
+    state: "needs_input",
+    reason: "provider_unavailable",
+    attentionKind: "provider",
+  });
+  expect(JSON.stringify(stalled)).not.toMatch(/private provider output|private signal/);
+  row.outputRevision = 2;
+  expect(call()).toMatchObject({ reason: "quiet_ok", attentionKind: null, verdictId: null });
+  row.exited = true;
+  expect(call()).toMatchObject({ reason: "exited", attentionKind: null });
+});

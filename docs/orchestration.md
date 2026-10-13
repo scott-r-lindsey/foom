@@ -314,6 +314,33 @@ authority and cancels pending mutations/replies, but leaves children running for
 the human. Revoking the role has the same effect. A replacement orchestrator does not inherit those children; automatic restore reattaches saved children that had not been taken over, including exited children for worktree cleanup, under the re-grant checks above. Quit keeps
 the existing confirmation and stops all PTYs.
 
+### Provider stalls (#339)
+
+`session_state`, `sessions` and `wait_for` report a current provider blocker as
+`state: "needs_input"`, `reason: "provider_unavailable"`, `attentionKind: "provider"`.
+This single fixed reason covers capacity, rate/usage limits and provider model-switch
+prompts; it never includes model names, retry times, error bodies or terminal text.
+Provider attention never permits `reply`, including a human-reviewed proposal.
+The existing Needs you light is amber and retains its label; short fixed reasons
+identify Provider unavailable, Provider rate limit, Provider usage limit or Model switch requested.
+No automatic retry, model change or terminal input is performed.
+
+| Adapter | Provider detection | Limits |
+| --- | --- | --- |
+| Codex | Bounded local screen rules for the reported capacity message, recorded rate-limit error and rate/usage-limit choice screens | Heuristic untrusted evidence, not a structured provider API; uncaptured variants are unsupported |
+| Claude Code | Not supported | Current observers expose permission and lifecycle events, not a verified provider-specific signal; no recorded provider screen rule |
+| Antigravity | Not supported | Plugin Stop error/step-limit facts indicate failure but do not identify provider capacity or rate limiting; no recorded provider screen rule |
+
+Codex provider screens beat working titles during classification. Permission hooks
+and process exit keep their existing precedence: a generic nonzero exit cannot
+identify a provider failure. Stale screens outside the rule's bounded bottom region
+are ignored; fresh working evidence after the screen clears resumes execution.
+Metadata retains existing output/input/execution freshness checks; a changing screen
+can briefly report unknown attention until reclassified. Silence is never evidence
+of a provider stall. Recorded evidence provenance and the distinction between the
+reported capacity line and upstream render snapshots are in
+[`tests/fixtures/agent-detection/README.md`](../tests/fixtures/agent-detection/README.md).
+
 ## Reply gate
 
 The `reply` request names a child `id`, the `revision` and `verdictId` from
@@ -339,7 +366,7 @@ cooldown, cancels pending review, and preserves the one-proposal-per-verdict
 limit. **Take over** permanently ends the parent's access to that child.
 
 Add an attention kind independent of the visible light:
-`question`, `permission`, `credential`, or `unknown`. Today `needs_input` and model
+`question`, `permission`, `credential`, `provider`, or `unknown`. Today `needs_input` and model
 confidence do not carry this distinction; neither can authorize `reply`.
 Permission hooks, `(y/n)`, Allow/confirm prompts, password context, and uncertain
 cases remain human-only Needs you (amber plus a label). Echo-off alone does not
@@ -348,7 +375,7 @@ terminal-input capability. Treat all hook and model data as untrusted evidence.
 
 For current adapters, `reply` can only create a **proposal** for a question verdict.
 Show the child, fresh context and exact text in Foom; do not send bytes automatically.
-If permission, credential or unknown evidence appears, reject the proposal and
+If permission, credential, provider or unknown evidence appears, reject the proposal and
 focus the terminal for the human. Approval of a proposal is a human action, not an
 orchestrator permission decision. It is not advertised as eliminating the race
 between review and a changing PTY. The human can always take over directly.

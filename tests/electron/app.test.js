@@ -7414,6 +7414,26 @@ for (const cliOnly of [false, true])
       );
       await chmod(path.join(bin, "agy"), 0o755);
     }
+    // Screen-only Codex stand-in: no hooks/MCP advertised and no notifier consent.
+    const providerScreens = {
+      "@": "Selected model is at capacity",
+      "#": "■ rate limit exceeded: Please try again in 10s.",
+      $: "Approaching rate limits\nSwitch to gpt-6-luna for lower credit usage?\nKeep current model\nenter select · esc back",
+    };
+    await writeFile(
+      path.join(bin, "codex"),
+      FAKE_ORCHESTRATED_CLAUDE.replace("2.1.296 (Claude Code)", "codex-cli 0.160.1")
+        .replace("--settings <file-or-json>  Load settings", "--no-alt-screen")
+        .replace(
+          "  if (isChild) {",
+          `  if (isChild && ${JSON.stringify(providerScreens)}[key.toString()]) {
+        process.stdout.write("\\x1b[2J\\x1b[H" + ${JSON.stringify(providerScreens)}[key.toString()].replaceAll("\\n", "\\r\\n") + "\\r\\n");
+        return;
+      }
+      if (isChild) {`,
+        ),
+    );
+    await chmod(path.join(bin, "codex"), 0o755);
     await chmod(path.join(bin, "claude"), 0o755);
     // Only the fake agent and system tools: real agents on PATH write their own state when probed.
     await symlink(process.execPath, path.join(bin, "node"));
@@ -7774,11 +7794,66 @@ for (const cliOnly of [false, true])
     const liveLaunch = await call(parent.controlToken, "launch", {
       idempotencyKey: "launch-live",
       worktreeId: liveTree.body.result.resultId,
-      agent: "claude",
+      agent: cliOnly ? "claude" : "codex",
     });
     assert.equal(liveLaunch.body.result.status, "succeeded");
     const liveId = liveLaunch.body.result.resultId;
     await expect(children.getByRole("treeitem")).toHaveCount(1);
+
+    if (!cliOnly) {
+      let previous = (await call(parent.controlToken, "session_state", { id: liveId })).body.result;
+      for (const [key, label] of [
+        ["@", "Provider unavailable"],
+        ["#", "Provider rate limit"],
+        ["$", "Model switch requested"],
+      ]) {
+        const waiting = call(parent.controlToken, "wait_for", {
+          ids: [liveId],
+          after: { [liveId]: previous.revision },
+          timeoutMs: 30000,
+        });
+        await page.evaluate(({ id, key }) => window.desktop.input(id, key), { id: liveId, key });
+        await expect
+          .poll(
+            async () =>
+              (await call(parent.controlToken, "session_state", { id: liveId })).body.result.reason,
+          )
+          .toBe("provider_unavailable");
+        const stalled = (await call(parent.controlToken, "session_state", { id: liveId })).body
+          .result;
+        assert.equal(stalled.state, "needs_input");
+        assert.equal(stalled.attentionKind, "provider");
+        assert.notEqual(stalled.revision, previous.revision);
+        // A wait may wake on input invalidation before classification; waiting again
+        // from that revision must expose the same fixed stall metadata.
+        const awakened = (await waiting).body.result.sessions[0];
+        const observed =
+          awakened.reason === "provider_unavailable"
+            ? awakened
+            : (
+                await call(parent.controlToken, "wait_for", {
+                  ids: [liveId],
+                  after: { [liveId]: awakened.revision },
+                  timeoutMs: 30000,
+                })
+              ).body.result.sessions[0];
+        assert.equal(observed.reason, "provider_unavailable");
+        assert.equal(observed.attentionKind, "provider");
+        const rejected = await call(parent.controlToken, "reply", {
+          id: liveId,
+          revision: stalled.revision,
+          verdictId: stalled.verdictId,
+          idempotencyKey: `provider-reply-${key.codePointAt(0)}`,
+          text: "Switch model",
+        });
+        assert.equal(rejected.status, 400);
+        assert.equal(rejected.body.error, "conflict");
+        await expect(
+          children.getByRole("treeitem", { name: new RegExp(`Needs you.*${label}`) }),
+        ).toBeVisible();
+        previous = stalled;
+      }
+    }
 
     // Revoke ends orchestration on the same credential; the session keeps running.
     await parentRow

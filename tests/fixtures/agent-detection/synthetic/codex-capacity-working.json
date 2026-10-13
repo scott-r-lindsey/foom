@@ -1,0 +1,10 @@
+{
+  "agent": "codex",
+  "version": "unknown (reported child in #339)",
+  "platform": "synthetic-recovery-regression",
+  "date": "2026-10-13",
+  "source": "https://github.com/scott-r-lindsey/foom/issues/339",
+  "rules": ["osc_title_working"],
+  "titles": ["⠋ codex"],
+  "tail": ["Selected model is at capacity"]
+}
