@@ -23,6 +23,7 @@ const MAX_THEME_DIGESTS = 100;
 export const DEFAULT_SETTINGS: Settings = Object.freeze({
   setupComplete: false,
   codexNotifierAcknowledged: false,
+  agyPluginOfferAnswered: false,
   hooks: true,
   restoreSessions: true,
   agents: Object.freeze({ claude: true, codex: true, agy: true }),
@@ -52,7 +53,9 @@ export function parseSettingsPatch(value: unknown): SettingsPatch {
   const patch: SettingsPatch = {};
   for (const [key, entry] of Object.entries(value)) {
     if (
-      (key === "setupComplete" || key === "codexNotifierAcknowledged") &&
+      (key === "setupComplete" ||
+        key === "codexNotifierAcknowledged" ||
+        key === "agyPluginOfferAnswered") &&
       typeof entry === "boolean"
     )
       patch[key] = entry;

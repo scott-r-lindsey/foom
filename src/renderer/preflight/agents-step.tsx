@@ -52,7 +52,6 @@ export function AgentsStep({
     scanning: boolean;
     scan: (refresh: boolean) => Promise<void>;
   }) {
-  const agy = found(report, "agy");
   return (
     <>
       <p className="preflight-eyebrow">T-3 · Agents</p>
@@ -114,10 +113,20 @@ export function AgentsStep({
                   <Tooltip className="chip" label={agent.mcp ? "MCP available" : "MCP unavailable"}>
                     {agent.mcpReason ?? "Per-launch MCP is unavailable."}
                   </Tooltip>
-                  <Tooltip className="chip chip-signal" label={SIGNAL_LABEL[how]}>
+                  <Tooltip
+                    className="chip chip-signal"
+                    label={id === "agy" && how === "rules" ? "Screen rules" : SIGNAL_LABEL[how]}
+                  >
                     {SIGNALS[how]}
                     {note && <span>{note}</span>}
                   </Tooltip>
+                  {id === "agy" && agent.agyPlugin && (
+                    <AgyPluginControl
+                      status={agent.agyPlugin}
+                      busy={scanning}
+                      change={changePlugin}
+                    />
+                  )}
                   {agent.codexHookState && (
                     <p className="preflight-sub">
                       Codex hooks:{" "}
@@ -144,9 +153,6 @@ export function AgentsStep({
           );
         })}
       </ul>
-      {agy?.agyPlugin && (
-        <AgyPluginControl status={agy.agyPlugin} busy={scanning} change={changePlugin} />
-      )}
       <button
         type="button"
         disabled={scanning}

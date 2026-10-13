@@ -446,3 +446,20 @@ test("session restore defaults on, validates boolean patches and isolates an inv
   const store = await SettingsStore.open(dir);
   expect(store.get()).toMatchObject({ restoreSessions: true, hooks: false, interfaceScale: 120 });
 });
+
+test("plugin offer answers persist and invalid stored answers are rejected", async () => {
+  const dir = await directory();
+  const store = await SettingsStore.open(dir);
+  expect(store.get().agyPluginOfferAnswered).toBe(false);
+  expect(parseSettingsPatch({ agyPluginOfferAnswered: true })).toEqual({
+    agyPluginOfferAnswered: true,
+  });
+  expect(() => parseSettingsPatch({ agyPluginOfferAnswered: "yes" })).toThrow("Invalid settings");
+  await store.update({ agyPluginOfferAnswered: true });
+  expect((await SettingsStore.open(dir)).get().agyPluginOfferAnswered).toBe(true);
+  await writeFile(
+    path.join(dir, "settings.json"),
+    JSON.stringify({ version: 1, settings: { agyPluginOfferAnswered: "yes" } }),
+  );
+  expect((await SettingsStore.open(dir)).get().agyPluginOfferAnswered).toBe(false);
+});

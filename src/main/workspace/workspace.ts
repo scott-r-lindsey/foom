@@ -120,6 +120,7 @@ export interface WorkspaceDependencies {
   onChange?(): void;
   watcher?: Pick<InventoryWatch, "sync" | "dispose">;
   acknowledgeCodex(): Promise<void>;
+  acknowledgeAgyPluginOffer?(): Promise<void>;
   sessions?: Pick<SessionStore, "load" | "save" | "flush">;
   copyText?(text: string): void | Promise<void>;
   agents?: (
@@ -722,10 +723,18 @@ export class Workspace {
       throw error;
     }
   }
-  async changeAgyPlugin(action: AgyPluginAction): Promise<AgentReport> {
+  async changeAgyPlugin(
+    action: AgyPluginAction,
+    confirm: () => Promise<boolean> = () => Promise.resolve(false),
+  ): Promise<AgentReport> {
     const report = await this.scanAgents(true);
     const executable = report.agents.find((agent) => agent.id === "agy")?.path;
     if (!executable) throw new Error("Antigravity is not installed");
+    if (action === "install" || action === "update") {
+      const accepted = await confirm();
+      await this.deps.acknowledgeAgyPluginOffer?.();
+      if (!accepted) return report;
+    }
     try {
       await this.agyPlugin.change(executable, action);
     } finally {

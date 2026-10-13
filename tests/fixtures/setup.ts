@@ -10,6 +10,7 @@ export function setupState(
   return {
     settings: {
       codexNotifierAcknowledged: false,
+      agyPluginOfferAnswered: false,
       setupComplete: false,
       hooks: true,
       restoreSessions: true,
