@@ -255,7 +255,9 @@ test("removed menu items keep their shortcuts", () => {
   const ids = JSON.stringify(entryIds(projectAppMenu(commands, 100)));
   for (const id of ["sidebar", "next-waiting", "maximize", "tile-1", "copy", "close-window"])
     expect(ids).not.toContain(`"${id}"`);
-  expect(shortcuts.handle(key("KeyB", { control: true, shift: true, alt: true }))).toBe(true);
+  expect(shortcuts.handle(key("KeyB", { control: true, shift: true, alt: true }))).toBe(false);
+  shortcuts.handle(key("Space", { control: true, shift: true }));
+  expect(shortcuts.handle(key("KeyB"))).toBe(true);
   expect(calls.board).toHaveBeenCalledWith("sidebar");
   shortcuts.handle(key("Space", { control: true, shift: true }));
   expect(shortcuts.handle(key("Digit1"))).toBe(true);
@@ -301,7 +303,7 @@ test("the shortcut sheet is generated from the registry for each platform", () =
   ]);
   expect(linux[1]?.rows).toEqual([
     { label: "Collapse / expand sidebar", keys: "Ctrl+Shift+B" },
-    { label: "Focus sidebar", keys: "Ctrl+Alt+Shift+B" },
+    { label: "Focus sidebar", keys: "Ctrl+Shift+Space, B" },
     { label: "Longest waiting", keys: "Ctrl+Shift+N" },
     { label: "Maximize tile", keys: "Ctrl+Shift+Enter" },
   ]);

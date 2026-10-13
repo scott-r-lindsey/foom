@@ -221,11 +221,11 @@ export function createCommands(
   };
   for (const entry of BOARD_COMMANDS) {
     const binding: Binding =
-      !mac && entry.leader
+      !mac && (entry.leader || entry.id === "sidebar")
         ? { code: entry.code, leader: true, shift: entry.id.startsWith("swap-") }
         : {
             ...chord(entry.code, entry.id === "settings" ? !mac : entry.shift),
-            alt: entry.alt || (!mac && entry.id === "sidebar"),
+            alt: entry.alt,
           };
     add(
       entry.id,

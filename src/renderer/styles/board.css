@@ -881,17 +881,16 @@
   outline-offset: 1px;
 }
 
-@media (max-width: 719px) {
-  .sidebar-shell .board-row .session-lines:has(.session-rename) {
-    position: fixed;
-    left: 64px;
-    width: 180px;
-    height: auto;
-    overflow: visible;
-    clip-path: none;
-    background: var(--surface);
-    z-index: 5;
-  }
+.sidebar-shell[data-compact="true"] .board-row .session-lines:has(.session-rename) {
+  display: block;
+  position: fixed;
+  left: 64px;
+  width: 180px;
+  height: auto;
+  overflow: visible;
+  clip-path: none;
+  background: var(--surface);
+  z-index: 5;
 }
 
 .row-menu button[data-armed] {

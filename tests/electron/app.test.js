@@ -139,7 +139,7 @@ async function boardCommand(app, keyCode, shift = true) {
       const contents = BrowserWindow.getAllWindows().find(
         (window) => window.webContents.getURL() === "app://bundle/index.html",
       ).webContents;
-      if (!mac && /^[1-9]$/.test(keyCode) && !shift) {
+      if (!mac && (keyCode === "B" || (/^[1-9]$/.test(keyCode) && !shift))) {
         for (const type of ["keyDown", "keyUp"])
           contents.sendInputEvent({ type, keyCode: "Space", modifiers: ["control", "shift"] });
         for (const type of ["keyDown", "keyUp"]) contents.sendInputEvent({ type, keyCode });
@@ -149,11 +149,7 @@ async function boardCommand(app, keyCode, shift = true) {
         contents.sendInputEvent({
           type,
           keyCode,
-          modifiers: [
-            mac ? "meta" : "control",
-            ...(shift ? ["shift"] : []),
-            ...(!mac && keyCode === "B" ? ["alt"] : []),
-          ],
+          modifiers: [mac ? "meta" : "control", ...(shift ? ["shift"] : [])],
         });
     },
     { keyCode, mac: process.platform === "darwin", shift },
@@ -6031,6 +6027,9 @@ test("neutral identity badges keep labels and geometry across themes and interfa
   await page.getByRole("button", { name: "Collapse sidebar", exact: true }).click();
   await expect(row.locator(".board-agent")).toHaveCount(1);
   await expect(row.locator(".board-agent")).toBeVisible();
+  await row.press("F2");
+  await expect(page.getByRole("textbox", { name: "Session name", exact: true })).toBeVisible();
+  await page.getByRole("textbox", { name: "Session name", exact: true }).press("Escape");
   await page.getByRole("button", { name: "Expand sidebar", exact: true }).click();
   for (const colorScheme of ["light", "dark"]) {
     await page.emulateMedia({ colorScheme, reducedMotion: "reduce" });
@@ -8532,6 +8531,17 @@ test("sidebar collapses at any width, refits once and opens a narrow overlay wit
       global.sidebarResizes.push({ id, cols, rows }),
     );
   });
+  const expectOneResize = async () => {
+    try {
+      await expect.poll(() => app.evaluate(() => global.sidebarResizes.length)).toBe(1);
+    } catch (error) {
+      console.error(
+        "Sidebar resize measurements:",
+        await app.evaluate(() => global.sidebarResizes),
+      );
+      throw error;
+    }
+  };
   const toggle = () =>
     app.evaluate(({ BrowserWindow }, mac) => {
       const contents = BrowserWindow.getAllWindows().find(
@@ -8552,7 +8562,7 @@ test("sidebar collapses at any width, refits once and opens a narrow overlay wit
   await page.waitForFunction(
     () => document.querySelector(".sidebar-shell").getAnimations().length === 0,
   );
-  await expect.poll(() => app.evaluate(() => global.sidebarResizes.length)).toBe(1);
+  await expectOneResize();
   const compactColumns = await app.evaluate(() => global.sidebarResizes[0].cols);
   await app.evaluate(() => {
     global.sidebarResizes = [];
@@ -8561,7 +8571,7 @@ test("sidebar collapses at any width, refits once and opens a narrow overlay wit
   await page.waitForFunction(
     () => document.querySelector(".sidebar-shell").getAnimations().length === 0,
   );
-  await expect.poll(() => app.evaluate(() => global.sidebarResizes.length)).toBe(1);
+  await expectOneResize();
   assert.ok((await app.evaluate(() => global.sidebarResizes[0].cols)) < compactColumns);
   await expect(input).toBeFocused();
   await page.getByRole("button", { name: "Collapse sidebar", exact: true }).click();

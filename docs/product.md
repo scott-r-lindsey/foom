@@ -180,7 +180,7 @@ files before deletion. The branch is kept; the main checkout cannot be removed. 
 registration, retains all checkout files and refuses while it has sessions or pending operations.
 
 Below 720 CSS pixels the tree becomes a compact rail with each session’s light, badge and accessible
-name. ⌘⇧B on macOS or Ctrl+Alt+Shift+B elsewhere focuses the sidebar; arrow keys navigate.
+name. ⌘⇧B on macOS or Ctrl+Shift+Space, then B elsewhere focuses the sidebar; arrow keys navigate.
 ⌘⇧N or Ctrl+Shift+N reveals and opens the session that has waited longest for you, clearing
 its filter and expanding its ancestors. Other terminal keys, including Escape, remain input.
 Settings, the six tile preset icons and Tidy tiles stay at the bottom of the sidebar. Launch actions live in repository and checkout menus. An empty sidebar labels its starting action **Add repository**.
