@@ -912,9 +912,11 @@ test("routes terminal events, hook signals and state through the workspace", asy
     onState(state: unknown): void;
     onChange(): void;
     acknowledgeCodex(): Promise<void>;
+    acknowledgeAgyPluginOffer(): Promise<void>;
   };
   expect(deps.environment("claude")).toEqual([[], []]);
   await deps.acknowledgeCodex();
+  await deps.acknowledgeAgyPluginOffer();
   deps.onChange();
   expect(mock.ipc.sendChanged).toHaveBeenCalledOnce();
   deps.onExecution({ terminalId: "a" });
@@ -1043,13 +1045,13 @@ test("main intercepts board chords before terminal input", async () => {
     type: "keyDown",
     key: "B",
     code: "KeyB",
-    shift: true,
+    shift: process.platform !== "darwin",
     alt: false,
     control: process.platform !== "darwin",
     meta: process.platform === "darwin",
   });
   expect(event.preventDefault).toHaveBeenCalledOnce();
-  expect(mock.window.webContents.send).toHaveBeenCalledWith("board:command", "sidebar");
+  expect(mock.window.webContents.send).toHaveBeenCalledWith("board:command", "toggle-sidebar");
 });
 
 test("restores saved dimensions on startup", async () => {

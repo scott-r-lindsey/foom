@@ -4,6 +4,7 @@ import { lstat, mkdir, open, readdir, realpath, rename, rm, writeFile } from "no
 import { dirname, join } from "node:path";
 import { hasBypassArgument } from "../../shared/agent-arguments";
 import type { DialogContent } from "../../shared/confirmation";
+import { setTimeout as sleep } from "node:timers/promises";
 import type { ConfigSettings } from "../../shared/config";
 import { parseSettingsFile } from "../../shared/config-files";
 import type { ConfigChange, ConfigStatus } from "../../shared/foom-config";
@@ -45,6 +46,8 @@ export interface ConfigServiceDependencies {
   now?: () => number;
   watch?: (directory: string, listener: (file: string | null) => void) => { close(): void };
   delay?: number;
+  platform?: NodeJS.Platform;
+  rename?: typeof rename;
 }
 
 interface Applied {
@@ -219,7 +222,26 @@ export class ConfigService {
     const temporary = join(dirname(target), `.foom-${randomUUID()}.tmp`);
     try {
       await writeFile(temporary, content, { flag: "wx", mode: 0o644 });
-      await rename(temporary, target);
+      // Windows scanners can briefly deny replacement even after our readers close.
+      // Five attempts, at most 375 ms of backoff; never unlink the existing target.
+      for (let attempt = 0; ; attempt++) {
+        try {
+          await (this.deps.rename ?? rename)(temporary, target);
+          break;
+        } catch (error) {
+          if (
+            (this.deps.platform ?? process.platform) !== "win32" ||
+            !(error instanceof Error) ||
+            !("code" in error) ||
+            (error.code !== "EPERM" && error.code !== "EBUSY") ||
+            attempt === 4
+          )
+            throw new Error(`Unable to replace ${relative}. The change was not applied.`, {
+              cause: error,
+            });
+          await sleep(25 * 2 ** attempt);
+        }
+      }
     } finally {
       await rm(temporary, { force: true });
     }
@@ -884,6 +906,7 @@ export class ConfigService {
     } catch {
       throw new Error("This setting cannot be stored in the Foom config folder");
     }
+    await this.writeFile(SETTINGS_FILE, text);
     if (this.pending) {
       this.record({
         summary: "Held change replaced in Settings",
@@ -892,7 +915,6 @@ export class ConfigService {
         reason: "Replaced by a change in Settings",
       });
     }
-    await this.writeFile(SETTINGS_FILE, text);
     const previous = this.applied.values;
     await this.applyValues(text, values);
     // Settings responds once the file is written and applied; the commit follows in
@@ -968,6 +990,12 @@ export class ConfigService {
         }
         await this.apply(pending.text, pending.values, tree);
       } else {
+        const committed = await this.committed(SETTINGS_FILE);
+        const restore =
+          committed && committed.toString("utf8") === this.applied.text
+            ? committed
+            : Buffer.from(this.applied.text);
+        await this.writeFile(SETTINGS_FILE, restore);
         this.pending = null;
         this.events = this.events.filter((event) => event.state !== "pending");
         this.record({
@@ -976,12 +1004,6 @@ export class ConfigService {
           state: "rejected",
           reason: "Declined in Settings",
         });
-        const committed = await this.committed(SETTINGS_FILE);
-        const restore =
-          committed && committed.toString("utf8") === this.applied.text
-            ? committed
-            : Buffer.from(this.applied.text);
-        await this.writeFile(SETTINGS_FILE, restore);
         const object = await this.deps.git.objectId(restore);
         if (tree.get(SETTINGS_FILE)?.object !== object)
           await this.commit(new Map([[SETTINGS_FILE, restore]]), "Restore settings");

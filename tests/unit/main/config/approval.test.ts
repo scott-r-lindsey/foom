@@ -159,12 +159,12 @@ test("every argument transition holds, and disclosures preserve literal lines an
   expect(disclosure.sections).toContainEqual({
     label: "Codex bypass",
     arguments: true,
-    items: ["--sandbox"],
+    items: ["--sandbox", "danger-full-access"],
   });
   expect(disclosure.sections).toContainEqual({
     label: "Claude Code bypass",
     arguments: true,
-    items: ["--permission-mode"],
+    items: ["--permission-mode", "bypassPermissions"],
   });
   expect(disclosure.sections).toContainEqual({
     label: "Antigravity bypass",
@@ -199,3 +199,45 @@ test("the immediately previous guide and schema are refreshable history", () => 
     OWNED_FILES["AGENTS.md"]?.split("## Not in this folder")[1]?.split("## Rules")[0],
   ).not.toContain("Agent default launch arguments");
 });
+
+test.each([
+  { agent: "claude", name: "Claude Code", args: ["--permission-mode", "bypassPermissions"] },
+  { agent: "claude", name: "Claude Code", args: ["--permission-mode=bypassPermissions"] },
+  ...["--sandbox", "-s"].map((flag) => ({
+    agent: "codex" as const,
+    name: "Codex",
+    args: [flag, "danger-full-access"],
+  })),
+  ...["-c", "--config"].map((flag) => ({
+    agent: "codex" as const,
+    name: "Codex",
+    args: [flag, 'profiles.full.sandbox_mode="danger-full-access"'],
+  })),
+  ...[
+    "--sandbox=danger-full-access",
+    "-s=danger-full-access",
+    "-sdanger-full-access",
+    '--config=sandbox_mode="danger-full-access"',
+    "-csandbox_mode=danger-full-access",
+    '-c=sandbox_mode="danger-full-access"',
+  ].map((flag) => ({
+    agent: "codex" as const,
+    name: "Codex",
+    args: [flag],
+  })),
+] as const)(
+  "bypass disclosure preserves complete literal options: $args",
+  ({ agent, name, args }) => {
+    const after = effective(base, {
+      agentArguments: {
+        ...base.agentArguments,
+        [agent]: ["--model", "ordinary", ...args, ...args, "--verbose"],
+      },
+    });
+    expect(argumentDisclosure(base, after).sections).toContainEqual({
+      label: `${name} bypass`,
+      arguments: true,
+      items: [...args, ...args],
+    });
+  },
+);

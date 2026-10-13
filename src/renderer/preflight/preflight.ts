@@ -68,7 +68,9 @@ export function readyAgents(
 
 /** How this agent will tell Foom it needs attention. */
 export function signal(agent: AgentInstallation, hooks: boolean): "hooks" | "notify" | "rules" {
-  if (!hooks || !agent.hooks) return "rules";
+  if (!hooks) return "rules";
+  if (agent.id === "agy") return agent.agyPlugin?.state === "installed" ? "hooks" : "rules";
+  if (!agent.hooks) return "rules";
   return agent.id === "codex" && agent.codexHookState !== "trusted" ? "notify" : "hooks";
 }
 

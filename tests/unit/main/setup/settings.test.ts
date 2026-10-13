@@ -485,6 +485,24 @@ test.each([1, 2])(
     await store.update({ agentArguments: next });
     expect(writer).toHaveBeenCalledExactlyOnceWith({ agentArguments: next });
     expect(store.get().agentArguments).toEqual(next);
+    // Repeated argument-only and mixed updates must never restore the profile copy.
+    for (const patch of [
+      { agentArguments: next },
+      { agentArguments: next, setupComplete: false },
+      { setupComplete: true },
+      {},
+    ]) {
+      await store.update(patch);
+      expect(store.legacyConfig()).toBeUndefined();
+      const persisted: unknown = JSON.parse(await readFile(file, "utf8"));
+      expect(persisted).not.toHaveProperty("settings.agentArguments");
+      const restarted = await SettingsStore.open(dir);
+      expect(restarted.legacyConfig()).toBeUndefined();
+      await restarted.attachConfig(writer, { agentArguments: next }, "b".repeat(64));
+      await restarted.update({ setupComplete: true });
+      expect((await SettingsStore.open(dir)).legacyConfig()).toBeUndefined();
+    }
+    expect(writer).toHaveBeenCalledTimes(3);
   },
 );
 
@@ -495,4 +513,21 @@ test.each([1, 2])("version %i empty arguments need no migration", async (version
     JSON.stringify({ version, settings: { agentArguments: DEFAULT_SETTINGS.agentArguments } }),
   );
   expect((await SettingsStore.open(dir)).legacyConfig()?.agentArguments).toBeUndefined();
+});
+
+test("plugin offer answers persist and invalid stored answers are rejected", async () => {
+  const dir = await directory();
+  const store = await SettingsStore.open(dir);
+  expect(store.get().agyPluginOfferAnswered).toBe(false);
+  expect(parseSettingsPatch({ agyPluginOfferAnswered: true })).toEqual({
+    agyPluginOfferAnswered: true,
+  });
+  expect(() => parseSettingsPatch({ agyPluginOfferAnswered: "yes" })).toThrow("Invalid settings");
+  await store.update({ agyPluginOfferAnswered: true });
+  expect((await SettingsStore.open(dir)).get().agyPluginOfferAnswered).toBe(true);
+  await writeFile(
+    path.join(dir, "settings.json"),
+    JSON.stringify({ version: 1, settings: { agyPluginOfferAnswered: "yes" } }),
+  );
+  expect((await SettingsStore.open(dir)).get().agyPluginOfferAnswered).toBe(false);
 });

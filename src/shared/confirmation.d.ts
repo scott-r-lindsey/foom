@@ -19,6 +19,7 @@ export interface DialogContent {
   feed?: CleanupFeed;
   title: string;
   accept: string;
+  cancel?: "Not now";
   detail?: string;
   quiet?: string;
   subject?: string;

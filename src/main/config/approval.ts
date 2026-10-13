@@ -1,4 +1,5 @@
 import { hasBypassArgument } from "../../shared/agent-arguments";
+import type { AgentId } from "../../shared/agents";
 import type { DialogContent } from "../../shared/confirmation";
 import type { ConfigSetting, ConfigSettings } from "../../shared/config";
 import { CONFIG_SETTINGS } from "../../shared/config-settings";
@@ -97,6 +98,25 @@ export function argumentChanges(before: EffectiveConfig, after: EffectiveConfig)
     }));
 }
 
+/** Preserve both argv entries for recognized bypass options with separate values. */
+function bypassArguments(agent: AgentId, args: readonly string[]): readonly string[] {
+  const found: string[] = [];
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index];
+    if (arg === undefined) continue;
+    const pair = args.slice(index, index + 2);
+    if (
+      ["--permission-mode", "--sandbox", "-s", "-c", "--config"].includes(arg) &&
+      pair.length === 2 &&
+      hasBypassArgument(agent, pair)
+    ) {
+      found.push(...pair);
+      index += 1;
+    } else if (hasBypassArgument(agent, [arg])) found.push(arg);
+  }
+  return found;
+}
+
 /** Literal argument lines stay in the trusted dialog, never the board's status metadata. */
 export function argumentDisclosure(before: EffectiveConfig, after: EffectiveConfig): DialogContent {
   const agents = (["claude", "codex", "agy"] as const).filter(
@@ -128,12 +148,7 @@ export function argumentDisclosure(before: EffectiveConfig, after: EffectiveConf
             {
               label: `${AGENT_NAMES[agent]} bypass`,
               arguments: true,
-              items: after.agentArguments[agent].filter(
-                (arg, index, args) =>
-                  hasBypassArgument(agent, [arg]) ||
-                  (["--permission-mode", "--sandbox", "-s", "-c", "--config"].includes(arg) &&
-                    hasBypassArgument(agent, args.slice(index, index + 2))),
-              ),
+              items: bypassArguments(agent, after.agentArguments[agent]),
             },
           ]
         : []),

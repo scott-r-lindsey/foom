@@ -42,6 +42,18 @@ or dismissing attention alone does not resume it.
 
 The sidebar is a repository → worktree → session tree beside the terminal tiles.
 The header shows the wordmark, needs-you and working counts, a filter and Add repository.
+Its panel-toggle button collapses the sidebar to a 64px rail at any width; Expand sidebar
+returns to the tree. View → Collapse sidebar / Expand sidebar and ⌘B on macOS or
+Ctrl+Shift+B on Windows/Linux do the same. Plain Ctrl+B stays with the terminal.
+The choice saves with each window’s tile layout; new windows start expanded.
+The rail keeps every session’s light and badge, repository dividers, a textual
+needs-you count (including held config changes, absent at zero), and the config gear.
+Session panels open beside the rail and retain keyboard navigation and location names.
+Below 720px the rail is forced. Open sidebar shows the tree over the tiles without
+reflow; Close sidebar, Escape, a click outside or the shortcut closes it. Widening
+restores the saved choice. Width changes take 160 ms (no animation with reduced
+motion), and terminals refit once afterward. Focus in sidebar content moves to its
+toggle; terminal input focus stays in the terminal.
 Pinned repositories appear in pin order, followed by repositories with sessions A–Z,
 then idle repositories A–Z. Thin rules separate nonempty sections; one repository has no sections.
 
@@ -124,8 +136,7 @@ open the same panel, beside **Needs you** and **N rejected** chips as applicable
 The session row beneath it focuses its tile and retains the normal light, ring
 and panel behavior, including after exit. The tree has no config row or group;
 repositories follow the home shell directly. Filtering the tree leaves the dock
-reachable. In a compact sidebar the dock name hides, keeping the gear, chips and
-session reachable. The gear repeats held changes with an amber dot, otherwise
+reachable. In the rail the dock hides; config sessions join the compact session list. The gear repeats held changes with an amber dot, otherwise
 rejections with a magenta square dot; its accessible name includes these statuses.
 Held config changes count in “N need you” and the app badge.
 
@@ -168,8 +179,8 @@ confirmation, validates repository membership and worktree identity, and recheck
 files before deletion. The branch is kept; the main checkout cannot be removed. Repository removal forgets its
 registration, retains all checkout files and refuses while it has sessions or pending operations.
 
-Below 720 CSS pixels, once sessions exist, the tree becomes a flat column with one light per session and accessible
-names. ⌘⇧B on macOS or Ctrl+Shift+B elsewhere focuses the sidebar; arrow keys navigate.
+Below 720 CSS pixels the tree becomes a compact rail with each session’s light, badge and accessible
+name. ⌘⇧B on macOS or Ctrl+Shift+Space, then B elsewhere focuses the sidebar; arrow keys navigate.
 ⌘⇧N or Ctrl+Shift+N reveals and opens the session that has waited longest for you, clearing
 its filter and expanding its ancestors. Other terminal keys, including Escape, remain input.
 Settings, the six tile preset icons and Tidy tiles stay at the bottom of the sidebar. Launch actions live in repository and checkout menus. An empty sidebar labels its starting action **Add repository**.
@@ -212,7 +223,7 @@ are kept and reported; a concurrent ref race aborts the transaction safely.
 Foom owns its menu and shortcuts. Click the sidebar's **foom** wordmark on any
 platform, or press Alt alone or F10 on Windows and Linux, to open the application
 menu below it. A chevron beside the wordmark turns while the menu is open. The
-menu is the same everywhere and lists app-wide commands plus the whole-layout Tidy action:
+menu is the same everywhere and lists app-wide commands, the sidebar toggle and the whole-layout Tidy action:
 
 - New window, New worktree…, Add repository… (orchestration is granted from a
   session's menu, #303)
@@ -224,7 +235,7 @@ menu is the same everywhere and lists app-wide commands plus the whole-layout Ti
   what it can change and asking what the user wants; resuming a conversation adds
   no greeting. Antigravity releases without interactive prompt support open
   without the greeting. An existing config session is focused in its owning window.
-- **View › Tidy tiles**, which removes empty spaces and evens every run in the focused window
+- **View › Collapse sidebar / Expand sidebar**, plus **Tidy tiles**, which removes empty spaces and evens every run in the focused window
 - **Size − 100% +**, one row that steps the interface size and stays open
 - Action log (#157), Keyboard shortcuts, About Foom, Third-party licenses
 - Reload, Force reload and Developer tools, in development builds only
@@ -533,7 +544,7 @@ initial prompts. It retains at most 30 days and five 10 MiB files and can be cle
 
 Setup is a preflight countdown:
 
-1. **Agents** (T-3): detect the supported CLIs on PATH and show each one's attention signal. One setting controls whether Foom supplies hooks and credentials per launch. Antigravity also offers an explicit plugin install with its location, behavior and removal disclosed; Settings shows installed, outdated or disabled status and offers update, enable and removal.
+1. **Agents** (T-3): detect the supported CLIs on PATH and show each one's attention signal. One setting controls whether Foom supplies hooks and credentials per launch. Antigravity’s row shows Hooks with an active plugin and Screen rules otherwise. It offers Install plugin, Update plugin or Enable plugin inline; Remove plugin lives in Plugin details. Install and update open a trusted confirmation disclosing location, behavior and removal, with no disclosure paragraphs in the step.
 2. **Repositories** (T-2): "Where do you keep your code?" Foom suggests common code folders that hold repositories, with a count for each, or you choose one. It scans that folder and lists its Git repositories, with the ones worked on in the last 30 days checked.
 3. **Worktrees** (T-1): choose where new worktrees live: Foom's folder (`~/.foom/worktrees`, the default) or next to each repository.
 4. **Go / no-go** (T-0): each item shows GO or NO-GO with a link back to its step. Launch needs every item GO: at least one agent ready and one repository added.
@@ -565,6 +576,12 @@ Agents and hooks, Repositories, and Worktrees use the same controls as
 preflight. Changes apply immediately and persist. A repository scan in Settings
 starts with the already-added repositories checked; toggling a selection saves it
 at once and reports any refusal.
+When agy is detected without its plugin and the user has never answered the offer,
+Settings → Agents and hooks shows a neutral **Plugin available** marker. There is no
+launch modal or toast. Answering the install confirmation, including **Not now**,
+persists the answer and clears the marker; the inline action stays available.
+Without agy on PATH, no plugin controls or marker appear.
+
 Settings → Agents and hooks also provides default launch arguments for each supported
 agent, one argument per line, with an explicit Save default arguments action. Put flag
 values on separate lines. Spaces and quotes are literal, with no shell parsing or
@@ -722,7 +739,7 @@ stops the entire app and uses the focused window's trusted confirmation. Other
 trusted dialogs attach to the window that requested them.
 
 Each window saves its display, normal bounds, maximized state, interface size and
-tile tree. At launch Foom restores those windows. Missing displays fall back to the
+tile tree and sidebar collapse choice. At launch Foom restores those windows. Missing displays fall back to the
 primary display and bounds are clamped to its work area. After showing all windows, Foom restarts sessions that were running at quit (or their last known state before a crash), up to three launches at a time. Shells use their saved checkout or home; agents resume only with a saved conversation ID. Missing checkouts keep exited rows with the Worktree removed label. Failed launches retain their conversations for retry. If Codex needs new consent to replace its notifier, the row stays exited for manual Resume. Restores use current defaults, fresh credentials and reserved conversation selectors, and skip the shared-checkout warning. Turning Restore sessions on launch off restores every row exited. Closing a window removes it from the saved
 window set. Interface size is independent per window; other settings are shared.
 The attention badge counts sessions once for the app. One window plays app sounds,
