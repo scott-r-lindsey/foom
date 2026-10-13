@@ -1632,14 +1632,19 @@ IDs and display facts; renderer UI placement and measurement belong to #296.
 Restored registry entries stay detached and allocate no view until bounds arrive.
 Worktree removal closes previews when workspace inventory refreshes.
 
-A preview never acquires keyboard focus on open, reload or navigation. Main loads
+An unfocused preview never acquires keyboard focus on open, reload or navigation. Main loads
 it detached and attaches only after `did-finish-load`, when its board rectangle is
 visible. Main-frame reloads and allowed navigation replace the old native
 contents with a fresh detached view in the same partition, preserving ID and bounds.
+If the old preview held user focus, the replacement receives focus after loading
+and attachment, unless the user focused elsewhere while it loaded. Recreation
+is bounded to once per 250 ms per preview; the old contents closes immediately
+and only one replacement can be pending. Closing cancels pending recreation.
 A previously clicked native contents can reacquire keyboard focus during reload on
 macOS even when detached; replacing it prevents that remembered focus grant.
 `did-start-loading` also detaches any loading view. Refused navigation leaves the
-loaded view in place. A native mouse-down is the only focus grant; blur or detachment revokes it. Unsolicited
+loaded view in place. A native mouse-down grants focus; navigation carries that intent to the replacement.
+Blur or detachment otherwise revokes the native click grant. Unsolicited
 focus on an attached view returns to the last human-focused contents. This guard
 supplements detached loading; returning focus after load alone loses keystrokes.
 Main scales CSS rectangles by board zoom, applies that zoom to each view, clamps

@@ -45,7 +45,9 @@ class FakeContents extends EventEmitter {
   });
   setZoomFactor = vi.fn();
   getZoomFactor = vi.fn(() => 1);
-  close = vi.fn();
+  close = vi.fn(() => {
+    this.isDestroyed.mockReturnValue(true);
+  });
 }
 class FakeView {
   webContents = new FakeContents();
@@ -73,6 +75,7 @@ const roots: string[] = [];
 afterEach(async () => {
   fake.views.splice(0);
   fake.packaged = false;
+  vi.useRealTimers();
   for (const root of roots.splice(0)) await rm(root, { recursive: true, force: true });
 });
 async function fixture() {
@@ -247,7 +250,8 @@ test("reload and allowed main-frame navigation replace native contents but prese
   const reloaded = fake.views[1];
   if (!reloaded) throw new Error("Missing reloaded view");
   expect(wc.close).toHaveBeenCalledOnce();
-  expect(f.window.webContents.focus).toHaveBeenCalledOnce();
+  expect(f.window.webContents.focus).not.toHaveBeenCalled();
+  expect(reloaded.webContents.focus).not.toHaveBeenCalled();
   expect(f.window.contentView.removeChildView).toHaveBeenCalledWith(view);
   expect(reloaded.options).toEqual(view.options);
   expect(reloaded.webContents.loadURL).toHaveBeenCalledWith(navigation.url);
@@ -257,11 +261,118 @@ test("reload and allowed main-frame navigation replace native contents but prese
   expect(reloaded.setBounds).toHaveBeenLastCalledWith({ x: 10, y: 20, width: 100, height: 100 });
   expect(f.window.contentView.addChildView).toHaveBeenLastCalledWith(reloaded);
   reloaded.webContents.emit("focus");
-  expect(f.window.webContents.focus).toHaveBeenCalledTimes(2);
+  expect(reloaded.webContents.focus).toHaveBeenCalledOnce();
+  expect(f.window.webContents.focus).not.toHaveBeenCalled();
+  f.window.webContents.emit("focus");
+  vi.useFakeTimers();
   const markdown = `foom-preview://${id}/b.md`;
   reloaded.webContents.emit("did-start-navigation", { ...navigation, url: markdown });
-  expect(fake.views[2]?.webContents.loadURL).toHaveBeenCalledWith(markdown);
+  expect(fake.views).toHaveLength(2);
+  await vi.advanceTimersByTimeAsync(250);
+  const linked = fake.views[2];
+  expect(linked?.webContents.loadURL).toHaveBeenCalledWith(markdown);
+  linked?.webContents.emit("did-finish-load");
+  linked?.webContents.emit("focus");
+  expect(linked?.webContents.focus).not.toHaveBeenCalled();
+  expect(f.window.webContents.focus).toHaveBeenCalledOnce();
   expect(f.registry.records.get(id)?.relativePath).toBe("a.html");
+  await f.host.dispose(false);
+});
+test("focus handoff waits for attachment and yields to a later user focus change", async () => {
+  const f = await fixture();
+  const { id, view } = await f.open();
+  f.host.bounds(id, { x: 0, y: 0, width: 100, height: 100, visible: true });
+  view.webContents.emit("did-finish-load");
+  view.webContents.emit("before-mouse-event", {}, { type: "mouseDown" });
+  view.webContents.emit("focus");
+  // Native close can focus the board synchronously; that is not a human change.
+  view.webContents.close.mockImplementation(() => {
+    view.webContents.isDestroyed.mockReturnValue(true);
+    f.window.webContents.emit("focus");
+  });
+  view.webContents.emit("did-start-navigation", {
+    url: `foom-preview://${id}/b.md`,
+    isMainFrame: true,
+    isSameDocument: false,
+  });
+  const replacement = fake.views[1];
+  if (!replacement) throw new Error("Missing replacement");
+  expect(replacement.webContents.focus).not.toHaveBeenCalled();
+  f.window.webContents.emit("focus");
+  replacement.webContents.emit("did-finish-load");
+  expect(replacement.webContents.focus).not.toHaveBeenCalled();
+  await f.host.dispose(false);
+});
+test("hiding a loading replacement cancels its focus handoff", async () => {
+  const f = await fixture();
+  const { id, view } = await f.open();
+  const bounds = { x: 0, y: 0, width: 100, height: 100, visible: true };
+  f.host.bounds(id, bounds);
+  view.webContents.emit("did-finish-load");
+  view.webContents.emit("before-mouse-event", {}, { type: "mouseDown" });
+  view.webContents.emit("focus");
+  view.webContents.emit("did-start-navigation", {
+    url: view.webContents.getURL(),
+    isMainFrame: true,
+    isSameDocument: false,
+  });
+  const replacement = fake.views[1];
+  if (!replacement) throw new Error("Missing replacement");
+  f.host.bounds(id, { ...bounds, visible: false });
+  replacement.webContents.emit("did-finish-load");
+  f.host.bounds(id, bounds);
+  expect(replacement.webContents.focus).not.toHaveBeenCalled();
+  replacement.webContents.emit("focus");
+  expect(f.window.webContents.focus).toHaveBeenCalledOnce();
+  await f.host.dispose(false);
+});
+test("unsolicited focus returns to the board while a focused replacement is pending", async () => {
+  vi.useFakeTimers();
+  const f = await fixture();
+  const { id, view } = await f.open();
+  const other = await f.open();
+  const bounds = { x: 0, y: 0, width: 100, height: 100, visible: true };
+  f.host.bounds(id, bounds);
+  view.webContents.emit("did-finish-load");
+  view.webContents.emit("before-mouse-event", {}, { type: "mouseDown" });
+  view.webContents.emit("focus");
+  const navigation = { url: view.webContents.getURL(), isMainFrame: true, isSameDocument: false };
+  view.webContents.emit("did-start-navigation", navigation);
+  const replacement = fake.views[2];
+  if (!replacement) throw new Error("Missing replacement");
+  replacement.webContents.emit("did-finish-load");
+  replacement.webContents.emit("did-start-navigation", navigation);
+  other.view.webContents.emit("focus");
+  expect(f.window.webContents.focus).toHaveBeenCalledOnce();
+  // Hiding during the delay must also discard focus intent before re-showing.
+  f.host.bounds(id, { ...bounds, visible: false });
+  f.host.bounds(id, bounds);
+  await vi.advanceTimersByTimeAsync(250);
+  const delayed = fake.views[3];
+  delayed?.webContents.emit("did-finish-load");
+  expect(delayed?.webContents.focus).not.toHaveBeenCalled();
+  await f.host.dispose(false);
+});
+test("rapid reloads stop the old script, bound recreation and cancel pending work on close", async () => {
+  vi.useFakeTimers();
+  const f = await fixture();
+  const { id, view } = await f.open();
+  const navigation = { url: view.webContents.getURL(), isMainFrame: true, isSameDocument: false };
+  view.webContents.emit("did-start-navigation", navigation);
+  const replacement = fake.views[1];
+  if (!replacement) throw new Error("Missing replacement");
+  replacement.webContents.emit("did-start-navigation", navigation);
+  expect(replacement.webContents.close).toHaveBeenCalledOnce();
+  for (let i = 0; i < 10; i++) replacement.webContents.emit("did-start-navigation", navigation);
+  f.host.bounds(id, { x: 0, y: 0, width: 100, height: 100, visible: true });
+  await vi.advanceTimersByTimeAsync(249);
+  expect(fake.views).toHaveLength(2);
+  await vi.advanceTimersByTimeAsync(1);
+  expect(fake.views).toHaveLength(3);
+  fake.views[2]?.webContents.emit("did-start-navigation", navigation);
+  await f.host.close(id);
+  await vi.advanceTimersByTimeAsync(1000);
+  expect(fake.views).toHaveLength(3);
   await f.host.dispose(false);
 });
 test("restores only validated worktrees lazily, closes removed worktrees and preserves registry on quit", async () => {

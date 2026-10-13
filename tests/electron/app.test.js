@@ -9362,6 +9362,62 @@ test("preview host loads and reloads detached, never steals terminal keystrokes,
   await page.evaluate((id) => window.desktop.previews.close(id), id);
 });
 
+test("preview host keeps keyboard focus after a user-clicked link navigation", async (context) => {
+  const app = await launchApp(context);
+  const page = await boardPage(app);
+  const terminal = (await page.evaluate(() => window.desktop.workspace())).terminals[0];
+  const root = terminal.worktree;
+  await writeFile(
+    path.join(root, "links.html"),
+    '<a href="destination.md" style="display:block;width:200px;height:100px">Continue</a>',
+  );
+  await writeFile(path.join(root, "destination.md"), "Destination");
+  const id = await page.evaluate((root) => window.desktop.previews.open(root, "links.html"), root);
+  await page.evaluate(
+    (id) =>
+      window.desktop.previews.bounds(id, {
+        x: 350,
+        y: 100,
+        width: 400,
+        height: 250,
+        visible: true,
+      }),
+    id,
+  );
+  await expect.poll(async () => (await previewViewState(app, id)).attached).toBe(true);
+  const oldContentsId = (await previewViewState(app, id)).contentsId;
+  await expect
+    .poll(() => page.locator(".xterm-rows").innerText())
+    .toMatch(process.platform === "win32" ? /PS [\s\S]*>/ : /[$#%>]\s*$/);
+  const terminalBefore = await page.evaluate((id) => window.desktop.tail(id, 20), terminal.id);
+  // Click the actual link with native mouse input, rather than invoking page script.
+  await app.evaluate(({ webContents }, id) => {
+    const contents = webContents
+      .getAllWebContents()
+      .find((entry) => entry.getURL().startsWith(`foom-preview://${id}/`));
+    contents.sendInputEvent({ type: "mouseDown", x: 30, y: 30, button: "left", clickCount: 1 });
+    contents.sendInputEvent({ type: "mouseUp", x: 30, y: 30, button: "left", clickCount: 1 });
+  }, id);
+  await expect.poll(async () => (await previewViewState(app, id)).attached).toBe(true);
+  await expect
+    .poll(async () => (await previewViewState(app, id)).contentsId)
+    .not.toBe(oldContentsId);
+  await expect.poll(async () => (await previewViewState(app, id)).focused).toBe(true);
+  assert.equal(await previewContents(app, id, "location.pathname"), "/destination.md");
+  await previewContents(
+    app,
+    id,
+    'window.received=""; addEventListener("keydown", event => { window.received+=event.key; });',
+  );
+  await typeIntoFocusedContents(app, "preview");
+  await expect.poll(() => previewContents(app, id, "window.received")).toBe("preview");
+  assert.deepEqual(
+    await page.evaluate((id) => window.desktop.tail(id, 20), terminal.id),
+    terminalBefore,
+  );
+  await page.evaluate((id) => window.desktop.previews.close(id), id);
+});
+
 test("preview host isolates hostile pages, blocks network and navigation, scales bounds and clears closed partitions", async (context) => {
   const app = await launchApp(context);
   const page = await boardPage(app);

@@ -61,6 +61,13 @@ The claim "it only changes Foom's view" holds only if four rules hold:
    | **Load the view detached; attach it after `did-finish-load`** | **0** in four runs, and 0 against a page that calls `window.focus()` and `element.focus()` every 20 ms |
 
    An agent-opened page could otherwise read whatever the user was typing into a terminal at that moment, for example a password at a `sudo` prompt. Rule: load detached, attach after load, and focus a preview only on a human click. The same applies to previews the human opens, so it belongs in #221's preview host ticket, not only here.
+
+   The host replaces native contents on each main-frame reload or allowed navigation.
+   This discards in-preview back/forward history. A preview the user focused keeps
+   keyboard focus after the replacement loads and attaches, unless the user focused
+   elsewhere in the meantime; an unfocused preview never takes focus. Rapid
+   self-reloads stop the old contents immediately and recreate at most once per
+   250 ms per preview, with only one pending replacement.
 2. **It can't pass itself off as Foom.** Foom draws the tile chrome, outside the page: a document glyph, the worktree-relative path, a **Preview** badge, and "opened by <agent>". A page can draw a fake Foom card inside its own tile, but that card can't escape the tile and can't receive typing until clicked. Behind it there is no bridge, network or storage that outlives the preview. A real trusted dialog dims the whole board, and #221 swaps preview views for snapshots under board overlays, so a page can never sit above it.
 3. **Spam is bounded and refuses rather than evicts.** At most 4 previews per agent, visible or not, and 12 per Foom instance. Calls follow a 6-call burst, then one every 10 seconds; a reuse also costs a call, because it flares the tile. A refusal is `capacity`; nothing the human is looking at gets closed to make room (tested).
 4. **The human's "close" sticks.** If the human closes an agent's preview, the same agent opening the same file again gets only a sidebar row, never a tile (tested). An agent can't keep pushing something back onto the board.

@@ -8,13 +8,18 @@ import { previewPath } from "./registry";
 
 interface HostedPreview {
   view: WebContentsView;
+  partition: Session;
   bounds: PreviewBounds;
   loaded: boolean;
   navigated: boolean;
   previouslyLoaded: boolean;
   attached: boolean;
   clicked: boolean;
+  restoreFocus: boolean;
+  replacementTimer?: ReturnType<typeof setTimeout>;
+  nextReplacementAt: number;
 }
+const RECREATION_INTERVAL_MS = 250;
 const EMPTY_BOUNDS: PreviewBounds = { x: 0, y: 0, width: 0, height: 0, visible: false };
 export function requestAllowed(url: string, origin: string): boolean {
   return /^(data|blob):/.test(url) || "pathname" in pathnameFor(url, origin);
@@ -113,6 +118,8 @@ export class PreviewHost {
     partition: Session,
     url: string,
     bounds: PreviewBounds,
+    restoreFocus = false,
+    nextReplacementAt = 0,
   ): HostedPreview {
     const origin = `foom-preview://${record.id}`;
     const view = new WebContentsView({
@@ -132,15 +139,19 @@ export class PreviewHost {
     });
     const entry: HostedPreview = {
       view,
+      partition,
       bounds,
       loaded: false,
       navigated: false,
       previouslyLoaded: false,
       attached: false,
       clicked: false,
+      restoreFocus,
+      nextReplacementAt,
     };
     this.hosted.set(record.id, entry);
     const contents = view.webContents;
+    if (restoreFocus) this.lastFocused = contents;
     contents.setWindowOpenHandler(() => ({ action: "deny" }));
     contents.on("will-attach-webview", (event) => {
       event.preventDefault();
@@ -156,6 +167,7 @@ export class PreviewHost {
       event.preventDefault();
     });
     contents.on("did-start-navigation", (event) => {
+      if (entry.replacementTimer || contents.isDestroyed()) return;
       if (!event.isMainFrame || event.isSameDocument) return;
       if (!entry.navigated) {
         entry.navigated = true;
@@ -164,20 +176,36 @@ export class PreviewHost {
       if (event.url !== contents.getURL() && !navigationAllowed(event.url, origin)) return;
       // A previously clicked RenderWidgetHost can regain native focus on reload
       // even while detached. A fresh contents has never held that focus grant.
+      const heldFocus = this.lastFocused === contents;
       this.detach(entry);
-      if (this.lastFocused === contents) {
-        this.lastFocused = this.window.webContents;
-        this.lastFocused.focus();
-      }
       contents.close();
-      this.createView(record, partition, event.url, entry.bounds);
+      // Closing may synchronously focus the board. Preserve the user's preview
+      // intent, but a later board/preview focus change cancels the handoff.
+      if (heldFocus) this.lastFocused = contents;
+      const replace = () => {
+        this.createView(
+          record,
+          partition,
+          event.url,
+          entry.bounds,
+          heldFocus && this.lastFocused === contents,
+          Date.now() + RECREATION_INTERVAL_MS,
+        );
+      };
+      const delay = Math.max(0, entry.nextReplacementAt - Date.now());
+      // Close immediately so untrusted script stops running. At most one
+      // replacement is pending, with at most four recreations per second.
+      if (delay > 0) entry.replacementTimer = setTimeout(replace, delay);
+      else replace();
     });
     contents.on("did-start-loading", () => {
+      if (contents.isDestroyed()) return;
       entry.previouslyLoaded = entry.loaded;
       entry.loaded = false;
       this.detach(entry);
     });
     contents.on("did-finish-load", () => {
+      if (contents.isDestroyed()) return;
       entry.loaded = true;
       this.applyBounds(entry);
     });
@@ -193,8 +221,10 @@ export class PreviewHost {
     contents.on("focus", () => {
       if (entry.attached && entry.clicked) this.lastFocused = contents;
       // Attached or not: macOS can hand focus to a detached view that is still loading.
-      else if (this.lastFocused !== contents && !this.lastFocused.isDestroyed())
-        this.lastFocused.focus();
+      else if (this.lastFocused !== contents) {
+        const target = this.lastFocused.isDestroyed() ? this.window.webContents : this.lastFocused;
+        if (!target.isDestroyed()) target.focus();
+      }
     });
     void contents.loadURL(url).catch(() => {});
     return entry;
@@ -205,6 +235,7 @@ export class PreviewHost {
     entry.clicked = false;
   }
   private applyBounds(entry: HostedPreview) {
+    if (entry.view.webContents.isDestroyed()) return;
     const zoom = this.window.webContents.getZoomFactor();
     const { width, height } = this.window.getContentBounds();
     const x = Math.min(width, Math.max(0, Math.round(entry.bounds.x * zoom)));
@@ -219,10 +250,19 @@ export class PreviewHost {
     entry.view.webContents.setZoomFactor(zoom);
     const visible = entry.bounds.visible && bounds.width > 0 && bounds.height > 0;
     entry.view.setVisible(visible);
-    if (!visible) this.detach(entry);
-    else if (entry.loaded && !entry.attached) {
+    if (!visible) {
+      if (entry.restoreFocus && this.lastFocused === entry.view.webContents)
+        this.lastFocused = this.window.webContents;
+      entry.restoreFocus = false;
+      this.detach(entry);
+    } else if (entry.loaded && !entry.attached) {
       this.window.contentView.addChildView(entry.view);
       entry.attached = true;
+      if (entry.restoreFocus && this.lastFocused === entry.view.webContents) {
+        entry.clicked = true;
+        entry.view.webContents.focus();
+      }
+      entry.restoreFocus = false;
     }
   }
   bounds(id: string, bounds: PreviewBounds): void {
@@ -230,17 +270,20 @@ export class PreviewHost {
     if (!record || this.disposed) throw new Error("Unknown preview ID");
     const entry = this.hosted.get(id) ?? this.create(record, canonicalRoot(record.worktree));
     entry.bounds = bounds;
+    if (!bounds.visible && this.lastFocused === entry.view.webContents)
+      this.lastFocused = this.window.webContents;
     this.applyBounds(entry);
   }
   async close(id: string): Promise<void> {
     if (!this.registry.records.delete(id)) throw new Error("Unknown preview ID");
     const entry = this.hosted.get(id);
     if (entry) {
+      clearTimeout(entry.replacementTimer);
       this.detach(entry);
       const contents = entry.view.webContents;
-      const partition = contents.session;
+      const partition = entry.partition;
       if (this.lastFocused === contents) this.lastFocused = this.window.webContents;
-      contents.close();
+      if (!contents.isDestroyed()) contents.close();
       this.hosted.delete(id);
       partition.protocol.unhandle("foom-preview");
       partition.webRequest.onBeforeRequest(null);
