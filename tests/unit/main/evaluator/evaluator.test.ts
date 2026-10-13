@@ -70,3 +70,35 @@ describe("rules evaluator", () => {
     ).toMatchObject({ state: "done", signal: "process:prompt" });
   });
 });
+
+it.each([
+  ["Which file should I change?", "question"],
+  ["What should I do next?", "question"],
+  ["Do you approve executing this command?", "permission"],
+  ["Allow this? (y/n)", "permission"],
+  ["Password:", "credential"],
+  ["What is your API key?", "credential"],
+  ["Press Enter to continue", "unknown"],
+] as const)(
+  "classifies provenance for %s without treating confidence as authorization",
+  (line, attentionKind) => {
+    expect(evaluateRules({ terminalId: "t1", tail: [line] })).toMatchObject({
+      state: "needs_input",
+      attentionKind,
+    });
+  },
+);
+it("holds prose questions in permission or credential context for the human", () => {
+  expect(
+    evaluateRules({
+      terminalId: "t1",
+      tail: ["Permission required", "Which option should I choose?"],
+    }).attentionKind,
+  ).toBe("permission");
+  expect(
+    evaluateRules({
+      terminalId: "t1",
+      tail: ["Enter a verification code", "Which code should I use?"],
+    }).attentionKind,
+  ).toBe("credential");
+});

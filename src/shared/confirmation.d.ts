@@ -13,6 +13,7 @@ export interface ConfirmationClient {
   cancel(): Promise<void>;
 }
 export interface DialogContent {
+  reply?: { context: string; text: string };
   cleanup?: CleanupDialog;
   /** Main-only; stripped before rendering. */
   feed?: CleanupFeed;

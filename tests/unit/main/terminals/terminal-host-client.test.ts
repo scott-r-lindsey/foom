@@ -83,6 +83,9 @@ test("brokers capabilities, snapshots, tails and exits over a validated transpor
     operation();
     child.reply();
   }
+  const reviewed = client.reply(id, "answer\r");
+  child.reply();
+  await reviewed;
   const tail = client.tail(id, 2);
   child.reply(undefined, { lines: ["one", "two"] });
   expect(await tail).toEqual(["one", "two"]);

@@ -165,8 +165,9 @@ test("exit and hooks beat agent rules; idle stays neutral", () => {
     evidence: { title: "private-title", progress: null },
   };
   expect(evaluateRules(idle)).toMatchObject({
-    state: "working",
-    signal: "rules:codex:osc_title_idle",
-    confidence: 0.25,
+    state: "needs_input",
+    attentionKind: "question",
+    signal: "pattern:question",
+    confidence: 0.9,
   });
 });

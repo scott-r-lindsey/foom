@@ -22,7 +22,7 @@ export const evaluatorFixtures: { name: string; tail: string[]; state: VerdictSt
   { name: "silent install", tail: ["Installing dependencies..."], state: "working" },
   { name: "empty", tail: [], state: "working" },
   { name: "blank", tail: [" ", ""], state: "working" },
-  { name: "prose question", tail: ["Would you prefer another approach?"], state: "working" },
+  { name: "prose question", tail: ["Would you prefer another approach?"], state: "needs_input" },
   { name: "historical prompt", tail: ["Continue? (y/n)", "Installing..."], state: "working" },
   { name: "documentation", tail: ["The prompt displays Password: when needed."], state: "working" },
   { name: "quoted prompt", tail: ['Example: "Press Enter to continue"'], state: "working" },

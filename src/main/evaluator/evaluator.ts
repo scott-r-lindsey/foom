@@ -7,7 +7,25 @@ function verdict(
   signal: string,
   confidence: number,
 ): Verdict {
-  return { state, reason, signal, confidence };
+  return {
+    state,
+    reason,
+    signal,
+    confidence,
+    ...(state === "needs_input"
+      ? {
+          attentionKind:
+            signal === "pattern:password"
+              ? ("credential" as const)
+              : signal === "pattern:confirmation" ||
+                  reason === "Agent requests permission" ||
+                  reason === "Confirmation requested" ||
+                  reason === "Approval requested"
+                ? ("permission" as const)
+                : ("unknown" as const),
+        }
+      : {}),
+  };
 }
 
 /** Quiet-time rules only. No output is executed, interpreted as instructions, or sent out. */
@@ -62,6 +80,35 @@ export function evaluateRules(input: EvaluationInput): Verdict {
   ) {
     return verdict("needs_input", "Waiting for a password", "pattern:password", 0.95);
   }
+  const context =
+    last.endsWith("?") || /:\s*$/u.test(last) ? input.tail.slice(-12).join("\n").slice(-6000) : "";
+  if (
+    /\b(?:password|passphrase|api[ _-]?key|access token|verification code|one.time code)\b/iu.test(
+      context,
+    )
+  )
+    return {
+      ...verdict("needs_input", "Credential context requires you", "pattern:credential", 0.95),
+      attentionKind: "credential",
+    };
+  if (
+    /\b(?:allow|approve|approval|permission|confirm|authorize|trust|proceed|execute)\b|\[y\/n\]|\(y\/n\)/iu.test(
+      context,
+    )
+  )
+    return {
+      ...verdict("needs_input", "Permission context requires you", "pattern:permission", 0.95),
+      attentionKind: "permission",
+    };
+  if (
+    /^(?:what|which|how|where|when|why|do you|would you|should (?:I|we)|can you)\b[^\r\n]{1,500}\?$/iu.test(
+      last,
+    )
+  )
+    return {
+      ...verdict("needs_input", "Agent asks a question", "pattern:question", 0.9),
+      attentionKind: "question",
+    };
   if (/^press\s+(?:enter|return)(?:\s+to\s+(?:continue|proceed|exit))?[.!:]?$/i.test(last)) {
     return verdict("needs_input", "Waiting for Enter", "pattern:enter", 0.95);
   }
