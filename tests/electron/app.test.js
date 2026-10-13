@@ -4432,6 +4432,17 @@ test("launching into a narrow full tile uses the focused fallback and empty tile
   }
   await page.screenshot({ path: path.join(tmpdir(), "foom-tile-bug-fixes.png") });
   await page.evaluate((id) => window.desktop.input(id, "exit\r"), created.id);
+  // Exit reaches the renderer before main finishes its queued exit bookkeeping.
+  // Close is a main-owned command, so wait for its authoritative session state.
+  await expect
+    .poll(() =>
+      page.evaluate(
+        async (id) =>
+          (await window.desktop.workspace()).terminals.find((session) => session.id === id)?.exited,
+        created.id,
+      ),
+    )
+    .toBe(true);
   await expect(page.getByRole("button", { name: "Close", exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Close", exact: true }).click();
   await expect
@@ -8577,6 +8588,14 @@ test("sidebar collapses at any width, refits once and opens a narrow overlay wit
   await page.keyboard.press("Escape");
   await expect(page.getByRole("button", { name: "Open sidebar", exact: true })).toBeVisible();
   assert.deepEqual(await page.locator(".board-terminal").boundingBox(), bounds);
+  await page.getByRole("button", { name: "Open sidebar", exact: true }).click();
+  await page.locator(".config-gear").click();
+  await page
+    .getByRole("dialog")
+    .getByRole("menuitem", { name: /^Settings/ })
+    .click();
+  await expect(page.getByRole("heading", { name: "Settings", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Close sidebar", exact: true })).toBeVisible();
   await assertAccessible(page);
 });
 

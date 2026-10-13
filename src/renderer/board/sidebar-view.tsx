@@ -259,7 +259,13 @@ export function Sidebar({
   }, [onCompact, compact]);
   useEffect(() => {
     if (!narrow || !overlay) return;
-    const outside = (event: PointerEvent) => {
+    const outside = (event: MouseEvent) => {
+      // Portaled panels and their submenus still belong to the sidebar.
+      if (
+        event.target instanceof Element &&
+        event.target.closest(".sidebar-panel, .app-menu, .row-submenu")
+      )
+        return;
       if (event.target instanceof Node && !shellRef.current?.contains(event.target)) {
         closeMenu();
         setOverlay(false);
@@ -272,10 +278,10 @@ export function Sidebar({
         toggleButtonRef.current?.focus();
       }
     };
-    document.addEventListener("pointerdown", outside);
+    document.addEventListener("click", outside);
     document.addEventListener("keydown", escape);
     return () => {
-      document.removeEventListener("pointerdown", outside);
+      document.removeEventListener("click", outside);
       document.removeEventListener("keydown", escape);
     };
   }, [narrow, overlay, closeMenu]);

@@ -1587,7 +1587,13 @@ test("sidebar toggle preserves terminal focus, moves tree focus and restores the
   fireEvent.keyDown(document, { key: "Escape" });
   expect(view.getByRole("button", { name: "Open sidebar" })).toBeTruthy();
   fireEvent.click(view.getByRole("button", { name: "Open sidebar" }));
-  fireEvent.pointerDown(document.body);
+  const panel = document.createElement("div");
+  panel.className = "sidebar-panel";
+  document.body.append(panel);
+  fireEvent.click(panel);
+  expect(view.getByRole("button", { name: "Close sidebar" })).toBeTruthy();
+  panel.remove();
+  fireEvent.click(document.body);
   expect(view.getByRole("button", { name: "Open sidebar" })).toBeTruthy();
   fireEvent.click(view.getByRole("button", { name: "Open sidebar" }));
   fireEvent.click(view.getByRole("button", { name: "Close sidebar" }));
