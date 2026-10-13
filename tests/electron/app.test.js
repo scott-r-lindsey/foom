@@ -9044,16 +9044,18 @@ test("preview host loads and reloads detached, never steals terminal keystrokes,
   await expect.poll(async () => (await previewViewState(app, id)).focused).toBe(true);
   await typeIntoFocusedContents(app, "human");
   await expect.poll(() => previewContents(app, id, "window.stolen")).toBe("human");
-  await page.locator(".xterm-helper-textarea").focus();
+  // Return native focus to the board first, then the terminal input inside it. macOS
+  // moves native focus asynchronously, and the page may not restore its own focus.
   await app.evaluate(({ BrowserWindow }) => {
     BrowserWindow.getAllWindows()
       .find((window) => window.webContents.getURL() === "app://bundle/index.html")
       .webContents.focus();
   });
-  // macOS moves native focus asynchronously; type only once the board holds it.
   await expect
     .poll(() => app.evaluate(({ webContents }) => webContents.getFocusedWebContents()?.getURL()))
     .toBe("app://bundle/index.html");
+  await page.locator(".xterm-helper-textarea").focus();
+  await expect(page.locator(".xterm-helper-textarea")).toBeFocused();
   await app.evaluate(({ webContents }, id) => {
     globalThis.previewGateRequested = false;
     webContents
