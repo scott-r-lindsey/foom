@@ -15,7 +15,7 @@ import { centerStep } from "./center-step";
 import { scalePreflight } from "./scale-preflight";
 import { LaunchSequence } from "./launch-sequence";
 
-import { STEPS, readyAgents, pollRows } from "./preflight";
+import { STEPS, readyAgents, pollRows, found } from "./preflight";
 import { defaultSelection, pending } from "./repository-picker";
 import { Wordmark } from "../ui/wordmark";
 import { WelcomeStep } from "./welcome-step";
@@ -336,6 +336,7 @@ export function Preflight({
             setError("");
             try {
               setReport(await source.changeAgyPlugin(action));
+              receiveState(await source.state());
             } catch (caught) {
               setError(message(caught));
             } finally {
@@ -548,12 +549,27 @@ export function Preflight({
               key={entry.step}
               type="button"
               aria-current={entry.step === step ? "page" : undefined}
+              aria-label={entry.label}
+              aria-describedby={
+                entry.step === 1 &&
+                !state.settings.agyPluginOfferAnswered &&
+                found(report, "agy")?.agyPlugin?.state === "not-installed"
+                  ? "agy-plugin-offer"
+                  : undefined
+              }
               disabled={applying}
               onClick={() => {
                 go(entry.step);
               }}
             >
               {entry.label}
+              {entry.step === 1 &&
+                !state.settings.agyPluginOfferAnswered &&
+                found(report, "agy")?.agyPlugin?.state === "not-installed" && (
+                  <span id="agy-plugin-offer" className="agy-plugin-offer">
+                    Plugin available
+                  </span>
+                )}
             </button>
           ))}
           <button type="button" className="settings-close" disabled={applying} onClick={onClose}>
