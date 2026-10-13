@@ -19,6 +19,7 @@ const allowed = {
   sound: DEFAULT_SOUND,
   agents: { claude: false, codex: true, agy: false },
   hooks: false,
+  agentArguments: { claude: [], codex: ["--ask-for-approval", "never"], agy: [] },
 };
 test("settings is an optional allowlisted patch with exactly main's value rules", () => {
   expect(parseSettingsFile('{"kind":"settings"}')).toEqual({});
@@ -35,7 +36,6 @@ test("settings is an optional allowlisted patch with exactly main's value rules"
   ).toEqual({ interfaceTheme: "follow", terminalTheme: "dracula" });
 });
 test.each([
-  "agentArguments",
   "agentBypassAcknowledged",
   "codexNotifierAcknowledged",
   "setupComplete",
@@ -121,3 +121,30 @@ test.each(["inference", "inferenceTimeoutMs"])(
     );
   },
 );
+
+test.each([
+  ["claude", ["--"]],
+  ["claude", ["--settings", "{}"]],
+  ["claude", ["--safe-mode"]],
+  ["claude", ["--bare"]],
+  ["claude", ["--resume", "id"]],
+  ["codex", ["--no-alt-screen"]],
+  ["codex", ["-c", "notify=[]"]],
+  ["codex", ["--config=hooks={}"]],
+  ["codex", ["--dangerously-bypass-hook-trust"]],
+  ["codex", ["resume"]],
+  ["agy", ["--conversation", "id"]],
+] as const)("file validator reuses the reserved argument errors for %s", (agent, args) => {
+  const text = JSON.stringify({
+    kind: "settings",
+    agentArguments: { claude: [], codex: [], agy: [], [agent]: args },
+  });
+  expect(() => parseSettingsFile(text)).toThrow(
+    expect.objectContaining({
+      path: "$.agentArguments",
+      reason: "invalid-value",
+      detail: expect.stringMatching(/line 1:/u) as unknown,
+    }),
+  );
+  expect(() => validateConfigJson(text)).toThrow();
+});

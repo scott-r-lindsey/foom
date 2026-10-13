@@ -3,6 +3,7 @@ export class ThemeValidationError extends Error {
   constructor(
     readonly path: string,
     readonly reason: ThemeReason,
+    readonly detail?: string,
   ) {
     super(`Invalid theme: ${path}: ${reason}`);
   }

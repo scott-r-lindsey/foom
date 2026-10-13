@@ -109,6 +109,7 @@ export class SettingsStore {
   private pending: Promise<void> = Promise.resolve();
   private legacy: ConfigSettings | undefined;
   private migrated = false;
+  private argumentsToMove: Settings["agentArguments"] | undefined;
   private digest: string | null = null;
   /** Digests of the interface theme files this profile last applied, by config path. */
   private themeDigests: Readonly<Record<string, string>> = {};
@@ -163,6 +164,7 @@ export class SettingsStore {
           sound: sound === undefined || version === 2 ? DEFAULT_SOUND : migrateSoundSettings(sound),
           agentArguments: recovered,
         };
+        if (AGENTS.some((agent) => recovered[agent].length > 0)) store.argumentsToMove = recovered;
         if (version === 2) {
           store.migrated = true;
           const digest = state["configDigest"];
@@ -183,7 +185,10 @@ export class SettingsStore {
         } else {
           store.legacy = Object.fromEntries(
             CONFIG_SETTINGS.filter(
-              (key) => key in parsed || (key === "sound" && sound !== undefined),
+              (key) =>
+                key in parsed ||
+                (key === "sound" && sound !== undefined) ||
+                (key === "agentArguments" && store.argumentsToMove !== undefined),
             ).map((key) => [key, store.settings[key]]),
           );
         }
@@ -202,7 +207,11 @@ export class SettingsStore {
 
   /** Agent-editable values a version 1 profile still holds; undefined once migrated. */
   legacyConfig(): ConfigSettings | undefined {
-    return this.migrated ? undefined : (this.legacy ?? {});
+    return this.migrated
+      ? this.argumentsToMove
+        ? { agentArguments: this.argumentsToMove }
+        : undefined
+      : (this.legacy ?? {});
   }
 
   /** Digest of the config file this profile last applied: the approval baseline. */
@@ -223,6 +232,7 @@ export class SettingsStore {
       this.writer = writer;
       this.migrated = true;
       this.legacy = undefined;
+      this.argumentsToMove = undefined;
       this.digest = digest;
       this.settings = { ...this.settings, ...CONFIG_DEFAULTS, ...values };
     });
@@ -267,6 +277,10 @@ export class SettingsStore {
     if (Object.keys(config).length && !Object.keys(profile).length) return this.settings;
     await this.write(() => {
       this.settings = { ...this.settings, ...profile };
+      if (profile.agentArguments)
+        this.argumentsToMove = AGENTS.some((agent) => profile.agentArguments?.[agent].length)
+          ? profile.agentArguments
+          : undefined;
     });
     return this.settings;
   }
@@ -282,6 +296,7 @@ export class SettingsStore {
           themeDigests: this.themeDigests,
           writer: this.writer,
           legacy: this.legacy,
+          argumentsToMove: this.argumentsToMove,
         };
         change();
         try {
@@ -294,7 +309,10 @@ export class SettingsStore {
                 this.migrated
                   ? {
                       version: 2,
-                      settings: profileOnly(this.settings),
+                      settings: {
+                        ...profileOnly(this.settings),
+                        ...(this.argumentsToMove ? { agentArguments: this.argumentsToMove } : {}),
+                      },
                       configDigest: this.digest,
                       ...(Object.keys(this.themeDigests).length
                         ? { themeDigests: this.themeDigests }
@@ -315,6 +333,7 @@ export class SettingsStore {
           this.themeDigests = snapshot.themeDigests;
           this.writer = snapshot.writer;
           this.legacy = snapshot.legacy;
+          this.argumentsToMove = snapshot.argumentsToMove;
           throw error;
         }
       });

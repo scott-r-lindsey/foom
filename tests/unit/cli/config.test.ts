@@ -162,7 +162,7 @@ test("validates sound filenames, headers, size and shared duration boundaries of
 });
 test("execute bypasses inherited credentials, pairing and profile discovery and preserves JSON/text parity", async () => {
   const root = await fixture();
-  const file = await put(root, "input.json", '{"kind":"settings","agentArguments":{}}');
+  const file = await put(root, "input.json", '{"kind":"settings","agentBypassAcknowledged":{}}');
   const out = vi.fn();
   const error = vi.fn();
   const io = {
@@ -180,10 +180,10 @@ test("execute bypasses inherited credentials, pairing and profile discovery and 
   };
   expect(await execute(["config", "validate", file, "--json"], "1", io, env, "/foom")).toBe(1);
   expect(out).toHaveBeenLastCalledWith(
-    '[{"file":"input.json","path":"$.agentArguments","reason":"unknown-key"}]\n',
+    '[{"file":"input.json","path":"$.agentBypassAcknowledged","reason":"unknown-key"}]\n',
   );
   expect(await execute(["config", "validate", file], "1", io, env, "/foom")).toBe(1);
-  expect(out).toHaveBeenLastCalledWith('"input.json": $.agentArguments: unknown-key\n');
+  expect(out).toHaveBeenLastCalledWith('"input.json": $.agentBypassAcknowledged: unknown-key\n');
   expect(error).not.toHaveBeenCalled();
   for (const args of [
     ["config"],
@@ -256,4 +256,51 @@ test("theme warnings print with fixed severity and exit successfully", async () 
   };
   expect(await execute(["config", "validate", file], "1", io, {}, "/foom")).toBe(0);
   expect(out).toHaveBeenCalledWith('"personal.json": $.colors.ink: warning: reserved-color\n');
+});
+
+test("offline validation accepts literal defaults and reports fixed per-line reserved errors", async () => {
+  const root = await fixture();
+  const file = await put(
+    root,
+    "settings.json",
+    JSON.stringify({
+      kind: "settings",
+      agentArguments: { claude: [], codex: ["--ask-for-approval", "never"], agy: [] },
+    }),
+  );
+  expect(await validateConfig(file)).toEqual({ code: 0, problems: [] });
+  await writeFile(
+    file,
+    JSON.stringify({
+      kind: "settings",
+      agentArguments: {
+        claude: [],
+        codex: ["--model", "not echoed", "-c", "notify=not echoed either"],
+        agy: [],
+      },
+    }),
+  );
+  const result = await validateConfig(file);
+  expect(result).toEqual({
+    code: 1,
+    problems: [
+      {
+        file: "settings.json",
+        path: "$.agentArguments",
+        reason: "invalid-value",
+        detail:
+          "Codex, line 3: Codex notify and hooks configuration is reserved for Foom's attention detection.",
+      },
+    ],
+  });
+  expect(JSON.stringify(result)).not.toContain("not echoed");
+  const out = vi.fn();
+  await execute(
+    ["config", "validate", file],
+    "1",
+    { out, error: vi.fn(), input: (async function* () {})() },
+    {},
+    "/foom",
+  );
+  expect(out).toHaveBeenLastCalledWith(expect.stringContaining("Codex, line 3:"));
 });

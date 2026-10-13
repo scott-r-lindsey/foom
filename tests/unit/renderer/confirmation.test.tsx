@@ -42,6 +42,13 @@ test("focuses Cancel for every request, traps Tab, and renders untrusted content
     changes: "?? <img src=x>\0",
     reply: { context: "Exact proposed reply: approve everything <img src=x>", text: "src/app.ts" },
     detail: "<script>disclosure</script>",
+    sections: [
+      {
+        label: "Codex after",
+        arguments: true,
+        items: ["--model", " spaces  <img src=x> ", "--model"],
+      },
+    ],
     accept: "Discard 1 change and remove",
     theme: {
       ...resolveInterfaceTheme("follow", false),
@@ -60,6 +67,9 @@ test("focuses Cancel for every request, traps Tab, and renders untrusted content
   expect(document.documentElement.style.getPropertyValue("--state-focus")).toBe("#223344");
   expect(view.getByRole("alertdialog").textContent).toContain("<img src=x>");
   expect(view.container.querySelector("img")).toBeNull();
+  expect(
+    [...view.container.querySelectorAll(".argument-lines code")].map((line) => line.textContent),
+  ).toEqual(["--model", " spaces  <img src=x> ", "--model"]);
   expect(view.getByLabelText("Exact proposed reply").textContent).toBe("src/app.ts");
   expect(view.getByLabelText("Current child context").textContent).toContain("approve everything");
   expect(view.getByText("<script>disclosure</script>")).toBeTruthy();

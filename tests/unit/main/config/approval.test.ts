@@ -1,5 +1,12 @@
 import { expect, test } from "vitest";
-import { configPart, describe, effective, weakenings } from "../../../../src/main/config/approval";
+import {
+  argumentChanges,
+  argumentDisclosure,
+  configPart,
+  describe,
+  effective,
+  weakenings,
+} from "../../../../src/main/config/approval";
 import {
   OWNED_FILES,
   OWNED_HISTORY,
@@ -92,6 +99,7 @@ test("owned files refresh only when missing or matching an earlier Foom version"
       "terminalFontSize",
       "sound",
       "agents",
+      "agentArguments",
       "hooks",
       "restoreSessions",
     ].sort(),
@@ -118,3 +126,118 @@ test("unedited earlier guides refresh to the current one", () => {
     expect(history).not.toContain(digest(OWNED_FILES[file] ?? ""));
   }
 });
+
+test("every argument transition holds, and disclosures preserve literal lines and name bypass", () => {
+  const args = effective(base, {
+    agentArguments: {
+      claude: ["--permission-mode", "bypassPermissions"],
+      codex: ["--sandbox", "danger-full-access", " spaces  and 'quotes' ", "<script>"],
+      agy: ["--dangerously-skip-permissions"],
+    },
+  });
+  expect(argumentChanges(base, args).map((change) => change.detail)).toEqual([
+    "agentArguments.claude",
+    "agentArguments.codex",
+    "agentArguments.agy",
+  ]);
+  expect(argumentChanges(args, base)).toHaveLength(3);
+  expect(argumentChanges(args, { ...args, agentArguments: { ...args.agentArguments } })).toEqual(
+    [],
+  );
+  expect(describe(base, args)).toBe("Agent launch arguments");
+  const disclosure = argumentDisclosure(base, args);
+  expect(disclosure.sections).toContainEqual({
+    label: "Codex before",
+    arguments: true,
+    items: ["(no arguments)"],
+  });
+  expect(disclosure.sections).toContainEqual({
+    label: "Codex after",
+    arguments: true,
+    items: args.agentArguments.codex,
+  });
+  expect(disclosure.sections).toContainEqual({
+    label: "Codex bypass",
+    arguments: true,
+    items: ["--sandbox", "danger-full-access"],
+  });
+  expect(disclosure.sections).toContainEqual({
+    label: "Claude Code bypass",
+    arguments: true,
+    items: ["--permission-mode", "bypassPermissions"],
+  });
+  expect(disclosure.sections).toContainEqual({
+    label: "Antigravity bypass",
+    arguments: true,
+    items: ["--dangerously-skip-permissions"],
+  });
+  const removal = argumentDisclosure(args, base);
+  expect(removal.sections).toContainEqual({
+    label: "Codex before",
+    arguments: true,
+    items: args.agentArguments.codex,
+  });
+  expect(removal.sections).toContainEqual({
+    label: "Codex after",
+    arguments: true,
+    items: ["(no arguments)"],
+  });
+  expect(removal.sections).toHaveLength(6);
+  expect(argumentDisclosure(base, base).sections).toEqual([]);
+});
+
+test("the immediately previous guide and schema are refreshable history", () => {
+  for (const file of ["README.md", "AGENTS.md", "CLAUDE.md"])
+    expect(OWNED_HISTORY[file]).toContain(
+      "c6b86f464a73d1c4255fd412bc454bea148a5bf2130aa3175b3de36e85aeb6a2",
+    );
+  expect(OWNED_HISTORY["schemas/settings.schema.json"]).toContain(
+    "24d2c65f96e90c242c21990e919dee89287addcd1ddbb2d39892f9033beb49f6",
+  );
+  expect(OWNED_FILES["AGENTS.md"]).toContain("Every change to these lists waits");
+  expect(
+    OWNED_FILES["AGENTS.md"]?.split("## Not in this folder")[1]?.split("## Rules")[0],
+  ).not.toContain("Agent default launch arguments");
+});
+
+test.each([
+  { agent: "claude", name: "Claude Code", args: ["--permission-mode", "bypassPermissions"] },
+  { agent: "claude", name: "Claude Code", args: ["--permission-mode=bypassPermissions"] },
+  ...["--sandbox", "-s"].map((flag) => ({
+    agent: "codex" as const,
+    name: "Codex",
+    args: [flag, "danger-full-access"],
+  })),
+  ...["-c", "--config"].map((flag) => ({
+    agent: "codex" as const,
+    name: "Codex",
+    args: [flag, 'profiles.full.sandbox_mode="danger-full-access"'],
+  })),
+  ...[
+    "--sandbox=danger-full-access",
+    "-s=danger-full-access",
+    "-sdanger-full-access",
+    '--config=sandbox_mode="danger-full-access"',
+    "-csandbox_mode=danger-full-access",
+    '-c=sandbox_mode="danger-full-access"',
+  ].map((flag) => ({
+    agent: "codex" as const,
+    name: "Codex",
+    args: [flag],
+  })),
+] as const)(
+  "bypass disclosure preserves complete literal options: $args",
+  ({ agent, name, args }) => {
+    const after = effective(base, {
+      agentArguments: {
+        ...base.agentArguments,
+        [agent]: ["--model", "ordinary", ...args, ...args, "--verbose"],
+      },
+    });
+    expect(argumentDisclosure(base, after).sections).toContainEqual({
+      label: `${name} bypass`,
+      arguments: true,
+      items: [...args, ...args],
+    });
+  },
+);

@@ -2641,7 +2641,6 @@ test("first run goes from no agents to go, launches by keyboard, and can be repl
   // The profile keeps only profile settings; agent-editable ones live in Foom config.
   assert.equal(saved.version, 2);
   assert.deepEqual(Object.keys(saved.settings).sort(), [
-    "agentArguments",
     "agentBypassAcknowledged",
     "agyPluginOfferAnswered",
     "codeFolder",
@@ -5253,7 +5252,11 @@ test("Settings persists literal agent defaults and discloses bypass once per age
   const persisted = JSON.parse(
     await readFile(path.join(profile, "settings.json"), "utf8"),
   ).settings;
-  assert.deepEqual(persisted.agentArguments.claude, args);
+  assert.equal(persisted.agentArguments, undefined);
+  const configArguments = JSON.parse(
+    await readFile(path.join(home, ".foom/config/settings.json"), "utf8"),
+  ).agentArguments;
+  assert.deepEqual(configArguments.claude, args);
   assert.equal(persisted.agentBypassAcknowledged.claude, true);
   await assertAccessible(page);
   await page.keyboard.press("Escape");
@@ -8749,6 +8752,155 @@ test("footer config gear opens Settings and launches a docked Shell", async (con
   await panel.getByRole("menuitem", { name: /^Settings/ }).click();
   await expect(page.getByRole("region", { name: "Settings" })).toBeVisible();
   await assertAccessible(page);
+});
+
+test("config file agent arguments require trusted Allow before a fake Codex launch", {
+  timeout: deadline(60_000),
+}, async (context) => {
+  const { chmod, copyFile, readdir } = require("node:fs/promises");
+  const root = await mkdtemp(path.join(tmpdir(), "foom-config-arguments-"));
+  removeAfterApps(context, root);
+  const bin = path.join(root, "bin");
+  const home = path.join(root, "home");
+  const repo = path.join(root, "repo");
+  const output = path.join(root, "argv.json");
+  await Promise.all([bin, home, repo].map((directory) => mkdir(directory)));
+  for (const agent of ["claude", "codex", "agy"]) {
+    const executable = path.join(bin, process.platform === "win32" ? `${agent}.exe` : agent);
+    await copyFile(process.execPath, executable);
+    await chmod(executable, 0o755);
+  }
+  isolatedGit(["init", "-q", "-b", "main"], { cwd: repo });
+  isolatedGit(
+    [
+      "-c",
+      "user.name=Foom",
+      "-c",
+      "user.email=foom@example.com",
+      "commit",
+      "-q",
+      "--allow-empty",
+      "-m",
+      "init",
+    ],
+    { cwd: repo },
+  );
+  const app = await launchApp(context, false, {
+    emptyBoard: true,
+    env: { HOME: home, PATH: `${bin}${path.delimiter}${process.env.PATH}`, TEST_ARGV: output },
+  });
+  const page = await boardPage(app);
+  await app.evaluate(({ dialog }, repo) => {
+    dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [repo] });
+  }, repo);
+  const repository = await page.evaluate(() => window.desktop.addRepository());
+  assert.ok(repository);
+  await openSettingsScreen(page);
+  const sections = page.getByRole("navigation", { name: "Settings sections" });
+  await sections.getByRole("button", { name: "Foom config", exact: true }).click();
+  const file = path.join(home, ".foom/config/settings.json");
+  const original = await readFile(file, "utf8");
+  const args = [
+    "--eval",
+    'require("node:fs").writeFileSync(process.env.TEST_ARGV, JSON.stringify([...process.execArgv, ...process.argv.slice(1)]));process.stdin.resume()',
+    "fixture",
+    "--ask-for-approval",
+    "never",
+  ];
+  const proposal = JSON.stringify({
+    ...JSON.parse(original),
+    agentArguments: { claude: [], codex: args, agy: [] },
+  });
+  const banner = page.getByRole("region", { name: "Change waiting for approval" });
+  await writeFile(file, proposal);
+  await expect(banner).toContainText("change Codex launch arguments");
+  assert.deepEqual(
+    (await page.evaluate(() => window.desktop.setupState())).settings.agentArguments.codex,
+    [],
+  );
+  await banner.getByRole("button", { name: "Keep it on" }).click();
+  await expect(banner).toHaveCount(0);
+  assert.equal(await readFile(file, "utf8"), original);
+  await writeFile(file, proposal);
+  await expect(banner).toBeVisible();
+  await banner.getByRole("button", { name: "Allow", exact: true }).click();
+  const disclosure = await confirmationPage(app);
+  await expect(disclosure.getByRole("alertdialog")).toHaveAccessibleName(
+    "Allow agent launch arguments?",
+  );
+  await expect(disclosure.getByRole("button", { name: "Cancel" })).toBeFocused();
+  await expect(disclosure.getByRole("alertdialog")).toContainText("Codex before");
+  await expect(disclosure.getByRole("alertdialog")).toContainText("Codex after");
+  assert.deepEqual(
+    await disclosure.locator(".argument-lines").last().locator("code").allTextContents(),
+    args,
+  );
+  await disclosure.getByRole("button", { name: "Allow", exact: true }).click();
+  await expect(banner).toHaveCount(0);
+  assert.deepEqual(
+    (await page.evaluate(() => window.desktop.setupState())).settings.agentArguments.codex,
+    args,
+  );
+  await page.keyboard.press("Escape");
+  await page.evaluate(
+    (repo) =>
+      window.desktop.sidebarCommand({
+        kind: "launch",
+        repository: repo,
+        worktree: repo,
+        run: "codex",
+      }),
+    repository.path,
+  );
+  await expect
+    .poll(async () => {
+      try {
+        return JSON.parse(await readFile(output, "utf8"));
+      } catch {
+        return null;
+      }
+    })
+    .toEqual(args);
+  // Existing sessions retain their arguments; a removal is held too.
+  await openSettingsScreen(page);
+  await sections.getByRole("button", { name: "Foom config", exact: true }).click();
+  const approved = await readFile(file, "utf8");
+  await writeFile(file, original);
+  await expect(banner).toContainText("change Codex launch arguments");
+  await banner.getByRole("button", { name: "Keep it on" }).click();
+  await expect(banner).toHaveCount(0);
+  assert.equal(await readFile(file, "utf8"), approved);
+  const bypass = "--dangerously-bypass-approvals-and-sandbox";
+  await writeFile(
+    file,
+    JSON.stringify({
+      ...JSON.parse(approved),
+      agentArguments: { claude: [], codex: [...args, bypass], agy: [] },
+    }),
+  );
+  await expect(banner).toBeVisible();
+  await banner.getByRole("button", { name: "Allow", exact: true }).click();
+  await expect(disclosure.getByRole("alertdialog")).toHaveAccessibleName(
+    "Allow agent launch arguments?",
+  );
+  await expect(disclosure.getByRole("alertdialog")).toContainText("Codex bypass");
+  await expect(disclosure.locator(".argument-lines").last()).toHaveText(bypass);
+  await assertAccessible(disclosure);
+  await disclosure.getByRole("button", { name: "Allow", exact: true }).click();
+  await expect(banner).toHaveCount(0);
+  assert.equal(
+    (await page.evaluate(() => window.desktop.setupState())).settings.agentBypassAcknowledged.codex,
+    true,
+  );
+  // Saving the approved bypass through Settings must not ask again.
+  await sections.getByRole("button", { name: "Agents and hooks", exact: true }).click();
+  await page.getByRole("button", { name: "Save default arguments", exact: true }).click();
+  await expect(page.locator(".agent-defaults [role=status]")).toContainText(
+    "Default arguments saved",
+  );
+  await expect(disclosure.getByRole("alertdialog")).toHaveCount(0);
+  for (const name of [".claude", ".codex", ".gemini"])
+    assert.ok(!(await readdir(home)).includes(name));
 });
 
 test("sidebar collapses at any width, refits once and opens a narrow overlay without reflow", async (context) => {
