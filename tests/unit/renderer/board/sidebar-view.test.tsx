@@ -1328,6 +1328,13 @@ test.each([
   expect(gear.getAttribute("aria-expanded")).toBe("true");
   fireEvent.keyDown(view.getByRole("dialog"), { key: "Escape" });
   expect(gear.getAttribute("aria-expanded")).toBe("false");
+  fireEvent.click(view.getByRole("button", { name: "Collapse sidebar" }));
+  const count = (held ? 1 : 0) + (hasSession && row.state === "needs_input" ? 1 : 0);
+  expect(view.container.querySelector(".rail-needs")?.textContent ?? "").toBe(
+    count ? `${String(count)} need you` : "",
+  );
+  expect(view.container.querySelector(".config-dock")).toBeNull();
+  if (hasSession) expect(view.container.querySelector(".board-list .board-row")).toBeTruthy();
 });
 
 test("config panel orders Settings, launchers and folder commands; dock uses the gear anchor", async () => {
@@ -1537,5 +1544,56 @@ test("nests visible children beneath exited and revoked parents, supports keys, 
   expect(compact.getAllByRole("treeitem", { name: /feature · Codex/u })).toHaveLength(1);
   expect(compact.queryByRole("group", { name: "Children of Claude Code" })).toBeNull();
   compact.unmount();
+  vi.unstubAllGlobals();
+});
+
+test("sidebar toggle preserves terminal focus, moves tree focus and restores the narrow choice", async () => {
+  let narrow = false;
+  let resize = () => {};
+  vi.stubGlobal("matchMedia", () => ({
+    get matches() {
+      return narrow;
+    },
+    addEventListener: (_name: string, callback: () => void) => {
+      resize = callback;
+    },
+    removeEventListener: vi.fn(),
+  }));
+  const view = setup();
+  await act(async () => {
+    await Promise.resolve();
+  });
+  const filter = view.getByLabelText("Filter repositories and sessions");
+  filter.focus();
+  fireEvent.click(view.getByRole("button", { name: "Collapse sidebar" }));
+  expect(document.activeElement).toBe(view.getByRole("button", { name: "Expand sidebar" }));
+  expect(view.container.querySelector(".sidebar-shell")?.getAttribute("data-compact")).toBe("true");
+  fireEvent.click(view.getByRole("button", { name: "Expand sidebar" }));
+  expect(document.activeElement).toBe(view.getByRole("button", { name: "Collapse sidebar" }));
+  const input = document.createElement("textarea");
+  document.body.append(input);
+  input.focus();
+  fireEvent.click(view.getByRole("button", { name: "Collapse sidebar" }));
+  expect(document.activeElement).toBe(input);
+  act(() => {
+    narrow = true;
+    resize();
+  });
+  fireEvent.click(view.getByRole("button", { name: "Open sidebar" }));
+  expect(view.container.querySelector(".sidebar-shell")?.getAttribute("data-overlay")).toBe("true");
+  fireEvent.keyDown(document, { key: "Escape" });
+  expect(view.getByRole("button", { name: "Open sidebar" })).toBeTruthy();
+  fireEvent.click(view.getByRole("button", { name: "Open sidebar" }));
+  fireEvent.pointerDown(document.body);
+  expect(view.getByRole("button", { name: "Open sidebar" })).toBeTruthy();
+  fireEvent.click(view.getByRole("button", { name: "Open sidebar" }));
+  fireEvent.click(view.getByRole("button", { name: "Close sidebar" }));
+  act(() => {
+    narrow = false;
+    resize();
+  });
+  expect(view.getByRole("button", { name: "Expand sidebar" })).toBeTruthy();
+  input.remove();
+  view.unmount();
   vi.unstubAllGlobals();
 });

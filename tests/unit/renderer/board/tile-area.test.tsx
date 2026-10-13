@@ -399,10 +399,14 @@ test("menu presets and Dock navigation use the same board placement and report v
     send(command);
     expect(screen.container.querySelectorAll(".terminal-tile")).toHaveLength(count);
   }
+  send("toggle-sidebar");
+  expect(screen.getByRole("button", { name: "Expand sidebar" })).toBeTruthy();
+  send("toggle-sidebar");
   send("maximize");
   expect(setView).toHaveBeenLastCalledWith({
     available: true,
     configAvailable: true,
+    sidebarCollapsed: false,
     maximized: false,
     tiles: 0,
   });

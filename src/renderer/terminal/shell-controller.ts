@@ -159,8 +159,18 @@ export function createShell(
     if (activeId && attached && !busy && !exited) window.desktop.input(activeId, data, "wheel");
   });
   terminal.attachCustomWheelEventHandler((event) => wheel.handle(event));
+  const board = container.closest(".board-home");
+  let measuredWidth: number | undefined;
+  let measuredHeight: number | undefined;
   const resize = () => {
     if (!attached || busy) return;
+    const sidebar = board?.querySelector(".sidebar-shell");
+    if (sidebar?.getAnimations().some((animation) => animation.playState === "running")) return;
+    const bounds = container.getBoundingClientRect();
+    if (!fontResizePending && bounds.width === measuredWidth && bounds.height === measuredHeight)
+      return;
+    measuredWidth = bounds.width;
+    measuredHeight = bounds.height;
     fit.fit();
     view.cols = terminal.cols;
     view.rows = terminal.rows;
@@ -200,6 +210,11 @@ export function createShell(
     },
     () => undefined,
   );
+  const sidebarTransition = (event: Event) => {
+    if (event instanceof TransitionEvent && event.propertyName === "flex-basis") resize();
+  };
+  board?.addEventListener("transitionend", sidebarTransition);
+  board?.addEventListener("transitioncancel", sidebarTransition);
   const observer = new ResizeObserver(resize);
   observer.observe(container);
   const openView = async (id: string) => {
@@ -297,6 +312,8 @@ export function createShell(
     visibleRequested = false;
     colors.removeEventListener("change", interfaceChanged);
     observer.disconnect();
+    board?.removeEventListener("transitionend", sidebarTransition);
+    board?.removeEventListener("transitioncancel", sidebarTransition);
     offData();
     offExit();
     offRemoved();

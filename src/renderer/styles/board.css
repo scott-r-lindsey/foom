@@ -135,6 +135,7 @@
 }
 
 .board-workspace {
+  position: relative;
   flex: 1;
   min-height: 0;
   display: flex;
@@ -260,7 +261,7 @@
   display: none !important;
 }
 @media (max-width: 720px) {
-  .board-workspace .board-list {
+  .sidebar-shell[data-compact="true"] .board-list {
     flex: 0 0 64px;
     padding: 12px 8px;
   }
@@ -269,7 +270,7 @@
     overflow: hidden;
     text-overflow: ellipsis;
   }
-  .board-workspace .board-row {
+  .sidebar-shell[data-compact="true"] .board-row {
     display: flex;
     justify-content: center;
     padding: 14px;
@@ -277,7 +278,7 @@
   .board-list .board-entry:has(.worktree-remove) .board-row {
     padding-bottom: 14px;
   }
-  .board-row > span:not(.board-light),
+  .sidebar-shell[data-compact="true"] .board-row > span:not(.board-light):not(.board-agent),
   .board-list .worktree-remove {
     position: absolute;
     width: 1px;
@@ -745,42 +746,112 @@
     transition: none;
   }
 }
+/* Compact at any width; narrow windows keep a 64px slot beneath the overlay. */
+.sidebar-shell {
+  position: relative;
+  transition: flex-basis 160ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.sidebar-toggle {
+  position: absolute;
+  top: 14px;
+  right: 8px;
+  z-index: 1;
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 24px;
+  padding: 0;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  color: var(--muted);
+}
+.sidebar-toggle:hover {
+  color: var(--ink);
+  background: color-mix(in srgb, var(--highlight) 8%, transparent);
+}
+.sidebar-toggle svg {
+  width: 16px;
+  height: 14px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.1;
+}
+.sidebar-shell .board-top {
+  padding-right: 42px;
+}
+.sidebar-shell[data-compact="true"] {
+  flex-basis: 64px;
+}
+.sidebar-shell[data-compact="true"] .sidebar-toggle {
+  position: static;
+  align-self: center;
+  margin: 12px 0 8px;
+  flex-shrink: 0;
+}
+.sidebar-shell[data-compact="true"] .board-top,
+.sidebar-shell[data-compact="true"] .hidden-needs,
+.sidebar-shell[data-compact="true"] .tile-presets {
+  display: none;
+}
+.rail-needs {
+  margin: 0 6px 8px;
+  padding: 4px 2px;
+  text-align: center;
+  font: 11px var(--font-mono);
+  color: var(--attention-ink);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--attention) 14%, transparent);
+}
+.sidebar-shell[data-compact="true"] .board-list {
+  flex: 1;
+  padding: 8px 2px;
+}
+.sidebar-shell[data-compact="true"] .board-entry {
+  margin-left: 0;
+}
+.sidebar-shell[data-compact="true"] .board-row {
+  justify-content: center;
+  align-items: center;
+  padding: 10px 4px;
+}
+.sidebar-shell[data-compact="true"] .board-row .board-light {
+  margin-top: 0;
+}
+.sidebar-shell[data-compact="true"] .sidebar-footer {
+  padding: 8px 4px;
+}
+.sidebar-shell[data-compact="true"] .sidebar-footer-bar {
+  justify-content: center;
+}
+.sidebar-shell[data-compact="true"] .config-gear {
+  margin: 0;
+}
+.rail-group + .rail-group {
+  border-top: 1px solid var(--line);
+  margin-top: 4px;
+  padding-top: 4px;
+}
+.sidebar-shell[data-overlay="true"] {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 300px;
+  z-index: 20;
+  box-shadow:
+    0 22px 48px -12px var(--raised-shadow),
+    0 8px 16px -8px var(--raised-shadow);
+}
 @media (max-width: 719px) {
-  .sidebar-shell[data-compact="true"] {
+  .sidebar-shell {
     flex-basis: 64px;
   }
-  .sidebar-shell[data-compact="true"] .board-top,
-  .sidebar-shell[data-compact="true"] .hidden-needs {
-    display: none;
+  .board-workspace:has(.sidebar-shell[data-overlay="true"]) {
+    padding-left: 64px;
   }
-  .sidebar-shell .board-list {
-    padding: 8px 2px;
-  }
-  .sidebar-shell .board-entry {
-    margin-left: 0;
-  }
-  .sidebar-shell .board-row {
-    justify-content: center;
-    align-items: center;
-    padding: 10px 4px;
-  }
-  .sidebar-shell .board-row .board-light {
-    margin-top: 0;
-  }
-  .sidebar-footer {
-    padding: 4px;
-  }
-  /* The tile layouts wrap rather than spill into the terminal pane. */
-  .sidebar-shell[data-compact="true"] .tile-presets {
-    flex-wrap: wrap;
-    justify-content: center;
-    min-width: 0;
-  }
-  .sidebar-footer button {
-    max-width: 56px;
-    padding: 4px;
-    overflow-wrap: anywhere;
-    font-size: 9px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .sidebar-shell {
+    transition: none;
   }
 }
 
@@ -1589,4 +1660,16 @@
   display: flex;
   gap: 12px;
   margin-top: 12px;
+}
+
+.sidebar-shell[data-compact="true"] .session-lines {
+  display: none;
+}
+.sidebar-shell[data-compact="true"] .board-row {
+  gap: 6px;
+}
+
+.sidebar-shell[data-compact="true"] .row-actions {
+  opacity: 1;
+  border-color: transparent;
 }

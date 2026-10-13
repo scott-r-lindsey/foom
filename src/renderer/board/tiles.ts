@@ -463,7 +463,15 @@ export function restoreLayout(raw: string | null): TileLayout {
       tiles.some((tile) => tile.id === value.landing)
         ? value.landing
         : undefined;
-    return { tree, focused, maximized: null, ...(landing ? { landing } : {}) };
+    return {
+      tree,
+      focused,
+      maximized: null,
+      ...(landing ? { landing } : {}),
+      ...("sidebarCollapsed" in value && typeof value.sidebarCollapsed === "boolean"
+        ? { sidebarCollapsed: "sidebarCollapsed" in value && value.sidebarCollapsed }
+        : {}),
+    };
   } catch {
     return initialLayout();
   }
@@ -501,6 +509,7 @@ export function saveLayout(
       tree: layout.tree,
       focused: layout.focused,
       landing: layout.landing,
+      sidebarCollapsed: layout.sidebarCollapsed,
     }),
   );
 }

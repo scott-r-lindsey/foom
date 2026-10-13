@@ -157,6 +157,7 @@ export function attachAppMenu(
       !("available" in state) ||
       typeof state.available !== "boolean" ||
       ("configAvailable" in state && typeof state.configAvailable !== "boolean") ||
+      ("sidebarCollapsed" in state && typeof state.sidebarCollapsed !== "boolean") ||
       !("maximized" in state) ||
       typeof state.maximized !== "boolean" ||
       !("tiles" in state) ||
@@ -176,6 +177,11 @@ export function attachAppMenu(
         command.enabled = state.available;
       if (command.id.startsWith("tile-"))
         command.enabled = state.available && Number(command.id.slice(5)) <= state.tiles;
+      if (command.id === "toggle-sidebar")
+        command.label =
+          "sidebarCollapsed" in state && state.sidebarCollapsed === true
+            ? "Expand sidebar"
+            : "Collapse sidebar";
       if (command.id === "maximize") command.checked = state.maximized;
     }
     refresh();

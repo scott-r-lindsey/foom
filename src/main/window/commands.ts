@@ -190,6 +190,16 @@ export function createCommands(
       },
       { enabled: false, badge: agent.mark },
     );
+  add(
+    "toggle-sidebar",
+    "Collapse sidebar",
+    "View",
+    [chord("KeyB")],
+    () => {
+      actions.board("toggle-sidebar");
+    },
+    { sheet: ["Board", "Collapse / expand sidebar"] },
+  );
   const sheet: Partial<Record<BoardCommand, Command["sheet"]>> = {
     settings: ["App", "Settings"],
     sidebar: ["Board", "Focus sidebar"],
@@ -213,7 +223,10 @@ export function createCommands(
     const binding: Binding =
       !mac && entry.leader
         ? { code: entry.code, leader: true, shift: entry.id.startsWith("swap-") }
-        : { ...chord(entry.code, entry.id === "settings" ? !mac : entry.shift), alt: entry.alt };
+        : {
+            ...chord(entry.code, entry.id === "settings" ? !mac : entry.shift),
+            alt: entry.alt || (!mac && entry.id === "sidebar"),
+          };
     add(
       entry.id,
       entry.id === "settings" ? "Settings…" : entry.label,
@@ -370,7 +383,7 @@ const appMenuLayout = (agents: readonly string[]): readonly Layout[] => [
     label: "Settings",
     items: [...agents.map((agent) => `via-${agent}`), null, "settings"],
   },
-  { submenu: "view-menu", label: "View", items: ["tidy-tiles"] },
+  { submenu: "view-menu", label: "View", items: ["toggle-sidebar", "tidy-tiles"] },
   "size",
   null,
   "action-log",

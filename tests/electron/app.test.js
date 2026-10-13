@@ -149,7 +149,11 @@ async function boardCommand(app, keyCode, shift = true) {
         contents.sendInputEvent({
           type,
           keyCode,
-          modifiers: [mac ? "meta" : "control", ...(shift ? ["shift"] : [])],
+          modifiers: [
+            mac ? "meta" : "control",
+            ...(shift ? ["shift"] : []),
+            ...(!mac && keyCode === "B" ? ["alt"] : []),
+          ],
         });
     },
     { keyCode, mac: process.platform === "darwin", shift },
@@ -1839,6 +1843,14 @@ test("launches an agent in a managed worktree and routes its attention signals",
     .filter({ hasText: "feature/fake" });
   await expect(agentRow).toHaveAttribute("data-state", "needs_input");
   await expect(agentRow).toContainText("pattern:confirmation");
+  await page.getByRole("button", { name: "Collapse sidebar", exact: true }).click();
+  await expect(page.locator(".rail-needs")).toHaveText("1 need you");
+  await expect(page.locator('.board-row[data-kind="agent"] .board-light')).toBeVisible();
+  await expect(page.getByRole("button", { name: /Actions for.*Needs you/ })).toBeVisible();
+  await page.getByRole("button", { name: "Expand sidebar", exact: true }).click();
+  await page.waitForFunction(
+    () => document.querySelector(".sidebar-shell").getAnimations().length === 0,
+  );
   const firstCredentials = JSON.parse(await readFile(credentials, "utf8"));
   const controlRequest = (
     token = firstCredentials.controlToken,
@@ -7003,23 +7015,10 @@ process.stdin.on("data", (key) => {
   });
   const sidebar = page.locator(".sidebar-shell");
   await expect(sidebar).toHaveAttribute("data-compact", "true");
-  const dockChips = page.locator(".config-dock-head .panel-chip");
-  await expect(dockChips).toHaveCount(2);
-  assert.equal(
-    await dockChips.evaluateAll((chips) =>
-      chips.every((chip) => {
-        const bounds = chip.getBoundingClientRect();
-        const rail = chip.closest(".sidebar-shell").getBoundingClientRect();
-        return (
-          bounds.left >= rail.left &&
-          bounds.right <= rail.right &&
-          chip.scrollWidth <= chip.clientWidth + 1
-        );
-      }),
-    ),
-    true,
-  );
-  await expect(page.locator(".config-dock .board-row")).toBeVisible();
+  await expect(page.locator(".config-dock")).toHaveCount(0);
+  await expect(page.locator(".rail-needs")).toContainText("need you");
+  await expect(gear).toHaveAttribute("aria-label", /needs you.*rejected/);
+  await expect(page.locator(".board-list .board-row").filter({ hasText: "CC" })).toBeVisible();
   await page.screenshot({ path: "test-results/config-footer-compact.png", animations: "disabled" });
   await app.evaluate(({ BrowserWindow }, size) => {
     BrowserWindow.getAllWindows()
@@ -8481,4 +8480,111 @@ test("footer config gear opens Settings and launches a docked Shell", async (con
   await panel.getByRole("menuitem", { name: /^Settings/ }).click();
   await expect(page.getByRole("region", { name: "Settings" })).toBeVisible();
   await assertAccessible(page);
+});
+
+test("sidebar collapses at any width, refits once and opens a narrow overlay without reflow", async (context) => {
+  const app = await launchApp(context);
+  const page = await boardPage(app);
+  const input = page.locator(".xterm-helper-textarea");
+  await expect(input).toBeFocused();
+  await app.evaluate(({ ipcMain }) => {
+    global.sidebarResizes = [];
+    ipcMain.on("terminal:resize", (_event, id, cols, rows) =>
+      global.sidebarResizes.push({ id, cols, rows }),
+    );
+  });
+  const toggle = () =>
+    app.evaluate(({ BrowserWindow }, mac) => {
+      const contents = BrowserWindow.getAllWindows().find(
+        (window) => window.webContents.getURL() === "app://bundle/index.html",
+      ).webContents;
+      for (const type of ["keyDown", "keyUp"])
+        contents.sendInputEvent({
+          type,
+          keyCode: "B",
+          modifiers: mac ? ["meta"] : ["control", "shift"],
+        });
+    }, process.platform === "darwin");
+  await input.press("Control+b");
+  await expect(page.getByRole("button", { name: "Collapse sidebar", exact: true })).toBeVisible();
+  await toggle();
+  await expect(page.getByRole("button", { name: "Expand sidebar", exact: true })).toBeVisible();
+  await expect(input).toBeFocused();
+  await page.waitForFunction(
+    () => document.querySelector(".sidebar-shell").getAnimations().length === 0,
+  );
+  await expect.poll(() => app.evaluate(() => global.sidebarResizes.length)).toBe(1);
+  const compactColumns = await app.evaluate(() => global.sidebarResizes[0].cols);
+  await app.evaluate(() => {
+    global.sidebarResizes = [];
+  });
+  await toggle();
+  await page.waitForFunction(
+    () => document.querySelector(".sidebar-shell").getAnimations().length === 0,
+  );
+  await expect.poll(() => app.evaluate(() => global.sidebarResizes.length)).toBe(1);
+  assert.ok((await app.evaluate(() => global.sidebarResizes[0].cols)) < compactColumns);
+  await expect(input).toBeFocused();
+  await page.getByRole("button", { name: "Collapse sidebar", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Expand sidebar", exact: true })).toBeFocused();
+  await page.screenshot({ path: "test-results/sidebar-collapsed.png", animations: "disabled" });
+  await page.getByRole("button", { name: "Expand sidebar", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Collapse sidebar", exact: true })).toBeFocused();
+  await page.waitForFunction(
+    () => document.querySelector(".sidebar-shell").getAnimations().length === 0,
+  );
+  await page.getByRole("button", { name: "Foom menu", exact: true }).click();
+  await page.getByRole("menuitem", { name: "View", exact: true }).hover();
+  await page.getByRole("menuitem", { name: /^Collapse sidebar/ }).click();
+  await expect(page.getByRole("button", { name: "Expand sidebar", exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Expand sidebar", exact: true }).click();
+  await page.waitForFunction(
+    () => document.querySelector(".sidebar-shell").getAnimations().length === 0,
+  );
+  await app.evaluate(({ BrowserWindow }) => {
+    const window = BrowserWindow.getAllWindows().find(
+      (window) => window.webContents.getURL() === "app://bundle/index.html",
+    );
+    window.setSize(960, 700);
+    window.webContents.setZoomFactor(1.5);
+  });
+  await expect.poll(() => page.evaluate(() => innerWidth)).toBeLessThan(720);
+  await expect(page.getByRole("button", { name: "Open sidebar", exact: true })).toBeVisible();
+  await page.waitForFunction(
+    () => document.querySelector(".sidebar-shell").getAnimations().length === 0,
+  );
+  const bounds = await page.locator(".board-terminal").boundingBox();
+  await page.getByRole("button", { name: "Open sidebar", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Close sidebar", exact: true })).toBeVisible();
+  assert.deepEqual(await page.locator(".board-terminal").boundingBox(), bounds);
+  await page.screenshot({ path: "test-results/sidebar-overlay.png", animations: "disabled" });
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("button", { name: "Open sidebar", exact: true })).toBeVisible();
+  assert.deepEqual(await page.locator(".board-terminal").boundingBox(), bounds);
+  await assertAccessible(page);
+});
+
+test("sidebar choice restores after restart and new windows start expanded", async (context) => {
+  const profile = await mkdtemp(path.join(tmpdir(), "foom-sidebar-restore-"));
+  removeAfterApps(context, profile);
+  const options = { args: [`--user-data-dir=${profile}`], emptyBoard: true };
+  const app = await launchApp(context, false, options);
+  const page = await boardPage(app);
+  await page.getByRole("button", { name: "Collapse sidebar", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Expand sidebar", exact: true })).toBeVisible();
+  await quitAndWait(app, () => app.evaluate(({ app }) => app.quit()));
+  const restoredApp = await launchApp(context, false, options);
+  const restored = await boardPage(restoredApp);
+  await expect(restored.getByRole("button", { name: "Expand sidebar", exact: true })).toBeVisible();
+  await restored.evaluate(() => window.desktop.appMenu.execute("new-window"));
+  await expect
+    .poll(
+      () => restoredApp.windows().filter((page) => page.url() === "app://bundle/index.html").length,
+    )
+    .toBe(2);
+  const second = restoredApp
+    .windows()
+    .find((page) => page !== restored && page.url() === "app://bundle/index.html");
+  await expect(second.getByRole("button", { name: "Collapse sidebar", exact: true })).toBeVisible();
+  await assertAccessible(restored);
 });

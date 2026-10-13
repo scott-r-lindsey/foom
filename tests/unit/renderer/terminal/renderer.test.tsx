@@ -1106,3 +1106,41 @@ test("a newly mounted view knows an already exited session and can switch to a l
   expect(mock.options.cursorBlink).toBe(true);
   controller.dispose();
 });
+
+test("sidebar motion defers terminal fits until it settles and deduplicates the final observer", async () => {
+  class SidebarTransition extends Event {
+    propertyName: string;
+    constructor(type: string, propertyName: string) {
+      super(type, { bubbles: true });
+      this.propertyName = propertyName;
+    }
+  }
+  vi.stubGlobal("TransitionEvent", SidebarTransition);
+  const board = document.createElement("div");
+  board.className = "board-home";
+  const sidebar = document.createElement("aside");
+  sidebar.className = "sidebar-shell";
+  let running = true;
+  Object.defineProperty(sidebar, "getAnimations", {
+    value: () => (running ? [{ playState: "running" }] : []),
+  });
+  const container = document.createElement("div");
+  board.append(sidebar, container);
+  document.body.append(board);
+  const controller = createShell(container, vi.fn(), false, undefined, false);
+  await controller.open("moving-sidebar");
+  mock.fit.mockClear();
+  const observer = mock.resizeCallback.mock.lastCall?.[0];
+  observer?.();
+  expect(mock.fit).not.toHaveBeenCalled();
+  running = false;
+  sidebar.dispatchEvent(new SidebarTransition("transitionend", "color"));
+  expect(mock.fit).not.toHaveBeenCalled();
+  sidebar.dispatchEvent(new SidebarTransition("transitionend", "flex-basis"));
+  observer?.();
+  sidebar.dispatchEvent(new SidebarTransition("transitioncancel", "flex-basis"));
+  expect(mock.fit).toHaveBeenCalledOnce();
+  controller.dispose();
+  board.remove();
+  vi.unstubAllGlobals();
+});

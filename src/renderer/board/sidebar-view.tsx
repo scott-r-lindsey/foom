@@ -61,6 +61,10 @@ export function launcherActions(
 }
 export function Sidebar({
   source,
+  collapsed = false,
+  setCollapsed,
+  toggleRef,
+  onCompact,
   dragging,
   revealRef,
   inactive,
@@ -81,6 +85,10 @@ export function Sidebar({
   openSettings,
 }: {
   source: BoardSource;
+  collapsed?: boolean;
+  setCollapsed?: (value: boolean) => void;
+  toggleRef?: RefObject<(() => void) | undefined>;
+  onCompact?: (value: boolean) => void;
   dragging?: boolean;
   inactive: boolean;
   revealRef: RefObject<((row: BoardRow) => void) | undefined>;
@@ -194,6 +202,7 @@ export function Sidebar({
   const closeMenu = useCallback(() => {
     intent.close();
   }, [intent]);
+  const [overlay, setOverlay] = useState(false);
   const [narrow, setNarrow] = useState(
     () => typeof matchMedia !== "undefined" && matchMedia("(max-width: 719px)").matches,
   );
@@ -202,6 +211,7 @@ export function Sidebar({
     const media = matchMedia("(max-width: 719px)");
     const change = () => {
       setNarrow(media.matches);
+      setOverlay(false);
     };
     media.addEventListener("change", change);
     return () => {
@@ -220,7 +230,58 @@ export function Sidebar({
       .includes(filter.trim().toLocaleLowerCase()),
   );
   const configRows = rows.filter((row) => row.config);
-  const compact = narrow && rows.length > 0;
+  const shellRef = useRef<HTMLElement>(null);
+  const toggleButtonRef = useRef<HTMLButtonElement>(null);
+  const compact = narrow ? !overlay : collapsed;
+  const needsCount =
+    rows.filter((row) => row.state === "needs_input").length + (configStatus?.pending ? 1 : 0);
+  const toggleSidebar = useCallback(() => {
+    const active = document.activeElement;
+    const moveFocus = active instanceof Node && shellRef.current?.contains(active);
+    closeMenu();
+    if (narrow) setOverlay((value) => !value);
+    else setCollapsed?.(!collapsed);
+    if (moveFocus) toggleButtonRef.current?.focus();
+  }, [narrow, collapsed, setCollapsed, closeMenu]);
+  useEffect(() => {
+    if (toggleRef) toggleRef.current = toggleSidebar;
+    return () => {
+      if (toggleRef) toggleRef.current = undefined;
+    };
+  }, [toggleRef, toggleSidebar]);
+  useEffect(() => {
+    onCompact?.(compact);
+  }, [onCompact, compact]);
+  useEffect(() => {
+    if (!narrow || !overlay) return;
+    const outside = (event: PointerEvent) => {
+      if (event.target instanceof Node && !shellRef.current?.contains(event.target)) {
+        closeMenu();
+        setOverlay(false);
+      }
+    };
+    const escape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        closeMenu();
+        setOverlay(false);
+        toggleButtonRef.current?.focus();
+      }
+    };
+    document.addEventListener("pointerdown", outside);
+    document.addEventListener("keydown", escape);
+    return () => {
+      document.removeEventListener("pointerdown", outside);
+      document.removeEventListener("keydown", escape);
+    };
+  }, [narrow, overlay, closeMenu]);
+  const toggleLabel = narrow
+    ? overlay
+      ? "Close sidebar"
+      : "Open sidebar"
+    : collapsed
+      ? "Expand sidebar"
+      : "Collapse sidebar";
+  const shortcut = source.appMenu?.platform === "darwin" ? "⌘B" : "Ctrl+Shift+B";
   const { tree, hiddenNeeds } = buildSidebar(
     rows.filter((row) => !row.home && !row.config),
     repositories,
@@ -365,12 +426,13 @@ export function Sidebar({
     else intent.pin(id, anchor);
   };
   const actions = (id: string, name: string, items: (RowAction | null)[]) => {
+    const row = rows.find((entry) => entry.id === id);
     currentActions.set(id, items);
     return (
       <button
         className="row-actions"
         type="button"
-        aria-label={`Actions for ${name}`}
+        aria-label={`Actions for ${name}${compact ? ` · ${row?.repository ?? ""}${row?.state === "needs_input" ? " · Needs you" : ""}` : ""}`}
         aria-haspopup="dialog"
         aria-expanded={menu?.id === id}
         onClick={(event) => {
@@ -385,11 +447,15 @@ export function Sidebar({
           );
         }}
       >
-        <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor" aria-hidden="true">
-          <circle cx="3" cy="7" r="1.3" />
-          <circle cx="7" cy="7" r="1.3" />
-          <circle cx="11" cy="7" r="1.3" />
-        </svg>
+        {compact ? (
+          <AgentBadge mark={row?.kind === "shell" ? ">_" : agentBadges.get(row?.agent ?? "")} />
+        ) : (
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor" aria-hidden="true">
+            <circle cx="3" cy="7" r="1.3" />
+            <circle cx="7" cy="7" r="1.3" />
+            <circle cx="11" cy="7" r="1.3" />
+          </svg>
+        )}
       </button>
     );
   };
@@ -563,7 +629,7 @@ export function Sidebar({
             data-state={lightState(row)}
             data-exited={Boolean(row.exited)}
             tabIndex={docked || row.id === selected ? 0 : -1}
-            aria-label={`${row.branch} · ${name}${name === identity ? "" : ` · ${identity}`} · ${light(row).label}${row.foregroundProgram ? ` · ${row.foregroundProgram}` : ""}${row.kind === "shell" ? "" : ` · ${row.reason}`}${row.bypass ? " · Bypass" : ""}${row.worktreeRemoved ? " · Worktree removed" : ""}`}
+            aria-label={`${compact ? `${row.home ? "~" : row.config ? "Foom config" : row.repository} · ` : ""}${row.branch} · ${name}${name === identity ? "" : ` · ${identity}`} · ${light(row).label}${row.foregroundProgram ? ` · ${row.foregroundProgram}` : ""}${row.kind === "shell" ? "" : ` · ${row.reason}`}${row.bypass ? " · Bypass" : ""}${row.worktreeRemoved ? " · Worktree removed" : ""}`}
             ref={(element) => {
               if (element) buttons.current.set(row.id, element);
               else buttons.current.delete(row.id);
@@ -717,7 +783,31 @@ export function Sidebar({
       </span>
     );
   return (
-    <aside className="sidebar-shell" data-compact={compact}>
+    <aside
+      ref={shellRef}
+      className="sidebar-shell"
+      data-compact={compact}
+      data-overlay={narrow && overlay}
+    >
+      <button
+        ref={toggleButtonRef}
+        type="button"
+        className="sidebar-toggle"
+        aria-label={toggleLabel}
+        title={`${toggleLabel} (${shortcut})`}
+        onClick={toggleSidebar}
+      >
+        <svg viewBox="0 0 16 14" aria-hidden="true">
+          <rect x="1" y="1" width="14" height="12" rx="2" />
+          <path d="M6 1v12" />
+          <path d={compact ? "M9.5 5l2 2-2 2" : "M11.5 5 9.5 7l2 2"} />
+        </svg>
+      </button>
+      {compact && needsCount > 0 && (
+        <p className="rail-needs" role="status">
+          {needsCount} need you
+        </p>
+      )}
       <header className="board-top">
         <AppMenu api={source.appMenu} development={source.isDevelopment} />
         <p className="board-summary" role="status">
@@ -860,14 +950,22 @@ export function Sidebar({
               )}
             </div>
           )}
-          {compact && homeRows.map((row) => session(row))}
+          {compact && (homeRows.length > 0 || configRows.length > 0) && (
+            <div className="rail-group">
+              {[...homeRows, ...configRows].map((row) => session(row))}
+            </div>
+          )}
           {!compact && filter.trim() && tree.length === 0 && visibleHomeRows.length === 0 && (
             <p className="tree-empty">No matches</p>
           )}
           {compact
-            ? tree
-                .flatMap((repo) => repo.worktrees.flatMap((worktree) => worktree.sessions))
-                .map((row) => session(row))
+            ? tree.map((repo) => (
+                <div className="rail-group" key={repo.repository.path}>
+                  {repo.worktrees
+                    .flatMap((worktree) => worktree.sessions)
+                    .map((row) => session(row))}
+                </div>
+              ))
             : tree.map((repo, index) => {
                 const rid = repositoryKey(repo.repository.path);
                 const cleanup = repo.repository.cleanup;
@@ -1180,7 +1278,7 @@ export function Sidebar({
         </div>
       </nav>
       <footer className="sidebar-footer">
-        {(configStatus?.pending || configStatus?.rejected || configRows.length > 0) && (
+        {!compact && (configStatus?.pending || configStatus?.rejected || configRows.length > 0) && (
           <div className="config-dock">
             <button
               type="button"

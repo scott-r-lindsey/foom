@@ -267,3 +267,29 @@ test("a config menu route focuses its visible tile without disturbing a full lay
   expect(saved.tree).toEqual(layout.tree);
   expect(saved.focused).toBe(leaves(layout.tree)[0]?.id);
 });
+
+test("sidebar collapse saves per window with tile changes and survives remount", async () => {
+  const f = fixture();
+  const first = render(<Board source={f.source} />);
+  await act(async () => {
+    await Promise.resolve();
+  });
+  fireEvent.click(first.getByRole("button", { name: "Collapse sidebar" }));
+  expect(loadLayout(localStorage, `${TILE_STORAGE}.test-window`).sidebarCollapsed).toBe(true);
+  const second = render(
+    <Board source={{ ...f.source, windows: { ...f.windows, id: "second" } }} />,
+  );
+  await act(async () => {
+    await Promise.resolve();
+  });
+  expect(second.getByRole("button", { name: "Collapse sidebar" })).toBeTruthy();
+  second.unmount();
+  first.unmount();
+  const restored = render(<Board source={f.source} />);
+  await act(async () => {
+    await Promise.resolve();
+  });
+  expect(restored.getByRole("button", { name: "Expand sidebar" })).toBeTruthy();
+  fireEvent.click(restored.getByRole("button", { name: "Two side by side" }));
+  expect(loadLayout(localStorage, `${TILE_STORAGE}.test-window`).sidebarCollapsed).toBe(true);
+});
