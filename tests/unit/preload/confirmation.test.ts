@@ -39,6 +39,7 @@ test("rejects malformed structured fields and preserves literal data", async () 
   const valid = {
     id: "structured",
     subject: "<img src=x>",
+    removals: [{ id: "one", branch: "<img src=x>", path: "/trees/one", changes: "?? file\0" }],
     quiet: "Global config unchanged",
     cancel: "Not now",
     note: "Replacement",
@@ -60,6 +61,9 @@ test("rejects malformed structured fields and preserves literal data", async () 
     1,
     "text",
     { cancel: "Install now" },
+    { removals: {} },
+    { removals: [null] },
+    { removals: [{ id: "one", branch: "one", path: "/one", changes: 1 }] },
     { subject: 1 },
     { quiet: null },
     { note: [] },

@@ -538,13 +538,15 @@ describe("worktree removal", () => {
     });
     expect(h.host.dialog).toHaveBeenCalledWith(
       expect.objectContaining({
-        title: "Remove worktree?",
-        subject: "feature",
-        accept: "Remove worktree",
+        title: "Remove worktrees?",
+        removal: expect.objectContaining({
+          item: expect.objectContaining({ branch: "feature", changes: "" }) as unknown,
+        }) as unknown,
+        accept: "Approve all",
       }),
       expect.any(AbortSignal),
     );
-    expect(JSON.stringify(h.host.dialog.mock.calls[0]?.[0])).toMatch(/branch is kept/u);
+
     // The removed worktree no longer belongs to the orchestrator.
     await expect(
       h.mutate("launch", { worktreeId: tree.resultId, agent: "claude" }),
@@ -566,8 +568,7 @@ describe("worktree removal", () => {
       });
     });
     expect(h.host.dialog.mock.calls[0]?.[0]).toMatchObject({
-      accept: "Discard changes and remove",
-      changes: " M file\0",
+      removal: { item: { changes: " M file\0" } },
     });
   });
 

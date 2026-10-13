@@ -1657,3 +1657,41 @@ test("config Allow uses the trusted dialog and persists bypass consent without c
     agentBypassAcknowledged: { claude: true, codex: true, agy: true },
   });
 });
+
+test("pending removal reviews stay on the original board across focus changes", async () => {
+  await start();
+  await newWindow();
+  const firstBoard = mock.instances[0];
+  const second = mock.instances[1];
+  if (!firstBoard || !second) throw Error("Missing second board");
+  mock.window.isFocused.mockReturnValue(false);
+  second.isFocused = vi.fn(() => true);
+  const request = mock.workspace.deps?.dialog;
+  if (!request) throw Error("Missing trusted dialog");
+  const content = (id: string, group = "actor") => ({
+    title: "Remove?",
+    accept: "Approve all",
+    removal: { group, item: { id, branch: id, path: `/trees/${id}`, changes: "" } },
+  });
+  let resolve: (value: { response: number }) => void = () => undefined;
+  mock.message.mockImplementationOnce(
+    () =>
+      new Promise((answer) => {
+        resolve = answer;
+      }),
+  );
+  const first = request(content("one"), new AbortController().signal);
+  expect(mock.confirmParent).toHaveBeenLastCalledWith(second);
+  second.isFocused = vi.fn(() => false);
+  mock.window.isFocused.mockReturnValue(true);
+  mock.message.mockResolvedValueOnce({ response: 1 });
+  await request(content("two"), new AbortController().signal);
+  expect(mock.confirmParent).toHaveBeenLastCalledWith(second);
+  await request(content("foreign", "other"), new AbortController().signal);
+  expect(mock.confirmParent).toHaveBeenLastCalledWith(firstBoard);
+  resolve({ response: 1 });
+  await first;
+  // Once all requests settle, the next batch follows the currently focused board.
+  await request(content("fresh"), new AbortController().signal);
+  expect(mock.confirmParent).toHaveBeenLastCalledWith(firstBoard);
+});

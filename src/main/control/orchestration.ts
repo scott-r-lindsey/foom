@@ -73,6 +73,7 @@ export interface OrchestrationHost {
     worktree: string,
     identity: string,
     confirm: (branch: string, changes: string) => Promise<boolean>,
+    revalidate: () => void,
   ): Promise<boolean>;
   /** The trusted app dialog; false when declined, closed or aborted. */
   dialog(content: DialogContent, signal: AbortSignal): Promise<boolean>;
@@ -602,12 +603,31 @@ export class Orchestration {
               .update(JSON.stringify([worktreeId, tree.identity, changes]))
               .digest("hex");
             const answer = operations.confirmation(actor, operation.operationId, identity);
-            const answered = await this.host.dialog(this.removal(branch, changes), abort.signal);
+            const answered = await this.host.dialog(
+              {
+                removal: {
+                  group: JSON.stringify([actor.sessionId, actor.generation]),
+                  item: {
+                    id: operation.operationId,
+                    branch: metadataName(branch),
+                    path: tree.path,
+                    changes,
+                  },
+                },
+                title: "Remove worktrees?",
+                accept: "Approve all",
+              },
+              abort.signal,
+            );
             const approved = answered && !abort.signal.aborted;
             const record = await answer(identity, approved);
             outcome.accepted = approved;
             this.note(parent, this.entry(record, label));
             return approved;
+          },
+          () => {
+            operations.lookup(actor, { operationId: operation.operationId });
+            if (abort.signal.aborted) throw new ControlError("forbidden");
           },
         );
         if (removed) {
@@ -758,18 +778,6 @@ export class Orchestration {
   private label(id: string): string {
     const row = this.host.terminals().find((entry) => entry.id === id);
     return metadataName(row?.branch ?? id);
-  }
-
-  private removal(branch: string, changes: string): DialogContent {
-    const name = metadataName(branch);
-    return {
-      title: changes ? "Remove worktree with uncommitted changes?" : "Remove worktree?",
-      subject: name,
-      glyph: "branch",
-      accept: changes ? "Discard changes and remove" : "Remove worktree",
-      detail: `Foom's orchestrator asks to remove the ${name} worktree it created. The branch is kept.`,
-      ...(changes ? { changes } : {}),
-    };
   }
 
   private entry(operation: Operation, label: string): OrchestrationEntry {

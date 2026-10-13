@@ -5,6 +5,8 @@ import type { Session, IpcMainEvent } from "electron";
 import type { DialogContent, DialogRequest } from "../../shared/confirmation";
 import type { InterfaceTheme } from "../../shared/interface-theme";
 
+import { RemovalReview } from "./removal-review";
+
 export const CONFIRMATION_URL = "app://confirmation/confirmation.html";
 /** Dedicated session and origin prevent process sharing or board access to this page. */
 export class TrustedDialog {
@@ -14,6 +16,8 @@ export class TrustedDialog {
     | { id: string; request: DialogRequest; resolve: (answer: boolean) => void }
     | undefined;
   private feed: DialogContent["feed"];
+  private removalFeed: DialogContent["removalFeed"];
+  private readonly removals = new RemovalReview((content, signal) => this.request(content, signal));
   private unsubscribe: (() => void) | undefined;
   private queue: Promise<unknown> = Promise.resolve();
   private size: { width: number; height: number } | undefined;
@@ -35,11 +39,28 @@ export class TrustedDialog {
       event.sender !== contents ||
       event.senderFrame !== contents.mainFrame ||
       event.senderFrame.url !== CONFIRMATION_URL ||
-      typeof accepted !== "boolean" ||
       !this.pending ||
       id !== this.pending.id
     )
       return;
+    if (this.removalFeed) {
+      if (accepted === false) {
+        this.finish(false);
+        return;
+      }
+      const ids = new Set(this.pending.request.removals?.map((item) => item.id));
+      if (
+        !Array.isArray(accepted) ||
+        accepted.length === 0 ||
+        accepted.some((id: unknown) => typeof id !== "string" || !ids.has(id)) ||
+        new Set(accepted).size !== accepted.length
+      )
+        return;
+      this.removalFeed.select(accepted);
+      this.finish(true);
+      return;
+    }
+    if (typeof accepted !== "boolean") return;
     if (accepted && this.feed) {
       this.feed.act();
       return;
@@ -140,6 +161,8 @@ export class TrustedDialog {
     });
   }
   request(content: DialogContent, signal?: AbortSignal): Promise<boolean> {
+    if (content.removal)
+      return this.removals.request(content.removal.group, content.removal.item, signal);
     const result = this.queue.then(async () => {
       if (this.disposed || this.parent.isDestroyed() || signal?.aborted) return false;
       this.prepare();
@@ -151,13 +174,16 @@ export class TrustedDialog {
       const window = this.window;
       if (!window || signal?.aborted) return false;
       const id = randomUUID();
-      const { feed, ...renderContent } = content;
+      const { feed, removalFeed, ...renderContent } = content;
+      delete renderContent.removal;
+      this.removalFeed = removalFeed;
       this.feed = feed;
       const request: DialogRequest = {
         ...renderContent,
         id,
         theme: this.theme(),
         ...(feed ? { cleanup: feed.current() } : {}),
+        ...(removalFeed ? { removals: removalFeed.current() } : {}),
       };
       this.size = undefined;
       const answer = new Promise<boolean>((resolve) => {
@@ -168,8 +194,20 @@ export class TrustedDialog {
         this.pending.request = { ...this.pending.request, cleanup: feed.current() };
         this.refresh();
       });
+      if (removalFeed)
+        this.unsubscribe = removalFeed.subscribe(() => {
+          if (!this.pending) return;
+          // Any list change invalidates answers authored against the older list.
+          this.pending.id = randomUUID();
+          this.pending.request = {
+            ...this.pending.request,
+            id: this.pending.id,
+            removals: removalFeed.current(),
+          };
+          this.refresh();
+        });
       const cancel = () => {
-        if (this.pending?.id === id) this.finish(false);
+        if (this.pending && this.removalFeed === removalFeed) this.finish(false);
       };
       signal?.addEventListener("abort", cancel, { once: true });
       this.parentEnabled = this.parent.isEnabled();
@@ -232,9 +270,11 @@ export class TrustedDialog {
     const pending = this.pending;
     this.pending = undefined;
     if (!pending) return;
+    if (!accepted) this.removalFeed?.select([]);
     this.unsubscribe?.();
     this.unsubscribe = undefined;
     this.feed = undefined;
+    this.removalFeed = undefined;
     this.window?.webContents.send("confirmation:render", null);
     this.window?.hide();
     this.parent.removeListener("move", this.syncBounds);

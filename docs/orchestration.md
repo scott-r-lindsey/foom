@@ -390,7 +390,20 @@ that no side effect occurred and must not trigger an automatic retry with a new
 key; unresolved outcomes require human reconciliation.
 
 Removal confirmation is tied to the actor, worktree identity and dirty state;
-recheck all three before deletion using the existing service. Pending confirmation
+recheck all three before deletion using the existing service. Pending removals from
+one orchestrator are reviewed together in a trusted dialog listing each worktree
+path, branch, clean/dirty state and changed files. Approve all or selected items;
+when the action includes dirty items its button explicitly says **Discard changes
+and remove all** or **Discard changes and remove selected**. Dirty rows carry an
+amber warning icon and outline as well as the Dirty label. Decline has initial
+focus, so Enter never discards changes by default.
+Decline (or closing the dialog) declines the batch. Unselected items are declined.
+Each operation independently rechecks and completes, so one stale checkout or
+removal failure does not stop the others. Poll `operation_status` for each outcome.
+New arrivals and per-item cancellation invalidate answers to the older displayed
+list and reset selection. An aborted item is declined immediately and leaves the
+review; other items remain pending. Aborting every item closes the dialog. No PR/merge network
+lookup or automatic merged-clean removal policy is added. Pending confirmation
 returns an operation ID, so agents cannot hold the HTTP connection indefinitely.
 Stopping a child needs no extra confirmation after the user has made its parent the
 orchestrator; stopping unrelated sessions is forbidden. Parent exit revokes its
@@ -726,7 +739,11 @@ single oversized line keeps its end on a UTF-8 boundary). The HTTP adapter exten
 the socket deadline to 35 seconds after a request body arrives, for `wait_for`.
 
 **Removal.** Every removal asks through the trusted dialog, clean or not, naming the
-branch (which is kept) and any changed files. Removal is refused while any session
+worktree path, branch (which is kept), clean/dirty state and any changed files.
+Pending requests from that orchestrator share one review with Approve all,
+Approve selected and Decline; actions including dirty items explicitly name
+Discard changes and remove. Decline is focused by default. Each still needs
+explicit human approval. Removal is refused while any session
 in that worktree is running, checked again under the removal lock before and after
 the dialog, so a human-controlled session is never stopped by it.
 The answer is bound to the actor, operation and the worktree ID plus the dirty state

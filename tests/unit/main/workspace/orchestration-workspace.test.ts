@@ -6,7 +6,7 @@ import { Operations } from "../../../../src/main/control/operations";
 import type { Operation, Principal } from "../../../../src/main/control/types";
 import type { ControlRuntime } from "../../../../src/main/control/runtime";
 import type { AgentLaunch, AgentScan } from "../../../../src/shared/agents";
-import type { WorkspaceConfirmation } from "../../../../src/shared/confirmation";
+import type { RemovalFeed, WorkspaceConfirmation } from "../../../../src/shared/confirmation";
 import type { VerdictRecord } from "../../../../src/shared/evaluator";
 
 const repo = { path: "/repos/app", name: "app" };
@@ -397,7 +397,12 @@ it("removes an orchestrator worktree only through the trusted dialog", async () 
     );
   });
   expect(deps.dialog).toHaveBeenCalledWith(
-    expect.objectContaining({ title: "Remove worktree?", subject: "feature" }),
+    expect.objectContaining({
+      title: "Remove worktrees?",
+      removal: expect.objectContaining({
+        item: expect.objectContaining({ branch: "feature" }) as unknown,
+      }) as unknown,
+    }),
     expect.any(AbortSignal),
   );
 
@@ -1143,3 +1148,126 @@ it.each([
   }
   await workspace.dispose();
 });
+
+it.each(["dirty", "identity", "failure", "actor"])(
+  "rechecks authority, identity and dirty state for each approved item (%s)",
+  async (mode) => {
+    const { RemovalReview } = await import("../../../../src/main/confirmations/removal-review");
+    const paths = ["/trees/app/one", "/trees/app/two", "/trees/app/three"];
+    const trees = paths.map((path, index) => ({
+      ...child,
+      path,
+      branch: `branch-${String(index)}`,
+    }));
+    vi.mocked(deps.worktrees.listWorktrees).mockResolvedValue([main, ...trees]);
+    let next = 0;
+    vi.mocked(deps.worktrees.createWorktree).mockImplementation(() =>
+      Promise.resolve({
+        path: paths[next++] ?? "",
+        outcome: "new",
+      }),
+    );
+    let approved = false;
+    vi.mocked(deps.worktrees.changes).mockImplementation((_repository, path) =>
+      Promise.resolve(approved && path === paths[1] && mode === "dirty" ? "?? changed\0" : ""),
+    );
+    vi.mocked(deps.worktrees.launchIdentity).mockImplementation((_repository, path) =>
+      Promise.resolve(
+        approved && path === paths[1] && mode === "identity" ? "replacement" : "identity",
+      ),
+    );
+    vi.mocked(deps.worktrees.removeWorktree).mockImplementation((_repository, path) => {
+      return path === paths[1] && mode === "failure"
+        ? Promise.reject(Error("git removal failed"))
+        : Promise.resolve();
+    });
+    let feed: RemovalFeed | undefined;
+    let resolve: (value: boolean) => void = () => undefined;
+    const review = new RemovalReview((content) => {
+      feed = content.removalFeed;
+      return new Promise<boolean>((answer) => {
+        resolve = answer;
+      });
+    });
+    deps.dialog = vi.fn<NonNullable<WorkspaceDependencies["dialog"]>>((content, signal) => {
+      if (!content.removal) throw Error("missing removal snapshot");
+      return review.request(content.removal.group, content.removal.item, signal);
+    });
+    const workspace = new Workspace(deps);
+    await orchestrate(workspace);
+    const actor = principal();
+    let revokedItem: string | null = null;
+    const operations = new Operations(
+      () => Promise.resolve(),
+      (current) => {
+        if (current !== actor) throw Error("foreign actor");
+        if (mode === "actor" && revokedItem && approved) {
+          // Simulate revocation during a final filesystem read, after approval.
+          throw Error("revoked");
+        }
+      },
+    );
+    const created: Operation[] = [];
+    for (const tree of trees) {
+      created.push(
+        (await workspace.orchestration.call(
+          actor,
+          "create_worktree",
+          { idempotencyKey: tree.branch, branch: tree.branch },
+          operations,
+        )) as Operation,
+      );
+    }
+    const pending: Operation[] = [];
+    for (const tree of created) {
+      pending.push(
+        (await workspace.orchestration.call(
+          actor,
+          "remove_worktree",
+          { idempotencyKey: `remove-${tree.operationId}`, worktreeId: tree.resultId },
+          operations,
+        )) as Operation,
+      );
+    }
+    await vi.waitFor(() => {
+      expect(feed?.current()).toHaveLength(3);
+    });
+    approved = true;
+    if (mode === "actor") {
+      vi.mocked(deps.worktrees.changes).mockImplementation((_repository, path) => {
+        if (path === paths[1]) revokedItem = pending[1]?.operationId ?? null;
+        return Promise.resolve("");
+      });
+    }
+    feed?.select(pending.map((item) => item.operationId));
+    resolve(true);
+    if (mode === "actor") {
+      await vi.waitFor(() => {
+        expect(
+          vi.mocked(deps.worktrees.changes).mock.calls.filter((call) => call[1] === paths[1])
+            .length,
+        ).toBeGreaterThan(1);
+      });
+      // Authority failure must prevent this deletion; revoke all operations as the runtime does.
+      operations.revoke(actor);
+      expect(
+        vi.mocked(deps.worktrees.removeWorktree).mock.calls.some((call) => call[1] === paths[1]),
+      ).toBe(false);
+    } else {
+      await vi.waitFor(() => {
+        expect(
+          pending.map((item) => operations.lookup(actor, { operationId: item.operationId }).status),
+        ).toEqual(["succeeded", "failed", "succeeded"]);
+      });
+      expect(vi.mocked(deps.worktrees.removeWorktree).mock.calls.map((call) => call[1])).toEqual(
+        mode === "failure" ? paths : [paths[0], paths[2]],
+      );
+      for (const path of paths) {
+        expect(
+          vi.mocked(deps.worktrees.launchIdentity).mock.calls.filter((call) => call[1] === path)
+            .length,
+        ).toBeGreaterThan(2);
+      }
+    }
+  },
+);

@@ -399,3 +399,88 @@ test("structured disclosures, git status words and pairing countdown render safe
     vi.unstubAllGlobals();
   }
 });
+
+test("batch review lists trusted snapshots, traps focus through selection and sends explicit IDs", () => {
+  let receive: (value: DialogRequest | null) => void = () => undefined;
+  const answer = vi.fn();
+  vi.stubGlobal(
+    "ResizeObserver",
+    class {
+      observe() {}
+      disconnect() {}
+    },
+  );
+  Object.defineProperty(window, "confirmation", {
+    configurable: true,
+    value: {
+      render(callback: (value: DialogRequest | null) => void) {
+        receive = callback;
+        return () => undefined;
+      },
+      size: vi.fn(),
+      answer,
+    },
+  });
+  const view = render(<ConfirmationPage />);
+  const request: DialogRequest = {
+    id: "batch",
+    title: "Remove worktrees?",
+    accept: "Approve all",
+    theme: resolveInterfaceTheme("follow", false),
+    removals: [
+      { id: "one", branch: "clean", path: "/trees/clean", changes: "" },
+      { id: "two", branch: "<img src=x>", path: "/trees/dirty", changes: "?? file\0" },
+    ],
+  };
+  act(() => {
+    receive(request);
+  });
+  expect(document.activeElement).toBe(view.getByRole("button", { name: "Decline" }));
+  // The default action is Decline, including for a mixed clean/dirty batch.
+  fireEvent.click(view.getByRole("button", { name: "Decline" }));
+  expect(answer).toHaveBeenLastCalledWith("batch", false);
+  expect(view.getByRole("list", { name: "Worktrees to remove" }).textContent).toContain("Clean");
+  expect(view.getByText("Dirty")).toBeTruthy();
+  expect(view.getByText("/trees/dirty")).toBeTruthy();
+  expect(view.getByRole("list", { name: "Uncommitted changes" }).textContent).toContain("file");
+  expect(view.container.querySelector("img")).toBeNull();
+  const subset = view.getByRole("button", { name: "Approve selected" });
+  expect(subset.hasAttribute("disabled")).toBe(true);
+  fireEvent.keyDown(document.activeElement ?? view.container, { key: "Tab" });
+  expect(document.activeElement).toBe(
+    view.getByRole("button", { name: "Discard changes and remove all" }),
+  );
+  fireEvent.keyDown(document.activeElement ?? view.container, { key: "Tab" });
+  const checkbox = view.getByRole("checkbox", { name: "clean" });
+  expect(document.activeElement).toBe(checkbox);
+  fireEvent.click(checkbox);
+  fireEvent.click(subset);
+  expect(answer).toHaveBeenLastCalledWith("batch", ["one"]);
+  fireEvent.click(checkbox);
+  expect(subset.hasAttribute("disabled")).toBe(true);
+  fireEvent.click(view.getByRole("checkbox", { name: "<img src=x>" }));
+  fireEvent.click(view.getByRole("button", { name: "Discard changes and remove selected" }));
+  expect(answer).toHaveBeenLastCalledWith("batch", ["two"]);
+  act(() => {
+    receive({ ...request, id: "updated" });
+  });
+  expect(view.getByRole("button", { name: "Approve selected" }).hasAttribute("disabled")).toBe(
+    true,
+  );
+  expect(document.activeElement).toBe(view.getByRole("button", { name: "Decline" }));
+  fireEvent.click(view.getByRole("button", { name: "Discard changes and remove all" }));
+  expect(answer).toHaveBeenLastCalledWith("updated", ["one", "two"]);
+  fireEvent.keyDown(view.getByRole("checkbox", { name: "clean" }), { key: "Escape" });
+  expect(answer).toHaveBeenLastCalledWith("updated", false);
+  fireEvent.click(view.getByRole("button", { name: "Decline" }));
+  expect(answer).toHaveBeenLastCalledWith("updated", false);
+  act(() => {
+    receive({
+      ...request,
+      id: "clean-only",
+      removals: [{ id: "one", branch: "clean", path: "/trees/clean", changes: "" }],
+    });
+  });
+  fireEvent.click(view.getByRole("button", { name: "Approve all" }));
+  expect(answer).toHaveBeenLastCalledWith("clean-only", ["one"]);
+});

@@ -10,6 +10,18 @@ function structured(value: unknown): boolean {
     Boolean(entry) && typeof entry === "object";
   const strings = (entry: unknown): boolean =>
     Array.isArray(entry) && entry.every((item: unknown) => typeof item === "string");
+  if (
+    "removals" in value &&
+    !(
+      Array.isArray(value.removals) &&
+      value.removals.every(
+        (item: unknown) =>
+          record(item) &&
+          ["id", "branch", "path", "changes"].every((key) => typeof item[key] === "string"),
+      )
+    )
+  )
+    return false;
   if ("cancel" in value && value.cancel !== "Not now") return false;
   for (const key of ["subject", "quiet", "note"] as const)
     if (record(value) && key in value && typeof value[key] !== "string") return false;
