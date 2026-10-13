@@ -13,6 +13,8 @@ export interface Settings {
   /** Attach Foom's hooks per launch. Off means every agent uses the evaluator. */
   hooks: boolean;
   restoreSessions: boolean;
+  /** Starting, running and stopping children per orchestrator, integer 1–16. */
+  concurrentChildren: number;
   agents: Readonly<Record<AgentId, boolean>>;
   agentArguments: Readonly<Record<AgentId, readonly string[]>>;
   /** Main-owned acknowledgement; renderer save requests may not set this. */

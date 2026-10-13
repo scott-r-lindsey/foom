@@ -136,7 +136,7 @@ export function orchestratorDisclosure(
       {
         label: "It can",
         items: [
-          "Create worktrees and run up to four child agents in this repository.",
+          "Create worktrees and run child agents in this repository up to the limit in Settings → General.",
           "Stop them, and ask you to remove worktrees it created.",
           "Keep its own launch flags; children do not inherit them and cannot orchestrate.",
         ],

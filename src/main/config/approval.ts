@@ -65,6 +65,7 @@ const LABELS: Record<ConfigSetting, string> = {
   agentArguments: "Agent launch arguments",
   hooks: "Hooks",
   restoreSessions: "Restore sessions on launch",
+  concurrentChildren: "Concurrent children per orchestrator",
 };
 
 /** Short commit subject naming what changed, such as "Terminal font size 15". */

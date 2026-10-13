@@ -531,3 +531,23 @@ test("plugin offer answers persist and invalid stored answers are rejected", asy
   );
   expect((await SettingsStore.open(dir)).get().agyPluginOfferAnswered).toBe(false);
 });
+
+test("concurrent children validates integers 1–16 and persists with general settings", async () => {
+  expect(DEFAULT_SETTINGS.concurrentChildren).toBe(4);
+  for (const concurrentChildren of [1, 4, 16])
+    expect(parseSettingsPatch({ concurrentChildren })).toEqual({ concurrentChildren });
+  for (const concurrentChildren of [0, 17, -1, 1.5, "4", null, true, NaN, Infinity, {}, []])
+    expect(() => parseSettingsPatch({ concurrentChildren })).toThrow();
+  const dir = await directory();
+  const store = await SettingsStore.open(dir);
+  await store.update(parseSettingsPatch({ concurrentChildren: 2 }));
+  expect((await SettingsStore.open(dir)).get().concurrentChildren).toBe(2);
+  const writer = vi.fn(() => Promise.resolve());
+  await store.attachConfig(writer, { concurrentChildren: 2 }, null);
+  await store.update(parseSettingsPatch({ concurrentChildren: 16 }));
+  expect(writer).toHaveBeenCalledWith({ concurrentChildren: 16 });
+  store.setConfig({ concurrentChildren: 16 });
+  expect(store.get().concurrentChildren).toBe(16);
+  store.setConfig({});
+  expect(store.get().concurrentChildren).toBe(4);
+});

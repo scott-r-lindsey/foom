@@ -243,6 +243,7 @@
 }
 :is(.preflight, .settings-view) input:not([type]),
 :is(.preflight, .settings-view) input[type="password"],
+:is(.preflight, .settings-view) input[type="number"],
 :is(.preflight, .settings-view) select {
   font: 13px var(--font-interface);
   padding: 6px 8px;

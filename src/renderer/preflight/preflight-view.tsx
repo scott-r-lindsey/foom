@@ -468,6 +468,20 @@ export function Preflight({
           />
           <span>Restore sessions on launch</span>
         </label>
+        <label className="concurrent-children">
+          Concurrent children per orchestrator
+          <input
+            type="number"
+            min={1}
+            max={16}
+            step={1}
+            value={state.settings.concurrentChildren}
+            onChange={(event) => {
+              if (event.target.validity.valid && event.target.value !== "")
+                save({ concurrentChildren: Number(event.target.value) });
+            }}
+          />
+        </label>
       </>
     );
   } else if (step === 8) {

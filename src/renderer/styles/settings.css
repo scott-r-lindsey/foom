@@ -63,7 +63,8 @@
 .settings-controls .appearance {
   max-width: 360px;
 }
-.terminal-font-size {
+.terminal-font-size,
+.concurrent-children {
   display: flex;
   align-items: center;
   gap: 16px;
@@ -396,4 +397,8 @@
 .config-row .panel-chip {
   margin-inline-start: 4px;
   font-size: 11px;
+}
+
+.concurrent-children input {
+  width: 64px;
 }

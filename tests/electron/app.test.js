@@ -2655,6 +2655,7 @@ test("first run goes from no agents to go, launches by keyboard, and can be repl
     setupComplete: true,
     hooks: true,
     restoreSessions: true,
+    concurrentChildren: 4,
     agents: { claude: true, codex: true, agy: true },
     agentArguments: { claude: [], codex: [], agy: [] },
     agentBypassAcknowledged: { claude: false, codex: false, agy: false },
@@ -7593,6 +7594,21 @@ for (const cliOnly of [false, true])
       assert.equal(await connection(parentId), undefined);
     }
 
+    await openSettingsScreen(page);
+    await page.getByRole("button", { name: "General", exact: true }).click();
+    const limit = page.getByRole("spinbutton", { name: "Concurrent children per orchestrator" });
+    await expect(limit).toHaveValue("4");
+    await limit.fill("1");
+    await expect
+      .poll(
+        async () =>
+          (await page.evaluate(() => window.desktop.setupState())).settings.concurrentChildren,
+      )
+      .toBe(1);
+    await page.screenshot({ path: `test-results/child-limit-${cliOnly ? "agy" : "claude"}.png` });
+    await assertAccessible(page);
+    await page.keyboard.press("Escape");
+
     const tree = await call(parent.controlToken, "create_worktree", {
       idempotencyKey: "tree-1",
       branch: "child-one",
@@ -7614,6 +7630,24 @@ for (const cliOnly of [false, true])
       prompt: "Summarize the README",
     });
     assert.equal(launched.body.result.status, "succeeded", JSON.stringify(launched.body));
+    const extraTree = await call(parent.controlToken, "create_worktree", {
+      idempotencyKey: "tree-limit",
+      branch: "child-limit",
+    });
+    assert.equal(extraTree.body.result.status, "succeeded");
+    const refusedLaunch = await call(parent.controlToken, "launch", {
+      idempotencyKey: "launch-limit",
+      worktreeId: extraTree.body.result.resultId,
+      agent: "claude",
+    });
+    assert.equal(refusedLaunch.status, 400);
+    assert.equal(refusedLaunch.body.error, "capacity");
+    await openSettingsScreen(page);
+    await page.getByRole("button", { name: "General", exact: true }).click();
+    await expect(
+      page.getByRole("spinbutton", { name: "Concurrent children per orchestrator" }),
+    ).toHaveValue("1");
+    await page.keyboard.press("Escape");
     const childId = launched.body.result.resultId;
     await expect.poll(() => existsSync(`${credentials}.child-one`)).toBe(true);
     const child = await read("child-one");

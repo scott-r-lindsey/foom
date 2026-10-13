@@ -177,6 +177,7 @@ export class Workspace {
   private location: "root" | "adjacent" = "root";
   private acknowledged = false;
   private hooksEnabled = true;
+  private concurrentChildren = 4;
   private defaultArguments = EMPTY_AGENT_ARGUMENTS;
   private readonly resumeStarts = new Map<string, Promise<void>>();
   private readonly busySessions = new Set<string>();
@@ -343,6 +344,7 @@ export class Workspace {
         },
       },
       this.now,
+      () => this.concurrentChildren,
     );
     this.agents = deps.agents
       ? deps.agents(prepare, prepareControl)
@@ -355,11 +357,16 @@ export class Workspace {
       Partial<
         Pick<
           Settings,
-          "worktreeLocation" | "codexNotifierAcknowledged" | "agentArguments" | "restoreSessions"
+          | "worktreeLocation"
+          | "codexNotifierAcknowledged"
+          | "agentArguments"
+          | "restoreSessions"
+          | "concurrentChildren"
         >
       >,
   ): void {
     this.restoreEnabled = settings.restoreSessions ?? true;
+    this.concurrentChildren = settings.concurrentChildren ?? 4;
     this.agents.setHooksEnabled(settings.hooks);
     this.hooksEnabled = settings.hooks;
     this.defaultArguments = settings.agentArguments ?? EMPTY_AGENT_ARGUMENTS;

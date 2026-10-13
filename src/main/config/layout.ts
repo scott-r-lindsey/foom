@@ -104,6 +104,7 @@ const settingsSchema = schema("foom:settings", {
     },
     hooks: { type: "boolean" },
     restoreSessions: { type: "boolean" },
+    concurrentChildren: { type: "integer", minimum: 1, maximum: 16 },
   },
 });
 
@@ -212,7 +213,7 @@ can be reviewed and reverted from Settings → Foom config.
 
 - \`settings.json\`: \`{ "kind": "settings", ... }\` with any of the allowed keys:
   \`colorMode\`, \`panelColor\`, \`interfaceTheme\`, \`terminalTheme\`, \`interfaceScale\`,
-  \`terminalFontSize\`, \`sound\`, \`agents\`, \`agentArguments\`, \`hooks\` and \`restoreSessions\`. Any other key rejects the file.
+  \`terminalFontSize\`, \`sound\`, \`agents\`, \`agentArguments\`, \`hooks\`, \`restoreSessions\` and \`concurrentChildren\` (integer 1–16, default 4). Any other key rejects the file.
   Consent records, paths and secrets are not configurable here.
   \`agentArguments\` names all three agents: \`{ "claude": [], "codex": [], "agy": [] }\`.
   Each list is literal argv, one string per argument, with no shell parsing.
@@ -287,23 +288,27 @@ export const OWNED_HISTORY: Readonly<Record<string, readonly string[]>> = {
     "35a362caf6cfdec503b113efd0b66a6b89be3dc835b597e39f1fb8679b20875f",
     "878a20cc974fb5cee577361660f8153f9adbcb3ca815ee5fc4eca26047b8d858",
     "c6b86f464a73d1c4255fd412bc454bea148a5bf2130aa3175b3de36e85aeb6a2",
+    "d71127b1f24427c8f3a36b5b32fde2aac496941c5bc038960f0d81399519c3e5",
   ],
   "AGENTS.md": [
     "205d3cac8e70f43434c221c43f8611ba846c580084e3b6b2a53d9a966e410810",
     "35a362caf6cfdec503b113efd0b66a6b89be3dc835b597e39f1fb8679b20875f",
     "878a20cc974fb5cee577361660f8153f9adbcb3ca815ee5fc4eca26047b8d858",
     "c6b86f464a73d1c4255fd412bc454bea148a5bf2130aa3175b3de36e85aeb6a2",
+    "d71127b1f24427c8f3a36b5b32fde2aac496941c5bc038960f0d81399519c3e5",
   ],
   "CLAUDE.md": [
     "205d3cac8e70f43434c221c43f8611ba846c580084e3b6b2a53d9a966e410810",
     "35a362caf6cfdec503b113efd0b66a6b89be3dc835b597e39f1fb8679b20875f",
     "878a20cc974fb5cee577361660f8153f9adbcb3ca815ee5fc4eca26047b8d858",
     "c6b86f464a73d1c4255fd412bc454bea148a5bf2130aa3175b3de36e85aeb6a2",
+    "d71127b1f24427c8f3a36b5b32fde2aac496941c5bc038960f0d81399519c3e5",
   ],
   "schemas/theme.schema.json": ["831094a9c9c8c13c87ab7ff227b70803dcd3a9f9f59b6f1cc352f67b43a8e1cc"],
   "schemas/settings.schema.json": [
     "e975ab7aba189e009bbcd16becb6c096679dc5c46017d585a46cbda130af804e",
     "24d2c65f96e90c242c21990e919dee89287addcd1ddbb2d39892f9033beb49f6",
+    "29d7ba557c6979de9e6a2b9bbb98524350046e847f36739ca13cbfeec4603e6a",
   ],
 };
 

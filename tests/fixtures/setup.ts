@@ -14,6 +14,7 @@ export function setupState(
       setupComplete: false,
       hooks: true,
       restoreSessions: true,
+      concurrentChildren: 4,
       agents: { claude: true, codex: true, agy: true },
       agentArguments: { claude: [], codex: [], agy: [] },
       agentBypassAcknowledged: { claude: false, codex: false, agy: false },
