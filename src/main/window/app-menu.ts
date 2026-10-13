@@ -177,11 +177,14 @@ export function attachAppMenu(
         command.enabled = state.available;
       if (command.id.startsWith("tile-"))
         command.enabled = state.available && Number(command.id.slice(5)) <= state.tiles;
-      if (command.id === "toggle-sidebar")
+      if (command.id === "toggle-sidebar") {
+        // Settings occupies the tiles while leaving the sidebar available.
+        command.enabled = configAvailable;
         command.label =
           "sidebarCollapsed" in state && state.sidebarCollapsed === true
             ? "Expand sidebar"
             : "Collapse sidebar";
+      }
       if (command.id === "maximize") command.checked = state.maximized;
     }
     refresh();

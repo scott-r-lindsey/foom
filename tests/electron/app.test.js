@@ -8608,6 +8608,8 @@ test("sidebar collapses at any width, refits once and opens a narrow overlay wit
     .click();
   await expect(page.getByRole("heading", { name: "Settings", exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "Close sidebar", exact: true })).toBeVisible();
+  await toggle();
+  await expect(page.getByRole("button", { name: "Open sidebar", exact: true })).toBeVisible();
   await assertAccessible(page);
 });
 

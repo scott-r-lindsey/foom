@@ -242,7 +242,9 @@ test("packaged execution rejects developer commands and validates view state bef
     ]),
   );
   expect(JSON.stringify(await f.call("list"))).not.toContain('"maximize"');
-  f.invoke("view", { available: false, maximized: false, tiles: 1 });
+  f.invoke("view", { available: false, configAvailable: true, maximized: false, tiles: 1 });
+  await f.call("execute", "toggle-sidebar");
+  expect(f.window.webContents.send).toHaveBeenCalledWith("board:command", "toggle-sidebar");
   await expect(f.call("execute", "maximize")).rejects.toThrow("Unavailable");
   f.attached.dispose();
 });
