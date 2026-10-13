@@ -162,34 +162,49 @@ test("enforces limits at the descriptor and refuses non-files", () => {
   expect(unknown).toHaveProperty("type", "application/octet-stream");
 });
 
-test("closes handles on replacement, open/stat failures and bounded short reads", () => {
-  const fstat = fs.fstatSync;
-  const close = vi.spyOn(fs, "closeSync");
-  vi.spyOn(fs, "fstatSync").mockImplementationOnce((fd) => {
-    const stat = fstat(fd);
-    stat.ino += 1;
-    return stat;
-  });
-  expect(openInside(root, "/README.md")).toEqual({ status: 403, reason: "not-file" });
-  expect(close).toHaveBeenCalledTimes(1);
-  vi.spyOn(fs, "fstatSync").mockImplementationOnce(() => {
-    throw new Error("unreadable");
-  });
-  expect(openInside(root, "/README.md")).toEqual({ status: 404, reason: "unreadable" });
-  expect(close).toHaveBeenCalledTimes(2);
-  vi.spyOn(fs, "openSync").mockImplementationOnce(() => {
-    throw new Error("denied");
-  });
-  expect(openInside(root, "/README.md").status).toBe(404);
-  vi.spyOn(fs, "readSync").mockReturnValueOnce(0);
-  expect(body("/README.md")).toBe("");
-  expect(close).toHaveBeenCalledTimes(3);
-  vi.spyOn(fs, "readSync").mockImplementationOnce(() => {
-    throw new Error("read failure");
-  });
-  expect(() => body("/README.md")).toThrow("read failure");
-  expect(close).toHaveBeenCalledTimes(4);
-});
+test.each([1, 2 ** 60])(
+  "closes handles on replacement, open/stat failures and bounded short reads (inode %s)",
+  (inode) => {
+    const namedStat = fs.statSync;
+    const fstat = fs.fstatSync;
+    vi.spyOn(fs, "statSync").mockImplementation((name) => {
+      const stat = namedStat(name);
+      stat.ino = inode;
+      return stat;
+    });
+    vi.spyOn(fs, "fstatSync").mockImplementation((fd) => {
+      const stat = fstat(fd);
+      stat.ino = inode;
+      return stat;
+    });
+    const close = vi.spyOn(fs, "closeSync");
+    vi.spyOn(fs, "fstatSync").mockImplementationOnce((fd) => {
+      const stat = fstat(fd);
+      // A one-unit increment can round away for large Windows inode values.
+      stat.ino = inode === 0 ? 1 : 0;
+      return stat;
+    });
+    expect(openInside(root, "/README.md")).toEqual({ status: 403, reason: "not-file" });
+    expect(close).toHaveBeenCalledTimes(1);
+    vi.spyOn(fs, "fstatSync").mockImplementationOnce(() => {
+      throw new Error("unreadable");
+    });
+    expect(openInside(root, "/README.md")).toEqual({ status: 404, reason: "unreadable" });
+    expect(close).toHaveBeenCalledTimes(2);
+    vi.spyOn(fs, "openSync").mockImplementationOnce(() => {
+      throw new Error("denied");
+    });
+    expect(openInside(root, "/README.md").status).toBe(404);
+    vi.spyOn(fs, "readSync").mockReturnValueOnce(0);
+    expect(body("/README.md")).toBe("");
+    expect(close).toHaveBeenCalledTimes(3);
+    vi.spyOn(fs, "readSync").mockImplementationOnce(() => {
+      throw new Error("read failure");
+    });
+    expect(() => body("/README.md")).toThrow("read failure");
+    expect(close).toHaveBeenCalledTimes(4);
+  },
+);
 
 test("handles absent POSIX flags explicitly", () => {
   expect(openFlags({ O_RDONLY: 1 })).toBe(1);

@@ -80,6 +80,8 @@ export function Board({
       return restoreLayout(null);
     }
   });
+  const toggleSidebarRef = useRef<(() => void) | undefined>(undefined);
+  const [sidebarCompact, setSidebarCompact] = useState(false);
   const boardRef = useRef<HTMLDivElement>(null);
   const fontSizeRef = useRef(14);
   const focusedAtRef = useRef(new Map<string, number>());
@@ -107,6 +109,10 @@ export function Board({
   const [focusRequest, setFocusRequest] = useState(0);
   const changeLayout = useCallback(
     (next: TileLayout) => {
+      next = {
+        ...next,
+        sidebarCollapsed: next.sidebarCollapsed ?? layoutRef.current.sidebarCollapsed ?? false,
+      };
       if (
         next.focused !== layoutRef.current.focused ||
         leaves(next.tree).find((tile) => tile.id === next.focused)?.content !==
@@ -535,6 +541,8 @@ export function Board({
         if (command === "via-claude" || command === "via-codex" || command === "via-agy") {
           const agent = { "via-claude": "claude", "via-codex": "codex", "via-agy": "agy" } as const;
           void runSidebarCommand({ kind: "config-launch", run: agent[command], origin: "menu" });
+        } else if (command === "toggle-sidebar") {
+          toggleSidebarRef.current?.();
         } else if (command === "action-log") {
           if (source.actionLog) {
             onCloseSettings?.();
@@ -653,12 +661,13 @@ export function Board({
         available: !inactive && !settingsOpen,
         configAvailable: !inactive,
         maximized: Boolean(layout.maximized),
+        sidebarCollapsed: sidebarCompact,
         tiles: terminals(layout.tree).length,
       })
       .catch((error: unknown) => {
         console.error("Unable to update menu state:", error);
       });
-  }, [source, inactive, settingsOpen, layout]);
+  }, [source, inactive, settingsOpen, layout, sidebarCompact]);
   useEffect(
     () =>
       source.appMenu?.onSession((id) => {
@@ -715,6 +724,12 @@ export function Board({
       {removeError && <p role="alert">{removeError}</p>}
       <div className="board-workspace">
         <Sidebar
+          collapsed={layout.sidebarCollapsed ?? false}
+          setCollapsed={(sidebarCollapsed) => {
+            changeLayout({ ...layoutRef.current, sidebarCollapsed });
+          }}
+          toggleRef={toggleSidebarRef}
+          onCompact={setSidebarCompact}
           dragging={Boolean(drag)}
           source={source}
           otherViews={otherViews}

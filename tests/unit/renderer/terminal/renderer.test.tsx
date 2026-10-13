@@ -64,6 +64,10 @@ const mock = vi.hoisted(() => {
   return {
     options,
     dark: true,
+    cols: 80,
+    rows: 24,
+    fitCols: 80,
+    fitRows: 24,
     osc: vi.fn<(code: number, callback: (data: string) => boolean) => void>(),
     change: vi.fn<(event: string, callback: () => void) => void>(),
     removeChange: vi.fn(),
@@ -107,8 +111,12 @@ vi.mock("@xterm/xterm", () => ({
     get options() {
       return mock.options;
     }
-    cols = 80;
-    rows = 24;
+    get cols() {
+      return mock.cols;
+    }
+    get rows() {
+      return mock.rows;
+    }
     open = mock.open;
     loadAddon = mock.loadAddon;
     write = mock.write;
@@ -130,6 +138,7 @@ vi.mock("@xterm/xterm", () => ({
 vi.mock("@xterm/addon-fit", () => ({
   FitAddon: class {
     fit = mock.fit;
+    proposeDimensions = () => ({ cols: mock.fitCols, rows: mock.fitRows });
   },
 }));
 afterEach(cleanup);
@@ -158,6 +167,14 @@ beforeEach(() => {
   mock.setupState.mockResolvedValue(setupState());
   mock.onSetupChange.mockReturnValue(mock.offSetup);
   mock.dark = true;
+  mock.cols = 80;
+  mock.rows = 24;
+  mock.fitCols = 80;
+  mock.fitRows = 24;
+  mock.fit.mockImplementation(() => {
+    mock.cols = mock.fitCols;
+    mock.rows = mock.fitRows;
+  });
   mock.fonts.mockResolvedValue([]);
   mock.attach.mockResolvedValue(undefined);
   mock.detach.mockResolvedValue(undefined);
@@ -1104,5 +1121,86 @@ test("a newly mounted view knows an already exited session and can switch to a l
   await controller.open("live");
   expect(mock.options.disableStdin).toBe(false);
   expect(mock.options.cursorBlink).toBe(true);
+  controller.dispose();
+});
+
+test("sidebar motion fits the final frame once and cancels pending fits on interruption or disposal", async () => {
+  class SidebarTransition extends Event {
+    propertyName: string;
+    constructor(type: string, propertyName: string) {
+      super(type, { bubbles: true });
+      this.propertyName = propertyName;
+    }
+  }
+  vi.stubGlobal("TransitionEvent", SidebarTransition);
+  let frame: FrameRequestCallback | undefined;
+  vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => {
+    frame = callback;
+    return 1;
+  });
+  const cancel = vi.fn(() => {
+    frame = undefined;
+  });
+  vi.stubGlobal("cancelAnimationFrame", cancel);
+  const board = document.createElement("div");
+  board.className = "board-home";
+  const sidebar = document.createElement("aside");
+  sidebar.className = "sidebar-shell";
+  let running = true;
+  Object.defineProperty(sidebar, "getAnimations", {
+    value: () => (running ? [{ playState: "running" }] : []),
+  });
+  const container = document.createElement("div");
+  board.append(sidebar, container);
+  document.body.append(board);
+  const controller = createShell(container, vi.fn(), false, undefined, false);
+  await controller.open("moving-sidebar");
+  mock.fit.mockClear();
+  const observer = mock.resizeCallback.mock.lastCall?.[0];
+  observer?.();
+  sidebar.dispatchEvent(new SidebarTransition("transitionrun", "flex-basis"));
+  running = false;
+  sidebar.dispatchEvent(new SidebarTransition("transitionend", "color"));
+  observer?.();
+  expect(mock.fit).not.toHaveBeenCalled();
+  sidebar.dispatchEvent(new SidebarTransition("transitionend", "flex-basis"));
+  observer?.();
+  sidebar.dispatchEvent(new SidebarTransition("transitionrun", "flex-basis"));
+  expect(cancel).toHaveBeenCalledWith(1);
+  sidebar.dispatchEvent(new SidebarTransition("transitioncancel", "flex-basis"));
+  mock.fitCols = 90;
+  frame?.(0);
+  observer?.();
+  expect(mock.fit).toHaveBeenCalledOnce();
+  sidebar.dispatchEvent(new SidebarTransition("transitionend", "flex-basis"));
+  controller.dispose();
+  expect(cancel).toHaveBeenCalledTimes(2);
+  board.remove();
+  vi.unstubAllGlobals();
+});
+
+test("subpixel geometry changes only resize the host when the fitted grid changes", async () => {
+  const container = document.createElement("div");
+  let width = 600;
+  let height = 400;
+  vi.spyOn(container, "getBoundingClientRect").mockImplementation(
+    () => new DOMRect(0, 0, width, height),
+  );
+  const controller = createShell(container, vi.fn(), false, undefined, false);
+  await controller.open("subpixel-grid");
+  mock.resize.mockClear();
+  const observe = mock.resizeCallback.mock.lastCall?.[0];
+  observe?.();
+  width += 0.01;
+  observe?.();
+  expect(mock.resize).not.toHaveBeenCalled();
+  mock.fitCols = 90;
+  width += 1;
+  observe?.();
+  expect(mock.resize).toHaveBeenCalledExactlyOnceWith("subpixel-grid", 90, 24);
+  mock.fitRows = 30;
+  height += 1;
+  observe?.();
+  expect(mock.resize).toHaveBeenLastCalledWith("subpixel-grid", 90, 30);
   controller.dispose();
 });

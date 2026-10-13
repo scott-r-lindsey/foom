@@ -1043,13 +1043,13 @@ test("main intercepts board chords before terminal input", async () => {
     type: "keyDown",
     key: "B",
     code: "KeyB",
-    shift: true,
+    shift: process.platform !== "darwin",
     alt: false,
     control: process.platform !== "darwin",
     meta: process.platform === "darwin",
   });
   expect(event.preventDefault).toHaveBeenCalledOnce();
-  expect(mock.window.webContents.send).toHaveBeenCalledWith("board:command", "sidebar");
+  expect(mock.window.webContents.send).toHaveBeenCalledWith("board:command", "toggle-sidebar");
 });
 
 test("restores saved dimensions on startup", async () => {
