@@ -1,3 +1,4 @@
+import type { PreviewSummary } from "../../shared/workspace";
 import type { CleanupProgress } from "../../shared/cleanup";
 import type { Repository, Worktree } from "../../shared/worktrees";
 import type { BoardRow } from "./board.d";
@@ -28,5 +29,6 @@ export interface SidebarTree {
     expanded: boolean;
     rollup: BoardRow | undefined;
     sessions: readonly BoardRow[];
+    previews: readonly PreviewSummary[];
   }[];
 }

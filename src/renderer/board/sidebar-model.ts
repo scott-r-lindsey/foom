@@ -1,3 +1,4 @@
+import type { PreviewSummary } from "../../shared/workspace";
 import type { BoardRow, BoardState } from "./board.d";
 import type { SidebarPreferences, SidebarRepository, SidebarTree } from "./sidebar.d";
 
@@ -101,6 +102,7 @@ export function buildSidebar(
   repositories: readonly SidebarRepository[],
   preferences: SidebarPreferences,
   filter: string,
+  previews: readonly PreviewSummary[] = [],
 ): { tree: SidebarTree[]; hiddenNeeds: number } {
   const query = filter.trim().toLocaleLowerCase();
   const matches = (text: string) => text.toLocaleLowerCase().includes(query);
@@ -129,11 +131,19 @@ export function buildSidebar(
           (parentOf(row) !== undefined && matching(parentOf(row) ?? row)) ||
           sessions.some((child) => parentOf(child)?.id === row.id && matching(child)),
       );
-      if (query && !repoMatches && !branchMatches && !filtered.length) continue;
+      const previewRows = previews.filter(
+        (preview) =>
+          preview.repository === repository.path &&
+          preview.worktree === item.path &&
+          (repoMatches || branchMatches || matches(preview.relativePath)),
+      );
+      if (query && !repoMatches && !branchMatches && !filtered.length && !previewRows.length)
+        continue;
       for (const row of filtered) visible.add(row.id);
       worktrees.push({
         tree: item,
         sessions: filtered,
+        previews: previewRows,
         rollup: rollup(all),
         expanded: Boolean(query) || (preferences.expanded[worktreeKey(item.path)] ?? true),
       });
@@ -141,14 +151,22 @@ export function buildSidebar(
     if (query && !repoMatches && !worktrees.length) continue;
     tree.push({
       repository,
-      section: single ? 0 : pin >= 0 ? 0 : sessions.length ? 1 : 2,
+      section: single
+        ? 0
+        : pin >= 0
+          ? 0
+          : sessions.length || previews.some((preview) => preview.repository === repository.path)
+            ? 1
+            : 2,
       pinned: pin >= 0,
       rollup: rollup(sessions),
       worktrees,
       expanded:
         Boolean(query) ||
         (preferences.expanded[repositoryKey(repository.path)] ??
-          (single || sessions.some((row) => !row.exited))),
+          (single ||
+            sessions.some((row) => !row.exited) ||
+            previews.some((preview) => preview.repository === repository.path))),
     });
   }
   tree.sort(
