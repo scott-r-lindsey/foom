@@ -83,7 +83,7 @@ test("validates bundled manifest engine, agent, states and regions", () => {
   expect(() => parseManifest({ ...claude, rules: [{ ...first, region: "bad" }] })).toThrow();
 });
 
-test("every shipped rule matches a versioned real capture", () => {
+test("every shipped rule matches recorded adapter evidence", () => {
   const directory = join(import.meta.dirname, "../../../fixtures/agent-detection");
   const captures = readdirSync(directory)
     .filter((name) => name.endsWith(".json"))
@@ -170,4 +170,59 @@ test("exit and hooks beat agent rules; idle stays neutral", () => {
     signal: "pattern:question",
     confidence: 0.9,
   });
+});
+
+test.each([
+  ["Selected model is at capacity", "provider_capacity"],
+  ["■ rate limit exceeded: Please try again in 10s.", "provider_rate_limit"],
+  [
+    "Approaching rate limits\nSwitch to gpt-6-luna for lower credit usage?\nKeep current model\nenter select · esc back",
+    "provider_model_switch",
+  ],
+])("provider screen %s is human-only and outranks working titles", (screen, ruleId) => {
+  const input = {
+    terminalId: "t",
+    agent: "codex" as const,
+    evidence: { title: "⠋ codex", progress: null },
+    tail: screen.split("\n"),
+  };
+  expect(evaluateRules(input)).toMatchObject({
+    state: "needs_input",
+    attentionKind: "provider",
+    signal: `rules:codex:${ruleId}`,
+  });
+  expect(
+    evaluateRules({
+      ...input,
+      tail: [...input.tail, ...Array<string>(40).fill("Making progress")],
+    }),
+  ).toMatchObject({ state: "working" });
+  expect(evaluateRules({ ...input, exitCode: 1 })).toMatchObject({
+    state: "failed",
+    signal: "process:exit",
+  });
+  expect(
+    evaluateRules({
+      ...input,
+      hook: { terminalId: "t", action: "needs_input", signal: "codex:PermissionRequest" },
+    }),
+  ).toMatchObject({ attentionKind: "permission" });
+  // Neither shells nor other adapters inherit Codex screen signatures.
+  expect(evaluateRules({ terminalId: "shell", tail: input.tail }).attentionKind).not.toBe(
+    "provider",
+  );
+  for (const agent of ["claude", "agy"] as const)
+    expect(evaluateRules({ ...input, agent }).attentionKind).not.toBe("provider");
+});
+
+test("rate-limit advice and incomplete model-switch screens are not provider blockers", () => {
+  for (const tail of [
+    ["rate limit exceeded"],
+    ["Approaching rate limits"],
+    ["Which model should I switch to?"],
+    ["Usage limit reached"],
+  ])
+    expect(
+      evaluateRules({ terminalId: "t", agent: "codex", evidence, tail }).attentionKind,
+    ).not.toBe("provider");
 });

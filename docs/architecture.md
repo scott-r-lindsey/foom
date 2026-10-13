@@ -1185,6 +1185,9 @@ Only fixed-width atoms, classes, anchors and approved escapes are accepted. A fi
 millisecond evaluation budget supplements those bounds; it is not presented as a
 way to interrupt a running JavaScript regex. No matcher can type into a terminal.
 
+Codex provider capacity/rate-limit/model-switch rules produce human-only `provider`
+attention and fixed `provider_unavailable` control metadata; see
+[the adapter limits](orchestration.md#provider-stalls-339). They cannot authorize replies.
 Working and blocked rules produce fixed reasons and `rules:<agent>:<rule-id>` signals.
 Idle evidence has low confidence and continues through generic rules,
 never directly to Done. Workspace execution promotes an ambiguous result to Done

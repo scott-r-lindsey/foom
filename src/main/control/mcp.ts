@@ -82,7 +82,7 @@ const orchestration = [
   {
     name: "reply",
     description:
-      "Propose one plain-text answer to your child’s current question for human review in Foom. Never unattended; permission, credential and unknown attention reject proposals. Obtain revision and verdictId from session_state. Poll operation_status; no retry after ambiguous delivery.",
+      "Propose one plain-text answer to your child’s current question for human review in Foom. Never unattended; permission, credential, provider and unknown attention reject proposals. Obtain revision and verdictId from session_state. Poll operation_status; no retry after ambiguous delivery.",
     properties: {
       idempotencyKey: key,
       id,

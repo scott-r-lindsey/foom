@@ -132,7 +132,7 @@ describe("human-reviewed question reply gate", () => {
     await h.propose(h.params("k2"));
     expect(await h.done("k2")).toMatchObject({ status: "cancelled" });
   });
-  it.each(["permission", "credential", "unknown"] as const)(
+  it.each(["permission", "credential", "provider", "unknown"] as const)(
     "rejects %s even with maximal confidence or forged needs_input",
     async (kind) => {
       const h = harness();

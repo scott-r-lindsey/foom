@@ -3,7 +3,7 @@ import type { AgentId } from "./agents";
 import type { HookSignal } from "./hooks";
 
 export type VerdictState = "needs_input" | "done" | "failed" | "quiet_ok" | "working";
-export type AttentionKind = "question" | "permission" | "credential" | "unknown";
+export type AttentionKind = "question" | "permission" | "credential" | "provider" | "unknown";
 export interface Verdict {
   attentionKind?: AttentionKind;
   state: VerdictState;

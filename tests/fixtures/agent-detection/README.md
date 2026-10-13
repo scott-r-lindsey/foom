@@ -34,3 +34,23 @@ claims of Windows/macOS or other agent-version verification.
 An additional private-home Antigravity probe stopped at onboarding/data-use consent.
 It did not submit a model prompt or accept the consent screen, so it supplies no
 working/question evidence. No rule is shipped from that incomplete probe.
+
+## Provider evidence (#339)
+
+`codex-capacity.json` records only the capacity line reported from the stalled child
+in #339 on 2026-10-13. The CLI version and surrounding screen/title are unknown;
+this is reported evidence, not a new PTY capture. The other three provider fixtures
+record Codex's upstream rendered test snapshots at commit
+`f6aca7dc461d6a9e0ae12828cd04845c31dd504e`; each JSON links its exact source.
+They exercise the rate-limit error, rate-limit model switch and workspace-member
+usage-limit choice. Snapshot header metadata is omitted; rendered lines are retained.
+These render fixtures verify known CLI states without spending provider quota or
+changing user configuration. They do not establish installed-version or platform
+coverage. The Electron stand-in explicitly simulates these states.
+
+Provider rules are human-only, outrank working titles and inspect bounded bottom
+regions. A line spoofed by a tool or model can raise attention but cannot grant any
+input capability. Old messages scrolled beyond the region and incomplete rate-limit
+advice are negative test cases. Claude and Antigravity have no provider fixtures
+or shipped provider rules. Generic hooks and exit codes cannot distinguish these
+conditions, so no speculative mappings are shipped.

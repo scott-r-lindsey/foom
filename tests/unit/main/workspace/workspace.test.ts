@@ -3535,3 +3535,36 @@ test("cleanup drains superseded eligibility scans and does not rescan while remo
   expect(vi.mocked(deps.worktrees.removeWorktree)).toHaveBeenCalledOnce();
   await workspace.dispose();
 });
+
+test("provider stalls stop execution and recover only after the screen clears", async () => {
+  const workspace = new Workspace(deps);
+  await workspace.launch({
+    agent: "codex",
+    repository: repo.path,
+    worktree: tree.path,
+    cols: 80,
+    rows: 24,
+  });
+  tails.set("t1", []);
+  await workspace.evidence("t1", { title: "⠋ codex", progress: null });
+  tails.set("t1", ["Selected model is at capacity"]);
+  await workspace.quiet("t1");
+  expect(states.at(-1)).toMatchObject({
+    state: "needs_input",
+    attentionKind: "provider",
+    reason: "Provider unavailable",
+    execution: { phase: "blocked" },
+  });
+  workspace.input("t1");
+  await workspace.evidence("t1", { title: "⠙ codex", progress: null });
+  expect(states.at(-1)).toMatchObject({
+    state: "needs_input",
+    attentionKind: "provider",
+    execution: { phase: "blocked" },
+  });
+  tails.set("t1", ["Making progress"]);
+  await workspace.evidence("t1", { title: "⠹ codex", progress: null });
+  expect(states.at(-1)).toMatchObject({ state: "working", execution: { phase: "working" } });
+  expect(states.at(-1)?.attentionKind).toBeUndefined();
+  await workspace.dispose();
+});
