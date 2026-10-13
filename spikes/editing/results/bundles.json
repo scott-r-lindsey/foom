@@ -1,0 +1,52 @@
+{
+  "node": "v24.17.0",
+  "esbuild": "0.28.2",
+  "rows": [
+    {
+      "name": "textarea",
+      "files": [
+        {
+          "file": "editor.js",
+          "bytes": 221,
+          "gzip": 182
+        }
+      ],
+      "bytes": 221,
+      "gzip": 182
+    },
+    {
+      "name": "codemirror",
+      "files": [
+        {
+          "file": "editor.js",
+          "bytes": 504061,
+          "gzip": 169550
+        }
+      ],
+      "bytes": 504061,
+      "gzip": 169550
+    },
+    {
+      "name": "monaco",
+      "files": [
+        {
+          "file": "editor.css",
+          "bytes": 90765,
+          "gzip": 14188
+        },
+        {
+          "file": "editor.js",
+          "bytes": 2763348,
+          "gzip": 726553
+        },
+        {
+          "file": "editor.worker.js",
+          "bytes": 307278,
+          "gzip": 95356
+        }
+      ],
+      "bytes": 3161391,
+      "gzip": 836097
+    }
+  ]
+}
