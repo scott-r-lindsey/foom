@@ -7707,13 +7707,61 @@ for (const cliOnly of [false, true])
       )
       .toBe(true);
 
+    const extraTrees = [];
+    for (const branch of ["batch-selected", "batch-declined"]) {
+      const created = await call(parent.controlToken, "create_worktree", {
+        idempotencyKey: `create-${branch}`,
+        branch,
+      });
+      assert.equal(created.body.result.status, "succeeded");
+      extraTrees.push({ branch, id: created.body.result.resultId });
+    }
     const removal = await call(parent.controlToken, "remove_worktree", {
       idempotencyKey: "remove-1",
       worktreeId: tree.body.result.resultId,
     });
     assert.equal(removal.body.result.status, "pending_confirmation");
-    await expect(confirmation.getByRole("heading", { name: "Remove worktree?" })).toBeVisible();
-    await confirmation.getByRole("button", { name: "Remove worktree" }).click();
+    await expect(confirmation.getByRole("heading", { name: "Remove worktrees?" })).toBeVisible();
+    for (const tree of extraTrees) {
+      const queued = await call(parent.controlToken, "remove_worktree", {
+        idempotencyKey: `remove-${tree.branch}`,
+        worktreeId: tree.id,
+      });
+      assert.equal(queued.body.result.status, "pending_confirmation");
+    }
+    await expect(confirmation.getByRole("checkbox")).toHaveCount(3);
+    await expect(confirmation.getByRole("list", { name: "Worktrees to remove" })).toContainText(
+      "Clean",
+    );
+    await assertAccessible(confirmation);
+    await confirmation.screenshot({
+      path: `test-results/batch-removal-${cliOnly ? "agy" : "claude"}.png`,
+      animations: "disabled",
+    });
+    await confirmation.getByRole("checkbox", { name: "child-one", exact: true }).check();
+    await confirmation.getByRole("checkbox", { name: "batch-selected", exact: true }).check();
+    await confirmation.getByRole("button", { name: "Approve selected" }).click();
+    for (const tree of extraTrees) {
+      await expect
+        .poll(
+          async () =>
+            (
+              await call(parent.controlToken, "operation_status", {
+                idempotencyKey: `remove-${tree.branch}`,
+              })
+            ).body.result.status,
+        )
+        .toBe(tree.branch === "batch-selected" ? "succeeded" : "declined");
+    }
+    assert.equal(
+      String(git("worktree", "list", "--porcelain")).includes("refs/heads/batch-selected"),
+      false,
+    );
+    assert.equal(
+      String(git("worktree", "list", "--porcelain")).includes("refs/heads/batch-declined"),
+      true,
+    );
+
     await expect
       .poll(
         async () =>
@@ -7746,7 +7794,7 @@ for (const cliOnly of [false, true])
     await expect(history.getByText("make orchestrator", { exact: true }).first()).toBeVisible();
     await page.getByRole("searchbox").fill("remove_worktree");
     await page.getByLabel("Outcome", { exact: true }).selectOption("succeeded");
-    await expect(history.getByText("remove worktree", { exact: true })).toHaveCount(1);
+    await expect(history.getByText("remove worktree", { exact: true })).toHaveCount(2);
     await page.screenshot({
       path: `test-results/action-log-${cliOnly ? "agy" : "claude"}.png`,
       animations: "disabled",
@@ -8204,7 +8252,7 @@ req.end(JSON.stringify(payload));
           .filter((window) => window.url() === "app://confirmation/confirmation.html")) {
           if (
             await candidate
-              .getByRole("heading", { name: "Remove worktree?", exact: true })
+              .getByRole("heading", { name: "Remove worktrees?", exact: true })
               .isVisible()
           ) {
             removal = candidate;
@@ -8214,7 +8262,7 @@ req.end(JSON.stringify(payload));
         return false;
       })
       .toBe(true);
-    await removal.getByRole("button", { name: "Remove worktree" }).click();
+    await removal.getByRole("button", { name: "Approve all" }).click();
     await expect
       .poll(
         async () =>

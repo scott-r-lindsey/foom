@@ -335,3 +335,72 @@ test("live cleanup updates stay in the trusted window; malformed actions cannot 
   expect(action).toHaveBeenCalledTimes(2);
   dialog.dispose();
 });
+
+test("live removal batches reject stale, forged and malformed selections and resolve every item", async () => {
+  const dialog = setup();
+  const removal = (id: string, group = "actor") => ({
+    title: "Remove worktrees?",
+    accept: "Approve all",
+    removal: {
+      group,
+      item: { id, branch: id, path: `/trees/${id}`, changes: id === "two" ? "?? file\0" : "" },
+    },
+  });
+  const first = dialog.request(removal("one"));
+  const stale = await shown();
+  const second = dialog.request(removal("two"));
+  const third = dialog.request(removal("three"));
+  const foreign = dialog.request(removal("foreign", "other"));
+  const id = await shown();
+  expect(id).not.toBe(stale);
+  const request = window().webContents.send.mock.calls.at(-1)?.[1];
+  expect(request).toMatchObject({
+    removals: [
+      removal("one").removal.item,
+      removal("two").removal.item,
+      removal("three").removal.item,
+    ],
+  });
+  expect(request).not.toHaveProperty("removalFeed");
+  answer(stale, ["one"]);
+  answer(id, true);
+  answer(id, []);
+  answer(id, [1]);
+  answer(id, ["foreign"]);
+  answer(id, ["one", "one"]);
+  answer(id, ["one"], { sender: {}, senderFrame: window().webContents.mainFrame });
+  expect(window().hide).not.toHaveBeenCalled();
+  answer(id, ["one", "three"]);
+  await expect(first).resolves.toBe(true);
+  await expect(second).resolves.toBe(false);
+  await expect(third).resolves.toBe(true);
+  await vi.waitFor(() => {
+    expect(window().show).toHaveBeenCalledTimes(2);
+  });
+  answer(await shown(), false);
+  await expect(foreign).resolves.toBe(false);
+  dialog.dispose();
+});
+
+test("abort cancels a batch even after new arrivals changed its confirmation ID", async () => {
+  const dialog = setup();
+  const abort = new AbortController();
+  const request = (id: string) =>
+    dialog.request(
+      {
+        title: "Remove?",
+        accept: "Approve all",
+        removal: { group: "actor", item: { id, branch: id, path: id, changes: "" } },
+      },
+      abort.signal,
+    );
+  const first = request("one");
+  await shown();
+  const second = request("two");
+  const stale = await shown();
+  abort.abort();
+  answer(stale, ["one", "two"]);
+  await expect(first).resolves.toBe(false);
+  await expect(second).resolves.toBe(false);
+  dialog.dispose();
+});

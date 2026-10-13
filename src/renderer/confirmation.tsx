@@ -136,6 +136,7 @@ export function ConfirmationPage() {
   const bodyRef = useRef<HTMLDivElement>(null);
   const cancelRef = useRef<HTMLButtonElement>(null);
   const acceptRef = useRef<HTMLButtonElement>(null);
+  const [selected, setSelected] = useState<readonly string[]>([]);
   const [now, setNow] = useState(Date.now);
   useEffect(
     () =>
@@ -184,6 +185,7 @@ export function ConfirmationPage() {
   const wide = Boolean(
     request?.cleanup ||
       request?.worktrees ||
+      request?.removals ||
       request?.changes ||
       request?.sessions ||
       request?.sections,
@@ -245,7 +247,10 @@ export function ConfirmationPage() {
     (cleanup?.stage === "ready" && cleanup.progress.total === 0) ||
     (running && cleanup.progress.stopped);
   const answer = (accepted: boolean) => {
-    window.confirmation.answer(request.id, accepted);
+    window.confirmation.answer(
+      request.id,
+      accepted && request.removals ? request.removals.map((item) => item.id) : accepted,
+    );
   };
   return (
     <main
@@ -257,8 +262,10 @@ export function ConfirmationPage() {
         if (event.key === "Tab") {
           event.preventDefault();
           const content = bodyRef.current?.parentElement;
-          const targets = [cancelRef.current, acceptRef.current].filter(
-            (element) => element && !element.disabled,
+          const targets = Array.from(
+            cardRef.current?.querySelectorAll<HTMLElement>(
+              "button:not(:disabled), input:not(:disabled)",
+            ) ?? [],
           );
           const focusable =
             content && content.scrollHeight > content.clientHeight
@@ -428,6 +435,36 @@ export function ConfirmationPage() {
                 <pre aria-label="Exact proposed reply">{request.reply.text}</pre>
               </>
             )}
+            {request.removals && (
+              <Section label="Worktrees" count={request.removals.length}>
+                <ul className="well" aria-label="Worktrees to remove">
+                  {request.removals.map((item) => (
+                    <li key={item.id}>
+                      <label className="row">
+                        <input
+                          type="checkbox"
+                          aria-label={item.branch}
+                          checked={selected.includes(item.id)}
+                          onChange={(event) => {
+                            setSelected(
+                              event.target.checked
+                                ? [...selected, item.id]
+                                : selected.filter((id) => id !== item.id),
+                            );
+                          }}
+                        />
+                        <span className="name">
+                          {item.branch}
+                          <span className="sub">{item.path}</span>
+                        </span>
+                        <span className="why">{item.changes ? "Dirty" : "Clean"}</span>
+                      </label>
+                      {item.changes && <Changes value={item.changes} />}
+                    </li>
+                  ))}
+                </ul>
+              </Section>
+            )}
             {request.changes !== undefined && <Changes value={request.changes} />}
             {request.worktrees && !cleanup && (
               <>
@@ -482,8 +519,30 @@ export function ConfirmationPage() {
               answer(false);
             }}
           >
-            {finished ? "Done" : running ? "Hide" : (request.cancel ?? "Cancel")}
+            {request.removals
+              ? "Decline"
+              : finished
+                ? "Done"
+                : running
+                  ? "Hide"
+                  : (request.cancel ?? "Cancel")}
           </button>
+          {request.removals && (
+            <button
+              type="button"
+              disabled={!request.removals.some((item) => selected.includes(item.id))}
+              onClick={() => {
+                window.confirmation.answer(
+                  request.id,
+                  request.removals
+                    ?.filter((item) => selected.includes(item.id))
+                    .map((item) => item.id) ?? [],
+                );
+              }}
+            >
+              Approve selected
+            </button>
+          )}
           {!finished && (
             <button
               type="button"

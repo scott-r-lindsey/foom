@@ -12,7 +12,23 @@ export interface ConfirmationClient {
   confirm(arm: ArmedConfirmation): Promise<void>;
   cancel(): Promise<void>;
 }
+export interface RemovalItem {
+  id: string;
+  branch: string;
+  path: string;
+  changes: string;
+}
+export interface RemovalFeed {
+  current(): readonly RemovalItem[];
+  subscribe(listener: () => void): () => void;
+  select(ids: readonly string[]): void;
+}
 export interface DialogContent {
+  /** Main-only grouping key and removal snapshot. */
+  removal?: { group: string; item: RemovalItem };
+  /** Main-only live review. */
+  removalFeed?: RemovalFeed;
+  removals?: readonly RemovalItem[];
   reply?: { context: string; text: string };
   cleanup?: CleanupDialog;
   /** Main-only; stripped before rendering. */
@@ -33,14 +49,14 @@ export interface DialogContent {
   changes?: string;
   sessions?: readonly { id: string; name: string; location: string; state: string }[];
 }
-export interface DialogRequest extends Omit<DialogContent, "feed"> {
+export interface DialogRequest extends Omit<DialogContent, "feed" | "removal" | "removalFeed"> {
   id: string;
   theme: InterfaceTheme;
 }
 export interface ConfirmationWindowApi {
   render(callback: (request: DialogRequest | null) => void): () => void;
   size(value: { width: number; height: number }): void;
-  answer(id: string, accepted: boolean): void;
+  answer(id: string, accepted: boolean | readonly string[]): void;
 }
 
 /** Main-only requests: click-again is misclick protection, not a trust boundary. */

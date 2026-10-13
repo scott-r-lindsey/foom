@@ -311,7 +311,7 @@ export class Workspace {
         },
         reveal: (id) => this.deps.reveal?.(id),
         tail: (id, lines) => this.deps.terminals.tail(id, lines),
-        remove: async (repository, worktree, identity, confirm) => {
+        remove: async (repository, worktree, identity, confirm, revalidate) => {
           const tree = (await this.worktrees(repository)).find((item) => item.path === worktree);
           if (!tree || tree.path === repository) throw new Error("Worktree is unavailable");
           // removeTree holds the branch lock while it calls this, so no launch can slip in.
@@ -319,6 +319,7 @@ export class Workspace {
             this.requireIdleWorktree(worktree);
             if ((await this.deps.worktrees.launchIdentity(repository, worktree)) !== identity)
               throw new Error("Worktree has changed");
+            revalidate();
           };
           const removed = await this.removeTree(
             repository,
@@ -330,6 +331,7 @@ export class Workspace {
               if (accepted) await available();
               return accepted;
             },
+            available,
           );
           this.refresh();
           return removed;
@@ -1003,6 +1005,7 @@ export class Workspace {
         (await this.deps.worktrees.changes(entry.repository, entry.worktree, identity)) !== changes
       )
         throw new Error("Worktree changes have changed. Review them and try again.");
+      await revalidate?.();
       await this.deps.worktrees.removeWorktree(
         entry.repository,
         entry.worktree,
