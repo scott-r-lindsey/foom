@@ -145,6 +145,90 @@ Permissions and sandboxing remain the user's settings. Prompt text is not a stab
 permission API; Antigravity remains human-review-only for replies.
 [Permissions](https://www.antigravity.google/docs/permissions/).
 
+## Proposed child follow-up channel (#336)
+
+**Proposed, not decided.** This research does not change the Decision or Reply
+gate, grant a new capability, or enable unattended PTY writes. Implementation is
+separate and depends on the access design in open [#343](https://github.com/scott-r-lindsey/foom/issues/343),
+including its observability prerequisites #339 and #340. Reproducible scripts,
+versions, detailed results and limits are in the [child follow-up spike](../spikes/child-followup/README.md).
+
+Linux experiments on 2026-10-13 used Claude Code 2.1.296, Codex 0.162.1 and
+Antigravity 1.3.3. Claude/Codex used a scripted loopback model and disposable state,
+with no provider credentials; Antigravity used three synthetic prompts with the
+existing login, without changing credentials or global configuration. No real
+terminal content, transcript files or project content was supplied to a model.
+
+| Candidate | Measured continuation | Human visibility and coexistence |
+| --- | --- | --- |
+| Claude stream-JSON / `--resume ID` | Two turns and post-exit resume retain ID/history in the same Git worktree | A second headless writer was allowed while the first was idle; this does not establish safe TUI coexistence. Needs a structured view and exclusive terminal handoff |
+| Codex app-server / `thread/resume` | Two RPC turns and restart retain thread/history/cwd | A TUI attached to the same app-server with `resume ID --remote` rendered both history and a new RPC response, with no PTY input |
+| Codex `exec resume ID` | Post-exit continuation retains ID/history | Rejected beside idle app-server with active-writer conflict; serial fallback only |
+| Antigravity stream-JSON / `--conversation ID` | Two real-provider turns and post-exit resume retain ID and recall in the same cwd | No shared TUI/control protocol verified; needs structured visibility and exclusive handoff |
+
+**Recommend a Codex-first prototype** with main owning app-server and a terminal
+TUI connected to that same runtime. Preserve the terminal tile; the RPC transport
+runs beside its display connection, never as a second conversation writer. The
+remote transport is experimental. Private stdio is preferred when no TUI is
+attached; a shared TUI needs a protected local transport, not an exposed full RPC
+endpoint. Main must arbitrate human TUI input through Take over before enabling
+parent dispatch. The spike proves rendering/continuation, not that arbitration or
+approval routing works. Claude/Antigravity would require a new structured child
+view replacing the agent display until an exclusive human terminal resume; retain
+an independent shell in the worktree. Do not ship an invisible resume sidecar for
+an existing PTY child. None of these adapters is enabled by this proposal.
+
+Proposed `follow_up` accepts only a child ID, expected execution revision,
+idempotency key and at most 16 KiB UTF-8 prompt text. Main maps the child to its
+pinned conversation and canonical worktree; the parent cannot choose paths,
+commands, conversation selectors, attachments, RPC methods, permission responses,
+model settings or launch flags. Reject unknown fields, all control characters
+(including CR/LF, ESC and C1) and slash-command prefixes. Prompts are serialized
+text data, never shell strings or PTY bytes. This capability starts a new turn;
+it does not answer a question or approval and does not relax the Reply gate.
+
+Only a separately human-granted follow-up capability under the proposed #343
+Unattended tier could authorize dispatch; today's orchestrator role is insufficient.
+Require protocol-confirmed idle with no pending permission, credential,
+elicitation, question, queued input or background work. A light, screen pattern or
+Stop hook is insufficient. Keep child permissions unchanged and route approval
+requests only to trusted human controls. Bound and validate protocol events;
+render their text safely. An adapter without this approval/idle boundary refuses.
+
+Serialize dispatch, revocation and Take over under main's child ownership lock.
+Bind each operation to the live principal object/generation, child invocation,
+conversation ID, worktree and expected revision. Recheck authority and #343
+expiry/budget immediately before send; persist intent/idempotency first. #303
+revoke/transfer/parent exit and Take over cancel unsent turns and permanently end
+that parent's child access. Already accepted work becomes human-owned and remains
+visible; revocation cannot undo a prompt. Human-requested interruption must await
+protocol resolution, and exclusive terminal resume must await old runtime exit.
+If handoff fails, keep the child visible and report failure; never start a competing
+writer. New launch credentials/hooks must be attached per launch on a serial resume.
+
+Record fixed action/outcome metadata and accepted turn IDs, never prompt text or
+transcripts. Lost acknowledgments, crashes and incomplete interruption produce
+indeterminate outcomes requiring reconciliation, never blind retry or PTY fallback.
+An unknown/mismatched conversation ID fails closed: Antigravity's earlier #249
+probe showed that an unknown ID can start a fresh conversation with exit 0.
+Provider capacity/stalls (#339), busy states, moved worktrees, malformed/oversized
+protocol, process exit and audit failure suspend automation.
+
+Treat child output as untrusted evidence, never an instruction or automatic next
+prompt. No output-to-prompt feedback loop is added. Explicit observations retain
+existing redaction, bounds and privacy disclosure; main's capability checks,
+per-child rate limits and finite turn/launch/time budgets remain necessary even
+when prompt text passes validation. This does not constrain agents' existing shell
+or filesystem access outside Foom.
+
+Before enabling: test human typing versus dispatch, pending approvals and unknown
+elicitation types, background work, busy-turn refusal, same-ID writer races,
+revoke/expiry/takeover at every send boundary, stale invocation/worktree IDs,
+idempotency after disconnect/crash, malformed protocol, hostile output loops,
+managed policy and disabled hooks. Verify actual interactive handoff and approval
+visibility for each adapter on Linux, Windows and macOS. The spike did not exercise
+these security boundaries, tool execution or human keyboard takeover.
+
 ## Transport, packaging and discovery
 
 Choose **Streamable HTTP on `127.0.0.1` with an OS-assigned port**. Main hosts
@@ -317,6 +401,33 @@ authority and cancels pending mutations/replies, but leaves children running for
 the human. Revoking the role has the same effect. A replacement orchestrator does not inherit those children; automatic restore reattaches saved children that had not been taken over, including exited children for worktree cleanup, under the re-grant checks above. Quit keeps
 the existing confirmation and stops all PTYs.
 
+### Provider stalls (#339)
+
+`session_state`, `sessions` and `wait_for` report a current provider blocker as
+`state: "needs_input"`, `reason: "provider_unavailable"`, `attentionKind: "provider"`.
+This single fixed reason covers capacity, rate/usage limits and provider model-switch
+prompts; it never includes model names, retry times, error bodies or terminal text.
+Provider attention never permits `reply`, including a human-reviewed proposal.
+The existing Needs you light is amber and retains its label; short fixed reasons
+identify Provider unavailable, Provider rate limit, Provider usage limit or Model switch requested.
+No automatic retry, model change or terminal input is performed.
+
+| Adapter | Provider detection | Limits |
+| --- | --- | --- |
+| Codex | Bounded local screen rules for the reported capacity message, recorded rate-limit error and rate/usage-limit choice screens | Heuristic untrusted evidence, not a structured provider API; uncaptured variants are unsupported |
+| Claude Code | Not supported | Current observers expose permission and lifecycle events, not a verified provider-specific signal; no recorded provider screen rule |
+| Antigravity | Not supported | Plugin Stop error/step-limit facts indicate failure but do not identify provider capacity or rate limiting; no recorded provider screen rule |
+
+Codex provider screens beat working titles during classification. Permission hooks
+and process exit keep their existing precedence: a generic nonzero exit cannot
+identify a provider failure. Stale screens outside the rule's bounded bottom region
+are ignored; fresh working evidence after the screen clears resumes execution.
+Metadata retains existing output/input/execution freshness checks; a changing screen
+can briefly report unknown attention until reclassified. Silence is never evidence
+of a provider stall. Recorded evidence provenance and the distinction between the
+reported capacity line and upstream render snapshots are in
+[`tests/fixtures/agent-detection/README.md`](../tests/fixtures/agent-detection/README.md).
+
 ## Reply gate
 
 The `reply` request names a child `id`, the `revision` and `verdictId` from
@@ -342,7 +453,7 @@ cooldown, cancels pending review, and preserves the one-proposal-per-verdict
 limit. **Take over** permanently ends the parent's access to that child.
 
 Add an attention kind independent of the visible light:
-`question`, `permission`, `credential`, or `unknown`. Today `needs_input` and model
+`question`, `permission`, `credential`, `provider`, or `unknown`. Today `needs_input` and model
 confidence do not carry this distinction; neither can authorize `reply`.
 Permission hooks, `(y/n)`, Allow/confirm prompts, password context, and uncertain
 cases remain human-only Needs you (amber plus a label). Echo-off alone does not
@@ -351,7 +462,7 @@ terminal-input capability. Treat all hook and model data as untrusted evidence.
 
 For current adapters, `reply` can only create a **proposal** for a question verdict.
 Show the child, fresh context and exact text in Foom; do not send bytes automatically.
-If permission, credential or unknown evidence appears, reject the proposal and
+If permission, credential, provider or unknown evidence appears, reject the proposal and
 focus the terminal for the human. Approval of a proposal is a human action, not an
 orchestrator permission decision. It is not advertised as eliminating the race
 between review and a changing PTY. The human can always take over directly.

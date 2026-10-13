@@ -1187,6 +1187,10 @@ Only fixed-width atoms, classes, anchors and approved escapes are accepted. A fi
 millisecond evaluation budget supplements those bounds; it is not presented as a
 way to interrupt a running JavaScript regex. No matcher can type into a terminal.
 
+Codex provider capacity/rate-limit/model-switch rules produce human-only `provider`
+attention and fixed `provider_unavailable` control metadata; see
+[the adapter limits](orchestration.md#provider-stalls-339). They cannot authorize replies. Codex provider history rules sit below working and
+Action Required titles, so a resumed turn wins over a still-visible provider line.
 Working and blocked rules produce fixed reasons and `rules:<agent>:<rule-id>` signals.
 Idle evidence has low confidence and continues through generic rules,
 never directly to Done. Workspace execution promotes an ambiguous result to Done
@@ -1213,14 +1217,15 @@ is reused. Revoked hook capabilities cannot address that invocation.
 
 Evidence precedence is: process exit; lifecycle hooks (including Codex); active permission hooks; agent-specific
 blocked forms/titles; agent working titles; generic shell patterns; neutral fallback.
-A blocked agent form wins over a simultaneous working title, but generic password,
+A blocked agent permission form wins over a simultaneous working title; Codex
+provider history is weaker than a working title. Generic password,
 yes/no and Enter strings do not override supported agent working evidence.
 
 Hooks are strongest evidence. An explicit permission hook survives spinner frames
 until a working hook proves progress, or user input is followed by a fresh working
 title and classification finds no agent-specific permission form. Input alone and
 dismissal never resume execution. A new permission hook resets that reply evidence.
-Screen blockers beat working titles during
+Permission screen blockers beat working titles during
 classification; later positive progress supersedes stale screen evidence only after
 classification verifies the current screen no longer requests attention. Repeated
 spinner frames can trigger this recovery while blocked. Dismissal is tracked

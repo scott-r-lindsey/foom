@@ -50,13 +50,18 @@ export function evaluateRules(input: EvaluationInput): Verdict {
     input.agent && input.evidence
       ? detectAgent(input.agent, input.evidence, input.tail)
       : undefined;
-  if (detected?.state === "blocked")
-    return verdict(
+  if (detected?.state === "blocked") {
+    const blocked = verdict(
       "needs_input",
       detected.reason,
       `rules:${input.agent ?? ""}:${detected.id}`,
       0.95,
     );
+    // Only the packaged adapter selects this namespace; output cannot supply a kind.
+    return detected.id.startsWith("provider_")
+      ? { ...blocked, attentionKind: "provider" }
+      : blocked;
+  }
   if (detected?.state === "working")
     return verdict("working", detected.reason, `rules:${input.agent ?? ""}:${detected.id}`, 0.95);
   if (input.promptReturned === true) {

@@ -76,7 +76,10 @@ export class SessionMetadata {
       worktree: locationId(row.worktree),
       name: metadataName(row.branch ?? basename(row.worktree)),
       state: reported,
-      reason: reported,
+      reason:
+        reported === "needs_input" && current && row.state?.attentionKind === "provider"
+          ? "provider_unavailable"
+          : reported,
       revision: createHash("sha256")
         .update(
           JSON.stringify([

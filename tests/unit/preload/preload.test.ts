@@ -263,6 +263,7 @@ test("terminal state events are validated and can be unsubscribed", async () => 
     {},
     { ...state, verdictId: "v1", attentionKind: "question", inputRevision: 0, outputRevision: 2 },
   );
+  handler?.({}, { ...state, attentionKind: "provider" });
   for (const bad of [
     null,
     [],
@@ -283,6 +284,7 @@ test("terminal state events are validated and can be unsubscribed", async () => 
   expect(callback.mock.calls).toEqual([
     [state],
     [{ ...state, verdictId: "v1", attentionKind: "question", inputRevision: 0, outputRevision: 2 }],
+    [{ ...state, attentionKind: "provider" }],
   ]);
   off();
   expect(mock.removeListener).toHaveBeenCalledWith("terminal:state", handler);

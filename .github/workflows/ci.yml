@@ -177,25 +177,25 @@ jobs:
         # the first Playwright launch deadline and the desktop test budget.
         run: node -e "require('electron')"
       - name: Prepare Windows PowerShell runtime
-        if: runner.os == 'Windows' && matrix.shard != '2/2'
+        if: runner.os == 'Windows' && startsWith(matrix.shard, '1/')
         timeout-minutes: 3
         # Run 37728101831: first native probe exhausted 8s; the next complete
         # policy/transport case took 5.4s. Warm runtime startup separately from
         # bounded hook/policy assertions, without retries or relaxed probe limits.
         run: powershell.exe -NoProfile -NonInteractive -Command "exit 0"
       - name: Test hooks and control storage with native OS tools
-        if: matrix.shard != '2/2'
+        if: startsWith(matrix.shard, '1/')
         # Cold PowerShell probes compete for startup when these files run together.
         # Exercise native transport once per platform, with one OS probe at a time.
         run: npx vitest run --reporter=default --reporter=junit --outputFile.junit=test-results/hooks.xml --no-file-parallelism tests/unit/main/agents/hook-receiver.test.ts tests/unit/main/agents/hook-adapters.test.ts tests/unit/main/agents/agy-observer.test.ts tests/unit/main/agents/hook-launch.test.ts tests/unit/main/control/private-native.test.ts
       - name: Test Antigravity observer alone
-        if: matrix.shard != '2/2'
+        if: startsWith(matrix.shard, '1/')
         run: npx vitest run tests/unit/main/agents/agy-observer.test.ts --reporter=default --reporter=junit --outputFile.junit=test-results/agy-observer.xml
       - name: Test Git inventory paths on native filesystem
-        if: matrix.shard != '2/2'
+        if: startsWith(matrix.shard, '1/')
         run: npx vitest run --no-file-parallelism tests/unit/main/workspace/worktrees.test.ts tests/unit/main/workspace/inventory-watch.test.ts -t 'derives watch directories|validates paths'
       - name: Test preview containment on native filesystem
-        if: matrix.shard != '2/2'
+        if: startsWith(matrix.shard, '1/')
         # Windows junction tests must run on Windows, not just the Linux unit job.
         run: npx vitest run tests/unit/main/previews --reporter=default --reporter=junit --outputFile.junit=test-results/previews.xml
       - name: Prepare Linux display and sandbox
@@ -217,7 +217,7 @@ jobs:
           fi
           # Permit Chromium's user-namespace sandbox on this ephemeral CI runner.
           sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
-      # The full suite runs as two disjoint named-test shards on each platform.
+      # The full suite runs as disjoint named-test shards: three on macOS, two elsewhere.
       # Per-test deadlines and the Electron worker watchdog still bound hangs.
       - name: Test Electron on Linux
         # Run 38290731834: Linux shards took 3m48s and 4m00s (including the
@@ -226,28 +226,28 @@ jobs:
         if: runner.os == 'Linux'
         run: xvfb-run -a npm run test:electron
       - name: Test Electron on macOS and Windows
-        # Run 38290731834: macOS shards took 6m24s/6m46s; Windows took
-        # 6m01s/7m08s. Ten minutes leaves runner variation and cleanup room;
-        # keep the shared per-test deadline policy and worker watchdog.
+        # Runs 38391083094–38419352620: macOS test cases total 742–840s;
+        # three name-hash shards project 175–335s each, leaving runner headroom.
+        # Keep the shared per-test deadline policy and worker watchdog.
         timeout-minutes: 10
         if: runner.os != 'Linux'
         run: npm run test:electron
       - name: Stamp nightly package version
         if: >-
-          matrix.shard != '2/2' && github.ref == 'refs/heads/main' &&
+          startsWith(matrix.shard, '1/') && github.ref == 'refs/heads/main' &&
           (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.publish_nightly))
         run: node scripts/nightly.mjs stamp
       - name: Package desktop application
-        if: matrix.shard != '2/2'
+        if: startsWith(matrix.shard, '1/')
         run: npm run make
       - name: Verify macOS ad-hoc signature after packaging and fuses
-        if: runner.os == 'macOS' && matrix.shard != '2/2'
+        if: runner.os == 'macOS' && startsWith(matrix.shard, '1/')
         run: codesign --verify --deep --strict out/Foom-darwin-arm64/Foom.app
       - name: Test packaged terminal host on Linux
-        if: runner.os == 'Linux' && matrix.shard != '2/2'
+        if: runner.os == 'Linux' && startsWith(matrix.shard, '1/')
         run: xvfb-run -a npm run test:packaged
       - name: Test packaged terminal host on macOS and Windows
-        if: runner.os != 'Linux' && matrix.shard != '2/2'
+        if: runner.os != 'Linux' && startsWith(matrix.shard, '1/')
         run: npm run test:packaged
       - name: Upload Electron timing and process diagnostics
         if: always()
@@ -259,7 +259,7 @@ jobs:
           retention-days: 3
       - name: Upload unsigned development package
         if: >-
-          matrix.shard != '2/2' &&
+          startsWith(matrix.shard, '1/') &&
           ((github.event_name == 'workflow_dispatch' && inputs.upload_packages) ||
           (github.ref == 'refs/heads/main' && (github.event_name == 'schedule' ||
           (github.event_name == 'workflow_dispatch' && inputs.publish_nightly))))

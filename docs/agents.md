@@ -438,3 +438,15 @@ Resume supplies `--conversation` and the validated ID as separate argv elements,
 with current defaults and fresh launch credentials in the same checkout and row.
 Without plugin events (including hooks-disabled launches), no new ID is captured.
 Conversation/continue selectors remain reserved in launch defaults.
+
+## Provider stalls (#339)
+
+Codex uses the local bounded screen rules described in
+[orchestration](orchestration.md#provider-stalls-339). Capacity is backed by the
+child terminal message reported in #339; rate-limit and model-switch screens are
+backed by pinned upstream Codex render snapshots, not new authenticated model calls.
+These are untrusted attention evidence only and cannot authorize a reply.
+The current Claude observers and Antigravity plugin have no verified provider-specific
+mapping. Their lifecycle completion/error signals and generic exit codes cannot
+distinguish capacity or rate limits. Detection for those adapters remains unsupported
+until recorded evidence or a verified structured signal is available.

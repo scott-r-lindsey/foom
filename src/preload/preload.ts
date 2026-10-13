@@ -24,7 +24,9 @@ function terminalState(value: unknown): value is TerminalState {
     typeof value["timestamp"] === "number" &&
     (value["attentionKind"] === undefined ||
       (typeof value["attentionKind"] === "string" &&
-        ["question", "permission", "credential", "unknown"].includes(value["attentionKind"]))) &&
+        ["question", "permission", "credential", "provider", "unknown"].includes(
+          value["attentionKind"],
+        ))) &&
     ["outputRevision", "inputRevision"].every(
       (key) =>
         value[key] === undefined ||
