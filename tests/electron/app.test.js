@@ -7787,9 +7787,9 @@ for (const cliOnly of [false, true])
       assert.equal(created.body.result.status, "succeeded");
       extraTrees.push({ branch, id: created.body.result.resultId });
     }
-    const dirtyTree = (await page.evaluate((repo) => window.desktop.worktrees(repo), repo)).find(
-      (worktree) => worktree.branch === "batch-selected",
-    );
+    const dirtyTree = (
+      await page.evaluate((repository) => window.desktop.worktrees(repository), repository)
+    ).find((worktree) => worktree.branch === "batch-selected");
     assert.ok(dirtyTree);
     await writeFile(path.join(dirtyTree.path, "uncommitted.txt"), "discard only by named action");
     const removal = await call(parent.controlToken, "remove_worktree", {
