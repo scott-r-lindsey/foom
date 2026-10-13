@@ -7839,18 +7839,15 @@ for (const cliOnly of [false, true])
               ).body.result.sessions[0];
         assert.equal(observed.reason, "provider_unavailable");
         assert.equal(observed.attentionKind, "provider");
-        assert.equal(
-          (
-            await call(parent.controlToken, "reply", {
-              id: liveId,
-              revision: stalled.revision,
-              verdictId: stalled.verdictId,
-              idempotencyKey: `provider-reply-${key.codePointAt(0)}`,
-              text: "Switch model",
-            })
-          ).status,
-          409,
-        );
+        const rejected = await call(parent.controlToken, "reply", {
+          id: liveId,
+          revision: stalled.revision,
+          verdictId: stalled.verdictId,
+          idempotencyKey: `provider-reply-${key.codePointAt(0)}`,
+          text: "Switch model",
+        });
+        assert.equal(rejected.status, 400);
+        assert.equal(rejected.body.error, "conflict");
         await expect(
           children.getByRole("treeitem", { name: new RegExp(`Needs you.*${label}`) }),
         ).toBeVisible();
