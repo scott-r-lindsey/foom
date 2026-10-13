@@ -121,6 +121,45 @@ export function forgeProvider(
   if (!selected) return undefined;
   const repository = `github.com/${selected}`;
   return {
+    async resolve(number) {
+      if (!Number.isSafeInteger(number) || number <= 0) return undefined;
+      try {
+        const data = record(
+          JSON.parse(
+            await runner([
+              "pr",
+              "view",
+              String(number),
+              "--repo",
+              repository,
+              "--json",
+              "number,headRefName,state,headRepositoryOwner,isCrossRepository",
+            ]),
+          ),
+        );
+        const owner = record(data?.["headRepositoryOwner"])?.["login"];
+        if (
+          !data ||
+          data["number"] !== number ||
+          typeof data["headRefName"] !== "string" ||
+          !["OPEN", "CLOSED", "MERGED"].includes(String(data["state"])) ||
+          typeof owner !== "string" ||
+          typeof data["isCrossRepository"] !== "boolean"
+        )
+          return undefined;
+        const state = data["state"];
+        if (state !== "OPEN" && state !== "CLOSED" && state !== "MERGED") return undefined;
+        return {
+          branch: data["headRefName"],
+          state,
+          sameRepository:
+            !data["isCrossRepository"] &&
+            owner.toLowerCase() === selected.split("/")[0]?.toLowerCase(),
+        };
+      } catch {
+        return undefined;
+      }
+    },
     async lookup(branch, number, state = "open") {
       if (
         !forgeBranch(branch) ||

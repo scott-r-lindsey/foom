@@ -1,3 +1,6 @@
+import { UncertainEffect } from "../control/orchestration";
+import { forgeProvider } from "../control/forge";
+import { ControlError } from "../control/validation";
 import { fetchAdvertisedDefault } from "./fetch-default";
 import type { GitPanelFacts } from "../../shared/panel";
 import { inventoryWatchPaths } from "./inventory-watch";
@@ -228,7 +231,10 @@ export class WorktreeService {
     await save;
   }
 
-  constructor(root = join(homedir(), ".foom", "worktrees")) {
+  constructor(
+    root = join(homedir(), ".foom", "worktrees"),
+    private readonly provider = forgeProvider,
+  ) {
     validatePath(root);
     this.root = resolve(root);
   }
@@ -462,6 +468,103 @@ export class WorktreeService {
    * the remote tracking it, and otherwise a new branch from HEAD. A branch that is already
    * checked out is reported, not added again.
    */
+  /** Only main-owned unused checkouts can be reused; no caller supplies a remote or path. */
+  async adoptWorktree(
+    repositoryPath: string,
+    number: number,
+    unused: readonly { path: string; identity: string }[],
+    revalidate: (path?: string, branch?: string) => void,
+    location: "root" | "adjacent" = "root",
+  ): Promise<{ path: string; branch: string; identity: string }> {
+    this.repository(repositoryPath);
+    const remote = await git(repositoryPath, ["config", "--get", "remote.origin.url"]).catch(
+      () => undefined,
+    );
+    const head =
+      remote === undefined ? undefined : await this.provider(remote.trim())?.resolve?.(number);
+    if (!head) throw new ControlError("forge_unavailable");
+    if (head.state !== "OPEN") throw new ControlError("pr_not_open");
+    if (!head.sameRepository) throw new ControlError("pr_from_fork");
+    const branch = head.branch;
+    await this.validateBranch(repositoryPath, branch).catch(() => {
+      throw new ControlError("invalid_branch");
+    });
+    const advertised = await git(repositoryPath, [
+      "ls-remote",
+      "--symref",
+      "--",
+      "origin",
+      "HEAD",
+    ]).catch(() => {
+      throw new ControlError("forge_unavailable");
+    });
+    const defaultBranch = /^ref: refs\/heads\/([^\n\t]+)\tHEAD$/mu.exec(advertised)?.[1];
+    if (!defaultBranch) throw new ControlError("forge_unavailable");
+    if (branch === defaultBranch) throw new ControlError("default_branch");
+    const checkedOut = (await this.listWorktrees(repositoryPath)).filter(
+      (tree) => tree.branch === branch,
+    );
+    if (checkedOut.length > 1) throw new ControlError("branch_in_use");
+    const existing = checkedOut[0];
+    if (existing) {
+      const owned = unused.find((tree) => tree.path === existing.path);
+      if (
+        !owned ||
+        !existing.managed ||
+        existing.bare ||
+        existing.locked ||
+        existing.prunable ||
+        (await this.launchIdentity(repositoryPath, existing.path)) !== owned.identity
+      )
+        throw new ControlError("branch_in_use");
+      revalidate(existing.path, branch);
+      await git(repositoryPath, [
+        "fetch",
+        "--no-tags",
+        "--",
+        "origin",
+        `+refs/heads/${branch}:refs/remotes/origin/${branch}`,
+      ]);
+      revalidate(existing.path, branch);
+      if ((await this.launchIdentity(repositoryPath, existing.path)) !== owned.identity)
+        throw new ControlError("branch_in_use");
+      await git(repositoryPath, [
+        "branch",
+        "--set-upstream-to",
+        `refs/remotes/origin/${branch}`,
+        "--",
+        branch,
+      ]);
+      return { path: existing.path, branch, identity: owned.identity };
+    }
+    revalidate(undefined, branch);
+    await git(repositoryPath, [
+      "fetch",
+      "--no-tags",
+      "--",
+      "origin",
+      `+refs/heads/${branch}:refs/remotes/origin/${branch}`,
+    ]);
+    revalidate(undefined, branch);
+    try {
+      const { path } = await this.createWorktree(repositoryPath, branch, {
+        location,
+        trackOrigin: true,
+      });
+      return { path, branch, identity: await this.launchIdentity(repositoryPath, path) };
+    } catch (error) {
+      if (error instanceof ControlError) throw error;
+      const trees = await this.listWorktrees(repositoryPath).catch(() => undefined);
+      if (!trees || trees.some((tree) => tree.branch === branch)) throw new UncertainEffect();
+      throw error;
+    }
+  }
+
+  /**
+   * Creates a checkout for a validated branch: an existing local branch, a branch on
+   * the remote tracking it, and otherwise a new branch from HEAD. A branch that is already
+   * checked out is reported, not added again.
+   */
   async createWorktree(
     repositoryPath: string,
     branch: string,
@@ -473,6 +576,7 @@ export class WorktreeService {
       (tree) => tree.branch === branch,
     );
     if (checkedOut) {
+      if (options.trackOrigin) throw new ControlError("branch_in_use");
       if (options.newBranch) throw new Error("Branch already exists");
       return { path: checkedOut.path, outcome: "open" };
     }
@@ -493,14 +597,20 @@ export class WorktreeService {
       branch,
     ]);
     if (exists && options.newBranch) throw new Error("Branch already exists");
-    const remote =
-      exists || options.newBranch ? undefined : pickRemote(await git(repository.path, ["remote"]));
+    const remote = options.trackOrigin
+      ? "origin"
+      : exists || options.newBranch
+        ? undefined
+        : pickRemote(await git(repository.path, ["remote"]));
     const tracked = `refs/remotes/${remote ?? ""}/${branch}`;
     const onRemote =
       remote !== undefined &&
       (await git(repository.path, ["for-each-ref", "--format=%(refname)", "--", tracked]))
         .split("\n")
         .includes(tracked);
+    if (options.trackOrigin && !onRemote) throw new Error("PR branch unavailable");
+    if (options.trackOrigin && exists)
+      await git(repository.path, ["branch", "--set-upstream-to", tracked, "--", branch]);
     await prepareParent(root, path);
     try {
       // The full remote ref avoids ambiguity with a local branch named like `origin/x`.
@@ -540,7 +650,7 @@ export class WorktreeService {
   async forgeRemote(repository: string): Promise<string | undefined> {
     const remote = pickRemote(await git(repository, ["remote"]));
     if (!remote) return undefined;
-    return (await git(repository, ["remote", "get-url", "--", remote])).trim();
+    return (await git(repository, ["config", "--get", `remote.${remote}.url`])).trim();
   }
 
   async panelFacts(repository: string, worktree: string): Promise<GitPanelFacts> {

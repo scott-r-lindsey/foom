@@ -121,6 +121,11 @@ it("lists orchestration tools only to the orchestrator and runs them through the
     expect(listed).toContain(`"name":"${name}"`);
   expect(listed).toContain(`"name":"operation_status"`);
   expect(listed).toContain(`"name":"reply"`);
+  expect(listed).toContain('"pullRequest"');
+  expect(listed).toContain('"oneOf"');
+  expect(
+    await orchestrator.tool("create_worktree", { pullRequest: 337, idempotencyKey: "no-provider" }),
+  ).toMatchObject({ isError: true, content: [{ text: "forge_unavailable" }] });
   const created = await orchestrator.tool("create_worktree", {
     idempotencyKey: "one",
     branch: "feature",

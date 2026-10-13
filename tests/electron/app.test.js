@@ -7772,6 +7772,117 @@ process.stdin.on("data", (key) => {
 });
 `;
 
+test("an orchestrator adopts an open PR then launches its child", {
+  skip: process.platform === "win32" && "The fake agent is a POSIX script",
+}, async (context) => {
+  const { chmod, mkdir, readFile, symlink, writeFile } = require("node:fs/promises");
+  const { existsSync } = require("node:fs");
+  const root = await mkdtemp(path.join(tmpdir(), "foom-forge-adopt-"));
+  removeAfterApps(context, root);
+  const bin = path.join(root, "bin");
+  const repo = path.join(root, "app");
+  const home = path.join(root, "home");
+  for (const directory of [bin, repo, home]) await mkdir(directory);
+  await writeFile(path.join(bin, "claude"), FAKE_ORCHESTRATED_CLAUDE);
+  await writeFile(path.join(bin, "gh"), FAKE_GH);
+  for (const name of ["claude", "gh"]) await chmod(path.join(bin, name), 0o755);
+  await symlink(process.execPath, path.join(bin, "node"));
+  const git = (...args) =>
+    isolatedGit(["-c", "user.name=Foom", "-c", "user.email=foom@example.com", ...args], {
+      cwd: repo,
+      encoding: "utf8",
+    });
+  git("init", "-q", "-b", "main");
+  git("commit", "-q", "--allow-empty", "-m", "init");
+  git("branch", "child-one");
+  const remote = path.join(root, "remote.git");
+  git("clone", "--bare", repo, remote);
+  git("branch", "-D", "child-one");
+  git("remote", "add", "origin", "https://github.com/fixture/offline.git");
+  git("config", `url.${remote}.insteadOf`, "https://github.com/fixture/offline.git");
+  const forgeState = path.join(root, "forge.json");
+  await writeFile(
+    forgeState,
+    JSON.stringify({ pr: { headRepositoryOwner: { login: "fixture" } }, checks: [] }),
+  );
+  const credentials = path.join(root, "credentials.json");
+  const app = await launchApp(context, false, {
+    args: [`--user-data-dir=${path.join(root, "user-data")}`],
+    env: {
+      HOME: home,
+      PATH: [bin, "/usr/local/bin", "/usr/bin", "/bin"].join(path.delimiter),
+      TEST_FAKE_CREDENTIALS: credentials,
+      TEST_FORGE_STATE: forgeState,
+    },
+  });
+  const page = await boardPage(app);
+  await app.evaluate(({ dialog }, directory) => {
+    dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [directory] });
+  }, repo);
+  const repository = await page.evaluate(async () => (await window.desktop.addRepository()).path);
+  await page.evaluate(
+    ({ repository }) =>
+      window.desktop.sidebarCommand({
+        kind: "launch",
+        repository,
+        worktree: repository,
+        run: "claude",
+      }),
+    { repository },
+  );
+  await expect.poll(() => existsSync(`${credentials}.app`)).toBe(true);
+  const parent = JSON.parse(await readFile(`${credentials}.app`, "utf8"));
+  const call = async (method, params = {}) => {
+    const response = await fetch(parent.controlUrl, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${parent.controlToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ version: 1, instanceId: parent.instanceId, method, params }),
+    });
+    assert.equal(response.status, 200);
+    return (await response.json()).result;
+  };
+  const parentId = (await call("whoami")).terminalId;
+  const parentRow = page
+    .locator(".session-entry")
+    .filter({ has: page.locator(`[data-drag-session="${parentId}"]`) });
+  await parentRow
+    .locator(":scope > .board-row")
+    .getByRole("button", { name: /^Actions for/ })
+    .click();
+  await page.getByRole("menuitem", { name: "Make orchestrator…" }).click();
+  const confirmation = await confirmationPage(app);
+  await confirmation.getByRole("button", { name: "Make orchestrator" }).click();
+  await expect.poll(async () => (await call("whoami")).role).toBe("orchestrator");
+  const tree = await call("create_worktree", { pullRequest: 340, idempotencyKey: "adopt-tree" });
+  assert.equal(tree.status, "succeeded");
+  const child = await call("launch", {
+    worktreeId: tree.resultId,
+    agent: "claude",
+    idempotencyKey: "adopt-child",
+  });
+  assert.equal(child.status, "succeeded");
+  await expect
+    .poll(async () => (await call("session_state", { id: child.resultId })).pullRequest?.number)
+    .toBe(340);
+  const rows = (await page.evaluate(() => window.desktop.workspace())).terminals;
+  const childRow = rows.find((row) => row.id === child.resultId);
+  assert.equal(childRow.branch, "child-one");
+  assert.equal(
+    isolatedGit(["rev-parse", "--abbrev-ref", "@{upstream}"], {
+      cwd: childRow.worktree,
+      encoding: "utf8",
+    }).trim(),
+    "origin/child-one",
+  );
+  assert.equal(
+    isolatedGit(["rev-parse", "HEAD"], { cwd: childRow.worktree, encoding: "utf8" }).trim(),
+    git("rev-parse", "origin/child-one").trim(),
+  );
+});
+
 test("an orchestrator wait_for wakes on a child PR required-check conclusion", {
   skip: process.platform === "win32" && "The fake agent is a POSIX script",
 }, async (context) => {

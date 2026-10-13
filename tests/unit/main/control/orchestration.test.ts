@@ -1,3 +1,4 @@
+import { ControlError } from "../../../../src/main/control/validation";
 import type { PullRequest } from "../../../../src/main/control/forge.d";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -37,6 +38,21 @@ function harness() {
       read: vi.fn((_repository: string, _path: string): PullRequest | undefined => undefined),
     },
     terminals: () => [...rows.values()],
+    adoptWorktree: vi.fn(
+      (
+        _repository: string,
+        _number: number,
+        _unused: readonly { path: string; identity: string }[],
+        revalidate: (path?: string) => void,
+      ) => {
+        revalidate();
+        return Promise.resolve({
+          path: join(repo, "trees", "adopted"),
+          branch: "adopted",
+          identity: "id-adopted",
+        });
+      },
+    ),
     createWorktree: vi.fn((_repository: string, branch: string) =>
       Promise.resolve({ path: join(repo, "trees", branch), branch, identity: `id-${branch}` }),
     ),
@@ -877,4 +893,62 @@ it("wakes wait_for on required checks and exposes old mappings to a new generati
     pullRequest: { number: 340, requiredChecks: "success" },
   });
   await expect(next.call("wait_for", { ids: [child.id] })).rejects.toThrow("not_found");
+});
+
+it("validates the narrow PR-number schema and deduplicates adoption", async () => {
+  const h = harness();
+  for (const params of [
+    {},
+    { pullRequest: 0 },
+    { pullRequest: -1 },
+    { pullRequest: 1.5 },
+    { pullRequest: "337" },
+    { pullRequest: 337, branch: "x" },
+    { pullRequest: 337, remote: "origin" },
+    { pullRequest: 337, path: "/tmp" },
+  ]) {
+    await expect(h.mutate("create_worktree", params)).rejects.toThrow("invalid_request");
+  }
+  const first = await h.call("create_worktree", { idempotencyKey: "adopt", pullRequest: 337 });
+  expect(first).toMatchObject({ status: "succeeded" });
+  expect(await h.call("create_worktree", { idempotencyKey: "adopt", pullRequest: 337 })).toEqual(
+    first,
+  );
+  await expect(
+    h.call("create_worktree", { idempotencyKey: "adopt", pullRequest: 338 }),
+  ).rejects.toThrow("conflict");
+  expect(h.host.adoptWorktree).toHaveBeenCalledOnce();
+  expect(h.host.forge.track).toHaveBeenCalledWith({
+    repository: repo,
+    path: join(repo, "trees", "adopted"),
+    branch: "adopted",
+    identity: "id-adopted",
+  });
+});
+it("charges adoption to the unused budget and permits owned unused reuse at capacity", async () => {
+  const h = harness();
+  const tree = await h.mutate("create_worktree", { pullRequest: 337 });
+  for (const branch of ["a", "b", "c"]) await h.mutate("create_worktree", { branch });
+  await expect(h.mutate("create_worktree", { pullRequest: 338 })).rejects.toThrow("capacity");
+  h.host.adoptWorktree.mockImplementationOnce((_repo, _number, unused, revalidate) => {
+    const adopted = unused.find((row) => row.path.endsWith("adopted"));
+    if (!adopted) throw new Error("Missing ownership");
+    revalidate(adopted.path);
+    return Promise.resolve({ ...adopted, branch: "adopted" });
+  });
+  expect(await h.mutate("create_worktree", { pullRequest: 337 })).toMatchObject({
+    resultId: tree.resultId,
+  });
+  expect(await h.mutate("launch", { worktreeId: tree.resultId, agent: "claude" })).toMatchObject({
+    status: "succeeded",
+  });
+});
+it("records adoption refusals without leaking provider diagnostics", async () => {
+  const h = harness();
+  h.host.adoptWorktree.mockRejectedValueOnce(new ControlError("pr_from_fork"));
+  await expect(h.mutate("create_worktree", { pullRequest: 337 })).rejects.toThrow("pr_from_fork");
+  expect(h.persist.mock.calls.at(-1)?.[0].operation).toMatchObject({
+    status: "failed",
+    reason: "refused",
+  });
 });
