@@ -1,0 +1,93 @@
+{
+  "platform": "linux",
+  "node": "v24.17.0",
+  "cases": [
+    {
+      "name": "same-size-restored-mtime",
+      "status": "conflict",
+      "disk": "disk",
+      "draft": "user"
+    },
+    {
+      "name": "atomic-crlf-bom-mode-watch",
+      "events": [
+        ".editing-6d39aaec-4bd6-4c25-a85d-8a2cd313241d",
+        ".editing-6d39aaec-4bd6-4c25-a85d-8a2cd313241d",
+        ".editing-6d39aaec-4bd6-4c25-a85d-8a2cd313241d",
+        "note.txt"
+      ],
+      "mode": "0640",
+      "bytesPreserved": true
+    },
+    {
+      "name": "reload-dirty-delete-recreate",
+      "clean": "agent",
+      "dirty": "conflict",
+      "delete": "refused",
+      "recreate": "conflict"
+    },
+    {
+      "name": "nul",
+      "result": "refused"
+    },
+    {
+      "name": "utf16",
+      "result": "refused"
+    },
+    {
+      "name": "invalid",
+      "result": "refused"
+    },
+    {
+      "name": "large",
+      "result": "refused"
+    },
+    {
+      "name": "containment",
+      "invalidNames": 10,
+      "finalAndParentSymlinks": "refused",
+      "fifo": "refused",
+      "windowsForms": "syntactic Linux test only"
+    },
+    {
+      "name": "uncooperative-writer-race",
+      "status": "saved",
+      "lostAgentWrite": true,
+      "conclusion": "Hash plus rename is not filesystem compare-and-swap"
+    },
+    {
+      "name": "scratch",
+      "restart": true,
+      "maxPads": 16,
+      "maxBytesPerPad": 65536,
+      "fileMode": "0600",
+      "worktreeWrites": 0
+    },
+    {
+      "name": "launch-arrays",
+      "adapters": 7,
+      "shell": false,
+      "literalPath": true
+    }
+  ],
+  "workloads": [
+    {
+      "trials": 20,
+      "twoSimulatedAgents": true,
+      "scheduledOverlapPercent": 0,
+      "conflicts": 0
+    },
+    {
+      "trials": 20,
+      "twoSimulatedAgents": true,
+      "scheduledOverlapPercent": 25,
+      "conflicts": 5
+    },
+    {
+      "trials": 20,
+      "twoSimulatedAgents": true,
+      "scheduledOverlapPercent": 100,
+      "conflicts": 20
+    }
+  ]
+}
