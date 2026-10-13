@@ -713,6 +713,7 @@ test("terminal runs an interactive shell behind an isolated bridge", {
         node: "undefined",
         process: "undefined",
         capabilities: [
+          "previews",
           "windows",
           "sounds",
           "confirmations",
