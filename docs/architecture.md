@@ -1361,6 +1361,8 @@ folder, bound allocation, and recheck file and directory identity. Subfolders an
 redirected theme directories are refused. Invalid names and nonfiles do not consume
 the file budget. Previously loaded files are considered first so added files cannot
 evict their last-good versions; remaining names are sorted. Folder failures produce fixed diagnostics.
+The read descriptor closes before parsing or waiting for the config approval queue,
+so a queued restore never waits behind a reader holding its rename target open.
 The folder watcher debounces changes for 250 ms, reloads serially and closes on
 shutdown. Parsed palettes and bounded diagnostics contain no absolute paths or
 raw file contents; diagnostics have a filename, JSON path and fixed reason code.
@@ -1433,7 +1435,11 @@ stores only profile settings plus `configDigest`: the SHA-256 of the settings fi
 this profile last applied. If the folder cannot be prepared, settings stay in the
 version 1 profile and migration is retried at the next launch. Settings saves split
 the patch: config keys are written to the file atomically and committed with a
-subject naming the change; profile keys go to the profile.
+subject naming the change; profile keys go to the profile. On Windows only, atomic
+replacement retries EPERM/EBUSY up to five attempts with 25, 50, 100 and 200 ms
+backoff for transient external sharing locks. It never unlinks the destination;
+exhaustion removes the temporary file, reports a fixed error naming the config
+file, and retains the existing file, applied values and pending approval.
 
 **Live reload.** Main watches `settings.json`, `themes/` and `terminal-themes/`,
 waits 250 ms after the last event and scans serially. When `themes` or
