@@ -971,19 +971,29 @@ test("bundled brand fonts and both system themes render in Electron", {
     ],
   };
   for (const mode of ["dark", "light", "dark"]) {
-    // Main owns nativeTheme and can refresh it while setup changes settle.
-    await page.emulateMedia({ colorScheme: mode });
-    await page.waitForFunction(
-      (dark) => matchMedia("(prefers-color-scheme: dark)").matches === dark,
-      mode === "dark",
-    );
     const background = mode === "dark" ? "rgb(5, 4, 10)" : "rgb(243, 240, 250)";
-    await page.waitForFunction(
-      // Terminal and interface themes have separate media-change listeners.
-      (expected) =>
-        getComputedStyle(document.documentElement).backgroundColor === expected &&
-        getComputedStyle(document.querySelector(".xterm-scrollable-element")).backgroundColor ===
-          expected,
+    // Page media emulation only controls renderer listeners. The host also sends
+    // OSC palettes on attachment and nativeTheme updates, so let that palette
+    // reach xterm before changing the renderer's media preference.
+    await app.evaluate(({ nativeTheme }, theme) => {
+      nativeTheme.themeSource = theme;
+    }, mode);
+    await expect
+      .poll(() => app.evaluate(({ nativeTheme }) => nativeTheme.shouldUseDarkColors))
+      .toBe(mode === "dark");
+    await expect(page.locator(".xterm-scrollable-element")).toHaveCSS(
+      "background-color",
+      background,
+    );
+    // Main can refresh nativeTheme while setup changes settle. Keep the page's
+    // preference explicit, but agree with the host rather than racing its OSCs.
+    await page.emulateMedia({ colorScheme: mode });
+    await expect
+      .poll(() => page.evaluate(() => matchMedia("(prefers-color-scheme: dark)").matches))
+      .toBe(mode === "dark");
+    await expect(page.locator("html")).toHaveCSS("background-color", background);
+    await expect(page.locator(".xterm-scrollable-element")).toHaveCSS(
+      "background-color",
       background,
     );
     const rendered = await page.evaluate(async () => {
@@ -3315,17 +3325,84 @@ process.stdin.resume();
     await expect(
       page.locator('.terminal-tile[data-focused="true"] .xterm-helper-textarea'),
     ).toBeFocused();
-    await page.getByRole("button", { name: "Actions for agent", exact: true }).click();
-    await page.getByRole("menuitem", { name: "Claude Code", exact: true }).click();
-    await expect(
-      page.getByRole("menuitem", { name: "Click again for multiple agents here" }),
-    ).toBeVisible();
+    const armSharedAgent = async () => {
+      // DOM terminal focus does not establish native activation on macOS.
+      await app.evaluate(({ app, BrowserWindow }) => {
+        const board = BrowserWindow.getAllWindows().find(
+          (window) => window.webContents.getURL() === "app://bundle/index.html",
+        );
+        app.focus({ steal: true });
+        board.focus();
+        board.webContents.focus();
+      });
+      await expect
+        .poll(() =>
+          app.evaluate(({ BrowserWindow }) => {
+            const board = BrowserWindow.getAllWindows().find(
+              (window) => window.webContents.getURL() === "app://bundle/index.html",
+            );
+            return board.isVisible() && board.isFocused() && board.webContents.isFocused();
+          }),
+        )
+        .toBe(true);
+      await expect.poll(() => page.evaluate(() => document.hasFocus())).toBe(true);
+      await page.getByRole("button", { name: "Actions for agent", exact: true }).click();
+      const panel = page.getByRole("dialog", { name: "agent details and commands" });
+      await expect(panel).toHaveAttribute("data-pinned", "true");
+      const item = panel.getByRole("menuitem", { name: "Claude Code", exact: true });
+      await item.evaluate((element) => {
+        window.sharedAgentTrace = [];
+        for (const type of ["click", "blur", "pointerleave"])
+          element.addEventListener(type, () => window.sharedAgentTrace.push(type));
+        window.sharedAgentUnsubscribe = window.desktop.confirmations.subscribe((arm) => {
+          window.sharedAgentTrace.push(arm ? `arm:${arm.label}` : "cancel");
+        });
+      });
+      try {
+        await item.click();
+        assert.ok(
+          await page.evaluate(() => window.sharedAgentTrace.includes("click")),
+          "Shared-agent click must reach the menu item after native activation",
+        );
+        await expect
+          .poll(() =>
+            page.evaluate(() =>
+              window.sharedAgentTrace.includes("arm:Click again for multiple agents here"),
+            ),
+          )
+          .toBe(true);
+        const armed = panel.getByRole("menuitem", {
+          name: "Click again for multiple agents here",
+        });
+        await expect(armed).toBeVisible();
+        return armed;
+      } catch (error) {
+        console.error("Shared-agent confirmation diagnostics:", {
+          renderer: await page.evaluate(() => ({
+            events: window.sharedAgentTrace,
+            focused: document.hasFocus(),
+            active: document.activeElement?.getAttribute("role"),
+            panelPinned: document.querySelector(".sidebar-panel")?.getAttribute("data-pinned"),
+          })),
+          windows: await app.evaluate(({ BrowserWindow }) =>
+            BrowserWindow.getAllWindows().map((window) => ({
+              url: window.webContents.getURL(),
+              focused: window.isFocused(),
+              contentsFocused: window.webContents.isFocused(),
+            })),
+          ),
+          agents: (await sharedSessions()).filter((session) => session.kind === "agent").length,
+        });
+        throw error;
+      } finally {
+        await page.evaluate(() => window.sharedAgentUnsubscribe());
+      }
+    };
+    await armSharedAgent();
     await page.keyboard.press("Escape");
+    await expect(page.getByRole("dialog", { name: "agent details and commands" })).toHaveCount(0);
     assert.equal((await sharedSessions()).length, 3, "Cancel must not create an agent");
-    await page.getByRole("button", { name: "Actions for agent", exact: true }).click();
-    await page.getByRole("menuitem", { name: "Claude Code", exact: true }).click();
-    const sharedArm = page.getByRole("menuitem", { name: "Click again for multiple agents here" });
-    await expect(sharedArm).toBeVisible();
+    const sharedArm = await armSharedAgent();
     // Measure the minimum interval from main's arm, not from the async launch request.
     await page.waitForTimeout(310);
     await sharedArm.click();
@@ -8356,7 +8433,36 @@ test("merged cleanup opens checking, continues hidden, reopens progress and stop
   await expect(confirmation.getByRole("list", { name: "Kept worktrees" })).toContainText(
     "dirtyuncommitted changes",
   );
+  // CDP sees the enabled button before the native child necessarily becomes
+  // active. On macOS that first click can activate the window without accepting.
+  await app.evaluate(({ app, BrowserWindow }) => {
+    const window = BrowserWindow.getAllWindows().find(
+      (window) => window.webContents.getURL() === "app://confirmation/confirmation.html",
+    );
+    app.focus({ steal: true });
+    window.focus();
+    window.webContents.focus();
+  });
+  await expect
+    .poll(() =>
+      app.evaluate(({ BrowserWindow }) => {
+        const window = BrowserWindow.getAllWindows().find(
+          (window) => window.webContents.getURL() === "app://confirmation/confirmation.html",
+        );
+        return window.isVisible() && window.isFocused() && window.webContents.isFocused();
+      }),
+    )
+    .toBe(true);
+  await expect.poll(() => confirmation.evaluate(() => document.hasFocus())).toBe(true);
+  await assertConfirmationFocus(
+    app,
+    confirmation,
+    confirmation.getByRole("button", { name: "Cancel" }),
+  );
   await confirmation.getByRole("button", { name: "Delete 8", exact: true }).click();
+  // Acceptance changes the feed synchronously, before the fetch and removals.
+  // Keep a lost click distinct from a blocked service boundary.
+  await expect(confirmation.getByRole("button", { name: "Hide", exact: true })).toBeVisible();
   await expect.poll(() => app.evaluate(() => globalThis.cleanupRemovals.length)).toBe(4);
   await confirmation.getByRole("button", { name: "Hide", exact: true }).click();
   await expect(page.getByText("deleting 0/8", { exact: true })).toBeVisible();

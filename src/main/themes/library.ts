@@ -189,6 +189,7 @@ export class ThemeLibrary {
       target,
       constants.O_RDONLY | constants.O_NONBLOCK | constants.O_NOFOLLOW,
     );
+    let text: string;
     try {
       const info = await handle.stat();
       if (!info.isFile()) throw new ThemeValidationError("$", "unsafe-file");
@@ -213,19 +214,18 @@ export class ThemeLibrary {
         current.mtimeMs !== info.mtimeMs
       )
         throw new ThemeValidationError("$", "unsafe-file");
-      const text = bytes.subarray(0, size).toString("utf8");
-      const parsed = parseThemeFile(text, kind);
-      return this.review
-        ? await this.review(
-            `${kind === "theme" ? "themes" : "terminal-themes"}/${name}`,
-            text,
-            parsed,
-          )
-        : parsed;
+      text = bytes.subarray(0, size).toString("utf8");
     } finally {
       await handle.close();
     }
+    // Review joins the config service's queue, which may already contain a restore.
+    // Never retain the target descriptor while waiting for that writer.
+    const parsed = parseThemeFile(text, kind);
+    return this.review
+      ? this.review(`${kind === "theme" ? "themes" : "terminal-themes"}/${name}`, text, parsed)
+      : parsed;
   }
+
   dispose(): void {
     this.disposed = true;
     clearTimeout(this.timer);
