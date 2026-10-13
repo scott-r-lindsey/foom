@@ -1,3 +1,4 @@
+import type { PreviewRecord } from "../../shared/previews";
 import { conversationId } from "../../shared/conversation";
 import type { WindowIpc } from "../window/window-ipc";
 import type { ExecutionTransition } from "../../shared/execution";
@@ -170,6 +171,7 @@ export function attachWorkspace(
   owns: (id: string) => boolean,
   requestDialog: (content: DialogContent) => Promise<boolean>,
   ipc: WindowIpc = ipcMain,
+  previews: () => readonly PreviewRecord[] = () => [],
 ): {
   sendExecution(event: ExecutionTransition): void;
   sendState(state: TerminalState): void;
@@ -306,7 +308,31 @@ export function attachWorkspace(
         return workspace.panelFacts(repository, worktree);
       },
     ],
-    ["workspace:sidebar", () => workspace.sidebarInventory()],
+    [
+      "workspace:sidebar",
+      async () => {
+        const inventory = await workspace.sidebarInventory();
+        return {
+          ...inventory,
+          previews: previews().flatMap((record) => {
+            const repository = inventory.repositories.find((entry) =>
+              entry.worktrees.some((tree) => tree.path === record.worktree),
+            );
+            return repository
+              ? [
+                  {
+                    id: record.id,
+                    repository: repository.path,
+                    worktree: record.worktree,
+                    relativePath: record.relativePath,
+                    kind: /\.(md|markdown)$/i.test(record.relativePath) ? "markdown" : "html",
+                  },
+                ]
+              : [];
+          }),
+        };
+      },
+    ],
     [
       "workspace:sidebar-command",
       (value) => {

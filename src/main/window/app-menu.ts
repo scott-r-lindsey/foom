@@ -194,6 +194,7 @@ export function attachAppMenu(
     contents.send("app-menu:open");
   });
   const beforeInput = (event: Electron.Event, input: Electron.Input) => {
+    if (event.defaultPrevented) return;
     if (shortcuts.handle(input)) event.preventDefault();
   };
   contents.on("before-input-event", beforeInput);

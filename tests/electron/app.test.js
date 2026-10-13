@@ -738,6 +738,7 @@ test("terminal runs an interactive shell behind an isolated bridge", {
         node: "undefined",
         process: "undefined",
         capabilities: [
+          "previews",
           "windows",
           "sounds",
           "confirmations",
@@ -9360,4 +9361,483 @@ test("tile layouts restore v1 terminal content and v2 mixed content after invent
       animations: "disabled",
     });
   }
+});
+
+async function previewContents(app, id, code) {
+  return app.evaluate(
+    ({ webContents }, { id, code }) => {
+      const contents = webContents
+        .getAllWebContents()
+        .find((entry) => entry.getURL().startsWith(`foom-preview://${id}/`));
+      if (!contents) throw new Error("Missing preview contents");
+      if (contents.isLoading()) {
+        contents.debugger.attach("1.3");
+        return contents.debugger
+          .sendCommand("Runtime.evaluate", { expression: code, returnByValue: true })
+          .then((result) => result.result.value)
+          .finally(() => contents.debugger.detach());
+      }
+      return contents.executeJavaScript(code);
+    },
+    { id, code },
+  );
+}
+async function previewViewState(app, id) {
+  return app.evaluate(({ BrowserWindow, webContents }, id) => {
+    const board = BrowserWindow.getAllWindows().find(
+      (window) => window.webContents.getURL() === "app://bundle/index.html",
+    );
+    const contents = webContents
+      .getAllWebContents()
+      .find((entry) => entry.getURL().startsWith(`foom-preview://${id}/`));
+    const view = board.contentView.children.find((view) => view.webContents === contents);
+    return {
+      contentsId: contents?.id,
+      attached: Boolean(view),
+      visible: view?.getVisible(),
+      focused: contents?.isFocused(),
+      loading: contents?.isLoading(),
+      bounds: view?.getBounds(),
+      zoom: contents?.getZoomFactor(),
+    };
+  }, id);
+}
+
+// Resolve the native first responder for every key. Targeting the board via CDP
+// would conceal a WebContentsView stealing focus. The events then traverse xterm
+// and the real PTY; the page also counts every key it receives.
+async function typeIntoFocusedContents(app, text, allowNoFocus = false) {
+  for (const key of text) {
+    await app.evaluate(
+      ({ webContents }, { key, allowNoFocus }) => {
+        const contents = webContents.getFocusedWebContents();
+        if (!contents && allowNoFocus) return;
+        if (!contents) throw new Error("No native keyboard target");
+        contents.sendInputEvent({ type: "keyDown", keyCode: key });
+        contents.sendInputEvent({ type: "char", keyCode: key });
+        contents.sendInputEvent({ type: "keyUp", keyCode: key });
+      },
+      { key, allowNoFocus },
+    );
+  }
+}
+
+test("preview host loads and reloads detached, never steals terminal keystrokes, and focuses on a click", async (context) => {
+  const app = await launchApp(context);
+  const page = await boardPage(app);
+  const terminal = (await page.evaluate(() => window.desktop.workspace())).terminals[0];
+  const root = terminal.worktree;
+  await writeFile(
+    path.join(root, "grabby.html"),
+    `<input id="grab" autofocus style="width:100%;height:100px"><img src="gate.svg"><script>
+    window.stolen=""; window.attempts=0;
+    addEventListener("keydown", event => { if(event.key.length===1) window.stolen+=event.key; });
+    setInterval(()=>{window.attempts++; window.focus(); document.getElementById("grab").focus();},20);
+  </script>`,
+  );
+  // Hold a real subresource response so typing demonstrably overlaps loading.
+  await app.evaluate(({ app }) => {
+    globalThis.previewFocusEvents = { focus: 0, blur: 0 };
+    app.on("web-contents-created", (_event, contents) => {
+      contents.on("focus", () => globalThis.previewFocusEvents.focus++);
+      contents.on("blur", () => globalThis.previewFocusEvents.blur++);
+    });
+    app.on("session-created", (partition) => {
+      const handle = partition.protocol.handle.bind(partition.protocol);
+      partition.protocol.handle = (scheme, handler) =>
+        handle(scheme, (request) => {
+          if (!request.url.endsWith("/gate.svg")) return handler(request);
+          globalThis.previewGateRequested = true;
+          return new Promise((resolve) => {
+            globalThis.releasePreviewGate = () =>
+              resolve(
+                new Response('<svg xmlns="http://www.w3.org/2000/svg"/>', {
+                  headers: { "content-type": "image/svg+xml", "cache-control": "no-store" },
+                }),
+              );
+          });
+        });
+    });
+  });
+  await expect
+    .poll(() => page.locator(".xterm-rows").innerText())
+    .toMatch(process.platform === "win32" ? /PS [\s\S]*>/ : /[$#%>]\s*$/);
+  await page.locator(".xterm-helper-textarea").focus();
+  await app.evaluate(({ BrowserWindow }) => {
+    const window = BrowserWindow.getAllWindows().find(
+      (window) => window.webContents.getURL() === "app://bundle/index.html",
+    );
+    window.focus();
+    window.webContents.focus();
+  });
+  await expect
+    .poll(() => app.evaluate(({ webContents }) => webContents.getFocusedWebContents()?.getURL()))
+    .toBe("app://bundle/index.html");
+  const id = await page.evaluate((root) => window.desktop.previews.open(root, "grabby.html"), root);
+  await page.evaluate(
+    (id) =>
+      window.desktop.previews.bounds(id, {
+        x: 500,
+        y: 150,
+        width: 250,
+        height: 200,
+        visible: true,
+      }),
+    id,
+  );
+  await expect.poll(() => app.evaluate(() => globalThis.previewGateRequested)).toBe(true);
+  assert.equal((await previewViewState(app, id)).attached, false);
+
+  await expect.poll(() => previewContents(app, id, "window.attempts")).toBeGreaterThan(0);
+  const keys = "a".repeat(100);
+  await typeIntoFocusedContents(app, keys);
+  await expect
+    .poll(async () =>
+      (await page.evaluate((id) => window.desktop.tail(id, 20), terminal.id)).join(""),
+    )
+    .toContain(keys);
+  assert.equal(await previewContents(app, id, "window.stolen"), "");
+  await app.evaluate(() => globalThis.releasePreviewGate());
+  await expect.poll(async () => (await previewViewState(app, id)).attached).toBe(true);
+  await typeIntoFocusedContents(app, "b".repeat(100));
+  await expect
+    .poll(async () =>
+      (await page.evaluate((id) => window.desktop.tail(id, 20), terminal.id)).join(""),
+    )
+    .toContain(keys + "b".repeat(100));
+  assert.equal(await previewContents(app, id, "window.stolen"), "");
+  // A real mouse event on the native view grants focus; no focus IPC exists.
+  await app.evaluate(({ webContents }, id) => {
+    const contents = webContents
+      .getAllWebContents()
+      .find((entry) => entry.getURL().startsWith(`foom-preview://${id}/`));
+    contents.sendInputEvent({ type: "mouseDown", x: 30, y: 30, button: "left", clickCount: 1 });
+    contents.sendInputEvent({ type: "mouseUp", x: 30, y: 30, button: "left", clickCount: 1 });
+  }, id);
+  await expect.poll(async () => (await previewViewState(app, id)).focused).toBe(true);
+  await typeIntoFocusedContents(app, "human");
+  await expect.poll(() => previewContents(app, id, "window.stolen")).toBe("human");
+  // Return native focus to the board first, then the terminal input inside it. macOS
+  // moves native focus asynchronously, and the page may not restore its own focus.
+  await app.evaluate(({ BrowserWindow }) => {
+    BrowserWindow.getAllWindows()
+      .find((window) => window.webContents.getURL() === "app://bundle/index.html")
+      .webContents.focus();
+  });
+  await expect
+    .poll(() => app.evaluate(({ webContents }) => webContents.getFocusedWebContents()?.getURL()))
+    .toBe("app://bundle/index.html");
+  await page.locator(".xterm-helper-textarea").focus();
+  await expect(page.locator(".xterm-helper-textarea")).toBeFocused();
+  const oldContentsId = (await previewViewState(app, id)).contentsId;
+  await app.evaluate(({ webContents }, id) => {
+    globalThis.previewGateRequested = false;
+    webContents
+      .getAllWebContents()
+      .find((entry) => entry.getURL().startsWith(`foom-preview://${id}/`))
+      .reload();
+  }, id);
+  await expect.poll(() => app.evaluate(() => globalThis.previewGateRequested)).toBe(true);
+  assert.equal((await previewViewState(app, id)).attached, false);
+  assert.notEqual((await previewViewState(app, id)).contentsId, oldContentsId);
+  const focusedUrl = () =>
+    app.evaluate(({ webContents }) => webContents.getFocusedWebContents()?.getURL() ?? "none");
+  const focusBefore = await focusedUrl();
+  await typeIntoFocusedContents(app, "c".repeat(100));
+  const focusAfter = await focusedUrl();
+  const reloadState = await previewViewState(app, id);
+  const focusEvents = await app.evaluate(() => globalThis.previewFocusEvents);
+  context.diagnostic(
+    `reload state ${JSON.stringify(reloadState)}, focus events ${JSON.stringify(focusEvents)}, native focus ${focusBefore} -> ${focusAfter}`,
+  );
+  const boardActive = await page.evaluate(() => document.activeElement?.className ?? "none");
+  await app.evaluate(() => globalThis.releasePreviewGate());
+  await expect.poll(async () => (await previewViewState(app, id)).attached).toBe(true);
+  await expect
+    .poll(
+      async () => (await page.evaluate((id) => window.desktop.tail(id, 20), terminal.id)).join(""),
+      {
+        message: `keys typed during reload; native focus ${focusBefore} -> ${focusAfter}, board active element ${boardActive}`,
+      },
+    )
+    .toContain(keys + "b".repeat(100) + "c".repeat(100));
+  assert.equal(await previewContents(app, id, "window.stolen"), "");
+  await page.evaluate((id) => window.desktop.previews.close(id), id);
+});
+
+test("preview host keeps keyboard focus after a user-clicked link navigation", async (context) => {
+  const app = await launchApp(context);
+  const page = await boardPage(app);
+  const terminal = (await page.evaluate(() => window.desktop.workspace())).terminals[0];
+  const root = terminal.worktree;
+  await writeFile(
+    path.join(root, "links.html"),
+    '<a href="destination.md" style="display:block;width:200px;height:100px">Continue</a>',
+  );
+  await writeFile(path.join(root, "destination.md"), "Destination");
+  await app.evaluate(({ app }) => {
+    app.on("session-created", (partition) => {
+      const handle = partition.protocol.handle.bind(partition.protocol);
+      partition.protocol.handle = (scheme, handler) =>
+        handle(scheme, (request) => {
+          if (!request.url.endsWith("/destination.md")) return handler(request);
+          globalThis.previewLinkRequested = true;
+          return new Promise((resolve) => {
+            globalThis.releasePreviewLink = () => resolve(handler(request));
+          });
+        });
+    });
+  });
+  await page.locator(".xterm-helper-textarea").focus();
+  const id = await page.evaluate((root) => window.desktop.previews.open(root, "links.html"), root);
+  await page.evaluate(
+    (id) =>
+      window.desktop.previews.bounds(id, {
+        x: 350,
+        y: 100,
+        width: 400,
+        height: 250,
+        visible: true,
+      }),
+    id,
+  );
+  await expect.poll(async () => (await previewViewState(app, id)).attached).toBe(true);
+  const oldContentsId = (await previewViewState(app, id)).contentsId;
+  await expect
+    .poll(() => page.locator(".xterm-rows").innerText())
+    .toMatch(process.platform === "win32" ? /PS [\s\S]*>/ : /[$#%>]\s*$/);
+  const terminalBefore = await page.evaluate((id) => window.desktop.tail(id, 20), terminal.id);
+  // Click the actual link with native mouse input, rather than invoking page script.
+  await app.evaluate(({ webContents }, id) => {
+    const contents = webContents
+      .getAllWebContents()
+      .find((entry) => entry.getURL().startsWith(`foom-preview://${id}/`));
+    contents.sendInputEvent({ type: "mouseDown", x: 30, y: 30, button: "left", clickCount: 1 });
+    contents.sendInputEvent({ type: "mouseUp", x: 30, y: 30, button: "left", clickCount: 1 });
+  }, id);
+  await expect.poll(() => app.evaluate(() => globalThis.previewLinkRequested)).toBe(true);
+  assert.equal((await previewViewState(app, id)).attached, false);
+  const nativeFocus = await app.evaluate(({ webContents }) =>
+    webContents.getFocusedWebContents()?.getURL(),
+  );
+  const domFocus = await page.evaluate(() => document.activeElement?.className);
+  context.diagnostic(`handoff native focus ${nativeFocus}, board DOM focus ${domFocus}`);
+  await typeIntoFocusedContents(app, "gap".repeat(40), true);
+  // Exercise native board fallback even on platforms which leave no responder.
+  await app.evaluate(({ BrowserWindow }) => {
+    BrowserWindow.getAllWindows()
+      .find((window) => window.webContents.getURL() === "app://bundle/index.html")
+      .webContents.focus();
+  });
+  await expect
+    .poll(() => app.evaluate(({ webContents }) => webContents.getFocusedWebContents()?.getURL()))
+    .toBe("app://bundle/index.html");
+  await typeIntoFocusedContents(app, "blocked".repeat(40));
+  await app.evaluate(() => globalThis.releasePreviewLink());
+  await expect.poll(async () => (await previewViewState(app, id)).attached).toBe(true);
+  await expect
+    .poll(async () => (await previewViewState(app, id)).contentsId)
+    .not.toBe(oldContentsId);
+  await expect.poll(async () => (await previewViewState(app, id)).focused).toBe(true);
+  assert.equal(await previewContents(app, id, "location.pathname"), "/destination.md");
+  await previewContents(
+    app,
+    id,
+    'window.received=""; addEventListener("keydown", event => { window.received+=event.key; });',
+  );
+  await typeIntoFocusedContents(app, "preview");
+  await expect.poll(() => previewContents(app, id, "window.received")).toBe("preview");
+  assert.deepEqual(
+    await page.evaluate((id) => window.desktop.tail(id, 20), terminal.id),
+    terminalBefore,
+  );
+  // A deliberate terminal click during another handoff restores ordinary input.
+  await app.evaluate(({ webContents }, id) => {
+    globalThis.previewLinkRequested = false;
+    webContents
+      .getAllWebContents()
+      .find((entry) => entry.getURL().startsWith(`foom-preview://${id}/`))
+      .reload();
+  }, id);
+  await expect.poll(() => app.evaluate(() => globalThis.previewLinkRequested)).toBe(true);
+  const terminalBounds = await page.locator(".xterm-screen").boundingBox();
+  assert.ok(terminalBounds);
+  await app.evaluate(({ BrowserWindow }, bounds) => {
+    const contents = BrowserWindow.getAllWindows().find(
+      (window) => window.webContents.getURL() === "app://bundle/index.html",
+    ).webContents;
+    contents.focus();
+    const mouse = {
+      x: Math.round(bounds.x + 10),
+      y: Math.round(bounds.y + bounds.height - 10),
+      button: "left",
+      clickCount: 1,
+    };
+    contents.sendInputEvent({ type: "mouseDown", ...mouse });
+    contents.sendInputEvent({ type: "mouseUp", ...mouse });
+  }, terminalBounds);
+  await expect(page.locator(".xterm-helper-textarea")).toBeFocused();
+  await expect
+    .poll(() => app.evaluate(({ webContents }) => webContents.getFocusedWebContents()?.getURL()))
+    .toBe("app://bundle/index.html");
+  await typeIntoFocusedContents(app, "cancelled");
+  await expect
+    .poll(async () =>
+      (await page.evaluate((id) => window.desktop.tail(id, 20), terminal.id)).join(""),
+    )
+    .toContain("cancelled");
+  await app.evaluate(() => globalThis.releasePreviewLink());
+  await expect.poll(async () => (await previewViewState(app, id)).attached).toBe(true);
+  assert.equal((await previewViewState(app, id)).focused, false);
+  await page.evaluate((id) => window.desktop.previews.close(id), id);
+});
+
+test("preview host isolates hostile pages, blocks network and navigation, scales bounds and clears closed partitions", async (context) => {
+  const app = await launchApp(context);
+  const page = await boardPage(app);
+  const terminal = (await page.evaluate(() => window.desktop.workspace())).terminals[0];
+  const root = terminal.worktree;
+  const server = require("node:http").createServer((_request, response) =>
+    response.end("unwanted"),
+  );
+  let connections = 0;
+  server.on("connection", () => connections++);
+  context.after(() => new Promise((resolve) => server.close(resolve)));
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const external = `http://127.0.0.1:${server.address().port}/`;
+  await writeFile(
+    path.join(root, "hostile.html"),
+    `<input id="input"><a id="external" href="${external}">external</a><a id="html" href="other.html">html</a><script>
+    window.probes={ bridge: typeof window.desktop, require: typeof require, process: typeof process, electron: typeof electron, ipc: typeof ipcRenderer, top: top===window };
+    window.popup=window.open("${external}")===null;
+    window.networkFinished=false; Promise.allSettled([fetch("${external}"), fetch("file:///etc/passwd"), fetch("app://bundle/index.html")]).then(()=>window.networkFinished=true);
+    window.geo="pending"; navigator.geolocation.getCurrentPosition(()=>window.geo="allowed", error=>window.geo=error.code);
+    localStorage.setItem("private", "secret");
+  </script>`,
+  );
+  await writeFile(
+    path.join(root, "clean.html"),
+    '<input><script>window.privateValue=localStorage.getItem("private")</script>',
+  );
+  const baseline = await app.evaluate(({ webContents }) => webContents.getAllWebContents().length);
+  const id = await page.evaluate(
+    (root) => window.desktop.previews.open(root, "hostile.html"),
+    root,
+  );
+  const clean = await page.evaluate(
+    (root) => window.desktop.previews.open(root, "clean.html"),
+    root,
+  );
+  for (const preview of [id, clean]) {
+    await page.evaluate(
+      (id) =>
+        window.desktop.previews.bounds(id, {
+          x: 400,
+          y: 100,
+          width: 250,
+          height: 180,
+          visible: true,
+        }),
+      preview,
+    );
+    await expect.poll(async () => (await previewViewState(app, preview)).attached).toBe(true);
+  }
+  assert.deepEqual(await previewContents(app, id, "window.probes"), {
+    bridge: "undefined",
+    require: "undefined",
+    process: "undefined",
+    electron: "undefined",
+    ipc: "undefined",
+    top: true,
+  });
+  assert.equal(await previewContents(app, id, "window.popup"), true);
+  assert.equal(await previewContents(app, clean, "window.privateValue"), null);
+  await expect.poll(() => previewContents(app, id, "window.networkFinished")).toBe(true);
+  await expect.poll(() => previewContents(app, id, "window.geo")).toBe(1);
+  assert.equal(connections, 0);
+  // Observe actual navigation prevention, rather than waiting an arbitrary interval.
+  for (const link of ["external", "html"]) {
+    const prevented = await app.evaluate(
+      ({ webContents }, { id, link }) => {
+        const wc = webContents
+          .getAllWebContents()
+          .find((entry) => entry.getURL().startsWith(`foom-preview://${id}/`));
+        return new Promise((resolve) => {
+          wc.once("will-frame-navigate", (event) => resolve(event.defaultPrevented));
+          void wc.executeJavaScript(`document.getElementById(${JSON.stringify(link)}).click()`);
+        });
+      },
+      { id, link },
+    );
+    assert.equal(prevented, true);
+  }
+  assert.equal(connections, 0);
+  assert.deepEqual((await previewViewState(app, id)).bounds, {
+    x: 400,
+    y: 100,
+    width: 250,
+    height: 180,
+  });
+  await page.evaluate(() => window.desktop.saveSetup({ interfaceScale: 150 }));
+  await expect
+    .poll(async () => (await previewViewState(app, id)).bounds)
+    .toEqual({ x: 600, y: 150, width: 375, height: 270 });
+  assert.equal((await previewViewState(app, id)).zoom, 1.5);
+  // The scaled minimum window size prevents shrinking the window, so move the
+  // preview past the right edge instead; main clamps it to the content bounds.
+  const contentWidth = await app.evaluate(
+    ({ BrowserWindow }) =>
+      BrowserWindow.getAllWindows()
+        .find((window) => window.webContents.getURL() === "app://bundle/index.html")
+        .getContentBounds().width,
+  );
+  const edge = Math.floor(contentWidth / 1.5) - 100;
+  await page.evaluate(
+    ({ id, edge }) =>
+      window.desktop.previews.bounds(id, {
+        x: edge,
+        y: 100,
+        width: 250,
+        height: 180,
+        visible: true,
+      }),
+    { id, edge },
+  );
+  assert.equal(
+    (await previewViewState(app, id)).bounds?.width,
+    contentWidth - Math.round(edge * 1.5),
+  );
+  const count = await app.evaluate(({ webContents }) => webContents.getAllWebContents().length);
+  assert.equal(count, baseline + 2);
+  await app.evaluate(({ session }, id) => {
+    globalThis.closedPreviewPartition = session.fromPartition(`preview-${id}`);
+  }, id);
+  await page.evaluate((id) => window.desktop.previews.close(id), id);
+  assert.equal(
+    await app.evaluate(({ webContents }) => webContents.getAllWebContents().length),
+    baseline + 1,
+  );
+  assert.equal(
+    await app.evaluate(() =>
+      globalThis.closedPreviewPartition.protocol.isProtocolHandled("foom-preview"),
+    ),
+    false,
+  );
+  assert.deepEqual(
+    await app.evaluate(async () => {
+      const cookies = await globalThis.closedPreviewPartition.cookies.get({});
+      return { cookies, usage: await globalThis.closedPreviewPartition.getStoragePath() };
+    }),
+    { cookies: [], usage: null },
+  );
+  const inventory = await page.evaluate(() => window.desktop.sidebarInventory());
+  assert.deepEqual(
+    inventory.previews.map((entry) => entry.id),
+    [clean],
+  );
+  await page.evaluate((id) => window.desktop.previews.close(id), clean);
+  assert.equal(
+    await app.evaluate(({ webContents }) => webContents.getAllWebContents().length),
+    baseline,
+  );
 });

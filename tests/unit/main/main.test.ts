@@ -1,3 +1,34 @@
+const previewMock = vi.hoisted(() => ({
+  hosts: [] as {
+    validate: (worktree: string) => Promise<void>;
+    changed: () => void;
+    reconcile: () => Promise<void>;
+    dispose: () => Promise<void>;
+  }[],
+}));
+vi.mock("../../../src/main/previews/host", () => ({
+  PreviewHost: class {
+    registry = { records: new Map() };
+    restore = async () => {};
+    refresh = vi.fn();
+    reconcile = vi.fn(async () => {});
+    dispose = vi.fn(async () => {});
+    constructor(
+      _window: unknown,
+      _registry: unknown,
+      validate: (worktree: string) => Promise<void>,
+      changed: () => void,
+    ) {
+      previewMock.hosts.push({
+        validate,
+        changed,
+        reconcile: this.reconcile,
+        dispose: this.dispose,
+      });
+    }
+  },
+}));
+vi.mock("../../../src/main/previews/ipc", () => ({ attachPreviews: () => () => {} }));
 import type { ThemeCatalog } from "../../../src/shared/theme-file";
 import { interfaceThemes } from "../../../src/shared/interface-themes";
 import { terminalThemes } from "../../../src/shared/terminal-themes";
@@ -339,6 +370,8 @@ const mock = vi.hoisted(() => {
         workspace: unknown,
         owns: (id: string) => boolean,
         request: (content: DialogContent) => Promise<boolean>,
+        router?: unknown,
+        previews?: () => readonly unknown[],
       ) => typeof ipc
     >(() => ipc),
     setup,
@@ -1639,6 +1672,49 @@ test("menu agent availability comes from installation and saved settings", async
   await expect(invokeWindow(0, "app-menu:execute", "via-claude")).rejects.toThrow("Unavailable");
   settings = { ...settings, setupComplete: false, agents: { ...settings.agents, claude: true } };
   await expect(invokeWindow(0, "app-menu:execute", "via-claude")).rejects.toThrow("Unavailable");
+});
+
+test("preview hosts validate registered worktrees, notify the board, reconcile and close", async () => {
+  previewMock.hosts.length = 0;
+  const launchIdentity = vi.fn(async () => {});
+  mock.openWorktrees.mockResolvedValue({
+    worktreeRoot: "/trees",
+    listRepositories: () => [
+      { path: "/empty", name: "empty" },
+      { path: "/repo", name: "repo" },
+    ],
+    listWorktrees: (repository: string) =>
+      Promise.resolve(repository === "/repo" ? [{ path: "/repo" }, { path: "/tree" }] : []),
+    launchIdentity,
+  });
+  const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+  await start();
+  const host = previewMock.hosts[0];
+  if (!host) throw new Error("Missing preview host");
+  const previews = mock.attachWorkspace.mock.calls[0]?.[5];
+  if (!previews) throw new Error("Missing preview inventory");
+  expect(previews()).toEqual([]);
+  await expect(host.validate("/tree")).resolves.toBeUndefined();
+  expect(launchIdentity).toHaveBeenCalledWith("/repo", "/tree");
+  await expect(host.validate("/elsewhere")).rejects.toThrow("Unknown preview worktree");
+  host.changed();
+  expect(mock.window.webContents.send).toHaveBeenCalledWith("workspace:changed");
+  mock.window.webContents.isDestroyed.mockReturnValueOnce(true);
+  mock.window.webContents.send.mockClear();
+  host.changed();
+  expect(mock.window.webContents.send).not.toHaveBeenCalled();
+  vi.mocked(host.reconcile).mockRejectedValueOnce(new Error("gone"));
+  mock.workspace.deps?.onChange?.();
+  await vi.waitFor(() => {
+    expect(warn).toHaveBeenCalledWith("Unable to reconcile previews");
+  });
+  vi.mocked(host.dispose).mockRejectedValueOnce(new Error("busy"));
+  mock.readyEvents.get("closed")?.();
+  expect(host.dispose).toHaveBeenCalledWith(false);
+  await vi.waitFor(() => {
+    expect(warn).toHaveBeenCalledWith("Unable to close previews");
+  });
+  warn.mockRestore();
 });
 
 test("config Allow uses the trusted dialog and persists bypass consent without clearing other agents", async () => {

@@ -209,6 +209,23 @@ test("dispatches native actions, zoom failures and keyboard gestures", async () 
   expect(linux.contents.send).toHaveBeenCalledWith("app-menu:open");
   linux.attached.dispose();
 });
+test("keys prevented by the preview handoff cannot invoke board shortcuts", () => {
+  const f = fixture();
+  f.contents.emit(
+    "before-input-event",
+    { defaultPrevented: true, preventDefault: vi.fn() },
+    {
+      type: "keyDown",
+      code: "F10",
+      meta: false,
+      control: false,
+      shift: false,
+      alt: false,
+    },
+  );
+  expect(f.contents.send).not.toHaveBeenCalledWith("app-menu:open");
+  f.attached.dispose();
+});
 test("packaged execution rejects developer commands and validates view state before updating menus", async () => {
   mock.packaged = true;
   const f = fixture("darwin");

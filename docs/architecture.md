@@ -1582,10 +1582,11 @@ file in place.
 
 ## Previews
 
-The contained file protocol helpers live in `src/main/previews/`. They are not
-registered with Electron or connected to tiles yet. A future per-preview session
-handler captures `canonicalRoot` once at preview open and passes only that root
-and its exact `foom-preview://<id>` origin to `readPreview`. URL normalization
+Main owns a `PreviewHost` per board window and registers the standard, secure
+`foom-preview` scheme before readiness. Each view has an in-memory `preview-<id>`
+partition and an origin named by a random 128-bit ID. Its session handler captures
+`canonicalRoot` once at preview open and passes only that root and its exact
+`foom-preview://<id>` origin to `readPreview`. URL normalization
 precedes per-segment decoding; credentials, ports and foreign origins are refused.
 The pure policy rejects empty/dot segments, encoded separators, NUL, controls,
 hidden names and Windows aliases (colons, trailing dots/spaces, device names and
@@ -1606,8 +1607,15 @@ unreadable files 404, and oversized files 413. Types use a fixed extension map,
 with unknown extensions served as `application/octet-stream`. Success and refusal
 headers include `nosniff`, `no-store` and `no-referrer`; HTML uses the default CSP
 in `docs/previews.md` §4, and Markdown has no inline scripts, frames or workers.
-There is no network-enabled policy in these helpers. Session request filtering,
-permissions, navigation guards and Markdown rendering belong to later work.
+There is no network-enabled policy. Each session filters requests to its own
+origin plus `data:` and `blob:`, denies permission checks, permission requests and
+device requests, and prevents downloads. The view has no preload, uses sandboxing
+and context isolation, disables Node integration (including workers and child
+frames), dialogs, drag navigation and webviews, and disables devtools in packaged
+builds. Window opens and redirects are denied. Only same-origin `.md` or
+`.markdown` page navigation is allowed; HTML and external links are blocked.
+Markdown rendering and the confirmed external-link/network flow remain separate
+follow-ups.
 Every non-hidden file in the captured worktree is readable by a preview page.
 
 As in the spike, a parent directory swap between realpath/stat and open is not
@@ -1616,3 +1624,43 @@ identity checks catch a different opened file, but are not an atomic directory
 traversal guarantee. This residual race must not be treated as a general-purpose
 filesystem sandbox. Junction escape tests run on Windows; all pure filename and
 URL rules run on every OS.
+
+The main-owned registry stores `{ id, worktree, relativePath, network: false }`
+per stable window ID in profile JSON, with bounded validation and serialized
+atomic writes. Paths never enter layout localStorage. Opens revalidate membership
+and canonical checkout identity against registered worktrees, then validate and
+read the contained document. `preview:open`, `preview:close` and `preview:bounds`
+use `WindowIpcRouter` to validate the owning board, exact app URL and top frame,
+and validate argument counts, document paths, IDs and finite bounded rectangles.
+IDs grant access only within their owning window. Sidebar inventory reports those
+IDs and display facts; renderer UI placement and measurement belong to #296.
+Restored registry entries stay detached and allocate no view until bounds arrive.
+Worktree removal closes previews when workspace inventory refreshes.
+
+An unfocused preview never acquires keyboard focus on open, reload or navigation. Main loads
+it detached and attaches only after `did-finish-load`, when its board rectangle is
+visible. Main-frame reloads and allowed navigation replace the old native
+contents with a fresh detached view in the same partition, preserving ID and bounds.
+If the old preview held user focus, the replacement receives focus after loading
+and attachment, unless the user clicked elsewhere while it loaded. Before detaching
+or closing a user-focused preview, main blocks the board's native keyboard events
+(including shortcuts) until that handoff completes. Native fallback focus does not
+cancel the handoff; a native mouse-down on the board or another preview does,
+allowing ordinary input immediately. Hiding or closing the pending preview also
+unblocks board input. These listeners belong to the host and are disposed with it.
+Recreation is bounded to once per 250 ms per preview; the old contents closes immediately
+and only one replacement can be pending. Closing cancels pending recreation.
+A previously clicked native contents can reacquire keyboard focus during reload on
+macOS even when detached; replacing it prevents that remembered focus grant.
+`did-start-loading` also detaches any loading view. Refused navigation leaves the
+loaded view in place. A native mouse-down grants focus; navigation carries that intent to the replacement.
+Blur or detachment otherwise revokes the native click grant. Unsolicited
+focus on an attached view returns to the last human-focused contents. This guard
+supplements detached loading; returning focus after load alone loses keystrokes.
+Main scales CSS rectangles by board zoom, applies that zoom to each view, clamps
+them to window content bounds, and refreshes on resize and interface-scale changes.
+Closing destroys contents, unregisters its protocol/request handler, clears storage
+and cache, and removes the registry entry. Quit preserves validated registry
+metadata while releasing views and partitions. Watchers and live reload are #294;
+there are no watchers to stop yet. Overlay composition and shortcut forwarding
+remain #292.
