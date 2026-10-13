@@ -271,7 +271,9 @@ test("dirty removal uses main's trusted dialog and rejects renderer force flags"
   requestDialog.mockResolvedValueOnce(false);
   await expect(invoke("workspace:remove", ["t1", true])).resolves.toBe(false);
   expect(requestDialog).toHaveBeenCalledWith({
-    title: "Remove feature?",
+    title: "Remove worktree with uncommitted changes?",
+    subject: "feature",
+    glyph: "branch",
     changes: "?? notes.txt\0",
     accept: "Discard 1 change and remove",
   });
@@ -337,7 +339,9 @@ test("dirty review counts a rename as one change while preserving both exact pat
   );
   await invoke("workspace:remove", ["t1"]);
   expect(requestDialog).toHaveBeenCalledWith({
-    title: "Remove feature?",
+    title: "Remove worktree with uncommitted changes?",
+    subject: "feature",
+    glyph: "branch",
     changes: "R  new name\0old name\0?? extra\0",
     accept: "Discard 2 changes and remove",
   });
@@ -434,12 +438,12 @@ test("orchestrator commands name only an owned terminal; the disclosure names a 
   const disclosure = orchestratorDisclosure("claude");
   expect(disclosure.title).toBe("Make Claude Code the Foom orchestrator?");
   expect(disclosure.accept).toBe("Make orchestrator");
-  expect(disclosure.detail).toMatch(/model provider/u);
-  expect(disclosure.detail).toMatch(/redaction cannot catch every secret/u);
-  expect(disclosure.detail).not.toMatch(/stops orchestrating/u);
+  expect(JSON.stringify(disclosure.sections)).toMatch(/model provider/u);
+  expect(JSON.stringify(disclosure.sections)).toMatch(/redaction cannot catch every secret/u);
+  expect(JSON.stringify(disclosure.sections)).not.toMatch(/stops orchestrating/u);
   expect(orchestratorDisclosure("agy").title).toContain("Antigravity");
-  expect(orchestratorDisclosure("codex", "Claude Code on main").detail).toMatch(
-    /^Claude Code on main stops orchestrating; its children stay with you\. /u,
+  expect(orchestratorDisclosure("codex", "Claude Code on main").note).toMatch(
+    /^Claude Code on main stops orchestrating; its children stay with you\./u,
   );
 });
 
@@ -511,6 +515,9 @@ test.each([false, true])(
     ]);
     expect(requestDialog).toHaveBeenCalledWith({
       title: "Replace Codex notifier for this launch?",
+      glyph: "bell",
+      subject: "This launch only",
+      quiet: "Your global Codex configuration is unchanged.",
       detail: expect.stringContaining("for this invocation") as unknown,
       accept: "Replace notifier and launch",
     });

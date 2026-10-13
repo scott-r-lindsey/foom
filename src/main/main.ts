@@ -217,12 +217,23 @@ async function requestTrusted(content: DialogContent, signal: AbortSignal): Prom
   if (!entry || cancelled()) return false;
   return entry.confirmations.request(content, signal);
 }
-function requestPairing(repository: string, code: string, signal: AbortSignal): Promise<boolean> {
+function requestPairing(
+  repository: string,
+  code: string,
+  signal: AbortSignal,
+  expiresAt: number,
+): Promise<boolean> {
   return requestTrusted(
     {
       title: "Pair this CLI with Foom?",
       accept: "Grant read-only access for 10 minutes",
-      detail: `Check that code ${code} matches your CLI. This grants read-only session metadata for ${repository}. It cannot read terminal output or change sessions. The request expires after 60 seconds.`,
+      glyph: "link",
+      pairing: { code, expiresAt },
+      facts: [
+        { label: "Repository", value: repository, mono: true },
+        { label: "Grants", value: "Read-only session metadata for 10 minutes" },
+        { label: "Never", value: "Terminal output, or changes to sessions" },
+      ],
     },
     signal,
   );
@@ -498,12 +509,15 @@ async function buildWindow(savedSize?: Size, saved?: WindowPlacement, initialSes
         return { ...next, interfaceScale: scale };
       },
     },
-    confirmBypass: async (agent) => {
+    confirmBypass: async (agent, args) => {
       const names = { claude: "Claude Code", codex: "Codex", agy: "Antigravity" };
       return confirmations.request({
         title: `Save bypass defaults for ${names[agent]}?`,
+        glyph: "shield",
+        subject: "Future launches from Foom",
+        arguments: args,
         detail:
-          "A worktree is not a sandbox. With these arguments, the agent can act as you anywhere on the machine. These defaults apply to future launches from Foom.",
+          "A worktree is not a sandbox. With these arguments, the agent can act as you anywhere on the machine.",
         accept: "Save bypass defaults",
       });
     },
@@ -679,6 +693,8 @@ async function performQuit() {
       const accepted = await confirmations.request({
         title: `Quit with ${String(count)} ${count === 1 ? "terminal" : "terminals"} running?`,
         accept: "Stop all and quit",
+        glyph: "power",
+        subject: "Each one is stopped",
         sessions: terminals.runningSessions().map((session) => {
           const entry = snapshot.terminals.find((item) => item.id === session.id);
           return {

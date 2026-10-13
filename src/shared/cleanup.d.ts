@@ -26,6 +26,8 @@ export interface CleanupProgress {
   items: readonly CleanupItem[];
 }
 export interface CleanupDialog {
+  checkingCount?: number;
+  fetchedAt?: number;
   error?: "fetch failed";
   stage: "checking" | "ready" | "run";
   progress: Omit<CleanupProgress, "items"> & { items: readonly Omit<CleanupItem, "path">[] };

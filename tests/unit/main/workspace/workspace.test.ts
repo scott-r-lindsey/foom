@@ -102,6 +102,7 @@ beforeEach(() => {
       launchIdentity: vi.fn(() => Promise.resolve("identity")),
       removalIdentity: vi.fn(() => Promise.resolve("identity")),
       changes: vi.fn(() => Promise.resolve("")),
+      mergedFetchTime: vi.fn(() => 1000),
       mergedDefault: vi.fn(() => Promise.resolve("base")),
       mergedCommit: vi.fn(() => Promise.resolve(false)),
       deleteMergedBranches: vi.fn(() => Promise.resolve([])),
@@ -1236,7 +1237,9 @@ test("repository and external worktree removal confirm and protect the main chec
       confirm,
     );
     expect(confirm).toHaveBeenCalledWith(
-      changes ? { kind: "dirty-worktree", title: "Remove feature?", changes } : { kind: "remove" },
+      changes
+        ? { kind: "dirty-worktree", title: "Remove feature?", branch: "feature", changes }
+        : { kind: "remove" },
     );
   }
   await expect(
@@ -3421,6 +3424,7 @@ test("fresh cached plan opens without fetching, stale plan opens checking, and a
     if (request.kind !== "merged-worktrees" || !request.feed) throw new Error("Missing feed");
     const feed = request.feed;
     expect(feed.current().stage).toBe("checking");
+    expect(feed.current().fetchedAt).toBe(1000);
     opened = true;
     await workspace.sidebarCommand(command, (second) => {
       expect(second).toHaveProperty("feed", feed);

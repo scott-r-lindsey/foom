@@ -80,11 +80,11 @@ test("focuses Cancel for every request, traps Tab, and renders untrusted content
   };
   heights(300.25, 150.5);
   measure();
-  expect(size).toHaveBeenLastCalledWith({ width: 440, height: 762.25 });
+  expect(size).toHaveBeenLastCalledWith({ width: 540, height: 750.25 });
   // A clamped viewport changes the card and its scrolling content together, not the size.
   heights(299.75, 150);
   measure();
-  expect(size).toHaveBeenLastCalledWith({ width: 440, height: 762.25 });
+  expect(size).toHaveBeenLastCalledWith({ width: 540, height: 750.25 });
   expect(size).toHaveBeenCalledTimes(3);
   const cancel = view.getByRole("button", { name: "Cancel" });
   const accept = view.getByRole("button", { name: request.accept });
@@ -190,17 +190,47 @@ test("cleanup checking, ready and run controls follow main state; Escape only hi
     items: [{ id: "0", branch: "<script>", state: "queued" as const }],
   };
   act(() => {
-    receive({ ...base, cleanup: { stage: "checking", progress } });
+    receive({ ...base, cleanup: { stage: "checking", checkingCount: 11, progress } });
   });
-  expect(view.getByRole("button", { name: "Delete 1" }).hasAttribute("disabled")).toBe(true);
+  expect(view.getByRole("heading", { name: "Checking11" })).toBeTruthy();
+  expect(view.getByText("· fetching remote…")).toBeTruthy();
+  expect(view.getByRole("button", { name: /^Delete$/u }).hasAttribute("disabled")).toBe(true);
   act(() => {
-    receive({ ...base, cleanup: { stage: "ready", progress } });
+    receive({ ...base, cleanup: { stage: "ready", fetchedAt: Date.now() - 20000, progress } });
   });
+  expect(view.getByText("· fetched 20 s ago")).toBeTruthy();
+  expect(view.queryByText("queued")).toBeNull();
   fireEvent.click(view.getByRole("button", { name: "Delete 1" }));
   expect(answer).toHaveBeenLastCalledWith("cleanup", true);
   act(() => {
-    receive({ ...base, cleanup: { stage: "run", progress } });
+    receive({
+      ...base,
+      cleanup: {
+        stage: "run",
+        progress: {
+          ...progress,
+          items: [
+            { id: "removed", branch: "removed-tree", state: "removed" },
+            {
+              id: "branch-kept",
+              branch: "removed-branch",
+              state: "removed",
+              reason: "branch kept",
+            },
+            { id: "removing", branch: "removing-tree", state: "removing" },
+            { id: "queued", branch: "queued-tree", state: "queued" },
+            { id: "kept", branch: "x".repeat(60), state: "kept", reason: "running" },
+            { id: "failed", branch: "failed-tree", state: "error" },
+          ],
+        },
+      },
+    });
   });
+  for (const word of ["removed", "removed · branch kept", "removing", "queued", "removal failed"])
+    expect(view.getByText(word)).toBeTruthy();
+  expect(view.getByRole("list", { name: "Kept worktrees" }).textContent).toBe(
+    `${"x".repeat(60)}running`,
+  );
   fireEvent.click(view.getByRole("button", { name: "Stop" }));
   expect(answer).toHaveBeenLastCalledWith("cleanup", true);
   act(() => {
@@ -212,6 +242,45 @@ test("cleanup checking, ready and run controls follow main state; Escape only hi
   expect(view.getByRole("button", { name: "Stop" }).hasAttribute("disabled")).toBe(true);
   fireEvent.keyDown(view.getByRole("button", { name: "Hide" }), { key: "Escape" });
   expect(answer).toHaveBeenLastCalledWith("cleanup", false);
+  const duplicateBranches = [
+    {
+      id: "first",
+      branch: "Detached checkout",
+      state: "kept" as const,
+      reason: "unavailable" as const,
+    },
+    {
+      id: "second",
+      branch: "Detached checkout",
+      state: "kept" as const,
+      reason: "running" as const,
+    },
+    {
+      id: "third",
+      branch: "other",
+      state: "kept" as const,
+      reason: "uncommitted changes" as const,
+    },
+  ];
+  act(() => {
+    receive({
+      ...base,
+      cleanup: { stage: "run", progress: { ...progress, items: duplicateBranches } },
+    });
+  });
+  act(() => {
+    receive({
+      ...base,
+      cleanup: {
+        stage: "run",
+        progress: { ...progress, items: duplicateBranches.slice(1).reverse() },
+      },
+    });
+  });
+  const kept = view.getByRole("list", { name: "Kept worktrees" });
+  expect(kept.children).toHaveLength(2);
+  expect(kept.children[0]?.textContent).toBe("otheruncommitted changes");
+  expect(kept.children[1]?.textContent).toBe("Detached checkoutrunning");
   act(() => {
     receive({
       ...base,
@@ -226,4 +295,97 @@ test("cleanup checking, ready and run controls follow main state; Escape only hi
   expect(view.queryByRole("button", { name: "Stop" })).toBeNull();
   fireEvent.click(view.getByRole("button", { name: "Done" }));
   expect(answer).toHaveBeenLastCalledWith("cleanup", false);
+});
+
+test("structured disclosures, git status words and pairing countdown render safely", () => {
+  vi.useFakeTimers();
+  vi.setSystemTime(10000);
+  let receive: (request: DialogRequest | null) => void = () => {};
+  vi.stubGlobal(
+    "ResizeObserver",
+    class {
+      observe() {}
+      disconnect() {}
+    },
+  );
+  Object.defineProperty(window, "confirmation", {
+    configurable: true,
+    value: {
+      render(callback: typeof receive) {
+        receive = callback;
+        return () => {};
+      },
+      answer: vi.fn(),
+      size: vi.fn(),
+    },
+  });
+  const view = render(<ConfirmationPage />);
+  const base: DialogRequest = {
+    id: "structured",
+    title: "Pair?",
+    accept: "Grant",
+    theme: resolveInterfaceTheme("follow", false),
+  };
+  try {
+    act(() => {
+      receive({
+        ...base,
+        glyph: "link",
+        subject: "CLI",
+        pairing: { code: "<script>", expiresAt: 12500 },
+        facts: [
+          { label: "Repository", value: "/repo", mono: true },
+          { label: "Grants", value: "Read only" },
+        ],
+        arguments: ["--yolo"],
+        note: "Children stay with you",
+        quiet: "Global config unchanged",
+        sections: [{ label: "It reads", items: ["40 lines", "Likely secrets redacted"] }],
+        changes:
+          " M modified.ts\0?? untracked.ts\0 D deleted.ts\0R  new.ts\0old.ts\0C  copy.ts\0original.ts\0A  added.ts\0UU conflict.ts\0",
+      });
+    });
+    expect(view.container.querySelector(".code strong")?.textContent).toBe("<script>");
+    expect(view.container.querySelector("script")).toBeNull();
+    expect(view.container.querySelector(".subject")?.textContent).toBe("CLI · Expires in 3 s");
+    expect(view.getByRole("heading", { name: "Discarded7" })).toBeTruthy();
+    for (const word of [
+      "modified",
+      "untracked",
+      "deleted",
+      "renamed",
+      "copied",
+      "added",
+      "unmerged",
+    ])
+      expect(view.getByText(word)).toBeTruthy();
+    expect(view.getByText("← old.ts")).toBeTruthy();
+    expect(view.getByText("← original.ts")).toBeTruthy();
+    act(() => {
+      vi.advanceTimersByTime(1000);
+    });
+    expect(view.container.querySelector(".subject")?.textContent).toBe("CLI · Expires in 2 s");
+    act(() => {
+      vi.advanceTimersByTime(2000);
+    });
+    expect(view.container.querySelector(".subject")?.textContent).toBe("CLI · Expires in 0 s");
+    expect(view.getByRole("button", { name: "Grant" }).hasAttribute("disabled")).toBe(true);
+    act(() => {
+      receive({
+        ...base,
+        changes: "",
+        sessions: [{ id: "s", name: "shell", location: "x".repeat(60), state: "unknown" }],
+      });
+    });
+    expect(view.getByRole("img", { name: "Quiet" })).toBeTruthy();
+    expect(view.getByText("x".repeat(60))).toBeTruthy();
+    act(() => {
+      receive(null);
+    });
+    expect(vi.getTimerCount()).toBe(0);
+  } finally {
+    view.unmount();
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  }
 });

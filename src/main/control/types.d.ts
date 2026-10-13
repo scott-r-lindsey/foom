@@ -43,5 +43,10 @@ export interface StoredOperation {
 
 export interface PairingOptions {
   repository(path: string): string | undefined;
-  approve(repository: string, code: string, signal: AbortSignal): Promise<boolean>;
+  approve(
+    repository: string,
+    code: string,
+    signal: AbortSignal,
+    expiresAt: number,
+  ): Promise<boolean>;
 }

@@ -65,6 +65,7 @@ beforeEach(() => {
       launchIdentity: vi.fn(() => Promise.resolve("identity")),
       removalIdentity: vi.fn(() => Promise.resolve("identity")),
       changes: vi.fn(() => Promise.resolve("")),
+      mergedFetchTime: vi.fn(() => 1000),
       mergedDefault: vi.fn(() => Promise.resolve("base")),
       mergedCommit: vi.fn(() => Promise.resolve(false)),
       deleteMergedBranches: vi.fn(() => Promise.resolve([])),
@@ -129,7 +130,11 @@ it("makes a running agent the orchestrator after the trusted disclosure, without
   await orchestrate(workspace);
   expect(launch).toHaveBeenCalledOnce();
   expect(launch.mock.calls[0]?.[0].control).toBeUndefined();
-  expect(confirm).toHaveBeenLastCalledWith({ kind: "orchestrator", agent: "claude" });
+  expect(confirm).toHaveBeenLastCalledWith({
+    kind: "orchestrator",
+    agent: "claude",
+    subject: "app · main",
+  });
   expect(setRole).toHaveBeenCalledExactlyOnceWith("parent", "orchestrator");
   expect(workspace.snapshot().terminals[0]?.orchestration).toEqual({
     role: "orchestrator",
@@ -159,6 +164,7 @@ it("transfers the role only after the human accepts, revoking the previous orche
     kind: "orchestrator",
     agent: "claude",
     replacing: "Claude Code on main",
+    subject: "app · feature",
   });
   expect(workspace.orchestration.active(repo.path)).toBe("parent");
   expect(setRole).not.toHaveBeenCalledWith("parent", "agent");
@@ -391,7 +397,7 @@ it("removes an orchestrator worktree only through the trusted dialog", async () 
     );
   });
   expect(deps.dialog).toHaveBeenCalledWith(
-    expect.objectContaining({ title: "Remove feature?" }),
+    expect.objectContaining({ title: "Remove worktree?", subject: "feature" }),
     expect.any(AbortSignal),
   );
 
@@ -617,7 +623,11 @@ it("makes CLI-only agents orchestrators, including Antigravity without interacti
     confirm,
   );
   await make(workspace);
-  expect(confirm).toHaveBeenLastCalledWith({ kind: "orchestrator", agent: "agy" });
+  expect(confirm).toHaveBeenLastCalledWith({
+    kind: "orchestrator",
+    agent: "agy",
+    subject: "app · main",
+  });
   expect(setRole).toHaveBeenCalledWith("parent", "orchestrator");
 });
 

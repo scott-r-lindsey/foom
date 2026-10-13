@@ -1126,17 +1126,19 @@ test("workspace content is routed to the trusted dialog service", async () => {
 test("bypass defaults use a main-owned, cancel-first disclosure", async () => {
   await start();
   mock.message.mockResolvedValueOnce({ response: 0 });
-  expect(await mock.setup.deps?.confirmBypass?.("claude")).toBe(false);
+  expect(await mock.setup.deps?.confirmBypass?.("claude", ["--dangerously-skip-permissions"])).toBe(
+    false,
+  );
   expect(mock.message).toHaveBeenLastCalledWith(
     expect.objectContaining({
       title: "Save bypass defaults for Claude Code?",
       detail:
-        "A worktree is not a sandbox. With these arguments, the agent can act as you anywhere on the machine. These defaults apply to future launches from Foom.",
+        "A worktree is not a sandbox. With these arguments, the agent can act as you anywhere on the machine.",
       accept: "Save bypass defaults",
     }),
   );
   mock.message.mockResolvedValueOnce({ response: 1 });
-  expect(await mock.setup.deps?.confirmBypass?.("codex")).toBe(true);
+  expect(await mock.setup.deps?.confirmBypass?.("codex", ["--yolo"])).toBe(true);
 });
 
 test("selects dev userData before locking and before readiness", async () => {
@@ -1248,7 +1250,7 @@ test("control startup publishes private discovery and binds trusted pairing call
     const { worktrees } = await import("../../../src/main/main");
     vi.spyOn(worktrees, "listRepositories").mockReturnValue([{ path: "/repo", name: "Repo" }]);
     expect(pairing?.repository("/repo")).toBe("/repo");
-    await pairing?.approve("/repo", "ABCD1234", new AbortController().signal);
+    await pairing?.approve("/repo", "ABCD1234", new AbortController().signal, Date.now() + 60000);
     expect(mock.message).toHaveBeenCalledWith(
       expect.objectContaining({
         title: "Pair this CLI with Foom?",
@@ -1259,14 +1261,16 @@ test("control startup publishes private discovery and binds trusted pairing call
     if (!second) throw new Error("Missing second board");
     mock.window.isFocused.mockReturnValue(false);
     second.isFocused = vi.fn(() => true);
-    await pairing?.approve("/repo", "NEXT1234", new AbortController().signal);
+    await pairing?.approve("/repo", "NEXT1234", new AbortController().signal, Date.now() + 60000);
     expect(mock.confirmParent).toHaveBeenLastCalledWith(second);
     mock.readyEvents.get("closed")?.();
     const cancelled = new AbortController();
     cancelled.abort();
-    await expect(pairing?.approve("/repo", "STOP1234", cancelled.signal)).resolves.toBe(false);
+    await expect(
+      pairing?.approve("/repo", "STOP1234", cancelled.signal, Date.now() + 60000),
+    ).resolves.toBe(false);
     expect(mock.instances).toHaveLength(2);
-    await pairing?.approve("/repo", "OPEN1234", new AbortController().signal);
+    await pairing?.approve("/repo", "OPEN1234", new AbortController().signal, Date.now() + 60000);
     expect(mock.instances).toHaveLength(3);
     expect(mock.confirmParent).toHaveBeenLastCalledWith(mock.instances[2]);
     mock.readyEvents.get("closed")?.();
@@ -1275,7 +1279,9 @@ test("control startup publishes private discovery and binds trusted pairing call
       opening.abort();
       return Promise.resolve();
     });
-    await expect(pairing?.approve("/repo", "LATE1234", opening.signal)).resolves.toBe(false);
+    await expect(
+      pairing?.approve("/repo", "LATE1234", opening.signal, Date.now() + 60000),
+    ).resolves.toBe(false);
     expect(mock.confirmParent).toHaveBeenCalledTimes(3);
   } finally {
     startControl.mockRestore();

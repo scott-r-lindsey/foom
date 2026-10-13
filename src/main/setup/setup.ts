@@ -21,7 +21,7 @@ export interface SetupDependencies {
   worktreeRoot: string;
   /** Pushes hook and agent settings into the running services. */
   apply(settings: Settings): void;
-  confirmBypass?: (agent: AgentId) => Promise<boolean>;
+  confirmBypass?: (agent: AgentId, args: readonly string[]) => Promise<boolean>;
   code: {
     worktrees: Pick<WorktreeService, "listRepositories" | "addRepository" | "removeRepository">;
     /** The native folder picker; null when cancelled. */
@@ -76,7 +76,7 @@ export class Setup {
       const acknowledged = { ...before.agentBypassAcknowledged };
       for (const agent of ["claude", "codex", "agy"] as const) {
         if (hasBypassArgument(agent, patch.agentArguments[agent]) && !acknowledged[agent]) {
-          if (!(await this.deps.confirmBypass?.(agent)))
+          if (!(await this.deps.confirmBypass?.(agent, patch.agentArguments[agent])))
             throw new Error("Default arguments were not saved. Bypass disclosure was cancelled.");
           acknowledged[agent] = true;
         }

@@ -27,3 +27,62 @@ test("buffers main's request before React subscribes and exposes only rendering,
   listener?.({}, request);
   expect(render).toHaveBeenCalledTimes(2);
 });
+
+test("rejects malformed structured fields and preserves literal data", async () => {
+  vi.resetModules();
+  await import("../../../src/preload/confirmation");
+  const api = mock.exposeInMainWorld.mock.calls[0]?.[1];
+  const listener = mock.on.mock.calls[0]?.[1];
+  if (!api || !listener) throw Error("Missing confirmation bridge");
+  const render = vi.fn();
+  const dispose = api.render(render);
+  const valid = {
+    id: "structured",
+    subject: "<img src=x>",
+    quiet: "Global config unchanged",
+    note: "Replacement",
+    glyph: "link",
+    arguments: ["--yolo"],
+    sections: [{ label: "It can", items: ["Create"] }],
+    facts: [
+      { label: "Repository", value: "/repo", mono: true },
+      { label: "Grants", value: "Read only" },
+    ],
+    pairing: { code: "ABCD1234", expiresAt: 1234 },
+    cleanup: { checkingCount: 11, fetchedAt: 1000 },
+  };
+  listener({}, valid);
+  expect(render).toHaveBeenLastCalledWith(valid);
+  for (const invalid of [
+    undefined,
+    false,
+    1,
+    "text",
+    { subject: 1 },
+    { quiet: null },
+    { note: [] },
+    { glyph: "remote" },
+    { arguments: "--yolo" },
+    { arguments: [1] },
+    { sections: {} },
+    { sections: [null] },
+    { sections: [{ label: 1, items: [] }] },
+    { sections: [{ label: "Can", items: [1] }] },
+    { facts: {} },
+    { facts: [false] },
+    { facts: [{ label: 1, value: "value" }] },
+    { facts: [{ label: "Label", value: false }] },
+    { facts: [{ label: "Label", value: "value", mono: 1 }] },
+    { pairing: null },
+    { pairing: { code: 1, expiresAt: 1234 } },
+    { pairing: { code: "code", expiresAt: "1234" } },
+    { pairing: { code: "code", expiresAt: Number.POSITIVE_INFINITY } },
+    { cleanup: { checkingCount: -1 } },
+    { cleanup: { fetchedAt: "bad" } },
+    { cleanup: { fetchedAt: Number.NaN } },
+  ]) {
+    listener({}, invalid);
+    expect(render).toHaveBeenLastCalledWith(null);
+  }
+  dispose();
+});

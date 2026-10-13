@@ -42,7 +42,7 @@ async function assertCliPairing(context, executable, profile, repository, confir
   await expect(
     confirmation.getByRole("heading", { name: "Pair this CLI with Foom?" }),
   ).toBeVisible();
-  await expect(confirmation.getByText(new RegExp(`Check that code ${code}`))).toBeVisible();
+  await expect(confirmation.locator(".code strong", { hasText: code })).toBeVisible();
   await expect(confirmation.getByRole("button", { name: "Cancel", exact: true })).toBeFocused();
   await confirmation.getByRole("button", { name: "Grant read-only access for 10 minutes" }).click();
   await expect.poll(() => stdout).toContain('"ready":true');

@@ -703,7 +703,9 @@ export class Orchestration {
   private removal(branch: string, changes: string): DialogContent {
     const name = metadataName(branch);
     return {
-      title: `Remove ${name}?`,
+      title: changes ? "Remove worktree with uncommitted changes?" : "Remove worktree?",
+      subject: name,
+      glyph: "branch",
       accept: changes ? "Discard changes and remove" : "Remove worktree",
       detail: `Foom's orchestrator asks to remove the ${name} worktree it created. The branch is kept.`,
       ...(changes ? { changes } : {}),

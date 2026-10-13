@@ -44,6 +44,7 @@ it("binds matching code to an immutable read-only repository grant, never a term
     tmpdir(),
     announce.mock.calls[0]?.[0],
     expect.any(AbortSignal),
+    Date.now() + 60000,
   );
   const actor = service.authenticate(grant.token);
   expect(actor).toMatchObject({ role: "cli", repository: tmpdir(), parentId: null });

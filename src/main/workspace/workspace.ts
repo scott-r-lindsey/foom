@@ -90,6 +90,7 @@ export interface WorkspaceDependencies {
     | "removeWorktree"
     | "removeRepository"
     | "mergedDefault"
+    | "mergedFetchTime"
     | "mergedCommit"
     | "deleteMergedBranch"
     | "deleteMergedBranches"
@@ -187,6 +188,7 @@ export class Workspace {
     string,
     {
       key: string;
+      count: number;
       expires: number;
       plan?: readonly CleanupCandidate[];
       result: { canDeleteMerged: boolean; mergedCount?: number; mergedError?: string };
@@ -1034,7 +1036,12 @@ export class Workspace {
     this.known(repository);
     const existing = this.cleanupRuns.get(repository);
     if (existing && (existing.pending || existing.current().stage === "run")) {
-      await confirm({ kind: "merged-worktrees", worktrees: [], feed: existing });
+      await confirm({
+        kind: "merged-worktrees",
+        subject: basename(repository),
+        worktrees: [],
+        feed: existing,
+      });
       if (!existing.pending) {
         this.cleanupRuns.delete(repository);
         this.refresh();
@@ -1043,6 +1050,8 @@ export class Workspace {
     }
     return this.withRepository(repository, async () => {
       const run = new CleanupRun({
+        checkingCount: this.mergeEligibility.get(repository)?.count,
+        fetchedAt: () => this.deps.worktrees.mergedFetchTime(repository),
         fetch: async () => {
           // Windows cannot remove a checkout while a background Git process uses it as cwd.
           // Include superseded scans too: their publication is discarded, but they still run.
@@ -1105,7 +1114,12 @@ export class Workspace {
           : this.mergedPlan(repository, true);
       if (cached?.plan && this.now() < cached.expires) run.ready(cached.plan);
       // Request presentation before awaiting network or filesystem checks.
-      const answer = confirm({ kind: "merged-worktrees", worktrees: [], feed: run });
+      const answer = confirm({
+        kind: "merged-worktrees",
+        subject: basename(repository),
+        worktrees: [],
+        feed: run,
+      });
       try {
         run.ready(await prepare);
       } catch {
@@ -1135,10 +1149,16 @@ export class Workspace {
     if (cached?.key === key && this.now() < cached.expires) return cached.result;
     const entry: {
       key: string;
+      count: number;
       expires: number;
       result: { canDeleteMerged: boolean; mergedCount?: number; mergedError?: string };
       plan?: readonly CleanupCandidate[];
-    } = { key, expires: Number.POSITIVE_INFINITY, result: { canDeleteMerged: false } };
+    } = {
+      key,
+      count: worktrees.length,
+      expires: Number.POSITIVE_INFINITY,
+      result: { canDeleteMerged: false },
+    };
     this.mergeEligibility.set(repository, entry);
     const publish = (result: {
       canDeleteMerged: boolean;
@@ -1515,7 +1535,7 @@ export class Workspace {
     await this.removeIdleTree(command.repository, tree.path, tree.branch, (branch, changes) =>
       confirm(
         changes
-          ? { kind: "dirty-worktree", title: `Remove ${branch}?`, changes }
+          ? { kind: "dirty-worktree", title: `Remove ${branch}?`, branch, changes }
           : { kind: "remove" },
       ),
     );
@@ -1727,6 +1747,7 @@ export class Workspace {
     await this.auditHuman(action, id, current ?? null, "pending_confirmation", operationId);
     const accepted = await confirm({
       kind: "orchestrator",
+      subject: `${basename(entry.repository)} · ${entry.branch ?? basename(entry.worktree)}`,
       agent,
       ...(replaced && replaced.agent !== "shell"
         ? {
