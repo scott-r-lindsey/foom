@@ -509,6 +509,49 @@ it.each([
   if (mode === "enabled") expect(deps.worktrees.canAutoRemove).toHaveBeenCalledTimes(2);
 });
 
+it.each(["declined", "stale"])(
+  "records %s fallback review without deleting the worktree",
+  async (mode) => {
+    const workspace = new Workspace(deps);
+    workspace.configure({
+      hooks: true,
+      agents: { claude: true, codex: true, agy: true },
+      autoRemoveMergedWorktrees: [repo.path],
+    });
+    vi.mocked(deps.worktrees.canAutoRemove).mockResolvedValueOnce(true).mockResolvedValue(false);
+    deps.dialog = vi.fn(() => {
+      if (mode === "stale")
+        vi.mocked(deps.worktrees.changes).mockResolvedValue("?? changed-after-review\0");
+      return Promise.resolve(mode !== "declined");
+    });
+    await orchestrate(workspace);
+    const operations = new Operations(
+      () => Promise.resolve(),
+      () => undefined,
+    );
+    const actor = principal();
+    const tree = (await workspace.orchestration.call(
+      actor,
+      "create_worktree",
+      { idempotencyKey: "tree", branch: "feature" },
+      operations,
+    )) as Operation;
+    await workspace.orchestration.call(
+      actor,
+      "remove_worktree",
+      { idempotencyKey: "remove", worktreeId: tree.resultId },
+      operations,
+    );
+    await vi.waitFor(() => {
+      expect(operations.lookup(actor, { idempotencyKey: "remove" })).toMatchObject({
+        status: mode === "declined" ? "declined" : "failed",
+      });
+    });
+    expect(deps.dialog).toHaveBeenCalledOnce();
+    expect(deps.worktrees.removeWorktree).not.toHaveBeenCalled();
+  },
+);
+
 it("refuses to launch a child into the main checkout or an unavailable worktree", async () => {
   const workspace = new Workspace(deps);
   await orchestrate(workspace);
