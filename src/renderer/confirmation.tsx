@@ -21,6 +21,7 @@ const glyphPaths = {
   dot: "M8 5.5a2.5 2.5 0 1 0 0 5 2.5 2.5 0 0 0 0-5",
   ring: "M8 2.5a5.5 5.5 0 1 1-5.5 5.5",
   square: "M4 4h8v8H4z",
+  warning: "M8 2l6 12H2zM8 6v4M8 12h.01",
   swap: "M3 5h9.5M10 2.5L12.5 5 10 7.5M13 11H3.5M6 8.5L3.5 11 6 13.5",
 };
 function Glyph({ name }: { name: keyof typeof glyphPaths }) {
@@ -142,6 +143,7 @@ export function ConfirmationPage() {
     () =>
       window.confirmation.render((value) => {
         setRequest(value);
+        setSelected([]);
         setNow(Date.now());
       }),
     [],
@@ -439,7 +441,7 @@ export function ConfirmationPage() {
               <Section label="Worktrees" count={request.removals.length}>
                 <ul className="well" aria-label="Worktrees to remove">
                   {request.removals.map((item) => (
-                    <li key={item.id}>
+                    <li key={item.id} data-dirty={Boolean(item.changes)}>
                       <label className="row">
                         <input
                           type="checkbox"
@@ -457,7 +459,10 @@ export function ConfirmationPage() {
                           {item.branch}
                           <span className="sub">{item.path}</span>
                         </span>
-                        <span className="why">{item.changes ? "Dirty" : "Clean"}</span>
+                        <span className="why">
+                          {item.changes && <Glyph name="warning" />}
+                          {item.changes ? "Dirty" : "Clean"}
+                        </span>
                       </label>
                       {item.changes && <Changes value={item.changes} />}
                     </li>
@@ -540,7 +545,9 @@ export function ConfirmationPage() {
                 );
               }}
             >
-              Approve selected
+              {request.removals.some((item) => item.changes && selected.includes(item.id))
+                ? "Discard changes and remove selected"
+                : "Approve selected"}
             </button>
           )}
           {!finished && (
@@ -559,7 +566,9 @@ export function ConfirmationPage() {
                   ? cleanup.stage === "checking"
                     ? "Delete"
                     : `Delete ${String(cleanup.progress.total)}`
-                  : request.accept}
+                  : request.removals?.some((item) => item.changes)
+                    ? "Discard changes and remove all"
+                    : request.accept}
             </button>
           )}
         </footer>

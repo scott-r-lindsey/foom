@@ -6977,6 +6977,77 @@ test("trusted card follows interface scale and clears its scrim on every dismiss
   await app.evaluate(() => globalThis.testAbort.abort());
   await expect(board.locator(".board-confirmation-scrim")).toHaveCount(0);
   await expect.poll(() => app.evaluate(() => globalThis.testAnswer)).toBe(false);
+  // A mixed batch keeps Decline as Enter's default; per-item abort leaves its peers open.
+  const queueBatch = () =>
+    app.evaluate(() => {
+      globalThis.batchAnswers = {};
+      globalThis.batchAbort = new AbortController();
+      for (const id of ["clean", "dirty", "abort"]) {
+        void globalThis.testConfirmation
+          .request(
+            {
+              title: "Remove worktrees?",
+              accept: "Approve all",
+              removal: {
+                group: "batch-test",
+                item: {
+                  id,
+                  branch: id,
+                  path: `/trees/${id}`,
+                  changes: id === "dirty" ? "?? keep.txt\0" : "",
+                },
+              },
+            },
+            id === "abort" ? globalThis.batchAbort.signal : undefined,
+          )
+          .then((answer) => {
+            globalThis.batchAnswers[id] = answer;
+          });
+      }
+    });
+  await queueBatch();
+  let batchPage;
+  await expect
+    .poll(async () => {
+      for (const candidate of app.windows()) {
+        if (await candidate.getByRole("alertdialog", { name: "Remove worktrees?" }).count()) {
+          batchPage = candidate;
+          return true;
+        }
+      }
+      return false;
+    })
+    .toBe(true);
+  await expect(batchPage.getByRole("checkbox")).toHaveCount(3);
+  await assertConfirmationFocus(app, batchPage, batchPage.getByRole("button", { name: "Decline" }));
+  await batchPage.keyboard.press("Enter");
+  await expect
+    .poll(() => app.evaluate(() => globalThis.batchAnswers))
+    .toEqual({
+      clean: false,
+      dirty: false,
+      abort: false,
+    });
+  await queueBatch();
+  await expect(batchPage.getByRole("checkbox")).toHaveCount(3);
+  await batchPage.getByRole("checkbox", { name: "dirty", exact: true }).check();
+  await expect(
+    batchPage.getByRole("button", { name: "Discard changes and remove selected" }),
+  ).toBeVisible();
+  await app.evaluate(() => globalThis.batchAbort.abort());
+  await expect(batchPage.getByRole("checkbox")).toHaveCount(2);
+  await expect.poll(() => app.evaluate(() => globalThis.batchAnswers)).toEqual({ abort: false });
+  await expect(batchPage.getByRole("checkbox", { name: "dirty", exact: true })).not.toBeChecked();
+  await assertConfirmationFocus(app, batchPage, batchPage.getByRole("button", { name: "Decline" }));
+  await batchPage.getByRole("checkbox", { name: "dirty", exact: true }).check();
+  await batchPage.getByRole("button", { name: "Discard changes and remove selected" }).click();
+  await expect
+    .poll(() => app.evaluate(() => globalThis.batchAnswers))
+    .toEqual({
+      abort: false,
+      clean: false,
+      dirty: true,
+    });
   await app.evaluate(() => {
     globalThis.testAnswer = undefined;
     void globalThis.testConfirmation
@@ -7716,6 +7787,11 @@ for (const cliOnly of [false, true])
       assert.equal(created.body.result.status, "succeeded");
       extraTrees.push({ branch, id: created.body.result.resultId });
     }
+    const dirtyTree = (await page.evaluate((repo) => window.desktop.worktrees(repo), repo)).find(
+      (worktree) => worktree.branch === "batch-selected",
+    );
+    assert.ok(dirtyTree);
+    await writeFile(path.join(dirtyTree.path, "uncommitted.txt"), "discard only by named action");
     const removal = await call(parent.controlToken, "remove_worktree", {
       idempotencyKey: "remove-1",
       worktreeId: tree.body.result.resultId,
@@ -7740,7 +7816,7 @@ for (const cliOnly of [false, true])
     });
     await confirmation.getByRole("checkbox", { name: "child-one", exact: true }).check();
     await confirmation.getByRole("checkbox", { name: "batch-selected", exact: true }).check();
-    await confirmation.getByRole("button", { name: "Approve selected" }).click();
+    await confirmation.getByRole("button", { name: "Discard changes and remove selected" }).click();
     for (const tree of extraTrees) {
       await expect
         .poll(

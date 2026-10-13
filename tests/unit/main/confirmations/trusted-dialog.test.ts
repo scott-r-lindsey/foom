@@ -424,3 +424,30 @@ test("a removal arriving after decline gets its own review before the old promis
   await expect(next).resolves.toBe(true);
   dialog.dispose();
 });
+
+test("one aborted removal rotates the answer ID while peers stay under review", async () => {
+  const dialog = setup();
+  const abort = new AbortController();
+  const request = (id: string, signal?: AbortSignal) =>
+    dialog.request(
+      {
+        title: "Remove?",
+        accept: "Approve all",
+        removal: { group: "actor", item: { id, branch: id, path: id, changes: "" } },
+      },
+      signal,
+    );
+  const first = request("one", abort.signal);
+  await shown();
+  const second = request("two");
+  const stale = await shown();
+  abort.abort();
+  await expect(first).resolves.toBe(false);
+  const fresh = await shown();
+  expect(fresh).not.toBe(stale);
+  answer(stale, ["one", "two"]);
+  expect(window().hide).not.toHaveBeenCalled();
+  answer(fresh, ["two"]);
+  await expect(second).resolves.toBe(true);
+  dialog.dispose();
+});

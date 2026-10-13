@@ -73,3 +73,24 @@ test("aborted requests and late answers cannot approve a revoked batch", async (
   await expect(fresh).resolves.toBe(false);
   await expect(fifth).resolves.toBe(false);
 });
+
+test("aborting one item declines it immediately and leaves the others under review", async () => {
+  const { review, dialog, pending } = harness();
+  const abort = new AbortController();
+  const first = review.request("actor", item("one"), abort.signal);
+  const second = review.request("actor", item("two"));
+  const feed = pending[0]?.content.removalFeed;
+  if (!feed) throw Error("missing feed");
+  const changed = vi.fn();
+  feed.subscribe(changed);
+  abort.abort();
+  await expect(first).resolves.toBe(false);
+  expect(changed).toHaveBeenCalledOnce();
+  expect(feed.current()).toEqual([item("two")]);
+  const third = review.request("actor", item("three"));
+  expect(dialog).toHaveBeenCalledOnce();
+  feed.select(["two", "three"]);
+  pending[0]?.resolve(true);
+  await expect(second).resolves.toBe(true);
+  await expect(third).resolves.toBe(true);
+});

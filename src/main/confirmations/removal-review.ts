@@ -47,16 +47,26 @@ export class RemovalReview {
       });
     }
     const current = batch;
+    let decline: (value: boolean) => void = () => undefined;
+    const cancelled = new Promise<boolean>((resolve) => {
+      decline = resolve;
+    });
     const cancel = () => {
-      if (this.batches.get(group) === current) this.batches.delete(group);
-      current.controller.abort();
+      current.items = current.items.filter((entry) => entry.id !== item.id);
+      decline(false);
+      if (current.items.length === 0) {
+        if (this.batches.get(group) === current) this.batches.delete(group);
+        current.controller.abort();
+      } else {
+        for (const listener of current.listeners) listener();
+      }
     };
     signal?.addEventListener("abort", cancel, { once: true });
     current.items.push(item);
     for (const listener of current.listeners) listener();
     try {
       return (
-        (await current.result) &&
+        (await Promise.race([current.result, cancelled])) &&
         !current.controller.signal.aborted &&
         !signal?.aborted &&
         current.selected.has(item.id)

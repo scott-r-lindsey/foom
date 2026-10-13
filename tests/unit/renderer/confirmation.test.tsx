@@ -436,6 +436,9 @@ test("batch review lists trusted snapshots, traps focus through selection and se
     receive(request);
   });
   expect(document.activeElement).toBe(view.getByRole("button", { name: "Decline" }));
+  // The default action is Decline, including for a mixed clean/dirty batch.
+  fireEvent.click(view.getByRole("button", { name: "Decline" }));
+  expect(answer).toHaveBeenLastCalledWith("batch", false);
   expect(view.getByRole("list", { name: "Worktrees to remove" }).textContent).toContain("Clean");
   expect(view.getByText("Dirty")).toBeTruthy();
   expect(view.getByText("/trees/dirty")).toBeTruthy();
@@ -444,7 +447,9 @@ test("batch review lists trusted snapshots, traps focus through selection and se
   const subset = view.getByRole("button", { name: "Approve selected" });
   expect(subset.hasAttribute("disabled")).toBe(true);
   fireEvent.keyDown(document.activeElement ?? view.container, { key: "Tab" });
-  expect(document.activeElement).toBe(view.getByRole("button", { name: "Approve all" }));
+  expect(document.activeElement).toBe(
+    view.getByRole("button", { name: "Discard changes and remove all" }),
+  );
   fireEvent.keyDown(document.activeElement ?? view.container, { key: "Tab" });
   const checkbox = view.getByRole("checkbox", { name: "clean" });
   expect(document.activeElement).toBe(checkbox);
@@ -453,10 +458,29 @@ test("batch review lists trusted snapshots, traps focus through selection and se
   expect(answer).toHaveBeenLastCalledWith("batch", ["one"]);
   fireEvent.click(checkbox);
   expect(subset.hasAttribute("disabled")).toBe(true);
-  fireEvent.click(view.getByRole("button", { name: "Approve all" }));
-  expect(answer).toHaveBeenLastCalledWith("batch", ["one", "two"]);
-  fireEvent.keyDown(checkbox, { key: "Escape" });
-  expect(answer).toHaveBeenLastCalledWith("batch", false);
+  fireEvent.click(view.getByRole("checkbox", { name: "<img src=x>" }));
+  fireEvent.click(view.getByRole("button", { name: "Discard changes and remove selected" }));
+  expect(answer).toHaveBeenLastCalledWith("batch", ["two"]);
+  act(() => {
+    receive({ ...request, id: "updated" });
+  });
+  expect(view.getByRole("button", { name: "Approve selected" }).hasAttribute("disabled")).toBe(
+    true,
+  );
+  expect(document.activeElement).toBe(view.getByRole("button", { name: "Decline" }));
+  fireEvent.click(view.getByRole("button", { name: "Discard changes and remove all" }));
+  expect(answer).toHaveBeenLastCalledWith("updated", ["one", "two"]);
+  fireEvent.keyDown(view.getByRole("checkbox", { name: "clean" }), { key: "Escape" });
+  expect(answer).toHaveBeenLastCalledWith("updated", false);
   fireEvent.click(view.getByRole("button", { name: "Decline" }));
-  expect(answer).toHaveBeenLastCalledWith("batch", false);
+  expect(answer).toHaveBeenLastCalledWith("updated", false);
+  act(() => {
+    receive({
+      ...request,
+      id: "clean-only",
+      removals: [{ id: "one", branch: "clean", path: "/trees/clean", changes: "" }],
+    });
+  });
+  fireEvent.click(view.getByRole("button", { name: "Approve all" }));
+  expect(answer).toHaveBeenLastCalledWith("clean-only", ["one"]);
 });

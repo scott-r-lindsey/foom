@@ -462,3 +462,20 @@ pre {
   color: var(--ink);
   font-weight: 500;
 }
+
+.well > li[data-dirty="true"] {
+  border-inline-start: 2px solid var(--attention);
+}
+li[data-dirty="true"] > .row > .why {
+  color: var(--attention-ink);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+li[data-dirty="true"] > .row > .why svg {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
+}

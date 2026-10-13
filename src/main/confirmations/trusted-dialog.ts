@@ -197,7 +197,7 @@ export class TrustedDialog {
       if (removalFeed)
         this.unsubscribe = removalFeed.subscribe(() => {
           if (!this.pending) return;
-          // Any newly displayed item invalidates answers authored against the older list.
+          // Any list change invalidates answers authored against the older list.
           this.pending.id = randomUUID();
           this.pending.request = {
             ...this.pending.request,
