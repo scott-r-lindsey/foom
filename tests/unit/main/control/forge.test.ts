@@ -266,3 +266,21 @@ it("can discover a closed or merged PR after an offline interval while default l
     });
   }
 });
+it("does not let an old closed PR claim a newly tracked branch, but follows an already-bound PR", async () => {
+  for (const state of ["CLOSED", "MERGED"]) {
+    const closed = { ...raw, state };
+    const provider = forgeProvider("https://github.com/o/r", (args) =>
+      Promise.resolve(
+        JSON.stringify(
+          args[1] === "checks" ? [{ bucket: "pass" }] : args[1] === "list" ? [closed] : closed,
+        ),
+      ),
+    );
+    expect(await provider?.lookup("child-one")).toBeUndefined();
+    expect(await provider?.lookup("child-one", 340)).toEqual({
+      ...pr,
+      state,
+      requiredChecks: "success",
+    });
+  }
+});

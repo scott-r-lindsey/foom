@@ -167,7 +167,8 @@ export function forgeProvider(
           state: data["state"],
           requiredChecks: "none",
         });
-        if (!candidate) return undefined;
+        if (!candidate || (number === undefined && state === "open" && candidate.state !== "OPEN"))
+          return undefined;
         const checks: unknown = JSON.parse(
           await runner([
             "pr",

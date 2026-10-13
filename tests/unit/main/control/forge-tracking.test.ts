@@ -72,7 +72,7 @@ it("bounds exponential backoff and serializes unchanged/success/failure polls", 
   await Promise.all([h.tracker.poll(), h.tracker.poll()]);
   expect(h.lookup).toHaveBeenCalledTimes(2);
   expect(h.changed).toHaveBeenCalledTimes(1);
-  expect(h.lookup).toHaveBeenLastCalledWith("child-one", 340, "all");
+  expect(h.lookup).toHaveBeenLastCalledWith("child-one", 340);
   h.result({ ...pending, requiredChecks: "success" });
   h.advance(30000);
   await h.tracker.poll();
@@ -98,17 +98,26 @@ it("persists mapping independently of a parent session or credential generation"
   await h.tracker.poll();
   await h.tracker.close();
   const next = harness();
+  next.result({ ...pending, state: "MERGED", requiredChecks: "success" });
   await next.tracker.load();
   expect(next.tracker.read(tree.repository, tree.path)).toBeUndefined();
   await next.tracker.poll();
-  expect(next.lookup).toHaveBeenCalledWith("child-one", 340, "all");
-  expect(next.tracker.read(tree.repository, tree.path)).toEqual(pending);
+  expect(next.lookup).toHaveBeenCalledWith("child-one", 340);
+  expect(next.tracker.read(tree.repository, tree.path)).toEqual({
+    ...pending,
+    state: "MERGED",
+    requiredChecks: "success",
+  });
   next.tracker.track({ ...tree });
-  expect(next.tracker.read(tree.repository, tree.path)).toEqual(pending);
+  expect(next.tracker.read(tree.repository, tree.path)).toEqual({
+    ...pending,
+    state: "MERGED",
+    requiredChecks: "success",
+  });
   next.tracker.track({ ...tree, identity: "replaced" });
   expect(next.tracker.read(tree.repository, tree.path)).toBeUndefined();
   await next.tracker.poll();
-  expect(next.lookup).toHaveBeenLastCalledWith("child-one", undefined, "all");
+  expect(next.lookup).toHaveBeenLastCalledWith("child-one", undefined);
 });
 it("revalidates ownership and remote, clears unavailable observations, and continues after exceptions", async () => {
   const h = harness();
@@ -117,7 +126,7 @@ it("revalidates ownership and remote, clears unavailable observations, and conti
   h.inspect.mockResolvedValueOnce("https://github.com/new/repo");
   h.advance(30000);
   await h.tracker.poll();
-  expect(h.lookup).toHaveBeenLastCalledWith("child-one", undefined, "all");
+  expect(h.lookup).toHaveBeenLastCalledWith("child-one", undefined);
   h.lookup.mockRejectedValueOnce(new Error("offline"));
   h.advance(30000);
   await h.tracker.poll();
@@ -140,7 +149,7 @@ it("discovers a not-yet-opened PR across restart and handles an unknown provider
   const next = harness();
   await next.tracker.load();
   await next.tracker.poll();
-  expect(next.lookup).toHaveBeenCalledWith("child-one", undefined, "all");
+  expect(next.lookup).toHaveBeenCalledWith("child-one", undefined);
   const unsupported = new ForgeTracking(
     directory,
     () => Promise.resolve("unknown"),

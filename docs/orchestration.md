@@ -452,9 +452,9 @@ the 2026-10-13 decision. GitLab and enterprise hosts await providers.
 The provider's branch lookup is reusable by #337. It runs only fixed `gh pr list`,
 `gh pr view` and `gh pr checks --required` subcommands with execFile argument arrays,
 explicit repository selection, disabled prompts, 10-second command deadlines and
-256 KiB output limits. Tracking discovery requires one unambiguous PR, including already closed/merged
-PRs so an offline interval does not miss them. The reusable lookup defaults to open
-PRs for #337. Once
+256 KiB output limits. Initial discovery requires one unambiguous open PR, so a closed PR from an older
+use of the same branch cannot claim a newly created worktree. The same open lookup
+is reusable by #337. Once
 bound, its number is used to follow OPEN, CLOSED and MERGED states. Output is
 untrusted: main exposes only a positive PR number, a 40-character head SHA, the
 fixed state and `requiredChecks` (`pending`, `success`, `failure`, `none`). Cancelled
