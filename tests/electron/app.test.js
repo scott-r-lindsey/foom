@@ -4321,7 +4321,7 @@ test("tiles build irregular layouts, preserve views and replace explicitly for a
     await page.evaluate(
       () =>
         JSON.parse(localStorage.getItem(`foom.tiles.v1.${window.desktop.windows.id}`)).tree.first
-          .session,
+          .content.session,
     ),
     sessions[3].id,
   );
@@ -4374,7 +4374,7 @@ test("launching into a narrow full tile uses the focused fallback and empty tile
       page.evaluate(
         () =>
           JSON.parse(localStorage.getItem(`foom.tiles.v1.${window.desktop.windows.id}`)).tree
-            .session,
+            .content.session,
       ),
     )
     .toBe(created.id);
@@ -5746,7 +5746,7 @@ test("tile drag drops replace, split every edge, swap and move without reattachm
   assert.equal(await saved(), initial);
   await drag(rows.nth(1), tiles.first(), 0.5, 0.5);
   const ids = await rows.evaluateAll((rows) => rows.map((row) => row.dataset.dragSession));
-  assert.equal(JSON.parse(await saved()).tree.session, ids[1]);
+  assert.equal(JSON.parse(await saved()).tree.content.session, ids[1]);
   for (const [zone, x, y, theme] of [
     ["left", 0.1, 0.5, "light"],
     ["right", 0.9, 0.5, "dark"],
@@ -5761,7 +5761,10 @@ test("tile drag drops replace, split every edge, swap and move without reattachm
     await expect(tiles).toHaveCount(2);
     const tree = JSON.parse(await saved()).tree;
     assert.equal(tree.direction, zone === "left" || zone === "right" ? "horizontal" : "vertical");
-    assert.equal((zone === "left" || zone === "up" ? tree.first : tree.second).session, ids[2]);
+    assert.equal(
+      (zone === "left" || zone === "up" ? tree.first : tree.second).content.session,
+      ids[2],
+    );
     // Restore the other session for the next edge's source/target pair.
     await drag(rows.nth(1), tiles.first(), 0.5, 0.5);
   }
@@ -8587,4 +8590,136 @@ test("sidebar choice restores after restart and new windows start expanded", asy
     .find((page) => page !== restored && page.url() === "app://bundle/index.html");
   await expect(second.getByRole("button", { name: "Collapse sidebar", exact: true })).toBeVisible();
   await assertAccessible(restored);
+});
+
+test("tile layouts restore v1 terminal content and v2 mixed content after inventory", {
+  timeout: deadline(60000),
+}, async (context) => {
+  const app = await launchApp(context, false);
+  const page = await boardPage(app);
+  await expect(page.locator(".board-row").first()).toBeVisible();
+  const id = await page.locator(".board-row").first().getAttribute("data-drag-session");
+  assert.ok(id);
+  for (const version of [1, 2]) {
+    await page.evaluate(
+      ({ version, id }) => {
+        const terminal = {
+          kind: "tile",
+          id: "restored-terminal",
+          ...(version === 1 ? { session: id } : { content: { kind: "terminal", session: id } }),
+        };
+        const space = {
+          kind: "tile",
+          id: "restored-preview",
+          ...(version === 1
+            ? { session: null }
+            : { content: { kind: "preview", preview: "missing-preview" } }),
+        };
+        localStorage.setItem(
+          `foom.tiles.v1.${window.desktop.windows.id}`,
+          JSON.stringify({
+            version,
+            focused: terminal.id,
+            tree: {
+              kind: "split",
+              id: "restored-split",
+              direction: "horizontal",
+              ratio: 0.4,
+              first: terminal,
+              second: space,
+            },
+          }),
+        );
+      },
+      { version, id },
+    );
+    await page.reload();
+    await expect(page.locator('[data-tile="restored-terminal"]')).toHaveAttribute(
+      "data-empty",
+      "false",
+    );
+    await expect(page.locator('[data-tile="restored-preview"]')).toHaveAttribute(
+      "data-empty",
+      "true",
+    );
+    const saved = await page.evaluate(() =>
+      JSON.parse(localStorage.getItem(`foom.tiles.v1.${window.desktop.windows.id}`)),
+    );
+    assert.equal(saved.version, 2);
+    assert.deepEqual(saved.tree.first.content, { kind: "terminal", session: id });
+    assert.equal(saved.tree.second.content, null);
+    assert.equal(saved.tree.ratio, 0.4);
+    await assertAccessible(page);
+  }
+  // Exercise the future host's typed inventory without implementing a view host.
+  const inventory = await page.evaluate(() => window.desktop.sidebarInventory());
+  const repository = inventory.repositories[0];
+  assert.ok(repository);
+  inventory.previews = [
+    {
+      id: "markdown-preview",
+      repository: repository.path,
+      worktree: repository.worktrees[0].path,
+      relativePath: "docs/previews.md",
+      kind: "markdown",
+    },
+    {
+      id: "html-preview",
+      repository: repository.path,
+      worktree: repository.worktrees[0].path,
+      relativePath: "docs/mockups/preview-tiles.html",
+      kind: "html",
+    },
+  ];
+  await app.evaluate(({ ipcMain }, inventory) => {
+    ipcMain.removeHandler("workspace:sidebar");
+    ipcMain.handle("workspace:sidebar", () => inventory);
+  }, inventory);
+  await page.evaluate((id) => {
+    const leaf = (id, content) => ({ kind: "tile", id, content });
+    localStorage.setItem(
+      `foom.tiles.v1.${window.desktop.windows.id}`,
+      JSON.stringify({
+        version: 2,
+        focused: "terminal",
+        tree: {
+          kind: "split",
+          id: "columns",
+          direction: "horizontal",
+          ratio: 1 / 3,
+          first: leaf("terminal", { kind: "terminal", session: id }),
+          second: {
+            kind: "split",
+            id: "previews",
+            direction: "horizontal",
+            ratio: 0.5,
+            first: leaf("markdown", { kind: "preview", preview: "markdown-preview" }),
+            second: leaf("html", { kind: "preview", preview: "html-preview" }),
+          },
+        },
+      }),
+    );
+  }, id);
+  await page.reload();
+  await expect(page.locator(".terminal-tile[data-empty=false]")).toHaveCount(3);
+  await expect(page.locator('[data-tile="markdown"] .board-agent')).toHaveText("MD");
+  await expect(page.locator('[data-tile="html"] .board-agent')).toHaveText("HTML");
+  await expect(page.locator(".preview-row")).toHaveCount(2);
+  assert.equal(await page.locator('.terminal-tile[data-kind="preview"] .board-light').count(), 0);
+  await page.getByRole("button", { name: /docs\/previews.md/ }).click();
+  await expect(page.locator('[data-tile="markdown"]')).toBeFocused();
+  for (const [theme, scale] of [
+    ["dark", 100],
+    ["light", 150],
+  ]) {
+    await page.evaluate(
+      ({ theme, scale }) => window.desktop.saveSetup({ colorMode: theme, interfaceScale: scale }),
+      { theme, scale },
+    );
+    await assertAccessible(page);
+    await page.screenshot({
+      path: `test-results/preview-tiles-${theme}-${scale}.png`,
+      animations: "disabled",
+    });
+  }
 });

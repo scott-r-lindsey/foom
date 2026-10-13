@@ -110,8 +110,8 @@ test("foreign selection focuses its owner while local selection persists a per-w
   expect(view.container.querySelectorAll(".terminal-tile[data-empty=false]")).toHaveLength(1);
   expect(localStorage.getItem(TILE_STORAGE)).toBeNull();
   expect(
-    leaves(restoreLayout(localStorage.getItem(`${TILE_STORAGE}.test-window`)).tree)[0]?.session,
-  ).toBe(f.rows[0].id);
+    leaves(restoreLayout(localStorage.getItem(`${TILE_STORAGE}.test-window`)).tree)[0]?.content,
+  ).toEqual({ kind: "terminal", session: f.rows[0].id });
   fireEvent.click(view.getByRole("button", { name: "Tile 1 menu" }));
   await act(async () => {
     fireEvent.click(view.getByRole("menuitem", { name: "Move to new window" }));

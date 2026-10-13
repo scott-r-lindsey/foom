@@ -1,3 +1,4 @@
+import type { PreviewSummary } from "../../shared/workspace";
 import type { ActionLogApi } from "../../shared/action-log";
 import type { GitPanelFacts, HomeShellFacts } from "../../shared/panel";
 import type { WindowsApi } from "../../shared/windows";
@@ -32,6 +33,10 @@ export interface WorktreeSource {
 }
 /** Samples and the live source share rows, verdicts and activity batches. */
 export interface BoardSource {
+  previews?: {
+    getSnapshot(): readonly PreviewSummary[];
+    close(id: string): Promise<void>;
+  };
   actionLog?: ActionLogApi;
   windows?: WindowsApi;
   appMenu?: AppMenuApi;

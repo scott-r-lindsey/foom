@@ -1,3 +1,4 @@
+import type { PreviewSummary } from "../../shared/workspace";
 import type { WindowAudioState } from "../../shared/windows";
 import { ActionLog } from "./action-log-view";
 import { TileArea } from "./tile-area";
@@ -15,7 +16,9 @@ import {
   hideSession,
   growTile,
   terminals,
-  pruneSessions,
+  pruneContent,
+  sessionId,
+  contentId,
   neighbor,
   swapTiles,
 } from "./tiles";
@@ -43,6 +46,7 @@ import type { BoardRow } from "./board.d";
 import { subscribeLights } from "./light-activity";
 import { nextWaiting, waitTime } from "./board";
 
+const emptyPreviews: readonly PreviewSummary[] = [];
 export function Board({
   source,
   inactive = false,
@@ -67,6 +71,7 @@ export function Board({
   const settingsOpen = Boolean(settingsView) || logOpen;
   const paneInactive = inactive || settingsOpen;
   const rows = useSyncExternalStore(source.subscribe, source.getSnapshot);
+  const previews = source.previews?.getSnapshot() ?? emptyPreviews;
   useEffect(() => source.connect?.(), [source]);
   const [layout, setLayout] = useState(() => {
     try {
@@ -110,10 +115,22 @@ export function Board({
       };
       if (
         next.focused !== layoutRef.current.focused ||
-        leaves(next.tree).find((tile) => tile.id === next.focused)?.session !==
-          leaves(layoutRef.current.tree).find((tile) => tile.id === next.focused)?.session
+        leaves(next.tree).find((tile) => tile.id === next.focused)?.content !==
+          leaves(layoutRef.current.tree).find((tile) => tile.id === next.focused)?.content
       ) {
         focusedAtRef.current.set(next.focused, ++focusClockRef.current);
+      }
+      const retained = new Set(
+        leaves(next.tree).flatMap((tile) =>
+          tile.content?.kind === "preview" ? [tile.content.preview] : [],
+        ),
+      );
+      for (const tile of leaves(layoutRef.current.tree)) {
+        if (tile.content?.kind === "preview" && !retained.has(tile.content.preview)) {
+          void source.previews?.close(tile.content.preview).catch(() => {
+            setRemoveError("Unable to close preview.");
+          });
+        }
       }
       layoutRef.current = next;
       setLayout(next);
@@ -123,17 +140,22 @@ export function Board({
         setRemoveError("Unable to save tile layout.");
       }
     },
-    [storageKey],
+    [storageKey, source],
   );
   useEffect(() => {
     if (source.isReady && !source.isReady()) return;
     const current = layoutRef.current;
     if (
-      leaves(current.tree).some(
-        (tile) => tile.session && !rows.some((row) => row.id === tile.session),
+      leaves(current.tree).some((tile) =>
+        tile.content?.kind === "preview"
+          ? !previews.some((preview) => preview.id === contentId(tile.content))
+          : sessionId(tile) && !rows.some((row) => row.id === sessionId(tile)),
       )
     ) {
-      const next = pruneSessions(current, new Set(rows.map((row) => row.id)));
+      const next = pruneContent(current, {
+        sessions: new Set(rows.map((row) => row.id)),
+        previews: new Set(previews.map((preview) => preview.id)),
+      });
       layoutRef.current = next;
       setLayout(next);
       try {
@@ -142,7 +164,7 @@ export function Board({
         setRemoveError("Unable to save tile layout.");
       }
     }
-  }, [source, rows, storageKey]);
+  }, [source, rows, previews, storageKey]);
   useEffect(() => {
     const api = source.windows;
     if (!api) return;
@@ -157,10 +179,15 @@ export function Board({
     const removed = api.onRemoved((id) => {
       const ids = new Set(
         leaves(layoutRef.current.tree).flatMap((tile) =>
-          tile.session && tile.session !== id ? [tile.session] : [],
+          sessionId(tile) && sessionId(tile) !== id ? [sessionId(tile) ?? ""] : [],
         ),
       );
-      changeLayout(pruneSessions(layoutRef.current, ids));
+      changeLayout(
+        pruneContent(layoutRef.current, {
+          sessions: ids,
+          previews: new Set(previews.map((preview) => preview.id)),
+        }),
+      );
     });
     void api
       .snapshot()
@@ -171,7 +198,7 @@ export function Board({
       off();
       removed();
     };
-  }, [source, changeLayout]);
+  }, [source, changeLayout, previews]);
   const reservationRef = useRef<
     { source: BoardSource; layout: TileLayout; ids: string } | undefined
   >(undefined);
@@ -179,7 +206,9 @@ export function Board({
     if (!source.windows || (source.isReady && !source.isReady())) return;
     const current = layout;
     const ids = leaves(current.tree).flatMap((tile) =>
-      tile.session && rows.some((row) => row.id === tile.session) ? [tile.session] : [],
+      sessionId(tile) && rows.some((row) => row.id === sessionId(tile))
+        ? [sessionId(tile) ?? ""]
+        : [],
     );
     const previous = reservationRef.current;
     const key = JSON.stringify(ids);
@@ -192,13 +221,18 @@ export function Board({
       .sync(ids)
       .then((accepted) => {
         if (layoutRef.current === current && ids.some((id) => !accepted.includes(id)))
-          changeLayout(pruneSessions(current, new Set(accepted)));
+          changeLayout(
+            pruneContent(current, {
+              sessions: new Set(accepted),
+              previews: new Set(previews.map((preview) => preview.id)),
+            }),
+          );
       })
       .catch(() => {
         if (reservationRef.current === reservation) reservationRef.current = undefined;
         setRemoveError("Unable to reserve terminal views.");
       });
-  }, [source, rows, layout, changeLayout]);
+  }, [source, rows, previews, layout, changeLayout]);
   const tileAction = useCallback(
     (
       tile: string,
@@ -206,8 +240,9 @@ export function Board({
     ) => {
       setFocusRequest((value) => value + 1);
       const current = { ...layoutRef.current, focused: tile };
-      const session = leaves(current.tree).find((item) => item.id === tile)?.session;
-      if (action === "maximize" && !session) return;
+      const session = sessionId(leaves(current.tree).find((item) => item.id === tile));
+      const content = leaves(current.tree).find((item) => item.id === tile)?.content;
+      if (action === "maximize" && !content) return;
       if (
         action === "close" &&
         session &&
@@ -218,7 +253,8 @@ export function Board({
           .then(() => {
             if (
               leaves(layoutRef.current.tree).some(
-                (item) => item.id === tile && (item.session === session || item.session === null),
+                (item) =>
+                  item.id === tile && (sessionId(item) === session || item.content === null),
               )
             ) {
               changeLayout(closeTile({ ...layoutRef.current, focused: tile }));
@@ -272,7 +308,7 @@ export function Board({
   const selected = rows.some((row) => row.id === selection) ? selection : rows[0]?.id;
   const buttonsRef = useRef(new Map<string, HTMLElement>());
   const terminalRef = useRef<HTMLElement>(null);
-  const focusedSession = leaves(layout.tree).find((tile) => tile.id === layout.focused)?.session;
+  const focusedSession = sessionId(leaves(layout.tree).find((tile) => tile.id === layout.focused));
   const focusedRow = rows.find((row) => row.id === focusedSession);
   const displayedId = focusedRow?.kind === "sample" ? undefined : focusedRow?.id;
   const [audioEnabled, setAudioEnabled] = useState(() => !source.windows?.audio);
@@ -392,7 +428,7 @@ export function Board({
           leaves(current.tree).find(
             (tile) =>
               tile.id === destination.tile &&
-              (tile.session === null || tile.session === destination.session),
+              (tile.content === null || sessionId(tile) === destination.session),
           );
         const next = placeSession(
           own ? { ...current, focused: own.id } : current,
@@ -451,11 +487,12 @@ export function Board({
     const before = new Set(source.getSnapshot().map((row) => row.id));
     const original =
       value.kind === "restart"
-        ? leaves(layoutRef.current.tree).find((tile) => tile.session === value.id)
+        ? leaves(layoutRef.current.tree).find((tile) => sessionId(tile) === value.id)
         : undefined;
-    const destination = original?.session
-      ? { tile: original.id, session: original.session }
-      : undefined;
+    const destination =
+      original && sessionId(original)
+        ? { tile: original.id, session: sessionId(original) ?? "" }
+        : undefined;
     return (source.sidebarCommand?.(value) ?? Promise.resolve())
       .then(() => {
         if (value.kind === "resume" || value.kind === "new-conversation") {
@@ -638,7 +675,7 @@ export function Board({
         const row = source.getSnapshot().find((row) => row.id === id);
         if (row) {
           onCloseSettings?.();
-          const visible = leaves(layoutRef.current.tree).some((tile) => tile.session === row.id);
+          const visible = leaves(layoutRef.current.tree).some((tile) => sessionId(tile) === row.id);
           open(row, !visible);
         }
       }),
@@ -699,12 +736,27 @@ export function Board({
           tileNumbers={
             new Map(
               terminals(layout.tree).flatMap((tile, index) =>
-                tile.session
-                  ? [[tile.session, { number: index + 1, focused: tile.id === layout.focused }]]
+                contentId(tile.content)
+                  ? [
+                      [
+                        contentId(tile.content) ?? "",
+                        { number: index + 1, focused: tile.id === layout.focused },
+                      ],
+                    ]
                   : [],
               ),
             )
           }
+          previews={previews}
+          openPreview={(id) => {
+            const tile = leaves(layoutRef.current.tree).find(
+              (tile) => tile.content?.kind === "preview" && tile.content.preview === id,
+            );
+            if (tile) {
+              changeLayout({ ...layoutRef.current, focused: tile.id });
+              setFocusRequest((value) => value + 1);
+            }
+          }}
           revealRef={revealRef}
           {...(onSettings ? { openSettings: onSettings } : {})}
           inactive={inactive}
@@ -799,13 +851,14 @@ export function Board({
             focusRequest={focusRequest}
             setLayout={changeLayout}
             rows={rows}
+            previews={previews}
             preferences={preferences}
             inactive={paneInactive}
             action={(tile, action) => {
               if (action === "popout") {
-                const session = leaves(layoutRef.current.tree).find(
-                  (item) => item.id === tile,
-                )?.session;
+                const session = sessionId(
+                  leaves(layoutRef.current.tree).find((item) => item.id === tile),
+                );
                 if (session)
                   void source.windows?.popout(session).catch(() => {
                     setRemoveError("Unable to move session to a new window.");

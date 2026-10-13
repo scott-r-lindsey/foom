@@ -1,7 +1,10 @@
+export type TileContent =
+  | { kind: "terminal"; session: string }
+  | { kind: "preview"; preview: string };
 export interface TileLeaf {
   kind: "tile";
   id: string;
-  session: string | null;
+  content: TileContent | null;
 }
 export interface TileSplit {
   kind: "split";

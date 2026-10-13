@@ -1,3 +1,4 @@
+import type { PreviewSummary } from "../../shared/workspace";
 import { ResumeField } from "./resume-field-view";
 import { PanelIntent } from "./panel-intent";
 import { PanelFacts, PanelTitle } from "./panel-facts";
@@ -81,6 +82,8 @@ export function Sidebar({
   options,
   footer,
   tileNumbers,
+  previews = [],
+  openPreview,
   otherViews,
   openSettings,
 }: {
@@ -106,6 +109,8 @@ export function Sidebar({
   options: LaunchOptions | undefined;
   footer: ReactNode;
   otherViews?: ReadonlySet<string>;
+  previews?: readonly PreviewSummary[];
+  openPreview?: (id: string) => void;
   tileNumbers?: ReadonlyMap<string, { number: number; focused: boolean }>;
   openSettings?: (section?: "config") => void;
 }) {
@@ -282,11 +287,13 @@ export function Sidebar({
       ? "Expand sidebar"
       : "Collapse sidebar";
   const shortcut = source.appMenu?.platform === "darwin" ? "⌘B" : "Ctrl+Shift+B";
+
   const { tree, hiddenNeeds } = buildSidebar(
     rows.filter((row) => !row.home && !row.config),
     repositories,
     preferences,
     compact ? "" : filter,
+    previews,
   );
   const toggle = (id: string, expanded: boolean) => {
     save({ ...preferences, expanded: { ...preferences.expanded, [id]: !expanded } });
@@ -782,6 +789,39 @@ export function Sidebar({
         <span className="board-light" aria-hidden="true" />
       </span>
     );
+  const previewRow = (preview: PreviewSummary) => (
+    <div
+      key={preview.id}
+      role="treeitem"
+      aria-label={`${preview.kind === "markdown" ? "Markdown" : "HTML"} preview: ${preview.relativePath}`}
+    >
+      <button
+        type="button"
+        data-nav
+        className="tree-row preview-row"
+        onClick={() => openPreview?.(preview.id)}
+      >
+        <svg className="preview-glyph" aria-hidden="true" viewBox="0 0 16 16">
+          <path d="M4 1.5h5l3 3v10H4z M9 1.5v3h3 M6 8h4 M6 10.5h4" />
+        </svg>
+        <span className="tree-label">
+          <Highlight text={preview.relativePath} filter={filter} />
+        </span>
+        {tileNumbers?.has(preview.id) && (
+          <span
+            className="tile-number"
+            data-focused={tileNumbers.get(preview.id)?.focused}
+            aria-label={`Tile ${String(tileNumbers.get(preview.id)?.number)}`}
+          >
+            {tileNumbers.get(preview.id)?.number}
+          </span>
+        )}
+      </button>
+    </div>
+  );
+  const matchingPreviews = tree.flatMap((repo) =>
+    repo.worktrees.flatMap((worktree) => worktree.previews),
+  );
   return (
     <aside
       ref={shellRef}
@@ -955,6 +995,8 @@ export function Sidebar({
               {[...homeRows, ...configRows].map((row) => session(row))}
             </div>
           )}
+          {compact && matchingPreviews.map(previewRow)}
+
           {!compact && filter.trim() && tree.length === 0 && visibleHomeRows.length === 0 && (
             <p className="tree-empty">No matches</p>
           )}
@@ -1261,9 +1303,17 @@ export function Sidebar({
                                       ? sessions
                                           .filter((row) => !parentOf(row))
                                           .map((row) => session(row))
-                                      : !filter.trim() && (
-                                          <p className="tree-empty">Nothing here yet</p>
-                                        )}
+                                      : !filter.trim() &&
+                                        !matchingPreviews.some(
+                                          (preview) => preview.worktree === worktree.path,
+                                        ) && <p className="tree-empty">Nothing here yet</p>}
+                                    {matchingPreviews
+                                      .filter(
+                                        (preview) =>
+                                          preview.worktree === worktree.path &&
+                                          preview.repository === repo.repository.path,
+                                      )
+                                      .map(previewRow)}
                                   </div>
                                 )}
                               </div>

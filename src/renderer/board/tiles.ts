@@ -1,4 +1,5 @@
 import type {
+  TileContent,
   TilePlacement,
   TileDrag,
   DropZone,
@@ -10,7 +11,7 @@ import type {
   TileSplit,
 } from "./tiles.d";
 const id = () => crypto.randomUUID();
-export const newTile = (): TileLeaf => ({ kind: "tile", id: id(), session: null });
+export const newTile = (): TileLeaf => ({ kind: "tile", id: id(), content: null });
 export const initialLayout = (): TileLayout => {
   const tree = newTile();
   return { tree, focused: tree.id, maximized: null };
@@ -79,7 +80,7 @@ function removeTile(layout: TileLayout): TileLayout {
 }
 export function closeTile(layout: TileLayout): TileLayout {
   const tree = update(layout.tree, layout.focused, (node) =>
-    node.kind === "tile" ? { ...node, session: null } : node,
+    node.kind === "tile" ? { ...node, content: null } : node,
   );
   return {
     ...layout,
@@ -103,9 +104,9 @@ function columns(tree: TileNode, width = 1): { tree: TileNode; width: number }[]
 export function blankColumns(width: number): number {
   return Number.isFinite(width) ? Math.max(1, Math.min(3, Math.floor(width / 100))) : 1;
 }
-function addColumn(layout: TileLayout, session: string): TileLayout {
+function addColumn(layout: TileLayout, content: TileContent): TileLayout {
   const count = columns(layout.tree).length;
-  const next = { ...newTile(), session };
+  const next = { ...newTile(), content };
   return {
     ...layout,
     tree: split(layout.tree, next, "horizontal", count / (count + 1)),
@@ -113,11 +114,12 @@ function addColumn(layout: TileLayout, session: string): TileLayout {
     maximized: null,
   };
 }
+/** Occupied leaves, including previews, in numbering order. */
 export const terminals = (tree: TileNode): TileLeaf[] =>
-  leaves(tree).filter((tile) => tile.session !== null);
+  leaves(tree).filter((tile) => tile.content !== null);
 export const landingSpace = (layout: TileLayout): TileLeaf | undefined =>
-  leaves(layout.tree).find((tile) => tile.id === layout.landing && tile.session === null) ??
-  leaves(layout.tree).find((tile) => tile.session === null);
+  leaves(layout.tree).find((tile) => tile.id === layout.landing && tile.content === null) ??
+  leaves(layout.tree).find((tile) => tile.content === null);
 export function growTarget(
   layout: TileLayout,
   direction: TileSplit["direction"],
@@ -134,7 +136,7 @@ export function growTarget(
   const inFirst = leaves(ancestor.first).some((tile) => tile.id === layout.focused);
   const other = inFirst ? ancestor.second : ancestor.first;
   return terminals(other).length
-    ? { reason: "Next to a terminal" }
+    ? { reason: "Next to an occupied tile" }
     : { split: ancestor, side: inFirst ? ancestor.first : ancestor.second };
 }
 export function growTile(layout: TileLayout, direction: TileSplit["direction"]): TileLayout {
@@ -207,7 +209,7 @@ export function evenSplitRun(layout: TileLayout, target: string): TileLayout {
 /** Remove spaces before evening: collapsing a split can join previously separate runs. */
 export function tidyTiles(layout: TileLayout): TileLayout {
   const prune = (node: TileNode): TileNode | null => {
-    if (node.kind === "tile") return node.session === null ? null : node;
+    if (node.kind === "tile") return node.content === null ? null : node;
     const first = prune(node.first),
       second = prune(node.second);
     return first && second ? { ...node, first, second } : (first ?? second);
@@ -230,13 +232,13 @@ export function tidyTiles(layout: TileLayout): TileLayout {
   };
 }
 
-export function placeSession(
+export function placeContent(
   layout: TileLayout,
-  session: string,
+  content: TileContent,
   replace = false,
   placement: TilePlacement = { columns: 0 },
 ): TileLayout | null {
-  if (!replace && layout.tree.kind === "tile" && layout.tree.session === null) {
+  if (!replace && layout.tree.kind === "tile" && layout.tree.content === null) {
     const count = blankColumns(placement.columns);
     if (count > 1) {
       let tree: TileNode = layout.tree;
@@ -246,14 +248,16 @@ export function placeSession(
     }
   }
   const tiles = leaves(layout.tree);
-  const visible = tiles.find((tile) => tile.session === session);
+  const visible = tiles.find(
+    (tile) => contentId(tile.content) === contentId(content) && tile.content?.kind === content.kind,
+  );
   const focused = tiles.find((tile) => tile.id === layout.focused);
   const target = replace
     ? focused
     : (visible ??
       (layout.landing
         ? landingSpace(layout)
-        : focused?.session === null
+        : focused?.content === null
           ? focused
           : landingSpace(layout)));
   if (!target) {
@@ -267,19 +271,21 @@ export function placeSession(
     const depth = (node: TileNode): number =>
       node.kind === "tile" ? 0 : 1 + Math.max(depth(node.first), depth(node.second));
     const canGrow = tiles.length < 256 && depth(layout.tree) < 64;
-    if (fits && canGrow) return addColumn(layout, session);
-    const eligible = tiles.filter((tile) => tile.session && !placement.needsYou?.has(tile.session));
+    if (fits && canGrow) return addColumn(layout, content);
+    const eligible = tiles.filter(
+      (tile) => tile.content && !placement.needsYou?.has(sessionId(tile) ?? ""),
+    );
     const unfocused = eligible.filter((tile) => tile.id !== layout.focused);
     const oldest = (unfocused.length ? unfocused : eligible).sort(
       (a, b) => (placement.focusedAt?.get(a.id) ?? 0) - (placement.focusedAt?.get(b.id) ?? 0),
     )[0];
-    if (oldest) return placeSession({ ...layout, focused: oldest.id }, session, true);
-    return canGrow ? addColumn(layout, session) : null;
+    if (oldest) return placeContent({ ...layout, focused: oldest.id }, content, true);
+    return canGrow ? addColumn(layout, content) : null;
   }
   let tree = layout.tree;
   if (replace && visible && visible.id !== target.id)
-    tree = update(tree, visible.id, (node) => ({ ...node, session: null }));
-  tree = update(tree, target.id, (node) => ({ ...node, session }));
+    tree = update(tree, visible.id, (node) => ({ ...node, content: null }));
+  tree = update(tree, target.id, (node) => ({ ...node, content }));
   return {
     ...layout,
     tree,
@@ -290,10 +296,10 @@ export function placeSession(
 export function preset(layout: TileLayout, kind: TilePreset): TileLayout {
   const old = leaves(layout.tree);
   const ordered = [
-    ...old.filter((tile) => tile.id === layout.focused && tile.session !== null),
-    ...old.filter((tile) => tile.id !== layout.focused && tile.session !== null),
-    ...old.filter((tile) => tile.id === layout.focused && tile.session === null),
-    ...old.filter((tile) => tile.id !== layout.focused && tile.session === null),
+    ...old.filter((tile) => tile.id === layout.focused && tile.content !== null),
+    ...old.filter((tile) => tile.id !== layout.focused && tile.content !== null),
+    ...old.filter((tile) => tile.id === layout.focused && tile.content === null),
+    ...old.filter((tile) => tile.id !== layout.focused && tile.content === null),
   ];
   const take = () => ordered.shift() ?? newTile();
   const a = take();
@@ -359,7 +365,7 @@ export function rectangles(
   };
 }
 export function neighbor(layout: TileLayout, direction: "left" | "right" | "up" | "down"): string {
-  const tiles = rectangles(layout.tree).tiles.filter((item) => item.tile.session !== null);
+  const tiles = rectangles(layout.tree).tiles.filter((item) => item.tile.content !== null);
   const current = tiles.find((item) => item.tile.id === layout.focused);
   if (!current) return layout.focused;
   const cx = current.rect.x + current.rect.width / 2,
@@ -389,7 +395,9 @@ export function restoreLayout(raw: string | null): TileLayout {
     if (!raw || raw.length > 100000) return initialLayout();
     const value: unknown = JSON.parse(raw);
     const ids = new Set<string>(),
-      sessions = new Set<string>();
+      sessions = new Set<string>(),
+      previews = new Set<string>();
+    let valueVersion = 2;
     let count = 0;
     const parse = (node: unknown, depth: number): TileNode => {
       if (
@@ -406,17 +414,35 @@ export function restoreLayout(raw: string | null): TileLayout {
       )
         throw new Error("Invalid tile");
       ids.add(node.id);
-      if (
-        node.kind === "tile" &&
-        "session" in node &&
-        (node.session === null ||
-          (typeof node.session === "string" &&
-            node.session.length > 0 &&
-            node.session.length <= 200 &&
-            !sessions.has(node.session)))
-      ) {
-        if (node.session) sessions.add(node.session);
-        return { kind: "tile", id: node.id, session: node.session };
+      if (node.kind === "tile") {
+        const raw =
+          valueVersion === 1 && "session" in node
+            ? node.session === null
+              ? null
+              : { kind: "terminal", session: node.session }
+            : "content" in node
+              ? node.content
+              : null;
+        let content: TileContent | null = null;
+        if (raw && typeof raw === "object" && "kind" in raw) {
+          const key =
+            raw.kind === "terminal" ? "session" : raw.kind === "preview" ? "preview" : null;
+          const candidate = key && key in raw ? (Reflect.get(raw, key) as unknown) : null;
+          const known = raw.kind === "terminal" ? sessions : previews;
+          if (
+            typeof candidate === "string" &&
+            candidate.length > 0 &&
+            candidate.length <= 200 &&
+            !known.has(candidate)
+          ) {
+            known.add(candidate);
+            content =
+              raw.kind === "terminal"
+                ? { kind: "terminal", session: candidate }
+                : { kind: "preview", preview: candidate };
+          } else if (valueVersion === 1) throw new Error("Invalid session");
+        } else if (valueVersion === 1 && raw !== null) throw new Error("Invalid session");
+        return { kind: "tile", id: node.id, content };
       }
       if (
         node.kind !== "split" ||
@@ -442,10 +468,11 @@ export function restoreLayout(raw: string | null): TileLayout {
       !value ||
       typeof value !== "object" ||
       !("version" in value) ||
-      value.version !== 1 ||
+      (value.version !== 1 && value.version !== 2) ||
       !("tree" in value)
     )
       return initialLayout();
+    valueVersion = value.version;
     const tree = parse(value.tree, 0),
       tiles = leaves(tree);
     const focused =
@@ -453,7 +480,7 @@ export function restoreLayout(raw: string | null): TileLayout {
       typeof value.focused === "string" &&
       tiles.some(
         (tile) =>
-          tile.id === value.focused && (tile.session !== null || terminals(tree).length === 0),
+          tile.id === value.focused && (tile.content !== null || terminals(tree).length === 0),
       )
         ? value.focused
         : (terminals(tree)[0]?.id ?? tree.id);
@@ -476,11 +503,17 @@ export function restoreLayout(raw: string | null): TileLayout {
     return initialLayout();
   }
 }
-export function pruneSessions(layout: TileLayout, sessions: ReadonlySet<string>): TileLayout {
+export function pruneContent(
+  layout: TileLayout,
+  inventory: { sessions: ReadonlySet<string>; previews: ReadonlySet<string> },
+): TileLayout {
   const prune = (node: TileNode): TileNode =>
     node.kind === "tile"
-      ? node.session && !sessions.has(node.session)
-        ? { ...node, session: null }
+      ? node.content &&
+        !(node.content.kind === "terminal"
+          ? inventory.sessions.has(node.content.session)
+          : inventory.previews.has(node.content.preview))
+        ? { ...node, content: null }
         : node
       : { ...node, first: prune(node.first), second: prune(node.second) };
   const tree = prune(layout.tree);
@@ -505,7 +538,7 @@ export function saveLayout(
   storage.setItem(
     key,
     JSON.stringify({
-      version: 1,
+      version: 2,
       tree: layout.tree,
       focused: layout.focused,
       landing: layout.landing,
@@ -541,10 +574,10 @@ export function dropTile(
   const tiles = leaves(layout.tree);
   const destination = tiles.find((tile) => tile.id === target);
   const origin = tiles.find((tile) =>
-    drag.kind === "tile" ? tile.id === drag.id : tile.session === drag.id,
+    drag.kind === "tile" ? tile.id === drag.id : sessionId(tile) === drag.id,
   );
   if (!destination || origin === destination || (drag.kind === "tile" && !origin)) return layout;
-  if (zone === "center" || destination.session === null) {
+  if (zone === "center" || destination.content === null) {
     if (drag.kind === "tile") return swapTiles(layout, drag.id, target);
     return placeSession({ ...layout, focused: target }, drag.id, true) ?? layout;
   }
@@ -556,10 +589,13 @@ export function dropTile(
   if (added.tree === base.tree) return layout;
   const fresh = leaves(added.tree).find((tile) => tile.id === added.landing);
   if (!fresh) return layout;
-  const moving = drag.kind === "tile" && origin ? origin : { ...fresh, session: drag.id };
+  const moving =
+    drag.kind === "tile" && origin
+      ? origin
+      : { ...fresh, content: { kind: "terminal" as const, session: drag.id } };
   let tree = update(added.tree, fresh.id, () => moving);
   if (drag.kind === "session" && origin)
-    tree = update(tree, origin.id, () => ({ ...origin, session: null }));
+    tree = update(tree, origin.id, () => ({ ...origin, content: null }));
   const result = { tree: fitRatios(tree), focused: moving.id, maximized: null };
   return zone === "left" || zone === "up" ? swapTiles(result, moving.id, target) : result;
 }
@@ -578,12 +614,26 @@ export function loadLayout(
   key = TILE_STORAGE,
 ): TileLayout {
   let raw = storage.getItem(key);
+  let migrated = false;
   if (raw === null && key !== TILE_STORAGE) {
     raw = storage.getItem(TILE_STORAGE);
-    if (raw !== null) {
-      storage.setItem(key, raw);
-      storage.removeItem(TILE_STORAGE);
-    }
+    migrated = raw !== null;
   }
-  return restoreLayout(raw);
+  const layout = restoreLayout(raw);
+  if (raw !== null) saveLayout(storage, layout, key);
+  if (migrated) storage.removeItem(TILE_STORAGE);
+  return layout;
+}
+
+export const sessionId = (tile: TileLeaf | undefined): string | undefined =>
+  tile?.content?.kind === "terminal" ? tile.content.session : undefined;
+export const contentId = (content: TileContent | null | undefined): string | undefined =>
+  content?.kind === "terminal" ? content.session : content?.preview;
+export function placeSession(
+  layout: TileLayout,
+  session: string,
+  replace = false,
+  placement: TilePlacement = { columns: 0 },
+): TileLayout | null {
+  return placeContent(layout, { kind: "terminal", session }, replace, placement);
 }

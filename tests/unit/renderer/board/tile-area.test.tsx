@@ -13,6 +13,8 @@ import {
   leaves,
   preset,
   placeSession,
+  placeContent,
+  saveLayout,
 } from "../../../../src/renderer/board/tiles";
 const snapshot = {
   status: "Terminal",
@@ -570,7 +572,7 @@ test("tile panel exposes facts, keyboard navigation, blocked reasons and grow co
   click(1);
   fireEvent.click(screen.getByRole("button", { name: "Tile 2 menu" }));
   expect(screen.getByRole("menuitem", { name: /Grow sideways/ }).textContent).toContain(
-    "Next to a terminal",
+    "Next to an occupied tile",
   );
   fireEvent.keyDown(screen.getByRole("dialog", { name: "Tile 2 menu" }), { key: "Escape" });
   source.sidebarCommand = vi.fn(async () => {});
@@ -794,4 +796,84 @@ test("gutter double-click and Enter even a run; footer and command tidy keep occ
   send("tidy-tiles");
   expect(tiles()).toEqual(original);
   expect(views.slice(0, 3).every((view) => view.dispose.mock.calls.length === 0)).toBe(true);
+});
+
+test.each(["markdown", "html"] as const)(
+  "%s previews share numbering, focus and tile commands without terminal attachment",
+  async (kind) => {
+    const data = createSampleSource(sampleRows(100).slice(0, 1));
+    const row = data.getSnapshot()[0];
+    if (!row) throw new Error("Missing row");
+    const preview = {
+      id: "preview",
+      repository: row.repository,
+      worktree: `${row.repository}/${row.branch}`,
+      relativePath: "docs/test.md",
+      kind,
+    };
+    const terminal = placeSession(preset(initialLayout(), "columns"), row.id);
+    if (!terminal) throw new Error("Missing terminal");
+    const layout = placeContent(terminal, { kind: "preview", preview: preview.id });
+    if (!layout) throw new Error("Missing preview");
+    saveLayout(localStorage, { ...layout, focused: terminal.focused });
+    const close = vi.fn(() => Promise.resolve());
+    let command: ((command: BoardCommand) => void) | undefined;
+    const source: BoardSource = {
+      ...data,
+      previews: { getSnapshot: () => [preview], close },
+      subscribeCommands: (listener) => {
+        command = listener;
+        return () => {
+          command = undefined;
+        };
+      },
+    };
+    const screen = render(<Board source={source} />);
+    const tile = screen.getByRole("region", { name: "Tile 2: docs/test.md" });
+    expect(tile.querySelector(".board-light")).toBeNull();
+    expect(tile.querySelector(".board-agent")?.textContent).toBe(
+      kind === "markdown" ? "MD" : "HTML",
+    );
+    const sidebarRow = screen.getByRole("treeitem", { name: /preview: docs\/test.md/ });
+    expect(within(sidebarRow).getByLabelText("Tile 2")).toBeTruthy();
+    act(() => {
+      command?.("tile-2");
+    });
+    expect(tile.getAttribute("data-focused")).toBe("true");
+    fireEvent.click(within(sidebarRow).getByRole("button"));
+    await act(async () => {});
+    expect(tile.getAttribute("data-focused")).toBe("true");
+    expect(document.activeElement).toBe(tile);
+    fireEvent.click(within(tile).getByRole("button", { name: "Tile 2 menu" }));
+    expect(screen.queryByRole("menuitem", { name: "Hide" })).toBeNull();
+    expect(
+      screen.getByText(kind === "markdown" ? "Markdown" : "HTML", { selector: "dd" }),
+    ).toBeTruthy();
+    fireEvent.click(screen.getByRole("menuitem", { name: /^Maximize/ }));
+    expect(tile.getAttribute("data-maximized")).toBe("true");
+    fireEvent.click(within(tile).getByRole("button", { name: "Close" }));
+    await act(async () => {});
+    expect(close).toHaveBeenCalledExactlyOnceWith("preview");
+    expect(tile.getAttribute("data-empty")).toBe("true");
+  },
+);
+test("replacing a preview closes it and reports close failures", async () => {
+  const data = createSampleSource(sampleRows(100).slice(0, 1));
+  const preview = {
+    id: "p",
+    repository: "Foom",
+    worktree: "/tree",
+    relativePath: "page.html",
+    kind: "html" as const,
+  };
+  const layout = placeContent(initialLayout(), { kind: "preview", preview: "p" });
+  if (!layout) throw new Error("Missing preview");
+  saveLayout(localStorage, layout);
+  const close = vi.fn(() => Promise.reject(new Error("closed")));
+  const screen = render(
+    <Board source={{ ...data, previews: { getSnapshot: () => [preview], close } }} />,
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Close" }));
+  await act(async () => {});
+  expect(screen.getByRole("alert").textContent).toBe("Unable to close preview.");
 });

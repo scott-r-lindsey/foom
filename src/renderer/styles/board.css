@@ -342,9 +342,9 @@
 .sidebar-shell .board-top {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
-  align-items: baseline;
+  align-items: center;
   gap: 10px 8px;
-  padding: 16px 12px 10px;
+  padding: 12px 12px 10px;
   background: transparent;
 }
 .sidebar-shell .wordmark {
@@ -753,7 +753,7 @@
 }
 .sidebar-toggle {
   position: absolute;
-  top: 14px;
+  top: 12px;
   right: 8px;
   z-index: 1;
   display: grid;
@@ -779,6 +779,9 @@
 }
 .sidebar-shell .board-top {
   padding-right: 42px;
+}
+.sidebar-shell .sidebar-filter {
+  margin-right: -30px;
 }
 .sidebar-shell[data-compact="true"] {
   flex-basis: 64px;
