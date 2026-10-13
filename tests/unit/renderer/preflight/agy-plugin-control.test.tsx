@@ -6,19 +6,19 @@ import type { AgyPluginStatus } from "../../../../src/shared/agy-plugin";
 afterEach(cleanup);
 
 test.each([
-  ["not-installed", "Install Foom plugin", "install"],
-  ["outdated", "Update Foom plugin", "update"],
-  ["disabled", "Enable Foom plugin", "enable"],
-  ["installed", "Remove Foom plugin", "remove"],
-] as const)("discloses the effect before an explicit %s action", (state, label, action) => {
+  ["not-installed", "Install plugin", "install"],
+  ["outdated", "Update plugin", "update"],
+  ["disabled", "Enable plugin", "enable"],
+  ["installed", "Remove plugin", "remove"],
+] as const)("offers an inline %s action", (state, label, action) => {
   const change = vi.fn(() => Promise.resolve());
   const { container } = render(
     <AgyPluginControl status={{ state }} busy={false} change={change} />,
   );
-  expect(container.textContent).toContain("~/.gemini/config/plugins/foom");
-  expect(container.textContent).toContain("does nothing outside Foom-launched sessions");
-  expect(container.textContent).toContain("agy plugin uninstall foom");
+  expect(container.querySelector("p")).toBeNull();
+  expect(screen.getByText("Plugin details")).toBeTruthy();
   expect(change).not.toHaveBeenCalled();
+  if (action === "remove") fireEvent.click(screen.getByText("Plugin details"));
   fireEvent.click(screen.getByRole("button", { name: label }));
   expect(change).toHaveBeenCalledWith(action);
 });
@@ -28,6 +28,7 @@ test.each(["not-installed", "installed", "outdated", "disabled"] as const)(
   (state) => {
     const change = vi.fn(() => Promise.resolve());
     render(<AgyPluginControl status={{ state }} busy change={change} />);
+    fireEvent.click(screen.getByText("Plugin details"));
     for (const button of screen.getAllByRole("button")) {
       fireEvent.click(button);
       expect(button.hasAttribute("disabled")).toBe(true);

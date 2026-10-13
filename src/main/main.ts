@@ -420,6 +420,9 @@ async function buildWindow(savedSize?: Size, saved?: WindowPlacement, initialSes
       terminals,
       sessions: new SessionStore(app.getPath("userData")),
       copyText: (text) => clipboard.writeText(text),
+      acknowledgeAgyPluginOffer: async () => {
+        await settings.update({ agyPluginOfferAnswered: true });
+      },
       acknowledgeCodex: async () => {
         await settings.update({ codexNotifierAcknowledged: true });
       },

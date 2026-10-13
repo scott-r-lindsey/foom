@@ -474,7 +474,7 @@ export function ConfirmationPage() {
               answer(false);
             }}
           >
-            {finished ? "Done" : running ? "Hide" : "Cancel"}
+            {finished ? "Done" : running ? "Hide" : (request.cancel ?? "Cancel")}
           </button>
           {!finished && (
             <button

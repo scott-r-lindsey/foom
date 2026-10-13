@@ -533,7 +533,7 @@ initial prompts. It retains at most 30 days and five 10 MiB files and can be cle
 
 Setup is a preflight countdown:
 
-1. **Agents** (T-3): detect the supported CLIs on PATH and show each one's attention signal. One setting controls whether Foom supplies hooks and credentials per launch. Antigravity also offers an explicit plugin install with its location, behavior and removal disclosed; Settings shows installed, outdated or disabled status and offers update, enable and removal.
+1. **Agents** (T-3): detect the supported CLIs on PATH and show each one's attention signal. One setting controls whether Foom supplies hooks and credentials per launch. Antigravity’s row shows Hooks with an active plugin and Screen rules otherwise. It offers Install plugin, Update plugin or Enable plugin inline; Remove plugin lives in Plugin details. Install and update open a trusted confirmation disclosing location, behavior and removal, with no disclosure paragraphs in the step.
 2. **Repositories** (T-2): "Where do you keep your code?" Foom suggests common code folders that hold repositories, with a count for each, or you choose one. It scans that folder and lists its Git repositories, with the ones worked on in the last 30 days checked.
 3. **Worktrees** (T-1): choose where new worktrees live: Foom's folder (`~/.foom/worktrees`, the default) or next to each repository.
 4. **Go / no-go** (T-0): each item shows GO or NO-GO with a link back to its step. Launch needs every item GO: at least one agent ready and one repository added.
@@ -565,6 +565,12 @@ Agents and hooks, Repositories, and Worktrees use the same controls as
 preflight. Changes apply immediately and persist. A repository scan in Settings
 starts with the already-added repositories checked; toggling a selection saves it
 at once and reports any refusal.
+When agy is detected without its plugin and the user has never answered the offer,
+Settings → Agents and hooks shows a neutral **Plugin available** marker. There is no
+launch modal or toast. Answering the install confirmation, including **Not now**,
+persists the answer and clears the marker; the inline action stays available.
+Without agy on PATH, no plugin controls or marker appear.
+
 Settings → Agents and hooks also provides default launch arguments for each supported
 agent, one argument per line, with an explicit Save default arguments action. Put flag
 values on separate lines. Spaces and quotes are literal, with no shell parsing or

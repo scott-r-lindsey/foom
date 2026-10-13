@@ -1,0 +1,88 @@
+{
+  "platform": "linux",
+  "electron": "44.4.5",
+  "runs": [
+    {
+      "kind": "textarea",
+      "workers": "foom",
+      "persisted": true,
+      "shortcut": "Sidebar focused",
+      "tabFocus": "save",
+      "severeAxe": [],
+      "boundary": {
+        "require": "undefined",
+        "process": "undefined",
+        "desktop": "undefined"
+      },
+      "rejected": [
+        true,
+        true
+      ],
+      "violations": [],
+      "errors": []
+    },
+    {
+      "kind": "codemirror",
+      "workers": "foom",
+      "persisted": true,
+      "shortcut": "Sidebar focused",
+      "tabFocus": "save",
+      "severeAxe": [],
+      "boundary": {
+        "require": "undefined",
+        "process": "undefined",
+        "desktop": "undefined"
+      },
+      "rejected": [
+        true,
+        true
+      ],
+      "violations": [],
+      "errors": []
+    },
+    {
+      "kind": "monaco",
+      "workers": "foom",
+      "persisted": true,
+      "shortcut": "Sidebar focused",
+      "tabFocus": "native-edit-context",
+      "severeAxe": [],
+      "boundary": {
+        "require": "undefined",
+        "process": "undefined",
+        "desktop": "undefined"
+      },
+      "rejected": [
+        true,
+        true
+      ],
+      "worker": "started",
+      "violations": [],
+      "errors": []
+    },
+    {
+      "kind": "monaco",
+      "workers": "blocked",
+      "persisted": true,
+      "shortcut": "Sidebar focused",
+      "tabFocus": "native-edit-context",
+      "severeAxe": [],
+      "boundary": {
+        "require": "undefined",
+        "process": "undefined",
+        "desktop": "undefined"
+      },
+      "rejected": [
+        true,
+        true
+      ],
+      "worker": "error",
+      "violations": [
+        "worker-src"
+      ],
+      "errors": [
+        "Creating a worker from 'editing://bundle/editor.worker.js' violates the following Content Security Policy directive: \"worker-src 'none'\". The action has been blocked."
+      ]
+    }
+  ]
+}

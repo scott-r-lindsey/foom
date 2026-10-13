@@ -2560,7 +2560,7 @@ test("first run goes from no agents to go, launches by keyboard, and can be repl
     timeout: deadline(20000),
   });
   await expect(page.locator(".badge-value")).toHaveText(["2.1.300", "0.155.1", "1.2.13"]);
-  for (const name of ["Hooks", "Notify", "Rules"])
+  for (const name of ["Hooks", "Notify", "Screen rules"])
     await expect(page.getByRole("button", { name, exact: true })).toBeVisible();
   // Where each agent was found is a tooltip away, by keyboard as well as pointer.
   // Park the pointer away from the cards, so a hover can't win over keyboard focus.
@@ -2597,6 +2597,7 @@ test("first run goes from no agents to go, launches by keyboard, and can be repl
   assert.deepEqual(Object.keys(saved.settings).sort(), [
     "agentArguments",
     "agentBypassAcknowledged",
+    "agyPluginOfferAnswered",
     "codeFolder",
     "codexNotifierAcknowledged",
     "setupComplete",
@@ -2605,6 +2606,7 @@ test("first run goes from no agents to go, launches by keyboard, and can be repl
   const effective = (await page.evaluate(() => window.desktop.setupState())).settings;
   assert.deepEqual(effective, {
     codexNotifierAcknowledged: false,
+    agyPluginOfferAnswered: false,
     setupComplete: true,
     hooks: true,
     restoreSessions: true,
@@ -6355,19 +6357,20 @@ test("multiple windows restore independent layouts, bounds and interface size", 
   }
 });
 
-test("Antigravity plugin disclosure installs and removes an observer that reports lifecycle", {
-  timeout: deadline(60_000),
-  skip:
-    process.platform === "win32" &&
-    "Fake CLI is POSIX; Windows cmd/PowerShell observer runs in native unit integration",
-}, async (context) => {
-  const root = await mkdtemp(path.join(tmpdir(), "foom-agy-plugin-"));
-  removeAfterApps(context, root);
-  const bin = path.join(root, "bin");
-  const home = path.join(root, "home");
-  const repo = path.join(root, "repository");
-  await Promise.all([bin, home, repo].map((directory) => mkdir(directory)));
-  const fake = `#!${process.execPath}
+for (const firstRun of [false, true]) {
+  test(`Antigravity plugin ${firstRun ? "first run" : "Settings"} disclosure installs and removes an observer that reports lifecycle`, {
+    timeout: deadline(60_000),
+    skip:
+      process.platform === "win32" &&
+      "Fake CLI is POSIX; Windows cmd/PowerShell observer runs in native unit integration",
+  }, async (context) => {
+    const root = await mkdtemp(path.join(tmpdir(), "foom-agy-plugin-"));
+    removeAfterApps(context, root);
+    const bin = path.join(root, "bin");
+    const home = path.join(root, "home");
+    const repo = path.join(root, "repository");
+    await Promise.all([bin, home, repo].map((directory) => mkdir(directory)));
+    const fake = `#!${process.execPath}
 const fs = require('node:fs');
 const path = require('node:path');
 const {execFile} = require('node:child_process');
@@ -6397,94 +6400,126 @@ process.stdin.on('data', (data) => {
   child.stdin.end(JSON.stringify({conversationId:'fake-agy-session', terminationReason:key === 'f' ? 'error' : 'NO_TOOL_CALL', fullyIdle:true, transcriptPath:'/must-not-read'}));
 });
 `;
-  await writeFile(path.join(bin, "agy"), fake, { mode: 0o755 });
-  isolatedGit(["init", "-q", "-b", "main"], { cwd: repo });
-  isolatedGit(
-    [
-      "-c",
-      "user.name=Foom",
-      "-c",
-      "user.email=foom@example.com",
-      "commit",
-      "-q",
-      "--allow-empty",
-      "-m",
-      "init",
-    ],
-    { cwd: repo },
-  );
-  const app = await launchApp(context, false, {
-    env: { HOME: home, PATH: `${bin}${path.delimiter}${process.env.PATH}` },
-  });
-  const page = await boardPage(app);
-  await openSettingsScreen(page);
-  await page.getByRole("button", { name: "Agents and hooks", exact: true }).click();
-  await expect(page.getByText("Not installed", { exact: true })).toBeVisible();
-  await expect(page.getByText(/They report working and turn-end signals/u)).toBeVisible();
-  await page.getByRole("button", { name: "Install Foom plugin" }).click();
-  await expect(page.getByText("Installed", { exact: true })).toBeVisible();
-  await assertAccessible(page);
-  await app.evaluate(({ dialog }, directory) => {
-    dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [directory] });
-  }, repo);
-  const id = await page.evaluate(async () => {
-    window.agyTransitions = [];
-    window.desktop.onExecution((event) => window.agyTransitions.push(event));
-    const repository = await window.desktop.addRepository();
-    const tree = await window.desktop.createWorktree(repository.path, "feature/agy", "adjacent");
-    const launch = await window.desktop.launchAgent({
-      agent: "agy",
-      repository: repository.path,
-      worktree: tree.path,
-      cols: 80,
-      rows: 24,
+    await writeFile(path.join(bin, "agy"), fake, { mode: 0o755 });
+    isolatedGit(["init", "-q", "-b", "main"], { cwd: repo });
+    isolatedGit(
+      [
+        "-c",
+        "user.name=Foom",
+        "-c",
+        "user.email=foom@example.com",
+        "commit",
+        "-q",
+        "--allow-empty",
+        "-m",
+        "init",
+      ],
+      { cwd: repo },
+    );
+    const app = await launchApp(context, false, {
+      firstRun,
+      env: { HOME: home, PATH: `${bin}${path.delimiter}${process.env.PATH}` },
     });
-    return launch.id;
+    const page = await boardPage(app);
+    if (firstRun) await page.getByRole("button", { name: "Start preflight" }).click();
+    else {
+      await openSettingsScreen(page);
+      await page.getByRole("button", { name: "Agents and hooks", exact: true }).click();
+      await expect(page.getByText("Plugin available", { exact: true })).toBeVisible();
+    }
+    const agyRow = page
+      .locator("li")
+      .filter({ has: page.getByText("Antigravity", { exact: true }) });
+    await expect(agyRow.getByRole("button", { name: "Screen rules", exact: true })).toBeVisible();
+    await expect(agyRow.locator("p")).toHaveCount(0);
+    await page.getByRole("button", { name: "Install plugin" }).click();
+    let disclosure = await confirmationPage(app);
+    await expect(disclosure.getByText(/~\/.gemini\/config\/plugins\/foom/u)).toBeVisible();
+    await expect(
+      disclosure.getByText(
+        /never approves, stores no credentials, and is inert outside Foom launches/u,
+      ),
+    ).toBeVisible();
+    await expect(disclosure.getByText(/agy plugin uninstall foom/u)).toBeVisible();
+    await disclosure.getByRole("button", { name: "Not now" }).click();
+    await expect(page.getByText("Plugin available", { exact: true })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Install plugin" })).toBeEnabled();
+    await expect
+      .poll(() =>
+        page.evaluate(
+          async () => (await window.desktop.setupState()).settings.agyPluginOfferAnswered,
+        ),
+      )
+      .toBe(true);
+    await page.getByRole("button", { name: "Install plugin" }).click();
+    disclosure = await confirmationPage(app);
+    await disclosure.getByRole("button", { name: "Install plugin" }).click();
+    await page.getByText("Plugin details", { exact: true }).click();
+    await expect(page.getByText("Installed", { exact: true })).toBeVisible();
+    await expect(agyRow.getByRole("button", { name: "Hooks", exact: true })).toBeVisible();
+    await assertAccessible(page);
+    await app.evaluate(({ dialog }, directory) => {
+      dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [directory] });
+    }, repo);
+    const id = await page.evaluate(async () => {
+      window.agyTransitions = [];
+      window.desktop.onExecution((event) => window.agyTransitions.push(event));
+      const repository = await window.desktop.addRepository();
+      const tree = await window.desktop.createWorktree(repository.path, "feature/agy", "adjacent");
+      const launch = await window.desktop.launchAgent({
+        agent: "agy",
+        repository: repository.path,
+        worktree: tree.path,
+        cols: 80,
+        rows: 24,
+      });
+      return launch.id;
+    });
+    await expect
+      .poll(() => page.evaluate((id) => window.desktop.tail(id, 10), id))
+      .toContain("AGY_READY");
+    await page.evaluate((id) => window.desktop.input(id, "w"), id);
+    await expect.poll(() => page.evaluate(() => window.agyTransitions.at(-1)?.to)).toBe("working");
+    await page.evaluate((id) => window.desktop.input(id, "s"), id);
+    await expect.poll(() => page.evaluate(() => window.agyTransitions.at(-1)?.to)).toBe("idle");
+    await expect
+      .poll(() =>
+        page.evaluate(
+          async (id) =>
+            (await window.desktop.workspace()).terminals.find((terminal) => terminal.id === id)
+              ?.state?.state,
+          id,
+        ),
+      )
+      .toBe("done");
+    await page.evaluate((id) => window.desktop.input(id, "w"), id);
+    await expect.poll(() => page.evaluate(() => window.agyTransitions.at(-1)?.to)).toBe("working");
+    await page.evaluate((id) => window.desktop.input(id, "f"), id);
+    await expect
+      .poll(() =>
+        page.evaluate(
+          async (id) =>
+            (await window.desktop.workspace()).terminals.find((terminal) => terminal.id === id)
+              ?.state?.state,
+          id,
+        ),
+      )
+      .toBe("failed");
+    await page.getByRole("button", { name: "Remove plugin" }).click();
+    await expect(page.getByRole("button", { name: "Install plugin" })).toBeEnabled();
+    await page.evaluate((id) => window.desktop.input(id, "q"), id);
+    await expect
+      .poll(() =>
+        page.evaluate(
+          async (id) =>
+            (await window.desktop.workspace()).terminals.find((terminal) => terminal.id === id)
+              ?.exited,
+          id,
+        ),
+      )
+      .toBe(true);
   });
-  await expect
-    .poll(() => page.evaluate((id) => window.desktop.tail(id, 10), id))
-    .toContain("AGY_READY");
-  await page.evaluate((id) => window.desktop.input(id, "w"), id);
-  await expect.poll(() => page.evaluate(() => window.agyTransitions.at(-1)?.to)).toBe("working");
-  await page.evaluate((id) => window.desktop.input(id, "s"), id);
-  await expect.poll(() => page.evaluate(() => window.agyTransitions.at(-1)?.to)).toBe("idle");
-  await expect
-    .poll(() =>
-      page.evaluate(
-        async (id) =>
-          (await window.desktop.workspace()).terminals.find((terminal) => terminal.id === id)?.state
-            ?.state,
-        id,
-      ),
-    )
-    .toBe("done");
-  await page.evaluate((id) => window.desktop.input(id, "w"), id);
-  await expect.poll(() => page.evaluate(() => window.agyTransitions.at(-1)?.to)).toBe("working");
-  await page.evaluate((id) => window.desktop.input(id, "f"), id);
-  await expect
-    .poll(() =>
-      page.evaluate(
-        async (id) =>
-          (await window.desktop.workspace()).terminals.find((terminal) => terminal.id === id)?.state
-            ?.state,
-        id,
-      ),
-    )
-    .toBe("failed");
-  await page.getByRole("button", { name: "Remove Foom plugin" }).click();
-  await expect(page.getByText("Not installed", { exact: true })).toBeVisible();
-  await page.evaluate((id) => window.desktop.input(id, "q"), id);
-  await expect
-    .poll(() =>
-      page.evaluate(
-        async (id) =>
-          (await window.desktop.workspace()).terminals.find((terminal) => terminal.id === id)
-            ?.exited,
-        id,
-      ),
-    )
-    .toBe(true);
-});
+}
 
 test("console pairing requires trusted approval and gives only read-only repository scope", {
   timeout: deadline(45000),

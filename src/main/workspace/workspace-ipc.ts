@@ -416,7 +416,21 @@ export function attachWorkspace(
             action !== "enable")
         )
           throw new Error("Invalid plugin request");
-        return workspace.changeAgyPlugin(action);
+        return workspace.changeAgyPlugin(action, () => {
+          if (contents.isDestroyed() || contents.mainFrame.url !== APP_URL)
+            return Promise.resolve(false);
+          contents.send("confirmation:dialog");
+          return requestDialog({
+            title:
+              action === "update" ? "Update Antigravity plugin?" : "Install Antigravity plugin?",
+            accept: action === "update" ? "Update plugin" : "Install plugin",
+            cancel: "Not now",
+            glyph: "shield",
+            detail:
+              "Adds Foom’s observer to ~/.gemini/config/plugins/foom. It observes working and turn-end signals, never approves, stores no credentials, and is inert outside Foom launches.",
+            quiet: "Remove it from this row’s Plugin details or run agy plugin uninstall foom.",
+          });
+        });
       },
     ],
     [
