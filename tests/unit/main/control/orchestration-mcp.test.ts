@@ -33,6 +33,7 @@ beforeEach(async () => {
       });
       return Promise.resolve("child");
     },
+    restoreWorktree: () => Promise.resolve(undefined),
     stop: () => Promise.resolve(),
     tail: () => Promise.resolve(["ok"]),
     remove: () => Promise.resolve(false),

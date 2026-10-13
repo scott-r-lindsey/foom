@@ -1,7 +1,8 @@
 import { readFile, mkdir, writeFile, rename } from "node:fs/promises";
 import { isAbsolute, join } from "node:path";
 import { conversationId } from "../agents/conversation";
-import type { StoredSession } from "./session-restore.d";
+import { WORKTREE_LIMIT } from "../control/orchestration";
+import type { OwnedWorktree, StoredSession } from "./session-restore.d";
 import type { OrchestrationEntry } from "../../shared/workspace";
 
 function path(value: unknown): value is string {
@@ -177,5 +178,48 @@ function readOrchestrator(value: unknown): StoredSession["orchestrator"] {
       throw new Error("Invalid history");
     return { id, action, label, status, at };
   });
-  return { identity: data["identity"], history };
+  const worktrees = data["worktrees"];
+  const uncertain = data["uncertain"];
+  if (
+    uncertain !== undefined &&
+    (typeof uncertain !== "number" ||
+      !Number.isInteger(uncertain) ||
+      uncertain < 0 ||
+      uncertain > WORKTREE_LIMIT)
+  )
+    throw new Error("Invalid worktree budget");
+  let owned: OwnedWorktree[] | undefined;
+  if (worktrees !== undefined) {
+    if (!Array.isArray(worktrees) || worktrees.length > 1000) throw new Error("Invalid worktrees");
+    const paths = new Set<string>();
+    owned = worktrees.map((item: unknown) => {
+      if (typeof item !== "object" || item === null) throw new Error("Invalid worktree");
+      const row: Record<string, unknown> = { ...item };
+      const { path: checkout, identity, state } = row;
+      if (
+        Object.keys(row).some((key) => !["path", "identity", "state"].includes(key)) ||
+        !path(checkout) ||
+        paths.has(checkout) ||
+        typeof identity !== "string" ||
+        !identity ||
+        identity.length > 4096 ||
+        (state !== "unused" && state !== "used")
+      )
+        throw new Error("Invalid worktree");
+      paths.add(checkout);
+      return { path: checkout, identity, state };
+    });
+    if (
+      owned.filter((tree) => tree.state === "unused").length +
+        (typeof uncertain === "number" ? uncertain : 0) >
+      WORKTREE_LIMIT
+    )
+      throw new Error("Invalid worktree budget");
+  }
+  return {
+    identity: data["identity"],
+    history,
+    ...(owned === undefined ? {} : { worktrees: owned }),
+    ...(typeof uncertain === "number" ? { uncertain } : {}),
+  };
 }

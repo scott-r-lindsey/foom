@@ -215,6 +215,16 @@ automatic restore may re-grant orchestrator control only from Foom's main-owned 
 
 Restored parents launch before their running, non-taken-over children. Those children keep child launch rules (no user defaults and an orchestrator prompt prefix), count toward the four-child limit, and may be stopped, tailed and waited for by the new parent. Stop returns a conflict while a restored child is still starting; it cannot report success for a PTY that does not exist yet. Taken-over children and children without a re-granted parent resume ordinarily. The active panel and its action history continue without a restore badge.
 
+The parent record also persists owned checkout paths, identities and unused/used
+state, plus the uncertain-creation budget. Restore checks the live Git inventory
+and identity: only existing Foom-managed linked worktrees in that repository qualify,
+never the main checkout. Saved identity mismatches cannot be overridden by child
+records. Legacy child records recover ownership from the host's current branch
+and identity. Exited children recover used ownership for cleanup without occupying
+live child slots. Unused checkouts remain available for their one launch, within
+the unused budget; used checkouts remain unavailable for another launch. Starting
+launches are saved as used because shutdown may leave their outcome ambiguous.
+
 A CLI invocation with agent credentials uses exactly that scope. It never falls
 back to a stronger principal when authentication fails. A person running `foom`
 outside an agent starts with no authority: a bounded pairing request shows a
@@ -301,7 +311,7 @@ returns an operation ID, so agents cannot hold the HTTP connection indefinitely.
 Stopping a child needs no extra confirmation after the user has made its parent the
 orchestrator; stopping unrelated sessions is forbidden. Parent exit revokes its
 authority and cancels pending mutations/replies, but leaves children running for
-the human. Revoking the role has the same effect. A replacement orchestrator does not inherit those children; automatic restore reattaches only the saved running children that had not been taken over, under the re-grant checks above. Quit keeps
+the human. Revoking the role has the same effect. A replacement orchestrator does not inherit those children; automatic restore reattaches saved children that had not been taken over, including exited children for worktree cleanup, under the re-grant checks above. Quit keeps
 the existing confirmation and stops all PTYs.
 
 ## Reply gate
