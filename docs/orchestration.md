@@ -752,7 +752,10 @@ or indeterminate Git check, including fetch failure, falls back to the trusted
 dialog. Main checkouts and another actor's worktrees remain forbidden. This is
 local Git ancestry only: squash and rewritten rebase merges still prompt. Branches
 are retained. Automatic completions use the same `operation_status` and action-log
-outcomes as reviewed removals.
+outcomes as reviewed removals. Main records a running intent before the final
+check; losing eligibility returns it to pending confirmation. Parent revocation
+after that intent is indeterminate, so cancellation never claims deletion could
+not have occurred.
 
 Otherwise removal asks through the trusted dialog, clean or not, naming the
 worktree path, branch (which is kept), clean/dirty state and any changed files.

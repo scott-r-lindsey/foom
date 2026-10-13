@@ -328,9 +328,9 @@ export class Workspace {
             repository,
             worktree,
             tree.branch,
-            async (branch, changes) => {
+            async (branch, changes, automatic = false) => {
               await available();
-              const accepted = await confirm(branch, changes);
+              const accepted = await confirm(branch, changes, automatic);
               if (accepted) await available();
               return accepted;
             },
@@ -997,7 +997,7 @@ export class Workspace {
     repository: string,
     worktree: string,
     branch: string | null,
-    confirm: (branch: string, changes: string) => Promise<boolean>,
+    confirm: (branch: string, changes: string, automatic?: boolean) => Promise<boolean>,
     revalidate?: () => void | Promise<void>,
     retainBranchLock = false,
     autoApprove?: () => Promise<boolean>,
@@ -1011,7 +1011,10 @@ export class Workspace {
       const identity = await this.deps.worktrees.removalIdentity(entry.repository, entry.worktree);
       let changes = await this.deps.worktrees.changes(entry.repository, entry.worktree, identity);
       const automatic = changes === "" && (await autoApprove?.()) === true;
-      if (!automatic && !(await confirm(entry.branch ?? entry.worktree, changes))) return false;
+      const accepted = automatic
+        ? await confirm(entry.branch ?? entry.worktree, changes, true)
+        : await confirm(entry.branch ?? entry.worktree, changes);
+      if (!accepted) return false;
       await revalidate?.();
       if (
         !automatic &&

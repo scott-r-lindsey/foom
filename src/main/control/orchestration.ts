@@ -70,7 +70,7 @@ export interface OrchestrationHost {
     repository: string,
     worktree: string,
     identity: string,
-    confirm: (branch: string, changes: string) => Promise<boolean>,
+    confirm: (branch: string, changes: string, automatic?: boolean) => Promise<boolean>,
     revalidate: () => void,
   ): Promise<boolean>;
   /** The trusted app dialog; false when declined, closed or aborted. */
@@ -596,7 +596,23 @@ export class Orchestration {
           parent.repository,
           tree.path,
           tree.identity,
-          async (branch, changes) => {
+          async (branch, changes, automatic = false) => {
+            if (automatic) {
+              outcome.accepted = true;
+              const record = await operations.finish(
+                actor,
+                operation.operationId,
+                "running",
+                "intent",
+              );
+              this.note(parent, this.entry(record, label));
+              return true;
+            }
+            outcome.accepted = false;
+            this.note(
+              parent,
+              this.entry(await operations.reviewRemoval(actor, operation.operationId), label),
+            );
             // Bind the answer to this actor, worktree and the dirty state shown to the human.
             const identity = createHash("sha256")
               .update(JSON.stringify([worktreeId, tree.identity, changes]))
@@ -633,7 +649,7 @@ export class Orchestration {
           parent.worktrees.delete(worktreeId);
           await this.finish(actor, parent, operations, operation, label, "succeeded", worktreeId);
         }
-      } catch {
+      } catch (error) {
         const record = await this.finish(
           actor,
           parent,
@@ -642,11 +658,14 @@ export class Orchestration {
           label,
           "failed",
         ).catch(() => undefined);
-        // Revocation already recorded the outcome; mirror it in the visible history.
+        // Mirror revocation and persistence uncertainty in the visible history.
         if (!record)
           this.note(parent, {
             ...this.entry(operation, label),
-            status: outcome.accepted ? "indeterminate" : "cancelled",
+            status:
+              outcome.accepted || (error instanceof ControlError && error.code === "unavailable")
+                ? "indeterminate"
+                : "cancelled",
           });
       } finally {
         parent.aborts.delete(abort);

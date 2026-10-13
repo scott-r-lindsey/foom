@@ -328,3 +328,44 @@ it("the human's role change keeps the token, replaces the principal and revokes 
     service.setRole("terminal", "agent");
   }).toThrow("unavailable");
 });
+
+it("returns only live owned removals to review, with durable intent and no resurrection", async () => {
+  const { operations, actor, persist, service } = fixture();
+  const pending = await operations.begin(actor, "remove_worktree", "pending", "{}", "tree", true);
+  expect(await operations.reviewRemoval(actor, pending.operationId)).toMatchObject({
+    status: "pending_confirmation",
+  });
+  const running = await operations.begin(actor, "remove_worktree", "running", "{}", "tree");
+  expect(await operations.reviewRemoval(actor, running.operationId)).toMatchObject({
+    status: "pending_confirmation",
+    resultId: null,
+  });
+  expect(persist).toHaveBeenLastCalledWith(
+    expect.objectContaining({
+      operation: expect.objectContaining({
+        status: "pending_confirmation",
+        reason: "intent",
+      }) as unknown,
+    }),
+  );
+  await operations.confirmation(actor, running.operationId, "identity")("identity", true);
+  await operations.finish(actor, running.operationId, "succeeded", "completed");
+  await expect(operations.reviewRemoval(actor, running.operationId)).rejects.toThrow("conflict");
+  const launch = await operations.begin(actor, "launch", "launch", "{}");
+  await expect(operations.reviewRemoval(actor, launch.operationId)).rejects.toThrow("conflict");
+  await expect(operations.reviewRemoval(actor, "missing")).rejects.toThrow("not_found");
+  const foreign = service.prepare(`${repo}-other`, repo, "orchestrator");
+  foreign.bind("foreign");
+  await expect(
+    operations.reviewRemoval(
+      service.authenticate(foreign.env["FOOM_CONTROL_TOKEN"] ?? ""),
+      pending.operationId,
+    ),
+  ).rejects.toThrow("not_found");
+  const failing = await operations.begin(actor, "remove_worktree", "failing", "{}");
+  persist.mockRejectedValueOnce(new Error("disk full"));
+  await expect(operations.reviewRemoval(actor, failing.operationId)).rejects.toThrow("unavailable");
+  expect(operations.lookup(actor, { operationId: failing.operationId }).status).toBe(
+    "indeterminate",
+  );
+});
