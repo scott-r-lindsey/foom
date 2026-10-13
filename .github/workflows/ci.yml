@@ -217,7 +217,7 @@ jobs:
           fi
           # Permit Chromium's user-namespace sandbox on this ephemeral CI runner.
           sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
-      # The full suite runs as disjoint named-test shards: three on macOS, two elsewhere.
+      # The full suite runs as disjoint named-test shards: three on Windows and macOS, two on Linux.
       # Per-test deadlines and the Electron worker watchdog still bound hangs.
       - name: Test Electron on Linux
         # Run 38290731834: Linux shards took 3m48s and 4m00s (including the
@@ -228,6 +228,8 @@ jobs:
       - name: Test Electron on macOS and Windows
         # Runs 38391083094–38419352620: macOS test cases total 742–840s;
         # three name-hash shards project 175–335s each, leaving runner headroom.
+        # Runs 38406022244–38428051783: Windows two-shard median steps were
+        # 423s/447s; three name-hash shards project median steps of 280–315s.
         # Keep the shared per-test deadline policy and worker watchdog.
         timeout-minutes: 10
         if: runner.os != 'Linux'
