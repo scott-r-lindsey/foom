@@ -1,6 +1,34 @@
 import type { IBuffer, Terminal } from "@xterm/headless";
 import type { SerializeAddon } from "@xterm/addon-serialize";
 
+function cursorSnapshot(screen: Terminal): string {
+  // DECSCUSR overrides the options in xterm 6, but neither the public modes API
+  // nor addon-serialize exposes it. Check the pinned representation as we do
+  // for scrolling margins; reading options alone loses application cursor styles.
+  const field = (value: unknown, key: string): unknown => {
+    if (typeof value !== "object" || value === null || !(key in value))
+      throw new Error("Unsupported xterm cursor state");
+    return Reflect.get(value, key);
+  };
+  const modes = field(field(field(screen, "_core"), "coreService"), "decPrivateModes");
+  const blink = field(modes, "cursorBlink");
+  const style = field(modes, "cursorStyle");
+  if (
+    (blink !== undefined && typeof blink !== "boolean") ||
+    (style !== undefined && style !== "block" && style !== "underline" && style !== "bar")
+  )
+    throw new Error("Unsupported xterm cursor state");
+  const effectiveStyle = style ?? screen.options.cursorStyle;
+  const base = effectiveStyle === "bar" ? 5 : effectiveStyle === "underline" ? 3 : 1;
+  const code =
+    style === undefined && blink === undefined
+      ? 0
+      : base + ((blink ?? screen.options.cursorBlink) ? 0 : 1);
+  // Preserve the option separately: CSI 0 SP q must still return to it, and
+  // subsequent DEC mode 12 changes must work when DECSCUSR has no override.
+  return `\x1b[?12${screen.options.cursorBlink ? "h" : "l"}\x1b[${String(code)} q`;
+}
+
 function restore(
   screen: Terminal,
   serialize: SerializeAddon,
@@ -55,10 +83,11 @@ function restore(
 
 /** Called at the host parser barrier, before any subsequent live output. */
 export function terminalSnapshot(screen: Terminal, serialize: SerializeAddon): string {
+  const cursor = cursorSnapshot(screen);
   const snapshot = serialize.serialize();
   const active = screen.buffer.active;
   if (active.type === "normal")
-    return snapshot + restore(screen, serialize, active, screen.modes.originMode);
+    return snapshot + restore(screen, serialize, active, screen.modes.originMode) + cursor;
   const normal = serialize.serialize({ excludeAltBuffer: true, excludeModes: true });
   // Restore the inactive normal buffer before 1049h saves its cursor. The active
   // alternate buffer and modes are then serialized in their original order.
@@ -66,6 +95,7 @@ export function terminalSnapshot(screen: Terminal, serialize: SerializeAddon): s
     normal +
     restore(screen, serialize, screen.buffer.normal, false) +
     snapshot.slice(normal.length) +
-    restore(screen, serialize, active, screen.modes.originMode)
+    restore(screen, serialize, active, screen.modes.originMode) +
+    cursor
   );
 }

@@ -24,6 +24,12 @@ process.stdin.on("data", (data) => {
     );
   } else if (key === "j") {
     process.stdout.write("\r\nNEXT");
+  } else if (key === "c") {
+    process.stdout.write("\x1b[4 qCURSOR_STEADY", () => writeFileSync(marker, "steady"));
+  } else if (key === "b") {
+    process.stdout.write("\x1b[5 qCURSOR_BLINKING", () => writeFileSync(marker, "blinking"));
+  } else if (key === "r") {
+    process.stdout.write("\x1b[?12l\x1b[0 qCURSOR_DEFAULT_STEADY");
   } else if (key === "q") {
     process.exit(0);
   }

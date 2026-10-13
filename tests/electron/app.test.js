@@ -624,6 +624,69 @@ async function launchApp(context, openShell = true, options = {}) {
   return app;
 }
 
+test("fresh focused terminal cursor blinks and preserves application style on reattach", {
+  timeout: deadline(45000),
+}, async (context) => {
+  const directory = await mkdtemp(path.join(tmpdir(), "foom-cursor-probe-"));
+  removeAfterApps(context, directory);
+  const marker = path.join(directory, "stage");
+  const app = await launchApp(context, true, { emptyBoard: true });
+  const page = await boardPage(app);
+  await launchCheckoutShell(app, page);
+  const rows = page.locator(".xterm-rows");
+  const cursor = page.locator(".xterm-cursor");
+  await expect
+    .poll(() => rows.innerText())
+    .toMatch(process.platform === "win32" ? /PS [\s\S]*>/ : /[$#%>]\s*$/);
+  await expect(page.locator(".xterm-helper-textarea")).toBeFocused();
+  await expect(cursor).toHaveClass(/xterm-cursor-blink/);
+  await expect(cursor).toHaveCSS("animation-name", /blink_block_/);
+  const command = `${process.platform === "win32" ? "& " : ""}"${process.execPath}" "${path.join(__dirname, "view-probe.js")}" "${marker}"`;
+  await page.keyboard.type(command);
+  await page.keyboard.press("Enter");
+  await expect(rows).toContainText("NORMAL_VIEW_READY");
+  await page.keyboard.press("c");
+  await expect(cursor).toHaveClass(/xterm-cursor-underline/);
+  await expect(cursor).not.toHaveClass(/xterm-cursor-blink/);
+  await openSettingsScreen(page);
+  await expect(page.getByRole("region", { name: "Settings" })).toBeVisible();
+  await page.keyboard.press("Escape");
+  await page.locator(".board-row[data-kind='shell']").click();
+  await expect(page.locator(".xterm-helper-textarea")).toBeFocused();
+  await expect(cursor).toHaveClass(/xterm-cursor-underline/);
+  await expect(cursor).not.toHaveClass(/xterm-cursor-blink/);
+  const id = (await page.evaluate(() => window.desktop.workspace())).terminals[0].id;
+  await openSettingsScreen(page);
+  await expect(page.getByRole("region", { name: "Settings" })).toBeVisible();
+  await page.evaluate((id) => window.desktop.input(id, "b"), id);
+  await expect.poll(() => readFile(marker, "utf8")).toBe("blinking");
+  await page.keyboard.press("Escape");
+  await page.locator(".board-row[data-kind='shell']").click();
+  await expect(page.locator(".xterm-helper-textarea")).toBeFocused();
+  await expect(cursor).toHaveClass(/xterm-cursor-bar/);
+  await expect(cursor).toHaveClass(/xterm-cursor-blink/);
+  await expect(cursor).toHaveCSS("animation-name", /blink_bar_/);
+  await page.keyboard.press("r");
+  await expect(rows).toContainText("CURSOR_DEFAULT_STEADY");
+  await expect(cursor).not.toHaveClass(/xterm-cursor-blink/);
+  await openSettingsScreen(page);
+  await expect(page.getByRole("region", { name: "Settings" })).toBeVisible();
+  await page.keyboard.press("Escape");
+  await page.locator(".board-row[data-kind='shell']").click();
+  await expect(page.locator(".xterm-helper-textarea")).toBeFocused();
+  await expect(cursor).not.toHaveClass(/xterm-cursor-blink/);
+  await page.keyboard.press("q");
+  await expect
+    .poll(() => rows.innerText())
+    .toMatch(process.platform === "win32" ? /PS [\s\S]*>/ : /[$#%>]\s*$/);
+  await page.keyboard.type("exit");
+  await page.keyboard.press("Enter");
+  await expect
+    .poll(async () => (await page.evaluate(() => window.desktop.workspace())).terminals[0].exited)
+    .toBe(true);
+  await expect(cursor).toHaveCount(0);
+});
+
 test("terminal runs an interactive shell behind an isolated bridge", {
   timeout: deadline(45_000),
 }, async (context) => {

@@ -100,7 +100,7 @@ export function createShell(
   };
   const controls = () => {
     terminal.options.disableStdin = exited;
-    terminal.options.cursorBlink = !exited;
+    if (exited) terminal.options.cursorBlink = false;
     if (fontResizePending) resize();
     view.toggleDisabled = busy || !activeId;
     view.restartDisabled = busy || !exited || (activeId !== undefined && activeId !== shellId);
@@ -251,6 +251,7 @@ export function createShell(
     if (isDisposed() || !wantsVisible() || !isAvailable(id)) return;
     wheel.reset();
     terminal.reset();
+    terminal.options.cursorBlink = !exited;
     if (exited) terminal.write("\x1b[?25l");
     controls();
     updateTheme();
