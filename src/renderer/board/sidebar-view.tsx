@@ -699,7 +699,9 @@ export function Sidebar({
                 </>
               )}
               <span className="session-top">
-                <AgentBadge mark={row.kind === "shell" ? ">_" : agentBadges.get(row.agent)} />
+                {!compact && (
+                  <AgentBadge mark={row.kind === "shell" ? ">_" : agentBadges.get(row.agent)} />
+                )}
                 {row.bypass && (
                   <span className="session-bypass" title="Launched with a bypass argument">
                     <span aria-hidden="true">◇</span> Bypass

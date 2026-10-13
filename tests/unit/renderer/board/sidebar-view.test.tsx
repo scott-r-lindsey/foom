@@ -1567,6 +1567,9 @@ test("sidebar toggle preserves terminal focus, moves tree focus and restores the
   filter.focus();
   fireEvent.click(view.getByRole("button", { name: "Collapse sidebar" }));
   expect(document.activeElement).toBe(view.getByRole("button", { name: "Expand sidebar" }));
+  expect(view.container.querySelector(".board-row")?.querySelectorAll(".board-agent")).toHaveLength(
+    1,
+  );
   expect(view.container.querySelector(".sidebar-shell")?.getAttribute("data-compact")).toBe("true");
   fireEvent.click(view.getByRole("button", { name: "Expand sidebar" }));
   expect(document.activeElement).toBe(view.getByRole("button", { name: "Collapse sidebar" }));

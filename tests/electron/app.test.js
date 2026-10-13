@@ -3498,14 +3498,23 @@ test("empty sidebar and terminal pane stay accessible at both widths", async (co
         (window) => window.webContents.getURL() === "app://bundle/index.html",
       );
       window.setMinimumSize(0, 0);
-      window.setSize(width, 600);
+      window.setSize(width < 720 ? 960 : width, 600);
+      window.webContents.setZoomFactor(width < 720 ? 1.5 : 1);
     }, width);
+    await expect.poll(() => page.evaluate(() => innerWidth < 720)).toBe(width < 720);
     await expect(page.getByRole("navigation", { name: "Terminal sidebar" })).toBeVisible();
+    if (width < 720) {
+      await expect(page.getByRole("button", { name: "Add repository", exact: true })).toHaveCount(
+        0,
+      );
+      await page.getByRole("button", { name: "Open sidebar", exact: true }).click();
+    }
     await expect(page.getByRole("button", { name: "Add repository", exact: true })).toBeVisible();
     await expect(page.getByRole("button", { name: "New worktree", exact: true })).toHaveCount(0);
     await expect(page.getByRole("button", { name: "Local shell", exact: true })).toHaveCount(0);
     await expect(page.locator('.terminal-tile[data-empty="true"]')).toBeVisible();
     await assertAccessible(page);
+    if (width < 720) await page.keyboard.press("Escape");
   }
   await page.screenshot({ path: path.join(tmpdir(), "foom-132-empty-sidebar.png") });
 });
@@ -5996,6 +6005,10 @@ test("neutral identity badges keep labels and geometry across themes and interfa
   await page.getByRole("textbox", { name: "Session name" }).fill("Build helper");
   await page.getByRole("textbox", { name: "Session name" }).press("Enter");
   await expect(row).toHaveAccessibleName(/Build helper · Shell \(.+\)/);
+  await page.getByRole("button", { name: "Collapse sidebar", exact: true }).click();
+  await expect(row.locator(".board-agent")).toHaveCount(1);
+  await expect(row.locator(".board-agent")).toBeVisible();
+  await page.getByRole("button", { name: "Expand sidebar", exact: true }).click();
   for (const colorScheme of ["light", "dark"]) {
     await page.emulateMedia({ colorScheme, reducedMotion: "reduce" });
     for (const interfaceScale of [80, 90, 100, 110, 120, 130, 140, 150]) {
