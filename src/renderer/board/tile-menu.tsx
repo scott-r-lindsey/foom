@@ -1,3 +1,4 @@
+import type { PreviewSummary } from "../../shared/workspace";
 import { useSyncExternalStore } from "react";
 import type { BoardRow } from "./board.d";
 import type { TileAction, TileLayout } from "./tiles.d";
@@ -13,6 +14,7 @@ export function TileMenu({
   point,
   layout,
   row,
+  preview,
   name,
   number,
   view,
@@ -23,7 +25,8 @@ export function TileMenu({
   anchor: HTMLElement;
   point: { x: number; y: number } | undefined;
   layout: TileLayout;
-  row: BoardRow;
+  row: BoardRow | undefined;
+  preview?: PreviewSummary | undefined;
   name: string;
   number: number;
   view: TerminalViewSource | undefined;
@@ -63,9 +66,9 @@ export function TileMenu({
           ...item("maximize", layout.maximized ? "Restore" : "Maximize"),
           hint: navigator.platform.includes("Mac") ? "⇧⌘↵" : "Ctrl+Shift+Enter",
         },
-        ...(popout ? [item("popout", "Move to new window")] : []),
+        ...(popout && row ? [item("popout", "Move to new window")] : []),
         null,
-        item(row.exited ? "close" : "hide", row.exited ? "Close" : "Hide"),
+        item(preview || row?.exited ? "close" : "hide", preview || row?.exited ? "Close" : "Hide"),
       ]}
       onAction={(selected) => {
         void selected.run();
@@ -77,24 +80,44 @@ export function TileMenu({
         pinned: true,
         facts: (
           <dl className="panel-facts">
-            <dt>Session</dt>
-            <dd>
-              {row.exited ? "Exited" : light(row).label}
-              <span className="panel-sub">{row.reason}</span>
-            </dd>
-            <dt>Size</dt>
-            <dd>
-              {status?.cols && status.rows
-                ? `${String(status.cols)} × ${String(status.rows)}`
-                : "Unavailable"}
-              <span className="panel-sub">columns × rows</span>
-            </dd>
-            <dt>Location</dt>
-            <dd>
-              {row.repository} › {row.branch}
-            </dd>
-            <dt>Agent</dt>
-            <dd>{row.kind === "shell" ? "Shell" : row.agent}</dd>
+            {row && (
+              <>
+                <dt>Session</dt>
+                <dd>
+                  {row.exited ? "Exited" : light(row).label}
+                  <span className="panel-sub">{row.reason}</span>
+                </dd>
+              </>
+            )}
+            {preview && (
+              <>
+                <dt>Path</dt>
+                <dd>{preview.relativePath}</dd>
+                <dt>Kind</dt>
+                <dd>{preview.kind === "markdown" ? "Markdown" : "HTML"}</dd>
+              </>
+            )}
+            {row && (
+              <>
+                <dt>Size</dt>
+                <dd>
+                  {status?.cols && status.rows
+                    ? `${String(status.cols)} × ${String(status.rows)}`
+                    : "Unavailable"}
+                  <span className="panel-sub">columns × rows</span>
+                </dd>
+              </>
+            )}
+            {row && (
+              <>
+                <dt>Location</dt>
+                <dd>
+                  {row.repository} › {row.branch}
+                </dd>
+                <dt>Agent</dt>
+                <dd>{row.kind === "shell" ? "Shell" : row.agent}</dd>
+              </>
+            )}
           </dl>
         ),
       }}

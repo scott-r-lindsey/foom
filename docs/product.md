@@ -77,6 +77,10 @@ conversation IDs survive Foom restarts. Sessions running at quit restart when Re
 Hover and keyboard focus do not preview terminal output or switch the pane. Click or press Enter to show
 its terminal and focus input, using the placement rules below. Needs you remains; Done and Failed dim once seen.
 
+Previews appear beneath their worktree with a document glyph and no light or attention state.
+Their rows show the worktree-relative path and shared tile number; clicking focuses the preview.
+Closing a preview tile closes the preview. Preview inventory and display facts belong to main.
+
 Each row opens a labelled panel to the right of the sidebar, over the tiles.
 Hover intent takes 400 ms, or 120 ms when switching from another open panel;
 leaving both row and panel closes a hover panel after 250 ms. The ⋯ button,
@@ -333,8 +337,8 @@ survive a reload or appear in other windows.
 ## Terminal tiles
 
 The layout is a binary split tree. Each leaf is a tile with a stable identity and
-at most one session; each split has a horizontal or vertical direction and a ratio.
-Split right and Split down add empty space, keep focus in the original terminal,
+at most one terminal or preview; each split has a horizontal or vertical direction and a ratio.
+Split right and Split down add empty space, keep focus in the original tile,
 and make the newest space the landing spot. Hide and exited-session Close leave
 empty space in place, with sibling geometry unchanged, and make it the landing spot.
 Hide keeps the session running; Close closes it through the sidebar command.
@@ -360,7 +364,7 @@ Restart replaces its own tile. The longest-waiting shortcut explicitly replaces
 the focused tile and hides its previous occupant. If the waiting session was in
 another tile, that tile empties.
 
-Title bars show the state light, agent badge, location and session name, followed by
+Terminal title bars show the state light, agent badge, location and session name, followed by
 an always-visible tile number with a chevron ("Tile N menu"). Maximize/Restore and
 Hide (running) or Close (exited) appear on hover, focus, or the focused tile.
 Double-clicking the title bar toggles maximize. Right-click opens the same tile
@@ -368,8 +372,8 @@ panel at the pointer. The panel matches the sidebar panels: commands on the left
 state and reason, live columns × rows, location and agent facts on the right.
 Commands are Split right/down, Grow sideways/vertically, Maximize/Restore, Move to
 new window when available, and Hide/Close. Grow absorbs the other side of the
-nearest split on its axis only if it contains no terminals. Disabled reasons are
-"Next to a terminal" or "Already full width" / "Already full height". The first
+nearest split on its axis only if it contains no occupied tiles. Disabled reasons are
+"Next to an occupied tile" or "Already full width" / "Already full height". The first
 enabled command receives focus; arrow keys navigate enabled commands; Escape
 returns focus to the tile menu button.
 
@@ -379,11 +383,17 @@ fills it and focuses the terminal; dropping onto any empty space fills that spac
 Focus uses the highlight border and brighter occupied title bar; Needs you uses an
 amber border that takes precedence and a labelled, haloed light.
 
-Only terminals are numbered, in tree order, including sidebar numbers and number
+Terminals and previews are numbered, in tree order, including sidebar numbers and number
 shortcuts. The focused tile's number is highlighted. Presets are One, Two side by side, Two
-stacked, Two by two, One and two, and One and three. They keep the focused session
+stacked, Two by two, One and two, and One and three. They keep the focused content
 first, then other occupied leaves in tree order, then empty leaves. Existing leaves keep
 their views; additional leaves start empty, and sessions that no longer fit hide.
+
+Preview title bars show a document glyph, MD or HTML badge, relative path, tile menu,
+Maximize/Restore and Close. A preview has no running process to hide. Presets and
+replacement close previews that no longer fit. Split, Grow, drag, Tidy and focus
+shortcuts treat previews as occupied tiles. Opening or reloading a preview never
+moves focus; a click or explicit focus command does.
 
 Double-click a gutter, or press Enter while it is focused, to give every member
 of its run an equal share. A run follows consecutive splits on the same axis;
@@ -391,13 +401,13 @@ perpendicular subtrees and their nested ratios stay unchanged. Equal shares of
 runs longer than two members can exceed the usual ratio limits.
 
 **Tidy tiles** removes every empty space, collapses single-child splits and evens
-every run. Tile order, session assignments, focus and surviving leaf identities
+every run. Tile order, content assignments, focus and surviving leaf identities
 stay unchanged. An all-empty layout keeps one empty space. Tidy restores any
 maximized tile first and uses the existing tile resize motion (immediate with
 reduced motion). It applies only to the focused window, from the sidebar footer
 icon after the six presets, View → Tidy tiles, or its shortcut.
 
-When resizing between two terminal-containing sides, gutters stay between 15% and 85%.
+When resizing between two occupied sides, gutters stay between 15% and 85%.
 An all-space side has no minimum. Below 8% (or above 92% for the second side),
 space previews collapse and is removed on release. Focus a gutter and use its
 axis's arrow keys to resize by five percentage points; Home/End select the limits
