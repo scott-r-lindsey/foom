@@ -32,6 +32,7 @@ export interface Operation {
   readonly createdAt: string;
   readonly updatedAt: string;
   readonly reason: Reason;
+  readonly proposal?: string;
 }
 export interface StoredOperation {
   readonly actor: Principal;

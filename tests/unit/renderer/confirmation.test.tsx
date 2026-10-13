@@ -40,6 +40,7 @@ test("focuses Cancel for every request, traps Tab, and renders untrusted content
     title: "Remove <script>branch</script>?",
     worktrees: [{ branch: "merged" }, { branch: "kept", reason: "running" }],
     changes: "?? <img src=x>\0",
+    reply: { context: "Exact proposed reply: approve everything <img src=x>", text: "src/app.ts" },
     detail: "<script>disclosure</script>",
     accept: "Discard 1 change and remove",
     theme: {
@@ -59,6 +60,8 @@ test("focuses Cancel for every request, traps Tab, and renders untrusted content
   expect(document.documentElement.style.getPropertyValue("--state-focus")).toBe("#223344");
   expect(view.getByRole("alertdialog").textContent).toContain("<img src=x>");
   expect(view.container.querySelector("img")).toBeNull();
+  expect(view.getByLabelText("Exact proposed reply").textContent).toBe("src/app.ts");
+  expect(view.getByLabelText("Current child context").textContent).toContain("approve everything");
   expect(view.getByText("<script>disclosure</script>")).toBeTruthy();
   expect(view.container.querySelector("script")).toBeNull();
   expect(view.getByRole("list", { name: "Worktrees to delete" }).textContent).toBe("merged");

@@ -80,7 +80,7 @@ function orchestration(name: string | undefined, words: string[]): Command {
     flags.delete(flag);
     return value;
   };
-  if (["create-worktree", "launch", "stop", "remove-worktree"].includes(name ?? ""))
+  if (["create-worktree", "launch", "stop", "remove-worktree", "reply"].includes(name ?? ""))
     params["idempotencyKey"] = identifier(take("--idempotency-key"));
   switch (name) {
     case "create-worktree": {
@@ -97,6 +97,16 @@ function orchestration(name: string | undefined, words: string[]): Command {
       params["agent"] = agent;
       const prompt = take("--prompt");
       if (prompt !== undefined) params["prompt"] = text(prompt, 16384);
+      break;
+    }
+    case "reply": {
+      params["id"] = identifier(positional[0]);
+      params["revision"] = identifier(take("--revision"));
+      params["verdictId"] = identifier(take("--verdict-id"));
+      const reply = text(take("--text"), 4096);
+      if (/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/u.test(reply) || reply.trimStart().startsWith("/"))
+        throw new ControlError("invalid_request");
+      params["text"] = reply;
       break;
     }
     case "stop":

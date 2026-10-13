@@ -164,6 +164,7 @@ function readOrchestrator(value: unknown): StoredSession["orchestrator"] {
         action !== "launch" &&
         action !== "stop" &&
         action !== "remove_worktree" &&
+        action !== "reply" &&
         action !== "take_over") ||
       (status !== "pending_confirmation" &&
         status !== "running" &&

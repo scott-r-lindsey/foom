@@ -45,6 +45,10 @@ vi.mock("../../../../src/main/terminals/terminal-host-client", async () => {
       write(id: string, data: string) {
         this.manager.write(id, data);
       }
+      async reply(id: string, data: string) {
+        this.manager.write(id, data);
+        await Promise.resolve();
+      }
       resize(id: string, cols: number, rows: number) {
         this.manager.resize(id, cols, rows);
       }
@@ -1276,4 +1280,11 @@ test("ConPTY ignores queued native operations after kill while preserving final 
   } finally {
     platform.mockRestore();
   }
+});
+
+test("the main-only reviewed reply capability checks terminal ownership and writes one submitted line", async () => {
+  const id = await create();
+  await expect(terminalControl.reply("unknown", "answer\r")).rejects.toThrow("Unknown terminal");
+  await terminalControl.reply(id, "answer\r");
+  expect(ptys[0]?.write).toHaveBeenCalledWith("answer\r");
 });

@@ -909,3 +909,81 @@ it("binds re-granted authority to the saved identity across asynchronous launch 
   ]);
   await workspace.dispose();
 });
+
+it("reviews a child's fresh question, tracks input/output revisions and exposes an explicit human reset", async () => {
+  const workspace = new Workspace(deps);
+  await orchestrate(workspace);
+  const actor = principal();
+  const operations = new Operations(
+    () => Promise.resolve(),
+    () => undefined,
+  );
+  const tree = (await workspace.orchestration.call(
+    actor,
+    "create_worktree",
+    { idempotencyKey: "a", branch: "feature" },
+    operations,
+  )) as Operation;
+  launch.mockResolvedValueOnce({ id: "child", attention: "evaluator" });
+  await workspace.orchestration.call(
+    actor,
+    "launch",
+    { idempotencyKey: "b", worktreeId: tree.resultId, agent: "claude" },
+    operations,
+  );
+  deps.verdicts.classify = vi.fn<WorkspaceDependencies["verdicts"]["classify"]>(() =>
+    Promise.resolve({
+      id: "question",
+      terminalId: "child",
+      timestamp: new Date().toISOString(),
+      verdict: {
+        state: "needs_input",
+        signal: "pattern:question",
+        reason: "Question",
+        attentionKind: "question",
+        confidence: 0.9,
+      },
+    }),
+  );
+  tail.mockResolvedValue(["Which file should I change?"]);
+  const reply = vi.fn(async (_id: string, _data: string) => {});
+  deps.terminals.reply = reply;
+  await workspace.quiet("child");
+  const { SessionMetadata } = await import("../../../../src/main/control/metadata");
+  const metadata = new SessionMetadata(() => workspace.snapshot().terminals);
+  const question = metadata.read(actor, "session_state", { id: "child" }) as {
+    revision: string;
+    verdictId: string;
+    attentionKind: string;
+  };
+  expect(question.attentionKind).toBe("question");
+  const proposed = (await workspace.orchestration.call(
+    actor,
+    "reply",
+    {
+      idempotencyKey: "c",
+      id: "child",
+      revision: question.revision,
+      verdictId: question.verdictId,
+      text: "src/app.ts",
+    },
+    operations,
+  )) as Operation;
+  await vi.waitFor(() => {
+    expect(operations.lookup(actor, { operationId: proposed.operationId }).status).toBe(
+      "succeeded",
+    );
+  });
+  expect(reply).toHaveBeenCalledExactlyOnceWith("child", "src/app.ts\r");
+  expect(workspace.snapshot().terminals.find((row) => row.id === "child")?.inputRevision).toBe(1);
+  workspace.output("child");
+  expect(workspace.snapshot().terminals.find((row) => row.id === "child")?.outputRevision).toBe(1);
+  await workspace.sidebarCommand({ kind: "reset-replies", id: "child" }, confirm);
+  await expect(
+    workspace.sidebarCommand({ kind: "reset-replies", id: "parent" }, confirm),
+  ).rejects.toThrow("no orchestrator");
+  await workspace.sidebarCommand({ kind: "take-over", id: "child" }, confirm);
+  await expect(
+    workspace.sidebarCommand({ kind: "reset-replies", id: "child" }, confirm),
+  ).rejects.toThrow("no orchestrator");
+});

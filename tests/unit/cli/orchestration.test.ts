@@ -70,3 +70,20 @@ it.each([
 ])("rejects malformed orchestration argv %j", (...args) => {
   expect(() => command(args)).toThrow("invalid_request");
 });
+
+it("parses reviewed replies and rejects control characters, slash commands and missing revision", () => {
+  const args = ["reply", "child", "--revision", "rev", "--verdict-id", "verdict", ...key, "--text"];
+  expect(command([...args, "answer"])).toEqual({
+    method: "reply",
+    params: {
+      id: "child",
+      revision: "rev",
+      verdictId: "verdict",
+      idempotencyKey: "retry-1",
+      text: "answer",
+    },
+  });
+  for (const text of ["line\nline", "/approve", "yes\r", "\u2028", "é".repeat(2049)])
+    expect(() => command([...args, text])).toThrow("invalid_request");
+  expect(() => command(["reply", "child", ...key, "--text", "answer"])).toThrow("invalid_request");
+});
