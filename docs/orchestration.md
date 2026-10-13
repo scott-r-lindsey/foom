@@ -452,7 +452,9 @@ the 2026-10-13 decision. GitLab and enterprise hosts await providers.
 The provider's branch lookup is reusable by #337. It runs only fixed `gh pr list`,
 `gh pr view` and `gh pr checks --required` subcommands with execFile argument arrays,
 explicit repository selection, disabled prompts, 10-second command deadlines and
-256 KiB output limits. Branch discovery requires one unambiguous open PR. Once
+256 KiB output limits. Tracking discovery requires one unambiguous PR, including already closed/merged
+PRs so an offline interval does not miss them. The reusable lookup defaults to open
+PRs for #337. Once
 bound, its number is used to follow OPEN, CLOSED and MERGED states. Output is
 untrusted: main exposes only a positive PR number, a 40-character head SHA, the
 fixed state and `requiredChecks` (`pending`, `success`, `failure`, `none`). Cancelled
@@ -464,7 +466,9 @@ when configured as required, determine the conclusion; optional checks do not.
 `sessions`, `session_state` and `wait_for` include an optional `pullRequest` object.
 Its validated fields participate in the session revision, so `wait_for` wakes on
 check-conclusion changes as well as child state. The existing 30-second wait bound
-and child-ownership checks remain. A new generation can read previous children's
+and child-ownership checks remain. Reviewed replies validate the full caller cursor
+initially, then bind to the terminal revision: a forge update cannot cancel a
+human review, while terminal changes still do. A new generation can read previous children's
 mapping through repository-scoped session metadata, without gaining stop, tail or
 wait authority over those children.
 

@@ -110,7 +110,7 @@ export class ForgeTracking {
         } else {
           const provider = this.provider(remote);
           const result = await provider
-            ?.lookup(entry.branch, remote === entry.remote ? entry.pr?.number : undefined)
+            ?.lookup(entry.branch, remote === entry.remote ? entry.pr?.number : undefined, "all")
             .catch(() => undefined);
           if (this.stopped() || this.entries.get(entry.path) !== entry) return;
           const pr = pullRequest(result);

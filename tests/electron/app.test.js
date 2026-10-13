@@ -8138,16 +8138,32 @@ for (const cliOnly of [false, true])
       .toBe("pending");
     const beforeChecks = (await call(parent.controlToken, "session_state", { id: childId })).body
       .result;
-    const checkWait = call(parent.controlToken, "wait_for", {
-      ids: [childId],
-      after: { [childId]: beforeChecks.revision },
-      timeoutMs: 30000,
-    });
+    let checkCursor = beforeChecks.revision;
+    let checkResult;
     await writeFile(forgeState, JSON.stringify({ checks: [{ bucket: "pass" }] }));
-    const checkResult = (await checkWait).body.result;
+    // Other metadata revisions (for example a settled verdict timestamp) can
+    // precede the forge sample. Advance the API cursor, never poll GitHub here.
+    await expect
+      .poll(
+        async () => {
+          const result = (
+            await call(parent.controlToken, "wait_for", {
+              ids: [childId],
+              after: { [childId]: checkCursor },
+              timeoutMs: 30000,
+            })
+          ).body.result;
+          assert.equal(result.sessions[0].state, beforeChecks.state);
+          checkCursor = result.sessions[0].revision;
+          if (result.sessions[0].pullRequest?.requiredChecks !== "success") return false;
+          checkResult = result;
+          return true;
+        },
+        { timeout: deadline(60000), intervals: [0] },
+      )
+      .toBe(true);
     assert.equal(checkResult.timedOut, false);
     assert.deepEqual(checkResult.changed, [childId]);
-    assert.equal(checkResult.sessions[0].state, beforeChecks.state);
     assert.deepEqual(checkResult.sessions[0].pullRequest, {
       number: 340,
       headSha: "a".repeat(40),
@@ -8206,7 +8222,7 @@ for (const cliOnly of [false, true])
       // Part 2: profile opt-in, real Git fetch/ancestry, and operation completion.
       const remote = path.join(root, "remote.git");
       git("clone", "--bare", repo, remote);
-      git("remote", "add", "origin", remote);
+      git("remote", "set-url", "origin", remote);
       await openSettingsScreen(page);
       await page.getByRole("button", { name: "Repositories", exact: true }).click();
       const autoRemove = page.getByRole("checkbox", { name: "app · Auto-remove merged worktrees" });

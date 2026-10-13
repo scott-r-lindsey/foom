@@ -325,3 +325,28 @@ it("accepts the same validated PR-aware revision exposed by session metadata", a
   expect((await h.done()).status).toBe("succeeded");
   expect(h.host.reply).toHaveBeenCalledWith("child", "src/app.ts\r");
 });
+
+it("forge changes during human review preserve the bound terminal revision", async () => {
+  let conclusion = "pending";
+  const h = harness(() => ({
+    number: 340,
+    headSha: "a".repeat(40),
+    state: "OPEN",
+    requiredChecks: conclusion,
+  }));
+  let accept: (answer: boolean) => void = () => {};
+  h.host.dialog.mockImplementation(
+    () =>
+      new Promise((resolve) => {
+        accept = resolve;
+      }),
+  );
+  await h.propose();
+  await vi.waitFor(() => {
+    expect(h.host.dialog).toHaveBeenCalled();
+  });
+  conclusion = "success";
+  accept(true);
+  expect((await h.done()).status).toBe("succeeded");
+  expect(h.host.reply).toHaveBeenCalledOnce();
+});

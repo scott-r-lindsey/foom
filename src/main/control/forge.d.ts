@@ -6,7 +6,7 @@ export interface PullRequest {
 }
 export interface ForgeProvider {
   /** Branch lookup is also reusable by PR-aware worktree creation (#337). */
-  lookup(branch: string, number?: number): Promise<PullRequest | undefined>;
+  lookup(branch: string, number?: number, state?: "open" | "all"): Promise<PullRequest | undefined>;
 }
 export interface ForgeWorktree {
   repository: string;

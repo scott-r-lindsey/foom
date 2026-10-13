@@ -123,6 +123,9 @@ it("uses fixed read-only argv and verifies the head after required checks", asyn
     ],
   ]);
   runner.mockClear();
+  expect(await provider?.lookup("child-one", undefined, "all")).toEqual(pr);
+  expect(runner.mock.calls[0]?.[0]).toContain("all");
+  runner.mockClear();
   expect(await provider?.lookup("child-one", 340)).toEqual(pr);
   expect(runner.mock.calls[0]?.[0]?.[1]).toBe("view");
   for (const number of [0, 1.5, NaN])
@@ -237,5 +240,29 @@ it("can execute the shared fake forge directly without a network", async () => {
     expect(await forgeProvider("https://github.com/o/r", runner)?.lookup("child-one")).toEqual(pr);
   } finally {
     await rm(root, { recursive: true, force: true });
+  }
+});
+it("can discover a closed or merged PR after an offline interval while default lookup stays open-only", async () => {
+  for (const state of ["CLOSED", "MERGED"]) {
+    const closed = { ...raw, state };
+    const runner = (args: readonly string[]) =>
+      Promise.resolve(
+        JSON.stringify(
+          args[1] === "checks"
+            ? [{ bucket: "pass" }]
+            : args[1] === "list"
+              ? args.includes("all")
+                ? [closed]
+                : []
+              : closed,
+        ),
+      );
+    const provider = forgeProvider("https://github.com/o/r", runner);
+    expect(await provider?.lookup("child-one")).toBeUndefined();
+    expect(await provider?.lookup("child-one", undefined, "all")).toEqual({
+      ...pr,
+      state,
+      requiredChecks: "success",
+    });
   }
 });

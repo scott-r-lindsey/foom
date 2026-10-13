@@ -121,7 +121,7 @@ export function forgeProvider(
   if (!selected) return undefined;
   const repository = `github.com/${selected}`;
   return {
-    async lookup(branch, number) {
+    async lookup(branch, number, state = "open") {
       if (
         !forgeBranch(branch) ||
         (number !== undefined && (!Number.isSafeInteger(number) || number <= 0))
@@ -138,7 +138,7 @@ export function forgeProvider(
                 "--head",
                 branch,
                 "--state",
-                "open",
+                state,
                 "--limit",
                 "2",
                 "--json",
