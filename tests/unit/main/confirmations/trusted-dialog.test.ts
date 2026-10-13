@@ -404,3 +404,23 @@ test("abort cancels a batch even after new arrivals changed its confirmation ID"
   await expect(second).resolves.toBe(false);
   dialog.dispose();
 });
+
+test("a removal arriving after decline gets its own review before the old promise settles", async () => {
+  const dialog = setup();
+  const request = (id: string) =>
+    dialog.request({
+      title: "Remove?",
+      accept: "Approve all",
+      removal: { group: "actor", item: { id, branch: id, path: id, changes: "" } },
+    });
+  const first = request("one");
+  answer(await shown(), false);
+  const next = request("two");
+  await expect(first).resolves.toBe(false);
+  await vi.waitFor(() => {
+    expect(window().show).toHaveBeenCalledTimes(2);
+  });
+  answer(await shown(), ["two"]);
+  await expect(next).resolves.toBe(true);
+  dialog.dispose();
+});

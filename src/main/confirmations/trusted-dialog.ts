@@ -270,6 +270,7 @@ export class TrustedDialog {
     const pending = this.pending;
     this.pending = undefined;
     if (!pending) return;
+    if (!accepted) this.removalFeed?.select([]);
     this.unsubscribe?.();
     this.unsubscribe = undefined;
     this.feed = undefined;

@@ -204,6 +204,8 @@ const attention = () => {
   for (const current of targets)
     updateAttention(current?.window, snapshot, newWindowCommand, revealSession);
 };
+/** Keep an actor's pending removals on one board even while its dialog owns focus. */
+const removalDialogs = new Map<string, { dialog: TrustedDialog; pending: number }>();
 /** A trusted dialog on the focused board, or the first; opens a board when none exists. */
 async function requestTrusted(content: DialogContent, signal: AbortSignal): Promise<boolean> {
   const cancelled = () => signal.aborted || quitting || quitPending;
@@ -215,7 +217,16 @@ async function requestTrusted(content: DialogContent, signal: AbortSignal): Prom
     entry = windows.values().next().value;
   }
   if (!entry || cancelled()) return false;
-  return entry.confirmations.request(content, signal);
+  const group = content.removal?.group;
+  if (group === undefined) return entry.confirmations.request(content, signal);
+  const batch = removalDialogs.get(group) ?? { dialog: entry.confirmations, pending: 0 };
+  removalDialogs.set(group, batch);
+  batch.pending++;
+  try {
+    return await batch.dialog.request(content, signal);
+  } finally {
+    if (--batch.pending === 0) removalDialogs.delete(group);
+  }
 }
 function requestPairing(
   repository: string,
