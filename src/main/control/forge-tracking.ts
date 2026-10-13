@@ -6,6 +6,7 @@ import type { ForgeProvider, ForgeWorktree, PullRequest } from "./forge.d";
 
 interface Entry extends ForgeWorktree {
   remote?: string;
+  number?: number;
   pr?: PullRequest;
   available: boolean;
   failures: number;
@@ -55,14 +56,19 @@ export class ForgeTracking {
       for (const item of rows) {
         if (typeof item !== "object" || item === null) continue;
         const row: Record<string, unknown> = Object.fromEntries(Object.entries(item));
-        const { repository, path, identity, branch, remote } = row;
+        const { repository, path, identity, branch, remote, number } = row;
         const tree = { repository, path, identity, branch };
         if (!validTree(tree)) continue;
         if (remote !== undefined && (typeof remote !== "string" || remote.length > 4096)) continue;
+        if (
+          number !== undefined &&
+          (typeof number !== "number" || !Number.isSafeInteger(number) || number <= 0)
+        )
+          continue;
         const pr = pullRequest(row["pr"]);
         if (row["pr"] !== undefined && !pr) continue;
         // Revalidate ownership before making any network call or exposing saved data.
-        this.track(tree);
+        this.track(tree, typeof number === "number" ? number : undefined);
         const entry = this.entries.get(tree.path);
         if (entry) {
           if (pr) entry.pr = pr;
@@ -74,17 +80,29 @@ export class ForgeTracking {
     }
   }
 
-  track(tree: ForgeWorktree): void {
-    if (this.closed || !validTree(tree)) return;
+  track(tree: ForgeWorktree, number?: number): void {
+    if (
+      this.closed ||
+      !validTree(tree) ||
+      (number !== undefined && (!Number.isSafeInteger(number) || number <= 0))
+    )
+      return;
     const previous = this.entries.get(tree.path);
     if (
       previous?.identity === tree.identity &&
       previous.branch === tree.branch &&
-      previous.repository === tree.repository
+      previous.repository === tree.repository &&
+      (number === undefined || previous.number === number)
     )
       return;
     if (this.entries.size >= 1000 && !previous) return;
-    this.entries.set(tree.path, { ...tree, available: false, failures: 0, due: 0 });
+    this.entries.set(tree.path, {
+      ...tree,
+      ...(number === undefined ? {} : { number }),
+      available: false,
+      failures: 0,
+      due: 0,
+    });
     this.schedule();
   }
 
@@ -108,9 +126,13 @@ export class ForgeTracking {
         if (remote === undefined) {
           this.entries.delete(entry.path);
         } else {
+          if (entry.remote !== undefined && remote !== entry.remote) delete entry.number;
           const provider = this.provider(remote);
           const result = await provider
-            ?.lookup(entry.branch, remote === entry.remote ? entry.pr?.number : undefined)
+            ?.lookup(
+              entry.branch,
+              entry.number ?? (remote === entry.remote ? entry.pr?.number : undefined),
+            )
             .catch(() => undefined);
           if (this.stopped() || this.entries.get(entry.path) !== entry) return;
           const pr = pullRequest(result);
@@ -142,6 +164,7 @@ export class ForgeTracking {
         branch: entry.branch,
         remote: entry.remote,
         pr: entry.pr,
+        number: entry.number,
       })),
     );
   }

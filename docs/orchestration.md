@@ -364,7 +364,8 @@ Existing local commits are preserved; adoption never resets a branch. A checkout
 already owned by this orchestrator and still unused may be reused after its
 identity and session eligibility are rechecked. Other checked-out branches are
 refused. Adopted checkouts count against the four-unused-worktree budget and are
-registered with forge tracking for child session PR metadata. The console fallback
+registered with forge tracking by the requested PR number for child session PR
+metadata, including when multiple open PRs share a head branch. The console fallback
 is `foom create-worktree --pull-request N --idempotency-key KEY`.
 
 Ordinary agents never see orchestration tools in `tools/list`; the service also

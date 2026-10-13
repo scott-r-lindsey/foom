@@ -918,12 +918,15 @@ it("validates the narrow PR-number schema and deduplicates adoption", async () =
     h.call("create_worktree", { idempotencyKey: "adopt", pullRequest: 338 }),
   ).rejects.toThrow("conflict");
   expect(h.host.adoptWorktree).toHaveBeenCalledOnce();
-  expect(h.host.forge.track).toHaveBeenCalledWith({
-    repository: repo,
-    path: join(repo, "trees", "adopted"),
-    branch: "adopted",
-    identity: "id-adopted",
-  });
+  expect(h.host.forge.track).toHaveBeenCalledWith(
+    {
+      repository: repo,
+      path: join(repo, "trees", "adopted"),
+      branch: "adopted",
+      identity: "id-adopted",
+    },
+    337,
+  );
 });
 it("charges adoption to the unused budget and permits owned unused reuse at capacity", async () => {
   const h = harness();

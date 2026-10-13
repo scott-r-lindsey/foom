@@ -488,7 +488,8 @@ export class Orchestration {
               )
                 throw new ControlError("branch_in_use");
             }) ?? Promise.reject(new ControlError("forge_unavailable")));
-      this.host.forge?.track({ repository: parent.repository, ...tree });
+      if (number === undefined) this.host.forge?.track({ repository: parent.repository, ...tree });
+      else this.host.forge?.track({ repository: parent.repository, ...tree }, number);
       const id = locationId(tree.path);
       parent.worktrees.set(id, {
         path: tree.path,
