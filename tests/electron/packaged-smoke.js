@@ -513,7 +513,7 @@ test("packaged console helper runs without Node from relocated Unicode paths", a
 });
 
 test("packaged CLI PATH setup is explicit, non-clobbering and reversible", async (context) => {
-  const { copyFileSync, chmodSync, readlinkSync, renameSync } = require("node:fs");
+  const { copyFileSync, cpSync, chmodSync, readlinkSync, renameSync } = require("node:fs");
   const { spawnSync } = require("node:child_process");
   const root = path.join(__dirname, "../..", "out", `Foom-${process.platform}-${process.arch}`);
   const resources =
@@ -565,7 +565,10 @@ test("packaged CLI PATH setup is explicit, non-clobbering and reversible", async
       assert.notEqual(run("--install-cli").status, 0);
       const moved = `${scratch} moved`;
       context.after(() => rmSync(moved, { recursive: true, force: true }));
-      renameSync(scratch, moved);
+      // Relocation only needs a different executable location. Copy the fixture
+      // so Windows/Defender handles on the just-executed binary cannot race a
+      // directory rename; uninstall must still remove the original owned entry.
+      cpSync(scratch, moved, { recursive: true });
       const removed = spawnSync(path.join(moved, name), ["--uninstall-cli"], {
         env,
         encoding: "utf8",
