@@ -23,10 +23,10 @@ export function requiresDesktop(paths) {
 /** Every run, including draft pull requests, validates all three platforms. */
 export const allPlatforms = ["ubuntu-24.04", "windows-2025", "macos-15"];
 
-/** macOS needs three shards for runner variation; Linux and Windows need two. */
+/** Windows and macOS need three shards for runner variation; Linux needs two. */
 export function desktopMatrix(platforms = allPlatforms) {
   return platforms.flatMap((os) => {
-    const count = os === "macos-15" ? 3 : 2;
+    const count = os === "windows-2025" || os === "macos-15" ? 3 : 2;
     return Array.from({ length: count }, (_, index) => ({ os, shard: `${index + 1}/${count}` }));
   });
 }
