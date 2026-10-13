@@ -970,19 +970,29 @@ test("bundled brand fonts and both system themes render in Electron", {
     ],
   };
   for (const mode of ["dark", "light", "dark"]) {
-    // Main owns nativeTheme and can refresh it while setup changes settle.
-    await page.emulateMedia({ colorScheme: mode });
-    await page.waitForFunction(
-      (dark) => matchMedia("(prefers-color-scheme: dark)").matches === dark,
-      mode === "dark",
-    );
     const background = mode === "dark" ? "rgb(5, 4, 10)" : "rgb(243, 240, 250)";
-    await page.waitForFunction(
-      // Terminal and interface themes have separate media-change listeners.
-      (expected) =>
-        getComputedStyle(document.documentElement).backgroundColor === expected &&
-        getComputedStyle(document.querySelector(".xterm-scrollable-element")).backgroundColor ===
-          expected,
+    // Page media emulation only controls renderer listeners. The host also sends
+    // OSC palettes on attachment and nativeTheme updates, so let that palette
+    // reach xterm before changing the renderer's media preference.
+    await app.evaluate(({ nativeTheme }, theme) => {
+      nativeTheme.themeSource = theme;
+    }, mode);
+    await expect
+      .poll(() => app.evaluate(({ nativeTheme }) => nativeTheme.shouldUseDarkColors))
+      .toBe(mode === "dark");
+    await expect(page.locator(".xterm-scrollable-element")).toHaveCSS(
+      "background-color",
+      background,
+    );
+    // Main can refresh nativeTheme while setup changes settle. Keep the page's
+    // preference explicit, but agree with the host rather than racing its OSCs.
+    await page.emulateMedia({ colorScheme: mode });
+    await expect
+      .poll(() => page.evaluate(() => matchMedia("(prefers-color-scheme: dark)").matches))
+      .toBe(mode === "dark");
+    await expect(page.locator("html")).toHaveCSS("background-color", background);
+    await expect(page.locator(".xterm-scrollable-element")).toHaveCSS(
+      "background-color",
       background,
     );
     const rendered = await page.evaluate(async () => {
