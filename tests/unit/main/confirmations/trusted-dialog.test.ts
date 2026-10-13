@@ -1,4 +1,4 @@
-import { beforeEach, expect, test, vi } from "vitest";
+import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { EventEmitter } from "node:events";
 import type { BrowserWindow, Session, BrowserWindowConstructorOptions } from "electron";
 import { resolveInterfaceTheme } from "../../../../src/shared/interface-themes";
@@ -28,6 +28,11 @@ class FakeWindow extends EventEmitter {
   setBounds = vi.fn();
   setBackgroundColor = vi.fn();
   show = vi.fn();
+  setParentWindow = vi.fn();
+  moveTop = vi.fn();
+  isVisible = vi.fn(() => true);
+  isFocused = vi.fn(() => true);
+  isMinimized = vi.fn(() => false);
   hide = vi.fn();
   focus = vi.fn();
   destroy = vi.fn();
@@ -49,11 +54,19 @@ vi.mock("electron", () => ({
   },
 }));
 import { TrustedDialog, CONFIRMATION_URL } from "../../../../src/main/confirmations/trusted-dialog";
+afterEach(() => {
+  vi.useRealTimers();
+  vi.restoreAllMocks();
+});
 const theme = resolveInterfaceTheme("follow", false);
 const parent = Object.assign(new EventEmitter(), {
   isEnabled: () => true,
   setEnabled: vi.fn(),
-  webContents: { send: vi.fn(), getZoomFactor: vi.fn(() => 1) },
+  isFocusable: vi.fn(() => true),
+  isVisible: vi.fn(() => true),
+  isMinimized: vi.fn(() => false),
+  setFocusable: vi.fn(),
+  webContents: Object.assign(new EventEmitter(), { send: vi.fn(), getZoomFactor: vi.fn(() => 1) }),
   getContentBounds: vi.fn(() => ({ x: 10, y: 20, width: 800, height: 600 })),
   isDestroyed: vi.fn(() => false),
   focus: vi.fn(),
@@ -63,8 +76,13 @@ const content = {
   accept: "Discard 1 change and remove",
   changes: "?? x\0",
 };
-function setup() {
-  return new TrustedDialog(parent as unknown as BrowserWindow, {} as Session, () => theme);
+function setup(platform: NodeJS.Platform = "linux") {
+  return new TrustedDialog(
+    parent as unknown as BrowserWindow,
+    {} as Session,
+    () => theme,
+    platform,
+  );
 }
 function window() {
   const value = mock.windows.at(-1);
@@ -98,6 +116,10 @@ beforeEach(() => {
   mock.load.mockResolvedValue();
   parent.isDestroyed.mockReturnValue(false);
   parent.removeAllListeners();
+  parent.webContents.removeAllListeners();
+  parent.isFocusable.mockReturnValue(true);
+  parent.isVisible.mockReturnValue(true);
+  parent.isMinimized.mockReturnValue(false);
 });
 test("prewarms an isolated sandbox, rejects foreign frames, forged IDs and malformed answers", async () => {
   const dialog = setup();
@@ -110,6 +132,7 @@ test("prewarms an isolated sandbox, rejects foreign frames, forged IDs and malfo
       show: false,
       webPreferences: expect.objectContaining({
         sandbox: true,
+        backgroundThrottling: false,
         contextIsolation: true,
         nodeIntegration: false,
       }) as unknown,
@@ -449,5 +472,188 @@ test("one aborted removal rotates the answer ID while peers stay under review", 
   expect(window().hide).not.toHaveBeenCalled();
   answer(fresh, ["two"]);
   await expect(second).resolves.toBe(true);
+  dialog.dispose();
+});
+
+test("macOS blocks board input and native focus without a disabling sheet, then restores them", async () => {
+  parent.isFocusable.mockReturnValue(false);
+  const dialog = setup("darwin");
+  const pending = dialog.request(content);
+  const id = await shown();
+  expect(parent.setEnabled).not.toHaveBeenCalled();
+  expect(parent.setFocusable).toHaveBeenLastCalledWith(false);
+  const event = { preventDefault: vi.fn() };
+  parent.webContents.emit("before-input-event", event);
+  parent.webContents.emit("before-mouse-event", event);
+  expect(event.preventDefault).toHaveBeenCalledTimes(2);
+  expect(window().setParentWindow).toHaveBeenCalledWith(parent);
+  expect(window().moveTop).toHaveBeenCalledOnce();
+  answer(id, false);
+  expect(await pending).toBe(false);
+  expect(parent.setEnabled).not.toHaveBeenCalled();
+  expect(parent.setFocusable).toHaveBeenLastCalledWith(false);
+  parent.webContents.emit("before-input-event", event);
+  parent.webContents.emit("before-mouse-event", event);
+  expect(event.preventDefault).toHaveBeenCalledTimes(2);
+  dialog.dispose();
+});
+
+for (const target of ["child", "parent"] as const) {
+  for (const event of ["hide", "minimize", ...(target === "child" ? ["closed"] : [])]) {
+    test(`${target} ${event} cancels safely and releases the scrim and board input`, async () => {
+      const dialog = setup();
+      const pending = dialog.request(content);
+      await shown();
+      const native = target === "child" ? window() : parent;
+      if (event === "hide") native.isVisible.mockReturnValue(false);
+      if (event === "minimize") native.isMinimized.mockReturnValue(true);
+      native.emit(event);
+      expect(await pending).toBe(false);
+      expect(parent.webContents.send).toHaveBeenLastCalledWith("confirmation:scrim", false);
+      expect(parent.setEnabled).toHaveBeenLastCalledWith(true);
+      expect(parent.webContents.listenerCount("before-input-event")).toBe(0);
+      dialog.dispose();
+    });
+  }
+}
+
+test.each(["isVisible", "isFocused"] as const)(
+  "a failed %s reorders once, then cancels without leaving the board blocked",
+  async (failure) => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const dialog = setup();
+    const result = dialog.request(content);
+    await vi.advanceTimersByTimeAsync(0);
+    window()[failure].mockReturnValue(false);
+    window().show.mockImplementation(() => {
+      parent.emit("focus");
+    });
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(window().show).toHaveBeenCalledTimes(2);
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(await result).toBe(false);
+    expect(parent.webContents.send).toHaveBeenLastCalledWith("confirmation:scrim", false);
+    expect(parent.setEnabled).toHaveBeenLastCalledWith(true);
+    dialog.dispose();
+  },
+);
+
+test("a single native reorder can recover focus and leave the request available for human consent", async () => {
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+  const dialog = setup();
+  const pending = dialog.request(content);
+  await vi.advanceTimersByTimeAsync(0);
+  window().isFocused.mockReturnValue(false);
+  await vi.advanceTimersByTimeAsync(1000);
+  expect(window().show).toHaveBeenCalledTimes(2);
+  window().isFocused.mockReturnValue(true);
+  await vi.advanceTimersByTimeAsync(1000);
+  expect(window().hide).not.toHaveBeenCalled();
+  const request: unknown = window().webContents.send.mock.calls.at(-1)?.[1];
+  if (!request || typeof request !== "object" || !("id" in request)) throw Error("Missing request");
+  answer(request.id, true);
+  expect(await pending).toBe(true);
+  dialog.dispose();
+  vi.useRealTimers();
+});
+
+test("a renderer that never measures its card cancels instead of stranding the scrim", async () => {
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+  mock.autoSize = false;
+  const dialog = setup();
+  const pending = dialog.request(content);
+  await vi.advanceTimersByTimeAsync(1000);
+  expect(await pending).toBe(false);
+  expect(window().show).not.toHaveBeenCalled();
+  expect(parent.webContents.send).toHaveBeenLastCalledWith("confirmation:scrim", false);
+  dialog.dispose();
+  vi.useRealTimers();
+});
+
+test("disposing a pending dialog after board destruction does not access its native webContents getter", async () => {
+  const contents = parent.webContents;
+  vi.spyOn(parent, "webContents", "get").mockImplementation(() => {
+    if (parent.isDestroyed()) throw Error("Object has been destroyed");
+    return contents;
+  });
+  const dialog = setup();
+  const pending = dialog.request(content);
+  await shown();
+  parent.isDestroyed.mockReturnValue(true);
+  dialog.dispose();
+  expect(await pending).toBe(false);
+  expect(contents.listenerCount("before-input-event")).toBe(0);
+  expect(contents.listenerCount("before-mouse-event")).toBe(0);
+});
+
+test("late native hide/minimize notifications cannot cancel a visible reused child", async () => {
+  const dialog = setup();
+  const first = dialog.request(content);
+  const old = await shown();
+  answer(old, false);
+  expect(await first).toBe(false);
+  const next = dialog.request(content);
+  await vi.waitFor(() => {
+    expect(window().show).toHaveBeenCalledTimes(2);
+  });
+  const id = await shown();
+  window().emit("hide");
+  window().emit("minimize");
+  parent.emit("hide");
+  parent.emit("minimize");
+  expect(window().hide).toHaveBeenCalledOnce();
+  expect(parent.webContents.send).toHaveBeenLastCalledWith("confirmation:scrim", true);
+  answer(id, true);
+  expect(await next).toBe(true);
+  dialog.dispose();
+});
+
+test("macOS occlusion reporting cannot dismiss a currently key child", async () => {
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+  const dialog = setup("darwin");
+  const pending = dialog.request(content);
+  await vi.advanceTimersByTimeAsync(0);
+  window().isVisible.mockReturnValue(false);
+  window().emit("hide");
+  await vi.advanceTimersByTimeAsync(2000);
+  expect(window().show).toHaveBeenCalledOnce();
+  expect(window().hide).not.toHaveBeenCalled();
+  const request: unknown = window().webContents.send.mock.calls.at(-1)?.[1];
+  if (!request || typeof request !== "object" || !("id" in request)) throw Error("Missing request");
+  answer(request.id, true);
+  expect(await pending).toBe(true);
+  dialog.dispose();
+});
+
+test("macOS hiding a child that lost key focus cancels and restores native board focusability", async () => {
+  const dialog = setup("darwin");
+  const pending = dialog.request(content);
+  await shown();
+  window().isVisible.mockReturnValue(false);
+  window().isFocused.mockReturnValue(false);
+  window().emit("hide");
+  expect(await pending).toBe(false);
+  expect(parent.setFocusable).toHaveBeenLastCalledWith(true);
+  expect(parent.webContents.send).toHaveBeenLastCalledWith("confirmation:scrim", false);
+  dialog.dispose();
+});
+
+test("native occlusion events during reparent/show do not cancel the request being presented", async () => {
+  const dialog = setup();
+  window().show.mockImplementation(() => {
+    window().isVisible.mockReturnValue(false);
+    window().isFocused.mockReturnValue(false);
+    parent.isVisible.mockReturnValue(false);
+    window().emit("hide");
+    parent.emit("hide");
+    window().isVisible.mockReturnValue(true);
+    window().isFocused.mockReturnValue(true);
+    parent.isVisible.mockReturnValue(true);
+  });
+  const pending = dialog.request(content);
+  const id = await shown();
+  expect(window().hide).not.toHaveBeenCalled();
+  answer(id, true);
+  expect(await pending).toBe(true);
   dialog.dispose();
 });
