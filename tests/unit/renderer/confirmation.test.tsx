@@ -242,6 +242,45 @@ test("cleanup checking, ready and run controls follow main state; Escape only hi
   expect(view.getByRole("button", { name: "Stop" }).hasAttribute("disabled")).toBe(true);
   fireEvent.keyDown(view.getByRole("button", { name: "Hide" }), { key: "Escape" });
   expect(answer).toHaveBeenLastCalledWith("cleanup", false);
+  const duplicateBranches = [
+    {
+      id: "first",
+      branch: "Detached checkout",
+      state: "kept" as const,
+      reason: "unavailable" as const,
+    },
+    {
+      id: "second",
+      branch: "Detached checkout",
+      state: "kept" as const,
+      reason: "running" as const,
+    },
+    {
+      id: "third",
+      branch: "other",
+      state: "kept" as const,
+      reason: "uncommitted changes" as const,
+    },
+  ];
+  act(() => {
+    receive({
+      ...base,
+      cleanup: { stage: "run", progress: { ...progress, items: duplicateBranches } },
+    });
+  });
+  act(() => {
+    receive({
+      ...base,
+      cleanup: {
+        stage: "run",
+        progress: { ...progress, items: duplicateBranches.slice(1).reverse() },
+      },
+    });
+  });
+  const kept = view.getByRole("list", { name: "Kept worktrees" });
+  expect(kept.children).toHaveLength(2);
+  expect(kept.children[0]?.textContent).toBe("otheruncommitted changes");
+  expect(kept.children[1]?.textContent).toBe("Detached checkoutrunning");
   act(() => {
     receive({
       ...base,

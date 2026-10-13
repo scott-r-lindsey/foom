@@ -94,14 +94,14 @@ function Worktrees({
   running = false,
   label,
 }: {
-  items: readonly { branch: string; reason?: string; state?: string }[];
+  items: readonly { id?: string; branch: string; reason?: string; state?: string }[];
   running?: boolean;
   label: string;
 }) {
   return (
     <ul className="well" aria-label={label}>
       {items.map((item) => (
-        <li className="row" key={item.branch} data-cleanup={item.state}>
+        <li className="row" key={item.id ?? item.branch} data-cleanup={item.state}>
           <span className="ic">
             <Glyph
               name={
