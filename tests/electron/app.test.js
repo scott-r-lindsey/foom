@@ -9065,12 +9065,20 @@ test("preview host loads and reloads detached, never steals terminal keystrokes,
   }, id);
   await expect.poll(() => app.evaluate(() => globalThis.previewGateRequested)).toBe(true);
   assert.equal((await previewViewState(app, id)).attached, false);
+  const focusedUrl = () =>
+    app.evaluate(({ webContents }) => webContents.getFocusedWebContents()?.getURL() ?? "none");
+  const focusBefore = await focusedUrl();
   await typeIntoFocusedContents(app, "c".repeat(100));
+  const focusAfter = await focusedUrl();
+  const boardActive = await page.evaluate(() => document.activeElement?.className ?? "none");
   await app.evaluate(() => globalThis.releasePreviewGate());
   await expect.poll(async () => (await previewViewState(app, id)).attached).toBe(true);
   await expect
-    .poll(async () =>
-      (await page.evaluate((id) => window.desktop.tail(id, 20), terminal.id)).join(""),
+    .poll(
+      async () => (await page.evaluate((id) => window.desktop.tail(id, 20), terminal.id)).join(""),
+      {
+        message: `keys typed during reload; native focus ${focusBefore} -> ${focusAfter}, board active element ${boardActive}`,
+      },
     )
     .toContain(keys + "b".repeat(100) + "c".repeat(100));
   assert.equal(await previewContents(app, id, "window.stolen"), "");
