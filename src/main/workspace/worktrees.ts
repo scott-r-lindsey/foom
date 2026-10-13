@@ -1,5 +1,5 @@
 import { UncertainEffect } from "../control/orchestration";
-import { forgeProvider } from "../control/forge";
+import { forgeBranch, forgeProvider } from "../control/forge";
 import { ControlError } from "../control/validation";
 import { fetchAdvertisedDefault } from "./fetch-default";
 import type { GitPanelFacts } from "../../shared/panel";
@@ -486,6 +486,7 @@ export class WorktreeService {
     if (head.state !== "OPEN") throw new ControlError("pr_not_open");
     if (!head.sameRepository) throw new ControlError("pr_from_fork");
     const branch = head.branch;
+    if (!forgeBranch(branch)) throw new ControlError("invalid_branch");
     await this.validateBranch(repositoryPath, branch).catch(() => {
       throw new ControlError("invalid_branch");
     });
@@ -514,7 +515,8 @@ export class WorktreeService {
         existing.bare ||
         existing.locked ||
         existing.prunable ||
-        (await this.launchIdentity(repositoryPath, existing.path)) !== owned.identity
+        (await this.launchIdentity(repositoryPath, existing.path).catch(() => undefined)) !==
+          owned.identity
       )
         throw new ControlError("branch_in_use");
       revalidate(existing.path, branch);
@@ -526,7 +528,10 @@ export class WorktreeService {
         `+refs/heads/${branch}:refs/remotes/origin/${branch}`,
       ]);
       revalidate(existing.path, branch);
-      if ((await this.launchIdentity(repositoryPath, existing.path)) !== owned.identity)
+      if (
+        (await this.launchIdentity(repositoryPath, existing.path).catch(() => undefined)) !==
+        owned.identity
+      )
         throw new ControlError("branch_in_use");
       await git(repositoryPath, [
         "branch",

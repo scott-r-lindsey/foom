@@ -102,6 +102,9 @@ it.each([
   [{ pr: { headRefName: "--help" } }, "invalid_branch"],
   [{ pr: { headRefName: "@{-1}" } }, "invalid_branch"],
   [{ pr: { headRefName: "bad..branch" } }, "invalid_branch"],
+  [{ pr: { headRefName: "x".repeat(201) } }, "invalid_branch"],
+  [{ pr: { headRefName: "bad\u202e" } }, "invalid_branch"],
+  [{ pr: { headRefName: "HEAD" } }, "invalid_branch"],
   [{ pr: { headRepositoryOwner: null } }, "forge_unavailable"],
   [{ pr: { number: 99 } }, "forge_unavailable"],
 ])("refuses unsafe PR data %j with fixed reason %s", async (state, reason) => {
@@ -162,5 +165,14 @@ it("charges uncertain creation after checkout or identity recording fails", asyn
 it("refuses duplicate checked-out heads even if one checkout is owned and unused", async () => {
   const tree = await adopt();
   await run("worktree", "add", "--force", join(root, "duplicate"), "child-one");
+  await expect(adopt([tree])).rejects.toThrow("branch_in_use");
+});
+
+it("uses the fixed in-use refusal when checkout identity cannot be revalidated", async () => {
+  const tree = await adopt();
+  const identity = vi.spyOn(service, "launchIdentity");
+  identity.mockRejectedValueOnce(new Error("redirected"));
+  await expect(adopt([tree])).rejects.toThrow("branch_in_use");
+  identity.mockResolvedValueOnce(tree.identity).mockResolvedValueOnce("replaced-after-fetch");
   await expect(adopt([tree])).rejects.toThrow("branch_in_use");
 });
