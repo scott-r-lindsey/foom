@@ -410,6 +410,7 @@ async function launchApp(context, openShell = true, options = {}) {
   app.on("console", (message) => {
     if (message.text().includes("Unknown or foreign terminal ID"))
       staleTerminalErrors.push(message.text());
+    if (message.text().startsWith("Terminal host diagnostic:")) context.diagnostic(message.text());
     if (message.type() === "error") console.error("Electron:", message.text());
   });
   fixtureCleanup(context).apps.push(async () => {

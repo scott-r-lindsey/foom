@@ -1,19 +1,27 @@
+import type { Details, Event, ForkOptions } from "electron";
 import { EventEmitter } from "node:events";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import type { HostRequest } from "../../../../src/shared/terminal-host";
 const mock = vi.hoisted(() => ({
-  fork: vi.fn(),
+  fork: vi.fn<(path: string, args: string[], options: ForkOptions) => Child>(),
+  app: {
+    on: vi.fn<(event: string, callback: (event: Event, details: Details) => void) => void>(),
+    removeListener:
+      vi.fn<(event: string, callback: (event: Event, details: Details) => void) => void>(),
+  },
   theme: {
     shouldUseDarkColors: false,
     on: vi.fn<(event: string, callback: () => void) => void>(),
     removeListener: vi.fn(),
   },
 }));
-vi.mock("electron", () => ({ utilityProcess: mock, nativeTheme: mock.theme }));
+vi.mock("electron", () => ({ app: mock.app, utilityProcess: mock, nativeTheme: mock.theme }));
 import { TerminalHostClient } from "../../../../src/main/terminals/terminal-host-client";
 class Child extends EventEmitter {
   postMessage = vi.fn<(message: HostRequest | "shutdown") => void>();
   kill = vi.fn();
+  pid = 123;
+  stderr = new EventEmitter();
   data(id: string, data: string, view?: string) {
     const attachment = this.postMessage.mock.calls
       .map(([message]) => message)
@@ -34,12 +42,19 @@ class Child extends EventEmitter {
   }
 }
 const spec = { command: "/bin/bash", args: ["-l"], cwd: "/tmp", cols: 80, rows: 24 };
+const appEvents = new EventEmitter();
 let child: Child;
 let client: TerminalHostClient;
 const exited = vi.fn();
 beforeEach(() => {
   vi.useFakeTimers();
   vi.clearAllMocks();
+  appEvents.removeAllListeners();
+  mock.app.on.mockImplementation((event, callback) => appEvents.on(event, callback));
+  mock.app.removeListener.mockImplementation((event, callback) =>
+    appEvents.removeListener(event, callback),
+  );
+  vi.spyOn(console, "error").mockImplementation(() => {});
   child = new Child();
   mock.fork.mockReturnValue(child);
   client = new TerminalHostClient(exited);
@@ -60,7 +75,9 @@ test("brokers capabilities, snapshots, tails and exits over a validated transpor
   expect(mock.fork).toHaveBeenCalledWith(
     expect.stringContaining("terminal-host.js"),
     [],
-    expect.objectContaining({ serviceName: "Foom terminal host" }),
+    expect.objectContaining({
+      stdio: ["ignore", "ignore", "pipe"],
+    }),
   );
   const send = vi.fn();
   const attaching = client.attach(id, send);
@@ -366,4 +383,76 @@ test("reuses only a removed session ID and rejects malformed or occupied IDs", a
   const resumed = client.create({ ...spec, id });
   child.reply();
   expect(await resumed).toBe(id);
+});
+
+function gone(details: object = {}) {
+  const options = mock.fork.mock.calls.at(-1)?.[2];
+  appEvents.emit(
+    "child-process-gone",
+    {},
+    {
+      type: "Utility",
+      name: options?.serviceName,
+      reason: "crashed",
+      exitCode: 3221225477,
+      ...details,
+    },
+  );
+}
+
+test.each([true, false])(
+  "captures native crash details before or after exit (before=%s)",
+  async (before) => {
+    const id = await create();
+    child.emit("spawn");
+    child.stderr.emit("data", Buffer.from("native failure"));
+    const shutdown = client.shutdown();
+    const rejection = shutdown.catch((error: unknown) => error);
+    gone({ type: "GPU" });
+    gone({ name: "another utility" });
+    if (before) gone();
+    child.emit("exit", 3221225477);
+    if (!before) gone();
+    const error = await rejection;
+    expect(error).toBeInstanceOf(Error);
+    if (!(error instanceof Error)) throw new Error("Missing host failure");
+    expect(error.message).toContain('"exitCode":3221225477');
+    expect(error.message).toContain('"reason":"crashed"');
+    expect(error.cause).toMatchObject({ pid: 123, stderr: "native failure" });
+    expect(exited).toHaveBeenCalledWith(id, -1);
+    expect(console.error).toHaveBeenCalledWith(
+      "Terminal host diagnostic:",
+      expect.stringContaining('"reason":"crashed"'),
+    );
+  },
+);
+
+test("bounds host stderr, excludes terminal messages and isolates replacement hosts", async () => {
+  const id = await create();
+  child.stderr.emit("data", "x".repeat(20000));
+  child.stderr.emit("data", Buffer.from("native tail"));
+  child.stderr.emit("data", { unexpected: "ignored" });
+  child.emit("message", { type: "data", id, token: "view", data: "private terminal output" });
+  const pending = client.tail(id, 1);
+  const rejected = pending.catch((error: unknown) => error);
+  child.emit("exit", 9);
+  const error = await rejected;
+  expect(error).toBeInstanceOf(Error);
+  if (!(error instanceof Error)) throw new Error("Missing host failure");
+  expect(error.cause).toMatchObject({ stderr: "x".repeat(8192 - 11) + "native tail" });
+  expect(error.message).not.toContain("private terminal output");
+  const oldName = mock.fork.mock.calls.at(-1)?.[2]?.serviceName;
+  child = new Child();
+  mock.fork.mockReturnValue(child);
+  await create();
+  gone({ name: oldName });
+  expect(appEvents.listenerCount("child-process-gone")).toBe(1);
+  const closing = client.dispose();
+  child.emit("exit", 0);
+  await closing;
+  expect(appEvents.listenerCount("child-process-gone")).toBe(0);
+  expect(console.error).toHaveBeenLastCalledWith(
+    "Terminal host diagnostic:",
+    expect.stringContaining('"stderr":""'),
+  );
 });
