@@ -7818,6 +7818,33 @@ req.end(JSON.stringify(payload));
     await expect
       .poll(async () => (await rows(first)).find((row) => row.id === childId)?.conversationId)
       .toBe("saved-child");
+    const exitedTree = await call(oldParent, "create_worktree", {
+      branch: "exited-child",
+      idempotencyKey: "exited-tree",
+    });
+    const exitedChild = await call(oldParent, "launch", {
+      worktreeId: exitedTree.resultId,
+      agent,
+      idempotencyKey: "exited-child",
+    });
+    assert.equal(exitedChild.status, "succeeded");
+    await expect
+      .poll(
+        async () =>
+          (await rows(first)).find((row) => row.id === exitedChild.resultId)?.conversationId,
+      )
+      .toBe("saved-exited-child");
+    await call(oldParent, "stop", {
+      id: exitedChild.resultId,
+      idempotencyKey: "stop-before-restart",
+    });
+    await expect
+      .poll(async () => (await rows(first)).find((row) => row.id === exitedChild.resultId)?.exited)
+      .toBe(true);
+    const unusedTree = await call(oldParent, "create_worktree", {
+      branch: "unused-child",
+      idempotencyKey: "unused-tree",
+    });
     const oldChild = await readCredentials("child");
     await first.evaluate(() => window.desktop.appMenu.execute("new-window"));
     let second;
@@ -7888,7 +7915,10 @@ req.end(JSON.stringify(payload));
     };
     const newParent = await waitForCredentials("repo", oldParent);
     // The role is re-granted from main's store; the resumed agent gets no launch prompt.
-    assert.ok(!newParent.args.some((arg) => /orchestrator/i.test(arg)));
+    assert.ok(
+      !newParent.args.includes("--"),
+      "resumed parent receives no positional launch prompt",
+    );
     const restoredChild = await waitForCredentials("child", oldChild);
     assert.ok(restoredChild.args.includes(agent === "claude" ? "--resume" : "resume"));
     assert.ok(restoredChild.args.some((arg) => arg.startsWith("Task from your Foom orchestrator")));
@@ -7915,13 +7945,69 @@ req.end(JSON.stringify(payload));
     await expect
       .poll(async () => (await rows(page)).find((row) => row.id === childId)?.exited)
       .toBe(true);
+    assert.equal(
+      (
+        await call(newParent, "remove_worktree", {
+          worktreeId: exitedTree.resultId,
+          idempotencyKey: "remove-after-restart",
+        })
+      ).status,
+      "pending_confirmation",
+    );
+    let removal;
+    await expect
+      .poll(async () => {
+        for (const candidate of restored
+          .windows()
+          .filter((window) => window.url() === "app://confirmation/confirmation.html")) {
+          if (
+            await candidate
+              .getByRole("heading", { name: "Remove worktree?", exact: true })
+              .isVisible()
+          ) {
+            removal = candidate;
+            return true;
+          }
+        }
+        return false;
+      })
+      .toBe(true);
+    await removal.getByRole("button", { name: "Remove worktree" }).click();
+    await expect
+      .poll(
+        async () =>
+          (await call(newParent, "operation_status", { idempotencyKey: "remove-after-restart" }))
+            .status,
+      )
+      .toBe("succeeded");
+    assert.ok(
+      !isolatedGit(["-C", repo, "worktree", "list", "--porcelain"]).includes(
+        "branch refs/heads/exited-child",
+      ),
+    );
+    assert.equal(
+      (
+        await call(newParent, "launch", {
+          worktreeId: unusedTree.resultId,
+          agent,
+          idempotencyKey: "launch-after-restart",
+        })
+      ).status,
+      "succeeded",
+    );
+    await expect
+      .poll(
+        async () => (await rows(page)).find((row) => row.branch === "unused-child")?.conversationId,
+      )
+      .toBe("saved-unused-child");
+    const beforeDisabled = await rows(page);
     await page.evaluate(() => window.desktop.saveSetup({ restoreSessions: false }));
     await quit(restored);
     const disabled = await launchApp(context, false, options);
     const off = await boardPage(disabled);
     await expect
       .poll(() => rows(off))
-      .toMatchObject(saved.map(({ id }) => ({ id, exited: true, dormant: true })));
+      .toMatchObject(beforeDisabled.map(({ id }) => ({ id, exited: true, dormant: true })));
   });
 
 for (const [agent, form] of [

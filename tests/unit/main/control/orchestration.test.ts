@@ -48,6 +48,12 @@ function harness() {
         return Promise.resolve(id);
       },
     ),
+    restoreWorktree: vi.fn((_repository: string, path: string) =>
+      Promise.resolve({
+        branch: path.split("/").at(-1) ?? "child",
+        identity: `id-${path.split("/").at(-1) ?? "child"}`,
+      }),
+    ),
     stop: vi.fn((_id: string) => Promise.resolve()),
     tail: vi.fn((_id: string, _lines: number) => Promise.resolve(["ready"])),
     remove: vi.fn(
@@ -651,7 +657,7 @@ it("rejects stop while a restored child is queued instead of claiming it stopped
     attention: "evaluator",
     state: null,
   };
-  expect(orchestration.restoreChild("parent", row)).toBe(true);
+  expect(await orchestration.restoreChild("parent", row)).toBe(true);
   await expect(
     orchestration.call(
       fixture.actor,
@@ -669,4 +675,95 @@ it("rejects stop while a restored child is queued instead of claiming it stopped
     fixture.operations,
   );
   expect(fixture.host.stop).toHaveBeenCalledWith(row.id);
+});
+
+it("restores unused ownership for launch and used ownership for confirmed removal", async () => {
+  const h = harness();
+  const path = join(repo, "trees", "saved");
+  await h.orchestration.restoreWorktrees("missing", []);
+  await h.orchestration.restoreWorktrees("parent", [
+    { path, identity: "id-saved", state: "unused" },
+  ]);
+  expect(h.orchestration.ownedWorktrees("missing")).toEqual([]);
+  expect(h.orchestration.uncertainWorktrees("missing")).toBe(0);
+  expect(h.orchestration.ownedWorktrees("parent")).toEqual([
+    { path, identity: "id-saved", state: "unused" },
+  ]);
+  const launched = await h.mutate("launch", { worktreeId: locationId(path), agent: "claude" });
+  expect(launched.status).toBe("succeeded");
+  h.exit(launched.resultId ?? "");
+  await expect(
+    h.mutate("launch", { worktreeId: locationId(path), agent: "claude" }),
+  ).rejects.toThrow("conflict");
+  expect((await h.mutate("remove_worktree", { worktreeId: locationId(path) })).status).toBe(
+    "pending_confirmation",
+  );
+  await vi.waitFor(() => {
+    expect(h.host.remove).toHaveBeenCalled();
+  });
+});
+
+it("restores legacy exited children as used without consuming the live child budget", async () => {
+  const h = harness();
+  for (let i = 0; i < 6; i++) {
+    expect(
+      await h.orchestration.restoreChild("parent", {
+        ...h.rows.get("parent"),
+        id: `old-${String(i)}`,
+        kind: "agent",
+        agent: "claude",
+        repository: repo,
+        worktree: join(repo, "trees", String(i)),
+        branch: "untrusted",
+        attention: "evaluator",
+        state: null,
+        exited: true,
+      }),
+    ).toBe(true);
+  }
+  expect(h.orchestration.ownedWorktrees("parent")).toHaveLength(6);
+  expect(h.orchestration.ownedWorktrees("parent").every((tree) => tree.state === "used")).toBe(
+    true,
+  );
+  for (let i = 0; i < 4; i++) await h.child(`live-${String(i)}`);
+  const row = h.rows.get("parent");
+  if (!row) throw new Error("missing row");
+  expect(
+    await h.orchestration.restoreChild("parent", {
+      ...row,
+      id: "overflow",
+      worktree: join(repo, "extra"),
+    }),
+  ).toBe(false);
+  expect(await h.orchestration.restoreChild("missing", row)).toBe(false);
+  expect(
+    await h.orchestration.restoreChild("parent", { ...row, id: "foreign", repository: other }),
+  ).toBe(false);
+});
+
+it("keeps restore within the unused budget and refuses missing or changed identities", async () => {
+  const h = harness();
+  const trees = Array.from({ length: 5 }, (_, i) => ({
+    path: join(repo, String(i)),
+    identity: `id-${String(i)}`,
+    state: "unused" as const,
+  }));
+  await h.orchestration.restoreWorktrees("parent", trees, 1);
+  expect(h.orchestration.ownedWorktrees("parent")).toHaveLength(3);
+  expect(h.orchestration.uncertainWorktrees("parent")).toBe(1);
+  await expect(h.mutate("create_worktree", { branch: "overflow" })).rejects.toThrow("capacity");
+  await h.orchestration.restoreWorktrees("parent", [
+    trees[0] ?? { path: repo, identity: "bad", state: "used" },
+  ]);
+  await h.orchestration.restoreWorktrees("parent", [
+    { path: join(repo, "changed"), identity: "old", state: "used" },
+  ]);
+  h.host.restoreWorktree.mockRejectedValue(new Error("missing"));
+  const row = h.rows.get("parent");
+  if (!row) throw new Error("missing row");
+  expect(await h.orchestration.restoreChild("parent", { ...row, id: "missing" })).toBe(false);
+  await h.orchestration.restoreWorktrees("parent", [
+    { path: join(repo, "missing"), identity: "old", state: "used" },
+  ]);
+  expect(h.orchestration.ownedWorktrees("parent")).toHaveLength(3);
 });
