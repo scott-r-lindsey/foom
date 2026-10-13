@@ -1,0 +1,18 @@
+{
+  "platform": "linux",
+  "codeVersion": "1.138.0",
+  "gui": {
+    "literalFilename": true,
+    "title": "- spaced $(literal).txt - Visual Studio Code",
+    "selection": "Ln 42, Col 3",
+    "isolatedProfile": true,
+    "sandboxDisabled": false
+  },
+  "terminal": {
+    "editor": "nvim",
+    "visibleLine42": true,
+    "exitCode": 0,
+    "isolatedConfig": true
+  },
+  "worktreeContentUnchanged": true
+}

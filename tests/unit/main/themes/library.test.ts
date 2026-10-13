@@ -1,10 +1,16 @@
 import { afterEach, expect, test, vi } from "vitest";
-import { mkdir, mkdtemp, rename, rm, symlink, writeFile } from "node:fs/promises";
+import type * as FileSystem from "node:fs/promises";
+import { mkdir, mkdtemp, open, rename, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { ParsedThemeFile } from "../../../../src/shared/theme-file";
 import { ThemeLibrary } from "../../../../src/main/themes/library";
 import { interfaceThemes } from "../../../../src/shared/interface-themes";
 import { ansiNames, terminalThemes } from "../../../../src/shared/terminal-themes";
+vi.mock("node:fs/promises", async (importOriginal) => {
+  const actual = await importOriginal<typeof FileSystem>();
+  return { ...actual, open: vi.fn(actual.open) };
+});
 const roots: string[] = [];
 const libraries: ThemeLibrary[] = [];
 afterEach(async () => {
@@ -230,4 +236,29 @@ test("warning diagnostics stay bounded while every valid theme remains available
   expect(library.snapshot().interface).toHaveLength(20);
   expect(library.snapshot().errors).toHaveLength(100);
   expect(library.snapshot().errors.every((entry) => entry.severity === "warning")).toBe(true);
+});
+
+test("closes the theme descriptor before waiting for config approval", async () => {
+  const { folder } = await fixture();
+  await writeFile(join(folder, "personal.json"), JSON.stringify(valid()));
+  const opened = vi.mocked(open);
+  opened.mockClear();
+  const review = vi.fn(async (_file: string, _text: string, parsed: ParsedThemeFile) => {
+    expect(opened.mock.results).toHaveLength(1);
+    for (const result of opened.mock.results) {
+      if (result.type !== "return") throw new Error("open failed");
+      const handle = await result.value;
+      expect(handle.fd).toBe(-1);
+    }
+    return parsed;
+  });
+  const library = new ThemeLibrary(join(folder, ".."), () => {}, review);
+  libraries.push(library);
+  try {
+    await library.initialize();
+    expect(review).toHaveBeenCalledOnce();
+    expect(library.snapshot().interface).toHaveLength(1);
+  } finally {
+    opened.mockClear();
+  }
 });

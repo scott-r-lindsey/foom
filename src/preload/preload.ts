@@ -263,6 +263,7 @@ const desktop: DesktopApi = {
       if (
         command === "action-log" ||
         command === "sidebar" ||
+        command === "toggle-sidebar" ||
         command === "next-waiting" ||
         command === "settings" ||
         command === "via-claude" ||

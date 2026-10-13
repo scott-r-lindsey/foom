@@ -76,3 +76,12 @@ test("the version badge shows just the number, however the agent words it", () =
   expect(versionNumber("development build")).toBeNull();
   expect(versionNumber(null)).toBeNull();
 });
+
+test.each(["not-installed", "outdated", "disabled", "unavailable", "installed"] as const)(
+  "Antigravity signal follows %s plugin status and the hooks switch",
+  (state) => {
+    const agent = { ...installation("agy"), agyPlugin: { state } };
+    expect(signal(agent, true)).toBe(state === "installed" ? "hooks" : "rules");
+    expect(signal(agent, false)).toBe("rules");
+  },
+);

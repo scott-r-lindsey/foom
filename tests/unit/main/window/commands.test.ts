@@ -162,7 +162,7 @@ test("the wordmark menu is curated, the same on every platform, with planned ite
       "add-repository",
       "-",
       { "settings-menu": ["via-claude", "via-codex", "via-agy", "-", "settings"] },
-      { "view-menu": ["tidy-tiles"] },
+      { "view-menu": ["toggle-sidebar", "tidy-tiles"] },
       "size:120",
       "-",
       "action-log",
@@ -181,6 +181,12 @@ test("the wordmark menu is curated, the same on every platform, with planned ite
     ).toMatchObject({
       label: "View",
       items: [
+        {
+          id: "toggle-sidebar",
+          label: "Collapse sidebar",
+          enabled: true,
+          shortcut: platform === "darwin" ? "⌘B" : "Ctrl+Shift+B",
+        },
         {
           id: "tidy-tiles",
           label: "Tidy tiles",
@@ -249,7 +255,9 @@ test("removed menu items keep their shortcuts", () => {
   const ids = JSON.stringify(entryIds(projectAppMenu(commands, 100)));
   for (const id of ["sidebar", "next-waiting", "maximize", "tile-1", "copy", "close-window"])
     expect(ids).not.toContain(`"${id}"`);
-  expect(shortcuts.handle(key("KeyB", { control: true, shift: true }))).toBe(true);
+  expect(shortcuts.handle(key("KeyB", { control: true, shift: true, alt: true }))).toBe(false);
+  shortcuts.handle(key("Space", { control: true, shift: true }));
+  expect(shortcuts.handle(key("KeyB"))).toBe(true);
   expect(calls.board).toHaveBeenCalledWith("sidebar");
   shortcuts.handle(key("Space", { control: true, shift: true }));
   expect(shortcuts.handle(key("Digit1"))).toBe(true);
@@ -294,7 +302,8 @@ test("the shortcut sheet is generated from the registry for each platform", () =
     { label: "Keyboard shortcuts", keys: "Ctrl+Shift+/" },
   ]);
   expect(linux[1]?.rows).toEqual([
-    { label: "Focus sidebar", keys: "Ctrl+Shift+B" },
+    { label: "Collapse / expand sidebar", keys: "Ctrl+Shift+B" },
+    { label: "Focus sidebar", keys: "Ctrl+Shift+Space, B" },
     { label: "Longest waiting", keys: "Ctrl+Shift+N" },
     { label: "Maximize tile", keys: "Ctrl+Shift+Enter" },
   ]);
@@ -380,5 +389,21 @@ test.each(["linux", "win32", "darwin"])(
       expect(shortcuts.handle(key("KeyT"))).toBe(true);
     }
     expect(calls.board).toHaveBeenCalledExactlyOnceWith("tidy-tiles");
+  },
+);
+
+test.each(["darwin", "win32", "linux"])(
+  "%s sidebar toggle has a terminal-safe binding",
+  (platform) => {
+    const calls = actions();
+    const commands = createCommands(platform, false, calls);
+    const shortcuts = createShortcuts(commands, platform, vi.fn());
+    expect(shortcuts.handle(key("KeyB", { control: true }))).toBe(false);
+    expect(
+      shortcuts.handle(
+        key("KeyB", platform === "darwin" ? { meta: true } : { control: true, shift: true }),
+      ),
+    ).toBe(true);
+    expect(calls.board).toHaveBeenCalledExactlyOnceWith("toggle-sidebar");
   },
 );
