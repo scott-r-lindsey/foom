@@ -94,6 +94,7 @@ export interface WorkspaceDependencies {
     | "mergedCommit"
     | "deleteMergedBranch"
     | "deleteMergedBranches"
+    | "canAutoRemove"
     | "panelFacts"
   >;
   terminals: {
@@ -178,6 +179,7 @@ export class Workspace {
   private acknowledged = false;
   private hooksEnabled = true;
   private concurrentChildren = 4;
+  private autoRemoveMergedWorktrees: readonly string[] = [];
   private defaultArguments = EMPTY_AGENT_ARGUMENTS;
   private readonly resumeStarts = new Map<string, Promise<void>>();
   private readonly busySessions = new Set<string>();
@@ -326,13 +328,25 @@ export class Workspace {
             repository,
             worktree,
             tree.branch,
-            async (branch, changes) => {
+            async (branch, changes, automatic = false) => {
               await available();
-              const accepted = await confirm(branch, changes);
+              const accepted = await confirm(branch, changes, automatic);
               if (accepted) await available();
               return accepted;
             },
             available,
+            false,
+            async () => {
+              await available();
+              if (!this.autoRemoveMergedWorktrees.includes(repository)) return false;
+              const eligible = await this.deps.worktrees.canAutoRemove(
+                repository,
+                worktree,
+                identity,
+              );
+              await available();
+              return eligible && this.autoRemoveMergedWorktrees.includes(repository);
+            },
           );
           this.refresh();
           return removed;
@@ -364,11 +378,13 @@ export class Workspace {
           | "agentArguments"
           | "restoreSessions"
           | "concurrentChildren"
+          | "autoRemoveMergedWorktrees"
         >
       >,
   ): void {
     this.restoreEnabled = settings.restoreSessions ?? true;
     this.concurrentChildren = settings.concurrentChildren ?? 4;
+    this.autoRemoveMergedWorktrees = settings.autoRemoveMergedWorktrees ?? [];
     this.agents.setHooksEnabled(settings.hooks);
     this.hooksEnabled = settings.hooks;
     this.defaultArguments = settings.agentArguments ?? EMPTY_AGENT_ARGUMENTS;
@@ -981,9 +997,10 @@ export class Workspace {
     repository: string,
     worktree: string,
     branch: string | null,
-    confirm: (branch: string, changes: string) => Promise<boolean>,
+    confirm: (branch: string, changes: string, automatic?: boolean) => Promise<boolean>,
     revalidate?: () => void | Promise<void>,
     retainBranchLock = false,
+    autoApprove?: () => Promise<boolean>,
   ): Promise<boolean> {
     const entry = { repository, worktree, branch };
     const key = `${entry.repository}\0${entry.branch ?? ""}`;
@@ -992,10 +1009,15 @@ export class Workspace {
     let removed = false;
     try {
       const identity = await this.deps.worktrees.removalIdentity(entry.repository, entry.worktree);
-      const changes = await this.deps.worktrees.changes(entry.repository, entry.worktree, identity);
-      if (!(await confirm(entry.branch ?? entry.worktree, changes))) return false;
+      let changes = await this.deps.worktrees.changes(entry.repository, entry.worktree, identity);
+      const automatic = changes === "" && (await autoApprove?.()) === true;
+      const accepted = automatic
+        ? await confirm(entry.branch ?? entry.worktree, changes, true)
+        : await confirm(entry.branch ?? entry.worktree, changes);
+      if (!accepted) return false;
       await revalidate?.();
       if (
+        !automatic &&
         (await this.deps.worktrees.changes(entry.repository, entry.worktree, identity)) !== changes
       )
         throw new Error("Worktree changes have changed. Review them and try again.");
@@ -1009,9 +1031,21 @@ export class Workspace {
       }
       await revalidate?.();
       if (
+        !automatic &&
         (await this.deps.worktrees.changes(entry.repository, entry.worktree, identity)) !== changes
       )
         throw new Error("Worktree changes have changed. Review them and try again.");
+      await revalidate?.();
+      if (automatic && !(await autoApprove?.())) {
+        changes = await this.deps.worktrees.changes(entry.repository, entry.worktree, identity);
+        if (!(await confirm(entry.branch ?? entry.worktree, changes))) return false;
+        await revalidate?.();
+        if (
+          (await this.deps.worktrees.changes(entry.repository, entry.worktree, identity)) !==
+          changes
+        )
+          throw new Error("Worktree changes have changed. Review them and try again.");
+      }
       await revalidate?.();
       await this.deps.worktrees.removeWorktree(
         entry.repository,

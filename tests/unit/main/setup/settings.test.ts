@@ -551,3 +551,30 @@ test("concurrent children validates integers 1–16 and persists with general se
   store.setConfig({});
   expect(store.get().concurrentChildren).toBe(4);
 });
+
+test("keeps auto-removal opt-ins off by default, validates paths and persists only in the profile", async () => {
+  expect(DEFAULT_SETTINGS.autoRemoveMergedWorktrees).toEqual([]);
+  const dir = await directory();
+  const store = await SettingsStore.open(dir);
+  const paths = [path.join(dir, "repo")];
+  expect(parseSettingsPatch({ autoRemoveMergedWorktrees: [...paths, ...paths] })).toEqual({
+    autoRemoveMergedWorktrees: paths,
+  });
+  for (const value of [
+    true,
+    null,
+    {},
+    ["relative"],
+    ["/bad\0path"],
+    [42],
+    Array(1001).fill("/repo"),
+  ])
+    expect(() => parseSettingsPatch({ autoRemoveMergedWorktrees: value })).toThrow();
+  await store.update({ autoRemoveMergedWorktrees: paths });
+  expect((await SettingsStore.open(dir)).get().autoRemoveMergedWorktrees).toEqual(paths);
+  const writer = vi.fn(() => Promise.resolve());
+  await store.attachConfig(writer, {}, null);
+  await store.update({ autoRemoveMergedWorktrees: [] });
+  expect(writer).not.toHaveBeenCalled();
+  expect((await SettingsStore.open(dir)).get().autoRemoveMergedWorktrees).toEqual([]);
+});

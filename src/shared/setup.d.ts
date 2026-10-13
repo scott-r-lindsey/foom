@@ -15,6 +15,8 @@ export interface Settings {
   restoreSessions: boolean;
   /** Starting, running and stopping children per orchestrator, integer 1–16. */
   concurrentChildren: number;
+  /** Canonical repository paths opted into merged, clean orchestrator removal. Profile only. */
+  autoRemoveMergedWorktrees: readonly string[];
   agents: Readonly<Record<AgentId, boolean>>;
   agentArguments: Readonly<Record<AgentId, readonly string[]>>;
   /** Main-owned acknowledgement; renderer save requests may not set this. */

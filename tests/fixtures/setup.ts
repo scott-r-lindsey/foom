@@ -15,6 +15,7 @@ export function setupState(
       hooks: true,
       restoreSessions: true,
       concurrentChildren: 4,
+      autoRemoveMergedWorktrees: [],
       agents: { claude: true, codex: true, agy: true },
       agentArguments: { claude: [], codex: [], agy: [] },
       agentBypassAcknowledged: { claude: false, codex: false, agy: false },

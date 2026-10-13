@@ -27,6 +27,7 @@ export const DEFAULT_SETTINGS: Settings = Object.freeze({
   hooks: true,
   restoreSessions: true,
   concurrentChildren: 4,
+  autoRemoveMergedWorktrees: Object.freeze([]),
   agents: Object.freeze({ claude: true, codex: true, agy: true }),
   agentArguments: EMPTY_AGENT_ARGUMENTS,
   agentBypassAcknowledged: Object.freeze({ claude: false, codex: false, agy: false }),
@@ -60,6 +61,19 @@ export function parseSettingsPatch(value: unknown): SettingsPatch {
       typeof entry === "boolean"
     )
       patch[key] = entry;
+    else if (
+      key === "autoRemoveMergedWorktrees" &&
+      Array.isArray(entry) &&
+      entry.length <= 1000 &&
+      entry.every(
+        (path: unknown) =>
+          typeof path === "string" &&
+          path.length <= 4096 &&
+          !path.includes("\0") &&
+          isAbsolute(path),
+      )
+    )
+      patch.autoRemoveMergedWorktrees = [...new Set<string>(entry)];
     else if (key === "worktreeLocation" && (entry === "root" || entry === "adjacent"))
       patch.worktreeLocation = entry;
     else if (
