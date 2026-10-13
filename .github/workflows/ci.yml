@@ -220,9 +220,10 @@ jobs:
       # The full suite runs as disjoint named-test shards: three on Windows and macOS, two on Linux.
       # Per-test deadlines and the Electron worker watchdog still bound hangs.
       - name: Test Electron on Linux
-        # Run 38290731834: Linux shards took 3m48s and 4m00s (including the
-        # known shell-row failure). Six minutes leaves startup/cleanup headroom.
-        timeout-minutes: 6
+        # Runs 38450424417/38456129505: all 46 shard-2 cases passed in
+        # 350–352s, then build/cleanup exhausted six minutes. Keep headroom
+        # for the merged-worktree policy coverage without relaxing test deadlines.
+        timeout-minutes: 7
         if: runner.os == 'Linux'
         run: xvfb-run -a npm run test:electron
       - name: Test Electron on macOS and Windows

@@ -757,8 +757,9 @@ that orchestrator. No child can gain orchestration through the API. #84 config-o
 roles and #67 remote access are separate capabilities, not implicit extensions.
 
 Existing main-owned git validation, argument-array execution, launch/removal locks
-and confirmations are reused. Removal always asks the human, including clean
-worktrees; no API force flag bypasses identity or dirty-state checks. Mutations use
+and confirmations are reused. Removal asks the human unless the profile opts this
+repository into the [strict merged-clean policy](orchestration.md#orchestrators-and-children-155);
+no API force flag bypasses identity or dirty-state checks. Mutations use
 idempotency keys and bounded operation records. MCP `operation_status` and CLI
 `foom operation-status` query by operation ID or idempotency key within the same
 actor generation and repository, including when the original response was lost.

@@ -842,6 +842,102 @@ describe("merged worktree containment", () => {
     if (!tree) throw new Error("Missing fixture");
     return tree;
   }
+  it.each([
+    "merged",
+    "unmerged",
+    "squash",
+    "unpushed",
+    "dirty",
+    "untracked",
+    "fetch-failed",
+    "no-remote",
+    "detached",
+    "replaced",
+    "main",
+    "missing-upstream",
+    "moved-tip",
+    "staged",
+  ])("auto-removal checks %s conservatively using real Git", async (mode) => {
+    const tree = await feature();
+    const identity = await service.removalIdentity(repo, tree.path);
+    if (!["unmerged", "squash", "unpushed", "no-remote"].includes(mode)) {
+      await git(
+        "-c",
+        "user.name=Test",
+        "-c",
+        "user.email=test@example.com",
+        "merge",
+        "--no-ff",
+        "feature",
+        "-m",
+        "merge",
+      );
+    }
+    if (mode === "squash") {
+      await git("merge", "--squash", "feature");
+      await commit(repo, "squash");
+    }
+    if (mode !== "no-remote") await remote();
+    if (mode === "unpushed") {
+      // The tip is on the fetched default, but ahead of its configured upstream.
+      await git(
+        "-c",
+        "user.name=Test",
+        "-c",
+        "user.email=test@example.com",
+        "merge",
+        "feature",
+        "-m",
+        "merge",
+      );
+      await git("push", "origin", "main");
+      await git("fetch", "origin");
+      await execute(
+        ["update-ref", "refs/heads/feature", (await git("rev-parse", "HEAD~1")).trim()],
+        { cwd: join(temporary, "remote.git") },
+      );
+      await git("fetch", "origin");
+      await execute(["branch", "--set-upstream-to=origin/feature"], { cwd: tree.path });
+    }
+    if (mode === "missing-upstream") {
+      await git("config", "branch.feature.remote", "origin");
+      await git("config", "branch.feature.merge", "refs/heads/missing");
+    }
+    if (mode === "dirty") await writeFile(join(tree.path, "feature.txt"), "changed");
+    if (mode === "staged") {
+      await writeFile(join(tree.path, "feature.txt"), "staged change");
+      await execute(["add", "."], { cwd: tree.path });
+    }
+    if (mode === "moved-tip")
+      vi.spyOn(service, "changes").mockImplementationOnce(async () => {
+        await execute(
+          [
+            "-c",
+            "user.name=Test",
+            "-c",
+            "user.email=test@example.com",
+            "commit",
+            "--allow-empty",
+            "-m",
+            "moved",
+          ],
+          { cwd: tree.path },
+        );
+        return "";
+      });
+    if (mode === "untracked") await writeFile(join(tree.path, "untracked.txt"), "new");
+    if (mode === "fetch-failed")
+      await git("remote", "set-url", "origin", join(temporary, "absent.git"));
+    if (mode === "detached") await execute(["checkout", "--detach"], { cwd: tree.path });
+    expect(
+      await service.canAutoRemove(
+        repo,
+        mode === "main" ? repo : tree.path,
+        mode === "replaced" ? "wrong" : identity,
+      ),
+    ).toBe(mode === "merged");
+  });
+
   it.each(["merge", "squash", "rebase", "unmerged", "reverted"])(
     "detects %s content using real Git",
     async (mode) => {

@@ -80,9 +80,15 @@ async function confirmationDesktop(app, name, footer) {
   return { actual: evidence.actual, expected: evidence.expected, windows: evidence.windows };
 }
 
+function dialogAboveBoard(evidence) {
+  return evidence.actual.every(
+    (channel, index) => Math.abs(channel - evidence.expected[index]) <= 12,
+  );
+}
+
 function assertDialogAboveBoard(evidence) {
   assert.ok(
-    evidence.actual.every((channel, index) => Math.abs(channel - evidence.expected[index]) <= 12),
+    dialogAboveBoard(evidence),
     `The composed desktop must show the dialog surface above the scrim: ${JSON.stringify(evidence)}`,
   );
 }
@@ -1138,6 +1144,7 @@ test("trusted quit dialog appears above the board on first show and after hide/s
   const board = await boardPage(app);
   const dialog = await confirmationPage(app);
   const evidence = [];
+  const paintErrors = [];
   for (const phase of ["first", "reused"]) {
     await app.evaluate(({ app }) => app.quit());
     await expect(dialog.getByRole("alertdialog")).toHaveAccessibleName(
@@ -1169,7 +1176,21 @@ test("trusted quit dialog appears above the board on first show and after hide/s
       width: 4,
       height: 4,
     };
-    evidence.push(await confirmationDesktop(app, phase, footer));
+    // Renderer animation frames do not prove the native compositor finished
+    // showing the window. Observe the same desktop pixels used by the assertion.
+    let capture;
+    try {
+      await expect
+        .poll(async () => {
+          capture = await confirmationDesktop(app, phase, footer);
+          return dialogAboveBoard(capture);
+        })
+        .toBe(true);
+    } catch (error) {
+      paintErrors.push(error);
+    }
+    if (!capture) throw paintErrors[paintErrors.length - 1];
+    evidence.push(capture);
     if (phase === "reused") {
       // Negative control: a native opaque window covering the card must fail
       // the same check even though the dialog CDP target remains readable.
@@ -1192,7 +1213,15 @@ test("trusted quit dialog appears above the board on first show and after hide/s
             app.evaluate(({ BrowserWindow }, id) => BrowserWindow.fromId(id).isVisible(), blocker),
           )
           .toBe(true);
-        const covered = await confirmationDesktop(app, "covered-control", footer);
+        let covered;
+        await expect
+          .poll(async () => {
+            covered = await confirmationDesktop(app, "covered-control", footer);
+            return covered.actual.every(
+              (channel, index) => Math.abs(channel - [0, 255, 0][index % 3]) <= 12,
+            );
+          })
+          .toBe(true);
         assert.throws(() => assertDialogAboveBoard(covered));
       } finally {
         await app.evaluate(({ BrowserWindow }, id) => BrowserWindow.fromId(id).destroy(), blocker);
@@ -1205,6 +1234,7 @@ test("trusted quit dialog appears above the board on first show and after hide/s
   // Keep both captures even when the first show fails, so CI distinguishes
   // first-show ordering from a parent link lost only through hide/show.
   for (const capture of evidence) assertDialogAboveBoard(capture);
+  if (paintErrors.length) throw paintErrors[0];
 });
 
 test("trusted dialog presentation failure releases the board and allows a new request", {
@@ -2876,6 +2906,7 @@ test("first run goes from no agents to go, launches by keyboard, and can be repl
   assert.deepEqual(Object.keys(saved.settings).sort(), [
     "agentBypassAcknowledged",
     "agyPluginOfferAnswered",
+    "autoRemoveMergedWorktrees",
     "codeFolder",
     "codexNotifierAcknowledged",
     "setupComplete",
@@ -2889,6 +2920,7 @@ test("first run goes from no agents to go, launches by keyboard, and can be repl
     hooks: true,
     restoreSessions: true,
     concurrentChildren: 4,
+    autoRemoveMergedWorktrees: [],
     agents: { claude: true, codex: true, agy: true },
     agentArguments: { claude: [], codex: [], agy: [] },
     agentBypassAcknowledged: { claude: false, codex: false, agy: false },
@@ -8112,6 +8144,93 @@ for (const cliOnly of [false, true])
       )
       .toBe(true);
 
+    // Exercise the shared main-process policy once through MCP. The CLI case
+    // retains its transport and batch-review checks without duplicating this flow.
+    if (!cliOnly) {
+      // Part 2: profile opt-in, real Git fetch/ancestry, and operation completion.
+      const remote = path.join(root, "remote.git");
+      git("clone", "--bare", repo, remote);
+      git("remote", "add", "origin", remote);
+      await openSettingsScreen(page);
+      await page.getByRole("button", { name: "Repositories", exact: true }).click();
+      const autoRemove = page.getByRole("checkbox", { name: "app · Auto-remove merged worktrees" });
+      await expect(autoRemove).not.toBeChecked();
+      await autoRemove.check();
+      await expect
+        .poll(
+          async () =>
+            (await page.evaluate(() => window.desktop.setupState())).settings
+              .autoRemoveMergedWorktrees,
+        )
+        .toEqual([repository]);
+      await assertAccessible(page);
+      await page.keyboard.press("Escape");
+      const automaticTree = await call(parent.controlToken, "create_worktree", {
+        idempotencyKey: "auto-tree",
+        branch: "auto-merged",
+      });
+      assert.equal(automaticTree.body.result.status, "succeeded");
+      await call(parent.controlToken, "remove_worktree", {
+        idempotencyKey: "auto-remove",
+        worktreeId: automaticTree.body.result.resultId,
+      });
+      await expect
+        .poll(
+          async () =>
+            (await call(parent.controlToken, "operation_status", { idempotencyKey: "auto-remove" }))
+              .body.result.status,
+        )
+        .toBe("succeeded");
+      assert.equal(
+        String(git("worktree", "list", "--porcelain")).includes("refs/heads/auto-merged"),
+        false,
+      );
+      assert.match(String(git("branch", "--list", "auto-merged")), /auto-merged/);
+      await expect(
+        confirmation.getByRole("heading", { name: "Remove worktrees?" }),
+      ).not.toBeVisible();
+      const dirtyAuto = await call(parent.controlToken, "create_worktree", {
+        idempotencyKey: "auto-dirty-tree",
+        branch: "auto-dirty",
+      });
+      const dirtyAutoTree = (
+        await page.evaluate((repository) => window.desktop.worktrees(repository), repository)
+      ).find((worktree) => worktree.branch === "auto-dirty");
+      assert.ok(dirtyAutoTree);
+      await writeFile(path.join(dirtyAutoTree.path, "untracked.txt"), "needs review");
+      await call(parent.controlToken, "remove_worktree", {
+        idempotencyKey: "auto-dirty-remove",
+        worktreeId: dirtyAuto.body.result.resultId,
+      });
+      await expect(confirmation.getByRole("heading", { name: "Remove worktrees?" })).toBeVisible();
+      await expect(confirmation.getByRole("list", { name: "Worktrees to remove" })).toContainText(
+        "untracked.txt",
+      );
+      await confirmation.getByRole("button", { name: "Discard changes and remove all" }).click();
+      await expect
+        .poll(
+          async () =>
+            (
+              await call(parent.controlToken, "operation_status", {
+                idempotencyKey: "auto-dirty-remove",
+              })
+            ).body.result.status,
+        )
+        .toBe("succeeded");
+      await openSettingsScreen(page);
+      await page.getByRole("button", { name: "Repositories", exact: true }).click();
+      await expect(autoRemove).toBeChecked();
+      await autoRemove.uncheck();
+      await expect
+        .poll(
+          async () =>
+            (await page.evaluate(() => window.desktop.setupState())).settings
+              .autoRemoveMergedWorktrees,
+        )
+        .toEqual([]);
+      await page.keyboard.press("Escape");
+    }
+    // With the policy off, clean merged branches still join the review batch.
     const extraTrees = [];
     for (const branch of ["batch-selected", "batch-declined"]) {
       const created = await call(parent.controlToken, "create_worktree", {
@@ -8204,7 +8323,9 @@ for (const cliOnly of [false, true])
     await expect(history.getByText("make orchestrator", { exact: true }).first()).toBeVisible();
     await page.getByRole("searchbox").fill("remove_worktree");
     await page.getByLabel("Outcome", { exact: true }).selectOption("succeeded");
-    await expect(history.getByText("remove worktree", { exact: true })).toHaveCount(2);
+    await expect(history.getByText("remove worktree", { exact: true })).toHaveCount(
+      cliOnly ? 2 : 4,
+    );
     await page.screenshot({
       path: `test-results/action-log-${cliOnly ? "agy" : "claude"}.png`,
       animations: "disabled",

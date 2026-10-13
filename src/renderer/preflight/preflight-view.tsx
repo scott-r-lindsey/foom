@@ -357,15 +357,36 @@ export function Preflight({
     );
   } else if (step === 2) {
     content = (
-      <RepositoriesStep
-        headingRef={headingRef}
-        source={source}
-        code={code}
-        repositories={repositories}
-        codeScanning={codeScanning}
-        scanCode={scanCode}
-        setCode={selectRepositories}
-      />
+      <>
+        <RepositoriesStep
+          headingRef={headingRef}
+          source={source}
+          code={code}
+          repositories={repositories}
+          codeScanning={codeScanning}
+          scanCode={scanCode}
+          setCode={selectRepositories}
+        />
+        {settingsMode &&
+          repositories.map((repository) => (
+            <label className="check" key={repository.path}>
+              <input
+                type="checkbox"
+                checked={state.settings.autoRemoveMergedWorktrees.includes(repository.path)}
+                onChange={(event) => {
+                  save({
+                    autoRemoveMergedWorktrees: event.target.checked
+                      ? [...state.settings.autoRemoveMergedWorktrees, repository.path]
+                      : state.settings.autoRemoveMergedWorktrees.filter(
+                          (path) => path !== repository.path,
+                        ),
+                  });
+                }}
+              />
+              <span>{repository.name} · Auto-remove merged worktrees</span>
+            </label>
+          ))}
+      </>
     );
   } else if (step === 3) {
     content = (

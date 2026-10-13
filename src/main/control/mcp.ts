@@ -106,7 +106,7 @@ const orchestration = (childLimit: number) =>
     {
       name: "remove_worktree",
       description:
-        "Ask the human to remove a worktree you created. Returns at once with pending_confirmation; poll operation_status. The branch is kept.",
+        "Remove a worktree you created. Returns at once with pending_confirmation; poll operation_status. Human review is required unless the repository opts into removing idle, clean worktrees fully merged into the fetched default branch. The branch is kept.",
       properties: { idempotencyKey: key, worktreeId: id },
       required: ["idempotencyKey", "worktreeId"],
       readOnly: false,

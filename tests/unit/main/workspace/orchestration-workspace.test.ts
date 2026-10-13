@@ -57,6 +57,7 @@ beforeEach(() => {
     acknowledgeCodex: vi.fn(async () => {}),
     worktrees: {
       branches: vi.fn(),
+      canAutoRemove: vi.fn(() => Promise.resolve(false)),
       panelFacts: vi.fn(),
       listRepositories: vi.fn(() => [repo]),
       addRepository: vi.fn(() => Promise.resolve(repo)),
@@ -434,6 +435,122 @@ it("removes an orchestrator worktree only through the trusted dialog", async () 
   });
   expect(deps.worktrees.removeWorktree).toHaveBeenCalledTimes(1);
 });
+
+it.each([
+  "enabled",
+  "disabled",
+  "other-repository",
+  "unmerged",
+  "fetch-failed",
+  "dirty",
+  "changed-before-delete",
+  "disabled-before-delete",
+])("orchestrator removal policy: %s", async (mode) => {
+  const workspace = new Workspace(deps);
+  const configure = (paths: readonly string[]) => {
+    workspace.configure({
+      hooks: true,
+      agents: { claude: true, codex: true, agy: true },
+      autoRemoveMergedWorktrees: paths,
+    });
+  };
+  configure(
+    mode === "disabled" ? [] : mode === "other-repository" ? ["/repos/other"] : [repo.path],
+  );
+  vi.mocked(deps.worktrees.canAutoRemove).mockResolvedValue(
+    !["unmerged", "fetch-failed"].includes(mode),
+  );
+  if (mode === "dirty") vi.mocked(deps.worktrees.changes).mockResolvedValue("?? file\0");
+  if (mode === "changed-before-delete")
+    vi.mocked(deps.worktrees.canAutoRemove)
+      .mockResolvedValueOnce(true)
+      .mockImplementation(() => {
+        vi.mocked(deps.worktrees.changes).mockResolvedValue("?? new\0");
+        return Promise.resolve(false);
+      });
+  if (mode === "disabled-before-delete")
+    vi.mocked(deps.worktrees.canAutoRemove)
+      .mockResolvedValueOnce(true)
+      .mockImplementationOnce(() => {
+        configure([]);
+        return Promise.resolve(true);
+      });
+  await orchestrate(workspace);
+  const operations = new Operations(
+    () => Promise.resolve(),
+    () => undefined,
+  );
+  const actor = principal();
+  const tree = (await workspace.orchestration.call(
+    actor,
+    "create_worktree",
+    { idempotencyKey: "auto-tree", branch: "feature" },
+    operations,
+  )) as Operation;
+  await workspace.orchestration.call(
+    actor,
+    "remove_worktree",
+    { idempotencyKey: "auto-remove", worktreeId: tree.resultId },
+    operations,
+  );
+  await vi.waitFor(() => {
+    expect(operations.lookup(actor, { idempotencyKey: "auto-remove" })).toMatchObject({
+      status: "succeeded",
+      resultId: tree.resultId,
+    });
+  });
+  expect(deps.dialog).toHaveBeenCalledTimes(mode === "enabled" ? 0 : 1);
+  expect(deps.worktrees.removeWorktree).toHaveBeenCalledWith(
+    repo.path,
+    child.path,
+    ["dirty", "changed-before-delete"].includes(mode),
+    "identity",
+  );
+  if (mode === "enabled") expect(deps.worktrees.canAutoRemove).toHaveBeenCalledTimes(2);
+});
+
+it.each(["declined", "stale"])(
+  "records %s fallback review without deleting the worktree",
+  async (mode) => {
+    const workspace = new Workspace(deps);
+    workspace.configure({
+      hooks: true,
+      agents: { claude: true, codex: true, agy: true },
+      autoRemoveMergedWorktrees: [repo.path],
+    });
+    vi.mocked(deps.worktrees.canAutoRemove).mockResolvedValueOnce(true).mockResolvedValue(false);
+    deps.dialog = vi.fn(() => {
+      if (mode === "stale")
+        vi.mocked(deps.worktrees.changes).mockResolvedValue("?? changed-after-review\0");
+      return Promise.resolve(mode !== "declined");
+    });
+    await orchestrate(workspace);
+    const operations = new Operations(
+      () => Promise.resolve(),
+      () => undefined,
+    );
+    const actor = principal();
+    const tree = (await workspace.orchestration.call(
+      actor,
+      "create_worktree",
+      { idempotencyKey: "tree", branch: "feature" },
+      operations,
+    )) as Operation;
+    await workspace.orchestration.call(
+      actor,
+      "remove_worktree",
+      { idempotencyKey: "remove", worktreeId: tree.resultId },
+      operations,
+    );
+    await vi.waitFor(() => {
+      expect(operations.lookup(actor, { idempotencyKey: "remove" })).toMatchObject({
+        status: mode === "declined" ? "declined" : "failed",
+      });
+    });
+    expect(deps.dialog).toHaveBeenCalledOnce();
+    expect(deps.worktrees.removeWorktree).not.toHaveBeenCalled();
+  },
+);
 
 it("refuses to launch a child into the main checkout or an unavailable worktree", async () => {
   const workspace = new Workspace(deps);
@@ -1269,5 +1386,143 @@ it.each(["dirty", "identity", "failure", "actor"])(
         ).toBeGreaterThan(2);
       }
     }
+  },
+);
+
+it.each(["revoke", "intent-write-failed"])(
+  "automatic removal records indeterminate effects on %s",
+  async (mode) => {
+    const workspace = new Workspace(deps);
+    workspace.configure({
+      hooks: true,
+      agents: { claude: true, codex: true, agy: true },
+      autoRemoveMergedWorktrees: [repo.path],
+    });
+    vi.mocked(deps.worktrees.canAutoRemove).mockResolvedValue(true);
+    await orchestrate(workspace);
+    const operations = new Operations(
+      (record) =>
+        record.operation.action === "remove_worktree" &&
+        record.operation.status === "running" &&
+        mode === "intent-write-failed"
+          ? Promise.reject(new Error("disk full"))
+          : Promise.resolve(),
+      () => undefined,
+    );
+    const actor = principal();
+    const tree = (await workspace.orchestration.call(
+      actor,
+      "create_worktree",
+      { idempotencyKey: "tree", branch: "feature" },
+      operations,
+    )) as Operation;
+    let release = () => {};
+    if (mode === "revoke")
+      vi.mocked(deps.worktrees.removeWorktree).mockImplementation(
+        () =>
+          new Promise<void>((resolve) => {
+            release = resolve;
+          }),
+      );
+    await workspace.orchestration.call(
+      actor,
+      "remove_worktree",
+      { idempotencyKey: "remove", worktreeId: tree.resultId },
+      operations,
+    );
+    if (mode === "revoke") {
+      await vi.waitFor(() => {
+        expect(deps.worktrees.removeWorktree).toHaveBeenCalledOnce();
+      });
+      expect(operations.lookup(actor, { idempotencyKey: "remove" }).status).toBe("running");
+      operations.revoke(actor);
+      release();
+    }
+    await vi.waitFor(() => {
+      const view = workspace.orchestration.view("parent");
+      expect(
+        view?.role === "orchestrator" &&
+          view.history.find((row) => row.action === "remove_worktree")?.status,
+      ).toBe("indeterminate");
+    });
+    expect(operations.lookup(actor, { idempotencyKey: "remove" }).status).toBe("indeterminate");
+    expect(deps.dialog).not.toHaveBeenCalled();
+    if (mode === "intent-write-failed")
+      expect(deps.worktrees.removeWorktree).not.toHaveBeenCalled();
+  },
+);
+
+it.each(["revoke-review", "review-write-failed"])(
+  "automatic fallback records %s before any effect",
+  async (mode) => {
+    const workspace = new Workspace(deps);
+    workspace.configure({
+      hooks: true,
+      agents: { claude: true, codex: true, agy: true },
+      autoRemoveMergedWorktrees: [repo.path],
+    });
+    vi.mocked(deps.worktrees.canAutoRemove).mockResolvedValueOnce(true).mockResolvedValue(false);
+    deps.dialog = vi.fn<NonNullable<WorkspaceDependencies["dialog"]>>(
+      (_content, signal) =>
+        new Promise<boolean>((resolve) => {
+          signal.addEventListener(
+            "abort",
+            () => {
+              resolve(false);
+            },
+            { once: true },
+          );
+        }),
+    );
+    await orchestrate(workspace);
+    let pendingWrites = 0;
+    const operations = new Operations(
+      (record) => {
+        if (
+          record.operation.action === "remove_worktree" &&
+          record.operation.status === "pending_confirmation"
+        ) {
+          pendingWrites++;
+          if (mode === "review-write-failed" && pendingWrites === 2)
+            return Promise.reject(new Error("disk full"));
+        }
+        return Promise.resolve();
+      },
+      () => undefined,
+    );
+    const actor = principal();
+    const tree = (await workspace.orchestration.call(
+      actor,
+      "create_worktree",
+      { idempotencyKey: "tree", branch: "feature" },
+      operations,
+    )) as Operation;
+    await workspace.orchestration.call(
+      actor,
+      "remove_worktree",
+      { idempotencyKey: "remove", worktreeId: tree.resultId },
+      operations,
+    );
+    if (mode === "revoke-review") {
+      await vi.waitFor(() => {
+        expect(deps.dialog).toHaveBeenCalledOnce();
+      });
+      expect(operations.lookup(actor, { idempotencyKey: "remove" }).status).toBe(
+        "pending_confirmation",
+      );
+      operations.revoke(actor);
+      workspace.orchestration.revoke("parent");
+    }
+    const status = mode === "revoke-review" ? "cancelled" : "indeterminate";
+    await vi.waitFor(() => {
+      const view = workspace.orchestration.view("parent");
+      expect(
+        view?.role === "orchestrator" &&
+          view.history.find((row) => row.action === "remove_worktree")?.status,
+      ).toBe(status);
+    });
+    expect(operations.lookup(actor, { idempotencyKey: "remove" }).status).toBe(status);
+    expect(deps.worktrees.removeWorktree).not.toHaveBeenCalled();
+    if (mode === "review-write-failed") expect(deps.dialog).not.toHaveBeenCalled();
   },
 );

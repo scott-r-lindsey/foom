@@ -654,6 +654,41 @@ export class WorktreeService {
     }
   }
 
+  /** Strict ancestry only, deliberately excluding squash/content-equivalent merges. */
+  async canAutoRemove(repository: string, path: string, identity: string): Promise<boolean> {
+    try {
+      await this.checkRemovalIdentity(repository, path, identity);
+      const base = await this.mergedDefault(repository, true);
+      const branch = (await git(path, ["symbolic-ref", "--quiet", "--short", "HEAD"])).trim();
+      await this.validateBranch(repository, branch);
+      const head = (await git(path, ["rev-parse", "--verify", "HEAD^{commit}"])).trim();
+      if (!/^[a-f0-9]{40,64}$/u.test(head) || !/^[a-f0-9]{40,64}$/u.test(base)) return false;
+      // No upstream is normal for a new branch. All its commits must still be
+      // reachable from fetched remote refs. With an upstream, require zero ahead.
+      const upstream = (
+        await git(path, ["for-each-ref", "--format=%(upstream)", `refs/heads/${branch}`])
+      ).trim();
+      const unpushed = (
+        await git(
+          path,
+          upstream
+            ? ["rev-list", "--count", "HEAD", "--not", upstream.trim(), "--"]
+            : ["rev-list", "--count", "HEAD", "--not", "--remotes", "--"],
+        )
+      ).trim();
+      if (unpushed !== "0") return false;
+      await git(path, ["merge-base", "--is-ancestor", head, base]);
+      if ((await this.changes(repository, path, identity)) !== "") return false;
+      return (
+        (await git(path, ["rev-parse", "--verify", "HEAD^{commit}"])).trim() === head &&
+        (await git(path, ["symbolic-ref", "--quiet", "--short", "HEAD"])).trim() === branch
+      );
+    } catch {
+      // Missing refs, failed fetches, unsupported Git and identity changes never authorize removal.
+      return false;
+    }
+  }
+
   async mergedCommit(repository: string, tree: Worktree, base: string): Promise<boolean> {
     if (!tree.branch || !tree.head) return false;
     await this.validateBranch(repository, tree.branch);

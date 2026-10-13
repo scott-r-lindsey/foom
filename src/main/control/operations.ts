@@ -133,6 +133,35 @@ export class Operations {
     return { ...record.operation };
   }
 
+  /** A removal's automatic check lost eligibility before deletion: resume trusted review. */
+  async reviewRemoval(actor: Principal, operationId: string): Promise<Operation> {
+    this.check(actor);
+    const entry = [...this.records.entries()].find(
+      ([, record]) => record.actor === actor && record.operation.operationId === operationId,
+    );
+    if (!entry) throw new ControlError("not_found");
+    const [index, prior] = entry;
+    if (
+      prior.operation.action !== "remove_worktree" ||
+      !["running", "pending_confirmation"].includes(prior.operation.status)
+    )
+      throw new ControlError("conflict");
+    if (prior.operation.status === "pending_confirmation") return { ...prior.operation };
+    const record: StoredOperation = {
+      ...prior,
+      operation: {
+        ...prior.operation,
+        status: "pending_confirmation",
+        reason: "intent",
+        updatedAt: new Date().toISOString(),
+      },
+    };
+    this.records.set(index, record);
+    await this.save(index, record);
+    this.check(actor);
+    return { ...record.operation };
+  }
+
   /** Main-only closure: cannot be serialized into an HTTP/renderer approval flag. */
   confirmation(
     actor: Principal,
