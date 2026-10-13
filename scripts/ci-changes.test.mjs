@@ -79,14 +79,15 @@ test("manual runs, unknown events, new branches, and empty diffs require desktop
   );
 });
 
-test("desktop jobs shard every platform exactly twice", () => {
+test("desktop jobs use three macOS shards and two on other platforms", () => {
   assert.deepEqual(desktopMatrix(), [
     { os: "ubuntu-24.04", shard: "1/2" },
     { os: "ubuntu-24.04", shard: "2/2" },
     { os: "windows-2025", shard: "1/2" },
     { os: "windows-2025", shard: "2/2" },
-    { os: "macos-15", shard: "1/2" },
-    { os: "macos-15", shard: "2/2" },
+    { os: "macos-15", shard: "1/3" },
+    { os: "macos-15", shard: "2/3" },
+    { os: "macos-15", shard: "3/3" },
   ]);
   assert.deepEqual(desktopMatrix(["ubuntu-24.04"]), [
     { os: "ubuntu-24.04", shard: "1/2" },
@@ -241,7 +242,7 @@ sudo() {
   assert.doesNotMatch(failure.stdout, /install -y|sysctl/);
 });
 
-test("desktop setup and diagnostics run on both shards; native tests and packaging run once", async () => {
+test("desktop setup and diagnostics run on every shard; native tests and packaging run once", async () => {
   const { readFileSync } = await import("node:fs");
   const workflow = readFileSync(new URL("../.github/workflows/ci.yml", import.meta.url), "utf8");
   const desktop = workflow.split("\n  desktop:\n")[1].split("\n  quality:\n")[0];
@@ -251,6 +252,7 @@ test("desktop setup and diagnostics run on both shards; native tests and packagi
     "Test hooks and control storage with native OS tools",
     "Test Antigravity observer alone",
     "Test Git inventory paths on native filesystem",
+    "Test preview containment on native filesystem",
     "Stamp nightly package version",
     "Package desktop application",
     "Verify macOS ad-hoc signature after packaging and fuses",
@@ -258,7 +260,7 @@ test("desktop setup and diagnostics run on both shards; native tests and packagi
     "Test packaged terminal host on macOS and Windows",
     "Upload unsigned development package",
   ]) {
-    assert.match(step(name), /if:[\s\S]*?matrix\.shard != '2\/2'/, name);
+    assert.match(step(name), /if:[\s\S]*?startsWith\(matrix\.shard, '1\/'\)/, name);
   }
   for (const name of [
     "Prepare Electron binary",
@@ -267,7 +269,7 @@ test("desktop setup and diagnostics run on both shards; native tests and packagi
     "Test Electron on macOS and Windows",
     "Upload Electron timing and process diagnostics",
   ]) {
-    assert.doesNotMatch(step(name), /matrix\.shard !=/, name);
+    assert.doesNotMatch(step(name), /startsWith\(matrix\.shard/, name);
   }
   assert.match(step("Prepare Linux display and sandbox"), /if: runner\.os == 'Linux'/);
   assert.match(step("Upload Electron timing and process diagnostics"), /if: always\(\)/);
@@ -302,7 +304,7 @@ test("Quality gate rejects failed, cancelled or skipped required desktop shards"
     }).status;
   assert.equal(run("true", "success"), 0);
   assert.equal(run("false", "skipped"), 0);
-  // GitHub aggregates the six matrix jobs into needs.desktop.result.
+  // GitHub aggregates the seven matrix jobs into needs.desktop.result.
   for (const { os, shard } of desktopMatrix()) {
     for (const result of ["failure", "cancelled", "skipped"]) {
       assert.notEqual(run("true", result), 0, `${os} ${shard}: ${result}`);
