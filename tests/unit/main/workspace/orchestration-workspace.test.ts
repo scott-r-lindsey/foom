@@ -1048,3 +1048,98 @@ it("reports unavailable history when the control service is absent", async () =>
   await expect(workspace.actionLog({})).rejects.toThrow("Action log unavailable");
   await expect(workspace.clearActionLog()).rejects.toThrow("Action log unavailable");
 });
+
+it.each([
+  "valid",
+  "main",
+  "foreign",
+  "missing",
+  "unmanaged",
+  "locked",
+  "bare",
+  "prunable",
+  "detached",
+  "identity",
+  "unreadable",
+])("restores exited child ownership only for an eligible managed checkout: %s", async (mode) => {
+  const { readSessions } = await import("../../../../src/main/workspace/session-store");
+  const path = mode === "main" ? repo.path : child.path;
+  const entries = readSessions([
+    {
+      id: "parent",
+      agent: "claude",
+      repository: repo.path,
+      worktree: repo.path,
+      branch: "main",
+      conversationId: "conversation",
+      running: true,
+      orchestrator: {
+        identity: "identity",
+        history: [],
+        ...(mode === "identity"
+          ? { worktrees: [{ path, identity: "previous", state: "used" }] }
+          : {}),
+      },
+    },
+    {
+      id: "exited-child",
+      agent: "claude",
+      repository: mode === "foreign" ? "/another/repo" : repo.path,
+      worktree: path,
+      branch: "untrusted",
+      running: false,
+      parentId: "parent",
+    },
+  ]);
+  deps.sessions = {
+    load: () => Promise.resolve(entries),
+    save: vi.fn(() => Promise.resolve()),
+    flush: async () => {},
+  };
+  vi.mocked(deps.worktrees.listWorktrees).mockResolvedValue([
+    main,
+    ...(mode === "missing" || mode === "foreign"
+      ? []
+      : [
+          {
+            ...child,
+            managed: mode !== "unmanaged",
+            locked: mode === "locked",
+            bare: mode === "bare",
+            prunable: mode === "prunable",
+            branch: mode === "detached" ? null : child.branch,
+          },
+        ]),
+  ]);
+  vi.mocked(deps.worktrees.launchIdentity).mockImplementation((_repository, checkout) =>
+    checkout === child.path && mode === "unreadable"
+      ? Promise.reject(new Error("missing path"))
+      : Promise.resolve("identity"),
+  );
+  const workspace = new Workspace(deps);
+  workspace.configure({ hooks: false, agents: { claude: true, codex: true, agy: true } });
+  await workspace.restore();
+  await workspace.restartSaved();
+  const owned = workspace.orchestration.ownedWorktrees("parent");
+  expect(owned).toEqual(
+    mode === "valid" ? [{ path: child.path, identity: "identity", state: "used" }] : [],
+  );
+  if (mode === "valid") {
+    await workspace.orchestration.call(
+      principal(),
+      "remove_worktree",
+      {
+        worktreeId: (await import("../../../../src/main/control/metadata")).locationId(path),
+        idempotencyKey: "remove-restored",
+      },
+      new Operations(
+        async () => {},
+        () => 1000,
+      ),
+    );
+    await vi.waitFor(() => {
+      expect(deps.worktrees.removeWorktree).toHaveBeenCalled();
+    });
+  }
+  await workspace.dispose();
+});

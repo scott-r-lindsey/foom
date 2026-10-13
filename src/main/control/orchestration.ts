@@ -1,3 +1,4 @@
+import type { OwnedWorktree } from "../workspace/session-restore.d";
 import { ReviewedReplies } from "./replies";
 import { createHash } from "node:crypto";
 import type { AgentId } from "../../shared/agents";
@@ -57,6 +58,11 @@ export interface OrchestrationHost {
     agent: AgentId,
     prompt: string | undefined,
   ): Promise<string>;
+  /** Only an existing Foom-managed linked checkout in this repository is eligible. */
+  restoreWorktree(
+    repository: string,
+    path: string,
+  ): Promise<{ branch: string; identity: string } | undefined>;
   stop(id: string): Promise<void>;
   /** Starting restored sessions do not yet have a stoppable PTY. */
   starting?(id: string): boolean;
@@ -90,6 +96,7 @@ interface Parent {
   creating: number;
   /** Creations that may have left a checkout; they stay charged to the unused budget. */
   uncertain: number;
+  readonly refusedWorktrees: Set<string>;
   readonly children: Map<string, Child>;
   readonly worktrees: Map<
     string,
@@ -173,6 +180,7 @@ export class Orchestration {
       starting: 0,
       creating: 0,
       uncertain: 0,
+      refusedWorktrees: new Set(),
       children: new Map(),
       worktrees: new Map(),
       history: [],
@@ -206,20 +214,72 @@ export class Orchestration {
     if (parent) parent.history.push(...history.slice(-HISTORY));
   }
 
+  ownedWorktrees(id: string): OwnedWorktree[] {
+    return [...(this.parents.get(id)?.worktrees.values() ?? [])].map((tree) => ({
+      path: tree.path,
+      identity: tree.identity,
+      state: tree.state === "unused" ? "unused" : "used",
+    }));
+  }
+
+  uncertainWorktrees(id: string): number {
+    return this.parents.get(id)?.uncertain ?? 0;
+  }
+
+  /** Saved identity must still match; invalid entries never grant capabilities. */
+  async restoreWorktrees(
+    id: string,
+    trees: readonly OwnedWorktree[],
+    uncertain = 0,
+  ): Promise<void> {
+    const parent = this.parents.get(id);
+    if (!parent?.active) return;
+    parent.uncertain = uncertain;
+    for (const saved of trees) {
+      const tree = await this.host
+        .restoreWorktree(parent.repository, saved.path)
+        .catch(() => undefined);
+      if (this.active(parent.repository) !== id) return;
+      const key = locationId(saved.path);
+      if (!tree || tree.identity !== saved.identity) {
+        parent.refusedWorktrees.add(key);
+        continue;
+      }
+      if (parent.worktrees.has(key)) continue;
+      if (saved.state === "unused" && this.unused(parent) >= WORKTREE_LIMIT) continue;
+      parent.worktrees.set(key, { ...tree, path: saved.path, state: saved.state });
+    }
+    this.host.changed();
+  }
+
   /** Reserve restored children before launches, so they count against the live limit. */
-  restoreChild(parentId: string, entry: WorkspaceTerminal): boolean {
+  async restoreChild(parentId: string, entry: WorkspaceTerminal): Promise<boolean> {
     const parent = this.parents.get(parentId);
     const existing = parent?.children.get(entry.id);
     if (existing) return parent?.active === true && !existing.takenOver;
     if (
       !parent?.active ||
       parent.repository !== entry.repository ||
-      this.running(parent) >= CHILD_LIMIT
+      parent.refusedWorktrees.has(locationId(entry.worktree)) ||
+      (!entry.exited && this.running(parent) >= CHILD_LIMIT)
     )
       return false;
+    const tree = await this.host
+      .restoreWorktree(parent.repository, entry.worktree)
+      .catch(() => undefined);
+    if (
+      !tree ||
+      this.active(parent.repository) !== parentId ||
+      (!entry.exited && this.running(parent) >= CHILD_LIMIT)
+    )
+      return false;
+    const worktreeId = locationId(entry.worktree);
+    const owned = parent.worktrees.get(worktreeId);
+    if (owned && owned.identity !== tree.identity) return false;
+    parent.worktrees.set(worktreeId, { ...tree, path: entry.worktree, state: "used" });
     parent.children.set(entry.id, {
-      worktreeId: locationId(entry.worktree),
-      exited: false,
+      worktreeId,
+      exited: entry.exited === true,
       takenOver: false,
       tailAt: 0,
     });

@@ -291,6 +291,16 @@ export class Workspace {
         createWorktree: (repository, branch) => this.createChildWorktree(repository, branch),
         launch: (parentId, repository, worktree, identity, agent, prompt) =>
           this.launchChild(parentId, repository, worktree, identity, agent, prompt),
+        restoreWorktree: async (repository, path) => {
+          if (path === repository) return undefined;
+          const tree = (await this.deps.worktrees.listWorktrees(repository)).find(
+            (item) => item.path === path,
+          );
+          if (!tree?.managed || tree.bare || tree.locked || tree.prunable || tree.branch === null)
+            return undefined;
+          const identity = await this.deps.worktrees.launchIdentity(repository, path);
+          return { branch: tree.branch, identity };
+        },
         stop: (id) => this.deps.terminals.stop(id),
         starting: (id) => this.restoring.has(id),
         reply: async (id, data) => {
@@ -402,7 +412,14 @@ export class Workspace {
         ...(saved?.parentId ? { parentId: saved.parentId } : {}),
         running: this.restoring.has(entry.id) || !entry.exited,
         ...(role?.role === "orchestrator" && role.active && identity !== undefined
-          ? { orchestrator: { identity, history: role.history } }
+          ? {
+              orchestrator: {
+                identity,
+                history: role.history,
+                worktrees: this.orchestration.ownedWorktrees(entry.id),
+                uncertain: this.orchestration.uncertainWorktrees(entry.id),
+              },
+            }
           : {}),
         ...(role?.role === "child" && !role.takenOver ? { parentId: role.parentId } : {}),
       };
@@ -501,7 +518,10 @@ export class Workspace {
           if (identity !== undefined) this.repositoryIdentities.set(entry.repository, identity);
         }
       }
-    } else if (entry.parentId && this.orchestration.restoreChild(entry.parentId, entry)) {
+    } else if (
+      entry.parentId &&
+      (await this.orchestration.restoreChild(entry.parentId, { ...entry, exited: false }))
+    ) {
       control = { parentId: entry.parentId };
     }
     try {
@@ -518,10 +538,18 @@ export class Workspace {
       if (id && slot && !("existing" in slot)) {
         slot.bind(id);
         this.orchestration.restoreHistory(id, entry.orchestrator?.history ?? []);
+        await this.orchestration.restoreWorktrees(
+          id,
+          entry.orchestrator?.worktrees ?? [],
+          entry.orchestrator?.uncertain ?? 0,
+        );
         this.unrestoredRoles.delete(id);
         for (const child of this.saved.values()) {
-          if (child.parentId === id && this.restoring.has(child.id))
-            this.orchestration.restoreChild(id, child);
+          if (child.parentId === id)
+            await this.orchestration.restoreChild(id, {
+              ...child,
+              exited: !this.restoring.has(child.id),
+            });
         }
       }
     } finally {

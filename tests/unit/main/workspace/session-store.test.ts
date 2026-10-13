@@ -214,3 +214,33 @@ test("validates every action-log field without restoring pending operations", ()
     }
   }
 });
+
+test("round trips owned worktrees and refuses malformed ownership and budgets", async () => {
+  const { store } = await setup();
+  const tree = { path: join(root, "owned"), identity: "checkout", state: "unused" };
+  const role = { identity: "repo", history: [], worktrees: [tree], uncertain: 2 };
+  const entries = readSessions([{ ...record, orchestrator: role }]);
+  await store.save(entries);
+  expect(await store.load()).toEqual(entries);
+  for (const worktrees of [
+    null,
+    {},
+    [null],
+    [{}],
+    [{ ...tree, path: "relative" }],
+    [{ ...tree, identity: "" }],
+    [{ ...tree, identity: 1 }],
+    [{ ...tree, identity: "x".repeat(4097) }],
+    [{ ...tree, state: "starting" }],
+    [{ ...tree, extra: true }],
+    [tree, tree],
+    Array(1001).fill(tree),
+    Array.from({ length: 5 }, (_, i) => ({ ...tree, path: join(root, String(i)) })),
+  ]) {
+    expect(() => readSessions([{ ...record, orchestrator: { ...role, worktrees } }])).toThrow();
+  }
+  for (const uncertain of [-1, 5, 1.5, "1", null]) {
+    expect(() => readSessions([{ ...record, orchestrator: { ...role, uncertain } }])).toThrow();
+  }
+  expect(() => readSessions([{ ...record, orchestrator: { ...role, uncertain: 4 } }])).toThrow();
+});
