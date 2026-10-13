@@ -7191,7 +7191,10 @@ for (const cliOnly of [false, true])
     const parentRow = page
       .locator(".session-entry")
       .filter({ has: page.locator(`[data-drag-session="${parentId}"]`) });
-    await parentRow.getByRole("button", { name: /^Actions for/ }).click();
+    await parentRow
+      .locator(":scope > .board-row")
+      .getByRole("button", { name: /^Actions for/ })
+      .click();
     await page.getByRole("menuitem", { name: "Make orchestrator…" }).click();
     const confirmation = await confirmationPage(app);
     await expect(
@@ -7240,7 +7243,10 @@ for (const cliOnly of [false, true])
       await expect
         .poll(() => connection(parentId), { timeout: deadline(35000) })
         .toBe("not-connected");
-      await parentRow.getByRole("button", { name: /^Actions for/ }).click();
+      await parentRow
+        .locator(":scope > .board-row")
+        .getByRole("button", { name: /^Actions for/ })
+        .click();
       await expect(page.getByText("Not connected", { exact: true })).toBeVisible();
       await expect(page.getByText("Not connected", { exact: true })).toHaveAttribute(
         "data-tone",
@@ -7378,6 +7384,48 @@ for (const cliOnly of [false, true])
       .toBe("succeeded");
     assert.match(String(git("branch", "--list", "child-one")), /child-one/);
 
+    // Children retain independent keyboard access and checkout identity under the parent.
+    const children = page.getByRole("group", { name: "Children of Claude Code" });
+    await expect(children.getByRole("treeitem")).toHaveCount(1);
+    await expect(children.getByText("child-one", { exact: true })).toBeVisible();
+    await children.getByRole("treeitem").focus();
+    const nestingAudit = await new AxeBuilder({ page }).analyze();
+    assert.deepEqual(
+      nestingAudit.violations.filter((item) => ["serious", "critical"].includes(item.impact)),
+      [],
+    );
+    await assert.rejects(
+      page.evaluate(() =>
+        window.desktop.actionLog({ search: "", action: "", status: "", offset: -1 }),
+      ),
+    );
+    await assert.rejects(
+      page.evaluate(() =>
+        window.desktop.actionLog({
+          search: "",
+          action: "",
+          status: "",
+          offset: 0,
+          path: "/secret",
+        }),
+      ),
+    );
+    await page.getByRole("button", { name: "Foom menu" }).click();
+    await page.getByRole("menuitem", { name: "Action log", exact: true }).click();
+    await expect(page.getByRole("heading", { name: "Action log" })).toBeVisible();
+    const history = page.getByRole("region", { name: "Action history" });
+    await expect(history.getByText("make orchestrator", { exact: true }).first()).toBeVisible();
+    await page.getByRole("searchbox").fill("remove_worktree");
+    await page.getByLabel("Outcome", { exact: true }).selectOption("succeeded");
+    await expect(history.getByText("remove worktree", { exact: true })).toHaveCount(1);
+    const logAudit = await new AxeBuilder({ page }).analyze();
+    assert.deepEqual(
+      logAudit.violations.filter((item) => ["serious", "critical"].includes(item.impact)),
+      [],
+    );
+    await page.getByRole("searchbox").press("Escape");
+    await expect(page.getByRole("heading", { name: "Action log" })).toHaveCount(0);
+
     // Making the orchestrator again is a no-op without a dialog.
     await page.evaluate(
       (id) => window.desktop.sidebarCommand({ kind: "make-orchestrator", id }),
@@ -7389,12 +7437,36 @@ for (const cliOnly of [false, true])
     assert.equal(orchestrators.length, 1);
 
     // Revoke ends orchestration on the same credential; the session keeps running.
-    await parentRow.getByRole("button", { name: /^Actions for/ }).click();
+    await parentRow
+      .locator(":scope > .board-row")
+      .getByRole("button", { name: /^Actions for/ })
+      .click();
     await page.getByRole("menuitem", { name: "Revoke orchestrator" }).click();
     await expect
       .poll(async () => (await call(parent.controlToken, "whoami")).body.result?.role)
       .toBe("agent");
     assert.equal((await call(parent.controlToken, "tail", { id: childId, lines: 1 })).status, 403);
+
+    await expect(page.getByText("Revoked orchestrator", { exact: true })).toBeVisible();
+    await expect(children.getByRole("treeitem")).toHaveCount(1);
+    const logged = await page.evaluate(() =>
+      window.desktop.actionLog({
+        search: "",
+        action: "revoke_orchestrator",
+        status: "succeeded",
+        offset: 0,
+      }),
+    );
+    assert.equal(logged.total, 1);
+    await page.evaluate(() => window.desktop.clearActionLog());
+    assert.equal(
+      (
+        await page.evaluate(() =>
+          window.desktop.actionLog({ search: "", action: "", status: "", offset: 0 }),
+        )
+      ).total,
+      0,
+    );
 
     // Exit revokes the credential itself; the snapshot keeps the history.
     await page.evaluate((id) => window.desktop.input(id, "q"), parentId);

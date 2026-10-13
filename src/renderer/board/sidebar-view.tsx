@@ -436,6 +436,20 @@ export function Sidebar({
   const configPanel = () => {
     if (configGearRef.current) togglePanel("config", configGearRef.current);
   };
+  const nestedRows = tree.flatMap((repo) =>
+    repo.worktrees.flatMap((worktree) => worktree.sessions),
+  );
+  const parentOf = (row: BoardRow) => {
+    const role = row.orchestration;
+    return role?.role === "child"
+      ? nestedRows.find(
+          (parent) =>
+            parent.id === role.parentId &&
+            parent.orchestration?.role === "orchestrator" &&
+            rowRepository(parent) === rowRepository(row),
+        )
+      : undefined;
+  };
   const session = (row: BoardRow, docked = false) => {
     const name = sessionName(row, preferences);
     const identity = sessionIdentity(row, source.shellName?.());
@@ -543,6 +557,9 @@ export function Sidebar({
         <div
           role={docked ? "button" : "treeitem"}
           aria-selected={docked ? undefined : selected === row.id}
+          aria-owns={
+            !docked && row.orchestration?.role === "orchestrator" ? `children-${row.id}` : undefined
+          }
           className="board-row"
           draggable
           data-drag-session={row.id}
@@ -583,7 +600,36 @@ export function Sidebar({
             aria-hidden="true"
           />
           <span className="session-lines">
-            <span className="visually-hidden board-branch">{row.branch}</span>
+            <span
+              className={
+                row.orchestration?.role === "child"
+                  ? "session-worktree"
+                  : "visually-hidden board-branch"
+              }
+            >
+              {row.branch}
+            </span>
+            {row.orchestration?.role === "orchestrator" && (
+              <span className="session-orchestration">
+                {row.orchestration.active
+                  ? "Orchestrator"
+                  : row.exited
+                    ? "Exited orchestrator"
+                    : "Revoked orchestrator"}
+              </span>
+            )}
+            {row.orchestration?.role === "child" && (
+              <>
+                <span className="session-orchestration">
+                  {row.orchestration.takenOver ? "Taken over" : "Child"}
+                </span>
+                {!parentOf(row) && (
+                  <span className="session-orchestration">
+                    Parent unavailable · {row.orchestration.parentId}
+                  </span>
+                )}
+              </>
+            )}
             <span className="session-top">
               <AgentBadge mark={row.kind === "shell" ? ">_" : agentBadges.get(row.agent)} />
               {row.bypass && (
@@ -653,6 +699,18 @@ export function Sidebar({
           {!docked && actions(row.id, `${name} in ${row.branch}`, items)}
         </div>
         {docked && actions(row.id, `${name} in ${row.branch}`, items)}
+        {!docked && row.orchestration?.role === "orchestrator" && (
+          <div
+            role="group"
+            id={`children-${row.id}`}
+            aria-label={`Children of ${name}`}
+            className="orchestrator-children"
+          >
+            {nestedRows
+              .filter((child) => parentOf(child)?.id === row.id)
+              .map((child) => session(child))}
+          </div>
+        )}
       </div>
     );
   };
@@ -1106,7 +1164,9 @@ export function Sidebar({
                                 {expanded && (
                                   <div role="group">
                                     {sessions.length
-                                      ? sessions.map((row) => session(row))
+                                      ? sessions
+                                          .filter((row) => !parentOf(row))
+                                          .map((row) => session(row))
                                       : !filter.trim() && (
                                           <p className="tree-empty">Nothing here yet</p>
                                         )}

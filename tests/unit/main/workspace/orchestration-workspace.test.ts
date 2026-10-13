@@ -1,6 +1,7 @@
 import { beforeEach, expect, it, vi } from "vitest";
 import { Workspace } from "../../../../src/main/workspace/workspace";
 import type { WorkspaceDependencies } from "../../../../src/main/workspace/workspace";
+import { ControlStore } from "../../../../src/main/control/store";
 import { Operations } from "../../../../src/main/control/operations";
 import type { Operation, Principal } from "../../../../src/main/control/types";
 import type { ControlRuntime } from "../../../../src/main/control/runtime";
@@ -986,4 +987,42 @@ it("reviews a child's fresh question, tracks input/output revisions and exposes 
   await expect(
     workspace.sidebarCommand({ kind: "reset-replies", id: "child" }, confirm),
   ).rejects.toThrow("no orchestrator");
+});
+
+it("exposes durable history and clearing and refuses authority changes when intent cannot persist", async () => {
+  const audit = new ControlStore("/unused");
+  const human = vi.spyOn(audit, "human").mockResolvedValue();
+  const read = vi.spyOn(audit, "read").mockResolvedValue({ entries: [], total: 0 });
+  const clear = vi.spyOn(audit, "clearAudit").mockResolvedValue();
+  const original = deps.control;
+  if (!original) throw new Error("Missing control");
+  deps.control = async () => ({ ...(await original()), audit });
+  const workspace = new Workspace(deps);
+  const query = { search: "child", action: "reply", status: "", offset: 0 };
+  expect(await workspace.actionLog(query)).toEqual({ entries: [], total: 0 });
+  expect(read).toHaveBeenCalledWith(query);
+  await workspace.clearActionLog();
+  expect(clear).toHaveBeenCalledOnce();
+  await orchestrate(workspace);
+  expect(human).toHaveBeenCalledWith(
+    "make_orchestrator",
+    "parent",
+    repo.path,
+    repo.path,
+    null,
+    "pending_confirmation",
+    expect.any(String),
+  );
+  human.mockRejectedValueOnce(new Error("disk full"));
+  await expect(
+    workspace.sidebarCommand({ kind: "revoke-orchestrator", id: "parent" }, confirm),
+  ).rejects.toThrow("disk full");
+  expect(workspace.snapshot().terminals[0]?.orchestration).toMatchObject({ active: true });
+});
+it("reports unavailable history when the control service is absent", async () => {
+  const unavailable = { ...deps };
+  delete unavailable.control;
+  const workspace = new Workspace(unavailable);
+  await expect(workspace.actionLog({})).rejects.toThrow("Action log unavailable");
+  await expect(workspace.clearActionLog()).rejects.toThrow("Action log unavailable");
 });

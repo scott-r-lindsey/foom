@@ -383,6 +383,8 @@ const desktop: DesktopApi = {
     ipcRenderer.on("terminal:activity", listener);
     return () => ipcRenderer.removeListener("terminal:activity", listener);
   },
+  actionLog: (query) => ipcRenderer.invoke("workspace:action-log", query),
+  clearActionLog: () => ipcRenderer.invoke("workspace:clear-action-log"),
   onWorkspaceChange(callback) {
     const listener = () => {
       callback();

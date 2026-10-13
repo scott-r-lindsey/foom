@@ -94,11 +94,23 @@ export function buildSidebar(
   const tree: SidebarTree[] = [];
   for (const repository of repositories) {
     const sessions = rows.filter((row) => rowRepository(row) === repository.path);
+    const parentOf = (row: BoardRow) => {
+      const role = row.orchestration;
+      return role?.role === "child"
+        ? sessions.find(
+            (parent) =>
+              parent.id === role.parentId && parent.orchestration?.role === "orchestrator",
+          )
+        : undefined;
+    };
+    const placement = (row: BoardRow) => rowWorktree(parentOf(row) ?? row);
+    const matching = (row: BoardRow) =>
+      matches(sessionName(row, preferences)) || matches(row.reason) || matches(row.branch);
     const pin = preferences.pins.indexOf(repository.path);
     const repoMatches = matches(repository.name);
     const worktrees: SidebarTree["worktrees"] = [];
     for (const item of repository.worktrees) {
-      const all = sessions.filter((row) => rowWorktree(row) === item.path);
+      const all = sessions.filter((row) => placement(row) === item.path);
       const branchMatches =
         matches(item.branch ?? "Detached HEAD") ||
         (item.path === repository.path && matches("Main checkout"));
@@ -106,8 +118,9 @@ export function buildSidebar(
         (row) =>
           repoMatches ||
           branchMatches ||
-          matches(sessionName(row, preferences)) ||
-          matches(row.reason),
+          matching(row) ||
+          (parentOf(row) !== undefined && matching(parentOf(row) ?? row)) ||
+          sessions.some((child) => parentOf(child)?.id === row.id && matching(child)),
       );
       if (query && !repoMatches && !branchMatches && !filtered.length) continue;
       for (const row of filtered) visible.add(row.id);

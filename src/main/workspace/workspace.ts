@@ -16,6 +16,8 @@ import type { StoredSession } from "./session-restore.d";
 import type { SessionStore } from "./session-store";
 import type { InventoryWatch } from "./inventory-watch";
 import type { ControlLaunch } from "../control/types";
+import { randomUUID } from "node:crypto";
+import type { ActionLogPage } from "../../shared/action-log";
 import type { ControlRuntime } from "../control/runtime";
 import { Orchestration, UncertainEffect } from "../control/orchestration";
 import type { ConfirmWorkspace, DialogContent } from "../../shared/confirmation";
@@ -107,7 +109,9 @@ export interface WorkspaceDependencies {
     recordAction(terminalId: string, verdictId: string, action: VerdictAction): Promise<void>;
   };
   /** Started on the first agent launch, independently of hook support. */
-  control?: () => Promise<Pick<ControlRuntime, "prepare" | "close" | "setRole">>;
+  control?: () => Promise<
+    Pick<ControlRuntime, "prepare" | "close" | "setRole"> & Partial<Pick<ControlRuntime, "audit">>
+  >;
   /** Started on the first launch that attaches hooks, then reused. */
   receiver: () => Promise<HookRegistrar & { close(): Promise<void> }>;
   onExecution?(event: ExecutionTransition): void;
@@ -159,7 +163,12 @@ export class Workspace {
   private readonly agyPlugin = new AgyPlugin();
   private readonly hookKeys = new Map<string, string>();
   private readonly queues = new Map<string, Promise<void>>();
-  private control: Promise<Pick<ControlRuntime, "prepare" | "close" | "setRole">> | undefined;
+  private control:
+    | Promise<
+        Pick<ControlRuntime, "prepare" | "close" | "setRole"> &
+          Partial<Pick<ControlRuntime, "audit">>
+      >
+    | undefined;
   private receiver: ReturnType<WorkspaceDependencies["receiver"]> | undefined;
   private scanned: ReturnType<Agents["scan"]> | undefined;
   private closed = false;
@@ -194,6 +203,40 @@ export class Workspace {
       throw error;
     });
     await this.control;
+  }
+
+  async actionLog(query: unknown): Promise<ActionLogPage> {
+    await this.initializeControl();
+    const audit = (await this.control)?.audit;
+    if (!audit) throw new Error("Action log unavailable");
+    return audit.read(query);
+  }
+
+  async clearActionLog(): Promise<void> {
+    await this.initializeControl();
+    const audit = (await this.control)?.audit;
+    if (!audit) throw new Error("Action log unavailable");
+    await audit.clearAudit();
+  }
+
+  private async auditHuman(
+    action: string,
+    id: string,
+    target: string | null,
+    status: string,
+    operationId: string,
+  ): Promise<void> {
+    const entry = this.launched.get(id);
+    await this.initializeControl();
+    await (await this.control)?.audit?.human(
+      action,
+      id,
+      entry?.repository ?? "",
+      entry?.worktree ?? "",
+      target,
+      status,
+      operationId,
+    );
   }
 
   constructor(private readonly deps: WorkspaceDependencies) {
@@ -1374,7 +1417,10 @@ export class Workspace {
       return;
     }
     if (command.kind === "take-over") {
+      const operationId = randomUUID();
+      await this.auditHuman("take_over", command.id, command.id, "running", operationId);
       this.orchestration.takeOver(command.id);
+      await this.auditHuman("take_over", command.id, command.id, "succeeded", operationId);
       return;
     }
     if (command.kind === "make-orchestrator") return this.makeOrchestrator(command.id, confirm);
@@ -1428,6 +1474,13 @@ export class Workspace {
         return;
       }
       if (!exited) throw new Error("Session is still running");
+      if (
+        command.kind === "close" &&
+        this.snapshot().terminals.some(
+          (row) => row.orchestration?.role === "child" && row.orchestration.parentId === command.id,
+        )
+      )
+        throw new Error("Close the orchestrator's children first to keep their parent context");
       if (command.kind === "restart") {
         if (!entry || entry.kind !== "shell") throw new Error("Only shells can restart");
         if (entry.config) await this.startConfig("shell", confirm);
@@ -1664,6 +1717,9 @@ export class Workspace {
     const identity = await this.deps.worktrees.launchIdentity(entry.repository, entry.repository);
     const current = this.orchestration.active(entry.repository);
     const replaced = current === undefined ? undefined : this.launched.get(current);
+    const operationId = randomUUID();
+    const action = current === undefined ? "make_orchestrator" : "transfer_orchestrator";
+    await this.auditHuman(action, id, current ?? null, "pending_confirmation", operationId);
     const accepted = await confirm({
       kind: "orchestrator",
       agent,
@@ -1673,20 +1729,29 @@ export class Workspace {
           }
         : {}),
     });
-    if (!accepted) return;
-    // The dialog took time: recheck everything it described.
-    running();
-    if (this.orchestration.active(entry.repository) !== current)
-      throw new Error("The orchestrator changed. Try again.");
-    if (current !== undefined) await this.revokeOrchestrator(current);
-    const slot = this.orchestration.reserve(entry.repository);
-    if ("existing" in slot) throw new Error("The orchestrator changed. Try again.");
+    if (!accepted) {
+      await this.auditHuman(action, id, current ?? null, "declined", operationId);
+      return;
+    }
     try {
-      control.setRole(id, "orchestrator");
-      slot.bind(id);
-      this.repositoryIdentities.set(entry.repository, identity);
-    } finally {
-      slot.release();
+      // The dialog took time: recheck everything it described.
+      running();
+      if (this.orchestration.active(entry.repository) !== current)
+        throw new Error("The orchestrator changed. Try again.");
+      if (current !== undefined) await this.revokeOrchestrator(current);
+      const slot = this.orchestration.reserve(entry.repository);
+      if ("existing" in slot) throw new Error("The orchestrator changed. Try again.");
+      try {
+        control.setRole(id, "orchestrator");
+        slot.bind(id);
+        this.repositoryIdentities.set(entry.repository, identity);
+      } finally {
+        slot.release();
+      }
+      await this.auditHuman(action, id, current ?? null, "succeeded", operationId);
+    } catch (error) {
+      await this.auditHuman(action, id, current ?? null, "indeterminate", operationId);
+      throw error;
     }
   }
 
@@ -1694,11 +1759,14 @@ export class Workspace {
   private async revokeOrchestrator(id: string): Promise<void> {
     const view = this.orchestration.view(id);
     if (view?.role !== "orchestrator" || !view.active) return;
+    const operationId = randomUUID();
+    await this.auditHuman("revoke_orchestrator", id, id, "running", operationId);
     try {
       (await this.control)?.setRole(id, "agent");
     } finally {
       this.orchestration.revoke(id);
     }
+    await this.auditHuman("revoke_orchestrator", id, id, "succeeded", operationId);
   }
 
   /** A new branch and worktree for an orchestrator child, under the same branch lock. */

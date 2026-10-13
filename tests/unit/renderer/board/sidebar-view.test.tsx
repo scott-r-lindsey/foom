@@ -1,3 +1,4 @@
+import { emptyPreferences } from "../../../../src/renderer/board/sidebar-preferences";
 // @vitest-environment jsdom
 import { act, cleanup, fireEvent, render, within } from "@testing-library/react";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
@@ -1450,4 +1451,68 @@ test("config status changes remove an empty dock, retain an exited session and d
   expect(view.container.querySelector(".config-dock")?.textContent).toContain("exited");
   view.unmount();
   expect(off).toHaveBeenCalled();
+});
+
+test("nests visible children beneath exited and revoked parents, supports keys, and leaves orphans visible", () => {
+  const original = sampleRows(0)[0];
+  if (!original) throw new Error("Missing sample");
+  const parent: BoardRow = {
+    ...original,
+    id: "parent",
+    kind: "agent",
+    agent: "claude",
+    repository: "Foom",
+    repositoryPath: "/foom",
+    worktree: "/foom",
+    branch: "main",
+    exited: true,
+    orchestration: { role: "orchestrator", active: false, children: 1, history: [] },
+  };
+  const child: BoardRow = {
+    ...parent,
+    id: "child",
+    agent: "codex",
+    worktree: "/tree",
+    branch: "feature",
+    exited: false,
+    state: "needs_input",
+    orchestration: { role: "child", parentId: "parent", takenOver: true },
+  };
+  const base = createSampleSource([parent, child]);
+  const open = vi.fn();
+  const props = {
+    source: { ...base, getSidebar: () => [repository] },
+    rows: base.getSnapshot(),
+    selected: "parent",
+    filter: "",
+    setFilter: vi.fn(),
+    preferences: emptyPreferences(),
+    save: vi.fn(),
+    open,
+    focus: vi.fn(),
+    buttons: { current: new Map<string, HTMLDivElement>() },
+    now: 0,
+    inactive: false,
+    revealRef: { current: undefined },
+    sidebar: { current: null },
+    command: vi.fn(() => Promise.resolve()),
+    options: undefined,
+    footer: null,
+  };
+  const view = render(<Sidebar {...props} />);
+  const group = view.getByRole("group", { name: "Children of Claude Code" });
+  const item = within(group).getByRole("treeitem");
+  expect(within(group).getByText("feature")).toBeTruthy();
+  expect(view.getByText("Exited orchestrator")).toBeTruthy();
+  expect(within(group).getByText("Taken over")).toBeTruthy();
+  fireEvent.keyDown(item, { key: "Enter" });
+  expect(open).toHaveBeenCalledWith(child);
+  fireEvent.keyDown(item, { key: " " });
+  fireEvent.focus(item);
+  fireEvent.keyDown(item, { key: "ArrowUp" });
+  expect(document.activeElement).not.toBe(item);
+  view.rerender(<Sidebar {...props} rows={[{ ...parent, exited: false }, child]} />);
+  expect(view.getByText("Revoked orchestrator")).toBeTruthy();
+  view.rerender(<Sidebar {...props} rows={[child]} />);
+  expect(view.getByText("Parent unavailable · parent")).toBeTruthy();
 });

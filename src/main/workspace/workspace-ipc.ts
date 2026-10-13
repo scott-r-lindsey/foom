@@ -306,6 +306,20 @@ export function attachWorkspace(
         });
       },
     ],
+    [
+      "workspace:action-log",
+      (...args) => {
+        if (args.length !== 1) throw new Error("Invalid action log request");
+        return workspace.actionLog(args[0]);
+      },
+    ],
+    [
+      "workspace:clear-action-log",
+      (...args) => {
+        if (args.length) throw new Error("Invalid action log request");
+        return workspace.clearActionLog();
+      },
+    ],
     ["workspace:snapshot", () => workspace.snapshot()],
     [
       "workspace:add-repository",

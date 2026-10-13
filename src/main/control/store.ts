@@ -1,18 +1,132 @@
+import { randomUUID } from "node:crypto";
+import type { ActionLogEntry, ActionLogPage } from "../../shared/action-log";
+import { prepareTail } from "../evaluator/terminal-tail";
 import { constants } from "node:fs";
 import { lstat, open, readdir, readFile, rename, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { atomicPrivate, createPrivateFile, verifyPrivate } from "./private-files";
-import { ControlError, object } from "./validation";
-import type { StoredOperation } from "./types";
+import { ControlError, object, exact } from "./validation";
+import type { Principal, StoredOperation } from "./types";
 
 /** Durable deduplication state and independently rotated, clearable action history. */
 export class ControlStore {
-  constructor(private readonly directory: string) {}
+  private writes: Promise<unknown> = Promise.resolve();
+  constructor(
+    private readonly directory: string,
+    private readonly changed: () => void = () => {},
+  ) {}
+
+  private serialize<T>(task: () => Promise<T>): Promise<T> {
+    const next = this.writes.then(task, task);
+    this.writes = next.catch(() => undefined);
+    return next;
+  }
+
+  /** Human commands persist intent before changing authority, just like automation. */
+  human(
+    action: string,
+    actorId: string,
+    repository: string,
+    worktree: string,
+    targetId: string | null,
+    status: string,
+    operationId: string = randomUUID(),
+  ): Promise<void> {
+    return this.serialize(() =>
+      this.append({
+        operationId,
+        action,
+        status,
+        reason:
+          status === "running" || status === "pending_confirmation"
+            ? "intent"
+            : status === "declined" || status === "refused"
+              ? "refused"
+              : status === "indeterminate"
+                ? "uncertain"
+                : "completed",
+        actor: { terminalId: "human", parentId: actorId, repository, worktree },
+        targetId,
+      }),
+    );
+  }
+
+  refused(
+    actor: Principal,
+    action: string,
+    status = "refused",
+    targetId: string | null = null,
+  ): Promise<void> {
+    return this.serialize(() =>
+      this.append({
+        actor,
+        action,
+        operationId: randomUUID(),
+        status,
+        targetId,
+        reason: status === "refused" ? "refused" : "completed",
+      }),
+    );
+  }
+
+  read(query: unknown): Promise<ActionLogPage> {
+    return this.serialize(async () => {
+      const value = object(query);
+      exact(value, ["search", "action", "status", "offset"]);
+      const { search, action, status, offset } = value;
+      if (
+        typeof search !== "string" ||
+        search.length > 256 ||
+        typeof action !== "string" ||
+        action.length > 64 ||
+        typeof status !== "string" ||
+        status.length > 64 ||
+        typeof offset !== "number" ||
+        !Number.isSafeInteger(offset) ||
+        offset < 0 ||
+        offset > 100000
+      )
+        throw new ControlError("invalid_request");
+      await verifyPrivate(this.directory, true);
+      await this.prune();
+      const entries: ActionLogEntry[] = [];
+      for (let index = 0; index < 5; index++) {
+        const path = join(this.directory, `actions-${String(index)}.jsonl`);
+        try {
+          await verifyPrivate(path, false);
+          if ((await lstat(path)).size > 10 * 1024 * 1024) throw new ControlError("unavailable");
+          for (const line of (await readFile(path, "utf8")).split("\n")) {
+            if (!line) continue;
+            const data: unknown = JSON.parse(line);
+            const entry = auditEntry(data);
+            if (Date.now() - Date.parse(entry.timestamp) > 30 * 24 * 60 * 60 * 1000) continue;
+            if ((action && entry.action !== action) || (status && entry.status !== status))
+              continue;
+            if (
+              search &&
+              !Object.values(entry)
+                .join(" ")
+                .toLocaleLowerCase()
+                .includes(search.toLocaleLowerCase())
+            )
+              continue;
+            entries.push(entry);
+          }
+        } catch (error) {
+          if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) throw error;
+        }
+      }
+      entries.sort((a, b) => b.timestamp.localeCompare(a.timestamp));
+      return { entries: entries.slice(offset, offset + 100), total: entries.length };
+    });
+  }
 
   async persist(record: StoredOperation): Promise<void> {
-    // Snapshots have a bounded count enforced by Operations; never rotate live deduplication.
-    await atomicPrivate(this.directory, `operation-${record.operation.operationId}.json`, record);
-    await this.append({ actor: record.actor, ...record.operation });
+    return this.serialize(async () => {
+      // Snapshots have a bounded count enforced by Operations; never rotate live deduplication.
+      await atomicPrivate(this.directory, `operation-${record.operation.operationId}.json`, record);
+      await this.append({ actor: record.actor, ...record.operation });
+    });
   }
 
   async recover(): Promise<void> {
@@ -39,6 +153,8 @@ export class ControlStore {
         )
           throw new ControlError("unavailable");
         await this.append({
+          actor: object(value)["actor"],
+          ...object(object(value)["operation"]),
           operationId: name.slice(10, -5),
           status: ["pending_confirmation", "running"].includes(status) ? "indeterminate" : status,
           reason: "recovery",
@@ -49,8 +165,12 @@ export class ControlStore {
   }
 
   async clearAudit(): Promise<void> {
-    for (let index = 0; index < 5; index++)
-      await rm(join(this.directory, `actions-${String(index)}.jsonl`), { force: true });
+    await this.serialize(async () => {
+      await verifyPrivate(this.directory, true);
+      for (let index = 0; index < 5; index++)
+        await rm(join(this.directory, `actions-${String(index)}.jsonl`), { force: true });
+      this.changed();
+    });
   }
 
   private async prune(): Promise<void> {
@@ -72,7 +192,7 @@ export class ControlStore {
     await verifyPrivate(this.directory, true);
     const current = join(this.directory, "actions-0.jsonl");
     await this.prune();
-    const json = `${JSON.stringify({ timestamp: new Date().toISOString(), ...value })}\n`;
+    const json = `${JSON.stringify(auditEntry({ timestamp: new Date().toISOString(), ...value }))}\n`;
     let size = 0;
     try {
       size = (await lstat(current)).size;
@@ -109,8 +229,36 @@ export class ControlStore {
       if (!(await file.stat()).isFile()) throw new ControlError("unavailable");
       await file.writeFile(json);
       await file.sync();
+      this.changed();
     } finally {
       await file.close();
     }
   }
+}
+
+/** Whitelist every persisted/rendered field; old recovery entries have only outcome metadata. */
+function auditEntry(value: unknown): ActionLogEntry {
+  const data = object(value);
+  const actor = data["actor"] === undefined ? data : object(data["actor"]);
+  const text = (value: unknown, fallback = ""): string => {
+    if (value === undefined || value === null) return fallback;
+    if (typeof value !== "string" || value.length > 8192) throw new ControlError("unavailable");
+    return prepareTail([value]).slice(0, 4096);
+  };
+  const timestamp = text(data["timestamp"]);
+  if (!Number.isFinite(Date.parse(timestamp))) throw new ControlError("unavailable");
+  return {
+    operationId: text(data["operationId"]),
+    timestamp,
+    actorId: text(actor["terminalId"] ?? data["actorId"], "Unknown actor"),
+    parentId: actor["parentId"] == null ? null : text(actor["parentId"]),
+    repository: text(actor["repository"]),
+    worktree: text(actor["worktree"]),
+    action: text(data["action"], "recovery"),
+    targetId: data["targetId"] == null ? null : text(data["targetId"]),
+    resultId: data["resultId"] == null ? null : text(data["resultId"]),
+    status: text(data["status"]),
+    reason: text(data["reason"]),
+    ...(data["proposal"] === undefined ? {} : { proposal: text(data["proposal"]) }),
+  };
 }

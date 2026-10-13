@@ -1,3 +1,4 @@
+import type { ActionLogQuery, ActionLogPage } from "./action-log";
 import type { CleanupProgress } from "./cleanup";
 import type { GitPanelFacts, HomeShellFacts } from "./panel";
 import type { AgyPluginAction } from "./agy-plugin";
@@ -119,6 +120,8 @@ export interface StartWorktreeRequest {
 }
 
 export interface WorkspaceApi {
+  actionLog(query: ActionLogQuery): Promise<ActionLogPage>;
+  clearActionLog(): Promise<void>;
   confirmations: ConfirmationClient;
   panelFacts(repository: string, worktree: string): Promise<GitPanelFacts>;
   sidebarInventory(): Promise<SidebarInventory>;

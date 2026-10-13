@@ -650,3 +650,23 @@ this role, and whoami shows whether you hold it"; a call without the role return
 an error naming `whoami`. Server instructions and Antigravity's launch guidance
 describe both roles. Codex's TUI asked to approve an MCP tool without
 annotations, so the tools keep accurate `readOnlyHint` and `destructiveHint`.
+
+### Sidebar nesting and action log (#157)
+
+The board source now supplies main-owned child relationships and read/clear access
+to the private action history. Sidebar children keep their checkout identity,
+independent lights and keyboard row access under running, exited or revoked
+parents. Filters retain parent context; orphans remain visible in their checkout.
+An exited parent remains until its children are closed. No nesting operation
+changes xterm ownership, attachment ordering, hidden execution or activity delivery.
+
+Action log in the app menu exposes search, action/outcome filters, pagination,
+actor/parent and target/result identities, fixed reasons and redacted reply
+proposals. Pending confirmations, refusals, indeterminate delivery and human
+Make/Revoke/Transfer orchestrator and Take over actions are visible. Audit intent
+precedes authority changes; failure refuses that command. Serialized private
+reads, writes and clearing enforce five 10 MiB files and 30 days. Clearing retains
+live deduplication. Only allowlisted redacted fields leave main; raw prompts,
+tails, request payloads, credentials and fingerprints are excluded. Tests cover
+filters, orphan/exited/revoked context, keyboard access, storage failure and
+permissions, retention/clearing, IPC payload/sender boundaries and real-app axe.

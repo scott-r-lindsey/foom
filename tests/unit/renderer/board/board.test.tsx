@@ -1,3 +1,4 @@
+import type { BoardCommand } from "../../../../src/shared/board-command";
 // @vitest-environment jsdom
 import { boardRows as sampleRows } from "../../../fixtures/board";
 import { act, cleanup, fireEvent, render } from "@testing-library/react";
@@ -383,4 +384,36 @@ test("board opens the launcher without routing typing to shortcuts and reports r
     await Promise.resolve();
   });
   expect(screen.getByRole("alert").textContent).toBe("Unable to update workspace.");
+});
+
+test("opens the action log from the app command and restores the terminal pane on close", async () => {
+  const source = createSampleSource(sampleRows(0));
+  let command: ((value: BoardCommand) => void) | undefined;
+  const read = vi.fn(() => Promise.resolve({ entries: [], total: 0 }));
+  const view = render(
+    <Board
+      source={{
+        ...source,
+        actionLog: { read, clear: vi.fn() },
+        subscribeCommands: (listener) => {
+          command = listener;
+          return () => {};
+        },
+      }}
+    />,
+  );
+  await act(async () => {
+    command?.("action-log");
+    await Promise.resolve();
+  });
+  expect(view.getByRole("heading", { name: "Action log" })).toBeTruthy();
+  expect(view.getByLabelText("Terminal pane").hidden).toBe(true);
+  fireEvent.click(view.getByText("Close action log"));
+  expect(view.queryByRole("heading", { name: "Action log" })).toBeNull();
+  await act(async () => {
+    command?.("action-log");
+    command?.("settings");
+    await Promise.resolve();
+  });
+  expect(view.queryByRole("heading", { name: "Action log" })).toBeNull();
 });

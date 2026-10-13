@@ -505,7 +505,17 @@ Permission and credential prompts always stay with you. With the current agent
 interfaces, proposed answers to prose questions also require review in Foom;
 unattended replies need a verified question-specific routing mechanism first.
 Take over cancels pending replies. Worktree removal always asks you and rechecks
-its identity and changed files. A local action log records who acted, targets and
+its identity and changed files. The app menu’s **Action log** opens searchable local history with actor/parent,
+repository/worktree, action, target/result IDs, outcomes and redacted reply proposals.
+Search and Action/Outcome filters apply to retained history, with 100 events per page.
+Pending confirmation, refused operations and indeterminate delivery are explicit.
+**Clear history…** asks for a second click and preserves live operation deduplication.
+History stays private and is retained for 30 days in at most five 10 MiB files.
+Children nest under their orchestrator with their checkout label and independent
+light. Exited and revoked parents retain their context; close child rows before
+closing an exited parent. Children with an unavailable parent remain in their own
+checkout. Take over is shown on the child’s panel.
+A local action log records who acted, targets and
 outcomes, plus redacted reply proposals; it omits terminal tails, credentials and
 initial prompts. It retains at most 30 days and five 10 MiB files and can be cleared.
 

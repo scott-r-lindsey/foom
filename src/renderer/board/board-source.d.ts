@@ -1,3 +1,4 @@
+import type { ActionLogApi } from "../../shared/action-log";
 import type { GitPanelFacts, HomeShellFacts } from "../../shared/panel";
 import type { WindowsApi } from "../../shared/windows";
 import type { AppMenuApi } from "../../shared/app-menu";
@@ -31,6 +32,7 @@ export interface WorktreeSource {
 }
 /** Samples and the live source share rows, verdicts and activity batches. */
 export interface BoardSource {
+  actionLog?: ActionLogApi;
   windows?: WindowsApi;
   appMenu?: AppMenuApi;
   confirmations?: ConfirmationClient;
