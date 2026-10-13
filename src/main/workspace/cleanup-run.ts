@@ -29,6 +29,8 @@ export class CleanupRun implements CleanupFeed {
   private operation: Promise<void> | undefined;
   constructor(
     private readonly deps: {
+      checkingCount?: number | undefined;
+      fetchedAt?(): number | undefined;
       fetch(): Promise<string>;
       remove(candidate: CleanupCandidate, base: string): Promise<void>;
       branches(candidates: readonly CleanupCandidate[]): Promise<readonly string[]>;
@@ -62,9 +64,12 @@ export class CleanupRun implements CleanupFeed {
   }
   current(): CleanupDialog {
     const progress = this.progress;
+    const fetchedAt = this.deps.fetchedAt?.();
     return {
       ...(this.error ? { error: this.error } : {}),
       stage: this.stage,
+      ...(this.deps.checkingCount !== undefined ? { checkingCount: this.deps.checkingCount } : {}),
+      ...(fetchedAt !== undefined ? { fetchedAt } : {}),
       progress: {
         ...progress,
         items: progress.items.map(({ id, branch, state, reason }) => ({

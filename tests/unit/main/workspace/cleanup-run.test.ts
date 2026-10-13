@@ -17,6 +17,8 @@ const candidates = (count: number): CleanupCandidate[] =>
   }));
 function setup() {
   const deps = {
+    checkingCount: 8,
+    fetchedAt: vi.fn<() => number | undefined>(() => 1000),
     fetch: vi.fn(() => Promise.resolve("base")),
     remove: vi.fn((_candidate: CleanupCandidate, _base: string) => Promise.resolve()),
     branches: vi.fn(
@@ -28,6 +30,9 @@ function setup() {
 }
 test("checking cannot approve, snapshots omit paths, and hiding only unsubscribes", async () => {
   const { deps, run } = setup();
+  expect(run.current()).toMatchObject({ checkingCount: 8, fetchedAt: 1000 });
+  deps.fetchedAt.mockReturnValueOnce(undefined);
+  expect(run.current()).not.toHaveProperty("fetchedAt");
   run.act();
   await run.settled();
   expect(deps.fetch).not.toHaveBeenCalled();

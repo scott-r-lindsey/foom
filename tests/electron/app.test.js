@@ -2999,7 +2999,9 @@ test("the branch field creates a worktree by keyboard without launching; dirty r
   await page.getByRole("button", { name: "Actions for feature/ui", exact: true }).click();
   await page.getByRole("menuitem", { name: "Delete worktree…" }).click();
   const confirmation = await confirmationPage(app);
-  await expect(confirmation.getByLabel("Uncommitted changes")).toContainText("unsaved.txt");
+  await expect(
+    confirmation.getByRole("list", { name: "Uncommitted changes", exact: true }),
+  ).toContainText("unsaved.txt");
   await expect(confirmation.getByRole("button", { name: "Cancel" })).toBeFocused();
   await expect(page.locator(".board-confirmation-scrim")).toBeVisible();
   for (const colorMode of ["light", "dark"]) {
@@ -3114,7 +3116,9 @@ test("sidebar refuses deletion of a running shell and enables it after exit, pre
   await expect(page.getByRole("menuitem", { name: "Delete worktree…" })).toBeEnabled();
   await page.getByRole("menuitem", { name: "Delete worktree…" }).click();
   const confirmation = await confirmationPage(app);
-  await expect(confirmation.getByLabel("Uncommitted changes")).toContainText("unsaved.txt");
+  await expect(
+    confirmation.getByRole("list", { name: "Uncommitted changes", exact: true }),
+  ).toContainText("unsaved.txt");
   await expect(confirmation.getByRole("button", { name: "Cancel" })).toBeFocused();
   await confirmation.keyboard.press("Enter");
   await expect(confirmation.getByRole("alertdialog")).toHaveCount(0);
@@ -4895,7 +4899,11 @@ test("trusted quit dialog isolates answers, passes axe in every theme and surviv
       if (!request?.sessions) throw Error("Missing quit inventory");
       const sessions = request.sessions.map((item) => ({ ...item, location: "x".repeat(60) }));
       // Main-authored fixtures travel through the real preload, retaining the original request ID.
-      window.dialogLayoutRequest = { ...request, sessions };
+      window.dialogLayoutRequest = {
+        ...request,
+        sessions,
+        worktrees: [{ branch: "x".repeat(60), reason: "resumable conversation" }],
+      };
     });
     const layoutRequest = await dialog.evaluate(() => window.dialogLayoutRequest);
     await app.evaluate(({ BrowserWindow }, request) => {

@@ -36,7 +36,7 @@ function Section({
   children,
 }: {
   label: string;
-  count?: number;
+  count?: number | undefined;
   children: React.ReactNode;
 }) {
   return (
@@ -118,7 +118,13 @@ function Worktrees({
             />
           </span>
           <span className="name">{item.branch}</span>
-          <span className="why">{item.reason ?? (running ? item.state : "")}</span>
+          <span className="why">
+            {item.state === "error"
+              ? "removal failed"
+              : running && item.state === "removed"
+                ? `removed${item.reason ? ` · ${item.reason}` : ""}`
+                : (item.reason ?? (running ? item.state : ""))}
+          </span>
         </li>
       ))}
     </ul>
@@ -165,15 +171,16 @@ export function ConfirmationPage() {
     document.documentElement.style.colorScheme = request.theme.base;
   }, [request]);
   const deadline = request?.pairing?.expiresAt;
+  const fetchedAt = request?.cleanup?.fetchedAt;
   useEffect(() => {
-    if (deadline === undefined) return;
+    if (deadline === undefined && fetchedAt === undefined) return;
     const timer = window.setInterval(() => {
       setNow(Date.now());
     }, 1000);
     return () => {
       window.clearInterval(timer);
     };
-  }, [deadline]);
+  }, [deadline, fetchedAt]);
   const wide = Boolean(
     request?.cleanup ||
       request?.worktrees ||
@@ -289,7 +296,12 @@ export function ConfirmationPage() {
           </span>
           <h1 id="confirmation-title">{running ? "Deleting merged worktrees" : request.title}</h1>
           <p className="subject">
-            {request.subject}
+            <b>{request.subject}</b>
+            {cleanup?.stage === "checking"
+              ? " · fetching remote…"
+              : cleanup?.stage === "ready" && fetchedAt !== undefined
+                ? ` · fetched ${String(Math.max(0, Math.floor((now - fetchedAt) / 1000)))} s ago`
+                : ""}
             {request.subject && deadline !== undefined ? " · " : ""}
             {deadline !== undefined
               ? `Expires in ${String(Math.max(0, Math.ceil((deadline - now) / 1000)))} s`
@@ -325,7 +337,7 @@ export function ConfirmationPage() {
                   </div>
                 )}
                 {cleanup.stage === "checking" ? (
-                  <Section label="Checking" count={cleanup.progress.items.length}>
+                  <Section label="Checking" count={cleanup.checkingCount}>
                     <ul className="well" aria-busy="true" aria-label="Checking worktrees">
                       {[0, 1, 2].map((index) => (
                         <li className="row" key={index}>

@@ -190,17 +190,47 @@ test("cleanup checking, ready and run controls follow main state; Escape only hi
     items: [{ id: "0", branch: "<script>", state: "queued" as const }],
   };
   act(() => {
-    receive({ ...base, cleanup: { stage: "checking", progress } });
+    receive({ ...base, cleanup: { stage: "checking", checkingCount: 11, progress } });
   });
+  expect(view.getByRole("heading", { name: "Checking11" })).toBeTruthy();
+  expect(view.getByText("· fetching remote…")).toBeTruthy();
   expect(view.getByRole("button", { name: /^Delete$/u }).hasAttribute("disabled")).toBe(true);
   act(() => {
-    receive({ ...base, cleanup: { stage: "ready", progress } });
+    receive({ ...base, cleanup: { stage: "ready", fetchedAt: Date.now() - 20000, progress } });
   });
+  expect(view.getByText("· fetched 20 s ago")).toBeTruthy();
+  expect(view.queryByText("queued")).toBeNull();
   fireEvent.click(view.getByRole("button", { name: "Delete 1" }));
   expect(answer).toHaveBeenLastCalledWith("cleanup", true);
   act(() => {
-    receive({ ...base, cleanup: { stage: "run", progress } });
+    receive({
+      ...base,
+      cleanup: {
+        stage: "run",
+        progress: {
+          ...progress,
+          items: [
+            { id: "removed", branch: "removed-tree", state: "removed" },
+            {
+              id: "branch-kept",
+              branch: "removed-branch",
+              state: "removed",
+              reason: "branch kept",
+            },
+            { id: "removing", branch: "removing-tree", state: "removing" },
+            { id: "queued", branch: "queued-tree", state: "queued" },
+            { id: "kept", branch: "x".repeat(60), state: "kept", reason: "running" },
+            { id: "failed", branch: "failed-tree", state: "error" },
+          ],
+        },
+      },
+    });
   });
+  for (const word of ["removed", "removed · branch kept", "removing", "queued", "removal failed"])
+    expect(view.getByText(word)).toBeTruthy();
+  expect(view.getByRole("list", { name: "Kept worktrees" }).textContent).toBe(
+    `${"x".repeat(60)}running`,
+  );
   fireEvent.click(view.getByRole("button", { name: "Stop" }));
   expect(answer).toHaveBeenLastCalledWith("cleanup", true);
   act(() => {
@@ -278,7 +308,7 @@ test("structured disclosures, git status words and pairing countdown render safe
     });
     expect(view.container.querySelector(".code strong")?.textContent).toBe("<script>");
     expect(view.container.querySelector("script")).toBeNull();
-    expect(view.getByText("CLI · Expires in 3 s")).toBeTruthy();
+    expect(view.container.querySelector(".subject")?.textContent).toBe("CLI · Expires in 3 s");
     expect(view.getByRole("heading", { name: "Discarded7" })).toBeTruthy();
     for (const word of [
       "modified",
@@ -295,11 +325,11 @@ test("structured disclosures, git status words and pairing countdown render safe
     act(() => {
       vi.advanceTimersByTime(1000);
     });
-    expect(view.getByText("CLI · Expires in 2 s")).toBeTruthy();
+    expect(view.container.querySelector(".subject")?.textContent).toBe("CLI · Expires in 2 s");
     act(() => {
       vi.advanceTimersByTime(2000);
     });
-    expect(view.getByText("CLI · Expires in 0 s")).toBeTruthy();
+    expect(view.container.querySelector(".subject")?.textContent).toBe("CLI · Expires in 0 s");
     expect(view.getByRole("button", { name: "Grant" }).hasAttribute("disabled")).toBe(true);
     act(() => {
       receive({

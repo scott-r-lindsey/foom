@@ -386,7 +386,9 @@ its main-owned expiry deadline. The sandboxed preload validates structured field
 The shared anatomy uses 500 CSS pixels for prose and 540 for lists and disclosures;
 main still applies zoom and the parent/work-area clamps. List names wrap in their own
 grid column; state and retention labels never wrap. Pairing counts down to the actual
-request deadline, including time spent waiting behind another dialog. Its sandboxed preload
+request deadline, including time spent waiting behind another dialog. Cleanup checking
+counts come from the latest inventory; fetch ages use the successful main-owned fetch
+timestamp, never a new timer started by opening the dialog. Its sandboxed preload
 exposes only request rendering, sizing and answering; it buffers the request until the page
 subscribes. `confirmation:answer` validates the exact window, top frame, URL,
 request ID and boolean. Board frames, stale IDs and malformed answers are ignored.

@@ -49,6 +49,7 @@ test("rejects malformed structured fields and preserves literal data", async () 
       { label: "Grants", value: "Read only" },
     ],
     pairing: { code: "ABCD1234", expiresAt: 1234 },
+    cleanup: { checkingCount: 11, fetchedAt: 1000 },
   };
   listener({}, valid);
   expect(render).toHaveBeenLastCalledWith(valid);
@@ -76,6 +77,9 @@ test("rejects malformed structured fields and preserves literal data", async () 
     { pairing: { code: 1, expiresAt: 1234 } },
     { pairing: { code: "code", expiresAt: "1234" } },
     { pairing: { code: "code", expiresAt: Number.POSITIVE_INFINITY } },
+    { cleanup: { checkingCount: -1 } },
+    { cleanup: { fetchedAt: "bad" } },
+    { cleanup: { fetchedAt: Number.NaN } },
   ]) {
     listener({}, invalid);
     expect(render).toHaveBeenLastCalledWith(null);

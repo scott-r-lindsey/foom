@@ -53,6 +53,16 @@ function structured(value: unknown): boolean {
     )
   )
     return false;
+  if ("cleanup" in value && record(value.cleanup)) {
+    for (const key of ["checkingCount", "fetchedAt"] as const) {
+      const field = value.cleanup[key];
+      if (
+        field !== undefined &&
+        (typeof field !== "number" || !Number.isFinite(field) || field < 0)
+      )
+        return false;
+    }
+  }
   return true;
 }
 ipcRenderer.on("confirmation:render", (_event: IpcRendererEvent, request: DialogRequest | null) => {

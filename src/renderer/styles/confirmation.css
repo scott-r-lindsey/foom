@@ -446,3 +446,8 @@ pre {
   border: var(--shape-border, 1px) solid var(--line);
   border-radius: var(--shape-panel-radius, 8px);
 }
+
+.subject b {
+  color: var(--ink);
+  font-weight: 500;
+}

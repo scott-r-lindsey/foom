@@ -90,6 +90,7 @@ export interface WorkspaceDependencies {
     | "removeWorktree"
     | "removeRepository"
     | "mergedDefault"
+    | "mergedFetchTime"
     | "mergedCommit"
     | "deleteMergedBranch"
     | "deleteMergedBranches"
@@ -187,6 +188,7 @@ export class Workspace {
     string,
     {
       key: string;
+      count: number;
       expires: number;
       plan?: readonly CleanupCandidate[];
       result: { canDeleteMerged: boolean; mergedCount?: number; mergedError?: string };
@@ -1048,6 +1050,8 @@ export class Workspace {
     }
     return this.withRepository(repository, async () => {
       const run = new CleanupRun({
+        checkingCount: this.mergeEligibility.get(repository)?.count,
+        fetchedAt: () => this.deps.worktrees.mergedFetchTime(repository),
         fetch: async () => {
           // Windows cannot remove a checkout while a background Git process uses it as cwd.
           // Include superseded scans too: their publication is discarded, but they still run.
@@ -1145,10 +1149,16 @@ export class Workspace {
     if (cached?.key === key && this.now() < cached.expires) return cached.result;
     const entry: {
       key: string;
+      count: number;
       expires: number;
       result: { canDeleteMerged: boolean; mergedCount?: number; mergedError?: string };
       plan?: readonly CleanupCandidate[];
-    } = { key, expires: Number.POSITIVE_INFINITY, result: { canDeleteMerged: false } };
+    } = {
+      key,
+      count: worktrees.length,
+      expires: Number.POSITIVE_INFINITY,
+      result: { canDeleteMerged: false },
+    };
     this.mergeEligibility.set(repository, entry);
     const publish = (result: {
       canDeleteMerged: boolean;

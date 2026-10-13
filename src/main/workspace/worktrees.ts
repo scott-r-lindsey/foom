@@ -621,6 +621,12 @@ export class WorktreeService {
     return result;
   }
 
+  /** Timestamp of the successful fetch used by merged-worktree checks. */
+  mergedFetchTime(repository: string): number | undefined {
+    const fetch = this.fetchFacts.get(repository);
+    return fetch && !fetch.failed ? fetch.time : undefined;
+  }
+
   private async fetchDefault(repository: string): Promise<string> {
     const remote = pickRemote(await git(repository, ["remote"]));
     if (!remote) throw new Error("No unambiguous repository remote");
