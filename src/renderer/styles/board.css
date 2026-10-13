@@ -1587,14 +1587,14 @@
   stroke: currentColor;
 }
 
-.orchestrator-children > .board-entry {
-  margin-inline-start: 0;
+.session-child-mark {
+  color: var(--muted);
+  font-size: 11px;
 }
-.orchestrator-children {
-  margin-inline-start: 50px;
-  border-inline-start: 1px solid var(--line);
+.session-entry[data-related="true"] .board-row {
+  background: var(--surface);
+  box-shadow: inset 2px 0 var(--highlight);
 }
-.session-worktree,
 .session-orchestration {
   display: block;
   color: var(--ink);

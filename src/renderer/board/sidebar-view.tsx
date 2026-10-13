@@ -33,7 +33,6 @@ import {
   rowRepository,
   rowWorktree,
   sidebarParent,
-  sidebarWorktree,
 } from "./sidebar-model";
 import { lightState, movingLight } from "./light-activity";
 import { light, waitTime } from "./board";
@@ -116,6 +115,8 @@ export function Sidebar({
 }) {
   const [now] = useState(Date.now);
   const [filter, setFilter] = useState("");
+  const [hoveredSession, setHoveredSession] = useState<string>();
+  const [focusedSession, setFocusedSession] = useState<string>();
   const [error, setError] = useState("");
   const [dismissedCleanup, setDismissedCleanup] = useState<ReadonlySet<string>>(() => new Set());
   const dismissCleanup = (key: string) => {
@@ -196,7 +197,7 @@ export function Sidebar({
         expanded: {
           ...preferences.expanded,
           [repositoryKey(rowRepository(row))]: true,
-          [worktreeKey(sidebarWorktree(row, rows))]: true,
+          [worktreeKey(rowWorktree(row))]: true,
         },
       });
     };
@@ -518,10 +519,14 @@ export function Sidebar({
   const configPanel = () => {
     if (configGearRef.current) togglePanel("config", configGearRef.current);
   };
-  const nestedRows = tree.flatMap((repo) =>
-    repo.worktrees.flatMap((worktree) => worktree.sessions),
-  );
-  const parentOf = (row: BoardRow) => sidebarParent(row, nestedRows);
+  const parentOf = (row: BoardRow) => sidebarParent(row, rows);
+  const related = (row: BoardRow) =>
+    [hoveredSession, focusedSession, selected].some((id) => {
+      const active = rows.find((candidate) => candidate.id === id);
+      return (
+        active !== undefined && (parentOf(row)?.id === active.id || parentOf(active)?.id === row.id)
+      );
+    });
   const session = (row: BoardRow, docked = false) => {
     const name = sessionName(row, preferences);
     const identity = sessionIdentity(row, source.shellName?.());
@@ -622,19 +627,34 @@ export function Sidebar({
       <Fragment key={row.kind === "shell" && !row.managed ? "local-shell" : row.id}>
         <div
           {...rowEvents(row.id)}
+          onPointerEnter={(event) => {
+            rowEvents(row.id).onPointerEnter(event);
+            setHoveredSession(row.id);
+          }}
+          onPointerLeave={() => {
+            rowEvents(row.id).onPointerLeave();
+            setHoveredSession(undefined);
+          }}
+          onFocusCapture={() => {
+            setFocusedSession(row.id);
+          }}
+          onBlurCapture={(event) => {
+            if (!event.currentTarget.contains(event.relatedTarget)) setFocusedSession(undefined);
+          }}
           className="board-entry session-entry"
+          data-related={related(row)}
           role="none"
           data-selected={selected === row.id}
         >
           <div
             role={docked ? "button" : "treeitem"}
             aria-selected={docked ? undefined : selected === row.id}
-            aria-owns={
-              !compact && !docked && row.orchestration?.role === "orchestrator"
-                ? `children-${row.id}`
+            className="board-row"
+            title={
+              row.orchestration?.role === "child"
+                ? `Child of ${parentOf(row) ? sessionName(parentOf(row) ?? row, preferences) : row.orchestration.parentId}${row.orchestration.takenOver ? " · Taken over" : ""}`
                 : undefined
             }
-            className="board-row"
             draggable
             data-drag-session={row.id}
             data-nav
@@ -642,7 +662,7 @@ export function Sidebar({
             data-state={lightState(row)}
             data-exited={Boolean(row.exited)}
             tabIndex={docked || row.id === selected ? 0 : -1}
-            aria-label={`${compact ? `${row.home ? "~" : row.config ? "Foom config" : row.repository} · ` : ""}${row.branch} · ${name}${name === identity ? "" : ` · ${identity}`} · ${light(row).label}${row.foregroundProgram ? ` · ${row.foregroundProgram}` : ""}${row.kind === "shell" ? "" : ` · ${row.reason}`}${row.bypass ? " · Bypass" : ""}${row.worktreeRemoved ? " · Worktree removed" : ""}`}
+            aria-label={`${compact ? `${row.home ? "~" : row.config ? "Foom config" : row.repository} · ` : ""}${row.branch} · ${name}${name === identity ? "" : ` · ${identity}`} · ${light(row).label}${row.orchestration?.role === "child" ? ` · Child of ${parentOf(row) ? sessionName(parentOf(row) ?? row, preferences) : row.orchestration.parentId}` : ""}${row.foregroundProgram ? ` · ${row.foregroundProgram}` : ""}${row.kind === "shell" ? "" : ` · ${row.reason}`}${row.bypass ? " · Bypass" : ""}${row.worktreeRemoved ? " · Worktree removed" : ""}`}
             ref={(element) => {
               if (element) buttons.current.set(row.id, element);
               else buttons.current.delete(row.id);
@@ -674,15 +694,7 @@ export function Sidebar({
               aria-hidden="true"
             />
             <span className="session-lines">
-              <span
-                className={
-                  row.orchestration?.role === "child"
-                    ? "session-worktree"
-                    : "visually-hidden board-branch"
-                }
-              >
-                {row.branch}
-              </span>
+              <span className="visually-hidden board-branch">{row.branch}</span>
               {row.orchestration?.role === "orchestrator" && (
                 <span className="session-orchestration">
                   {row.orchestration.active
@@ -691,18 +703,6 @@ export function Sidebar({
                       ? "Exited orchestrator"
                       : "Revoked orchestrator"}
                 </span>
-              )}
-              {row.orchestration?.role === "child" && (
-                <>
-                  <span className="session-orchestration">
-                    {row.orchestration.takenOver ? "Taken over" : "Child"}
-                  </span>
-                  {!parentOf(row) && (
-                    <span className="session-orchestration">
-                      Parent unavailable · {row.orchestration.parentId}
-                    </span>
-                  )}
-                </>
               )}
               <span className="session-top">
                 {!compact && (
@@ -729,6 +729,11 @@ export function Sidebar({
                     aria-label={`Tile ${String(tileNumbers.get(row.id)?.number)}`}
                   >
                     {tileNumbers.get(row.id)?.number}
+                  </span>
+                )}
+                {row.orchestration?.role === "child" && (
+                  <span className="session-child-mark" aria-hidden="true">
+                    ↳
                   </span>
                 )}
                 <SessionName
@@ -776,18 +781,6 @@ export function Sidebar({
           </div>
           {docked && actions(row.id, `${name} in ${row.branch}`, items)}
         </div>
-        {!compact && !docked && row.orchestration?.role === "orchestrator" && (
-          <div
-            role="group"
-            id={`children-${row.id}`}
-            aria-label={`Children of ${name}`}
-            className="orchestrator-children"
-          >
-            {nestedRows
-              .filter((child) => parentOf(child)?.id === row.id)
-              .map((child) => session(child))}
-          </div>
-        )}
       </Fragment>
     );
   };
@@ -1308,9 +1301,7 @@ export function Sidebar({
                                 {expanded && (
                                   <div role="group">
                                     {sessions.length
-                                      ? sessions
-                                          .filter((row) => !parentOf(row))
-                                          .map((row) => session(row))
+                                      ? sessions.map((row) => session(row))
                                       : !filter.trim() &&
                                         !matchingPreviews.some(
                                           (preview) => preview.worktree === worktree.path,

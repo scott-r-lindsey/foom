@@ -528,9 +528,11 @@ five files and 30 days, and support clearing it. Audit intent must be persisted
 before mutations; log failure refuses automation but never blocks human terminal
 input. Record indeterminate outcomes on recovery rather than replaying operations.
 
-Children nest under their orchestrator in the repository sidebar, each retaining a
-worktree label and independent light. Parent history stays while children remain;
-show an exited parent as such. No view attachment changes are implied by nesting.
+Children appear under their own worktree in the repository sidebar, each with a
+small, dim child glyph, a parent-naming tooltip and an independent light. Hover,
+focus and selection highlight the parent/child relationship across worktrees.
+Parent history stays while children remain; show an exited parent as such.
+No view attachment changes are implied by highlighting.
 Expose the action log and takeover affordance through the board source. Minimal
 action visibility and takeover must ship with mutations; the final UI issue adds
 the full hierarchy and searchable log. No silent orchestration period is acceptable.
@@ -796,9 +798,12 @@ annotations, so the tools keep accurate `readOnlyHint` and `destructiveHint`.
 
 The board source now supplies main-owned child relationships and read/clear access
 to the private action history. Sidebar children keep their checkout identity,
-independent lights and keyboard row access under running, exited or revoked
-parents in the expanded sidebar; the compact rail stays flat with each session once. Filters retain parent context; orphans remain visible in their checkout.
-An exited parent remains until its children are closed. No nesting operation
+independent lights and keyboard row access in their own worktrees, with a child
+glyph and parent tooltip. Hovering, focusing or selecting a parent highlights its
+children; hovering or focusing a child highlights its parent. Running, exited and
+revoked parents retain this context; the compact rail shows each session once.
+Filters retain parent context; orphans remain visible in their checkout.
+An exited parent remains until its children are closed. No relationship highlight
 changes xterm ownership, attachment ordering, hidden execution or activity delivery.
 
 Action log in the app menu exposes search, action/outcome filters, pagination,

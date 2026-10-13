@@ -8089,13 +8089,31 @@ for (const cliOnly of [false, true])
       .toContain("FOOM_AGENT_READY");
     const waited = await call(parent.controlToken, "wait_for", { ids: [childId], timeoutMs: 0 });
     assert.equal(waited.body.result.sessions[0].id, childId);
-    // Children retain independent keyboard access and checkout identity under the parent.
-    const children = page.getByRole("group", {
-      name: `Children of ${cliOnly ? "Antigravity" : "Claude Code"}`,
-    });
-    await expect(children.getByRole("treeitem")).toHaveCount(1);
-    await expect(children.getByText("child-one", { exact: true })).toBeVisible();
-    await children.getByRole("treeitem").focus();
+    // Children belong to their own checkout and retain an independent light.
+    const childRow = page.locator(`[data-drag-session="${childId}"]`);
+    const parentSession = page.locator(`[data-drag-session="${parentId}"]`);
+    const childEntry = childRow.locator("..");
+    const parentEntry = parentSession.locator("..");
+    await expect(childRow).toHaveCount(1);
+    await expect(childRow.locator(".session-child-mark")).toHaveText("↳");
+    await expect(childRow).toHaveAttribute(
+      "title",
+      `Child of ${cliOnly ? "Antigravity" : "Claude Code"}`,
+    );
+    const checkout = childRow.locator('xpath=ancestor::div[@role="group"][1]/..');
+    await expect(checkout.locator(".worktree-row").first()).toContainText("child-one");
+    await expect(checkout.locator(`[data-drag-session="${parentId}"]`)).toHaveCount(0);
+    await expect(childRow.locator(".board-light")).toHaveCount(1);
+    await parentSession.focus();
+    await expect(childEntry).toHaveAttribute("data-related", "true");
+    await childRow.focus();
+    await expect(parentEntry).toHaveAttribute("data-related", "true");
+    await page.getByRole("textbox", { name: "Filter repositories and sessions" }).focus();
+    await childRow.hover();
+    await expect(parentEntry).toHaveAttribute("data-related", "true");
+    await parentSession.hover();
+    await expect(childEntry).toHaveAttribute("data-related", "true");
+    await childRow.focus();
     await assertAccessible(page);
 
     const stopped = await call(parent.controlToken, "stop", {
@@ -8236,7 +8254,7 @@ for (const cliOnly of [false, true])
     });
     assert.equal(liveLaunch.body.result.status, "succeeded");
     const liveId = liveLaunch.body.result.resultId;
-    await expect(children.getByRole("treeitem")).toHaveCount(1);
+    await expect(page.locator(".session-child-mark")).toHaveCount(1);
 
     if (!cliOnly) {
       let previous = (await call(parent.controlToken, "session_state", { id: liveId })).body.result;
@@ -8287,7 +8305,7 @@ for (const cliOnly of [false, true])
         assert.equal(rejected.status, 400);
         assert.equal(rejected.body.error, "conflict");
         await expect(
-          children.getByRole("treeitem", { name: new RegExp(`Needs you.*${label}`) }),
+          page.getByRole("treeitem", { name: new RegExp(`Needs you.*${label}`) }),
         ).toBeVisible();
         previous = stalled;
       }
@@ -8309,7 +8327,7 @@ for (const cliOnly of [false, true])
     );
     assert.equal(liveChild.exited, false);
     await expect(page.getByText("Revoked orchestrator", { exact: true })).toBeVisible();
-    await expect(children.getByRole("treeitem")).toHaveCount(1);
+    await expect(page.locator(".session-child-mark")).toHaveCount(1);
     const logged = await page.evaluate(() =>
       window.desktop.actionLog({
         search: "",
@@ -8337,7 +8355,7 @@ for (const cliOnly of [false, true])
     );
     assert.equal(after.orchestration.active, false);
     await expect(page.getByText("Exited orchestrator", { exact: true })).toBeVisible();
-    await expect(children.getByRole("treeitem")).toHaveCount(1);
+    await expect(page.locator(".session-child-mark")).toHaveCount(1);
     await assert.rejects(
       page.evaluate((id) => window.desktop.sidebarCommand({ kind: "close", id }), parentId),
       /Close the orchestrator/u,
