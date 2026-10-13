@@ -298,7 +298,7 @@ Every channel checks the sender (a registered app window, its main frame, `app:/
 | `terminal:state` | main → renderer | `{ id, verdictId, state, reason, signal, confidence, timestamp }`; `verdictId` is null for user actions and unstored verdicts |
 | `terminal:feedback` | renderer → main (invoke) | `id`, `verdictId` (null only for the current unstored verdict), `replied` / `dismissed` / `ignored` |
 | `workspace:sidebar` | renderer → main (invoke) | → repositories with complete worktree inventories and the main-selected shell name |
-| `workspace:sidebar-command` | renderer → main (invoke) | validated discriminated command: launch by registered repository/worktree and agent ID, orchestrate by repository and agent ID, stop/close/restart/take-over by owned terminal ID, remove linked worktree by validated path, or forget repository; main owns confirmations |
+| `workspace:sidebar-command` | renderer → main (invoke) | validated discriminated command: launch by registered repository/worktree and agent ID, stop/close/restart/take-over/make-orchestrator/revoke-orchestrator by owned terminal ID, remove linked worktree by validated path, or forget repository; main owns confirmations |
 | `workspace:snapshot` | renderer → main (invoke) | → `{ repositories, terminals }`, each launched terminal with its agent, repository, worktree, branch, and latest state |
 | `workspace:add-repository` | renderer → main (invoke) | none; main shows the directory picker → repository or null |
 | `workspace:changed` | main → renderer | invalidates the workspace snapshot after launch or removal; no payload |
