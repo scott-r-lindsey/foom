@@ -249,7 +249,7 @@ test("retains missing checkout rows as removed only while sessions remain", () =
   expect(sidebarRepositories([], [repo("/repo")])[0]?.worktrees).toHaveLength(1);
 });
 
-test("places children under exited/revoked parents, retaining filter context and orphan checkouts", () => {
+test("places children in their own checkouts with reciprocal exited/revoked parent filter context", () => {
   const parent: BoardRow = {
     ...row("parent", "/repo"),
     exited: true,
@@ -263,7 +263,13 @@ test("places children under exited/revoked parents, retaining filter context and
   };
   const repositories = sidebarRepositories([parent, child], [repo("/repo")]);
   const built = buildSidebar([parent, child], repositories, emptyPreferences(), "child-branch");
-  expect(built.tree[0]?.worktrees[0]?.sessions.map((row) => row.id)).toEqual(["parent", "child"]);
+  expect(built.tree[0]?.worktrees[0]?.sessions).toEqual([parent]);
+  expect(built.tree[0]?.worktrees[1]?.sessions).toEqual([child]);
+  expect(built.tree[0]?.worktrees[0]?.rollup).toBe(parent);
+  expect(built.tree[0]?.worktrees[1]?.rollup).toBe(child);
+  const preferences = renameSession(emptyPreferences(), "parent", "Coordinator");
+  const byParent = buildSidebar([parent, child], repositories, preferences, "Coordinator");
+  expect(byParent.tree[0]?.worktrees.map((tree) => tree.sessions)).toEqual([[parent], [child]]);
   expect(built.hiddenNeeds).toBe(0);
   const orphans = buildSidebar([child], repositories, emptyPreferences(), "");
   expect(

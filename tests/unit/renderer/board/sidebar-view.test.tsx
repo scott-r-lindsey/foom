@@ -1461,7 +1461,7 @@ test("config status changes remove an empty dock, retain an exited session and d
   expect(off).toHaveBeenCalled();
 });
 
-test("nests visible children beneath exited and revoked parents, supports keys, and leaves orphans visible", () => {
+test("marks children in their own checkouts, highlights relationships and retains parent context", () => {
   const original = sampleRows(0)[0];
   if (!original) throw new Error("Missing sample");
   const parent: BoardRow = {
@@ -1510,11 +1510,22 @@ test("nests visible children beneath exited and revoked parents, supports keys, 
     footer: null,
   };
   const view = render(<Sidebar {...props} />);
-  const group = view.getByRole("group", { name: "Children of Claude Code" });
-  const item = within(group).getByRole("treeitem");
-  expect(within(group).getByText("feature")).toBeTruthy();
+  const item = view.getByRole("treeitem", { name: /feature · Codex/u });
+  const parentItem = view.getByRole("treeitem", { name: /main · Claude Code/u });
+  expect(item.querySelector(".session-child-mark")?.textContent).toBe("↳");
+  expect(item.title).toBe("Child of Claude Code · Taken over");
+  expect(item.closest(".session-entry")?.getAttribute("data-related")).toBe("true");
+  expect(item.closest('[role="group"]')?.contains(parentItem)).toBe(false);
+  fireEvent.pointerEnter(item.closest(".session-entry") ?? item);
+  expect(parentItem.closest(".session-entry")?.getAttribute("data-related")).toBe("true");
+  fireEvent.pointerLeave(item.closest(".session-entry") ?? item);
+  expect(parentItem.closest(".session-entry")?.getAttribute("data-related")).toBe("false");
+  fireEvent.focus(item);
+  expect(parentItem.closest(".session-entry")?.getAttribute("data-related")).toBe("true");
+  fireEvent.blur(item);
+  expect(parentItem.closest(".session-entry")?.getAttribute("data-related")).toBe("false");
   expect(view.getByText("Exited orchestrator")).toBeTruthy();
-  expect(within(group).getByText("Taken over")).toBeTruthy();
+  expect(view.queryByText("Taken over")).toBeNull();
   fireEvent.keyDown(item, { key: "Enter" });
   expect(open).toHaveBeenCalledWith(child);
   fireEvent.keyDown(item, { key: " " });
@@ -1530,10 +1541,14 @@ test("nests visible children beneath exited and revoked parents, supports keys, 
     revealRef.current?.(child);
   });
   expect(save).toHaveBeenLastCalledWith(
-    expect.objectContaining({ expanded: { "repository:/foom": true, "worktree:/foom": true } }),
+    expect.objectContaining({
+      expanded: { "worktree:/foom": false, "repository:/foom": true, "worktree:/tree": true },
+    }),
   );
   view.rerender(<Sidebar {...props} rows={[child]} />);
-  expect(view.getByText("Parent unavailable · parent")).toBeTruthy();
+  expect(view.getByRole("treeitem", { name: /feature · Codex/u }).title).toBe(
+    "Child of parent · Taken over",
+  );
   view.unmount();
   vi.stubGlobal("matchMedia", () => ({
     matches: true,

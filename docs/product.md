@@ -535,8 +535,10 @@ Search and Action/Outcome filters apply to retained history, with 100 events per
 Pending confirmation, refused operations and indeterminate delivery are explicit.
 **Clear history…** asks for a second click and preserves live operation deduplication.
 History stays private and is retained for 30 days in at most five 10 MiB files.
-Children nest under their orchestrator with their checkout label and independent
-light. Exited and revoked parents retain their context; close child rows before
+Children appear under their own checkout with a small, dim child glyph and an
+independent light. Their tooltip names the parent orchestrator. Hovering, focusing
+or selecting a parent highlights its children across checkouts; hovering or
+focusing a child highlights its parent. Exited and revoked parents retain their context; close child rows before
 closing an exited parent. Children with an unavailable parent remain in their own
 checkout. Take over is shown on the child’s panel.
 A local action log records who acted, targets and
