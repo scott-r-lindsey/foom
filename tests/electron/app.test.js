@@ -9041,7 +9041,9 @@ async function previewViewState(app, id) {
       .find((entry) => entry.getURL().startsWith(`foom-preview://${id}/`));
     const view = board.contentView.children.find((view) => view.webContents === contents);
     return {
+      contentsId: contents?.id,
       attached: Boolean(view),
+      visible: view?.getVisible(),
       focused: contents?.isFocused(),
       loading: contents?.isLoading(),
       bounds: view?.getBounds(),
@@ -9080,6 +9082,11 @@ test("preview host loads and reloads detached, never steals terminal keystrokes,
   );
   // Hold a real subresource response so typing demonstrably overlaps loading.
   await app.evaluate(({ app }) => {
+    globalThis.previewFocusEvents = { focus: 0, blur: 0 };
+    app.on("web-contents-created", (_event, contents) => {
+      contents.on("focus", () => globalThis.previewFocusEvents.focus++);
+      contents.on("blur", () => globalThis.previewFocusEvents.blur++);
+    });
     app.on("session-created", (partition) => {
       const handle = partition.protocol.handle.bind(partition.protocol);
       partition.protocol.handle = (scheme, handler) =>
@@ -9167,6 +9174,7 @@ test("preview host loads and reloads detached, never steals terminal keystrokes,
     .toBe("app://bundle/index.html");
   await page.locator(".xterm-helper-textarea").focus();
   await expect(page.locator(".xterm-helper-textarea")).toBeFocused();
+  const oldContentsId = (await previewViewState(app, id)).contentsId;
   await app.evaluate(({ webContents }, id) => {
     globalThis.previewGateRequested = false;
     webContents
@@ -9176,11 +9184,17 @@ test("preview host loads and reloads detached, never steals terminal keystrokes,
   }, id);
   await expect.poll(() => app.evaluate(() => globalThis.previewGateRequested)).toBe(true);
   assert.equal((await previewViewState(app, id)).attached, false);
+  assert.notEqual((await previewViewState(app, id)).contentsId, oldContentsId);
   const focusedUrl = () =>
     app.evaluate(({ webContents }) => webContents.getFocusedWebContents()?.getURL() ?? "none");
   const focusBefore = await focusedUrl();
   await typeIntoFocusedContents(app, "c".repeat(100));
   const focusAfter = await focusedUrl();
+  const reloadState = await previewViewState(app, id);
+  const focusEvents = await app.evaluate(() => globalThis.previewFocusEvents);
+  context.diagnostic(
+    `reload state ${JSON.stringify(reloadState)}, focus events ${JSON.stringify(focusEvents)}, native focus ${focusBefore} -> ${focusAfter}`,
+  );
   const boardActive = await page.evaluate(() => document.activeElement?.className ?? "none");
   await app.evaluate(() => globalThis.releasePreviewGate());
   await expect.poll(async () => (await previewViewState(app, id)).attached).toBe(true);

@@ -1,5 +1,5 @@
 import { app, session, WebContentsView } from "electron";
-import type { BrowserWindow, WebContents } from "electron";
+import type { BrowserWindow, Session, WebContents } from "electron";
 import type { PreviewBounds, PreviewRecord } from "../../shared/previews";
 import { canonicalRoot, readInside, readPreview } from "./contained-files";
 import { pathnameFor } from "./policy";
@@ -10,6 +10,7 @@ interface HostedPreview {
   view: WebContentsView;
   bounds: PreviewBounds;
   loaded: boolean;
+  navigated: boolean;
   previouslyLoaded: boolean;
   attached: boolean;
   clicked: boolean;
@@ -104,6 +105,16 @@ export class PreviewHost {
         },
       );
     });
+    const pathname = record.relativePath.split("/").map(encodeURIComponent).join("/");
+    return this.createView(record, partition, `${origin}/${pathname}`, { ...EMPTY_BOUNDS });
+  }
+  private createView(
+    record: PreviewRecord,
+    partition: Session,
+    url: string,
+    bounds: PreviewBounds,
+  ): HostedPreview {
+    const origin = `foom-preview://${record.id}`;
     const view = new WebContentsView({
       webPreferences: {
         session: partition,
@@ -121,8 +132,9 @@ export class PreviewHost {
     });
     const entry: HostedPreview = {
       view,
-      bounds: { ...EMPTY_BOUNDS },
+      bounds,
       loaded: false,
+      navigated: false,
       previouslyLoaded: false,
       attached: false,
       clicked: false,
@@ -142,6 +154,23 @@ export class PreviewHost {
     });
     contents.on("will-redirect", (event) => {
       event.preventDefault();
+    });
+    contents.on("did-start-navigation", (event) => {
+      if (!event.isMainFrame || event.isSameDocument) return;
+      if (!entry.navigated) {
+        entry.navigated = true;
+        return;
+      }
+      if (event.url !== contents.getURL() && !navigationAllowed(event.url, origin)) return;
+      // A previously clicked RenderWidgetHost can regain native focus on reload
+      // even while detached. A fresh contents has never held that focus grant.
+      this.detach(entry);
+      if (this.lastFocused === contents) {
+        this.lastFocused = this.window.webContents;
+        this.lastFocused.focus();
+      }
+      contents.close();
+      this.createView(record, partition, event.url, entry.bounds);
     });
     contents.on("did-start-loading", () => {
       entry.previouslyLoaded = entry.loaded;
@@ -167,8 +196,7 @@ export class PreviewHost {
       else if (this.lastFocused !== contents && !this.lastFocused.isDestroyed())
         this.lastFocused.focus();
     });
-    const pathname = record.relativePath.split("/").map(encodeURIComponent).join("/");
-    void contents.loadURL(`${origin}/${pathname}`).catch(() => {});
+    void contents.loadURL(url).catch(() => {});
     return entry;
   }
   private detach(entry: HostedPreview) {

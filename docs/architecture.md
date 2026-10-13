@@ -1622,9 +1622,12 @@ Worktree removal closes previews when workspace inventory refreshes.
 
 A preview never acquires keyboard focus on open, reload or navigation. Main loads
 it detached and attaches only after `did-finish-load`, when its board rectangle is
-visible. `did-start-loading` detaches for reloads, and allowed main-frame navigation
-detaches before loading. Refused navigation leaves the loaded view in place. A
-native mouse-down is the only focus grant; blur or detachment revokes it. Unsolicited
+visible. Main-frame reloads and allowed navigation replace the old native
+contents with a fresh detached view in the same partition, preserving ID and bounds.
+A previously clicked native contents can reacquire keyboard focus during reload on
+macOS even when detached; replacing it prevents that remembered focus grant.
+`did-start-loading` also detaches any loading view. Refused navigation leaves the
+loaded view in place. A native mouse-down is the only focus grant; blur or detachment revokes it. Unsolicited
 focus on an attached view returns to the last human-focused contents. This guard
 supplements detached loading; returning focus after load alone loses keystrokes.
 Main scales CSS rectangles by board zoom, applies that zoom to each view, clamps

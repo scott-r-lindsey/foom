@@ -37,7 +37,12 @@ class FakeContents extends EventEmitter {
   isFocused = vi.fn(() => false);
   isDestroyed = vi.fn(() => false);
   setWindowOpenHandler = vi.fn<(handler: () => { action: string }) => void>();
-  loadURL = vi.fn(async () => {});
+  getURL = vi.fn(() => "");
+  loadURL = vi.fn((url: string) => {
+    this.getURL.mockReturnValue(url);
+    this.emit("did-start-navigation", { url, isMainFrame: true, isSameDocument: false });
+    return Promise.resolve();
+  });
   setZoomFactor = vi.fn();
   getZoomFactor = vi.fn(() => 1);
   close = vi.fn();
@@ -223,6 +228,41 @@ test("only a human mouse-down permits focus, and navigation/reload detach before
   wc.emit("before-mouse-event", {}, { type: "mouseDown" });
   wc.emit("focus");
   await f.host.close(id);
+});
+test("reload and allowed main-frame navigation replace native contents but preserve the preview and partition", async () => {
+  const f = await fixture();
+  const { id, view } = await f.open();
+  const wc = view.webContents;
+  const bounds = { x: 10, y: 20, width: 100, height: 100, visible: true };
+  f.host.bounds(id, bounds);
+  wc.emit("did-finish-load");
+  wc.emit("before-mouse-event", {}, { type: "mouseDown" });
+  wc.emit("focus");
+  const navigation = { url: wc.getURL(), isMainFrame: true, isSameDocument: false };
+  wc.emit("did-start-navigation", { ...navigation, isSameDocument: true });
+  wc.emit("did-start-navigation", { ...navigation, isMainFrame: false });
+  wc.emit("did-start-navigation", { ...navigation, url: "https://example.com" });
+  expect(wc.close).not.toHaveBeenCalled();
+  wc.emit("did-start-navigation", navigation);
+  const reloaded = fake.views[1];
+  if (!reloaded) throw new Error("Missing reloaded view");
+  expect(wc.close).toHaveBeenCalledOnce();
+  expect(f.window.webContents.focus).toHaveBeenCalledOnce();
+  expect(f.window.contentView.removeChildView).toHaveBeenCalledWith(view);
+  expect(reloaded.options).toEqual(view.options);
+  expect(reloaded.webContents.loadURL).toHaveBeenCalledWith(navigation.url);
+  expect(partition.protocol.handle).toHaveBeenCalledOnce();
+  expect(partition.clearStorageData).not.toHaveBeenCalled();
+  reloaded.webContents.emit("did-finish-load");
+  expect(reloaded.setBounds).toHaveBeenLastCalledWith({ x: 10, y: 20, width: 100, height: 100 });
+  expect(f.window.contentView.addChildView).toHaveBeenLastCalledWith(reloaded);
+  reloaded.webContents.emit("focus");
+  expect(f.window.webContents.focus).toHaveBeenCalledTimes(2);
+  const markdown = `foom-preview://${id}/b.md`;
+  reloaded.webContents.emit("did-start-navigation", { ...navigation, url: markdown });
+  expect(fake.views[2]?.webContents.loadURL).toHaveBeenCalledWith(markdown);
+  expect(f.registry.records.get(id)?.relativePath).toBe("a.html");
+  await f.host.dispose(false);
 });
 test("restores only validated worktrees lazily, closes removed worktrees and preserves registry on quit", async () => {
   const f = await fixture();
