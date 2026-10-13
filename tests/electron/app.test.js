@@ -180,7 +180,8 @@ async function assertAccessible(page) {
 // Keep the Node debugger available until PTY cleanup finishes. Pausing the final
 // quit lets Playwright detach its own connection through app.close(); calling
 // inspector.close() inside Electron can block while that connection is active.
-async function quitAndWait(app, requestQuit) {
+async function quitAndWait(app, requestQuit, phase = () => {}) {
+  phase("install quit acknowledgement");
   await app.evaluate(({ app }) => {
     globalThis.readyToQuit = false;
     const ready = (event) => {
@@ -191,11 +192,15 @@ async function quitAndWait(app, requestQuit) {
     };
     app.on("will-quit", ready);
   });
+  phase("request quit");
   await requestQuit();
+  phase("wait for quit acknowledgement");
   await expect
     .poll(() => app.evaluate(() => globalThis.readyToQuit), { timeout: deadline(8000) })
     .toBe(true);
+  phase("close Playwright connection");
   await app.close();
+  phase("closed");
 }
 
 // A test timeout does not cancel Playwright promises or dispose native processes.
@@ -415,6 +420,7 @@ async function launchApp(context, openShell = true, options = {}) {
   fixtureCleanup(context).apps.push(async () => {
     console.info("Closing app");
     let timer;
+    let shutdownPhase = "starting";
     try {
       if (child.exitCode !== null || child.signalCode !== null) {
         assert.equal(child.exitCode, 0, "Electron must exit normally");
@@ -424,35 +430,44 @@ async function launchApp(context, openShell = true, options = {}) {
       await Promise.race([
         (async () => {
           // Use the real quit dialog, including when the board has crashed.
-          await quitAndWait(app, async () => {
-            await app.evaluate(({ app }) => app.quit());
-            await expect
-              .poll(async () => {
-                if (await app.evaluate(() => globalThis.readyToQuit)) return true;
-                const dialog = app
-                  .windows()
-                  .find((page) => page.url() === "app://confirmation/confirmation.html");
-                return Boolean(
-                  dialog &&
-                    (await dialog
-                      .getByRole("button", { name: "Stop all and quit" })
-                      .count()
-                      .catch((error) => {
-                        if (dialog.isClosed()) return 0;
-                        throw error;
-                      })),
-                );
-              })
-              .toBe(true);
-            if (!(await app.evaluate(() => globalThis.readyToQuit))) {
-              const dialog = await confirmationPage(app);
-              await dialog.getByRole("button", { name: "Stop all and quit" }).click();
-            }
-          });
+          await quitAndWait(
+            app,
+            async () => {
+              await app.evaluate(({ app }) => app.quit());
+              shutdownPhase = "wait for quit dialog or acknowledgement";
+              await expect
+                .poll(async () => {
+                  if (await app.evaluate(() => globalThis.readyToQuit)) return true;
+                  const dialog = app
+                    .windows()
+                    .find((page) => page.url() === "app://confirmation/confirmation.html");
+                  return Boolean(
+                    dialog &&
+                      (await dialog
+                        .getByRole("button", { name: "Stop all and quit" })
+                        .count()
+                        .catch((error) => {
+                          if (dialog.isClosed()) return 0;
+                          throw error;
+                        })),
+                  );
+                })
+                .toBe(true);
+              if (!(await app.evaluate(() => globalThis.readyToQuit))) {
+                const dialog = await confirmationPage(app);
+                shutdownPhase = "accept quit dialog";
+                await dialog.getByRole("button", { name: "Stop all and quit" }).click();
+              }
+            },
+            (phase) => {
+              shutdownPhase = phase;
+            },
+          );
         })(),
         new Promise((_, reject) => {
           timer = setTimeout(
-            () => reject(new Error("Electron shutdown exceeded its deadline")),
+            () =>
+              reject(new Error(`Electron shutdown exceeded its deadline during ${shutdownPhase}`)),
             deadline(10000),
           );
         }),
@@ -461,6 +476,15 @@ async function launchApp(context, openShell = true, options = {}) {
       console.info("App closed");
       assert.deepEqual(staleTerminalErrors, [], "Normal flows must not use revoked terminal IDs");
       clearTimeout(watchdog);
+    } catch (error) {
+      console.error("Electron shutdown diagnostics:", {
+        phase: shutdownPhase,
+        pid: child.pid,
+        exitCode: child.exitCode,
+        signalCode: child.signalCode,
+        windows: app.windows().map((page) => ({ url: page.url(), closed: page.isClosed() })),
+      });
+      throw error;
     } finally {
       clearTimeout(timer);
       // If graceful shutdown failed, fail the test and terminate the process tree.
