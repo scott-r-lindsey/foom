@@ -1131,7 +1131,7 @@ test("bundled brand fonts and both system themes render in Electron", {
   );
 });
 
-test("quit dialog is on screen above the board on first show and after hide/show reuse", {
+test("trusted quit dialog appears above the board on first show and after hide/show reuse", {
   timeout: deadline(45_000),
 }, async (context) => {
   const app = await launchApp(context);
@@ -1207,7 +1207,7 @@ test("quit dialog is on screen above the board on first show and after hide/show
   for (const capture of evidence) assertDialogAboveBoard(capture);
 });
 
-test("failed trusted dialog presentation releases the board and can be requested again", {
+test("trusted dialog presentation failure releases the board and allows a new request", {
   timeout: deadline(45_000),
 }, async (context) => {
   const app = await launchApp(context);
