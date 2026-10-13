@@ -1,3 +1,4 @@
+import type { SidebarPreferences } from "../../../../src/renderer/board/sidebar.d";
 import { emptyPreferences } from "../../../../src/renderer/board/sidebar-preferences";
 // @vitest-environment jsdom
 import { act, cleanup, fireEvent, render, within } from "@testing-library/react";
@@ -1479,6 +1480,8 @@ test("nests visible children beneath exited and revoked parents, supports keys, 
     orchestration: { role: "child", parentId: "parent", takenOver: true },
   };
   const base = createSampleSource([parent, child]);
+  const revealRef: { current: ((row: BoardRow) => void) | undefined } = { current: undefined };
+  const save = vi.fn<(next: SidebarPreferences) => void>();
   const open = vi.fn();
   const props = {
     source: { ...base, getSidebar: () => [repository] },
@@ -1487,13 +1490,13 @@ test("nests visible children beneath exited and revoked parents, supports keys, 
     filter: "",
     setFilter: vi.fn(),
     preferences: emptyPreferences(),
-    save: vi.fn(),
+    save,
     open,
     focus: vi.fn(),
     buttons: { current: new Map<string, HTMLDivElement>() },
     now: 0,
     inactive: false,
-    revealRef: { current: undefined },
+    revealRef,
     sidebar: { current: null },
     command: vi.fn(() => Promise.resolve()),
     options: undefined,
@@ -1513,6 +1516,26 @@ test("nests visible children beneath exited and revoked parents, supports keys, 
   expect(document.activeElement).not.toBe(item);
   view.rerender(<Sidebar {...props} rows={[{ ...parent, exited: false }, child]} />);
   expect(view.getByText("Revoked orchestrator")).toBeTruthy();
+  const collapsed = { ...props.preferences, expanded: { "worktree:/foom": false } };
+  view.rerender(<Sidebar {...props} preferences={collapsed} />);
+  expect(view.queryByRole("group", { name: "Children of Claude Code" })).toBeNull();
+  act(() => {
+    revealRef.current?.(child);
+  });
+  expect(save).toHaveBeenLastCalledWith(
+    expect.objectContaining({ expanded: { "repository:/foom": true, "worktree:/foom": true } }),
+  );
   view.rerender(<Sidebar {...props} rows={[child]} />);
   expect(view.getByText("Parent unavailable · parent")).toBeTruthy();
+  view.unmount();
+  vi.stubGlobal("matchMedia", () => ({
+    matches: true,
+    addEventListener: vi.fn(),
+    removeEventListener: vi.fn(),
+  }));
+  const compact = render(<Sidebar {...props} />);
+  expect(compact.getAllByRole("treeitem", { name: /feature · Codex/u })).toHaveLength(1);
+  expect(compact.queryByRole("group", { name: "Children of Claude Code" })).toBeNull();
+  compact.unmount();
+  vi.unstubAllGlobals();
 });

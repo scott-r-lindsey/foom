@@ -83,8 +83,7 @@ export class ControlStore {
         status.length > 64 ||
         typeof offset !== "number" ||
         !Number.isSafeInteger(offset) ||
-        offset < 0 ||
-        offset > 100000
+        offset < 0
       )
         throw new ControlError("invalid_request");
       await verifyPrivate(this.directory, true);
@@ -245,18 +244,26 @@ function auditEntry(value: unknown): ActionLogEntry {
     if (typeof value !== "string" || value.length > 8192) throw new ControlError("unavailable");
     return prepareTail([value]).slice(0, 4096);
   };
+  // Main-generated IDs are opaque metadata, not terminal text. In particular, a
+  // hexadecimal worktree ID must not be mistaken for a leading PEM body line.
+  const identity = (value: unknown, fallback = ""): string => {
+    if (value === undefined || value === null) return fallback;
+    if (typeof value !== "string" || !/^[A-Za-z0-9_-]{1,160}$/u.test(value))
+      throw new ControlError("unavailable");
+    return value;
+  };
   const timestamp = text(data["timestamp"]);
   if (!Number.isFinite(Date.parse(timestamp))) throw new ControlError("unavailable");
   return {
-    operationId: text(data["operationId"]),
+    operationId: identity(data["operationId"]),
     timestamp,
-    actorId: text(actor["terminalId"] ?? data["actorId"], "Unknown actor"),
-    parentId: actor["parentId"] == null ? null : text(actor["parentId"]),
+    actorId: identity(actor["terminalId"] ?? data["actorId"], "unknown"),
+    parentId: actor["parentId"] == null ? null : identity(actor["parentId"]),
     repository: text(actor["repository"]),
     worktree: text(actor["worktree"]),
     action: text(data["action"], "recovery"),
-    targetId: data["targetId"] == null ? null : text(data["targetId"]),
-    resultId: data["resultId"] == null ? null : text(data["resultId"]),
+    targetId: data["targetId"] == null ? null : identity(data["targetId"]),
+    resultId: data["resultId"] == null ? null : identity(data["resultId"]),
     status: text(data["status"]),
     reason: text(data["reason"]),
     ...(data["proposal"] === undefined ? {} : { proposal: text(data["proposal"]) }),

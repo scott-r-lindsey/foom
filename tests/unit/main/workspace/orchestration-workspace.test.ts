@@ -1009,8 +1009,20 @@ it("exposes durable history and clearing and refuses authority changes when inte
     "parent",
     repo.path,
     repo.path,
-    null,
+    "parent",
     "pending_confirmation",
+    expect.any(String),
+  );
+  await expect(
+    workspace.sidebarCommand({ kind: "take-over", id: "parent" }, confirm),
+  ).rejects.toThrow("This session has no orchestrator");
+  expect(human).toHaveBeenLastCalledWith(
+    "take_over",
+    "parent",
+    repo.path,
+    repo.path,
+    "parent",
+    "refused",
     expect.any(String),
   );
   human.mockRejectedValueOnce(new Error("disk full"));

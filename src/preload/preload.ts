@@ -261,6 +261,7 @@ const desktop: DesktopApi = {
   onBoardCommand(callback) {
     const listener = (_event: IpcRendererEvent, command: unknown) => {
       if (
+        command === "action-log" ||
         command === "sidebar" ||
         command === "next-waiting" ||
         command === "settings" ||

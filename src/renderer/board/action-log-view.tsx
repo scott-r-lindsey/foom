@@ -102,9 +102,10 @@ export function ActionLog({
             }}
           />
         </label>
-        <label>
-          Action{" "}
+        <div>
+          <label htmlFor="action-log-action">Action</label>
           <select
+            id="action-log-action"
             value={action}
             onChange={(event) => {
               setAction(event.target.value);
@@ -128,10 +129,11 @@ export function ActionLog({
               </option>
             ))}
           </select>
-        </label>
-        <label>
-          Outcome{" "}
+        </div>
+        <div>
+          <label htmlFor="action-log-outcome">Outcome</label>
           <select
+            id="action-log-outcome"
             value={status}
             onChange={(event) => {
               setStatus(event.target.value);
@@ -154,7 +156,7 @@ export function ActionLog({
               </option>
             ))}
           </select>
-        </label>
+        </div>
         <button
           type="button"
           onClick={() => {

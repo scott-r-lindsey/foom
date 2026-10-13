@@ -51,6 +51,21 @@ export function rowRepository(row: BoardRow): string {
 export function rowWorktree(row: BoardRow): string {
   return row.worktree ?? `${rowRepository(row)}/${row.branch}`;
 }
+/** Placement follows main-owned provenance only within the same repository. */
+export function sidebarParent(row: BoardRow, rows: readonly BoardRow[]): BoardRow | undefined {
+  const role = row.orchestration;
+  return role?.role === "child"
+    ? rows.find(
+        (parent) =>
+          parent.id === role.parentId &&
+          parent.orchestration?.role === "orchestrator" &&
+          rowRepository(parent) === rowRepository(row),
+      )
+    : undefined;
+}
+export function sidebarWorktree(row: BoardRow, rows: readonly BoardRow[]): string {
+  return rowWorktree(sidebarParent(row, rows) ?? row);
+}
 /** Retain locations with sessions even when Git no longer lists their checkout. */
 export function sidebarRepositories(
   rows: readonly BoardRow[],
@@ -94,16 +109,8 @@ export function buildSidebar(
   const tree: SidebarTree[] = [];
   for (const repository of repositories) {
     const sessions = rows.filter((row) => rowRepository(row) === repository.path);
-    const parentOf = (row: BoardRow) => {
-      const role = row.orchestration;
-      return role?.role === "child"
-        ? sessions.find(
-            (parent) =>
-              parent.id === role.parentId && parent.orchestration?.role === "orchestrator",
-          )
-        : undefined;
-    };
-    const placement = (row: BoardRow) => rowWorktree(parentOf(row) ?? row);
+    const parentOf = (row: BoardRow) => sidebarParent(row, sessions);
+    const placement = (row: BoardRow) => sidebarWorktree(row, sessions);
     const matching = (row: BoardRow) =>
       matches(sessionName(row, preferences)) || matches(row.reason) || matches(row.branch);
     const pin = preferences.pins.indexOf(repository.path);

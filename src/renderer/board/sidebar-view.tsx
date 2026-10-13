@@ -8,6 +8,7 @@ import { BranchField } from "./branch-field-view";
 import type { ConfigStatus } from "../../shared/foom-config";
 import { AppMenu } from "./app-menu";
 import {
+  Fragment,
   useCallback,
   useEffect,
   useLayoutEffect,
@@ -30,6 +31,8 @@ import {
   worktreeKey,
   rowRepository,
   rowWorktree,
+  sidebarParent,
+  sidebarWorktree,
 } from "./sidebar-model";
 import { lightState, movingLight } from "./light-activity";
 import { light, waitTime } from "./board";
@@ -180,14 +183,14 @@ export function Sidebar({
         expanded: {
           ...preferences.expanded,
           [repositoryKey(rowRepository(row))]: true,
-          [worktreeKey(rowWorktree(row))]: true,
+          [worktreeKey(sidebarWorktree(row, rows))]: true,
         },
       });
     };
     return () => {
       revealRef.current = undefined;
     };
-  }, [preferences, save, revealRef, intent]);
+  }, [preferences, save, revealRef, intent, rows]);
   const closeMenu = useCallback(() => {
     intent.close();
   }, [intent]);
@@ -439,17 +442,7 @@ export function Sidebar({
   const nestedRows = tree.flatMap((repo) =>
     repo.worktrees.flatMap((worktree) => worktree.sessions),
   );
-  const parentOf = (row: BoardRow) => {
-    const role = row.orchestration;
-    return role?.role === "child"
-      ? nestedRows.find(
-          (parent) =>
-            parent.id === role.parentId &&
-            parent.orchestration?.role === "orchestrator" &&
-            rowRepository(parent) === rowRepository(row),
-        )
-      : undefined;
-  };
+  const parentOf = (row: BoardRow) => sidebarParent(row, nestedRows);
   const session = (row: BoardRow, docked = false) => {
     const name = sessionName(row, preferences);
     const identity = sessionIdentity(row, source.shellName?.());
@@ -547,159 +540,162 @@ export function Sidebar({
           },
         ];
     return (
-      <div
-        key={row.kind === "shell" && !row.managed ? "local-shell" : row.id}
-        {...rowEvents(row.id)}
-        className="board-entry session-entry"
-        role="none"
-        data-selected={selected === row.id}
-      >
+      <Fragment key={row.kind === "shell" && !row.managed ? "local-shell" : row.id}>
         <div
-          role={docked ? "button" : "treeitem"}
-          aria-selected={docked ? undefined : selected === row.id}
-          aria-owns={
-            !docked && row.orchestration?.role === "orchestrator" ? `children-${row.id}` : undefined
-          }
-          className="board-row"
-          draggable
-          data-drag-session={row.id}
-          data-nav
-          data-kind={row.kind}
-          data-state={lightState(row)}
-          data-exited={Boolean(row.exited)}
-          tabIndex={docked || row.id === selected ? 0 : -1}
-          aria-label={`${row.branch} · ${name}${name === identity ? "" : ` · ${identity}`} · ${light(row).label}${row.foregroundProgram ? ` · ${row.foregroundProgram}` : ""}${row.kind === "shell" ? "" : ` · ${row.reason}`}${row.bypass ? " · Bypass" : ""}${row.worktreeRemoved ? " · Worktree removed" : ""}`}
-          ref={(element) => {
-            if (element) buttons.current.set(row.id, element);
-            else buttons.current.delete(row.id);
-          }}
-          onFocus={(event) => {
-            if (event.target === event.currentTarget) {
-              focus(row.id);
-            }
-          }}
-          onClick={() => {
-            open(row);
-          }}
-          onKeyDown={(event) => {
-            if (
-              event.target === event.currentTarget &&
-              (event.key === "Enter" || event.key === " ")
-            ) {
-              event.preventDefault();
-              open(row);
-            }
-          }}
+          {...rowEvents(row.id)}
+          className="board-entry session-entry"
+          role="none"
+          data-selected={selected === row.id}
         >
-          <span
-            className="board-light"
-            data-light-state={lightState(row)}
-            data-moving={movingLight(row)}
+          <div
+            role={docked ? "button" : "treeitem"}
+            aria-selected={docked ? undefined : selected === row.id}
+            aria-owns={
+              !compact && !docked && row.orchestration?.role === "orchestrator"
+                ? `children-${row.id}`
+                : undefined
+            }
+            className="board-row"
+            draggable
+            data-drag-session={row.id}
+            data-nav
+            data-kind={row.kind}
+            data-state={lightState(row)}
             data-exited={Boolean(row.exited)}
-            style={{ "--light-opacity": light(row).opacity } as CSSProperties}
-            aria-hidden="true"
-          />
-          <span className="session-lines">
-            <span
-              className={
-                row.orchestration?.role === "child"
-                  ? "session-worktree"
-                  : "visually-hidden board-branch"
+            tabIndex={docked || row.id === selected ? 0 : -1}
+            aria-label={`${row.branch} · ${name}${name === identity ? "" : ` · ${identity}`} · ${light(row).label}${row.foregroundProgram ? ` · ${row.foregroundProgram}` : ""}${row.kind === "shell" ? "" : ` · ${row.reason}`}${row.bypass ? " · Bypass" : ""}${row.worktreeRemoved ? " · Worktree removed" : ""}`}
+            ref={(element) => {
+              if (element) buttons.current.set(row.id, element);
+              else buttons.current.delete(row.id);
+            }}
+            onFocus={(event) => {
+              if (event.target === event.currentTarget) {
+                focus(row.id);
               }
-            >
-              {row.branch}
-            </span>
-            {row.orchestration?.role === "orchestrator" && (
-              <span className="session-orchestration">
-                {row.orchestration.active
-                  ? "Orchestrator"
-                  : row.exited
-                    ? "Exited orchestrator"
-                    : "Revoked orchestrator"}
+            }}
+            onClick={() => {
+              open(row);
+            }}
+            onKeyDown={(event) => {
+              if (
+                event.target === event.currentTarget &&
+                (event.key === "Enter" || event.key === " ")
+              ) {
+                event.preventDefault();
+                open(row);
+              }
+            }}
+          >
+            <span
+              className="board-light"
+              data-light-state={lightState(row)}
+              data-moving={movingLight(row)}
+              data-exited={Boolean(row.exited)}
+              style={{ "--light-opacity": light(row).opacity } as CSSProperties}
+              aria-hidden="true"
+            />
+            <span className="session-lines">
+              <span
+                className={
+                  row.orchestration?.role === "child"
+                    ? "session-worktree"
+                    : "visually-hidden board-branch"
+                }
+              >
+                {row.branch}
               </span>
-            )}
-            {row.orchestration?.role === "child" && (
-              <>
+              {row.orchestration?.role === "orchestrator" && (
                 <span className="session-orchestration">
-                  {row.orchestration.takenOver ? "Taken over" : "Child"}
+                  {row.orchestration.active
+                    ? "Orchestrator"
+                    : row.exited
+                      ? "Exited orchestrator"
+                      : "Revoked orchestrator"}
                 </span>
-                {!parentOf(row) && (
+              )}
+              {row.orchestration?.role === "child" && (
+                <>
                   <span className="session-orchestration">
-                    Parent unavailable · {row.orchestration.parentId}
+                    {row.orchestration.takenOver ? "Taken over" : "Child"}
+                  </span>
+                  {!parentOf(row) && (
+                    <span className="session-orchestration">
+                      Parent unavailable · {row.orchestration.parentId}
+                    </span>
+                  )}
+                </>
+              )}
+              <span className="session-top">
+                <AgentBadge mark={row.kind === "shell" ? ">_" : agentBadges.get(row.agent)} />
+                {row.bypass && (
+                  <span className="session-bypass" title="Launched with a bypass argument">
+                    <span aria-hidden="true">◇</span> Bypass
                   </span>
                 )}
-              </>
-            )}
-            <span className="session-top">
-              <AgentBadge mark={row.kind === "shell" ? ">_" : agentBadges.get(row.agent)} />
-              {row.bypass && (
-                <span className="session-bypass" title="Launched with a bypass argument">
-                  <span aria-hidden="true">◇</span> Bypass
+                {otherViews?.has(row.id) && (
+                  <span
+                    className="tile-number"
+                    aria-label="Shown in another window"
+                    title="Shown in another window"
+                  >
+                    ▣
+                  </span>
+                )}
+                {tileNumbers?.has(row.id) && (
+                  <span
+                    className="tile-number"
+                    data-focused={tileNumbers.get(row.id)?.focused}
+                    aria-label={`Tile ${String(tileNumbers.get(row.id)?.number)}`}
+                  >
+                    {tileNumbers.get(row.id)?.number}
+                  </span>
+                )}
+                <SessionName
+                  name={name}
+                  filter={filter}
+                  open={() => {
+                    open(row);
+                  }}
+                  save={(value) => {
+                    save(renameSession(preferences, row.id, value));
+                  }}
+                />
+                {(row.exited || row.foregroundProgram) && (
+                  <span className="session-program">
+                    {row.exited ? "exited" : row.foregroundProgram}
+                  </span>
+                )}
+                {movingLight(row) && (
+                  <svg
+                    className="activity-trace"
+                    data-light-state={lightState(row)}
+                    viewBox="0 0 34 12"
+                    aria-hidden="true"
+                  >
+                    <path d="" />
+                  </svg>
+                )}
+                {row.state === "needs_input" && (
+                  <span className="board-wait">{waitTime(row, now)}</span>
+                )}
+              </span>
+              {row.worktreeRemoved && (
+                <span className="worktree-removed">
+                  <span aria-hidden="true">⊘</span> Worktree removed
                 </span>
               )}
-              {otherViews?.has(row.id) && (
-                <span
-                  className="tile-number"
-                  aria-label="Shown in another window"
-                  title="Shown in another window"
-                >
-                  ▣
+              {row.kind !== "shell" && (
+                <span className="board-reason" title={row.reason}>
+                  <Highlight text={row.reason} filter={filter} />
                 </span>
               )}
-              {tileNumbers?.has(row.id) && (
-                <span
-                  className="tile-number"
-                  data-focused={tileNumbers.get(row.id)?.focused}
-                  aria-label={`Tile ${String(tileNumbers.get(row.id)?.number)}`}
-                >
-                  {tileNumbers.get(row.id)?.number}
-                </span>
-              )}
-              <SessionName
-                name={name}
-                filter={filter}
-                open={() => {
-                  open(row);
-                }}
-                save={(value) => {
-                  save(renameSession(preferences, row.id, value));
-                }}
-              />
-              {(row.exited || row.foregroundProgram) && (
-                <span className="session-program">
-                  {row.exited ? "exited" : row.foregroundProgram}
-                </span>
-              )}
-              {movingLight(row) && (
-                <svg
-                  className="activity-trace"
-                  data-light-state={lightState(row)}
-                  viewBox="0 0 34 12"
-                  aria-hidden="true"
-                >
-                  <path d="" />
-                </svg>
-              )}
-              {row.state === "needs_input" && (
-                <span className="board-wait">{waitTime(row, now)}</span>
-              )}
+              <span className="visually-hidden board-state">{light(row).label}</span>
             </span>
-            {row.worktreeRemoved && (
-              <span className="worktree-removed">
-                <span aria-hidden="true">⊘</span> Worktree removed
-              </span>
-            )}
-            {row.kind !== "shell" && (
-              <span className="board-reason" title={row.reason}>
-                <Highlight text={row.reason} filter={filter} />
-              </span>
-            )}
-            <span className="visually-hidden board-state">{light(row).label}</span>
-          </span>
-          {!docked && actions(row.id, `${name} in ${row.branch}`, items)}
+            {!docked && actions(row.id, `${name} in ${row.branch}`, items)}
+          </div>
+          {docked && actions(row.id, `${name} in ${row.branch}`, items)}
         </div>
-        {docked && actions(row.id, `${name} in ${row.branch}`, items)}
-        {!docked && row.orchestration?.role === "orchestrator" && (
+        {!compact && !docked && row.orchestration?.role === "orchestrator" && (
           <div
             role="group"
             id={`children-${row.id}`}
@@ -711,7 +707,7 @@ export function Sidebar({
               .map((child) => session(child))}
           </div>
         )}
-      </div>
+      </Fragment>
     );
   };
   const roll = (row: BoardRow | undefined) =>

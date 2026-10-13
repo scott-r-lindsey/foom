@@ -663,13 +663,15 @@ view (role, children, last 20 actions); validated session metadata retains bound
 command that removes the orchestrator's stop, tail and wait access to that child.
 
 **Sidebar nesting and action log implemented in #157.** The board source exposes
-main-owned relationships and the private audit API. Children appear under their
+main-owned relationships and the private audit API. In the expanded sidebar, children appear under their
 orchestrator, with their own worktree label, light, row panel and keyboard access.
 Filtering retains matching children and their parent context; a missing parent
 leaves the child in its own checkout with an explicit unavailable-parent label.
 Exited and revoked parents stay visible, and an exited parent cannot be closed
 until its child rows are closed. Takeover remains explicit and ends API authority.
-Nesting does not attach a view or change terminal execution or activity subscriptions.
+The compact rail shows each session once in a flat list. Reveal expands the parent’s
+checkout for nested children. Nesting does not attach a view or change terminal
+execution or activity subscriptions.
 
 The app menu's Action log opens a searchable, paginated view of actor/parent,
 repository/worktree, operation and target/result IDs, action, outcome, fixed reason,
@@ -1062,9 +1064,9 @@ ways: every implemented command to the macOS menu bar, and a curated, fixed
 layout to the wordmark menu on every platform. The wordmark projection is data
 only (`AppMenuEntry`): commands, separators, the Settings submenu (the agent
 routes come from `main/agents/agent-list.ts`, followed by Via Settings UI), and a
-`size` row carrying Bigger/Smaller and main's current interface scale. Planned
-commands (Action log) exist in the registry
-disabled, without bindings, and stay out of the macOS menu bar until they land.
+`size` row carrying Bigger/Smaller and main's current interface scale. Action log
+is an enabled board command in both the wordmark and macOS menus; it has no direct
+shortcut binding.
 Main owns one `before-input-event` dispatcher; native accelerators are
 display-only (`registerAccelerator: false`). Windows/Linux have no native
 application menu. The existing two-second Ctrl+Shift+Space tile leader resolves

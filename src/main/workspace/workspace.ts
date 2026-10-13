@@ -233,7 +233,7 @@ export class Workspace {
       id,
       entry?.repository ?? "",
       entry?.worktree ?? "",
-      target,
+      target ?? id,
       status,
       operationId,
     );
@@ -1419,7 +1419,12 @@ export class Workspace {
     if (command.kind === "take-over") {
       const operationId = randomUUID();
       await this.auditHuman("take_over", command.id, command.id, "running", operationId);
-      this.orchestration.takeOver(command.id);
+      try {
+        this.orchestration.takeOver(command.id);
+      } catch (error) {
+        await this.auditHuman("take_over", command.id, command.id, "refused", operationId);
+        throw error;
+      }
       await this.auditHuman("take_over", command.id, command.id, "succeeded", operationId);
       return;
     }

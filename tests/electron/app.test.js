@@ -723,6 +723,8 @@ test("terminal runs an interactive shell behind an isolated bridge", {
           "acknowledge",
           "tail",
           "onActivity",
+          "actionLog",
+          "clearActionLog",
           "onWorkspaceChange",
           "startWorktree",
           "removeWorktree",
@@ -5401,11 +5403,9 @@ test("application menu uses the command registry and supports native keyboard ac
   const entries = await page.evaluate(() => window.desktop.appMenu.commands());
   assert.ok(entries.some((entry) => entry?.id === "reload"));
   assert.equal(entries.find((entry) => entry?.id === "new-window").enabled, true);
-  // Planned entries are refused through IPC as well as in the menu.
-  await assert.rejects(
-    page.evaluate(() => window.desktop.appMenu.execute("action-log")),
-    /Unavailable app command/,
-  );
+  await page.evaluate(() => window.desktop.appMenu.execute("action-log"));
+  await expect(page.getByRole("heading", { name: "Action log" })).toBeVisible();
+  await page.getByRole("button", { name: "Close action log" }).click();
   if (process.platform === "darwin") {
     const labels = await app.evaluate(({ Menu }) =>
       Menu.getApplicationMenu().items.map((item) => item.label),
@@ -5464,7 +5464,7 @@ test("application menu uses the command registry and supports native keyboard ac
   }
   await expect(page.getByRole("menuitem", { name: /^New window/ })).toBeEnabled();
   await expect(page.getByRole("menuitem", { name: /orchestrator/i })).toHaveCount(0);
-  await expect(page.getByRole("menuitem", { name: "Action log", exact: true })).toBeDisabled();
+  await expect(page.getByRole("menuitem", { name: "Action log", exact: true })).toBeEnabled();
   await expect(page.getByRole("menuitem", { name: /^(Paste|Focus|Swap|Two by two)/ })).toHaveCount(
     0,
   );
@@ -7354,6 +7354,15 @@ for (const cliOnly of [false, true])
       .toContain("FOOM_AGENT_READY");
     const waited = await call(parent.controlToken, "wait_for", { ids: [childId], timeoutMs: 0 });
     assert.equal(waited.body.result.sessions[0].id, childId);
+    // Children retain independent keyboard access and checkout identity under the parent.
+    const children = page.getByRole("group", {
+      name: `Children of ${cliOnly ? "Antigravity" : "Claude Code"}`,
+    });
+    await expect(children.getByRole("treeitem")).toHaveCount(1);
+    await expect(children.getByText("child-one", { exact: true })).toBeVisible();
+    await children.getByRole("treeitem").focus();
+    await assertAccessible(page);
+
     const stopped = await call(parent.controlToken, "stop", {
       idempotencyKey: "stop-1",
       id: childId,
@@ -7384,16 +7393,6 @@ for (const cliOnly of [false, true])
       .toBe("succeeded");
     assert.match(String(git("branch", "--list", "child-one")), /child-one/);
 
-    // Children retain independent keyboard access and checkout identity under the parent.
-    const children = page.getByRole("group", { name: "Children of Claude Code" });
-    await expect(children.getByRole("treeitem")).toHaveCount(1);
-    await expect(children.getByText("child-one", { exact: true })).toBeVisible();
-    await children.getByRole("treeitem").focus();
-    const nestingAudit = await new AxeBuilder({ page }).analyze();
-    assert.deepEqual(
-      nestingAudit.violations.filter((item) => ["serious", "critical"].includes(item.impact)),
-      [],
-    );
     await assert.rejects(
       page.evaluate(() =>
         window.desktop.actionLog({ search: "", action: "", status: "", offset: -1 }),
@@ -7418,11 +7417,11 @@ for (const cliOnly of [false, true])
     await page.getByRole("searchbox").fill("remove_worktree");
     await page.getByLabel("Outcome", { exact: true }).selectOption("succeeded");
     await expect(history.getByText("remove worktree", { exact: true })).toHaveCount(1);
-    const logAudit = await new AxeBuilder({ page }).analyze();
-    assert.deepEqual(
-      logAudit.violations.filter((item) => ["serious", "critical"].includes(item.impact)),
-      [],
-    );
+    await page.screenshot({
+      path: `test-results/action-log-${cliOnly ? "agy" : "claude"}.png`,
+      animations: "disabled",
+    });
+    await assertAccessible(page);
     await page.getByRole("searchbox").press("Escape");
     await expect(page.getByRole("heading", { name: "Action log" })).toHaveCount(0);
 
@@ -7436,6 +7435,21 @@ for (const cliOnly of [false, true])
     );
     assert.equal(orchestrators.length, 1);
 
+    // Keep a live child when its parent is revoked and exits.
+    const liveTree = await call(parent.controlToken, "create_worktree", {
+      idempotencyKey: "tree-live",
+      branch: "child-live",
+    });
+    assert.equal(liveTree.body.result.status, "succeeded");
+    const liveLaunch = await call(parent.controlToken, "launch", {
+      idempotencyKey: "launch-live",
+      worktreeId: liveTree.body.result.resultId,
+      agent: "claude",
+    });
+    assert.equal(liveLaunch.body.result.status, "succeeded");
+    const liveId = liveLaunch.body.result.resultId;
+    await expect(children.getByRole("treeitem")).toHaveCount(1);
+
     // Revoke ends orchestration on the same credential; the session keeps running.
     await parentRow
       .locator(":scope > .board-row")
@@ -7447,6 +7461,10 @@ for (const cliOnly of [false, true])
       .toBe("agent");
     assert.equal((await call(parent.controlToken, "tail", { id: childId, lines: 1 })).status, 403);
 
+    const liveChild = (await page.evaluate(() => window.desktop.workspace())).terminals.find(
+      (row) => row.id === liveId,
+    );
+    assert.equal(liveChild.exited, false);
     await expect(page.getByText("Revoked orchestrator", { exact: true })).toBeVisible();
     await expect(children.getByRole("treeitem")).toHaveCount(1);
     const logged = await page.evaluate(() =>
@@ -7475,6 +7493,12 @@ for (const cliOnly of [false, true])
       (row) => row.id === parentId,
     );
     assert.equal(after.orchestration.active, false);
+    await expect(page.getByText("Exited orchestrator", { exact: true })).toBeVisible();
+    await expect(children.getByRole("treeitem")).toHaveCount(1);
+    await assert.rejects(
+      page.evaluate((id) => window.desktop.sidebarCommand({ kind: "close", id }), parentId),
+      /Close the orchestrator/u,
+    );
     assert.ok(after.orchestration.history.some((entry) => entry.action === "remove_worktree"));
 
     // Attachment is per launch: nothing written to the user's agent config or the repository.

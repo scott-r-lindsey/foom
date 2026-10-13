@@ -1514,14 +1514,17 @@
   stroke: currentColor;
 }
 
+.orchestrator-children > .board-entry {
+  margin-inline-start: 0;
+}
 .orchestrator-children {
-  margin-inline-start: 18px;
+  margin-inline-start: 50px;
   border-inline-start: 1px solid var(--line);
 }
 .session-worktree,
 .session-orchestration {
   display: block;
-  color: var(--muted);
+  color: var(--ink);
   font-size: 11px;
 }
 .action-log {

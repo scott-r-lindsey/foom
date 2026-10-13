@@ -656,7 +656,7 @@ annotations, so the tools keep accurate `readOnlyHint` and `destructiveHint`.
 The board source now supplies main-owned child relationships and read/clear access
 to the private action history. Sidebar children keep their checkout identity,
 independent lights and keyboard row access under running, exited or revoked
-parents. Filters retain parent context; orphans remain visible in their checkout.
+parents in the expanded sidebar; the compact rail stays flat with each session once. Filters retain parent context; orphans remain visible in their checkout.
 An exited parent remains until its children are closed. No nesting operation
 changes xterm ownership, attachment ordering, hidden execution or activity delivery.
 

@@ -285,10 +285,13 @@ it("searches only redacted allowlisted history, filters and pages, and serialize
   ]);
   expect(await store.read(query)).toEqual({ entries: [], total: 0 });
   expect(await readdir(directory)).toContain(`operation-${record.operation.operationId}.json`);
-  for (let index = 0; index < 102; index++)
-    await store.human("take_over", "human", "repo", "tree", null, "succeeded");
+  await store.human("take_over", "human", "repo", "tree", null, "succeeded");
+  const auditPath = join(directory, "actions-0.jsonl");
+  const event = await readFile(auditPath, "utf8");
+  await writeFile(auditPath, event.repeat(102));
   expect((await store.read(query)).entries).toHaveLength(100);
   expect((await store.read({ ...query, offset: 100 })).entries).toHaveLength(2);
+  expect((await store.read({ ...query, offset: 100001 })).entries).toHaveLength(0);
 });
 it.each([
   null,
@@ -301,7 +304,7 @@ it.each([
   { search: "", action: "", status: "x".repeat(65), offset: 0 },
   { search: "", action: "", status: "", offset: -1 },
   { search: "", action: "", status: "", offset: 0.5 },
-  { search: "", action: "", status: "", offset: 100001 },
+  { search: "", action: "", status: "", offset: Number.MAX_SAFE_INTEGER + 1 },
   { search: "", action: "", status: "", offset: "0" },
   { search: "", action: "", status: "", offset: 0, path: "/secret" },
 ])("rejects invalid log queries %j", async (query) => {
@@ -332,4 +335,29 @@ it("fails closed on oversized, corrupted, insecure or malformed history, and exp
     await chmod(path, 0o644);
     await expect(store.read(query)).rejects.toThrow();
   }
+});
+
+it("preserves opaque worktree identities while refusing malformed identity fields", async () => {
+  const store = new ControlStore(directory);
+  const targetId = "a".repeat(64);
+  const resultId = "b".repeat(64);
+  await store.persist({ ...record, operation: { ...record.operation, targetId, resultId } });
+  const query = { search: targetId, action: "", status: "", offset: 0 };
+  expect((await store.read(query)).entries[0]).toMatchObject({ targetId, resultId });
+  await writeFile(
+    join(directory, "actions-0.jsonl"),
+    JSON.stringify({ timestamp: new Date().toISOString(), targetId: "token=secret" }) + "\n",
+  );
+  await expect(store.read(query)).rejects.toThrow("unavailable");
+});
+
+it("keeps legacy recovery events readable without an actor", async () => {
+  const store = new ControlStore(directory);
+  await atomicPrivate(directory, `operation-${record.operation.operationId}.json`, {
+    operation: { status: "running" },
+  });
+  await store.recover();
+  expect(
+    (await store.read({ search: "", action: "", status: "", offset: 0 })).entries[0],
+  ).toMatchObject({ actorId: "unknown", status: "indeterminate", reason: "recovery" });
 });
