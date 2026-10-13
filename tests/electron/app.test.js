@@ -560,6 +560,11 @@ test("terminal runs an interactive shell behind an isolated bridge", {
       });
     });
     const input = page.locator(".xterm-helper-textarea");
+    // PTY creation and attachment precede shell startup. Wait for the initial
+    // prompt before typing so startup cannot clear or consume the command.
+    await expect
+      .poll(() => page.locator(".xterm-rows").innerText())
+      .toMatch(process.platform === "win32" ? /PS [\s\S]*>/ : /[$#%>]\s*$/);
     await input.focus();
     // IPC output can arrive while Chromium is between animation frames during startup.
     // Poll it from the test process rather than using waitForFunction's rAF default.
@@ -3260,6 +3265,10 @@ process.stdin.resume();
         page.evaluate(async (id) => (await window.desktop.tail(id, 20)).join(""), terminal.id),
       )
       .toContain(`CWD:${agentTree}`);
+    // Output can precede launch's reveal, which closes any open action menu.
+    await expect(
+      page.locator('.terminal-tile[data-focused="true"] .xterm-helper-textarea'),
+    ).toBeFocused();
     await page.getByRole("button", { name: "Actions for agent", exact: true }).click();
     await page.getByRole("menuitem", { name: "Claude Code", exact: true }).click();
     await expect(
