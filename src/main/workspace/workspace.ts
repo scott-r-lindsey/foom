@@ -1382,6 +1382,7 @@ export class Workspace {
 
   async sidebarInventory(): Promise<SidebarInventory> {
     return {
+      previews: [],
       home: await (this.homeFacts ??= homeShellFacts()),
       repositories: await Promise.all(
         this.deps.worktrees.listRepositories().map(async (repository) => {

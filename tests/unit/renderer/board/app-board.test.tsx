@@ -210,6 +210,8 @@ afterEach(() => {
 });
 test("source connects independently of views, reconciles events, preserves ordering, and keeps activity outside snapshots", async () => {
   const source = createAppSource();
+  expect(source.previews?.getSnapshot()).toEqual([]);
+  await expect(source.previews?.close("unknown")).rejects.toThrow("Preview host unavailable");
   expect(source.isReady?.()).toBe(false);
   const disconnect = source.connect?.();
   await settle();
