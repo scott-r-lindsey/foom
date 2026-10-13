@@ -2,6 +2,8 @@ import { randomUUID } from "node:crypto";
 import { constants, watch } from "node:fs";
 import { lstat, mkdir, open, readdir, realpath, rename, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
+import { hasBypassArgument } from "../../shared/agent-arguments";
+import type { DialogContent } from "../../shared/confirmation";
 import type { ConfigSettings } from "../../shared/config";
 import { parseSettingsFile } from "../../shared/config-files";
 import type { ConfigChange, ConfigStatus } from "../../shared/foom-config";
@@ -10,7 +12,7 @@ import type { ParsedThemeFile, ThemeDiagnostic, ThemeKind } from "../../shared/t
 import { parseThemeFile } from "../../shared/theme-files";
 import { attentionConflicts } from "../../shared/user-interface-theme";
 import { ThemeValidationError, validThemeFile } from "../../shared/theme-validation";
-import { describe, effective, weakenings } from "./approval";
+import { argumentChanges, argumentDisclosure, describe, effective, weakenings } from "./approval";
 import type { EffectiveConfig, Weakening } from "./approval";
 import { RedirectedGitError } from "./git";
 import type { CommitRecord, ConfigGit, TreeEntry } from "./git";
@@ -36,6 +38,8 @@ export interface ConfigServiceDependencies {
     get(file: string): string | null;
     set(file: string, value: string | null): Promise<void>;
   };
+  confirmArguments?(content: DialogContent): Promise<boolean>;
+  acknowledgeBypass?(agents: readonly ("claude" | "codex" | "agy")[]): Promise<void>;
   onStatus?(status: ConfigStatus): void;
   onThemeDecision?(): void;
   now?: () => number;
@@ -79,7 +83,9 @@ const watchFolder = (directory: string, listener: (file: string | null) => void)
 };
 
 function invalid(error: unknown): string {
-  return error instanceof ThemeValidationError ? `${error.path}: ${error.reason}` : "$: unreadable";
+  return error instanceof ThemeValidationError
+    ? `${error.path}: ${error.reason}${error.detail ? `: ${error.detail}` : ""}`
+    : "$: unreadable";
 }
 
 /** Reads a direct regular file without following links; null when it does not exist. */
@@ -271,16 +277,42 @@ export class ConfigService {
             values,
             parseSettingsFile(JSON.stringify({ kind: "settings", [key]: value })),
           );
-        } catch {
+        } catch (error) {
+          if (key === "agentArguments") throw error;
           // Dropped; the default applies.
         }
       }
       const text = `${JSON.stringify({ kind: "settings", ...values }, null, 2)}\n`;
+      parseSettingsFile(text);
       await this.writeFile(SETTINGS_FILE, text);
       migrated = { text, values };
     }
     await this.initializeRepository(written);
     this.applied = (await this.baseline(migrated)) ?? DEFAULTS;
+    if (!migrated && legacy?.agentArguments) {
+      // Trust only the profile's arguments, not other edits made while Foom was closed.
+      const bytes = await this.read(SETTINGS_FILE);
+      if (!bytes) throw new Error("Cannot migrate agent arguments without settings");
+      const text = decode(bytes);
+      const values = parseSettingsFile(text);
+      const baseline = { ...this.applied.values, agentArguments: legacy.agentArguments };
+      const approvedText = `${JSON.stringify({ kind: "settings", ...baseline }, null, 2)}\n`;
+      parseSettingsFile(approvedText);
+      this.applied = { values: baseline, text: approvedText };
+      if (values.agentArguments === undefined) {
+        const migratedText = `${JSON.stringify({ kind: "settings", ...values, agentArguments: legacy.agentArguments }, null, 2)}\n`;
+        parseSettingsFile(migratedText);
+        await this.writeFile(SETTINGS_FILE, migratedText);
+      }
+      // Keep a recoverable approved baseline even when the working file has a held edit.
+      const working = await this.read(SETTINGS_FILE);
+      if (!working || decode(working) !== this.applied.text)
+        await this.deps.git.commit(
+          new Map([[SETTINGS_FILE, Buffer.from(this.applied.text)]]),
+          "Migrate agent launch arguments",
+        );
+      await this.deps.baseline.set(digest(this.applied.text));
+    }
     if (migrated && this.applied === migrated) await this.deps.baseline.set(digest(migrated.text));
     this.deps.apply(this.applied.values);
     await this.scan();
@@ -512,6 +544,7 @@ export class ConfigService {
     const after = effective(this.deps.defaults, values);
     const weak = [
       ...weakenings(before, after),
+      ...argumentChanges(before, after),
       ...(await this.themeSelectionWeakening(before, after)),
     ];
     if (weak.length) {
@@ -913,8 +946,28 @@ export class ConfigService {
         throw new Error("The file changed. Review the new change.");
       }
       const tree = await settle(this.headTree(), new Map<string, TreeEntry>());
-      if (decision === "allow") await this.apply(pending.text, pending.values, tree);
-      else {
+      if (decision === "allow") {
+        const before = effective(this.deps.defaults, this.applied.values);
+        const after = effective(this.deps.defaults, pending.values);
+        if (argumentChanges(before, after).length) {
+          if (!(await this.deps.confirmArguments?.(argumentDisclosure(before, after))))
+            return this.status();
+          // The dialog can remain open while an agent replaces the proposal.
+          const current = await settle(this.read(SETTINGS_FILE), null);
+          if (!current || decode(current) !== pending.text) {
+            await this.scan();
+            throw new Error("The file changed. Review the new change.");
+          }
+          const bypass = (["claude", "codex", "agy"] as const).filter(
+            (agent) =>
+              JSON.stringify(before.agentArguments[agent]) !==
+                JSON.stringify(after.agentArguments[agent]) &&
+              hasBypassArgument(agent, after.agentArguments[agent]),
+          );
+          if (bypass.length) await this.deps.acknowledgeBypass?.(bypass);
+        }
+        await this.apply(pending.text, pending.values, tree);
+      } else {
         this.pending = null;
         this.events = this.events.filter((event) => event.state !== "pending");
         this.record({

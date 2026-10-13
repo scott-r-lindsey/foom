@@ -24,7 +24,7 @@ export interface DialogContent {
   subject?: string;
   glyph?: "trash" | "branch" | "power" | "orbit" | "link" | "shield" | "bell";
   note?: string;
-  sections?: readonly { label: string; items: readonly string[] }[];
+  sections?: readonly { label: string; items: readonly string[]; arguments?: boolean }[];
   facts?: readonly { label: string; value: string; mono?: boolean }[];
   arguments?: readonly string[];
   pairing?: { code: string; expiresAt: number };

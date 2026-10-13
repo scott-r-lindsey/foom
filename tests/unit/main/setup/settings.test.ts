@@ -1,8 +1,9 @@
+import type { ConfigSettings } from "../../../../src/shared/config";
 import { interfaceThemes } from "../../../../src/shared/interface-themes";
 import { mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, expect, test } from "vitest";
+import { afterEach, expect, test, vi } from "vitest";
 import {
   DEFAULT_SETTINGS,
   parseSettingsPatch,
@@ -445,4 +446,53 @@ test("session restore defaults on, validates boolean patches and isolates an inv
   );
   const store = await SettingsStore.open(dir);
   expect(store.get()).toMatchObject({ restoreSessions: true, hooks: false, interfaceScale: 120 });
+});
+
+test.each([1, 2])(
+  "version %i arguments survive profile writes until migrated, then use the config writer",
+  async (version) => {
+    const dir = await directory();
+    const file = path.join(dir, "settings.json");
+    const args = {
+      claude: ["--settings", "{}"],
+      codex: ["--model", "literal spaces"],
+      agy: ["--verbose"],
+    };
+    const recovered = { ...args, claude: [] };
+    await writeFile(
+      file,
+      JSON.stringify({ version, settings: { agentArguments: args, setupComplete: true } }),
+    );
+    const store = await SettingsStore.open(dir);
+    expect(store.legacyConfig()?.agentArguments).toEqual(recovered);
+    await store.setConfigDigest("a".repeat(64));
+    // Baseline persistence during config initialization must not drop the arguments.
+    const reopened = await SettingsStore.open(dir);
+    expect(reopened.get().agentArguments).toEqual(recovered);
+    const writer = vi.fn((patch: ConfigSettings) => {
+      store.setConfig(patch);
+      return Promise.resolve();
+    });
+    await store.attachConfig(writer, { agentArguments: recovered }, "b".repeat(64));
+    expect(store.legacyConfig()).toBeUndefined();
+    const stored: unknown = JSON.parse(await readFile(file, "utf8"));
+    expect(stored).toHaveProperty(
+      "settings",
+      expect.not.objectContaining({ agentArguments: expect.anything() as unknown }) as unknown,
+    );
+    expect((await SettingsStore.open(dir)).legacyConfig()).toBeUndefined();
+    const next = { claude: [], codex: ["--ask-for-approval", "never"], agy: [] };
+    await store.update({ agentArguments: next });
+    expect(writer).toHaveBeenCalledExactlyOnceWith({ agentArguments: next });
+    expect(store.get().agentArguments).toEqual(next);
+  },
+);
+
+test.each([1, 2])("version %i empty arguments need no migration", async (version) => {
+  const dir = await directory();
+  await writeFile(
+    path.join(dir, "settings.json"),
+    JSON.stringify({ version, settings: { agentArguments: DEFAULT_SETTINGS.agentArguments } }),
+  );
+  expect((await SettingsStore.open(dir)).legacyConfig()?.agentArguments).toBeUndefined();
 });

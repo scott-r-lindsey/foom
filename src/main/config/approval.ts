@@ -1,3 +1,5 @@
+import { hasBypassArgument } from "../../shared/agent-arguments";
+import type { DialogContent } from "../../shared/confirmation";
 import type { ConfigSetting, ConfigSettings } from "../../shared/config";
 import { CONFIG_SETTINGS } from "../../shared/config-settings";
 import type { Settings } from "../../shared/setup";
@@ -59,6 +61,7 @@ const LABELS: Record<ConfigSetting, string> = {
   terminalFontSize: "Terminal font size",
   sound: "Sound",
   agents: "Agents",
+  agentArguments: "Agent launch arguments",
   hooks: "Hooks",
   restoreSessions: "Restore sessions on launch",
 };
@@ -78,4 +81,64 @@ export function describe(before: EffectiveConfig, after: EffectiveConfig): strin
     return `${LABELS[key]} ${String(value)}${key === "interfaceScale" ? "%" : ""}`;
   if (typeof value === "string") return `${LABELS[key]} ${value}`;
   return LABELS[key];
+}
+
+/** Every argument change requires consent, including removal and apparently harmless flags. */
+export function argumentChanges(before: EffectiveConfig, after: EffectiveConfig): Weakening[] {
+  return (["claude", "codex", "agy"] as const)
+    .filter(
+      (agent) =>
+        JSON.stringify(before.agentArguments[agent]) !==
+        JSON.stringify(after.agentArguments[agent]),
+    )
+    .map((agent) => ({
+      action: `change ${AGENT_NAMES[agent]} launch arguments`,
+      detail: `agentArguments.${agent}`,
+    }));
+}
+
+/** Literal argument lines stay in the trusted dialog, never the board's status metadata. */
+export function argumentDisclosure(before: EffectiveConfig, after: EffectiveConfig): DialogContent {
+  const agents = (["claude", "codex", "agy"] as const).filter(
+    (agent) =>
+      JSON.stringify(before.agentArguments[agent]) !== JSON.stringify(after.agentArguments[agent]),
+  );
+  return {
+    title: "Allow agent launch arguments?",
+    glyph: "shield",
+    subject: "Future launches from Foom",
+    accept: "Allow",
+    sections: agents.flatMap((agent) => [
+      {
+        label: `${AGENT_NAMES[agent]} before`,
+        arguments: true,
+        items: before.agentArguments[agent].length
+          ? before.agentArguments[agent]
+          : ["(no arguments)"],
+      },
+      {
+        label: `${AGENT_NAMES[agent]} after`,
+        arguments: true,
+        items: after.agentArguments[agent].length
+          ? after.agentArguments[agent]
+          : ["(no arguments)"],
+      },
+      ...(hasBypassArgument(agent, after.agentArguments[agent])
+        ? [
+            {
+              label: `${AGENT_NAMES[agent]} bypass`,
+              arguments: true,
+              items: after.agentArguments[agent].filter(
+                (arg, index, args) =>
+                  hasBypassArgument(agent, [arg]) ||
+                  (["--permission-mode", "--sandbox", "-s", "-c", "--config"].includes(arg) &&
+                    hasBypassArgument(agent, args.slice(index, index + 2))),
+              ),
+            },
+          ]
+        : []),
+    ]),
+    detail:
+      "These arguments apply to new, resumed and restored sessions. A worktree is not a sandbox. With bypass arguments, the agent can act as you anywhere on the machine.",
+  };
 }

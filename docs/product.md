@@ -681,6 +681,14 @@ needs you (turning alerts off, alert volume 0, hooks off, or turning an agent of
 wait in an amber banner, such as "An agent wants to turn off the needs-you sound",
 with **Allow** and **Keep it on**. Keep it on restores the file.
 
+`agentArguments` in settings.json contains literal lists for `claude`, `codex` and
+`agy`. Every file-originated argument change waits for Allow, including removing
+arguments. Allow opens the trusted dialog with each changed agent's before and
+after lists, one argument per line, and names known bypass flags. Accepting also
+records bypass acknowledgement. Settings edits write the same file directly and
+retain their existing bypass disclosure. Running sessions keep their arguments;
+new, resumed and restored launches use the approved defaults.
+
 **Recent changes** lists each change with its time, summary, file and state:
 Applied with a short hash and **Revert**, Rejected with its reason, or Pending.
 Revert restores the previous version of that change's files; a revert that would

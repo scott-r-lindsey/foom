@@ -51,7 +51,7 @@ export async function execute(
       else
         for (const problem of result.problems)
           output(
-            `${JSON.stringify(problem.file)}: ${problem.path}: ${problem.severity === "warning" ? "warning: " : ""}${problem.reason}`,
+            `${JSON.stringify(problem.file)}: ${problem.path}: ${problem.severity === "warning" ? "warning: " : ""}${problem.reason}${problem.detail ? `: ${problem.detail}` : ""}`,
           );
       return result.code;
     }

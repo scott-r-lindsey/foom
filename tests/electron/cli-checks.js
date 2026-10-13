@@ -65,7 +65,7 @@ function assertConfigValidation(executable, scratch) {
   const valid = join(directory, "valid.json");
   const broken = join(directory, "broken.json");
   writeFileSync(valid, '{"kind":"settings","terminalFontSize":16}');
-  writeFileSync(broken, '{"kind":"settings","agentArguments":{}}');
+  writeFileSync(broken, '{"kind":"settings","agentBypassAcknowledged":{}}');
   const env = { ...process.env, FOOM_CONTROL_URL: "invalid", FOOM_CONTROL_TOKEN: "must-not-use" };
   delete env.DISPLAY;
   delete env.WAYLAND_DISPLAY;
@@ -89,9 +89,12 @@ function assertConfigValidation(executable, scratch) {
       if (json)
         assert.deepEqual(
           JSON.parse(result.stdout),
-          code ? [{ file: "broken.json", path: "$.agentArguments", reason: "unknown-key" }] : [],
+          code
+            ? [{ file: "broken.json", path: "$.agentBypassAcknowledged", reason: "unknown-key" }]
+            : [],
         );
-      else if (code) assert.match(result.stdout, /broken.json.*\$\.agentArguments.*unknown-key/);
+      else if (code)
+        assert.match(result.stdout, /broken.json.*\$\.agentBypassAcknowledged.*unknown-key/);
     }
   }
   const sounds = join(directory, "done");

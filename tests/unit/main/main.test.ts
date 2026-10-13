@@ -368,10 +368,12 @@ const mock = vi.hoisted(() => {
       setConfig: vi.fn(),
       setConfigDigest: vi.fn(() => Promise.resolve()),
       update: vi.fn(() => Promise.resolve()),
-      get: (): Pick<Settings, "colorMode" | "interfaceScale" | "interfaceTheme"> => ({
+      get: (): Pick<Settings, "colorMode" | "interfaceScale" | "interfaceTheme"> &
+        Partial<Pick<Settings, "agentBypassAcknowledged">> => ({
         colorMode: "dark",
         interfaceScale: 120,
         interfaceTheme: "follow",
+        agentBypassAcknowledged: { claude: false, codex: false, agy: true },
       }),
     },
     VerdictLog: vi.fn<(userData: string) => void>(),
@@ -1635,4 +1637,21 @@ test("menu agent availability comes from installation and saved settings", async
   await expect(invokeWindow(0, "app-menu:execute", "via-claude")).rejects.toThrow("Unavailable");
   settings = { ...settings, setupComplete: false, agents: { ...settings.agents, claude: true } };
   await expect(invokeWindow(0, "app-menu:execute", "via-claude")).rejects.toThrow("Unavailable");
+});
+
+test("config Allow uses the trusted dialog and persists bypass consent without clearing other agents", async () => {
+  await start();
+  const deps = mock.config.deps;
+  if (!deps?.confirmArguments || !deps.acknowledgeBypass)
+    throw new Error("Missing config consent capabilities");
+  const content = { title: "Allow agent launch arguments?", accept: "Allow" };
+  mock.message.mockResolvedValueOnce({ response: 1 });
+  expect(await deps.confirmArguments(content)).toBe(true);
+  expect(mock.message).toHaveBeenLastCalledWith(content);
+  mock.message.mockResolvedValueOnce({ response: 0 });
+  expect(await deps.confirmArguments(content)).toBe(false);
+  await deps.acknowledgeBypass(["codex", "claude"]);
+  expect(mock.settingsStore.update).toHaveBeenLastCalledWith({
+    agentBypassAcknowledged: { claude: true, codex: true, agy: true },
+  });
 });

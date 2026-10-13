@@ -782,6 +782,7 @@ in the profile. Validation alone grants no approval.
 | `terminalFontSize` | Integer 10–32 |
 | `sound` | Exact current `shared/sounds.ts` settings format |
 | `agents` | Exactly boolean `claude`, `codex`, `agy` switches |
+| `agentArguments` | Exactly `claude`, `codex`, `agy` literal argument lists, validated by `parseAgentDefaults`; every file change requires Allow |
 | `hooks` | Boolean |
 
 `shared/config-settings.ts` supplies the same value validation to main's settings
@@ -790,7 +791,6 @@ Theme IDs are checked syntactically, without opening any other file or profile.
 
 | Excluded key | Reason |
 | --- | --- |
-| `agentArguments` | Launch flags can carry bypass mode; an agent must not grant itself bypass on its next launch |
 | `agentBypassAcknowledged` | Records human consent to bypass mode |
 | `codexNotifierAcknowledged` | Records human consent to notifier replacement |
 | `setupComplete` | Records human setup progress |
@@ -802,7 +802,7 @@ property names are never echoed. The allowlist applies even when an excluded val
 is null, false or otherwise harmless in isolation.
 
 
-**Today:** First run is the preflight countdown from [product](product.md#first-run). `src/main/setup/settings.ts` stores versioned `settings.json` in user data: whether setup is complete, the hooks setting, which agents are turned on, the default worktree location, and appearance and sound choices. Writes are atomic (private temporary file, then rename) and serialized; a failed write leaves the settings unchanged. Missing, corrupt or unsupported files start from defaults, so preflight runs again. Every patch, from IPC or disk, is validated field by field and unknown fields are rejected.
+**Today:** First run is the preflight countdown from [product](product.md#first-run). `src/main/setup/settings.ts` stores versioned `settings.json` in user data: profile settings and consent records plus approved config digests. The config service stores hooks, enabled agents, launch arguments, appearance and sound choices in the config folder. Writes are atomic (private temporary file, then rename) and serialized; a failed write leaves the settings unchanged. Missing, corrupt or unsupported files start from defaults, so preflight runs again. Every patch, from IPC or disk, is validated field by field and unknown fields are rejected.
 
 `src/main/setup/setup.ts` applies the settings to the running app at startup and on each save, and coordinates repository scanning. Legacy inference fields are discarded only when loading a profile; IPC patches still reject them.
 
@@ -1365,7 +1365,7 @@ sandboxed preload adds no runtime imports and CSP remains unchanged.
 ## Foom config environment (#84)
 
 `~/.foom/config` is the agent-editable configuration folder. It is not Electron's
-userData: API keys, worktree ownership, the repository list, launch arguments and
+userData: API keys, worktree ownership, the repository list and
 consent records stay in the profile. The folder holds `settings.json`, `themes/`,
 `terminal-themes/`, `sounds/{working,done,needs-you,refusal}/`, and Foom-owned
 `README.md`, `AGENTS.md`, `CLAUDE.md`, `.gitignore` and `schemas/` (JSON Schemas for
@@ -1417,7 +1417,14 @@ profile as version 2 without them in the same step. Values the file cannot expre
 such as portable palette objects, fall back to the default. A version 2 profile
 stores only profile settings plus `configDigest`: the SHA-256 of the settings file
 this profile last applied. If the folder cannot be prepared, settings stay in the
-version 1 profile and migration is retried at the next launch. Settings saves split
+version 1 profile and migration is retried at the next launch. On upgrade from either profile version, nonempty validated per-agent launch
+arguments move once into settings.json when its key is absent. Invalid profile
+lists retain the existing per-agent drop rule. The migration trusts only the
+profile arguments, preserves other file holds, and records a recoverable approved
+baseline before removing the profile copy. A failed migration retains the profile
+copy for retry. An existing argument key remains a file proposal, compared against
+the migrated profile defaults. Empty profile defaults leave the key absent.
+Settings saves split
 the patch: config keys are written to the file atomically and committed with a
 subject naming the change; profile keys go to the profile.
 
@@ -1438,7 +1445,7 @@ its own watcher). Sound catalogs still refresh when Settings → Sound opens.
 
 **Approval.** A change is held instead of applied when, compared with the effective
 settings in force, it turns alerts off, sets the alert volume to 0, turns hooks off,
-or turns an agent off. A missing key means the default. Sizes and turning things on apply without approval. Theme changes follow the
+or turns an agent off, enables restoreSessions, or changes any agentArguments list. A missing key means the default. Sizes and turning things on apply without approval. Theme changes follow the
 attention-distinctness hold described below. Settings → Foom config
 and the config footer dock show the held change in amber. The held change carries an ID,
 the digest of its text, and a decision must name it: if an agent replaced the
@@ -1449,7 +1456,12 @@ the last commit differs. At startup the working file is trusted only if its dige
 matches `configDigest`; otherwise the last commit is trusted if its digest matches;
 otherwise the baseline is the defaults (`{ "kind": "settings" }`), so an off switch
 written while Foom was closed, or committed by an agent, is held and Keep it on
-restores a valid default file. A Settings save replaces a held change.
+restores a valid default file. A Settings save replaces a held change. Every file argument change holds,
+regardless of known bypass detection. Allow opens the existing main-owned trusted
+dialog containing literal before/after lists and known bypass flags, then rechecks
+the proposal bytes before applying. Accepted bypass changes persist per-agent
+acknowledgement in the profile. Argument text never enters board status metadata.
+Settings UI edits use the config writer directly and retain their bypass dialog.
 
 **Recent changes and Revert.** Status lists the last 20 commits with time, subject,
 files and short hash, merged with rejected and pending entries recorded this

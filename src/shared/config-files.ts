@@ -1,3 +1,4 @@
+import { AgentArgumentsError } from "./agent-arguments";
 import { parseConfigSettings, CONFIG_SETTINGS } from "./config-settings";
 import type { ConfigSettings } from "./config";
 import { parseThemeFile } from "./theme-files";
@@ -18,7 +19,6 @@ export function parseSettingsFile(text: string): ConfigSettings {
   const value = configJson(text);
   // Known excluded fields receive a stable, useful path, without echoing arbitrary keys.
   for (const key of [
-    "agentArguments",
     "agentBypassAcknowledged",
     "codexNotifierAcknowledged",
     "setupComplete",
@@ -38,8 +38,12 @@ export function parseSettingsFile(text: string): ConfigSettings {
   for (const [key, entry] of Object.entries(settings)) {
     try {
       Object.assign(result, parseConfigSettings({ [key]: entry }));
-    } catch {
-      throw new ThemeValidationError(`$.${key}`, "invalid-value");
+    } catch (error) {
+      throw new ThemeValidationError(
+        `$.${key}`,
+        "invalid-value",
+        error instanceof AgentArgumentsError ? error.message : undefined,
+      );
     }
   }
   return result;
