@@ -2,8 +2,8 @@ import type { TerminalThemeChoice } from "../../shared/terminal-theme";
 import { parseTerminalThemeChoice, resolveTerminalTheme } from "../../shared/terminal-themes";
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
-import { utilityProcess, nativeTheme } from "electron";
-import type { UtilityProcess } from "electron";
+import { app, utilityProcess, nativeTheme } from "electron";
+import type { Details, UtilityProcess } from "electron";
 import type { TerminalTelemetry, TerminalSpec } from "../../shared/desktop";
 import type { HostRequest } from "../../shared/terminal-host";
 import { hostRequest, hostResponse } from "../../shared/terminal-host-protocol";
@@ -19,6 +19,15 @@ type Pending = {
   reject: (error: Error) => void;
   timer: ReturnType<typeof setTimeout>;
 };
+type HostDiagnostics = {
+  serviceName: string;
+  pid?: number | undefined;
+  exitCode?: number;
+  gone?: Pick<Details, "type" | "reason" | "exitCode">;
+  stderr: string;
+};
+const HOST_STDERR_LIMIT = 8192;
+
 type Session = {
   alive: boolean;
   available: boolean;
@@ -36,6 +45,9 @@ export class TerminalHostClient {
   private shuttingDown = false;
   private stopping: Promise<void> | undefined;
   private closing: Promise<void> | undefined;
+  private diagnostics: HostDiagnostics | undefined;
+  private releaseDiagnostics: (() => void) | undefined;
+  private failure: Error | undefined;
 
   private themeChoice: TerminalThemeChoice = "follow";
   private themeKey = "";
@@ -64,11 +76,57 @@ export class TerminalHostClient {
   private start(): UtilityProcess {
     if (this.disposed) throw new Error("Terminal host disposed");
     if (this.child) return this.child;
+    this.releaseDiagnostics?.();
+    this.failure = undefined;
+    this.diagnostics = undefined;
+    const diagnostics: HostDiagnostics = {
+      serviceName: `Foom terminal host ${randomUUID()}`,
+      stderr: "",
+    };
     const child = utilityProcess.fork(join(__dirname, "../../terminal-host/terminal-host.js"), [], {
-      serviceName: "Foom terminal host",
-      stdio: "ignore",
+      serviceName: diagnostics.serviceName,
+      stdio: ["ignore", "ignore", "pipe"],
     });
     this.child = child;
+    this.diagnostics = diagnostics;
+    let stderr = Buffer.alloc(0);
+    // Only the utility process's own stderr is piped. PTY output stays on the
+    // validated message channel and must never be copied into diagnostics.
+    child.stderr?.on("data", (chunk: unknown) => {
+      const bytes = Buffer.isBuffer(chunk)
+        ? chunk.subarray(-HOST_STDERR_LIMIT)
+        : typeof chunk === "string"
+          ? Buffer.from(chunk.slice(-HOST_STDERR_LIMIT)).subarray(-HOST_STDERR_LIMIT)
+          : undefined;
+      if (!bytes) return;
+      stderr = Buffer.concat([stderr, bytes]).subarray(-HOST_STDERR_LIMIT);
+      diagnostics.stderr = stderr.toString("utf8");
+      if (this.diagnostics === diagnostics && this.failure) {
+        this.failure.message = this.failureMessage(diagnostics);
+        console.error("Terminal host diagnostic:", JSON.stringify(diagnostics));
+      }
+    });
+    child.once("spawn", () => {
+      diagnostics.pid = child.pid;
+    });
+    const gone = (_event: Electron.Event, details: Details) => {
+      // Electron reports the fork's serviceName in name (not serviceName).
+      if (details.type !== "Utility" || details.name !== diagnostics.serviceName) return;
+      diagnostics.gone = {
+        type: details.type,
+        reason: details.reason,
+        exitCode: details.exitCode,
+      };
+      // The app and utility exit events have no documented ordering. Preserve
+      // late crash details in the same error and log them separately for CI.
+      if (this.diagnostics === diagnostics && this.failure)
+        this.failure.message = this.failureMessage(diagnostics);
+      console.error("Terminal host diagnostic:", JSON.stringify(diagnostics));
+    };
+    app.on("child-process-gone", gone);
+    this.releaseDiagnostics = () => {
+      app.removeListener("child-process-gone", gone);
+    };
     child.on("message", (message: unknown) => {
       if (this.child !== child || !hostResponse(message)) return;
       if (message.type === "activity") {
@@ -102,19 +160,33 @@ export class TerminalHostClient {
         else pending.resolve(message.lines);
       }
     });
-    child.once("exit", () => {
+    child.once("exit", (code) => {
+      diagnostics.exitCode = code;
+      console.error("Terminal host diagnostic:", JSON.stringify(diagnostics));
       this.fail(child);
     });
     return child;
+  }
+
+  private failureMessage(diagnostics: HostDiagnostics): string {
+    return `Terminal host stopped: ${JSON.stringify(diagnostics)}`;
   }
 
   private fail(child: UtilityProcess): void {
     if (this.child !== child) return;
     this.child = undefined;
     child.kill();
+    const diagnostics = this.diagnostics;
+    const error = new Error(
+      diagnostics ? this.failureMessage(diagnostics) : "Terminal host stopped",
+      {
+        cause: diagnostics,
+      },
+    );
+    this.failure = error;
     for (const pending of this.pending.values()) {
       clearTimeout(pending.timer);
-      pending.reject(new Error("Terminal host stopped"));
+      pending.reject(error);
     }
     this.pending.clear();
     for (const [id, session] of this.sessions) {
@@ -261,6 +333,10 @@ export class TerminalHostClient {
         this.fail(child);
         resolve();
       }
+    });
+    void this.closing.then(() => {
+      this.releaseDiagnostics?.();
+      this.releaseDiagnostics = undefined;
     });
     return this.closing;
   }
