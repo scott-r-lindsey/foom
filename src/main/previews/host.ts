@@ -163,7 +163,9 @@ export class PreviewHost {
     });
     contents.on("focus", () => {
       if (entry.attached && entry.clicked) this.lastFocused = contents;
-      else if (entry.attached && !this.lastFocused.isDestroyed()) this.lastFocused.focus();
+      // Attached or not: macOS can hand focus to a detached view that is still loading.
+      else if (this.lastFocused !== contents && !this.lastFocused.isDestroyed())
+        this.lastFocused.focus();
     });
     const pathname = record.relativePath.split("/").map(encodeURIComponent).join("/");
     void contents.loadURL(`${origin}/${pathname}`).catch(() => {});
