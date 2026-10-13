@@ -8257,7 +8257,36 @@ test("merged cleanup opens checking, continues hidden, reopens progress and stop
   await expect(confirmation.getByRole("list", { name: "Kept worktrees" })).toContainText(
     "dirtyuncommitted changes",
   );
+  // CDP sees the enabled button before the native child necessarily becomes
+  // active. On macOS that first click can activate the window without accepting.
+  await app.evaluate(({ app, BrowserWindow }) => {
+    const window = BrowserWindow.getAllWindows().find(
+      (window) => window.webContents.getURL() === "app://confirmation/confirmation.html",
+    );
+    app.focus({ steal: true });
+    window.focus();
+    window.webContents.focus();
+  });
+  await expect
+    .poll(() =>
+      app.evaluate(({ BrowserWindow }) => {
+        const window = BrowserWindow.getAllWindows().find(
+          (window) => window.webContents.getURL() === "app://confirmation/confirmation.html",
+        );
+        return window.isVisible() && window.isFocused() && window.webContents.isFocused();
+      }),
+    )
+    .toBe(true);
+  await expect.poll(() => confirmation.evaluate(() => document.hasFocus())).toBe(true);
+  await assertConfirmationFocus(
+    app,
+    confirmation,
+    confirmation.getByRole("button", { name: "Cancel" }),
+  );
   await confirmation.getByRole("button", { name: "Delete 8", exact: true }).click();
+  // Acceptance changes the feed synchronously, before the fetch and removals.
+  // Keep a lost click distinct from a blocked service boundary.
+  await expect(confirmation.getByRole("button", { name: "Hide", exact: true })).toBeVisible();
   await expect.poll(() => app.evaluate(() => globalThis.cleanupRemovals.length)).toBe(4);
   await confirmation.getByRole("button", { name: "Hide", exact: true }).click();
   await expect(page.getByText("deleting 0/8", { exact: true })).toBeVisible();
