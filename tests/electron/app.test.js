@@ -1,3 +1,4 @@
+const { FAKE_GH } = require("../helpers/forge-cli.js");
 const { gitSync: isolatedGit } = require("../helpers/git.js");
 // Opt-in native-window evidence on the isolated Linux test display (ImageMagick).
 function captureConfirmationDesktop(name) {
@@ -7827,6 +7828,11 @@ for (const cliOnly of [false, true])
       });
     git("init", "-q", "-b", "main");
     git("commit", "-q", "--allow-empty", "-m", "init");
+    const forgeState = path.join(root, "forge.json");
+    await writeFile(forgeState, JSON.stringify({ checks: [{ bucket: "pending" }], exitCode: 8 }));
+    await writeFile(path.join(bin, "gh"), FAKE_GH);
+    await chmod(path.join(bin, "gh"), 0o755);
+    git("remote", "add", "origin", "https://github.com/fixture/offline.git");
     const credentials = path.join(root, "credentials.json");
     const app = await launchApp(context, false, {
       args: [`--user-data-dir=${path.join(root, "user-data")}`],
@@ -7834,6 +7840,7 @@ for (const cliOnly of [false, true])
         HOME: home,
         PATH: [bin, "/usr/local/bin", "/usr/bin", "/bin"].join(path.delimiter),
         TEST_FAKE_CREDENTIALS: credentials,
+        TEST_FORGE_STATE: forgeState,
       },
     }).finally(() => {
       removeAfterApps(context, root);
@@ -8121,6 +8128,32 @@ for (const cliOnly of [false, true])
       .toContain("FOOM_AGENT_READY");
     const waited = await call(parent.controlToken, "wait_for", { ids: [childId], timeoutMs: 0 });
     assert.equal(waited.body.result.sessions[0].id, childId);
+    // The fake forge changes only CI metadata; no PTY input or child verdict changes.
+    await expect
+      .poll(
+        async () =>
+          (await call(parent.controlToken, "session_state", { id: childId })).body.result
+            .pullRequest?.requiredChecks,
+      )
+      .toBe("pending");
+    const beforeChecks = (await call(parent.controlToken, "session_state", { id: childId })).body
+      .result;
+    const checkWait = call(parent.controlToken, "wait_for", {
+      ids: [childId],
+      after: { [childId]: beforeChecks.revision },
+      timeoutMs: 30000,
+    });
+    await writeFile(forgeState, JSON.stringify({ checks: [{ bucket: "pass" }] }));
+    const checkResult = (await checkWait).body.result;
+    assert.equal(checkResult.timedOut, false);
+    assert.deepEqual(checkResult.changed, [childId]);
+    assert.equal(checkResult.sessions[0].state, beforeChecks.state);
+    assert.deepEqual(checkResult.sessions[0].pullRequest, {
+      number: 340,
+      headSha: "a".repeat(40),
+      state: "OPEN",
+      requiredChecks: "success",
+    });
     // Children belong to their own checkout and retain an independent light.
     const childRow = page.locator(`[data-drag-session="${childId}"]`);
     const parentSession = page.locator(`[data-drag-session="${parentId}"]`);

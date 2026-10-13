@@ -1,3 +1,4 @@
+import type { ForgeTracking } from "./forge-tracking";
 import type { OwnedWorktree } from "../workspace/session-restore.d";
 import { ReviewedReplies } from "./replies";
 import { createHash } from "node:crypto";
@@ -37,6 +38,7 @@ export class UncertainEffect extends Error {}
 
 /** Main-owned effects. Every path is chosen by main; the API only names IDs. */
 export interface OrchestrationHost {
+  forge?: Pick<ForgeTracking, "track" | "read">;
   terminals(): readonly WorkspaceTerminal[];
   /**
    * A new branch in a new worktree; never adopts an existing branch or checkout.
@@ -159,8 +161,15 @@ export class Orchestration {
     private readonly now: () => number = Date.now,
     readonly childLimit: () => number = () => 4,
   ) {
-    this.replies = new ReviewedReplies(host, now);
-    this.metadata = new SessionMetadata(() => host.terminals());
+    this.replies = new ReviewedReplies(host, now, (row) => this.pullRequest(row));
+    this.metadata = new SessionMetadata(
+      () => host.terminals(),
+      (row) => this.pullRequest(row),
+    );
+  }
+
+  pullRequest(row: WorkspaceTerminal) {
+    return this.host.forge?.read(row.repository, row.worktree);
   }
 
   /** One parent per canonical repository; a live duplicate returns the existing parent's ID. */
@@ -248,6 +257,7 @@ export class Orchestration {
       if (parent.worktrees.has(key)) continue;
       if (saved.state === "unused" && this.unused(parent) >= WORKTREE_LIMIT) continue;
       parent.worktrees.set(key, { ...tree, path: saved.path, state: saved.state });
+      this.host.forge?.track({ repository: parent.repository, path: saved.path, ...tree });
     }
     this.host.changed();
   }
@@ -277,6 +287,7 @@ export class Orchestration {
     const owned = parent.worktrees.get(worktreeId);
     if (owned && owned.identity !== tree.identity) return false;
     parent.worktrees.set(worktreeId, { ...tree, path: entry.worktree, state: "used" });
+    this.host.forge?.track({ repository: parent.repository, path: entry.worktree, ...tree });
     parent.children.set(entry.id, {
       worktreeId,
       exited: entry.exited === true,
@@ -446,6 +457,7 @@ export class Orchestration {
     this.note(parent, this.entry(operation, label));
     try {
       const tree = await this.host.createWorktree(parent.repository, branch);
+      this.host.forge?.track({ repository: parent.repository, ...tree });
       const id = locationId(tree.path);
       parent.worktrees.set(id, {
         path: tree.path,

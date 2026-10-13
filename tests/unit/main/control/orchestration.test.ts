@@ -1,3 +1,4 @@
+import type { PullRequest } from "../../../../src/main/control/forge.d";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { describe, expect, it, vi } from "vitest";
@@ -31,6 +32,10 @@ function harness() {
   });
   rows.set("parent", row("parent", repo, "main"));
   const host = {
+    forge: {
+      track: vi.fn(),
+      read: vi.fn((_repository: string, _path: string): PullRequest | undefined => undefined),
+    },
     terminals: () => [...rows.values()],
     createWorktree: vi.fn((_repository: string, branch: string) =>
       Promise.resolve({ path: join(repo, "trees", branch), branch, identity: `id-${branch}` }),
@@ -836,4 +841,40 @@ it("counts starting reservations at a changed limit", async () => {
   );
   release();
   expect(await pending).toMatchObject({ status: "succeeded" });
+});
+
+it("wakes wait_for on required checks and exposes old mappings to a new generation without child authority", async () => {
+  const h = harness();
+  const child = await h.child("pr-child");
+  expect(h.host.forge.track).toHaveBeenCalledWith({
+    repository: repo,
+    path: join(repo, "trees", "pr-child"),
+    branch: "pr-child",
+    identity: "id-pr-child",
+  });
+  const pr: PullRequest = {
+    number: 340,
+    headSha: "a".repeat(40),
+    state: "OPEN",
+    requiredChecks: "pending",
+  };
+  h.host.forge.read.mockReturnValue(pr);
+  const before = (await h.call("session_state", { id: child.id })) as { revision: string };
+  const waiting = h.call("wait_for", {
+    ids: [child.id],
+    after: { [child.id]: before.revision },
+    timeoutMs: 1000,
+  });
+  h.host.forge.read.mockReturnValue({ ...pr, requiredChecks: "success" });
+  expect(await waiting).toMatchObject({
+    changed: [child.id],
+    timedOut: false,
+    sessions: [{ pullRequest: { requiredChecks: "success" } }],
+  });
+  h.exit("parent");
+  const next = h.launchParent("new-parent");
+  expect(await next.call("session_state", { id: child.id })).toMatchObject({
+    pullRequest: { number: 340, requiredChecks: "success" },
+  });
+  await expect(next.call("wait_for", { ids: [child.id] })).rejects.toThrow("not_found");
 });

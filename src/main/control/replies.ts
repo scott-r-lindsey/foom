@@ -29,6 +29,7 @@ export class ReviewedReplies {
   constructor(
     private readonly host: ReplyHost,
     private readonly now: () => number,
+    private readonly forge: (row: WorkspaceTerminal) => unknown = () => undefined,
   ) {}
 
   invalidate(id: string): void {
@@ -77,7 +78,7 @@ export class ReviewedReplies {
       throw new ControlError("invalid_request");
     authorize();
     const stamp = this.revisions.get(id) ?? 0;
-    const metadata = new SessionMetadata(() => this.host.terminals());
+    const metadata = new SessionMetadata(() => this.host.terminals(), this.forge);
     const check = () => {
       authorize();
       const state = object(metadata.read(actor, "session_state", { id }));

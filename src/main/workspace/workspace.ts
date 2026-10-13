@@ -1,3 +1,4 @@
+import type { ForgeTracking } from "../control/forge-tracking";
 import { CleanupRun, KeptWorktree } from "./cleanup-run";
 import type { CleanupCandidate } from "./cleanup-run";
 import type { CleanupReason } from "../../shared/cleanup";
@@ -122,6 +123,7 @@ export interface WorkspaceDependencies {
   watcher?: Pick<InventoryWatch, "sync" | "dispose">;
   acknowledgeCodex(): Promise<void>;
   acknowledgeAgyPluginOffer?(): Promise<void>;
+  forge?: ForgeTracking;
   sessions?: Pick<SessionStore, "load" | "save" | "flush">;
   copyText?(text: string): void | Promise<void>;
   agents?: (
@@ -291,6 +293,7 @@ export class Workspace {
       : undefined;
     this.orchestration = new Orchestration(
       {
+        ...(deps.forge === undefined ? {} : { forge: deps.forge }),
         terminals: () => this.snapshot().terminals,
         createWorktree: (repository, branch) => this.createChildWorktree(repository, branch),
         launch: (parentId, repository, worktree, identity, agent, prompt) =>
@@ -2512,6 +2515,7 @@ export class Workspace {
     this.deps.watcher?.dispose();
     for (const id of this.terminals.keys()) this.deps.verdicts.forget(id);
     this.agents.dispose();
+    await this.deps.forge?.close();
     try {
       await (await this.control?.catch(() => undefined))?.close();
     } finally {

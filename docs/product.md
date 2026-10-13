@@ -523,6 +523,19 @@ file contents, diffs or echoed input, and redaction cannot catch every secret.
 The Make orchestrator dialog discloses this data path. The agent's own tools and provider
 settings continue to govern its other data access.
 
+Foom also reads PR and required-check status for orchestrator-owned child
+worktrees through a main-owned forge provider. GitHub is supported through your
+own `gh` CLI and existing login; Foom stores no tokens, makes no forge writes and
+sends no terminal content. The CLI contacts GitHub with repository and branch/PR
+identifiers to read PR and CI metadata. Unknown remotes and missing, logged-out or
+unavailable CLIs leave these fields absent. Validated PR number, head SHA, state
+and required-check conclusion appear in session metadata, and `wait_for` wakes on
+conclusion changes. The mapping survives restart and a new orchestrator generation,
+without transferring authority over old children. Successful reads recur every
+30 seconds; unavailable results back off from 60 seconds to at most 10 minutes.
+Polling is serial with at least a second between worktrees and stops on shutdown.
+See [the data, persistence and polling contract](orchestration.md#child-pr-and-required-checks-340).
+
 Permission and credential prompts always stay with you. With the current agent
 interfaces, proposed answers to prose questions also require review in Foom;
 unattended replies need a verified question-specific routing mechanism first.
