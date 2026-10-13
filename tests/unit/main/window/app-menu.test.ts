@@ -225,22 +225,26 @@ test("packaged execution rejects developer commands and validates view state bef
     { available: true, maximized: false, tiles: -1 },
     { available: true, maximized: false, tiles: 257 },
     { available: true, maximized: false, tiles: 1.5 },
+    { available: true, maximized: false, tiles: 1, sidebarCollapsed: "yes" },
   ])
     expect(() => f.invoke("view", state)).toThrow("Invalid");
   f.invoke("view", { available: true, maximized: false, tiles: 0 });
   await expect(f.call("execute", "tile-1")).rejects.toThrow("Unavailable");
-  f.invoke("view", { available: true, maximized: true, tiles: 2 });
+  f.invoke("view", { available: true, maximized: true, tiles: 2, sidebarCollapsed: true });
   // The macOS menu bar still carries the board commands the wordmark menu leaves out.
   const bar = (mock.menu.mock.lastCall?.[0] ?? []) as MenuItemConstructorOptions[];
   const native = bar.flatMap((section) => (Array.isArray(section.submenu) ? section.submenu : []));
   expect(native).toEqual(
     expect.arrayContaining([
       expect.objectContaining({ id: "maximize", checked: true }),
+      expect.objectContaining({ id: "toggle-sidebar", label: "Expand sidebar" }),
       expect.objectContaining({ id: "tile-3", enabled: false }),
     ]),
   );
   expect(JSON.stringify(await f.call("list"))).not.toContain('"maximize"');
-  f.invoke("view", { available: false, maximized: false, tiles: 1 });
+  f.invoke("view", { available: false, configAvailable: true, maximized: false, tiles: 1 });
+  await f.call("execute", "toggle-sidebar");
+  expect(f.window.webContents.send).toHaveBeenCalledWith("board:command", "toggle-sidebar");
   await expect(f.call("execute", "maximize")).rejects.toThrow("Unavailable");
   f.attached.dispose();
 });

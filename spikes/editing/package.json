@@ -1,0 +1,14 @@
+{
+  "name": "foom-editing-spike",
+  "private": true,
+  "license": "UNLICENSED",
+  "description": "Disposable research for #223; never part of Foom",
+  "dependencies": {
+    "@codemirror/lang-javascript": "6.2.4",
+    "codemirror": "6.0.2",
+    "monaco-editor": "0.57.0"
+  },
+  "overrides": {
+    "dompurify": "3.4.17"
+  }
+}
