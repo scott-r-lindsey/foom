@@ -124,7 +124,7 @@ const orchestration = (childLimit: number) =>
     {
       name: "wait_for",
       description:
-        "Wait up to 30 seconds until a child's state revision differs from the one given in after. The ID count follows the concurrent child limit in Settings → General. Metadata only.",
+        "Wait up to 30 seconds until a child's state or PR required-check revision differs from the one given in after. The ID count follows the concurrent child limit in Settings → General. Metadata only.",
       properties: {
         ids: { type: "array", items: id, minItems: 1, maxItems: childLimit },
         after: { type: "object", additionalProperties: { type: "string", maxLength: 200 } },

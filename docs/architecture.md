@@ -702,6 +702,19 @@ dialogs and frees the slot; children keep running. Snapshots carry a main-comput
 view (role, children, last 20 actions); validated session metadata retains bounded history across restart. `take-over` is a sidebar
 command that removes the orchestrator's stop, tail and wait access to that child.
 
+Foom also reads PR and required-check status for orchestrator-owned child
+worktrees through a main-owned forge provider. GitHub is supported through your
+own `gh` CLI and existing login; Foom stores no tokens, makes no forge writes and
+sends no terminal content. The CLI contacts GitHub with repository and branch/PR
+identifiers to read PR and CI metadata. Unknown remotes and missing, logged-out or
+unavailable CLIs leave these fields absent. Validated PR number, head SHA, state
+and required-check conclusion appear in session metadata, and `wait_for` wakes on
+conclusion changes. The mapping survives restart and a new orchestrator generation,
+without transferring authority over old children. Successful reads recur every
+30 seconds; unavailable results back off from 60 seconds to at most 10 minutes.
+Polling is serial with at least a second between worktrees and stops on shutdown.
+See [the data, persistence and polling contract](orchestration.md#child-pr-and-required-checks-340).
+
 **Sidebar nesting and action log implemented in #157.** The board source exposes
 main-owned relationships and the private audit API. In the expanded sidebar, children appear under their
 orchestrator, with their own worktree label, light, row panel and keyboard access.

@@ -1,3 +1,4 @@
+import { pullRequest } from "./forge";
 import { createHash } from "node:crypto";
 import { basename } from "node:path";
 import type { WorkspaceTerminal } from "../../shared/workspace";
@@ -18,7 +19,10 @@ export function metadataName(name: string): string {
 }
 
 export class SessionMetadata {
-  constructor(private readonly source: () => readonly WorkspaceTerminal[]) {}
+  constructor(
+    private readonly source: () => readonly WorkspaceTerminal[],
+    private readonly forge: (row: WorkspaceTerminal) => unknown = () => undefined,
+  ) {}
 
   read(
     actor: Principal,
@@ -51,6 +55,7 @@ export class SessionMetadata {
   }
 
   private row(row: WorkspaceTerminal) {
+    const pr = pullRequest(this.forge(row));
     const execution = row.execution;
     const fresh =
       (row.state?.outputRevision ?? 0) === (row.outputRevision ?? 0) &&
@@ -70,6 +75,7 @@ export class SessionMetadata {
       state = "quiet_ok";
     const reported = row.exited ? "exited" : state;
     return {
+      ...(pr === undefined ? {} : { pullRequest: pr }),
       id: row.id,
       agent: row.agent,
       repository: locationId(row.repository),
@@ -83,6 +89,7 @@ export class SessionMetadata {
       revision: createHash("sha256")
         .update(
           JSON.stringify([
+            pr ?? null,
             row.launchVersion ?? 0,
             execution?.launch ?? 0,
             execution?.revision ?? 0,

@@ -1,3 +1,16 @@
+import type { ForgeWorktree } from "../../../src/main/control/forge.d";
+const forgeMock = vi.hoisted(() => ({
+  open: vi.fn<
+    (
+      directory: string,
+      inspect: (tree: ForgeWorktree) => Promise<string | undefined>,
+      changed: () => void,
+    ) => Promise<unknown>
+  >(),
+}));
+vi.mock("../../../src/main/control/forge-tracking", () => ({
+  ForgeTracking: { open: forgeMock.open },
+}));
 const previewMock = vi.hoisted(() => ({
   hosts: [] as {
     validate: (worktree: string) => Promise<void>;
@@ -541,6 +554,7 @@ beforeEach(() => {
   mock.catalog = { interface: [], terminal: [], errors: [] };
   mock.state.windows = [mock.window];
   mock.ready.mockResolvedValue();
+  forgeMock.open.mockResolvedValue({ track: vi.fn(), read: vi.fn(), close: vi.fn() });
   mock.openWorktrees.mockResolvedValue({
     worktreeRoot: "/home/.foom/worktrees",
     managesPath: mock.managesPath,
@@ -1770,4 +1784,40 @@ test("pending removal reviews stay on the original board across focus changes", 
   // Once all requests settle, the next batch follows the currently focused board.
   await request(content("fresh"), new AbortController().signal);
   expect(mock.confirmParent).toHaveBeenLastCalledWith(firstBoard);
+});
+
+test("forge observations require registered, managed worktrees with matching branch and identity", async () => {
+  const listRepositories = vi.fn(() => [{ path: "/repo", name: "Repo" }]);
+  const listWorktrees = vi.fn(() =>
+    Promise.resolve([{ path: "/tree", managed: true, branch: "child-one" }]),
+  );
+  const launchIdentity = vi.fn(() => Promise.resolve("identity"));
+  const forgeRemote = vi.fn(() => Promise.resolve<string | undefined>("https://github.com/o/r"));
+  mock.openWorktrees.mockResolvedValue({
+    listRepositories,
+    listWorktrees,
+    launchIdentity,
+    forgeRemote,
+    watchPaths: vi.fn(),
+  });
+  await start();
+  const inspect = forgeMock.open.mock.lastCall?.[1];
+  if (!inspect) throw new Error("Missing forge validator");
+  const tree = { repository: "/repo", path: "/tree", identity: "identity", branch: "child-one" };
+  expect(await inspect(tree)).toBe("https://github.com/o/r");
+  expect(await inspect({ ...tree, repository: "/foreign" })).toBeUndefined();
+  expect(await inspect({ ...tree, path: "/foreign" })).toBeUndefined();
+  expect(await inspect({ ...tree, branch: "other" })).toBeUndefined();
+  expect(await inspect({ ...tree, identity: "other" })).toBeUndefined();
+  listWorktrees.mockResolvedValueOnce([{ path: "/tree", managed: false, branch: "child-one" }]);
+  expect(await inspect(tree)).toBeUndefined();
+  forgeRemote.mockResolvedValueOnce(undefined);
+  expect(await inspect(tree)).toBe("");
+  forgeMock.open.mock.lastCall?.[2]();
+  expect(mock.workspace.refresh).toHaveBeenCalled();
+});
+test("an unavailable private forge store leaves the app usable", async () => {
+  forgeMock.open.mockRejectedValueOnce(new Error("private storage unavailable"));
+  await start();
+  expect(mock.workspace.deps?.forge).toBeUndefined();
 });

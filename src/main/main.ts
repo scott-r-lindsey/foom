@@ -1,3 +1,4 @@
+import { ForgeTracking } from "./control/forge-tracking";
 import { PreviewHost } from "./previews/host";
 import { PreviewRegistry } from "./previews/registry";
 import { attachPreviews } from "./previews/ipc";
@@ -433,7 +434,28 @@ async function buildWindow(savedSize?: Size, saved?: WindowPlacement, initialSes
   if (!initialized) {
     const codexHooks = new CodexHookStatus(join(app.getPath("userData"), "codex-hook-health.json"));
     await codexHooks.load();
+    const forge = await ForgeTracking.open(
+      app.getPath("userData"),
+      async (tree) => {
+        if (!worktrees.listRepositories().some((repo) => repo.path === tree.repository))
+          return undefined;
+        const owned = (await worktrees.listWorktrees(tree.repository)).find(
+          (row) => row.path === tree.path,
+        );
+        if (
+          !owned?.managed ||
+          owned.branch !== tree.branch ||
+          (await worktrees.launchIdentity(tree.repository, tree.path)) !== tree.identity
+        )
+          return undefined;
+        return (await worktrees.forgeRemote(tree.repository)) ?? "";
+      },
+      () => {
+        workspace.refresh();
+      },
+    ).catch(() => undefined);
     workspace = new Workspace({
+      ...(forge === undefined ? {} : { forge }),
       codexHooks,
       worktrees,
       watcher: new InventoryWatch(

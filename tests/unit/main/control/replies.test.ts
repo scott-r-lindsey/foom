@@ -6,7 +6,7 @@ import type { Principal, StoredOperation } from "../../../../src/main/control/ty
 import type { WorkspaceTerminal } from "../../../../src/shared/workspace";
 import type { DialogContent } from "../../../../src/shared/confirmation";
 
-function harness() {
+function harness(forge: () => unknown = () => undefined) {
   let now = 100_000;
   const actor: Principal = {
     generation: "g",
@@ -49,11 +49,11 @@ function harness() {
   const operations = new Operations(persist, (a) => {
     if (a !== active) throw new Error("revoked");
   });
-  const replies = new ReviewedReplies(host, () => now);
+  const replies = new ReviewedReplies(host, () => now, forge);
   const note = vi.fn();
   const aborts = new Set<AbortController>();
   const params = (key = "k1", text = "src/app.ts") => {
-    const state = new SessionMetadata(host.terminals).read(actor, "session_state", {
+    const state = new SessionMetadata(host.terminals, forge).read(actor, "session_state", {
       id: "child",
     }) as { revision: string; verdictId: string };
     return {
@@ -312,4 +312,41 @@ it("suspends repeated questions until human reset, including new verdict IDs", a
   await h.propose(h.params("k4"));
   await h.done("k4");
   expect(h.host.reply).toHaveBeenCalledTimes(2);
+});
+
+it("accepts the same validated PR-aware revision exposed by session metadata", async () => {
+  const h = harness(() => ({
+    number: 340,
+    headSha: "a".repeat(40),
+    state: "OPEN",
+    requiredChecks: "pending",
+  }));
+  await h.propose();
+  expect((await h.done()).status).toBe("succeeded");
+  expect(h.host.reply).toHaveBeenCalledWith("child", "src/app.ts\r");
+});
+
+it("forge changes during human review preserve the bound terminal revision", async () => {
+  let conclusion = "pending";
+  const h = harness(() => ({
+    number: 340,
+    headSha: "a".repeat(40),
+    state: "OPEN",
+    requiredChecks: conclusion,
+  }));
+  let accept: (answer: boolean) => void = () => {};
+  h.host.dialog.mockImplementation(
+    () =>
+      new Promise((resolve) => {
+        accept = resolve;
+      }),
+  );
+  await h.propose();
+  await vi.waitFor(() => {
+    expect(h.host.dialog).toHaveBeenCalled();
+  });
+  conclusion = "success";
+  accept(true);
+  expect((await h.done()).status).toBe("succeeded");
+  expect(h.host.reply).toHaveBeenCalledOnce();
 });

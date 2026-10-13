@@ -41,7 +41,7 @@ export class ControlService {
     readonly operations: Operations,
     source: () => readonly WorkspaceTerminal[] = () => [],
     private readonly orchestration?: Pick<Orchestration, "call"> &
-      Partial<Pick<Orchestration, "childLimit">>,
+      Partial<Pick<Orchestration, "childLimit" | "pullRequest">>,
     private readonly connectionChanged: (
       id: string,
       state: McpConnection | undefined,
@@ -53,7 +53,7 @@ export class ControlService {
       target: string | null,
     ) => Promise<void> = () => Promise.resolve(),
   ) {
-    this.metadata = new SessionMetadata(source);
+    this.metadata = new SessionMetadata(source, (row) => this.orchestration?.pullRequest?.(row));
   }
 
   childLimit(): number {

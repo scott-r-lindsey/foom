@@ -1217,3 +1217,13 @@ it("deletes checked branches in one transaction, retaining moved and checked-out
   ]);
   expect((await git("rev-parse", "locked-ref")).trim()).toBe(next);
 });
+
+it("reads the unambiguous forge remote locally without fetching", async () => {
+  expect(await service.forgeRemote(repo)).toBeUndefined();
+  await git("remote", "add", "origin", "https://github.com/fixture/offline.git");
+  expect(await service.forgeRemote(repo)).toBe("https://github.com/fixture/offline.git");
+  await git("remote", "rename", "origin", "upstream");
+  expect(await service.forgeRemote(repo)).toBe("https://github.com/fixture/offline.git");
+  await git("remote", "add", "second", "https://example.invalid/other");
+  expect(await service.forgeRemote(repo)).toBeUndefined();
+});

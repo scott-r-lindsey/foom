@@ -440,6 +440,57 @@ of a provider stall. Recorded evidence provenance and the distinction between th
 reported capacity line and upstream render snapshots are in
 [`tests/fixtures/agent-detection/README.md`](../tests/fixtures/agent-detection/README.md).
 
+## Child PR and required checks (#340)
+
+Main tracks branches only in orchestrator-owned worktrees, choosing a read-only
+forge provider from the repository's origin URL (or its sole remote). GitHub on
+`github.com` is supported first, through the user's existing `gh` login. Unknown
+hosts, missing or logged-out CLIs and unavailable/malformed results omit PR
+metadata; they do not fail a control request. No additional opt-in is required by
+the 2026-10-13 decision. GitLab and enterprise hosts await providers.
+
+The provider's branch lookup is reusable by #337. It runs only fixed `gh pr list`,
+`gh pr view` and `gh pr checks --required` subcommands with execFile argument arrays,
+explicit repository selection, disabled prompts, 10-second command deadlines and
+256 KiB output limits. Initial discovery requires one unambiguous open PR, so a closed PR from an older
+use of the same branch cannot claim a newly created worktree. The same open lookup
+is reusable by #337. Once
+bound, its number is used to follow OPEN, CLOSED and MERGED states. Output is
+untrusted: main exposes only a positive PR number, a 40-character head SHA, the
+fixed state and `requiredChecks` (`pending`, `success`, `failure`, `none`). Cancelled
+checks count as failure; skipped checks count as success; an empty required-check
+set is `none`. Main rereads the PR head after checks and suppresses a sample if a
+push or state change raced it. The forge's required checks, including Quality gate
+when configured as required, determine the conclusion; optional checks do not.
+
+`sessions`, `session_state` and `wait_for` include an optional `pullRequest` object.
+Its validated fields participate in the session revision, so `wait_for` wakes on
+check-conclusion changes as well as child state. The existing 30-second wait bound
+and child-ownership checks remain. Reviewed replies validate the full caller cursor
+initially, then bind to the terminal revision: a forge update cannot cancel a
+human review, while terminal changes still do. A new generation can read previous children's
+mapping through repository-scoped session metadata, without gaining stop, tail or
+wait authority over those children.
+
+Successful observations are refreshed every 30 seconds. Unavailable results or
+branches without a PR back off to 60, 120, 240, 480 and at most 600 seconds, resetting
+to 30 seconds on success. Polls process one worktree at a time with at least one
+second between samples; there are no overlapping processes or catch-up bursts.
+Large sets therefore take longer. A failed/rate-limited CLI call is treated as
+unavailable and receives this same backoff. Tracking is bounded to 1,000 worktrees.
+Main checks managed-worktree identity and branch before each sample; removal or
+replacement retires the observation. Polling ends at app shutdown.
+
+A private, atomically written `control/forge.json` stores checkout identity, branch,
+remote and the narrowed PR mapping separately from launch grants. It survives app
+restart, parent exit and a new orchestrator generation; saved data grants no
+capabilities and remains absent from public metadata until ownership and the forge
+result have been checked again. Local worktree paths and identities never enter
+MCP results. The CLI contacts GitHub using its own authentication and sends only
+repository, branch/PR identifiers and read-only status requests. Foom stores no
+tokens, makes no forge writes and sends no terminal content. No terminal/model
+output is used to discover PRs.
+
 ## Reply gate
 
 The `reply` request names a child `id`, the `revision` and `verdictId` from

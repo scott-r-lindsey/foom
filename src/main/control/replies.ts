@@ -29,6 +29,7 @@ export class ReviewedReplies {
   constructor(
     private readonly host: ReplyHost,
     private readonly now: () => number,
+    private readonly forge: (row: WorkspaceTerminal) => unknown = () => undefined,
   ) {}
 
   invalidate(id: string): void {
@@ -77,14 +78,20 @@ export class ReviewedReplies {
       throw new ControlError("invalid_request");
     authorize();
     const stamp = this.revisions.get(id) ?? 0;
-    const metadata = new SessionMetadata(() => this.host.terminals());
-    const check = () => {
+    const metadata = new SessionMetadata(() => this.host.terminals(), this.forge);
+    const terminalMetadata = new SessionMetadata(() => this.host.terminals());
+    const terminalRevision = object(terminalMetadata.read(actor, "session_state", { id }))[
+      "revision"
+    ];
+    const check = (initial = false) => {
       authorize();
-      const state = object(metadata.read(actor, "session_state", { id }));
+      const state = object(
+        (initial ? metadata : terminalMetadata).read(actor, "session_state", { id }),
+      );
       if (
         state["state"] !== "needs_input" ||
         state["attentionKind"] !== "question" ||
-        state["revision"] !== revision ||
+        state["revision"] !== (initial ? revision : terminalRevision) ||
         state["verdictId"] !== verdictId ||
         (this.revisions.get(id) ?? 0) !== stamp
       )
@@ -99,7 +106,7 @@ export class ReviewedReplies {
     }
     if (!known) {
       try {
-        check();
+        check(true);
       } catch (error) {
         this.host.reveal?.(id);
         throw error;
