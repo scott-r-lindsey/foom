@@ -64,8 +64,10 @@ The claim "it only changes Foom's view" holds only if four rules hold:
 
    The host replaces native contents on each main-frame reload or allowed navigation.
    This discards in-preview back/forward history. A preview the user focused keeps
-   keyboard focus after the replacement loads and attaches, unless the user focused
-   elsewhere in the meantime; an unfocused preview never takes focus. Rapid
+   keyboard focus after the replacement loads and attaches. During that handoff,
+   board keyboard events are blocked so typing cannot reach a terminal. A deliberate
+   board or preview click cancels the handoff and allows ordinary input immediately;
+   native fallback focus alone does not cancel it. An unfocused preview never takes focus. Rapid
    self-reloads stop the old contents immediately and recreate at most once per
    250 ms per preview, with only one pending replacement.
 2. **It can't pass itself off as Foom.** Foom draws the tile chrome, outside the page: a document glyph, the worktree-relative path, a **Preview** badge, and "opened by <agent>". A page can draw a fake Foom card inside its own tile, but that card can't escape the tile and can't receive typing until clicked. Behind it there is no bridge, network or storage that outlives the preview. A real trusted dialog dims the whole board, and #221 swaps preview views for snapshots under board overlays, so a page can never sit above it.

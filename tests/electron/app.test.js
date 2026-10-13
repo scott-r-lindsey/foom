@@ -9207,15 +9207,19 @@ async function previewViewState(app, id) {
 // Resolve the native first responder for every key. Targeting the board via CDP
 // would conceal a WebContentsView stealing focus. The events then traverse xterm
 // and the real PTY; the page also counts every key it receives.
-async function typeIntoFocusedContents(app, text) {
+async function typeIntoFocusedContents(app, text, allowNoFocus = false) {
   for (const key of text) {
-    await app.evaluate(({ webContents }, key) => {
-      const contents = webContents.getFocusedWebContents();
-      if (!contents) throw new Error("No native keyboard target");
-      contents.sendInputEvent({ type: "keyDown", keyCode: key });
-      contents.sendInputEvent({ type: "char", keyCode: key });
-      contents.sendInputEvent({ type: "keyUp", keyCode: key });
-    }, key);
+    await app.evaluate(
+      ({ webContents }, { key, allowNoFocus }) => {
+        const contents = webContents.getFocusedWebContents();
+        if (!contents && allowNoFocus) return;
+        if (!contents) throw new Error("No native keyboard target");
+        contents.sendInputEvent({ type: "keyDown", keyCode: key });
+        contents.sendInputEvent({ type: "char", keyCode: key });
+        contents.sendInputEvent({ type: "keyUp", keyCode: key });
+      },
+      { key, allowNoFocus },
+    );
   }
 }
 
@@ -9372,6 +9376,20 @@ test("preview host keeps keyboard focus after a user-clicked link navigation", a
     '<a href="destination.md" style="display:block;width:200px;height:100px">Continue</a>',
   );
   await writeFile(path.join(root, "destination.md"), "Destination");
+  await app.evaluate(({ app }) => {
+    app.on("session-created", (partition) => {
+      const handle = partition.protocol.handle.bind(partition.protocol);
+      partition.protocol.handle = (scheme, handler) =>
+        handle(scheme, (request) => {
+          if (!request.url.endsWith("/destination.md")) return handler(request);
+          globalThis.previewLinkRequested = true;
+          return new Promise((resolve) => {
+            globalThis.releasePreviewLink = () => resolve(handler(request));
+          });
+        });
+    });
+  });
+  await page.locator(".xterm-helper-textarea").focus();
   const id = await page.evaluate((root) => window.desktop.previews.open(root, "links.html"), root);
   await page.evaluate(
     (id) =>
@@ -9398,6 +9416,25 @@ test("preview host keeps keyboard focus after a user-clicked link navigation", a
     contents.sendInputEvent({ type: "mouseDown", x: 30, y: 30, button: "left", clickCount: 1 });
     contents.sendInputEvent({ type: "mouseUp", x: 30, y: 30, button: "left", clickCount: 1 });
   }, id);
+  await expect.poll(() => app.evaluate(() => globalThis.previewLinkRequested)).toBe(true);
+  assert.equal((await previewViewState(app, id)).attached, false);
+  const nativeFocus = await app.evaluate(({ webContents }) =>
+    webContents.getFocusedWebContents()?.getURL(),
+  );
+  const domFocus = await page.evaluate(() => document.activeElement?.className);
+  context.diagnostic(`handoff native focus ${nativeFocus}, board DOM focus ${domFocus}`);
+  await typeIntoFocusedContents(app, "gap".repeat(40), true);
+  // Exercise native board fallback even on platforms which leave no responder.
+  await app.evaluate(({ BrowserWindow }) => {
+    BrowserWindow.getAllWindows()
+      .find((window) => window.webContents.getURL() === "app://bundle/index.html")
+      .webContents.focus();
+  });
+  await expect
+    .poll(() => app.evaluate(({ webContents }) => webContents.getFocusedWebContents()?.getURL()))
+    .toBe("app://bundle/index.html");
+  await typeIntoFocusedContents(app, "blocked".repeat(40));
+  await app.evaluate(() => globalThis.releasePreviewLink());
   await expect.poll(async () => (await previewViewState(app, id)).attached).toBe(true);
   await expect
     .poll(async () => (await previewViewState(app, id)).contentsId)
@@ -9415,6 +9452,44 @@ test("preview host keeps keyboard focus after a user-clicked link navigation", a
     await page.evaluate((id) => window.desktop.tail(id, 20), terminal.id),
     terminalBefore,
   );
+  // A deliberate terminal click during another handoff restores ordinary input.
+  await app.evaluate(({ webContents }, id) => {
+    globalThis.previewLinkRequested = false;
+    webContents
+      .getAllWebContents()
+      .find((entry) => entry.getURL().startsWith(`foom-preview://${id}/`))
+      .reload();
+  }, id);
+  await expect.poll(() => app.evaluate(() => globalThis.previewLinkRequested)).toBe(true);
+  const terminalBounds = await page.locator(".xterm-screen").boundingBox();
+  assert.ok(terminalBounds);
+  await app.evaluate(({ BrowserWindow }, bounds) => {
+    const contents = BrowserWindow.getAllWindows().find(
+      (window) => window.webContents.getURL() === "app://bundle/index.html",
+    ).webContents;
+    contents.focus();
+    const mouse = {
+      x: Math.round(bounds.x + 10),
+      y: Math.round(bounds.y + bounds.height - 10),
+      button: "left",
+      clickCount: 1,
+    };
+    contents.sendInputEvent({ type: "mouseDown", ...mouse });
+    contents.sendInputEvent({ type: "mouseUp", ...mouse });
+  }, terminalBounds);
+  await expect(page.locator(".xterm-helper-textarea")).toBeFocused();
+  await expect
+    .poll(() => app.evaluate(({ webContents }) => webContents.getFocusedWebContents()?.getURL()))
+    .toBe("app://bundle/index.html");
+  await typeIntoFocusedContents(app, "cancelled");
+  await expect
+    .poll(async () =>
+      (await page.evaluate((id) => window.desktop.tail(id, 20), terminal.id)).join(""),
+    )
+    .toContain("cancelled");
+  await app.evaluate(() => globalThis.releasePreviewLink());
+  await expect.poll(async () => (await previewViewState(app, id)).attached).toBe(true);
+  assert.equal((await previewViewState(app, id)).focused, false);
   await page.evaluate((id) => window.desktop.previews.close(id), id);
 });
 

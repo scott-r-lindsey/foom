@@ -4,7 +4,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { BrowserWindow } from "electron";
 import { afterEach, expect, test, vi } from "vitest";
-const fake = vi.hoisted(() => ({ views: [] as FakeView[], packaged: false }));
+const fake = vi.hoisted(() => ({
+  views: [] as FakeView[],
+  packaged: false,
+  nextLoad: undefined as Promise<void> | undefined,
+}));
 class FakeSession extends EventEmitter {
   protocol = {
     handle: vi.fn<(scheme: string, handler: (request: { url: string }) => Response) => void>(),
@@ -41,7 +45,9 @@ class FakeContents extends EventEmitter {
   loadURL = vi.fn((url: string) => {
     this.getURL.mockReturnValue(url);
     this.emit("did-start-navigation", { url, isMainFrame: true, isSameDocument: false });
-    return Promise.resolve();
+    const result = fake.nextLoad;
+    fake.nextLoad = undefined;
+    return result ?? Promise.resolve();
   });
   setZoomFactor = vi.fn();
   getZoomFactor = vi.fn(() => 1);
@@ -298,7 +304,7 @@ test("focus handoff waits for attachment and yields to a later user focus change
   const replacement = fake.views[1];
   if (!replacement) throw new Error("Missing replacement");
   expect(replacement.webContents.focus).not.toHaveBeenCalled();
-  f.window.webContents.emit("focus");
+  f.window.webContents.emit("before-mouse-event", {}, { type: "mouseDown" });
   replacement.webContents.emit("did-finish-load");
   expect(replacement.webContents.focus).not.toHaveBeenCalled();
   await f.host.dispose(false);
@@ -351,6 +357,103 @@ test("unsolicited focus returns to the board while a focused replacement is pend
   const delayed = fake.views[3];
   delayed?.webContents.emit("did-finish-load");
   expect(delayed?.webContents.focus).not.toHaveBeenCalled();
+  await f.host.dispose(false);
+});
+test("handoff blocks board keys before detach through throttle and load, and disposes listeners", async () => {
+  vi.useFakeTimers();
+  const f = await fixture();
+  const { id, view } = await f.open();
+  const bounds = { x: 0, y: 0, width: 100, height: 100, visible: true };
+  f.host.bounds(id, bounds);
+  view.webContents.emit("did-finish-load");
+  view.webContents.emit("before-mouse-event", {}, { type: "mouseDown" });
+  view.webContents.emit("focus");
+  const event = { preventDefault: vi.fn() };
+  const key = () => f.window.webContents.emit("before-input-event", event);
+  key();
+  expect(event.preventDefault).not.toHaveBeenCalled();
+  view.webContents.emit("will-frame-navigate", {
+    url: `foom-preview://${id}/b.md`,
+    isMainFrame: true,
+  });
+  key();
+  expect(event.preventDefault).toHaveBeenCalledTimes(1);
+  const navigation = { url: view.webContents.getURL(), isMainFrame: true, isSameDocument: false };
+  view.webContents.emit("did-start-navigation", navigation);
+  f.window.webContents.emit("focus");
+  key();
+  expect(event.preventDefault).toHaveBeenCalledTimes(2);
+  const replacement = fake.views[1];
+  if (!replacement) throw new Error("Missing replacement");
+  replacement.webContents.emit("did-finish-load");
+  key();
+  expect(event.preventDefault).toHaveBeenCalledTimes(3);
+  replacement.webContents.emit("focus");
+  event.preventDefault.mockClear();
+  key();
+  expect(event.preventDefault).toHaveBeenCalledTimes(0);
+  expect(replacement.webContents.focus).toHaveBeenCalledOnce();
+  replacement.webContents.emit("did-start-navigation", navigation);
+  key();
+  expect(event.preventDefault).toHaveBeenCalledTimes(1);
+  f.window.webContents.emit("before-mouse-event", {}, { type: "mouseMove" });
+  key();
+  expect(event.preventDefault).toHaveBeenCalledTimes(2);
+  f.window.webContents.emit("before-mouse-event", {}, { type: "mouseDown" });
+  key();
+  expect(event.preventDefault).toHaveBeenCalledTimes(2);
+  await vi.advanceTimersByTimeAsync(250);
+  const delayed = fake.views[2];
+  if (!delayed) throw new Error("Missing delayed replacement");
+  delayed.webContents.emit("did-finish-load");
+  expect(delayed.webContents.focus).not.toHaveBeenCalled();
+  await f.host.dispose(false);
+  expect(f.window.webContents.listenerCount("before-input-event")).toBe(0);
+  expect(f.window.webContents.listenerCount("before-mouse-event")).toBe(0);
+});
+test("hiding or closing a pending handoff unblocks board input", async () => {
+  for (const action of ["hide", "close"] as const) {
+    const f = await fixture();
+    const { id, view } = await f.open();
+    const bounds = { x: 0, y: 0, width: 100, height: 100, visible: true };
+    f.host.bounds(id, bounds);
+    view.webContents.emit("did-finish-load");
+    view.webContents.emit("before-mouse-event", {}, { type: "mouseDown" });
+    view.webContents.emit("focus");
+    view.webContents.emit("did-start-navigation", {
+      url: view.webContents.getURL(),
+      isMainFrame: true,
+      isSameDocument: false,
+    });
+    const event = { preventDefault: vi.fn() };
+    f.window.webContents.emit("before-input-event", event);
+    expect(event.preventDefault).toHaveBeenCalledOnce();
+    if (action === "hide") f.host.bounds(id, { ...bounds, visible: false });
+    else await f.host.close(id);
+    f.window.webContents.emit("before-input-event", event);
+    expect(event.preventDefault).toHaveBeenCalledOnce();
+    await f.host.dispose(false);
+  }
+});
+test("a failed replacement load cancels the input gate", async () => {
+  const f = await fixture();
+  const { id, view } = await f.open();
+  f.host.bounds(id, { x: 0, y: 0, width: 100, height: 100, visible: true });
+  view.webContents.emit("did-finish-load");
+  view.webContents.emit("before-mouse-event", {}, { type: "mouseDown" });
+  view.webContents.emit("focus");
+  fake.nextLoad = Promise.reject(new Error("Load failed"));
+  view.webContents.emit("did-start-navigation", {
+    url: view.webContents.getURL(),
+    isMainFrame: true,
+    isSameDocument: false,
+  });
+  const event = { preventDefault: vi.fn() };
+  f.window.webContents.emit("before-input-event", event);
+  expect(event.preventDefault).toHaveBeenCalledOnce();
+  await Promise.resolve();
+  f.window.webContents.emit("before-input-event", event);
+  expect(event.preventDefault).toHaveBeenCalledOnce();
   await f.host.dispose(false);
 });
 test("rapid reloads stop the old script, bound recreation and cancel pending work on close", async () => {

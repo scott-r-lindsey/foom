@@ -34,6 +34,7 @@ export class PreviewHost {
   private readonly hosted = new Map<string, HostedPreview>();
   private lastFocused: WebContents;
   private disposed = false;
+  private pendingFocus: WebContents | undefined;
   constructor(
     private readonly window: BrowserWindow,
     readonly registry: PreviewRegistry,
@@ -42,11 +43,30 @@ export class PreviewHost {
   ) {
     this.lastFocused = window.webContents;
     window.webContents.on("focus", this.boardFocused);
+    window.webContents.prependListener("before-input-event", this.boardInput);
+    window.webContents.on("before-mouse-event", this.boardMouse);
     window.on("resize", this.refresh);
   }
   private readonly boardFocused = () => {
+    // Native fallback after detaching/closing is not a deliberate board selection.
+    if (!this.pendingFocus) this.lastFocused = this.window.webContents;
+  };
+  private readonly boardInput = (event: Electron.Event) => {
+    // Block synchronously in main, before Chromium can deliver a key to xterm
+    // or an accelerator. No renderer round trip can protect the first key.
+    if (this.pendingFocus) event.preventDefault();
+  };
+  private readonly boardMouse = (_event: Electron.Event, mouse: Electron.MouseInputEvent) => {
+    if (mouse.type !== "mouseDown") return;
+    this.pendingFocus = undefined;
     this.lastFocused = this.window.webContents;
   };
+  private beginHandoff(contents: WebContents) {
+    if (this.lastFocused === contents) this.pendingFocus = contents;
+  }
+  private cancelHandoff(contents: WebContents) {
+    if (this.pendingFocus === contents) this.pendingFocus = undefined;
+  }
   readonly refresh = () => {
     for (const entry of this.hosted.values()) this.applyBounds(entry);
   };
@@ -151,7 +171,10 @@ export class PreviewHost {
     };
     this.hosted.set(record.id, entry);
     const contents = view.webContents;
-    if (restoreFocus) this.lastFocused = contents;
+    if (restoreFocus) {
+      this.lastFocused = contents;
+      this.pendingFocus = contents;
+    }
     contents.setWindowOpenHandler(() => ({ action: "deny" }));
     contents.on("will-attach-webview", (event) => {
       event.preventDefault();
@@ -161,7 +184,10 @@ export class PreviewHost {
         event.preventDefault();
         entry.loaded ||= entry.previouslyLoaded;
         this.applyBounds(entry);
-      } else if (event.isMainFrame) this.detach(entry);
+      } else if (event.isMainFrame) {
+        this.beginHandoff(contents);
+        this.detach(entry);
+      }
     });
     contents.on("will-redirect", (event) => {
       event.preventDefault();
@@ -177,10 +203,10 @@ export class PreviewHost {
       // A previously clicked RenderWidgetHost can regain native focus on reload
       // even while detached. A fresh contents has never held that focus grant.
       const heldFocus = this.lastFocused === contents;
+      this.beginHandoff(contents);
       this.detach(entry);
       contents.close();
-      // Closing may synchronously focus the board. Preserve the user's preview
-      // intent, but a later board/preview focus change cancels the handoff.
+      // Preserve the intent across native fallback; a deliberate click cancels it.
       if (heldFocus) this.lastFocused = contents;
       const replace = () => {
         this.createView(
@@ -212,6 +238,8 @@ export class PreviewHost {
     contents.on("before-mouse-event", (_event, mouse) => {
       if (mouse.type !== "mouseDown" || !entry.attached) return;
       // Native input only: page script cannot raise this event.
+      this.pendingFocus = undefined;
+      this.lastFocused = contents;
       entry.clicked = true;
       if (!contents.isFocused()) contents.focus();
     });
@@ -219,14 +247,22 @@ export class PreviewHost {
       entry.clicked = false;
     });
     contents.on("focus", () => {
-      if (entry.attached && entry.clicked) this.lastFocused = contents;
+      if (entry.attached && entry.clicked) {
+        this.lastFocused = contents;
+        this.cancelHandoff(contents);
+      }
       // Attached or not: macOS can hand focus to a detached view that is still loading.
       else if (this.lastFocused !== contents) {
         const target = this.lastFocused.isDestroyed() ? this.window.webContents : this.lastFocused;
         if (!target.isDestroyed()) target.focus();
       }
     });
-    void contents.loadURL(url).catch(() => {});
+    void contents.loadURL(url).catch(() => {
+      if (this.pendingFocus !== contents) return;
+      this.cancelHandoff(contents);
+      entry.restoreFocus = false;
+      this.lastFocused = this.window.webContents;
+    });
     return entry;
   }
   private detach(entry: HostedPreview) {
@@ -253,6 +289,7 @@ export class PreviewHost {
     if (!visible) {
       if (entry.restoreFocus && this.lastFocused === entry.view.webContents)
         this.lastFocused = this.window.webContents;
+      this.cancelHandoff(entry.view.webContents);
       entry.restoreFocus = false;
       this.detach(entry);
     } else if (entry.loaded && !entry.attached) {
@@ -261,6 +298,7 @@ export class PreviewHost {
       if (entry.restoreFocus && this.lastFocused === entry.view.webContents) {
         entry.clicked = true;
         entry.view.webContents.focus();
+        if (entry.view.webContents.isFocused()) this.cancelHandoff(entry.view.webContents);
       }
       entry.restoreFocus = false;
     }
@@ -282,6 +320,7 @@ export class PreviewHost {
       this.detach(entry);
       const contents = entry.view.webContents;
       const partition = entry.partition;
+      this.cancelHandoff(contents);
       if (this.lastFocused === contents) this.lastFocused = this.window.webContents;
       if (!contents.isDestroyed()) contents.close();
       this.hosted.delete(id);
@@ -308,6 +347,8 @@ export class PreviewHost {
     this.disposed = true;
     this.window.removeListener("resize", this.refresh);
     this.window.webContents.removeListener("focus", this.boardFocused);
+    this.window.webContents.removeListener("before-input-event", this.boardInput);
+    this.window.webContents.removeListener("before-mouse-event", this.boardMouse);
     const saved = [...this.registry.records.values()];
     for (const id of [...this.registry.records.keys()]) await this.close(id);
     if (persist) {

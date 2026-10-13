@@ -1637,8 +1637,13 @@ it detached and attaches only after `did-finish-load`, when its board rectangle 
 visible. Main-frame reloads and allowed navigation replace the old native
 contents with a fresh detached view in the same partition, preserving ID and bounds.
 If the old preview held user focus, the replacement receives focus after loading
-and attachment, unless the user focused elsewhere while it loaded. Recreation
-is bounded to once per 250 ms per preview; the old contents closes immediately
+and attachment, unless the user clicked elsewhere while it loaded. Before detaching
+or closing a user-focused preview, main blocks the board's native keyboard events
+(including shortcuts) until that handoff completes. Native fallback focus does not
+cancel the handoff; a native mouse-down on the board or another preview does,
+allowing ordinary input immediately. Hiding or closing the pending preview also
+unblocks board input. These listeners belong to the host and are disposed with it.
+Recreation is bounded to once per 250 ms per preview; the old contents closes immediately
 and only one replacement can be pending. Closing cancels pending recreation.
 A previously clicked native contents can reacquire keyboard focus during reload on
 macOS even when detached; replacing it prevents that remembered focus grant.
