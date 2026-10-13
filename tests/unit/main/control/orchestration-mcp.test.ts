@@ -13,9 +13,11 @@ let http: ControlHttp;
 let tokens: { orchestrator: string; agent: string };
 let orchestration: Orchestration;
 const rows: WorkspaceTerminal[] = [];
+let childLimit = 4;
 
 beforeEach(async () => {
   rows.length = 0;
+  childLimit = 4;
   const host = {
     terminals: () => rows,
     createWorktree: (_repository: string, branch: string) =>
@@ -40,7 +42,7 @@ beforeEach(async () => {
     dialog: () => Promise.resolve(false),
     changed: vi.fn(),
   };
-  orchestration = new Orchestration(host);
+  orchestration = new Orchestration(host, Date.now, () => childLimit);
   service = new ControlService(
     new Operations(
       () => Promise.resolve(),
@@ -221,3 +223,13 @@ it("holds a bounded wait_for open past the five-second transport deadline", asyn
   expect(await response.json()).toMatchObject({ result: { timedOut: true, changed: [] } });
   expect(Date.now() - started).toBeGreaterThanOrEqual(5500);
 }, 15_000);
+
+it("lists the current configured wait_for bound on each tools request", async () => {
+  const agent = client(tokens.agent);
+  await agent.init();
+  for (const limit of [1, 16, 2]) {
+    childLimit = limit;
+    const listed = await agent.send("tools/list");
+    expect(JSON.stringify(listed)).toContain(`"maxItems":${String(limit)}`);
+  }
+});

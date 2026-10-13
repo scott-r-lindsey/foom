@@ -14,8 +14,6 @@ import type { Operations } from "./operations";
 import type { Operation, Principal } from "./types";
 import { ControlError, exact, identifier } from "./validation";
 
-/** Starting, running and stopping children per orchestrator. */
-export const CHILD_LIMIT = 4;
 /** Orchestrator-created worktrees that no child has used yet. */
 export const WORKTREE_LIMIT = 4;
 const TAIL_BYTES = 16384;
@@ -159,6 +157,7 @@ export class Orchestration {
   constructor(
     private readonly host: OrchestrationHost,
     private readonly now: () => number = Date.now,
+    readonly childLimit: () => number = () => 4,
   ) {
     this.replies = new ReviewedReplies(host, now);
     this.metadata = new SessionMetadata(() => host.terminals());
@@ -262,7 +261,7 @@ export class Orchestration {
       !parent?.active ||
       parent.repository !== entry.repository ||
       parent.refusedWorktrees.has(locationId(entry.worktree)) ||
-      (!entry.exited && this.running(parent) >= CHILD_LIMIT)
+      (!entry.exited && this.running(parent) >= this.childLimit())
     )
       return false;
     const tree = await this.host
@@ -271,7 +270,7 @@ export class Orchestration {
     if (
       !tree ||
       this.active(parent.repository) !== parentId ||
-      (!entry.exited && this.running(parent) >= CHILD_LIMIT)
+      (!entry.exited && this.running(parent) >= this.childLimit())
     )
       return false;
     const worktreeId = locationId(entry.worktree);
@@ -495,7 +494,7 @@ export class Orchestration {
     // Each child gets a fresh parent-created worktree, used exactly once.
     if (tree.state !== "unused")
       return this.refuse(actor, parent, operations, operation, label, "conflict");
-    if (this.running(parent) + parent.starting >= CHILD_LIMIT)
+    if (this.running(parent) + parent.starting >= this.childLimit())
       return this.refuse(actor, parent, operations, operation, label, "capacity");
     // Still charged to the unused budget until the spawn succeeds.
     tree.state = "starting";
@@ -694,7 +693,7 @@ export class Orchestration {
   private async waitFor(actor: Principal, params: Record<string, unknown>): Promise<unknown> {
     exact(params, ["ids", "after", "timeoutMs"]);
     const ids = params["ids"];
-    if (!Array.isArray(ids) || ids.length < 1 || ids.length > 4)
+    if (!Array.isArray(ids) || ids.length < 1 || ids.length > this.childLimit())
       throw new ControlError("invalid_request");
     const targets = ids.map(identifier);
     if (new Set(targets).size !== targets.length) throw new ControlError("invalid_request");

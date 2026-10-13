@@ -487,7 +487,8 @@ independently of hooks. These tested releases are the version floors. Older or
 unparseable versions, missing flags and Antigravity do not attach MCP; managed client policy may deny attachment. These tools
 never return terminal output. **Make orchestrator…** in a running Claude Code, Codex or
 Antigravity session's menu grants that session permission to create worktrees and run up to
-four children in its repository, without restarting it; **Revoke orchestrator** takes it back.
+the concurrent child limit set in Settings → General (default 4, integer 1–16),
+without restarting it; **Revoke orchestrator** takes it back.
 One session per repository holds the role: making another the orchestrator asks once and
 revokes the first. The session keeps its own launch flags, including bypass. Every
 agent sees the orchestration tools from launch, refused until you grant the role; tell

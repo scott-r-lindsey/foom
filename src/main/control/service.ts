@@ -40,7 +40,8 @@ export class ControlService {
   constructor(
     readonly operations: Operations,
     source: () => readonly WorkspaceTerminal[] = () => [],
-    private readonly orchestration?: Pick<Orchestration, "call">,
+    private readonly orchestration?: Pick<Orchestration, "call"> &
+      Partial<Pick<Orchestration, "childLimit">>,
     private readonly connectionChanged: (
       id: string,
       state: McpConnection | undefined,
@@ -53,6 +54,10 @@ export class ControlService {
     ) => Promise<void> = () => Promise.resolve(),
   ) {
     this.metadata = new SessionMetadata(source);
+  }
+
+  childLimit(): number {
+    return this.orchestration?.childLimit?.() ?? 4;
   }
 
   prepare(

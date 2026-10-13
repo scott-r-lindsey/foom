@@ -88,6 +88,11 @@ test("owned files refresh only when missing or matching an earlier Foom version"
     additionalProperties: boolean;
   };
   expect(schema.additionalProperties).toBe(false);
+  expect(schema.properties["concurrentChildren"]).toEqual({
+    type: "integer",
+    minimum: 1,
+    maximum: 16,
+  });
   expect(Object.keys(schema.properties).sort()).toEqual(
     [
       "kind",
@@ -102,6 +107,7 @@ test("owned files refresh only when missing or matching an earlier Foom version"
       "agentArguments",
       "hooks",
       "restoreSessions",
+      "concurrentChildren",
     ].sort(),
   );
   for (const file of ["schemas/theme.schema.json", "schemas/terminal-theme.schema.json"])
@@ -121,6 +127,7 @@ test("enabling automatic restore requires approval, disabling it does not", () =
 test("unedited earlier guides refresh to the current one", () => {
   for (const file of ["README.md", "AGENTS.md", "CLAUDE.md"]) {
     const history = OWNED_HISTORY[file] ?? [];
+    expect(history).toContain("d71127b1f24427c8f3a36b5b32fde2aac496941c5bc038960f0d81399519c3e5");
     // The guide shipped with restoreSessions, before the launch-argument guidance.
     expect(history).toContain("878a20cc974fb5cee577361660f8153f9adbcb3ca815ee5fc4eca26047b8d858");
     expect(history).not.toContain(digest(OWNED_FILES[file] ?? ""));

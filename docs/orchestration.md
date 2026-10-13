@@ -20,8 +20,9 @@ Only the human grants orchestration, from a running agent session's menu: **Make
 orchestrator…** (a trusted confirmation) and **Revoke orchestrator** (#303). There
 is no orchestrator launch; any Foom-launched agent session can be elevated,
 including one running with bypass permissions. Main permits one active orchestrator
-per canonical repository, with at most four
-running children, each in a new worktree in that repository. Children get ordinary
+per canonical repository, with a configurable limit of
+running children (Settings → General → Concurrent children per orchestrator; default
+4, integer 1–16), each in a new worktree in that repository. Children get ordinary
 read-only credentials and cannot create grandchildren through Foom. Agent-native
 subagents and processes outside Foom are not controlled by this limit.
 
@@ -297,7 +298,7 @@ fresh child-scoped values. Never return tokens to the renderer, logs, MCP result
 or error text. New Foom instances and resumed sessions receive fresh credentials;
 automatic restore may re-grant orchestrator control only from Foom's main-owned session store, when restore is enabled, the orchestrator was active at quit, the same repository identity is still registered and the CLI is a verified Claude Code or Codex release. Hook data, conversation metadata, agent output and environment flags never grant roles. Otherwise the session resumes ordinarily and its panel says the role was not restored. Every re-grant has a new principal generation and token. The verified repository identity is carried into the launch and rechecked before spawning. Tokens, confirmations, replies, waits and in-flight mutations never survive; unresolved persisted operation intents still require human reconciliation.
 
-Restored parents launch before their running, non-taken-over children. Those children keep child launch rules (no user defaults and an orchestrator prompt prefix), count toward the four-child limit, and may be stopped, tailed and waited for by the new parent. Stop returns a conflict while a restored child is still starting; it cannot report success for a PTY that does not exist yet. Taken-over children and children without a re-granted parent resume ordinarily. The active panel and its action history continue without a restore badge.
+Restored parents launch before their running, non-taken-over children. Those children keep child launch rules (no user defaults and an orchestrator prompt prefix), count toward the configured child limit, and may be stopped, tailed and waited for by the new parent. Stop returns a conflict while a restored child is still starting; it cannot report success for a PTY that does not exist yet. Taken-over children and children without a re-granted parent resume ordinarily. The active panel and its action history continue without a restore badge.
 
 The parent record also persists owned checkout paths, identities and unused/used
 state, plus the uncertain-creation budget. Restore checks the live Git inventory
@@ -346,7 +347,7 @@ under the existing launch/removal locks. Git and processes use argument arrays.
 | `reply` | Orchestrator, own child only | Exact question revision plus ≤4 KiB proposal; gate below, never general terminal input |
 | `stop` | Orchestrator, own child only | Graceful stop with existing bounded termination fallback; retains worktree and final screen |
 | `remove_worktree` | Orchestrator, own created worktree only | Requests an app confirmation even when clean; no force option or deleting branches |
-| `wait_for` | Orchestrator, own children only | Up to four IDs, after-revision cursor, timeout 0–30 seconds; returns state metadata or timeout |
+| `wait_for` | Orchestrator, own children only | Up to the configured child limit of IDs, after-revision cursor, timeout 0–30 seconds; returns state metadata or timeout |
 | `operation_status` | Orchestrator or authorized human CLI grant, own operations only | Exactly one of operation ID or idempotency key; returns the operation record described below, never child output |
 
 Ordinary agents never see orchestration tools in `tools/list`; the service also
@@ -355,9 +356,11 @@ role, not privileges inherited by orchestrators. #67 remote access is out of sco
 A human CLI grant exposes only its approved operations through the same validators.
 
 Reserve the repository orchestrator slot and child slots atomically before async
-work. Count starting and stopping children until exit is confirmed; reject a fifth
-launch, concurrent second orchestrator, and occupied worktrees. Bound unused
-orchestrator-created worktrees to four as well. Release reservations on failure;
+work. Count starting and stopping children until exit is confirmed; reject a launch above the configured limit, concurrent second orchestrator, and occupied worktrees. Bound unused
+orchestrator-created worktrees to four. Changing the child limit applies at the
+next reservation; lowering it never stops existing children, and blocks new launches
+until the count falls below the new limit. `wait_for` validates its ID count against
+the current setting too. Release reservations on failure;
 retain successfully created worktrees for explicit cleanup. Idempotency keys on
 mutations return the prior operation result, rejecting reuse with different input;
 a timed-out client must query the operation rather than launch again blindly.
@@ -652,7 +655,7 @@ The four mutations require an idempotency key. After losing a response, query
 `operation-status --idempotency-key KEY`; reusing a key with different input is
 refused. Removal still needs the trusted app confirmation. `tail` retains secret
 redaction, the 40-line/16 KiB cap and one request per child per second; `wait-for`
-accepts one to four distinct IDs and waits at most 30 seconds. The console gives
+accepts one to the configured child limit of distinct IDs and waits at most 30 seconds. The console gives
 that wait a 35-second transport deadline. Arguments are validated in both the
 console and main. Tokens are never accepted as arguments or printed. Ordinary
 sessions, children (including taken-over children), and human pairing grants
@@ -714,7 +717,7 @@ retry with the same key returns that record.
 | `stop` | `id` | Existing graceful stop; an already exited child succeeds; a stop error is `indeterminate` |
 | `remove_worktree` | `worktreeId` | Returns `pending_confirmation`; poll `operation_status` |
 | `tail` | `id`, optional `lines` 1–40 | `{ id, revision, timestamp, lines, truncated, untrusted: true, notice }` |
-| `wait_for` | `ids` (1–4), optional `after` map of ID → revision, `timeoutMs` 0–30000 | `{ sessions, changed, timedOut }` |
+| `wait_for` | `ids` (1–configured child limit), optional `after` map of ID → revision, `timeoutMs` 0–30000 | `{ sessions, changed, timedOut }` |
 
 Prompts and branch names reject control characters other than newline and tab,
 Unicode format characters, and a leading `-`, so they cannot become options.
@@ -725,7 +728,7 @@ Claude Code and Codex take it as the final positional argument; Antigravity comp
 it with the CLI guidance through `--prompt-interactive` and refuses a prompt on
 releases without that option.
 
-**Limits.** Four children that have not confirmed exit, including starting ones and
+**Limits.** The configured number of children that have not confirmed exit, including starting ones and
 any the human took over, and four created worktrees that no child has used,
 including creations in progress, launches still starting, and creations that ended
 `indeterminate` because Git may have added the checkout before a later step failed.

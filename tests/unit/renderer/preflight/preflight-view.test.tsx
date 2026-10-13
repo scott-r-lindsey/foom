@@ -647,6 +647,14 @@ test("Settings shares setup controls, saves immediately and exposes planned sect
   fireEvent.click(button("General"));
   const restore = screen.getByRole("checkbox", { name: "Restore sessions on launch" });
   expect(restore).toHaveProperty("checked", true);
+  const limit = screen.getByRole("spinbutton", { name: "Concurrent children per orchestrator" });
+  expect(limit).toHaveProperty("value", "4");
+  for (const value of ["", "0", "17", "1.5"]) fireEvent.change(limit, { target: { value } });
+  expect(source.save).not.toHaveBeenCalledWith({ concurrentChildren: 0 });
+  fireEvent.change(limit, { target: { value: "2" } });
+  await waitFor(() => {
+    expect(source.save).toHaveBeenCalledWith({ concurrentChildren: 2 });
+  });
   fireEvent.click(restore);
   await waitFor(() => {
     expect(source.save).toHaveBeenCalledWith({ restoreSessions: false });

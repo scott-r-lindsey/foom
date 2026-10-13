@@ -26,6 +26,7 @@ export const DEFAULT_SETTINGS: Settings = Object.freeze({
   agyPluginOfferAnswered: false,
   hooks: true,
   restoreSessions: true,
+  concurrentChildren: 4,
   agents: Object.freeze({ claude: true, codex: true, agy: true }),
   agentArguments: EMPTY_AGENT_ARGUMENTS,
   agentBypassAcknowledged: Object.freeze({ claude: false, codex: false, agy: false }),
