@@ -1,4 +1,4 @@
-import type { ConfirmWorkspace } from "../../../../src/shared/confirmation";
+import type { ConfirmWorkspace, DialogContent } from "../../../../src/shared/confirmation";
 import { beforeEach, expect, test, vi } from "vitest";
 import type { BrowserWindow, IpcMainInvokeEvent } from "electron";
 import type { Workspace } from "../../../../src/main/workspace/workspace";
@@ -46,12 +46,14 @@ const workspace = {
   branches: vi.fn(() =>
     Promise.resolve({ head: "main", local: [], remote: null, remoteBranches: [] }),
   ),
-  changeAgyPlugin: vi.fn(() => Promise.resolve({ warning: null, agents: [] })),
+  changeAgyPlugin: vi.fn((_action: string, _confirm: () => Promise<boolean>) =>
+    Promise.resolve({ warning: null, agents: [] }),
+  ),
   scanAgents: vi.fn(() => Promise.resolve({ warning: null, agents: [] })),
   launch: vi.fn((_request: unknown) => Promise.resolve({ id: "t1", attention: "evaluator" })),
   feedback: vi.fn(() => Promise.resolve()),
 };
-const requestDialog = vi.fn<() => Promise<boolean>>();
+const requestDialog = vi.fn<(content: DialogContent) => Promise<boolean>>();
 const owns = vi.fn((id: string) => id === "t1");
 let attached: ReturnType<typeof attachWorkspace>;
 
@@ -450,7 +452,7 @@ test("orchestrator commands name only an owned terminal; the disclosure names a 
 test("Antigravity plugin IPC accepts only one fixed operation, never paths or CLI arguments", async () => {
   for (const action of ["install", "update", "enable", "remove"]) {
     await invoke("agents:agy-plugin", [action]);
-    expect(workspace.changeAgyPlugin).toHaveBeenLastCalledWith(action);
+    expect(workspace.changeAgyPlugin).toHaveBeenLastCalledWith(action, expect.any(Function));
   }
   for (const args of [
     [],
@@ -625,3 +627,25 @@ test("sidebar inventory reports previews only for worktrees it lists", async () 
     ],
   });
 });
+
+test.each(["install", "update"])(
+  "plugin %s uses a fixed trusted disclosure and closes on navigation",
+  async (action) => {
+    requestDialog.mockResolvedValueOnce(false);
+    await invoke("agents:agy-plugin", [action]);
+    const confirm = workspace.changeAgyPlugin.mock.calls.at(-1)?.[1];
+    if (!confirm) throw new Error("Missing plugin confirmation");
+    expect(await confirm()).toBe(false);
+    const disclosure = requestDialog.mock.calls.at(-1)?.[0];
+    expect(disclosure?.cancel).toBe("Not now");
+    expect(disclosure?.accept).toBe(action === "install" ? "Install plugin" : "Update plugin");
+    expect(disclosure?.detail).toContain("~/.gemini/config/plugins/foom");
+    expect(disclosure?.quiet).toContain("agy plugin uninstall foom");
+    contents.isDestroyed.mockReturnValue(true);
+    expect(await confirm()).toBe(false);
+    contents.isDestroyed.mockReturnValue(false);
+    frame.url = "https://untrusted.test";
+    expect(await confirm()).toBe(false);
+    expect(requestDialog).toHaveBeenCalledTimes(1);
+  },
+);

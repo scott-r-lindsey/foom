@@ -297,7 +297,7 @@ test("first run walks every step, saves each choice, and launches", async () => 
   await screen.findByText("2 agents ready");
   fireEvent.click(screen.getByRole("checkbox", { name: /Attach Foom's hooks/ }));
   // With hooks off, every found agent falls back to the rules, immediately.
-  expect(screen.getAllByRole("button", { name: "Rules" })).toHaveLength(3);
+  expect(screen.getAllByRole("button", { name: "Rules" })).toHaveLength(2);
   fireEvent.click(button("Scan again"));
   expect(source.scanAgents).toHaveBeenLastCalledWith(true);
   await screen.findByText("Scan again");
@@ -780,15 +780,17 @@ test("agent setup waits for explicit plugin installation, refreshes status and r
   source.changeAgyPlugin.mockResolvedValue(installed);
   render(<Preflight source={source} initial={setupState()} onLaunched={vi.fn()} />);
   fireEvent.click(button("Start preflight"));
-  await screen.findByRole("button", { name: "Install Foom plugin" });
+  await screen.findByRole("button", { name: "Install plugin" });
   expect(source.changeAgyPlugin).not.toHaveBeenCalled();
-  fireEvent.click(button("Install Foom plugin"));
-  await screen.findByRole("button", { name: "Remove Foom plugin" });
+  fireEvent.click(button("Install plugin"));
+  await screen.findByText("Plugin details");
+  fireEvent.click(screen.getByText("Plugin details"));
+  await screen.findByRole("button", { name: "Remove plugin" });
   expect(source.changeAgyPlugin).toHaveBeenCalledWith("install");
   source.changeAgyPlugin.mockRejectedValueOnce(new Error("Plugin command failed"));
-  fireEvent.click(button("Remove Foom plugin"));
+  fireEvent.click(button("Remove plugin"));
   await screen.findByText("Plugin command failed");
-  expect(button("Remove Foom plugin")).toHaveProperty("disabled", false);
+  expect(button("Remove plugin")).toHaveProperty("disabled", false);
 });
 
 test("agent settings report capability-gated MCP availability and policy limits", async () => {
@@ -815,3 +817,26 @@ test("agent settings report capability-gated MCP availability and policy limits"
   expect(screen.getByText("Managed policy may deny attachment.")).toBeTruthy();
   expect(screen.getByText("Version below the supported floor.")).toBeTruthy();
 });
+
+test.each([
+  [false, true, "not-installed", true],
+  [true, true, "not-installed", false],
+  [false, false, "not-installed", false],
+  [false, true, "installed", false],
+] as const)(
+  "Settings plugin marker follows answer %s, PATH %s and state %s",
+  async (answered, detected, pluginState, marker) => {
+    const initial = setupState({ setupComplete: true, agyPluginOfferAnswered: answered });
+    const source = fake(
+      initial,
+      report({ ...installation("agy", detected), agyPlugin: { state: pluginState } }),
+    );
+    render(<Preflight source={source} initial={initial} onLaunched={vi.fn()} settingsMode />);
+    await waitFor(() => {
+      expect(source.scanAgents).toHaveBeenCalled();
+    });
+    await act(async () => {});
+    expect(Boolean(screen.queryByText("Plugin available"))).toBe(marker);
+    expect(Boolean(screen.queryByText("Plugin details"))).toBe(detected);
+  },
+);

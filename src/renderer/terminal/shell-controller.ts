@@ -161,14 +161,37 @@ export function createShell(
     if (activeId && attached && !busy && !exited) window.desktop.input(activeId, data, "wheel");
   });
   terminal.attachCustomWheelEventHandler((event) => wheel.handle(event));
+  const board = container.closest(".board-home");
+  let sidebarChanging = false;
+  let sidebarFrame: number | undefined;
+  let measuredWidth: number | undefined;
+  let measuredHeight: number | undefined;
   const resize = () => {
-    if (!attached || busy) return;
+    if (!attached || busy || sidebarChanging) return;
+    const sidebar = board?.querySelector(".sidebar-shell");
+    if (sidebar?.getAnimations().some((animation) => animation.playState === "running")) return;
+    const bounds = container.getBoundingClientRect();
+    if (!fontResizePending && bounds.width === measuredWidth && bounds.height === measuredHeight)
+      return;
+    measuredWidth = bounds.width;
+    measuredHeight = bounds.height;
+    const dimensions = fit.proposeDimensions();
+    if (
+      !fontResizePending &&
+      dimensions &&
+      dimensions.cols === view.cols &&
+      dimensions.rows === view.rows
+    )
+      return;
     fit.fit();
+    // Subpixel layout changes can leave the fitted cell grid unchanged.
+    const resizeHost =
+      fontResizePending || view.cols !== terminal.cols || view.rows !== terminal.rows;
     view.cols = terminal.cols;
     view.rows = terminal.rows;
     publish();
     fontResizePending = false;
-    if (activeId) window.desktop.resize(activeId, terminal.cols, terminal.rows);
+    if (activeId && resizeHost) window.desktop.resize(activeId, terminal.cols, terminal.rows);
   };
   // Subscribe before loading so a late initial response cannot undo a live change.
   let settingsChanged = false;
@@ -202,6 +225,22 @@ export function createShell(
     },
     () => undefined,
   );
+  const sidebarTransition = (event: Event) => {
+    if (!(event instanceof TransitionEvent) || event.propertyName !== "flex-basis") return;
+    if (sidebarFrame !== undefined) cancelAnimationFrame(sidebarFrame);
+    sidebarFrame = undefined;
+    sidebarChanging = true;
+    if (event.type !== "transitionrun") {
+      sidebarFrame = requestAnimationFrame(() => {
+        sidebarFrame = undefined;
+        sidebarChanging = false;
+        resize();
+      });
+    }
+  };
+  board?.addEventListener("transitionrun", sidebarTransition);
+  board?.addEventListener("transitionend", sidebarTransition);
+  board?.addEventListener("transitioncancel", sidebarTransition);
   const observer = new ResizeObserver(resize);
   observer.observe(container);
   const openView = async (id: string) => {
@@ -299,6 +338,10 @@ export function createShell(
     visibleRequested = false;
     colors.removeEventListener("change", interfaceChanged);
     observer.disconnect();
+    if (sidebarFrame !== undefined) cancelAnimationFrame(sidebarFrame);
+    board?.removeEventListener("transitionrun", sidebarTransition);
+    board?.removeEventListener("transitionend", sidebarTransition);
+    board?.removeEventListener("transitioncancel", sidebarTransition);
     offData();
     offExit();
     offRemoved();

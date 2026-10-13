@@ -2888,7 +2888,13 @@ test("plugin operations resolve the CLI in main and invalidate discovery on both
         },
       ],
     });
-    await workspace.changeAgyPlugin("install");
+    const acknowledge = vi.fn(async () => {});
+    deps.acknowledgeAgyPluginOffer = acknowledge;
+    await workspace.changeAgyPlugin("install", () => Promise.resolve(false));
+    expect(change).not.toHaveBeenCalled();
+    expect(acknowledge).toHaveBeenCalledTimes(1);
+    await workspace.changeAgyPlugin("install", () => Promise.resolve(true));
+    expect(acknowledge).toHaveBeenCalledTimes(2);
     expect(change).toHaveBeenCalledWith("/resolved/agy", "install");
     change.mockRejectedValueOnce(new Error("CLI failed"));
     await expect(workspace.changeAgyPlugin("remove")).rejects.toThrow("CLI failed");

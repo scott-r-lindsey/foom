@@ -30,6 +30,7 @@ export interface AppMenuApi {
     available: boolean;
     configAvailable?: boolean;
     maximized: boolean;
+    sidebarCollapsed?: boolean;
     tiles: number;
   }) => Promise<void>;
   commands: () => Promise<AppMenuEntry[]>;

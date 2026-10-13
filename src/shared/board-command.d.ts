@@ -3,6 +3,7 @@ export type BoardCommand =
   | `via-${AgentId}`
   | "action-log"
   | "sidebar"
+  | "toggle-sidebar"
   | "next-waiting"
   | "settings"
   | "new-worktree"
