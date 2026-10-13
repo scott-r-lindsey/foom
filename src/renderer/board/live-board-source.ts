@@ -1,3 +1,4 @@
+import type { PreviewSummary } from "../../shared/workspace";
 import type { HomeShellFacts } from "../../shared/panel";
 import type { ExecutionSnapshot } from "../../shared/execution";
 import { createTerminalView } from "../terminal/terminal-view-source";
@@ -35,6 +36,7 @@ export function createAppSource(): BoardSource {
   let rows: readonly BoardRow[] = [];
   let repositories: readonly string[] = [];
   let sidebar: readonly SidebarRepository[] = [];
+  let previews: readonly PreviewSummary[] = [];
   let shellName = "Shell";
   let home: HomeShellFacts | undefined;
   let shellId = pendingShell;
@@ -276,6 +278,7 @@ export function createAppSource(): BoardSource {
         ]);
         if (!disposed && current === revision) {
           sidebar = inventory.repositories;
+          previews = inventory.previews ?? [];
           shellName = inventory.shell;
           home = inventory.home;
           snapshot(next);
@@ -356,6 +359,10 @@ export function createAppSource(): BoardSource {
   return {
     ...(window.desktop.windows ? { windows: window.desktop.windows } : {}),
     isDevelopment: window.desktop.isDevelopment,
+    previews: {
+      getSnapshot: () => previews,
+      close: () => Promise.reject(new Error("Preview host unavailable")),
+    },
     connect,
     createView: () => {
       const view = createTerminalView(
@@ -430,6 +437,7 @@ export function createAppSource(): BoardSource {
       }
       const inventory = await window.desktop.sidebarInventory();
       sidebar = inventory.repositories;
+      previews = inventory.previews ?? [];
       shellName = inventory.shell;
       home = inventory.home;
       snapshot(await window.desktop.workspace());
@@ -456,6 +464,7 @@ export function createAppSource(): BoardSource {
         const created = await window.desktop.createWorktree(repository, branch);
         const inventory = await window.desktop.sidebarInventory();
         sidebar = inventory.repositories;
+        previews = inventory.previews ?? [];
         shellName = inventory.shell;
         home = inventory.home;
         snapshot(await window.desktop.workspace());

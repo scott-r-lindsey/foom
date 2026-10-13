@@ -279,3 +279,24 @@ test("places children under exited/revoked parents, retaining filter context and
     isolated.tree.find((repo) => repo.repository.path === "/repo")?.worktrees[0]?.sessions,
   ).toEqual([parent]);
 });
+
+test("preview-only worktrees participate in filtering and active sections without attention", () => {
+  const preview = {
+    id: "p",
+    repository: "/b",
+    worktree: "/b",
+    relativePath: "docs/guide.md",
+    kind: "markdown" as const,
+  };
+  const repositories = [repo("/a"), repo("/b")];
+  const result = buildSidebar([], repositories, emptyPreferences(), "guide", [preview]);
+  expect(result.tree).toHaveLength(1);
+  expect(result.tree[0]?.expanded).toBe(true);
+  expect(result.tree[0]?.worktrees[0]?.previews).toEqual([preview]);
+  expect(result.tree[0]?.rollup).toBeUndefined();
+  expect(result.hiddenNeeds).toBe(0);
+  const all = buildSidebar([], repositories, emptyPreferences(), "", [preview]);
+  expect(all.tree[0]?.repository.path).toBe("/b");
+  expect(all.tree[0]?.expanded).toBe(true);
+  expect(buildSidebar([], repositories, emptyPreferences(), "missing", [preview]).tree).toEqual([]);
+});

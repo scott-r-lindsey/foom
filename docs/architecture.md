@@ -206,6 +206,20 @@ owner. Closing the owner elects another board. Refusal requests reach that owner
 Attention badges derive from the shared workspace once, including when macOS has
 no board windows. Dock selection locates the existing view or opens a new window.
 
+Tile layout records use `version: 2`. Each leaf is `{ kind: "tile", id,
+content: null | { kind: "terminal", session } | { kind: "preview", preview } }`.
+Restore accepts version 1 and converts its `session` field to terminal content;
+saves write only version 2. The existing `foom.tiles.v1` storage key and its window
+namespaces are retained for discovery of older layouts. IDs are bounded and unique
+within each content kind; invalid preview content becomes empty space. IDs grant
+no capability. After the first main inventory arrives, `pruneContent` removes
+unknown terminal and preview IDs while retaining geometry. Every occupied tile is
+numbered in tree order. Terminal attachment and window reservations only use
+terminal content. Main's sidebar inventory supplies typed preview display facts
+(ID, repository, worktree, relative path and Markdown/HTML kind); it is empty
+until the preview host lands. Renderer components read these through the board
+source and never resolve preview paths or own a preview registry.
+
 Existing single-window tile layouts migrate once from `foom.tiles.v1` into the
 first window’s namespace. Subsequent windows start with independent layouts.
 With no macOS windows, an app-only native menu retains New Window and Quit

@@ -232,3 +232,33 @@
 .sidebar-panel.app-menu .panel-sub {
   display: block;
 }
+
+.preview-glyph {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.2;
+}
+.terminal-tile[data-kind="preview"] .tile-name {
+  flex: 1;
+  min-width: 0;
+  max-width: none;
+}
+.preview-row {
+  border: 0;
+  background: transparent;
+  padding: 4px;
+  width: 100%;
+  text-align: left;
+  color: var(--muted);
+  font: 11px var(--font-mono);
+}
+.preview-row .tree-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

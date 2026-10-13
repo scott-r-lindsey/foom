@@ -156,6 +156,7 @@ export interface WorkspaceApi {
 }
 
 export interface SidebarInventory {
+  previews?: readonly PreviewSummary[];
   repositories: readonly (Repository & {
     worktrees: readonly Worktree[];
     cleanup?: CleanupProgress | undefined;
@@ -192,3 +193,12 @@ export type SidebarCommand =
   | { kind: "revoke-orchestrator"; id: string }
   | { kind: "reset-replies"; id: string }
   | { kind: "take-over"; id: string };
+
+/** Main-owned display facts. An opaque ID grants no filesystem capability. */
+export interface PreviewSummary {
+  id: string;
+  repository: string;
+  worktree: string;
+  relativePath: string;
+  kind: "markdown" | "html";
+}
