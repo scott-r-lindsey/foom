@@ -3276,17 +3276,84 @@ process.stdin.resume();
     await expect(
       page.locator('.terminal-tile[data-focused="true"] .xterm-helper-textarea'),
     ).toBeFocused();
-    await page.getByRole("button", { name: "Actions for agent", exact: true }).click();
-    await page.getByRole("menuitem", { name: "Claude Code", exact: true }).click();
-    await expect(
-      page.getByRole("menuitem", { name: "Click again for multiple agents here" }),
-    ).toBeVisible();
+    const armSharedAgent = async () => {
+      // DOM terminal focus does not establish native activation on macOS.
+      await app.evaluate(({ app, BrowserWindow }) => {
+        const board = BrowserWindow.getAllWindows().find(
+          (window) => window.webContents.getURL() === "app://bundle/index.html",
+        );
+        app.focus({ steal: true });
+        board.focus();
+        board.webContents.focus();
+      });
+      await expect
+        .poll(() =>
+          app.evaluate(({ BrowserWindow }) => {
+            const board = BrowserWindow.getAllWindows().find(
+              (window) => window.webContents.getURL() === "app://bundle/index.html",
+            );
+            return board.isVisible() && board.isFocused() && board.webContents.isFocused();
+          }),
+        )
+        .toBe(true);
+      await expect.poll(() => page.evaluate(() => document.hasFocus())).toBe(true);
+      await page.getByRole("button", { name: "Actions for agent", exact: true }).click();
+      const panel = page.getByRole("dialog", { name: "agent details and commands" });
+      await expect(panel).toHaveAttribute("data-pinned", "true");
+      const item = panel.getByRole("menuitem", { name: "Claude Code", exact: true });
+      await item.evaluate((element) => {
+        window.sharedAgentTrace = [];
+        for (const type of ["click", "blur", "pointerleave"])
+          element.addEventListener(type, () => window.sharedAgentTrace.push(type));
+        window.sharedAgentUnsubscribe = window.desktop.confirmations.subscribe((arm) => {
+          window.sharedAgentTrace.push(arm ? `arm:${arm.label}` : "cancel");
+        });
+      });
+      try {
+        await item.click();
+        assert.ok(
+          await page.evaluate(() => window.sharedAgentTrace.includes("click")),
+          "Shared-agent click must reach the menu item after native activation",
+        );
+        await expect
+          .poll(() =>
+            page.evaluate(() =>
+              window.sharedAgentTrace.includes("arm:Click again for multiple agents here"),
+            ),
+          )
+          .toBe(true);
+        const armed = panel.getByRole("menuitem", {
+          name: "Click again for multiple agents here",
+        });
+        await expect(armed).toBeVisible();
+        return armed;
+      } catch (error) {
+        console.error("Shared-agent confirmation diagnostics:", {
+          renderer: await page.evaluate(() => ({
+            events: window.sharedAgentTrace,
+            focused: document.hasFocus(),
+            active: document.activeElement?.getAttribute("role"),
+            panelPinned: document.querySelector(".sidebar-panel")?.getAttribute("data-pinned"),
+          })),
+          windows: await app.evaluate(({ BrowserWindow }) =>
+            BrowserWindow.getAllWindows().map((window) => ({
+              url: window.webContents.getURL(),
+              focused: window.isFocused(),
+              contentsFocused: window.webContents.isFocused(),
+            })),
+          ),
+          agents: (await sharedSessions()).filter((session) => session.kind === "agent").length,
+        });
+        throw error;
+      } finally {
+        await page.evaluate(() => window.sharedAgentUnsubscribe());
+      }
+    };
+    await armSharedAgent();
     await page.keyboard.press("Escape");
+    await expect(page.getByRole("dialog", { name: "agent details and commands" })).toHaveCount(0);
     assert.equal((await sharedSessions()).length, 3, "Cancel must not create an agent");
-    await page.getByRole("button", { name: "Actions for agent", exact: true }).click();
-    await page.getByRole("menuitem", { name: "Claude Code", exact: true }).click();
-    const sharedArm = page.getByRole("menuitem", { name: "Click again for multiple agents here" });
-    await expect(sharedArm).toBeVisible();
+    const sharedArm = await armSharedAgent();
     // Measure the minimum interval from main's arm, not from the async launch request.
     await page.waitForTimeout(310);
     await sharedArm.click();
