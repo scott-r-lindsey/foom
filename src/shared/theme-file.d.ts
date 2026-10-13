@@ -23,6 +23,8 @@ export interface ThemeDiagnostic {
   file: string;
   path: string;
   reason: ThemeReason;
+  /** Fixed validator explanation, never an argument value or raw exception. */
+  detail?: string;
 }
 export type ParsedThemeFile =
   | { kind: "theme"; theme: InterfaceTheme; warnings?: readonly ThemeDiagnostic[] }

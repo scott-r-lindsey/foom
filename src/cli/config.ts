@@ -115,6 +115,7 @@ export async function validateConfig(
     if (!(error instanceof ThemeValidationError)) status.ioError = true;
     problems.push({
       file,
+      ...(error instanceof ThemeValidationError && error.detail ? { detail: error.detail } : {}),
       path: error instanceof ThemeValidationError ? error.path : "$",
       reason: error instanceof ThemeValidationError ? error.reason : "unreadable",
     });

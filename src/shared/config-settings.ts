@@ -1,3 +1,4 @@
+import { parseAgentDefaults } from "./agent-arguments";
 import type { ConfigSettings, ConfigSetting } from "./config";
 import { parseInterfaceTheme } from "./interface-themes";
 import { parseTerminalThemeChoice } from "./terminal-themes";
@@ -14,6 +15,7 @@ export const CONFIG_SETTINGS = [
   "terminalTheme",
   "sound",
   "agents",
+  "agentArguments",
   "hooks",
   "restoreSessions",
 ] as const;
@@ -26,7 +28,8 @@ export function parseConfigSettings(value: unknown): ConfigSettings {
   const result: ConfigSettings = {};
   for (const [key, entry] of Object.entries(data)) {
     if (!isConfigSetting(key)) throw new ThemeValidationError("$", "unknown-key");
-    if (key === "interfaceTheme") result.interfaceTheme = parseInterfaceTheme(entry);
+    if (key === "agentArguments") result.agentArguments = parseAgentDefaults(entry);
+    else if (key === "interfaceTheme") result.interfaceTheme = parseInterfaceTheme(entry);
     else if (key === "terminalTheme") result.terminalTheme = parseTerminalThemeChoice(entry);
     else if (key === "sound") result.sound = parseSoundSettings(entry);
     else if (key === "restoreSessions" && typeof entry === "boolean")

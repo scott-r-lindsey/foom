@@ -85,6 +85,23 @@ const settingsSchema = schema("foom:settings", {
         agy: { type: "boolean" },
       },
     },
+    agentArguments: {
+      type: "object",
+      additionalProperties: false,
+      required: ["claude", "codex", "agy"],
+      properties: Object.fromEntries(
+        ["claude", "codex", "agy"].map((agent) => [
+          agent,
+          {
+            type: "array",
+            maxItems: 64,
+            items: { type: "string", minLength: 1, maxLength: 4096, pattern: "^[^\\p{Cc}]+$" },
+          },
+        ]),
+      ),
+      description:
+        "Literal launch arguments. Reserved arguments are rejected by foom config validate. Every file change requires Allow.",
+    },
     hooks: { type: "boolean" },
     restoreSessions: { type: "boolean" },
   },
@@ -195,8 +212,12 @@ can be reviewed and reverted from Settings → Foom config.
 
 - \`settings.json\`: \`{ "kind": "settings", ... }\` with any of the allowed keys:
   \`colorMode\`, \`panelColor\`, \`interfaceTheme\`, \`terminalTheme\`, \`interfaceScale\`,
-  \`terminalFontSize\`, \`sound\`, \`agents\` \`hooks\` and \`restoreSessions\`. Any other key rejects the file.
-  Launch arguments, consent records, paths and secrets are not configurable here.
+  \`terminalFontSize\`, \`sound\`, \`agents\`, \`agentArguments\`, \`hooks\` and \`restoreSessions\`. Any other key rejects the file.
+  Consent records, paths and secrets are not configurable here.
+  \`agentArguments\` names all three agents: \`{ "claude": [], "codex": [], "agy": [] }\`.
+  Each list is literal argv, one string per argument, with no shell parsing.
+  Every change to these lists waits for the user's Allow, including removal or harmless flags.
+  Default launch arguments affect new, resumed and restored sessions; running sessions keep theirs.
 - \`themes/*.json\`: interface themes, \`{ "kind": "theme", "name", "base", "colors" }\`.
   Select one with \`"interfaceTheme": "user:<filename>.json"\`.
 - \`terminal-themes/*.json\`: terminal colors,
@@ -209,8 +230,6 @@ can be reviewed and reverted from Settings → Foom config.
 
 These are set in Foom's Settings window, not here. Tell the user exactly what to enter:
 
-- Agent default launch arguments, such as approval mode, sandbox or model flags:
-  Settings → Agents and hooks → Default launch arguments, one argument per line.
 - Environment variables: Settings → Environment.
 - Repositories, the code folder and where worktrees are created: Settings.
 
@@ -267,20 +286,24 @@ export const OWNED_HISTORY: Readonly<Record<string, readonly string[]>> = {
     "205d3cac8e70f43434c221c43f8611ba846c580084e3b6b2a53d9a966e410810",
     "35a362caf6cfdec503b113efd0b66a6b89be3dc835b597e39f1fb8679b20875f",
     "878a20cc974fb5cee577361660f8153f9adbcb3ca815ee5fc4eca26047b8d858",
+    "c6b86f464a73d1c4255fd412bc454bea148a5bf2130aa3175b3de36e85aeb6a2",
   ],
   "AGENTS.md": [
     "205d3cac8e70f43434c221c43f8611ba846c580084e3b6b2a53d9a966e410810",
     "35a362caf6cfdec503b113efd0b66a6b89be3dc835b597e39f1fb8679b20875f",
     "878a20cc974fb5cee577361660f8153f9adbcb3ca815ee5fc4eca26047b8d858",
+    "c6b86f464a73d1c4255fd412bc454bea148a5bf2130aa3175b3de36e85aeb6a2",
   ],
   "CLAUDE.md": [
     "205d3cac8e70f43434c221c43f8611ba846c580084e3b6b2a53d9a966e410810",
     "35a362caf6cfdec503b113efd0b66a6b89be3dc835b597e39f1fb8679b20875f",
     "878a20cc974fb5cee577361660f8153f9adbcb3ca815ee5fc4eca26047b8d858",
+    "c6b86f464a73d1c4255fd412bc454bea148a5bf2130aa3175b3de36e85aeb6a2",
   ],
   "schemas/theme.schema.json": ["831094a9c9c8c13c87ab7ff227b70803dcd3a9f9f59b6f1cc352f67b43a8e1cc"],
   "schemas/settings.schema.json": [
     "e975ab7aba189e009bbcd16becb6c096679dc5c46017d585a46cbda130af804e",
+    "24d2c65f96e90c242c21990e919dee89287addcd1ddbb2d39892f9033beb49f6",
   ],
 };
 

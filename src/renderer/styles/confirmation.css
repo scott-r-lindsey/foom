@@ -329,6 +329,17 @@ h1 {
   overflow-wrap: anywhere;
 }
 
+.argument-lines {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.argument-lines code {
+  font: 12px / 20px var(--font-mono);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
 /* Footer */
 footer {
   display: flex;

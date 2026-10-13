@@ -403,11 +403,19 @@ export function ConfirmationPage() {
             )}
             {request.sections?.map((section) => (
               <Section key={section.label} label={section.label}>
-                <ul className="points">
-                  {section.items.map((item) => (
-                    <li key={item}>{item}</li>
-                  ))}
-                </ul>
+                {section.arguments ? (
+                  <div className="argument-lines">
+                    {section.items.map((item, index) => (
+                      <code key={`${String(index)}:${item}`}>{item}</code>
+                    ))}
+                  </div>
+                ) : (
+                  <ul className="points">
+                    {section.items.map((item) => (
+                      <li key={item}>{item}</li>
+                    ))}
+                  </ul>
+                )}
               </Section>
             ))}
             {request.detail !== undefined && <p className="prose">{request.detail}</p>}

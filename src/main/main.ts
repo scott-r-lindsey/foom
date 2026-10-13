@@ -852,6 +852,12 @@ if (!ownsProfile) {
           get: (file) => settings.themeDigest(file),
           set: (file, value) => settings.setThemeDigest(file, value),
         },
+        confirmArguments: (content) => requestTrusted(content, new AbortController().signal),
+        acknowledgeBypass: async (agents) => {
+          const acknowledged = { ...settings.get().agentBypassAcknowledged };
+          for (const agent of agents) acknowledged[agent] = true;
+          await settings.update({ agentBypassAcknowledged: acknowledged });
+        },
         onStatus: configStatusChanged,
         onThemeDecision: () => {
           void themes.reload();
