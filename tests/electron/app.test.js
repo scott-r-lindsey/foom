@@ -2560,7 +2560,7 @@ test("first run goes from no agents to go, launches by keyboard, and can be repl
     timeout: deadline(20000),
   });
   await expect(page.locator(".badge-value")).toHaveText(["2.1.300", "0.155.1", "1.2.13"]);
-  for (const name of ["Hooks", "Notify", "Rules"])
+  for (const name of ["Hooks", "Notify", "Screen rules"])
     await expect(page.getByRole("button", { name, exact: true })).toBeVisible();
   // Where each agent was found is a tooltip away, by keyboard as well as pointer.
   // Park the pointer away from the cards, so a hover can't win over keyboard focus.
@@ -2597,6 +2597,7 @@ test("first run goes from no agents to go, launches by keyboard, and can be repl
   assert.deepEqual(Object.keys(saved.settings).sort(), [
     "agentArguments",
     "agentBypassAcknowledged",
+    "agyPluginOfferAnswered",
     "codeFolder",
     "codexNotifierAcknowledged",
     "setupComplete",
@@ -2605,6 +2606,7 @@ test("first run goes from no agents to go, launches by keyboard, and can be repl
   const effective = (await page.evaluate(() => window.desktop.setupState())).settings;
   assert.deepEqual(effective, {
     codexNotifierAcknowledged: false,
+    agyPluginOfferAnswered: false,
     setupComplete: true,
     hooks: true,
     restoreSessions: true,
