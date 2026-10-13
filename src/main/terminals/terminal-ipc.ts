@@ -26,6 +26,7 @@ export interface TerminalControl
   kill(id: string): Promise<void>;
   tail(id: string, lines: number): Promise<string[]>;
   owns(id: string): boolean;
+  reply(id: string, data: string): Promise<void>;
 }
 
 /** The app window owns capabilities for multiple independent main-owned sessions. */
@@ -324,6 +325,10 @@ export function attachTerminal(
     },
     stop: (id: string) => manager.stop(id),
     tail: (id: string, lines: number) => manager.tail(id, lines),
+    reply: async (id: string, data: string) => {
+      if (!owned.has(id)) throw new Error("Unknown terminal");
+      await manager.reply(id, data);
+    },
     owns: (id: string) => owned.has(id),
     get runningCount() {
       return manager.runningCount;

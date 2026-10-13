@@ -1125,6 +1125,12 @@ test("sessions offer Make and Revoke orchestrator; children offer Take over and 
   fireEvent.click(view.getByRole("button", { name: "Actions for Claude Code in feature" }));
   expect(view.getByText(/Can stop and read this session/u)).toBeTruthy();
   await act(async () => {
+    fireEvent.click(view.getByRole("menuitem", { name: "Reset reviewed replies" }));
+    await Promise.resolve();
+  });
+  expect(command).toHaveBeenLastCalledWith({ kind: "reset-replies", id: "child" });
+  fireEvent.click(view.getByRole("button", { name: "Actions for Claude Code in feature" }));
+  await act(async () => {
     fireEvent.click(view.getByRole("menuitem", { name: "Take over" }));
     await Promise.resolve();
   });

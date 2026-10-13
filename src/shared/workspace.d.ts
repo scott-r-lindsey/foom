@@ -4,7 +4,7 @@ import type { AgyPluginAction } from "./agy-plugin";
 import type { ExecutionSnapshot, ExecutionTransition } from "./execution";
 import type { ConfirmationClient } from "./confirmation";
 import type { AgentId, AgentInstallation } from "./agents";
-import type { VerdictAction, VerdictState } from "./evaluator";
+import type { AttentionKind, VerdictAction, VerdictState } from "./evaluator";
 import type { BranchInventory, CreateOutcome, Repository, Worktree } from "./worktrees";
 
 /**
@@ -12,7 +12,10 @@ import type { BranchInventory, CreateOutcome, Repository, Worktree } from "./wor
  * actions and for verdicts that couldn't be stored.
  */
 export interface TerminalState {
+  outputRevision?: number;
+  inputRevision?: number;
   execution?: ExecutionSnapshot | undefined;
+  attentionKind?: AttentionKind;
   id: string;
   verdictId: string | null;
   state: VerdictState;
@@ -28,9 +31,12 @@ export type McpConnection = "connecting" | "connected" | "not-connected";
 export interface WorkspaceTerminal {
   /** Host-observed foreground process name; never persisted. */
   foregroundProgram?: string;
+  outputRevision?: number;
+  inputRevision?: number;
   /** Main-observed attachment for this live launch; never persisted. */
   mcpConnection?: McpConnection | undefined;
   execution?: ExecutionSnapshot | undefined;
+  attentionKind?: AttentionKind;
   id: string;
   kind: "agent" | "shell";
   agent: AgentId | "shell";
@@ -63,7 +69,7 @@ export interface WorkspaceTerminal {
 /** One orchestrator action. Labels are redacted, bounded metadata, never prompts or output. */
 export interface OrchestrationEntry {
   id: string;
-  action: "create_worktree" | "launch" | "stop" | "remove_worktree" | "take_over";
+  action: "create_worktree" | "launch" | "stop" | "remove_worktree" | "reply" | "take_over";
   label: string;
   status:
     | "pending_confirmation"
@@ -181,4 +187,5 @@ export type SidebarCommand =
   | { kind: "copy-session-id"; id: string }
   | { kind: "make-orchestrator"; id: string }
   | { kind: "revoke-orchestrator"; id: string }
+  | { kind: "reset-replies"; id: string }
   | { kind: "take-over"; id: string };

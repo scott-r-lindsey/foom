@@ -640,7 +640,8 @@ existing effects (worktree creation, agent launch, stop, host tail, removal) and
 the service delegates `create_worktree`, `launch`, `stop`, `remove_worktree`,
 `tail` and `wait_for` to it through an asynchronous `call`. MCP lists these tools
 and `operation_status` to every agent but runs them only for an orchestrator
-principal; `reply` stays hidden and refused until #156. See [the implementation record](orchestration.md#orchestrators-and-children-155).
+principal. `reply` (#156) creates a single-use proposal for human review; it never
+exposes general terminal input or unattended delivery. See [the implementation record](orchestration.md#orchestrators-and-children-155).
 
 A running agent session's menu offers **Make orchestrator…**, and **Revoke
 orchestrator** on the active one (#303). There is no orchestrator launch. Main checks
@@ -722,7 +723,7 @@ human-reviewed proposals for question verdicts. Permission, credential and unkno
 states reject proposals. Automatic delivery remains disabled until an adapter can
 prove question-specific routing; no combination of absent hooks, text patterns and
 a main-process write lock proves that a PTY is not displaying a new approval prompt.
-Proposals bind to actor generation, child, verdict and output/input revisions;
+Proposals bind to the live principal, actor generation, child, verdict and output/input revisions;
 output, input, permission signals, exit and takeover invalidate them. Delivery is
 single-use, bounded and rate-limited, never automatically retried after ambiguity.
 The human can suspend replies immediately. Agent approval policies stay intact.

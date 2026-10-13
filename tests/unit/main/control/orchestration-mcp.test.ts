@@ -117,7 +117,7 @@ it("lists orchestration tools only to the orchestrator and runs them through the
   for (const name of ["create_worktree", "launch", "stop", "remove_worktree", "tail", "wait_for"])
     expect(listed).toContain(`"name":"${name}"`);
   expect(listed).toContain(`"name":"operation_status"`);
-  expect(listed).not.toContain(`"name":"reply"`);
+  expect(listed).toContain(`"name":"reply"`);
   const created = await orchestrator.tool("create_worktree", {
     idempotencyKey: "one",
     branch: "feature",
@@ -131,7 +131,7 @@ it("lists orchestration tools only to the orchestrator and runs them through the
   expect(launched.structuredContent).toMatchObject({ status: "succeeded", resultId: "child" });
   expect(await orchestrator.tool("reply", { id: "child", text: "y" })).toMatchObject({
     isError: true,
-    content: [{ text: "forbidden" }],
+    content: [{ text: "invalid_request" }],
   });
   expect(
     await orchestrator.tool("launch", {

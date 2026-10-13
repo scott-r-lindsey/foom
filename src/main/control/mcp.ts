@@ -80,6 +80,21 @@ const orchestration = [
     destructive: false,
   },
   {
+    name: "reply",
+    description:
+      "Propose one plain-text answer to your child’s current question for human review in Foom. Never unattended; permission, credential and unknown attention reject proposals. Obtain revision and verdictId from session_state. Poll operation_status; no retry after ambiguous delivery.",
+    properties: {
+      idempotencyKey: key,
+      id,
+      revision: id,
+      verdictId: id,
+      text: { type: "string", maxLength: 4096 },
+    },
+    required: ["idempotencyKey", "id", "revision", "verdictId", "text"],
+    readOnly: false,
+    destructive: true,
+  },
+  {
     name: "stop",
     description: "Stop one of your children. Its worktree and final screen remain for review.",
     properties: { idempotencyKey: key, id },

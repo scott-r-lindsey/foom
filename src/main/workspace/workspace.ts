@@ -69,6 +69,7 @@ type Terminal = {
   /** Bumped by replies and dismissals; evaluations that began earlier are discarded. */
   generation: number;
   outputVersion: number;
+  inputVersion?: number;
 };
 
 export interface WorkspaceDependencies {
@@ -97,6 +98,7 @@ export interface WorkspaceDependencies {
     kill(id: string): Promise<void>;
     stop(id: string): Promise<void>;
     tail(id: string, lines: number): Promise<string[]>;
+    reply?(id: string, data: string): Promise<void>;
   };
   verdicts: {
     classify(input: EvaluationInput): Promise<VerdictRecord>;
@@ -246,6 +248,12 @@ export class Workspace {
           this.launchChild(parentId, repository, worktree, identity, agent, prompt),
         stop: (id) => this.deps.terminals.stop(id),
         starting: (id) => this.restoring.has(id),
+        reply: async (id, data) => {
+          if (!this.deps.terminals.reply) throw new Error("Reply adapter unavailable");
+          this.input(id);
+          await this.deps.terminals.reply(id, data);
+        },
+        reveal: (id) => this.deps.reveal?.(id),
         tail: (id, lines) => this.deps.terminals.tail(id, lines),
         remove: async (repository, worktree, identity, confirm) => {
           const tree = (await this.worktrees(repository)).find((item) => item.path === worktree);
@@ -484,6 +492,15 @@ export class Workspace {
     this.refresh();
   }
 
+  private currentState(id: string): TerminalState | null {
+    const terminal = this.terminals.get(id);
+    const state = terminal?.state;
+    if (!state) return null;
+    return terminal.hook?.action === "needs_input"
+      ? { ...state, attentionKind: "permission" }
+      : state;
+  }
+
   snapshot(): WorkspaceSnapshot {
     return {
       repositories: this.deps.worktrees.listRepositories(),
@@ -499,7 +516,9 @@ export class Workspace {
           this.terminals.get(entry.id)?.exitCode === undefined
             ? (this.terminals.get(entry.id)?.foregroundProgram ?? "")
             : "",
-        state: this.terminals.get(entry.id)?.state ?? null,
+        state: this.currentState(entry.id),
+        outputRevision: this.terminals.get(entry.id)?.outputVersion ?? 0,
+        inputRevision: this.terminals.get(entry.id)?.inputVersion ?? 0,
         exited:
           !this.restoring.has(entry.id) &&
           (entry.dormant === true || this.terminals.get(entry.id)?.exitCode !== undefined),
@@ -1347,6 +1366,13 @@ export class Workspace {
       await this.deps.copyText?.(command.worktree);
       return;
     }
+    if (command.kind === "reset-replies") {
+      const view = this.orchestration.view(command.id);
+      if (view?.role !== "child" || view.takenOver)
+        throw new Error("This session has no orchestrator");
+      this.orchestration.resetReplies(command.id);
+      return;
+    }
     if (command.kind === "take-over") {
       this.orchestration.takeOver(command.id);
       return;
@@ -1855,11 +1881,22 @@ export class Workspace {
             : (phase === "idle" || phase === "starting") && state.state === "working"
               ? "quiet_ok"
               : state.state;
+    this.orchestration.invalidateReply(id);
     terminal.state = {
       id,
       ...state,
       ...(terminal.execution ? { execution: terminal.execution.snapshot() } : {}),
       state: resolved,
+      ...(resolved === "needs_input"
+        ? {
+            attentionKind:
+              terminal.hook?.action === "needs_input"
+                ? "permission"
+                : (state.attentionKind ?? "unknown"),
+          }
+        : {}),
+      outputRevision: terminal.outputVersion,
+      inputRevision: terminal.inputVersion ?? 0,
       timestamp: this.now(),
     };
     this.deps.onState(terminal.state);
@@ -1871,10 +1908,12 @@ export class Workspace {
     generation?: number,
     outputVersion = terminal.outputVersion,
   ): Promise<void> {
+    const inputVersion = terminal.inputVersion ?? 0;
     // A reply or dismissal since this evaluation began makes its evidence stale.
     const stale = () =>
       this.closed ||
       this.terminals.get(id) !== terminal ||
+      (terminal.exitCode === undefined && (terminal.inputVersion ?? 0) !== inputVersion) ||
       (generation !== undefined && generation !== terminal.generation) ||
       (terminal.exitCode === undefined &&
         (!terminal.hook || terminal.permissionProgress) &&
@@ -1986,6 +2025,8 @@ export class Workspace {
       terminal.state?.verdictId &&
       terminal.state.state === record.verdict.state &&
       terminal.state.signal === record.verdict.signal &&
+      terminal.state.outputRevision === terminal.outputVersion &&
+      terminal.state.inputRevision === (terminal.inputVersion ?? 0) &&
       terminal.state.execution?.revision === terminal.execution?.snapshot().revision
     )
       return;
@@ -2045,6 +2086,7 @@ export class Workspace {
   output(id: string): void {
     const terminal = this.track(id);
     terminal.outputVersion += 1;
+    this.orchestration.invalidateReply(id);
     if (
       terminal.execution !== undefined ||
       this.launched.get(id)?.kind === "agent" ||
@@ -2107,6 +2149,7 @@ export class Workspace {
   hook(signal: HookSignal): Promise<void> {
     const id = this.hookKeys.get(signal.terminalId);
     if (!id) return Promise.resolve();
+    this.orchestration.invalidateReply(id);
     const entry = this.launched.get(id);
     if (
       entry &&
@@ -2220,6 +2263,8 @@ export class Workspace {
   input(id: string): void {
     const terminal = this.terminals.get(id);
     if (!terminal) return;
+    terminal.inputVersion = (terminal.inputVersion ?? 0) + 1;
+    this.orchestration.invalidateReply(id);
     if (terminal.hook?.action === "needs_input") {
       terminal.permissionReply = true;
     }
@@ -2244,6 +2289,7 @@ export class Workspace {
   async feedback(id: string, verdictId: string | null, action: VerdictAction): Promise<void> {
     const terminal = this.terminals.get(id);
     if (!terminal) throw new Error("Unknown terminal");
+    this.orchestration.invalidateReply(id);
     const current = () => terminal.state !== null && terminal.state.verdictId === verdictId;
     if (verdictId !== null) {
       const previousAction = terminal.actionVerdict;
