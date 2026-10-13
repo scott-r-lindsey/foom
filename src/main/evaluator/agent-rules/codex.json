@@ -9,31 +9,31 @@
     {
       "id": "provider_capacity",
       "state": "blocked",
-      "priority": 1250,
+      "priority": 1000,
       "region": "bottom",
       "lines": 6,
       "match": {
         "contains": ["Selected model is at capacity"]
       },
       "reason": "Provider unavailable",
-      "comment": "Provider attention is human-only. Recorded evidence and limitations: tests/fixtures/agent-detection/README.md."
+      "comment": "Working and Action Required titles win over stale provider screens. Provider attention is human-only. Recorded evidence and limitations: tests/fixtures/agent-detection/README.md."
     },
     {
       "id": "provider_rate_limit",
       "state": "blocked",
-      "priority": 1250,
+      "priority": 1000,
       "region": "bottom",
       "lines": 1,
       "match": {
         "regex": ["^■ rate limit exceeded:"]
       },
       "reason": "Provider rate limit",
-      "comment": "Provider attention is human-only. Recorded evidence and limitations: tests/fixtures/agent-detection/README.md."
+      "comment": "Working and Action Required titles win over stale provider screens. Provider attention is human-only. Recorded evidence and limitations: tests/fixtures/agent-detection/README.md."
     },
     {
       "id": "provider_model_switch",
       "state": "blocked",
-      "priority": 1250,
+      "priority": 1000,
       "region": "bottom",
       "lines": 12,
       "match": {
@@ -45,12 +45,12 @@
         ]
       },
       "reason": "Model switch requested",
-      "comment": "Provider attention is human-only. Recorded evidence and limitations: tests/fixtures/agent-detection/README.md."
+      "comment": "Working and Action Required titles win over stale provider screens. Provider attention is human-only. Recorded evidence and limitations: tests/fixtures/agent-detection/README.md."
     },
     {
       "id": "provider_usage_limit",
       "state": "blocked",
-      "priority": 1250,
+      "priority": 1000,
       "region": "bottom",
       "lines": 10,
       "match": {
@@ -61,7 +61,7 @@
         ]
       },
       "reason": "Provider usage limit",
-      "comment": "Provider attention is human-only. Recorded evidence and limitations: tests/fixtures/agent-detection/README.md."
+      "comment": "Working and Action Required titles win over stale provider screens. Provider attention is human-only. Recorded evidence and limitations: tests/fixtures/agent-detection/README.md."
     },
     {
       "id": "osc_title_blocked",

@@ -11,6 +11,10 @@ import {
 import type { AgentRule } from "../../../../src/main/evaluator/agent-rule-types";
 import { evaluateRules } from "../../../../src/main/evaluator/evaluator";
 import claude from "../../../../src/main/evaluator/agent-rules/claude.json";
+import capacityWorking from "../../../fixtures/agent-detection/synthetic/codex-capacity-working.json";
+import rateLimitWorking from "../../../fixtures/agent-detection/synthetic/codex-rate_limit_exceeded_error-working.json";
+import modelSwitchWorking from "../../../fixtures/agent-detection/synthetic/codex-rate_limit_switch_prompt_popup-working.json";
+import usageLimitWorking from "../../../fixtures/agent-detection/synthetic/codex-workspace_member_usage_limit_prompt-working.json";
 const evidence = { title: "", progress: null };
 const rule: AgentRule = {
   id: "test",
@@ -179,11 +183,15 @@ test.each([
     "Approaching rate limits\nSwitch to gpt-6-luna for lower credit usage?\nKeep current model\nenter select · esc back",
     "provider_model_switch",
   ],
-])("provider screen %s is human-only and outranks working titles", (screen, ruleId) => {
+  [
+    "Usage limit reached\nRequest a limit increase from your owner\nenter select · esc back",
+    "provider_usage_limit",
+  ],
+])("provider screen %s with an idle title is human-only", (screen, ruleId) => {
   const input = {
     terminalId: "t",
     agent: "codex" as const,
-    evidence: { title: "⠋ codex", progress: null },
+    evidence: { title: "codex", progress: null },
     tail: screen.split("\n"),
   };
   expect(evaluateRules(input)).toMatchObject({
@@ -195,6 +203,7 @@ test.each([
     evaluateRules({
       ...input,
       tail: [...input.tail, ...Array<string>(40).fill("Making progress")],
+      evidence: { title: "⠋ codex", progress: null },
     }),
   ).toMatchObject({ state: "working" });
   expect(evaluateRules({ ...input, exitCode: 1 })).toMatchObject({
@@ -226,3 +235,31 @@ test("rate-limit advice and incomplete model-switch screens are not provider blo
       evaluateRules({ terminalId: "t", agent: "codex", evidence, tail }).attentionKind,
     ).not.toBe("provider");
 });
+
+test.each([capacityWorking, rateLimitWorking, modelSwitchWorking, usageLimitWorking])(
+  "active working title wins over visible provider history: $source",
+  (fixture) => {
+    const input = {
+      terminalId: "t",
+      agent: "codex" as const,
+      evidence: { title: fixture.titles[0] ?? "", progress: null },
+      tail: fixture.tail,
+    };
+    expect(evaluateRules(input)).toMatchObject({
+      state: "working",
+      signal: "rules:codex:osc_title_working",
+    });
+    expect(evaluateRules(input).attentionKind).toBeUndefined();
+    expect(evaluateRules({ ...input, evidence })).toMatchObject({
+      state: "needs_input",
+      attentionKind: "provider",
+    });
+    expect(
+      evaluateRules({ ...input, evidence: { title: "Action Required", progress: null } }),
+    ).toMatchObject({
+      state: "needs_input",
+      attentionKind: "permission",
+      signal: "rules:codex:osc_title_blocked",
+    });
+  },
+);

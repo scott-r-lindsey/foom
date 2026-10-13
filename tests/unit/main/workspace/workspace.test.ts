@@ -3536,7 +3536,7 @@ test("cleanup drains superseded eligibility scans and does not rescan while remo
   await workspace.dispose();
 });
 
-test("provider stalls stop execution and recover only after the screen clears", async () => {
+test("provider stalls recover on a working title while the provider line remains visible", async () => {
   const workspace = new Workspace(deps);
   await workspace.launch({
     agent: "codex",
@@ -3548,6 +3548,7 @@ test("provider stalls stop execution and recover only after the screen clears", 
   tails.set("t1", []);
   await workspace.evidence("t1", { title: "⠋ codex", progress: null });
   tails.set("t1", ["Selected model is at capacity"]);
+  await workspace.evidence("t1", { title: "codex", progress: null });
   await workspace.quiet("t1");
   expect(states.at(-1)).toMatchObject({
     state: "needs_input",
@@ -3556,13 +3557,13 @@ test("provider stalls stop execution and recover only after the screen clears", 
     execution: { phase: "blocked" },
   });
   workspace.input("t1");
-  await workspace.evidence("t1", { title: "⠙ codex", progress: null });
+  await workspace.quiet("t1");
   expect(states.at(-1)).toMatchObject({
     state: "needs_input",
     attentionKind: "provider",
     execution: { phase: "blocked" },
   });
-  tails.set("t1", ["Making progress"]);
+  // Fresh working evidence resumes execution without clearing provider history.
   await workspace.evidence("t1", { title: "⠹ codex", progress: null });
   expect(states.at(-1)).toMatchObject({ state: "working", execution: { phase: "working" } });
   expect(states.at(-1)?.attentionKind).toBeUndefined();
