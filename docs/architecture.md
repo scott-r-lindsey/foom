@@ -372,7 +372,8 @@ cannot answer a confirmation.
 child window for each board at creation. Each extra renderer process lives until
 its parent board closes: this trades memory for immediate confirmation even when
 the board has crashed or hung. Do not move its initialization into the renderer or
-lazy-load it on quit. With no macOS boards, quit opens a board and its trusted
+lazy-load it on quit. Its background throttling is disabled so a reused request
+can render and report dimensions while the child is still hidden. With no macOS boards, quit opens a board and its trusted
 child before asking for confirmation.
 A separate in-memory session and `app://confirmation/confirmation.html` origin
 isolate its renderer process from the board. The opaque frameless window contains only
@@ -395,10 +396,14 @@ the content bounds. The card's content scrolls when constrained. Main shows the
 window only after its first valid measurement, re-establishes the parent link,
 reapplies positioning after show, and raises it with `moveTop()` before focusing.
 A main-owned one-second guard cancels if the page never measures. A shown child
-that cannot become visible and focused gets one reorder attempt and a second
+that cannot acquire native key focus gets one reorder attempt and a second
 one-second check; failure cancels without approving, clears the scrim and releases
-board input. Hiding, minimizing or destroying the child, or hiding/minimizing its
-board, also cancels. Checks and listeners are removed on dismissal and disposal.
+board input. Windows/Linux also require native visibility. On macOS, current key
+focus takes precedence over occlusion reporting, which can disagree with the
+visible child during reuse. Hiding, minimizing or destroying the child, or hiding/minimizing its
+board, also cancels after checking current native visibility/minimization, so a
+late Cocoa hide notification cannot dismiss a newly visible reused request.
+Checks and listeners are removed on dismissal and disposal.
 These focus checks are a recovery safety net; the Electron regression observes
 composed desktop pixels, since macOS can report native focus through an overlay.
 Theme and Interface scale updates reach the dialog while pending; parent move,

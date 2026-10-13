@@ -12,55 +12,67 @@ function captureConfirmationDesktop(name) {
 
 // Capture the composed desktop, never the dialog CDP target: CDP can see and
 // click a window hidden underneath its parent. A blank patch halfway down the
-// dialog's left padding avoids text, controls, borders and rounded corners.
-async function confirmationDesktop(app, name) {
+// dialog's left padding and a blank patch inside its dark commit button avoid
+// text and borders. The button keeps the comparison distinct from a pale board.
+async function confirmationDesktop(app, name, footer) {
   await mkdir("test-results", { recursive: true });
-  const evidence = await app.evaluate(async ({ BrowserWindow, desktopCapturer, screen }) => {
-    const dialog = BrowserWindow.getAllWindows().find(
-      (window) => window.webContents.getURL() === "app://confirmation/confirmation.html",
-    );
-    const bounds = dialog.getContentBounds();
-    const display = screen.getDisplayMatching(bounds);
-    const sources = await desktopCapturer.getSources({
-      types: ["screen"],
-      thumbnailSize: {
-        width: Math.round(display.bounds.width * display.scaleFactor),
-        height: Math.round(display.bounds.height * display.scaleFactor),
-      },
-    });
-    const source = sources.find((source) => source.display_id === String(display.id));
-    if (!source || source.thumbnail.isEmpty()) throw Error("No composed screen capture");
-    const image = source.thumbnail;
-    const size = image.getSize();
-    const scaleX = size.width / display.bounds.width;
-    const scaleY = size.height / display.bounds.height;
-    const patch = { x: 12, y: Math.floor(bounds.height / 2), width: 6, height: 6 };
-    const actual = image.crop({
-      x: Math.round((bounds.x - display.bounds.x + patch.x) * scaleX),
-      y: Math.round((bounds.y - display.bounds.y + patch.y) * scaleY),
-      width: Math.max(1, Math.round(patch.width * scaleX)),
-      height: Math.max(1, Math.round(patch.height * scaleY)),
-    });
-    // This is only the color reference. The assertion uses pixels from the
-    // desktop above, which include native window stacking and the board scrim.
-    const expected = await dialog.webContents.capturePage(patch);
-    const pixel = (image) =>
-      Array.from(image.resize({ width: 1, height: 1 }).toBitmap()).slice(0, 3);
-    return {
-      actual: pixel(actual),
-      expected: pixel(expected),
-      png: image.toPNG().toString("base64"),
-      windows: BrowserWindow.getAllWindows().map((window) => ({
-        id: window.id,
-        url: window.webContents.getURL(),
-        bounds: window.getBounds(),
-        visible: window.isVisible(),
-        focused: window.isFocused(),
-        enabled: window.isEnabled(),
-        parent: window.getParentWindow()?.id,
-      })),
-    };
-  });
+  const evidence = await app.evaluate(
+    async ({ BrowserWindow, desktopCapturer, screen }, footer) => {
+      const dialog = BrowserWindow.getAllWindows().find(
+        (window) => window.webContents.getURL() === "app://confirmation/confirmation.html",
+      );
+      const bounds = dialog.getContentBounds();
+      const display = screen.getDisplayMatching(bounds);
+      const sources = await desktopCapturer.getSources({
+        types: ["screen"],
+        thumbnailSize: {
+          width: Math.round(display.bounds.width * display.scaleFactor),
+          height: Math.round(display.bounds.height * display.scaleFactor),
+        },
+      });
+      const source = sources.find((source) => source.display_id === String(display.id));
+      if (!source || source.thumbnail.isEmpty()) throw Error("No composed screen capture");
+      const image = source.thumbnail;
+      const size = image.getSize();
+      const scaleX = size.width / display.bounds.width;
+      const scaleY = size.height / display.bounds.height;
+      const patches = [{ x: 12, y: Math.floor(bounds.height / 2), width: 6, height: 6 }, footer];
+      const pixel = (image) =>
+        Array.from(image.resize({ width: 1, height: 1 }).toBitmap()).slice(0, 3);
+      const actual = patches.flatMap((patch) =>
+        pixel(
+          image.crop({
+            x: Math.round((bounds.x - display.bounds.x + patch.x) * scaleX),
+            y: Math.round((bounds.y - display.bounds.y + patch.y) * scaleY),
+            width: Math.max(1, Math.round(patch.width * scaleX)),
+            height: Math.max(1, Math.round(patch.height * scaleY)),
+          }),
+        ),
+      );
+      // These are only color references. The assertion uses composed desktop
+      // pixels above, which include native stacking and the board scrim.
+      const expected = (
+        await Promise.all(
+          patches.map(async (patch) => pixel(await dialog.webContents.capturePage(patch))),
+        )
+      ).flat();
+      return {
+        actual,
+        expected,
+        png: image.toPNG().toString("base64"),
+        windows: BrowserWindow.getAllWindows().map((window) => ({
+          id: window.id,
+          url: window.webContents.getURL(),
+          bounds: window.getBounds(),
+          visible: window.isVisible(),
+          focused: window.isFocused(),
+          enabled: window.isEnabled(),
+          parent: window.getParentWindow()?.id,
+        })),
+      };
+    },
+    footer,
+  );
   await writeFile(
     `test-results/confirmation-stacking-${name}.png`,
     Buffer.from(evidence.png, "base64"),
@@ -1147,7 +1159,17 @@ test("quit dialog is on screen above the board on first show and after hide/show
     await dialog.evaluate(
       () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))),
     );
-    evidence.push(await confirmationDesktop(app, phase));
+    const commit = await dialog
+      .getByRole("button", { name: "Stop all and quit", exact: true })
+      .boundingBox();
+    if (!commit) throw Error("Missing quit commit button bounds");
+    const footer = {
+      x: Math.floor(commit.x + 4),
+      y: Math.floor(commit.y + commit.height / 2 - 2),
+      width: 4,
+      height: 4,
+    };
+    evidence.push(await confirmationDesktop(app, phase, footer));
     if (phase === "reused") {
       // Negative control: a native opaque window covering the card must fail
       // the same check even though the dialog CDP target remains readable.
@@ -1170,7 +1192,7 @@ test("quit dialog is on screen above the board on first show and after hide/show
             app.evaluate(({ BrowserWindow }, id) => BrowserWindow.fromId(id).isVisible(), blocker),
           )
           .toBe(true);
-        const covered = await confirmationDesktop(app, "covered-control");
+        const covered = await confirmationDesktop(app, "covered-control", footer);
         assert.throws(() => assertDialogAboveBoard(covered));
       } finally {
         await app.evaluate(({ BrowserWindow }, id) => BrowserWindow.fromId(id).destroy(), blocker);
@@ -1195,13 +1217,24 @@ test("failed trusted dialog presentation releases the board and can be requested
     const dialog = BrowserWindow.getAllWindows().find(
       (window) => window.webContents.getURL() === "app://confirmation/confirmation.html",
     );
-    globalThis.realConfirmationShow = dialog.show.bind(dialog);
+    globalThis.realConfirmationPresentation = {
+      show: dialog.show.bind(dialog),
+      setParentWindow: dialog.setParentWindow.bind(dialog),
+      moveTop: dialog.moveTop.bind(dialog),
+      focus: dialog.focus.bind(dialog),
+    };
+    globalThis.realConfirmationContentsFocus = dialog.webContents.focus.bind(dialog.webContents);
     globalThis.failedConfirmationShows = 0;
-    // Model an OS that refuses to map the native window. The trusted renderer
-    // still measures and renders its card, exactly as in the buried-window bug.
+    // Model refusal of every native presentation path: on macOS, moveTop or
+    // focus can map a hidden window even when show is intercepted. The trusted
+    // renderer still measures and renders its card.
     dialog.show = () => {
       globalThis.failedConfirmationShows++;
     };
+    dialog.setParentWindow = () => {};
+    dialog.moveTop = () => {};
+    dialog.focus = () => {};
+    dialog.webContents.focus = () => {};
   });
   try {
     await app.evaluate(({ app }) => app.quit());
@@ -1226,9 +1259,15 @@ test("failed trusted dialog presentation releases the board and can be requested
       .toBe(true);
   } finally {
     await app.evaluate(({ BrowserWindow }) => {
+      Object.assign(
+        BrowserWindow.getAllWindows().find(
+          (window) => window.webContents.getURL() === "app://confirmation/confirmation.html",
+        ),
+        globalThis.realConfirmationPresentation,
+      );
       BrowserWindow.getAllWindows().find(
         (window) => window.webContents.getURL() === "app://confirmation/confirmation.html",
-      ).show = globalThis.realConfirmationShow;
+      ).webContents.focus = globalThis.realConfirmationContentsFocus;
     });
   }
   await app.evaluate(({ app }) => app.quit());
@@ -7155,6 +7194,27 @@ test("trusted card follows interface scale and clears its scrim on every dismiss
       session.fromPartition("confirmation"),
       () => resolveInterfaceTheme("follow", false),
     );
+    globalThis.dialogReuseTrace = [];
+    const native = globalThis.testConfirmation.window;
+    const record = (kind, value) => {
+      globalThis.dialogReuseTrace.push({
+        kind,
+        value,
+        time: Date.now(),
+        request: globalThis.testConfirmation.pending?.id,
+      });
+      if (globalThis.dialogReuseTrace.length > 64) globalThis.dialogReuseTrace.shift();
+    };
+    for (const method of ["isVisible", "isFocused"]) {
+      const original = native[method].bind(native);
+      native[method] = () => {
+        const value = original();
+        record(method, value);
+        return value;
+      };
+    }
+    for (const event of ["show", "hide", "focus", "blur", "minimize"])
+      native.prependListener(event, () => record(event));
     globalThis.testAbort = new AbortController();
     globalThis.testAnswer = undefined;
     void globalThis.testConfirmation
@@ -7163,148 +7223,171 @@ test("trusted card follows interface scale and clears its scrim on every dismiss
         globalThis.testAnswer = answer;
       });
   }, mainModule);
-  await expect
-    .poll(async () => {
-      const windows = app.windows();
-      for (const page of windows)
-        if (await page.getByRole("alertdialog", { name: "Abort test" }).count()) return true;
-      return false;
-    })
-    .toBe(true);
-  await expect(board.locator(".board-confirmation-scrim")).toBeVisible();
-  await app.evaluate(() => globalThis.testAbort.abort());
-  await expect(board.locator(".board-confirmation-scrim")).toHaveCount(0);
-  await expect.poll(() => app.evaluate(() => globalThis.testAnswer)).toBe(false);
-  // A mixed batch keeps Decline as Enter's default; per-item abort leaves its peers open.
-  const queueBatch = () =>
-    app.evaluate(() => {
-      globalThis.batchAnswers = {};
-      globalThis.batchAbort = new AbortController();
-      for (const id of ["clean", "dirty", "abort"]) {
-        void globalThis.testConfirmation
-          .request(
-            {
-              title: "Remove worktrees?",
-              accept: "Approve all",
-              removal: {
-                group: "batch-test",
-                item: {
-                  id,
-                  branch: id,
-                  path: `/trees/${id}`,
-                  changes: id === "dirty" ? "?? keep.txt\0" : "",
+  try {
+    await expect
+      .poll(async () => {
+        const windows = app.windows();
+        for (const page of windows)
+          if (await page.getByRole("alertdialog", { name: "Abort test" }).count()) return true;
+        return false;
+      })
+      .toBe(true);
+    await expect(board.locator(".board-confirmation-scrim")).toBeVisible();
+    await app.evaluate(() => globalThis.testAbort.abort());
+    await expect(board.locator(".board-confirmation-scrim")).toHaveCount(0);
+    await expect.poll(() => app.evaluate(() => globalThis.testAnswer)).toBe(false);
+    // A mixed batch keeps Decline as Enter's default; per-item abort leaves its peers open.
+    const queueBatch = () =>
+      app.evaluate(() => {
+        globalThis.batchAnswers = {};
+        globalThis.batchAbort = new AbortController();
+        for (const id of ["clean", "dirty", "abort"]) {
+          void globalThis.testConfirmation
+            .request(
+              {
+                title: "Remove worktrees?",
+                accept: "Approve all",
+                removal: {
+                  group: "batch-test",
+                  item: {
+                    id,
+                    branch: id,
+                    path: `/trees/${id}`,
+                    changes: id === "dirty" ? "?? keep.txt\0" : "",
+                  },
                 },
               },
-            },
-            id === "abort" ? globalThis.batchAbort.signal : undefined,
-          )
-          .then((answer) => {
-            globalThis.batchAnswers[id] = answer;
-          });
-      }
-    });
-  await queueBatch();
-  let batchPage;
-  await expect
-    .poll(async () => {
-      for (const candidate of app.windows()) {
-        if (await candidate.getByRole("alertdialog", { name: "Remove worktrees?" }).count()) {
-          batchPage = candidate;
-          return true;
+              id === "abort" ? globalThis.batchAbort.signal : undefined,
+            )
+            .then((answer) => {
+              globalThis.batchAnswers[id] = answer;
+            });
         }
-      }
-      return false;
-    })
-    .toBe(true);
-  await expect(batchPage.getByRole("checkbox")).toHaveCount(3);
-  await assertConfirmationFocus(app, batchPage, batchPage.getByRole("button", { name: "Decline" }));
-  await batchPage.keyboard.press("Enter");
-  await expect
-    .poll(() => app.evaluate(() => globalThis.batchAnswers))
-    .toEqual({
-      clean: false,
-      dirty: false,
-      abort: false,
-    });
-  await queueBatch();
-  await expect(batchPage.getByRole("checkbox")).toHaveCount(3);
-  await batchPage.getByRole("checkbox", { name: "dirty", exact: true }).check();
-  await expect(
-    batchPage.getByRole("button", { name: "Discard changes and remove selected" }),
-  ).toBeVisible();
-  await app.evaluate(() => globalThis.batchAbort.abort());
-  await expect(batchPage.getByRole("checkbox")).toHaveCount(2);
-  await expect.poll(() => app.evaluate(() => globalThis.batchAnswers)).toEqual({ abort: false });
-  await expect(batchPage.getByRole("checkbox", { name: "dirty", exact: true })).not.toBeChecked();
-  await assertConfirmationFocus(app, batchPage, batchPage.getByRole("button", { name: "Decline" }));
-  await batchPage.getByRole("checkbox", { name: "dirty", exact: true }).check();
-  await batchPage.getByRole("button", { name: "Discard changes and remove selected" }).click();
-  await expect
-    .poll(() => app.evaluate(() => globalThis.batchAnswers))
-    .toEqual({
-      abort: false,
-      clean: false,
-      dirty: true,
-    });
-  await app.evaluate(() => {
-    globalThis.testAnswer = undefined;
-    void globalThis.testConfirmation
-      .request({
-        title: "Accept test",
-        accept: "Accept",
-        changes: "?? changed.txt\0".repeat(80),
-        sessions: [
-          { id: "needs", name: "Needs attention", location: "repo", state: "needs_input" },
-          { id: "failed", name: "Failed session", location: "repo", state: "failed" },
-        ],
-      })
-      .then((answer) => {
-        globalThis.testAnswer = answer;
       });
-  });
-  let acceptPage;
-  await expect
-    .poll(async () => {
-      for (const page of app.windows())
-        if (await page.getByRole("alertdialog", { name: "Accept test" }).count()) {
-          acceptPage = page;
-          return true;
+    await queueBatch();
+    let batchPage;
+    await expect
+      .poll(async () => {
+        for (const candidate of app.windows()) {
+          if (await candidate.getByRole("alertdialog", { name: "Remove worktrees?" }).count()) {
+            batchPage = candidate;
+            return true;
+          }
         }
-      return false;
-    })
-    .toBe(true);
-  await expect(board.locator(".board-confirmation-scrim")).toBeVisible();
-  await expect
-    .poll(() =>
-      acceptPage
-        .locator(".confirmation-content")
-        .evaluate((element) => element.scrollHeight > element.clientHeight),
-    )
-    .toBe(true);
-  const longScan = await new AxeBuilder({ page: acceptPage }).setLegacyMode().analyze();
-  assert.deepEqual(longScan.violations, []);
-  await assertConfirmationFocus(
-    app,
-    acceptPage,
-    acceptPage.getByRole("button", { name: "Cancel" }),
-  );
-  await acceptPage.keyboard.press("Tab");
-  await acceptPage.keyboard.press("Tab");
-  await assertConfirmationFocus(
-    app,
-    acceptPage,
-    acceptPage.getByRole("region", { name: "Details" }),
-  );
-  const cues = await acceptPage.evaluate(() => ({
-    failed: getComputedStyle(document.querySelector('[data-state="failed"]')).borderRadius,
-    attention: getComputedStyle(document.querySelector('[data-state="needs_input"]')).boxShadow,
-  }));
-  assert.equal(cues.failed, "0px");
-  assert.notEqual(cues.attention, "none");
-  await acceptPage.getByRole("button", { name: "Accept", exact: true }).click();
-  await expect(board.locator(".board-confirmation-scrim")).toHaveCount(0);
-  await expect.poll(() => app.evaluate(() => globalThis.testAnswer)).toBe(true);
-  await app.evaluate(() => globalThis.testConfirmation.dispose());
+        return false;
+      })
+      .toBe(true);
+    await expect(batchPage.getByRole("checkbox")).toHaveCount(3);
+    await assertConfirmationFocus(
+      app,
+      batchPage,
+      batchPage.getByRole("button", { name: "Decline" }),
+    );
+    await batchPage.keyboard.press("Enter");
+    await expect
+      .poll(() => app.evaluate(() => globalThis.batchAnswers))
+      .toEqual({
+        clean: false,
+        dirty: false,
+        abort: false,
+      });
+    await queueBatch();
+    await expect(batchPage.getByRole("checkbox")).toHaveCount(3);
+    try {
+      await batchPage.getByRole("checkbox", { name: "dirty", exact: true }).check();
+    } catch (error) {
+      console.error(
+        "Trusted dialog reuse diagnostics:",
+        await app.evaluate(() => ({
+          trace: globalThis.dialogReuseTrace,
+          answers: globalThis.batchAnswers,
+          pending: Boolean(globalThis.testConfirmation.pending),
+        })),
+      );
+      throw error;
+    }
+    await expect(
+      batchPage.getByRole("button", { name: "Discard changes and remove selected" }),
+    ).toBeVisible();
+    await app.evaluate(() => globalThis.batchAbort.abort());
+    await expect(batchPage.getByRole("checkbox")).toHaveCount(2);
+    await expect.poll(() => app.evaluate(() => globalThis.batchAnswers)).toEqual({ abort: false });
+    await expect(batchPage.getByRole("checkbox", { name: "dirty", exact: true })).not.toBeChecked();
+    await assertConfirmationFocus(
+      app,
+      batchPage,
+      batchPage.getByRole("button", { name: "Decline" }),
+    );
+    await batchPage.getByRole("checkbox", { name: "dirty", exact: true }).check();
+    await batchPage.getByRole("button", { name: "Discard changes and remove selected" }).click();
+    await expect
+      .poll(() => app.evaluate(() => globalThis.batchAnswers))
+      .toEqual({
+        abort: false,
+        clean: false,
+        dirty: true,
+      });
+    await app.evaluate(() => {
+      globalThis.testAnswer = undefined;
+      void globalThis.testConfirmation
+        .request({
+          title: "Accept test",
+          accept: "Accept",
+          changes: "?? changed.txt\0".repeat(80),
+          sessions: [
+            { id: "needs", name: "Needs attention", location: "repo", state: "needs_input" },
+            { id: "failed", name: "Failed session", location: "repo", state: "failed" },
+          ],
+        })
+        .then((answer) => {
+          globalThis.testAnswer = answer;
+        });
+    });
+    let acceptPage;
+    await expect
+      .poll(async () => {
+        for (const page of app.windows())
+          if (await page.getByRole("alertdialog", { name: "Accept test" }).count()) {
+            acceptPage = page;
+            return true;
+          }
+        return false;
+      })
+      .toBe(true);
+    await expect(board.locator(".board-confirmation-scrim")).toBeVisible();
+    await expect
+      .poll(() =>
+        acceptPage
+          .locator(".confirmation-content")
+          .evaluate((element) => element.scrollHeight > element.clientHeight),
+      )
+      .toBe(true);
+    const longScan = await new AxeBuilder({ page: acceptPage }).setLegacyMode().analyze();
+    assert.deepEqual(longScan.violations, []);
+    await assertConfirmationFocus(
+      app,
+      acceptPage,
+      acceptPage.getByRole("button", { name: "Cancel" }),
+    );
+    await acceptPage.keyboard.press("Tab");
+    await acceptPage.keyboard.press("Tab");
+    await assertConfirmationFocus(
+      app,
+      acceptPage,
+      acceptPage.getByRole("region", { name: "Details" }),
+    );
+    const cues = await acceptPage.evaluate(() => ({
+      failed: getComputedStyle(document.querySelector('[data-state="failed"]')).borderRadius,
+      attention: getComputedStyle(document.querySelector('[data-state="needs_input"]')).boxShadow,
+    }));
+    assert.equal(cues.failed, "0px");
+    assert.notEqual(cues.attention, "none");
+    await acceptPage.getByRole("button", { name: "Accept", exact: true }).click();
+    await expect(board.locator(".board-confirmation-scrim")).toHaveCount(0);
+    await expect.poll(() => app.evaluate(() => globalThis.testAnswer)).toBe(true);
+  } finally {
+    await app.evaluate(() => globalThis.testConfirmation.dispose());
+  }
   await app.evaluate(({ app }) => app.quit());
   await expect(dialog.getByRole("alertdialog")).toBeVisible();
   const dialogPid = await app.evaluate(({ BrowserWindow }) => {

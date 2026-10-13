@@ -26,6 +26,7 @@ export class TrustedDialog {
   private parentEnabled = true;
   private parentFocusable = true;
   private reachability: NodeJS.Timeout | undefined;
+  private presenting = false;
   constructor(
     private readonly parent: BrowserWindow,
     private readonly session: Session,
@@ -94,10 +95,8 @@ export class TrustedDialog {
       return;
     const first = !this.size;
     this.size = { width: value.width, height: value.height };
-    this.syncBounds();
-    if (first) {
-      this.present();
-    }
+    if (first) this.present();
+    else this.syncBounds();
   };
   /** Called after the board's scale or resolved theme changes. */
   refresh(): void {
@@ -128,6 +127,8 @@ export class TrustedDialog {
       skipTaskbar: true,
       webPreferences: {
         session: this.session,
+        // Reused requests must render and measure while this child is hidden.
+        backgroundThrottling: false,
         preload: join(__dirname, "../../preload/confirmation.js"),
         sandbox: true,
         contextIsolation: true,
@@ -145,8 +146,8 @@ export class TrustedDialog {
     window.webContents.on("will-attach-webview", (event) => {
       event.preventDefault();
     });
-    window.on("hide", this.cancel);
-    window.on("minimize", this.cancel);
+    window.on("hide", this.childUnavailable);
+    window.on("minimize", this.childUnavailable);
     window.on("closed", () => {
       if (this.window !== window) return;
       this.window = undefined;
@@ -231,8 +232,8 @@ export class TrustedDialog {
       }
       this.parentContents.prependListener("before-input-event", this.blockParentInput);
       this.parentContents.on("before-mouse-event", this.blockParentInput);
-      this.parent.on("hide", this.cancel);
-      this.parent.on("minimize", this.cancel);
+      this.parent.on("hide", this.parentUnavailable);
+      this.parent.on("minimize", this.parentUnavailable);
       this.parent.on("move", this.syncBounds);
       this.parent.on("resize", this.syncBounds);
       this.parent.on("maximize", this.syncBounds);
@@ -284,18 +285,37 @@ export class TrustedDialog {
   private readonly blockParentInput = (event: Event) => {
     event.preventDefault();
   };
-  private readonly cancel = () => {
-    this.finish(false);
+  private readonly childUnavailable = () => {
+    if (this.presenting || !this.size) return;
+    const window = this.window;
+    // Cocoa can deliver an earlier order-out notification after the next
+    // request has shown the same child. Check its current native state (#353).
+    if (
+      window &&
+      (window.isMinimized() ||
+        (!window.isVisible() && !(this.platform === "darwin" && window.isFocused())))
+    )
+      this.finish(false);
+  };
+  private readonly parentUnavailable = () => {
+    if (this.presenting) return;
+    if (!this.parent.isVisible() || this.parent.isMinimized()) this.finish(false);
   };
   private present(): void {
     const window = this.window;
     if (!window || !this.pending) return;
-    window.setParentWindow(this.parent);
-    window.show();
-    // Some window managers place a child when mapping it. Reapply after show.
-    this.syncBounds();
-    window.moveTop();
-    this.focusDialog();
+    this.presenting = true;
+    try {
+      window.setParentWindow(this.parent);
+      this.syncBounds();
+      window.show();
+      // Some window managers place a child when mapping it. Reapply after show.
+      this.syncBounds();
+      window.moveTop();
+      this.focusDialog();
+    } finally {
+      this.presenting = false;
+    }
   }
   /** Bound a failed show/focus or a page that never supplies a valid size. */
   private watchReachability(reordered = false): void {
@@ -305,7 +325,14 @@ export class TrustedDialog {
       const window = this.window;
       if (!window || !this.size) {
         this.finish(false);
-      } else if (!window.isVisible() || !window.isFocused()) {
+      } else if (
+        !window.isFocused() ||
+        window.isMinimized() ||
+        (this.platform !== "darwin" && !window.isVisible())
+      ) {
+        // macOS visibility includes occlusion reporting, which can disagree
+        // with a currently key child. Key focus is the native reachability
+        // signal there; desktop pixels remain the regression oracle.
         // A retry that still cannot acquire native focus must never strand the
         // board behind its scrim. Cancellation cannot grant any permission.
         if (reordered) this.finish(false);
@@ -345,8 +372,8 @@ export class TrustedDialog {
     this.window?.hide();
     this.parentContents.removeListener("before-input-event", this.blockParentInput);
     this.parentContents.removeListener("before-mouse-event", this.blockParentInput);
-    this.parent.removeListener("hide", this.cancel);
-    this.parent.removeListener("minimize", this.cancel);
+    this.parent.removeListener("hide", this.parentUnavailable);
+    this.parent.removeListener("minimize", this.parentUnavailable);
     this.parent.removeListener("move", this.syncBounds);
     this.parent.removeListener("resize", this.syncBounds);
     this.parent.removeListener("maximize", this.syncBounds);
