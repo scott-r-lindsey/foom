@@ -15,6 +15,7 @@ export class ControlRuntime {
     private readonly directory: string,
     readonly service: ControlService,
     private readonly http: ControlHttp,
+    readonly audit: ControlStore,
   ) {}
   static async start(
     userData: string,
@@ -22,9 +23,10 @@ export class ControlRuntime {
     pairing?: PairingOptions,
     orchestration?: Pick<Orchestration, "call">,
     connectionChanged?: (id: string, state: McpConnection | undefined) => void,
+    auditChanged?: () => void,
   ): Promise<ControlRuntime> {
     const directory = await privateDirectory(userData);
-    const store = new ControlStore(directory);
+    const store = new ControlStore(directory, auditChanged);
     await store.recover();
     const operations = new Operations(
       (record) => store.persist(record),
@@ -32,7 +34,13 @@ export class ControlRuntime {
         service.assertActive(actor);
       },
     );
-    const service = new ControlService(operations, source, orchestration, connectionChanged);
+    const service = new ControlService(
+      operations,
+      source,
+      orchestration,
+      connectionChanged,
+      (actor, method, status, target) => store.refused(actor, method, status, target),
+    );
     const http = await ControlHttp.listen(service, pairing);
     try {
       await atomicPrivate(directory, "discovery.json", {
@@ -40,7 +48,7 @@ export class ControlRuntime {
         endpoint: http.endpoint,
         instanceId: service.instanceId,
       });
-      return new ControlRuntime(directory, service, http);
+      return new ControlRuntime(directory, service, http, store);
     } catch (error) {
       await http.close();
       throw error;

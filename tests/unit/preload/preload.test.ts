@@ -556,11 +556,12 @@ test("preload accepts menu board commands and rejects unknown values", async () 
     "preset-main2",
     "preset-main3",
     "tidy-tiles",
+    "action-log",
   ])
     listener?.({}, command);
   listener?.({}, "reload");
   listener?.({}, {});
-  expect(callback).toHaveBeenCalledTimes(12);
+  expect(callback).toHaveBeenCalledTimes(13);
   off();
 });
 
@@ -688,4 +689,16 @@ test("Foom config calls pass fixed channels and status events are validated", as
   expect(callback).toHaveBeenCalledExactlyOnceWith(status);
   off();
   expect(mock.removeListener).toHaveBeenCalledWith("config:changed", listener);
+});
+
+test("forwards action log queries and clearing through dedicated capabilities", async () => {
+  const api = await bridge();
+  const query = { search: "child", action: "reply", status: "indeterminate", offset: 0 };
+  mock.invoke.mockResolvedValue({ entries: [], total: 0 });
+  expect(await api.actionLog(query)).toEqual({ entries: [], total: 0 });
+  await api.clearActionLog();
+  expect(mock.invoke.mock.calls).toEqual([
+    ["workspace:action-log", query],
+    ["workspace:clear-action-log"],
+  ]);
 });

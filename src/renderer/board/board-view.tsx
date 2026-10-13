@@ -1,4 +1,5 @@
 import type { WindowAudioState } from "../../shared/windows";
+import { ActionLog } from "./action-log-view";
 import { TileArea } from "./tile-area";
 import {
   TILE_STORAGE,
@@ -62,7 +63,8 @@ export function Board({
   const [otherViews, setOtherViews] = useState<ReadonlySet<string>>(() => new Set());
   const [drag, setDrag] = useState<TileDrag>();
   const [removeError, setRemoveError] = useState("");
-  const settingsOpen = Boolean(settingsView);
+  const [logOpen, setLogOpen] = useState(false);
+  const settingsOpen = Boolean(settingsView) || logOpen;
   const paneInactive = inactive || settingsOpen;
   const rows = useSyncExternalStore(source.subscribe, source.getSnapshot);
   useEffect(() => source.connect?.(), [source]);
@@ -496,7 +498,13 @@ export function Board({
         if (command === "via-claude" || command === "via-codex" || command === "via-agy") {
           const agent = { "via-claude": "claude", "via-codex": "codex", "via-agy": "agy" } as const;
           void runSidebarCommand({ kind: "config-launch", run: agent[command], origin: "menu" });
+        } else if (command === "action-log") {
+          if (source.actionLog) {
+            onCloseSettings?.();
+            setLogOpen(true);
+          }
         } else if (command === "settings") {
+          setLogOpen(false);
           onSettings?.();
         } else if (
           command === "add-repository" ||
@@ -596,6 +604,7 @@ export function Board({
       selected,
       open,
       onSettings,
+      onCloseSettings,
       settingsOpen,
       tileAction,
       changeLayout,
@@ -742,7 +751,17 @@ export function Board({
             </>
           }
         />
-        {settingsView}
+        {!logOpen && settingsView}
+        {logOpen && source.actionLog && (
+          <ActionLog
+            api={source.actionLog}
+            subscribe={source.subscribe}
+            close={() => {
+              setLogOpen(false);
+              setFocusRequest((value) => value + 1);
+            }}
+          />
+        )}
         <section
           hidden={settingsOpen}
           inert={settingsOpen}

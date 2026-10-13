@@ -178,8 +178,6 @@ export function createCommands(
       ...extra,
     });
   };
-  // Planned commands exist from the start and stay disabled until they land.
-  const planned = { enabled: false } as const;
   add("about", "About Foom", "Foom");
   for (const agent of agents)
     add(
@@ -315,10 +313,18 @@ export function createCommands(
     add("zoom", "Zoom", "Window", [], undefined, { role: "zoom" });
     add("front", "Bring All to Front", "Window", [], undefined, { role: "front" });
   }
-  add("action-log", "Action Log", "Planned", [], undefined, {
-    ...planned,
-    menuLabel: "Action log",
-  });
+  add(
+    "action-log",
+    "Action Log",
+    "Foom",
+    [],
+    () => {
+      actions.board("action-log");
+    },
+    {
+      menuLabel: "Action log",
+    },
+  );
   add("shortcuts", "Keyboard Shortcuts", "Help", [chord("Slash")], undefined, {
     menuLabel: "Keyboard shortcuts",
     sheet: ["App", "Keyboard shortcuts"],

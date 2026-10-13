@@ -30,6 +30,8 @@ const contents = {
 const window = { webContents: contents } as unknown as BrowserWindow;
 const trusted = { sender: contents, senderFrame: frame } as unknown as IpcMainInvokeEvent;
 const workspace = {
+  actionLog: vi.fn(),
+  clearActionLog: vi.fn(),
   panelFacts: vi.fn(),
   ownsSession: vi.fn((id: string) => id === "restored"),
   startWorktree: vi.fn(() => Promise.resolve("t1")),
@@ -76,6 +78,8 @@ test("rejects untrusted senders on every channel", () => {
     "workspace:panel-facts",
     "workspace:sidebar",
     "workspace:sidebar-command",
+    "workspace:action-log",
+    "workspace:clear-action-log",
     "workspace:snapshot",
     "workspace:add-repository",
     "workspace:worktrees",
@@ -564,4 +568,15 @@ test("resume-id validates the exact payload and does not confuse conversation ID
     }),
   ).toThrow();
   expect(command).not.toHaveBeenCalled();
+});
+
+test("action log capabilities reject extra arguments and keep queries behind main", () => {
+  const query = { search: "child", action: "reply", status: "indeterminate", offset: 0 };
+  invoke("workspace:action-log", [query]);
+  expect(workspace.actionLog).toHaveBeenCalledWith(query);
+  invoke("workspace:clear-action-log");
+  expect(workspace.clearActionLog).toHaveBeenCalledOnce();
+  expect(() => invoke("workspace:action-log", [])).toThrow();
+  expect(() => invoke("workspace:action-log", [query, "extra"])).toThrow();
+  expect(() => invoke("workspace:clear-action-log", ["path"])).toThrow();
 });

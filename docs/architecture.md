@@ -659,12 +659,32 @@ and Codex place `--` immediately before that prompt, after all launch options, s
 variadic options cannot consume it. Launches without a prompt omit the terminator. Exit,
 removal or revocation of the parent ends its authority, aborts pending removal
 dialogs and frees the slot; children keep running. Snapshots carry a main-computed `orchestration`
-view (role, children, last 20 actions; never persisted). `take-over` is a sidebar
+view (role, children, last 20 actions); validated session metadata retains bounded history across restart. `take-over` is a sidebar
 command that removes the orchestrator's stop, tail and wait access to that child.
 
-**Remaining target from #119.** See [orchestration research](orchestration.md) for
-per-agent evidence and follow-ups #156–#157. Existing terminal ownership, utility-host
-parsing and renderer boundaries remain in force.
+**Sidebar nesting and action log implemented in #157.** The board source exposes
+main-owned relationships and the private audit API. In the expanded sidebar, children appear under their
+orchestrator, with their own worktree label, light, row panel and keyboard access.
+Filtering retains matching children and their parent context; a missing parent
+leaves the child in its own checkout with an explicit unavailable-parent label.
+Exited and revoked parents stay visible, and an exited parent cannot be closed
+until its child rows are closed. Takeover remains explicit and ends API authority.
+The compact rail shows each session once in a flat list. Reveal expands the parent’s
+checkout for nested children. Nesting does not attach a view or change terminal
+execution or activity subscriptions.
+
+The app menu's Action log opens a searchable, paginated view of actor/parent,
+repository/worktree, operation and target/result IDs, action, outcome, fixed reason,
+and redacted reply proposals. Reads and clears are board-only validated IPC routes;
+components use the source interface. The log refreshes on main's audit notifications.
+Only allowlisted redacted metadata crosses IPC. Initial prompts, raw request payloads,
+terminal tails, credentials and deduplication fingerprints never enter the audit UI.
+Refused API operations and human Make/Revoke/Transfer orchestrator and Take over
+commands are logged; authority changes wait for persisted intent. Clearing the
+serialized audit history preserves live deduplication records. Private history is
+bounded to five 10 MiB files and 30 days, with pruning on reads and writes. Recovery
+records indeterminate outcomes for unfinished operations without replaying them.
+Read, storage and clearing failures remain visible without blocking human input.
 
 Main owns one control service over the workspace, agent, evaluator and terminal-host
 services. A loopback Streamable HTTP MCP adapter and a versioned HTTP CLI adapter
@@ -1044,9 +1064,9 @@ ways: every implemented command to the macOS menu bar, and a curated, fixed
 layout to the wordmark menu on every platform. The wordmark projection is data
 only (`AppMenuEntry`): commands, separators, the Settings submenu (the agent
 routes come from `main/agents/agent-list.ts`, followed by Via Settings UI), and a
-`size` row carrying Bigger/Smaller and main's current interface scale. Planned
-commands (Action log) exist in the registry
-disabled, without bindings, and stay out of the macOS menu bar until they land.
+`size` row carrying Bigger/Smaller and main's current interface scale. Action log
+is an enabled board command in both the wordmark and macOS menus; it has no direct
+shortcut binding.
 Main owns one `before-input-event` dispatcher; native accelerators are
 display-only (`registerAccelerator: false`). Windows/Linux have no native
 application menu. The existing two-second Ctrl+Shift+Space tile leader resolves
