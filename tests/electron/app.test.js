@@ -2644,6 +2644,7 @@ test("first run goes from no agents to go, launches by keyboard, and can be repl
   assert.deepEqual(Object.keys(saved.settings).sort(), [
     "agentBypassAcknowledged",
     "agyPluginOfferAnswered",
+    "autoRemoveMergedWorktrees",
     "codeFolder",
     "codexNotifierAcknowledged",
     "setupComplete",
@@ -2657,6 +2658,7 @@ test("first run goes from no agents to go, launches by keyboard, and can be repl
     hooks: true,
     restoreSessions: true,
     concurrentChildren: 4,
+    autoRemoveMergedWorktrees: [],
     agents: { claude: true, codex: true, agy: true },
     agentArguments: { claude: [], codex: [], agy: [] },
     agentBypassAcknowledged: { claude: false, codex: false, agy: false },
@@ -7833,6 +7835,89 @@ for (const cliOnly of [false, true])
       )
       .toBe(true);
 
+    // Part 2: profile opt-in, real Git fetch/ancestry, and operation completion.
+    const remote = path.join(root, "remote.git");
+    git("clone", "--bare", repo, remote);
+    git("remote", "add", "origin", remote);
+    await openSettingsScreen(page);
+    await page.getByRole("button", { name: "Repositories", exact: true }).click();
+    const autoRemove = page.getByRole("checkbox", { name: "app · Auto-remove merged worktrees" });
+    await expect(autoRemove).not.toBeChecked();
+    await autoRemove.check();
+    await expect
+      .poll(
+        async () =>
+          (await page.evaluate(() => window.desktop.setupState())).settings
+            .autoRemoveMergedWorktrees,
+      )
+      .toEqual([repository]);
+    await assertAccessible(page);
+    await page.keyboard.press("Escape");
+    const automaticTree = await call(parent.controlToken, "create_worktree", {
+      idempotencyKey: "auto-tree",
+      branch: "auto-merged",
+    });
+    assert.equal(automaticTree.body.result.status, "succeeded");
+    await call(parent.controlToken, "remove_worktree", {
+      idempotencyKey: "auto-remove",
+      worktreeId: automaticTree.body.result.resultId,
+    });
+    await expect
+      .poll(
+        async () =>
+          (await call(parent.controlToken, "operation_status", { idempotencyKey: "auto-remove" }))
+            .body.result.status,
+      )
+      .toBe("succeeded");
+    assert.equal(
+      String(git("worktree", "list", "--porcelain")).includes("refs/heads/auto-merged"),
+      false,
+    );
+    assert.match(String(git("branch", "--list", "auto-merged")), /auto-merged/);
+    await expect(
+      confirmation.getByRole("heading", { name: "Remove worktrees?" }),
+    ).not.toBeVisible();
+    const dirtyAuto = await call(parent.controlToken, "create_worktree", {
+      idempotencyKey: "auto-dirty-tree",
+      branch: "auto-dirty",
+    });
+    const dirtyAutoTree = (
+      await page.evaluate((repository) => window.desktop.worktrees(repository), repository)
+    ).find((worktree) => worktree.branch === "auto-dirty");
+    assert.ok(dirtyAutoTree);
+    await writeFile(path.join(dirtyAutoTree.path, "untracked.txt"), "needs review");
+    await call(parent.controlToken, "remove_worktree", {
+      idempotencyKey: "auto-dirty-remove",
+      worktreeId: dirtyAuto.body.result.resultId,
+    });
+    await expect(confirmation.getByRole("heading", { name: "Remove worktrees?" })).toBeVisible();
+    await expect(confirmation.getByRole("list", { name: "Worktrees to remove" })).toContainText(
+      "untracked.txt",
+    );
+    await confirmation.getByRole("button", { name: "Discard changes and remove all" }).click();
+    await expect
+      .poll(
+        async () =>
+          (
+            await call(parent.controlToken, "operation_status", {
+              idempotencyKey: "auto-dirty-remove",
+            })
+          ).body.result.status,
+      )
+      .toBe("succeeded");
+    await openSettingsScreen(page);
+    await page.getByRole("button", { name: "Repositories", exact: true }).click();
+    await expect(autoRemove).toBeChecked();
+    await autoRemove.uncheck();
+    await expect
+      .poll(
+        async () =>
+          (await page.evaluate(() => window.desktop.setupState())).settings
+            .autoRemoveMergedWorktrees,
+      )
+      .toEqual([]);
+    await page.keyboard.press("Escape");
+    // With the policy off, clean merged branches still join the review batch.
     const extraTrees = [];
     for (const branch of ["batch-selected", "batch-declined"]) {
       const created = await call(parent.controlToken, "create_worktree", {
@@ -7925,7 +8010,7 @@ for (const cliOnly of [false, true])
     await expect(history.getByText("make orchestrator", { exact: true }).first()).toBeVisible();
     await page.getByRole("searchbox").fill("remove_worktree");
     await page.getByLabel("Outcome", { exact: true }).selectOption("succeeded");
-    await expect(history.getByText("remove worktree", { exact: true })).toHaveCount(2);
+    await expect(history.getByText("remove worktree", { exact: true })).toHaveCount(4);
     await page.screenshot({
       path: `test-results/action-log-${cliOnly ? "agy" : "claude"}.png`,
       animations: "disabled",

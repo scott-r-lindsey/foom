@@ -848,3 +848,35 @@ test.each([
     expect(Boolean(screen.queryByText("Plugin details"))).toBe(detected);
   },
 );
+
+test("Settings repository auto-removal toggles persist independently", async () => {
+  const source = fake(setupState());
+  source.repositories.mockResolvedValue([
+    { name: "app", path: "/home/me/code/app" },
+    { name: "other", path: "/home/me/code/other" },
+  ]);
+  render(<Preflight source={source} initial={setupState()} settingsMode onLaunched={vi.fn()} />);
+  fireEvent.click(await screen.findByRole("button", { name: "Repositories" }));
+  const toggle = await screen.findByRole("checkbox", {
+    name: "app · Auto-remove merged worktrees",
+  });
+  expect(toggle).toHaveProperty("checked", false);
+  fireEvent.click(toggle);
+  await waitFor(() => {
+    expect(source.save).toHaveBeenCalledWith({ autoRemoveMergedWorktrees: ["/home/me/code/app"] });
+  });
+  fireEvent.click(
+    await screen.findByRole("checkbox", { name: "other · Auto-remove merged worktrees" }),
+  );
+  await waitFor(() => {
+    expect(source.save).toHaveBeenCalledWith({
+      autoRemoveMergedWorktrees: ["/home/me/code/app", "/home/me/code/other"],
+    });
+  });
+  fireEvent.click(toggle);
+  await waitFor(() => {
+    expect(source.save).toHaveBeenCalledWith({
+      autoRemoveMergedWorktrees: ["/home/me/code/other"],
+    });
+  });
+});

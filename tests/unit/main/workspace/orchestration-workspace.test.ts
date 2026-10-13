@@ -57,6 +57,7 @@ beforeEach(() => {
     acknowledgeCodex: vi.fn(async () => {}),
     worktrees: {
       branches: vi.fn(),
+      canAutoRemove: vi.fn(() => Promise.resolve(false)),
       panelFacts: vi.fn(),
       listRepositories: vi.fn(() => [repo]),
       addRepository: vi.fn(() => Promise.resolve(repo)),
@@ -433,6 +434,79 @@ it("removes an orchestrator worktree only through the trusted dialog", async () 
     );
   });
   expect(deps.worktrees.removeWorktree).toHaveBeenCalledTimes(1);
+});
+
+it.each([
+  "enabled",
+  "disabled",
+  "other-repository",
+  "unmerged",
+  "fetch-failed",
+  "dirty",
+  "changed-before-delete",
+  "disabled-before-delete",
+])("orchestrator removal policy: %s", async (mode) => {
+  const workspace = new Workspace(deps);
+  const configure = (paths: readonly string[]) => {
+    workspace.configure({
+      hooks: true,
+      agents: { claude: true, codex: true, agy: true },
+      autoRemoveMergedWorktrees: paths,
+    });
+  };
+  configure(
+    mode === "disabled" ? [] : mode === "other-repository" ? ["/repos/other"] : [repo.path],
+  );
+  vi.mocked(deps.worktrees.canAutoRemove).mockResolvedValue(
+    !["unmerged", "fetch-failed"].includes(mode),
+  );
+  if (mode === "dirty") vi.mocked(deps.worktrees.changes).mockResolvedValue("?? file\0");
+  if (mode === "changed-before-delete")
+    vi.mocked(deps.worktrees.canAutoRemove)
+      .mockResolvedValueOnce(true)
+      .mockImplementation(() => {
+        vi.mocked(deps.worktrees.changes).mockResolvedValue("?? new\0");
+        return Promise.resolve(false);
+      });
+  if (mode === "disabled-before-delete")
+    vi.mocked(deps.worktrees.canAutoRemove)
+      .mockResolvedValueOnce(true)
+      .mockImplementationOnce(() => {
+        configure([]);
+        return Promise.resolve(true);
+      });
+  await orchestrate(workspace);
+  const operations = new Operations(
+    () => Promise.resolve(),
+    () => undefined,
+  );
+  const actor = principal();
+  const tree = (await workspace.orchestration.call(
+    actor,
+    "create_worktree",
+    { idempotencyKey: "auto-tree", branch: "feature" },
+    operations,
+  )) as Operation;
+  await workspace.orchestration.call(
+    actor,
+    "remove_worktree",
+    { idempotencyKey: "auto-remove", worktreeId: tree.resultId },
+    operations,
+  );
+  await vi.waitFor(() => {
+    expect(operations.lookup(actor, { idempotencyKey: "auto-remove" })).toMatchObject({
+      status: "succeeded",
+      resultId: tree.resultId,
+    });
+  });
+  expect(deps.dialog).toHaveBeenCalledTimes(mode === "enabled" ? 0 : 1);
+  expect(deps.worktrees.removeWorktree).toHaveBeenCalledWith(
+    repo.path,
+    child.path,
+    ["dirty", "changed-before-delete"].includes(mode),
+    "identity",
+  );
+  if (mode === "enabled") expect(deps.worktrees.canAutoRemove).toHaveBeenCalledTimes(2);
 });
 
 it("refuses to launch a child into the main checkout or an unavailable worktree", async () => {

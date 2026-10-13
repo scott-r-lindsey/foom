@@ -94,6 +94,7 @@ beforeEach(() => {
   deps = {
     acknowledgeCodex: vi.fn(async () => {}),
     worktrees: {
+      canAutoRemove: vi.fn(() => Promise.resolve(false)),
       panelFacts: vi.fn(),
       listRepositories: vi.fn(() => [repo]),
       addRepository: vi.fn(() => Promise.resolve(repo)),

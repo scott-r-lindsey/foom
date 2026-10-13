@@ -526,8 +526,10 @@ settings continue to govern its other data access.
 Permission and credential prompts always stay with you. With the current agent
 interfaces, proposed answers to prose questions also require review in Foom;
 unattended replies need a verified question-specific routing mechanism first.
-Take over cancels pending replies. Worktree removal always asks you and rechecks
-its identity and changed files. The app menu’s **Action log** opens searchable local history with actor/parent,
+Take over cancels pending replies. Worktree removal asks you and rechecks its
+identity and changed files. Settings → Repositories can allow an orchestrator to auto-remove its own clean, fully merged
+worktrees with no running sessions; this option is off by default. The app menu’s
+**Action log** opens searchable local history with actor/parent,
 repository/worktree, action, target/result IDs, outcomes and redacted reply proposals.
 Search and Action/Outcome filters apply to retained history, with 100 events per page.
 Pending confirmation, refused operations and indeterminate delivery are explicit.

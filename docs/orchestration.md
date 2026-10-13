@@ -346,7 +346,7 @@ under the existing launch/removal locks. Git and processes use argument arrays.
 | `tail` | Orchestrator, own child only | Latest 1–40 physical lines, redacted, ≤16 KiB UTF-8 result, no historical pagination |
 | `reply` | Orchestrator, own child only | Exact question revision plus ≤4 KiB proposal; gate below, never general terminal input |
 | `stop` | Orchestrator, own child only | Graceful stop with existing bounded termination fallback; retains worktree and final screen |
-| `remove_worktree` | Orchestrator, own created worktree only | Requests an app confirmation even when clean; no force option or deleting branches |
+| `remove_worktree` | Orchestrator, own created worktree only | Requests an app confirmation unless the repository opts into merged-clean auto-removal; no force option or deleting branches |
 | `wait_for` | Orchestrator, own children only | Up to the configured child limit of IDs, after-revision cursor, timeout 0–30 seconds; returns state metadata or timeout |
 | `operation_status` | Orchestrator or authorized human CLI grant, own operations only | Exactly one of operation ID or idempotency key; returns the operation record described below, never child output |
 
@@ -405,8 +405,7 @@ Each operation independently rechecks and completes, so one stale checkout or
 removal failure does not stop the others. Poll `operation_status` for each outcome.
 New arrivals and per-item cancellation invalidate answers to the older displayed
 list and reset selection. An aborted item is declined immediately and leaves the
-review; other items remain pending. Aborting every item closes the dialog. No PR/merge network
-lookup or automatic merged-clean removal policy is added. Pending confirmation
+review; other items remain pending. Aborting every item closes the dialog. No GitHub or forge lookup is used. Pending confirmation
 returns an operation ID, so agents cannot hold the HTTP connection indefinitely.
 Stopping a child needs no extra confirmation after the user has made its parent the
 orchestrator; stopping unrelated sessions is forbidden. Parent exit revokes its
@@ -741,11 +740,25 @@ then keep the requested lines and trim whole lines from the start to 16 KiB (a
 single oversized line keeps its end on a UTF-8 boundary). The HTTP adapter extends
 the socket deadline to 35 seconds after a request body arrives, for `wait_for`.
 
-**Removal.** Every removal asks through the trusted dialog, clean or not, naming the
+**Removal.** Settings → Repositories offers **Auto-remove merged worktrees** for
+each added repository, off by default, stored in the profile rather than agent-editable
+config. With it on, an orchestrator can remove only its own created worktree without
+review when no session (including a starting child) runs there, there are no
+uncommitted, untracked or unpushed changes, and its current branch tip is an
+ancestor of the freshly fetched default branch (`git merge-base --is-ancestor`).
+Main checks under the removal lock and rechecks immediately before deletion,
+including actor authority, checkout identity and the current setting. Any failed
+or indeterminate Git check, including fetch failure, falls back to the trusted
+dialog. Main checkouts and another actor's worktrees remain forbidden. This is
+local Git ancestry only: squash and rewritten rebase merges still prompt. Branches
+are retained. Automatic completions use the same `operation_status` and action-log
+outcomes as reviewed removals.
+
+Otherwise removal asks through the trusted dialog, clean or not, naming the
 worktree path, branch (which is kept), clean/dirty state and any changed files.
 Pending requests from that orchestrator share one review with Approve all,
 Approve selected and Decline; actions including dirty items explicitly name
-Discard changes and remove. Decline is focused by default. Each still needs
+Discard changes and remove. Decline is focused by default. Each reviewed item needs
 explicit human approval. Removal is refused while any session
 in that worktree is running, checked again under the removal lock before and after
 the dialog, so a human-controlled session is never stopped by it.
