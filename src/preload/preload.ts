@@ -114,6 +114,11 @@ function audioState(value: unknown): value is WindowAudioState {
 const windowArgument = (name: string) =>
   process.argv.find((arg) => arg.startsWith(`--foom-${name}=`))?.split("=")[1];
 const desktop: DesktopApi = {
+  previews: {
+    open: (worktree, path) => ipcRenderer.invoke("preview:open", worktree, path),
+    close: (id) => ipcRenderer.invoke("preview:close", id),
+    bounds: (id, bounds) => ipcRenderer.invoke("preview:bounds", id, bounds),
+  },
   windows: {
     audio: {
       state: async () => {

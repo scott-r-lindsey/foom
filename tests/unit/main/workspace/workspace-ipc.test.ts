@@ -587,3 +587,41 @@ test("action log capabilities reject extra arguments and keep queries behind mai
   expect(() => invoke("workspace:action-log", [query, "extra"])).toThrow();
   expect(() => invoke("workspace:clear-action-log", ["path"])).toThrow();
 });
+
+test("sidebar inventory reports previews only for worktrees it lists", async () => {
+  mock.handle.mockClear();
+  attachWorkspace(window, workspace as unknown as Workspace, owns, requestDialog, undefined, () => [
+    { id: "a".repeat(32), worktree: "/tree", relativePath: "docs/Readme.MD", network: false },
+    { id: "b".repeat(32), worktree: "/tree", relativePath: "site/index.html", network: false },
+    { id: "c".repeat(32), worktree: "/gone", relativePath: "a.md", network: false },
+  ]);
+  Object.assign(workspace, {
+    sidebarInventory: vi.fn(() =>
+      Promise.resolve({
+        repositories: [
+          { path: "/other", worktrees: [{ path: "/other" }] },
+          { path: "/repo", worktrees: [{ path: "/repo" }, { path: "/tree" }] },
+        ],
+        shell: "zsh",
+      }),
+    ),
+  });
+  await expect(invoke("workspace:sidebar")).resolves.toMatchObject({
+    previews: [
+      {
+        id: "a".repeat(32),
+        repository: "/repo",
+        worktree: "/tree",
+        relativePath: "docs/Readme.MD",
+        kind: "markdown",
+      },
+      {
+        id: "b".repeat(32),
+        repository: "/repo",
+        worktree: "/tree",
+        relativePath: "site/index.html",
+        kind: "html",
+      },
+    ],
+  });
+});

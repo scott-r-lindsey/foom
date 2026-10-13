@@ -1,3 +1,6 @@
+import { PreviewHost } from "./previews/host";
+import { PreviewRegistry } from "./previews/registry";
+import { attachPreviews } from "./previews/ipc";
 import type { Settings } from "../shared/setup";
 import { ThemeLibrary } from "./themes/library";
 import { ConfigService } from "./config/service";
@@ -134,11 +137,22 @@ const assets = new Map([
 
 protocol.registerSchemesAsPrivileged([
   { scheme: "app", privileges: { standard: true, secure: true, supportFetchAPI: true } },
+  { scheme: "foom-preview", privileges: { standard: true, secure: true, supportFetchAPI: true } },
 ]);
 
 const router = new WindowIpcRouter();
 const views = new TerminalViews();
 const audio = new WindowAudio();
+export const previewHosts = new Map<number, PreviewHost>();
+async function validatePreviewWorktree(path: string): Promise<void> {
+  for (const repository of worktrees.listRepositories()) {
+    if ((await worktrees.listWorktrees(repository.path)).some((tree) => tree.path === path)) {
+      await worktrees.launchIdentity(repository.path, path);
+      return;
+    }
+  }
+  throw new Error("Unknown preview worktree");
+}
 let terminals: ReturnType<typeof attachTerminal>;
 let workspace: Workspace;
 let newWindowCommand: Command | undefined;
@@ -459,6 +473,10 @@ async function buildWindow(savedSize?: Size, saved?: WindowPlacement, initialSes
       environment: (target) => environment.layers(target),
       onChange: () => {
         for (const entry of windows.values()) entry.workspaceIpc.sendChanged();
+        for (const host of previewHosts.values())
+          void host.reconcile().catch(() => {
+            console.warn("Unable to reconcile previews");
+          });
         attention();
       },
       onExecution: (event) => {
@@ -482,12 +500,24 @@ async function buildWindow(savedSize?: Size, saved?: WindowPlacement, initialSes
   void workspace.initializeControl().catch(() => {
     console.warn("Foom CLI discovery is unavailable.");
   });
+  const previewHost = new PreviewHost(
+    window,
+    new PreviewRegistry(path.join(app.getPath("userData"), `previews-${windowId}.json`)),
+    validatePreviewWorktree,
+    () => {
+      if (!window.webContents.isDestroyed()) window.webContents.send("workspace:changed");
+    },
+  );
+  previewHosts.set(window.id, previewHost);
+  await previewHost.restore();
+  const disposePreviews = attachPreviews(ipc, previewHost);
   const workspaceIpc = attachWorkspace(
     window,
     workspace,
     (id) => terminals.owns(id),
     (content) => confirmations.request(content),
     ipc,
+    () => [...previewHost.registry.records.values()],
   );
   window.on("focus", () => {
     // A trusted dialog can return focus to a crashed board during quit.
@@ -545,6 +575,7 @@ async function buildWindow(savedSize?: Size, saved?: WindowPlacement, initialSes
       // Resize first: the page then zooms into a window that already fits it.
       windowScale.apply(next.interfaceScale);
       window.webContents.setZoomFactor(next.interfaceScale / 100);
+      previewHost.refresh();
       confirmations.refresh();
       // Each setup owns its scan state; persisted choices are shared.
       queueMicrotask(() => {
@@ -613,6 +644,12 @@ async function buildWindow(savedSize?: Size, saved?: WindowPlacement, initialSes
   });
   attention();
   window.once("closed", () => {
+    disposePreviews();
+    previewHosts.delete(window.id);
+    if (!quitting)
+      void previewHost.dispose(false).catch(() => {
+        console.warn("Unable to close previews");
+      });
     appMenu.dispose();
     confirmations.dispose();
     setupIpc.dispose();
@@ -737,6 +774,8 @@ async function performQuit() {
       console.error("Unable to save the window size:", error);
     }
     for (const current of windows.values()) current.confirmations.dispose();
+    for (const host of previewHosts.values()) await host.dispose(true);
+    previewHosts.clear();
     await config.dispose();
     disposeThemes();
     quitting = true;
