@@ -949,9 +949,8 @@ test("bundled brand fonts and both system themes render in Electron", {
     ],
   };
   for (const mode of ["dark", "light", "dark"]) {
-    await app.evaluate(({ nativeTheme }, theme) => {
-      nativeTheme.themeSource = theme;
-    }, mode);
+    // Main owns nativeTheme and can refresh it while setup changes settle.
+    await page.emulateMedia({ colorScheme: mode });
     await page.waitForFunction(
       (dark) => matchMedia("(prefers-color-scheme: dark)").matches === dark,
       mode === "dark",
@@ -5504,21 +5503,7 @@ test("application menu uses the command registry and supports native keyboard ac
     );
     assert.deepEqual(labels, ["Foom", "File", "Edit", "View", "Window", "Help", "Developer"]);
     const filter = page.getByRole("textbox", { name: "Filter repositories and sessions" });
-    await app.evaluate(({ clipboard }) => clipboard.writeText("menu clipboard sentinel"));
-    await filter.fill("menu edit probe");
-    for (const keyCode of ["A", "X"])
-      await app.evaluate(({ BrowserWindow }, keyCode) => {
-        const window = BrowserWindow.getAllWindows().find(
-          (window) => window.webContents.getURL() === "app://bundle/index.html",
-        );
-        for (const type of ["keyDown", "keyUp"])
-          window.webContents.sendInputEvent({ type, keyCode, modifiers: ["meta"] });
-      }, keyCode);
-    await expect(filter).toHaveValue("");
-    await expect
-      .poll(() => app.evaluate(({ clipboard }) => clipboard.readText()))
-      .toBe("menu edit probe");
-    const paste = async (target) => {
+    const focusEditTarget = async (target) => {
       // CDP can edit a DOM input without making its native window the first responder.
       // The trusted child is preloaded too; activate the board before a native role.
       await app.evaluate(({ app, BrowserWindow }) => {
@@ -5542,6 +5527,33 @@ test("application menu uses the command registry and supports native keyboard ac
       await target.focus();
       await expect(target).toBeFocused();
       await page.waitForFunction(() => document.hasFocus());
+    };
+    await app.evaluate(({ clipboard }) => clipboard.writeText("menu clipboard sentinel"));
+    await filter.fill("menu edit probe");
+    await focusEditTarget(filter);
+    for (const keyCode of ["A", "X"]) {
+      await app.evaluate(({ BrowserWindow }, keyCode) => {
+        const window = BrowserWindow.getAllWindows().find(
+          (window) => window.webContents.getURL() === "app://bundle/index.html",
+        );
+        for (const type of ["keyDown", "keyUp"])
+          window.webContents.sendInputEvent({ type, keyCode, modifiers: ["meta"] });
+      }, keyCode);
+      if (keyCode === "A")
+        await expect
+          .poll(() =>
+            filter.evaluate(
+              (input) => input.selectionStart === 0 && input.selectionEnd === input.value.length,
+            ),
+          )
+          .toBe(true);
+    }
+    await expect(filter).toHaveValue("");
+    await expect
+      .poll(() => app.evaluate(({ clipboard }) => clipboard.readText()))
+      .toBe("menu edit probe");
+    const paste = async (target) => {
+      await focusEditTarget(target);
       await app.evaluate(({ Menu }) => {
         // macOS roles execute natively; MenuItem.click() intentionally skips them.
         // https://github.com/electron/electron/blob/v44.4.5/lib/browser/api/menu-item-roles.ts
