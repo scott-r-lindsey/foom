@@ -54,6 +54,7 @@ export class Operations {
     input: string,
     targetId: string | null = null,
     confirmation = false,
+    proposal?: string,
   ): Promise<Operation & { readonly created: boolean }> {
     this.check(actor);
     identifier(key);
@@ -84,6 +85,7 @@ export class Operations {
         createdAt: now,
         updatedAt: now,
         reason: "intent",
+        ...(proposal !== undefined ? { proposal } : {}),
       },
     };
     // Reserve before awaiting disk, including failures: never retry an ambiguous intent.

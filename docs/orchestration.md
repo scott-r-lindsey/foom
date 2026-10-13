@@ -306,6 +306,28 @@ the existing confirmation and stops all PTYs.
 
 ## Reply gate
 
+The `reply` request names a child `id`, the `revision` and `verdictId` from
+`session_state`, an `idempotencyKey`, and `text`. The console spelling is
+`foom reply ID --revision REVISION --verdict-id VERDICT --idempotency-key KEY
+--text TEXT`. It creates a pending human review; use `operation_status` to
+observe the result. It never accepts an approval or unattended-delivery flag.
+The trusted Foom dialog shows fresh, redacted child context and the exact
+proposed text. Terminal output is untrusted data in this dialog, too.
+
+Current Claude Code, Codex and Antigravity PTY adapters have no verified atomic
+question-specific routing, including versions with lifecycle hooks. Disabled
+or delayed hooks cannot improve this guarantee. Screen patterns can distinguish
+attention for review, but cannot authorize unattended input. A silent PTY mode
+switch can occur while a human reviews a proposal; the dialog discloses this
+remaining race. Approval policies and per-launch agent settings are unchanged.
+
+Proposals also bind to the live principal object: changing a role invalidates
+them even when its token and generation stay the same. Terminal activity makes
+the last classified attention stale until a fresh classification. The child
+panel's **Reset reviewed replies** command resets the three-send budget and
+cooldown, cancels pending review, and preserves the one-proposal-per-verdict
+limit. **Take over** permanently ends the parent's access to that child.
+
 Add an attention kind independent of the visible light:
 `question`, `permission`, `credential`, or `unknown`. Today `needs_input` and model
 confidence do not carry this distinction; neither can authorize `reply`.

@@ -1900,6 +1900,7 @@ test("launches an agent in a managed worktree and routes its attention signals",
       "remove_worktree",
       "tail",
       "wait_for",
+      "reply",
       "operation_status",
     ],
   );
@@ -3653,9 +3654,9 @@ else {
   await expect(row).toContainText("Approval requested");
   await expect(row).toContainText("rules:codex:osc_title_blocked");
   await page.evaluate((id) => window.desktop.input(id, "i"), id);
-  await expect(row).toHaveAttribute("data-state", "quiet_ok");
-  await expect(row).toContainText("Agent turn ended; checking output");
-  await expect(row).toContainText("rules:codex:osc_title_idle");
+  await expect(row).toHaveAttribute("data-state", "needs_input");
+  await expect(row).toContainText("Agent asks a question");
+  await expect(row).toContainText("pattern:question");
   await page.evaluate((id) => window.desktop.input(id, "w"), id);
   await expect(row).toHaveAttribute("data-state", "working");
   await page.evaluate((id) => window.desktop.input(id, "n"), id);
@@ -3663,7 +3664,7 @@ else {
   const events = await page.evaluate(() => window.executionEvents);
   assert.deepEqual(
     events.map((event) => event.to),
-    ["working", "blocked", "idle", "working", "idle"],
+    ["working", "blocked", "idle", "blocked", "working", "idle"],
   );
   assert.equal(events.at(-1).source, "hook");
   assert.equal(events.at(-1).turn, 2);
@@ -7039,10 +7040,21 @@ writeFileSync(process.env.TEST_FAKE_CREDENTIALS + "." + path.basename(process.cw
   instanceId: process.env.FOOM_CONTROL_INSTANCE, mcp: config, args, cliPath: process.env.PATH,
 }));
 process.stdout.write("FOOM_AGENT_READY\\r\\n");
+const isChild = path.basename(process.cwd()).startsWith("child-");
+if (isChild) process.stdout.write("Which file should I change?\\r\\n");
 process.stdin.setRawMode(true);
 let input = "";
 process.stdin.on("data", (key) => {
   if (key.toString() === "q") process.exit(0);
+  if (isChild) {
+    input += key.toString();
+    if (input.includes("\\r")) {
+      writeFileSync(process.env.TEST_FAKE_CREDENTIALS + ".reply-" + path.basename(process.cwd()), input);
+      process.stdout.write("FOOM_REPLY_RECEIVED\\r\\n");
+      input = "";
+    }
+    return;
+  }
   input += key.toString();
   const newline = input.indexOf("\\n");
   if (newline < 0) return;
@@ -7148,6 +7160,9 @@ for (const cliOnly of [false, true])
           ["prompt", "--prompt"],
           ["lines", "--lines"],
           ["timeoutMs", "--timeout-ms"],
+          ["revision", "--revision"],
+          ["verdictId", "--verdict-id"],
+          ["text", "--text"],
         ])
           if (params[key] !== undefined) args.push(flag, String(params[key]));
         if (params.after) args.push("--after", JSON.stringify(params.after));
@@ -7285,6 +7300,46 @@ for (const cliOnly of [false, true])
     assert.equal(await connection(childId), "connecting");
     await connect(child);
     await expect.poll(() => connection(childId)).toBe("connected");
+    // Question replies require review over the real MCP/CLI and PTY boundaries.
+    await expect
+      .poll(
+        async () =>
+          (await call(parent.controlToken, "session_state", { id: childId })).body.result
+            .attentionKind,
+      )
+      .toBe("question");
+    const question = (await call(parent.controlToken, "session_state", { id: childId })).body
+      .result;
+    const proposal = {
+      id: childId,
+      revision: question.revision,
+      verdictId: question.verdictId,
+      idempotencyKey: "reply-1",
+      text: "src/app.ts",
+    };
+    const proposed = await call(parent.controlToken, "reply", proposal);
+    assert.equal(proposed.body.result.status, "pending_confirmation");
+    const replyReview = await confirmationPage(app);
+    await expect(replyReview.getByRole("heading", { name: "Reply to child-one?" })).toBeVisible();
+    await expect(replyReview.getByLabel("Current child context")).toContainText(
+      "Which file should I change?",
+    );
+    await expect(replyReview.getByLabel("Exact proposed reply")).toHaveText("src/app.ts");
+    assert.equal(existsSync(`${credentials}.reply-child-one`), false);
+    await replyReview.getByRole("button", { name: "Send reply" }).click();
+    await expect.poll(() => existsSync(`${credentials}.reply-child-one`)).toBe(true);
+    assert.equal(await readFile(`${credentials}.reply-child-one`, "utf8"), "src/app.ts\r");
+    await expect
+      .poll(
+        async () =>
+          (await call(parent.controlToken, "operation_status", { idempotencyKey: "reply-1" })).body
+            .result.status,
+      )
+      .toBe("succeeded");
+    assert.equal(
+      (await call(parent.controlToken, "reply", proposal)).body.result.status,
+      "succeeded",
+    );
     // No grandchildren: a child's credential cannot reach orchestration.
     assert.equal(
       (await call(child.controlToken, "create_worktree", { idempotencyKey: "x", branch: "nested" }))

@@ -288,6 +288,8 @@ test("quiet terminals are evaluated from their tail and reported", async () => {
     {
       id: "shell",
       verdictId: "v1",
+      inputRevision: 0,
+      outputRevision: 0,
       state: "working",
       reason: "No completion or input request detected",
       signal: "rules:ambiguous",

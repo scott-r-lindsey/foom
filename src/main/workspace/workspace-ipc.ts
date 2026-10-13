@@ -100,6 +100,7 @@ function sidebarCommand(value: unknown): SidebarCommand {
     kind === "new-conversation" ||
     kind === "copy-session-id" ||
     kind === "take-over" ||
+    kind === "reset-replies" ||
     kind === "make-orchestrator" ||
     kind === "revoke-orchestrator"
   ) {

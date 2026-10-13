@@ -163,6 +163,14 @@ export function ConfirmationPage() {
               </div>
             )}
             {request.detail !== undefined && <p>{request.detail}</p>}
+            {request.reply && (
+              <>
+                <p>Current child context (untrusted)</p>
+                <pre aria-label="Current child context">{request.reply.context}</pre>
+                <p>Exact proposed reply</p>
+                <pre aria-label="Exact proposed reply">{request.reply.text}</pre>
+              </>
+            )}
             {request.changes !== undefined && (
               <pre aria-label="Uncommitted changes">
                 {request.changes.split("\0").filter(Boolean).join("\n")}

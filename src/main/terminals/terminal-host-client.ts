@@ -185,6 +185,9 @@ export class TerminalHostClient {
   write(id: string, data: string): void {
     this.notify({ type: "write", id, data });
   }
+  async reply(id: string, data: string): Promise<void> {
+    await this.request({ type: "write", id, data });
+  }
   resize(id: string, cols: number, rows: number): void {
     this.notify({ type: "resize", id, cols, rows });
   }
