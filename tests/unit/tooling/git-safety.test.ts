@@ -63,6 +63,16 @@ function directGitCalls(source: string): number[] {
   visit(file);
   return lines;
 }
+// A reported call needs a literal executable named git or git.exe, alone or after a path
+// separator, so its source text has a quote or separator, that name, then a closing quote,
+// unless an escape sequence spells a letter of it. Skipping other files gives the same result
+// and keeps the scan fast under coverage.
+function mayLaunchGit(source: string): boolean {
+  return (
+    /["'`/\\]git(?:\.exe)?["'`]/i.test(source) ||
+    /\\(?:x|u00|u\{0*)(?:47|49|54|67|69|74)/i.test(source)
+  );
+}
 function files(directory: string): string[] {
   return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
     const path = join(directory, entry.name);
@@ -88,6 +98,23 @@ test("detects direct Git launches, including aliases and member calls", () => {
   expect(directGitCalls("spawn(`git`, []); spawn('git.exe', []); ")).toEqual([1, 1]);
   expect(directGitCalls("// spawn('git', [])\ngitSync(['init']); spawn('node', []);")).toEqual([]);
 });
+test("only skips sources that cannot name git as a literal executable", () => {
+  for (const source of [
+    "spawn('git', [])",
+    'spawn("/usr/bin/git", [])',
+    "spawn(`GIT.EXE`, [])",
+    "spawn('g\\x69t', [])",
+    "spawn('\\u0067it', [])",
+    "spawn('gi\\u{74}', [])",
+    "spawn('C:\\\\Program Files\\\\Git\\\\git.exe', [])",
+  ]) {
+    expect(mayLaunchGit(source)).toBe(true);
+    expect(directGitCalls(source)).toEqual([1]);
+  }
+  expect(
+    mayLaunchGit("gitSync(['init']); spawn('node', ['git-like', '\\x1b[0m', 'remote.git'])"),
+  ).toBe(false);
+});
 test("all test Git launches use the shared isolation helper", () => {
   const targets = [
     ...files("tests"),
@@ -99,8 +126,11 @@ test("all test Git launches use the shared isolation helper", () => {
         /\.(?:[cm]?js|tsx?)$/.test(path) &&
         relative(".", path).replaceAll("\\", "/") !== "tests/helpers/git.js",
     )
-    .flatMap((path) =>
-      directGitCalls(readFileSync(path, "utf8")).map((line) => `${path}:${String(line)}`),
-    );
+    .flatMap((path) => {
+      const source = readFileSync(path, "utf8");
+      return mayLaunchGit(source)
+        ? directGitCalls(source).map((line) => `${path}:${String(line)}`)
+        : [];
+    });
   expect(violations).toEqual([]);
 });

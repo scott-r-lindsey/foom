@@ -139,7 +139,7 @@ async function boardCommand(app, keyCode, shift = true) {
       const contents = BrowserWindow.getAllWindows().find(
         (window) => window.webContents.getURL() === "app://bundle/index.html",
       ).webContents;
-      if (!mac && /^[1-9]$/.test(keyCode) && !shift) {
+      if (!mac && (keyCode === "B" || (/^[1-9]$/.test(keyCode) && !shift))) {
         for (const type of ["keyDown", "keyUp"])
           contents.sendInputEvent({ type, keyCode: "Space", modifiers: ["control", "shift"] });
         for (const type of ["keyDown", "keyUp"]) contents.sendInputEvent({ type, keyCode });
@@ -180,7 +180,8 @@ async function assertAccessible(page) {
 // Keep the Node debugger available until PTY cleanup finishes. Pausing the final
 // quit lets Playwright detach its own connection through app.close(); calling
 // inspector.close() inside Electron can block while that connection is active.
-async function quitAndWait(app, requestQuit) {
+async function quitAndWait(app, requestQuit, phase = () => {}) {
+  phase("install quit acknowledgement");
   await app.evaluate(({ app }) => {
     globalThis.readyToQuit = false;
     const ready = (event) => {
@@ -191,11 +192,15 @@ async function quitAndWait(app, requestQuit) {
     };
     app.on("will-quit", ready);
   });
+  phase("request quit");
   await requestQuit();
+  phase("wait for quit acknowledgement");
   await expect
     .poll(() => app.evaluate(() => globalThis.readyToQuit), { timeout: deadline(8000) })
     .toBe(true);
+  phase("close Playwright connection");
   await app.close();
+  phase("closed");
 }
 
 // A test timeout does not cancel Playwright promises or dispose native processes.
@@ -416,6 +421,7 @@ async function launchApp(context, openShell = true, options = {}) {
   fixtureCleanup(context).apps.push(async () => {
     console.info("Closing app");
     let timer;
+    let shutdownPhase = "starting";
     try {
       if (child.exitCode !== null || child.signalCode !== null) {
         assert.equal(child.exitCode, 0, "Electron must exit normally");
@@ -425,35 +431,44 @@ async function launchApp(context, openShell = true, options = {}) {
       await Promise.race([
         (async () => {
           // Use the real quit dialog, including when the board has crashed.
-          await quitAndWait(app, async () => {
-            await app.evaluate(({ app }) => app.quit());
-            await expect
-              .poll(async () => {
-                if (await app.evaluate(() => globalThis.readyToQuit)) return true;
-                const dialog = app
-                  .windows()
-                  .find((page) => page.url() === "app://confirmation/confirmation.html");
-                return Boolean(
-                  dialog &&
-                    (await dialog
-                      .getByRole("button", { name: "Stop all and quit" })
-                      .count()
-                      .catch((error) => {
-                        if (dialog.isClosed()) return 0;
-                        throw error;
-                      })),
-                );
-              })
-              .toBe(true);
-            if (!(await app.evaluate(() => globalThis.readyToQuit))) {
-              const dialog = await confirmationPage(app);
-              await dialog.getByRole("button", { name: "Stop all and quit" }).click();
-            }
-          });
+          await quitAndWait(
+            app,
+            async () => {
+              await app.evaluate(({ app }) => app.quit());
+              shutdownPhase = "wait for quit dialog or acknowledgement";
+              await expect
+                .poll(async () => {
+                  if (await app.evaluate(() => globalThis.readyToQuit)) return true;
+                  const dialog = app
+                    .windows()
+                    .find((page) => page.url() === "app://confirmation/confirmation.html");
+                  return Boolean(
+                    dialog &&
+                      (await dialog
+                        .getByRole("button", { name: "Stop all and quit" })
+                        .count()
+                        .catch((error) => {
+                          if (dialog.isClosed()) return 0;
+                          throw error;
+                        })),
+                  );
+                })
+                .toBe(true);
+              if (!(await app.evaluate(() => globalThis.readyToQuit))) {
+                const dialog = await confirmationPage(app);
+                shutdownPhase = "accept quit dialog";
+                await dialog.getByRole("button", { name: "Stop all and quit" }).click();
+              }
+            },
+            (phase) => {
+              shutdownPhase = phase;
+            },
+          );
         })(),
         new Promise((_, reject) => {
           timer = setTimeout(
-            () => reject(new Error("Electron shutdown exceeded its deadline")),
+            () =>
+              reject(new Error(`Electron shutdown exceeded its deadline during ${shutdownPhase}`)),
             deadline(10000),
           );
         }),
@@ -462,6 +477,15 @@ async function launchApp(context, openShell = true, options = {}) {
       console.info("App closed");
       assert.deepEqual(staleTerminalErrors, [], "Normal flows must not use revoked terminal IDs");
       clearTimeout(watchdog);
+    } catch (error) {
+      console.error("Electron shutdown diagnostics:", {
+        phase: shutdownPhase,
+        pid: child.pid,
+        exitCode: child.exitCode,
+        signalCode: child.signalCode,
+        windows: app.windows().map((page) => ({ url: page.url(), closed: page.isClosed() })),
+      });
+      throw error;
     } finally {
       clearTimeout(timer);
       // If graceful shutdown failed, fail the test and terminate the process tree.
@@ -946,9 +970,8 @@ test("bundled brand fonts and both system themes render in Electron", {
     ],
   };
   for (const mode of ["dark", "light", "dark"]) {
-    await app.evaluate(({ nativeTheme }, theme) => {
-      nativeTheme.themeSource = theme;
-    }, mode);
+    // Main owns nativeTheme and can refresh it while setup changes settle.
+    await page.emulateMedia({ colorScheme: mode });
     await page.waitForFunction(
       (dark) => matchMedia("(prefers-color-scheme: dark)").matches === dark,
       mode === "dark",
@@ -1844,6 +1867,14 @@ test("launches an agent in a managed worktree and routes its attention signals",
     .filter({ hasText: "feature/fake" });
   await expect(agentRow).toHaveAttribute("data-state", "needs_input");
   await expect(agentRow).toContainText("pattern:confirmation");
+  await page.getByRole("button", { name: "Collapse sidebar", exact: true }).click();
+  await expect(page.locator(".rail-needs")).toHaveText("1 need you");
+  await expect(page.locator('.board-row[data-kind="agent"] .board-light')).toBeVisible();
+  await expect(page.getByRole("button", { name: /Actions for.*Needs you/ })).toBeVisible();
+  await page.getByRole("button", { name: "Expand sidebar", exact: true }).click();
+  await page.waitForFunction(
+    () => document.querySelector(".sidebar-shell").getAnimations().length === 0,
+  );
   const firstCredentials = JSON.parse(await readFile(credentials, "utf8"));
   const controlRequest = (
     token = firstCredentials.controlToken,
@@ -2565,7 +2596,7 @@ test("first run goes from no agents to go, launches by keyboard, and can be repl
     timeout: deadline(20000),
   });
   await expect(page.locator(".badge-value")).toHaveText(["2.1.300", "0.155.1", "1.2.13"]);
-  for (const name of ["Hooks", "Notify", "Rules"])
+  for (const name of ["Hooks", "Notify", "Screen rules"])
     await expect(page.getByRole("button", { name, exact: true })).toBeVisible();
   // Where each agent was found is a tooltip away, by keyboard as well as pointer.
   // Park the pointer away from the cards, so a hover can't win over keyboard focus.
@@ -2602,6 +2633,7 @@ test("first run goes from no agents to go, launches by keyboard, and can be repl
   assert.deepEqual(Object.keys(saved.settings).sort(), [
     "agentArguments",
     "agentBypassAcknowledged",
+    "agyPluginOfferAnswered",
     "codeFolder",
     "codexNotifierAcknowledged",
     "setupComplete",
@@ -2610,6 +2642,7 @@ test("first run goes from no agents to go, launches by keyboard, and can be repl
   const effective = (await page.evaluate(() => window.desktop.setupState())).settings;
   assert.deepEqual(effective, {
     codexNotifierAcknowledged: false,
+    agyPluginOfferAnswered: false,
     setupComplete: true,
     hooks: true,
     restoreSessions: true,
@@ -3552,14 +3585,23 @@ test("empty sidebar and terminal pane stay accessible at both widths", async (co
         (window) => window.webContents.getURL() === "app://bundle/index.html",
       );
       window.setMinimumSize(0, 0);
-      window.setSize(width, 600);
+      window.setSize(width < 720 ? 960 : width, 600);
+      window.webContents.setZoomFactor(width < 720 ? 1.5 : 1);
     }, width);
+    await expect.poll(() => page.evaluate(() => innerWidth < 720)).toBe(width < 720);
     await expect(page.getByRole("navigation", { name: "Terminal sidebar" })).toBeVisible();
+    if (width < 720) {
+      await expect(page.getByRole("button", { name: "Add repository", exact: true })).toHaveCount(
+        0,
+      );
+      await page.getByRole("button", { name: "Open sidebar", exact: true }).click();
+    }
     await expect(page.getByRole("button", { name: "Add repository", exact: true })).toBeVisible();
     await expect(page.getByRole("button", { name: "New worktree", exact: true })).toHaveCount(0);
     await expect(page.getByRole("button", { name: "Local shell", exact: true })).toHaveCount(0);
     await expect(page.locator('.terminal-tile[data-empty="true"]')).toBeVisible();
     await assertAccessible(page);
+    if (width < 720) await page.keyboard.press("Escape");
   }
   await page.screenshot({ path: path.join(tmpdir(), "foom-132-empty-sidebar.png") });
 });
@@ -4477,6 +4519,17 @@ test("launching into a narrow full tile uses the focused fallback and empty tile
   }
   await page.screenshot({ path: path.join(tmpdir(), "foom-tile-bug-fixes.png") });
   await page.evaluate((id) => window.desktop.input(id, "exit\r"), created.id);
+  // Exit reaches the renderer before main finishes its queued exit bookkeeping.
+  // Close is a main-owned command, so wait for its authoritative session state.
+  await expect
+    .poll(() =>
+      page.evaluate(
+        async (id) =>
+          (await window.desktop.workspace()).terminals.find((session) => session.id === id)?.exited,
+        created.id,
+      ),
+    )
+    .toBe(true);
   await expect(page.getByRole("button", { name: "Close", exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Close", exact: true }).click();
   await expect
@@ -5538,21 +5591,7 @@ test("application menu uses the command registry and supports native keyboard ac
     );
     assert.deepEqual(labels, ["Foom", "File", "Edit", "View", "Window", "Help", "Developer"]);
     const filter = page.getByRole("textbox", { name: "Filter repositories and sessions" });
-    await app.evaluate(({ clipboard }) => clipboard.writeText("menu clipboard sentinel"));
-    await filter.fill("menu edit probe");
-    for (const keyCode of ["A", "X"])
-      await app.evaluate(({ BrowserWindow }, keyCode) => {
-        const window = BrowserWindow.getAllWindows().find(
-          (window) => window.webContents.getURL() === "app://bundle/index.html",
-        );
-        for (const type of ["keyDown", "keyUp"])
-          window.webContents.sendInputEvent({ type, keyCode, modifiers: ["meta"] });
-      }, keyCode);
-    await expect(filter).toHaveValue("");
-    await expect
-      .poll(() => app.evaluate(({ clipboard }) => clipboard.readText()))
-      .toBe("menu edit probe");
-    const paste = async (target) => {
+    const focusEditTarget = async (target) => {
       // CDP can edit a DOM input without making its native window the first responder.
       // The trusted child is preloaded too; activate the board before a native role.
       await app.evaluate(({ app, BrowserWindow }) => {
@@ -5576,6 +5615,33 @@ test("application menu uses the command registry and supports native keyboard ac
       await target.focus();
       await expect(target).toBeFocused();
       await page.waitForFunction(() => document.hasFocus());
+    };
+    await app.evaluate(({ clipboard }) => clipboard.writeText("menu clipboard sentinel"));
+    await filter.fill("menu edit probe");
+    await focusEditTarget(filter);
+    for (const keyCode of ["A", "X"]) {
+      await app.evaluate(({ BrowserWindow }, keyCode) => {
+        const window = BrowserWindow.getAllWindows().find(
+          (window) => window.webContents.getURL() === "app://bundle/index.html",
+        );
+        for (const type of ["keyDown", "keyUp"])
+          window.webContents.sendInputEvent({ type, keyCode, modifiers: ["meta"] });
+      }, keyCode);
+      if (keyCode === "A")
+        await expect
+          .poll(() =>
+            filter.evaluate(
+              (input) => input.selectionStart === 0 && input.selectionEnd === input.value.length,
+            ),
+          )
+          .toBe(true);
+    }
+    await expect(filter).toHaveValue("");
+    await expect
+      .poll(() => app.evaluate(({ clipboard }) => clipboard.readText()))
+      .toBe("menu edit probe");
+    const paste = async (target) => {
+      await focusEditTarget(target);
       await app.evaluate(({ Menu }) => {
         // macOS roles execute natively; MenuItem.click() intentionally skips them.
         // https://github.com/electron/electron/blob/v44.4.5/lib/browser/api/menu-item-roles.ts
@@ -6050,6 +6116,13 @@ test("neutral identity badges keep labels and geometry across themes and interfa
   await page.getByRole("textbox", { name: "Session name" }).fill("Build helper");
   await page.getByRole("textbox", { name: "Session name" }).press("Enter");
   await expect(row).toHaveAccessibleName(/Build helper · Shell \(.+\)/);
+  await page.getByRole("button", { name: "Collapse sidebar", exact: true }).click();
+  await expect(row.locator(".board-agent")).toHaveCount(1);
+  await expect(row.locator(".board-agent")).toBeVisible();
+  await row.press("F2");
+  await expect(page.getByRole("textbox", { name: "Session name", exact: true })).toBeVisible();
+  await page.getByRole("textbox", { name: "Session name", exact: true }).press("Escape");
+  await page.getByRole("button", { name: "Expand sidebar", exact: true }).click();
   for (const colorScheme of ["light", "dark"]) {
     await page.emulateMedia({ colorScheme, reducedMotion: "reduce" });
     for (const interfaceScale of [80, 90, 100, 110, 120, 130, 140, 150]) {
@@ -6360,19 +6433,20 @@ test("multiple windows restore independent layouts, bounds and interface size", 
   }
 });
 
-test("Antigravity plugin disclosure installs and removes an observer that reports lifecycle", {
-  timeout: deadline(60_000),
-  skip:
-    process.platform === "win32" &&
-    "Fake CLI is POSIX; Windows cmd/PowerShell observer runs in native unit integration",
-}, async (context) => {
-  const root = await mkdtemp(path.join(tmpdir(), "foom-agy-plugin-"));
-  removeAfterApps(context, root);
-  const bin = path.join(root, "bin");
-  const home = path.join(root, "home");
-  const repo = path.join(root, "repository");
-  await Promise.all([bin, home, repo].map((directory) => mkdir(directory)));
-  const fake = `#!${process.execPath}
+for (const firstRun of [false, true]) {
+  test(`Antigravity plugin ${firstRun ? "first run" : "Settings"} disclosure installs and removes an observer that reports lifecycle`, {
+    timeout: deadline(60_000),
+    skip:
+      process.platform === "win32" &&
+      "Fake CLI is POSIX; Windows cmd/PowerShell observer runs in native unit integration",
+  }, async (context) => {
+    const root = await mkdtemp(path.join(tmpdir(), "foom-agy-plugin-"));
+    removeAfterApps(context, root);
+    const bin = path.join(root, "bin");
+    const home = path.join(root, "home");
+    const repo = path.join(root, "repository");
+    await Promise.all([bin, home, repo].map((directory) => mkdir(directory)));
+    const fake = `#!${process.execPath}
 const fs = require('node:fs');
 const path = require('node:path');
 const {execFile} = require('node:child_process');
@@ -6402,94 +6476,126 @@ process.stdin.on('data', (data) => {
   child.stdin.end(JSON.stringify({conversationId:'fake-agy-session', terminationReason:key === 'f' ? 'error' : 'NO_TOOL_CALL', fullyIdle:true, transcriptPath:'/must-not-read'}));
 });
 `;
-  await writeFile(path.join(bin, "agy"), fake, { mode: 0o755 });
-  isolatedGit(["init", "-q", "-b", "main"], { cwd: repo });
-  isolatedGit(
-    [
-      "-c",
-      "user.name=Foom",
-      "-c",
-      "user.email=foom@example.com",
-      "commit",
-      "-q",
-      "--allow-empty",
-      "-m",
-      "init",
-    ],
-    { cwd: repo },
-  );
-  const app = await launchApp(context, false, {
-    env: { HOME: home, PATH: `${bin}${path.delimiter}${process.env.PATH}` },
-  });
-  const page = await boardPage(app);
-  await openSettingsScreen(page);
-  await page.getByRole("button", { name: "Agents and hooks", exact: true }).click();
-  await expect(page.getByText("Not installed", { exact: true })).toBeVisible();
-  await expect(page.getByText(/They report working and turn-end signals/u)).toBeVisible();
-  await page.getByRole("button", { name: "Install Foom plugin" }).click();
-  await expect(page.getByText("Installed", { exact: true })).toBeVisible();
-  await assertAccessible(page);
-  await app.evaluate(({ dialog }, directory) => {
-    dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [directory] });
-  }, repo);
-  const id = await page.evaluate(async () => {
-    window.agyTransitions = [];
-    window.desktop.onExecution((event) => window.agyTransitions.push(event));
-    const repository = await window.desktop.addRepository();
-    const tree = await window.desktop.createWorktree(repository.path, "feature/agy", "adjacent");
-    const launch = await window.desktop.launchAgent({
-      agent: "agy",
-      repository: repository.path,
-      worktree: tree.path,
-      cols: 80,
-      rows: 24,
+    await writeFile(path.join(bin, "agy"), fake, { mode: 0o755 });
+    isolatedGit(["init", "-q", "-b", "main"], { cwd: repo });
+    isolatedGit(
+      [
+        "-c",
+        "user.name=Foom",
+        "-c",
+        "user.email=foom@example.com",
+        "commit",
+        "-q",
+        "--allow-empty",
+        "-m",
+        "init",
+      ],
+      { cwd: repo },
+    );
+    const app = await launchApp(context, false, {
+      firstRun,
+      env: { HOME: home, PATH: `${bin}${path.delimiter}${process.env.PATH}` },
     });
-    return launch.id;
+    const page = await boardPage(app);
+    if (firstRun) await page.getByRole("button", { name: "Start preflight" }).click();
+    else {
+      await openSettingsScreen(page);
+      await page.getByRole("button", { name: "Agents and hooks", exact: true }).click();
+      await expect(page.getByText("Plugin available", { exact: true })).toBeVisible();
+    }
+    const agyRow = page
+      .locator("li")
+      .filter({ has: page.getByText("Antigravity", { exact: true }) });
+    await expect(agyRow.getByRole("button", { name: "Screen rules", exact: true })).toBeVisible();
+    await expect(agyRow.locator("p")).toHaveCount(0);
+    await page.getByRole("button", { name: "Install plugin" }).click();
+    let disclosure = await confirmationPage(app);
+    await expect(disclosure.getByText(/~\/.gemini\/config\/plugins\/foom/u)).toBeVisible();
+    await expect(
+      disclosure.getByText(
+        /never approves, stores no credentials, and is inert outside Foom launches/u,
+      ),
+    ).toBeVisible();
+    await expect(disclosure.getByText(/agy plugin uninstall foom/u)).toBeVisible();
+    await disclosure.getByRole("button", { name: "Not now" }).click();
+    await expect(page.getByText("Plugin available", { exact: true })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Install plugin" })).toBeEnabled();
+    await expect
+      .poll(() =>
+        page.evaluate(
+          async () => (await window.desktop.setupState()).settings.agyPluginOfferAnswered,
+        ),
+      )
+      .toBe(true);
+    await page.getByRole("button", { name: "Install plugin" }).click();
+    disclosure = await confirmationPage(app);
+    await disclosure.getByRole("button", { name: "Install plugin" }).click();
+    await page.getByText("Plugin details", { exact: true }).click();
+    await expect(page.getByText("Installed", { exact: true })).toBeVisible();
+    await expect(agyRow.getByRole("button", { name: "Hooks", exact: true })).toBeVisible();
+    await assertAccessible(page);
+    await app.evaluate(({ dialog }, directory) => {
+      dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [directory] });
+    }, repo);
+    const id = await page.evaluate(async () => {
+      window.agyTransitions = [];
+      window.desktop.onExecution((event) => window.agyTransitions.push(event));
+      const repository = await window.desktop.addRepository();
+      const tree = await window.desktop.createWorktree(repository.path, "feature/agy", "adjacent");
+      const launch = await window.desktop.launchAgent({
+        agent: "agy",
+        repository: repository.path,
+        worktree: tree.path,
+        cols: 80,
+        rows: 24,
+      });
+      return launch.id;
+    });
+    await expect
+      .poll(() => page.evaluate((id) => window.desktop.tail(id, 10), id))
+      .toContain("AGY_READY");
+    await page.evaluate((id) => window.desktop.input(id, "w"), id);
+    await expect.poll(() => page.evaluate(() => window.agyTransitions.at(-1)?.to)).toBe("working");
+    await page.evaluate((id) => window.desktop.input(id, "s"), id);
+    await expect.poll(() => page.evaluate(() => window.agyTransitions.at(-1)?.to)).toBe("idle");
+    await expect
+      .poll(() =>
+        page.evaluate(
+          async (id) =>
+            (await window.desktop.workspace()).terminals.find((terminal) => terminal.id === id)
+              ?.state?.state,
+          id,
+        ),
+      )
+      .toBe("done");
+    await page.evaluate((id) => window.desktop.input(id, "w"), id);
+    await expect.poll(() => page.evaluate(() => window.agyTransitions.at(-1)?.to)).toBe("working");
+    await page.evaluate((id) => window.desktop.input(id, "f"), id);
+    await expect
+      .poll(() =>
+        page.evaluate(
+          async (id) =>
+            (await window.desktop.workspace()).terminals.find((terminal) => terminal.id === id)
+              ?.state?.state,
+          id,
+        ),
+      )
+      .toBe("failed");
+    await page.getByRole("button", { name: "Remove plugin" }).click();
+    await expect(page.getByRole("button", { name: "Install plugin" })).toBeEnabled();
+    await page.evaluate((id) => window.desktop.input(id, "q"), id);
+    await expect
+      .poll(() =>
+        page.evaluate(
+          async (id) =>
+            (await window.desktop.workspace()).terminals.find((terminal) => terminal.id === id)
+              ?.exited,
+          id,
+        ),
+      )
+      .toBe(true);
   });
-  await expect
-    .poll(() => page.evaluate((id) => window.desktop.tail(id, 10), id))
-    .toContain("AGY_READY");
-  await page.evaluate((id) => window.desktop.input(id, "w"), id);
-  await expect.poll(() => page.evaluate(() => window.agyTransitions.at(-1)?.to)).toBe("working");
-  await page.evaluate((id) => window.desktop.input(id, "s"), id);
-  await expect.poll(() => page.evaluate(() => window.agyTransitions.at(-1)?.to)).toBe("idle");
-  await expect
-    .poll(() =>
-      page.evaluate(
-        async (id) =>
-          (await window.desktop.workspace()).terminals.find((terminal) => terminal.id === id)?.state
-            ?.state,
-        id,
-      ),
-    )
-    .toBe("done");
-  await page.evaluate((id) => window.desktop.input(id, "w"), id);
-  await expect.poll(() => page.evaluate(() => window.agyTransitions.at(-1)?.to)).toBe("working");
-  await page.evaluate((id) => window.desktop.input(id, "f"), id);
-  await expect
-    .poll(() =>
-      page.evaluate(
-        async (id) =>
-          (await window.desktop.workspace()).terminals.find((terminal) => terminal.id === id)?.state
-            ?.state,
-        id,
-      ),
-    )
-    .toBe("failed");
-  await page.getByRole("button", { name: "Remove Foom plugin" }).click();
-  await expect(page.getByText("Not installed", { exact: true })).toBeVisible();
-  await page.evaluate((id) => window.desktop.input(id, "q"), id);
-  await expect
-    .poll(() =>
-      page.evaluate(
-        async (id) =>
-          (await window.desktop.workspace()).terminals.find((terminal) => terminal.id === id)
-            ?.exited,
-        id,
-      ),
-    )
-    .toBe(true);
-});
+}
 
 test("console pairing requires trusted approval and gives only read-only repository scope", {
   timeout: deadline(45000),
@@ -7072,23 +7178,10 @@ process.stdin.on("data", (key) => {
   });
   const sidebar = page.locator(".sidebar-shell");
   await expect(sidebar).toHaveAttribute("data-compact", "true");
-  const dockChips = page.locator(".config-dock-head .panel-chip");
-  await expect(dockChips).toHaveCount(2);
-  assert.equal(
-    await dockChips.evaluateAll((chips) =>
-      chips.every((chip) => {
-        const bounds = chip.getBoundingClientRect();
-        const rail = chip.closest(".sidebar-shell").getBoundingClientRect();
-        return (
-          bounds.left >= rail.left &&
-          bounds.right <= rail.right &&
-          chip.scrollWidth <= chip.clientWidth + 1
-        );
-      }),
-    ),
-    true,
-  );
-  await expect(page.locator(".config-dock .board-row")).toBeVisible();
+  await expect(page.locator(".config-dock")).toHaveCount(0);
+  await expect(page.locator(".rail-needs")).toContainText("need you");
+  await expect(gear).toHaveAttribute("aria-label", /needs you.*rejected/);
+  await expect(page.locator(".board-list .board-row").filter({ hasText: "CC" })).toBeVisible();
   await page.screenshot({ path: "test-results/config-footer-compact.png", animations: "disabled" });
   await app.evaluate(({ BrowserWindow }, size) => {
     BrowserWindow.getAllWindows()
@@ -8550,6 +8643,134 @@ test("footer config gear opens Settings and launches a docked Shell", async (con
   await panel.getByRole("menuitem", { name: /^Settings/ }).click();
   await expect(page.getByRole("region", { name: "Settings" })).toBeVisible();
   await assertAccessible(page);
+});
+
+test("sidebar collapses at any width, refits once and opens a narrow overlay without reflow", async (context) => {
+  const app = await launchApp(context);
+  const page = await boardPage(app);
+  const input = page.locator(".xterm-helper-textarea");
+  await expect(input).toBeFocused();
+  await app.evaluate(({ ipcMain }) => {
+    global.sidebarResizes = [];
+    ipcMain.on("terminal:resize", (_event, id, cols, rows) =>
+      global.sidebarResizes.push({ id, cols, rows }),
+    );
+  });
+  const expectOneResize = async () => {
+    try {
+      await expect.poll(() => app.evaluate(() => global.sidebarResizes.length)).toBe(1);
+    } catch (error) {
+      console.error(
+        "Sidebar resize measurements:",
+        await app.evaluate(() => global.sidebarResizes),
+      );
+      throw error;
+    }
+  };
+  const toggle = () =>
+    app.evaluate(({ BrowserWindow }, mac) => {
+      const contents = BrowserWindow.getAllWindows().find(
+        (window) => window.webContents.getURL() === "app://bundle/index.html",
+      ).webContents;
+      for (const type of ["keyDown", "keyUp"])
+        contents.sendInputEvent({
+          type,
+          keyCode: "B",
+          modifiers: mac ? ["meta"] : ["control", "shift"],
+        });
+    }, process.platform === "darwin");
+  await input.press("Control+b");
+  await expect(page.getByRole("button", { name: "Collapse sidebar", exact: true })).toBeVisible();
+  await toggle();
+  await expect(page.getByRole("button", { name: "Expand sidebar", exact: true })).toBeVisible();
+  await expect(input).toBeFocused();
+  await page.waitForFunction(
+    () => document.querySelector(".sidebar-shell").getAnimations().length === 0,
+  );
+  await expectOneResize();
+  const compactColumns = await app.evaluate(() => global.sidebarResizes[0].cols);
+  await app.evaluate(() => {
+    global.sidebarResizes = [];
+  });
+  await toggle();
+  await page.waitForFunction(
+    () => document.querySelector(".sidebar-shell").getAnimations().length === 0,
+  );
+  await expectOneResize();
+  assert.ok((await app.evaluate(() => global.sidebarResizes[0].cols)) < compactColumns);
+  await expect(input).toBeFocused();
+  await page.getByRole("button", { name: "Collapse sidebar", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Expand sidebar", exact: true })).toBeFocused();
+  await page.screenshot({ path: "test-results/sidebar-collapsed.png", animations: "disabled" });
+  await page.getByRole("button", { name: "Expand sidebar", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Collapse sidebar", exact: true })).toBeFocused();
+  await page.waitForFunction(
+    () => document.querySelector(".sidebar-shell").getAnimations().length === 0,
+  );
+  await page.getByRole("button", { name: "Foom menu", exact: true }).click();
+  await page.getByRole("menuitem", { name: "View", exact: true }).hover();
+  await page.getByRole("menuitem", { name: /^Collapse sidebar/ }).click();
+  await expect(page.getByRole("button", { name: "Expand sidebar", exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Expand sidebar", exact: true }).click();
+  await page.waitForFunction(
+    () => document.querySelector(".sidebar-shell").getAnimations().length === 0,
+  );
+  await app.evaluate(({ BrowserWindow }) => {
+    const window = BrowserWindow.getAllWindows().find(
+      (window) => window.webContents.getURL() === "app://bundle/index.html",
+    );
+    window.setSize(960, 700);
+    window.webContents.setZoomFactor(1.5);
+  });
+  await expect.poll(() => page.evaluate(() => innerWidth)).toBeLessThan(720);
+  await expect(page.getByRole("button", { name: "Open sidebar", exact: true })).toBeVisible();
+  await page.waitForFunction(
+    () => document.querySelector(".sidebar-shell").getAnimations().length === 0,
+  );
+  const bounds = await page.locator(".board-terminal").boundingBox();
+  await page.getByRole("button", { name: "Open sidebar", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Close sidebar", exact: true })).toBeVisible();
+  assert.deepEqual(await page.locator(".board-terminal").boundingBox(), bounds);
+  await page.screenshot({ path: "test-results/sidebar-overlay.png", animations: "disabled" });
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("button", { name: "Open sidebar", exact: true })).toBeVisible();
+  assert.deepEqual(await page.locator(".board-terminal").boundingBox(), bounds);
+  await page.getByRole("button", { name: "Open sidebar", exact: true }).click();
+  await page.locator(".config-gear").click();
+  await page
+    .getByRole("dialog")
+    .getByRole("menuitem", { name: /^Settings/ })
+    .click();
+  await expect(page.getByRole("heading", { name: "Settings", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Close sidebar", exact: true })).toBeVisible();
+  await toggle();
+  await expect(page.getByRole("button", { name: "Open sidebar", exact: true })).toBeVisible();
+  await assertAccessible(page);
+});
+
+test("sidebar choice restores after restart and new windows start expanded", async (context) => {
+  const profile = await mkdtemp(path.join(tmpdir(), "foom-sidebar-restore-"));
+  removeAfterApps(context, profile);
+  const options = { args: [`--user-data-dir=${profile}`], emptyBoard: true };
+  const app = await launchApp(context, false, options);
+  const page = await boardPage(app);
+  await page.getByRole("button", { name: "Collapse sidebar", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Expand sidebar", exact: true })).toBeVisible();
+  await quitAndWait(app, () => app.evaluate(({ app }) => app.quit()));
+  const restoredApp = await launchApp(context, false, options);
+  const restored = await boardPage(restoredApp);
+  await expect(restored.getByRole("button", { name: "Expand sidebar", exact: true })).toBeVisible();
+  await restored.evaluate(() => window.desktop.appMenu.execute("new-window"));
+  await expect
+    .poll(
+      () => restoredApp.windows().filter((page) => page.url() === "app://bundle/index.html").length,
+    )
+    .toBe(2);
+  const second = restoredApp
+    .windows()
+    .find((page) => page !== restored && page.url() === "app://bundle/index.html");
+  await expect(second.getByRole("button", { name: "Collapse sidebar", exact: true })).toBeVisible();
+  await assertAccessible(restored);
 });
 
 test("tile layouts restore v1 terminal content and v2 mixed content after inventory", {
