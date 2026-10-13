@@ -1,3 +1,4 @@
+import type { PreviewSummary } from "../../shared/workspace";
 import { TileMenu } from "./tile-menu";
 import { AgentBadge } from "./agent-badge";
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
@@ -34,6 +35,7 @@ import {
   landingSpace,
   ratioLimits,
   leaves,
+  sessionId,
 } from "./tiles";
 
 function TerminalView({
@@ -77,6 +79,7 @@ function Tile({
   number,
   source,
   row,
+  preview,
   preferences,
   focused,
   maximized,
@@ -95,6 +98,7 @@ function Tile({
   number: number;
   source: BoardSource;
   row: BoardRow | undefined;
+  preview: PreviewSummary | undefined;
   preferences: SidebarPreferences;
   focused: boolean;
   maximized: boolean;
@@ -111,6 +115,8 @@ function Tile({
   const lightRef = useRef<HTMLSpanElement>(null);
   const elementRef = useRef<HTMLElement>(null);
   const rowId = row?.id;
+  const occupied = Boolean(row || preview);
+  const name = row ? sessionName(row, preferences) : (preview?.relativePath ?? "");
   useEffect(
     () =>
       subscribeLights(source, () => {
@@ -133,25 +139,25 @@ function Tile({
       ref={elementRef}
       className="terminal-tile"
       data-tile={tile.id}
-      data-focused={Boolean(row) && focused}
-      data-landing={!row && landingSpace(layout)?.id === tile.id}
+      data-focused={occupied && focused}
+      data-landing={!occupied && landingSpace(layout)?.id === tile.id}
       data-collapsing={collapsing}
       data-state={row ? lightState(row) : undefined}
       data-exited={row?.exited}
-      data-kind={row?.kind}
-      data-empty={!row}
+      data-kind={row?.kind ?? (preview ? "preview" : undefined)}
+      data-empty={!occupied}
       data-maximized={maximized}
       data-behind={behind}
       style={position(maximized ? { x: 0, y: 0, width: 100, height: 100 } : rect)}
-      aria-label={`Tile ${String(number)}${row ? `: ${sessionName(row, preferences)}` : ": empty"}`}
-      aria-hidden={!row || undefined}
-      tabIndex={row ? (focused ? 0 : -1) : undefined}
+      aria-label={`Tile ${String(number)}${occupied ? `: ${name}` : ": empty"}`}
+      aria-hidden={!occupied || undefined}
+      tabIndex={occupied ? (focused ? 0 : -1) : undefined}
       inert={behind || inactive}
       onFocus={() => {
-        if (row) select();
+        if (occupied) select();
       }}
       onPointerDown={(event) => {
-        if (!row) return;
+        if (!occupied) return;
         select();
         if (
           event.button !== 2 &&
@@ -159,12 +165,12 @@ function Tile({
           !event.target.closest("button") &&
           !event.target.closest(".xterm")
         ) {
-          if (view) view.focus();
+          if (view && row) view.focus();
           else elementRef.current?.focus();
         }
       }}
     >
-      {row && (
+      {occupied && (
         <header
           className="tile-title"
           draggable
@@ -179,7 +185,7 @@ function Tile({
               setMenu({ anchor: menuRef.current, point: { x: event.clientX, y: event.clientY } });
           }}
         >
-          {
+          {row && (
             <>
               <h2 className="visually-hidden">{`${row.repository} › ${rowWorktree(row) === rowRepository(row) ? "Main checkout" : row.branch} › ${sessionName(row, preferences)}`}</h2>
               <span
@@ -205,7 +211,18 @@ function Tile({
                 </span>
               )}
             </>
-          }
+          )}
+          {preview && (
+            <>
+              <svg className="preview-glyph" aria-hidden="true" viewBox="0 0 16 16">
+                <path d="M4 1.5h5l3 3v10H4z M9 1.5v3h3 M6 8h4 M6 10.5h4" />
+              </svg>
+              <AgentBadge mark={preview.kind === "markdown" ? "MD" : "HTML"} />
+              <span className="tile-name" title={preview.relativePath}>
+                {preview.relativePath}
+              </span>
+            </>
+          )}
           <button
             ref={menuRef}
             type="button"
@@ -232,24 +249,25 @@ function Tile({
             </button>
             <button
               type="button"
-              aria-label={row.exited ? "Close" : "Hide"}
-              title={row.exited ? "Close" : "Hide"}
+              aria-label={preview || row?.exited ? "Close" : "Hide"}
+              title={preview || row?.exited ? "Close" : "Hide"}
               onClick={() => {
-                action(row.exited ? "close" : "hide");
+                action(preview || row?.exited ? "close" : "hide");
               }}
             >
-              {row.exited ? "×" : "−"}
+              {preview || row?.exited ? "×" : "−"}
             </button>
           </div>
         </header>
       )}
-      {row && menu && !inactive && !behind && (
+      {occupied && menu && !inactive && !behind && (
         <TileMenu
           anchor={menu.anchor}
           point={menu.point}
           layout={{ ...layout, focused: tile.id }}
           row={row}
-          name={sessionName(row, preferences)}
+          preview={preview}
+          name={name}
           number={number}
           view={view}
           popout={Boolean(source.windows)}
@@ -391,6 +409,7 @@ export function TileArea({
   layout,
   setLayout,
   rows,
+  previews,
   preferences,
   inactive,
   focusRequest,
@@ -403,6 +422,7 @@ export function TileArea({
   layout: TileLayout;
   setLayout: (next: TileLayout) => void;
   rows: readonly BoardRow[];
+  previews: readonly PreviewSummary[];
   preferences: SidebarPreferences;
   inactive: boolean;
   focusRequest: number;
@@ -526,7 +546,10 @@ export function TileArea({
             );
           })}
           source={source}
-          row={rows.find((row) => row.id === tile.session)}
+          row={rows.find((row) => row.id === sessionId(tile))}
+          preview={previews.find(
+            (preview) => tile.content?.kind === "preview" && preview.id === tile.content.preview,
+          )}
           preferences={preferences}
           focused={layout.focused === tile.id}
           maximized={layout.maximized === tile.id}
