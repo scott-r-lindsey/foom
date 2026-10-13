@@ -8146,6 +8146,11 @@ for (const cliOnly of [false, true])
     await parentSession.hover();
     await expect(childEntry).toHaveAttribute("data-related", "true");
     await childRow.focus();
+    // Finish the hover interaction before the later Settings checks: its panel
+    // otherwise follows the stationary pointer and covers Settings navigation.
+    await page.getByRole("textbox", { name: "Filter repositories and sessions" }).hover();
+    await page.keyboard.press("Escape");
+    await expect(page.locator(".row-menu")).toHaveCount(0);
     await assertAccessible(page);
 
     const stopped = await call(parent.controlToken, "stop", {

@@ -629,14 +629,14 @@ export function Sidebar({
           {...rowEvents(row.id)}
           onPointerEnter={(event) => {
             rowEvents(row.id).onPointerEnter(event);
-            setHoveredSession(row.id);
+            setHoveredSession(row.orchestration ? row.id : undefined);
           }}
           onPointerLeave={() => {
             rowEvents(row.id).onPointerLeave();
             setHoveredSession(undefined);
           }}
           onFocusCapture={() => {
-            setFocusedSession(row.id);
+            setFocusedSession(row.orchestration ? row.id : undefined);
           }}
           onBlurCapture={(event) => {
             if (!event.currentTarget.contains(event.relatedTarget)) setFocusedSession(undefined);
