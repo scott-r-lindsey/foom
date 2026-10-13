@@ -7991,6 +7991,11 @@ test("gutter double-click evens three columns and Tidy tiles removes holes throu
     await actions.press("Enter");
     await page.getByRole("menuitem", { name: "New shell", exact: true }).press("Enter");
     await expect(page.locator('.terminal-tile[data-empty="false"]')).toHaveCount(count);
+    // Occupancy is published before attachment finishes focusing xterm. Drain
+    // that focus transfer before sending keyboard input to the gutter.
+    await expect(
+      page.locator('.terminal-tile[data-focused="true"] .xterm-helper-textarea'),
+    ).toBeFocused();
   }
   const tiles = page.locator(".terminal-tile");
   await expect(tiles).toHaveCount(3);
