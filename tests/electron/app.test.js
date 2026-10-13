@@ -1185,6 +1185,68 @@ test("quit dialog is on screen above the board on first show and after hide/show
   for (const capture of evidence) assertDialogAboveBoard(capture);
 });
 
+test("failed trusted dialog presentation releases the board and can be requested again", {
+  timeout: deadline(45_000),
+}, async (context) => {
+  const app = await launchApp(context);
+  const board = await boardPage(app);
+  const dialog = await confirmationPage(app);
+  await app.evaluate(({ BrowserWindow }) => {
+    const dialog = BrowserWindow.getAllWindows().find(
+      (window) => window.webContents.getURL() === "app://confirmation/confirmation.html",
+    );
+    globalThis.realConfirmationShow = dialog.show.bind(dialog);
+    globalThis.failedConfirmationShows = 0;
+    // Model an OS that refuses to map the native window. The trusted renderer
+    // still measures and renders its card, exactly as in the buried-window bug.
+    dialog.show = () => {
+      globalThis.failedConfirmationShows++;
+    };
+  });
+  try {
+    await app.evaluate(({ app }) => app.quit());
+    await expect(board.locator(".board-confirmation-scrim")).toBeVisible();
+    await expect(board.locator(".board-confirmation-scrim")).toHaveCount(0);
+    await expect(dialog.getByRole("alertdialog")).toHaveCount(0);
+    assert.equal(await app.evaluate(() => globalThis.failedConfirmationShows), 2);
+    assert.equal(app.process().exitCode, null, "Failed presentation must cancel quit");
+    assert.equal(
+      await board.evaluate(async () => (await window.desktop.workspace()).terminals[0].exited),
+      false,
+    );
+    await expect
+      .poll(() =>
+        app.evaluate(({ BrowserWindow }) => {
+          const board = BrowserWindow.getAllWindows().find(
+            (window) => window.webContents.getURL() === "app://bundle/index.html",
+          );
+          return board.isEnabled() && board.isFocusable();
+        }),
+      )
+      .toBe(true);
+  } finally {
+    await app.evaluate(({ BrowserWindow }) => {
+      BrowserWindow.getAllWindows().find(
+        (window) => window.webContents.getURL() === "app://confirmation/confirmation.html",
+      ).show = globalThis.realConfirmationShow;
+    });
+  }
+  await app.evaluate(({ app }) => app.quit());
+  await expect(dialog.getByRole("alertdialog")).toBeVisible();
+  await expect(board.locator(".board-confirmation-scrim")).toBeVisible();
+  await app.evaluate(({ BrowserWindow }) => {
+    BrowserWindow.getAllWindows()
+      .find((window) => window.webContents.getURL() === "app://confirmation/confirmation.html")
+      .hide();
+  });
+  await expect(board.locator(".board-confirmation-scrim")).toHaveCount(0);
+  await expect(dialog.getByRole("alertdialog")).toHaveCount(0);
+  await app.evaluate(({ app }) => app.quit());
+  await expect(dialog.getByRole("button", { name: "Cancel", exact: true })).toBeVisible();
+  await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
+  await expect(board.locator(".board-confirmation-scrim")).toHaveCount(0);
+});
+
 // Exercise the real app/PTY lifecycle; control only the native dialog response so
 // these checks run on all three desktop platforms without OS-specific UI drivers.
 for (const action of ["close", "quit", "shortcut"]) {
@@ -5154,7 +5216,10 @@ test("trusted quit dialog isolates answers, passes axe in every theme and surviv
       const parent = BrowserWindow.getAllWindows().find(
         (window) => window.webContents.getURL() === "app://bundle/index.html",
       );
-      if (parent.isEnabled()) throw Error("Parent must be disabled during confirmation");
+      if (process.platform === "darwin") {
+        if (!parent.isEnabled() || parent.isFocusable())
+          throw Error("macOS board must block focus without attaching a disabling sheet");
+      } else if (parent.isEnabled()) throw Error("Parent must be disabled during confirmation");
       const bounds = parent.getBounds();
       parent.setBounds({
         ...bounds,

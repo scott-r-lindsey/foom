@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 import { BrowserWindow, ipcMain, screen } from "electron";
-import type { Session, IpcMainEvent } from "electron";
+import type { Session, IpcMainEvent, Event, WebContents } from "electron";
 import type { DialogContent, DialogRequest } from "../../shared/confirmation";
 import type { InterfaceTheme } from "../../shared/interface-theme";
 
@@ -22,12 +22,17 @@ export class TrustedDialog {
   private queue: Promise<unknown> = Promise.resolve();
   private size: { width: number; height: number } | undefined;
   private disposed = false;
+  private readonly parentContents: WebContents;
   private parentEnabled = true;
+  private parentFocusable = true;
+  private reachability: NodeJS.Timeout | undefined;
   constructor(
     private readonly parent: BrowserWindow,
     private readonly session: Session,
     private readonly theme: () => InterfaceTheme,
+    private readonly platform = process.platform,
   ) {
+    this.parentContents = parent.webContents;
     ipcMain.on("confirmation:answer", this.answer);
     ipcMain.on("confirmation:size", this.resize);
     this.prepare();
@@ -91,16 +96,13 @@ export class TrustedDialog {
     this.size = { width: value.width, height: value.height };
     this.syncBounds();
     if (first) {
-      this.window?.show();
-      // Some window managers place a child when mapping it. Reapply after show.
-      this.syncBounds();
-      this.focusDialog();
+      this.present();
     }
   };
   /** Called after the board's scale or resolved theme changes. */
   refresh(): void {
     if (!this.window || this.disposed) return;
-    this.window.webContents.setZoomFactor(this.parent.webContents.getZoomFactor());
+    this.window.webContents.setZoomFactor(this.parentContents.getZoomFactor());
     const theme = this.theme();
     this.window.setBackgroundColor(theme.colors.surface);
     if (this.pending) {
@@ -134,7 +136,7 @@ export class TrustedDialog {
       },
     });
     this.window = window;
-    window.webContents.setZoomFactor(this.parent.webContents.getZoomFactor());
+    window.webContents.setZoomFactor(this.parentContents.getZoomFactor());
     window.removeMenu();
     window.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
     window.webContents.on("will-navigate", (event) => {
@@ -142,6 +144,13 @@ export class TrustedDialog {
     });
     window.webContents.on("will-attach-webview", (event) => {
       event.preventDefault();
+    });
+    window.on("hide", this.cancel);
+    window.on("minimize", this.cancel);
+    window.on("closed", () => {
+      if (this.window !== window) return;
+      this.window = undefined;
+      this.finish(false);
     });
     window.on("close", (event) => {
       event.preventDefault();
@@ -211,15 +220,28 @@ export class TrustedDialog {
       };
       signal?.addEventListener("abort", cancel, { once: true });
       this.parentEnabled = this.parent.isEnabled();
-      this.parent.setEnabled(false);
+      if (this.platform === "darwin") {
+        // Electron disables macOS windows with an attached translucent sheet,
+        // which covers even a visible, focused child (#353). Block input without
+        // creating that sheet; keep native keyboard focus in the trusted child.
+        this.parentFocusable = this.parent.isFocusable();
+        this.parent.setFocusable(false);
+      } else {
+        this.parent.setEnabled(false);
+      }
+      this.parentContents.prependListener("before-input-event", this.blockParentInput);
+      this.parentContents.on("before-mouse-event", this.blockParentInput);
+      this.parent.on("hide", this.cancel);
+      this.parent.on("minimize", this.cancel);
       this.parent.on("move", this.syncBounds);
       this.parent.on("resize", this.syncBounds);
       this.parent.on("maximize", this.syncBounds);
       this.parent.on("unmaximize", this.syncBounds);
       this.parent.on("restore", this.syncBounds);
-      this.parent.on("focus", this.focusDialog);
-      this.parent.webContents.send("confirmation:scrim", true);
+      this.parent.on("focus", this.restoreDialog);
+      this.parentContents.send("confirmation:scrim", true);
       this.refresh();
+      this.watchReachability();
       try {
         return await answer;
       } finally {
@@ -259,6 +281,44 @@ export class TrustedDialog {
     );
     this.window.setBounds({ x, y, width, height });
   };
+  private readonly blockParentInput = (event: Event) => {
+    event.preventDefault();
+  };
+  private readonly cancel = () => {
+    this.finish(false);
+  };
+  private present(): void {
+    const window = this.window;
+    if (!window || !this.pending) return;
+    window.setParentWindow(this.parent);
+    window.show();
+    // Some window managers place a child when mapping it. Reapply after show.
+    this.syncBounds();
+    window.moveTop();
+    this.focusDialog();
+  }
+  /** Bound a failed show/focus or a page that never supplies a valid size. */
+  private watchReachability(reordered = false): void {
+    if (this.reachability || !this.pending) return;
+    this.reachability = setTimeout(() => {
+      this.reachability = undefined;
+      const window = this.window;
+      if (!window || !this.size) {
+        this.finish(false);
+      } else if (!window.isVisible() || !window.isFocused()) {
+        // A retry that still cannot acquire native focus must never strand the
+        // board behind its scrim. Cancellation cannot grant any permission.
+        if (reordered) this.finish(false);
+        else {
+          // Arm the final check first: native focus events during show must
+          // not replace it with another initial attempt.
+          this.watchReachability(true);
+          this.present();
+        }
+      }
+    }, 1000);
+    this.reachability.unref();
+  }
   private readonly focusDialog = () => {
     if (this.pending && this.window) {
       this.window.focus();
@@ -266,26 +326,37 @@ export class TrustedDialog {
       this.window.webContents.focus();
     }
   };
+  private readonly restoreDialog = () => {
+    this.focusDialog();
+    this.watchReachability();
+  };
   private finish(accepted: boolean): void {
     const pending = this.pending;
     this.pending = undefined;
     if (!pending) return;
     if (!accepted) this.removalFeed?.select([]);
+    clearTimeout(this.reachability);
+    this.reachability = undefined;
     this.unsubscribe?.();
     this.unsubscribe = undefined;
     this.feed = undefined;
     this.removalFeed = undefined;
     this.window?.webContents.send("confirmation:render", null);
     this.window?.hide();
+    this.parentContents.removeListener("before-input-event", this.blockParentInput);
+    this.parentContents.removeListener("before-mouse-event", this.blockParentInput);
+    this.parent.removeListener("hide", this.cancel);
+    this.parent.removeListener("minimize", this.cancel);
     this.parent.removeListener("move", this.syncBounds);
     this.parent.removeListener("resize", this.syncBounds);
     this.parent.removeListener("maximize", this.syncBounds);
     this.parent.removeListener("unmaximize", this.syncBounds);
     this.parent.removeListener("restore", this.syncBounds);
-    this.parent.removeListener("focus", this.focusDialog);
+    this.parent.removeListener("focus", this.restoreDialog);
     if (!this.parent.isDestroyed()) {
-      this.parent.webContents.send("confirmation:scrim", false);
-      this.parent.setEnabled(this.parentEnabled);
+      this.parentContents.send("confirmation:scrim", false);
+      if (this.platform === "darwin") this.parent.setFocusable(this.parentFocusable);
+      else this.parent.setEnabled(this.parentEnabled);
       this.parent.focus();
     }
     // Leave Electron's native IPC/close callback before resuming shutdown work.

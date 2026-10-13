@@ -380,14 +380,27 @@ its raised card, with a native shadow and platform rounding where supported (squ
 corners on Linux). The board draws a cosmetic translucent scrim in the top layer, covering any open
 board form, from the boolean-only
 `confirmation:scrim` notification. Hiding or failing to draw it grants nothing.
-Native `modal` is false to avoid macOS sheet presentation; main disables parent input
-and redirects parent focus to the child. The page uses a ResizeObserver to report
+Native `modal` is false to avoid macOS sheet presentation. On Windows and Linux,
+main disables the parent. On macOS, Electron's `setEnabled(false)` attaches a
+translucent sheet above even a focused child (#353), so main instead temporarily
+makes the board nonfocusable and blocks its mouse and keyboard events before
+renderer dispatch. The keyboard guard also prevents board shortcuts. Main
+redirects parent focus to the child; each dismissal restores the original native
+focusability or enabled state and removes the input guards. The page uses a ResizeObserver to report
 natural card dimensions in CSS pixels via `confirmation:size`. Main accepts only
 finite positive sizes from the trusted main frame at the exact confirmation URL,
 while a request is pending. It multiplies by the board zoom, clamps to the parent's
 content area less a 24-DIP margin and the display work area, and centers the card on
 the content bounds. The card's content scrolls when constrained. Main shows the
-window only after its first valid measurement and reapplies positioning after show.
+window only after its first valid measurement, re-establishes the parent link,
+reapplies positioning after show, and raises it with `moveTop()` before focusing.
+A main-owned one-second guard cancels if the page never measures. A shown child
+that cannot become visible and focused gets one reorder attempt and a second
+one-second check; failure cancels without approving, clears the scrim and releases
+board input. Hiding, minimizing or destroying the child, or hiding/minimizing its
+board, also cancels. Checks and listeners are removed on dismissal and disposal.
+These focus checks are a recovery safety net; the Electron regression observes
+composed desktop pixels, since macOS can report native focus through an overlay.
 Theme and Interface scale updates reach the dialog while pending; parent move,
 resize, maximize, unmaximize and restore events recenter it. Dismissal removes
 listeners, clears the scrim, and restores input and focus. Positioning remains
