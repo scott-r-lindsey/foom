@@ -1,0 +1,277 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sidebar Footer Controls</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo+Black&family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500;600&display=swap">
+<style>
+/* #362: the sidebar footer drops the six tile presets and Tidy. It keeps three
+   controls: Zoom (the interface scale, the same setting as the app menu's size
+   stepper), Volume (an always-visible master slider over the working and alert
+   volumes, with mute; Settings → Sound shows the same value)
+   and the Foom config gear, unchanged from config-footer.html. Presets and Tidy keep
+   their shortcuts. Colors are the brand tokens; the sidebar slice follows
+   config-footer.html. */
+:root {
+  --bg: #f3f0fa; --surface: #e9e4f5; --line: #ddd6ee; --ink: #14101f; --muted: #625a7a;
+  --accent: #5b2bd9; --accent-deep: #3b1a99; --attention: #d98200; --attention-ink: #8c5000;
+  --done: #13804a; --done-ink: #0e6b3c; --failed: #d6166e; --failed-ink: #b0105a;
+  --badge: #4a4263; --badge-ink: #f4efff; --lift: #ffffff; --hole: #05040a; --neutral: #4a4263;
+  --shadow: rgba(40, 20, 90, .28);
+  --term-bg: #05040a; --term-line: #251d3f; --term-dim: #6a6188;
+  --display: "Archivo Black", sans-serif;
+  --sans: "Geist", system-ui, sans-serif; --mono: "Geist Mono", ui-monospace, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #05040a; --surface: #0d0a17; --line: #251d3f; --ink: #f4efff; --muted: #9d93bd;
+    --accent: #9b6bff; --accent-deep: #7a3cff; --attention: #ffb23e; --attention-ink: #ffb23e;
+    --done: #6fe0a3; --done-ink: #6fe0a3; --failed: #ff2e88; --failed-ink: #ff2e88;
+    --badge: #3a3060; --badge-ink: #f4efff; --lift: #f4efff; --hole: #000000; --neutral: #c9c0e6;
+    --shadow: rgba(0, 0, 0, .85);
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #05040a; --surface: #0d0a17; --line: #251d3f; --ink: #f4efff; --muted: #9d93bd;
+  --accent: #9b6bff; --accent-deep: #7a3cff; --attention: #ffb23e; --attention-ink: #ffb23e;
+  --done: #6fe0a3; --done-ink: #6fe0a3; --failed: #ff2e88; --failed-ink: #ff2e88;
+  --badge: #3a3060; --badge-ink: #f4efff; --lift: #f4efff; --hole: #000000; --neutral: #c9c0e6;
+  --shadow: rgba(0, 0, 0, .85);
+  color-scheme: dark;
+}
+:root {
+  --highlight: var(--accent); --highlight-deep: var(--accent-deep);
+  --select: color-mix(in srgb, var(--highlight) 18%, var(--surface));
+  --raised-top: color-mix(in srgb, var(--surface) 92%, var(--lift));
+  --raised-bottom: var(--surface);
+  --raised-line: color-mix(in srgb, var(--highlight) 25%, var(--line));
+  --raised-hover: color-mix(in srgb, var(--highlight) 12%, var(--raised-top));
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; }
+body { background: var(--bg); color: var(--ink); font: 13px/1.4 var(--sans); }
+button { font: inherit; color: inherit; cursor: pointer; }
+:focus-visible { outline: 2px solid var(--highlight); outline-offset: 1px; }
+.frame { height: 100%; overflow-x: auto; }
+.app { position: relative; display: flex; height: 100%; min-width: 1100px; min-height: 640px; overflow: hidden; }
+.icon { width: 12px; height: 12px; fill: none; stroke: currentColor; stroke-width: 1.2; stroke-linecap: round; }
+
+/* Sidebar slice, as in config-footer.html. */
+.side { width: var(--side-w, 300px); flex-shrink: 0; display: flex; flex-direction: column; background: var(--surface); border-right: 1px solid var(--line); }
+.head { display: flex; align-items: baseline; gap: 8px; padding: 14px 12px 8px; }
+.word { font: 22px/1 var(--display); }
+.hole { display: inline-block; width: .52em; height: .52em; margin: 0 .035em; border-radius: 50%; background: var(--hole); box-shadow: 0 0 0 2px var(--accent), 0 0 10px var(--accent); }
+.counts { margin-left: auto; font: 11px var(--mono); color: var(--muted); }
+.counts b { font-weight: 500; color: var(--attention-ink); }
+.filter { display: flex; gap: 6px; padding: 0 12px 10px; border-bottom: 1px solid var(--line); }
+.filter span { flex: 1; height: 30px; padding: 6px 8px; border: 1px solid var(--line); border-radius: 5px; background: var(--bg); color: var(--muted); font: 12px var(--mono); }
+.filter button { width: 30px; height: 30px; border: 1px solid var(--line); border-radius: 5px; background: var(--bg); }
+.tree { flex: 1; min-height: 0; overflow: auto; padding: 6px 8px 12px; }
+.row { display: flex; align-items: center; gap: 6px; min-height: 28px; padding: 0 6px; border-radius: 5px; }
+.row:hover { background: color-mix(in srgb, var(--highlight) 8%, transparent); }
+.chev { width: 12px; flex-shrink: 0; color: var(--muted); font-size: 10px; text-align: center; }
+.repo { font-weight: 600; }
+.checkout { padding-left: 20px; }
+.checkout .icon { color: var(--muted); }
+.checkout .br { font: 11px var(--mono); color: var(--muted); }
+.srow { padding-left: 38px; }
+.srow.home { padding-left: 6px; }
+.badge { flex-shrink: 0; display: inline-grid; place-items: center; min-width: 20px; height: 16px; padding: 0 3px; border-radius: 4px; background: var(--badge); color: var(--badge-ink); font: 600 9px var(--mono); letter-spacing: .02em; }
+.name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.prog { flex-shrink: 0; font: 12px var(--mono); color: var(--muted); }
+.light { flex-shrink: 0; width: 10px; height: 10px; border-radius: 50%; background: var(--c); --c: var(--accent); }
+.light[data-state="working"] { box-shadow: 0 0 8px 1px color-mix(in srgb, var(--c) 55%, transparent); }
+.light[data-state="needs"] { --c: var(--attention); box-shadow: 0 0 0 4px color-mix(in srgb, var(--attention) 22%, transparent); }
+.light[data-state="shell"] { --c: var(--neutral); }
+.srow .tail { margin-left: auto; font: 11px var(--mono); color: var(--muted); }
+
+/* The footer bar. Every control is a 26×24 tool, so the row reads as one strip. */
+.foot { position: relative; border-top: 1px solid var(--line); }
+.bar { display: flex; align-items: center; gap: 4px; padding: 10px 12px 12px; }
+.tool { display: grid; place-items: center; width: 26px; height: 24px; padding: 0; background: transparent; border: 1px solid transparent; border-radius: 5px; color: var(--muted); }
+.tool:hover { color: var(--ink); background: color-mix(in srgb, var(--highlight) 8%, transparent); }
+.tool:disabled { opacity: .35; cursor: default; background: transparent; }
+.tool svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.2; stroke-linecap: round; stroke-linejoin: round; }
+.tool[aria-expanded="true"] { color: var(--ink); border-color: var(--highlight); background: var(--select); }
+.presets svg { width: 18px; }
+
+/* Zoom: − value +. The value is the interface scale; clicking it returns to 100%. */
+.zoom { display: flex; align-items: center; height: 24px; border: 1px solid var(--line); border-radius: 5px; }
+.zoom .tool { width: 22px; height: 22px; border: 0; border-radius: 4px; }
+.zoom .tool svg { width: 10px; height: 10px; stroke-width: 1.4; }
+.zoom .value { min-width: 40px; height: 22px; padding: 0 2px; background: transparent; border: 0; border-left: 1px solid var(--line); border-right: 1px solid var(--line); color: var(--muted); font: 11px var(--mono); font-variant-numeric: tabular-nums; }
+.zoom .value:hover { color: var(--ink); }
+.zoom .value[data-default] { cursor: default; }
+.zoom .value:not([data-default]) { color: var(--ink); }
+.gear { margin-left: auto; flex-shrink: 0; }
+.zoom { flex-shrink: 0; }
+
+/* Volume: always visible. The speaker mutes and unmutes; the slider fills the
+   space between zoom and the gear. Muting keeps the level and dims the slider. */
+.volume { flex: 1; min-width: 0; display: flex; align-items: center; gap: 6px; margin-left: 6px; }
+.volume input { flex: 1; min-width: 48px; max-width: 160px; height: 16px; margin: 0; accent-color: var(--highlight); }
+.volume[data-muted] input { opacity: .4; }
+.volume .tool[aria-pressed="true"] { color: var(--ink); }
+
+/* Tiles, as pictures. */
+.main { position: relative; flex: 1; min-width: 0; display: grid; grid-template-columns: 1fr 1fr; gap: 6px; padding: 6px; }
+.tile { display: flex; flex-direction: column; min-width: 0; border: 1px solid var(--term-line); border-radius: 6px; background: var(--term-bg); overflow: hidden; }
+.tile.focus { border-color: var(--highlight); }
+.tbar { display: flex; align-items: center; gap: 7px; height: 28px; padding: 0 9px; background: var(--surface); border-bottom: 1px solid var(--line); font-size: 12px; }
+.tbar .loc { font: 11px var(--mono); color: var(--muted); }
+.tbar .num { margin-left: auto; font: 600 11px var(--mono); color: var(--muted); }
+.screen { flex: 1; padding: 8px 10px; display: flex; flex-direction: column; justify-content: flex-end; font: 11.5px/1.5 var(--mono); color: var(--term-dim); }
+/* The interface scale applies to app chrome, shown here on the sidebar tree and tile bars. */
+.tree, .tbar { zoom: var(--scale, 1); }
+
+/* A toast that stands in for a sound playing. Mockup only. */
+.ping { position: absolute; z-index: 35; left: 50%; bottom: 18px; transform: translateX(-50%); padding: 6px 12px; border: 1px dashed var(--muted); border-radius: 999px; background: var(--bg); color: var(--muted); font: 11px var(--mono); }
+
+/* Mockup controls: not app chrome. */
+.controls { position: absolute; z-index: 40; top: 44px; right: 14px; width: 260px; padding: 10px 12px 12px; border: 1px dashed var(--muted); border-radius: 8px; background: color-mix(in srgb, var(--bg) 92%, transparent); font-size: 12px; }
+.controls h2 { margin: 0 0 8px; font: 600 10px var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+.ctl { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; margin-bottom: 8px; }
+.ctl > span { width: 100%; color: var(--muted); font-size: 11px; }
+.ctl button { height: 24px; padding: 0 8px; border: 1px solid var(--line); border-radius: 4px; background: var(--surface); font-size: 11px; }
+.ctl button[aria-pressed="true"] { border-color: var(--highlight); background: var(--select); }
+.note { margin: 6px 0 0; color: var(--muted); font-size: 11px; line-height: 1.45; }
+</style>
+</head>
+<body>
+<div class="frame">
+<div class="app" id="app">
+  <aside class="side" id="side"></aside>
+  <main class="main">
+    <section class="tile focus">
+      <div class="tbar"><span class="light" data-state="working"></span><span class="badge">CC</span>Claude Code<span class="loc">foom › main</span><span class="num">1</span></div>
+      <div class="screen"><div>● Reading src/renderer/board/sidebar-view.tsx</div><div>● Editing board.css</div><div>&gt; _</div></div>
+    </section>
+    <section class="tile">
+      <div class="tbar"><span class="light" data-state="shell"></span><span class="badge">&gt;_</span>Shell<span class="loc">foom › main</span><span class="num">2</span></div>
+      <div class="screen"><div>~/code/foom $ npm run check</div><div>✓ 2053 tests</div><div>~/code/foom $ _</div></div>
+    </section>
+    <div class="controls" aria-label="Mockup controls">
+      <h2>Mockup</h2>
+      <div class="ctl" data-key="mode"><span>Footer</span><button data-v="before">Before (main)</button><button data-v="after">After</button></div>
+      <div class="ctl" data-key="width"><span>Sidebar width</span><button data-v="300">300</button><button data-v="220">220 (narrowest)</button></div>
+      <div class="ctl" data-key="theme"><span>Theme</span><button data-v="system">System</button><button data-v="light">Light</button><button data-v="dark">Dark</button></div>
+      <p class="note">Zoom steps through the interface scales (80–300%) and the value returns to 100%. The volume slider is always visible. The speaker mutes and unmutes without losing the level; moving the slider unmutes, and releasing it plays a sample. Settings → Sound shows the same master volume above the working and alert volumes. The collapsed rail keeps only the gear.</p>
+    </div>
+    <div id="ping-slot" style="display:contents"></div>
+  </main>
+</div>
+</div>
+<script>
+const SCALES = [80, 90, 100, 110, 120, 130, 140, 150, 175, 200, 250, 300];
+const MAC = navigator.platform.startsWith("Mac");
+const KEY = MAC ? "⌘" : "Ctrl+";
+const FOLDER = '<svg class="icon" viewBox="0 0 12 12" aria-hidden="true"><path d="M1 3h3.5l1 1.2H11V10H1z"/></svg>';
+const GEAR = '<svg viewBox="0 0 12 12" aria-hidden="true"><circle cx="6" cy="6" r="1.6"/><circle cx="6" cy="6" r="3.4"/><path d="M6 .8v1.8M6 9.4v1.8M.8 6h1.8M9.4 6h1.8M2.3 2.3l1.3 1.3M8.4 8.4l1.3 1.3M2.3 9.7l1.3-1.3M8.4 3.6l1.3-1.3"/></svg>';
+const MINUS = '<svg viewBox="0 0 10 10" aria-hidden="true"><path d="M2 5h6"/></svg>';
+const PLUS = '<svg viewBox="0 0 10 10" aria-hidden="true"><path d="M2 5h6M5 2v6"/></svg>';
+const PRESETS = [
+  ["One", "M1 1h14v10H1z"], ["Two side by side", "M1 1h14v10H1z M8 1v10"], ["Two stacked", "M1 1h14v10H1z M1 6h14"],
+  ["Two by two", "M1 1h14v10H1z M8 1v10 M1 6h14"], ["One and two", "M1 1h14v10H1z M9 1v10 M9 6h6"],
+  ["One and three", "M1 1h14v10H1z M9 1v10 M9 4h6 M9 8h6"], ["Tidy tiles", "M1 1h6v4H1z M9 1h6v4H9z M1 7h6v4H1z M9 7h6v4H9z"],
+];
+const state = { mode: "after", width: "300", theme: "system", scale: 100, volume: 70, muted: false, ping: "" };
+
+// The speaker's shape carries the state: struck through when muted or at 0, then one or two waves.
+function speaker() {
+  const body = '<path d="M2 5.5h2.2L7.5 3v8L4.2 8.5H2z"/>';
+  if (state.muted || state.volume === 0) return `<svg viewBox="0 0 14 14" aria-hidden="true">${body}<path d="M9.5 5.5l3 3M12.5 5.5l-3 3"/></svg>`;
+  const one = '<path d="M9.4 5.4a2.3 2.3 0 0 1 0 3.2"/>';
+  const two = state.volume > 50 ? '<path d="M11 3.8a4.6 4.6 0 0 1 0 6.4"/>' : "";
+  return `<svg viewBox="0 0 14 14" aria-hidden="true">${body}${one}${two}</svg>`;
+}
+const volumeLabel = () => state.muted ? `Volume, muted (${state.volume}%)` : `Volume ${state.volume}%`;
+
+function footer() {
+  if (state.mode === "before")
+    return `<div class="bar presets">${PRESETS.map(([label, d]) =>
+      `<button class="tool" type="button" aria-label="${label}" title="${label}"><svg viewBox="0 0 16 12" aria-hidden="true"><path d="${d}"/></svg></button>`).join("")}
+      <button class="tool gear" type="button" aria-label="Foom config" title="Foom config">${GEAR}</button></div>`;
+  const i = SCALES.indexOf(state.scale);
+  return `<div class="bar">
+      <div class="zoom" role="group" aria-label="Zoom">
+        <button class="tool" type="button" data-zoom="-1" aria-label="Zoom out" title="Zoom out  ${KEY}−"${i === 0 ? " disabled" : ""}>${MINUS}</button>
+        <button class="value" type="button" data-zoom="reset" aria-label="Zoom ${state.scale}%${state.scale === 100 ? "" : ", reset to 100%"}" title="${state.scale === 100 ? "Zoom" : `Reset zoom  ${KEY}0`}"${state.scale === 100 ? " data-default" : ""}>${state.scale}%</button>
+        <button class="tool" type="button" data-zoom="1" aria-label="Zoom in" title="Zoom in  ${KEY}+"${i === SCALES.length - 1 ? " disabled" : ""}>${PLUS}</button>
+      </div>
+      <div class="volume" role="group" aria-label="Volume"${state.muted ? " data-muted" : ""}>
+        <button class="tool" type="button" id="speaker" data-mute aria-label="${state.muted ? "Unmute" : "Mute"}" title="${volumeLabel()}" aria-pressed="${state.muted}">${speaker()}</button>
+        <input type="range" min="0" max="100" step="5" value="${state.volume}" aria-label="Volume" aria-valuetext="${state.muted ? "Muted" : `${state.volume}%`}" title="${volumeLabel()}">
+      </div>
+      <button class="tool gear" type="button" aria-label="Foom config" title="Foom config">${GEAR}</button>
+    </div>`;
+}
+
+function sidebar() {
+  return `<div class="head"><span class="word">fo<span class="hole"></span>m</span><span class="counts"><b>1 need you</b> · 1 working</span></div>
+    <div class="filter"><span>Filter…</span><button type="button" aria-label="Add">+</button></div>
+    <div class="tree">
+      <div class="row srow home"><span class="chev">▾</span><span class="badge">&gt;_</span><span class="name">bash ~</span></div>
+      <div class="row repo"><span class="chev">▾</span>foom</div>
+      <div class="row checkout"><span class="chev">▾</span>${FOLDER}<span class="name">Main checkout</span><span class="br">main</span></div>
+      <div class="row srow"><span class="light" data-state="working"></span><span class="badge">CC</span><span class="name">Claude Code</span></div>
+      <div class="row srow"><span class="light" data-state="shell"></span><span class="badge">&gt;_</span><span class="name">Shell</span><span class="prog">npm</span></div>
+      <div class="row checkout"><span class="chev">▾</span>${FOLDER}<span class="name">361-cursor-blink</span></div>
+      <div class="row srow"><span class="light" data-state="needs"></span><span class="badge">CX</span><span class="name">Codex</span><span class="tail" style="color:var(--attention-ink)">2m</span></div>
+      <div class="row repo"><span class="chev">▸</span>crab-attack-ii</div>
+      <div class="row repo"><span class="chev">▸</span>PDoomVideo</div>
+    </div>
+    <div class="foot">${footer()}</div>`;
+}
+
+function render(focus) {
+  if (state.theme === "system") delete document.documentElement.dataset.theme;
+  else document.documentElement.dataset.theme = state.theme;
+  const app = document.getElementById("app");
+  app.style.setProperty("--side-w", `${state.width}px`);
+  app.style.setProperty("--scale", String(state.scale / 100));
+  document.getElementById("side").innerHTML = sidebar();
+  document.getElementById("ping-slot").innerHTML = state.ping ? `<div class="ping">${state.ping}</div>` : "";
+  for (const ctl of document.querySelectorAll(".ctl"))
+    for (const b of ctl.querySelectorAll("button")) b.setAttribute("aria-pressed", String(state[ctl.dataset.key] === b.dataset.v));
+  if (focus) document.querySelector(focus)?.focus();
+}
+
+let pingTimer;
+function ping(text) {
+  state.ping = text; clearTimeout(pingTimer);
+  pingTimer = setTimeout(() => { state.ping = ""; render(); }, 1400);
+}
+
+document.addEventListener("click", (event) => {
+  const ctl = event.target.closest(".ctl button");
+  if (ctl) { state[ctl.closest(".ctl").dataset.key] = ctl.dataset.v; render(); return; }
+  const zoom = event.target.closest("[data-zoom]");
+  if (zoom) {
+    const i = SCALES.indexOf(state.scale);
+    state.scale = zoom.dataset.zoom === "reset" ? 100 : SCALES[Math.max(0, Math.min(SCALES.length - 1, i + Number(zoom.dataset.zoom)))];
+    render(`[data-zoom="${zoom.dataset.zoom}"]`); return;
+  }
+  if (event.target.closest("[data-mute]")) { state.muted = !state.muted; if (!state.muted) ping(`♪ sample at ${state.volume}%`); render("[data-mute]"); return; }
+});
+document.addEventListener("input", (event) => {
+  if (!event.target.matches(".volume input")) return;
+  // Moving the slider while muted unmutes, as in most players.
+  state.volume = Number(event.target.value); state.muted = false;
+  const sp = document.getElementById("speaker");
+  sp.innerHTML = speaker(); sp.title = volumeLabel(); sp.setAttribute("aria-pressed", "false"); sp.setAttribute("aria-label", "Mute");
+  event.target.title = volumeLabel(); event.target.setAttribute("aria-valuetext", `${state.volume}%`);
+  event.target.closest(".volume").removeAttribute("data-muted");
+});
+document.addEventListener("change", (event) => {
+  if (event.target.matches(".volume input")) { ping(`♪ sample at ${state.volume}%`); render(".volume input"); }
+});
+document.addEventListener("keydown", (event) => {
+});
+render();
+</script>
+</body>
+</html>
