@@ -1311,8 +1311,9 @@ test("utility host survives output floods without losing rows or delaying anothe
           intact,
           exit: exited.get(flood),
           last: lines.at(-1),
-          hosts: app.getAppMetrics().filter((metric) => metric.name === "Foom terminal host")
-            .length,
+          hosts: app
+            .getAppMetrics()
+            .filter((metric) => metric.name?.startsWith("Foom terminal host ")).length,
         };
       } finally {
         await host.dispose();
@@ -1420,7 +1421,9 @@ test("a crashed utility host reports failure and the renderer can restart", {
     () => !/Starting|exited|Unable/.test(document.querySelector(".tile-status").textContent),
   );
   const hostPid = await app.evaluate(({ app }) => {
-    const metric = app.getAppMetrics().find((metric) => metric.name === "Foom terminal host");
+    const metric = app
+      .getAppMetrics()
+      .find((metric) => metric.name?.startsWith("Foom terminal host "));
     if (!metric) throw new Error("Missing utility host");
     process.kill(metric.pid, "SIGKILL");
     return metric.pid;
@@ -1434,7 +1437,8 @@ test("a crashed utility host reports failure and the renderer can restart", {
   await expect(page.locator(".xterm-helper-textarea")).toBeFocused();
   await expect(page.locator(".xterm-helper-textarea")).toBeFocused();
   const replacementPid = await app.evaluate(
-    ({ app }) => app.getAppMetrics().find((metric) => metric.name === "Foom terminal host")?.pid,
+    ({ app }) =>
+      app.getAppMetrics().find((metric) => metric.name?.startsWith("Foom terminal host "))?.pid,
   );
   assert.ok(replacementPid && replacementPid !== hostPid);
   await page.locator(".xterm-helper-textarea").focus();

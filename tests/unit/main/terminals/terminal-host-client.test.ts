@@ -419,6 +419,8 @@ test.each([true, false])(
     expect(error.message).toContain('"exitCode":3221225477');
     expect(error.message).toContain('"reason":"crashed"');
     expect(error.cause).toMatchObject({ pid: 123, stderr: "native failure" });
+    child.stderr.emit("data", Buffer.from(" late stderr"));
+    expect(error.message).toContain("native failure late stderr");
     expect(exited).toHaveBeenCalledWith(id, -1);
     expect(console.error).toHaveBeenCalledWith(
       "Terminal host diagnostic:",
