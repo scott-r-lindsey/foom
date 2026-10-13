@@ -47,6 +47,14 @@ test.each([
     expect.objectContaining({ path: `$.${key}`, reason: "unknown-key" }),
   );
 });
+test.each([true, false, [], ["/repo"]])(
+  "rejects profile auto-removal in agent-editable config: %j",
+  (value) => {
+    expect(() =>
+      parseSettingsFile(JSON.stringify({ kind: "settings", autoRemoveMergedWorktrees: value })),
+    ).toThrow(expect.objectContaining({ reason: "unknown-key" }));
+  },
+);
 test.each([
   ["colorMode", "auto"],
   ["panelColor", "red"],

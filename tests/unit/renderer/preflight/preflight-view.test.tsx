@@ -849,7 +849,7 @@ test.each([
   },
 );
 
-test("Settings repository auto-removal toggles persist independently", async () => {
+test("Settings General auto-removal toggle applies to all repositories", async () => {
   const source = fake(setupState());
   source.repositories.mockResolvedValue([
     { name: "app", path: "/home/me/code/app" },
@@ -857,26 +857,18 @@ test("Settings repository auto-removal toggles persist independently", async () 
   ]);
   render(<Preflight source={source} initial={setupState()} settingsMode onLaunched={vi.fn()} />);
   fireEvent.click(await screen.findByRole("button", { name: "Repositories" }));
-  const toggle = await screen.findByRole("checkbox", {
-    name: "app · Auto-remove merged worktrees",
-  });
+  expect(screen.queryByRole("checkbox", { name: /Auto-remove merged worktrees/ })).toBeNull();
+  fireEvent.click(await screen.findByRole("button", { name: "General" }));
+  const toggle = await screen.findByRole("checkbox", { name: "Auto-remove merged worktrees" });
   expect(toggle).toHaveProperty("checked", false);
   fireEvent.click(toggle);
   await waitFor(() => {
-    expect(source.save).toHaveBeenCalledWith({ autoRemoveMergedWorktrees: ["/home/me/code/app"] });
-  });
-  fireEvent.click(
-    await screen.findByRole("checkbox", { name: "other · Auto-remove merged worktrees" }),
-  );
-  await waitFor(() => {
-    expect(source.save).toHaveBeenCalledWith({
-      autoRemoveMergedWorktrees: ["/home/me/code/app", "/home/me/code/other"],
-    });
+    expect(source.save).toHaveBeenCalledWith({ autoRemoveMergedWorktrees: true });
+    expect(toggle).toHaveProperty("checked", true);
   });
   fireEvent.click(toggle);
   await waitFor(() => {
-    expect(source.save).toHaveBeenCalledWith({
-      autoRemoveMergedWorktrees: ["/home/me/code/other"],
-    });
+    expect(source.save).toHaveBeenCalledWith({ autoRemoveMergedWorktrees: false });
+    expect(toggle).toHaveProperty("checked", false);
   });
 });

@@ -540,8 +540,8 @@ Permission and credential prompts always stay with you. With the current agent
 interfaces, proposed answers to prose questions also require review in Foom;
 unattended replies need a verified question-specific routing mechanism first.
 Take over cancels pending replies. Worktree removal asks you and rechecks its
-identity and changed files. Settings → Repositories can allow an orchestrator to auto-remove its own clean, fully merged
-worktrees with no running sessions; this option is off by default. The app menu’s
+identity and changed files. Settings → General offers **Auto-remove merged worktrees**, allowing an orchestrator to auto-remove its own clean, fully merged
+worktrees with no running sessions across all repositories; this option is off by default. The app menu’s
 **Action log** opens searchable local history with actor/parent,
 repository/worktree, action, target/result IDs, outcomes and redacted reply proposals.
 Search and Action/Outcome filters apply to retained history, with 100 events per page.
@@ -588,7 +588,7 @@ It replaces the terminal tiles beside the persistent sidebar in the same window.
 Esc returns to the tiles and restores the same focused sidebar row.
 Selecting a terminal in the sidebar also leaves Settings; terminals keep running throughout.
 
-General offers **Restore sessions on launch**, on by default. Turning it on through agent-edited config requires Allow because it also permits restoring orchestrator control.
+General offers **Auto-remove merged worktrees**, off by default and applying to all repositories, and **Restore sessions on launch**, on by default. Turning it on through agent-edited config requires Allow because it also permits restoring orchestrator control.
 
 Agents and hooks, Repositories, and Worktrees use the same controls as
 preflight. Changes apply immediately and persist. A repository scan in Settings

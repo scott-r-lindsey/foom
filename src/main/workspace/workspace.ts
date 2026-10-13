@@ -181,7 +181,7 @@ export class Workspace {
   private acknowledged = false;
   private hooksEnabled = true;
   private concurrentChildren = 4;
-  private autoRemoveMergedWorktrees: readonly string[] = [];
+  private autoRemoveMergedWorktrees = false;
   private defaultArguments = EMPTY_AGENT_ARGUMENTS;
   private readonly resumeStarts = new Map<string, Promise<void>>();
   private readonly busySessions = new Set<string>();
@@ -341,14 +341,14 @@ export class Workspace {
             false,
             async () => {
               await available();
-              if (!this.autoRemoveMergedWorktrees.includes(repository)) return false;
+              if (!this.autoRemoveMergedWorktrees) return false;
               const eligible = await this.deps.worktrees.canAutoRemove(
                 repository,
                 worktree,
                 identity,
               );
               await available();
-              return eligible && this.autoRemoveMergedWorktrees.includes(repository);
+              return eligible && this.autoRemoveMergedWorktrees;
             },
           );
           this.refresh();
@@ -387,7 +387,7 @@ export class Workspace {
   ): void {
     this.restoreEnabled = settings.restoreSessions ?? true;
     this.concurrentChildren = settings.concurrentChildren ?? 4;
-    this.autoRemoveMergedWorktrees = settings.autoRemoveMergedWorktrees ?? [];
+    this.autoRemoveMergedWorktrees = settings.autoRemoveMergedWorktrees ?? false;
     this.agents.setHooksEnabled(settings.hooks);
     this.hooksEnabled = settings.hooks;
     this.defaultArguments = settings.agentArguments ?? EMPTY_AGENT_ARGUMENTS;

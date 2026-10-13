@@ -346,7 +346,7 @@ under the existing launch/removal locks. Git and processes use argument arrays.
 | `tail` | Orchestrator, own child only | Latest 1–40 physical lines, redacted, ≤16 KiB UTF-8 result, no historical pagination |
 | `reply` | Orchestrator, own child only | Exact question revision plus ≤4 KiB proposal; gate below, never general terminal input |
 | `stop` | Orchestrator, own child only | Graceful stop with existing bounded termination fallback; retains worktree and final screen |
-| `remove_worktree` | Orchestrator, own created worktree only | Requests an app confirmation unless the repository opts into merged-clean auto-removal; no force option or deleting branches |
+| `remove_worktree` | Orchestrator, own created worktree only | Requests an app confirmation unless Auto-remove merged worktrees is enabled in Settings → General; no force option or deleting branches |
 | `wait_for` | Orchestrator, own children only | Up to the configured child limit of IDs, after-revision cursor, timeout 0–30 seconds; returns state metadata or timeout |
 | `operation_status` | Orchestrator or authorized human CLI grant, own operations only | Exactly one of operation ID or idempotency key; returns the operation record described below, never child output |
 
@@ -767,7 +767,7 @@ retry with the same key returns that record.
 | `create_worktree` | `branch` | New local branch only (an existing branch is refused); `resultId` is the opaque worktree ID |
 | `launch` | `worktreeId`, `agent` (`claude`, `codex`, `agy`), optional `prompt` ≤16 KiB | `resultId` is the child session ID |
 | `stop` | `id` | Existing graceful stop; an already exited child succeeds; a stop error is `indeterminate` |
-| `remove_worktree` | `worktreeId` | Returns `pending_confirmation`; poll `operation_status` |
+| `remove_worktree` | `worktreeId` | Returns an operation (`pending_confirmation` when review is needed); poll `operation_status` |
 | `tail` | `id`, optional `lines` 1–40 | `{ id, revision, timestamp, lines, truncated, untrusted: true, notice }` |
 | `wait_for` | `ids` (1–configured child limit), optional `after` map of ID → revision, `timeoutMs` 0–30000 | `{ sessions, changed, timedOut }` |
 
@@ -793,9 +793,10 @@ then keep the requested lines and trim whole lines from the start to 16 KiB (a
 single oversized line keeps its end on a UTF-8 boundary). The HTTP adapter extends
 the socket deadline to 35 seconds after a request body arrives, for `wait_for`.
 
-**Removal.** Settings → Repositories offers **Auto-remove merged worktrees** for
-each added repository, off by default, stored in the profile rather than agent-editable
-config. With it on, an orchestrator can remove only its own created worktree without
+**Removal.** Settings → General offers one **Auto-remove merged worktrees** checkbox
+for all repositories, off by default, stored in the profile rather than agent-editable
+config. Saved per-repository lists migrate to on when non-empty and off when empty;
+new settings accept only a boolean. With it on, an orchestrator can remove only its own created worktree without
 review when no session (including a starting child) runs there, there are no
 uncommitted, untracked or unpushed changes, and its current branch tip is an
 ancestor of the freshly fetched default branch (`git merge-base --is-ancestor`).

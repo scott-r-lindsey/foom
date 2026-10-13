@@ -2921,7 +2921,7 @@ test("first run goes from no agents to go, launches by keyboard, and can be repl
     hooks: true,
     restoreSessions: true,
     concurrentChildren: 4,
-    autoRemoveMergedWorktrees: [],
+    autoRemoveMergedWorktrees: false,
     agents: { claude: true, codex: true, agy: true },
     agentArguments: { claude: [], codex: [], agy: [] },
     agentBypassAcknowledged: { claude: false, codex: false, agy: false },
@@ -8302,7 +8302,11 @@ for (const cliOnly of [false, true])
       git("remote", "add", "origin", remote);
       await openSettingsScreen(page);
       await page.getByRole("button", { name: "Repositories", exact: true }).click();
-      const autoRemove = page.getByRole("checkbox", { name: "app · Auto-remove merged worktrees" });
+      await expect(
+        page.getByRole("checkbox", { name: /Auto-remove merged worktrees/ }),
+      ).toHaveCount(0);
+      await page.getByRole("button", { name: "General", exact: true }).click();
+      const autoRemove = page.getByRole("checkbox", { name: "Auto-remove merged worktrees" });
       await expect(autoRemove).not.toBeChecked();
       await autoRemove.check();
       await expect
@@ -8311,7 +8315,7 @@ for (const cliOnly of [false, true])
             (await page.evaluate(() => window.desktop.setupState())).settings
               .autoRemoveMergedWorktrees,
         )
-        .toEqual([repository]);
+        .toBe(true);
       await assertAccessible(page);
       await page.keyboard.press("Escape");
       const automaticTree = await call(parent.controlToken, "create_worktree", {
@@ -8367,7 +8371,7 @@ for (const cliOnly of [false, true])
         )
         .toBe("succeeded");
       await openSettingsScreen(page);
-      await page.getByRole("button", { name: "Repositories", exact: true }).click();
+      await page.getByRole("button", { name: "General", exact: true }).click();
       await expect(autoRemove).toBeChecked();
       await autoRemove.uncheck();
       await expect
@@ -8376,7 +8380,7 @@ for (const cliOnly of [false, true])
             (await page.evaluate(() => window.desktop.setupState())).settings
               .autoRemoveMergedWorktrees,
         )
-        .toEqual([]);
+        .toBe(false);
       await page.keyboard.press("Escape");
     }
     // With the policy off, clean merged branches still join the review batch.
