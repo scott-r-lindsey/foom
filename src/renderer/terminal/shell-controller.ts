@@ -3,6 +3,7 @@ import type { SetupState } from "../../shared/setup";
 import { resolveTerminalTheme } from "../../shared/terminal-themes";
 import type { TerminalThemeChoice } from "../../shared/terminal-theme";
 import { alternateScroll } from "./alternate-scroll";
+import { suppressTrackedMiddleClick } from "./middle-click";
 import { TerminalColors } from "../../shared/terminal-colors";
 import { Terminal } from "@xterm/xterm";
 import { suppressTerminalReplies } from "./terminal-replies";
@@ -45,6 +46,7 @@ export function createShell(
     theme: theme(),
   });
   suppressTerminalReplies(terminal);
+  const offMiddleClick = suppressTrackedMiddleClick(container, terminal);
   const terminalColors = new TerminalColors(
     terminal.parser,
     theme(),
@@ -344,6 +346,7 @@ export function createShell(
     offExit();
     offRemoved();
     offSetup();
+    offMiddleClick();
     if (activeId && attached && isAvailable(activeId))
       void window.desktop.detach(activeId).catch(() => {});
     terminal.dispose();
