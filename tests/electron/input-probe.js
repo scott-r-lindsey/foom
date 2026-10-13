@@ -9,7 +9,7 @@ process.stdin.on("data", (data) => {
   if (data.toString() === "p") process.stdout.write("\r\nPassword:");
   if (data.toString() === "m") process.stdout.write("\x1b[?1000h\x1b[?1006hMOUSE_READY");
   if (data.toString() === "n") process.stdout.write("\x1b[?1000l\x1b[?1006lMOUSE_OFF");
-  if (data.toString() === "b") process.stdout.write("\r\nINPUT_BARRIER\r\n");
+  if (data.toString().endsWith("b")) process.stdout.write("\r\nINPUT_BARRIER\r\n");
   if (data.toString() === "q") {
     process.stdout.write("\x1b[?1000l\x1b[?1006l\x1b[?1049l");
     process.exit(0);

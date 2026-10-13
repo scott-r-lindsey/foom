@@ -9,11 +9,15 @@ test("only tracked unmodified middle auxclick cancels paste and disposal restore
   const target = container.appendChild(document.createElement("textarea"));
   const bubbling = vi.fn();
   container.addEventListener("auxclick", bubbling);
-  const dispose = suppressTrackedMiddleClick(container, {
-    get modes() {
-      return terminal.modes;
+  const dispose = suppressTrackedMiddleClick(
+    container,
+    {
+      get modes() {
+        return terminal.modes;
+      },
     },
-  });
+    "Linux x86_64",
+  );
   const click = (button = 1, shiftKey = false, type = "auxclick") => {
     const event = new MouseEvent(type, { button, shiftKey, bubbles: true, cancelable: true });
     target.dispatchEvent(event);
@@ -63,5 +67,24 @@ test("only tracked unmodified middle auxclick cancels paste and disposal restore
   dispose();
   expect(paste()).toBe(false);
   expect(click()).toBe(false);
+  terminal.dispose();
+});
+
+test("platforms without primary selection leave later clipboard paste untouched", async () => {
+  const container = document.createElement("div");
+  const terminal = new Terminal();
+  await new Promise<void>((resolve) => {
+    terminal.write("\x1b[?1000h", resolve);
+  });
+  for (const platform of ["MacIntel", "Win32"]) {
+    const dispose = suppressTrackedMiddleClick(container, terminal, platform);
+    const click = new MouseEvent("auxclick", { button: 1, cancelable: true });
+    container.dispatchEvent(click);
+    expect(click.defaultPrevented).toBe(false);
+    const paste = new Event("paste", { cancelable: true });
+    container.dispatchEvent(paste);
+    expect(paste.defaultPrevented).toBe(false);
+    dispose();
+  }
   terminal.dispose();
 });

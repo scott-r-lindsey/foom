@@ -3449,11 +3449,7 @@ test("middle click reports without pasting while tracking and Shift preserves Li
   // A PTY acknowledgement after each click bounds the complete input sequence;
   // assertions include both press/release and any native paste before that barrier.
   let barriers = 0;
-  const clickInput = async (shift) => {
-    await writeFile(marker, "");
-    if (shift) await page.keyboard.down("Shift");
-    await screen.click({ button: "middle", position: { x: 40, y: 40 } });
-    if (shift) await page.keyboard.up("Shift");
+  const readInput = async () => {
     await page.keyboard.type("b");
     barriers++;
     await expect
@@ -3463,6 +3459,13 @@ test("middle click reports without pasting while tracking and Shift preserves Li
       )
       .toBe(barriers);
     return Buffer.from((await readFile(marker, "utf8")).replaceAll("\n", ""), "hex").toString();
+  };
+  const clickInput = async (shift) => {
+    await writeFile(marker, "");
+    if (shift) await page.keyboard.down("Shift");
+    await screen.click({ button: "middle", position: { x: 40, y: 40 } });
+    if (shift) await page.keyboard.up("Shift");
+    return readInput();
   };
   assert.match(
     (await clickInput(false)).replaceAll("\x1b", "ESC"),
@@ -3474,6 +3477,12 @@ test("middle click reports without pasting while tracking and Shift preserves Li
     await expect(page.locator(".xterm-rows")).toContainText("MOUSE_OFF");
     assert.equal(await clickInput(false), `${selection}b`);
   }
+  // A later application-menu paste must survive, including on platforms where
+  // middle click never produces a native primary-selection paste.
+  await writeFile(marker, "");
+  await app.evaluate(({ clipboard }) => clipboard.writeText("CLIPBOARD_317"));
+  await page.evaluate(() => window.desktop.appMenu.execute("paste"));
+  assert.equal(await readInput(), "CLIPBOARD_317b");
   await page.keyboard.type("q");
 });
 

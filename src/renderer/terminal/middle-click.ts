@@ -4,14 +4,20 @@ import type { Terminal } from "@xterm/xterm";
 export function suppressTrackedMiddleClick(
   container: HTMLElement,
   terminal: Pick<Terminal, "modes">,
+  platform = navigator.platform,
 ) {
   let suppressPaste = false;
   const reset = () => {
     suppressPaste = false;
   };
   const handle = (event: MouseEvent) => {
+    // Match xterm's Linux-only primary-selection handling; other platforms
+    // have no native paste to consume and must not arm suppression.
     suppressPaste =
-      event.button === 1 && !event.shiftKey && terminal.modes.mouseTrackingMode !== "none";
+      platform.includes("Linux") &&
+      event.button === 1 &&
+      !event.shiftKey &&
+      terminal.modes.mouseTrackingMode !== "none";
     if (suppressPaste) event.preventDefault();
   };
   const paste = (event: ClipboardEvent) => {
