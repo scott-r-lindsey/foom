@@ -10,6 +10,71 @@ function captureConfirmationDesktop(name) {
   }
 }
 
+// Capture the composed desktop, never the dialog CDP target: CDP can see and
+// click a window hidden underneath its parent. A blank patch halfway down the
+// dialog's left padding avoids text, controls, borders and rounded corners.
+async function confirmationDesktop(app, name) {
+  await mkdir("test-results", { recursive: true });
+  const evidence = await app.evaluate(async ({ BrowserWindow, desktopCapturer, screen }) => {
+    const dialog = BrowserWindow.getAllWindows().find(
+      (window) => window.webContents.getURL() === "app://confirmation/confirmation.html",
+    );
+    const bounds = dialog.getContentBounds();
+    const display = screen.getDisplayMatching(bounds);
+    const sources = await desktopCapturer.getSources({
+      types: ["screen"],
+      thumbnailSize: {
+        width: Math.round(display.bounds.width * display.scaleFactor),
+        height: Math.round(display.bounds.height * display.scaleFactor),
+      },
+    });
+    const source = sources.find((source) => source.display_id === String(display.id));
+    if (!source || source.thumbnail.isEmpty()) throw Error("No composed screen capture");
+    const image = source.thumbnail;
+    const size = image.getSize();
+    const scaleX = size.width / display.bounds.width;
+    const scaleY = size.height / display.bounds.height;
+    const patch = { x: 12, y: Math.floor(bounds.height / 2), width: 6, height: 6 };
+    const actual = image.crop({
+      x: Math.round((bounds.x - display.bounds.x + patch.x) * scaleX),
+      y: Math.round((bounds.y - display.bounds.y + patch.y) * scaleY),
+      width: Math.max(1, Math.round(patch.width * scaleX)),
+      height: Math.max(1, Math.round(patch.height * scaleY)),
+    });
+    // This is only the color reference. The assertion uses pixels from the
+    // desktop above, which include native window stacking and the board scrim.
+    const expected = await dialog.webContents.capturePage(patch);
+    const pixel = (image) =>
+      Array.from(image.resize({ width: 1, height: 1 }).toBitmap()).slice(0, 3);
+    return {
+      actual: pixel(actual),
+      expected: pixel(expected),
+      png: image.toPNG().toString("base64"),
+      windows: BrowserWindow.getAllWindows().map((window) => ({
+        id: window.id,
+        url: window.webContents.getURL(),
+        bounds: window.getBounds(),
+        visible: window.isVisible(),
+        focused: window.isFocused(),
+        enabled: window.isEnabled(),
+        parent: window.getParentWindow()?.id,
+      })),
+    };
+  });
+  await writeFile(
+    `test-results/confirmation-stacking-${name}.png`,
+    Buffer.from(evidence.png, "base64"),
+  );
+  return { actual: evidence.actual, expected: evidence.expected, windows: evidence.windows };
+}
+
+function assertDialogAboveBoard(evidence) {
+  assert.ok(
+    evidence.actual.every((channel, index) => Math.abs(channel - evidence.expected[index]) <= 12),
+    `The composed desktop must show the dialog surface above the scrim: ${JSON.stringify(evidence)}`,
+  );
+}
+
 async function assertConfirmationFocus(app, page, locator) {
   try {
     await expect(locator).toBeFocused();
@@ -1052,6 +1117,72 @@ test("bundled brand fonts and both system themes render in Electron", {
     ),
     404,
   );
+});
+
+test("quit dialog is on screen above the board on first show and after hide/show reuse", {
+  timeout: deadline(45_000),
+}, async (context) => {
+  const app = await launchApp(context);
+  const board = await boardPage(app);
+  const dialog = await confirmationPage(app);
+  const evidence = [];
+  for (const phase of ["first", "reused"]) {
+    await app.evaluate(({ app }) => app.quit());
+    await expect(dialog.getByRole("alertdialog")).toHaveAccessibleName(
+      "Quit with 1 terminal running?",
+    );
+    await expect(board.locator(".board-confirmation-scrim")).toBeVisible();
+    await expect
+      .poll(() =>
+        app.evaluate(({ BrowserWindow }) =>
+          BrowserWindow.getAllWindows()
+            .find(
+              (window) => window.webContents.getURL() === "app://confirmation/confirmation.html",
+            )
+            .isVisible(),
+        ),
+      )
+      .toBe(true);
+    // Wait for painted content without activating the CDP page or native window.
+    await dialog.evaluate(
+      () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))),
+    );
+    evidence.push(await confirmationDesktop(app, phase));
+    if (phase === "reused") {
+      // Negative control: a native opaque window covering the card must fail
+      // the same check even though the dialog CDP target remains readable.
+      const blocker = await app.evaluate(({ BrowserWindow }) => {
+        const dialog = BrowserWindow.getAllWindows().find(
+          (window) => window.webContents.getURL() === "app://confirmation/confirmation.html",
+        );
+        const cover = new BrowserWindow({
+          ...dialog.getBounds(),
+          frame: false,
+          backgroundColor: "#00ff00",
+          alwaysOnTop: true,
+          webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false },
+        });
+        return cover.id;
+      });
+      try {
+        await expect
+          .poll(() =>
+            app.evaluate(({ BrowserWindow }, id) => BrowserWindow.fromId(id).isVisible(), blocker),
+          )
+          .toBe(true);
+        const covered = await confirmationDesktop(app, "covered-control");
+        assert.throws(() => assertDialogAboveBoard(covered));
+      } finally {
+        await app.evaluate(({ BrowserWindow }, id) => BrowserWindow.fromId(id).destroy(), blocker);
+      }
+    }
+    await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
+    await expect(board.locator(".board-confirmation-scrim")).toHaveCount(0);
+    await expect(dialog.getByRole("alertdialog")).toHaveCount(0);
+  }
+  // Keep both captures even when the first show fails, so CI distinguishes
+  // first-show ordering from a parent link lost only through hide/show.
+  for (const capture of evidence) assertDialogAboveBoard(capture);
 });
 
 // Exercise the real app/PTY lifecycle; control only the native dialog response so
