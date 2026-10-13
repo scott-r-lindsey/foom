@@ -1,0 +1,117 @@
+{
+  "platform": "linux",
+  "rows": [
+    {
+      "name": "code",
+      "executable": "/usr/bin/code",
+      "real": "/usr/share/code/bin/code",
+      "version": {
+        "ok": true,
+        "output": "1.138.0"
+      }
+    },
+    {
+      "name": "cursor",
+      "executable": null,
+      "real": null,
+      "version": null
+    },
+    {
+      "name": "zed",
+      "executable": null,
+      "real": null,
+      "version": null
+    },
+    {
+      "name": "zeditor",
+      "executable": null,
+      "real": null,
+      "version": null
+    },
+    {
+      "name": "idea",
+      "executable": null,
+      "real": null,
+      "version": null
+    },
+    {
+      "name": "idea.sh",
+      "executable": null,
+      "real": null,
+      "version": null
+    },
+    {
+      "name": "subl",
+      "executable": null,
+      "real": null,
+      "version": null
+    },
+    {
+      "name": "nvim",
+      "executable": "/usr/bin/nvim",
+      "real": "/usr/bin/nvim",
+      "version": {
+        "ok": true,
+        "output": "NVIM v0.9.5"
+      }
+    },
+    {
+      "name": "vim",
+      "executable": "/usr/bin/vim",
+      "real": "/usr/bin/vim.basic",
+      "version": {
+        "ok": true,
+        "output": "VIM - Vi IMproved 9.1 (2024 Jan 02, compiled Aug 24 2026 22:13:04)"
+      }
+    },
+    {
+      "name": "nano",
+      "executable": null,
+      "real": null,
+      "version": null
+    },
+    {
+      "name": "flatpak",
+      "executable": "/usr/bin/flatpak",
+      "real": "/usr/bin/flatpak",
+      "version": {
+        "ok": true,
+        "output": "Flatpak 1.14.6"
+      }
+    },
+    {
+      "name": "snap",
+      "executable": null,
+      "real": null,
+      "version": null
+    }
+  ],
+  "flatpakApplications": {
+    "ok": true,
+    "checked": [
+      "com.visualstudio.code",
+      "com.vscodium.codium",
+      "dev.zed.Zed",
+      "com.sublimetext.three",
+      "com.jetbrains.IntelliJ-IDEA-Community",
+      "com.jetbrains.IntelliJ-IDEA-Ultimate"
+    ],
+    "installed": []
+  },
+  "terminal": [
+    {
+      "kind": "nvim",
+      "ok": true,
+      "line": "42"
+    },
+    {
+      "kind": "vim",
+      "ok": true,
+      "line": "42"
+    }
+  ],
+  "environmentSelection": {
+    "visualSet": false,
+    "editorSet": true
+  }
+}

@@ -3426,6 +3426,67 @@ test("persistent sidebar keeps Escape in the PTY and routes keyboard navigation"
   await page.keyboard.type("q");
 });
 
+test("middle click reports without pasting while tracking and Shift preserves Linux primary selection", async (context) => {
+  const root = await mkdtemp(path.join(tmpdir(), "foom-middle-click-"));
+  removeAfterApps(context, root);
+  const marker = path.join(root, "input");
+  await writeFile(marker, "");
+  const app = await launchApp(context);
+  const page = await boardPage(app);
+  await page.locator(".xterm-helper-textarea").focus();
+  await page.keyboard.type(
+    `${process.platform === "win32" ? "& " : ""}"${process.execPath}" "${path.join(__dirname, "input-probe.js")}" "${marker}"`,
+  );
+  await page.keyboard.press("Enter");
+  await expect(page.locator(".xterm-rows")).toContainText("INPUT_READY");
+  const selection = "PRIMARY_SELECTION_317";
+  if (process.platform === "linux") {
+    await app.evaluate(({ clipboard }, text) => clipboard.writeText(text, "selection"), selection);
+    assert.equal(await app.evaluate(({ clipboard }) => clipboard.readText("selection")), selection);
+  }
+  await page.keyboard.type("m");
+  await expect(page.locator(".xterm-rows")).toContainText("MOUSE_READY");
+  const screen = page.locator(".xterm-screen");
+  // A PTY acknowledgement after each click bounds the complete input sequence;
+  // assertions include both press/release and any native paste before that barrier.
+  let barriers = 0;
+  const readInput = async () => {
+    await page.keyboard.type("b");
+    barriers++;
+    await expect
+      .poll(
+        async () =>
+          (await page.locator(".xterm-rows").innerText()).split("INPUT_BARRIER").length - 1,
+      )
+      .toBe(barriers);
+    return Buffer.from((await readFile(marker, "utf8")).replaceAll("\n", ""), "hex").toString();
+  };
+  const clickInput = async (shift) => {
+    await writeFile(marker, "");
+    if (shift) await page.keyboard.down("Shift");
+    await screen.click({ button: "middle", position: { x: 40, y: 40 } });
+    if (shift) await page.keyboard.up("Shift");
+    return readInput();
+  };
+  assert.match(
+    (await clickInput(false)).replaceAll("\x1b", "ESC"),
+    /^ESC\[<1;\d+;\d+MESC\[<1;\d+;\d+mb$/,
+  );
+  if (process.platform === "linux") {
+    assert.equal(await clickInput(true), `${selection}b`);
+    await page.keyboard.type("n");
+    await expect(page.locator(".xterm-rows")).toContainText("MOUSE_OFF");
+    assert.equal(await clickInput(false), `${selection}b`);
+  }
+  // A later application-menu paste must survive, including on platforms where
+  // middle click never produces a native primary-selection paste.
+  await writeFile(marker, "");
+  await app.evaluate(({ clipboard }) => clipboard.writeText("CLIPBOARD_317"));
+  await page.evaluate(() => window.desktop.appMenu.execute("paste"));
+  assert.equal(await readInput(), "CLIPBOARD_317b");
+  await page.keyboard.type("q");
+});
+
 test("wheel moves less and preserves normal shell scrollback", {
   timeout: deadline(30000),
   skip: process.platform === "win32" && "less is a POSIX pager",
