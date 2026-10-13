@@ -222,7 +222,7 @@ test("confirms bypass once per agent, persists it and serializes concurrent save
   const setup = new Setup({ ...deps, confirmBypass: confirm });
   const agentArguments = { claude: ["--permission-mode", "bypassPermissions"], codex: [], agy: [] };
   await Promise.all([setup.save({ agentArguments }), setup.save({ agentArguments })]);
-  expect(confirm).toHaveBeenCalledExactlyOnceWith("claude");
+  expect(confirm).toHaveBeenCalledExactlyOnceWith("claude", agentArguments.claude);
   expect(settings.agentBypassAcknowledged.claude).toBe(true);
   await setup.save({ agentArguments: { claude: [], codex: [], agy: [] } });
   const reopened = new Setup({ ...deps, confirmBypass: confirm });
@@ -230,7 +230,7 @@ test("confirms bypass once per agent, persists it and serializes concurrent save
     agentArguments: { ...agentArguments, agy: ["--dangerously-skip-permissions"] },
   });
   expect(confirm).toHaveBeenCalledTimes(2);
-  expect(confirm).toHaveBeenLastCalledWith("agy");
+  expect(confirm).toHaveBeenLastCalledWith("agy", ["--dangerously-skip-permissions"]);
 });
 
 test("cannot forge acknowledgement and cancelled disclosure saves nothing", async () => {
@@ -270,7 +270,7 @@ test("Codex sandbox full access requires the same one-time acknowledgement as it
     agentArguments: { claude: [], codex: ["--sandbox", "danger-full-access"], agy: [] },
   };
   await expect(setup.save(patch)).rejects.toThrow("cancelled");
-  expect(confirm).toHaveBeenCalledExactlyOnceWith("codex");
+  expect(confirm).toHaveBeenCalledExactlyOnceWith("codex", ["--sandbox", "danger-full-access"]);
   expect(settings.agentBypassAcknowledged.codex).toBe(false);
   confirm.mockResolvedValue(true);
   await setup.save(patch);

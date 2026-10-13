@@ -531,7 +531,11 @@ describe("worktree removal", () => {
       });
     });
     expect(h.host.dialog).toHaveBeenCalledWith(
-      expect.objectContaining({ title: "Remove feature?", accept: "Remove worktree" }),
+      expect.objectContaining({
+        title: "Remove worktree?",
+        subject: "feature",
+        accept: "Remove worktree",
+      }),
       expect.any(AbortSignal),
     );
     expect(JSON.stringify(h.host.dialog.mock.calls[0]?.[0])).toMatch(/branch is kept/u);

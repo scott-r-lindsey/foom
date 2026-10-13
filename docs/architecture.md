@@ -380,7 +380,13 @@ listeners, clears the scrim, and restores input and focus. Positioning remains
 subject to window-manager restrictions (for example native Wayland). Quit approval
 does not need the board to render.
 Main serializes requests, supplies the current
-resolved theme and content, and gives each request a new ID. Its sandboxed preload
+resolved theme and content, and gives each request a new ID. Content carries a glyph,
+subject, labeled disclosure sections, facts, argument chips and the pairing code with
+its main-owned expiry deadline. The sandboxed preload validates structured fields.
+The shared anatomy uses 500 CSS pixels for prose and 540 for lists and disclosures;
+main still applies zoom and the parent/work-area clamps. List names wrap in their own
+grid column; state and retention labels never wrap. Pairing counts down to the actual
+request deadline, including time spent waiting behind another dialog. Its sandboxed preload
 exposes only request rendering, sizing and answering; it buffers the request until the page
 subscribes. `confirmation:answer` validates the exact window, top frame, URL,
 request ID and boolean. Board frames, stale IDs and malformed answers are ignored.

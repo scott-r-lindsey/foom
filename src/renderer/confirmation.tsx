@@ -8,13 +8,137 @@ const stateLabels: Readonly<Record<string, string>> = {
   failed: "Failed",
   quiet_ok: "Quiet",
 };
+const glyphPaths = {
+  trash: "M2.5 4h11M6 4V2.5h4V4M4 4l.7 9.5h6.6L12 4M6.8 6.5v4.5M9.2 6.5v4.5",
+  branch: "M4 2v12M4 9c0-2 3-2.5 4.5-3.5M10.5 9.5l4 4M14.5 9.5l-4 4",
+  power: "M8 1.8v6M4.4 4a5.2 5.2 0 1 0 7.2 0",
+  orbit: "M8 5.8a2.2 2.2 0 1 0 0 4.4 2.2 2.2 0 0 0 0-4.4M2 10c-3-4 9-9 12-4s-9 9-12 4",
+  link: "M6.5 9.5l3-3M7 4.5l1.2-1.2a2.6 2.6 0 0 1 3.7 3.7L10.7 8.2M9 11.5l-1.2 1.2a2.6 2.6 0 0 1-3.7-3.7l1.2-1.2",
+  shield: "M8 1.8l5 2v4c0 3.2-2.2 5.3-5 6.4-2.8-1.1-5-3.2-5-6.4v-4zM6 6l4 4M10 6l-4 4",
+  bell: "M4 11V7a4 4 0 0 1 8 0v4l1 1.5H3zM6.5 14h3",
+  check: "M3 8.5l3 3 7-7",
+  dash: "M4 8h8",
+  dot: "M8 5.5a2.5 2.5 0 1 0 0 5 2.5 2.5 0 0 0 0-5",
+  ring: "M8 2.5a5.5 5.5 0 1 1-5.5 5.5",
+  square: "M4 4h8v8H4z",
+  swap: "M3 5h9.5M10 2.5L12.5 5 10 7.5M13 11H3.5M6 8.5L3.5 11 6 13.5",
+};
+function Glyph({ name }: { name: keyof typeof glyphPaths }) {
+  return (
+    <svg viewBox="0 0 16 16" aria-hidden="true" className={name === "ring" ? "spin" : undefined}>
+      <path d={glyphPaths[name]} />
+    </svg>
+  );
+}
+function Section({
+  label,
+  count,
+  children,
+}: {
+  label: string;
+  count?: number;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="section">
+      <h2 className="label">
+        {label}
+        {count !== undefined && <span className="n">{count}</span>}
+      </h2>
+      {children}
+    </div>
+  );
+}
+function Changes({ value }: { value: string }) {
+  const records = value.split("\0").filter(Boolean);
+  const items = [];
+  for (let index = 0; index < records.length; index++) {
+    const record = records[index];
+    if (!record) continue;
+    const status = record.slice(0, 2);
+    const renamed = /[RC]/u.test(status);
+    const label =
+      status === "??"
+        ? "untracked"
+        : status.includes("R")
+          ? "renamed"
+          : status.includes("C")
+            ? "copied"
+            : status.includes("D")
+              ? "deleted"
+              : status.includes("A")
+                ? "added"
+                : status.includes("U")
+                  ? "unmerged"
+                  : "modified";
+    items.push({ path: record.slice(3), label, old: renamed ? records[++index] : undefined });
+  }
+  return (
+    <Section label="Discarded" count={items.length}>
+      <ul className="well" aria-label="Uncommitted changes">
+        {items.map((item) => (
+          <li className="row change" key={item.path}>
+            <span className="chip">{item.label}</span>
+            <span className="name">
+              {item.path}
+              {item.old !== undefined && <span className="sub">← {item.old}</span>}
+            </span>
+          </li>
+        ))}
+      </ul>
+    </Section>
+  );
+}
+function Worktrees({
+  items,
+  running = false,
+  label,
+}: {
+  items: readonly { branch: string; reason?: string; state?: string }[];
+  running?: boolean;
+  label: string;
+}) {
+  return (
+    <ul className="well" aria-label={label}>
+      {items.map((item) => (
+        <li className="row" key={item.branch} data-cleanup={item.state}>
+          <span className="ic">
+            <Glyph
+              name={
+                item.state === "removed"
+                  ? "check"
+                  : item.state === "removing"
+                    ? "ring"
+                    : item.state === "error"
+                      ? "square"
+                      : item.reason
+                        ? "dash"
+                        : "dot"
+              }
+            />
+          </span>
+          <span className="name">{item.branch}</span>
+          <span className="why">{item.reason ?? (running ? item.state : "")}</span>
+        </li>
+      ))}
+    </ul>
+  );
+}
 export function ConfirmationPage() {
   const [request, setRequest] = useState<DialogRequest | null>(null);
   const cardRef = useRef<HTMLElement>(null);
   const bodyRef = useRef<HTMLDivElement>(null);
   const cancelRef = useRef<HTMLButtonElement>(null);
   const acceptRef = useRef<HTMLButtonElement>(null);
-  useEffect(() => window.confirmation.render(setRequest), []);
+  const [now, setNow] = useState(Date.now);
+  useEffect(
+    () =>
+      window.confirmation.render((value) => {
+        setRequest(value);
+        setNow(Date.now());
+      }),
+    [],
+  );
   useEffect(() => {
     if (!request) return;
     const colors = { ...request.theme.colors, ...request.theme.areas?.dialogs };
@@ -40,6 +164,23 @@ export function ConfirmationPage() {
     }
     document.documentElement.style.colorScheme = request.theme.base;
   }, [request]);
+  const deadline = request?.pairing?.expiresAt;
+  useEffect(() => {
+    if (deadline === undefined) return;
+    const timer = window.setInterval(() => {
+      setNow(Date.now());
+    }, 1000);
+    return () => {
+      window.clearInterval(timer);
+    };
+  }, [deadline]);
+  const wide = Boolean(
+    request?.cleanup ||
+      request?.worktrees ||
+      request?.changes ||
+      request?.sessions ||
+      request?.sections,
+  );
   const requestId = request?.id;
   useEffect(() => {
     if (!requestId) return;
@@ -76,8 +217,8 @@ export function ConfirmationPage() {
       if (!content) return;
       const height = (element: Element) => element.getBoundingClientRect().height;
       window.confirmation.size({
-        width: 440,
-        height: height(card) - height(content) + height(body) + 12,
+        width: wide ? 540 : 500,
+        height: height(card) - height(content) + height(body),
       });
     };
     const observer = new ResizeObserver(measure);
@@ -87,7 +228,7 @@ export function ConfirmationPage() {
     return () => {
       observer.disconnect();
     };
-  }, [requestId]);
+  }, [requestId, wide]);
   if (!request) return null;
   const cleanup = request.cleanup;
   const running = cleanup?.stage === "run";
@@ -126,43 +267,139 @@ export function ConfirmationPage() {
       <section
         ref={cardRef}
         key={request.id}
-        className="confirmation-window"
+        className={`confirmation-window${wide ? " wide" : ""}`}
         role="alertdialog"
         aria-modal="true"
         aria-labelledby="confirmation-title"
       >
-        <h1 id="confirmation-title">{running ? "Deleting merged worktrees" : request.title}</h1>
+        <header className="dlg-head">
+          <span className="glyph">
+            <Glyph
+              name={
+                request.glyph ??
+                (cleanup || request.worktrees
+                  ? "trash"
+                  : request.changes
+                    ? "branch"
+                    : request.sessions
+                      ? "power"
+                      : "shield")
+              }
+            />
+          </span>
+          <h1 id="confirmation-title">{running ? "Deleting merged worktrees" : request.title}</h1>
+          <p className="subject">
+            {request.subject}
+            {request.subject && deadline !== undefined ? " · " : ""}
+            {deadline !== undefined
+              ? `Expires in ${String(Math.max(0, Math.ceil((deadline - now) / 1000)))} s`
+              : ""}
+          </p>
+        </header>
         <div className="confirmation-content" tabIndex={0} role="region" aria-label="Details">
           <div ref={bodyRef}>
             {cleanup && (
-              <div aria-live="polite">
+              <div className="cleanup" aria-live="polite">
                 {cleanup.error && <p>{cleanup.error}</p>}
-                <p>
-                  {cleanup.stage === "checking"
-                    ? "Fetching remote and checking worktrees…"
-                    : running
-                      ? `${String(cleanup.progress.done)}/${String(cleanup.progress.total)} · ${finished ? "Finished" : cleanup.progress.stopped ? "Finishing in-flight removals…" : cleanup.progress.phase === "fetch" ? "Fetching remote…" : "Removing worktrees…"}`
-                      : `${String(cleanup.progress.total)} worktrees to delete`}
-                </p>
                 {running && (
-                  <progress
-                    aria-label="Cleanup progress"
-                    value={cleanup.progress.done}
-                    max={Math.max(1, cleanup.progress.total)}
-                  />
+                  <div className="progress">
+                    <div className="meta">
+                      <span>
+                        {finished
+                          ? "Finished"
+                          : cleanup.progress.stopped
+                            ? "Finishing in-flight removals…"
+                            : cleanup.progress.phase === "fetch"
+                              ? "Fetching remote…"
+                              : "Removing worktrees…"}
+                      </span>
+                      <span>
+                        {cleanup.progress.done} / {cleanup.progress.total}
+                      </span>
+                    </div>
+                    <progress
+                      aria-label="Cleanup progress"
+                      value={cleanup.progress.done}
+                      max={Math.max(1, cleanup.progress.total)}
+                    />
+                  </div>
                 )}
-                {cleanup.stage === "checking" && <p className="confirmation-location">Checking…</p>}
-                <ul aria-label="Cleanup checklist">
-                  {cleanup.progress.items.map((item) => (
-                    <li key={item.id} data-cleanup={item.state}>
-                      <span>{item.branch}</span>
-                      <span className="confirmation-location">{item.reason ?? item.state}</span>
-                    </li>
-                  ))}
-                </ul>
+                {cleanup.stage === "checking" ? (
+                  <Section label="Checking" count={cleanup.progress.items.length}>
+                    <ul className="well" aria-busy="true" aria-label="Checking worktrees">
+                      {[0, 1, 2].map((index) => (
+                        <li className="row" key={index}>
+                          <span className="ic">{index === 0 && <Glyph name="ring" />}</span>
+                          <span className="skeleton" />
+                        </li>
+                      ))}
+                    </ul>
+                  </Section>
+                ) : (
+                  <>
+                    <Section
+                      label="Delete"
+                      count={cleanup.progress.items.filter((item) => item.state !== "kept").length}
+                    >
+                      <Worktrees
+                        label="Cleanup checklist"
+                        running={running}
+                        items={cleanup.progress.items.filter((item) => item.state !== "kept")}
+                      />
+                    </Section>
+                    <Section
+                      label={running ? "Kept" : "Keep"}
+                      count={cleanup.progress.items.filter((item) => item.state === "kept").length}
+                    >
+                      <Worktrees
+                        label="Kept worktrees"
+                        items={cleanup.progress.items.filter((item) => item.state === "kept")}
+                      />
+                    </Section>
+                  </>
+                )}
               </div>
             )}
-            {request.detail !== undefined && <p>{request.detail}</p>}
+            {request.note && (
+              <div className="note">
+                <Glyph name="swap" />
+                <span>{request.note}</span>
+              </div>
+            )}
+            {request.pairing && (
+              <div className="code">
+                <strong>{request.pairing.code}</strong>
+                <span>Check that this matches your CLI</span>
+              </div>
+            )}
+            {request.facts && (
+              <dl className="facts">
+                {request.facts.map((fact) => (
+                  <div key={fact.label}>
+                    <dt>{fact.label}</dt>
+                    <dd className={fact.mono ? "mono" : undefined}>{fact.value}</dd>
+                  </div>
+                ))}
+              </dl>
+            )}
+            {request.arguments && (
+              <div className="args">
+                {request.arguments.map((argument) => (
+                  <code key={argument}>{argument}</code>
+                ))}
+              </div>
+            )}
+            {request.sections?.map((section) => (
+              <Section key={section.label} label={section.label}>
+                <ul className="points">
+                  {section.items.map((item) => (
+                    <li key={item}>{item}</li>
+                  ))}
+                </ul>
+              </Section>
+            ))}
+            {request.detail !== undefined && <p className="prose">{request.detail}</p>}
+            {request.quiet && <p className="prose quiet">{request.quiet}</p>}
             {request.reply && (
               <>
                 <p>Current child context (untrusted)</p>
@@ -171,44 +408,46 @@ export function ConfirmationPage() {
                 <pre aria-label="Exact proposed reply">{request.reply.text}</pre>
               </>
             )}
-            {request.changes !== undefined && (
-              <pre aria-label="Uncommitted changes">
-                {request.changes.split("\0").filter(Boolean).join("\n")}
-              </pre>
-            )}
-            {request.worktrees && (
+            {request.changes !== undefined && <Changes value={request.changes} />}
+            {request.worktrees && !cleanup && (
               <>
-                <ul aria-label="Worktrees to delete">
-                  {request.worktrees
-                    .filter((item) => !item.reason)
-                    .map((item) => (
-                      <li key={item.branch}>{item.branch}</li>
-                    ))}
-                </ul>
-                <ul aria-label="Skipped worktrees" className="confirmation-skipped">
-                  {request.worktrees
-                    .filter((item) => item.reason)
-                    .map((item) => (
-                      <li key={item.branch}>
-                        <span>{item.branch}</span>
-                        <span className="confirmation-location">{item.reason}</span>
-                      </li>
-                    ))}
-                </ul>
+                <Section
+                  label="Delete"
+                  count={request.worktrees.filter((item) => !item.reason).length}
+                >
+                  <Worktrees
+                    label="Worktrees to delete"
+                    items={request.worktrees.filter((item) => !item.reason)}
+                  />
+                </Section>
+                <Section
+                  label="Keep"
+                  count={request.worktrees.filter((item) => item.reason).length}
+                >
+                  <Worktrees
+                    label="Skipped worktrees"
+                    items={request.worktrees.filter((item) => item.reason)}
+                  />
+                </Section>
               </>
             )}
             {request.sessions && (
-              <ul>
+              <ul className="well">
                 {request.sessions.map((item) => (
-                  <li key={item.id}>
+                  <li className="row sans" key={item.id}>
                     <span
                       className="confirmation-light"
                       data-state={item.state}
                       role="img"
                       aria-label={stateLabels[item.state] ?? "Quiet"}
                     />
-                    <span>{item.name}</span>
-                    <span className="confirmation-location">{item.location}</span>
+                    <span className="name">
+                      {item.name}
+                      <span className="sub">{item.location}</span>
+                    </span>
+                    <span className="why" data-state={item.state}>
+                      {stateLabels[item.state] ?? "Quiet"}
+                    </span>
                   </li>
                 ))}
               </ul>
@@ -228,7 +467,7 @@ export function ConfirmationPage() {
           {!finished && (
             <button
               type="button"
-              disabled={disabled}
+              disabled={disabled || (deadline !== undefined && now >= deadline)}
               ref={acceptRef}
               className="confirmation-accept"
               onClick={() => {
@@ -238,7 +477,9 @@ export function ConfirmationPage() {
               {running
                 ? "Stop"
                 : cleanup
-                  ? `Delete ${String(cleanup.progress.total)}`
+                  ? cleanup.stage === "checking"
+                    ? "Delete"
+                    : `Delete ${String(cleanup.progress.total)}`
                   : request.accept}
             </button>
           )}

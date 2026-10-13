@@ -130,7 +130,33 @@ export function orchestratorDisclosure(
   return {
     title: `Make ${agentNames[id]} the Foom orchestrator?`,
     accept: "Make orchestrator",
-    detail: `${replacing ? `${replacing} stops orchestrating; its children stay with you. ` : ""}It can create worktrees and run up to four child agents in this repository, stop them, and ask you to remove worktrees it created. It keeps its own launch flags; children do not inherit them and cannot orchestrate. It can read the last 40 lines of each child's terminal, with likely secrets redacted. Those lines may be sent to this agent's model provider under its own settings; redaction cannot catch every secret, and repeated reads collect more. Its actions appear in its panel. Take over returns a child to you, and Revoke orchestrator ends its access.`,
+    glyph: "orbit",
+    ...(replacing ? { note: `${replacing} stops orchestrating; its children stay with you.` } : {}),
+    sections: [
+      {
+        label: "It can",
+        items: [
+          "Create worktrees and run up to four child agents in this repository.",
+          "Stop them, and ask you to remove worktrees it created.",
+          "Keep its own launch flags; children do not inherit them and cannot orchestrate.",
+        ],
+      },
+      {
+        label: "It reads",
+        items: [
+          "The last 40 lines of each child's terminal, with likely secrets redacted.",
+          "Those lines may be sent to this agent's model provider under its own settings; redaction cannot catch every secret, and repeated reads collect more.",
+        ],
+      },
+      {
+        label: "You keep",
+        items: [
+          "Its actions appear in its panel.",
+          "Take over returns a child to you.",
+          "Revoke orchestrator ends its access.",
+        ],
+      },
+    ],
   };
 }
 
@@ -182,6 +208,7 @@ export function attachWorkspace(
         return requestDialog({
           title: "Delete merged worktrees?",
           accept: "Delete",
+          ...(request.subject !== undefined ? { subject: request.subject } : {}),
           worktrees: request.worktrees,
           ...(request.feed ? { feed: request.feed } : {}),
         });
@@ -190,7 +217,10 @@ export function attachWorkspace(
         if (contents.isDestroyed() || contents.mainFrame.url !== APP_URL)
           return Promise.resolve(false);
         contents.send("confirmation:dialog");
-        return requestDialog(orchestratorDisclosure(request.agent, request.replacing));
+        return requestDialog({
+          ...orchestratorDisclosure(request.agent, request.replacing),
+          ...(request.subject !== undefined ? { subject: request.subject } : {}),
+        });
       }
       if (request.kind === "dirty-worktree") {
         const { title, changes } = request;
@@ -207,7 +237,9 @@ export function attachWorkspace(
           return Promise.resolve(false);
         contents.send("confirmation:dialog");
         return requestDialog({
-          title,
+          title: "Remove worktree with uncommitted changes?",
+          subject: request.branch ?? title,
+          glyph: "branch",
           changes,
           accept: `Discard ${String(count)} ${count === 1 ? "change" : "changes"} and remove`,
         });
@@ -259,7 +291,7 @@ export function attachWorkspace(
         return workspace.removeWorktree(id, (branch, changes) =>
           confirm(
             changes
-              ? { kind: "dirty-worktree", title: `Remove ${branch}?`, changes }
+              ? { kind: "dirty-worktree", title: `Remove ${branch}?`, branch, changes }
               : { kind: "remove" },
           ),
         );
@@ -297,8 +329,11 @@ export function attachWorkspace(
               return Promise.resolve(false);
             return requestDialog({
               title: "Replace Codex notifier for this launch?",
+              glyph: "bell",
+              subject: "This launch only",
               detail:
-                "Foom will replace Codex’s notify command for this invocation so it can report when Codex finishes. Your global Codex configuration is unchanged.",
+                "Foom replaces Codex’s notify command for this invocation so it can report when Codex finishes.",
+              quiet: "Your global Codex configuration is unchanged.",
               accept: "Replace notifier and launch",
             });
           }

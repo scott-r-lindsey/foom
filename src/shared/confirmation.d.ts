@@ -20,6 +20,14 @@ export interface DialogContent {
   title: string;
   accept: string;
   detail?: string;
+  quiet?: string;
+  subject?: string;
+  glyph?: "trash" | "branch" | "power" | "orbit" | "link" | "shield" | "bell";
+  note?: string;
+  sections?: readonly { label: string; items: readonly string[] }[];
+  facts?: readonly { label: string; value: string; mono?: boolean }[];
+  arguments?: readonly string[];
+  pairing?: { code: string; expiresAt: number };
   worktrees?: readonly { branch: string; reason?: string }[];
   changes?: string;
   sessions?: readonly { id: string; name: string; location: string; state: string }[];
@@ -41,7 +49,13 @@ export type WorkspaceConfirmation =
       kind: "merged-worktrees";
       feed?: CleanupFeed;
       worktrees: readonly { branch: string; reason?: string }[];
+      subject?: string;
     }
-  | { kind: "dirty-worktree"; title: string; changes: string }
-  | { kind: "orchestrator"; agent: "claude" | "codex" | "agy"; replacing?: string };
+  | { kind: "dirty-worktree"; title: string; branch?: string; changes: string }
+  | {
+      kind: "orchestrator";
+      agent: "claude" | "codex" | "agy";
+      subject?: string;
+      replacing?: string;
+    };
 export type ConfirmWorkspace = (request: WorkspaceConfirmation) => Promise<boolean>;

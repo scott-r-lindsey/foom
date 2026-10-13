@@ -1034,7 +1034,12 @@ export class Workspace {
     this.known(repository);
     const existing = this.cleanupRuns.get(repository);
     if (existing && (existing.pending || existing.current().stage === "run")) {
-      await confirm({ kind: "merged-worktrees", worktrees: [], feed: existing });
+      await confirm({
+        kind: "merged-worktrees",
+        subject: basename(repository),
+        worktrees: [],
+        feed: existing,
+      });
       if (!existing.pending) {
         this.cleanupRuns.delete(repository);
         this.refresh();
@@ -1105,7 +1110,12 @@ export class Workspace {
           : this.mergedPlan(repository, true);
       if (cached?.plan && this.now() < cached.expires) run.ready(cached.plan);
       // Request presentation before awaiting network or filesystem checks.
-      const answer = confirm({ kind: "merged-worktrees", worktrees: [], feed: run });
+      const answer = confirm({
+        kind: "merged-worktrees",
+        subject: basename(repository),
+        worktrees: [],
+        feed: run,
+      });
       try {
         run.ready(await prepare);
       } catch {
@@ -1515,7 +1525,7 @@ export class Workspace {
     await this.removeIdleTree(command.repository, tree.path, tree.branch, (branch, changes) =>
       confirm(
         changes
-          ? { kind: "dirty-worktree", title: `Remove ${branch}?`, changes }
+          ? { kind: "dirty-worktree", title: `Remove ${branch}?`, branch, changes }
           : { kind: "remove" },
       ),
     );
@@ -1727,6 +1737,7 @@ export class Workspace {
     await this.auditHuman(action, id, current ?? null, "pending_confirmation", operationId);
     const accepted = await confirm({
       kind: "orchestrator",
+      subject: `${basename(entry.repository)} · ${entry.branch ?? basename(entry.worktree)}`,
       agent,
       ...(replaced && replaced.agent !== "shell"
         ? {

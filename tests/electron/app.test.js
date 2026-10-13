@@ -4792,7 +4792,7 @@ test("click-again repository removal rejects double clicks, cancels, expires and
   );
 });
 
-test("trusted quit dialog isolates answers, passes axe in both themes and survives a board crash", {
+test("trusted quit dialog isolates answers, passes axe in every theme and survives a board crash", {
   timeout: deadline(45000),
 }, async (context) => {
   const app = await launchApp(context);
@@ -4802,8 +4802,19 @@ test("trusted quit dialog isolates answers, passes axe in both themes and surviv
     BrowserWindow.getAllWindows().map((window) => window.webContents.getOSProcessId()),
   );
   assert.equal(new Set(processes).size, 2, "Confirmation must use a separate renderer process");
-  for (const colorMode of ["light", "dark"]) {
-    await board.evaluate((colorMode) => window.desktop.saveSetup({ colorMode }), colorMode);
+  for (const colorMode of [
+    "eclipse-light",
+    "eclipse-dark",
+    "high-contrast",
+    "deep-field",
+    "moonlight",
+    "graphite",
+    "midnight-indigo",
+  ]) {
+    await board.evaluate(
+      (interfaceTheme) => window.desktop.saveSetup({ interfaceTheme }),
+      colorMode,
+    );
     await app.evaluate(({ app }) => app.quit());
     await expect(dialog.getByRole("alertdialog")).toBeVisible();
     await expect(board.locator(".board-confirmation-scrim")).toBeVisible();
@@ -4875,6 +4886,38 @@ test("trusted quit dialog isolates answers, passes axe in both themes and surviv
       animations: "disabled",
     });
     captureConfirmationDesktop(`quit-${colorMode}`);
+    await dialog.evaluate(() => {
+      let request;
+      const off = window.confirmation.render((value) => {
+        request = value;
+      });
+      off();
+      if (!request?.sessions) throw Error("Missing quit inventory");
+      const sessions = request.sessions.map((item) => ({ ...item, location: "x".repeat(60) }));
+      // Main-authored fixtures travel through the real preload, retaining the original request ID.
+      window.dialogLayoutRequest = { ...request, sessions };
+    });
+    const layoutRequest = await dialog.evaluate(() => window.dialogLayoutRequest);
+    await app.evaluate(({ BrowserWindow }, request) => {
+      BrowserWindow.getAllWindows()
+        .find((window) => window.webContents.getURL() === "app://confirmation/confirmation.html")
+        .webContents.send("confirmation:render", request);
+    }, layoutRequest);
+    await expect(dialog.locator(".sub").first()).toHaveText("x".repeat(60));
+    assert.equal(
+      await dialog.locator(".why").evaluateAll((labels) =>
+        labels.every((label) => {
+          const style = getComputedStyle(label);
+          return (
+            style.whiteSpace === "nowrap" &&
+            label.scrollWidth <= label.clientWidth &&
+            label.getBoundingClientRect().height <= 19
+          );
+        }),
+      ),
+      true,
+      "State labels remain on one line beside long locations",
+    );
     const scan = await new AxeBuilder({ page: dialog }).setLegacyMode().analyze();
     assert.deepEqual(scan.violations, []);
     await dialog.keyboard.press("Tab");
@@ -6013,9 +6056,9 @@ test("merged cleanup deletes external worktrees and branches while preserving a 
   await page.getByRole("menuitem", { name: /Delete merged worktrees…/ }).click();
   const confirmation = await confirmationPage(app);
   await expect(confirmation.getByRole("list", { name: "Cleanup checklist" })).toContainText(
-    "merged-onequeued",
+    "merged-one",
   );
-  await expect(confirmation.getByRole("list", { name: "Cleanup checklist" })).toContainText(
+  await expect(confirmation.getByRole("list", { name: "Kept worktrees" })).toContainText(
     "dirtyuncommitted changes",
   );
   await expect(confirmation.getByRole("button", { name: "Cancel" })).toBeFocused();
@@ -6586,7 +6629,7 @@ test("trusted card follows interface scale and clears its scrim on every dismiss
       .toEqual({
         zoom: interfaceScale / 100,
         boardZoom: interfaceScale / 100,
-        width: (440 * interfaceScale) / 100,
+        width: (540 * interfaceScale) / 100,
       });
     await expect(board.locator(".board-confirmation-scrim:popover-open")).toHaveCount(1);
     // Native width can settle before font layout and resize IPC finish. Check
@@ -6603,7 +6646,7 @@ test("trusted card follows interface scale and clears its scrim on every dismiss
           theme: document.documentElement.style.colorScheme,
         })),
       )
-      .toEqual({ width: 440, theme: "dark" });
+      .toEqual({ width: 540, theme: "dark" });
     await expectDialogFits(1);
     await dialog.getByRole("button", { name: "Cancel" }).click();
     await expect(board.locator(".board-confirmation-scrim")).toHaveCount(0);
@@ -7391,7 +7434,7 @@ for (const cliOnly of [false, true])
       worktreeId: tree.body.result.resultId,
     });
     assert.equal(removal.body.result.status, "pending_confirmation");
-    await expect(confirmation.getByRole("heading", { name: "Remove child-one?" })).toBeVisible();
+    await expect(confirmation.getByRole("heading", { name: "Remove worktree?" })).toBeVisible();
     await confirmation.getByRole("button", { name: "Remove worktree" }).click();
     await expect
       .poll(
@@ -8021,11 +8064,11 @@ test("merged cleanup opens checking, continues hidden, reopens progress and stop
     void window.desktop.sidebarCommand({ kind: "delete-merged-worktrees", repository: repo });
   }, repo);
   const confirmation = await confirmationPage(app);
-  await expect(confirmation.getByText("Fetching remote and checking worktrees…")).toBeVisible();
-  await expect(confirmation.getByRole("button", { name: "Delete 0", exact: true })).toBeDisabled();
+  await expect(confirmation.getByRole("list", { name: "Checking worktrees" })).toBeVisible();
+  await expect(confirmation.getByRole("button", { name: "Delete", exact: true })).toBeDisabled();
   await app.evaluate(() => globalThis.cleanupFetchRelease());
   await expect(confirmation.getByRole("button", { name: "Delete 8", exact: true })).toBeEnabled();
-  await expect(confirmation.getByRole("list", { name: "Cleanup checklist" })).toContainText(
+  await expect(confirmation.getByRole("list", { name: "Kept worktrees" })).toContainText(
     "dirtyuncommitted changes",
   );
   await confirmation.getByRole("button", { name: "Delete 8", exact: true }).click();
@@ -8047,7 +8090,7 @@ test("merged cleanup opens checking, continues hidden, reopens progress and stop
     await Promise.all(globalThis.cleanupRemovals.splice(0).map((finish) => finish()));
   });
   await expect(confirmation.getByRole("button", { name: "Done", exact: true })).toBeVisible();
-  await expect(confirmation.getByRole("list", { name: "Cleanup checklist" })).toContainText(
+  await expect(confirmation.getByRole("list", { name: "Kept worktrees" })).toContainText(
     "not started",
   );
   await confirmation.getByRole("button", { name: "Done", exact: true }).click();

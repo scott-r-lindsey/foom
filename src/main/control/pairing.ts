@@ -60,7 +60,7 @@ export class Pairing {
         );
       });
       const accepted = await Promise.race([
-        this.options.approve(repository, code, pending.signal),
+        this.options.approve(repository, code, pending.signal, expiresAt),
         aborted,
       ]);
       if (

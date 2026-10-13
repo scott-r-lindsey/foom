@@ -1236,7 +1236,9 @@ test("repository and external worktree removal confirm and protect the main chec
       confirm,
     );
     expect(confirm).toHaveBeenCalledWith(
-      changes ? { kind: "dirty-worktree", title: "Remove feature?", changes } : { kind: "remove" },
+      changes
+        ? { kind: "dirty-worktree", title: "Remove feature?", branch: "feature", changes }
+        : { kind: "remove" },
     );
   }
   await expect(
