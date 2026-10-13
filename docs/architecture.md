@@ -1546,3 +1546,40 @@ digest and current bytes and records the new digest. Keep it on restores the
 approved version, or a committed version with no attention conflicts; when
 neither exists it switches `interfaceTheme` back to the default and leaves the
 file in place.
+
+## Previews
+
+The contained file protocol helpers live in `src/main/previews/`. They are not
+registered with Electron or connected to tiles yet. A future per-preview session
+handler captures `canonicalRoot` once at preview open and passes only that root
+and its exact `foom-preview://<id>` origin to `readPreview`. URL normalization
+precedes per-segment decoding; credentials, ports and foreign origins are refused.
+The pure policy rejects empty/dot segments, encoded separators, NUL, controls,
+hidden names and Windows aliases (colons, trailing dots/spaces, device names and
+reserved characters) on every OS. Queries and fragments do not name files.
+
+Resolution uses `realpath.native`, a byte-exact root/separator comparison with no
+case folding, and another segment check after symlinks. Directories resolve their
+`index.html` through the same containment checks. Main stats before opening,
+refuses non-files, opens the resolved path with `O_NOFOLLOW | O_NONBLOCK`, and
+verifies descriptor type and `dev`/`ino`. Windows exposes neither flag through
+Node; zero substitutes explicitly there, with the descriptor checks retained.
+Only the verified descriptor supplies bytes; reads are bounded by its checked
+size (16 MiB, or 2 MiB for Markdown) and handles close even on read failure.
+`openInside` transfers handle ownership to its caller, which must close it.
+
+Malformed paths return 400, escapes/hidden targets/non-files 403, missing or
+unreadable files 404, and oversized files 413. Types use a fixed extension map,
+with unknown extensions served as `application/octet-stream`. Success and refusal
+headers include `nosniff`, `no-store` and `no-referrer`; HTML uses the default CSP
+in `docs/previews.md` §4, and Markdown has no inline scripts, frames or workers.
+There is no network-enabled policy in these helpers. Session request filtering,
+permissions, navigation guards and Markdown rendering belong to later work.
+Every non-hidden file in the captured worktree is readable by a preview page.
+
+As in the spike, a parent directory swap between realpath/stat and open is not
+fully prevented: `O_NOFOLLOW` protects only the final component. Descriptor
+identity checks catch a different opened file, but are not an atomic directory
+traversal guarantee. This residual race must not be treated as a general-purpose
+filesystem sandbox. Junction escape tests run on Windows; all pure filename and
+URL rules run on every OS.

@@ -194,6 +194,10 @@ jobs:
       - name: Test Git inventory paths on native filesystem
         if: matrix.shard != '2/2'
         run: npx vitest run --no-file-parallelism tests/unit/main/workspace/worktrees.test.ts tests/unit/main/workspace/inventory-watch.test.ts -t 'derives watch directories|validates paths'
+      - name: Test preview containment on native filesystem
+        if: matrix.shard != '2/2'
+        # Windows junction tests must run on Windows, not just the Linux unit job.
+        run: npx vitest run tests/unit/main/previews --reporter=default --reporter=junit --outputFile.junit=test-results/previews.xml
       - name: Prepare Linux display and sandbox
         timeout-minutes: 3
         if: runner.os == 'Linux'
