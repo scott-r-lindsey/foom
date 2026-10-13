@@ -5472,6 +5472,7 @@ test("application menu uses the command registry and supports native keyboard ac
     );
     assert.deepEqual(labels, ["Foom", "File", "Edit", "View", "Window", "Help", "Developer"]);
     const filter = page.getByRole("textbox", { name: "Filter repositories and sessions" });
+    await app.evaluate(({ clipboard }) => clipboard.writeText("menu clipboard sentinel"));
     await filter.fill("menu edit probe");
     for (const keyCode of ["A", "X"])
       await app.evaluate(({ BrowserWindow }, keyCode) => {
@@ -5482,19 +5483,46 @@ test("application menu uses the command registry and supports native keyboard ac
           window.webContents.sendInputEvent({ type, keyCode, modifiers: ["meta"] });
       }, keyCode);
     await expect(filter).toHaveValue("");
-    const paste = () =>
-      app.evaluate(({ Menu }) => {
+    await expect
+      .poll(() => app.evaluate(({ clipboard }) => clipboard.readText()))
+      .toBe("menu edit probe");
+    const paste = async (target) => {
+      // CDP can edit a DOM input without making its native window the first responder.
+      // The trusted child is preloaded too; activate the board before a native role.
+      await app.evaluate(({ app, BrowserWindow }) => {
+        const board = BrowserWindow.getAllWindows().find(
+          (window) => window.webContents.getURL() === "app://bundle/index.html",
+        );
+        app.focus({ steal: true });
+        board.focus();
+        board.webContents.focus();
+      });
+      await expect
+        .poll(() =>
+          app.evaluate(({ BrowserWindow }) => {
+            const board = BrowserWindow.getAllWindows().find(
+              (window) => window.webContents.getURL() === "app://bundle/index.html",
+            );
+            return board.isFocused() && board.webContents.isFocused();
+          }),
+        )
+        .toBe(true);
+      await target.focus();
+      await expect(target).toBeFocused();
+      await page.waitForFunction(() => document.hasFocus());
+      await app.evaluate(({ Menu }) => {
         // macOS roles execute natively; MenuItem.click() intentionally skips them.
         // https://github.com/electron/electron/blob/v44.4.5/lib/browser/api/menu-item-roles.ts
         if (Menu.getApplicationMenu().getMenuItemById("paste").role !== "paste")
           throw new Error("Missing Paste role");
         Menu.sendActionToFirstResponder("paste:");
       });
-    await paste();
+    };
+    await paste(filter);
     await expect(filter).toHaveValue("menu edit probe");
     await filter.fill("");
     await page.locator(".session-name").dblclick();
-    await paste();
+    await paste(page.getByRole("textbox", { name: "Session name", exact: true }));
     await expect(page.getByRole("textbox", { name: "Session name", exact: true })).toHaveValue(
       "menu edit probe",
     );
