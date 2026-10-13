@@ -7772,6 +7772,131 @@ process.stdin.on("data", (key) => {
 });
 `;
 
+test("an orchestrator wait_for wakes on a child PR required-check conclusion", {
+  skip: process.platform === "win32" && "The fake agent is a POSIX script",
+}, async (context) => {
+  const { chmod, mkdir, readFile, symlink, writeFile } = require("node:fs/promises");
+  const { existsSync } = require("node:fs");
+  const root = await mkdtemp(path.join(tmpdir(), "foom-forge-wait-"));
+  removeAfterApps(context, root);
+  const bin = path.join(root, "bin");
+  const repo = path.join(root, "app");
+  const home = path.join(root, "home");
+  for (const directory of [bin, repo, home]) await mkdir(directory);
+  await writeFile(path.join(bin, "claude"), FAKE_ORCHESTRATED_CLAUDE);
+  await writeFile(path.join(bin, "gh"), FAKE_GH);
+  for (const name of ["claude", "gh"]) await chmod(path.join(bin, name), 0o755);
+  await symlink(process.execPath, path.join(bin, "node"));
+  const git = (...args) =>
+    isolatedGit(["-c", "user.name=Foom", "-c", "user.email=foom@example.com", ...args], {
+      cwd: repo,
+    });
+  git("init", "-q", "-b", "main");
+  git("commit", "-q", "--allow-empty", "-m", "init");
+  git("remote", "add", "origin", "https://github.com/fixture/offline.git");
+  const forgeState = path.join(root, "forge.json");
+  await writeFile(forgeState, JSON.stringify({ checks: [{ bucket: "pending" }], exitCode: 8 }));
+  const credentials = path.join(root, "credentials.json");
+  const app = await launchApp(context, false, {
+    args: [`--user-data-dir=${path.join(root, "user-data")}`],
+    env: {
+      HOME: home,
+      PATH: [bin, "/usr/local/bin", "/usr/bin", "/bin"].join(path.delimiter),
+      TEST_FAKE_CREDENTIALS: credentials,
+      TEST_FORGE_STATE: forgeState,
+    },
+  });
+  const page = await boardPage(app);
+  await app.evaluate(({ dialog }, directory) => {
+    dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [directory] });
+  }, repo);
+  const repository = await page.evaluate(async () => (await window.desktop.addRepository()).path);
+  await page.evaluate(
+    ({ repository }) =>
+      window.desktop.sidebarCommand({
+        kind: "launch",
+        repository,
+        worktree: repository,
+        run: "claude",
+      }),
+    { repository },
+  );
+  await expect.poll(() => existsSync(`${credentials}.app`)).toBe(true);
+  const parent = JSON.parse(await readFile(`${credentials}.app`, "utf8"));
+  const call = async (method, params = {}) => {
+    const response = await fetch(parent.controlUrl, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${parent.controlToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ version: 1, instanceId: parent.instanceId, method, params }),
+    });
+    assert.equal(response.status, 200);
+    return (await response.json()).result;
+  };
+  const parentId = (await call("whoami")).terminalId;
+  const parentRow = page
+    .locator(".session-entry")
+    .filter({ has: page.locator(`[data-drag-session="${parentId}"]`) });
+  await parentRow
+    .locator(":scope > .board-row")
+    .getByRole("button", { name: /^Actions for/ })
+    .click();
+  await page.getByRole("menuitem", { name: "Make orchestrator…" }).click();
+  const confirmation = await confirmationPage(app);
+  await confirmation.getByRole("button", { name: "Make orchestrator" }).click();
+  await expect.poll(async () => (await call("whoami")).role).toBe("orchestrator");
+  const tree = await call("create_worktree", { branch: "child-one", idempotencyKey: "forge-tree" });
+  const child = await call("launch", {
+    worktreeId: tree.resultId,
+    agent: "claude",
+    idempotencyKey: "forge-child",
+  });
+  const childId = child.resultId;
+  await expect
+    .poll(async () => (await call("session_state", { id: childId })).attentionKind)
+    .toBe("question");
+  await expect
+    .poll(async () => (await call("session_state", { id: childId })).pullRequest?.requiredChecks)
+    .toBe("pending");
+  const before = await call("session_state", { id: childId });
+  let cursor = before.revision;
+  let changed;
+  await writeFile(forgeState, JSON.stringify({ checks: [{ bucket: "pass" }] }));
+  // Settled verdict revisions may precede the forge sample. Advance only the
+  // Foom API cursor; the orchestrator makes no forge calls or terminal writes.
+  await expect
+    .poll(
+      async () => {
+        const result = await call("wait_for", {
+          ids: [childId],
+          after: { [childId]: cursor },
+          timeoutMs: 30000,
+        });
+        assert.equal(result.sessions[0].state, before.state);
+        cursor = result.sessions[0].revision;
+        if (result.sessions[0].pullRequest?.requiredChecks !== "success") return false;
+        changed = result;
+        return true;
+      },
+      { timeout: deadline(60000), intervals: [0] },
+    )
+    .toBe(true);
+  assert.equal(changed.timedOut, false);
+  assert.deepEqual(changed.changed, [childId]);
+  assert.deepEqual(changed.sessions[0].pullRequest, {
+    number: 340,
+    headSha: "a".repeat(40),
+    state: "OPEN",
+    requiredChecks: "success",
+  });
+  assert.deepEqual(
+    (await call("sessions")).sessions.find((row) => row.id === childId).pullRequest,
+    changed.sessions[0].pullRequest,
+  );
+});
+
 for (const cliOnly of [false, true])
   test(cliOnly
     ? "an Antigravity orchestrator manages children through the packaged console"
@@ -7828,11 +7953,6 @@ for (const cliOnly of [false, true])
       });
     git("init", "-q", "-b", "main");
     git("commit", "-q", "--allow-empty", "-m", "init");
-    const forgeState = path.join(root, "forge.json");
-    await writeFile(forgeState, JSON.stringify({ checks: [{ bucket: "pending" }], exitCode: 8 }));
-    await writeFile(path.join(bin, "gh"), FAKE_GH);
-    await chmod(path.join(bin, "gh"), 0o755);
-    git("remote", "add", "origin", "https://github.com/fixture/offline.git");
     const credentials = path.join(root, "credentials.json");
     const app = await launchApp(context, false, {
       args: [`--user-data-dir=${path.join(root, "user-data")}`],
@@ -7840,7 +7960,6 @@ for (const cliOnly of [false, true])
         HOME: home,
         PATH: [bin, "/usr/local/bin", "/usr/bin", "/bin"].join(path.delimiter),
         TEST_FAKE_CREDENTIALS: credentials,
-        TEST_FORGE_STATE: forgeState,
       },
     }).finally(() => {
       removeAfterApps(context, root);
@@ -8128,48 +8247,6 @@ for (const cliOnly of [false, true])
       .toContain("FOOM_AGENT_READY");
     const waited = await call(parent.controlToken, "wait_for", { ids: [childId], timeoutMs: 0 });
     assert.equal(waited.body.result.sessions[0].id, childId);
-    // The fake forge changes only CI metadata; no PTY input or child verdict changes.
-    await expect
-      .poll(
-        async () =>
-          (await call(parent.controlToken, "session_state", { id: childId })).body.result
-            .pullRequest?.requiredChecks,
-      )
-      .toBe("pending");
-    const beforeChecks = (await call(parent.controlToken, "session_state", { id: childId })).body
-      .result;
-    let checkCursor = beforeChecks.revision;
-    let checkResult;
-    await writeFile(forgeState, JSON.stringify({ checks: [{ bucket: "pass" }] }));
-    // Other metadata revisions (for example a settled verdict timestamp) can
-    // precede the forge sample. Advance the API cursor, never poll GitHub here.
-    await expect
-      .poll(
-        async () => {
-          const result = (
-            await call(parent.controlToken, "wait_for", {
-              ids: [childId],
-              after: { [childId]: checkCursor },
-              timeoutMs: 30000,
-            })
-          ).body.result;
-          assert.equal(result.sessions[0].state, beforeChecks.state);
-          checkCursor = result.sessions[0].revision;
-          if (result.sessions[0].pullRequest?.requiredChecks !== "success") return false;
-          checkResult = result;
-          return true;
-        },
-        { timeout: deadline(60000), intervals: [0] },
-      )
-      .toBe(true);
-    assert.equal(checkResult.timedOut, false);
-    assert.deepEqual(checkResult.changed, [childId]);
-    assert.deepEqual(checkResult.sessions[0].pullRequest, {
-      number: 340,
-      headSha: "a".repeat(40),
-      state: "OPEN",
-      requiredChecks: "success",
-    });
     // Children belong to their own checkout and retain an independent light.
     const childRow = page.locator(`[data-drag-session="${childId}"]`);
     const parentSession = page.locator(`[data-drag-session="${parentId}"]`);
@@ -8222,7 +8299,7 @@ for (const cliOnly of [false, true])
       // Part 2: profile opt-in, real Git fetch/ancestry, and operation completion.
       const remote = path.join(root, "remote.git");
       git("clone", "--bare", repo, remote);
-      git("remote", "set-url", "origin", remote);
+      git("remote", "add", "origin", remote);
       await openSettingsScreen(page);
       await page.getByRole("button", { name: "Repositories", exact: true }).click();
       const autoRemove = page.getByRole("checkbox", { name: "app · Auto-remove merged worktrees" });
