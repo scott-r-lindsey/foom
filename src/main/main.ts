@@ -436,6 +436,9 @@ async function buildWindow(savedSize?: Size, saved?: WindowPlacement, initialSes
           (id, state) => {
             workspace.mcpConnectionChanged(id, state);
           },
+          () => {
+            workspace.refresh();
+          },
         ),
       dialog: requestTrusted,
       reveal: (id) => {

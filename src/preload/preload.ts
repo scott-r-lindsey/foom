@@ -261,6 +261,7 @@ const desktop: DesktopApi = {
   onBoardCommand(callback) {
     const listener = (_event: IpcRendererEvent, command: unknown) => {
       if (
+        command === "action-log" ||
         command === "sidebar" ||
         command === "next-waiting" ||
         command === "settings" ||
@@ -383,6 +384,8 @@ const desktop: DesktopApi = {
     ipcRenderer.on("terminal:activity", listener);
     return () => ipcRenderer.removeListener("terminal:activity", listener);
   },
+  actionLog: (query) => ipcRenderer.invoke("workspace:action-log", query),
+  clearActionLog: () => ipcRenderer.invoke("workspace:clear-action-log"),
   onWorkspaceChange(callback) {
     const listener = () => {
       callback();

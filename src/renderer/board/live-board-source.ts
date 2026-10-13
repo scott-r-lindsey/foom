@@ -383,6 +383,10 @@ export function createAppSource(): BoardSource {
       openFolder: () => window.desktop.openConfigFolder(),
     },
     panelFacts: (repository, worktree) => window.desktop.panelFacts(repository, worktree),
+    actionLog: {
+      read: (query) => window.desktop.actionLog(query),
+      clear: () => window.desktop.clearActionLog(),
+    },
     sidebarCommand: async (command) => {
       if ("id" in command && command.id === shellId && command.kind === "restart") {
         await restart();

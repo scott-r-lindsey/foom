@@ -1,6 +1,7 @@
 import type { AgentId } from "./agents";
 export type BoardCommand =
   | `via-${AgentId}`
+  | "action-log"
   | "sidebar"
   | "next-waiting"
   | "settings"

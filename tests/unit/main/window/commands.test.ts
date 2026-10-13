@@ -197,7 +197,7 @@ test("the wordmark menu is curated, the same on every platform, with planned ite
           : [entry],
     );
     const disabled = flat.flatMap((item) => (item.enabled ? [] : [item.id]));
-    expect(disabled).toEqual(["via-claude", "via-codex", "via-agy", "action-log"]);
+    expect(disabled).toEqual(["via-claude", "via-codex", "via-agy"]);
     // Disabled entries carry no explanation, issue number or shortcut.
     for (const item of flat) if (!item.enabled) expect(item.shortcut).toBe("");
   }
@@ -265,7 +265,9 @@ test("disabled planned commands never run from a shortcut or the native menu", (
   const calls = actions();
   const commands = createCommands("darwin", false, calls, AGENTS);
   const planned = commands.filter((command) => command.section === "Planned");
-  expect(planned.map((command) => command.id)).toEqual(["action-log"]);
+  expect(planned.map((command) => command.id)).toEqual([]);
+  void commands.find((command) => command.id === "action-log")?.run();
+  expect(calls.board).toHaveBeenCalledWith("action-log");
   expect(planned.every((command) => !command.enabled && command.bindings.length === 0)).toBe(true);
   const native = nativeMenu(commands).flatMap((section) =>
     Array.isArray(section.submenu) ? section.submenu : [],

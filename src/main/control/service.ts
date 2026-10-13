@@ -45,6 +45,12 @@ export class ControlService {
       id: string,
       state: McpConnection | undefined,
     ) => void = () => undefined,
+    private readonly refused: (
+      actor: Principal,
+      method: string,
+      status: "refused" | "succeeded",
+      target: string | null,
+    ) => Promise<void> = () => Promise.resolve(),
   ) {
     this.metadata = new SessionMetadata(source);
   }
@@ -277,14 +283,26 @@ export class ControlService {
     const method = request["method"];
     if (typeof method !== "string" || !ORCHESTRATION_METHODS.includes(method))
       return this.dispatch(actor, input);
-    exact(request, ["version", "instanceId", "method", "params"]);
-    if (request["version"] !== 1 || request["instanceId"] !== this.instanceId)
-      throw new ControlError("invalid_request");
-    const params = object(request["params"]);
-    if (actor.role !== "orchestrator" || !this.orchestration) throw new ControlError("forbidden");
-    const result = await this.orchestration.call(actor, method, params, this.operations);
-    this.assertActive(actor);
-    return result;
+    try {
+      exact(request, ["version", "instanceId", "method", "params"]);
+      if (request["version"] !== 1 || request["instanceId"] !== this.instanceId)
+        throw new ControlError("invalid_request");
+      const params = object(request["params"]);
+      if (actor.role !== "orchestrator" || !this.orchestration) throw new ControlError("forbidden");
+      const result = await this.orchestration.call(actor, method, params, this.operations);
+      this.assertActive(actor);
+      if (method === "tail" || method === "wait_for")
+        await this.refused(
+          actor,
+          method,
+          "succeeded",
+          typeof params["id"] === "string" ? params["id"] : null,
+        );
+      return result;
+    } catch (error) {
+      await this.refused(actor, method, "refused", null);
+      throw error;
+    }
   }
 
   close(): void {
