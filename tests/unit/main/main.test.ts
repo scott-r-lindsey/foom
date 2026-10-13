@@ -910,9 +910,11 @@ test("routes terminal events, hook signals and state through the workspace", asy
     onState(state: unknown): void;
     onChange(): void;
     acknowledgeCodex(): Promise<void>;
+    acknowledgeAgyPluginOffer(): Promise<void>;
   };
   expect(deps.environment("claude")).toEqual([[], []]);
   await deps.acknowledgeCodex();
+  await deps.acknowledgeAgyPluginOffer();
   deps.onChange();
   expect(mock.ipc.sendChanged).toHaveBeenCalledOnce();
   deps.onExecution({ terminalId: "a" });

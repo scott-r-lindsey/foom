@@ -1277,8 +1277,18 @@ operations. It reads at most 64 KiB from fixed Antigravity metadata paths becaus
 `plugin list` omits version and enabled state. Unrecognized or unreadable metadata
 is unavailable, never permission to overwrite. The sandboxed bridge accepts exactly
 one enumerated operation on `agents:agy-plugin`; main validates the owning top frame
-and chooses the executable and bundled directory. Settings and preflight share the
-same disclosure and controls. No credentials, arbitrary commands, paths or plugin
+and chooses the executable and bundled directory. Settings and preflight share
+inline agy row controls: Install, Update or Enable,
+with Remove inside Plugin details. Install and update require a main-owned trusted
+confirmation before the existing CLI path runs. The dialog discloses
+`~/.gemini/config/plugins/foom`, observation without approval, no stored credentials,
+inert behavior outside Foom launches, and removal through the row or
+`agy plugin uninstall foom`. Main persists the profile-only boolean
+`agyPluginOfferAnswered` after an answer (including Not now). Missing values default
+to false; invalid values are rejected. Settings marks Agents and hooks with neutral
+Plugin available text only for detected agy with no plugin and an unanswered offer.
+The row action remains available after dismissal; no launch modal or toast is used.
+No credentials, arbitrary commands, paths or plugin
 names come from the renderer. CLI errors become fixed Foom messages.
 
 The build ships the plugin outside ASAR under `build/observers/foom`. Versioned
