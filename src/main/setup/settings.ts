@@ -27,7 +27,7 @@ export const DEFAULT_SETTINGS: Settings = Object.freeze({
   hooks: true,
   restoreSessions: true,
   concurrentChildren: 4,
-  autoRemoveMergedWorktrees: Object.freeze([]),
+  autoRemoveMergedWorktrees: false,
   agents: Object.freeze({ claude: true, codex: true, agy: true }),
   agentArguments: EMPTY_AGENT_ARGUMENTS,
   agentBypassAcknowledged: Object.freeze({ claude: false, codex: false, agy: false }),
@@ -57,23 +57,11 @@ export function parseSettingsPatch(value: unknown): SettingsPatch {
     if (
       (key === "setupComplete" ||
         key === "codexNotifierAcknowledged" ||
-        key === "agyPluginOfferAnswered") &&
+        key === "agyPluginOfferAnswered" ||
+        key === "autoRemoveMergedWorktrees") &&
       typeof entry === "boolean"
     )
       patch[key] = entry;
-    else if (
-      key === "autoRemoveMergedWorktrees" &&
-      Array.isArray(entry) &&
-      entry.length <= 1000 &&
-      entry.every(
-        (path: unknown) =>
-          typeof path === "string" &&
-          path.length <= 4096 &&
-          !path.includes("\0") &&
-          isAbsolute(path),
-      )
-    )
-      patch.autoRemoveMergedWorktrees = [...new Set<string>(entry)];
     else if (key === "worktreeLocation" && (entry === "root" || entry === "adjacent"))
       patch.worktreeLocation = entry;
     else if (
@@ -172,6 +160,22 @@ export class SettingsStore {
         }
         if (kept["restoreSessions"] !== undefined && typeof kept["restoreSessions"] !== "boolean")
           delete kept["restoreSessions"];
+        const autoRemove = kept["autoRemoveMergedWorktrees"];
+        const legacyAutoRemove = Array.isArray(autoRemove);
+        if (legacyAutoRemove) {
+          if (
+            autoRemove.length > 1000 ||
+            !autoRemove.every(
+              (path: unknown) =>
+                typeof path === "string" &&
+                path.length <= 4096 &&
+                !path.includes("\0") &&
+                isAbsolute(path),
+            )
+          )
+            throw new Error("Invalid settings");
+          kept["autoRemoveMergedWorktrees"] = autoRemove.length > 0;
+        }
         const parsed = parseSettingsPatch(kept);
         store.settings = {
           ...DEFAULT_SETTINGS,
@@ -207,7 +211,7 @@ export class SettingsStore {
             ).map((key) => [key, store.settings[key]]),
           );
         }
-        migrated = legacy;
+        migrated = legacy || legacyAutoRemove;
       }
     } catch {
       // Defaults.

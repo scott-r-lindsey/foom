@@ -552,29 +552,65 @@ test("concurrent children validates integers 1–16 and persists with general se
   expect(store.get().concurrentChildren).toBe(4);
 });
 
-test("keeps auto-removal opt-ins off by default, validates paths and persists only in the profile", async () => {
-  expect(DEFAULT_SETTINGS.autoRemoveMergedWorktrees).toEqual([]);
+test("auto-removal is a boolean, off by default and stored only in the profile", async () => {
+  expect(DEFAULT_SETTINGS.autoRemoveMergedWorktrees).toBe(false);
+  for (const value of [true, false])
+    expect(parseSettingsPatch({ autoRemoveMergedWorktrees: value })).toEqual({
+      autoRemoveMergedWorktrees: value,
+    });
+  for (const value of [null, {}, [], ["/repo"], "true", 1])
+    expect(() => parseSettingsPatch({ autoRemoveMergedWorktrees: value })).toThrow();
   const dir = await directory();
   const store = await SettingsStore.open(dir);
-  const paths = [path.join(dir, "repo")];
-  expect(parseSettingsPatch({ autoRemoveMergedWorktrees: [...paths, ...paths] })).toEqual({
-    autoRemoveMergedWorktrees: paths,
-  });
-  for (const value of [
-    true,
-    null,
-    {},
-    ["relative"],
-    ["/bad\0path"],
-    [42],
-    Array(1001).fill("/repo"),
-  ])
-    expect(() => parseSettingsPatch({ autoRemoveMergedWorktrees: value })).toThrow();
-  await store.update({ autoRemoveMergedWorktrees: paths });
-  expect((await SettingsStore.open(dir)).get().autoRemoveMergedWorktrees).toEqual(paths);
+  await store.update({ autoRemoveMergedWorktrees: true });
+  expect((await SettingsStore.open(dir)).get().autoRemoveMergedWorktrees).toBe(true);
   const writer = vi.fn(() => Promise.resolve());
   await store.attachConfig(writer, {}, null);
-  await store.update({ autoRemoveMergedWorktrees: [] });
+  await store.update({ autoRemoveMergedWorktrees: false });
   expect(writer).not.toHaveBeenCalled();
-  expect((await SettingsStore.open(dir)).get().autoRemoveMergedWorktrees).toEqual([]);
+  expect((await SettingsStore.open(dir)).get().autoRemoveMergedWorktrees).toBe(false);
 });
+
+test.each([1, 2])(
+  "migrates version %s auto-removal lists to a persisted boolean",
+  async (version) => {
+    const dir = await directory();
+    for (const value of [
+      undefined,
+      [],
+      [path.join(dir, "repo")],
+      [path.join(dir, "repo"), path.join(dir, "other")],
+      true,
+      false,
+    ]) {
+      const expected = Array.isArray(value) ? value.length > 0 : value === true;
+      await writeFile(
+        path.join(dir, "settings.json"),
+        JSON.stringify({
+          version,
+          settings: { setupComplete: true, autoRemoveMergedWorktrees: value },
+        }),
+      );
+      const store = await SettingsStore.open(dir);
+      expect(store.get().autoRemoveMergedWorktrees).toBe(expected);
+      expect(store.get().setupComplete).toBe(true);
+      expect((await SettingsStore.open(dir)).get().autoRemoveMergedWorktrees).toBe(expected);
+      if (Array.isArray(value)) {
+        const saved: unknown = JSON.parse(await readFile(path.join(dir, "settings.json"), "utf8"));
+        expect(saved).toMatchObject({ version, settings: { autoRemoveMergedWorktrees: expected } });
+      }
+    }
+  },
+);
+
+test.each(["true", 1, null, {}, ["relative"], ["/bad\0path"], [42], Array(1001).fill("/repo")])(
+  "refuses malformed saved auto-removal value %j",
+  async (value) => {
+    const dir = await directory();
+    await writeFile(
+      path.join(dir, "settings.json"),
+      JSON.stringify({ version: 2, settings: { autoRemoveMergedWorktrees: value } }),
+    );
+    expect((await SettingsStore.open(dir)).get().autoRemoveMergedWorktrees).toBe(false);
+  },
+);

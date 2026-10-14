@@ -439,7 +439,6 @@ it("removes an orchestrator worktree only through the trusted dialog", async () 
 it.each([
   "enabled",
   "disabled",
-  "other-repository",
   "unmerged",
   "fetch-failed",
   "dirty",
@@ -447,16 +446,14 @@ it.each([
   "disabled-before-delete",
 ])("orchestrator removal policy: %s", async (mode) => {
   const workspace = new Workspace(deps);
-  const configure = (paths: readonly string[]) => {
+  const configure = (enabled: boolean) => {
     workspace.configure({
       hooks: true,
       agents: { claude: true, codex: true, agy: true },
-      autoRemoveMergedWorktrees: paths,
+      autoRemoveMergedWorktrees: enabled,
     });
   };
-  configure(
-    mode === "disabled" ? [] : mode === "other-repository" ? ["/repos/other"] : [repo.path],
-  );
+  configure(mode !== "disabled");
   vi.mocked(deps.worktrees.canAutoRemove).mockResolvedValue(
     !["unmerged", "fetch-failed"].includes(mode),
   );
@@ -472,7 +469,7 @@ it.each([
     vi.mocked(deps.worktrees.canAutoRemove)
       .mockResolvedValueOnce(true)
       .mockImplementationOnce(() => {
-        configure([]);
+        configure(false);
         return Promise.resolve(true);
       });
   await orchestrate(workspace);
@@ -516,7 +513,7 @@ it.each(["declined", "stale"])(
     workspace.configure({
       hooks: true,
       agents: { claude: true, codex: true, agy: true },
-      autoRemoveMergedWorktrees: [repo.path],
+      autoRemoveMergedWorktrees: true,
     });
     vi.mocked(deps.worktrees.canAutoRemove).mockResolvedValueOnce(true).mockResolvedValue(false);
     deps.dialog = vi.fn(() => {
@@ -1396,7 +1393,7 @@ it.each(["revoke", "intent-write-failed"])(
     workspace.configure({
       hooks: true,
       agents: { claude: true, codex: true, agy: true },
-      autoRemoveMergedWorktrees: [repo.path],
+      autoRemoveMergedWorktrees: true,
     });
     vi.mocked(deps.worktrees.canAutoRemove).mockResolvedValue(true);
     await orchestrate(workspace);
@@ -1459,7 +1456,7 @@ it.each(["revoke-review", "review-write-failed"])(
     workspace.configure({
       hooks: true,
       agents: { claude: true, codex: true, agy: true },
-      autoRemoveMergedWorktrees: [repo.path],
+      autoRemoveMergedWorktrees: true,
     });
     vi.mocked(deps.worktrees.canAutoRemove).mockResolvedValueOnce(true).mockResolvedValue(false);
     deps.dialog = vi.fn<NonNullable<WorkspaceDependencies["dialog"]>>(
