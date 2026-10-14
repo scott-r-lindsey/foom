@@ -57,6 +57,16 @@ it("targets only the opener's selected host; sidebar registration never requests
   expect(
     await previewBackend(new Map([[2, host]]), new Map(), board).open(actor, preview, false),
   ).toBe("sidebar");
+  for (let index = 0; index < 255; index++)
+    host.registry.records.set(String(index), {
+      id: String(index),
+      worktree: "/tree",
+      relativePath: "plan.md",
+      network: false,
+    });
+  const before = host.open.mock.calls.length;
+  await expect(backend.open(actor, preview, false)).rejects.toMatchObject({ code: "capacity" });
+  expect(host.open.mock.calls.length).toBe(before);
 });
 it("refuses missing boards and hosts without creating a preview", async () => {
   for (const board of [() => undefined, () => 3])

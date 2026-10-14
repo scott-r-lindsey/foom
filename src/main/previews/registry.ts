@@ -65,10 +65,10 @@ export class PreviewRegistry {
       /* A missing or malformed registry restores no capabilities. */
     }
   }
-  add(worktree: string, relativePath: string): PreviewRecord {
+  add(worktree: string, relativePath: string, id?: string): PreviewRecord {
     if (this.records.size >= 256) throw new Error("Preview capacity reached");
     const record: PreviewRecord = {
-      id: randomBytes(16).toString("hex"),
+      id: id ?? randomBytes(16).toString("hex"),
       worktree,
       relativePath,
       network: false,

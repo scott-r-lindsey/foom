@@ -18,6 +18,7 @@ export function previewBackend(
       if (windowId === undefined) throw new ControlError("unavailable");
       const host = hosts.get(windowId);
       if (!host) throw new ControlError("unavailable");
+      if (host.registry.records.size >= 256) throw new ControlError("capacity");
       await host.open(preview.worktree, preview.path, { id: preview.previewId });
       return sidebar
         ? "sidebar"

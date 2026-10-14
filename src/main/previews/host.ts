@@ -93,16 +93,8 @@ export class PreviewHost {
     const pathname = `/${relativePath.split("/").map(encodeURIComponent).join("/")}`;
     const file = readInside(root, pathname);
     if (file.status !== 200) throw new Error("Preview file unavailable");
-    const record = agent
-      ? {
-          id: agent.id,
-          worktree,
-          relativePath,
-          network: false as const,
-          agentOpened: true as const,
-        }
-      : this.registry.add(worktree, relativePath);
-    this.registry.records.set(record.id, record);
+    const record = this.registry.add(worktree, relativePath, agent?.id);
+    if (agent) record.agentOpened = true;
     try {
       await this.registry.save();
       if (this.closed() || !this.registry.records.has(record.id))
