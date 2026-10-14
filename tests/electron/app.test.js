@@ -5357,10 +5357,12 @@ test("volume sliders keep the dragged value while sound saves settle", async (co
 
   const alerts = page.getByLabel("Alert volume", { exact: true });
   await alerts.press("Home");
+  // The preceding save may have persisted before its renderer reply settled.
+  // Wait until this edit is in flight before queuing edits behind its gate.
+  await expect.poll(() => app.evaluate(() => globalThis.soundSaveCount)).toBe(3);
   await alerts.press("ArrowRight");
   await alerts.press("ArrowRight");
   await expect(alerts).toHaveValue("2");
-  await expect.poll(() => app.evaluate(() => globalThis.soundSaveCount)).toBe(3);
   await alerts.press("Escape");
   await expect(alerts).toHaveCount(0);
   await app.evaluate(() => globalThis.soundSaveGates.shift()());
