@@ -437,3 +437,45 @@ it("preserves a CLI-owned disabled preference after install and offers enable se
     actions: [{ id: "enable" }, { id: "remove" }],
   });
 });
+
+it("serializes case aliases of an installation on case-insensitive platforms", async () => {
+  const e = await environment();
+  const copy = structuredClone(e.m);
+  const ownership = required(required(copy.setup).status.ownership);
+  ownership.directory = ownership.directory.replace(".gemini", ".Gemini");
+  let release: (() => void) | undefined;
+  const waiting = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  let entered: (() => void) | undefined;
+  const seen = new Promise<void>((resolve) => {
+    entered = resolve;
+  });
+  const pending = new PluginSetup(e.home, e.run, true).change(
+    e.input("install", async () => {
+      entered?.();
+      await waiting;
+      return false;
+    }),
+  );
+  await seen;
+  try {
+    await expect(
+      new PluginSetup(e.home, e.run, true).change({ ...e.input(), model: copy }),
+    ).rejects.toThrow("busy");
+  } finally {
+    release?.();
+    await pending;
+  }
+});
+
+it("refuses trailing-dot and Windows device aliases in plugin metadata paths on every platform", () => {
+  for (const name of ["foom.", "CON", "nul.json", "LPT1"]) {
+    const data = structuredClone(fixture);
+    const entry = required(data.setup.status.metadata[0]);
+    entry.path = `.gemini/config/plugins/${name}/plugin.json`;
+    expect(() => parseAgentManifest(JSON.stringify({ ...data, id: "setup-fixture" }))).toThrow(
+      "unsafe-file",
+    );
+  }
+});

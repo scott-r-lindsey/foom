@@ -86,7 +86,7 @@ A future executable JSON Schema must agree with these tables and the runtime par
 | Text | 1–4096 Unicode code units unless narrower below; no Cc/Cf/Co/Cs or U+2028/U+2029; literal rendered text |
 | Multiline template | <=16384 bytes each, LF and tab allowed; other hidden/control characters forbidden; aggregate template bytes <=32768 |
 | Argv | <=64 nonempty Text entries; <=256 expanded entries/65536 bytes per process invocation, each expanded entry <=20480 bytes (prompt may contain LF/tab); no shell evaluation |
-| Relative file | <=100 ASCII characters, <=4 components (fixed home metadata paths <=5); [A-Za-z0-9_.-]+ per component, no empty/dot/dotdot components, drive letters or absolute path; generated files forbid hidden components, metadata paths permit fixed hidden agent roots |
+| Relative file | <=100 ASCII characters, <=4 components (fixed home metadata paths <=5); [A-Za-z0-9_.-]+ per component, no empty/dot/dotdot components, drive letters, absolute path, trailing dots or Windows device names; generated files forbid hidden components, metadata paths permit fixed hidden agent roots |
 | Selector | `{source,path}`; source payload, header, probe, metadata, facts; path 1–8 literal keys (each <=64) or nonnegative integer indexes <=63; no wildcard, recursion or expressions |
 | Condition | `{all?:[Test,...],any?:[Test,...]}` with 1–16 Tests total, no nesting; omitted all is true, omitted any is true; both present means AND of all-tests and any-test; `{all:[]}` alone means unconditional |
 | Test | `{field,op,value?}`; field is a named fact or Selector; op eq, in, exists, absent, lt, gte; eq primitive, in <=16 primitives, numeric comparison safe integers only; exists/absent omit value |
@@ -377,7 +377,7 @@ Command actions use the same resolved agent executable, fixed argv and only
 stdin program, retries or executable downloads. Stage files first for review;
 serialize actions per executable/plugin ownership target, re-probe before/after,
 re-read approval bytes and recheck ownership after trusted confirmation. Conflicting
-copies share the ownership lock. Failed commands report fixed errors and require
+copies share the ownership lock, including case aliases on Windows/macOS. Failed commands report fixed errors and require
 rescan, never assume success. Install only absent, update only recognized outdated,
 enable only recognized disabled, remove only recognized installed/outdated/disabled.
 No other plugin name can be mutated. Instructions are inert UI text: review /hooks

@@ -30,6 +30,8 @@ export class PluginSetup {
       args: readonly string[],
       options: typeof limits & { signal?: AbortSignal },
     ) => Promise<{ stdout: string }> = execute,
+    private readonly caseInsensitive = process.platform === "win32" ||
+      process.platform === "darwin",
   ) {}
 
   private async inspect(
@@ -206,10 +208,11 @@ export class PluginSetup {
     const setup = model.setup;
     const action = setup?.actions.find((entry) => entry.id === input.action);
     if (!setup || !action) throw new Error("Unknown setup action");
-    const key = JSON.stringify([
-      await realpath(this.home),
-      setup.status.ownership?.directory ?? model.id,
-    ]);
+    const key = JSON.stringify(
+      [await realpath(this.home), setup.status.ownership?.directory ?? model.id].map((part) =>
+        this.caseInsensitive ? part.toLowerCase() : part,
+      ),
+    );
     if (locks.has(key)) throw new Error("Plugin setup is busy");
     locks.add(key);
     try {
