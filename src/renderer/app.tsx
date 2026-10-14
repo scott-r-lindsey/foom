@@ -1,3 +1,4 @@
+import { attachPreviewComposition } from "./board/preview-composition";
 import { attachInterfaceTheme } from "./ui/interface-theme";
 import { useEffect, useState } from "react";
 import type { SetupState } from "../shared/setup";
@@ -17,6 +18,10 @@ export function App() {
       ? createSampleSource()
       : createAppSource(),
   );
+  useEffect(() => {
+    const api = window.desktop.previews;
+    if (api) return attachPreviewComposition(api);
+  }, []);
   const [scrim, setScrim] = useState(false);
   useEffect(() => source.confirmations?.onScrim?.(setScrim), [source]);
   const [setup] = useState(createSetupSource);

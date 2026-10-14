@@ -364,7 +364,9 @@ export function createAppSource(): BoardSource {
       network: (id, enabled) =>
         window.desktop.previews?.network(id, enabled) ??
         Promise.reject(new Error("Preview host unavailable")),
-      close: () => Promise.reject(new Error("Preview host unavailable")),
+      pick: (worktree) => window.desktop.previews?.pick(worktree) ?? Promise.resolve(null),
+      bounds: (id, bounds) => window.desktop.previews?.bounds(id, bounds) ?? Promise.resolve(),
+      close: (id) => window.desktop.previews?.close(id) ?? Promise.resolve(),
     },
     connect,
     createView: () => {

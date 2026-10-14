@@ -68,6 +68,7 @@ export function segmentsFor(pathname: unknown): SegmentResult {
     if (/[. ]$/.test(segment)) return { error: "windows-trailing" };
     if (WINDOWS_DEVICE.test(segment)) return { error: "windows-device" };
     if (/[<>"|?*]/.test(segment)) return { error: "windows-reserved" };
+    if (segment.toLowerCase() === "__foom__") return { error: "reserved" };
     segments.push(segment);
   }
   return { segments, directory: raw.at(-1) === "" };

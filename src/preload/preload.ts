@@ -1,3 +1,4 @@
+import type { PreviewSnapshot } from "../shared/previews";
 import type { WindowView, WindowAudioState } from "../shared/windows";
 import type { ExecutionTransition } from "../shared/execution";
 import { contextBridge, ipcRenderer } from "electron";
@@ -118,9 +119,48 @@ const windowArgument = (name: string) =>
 const desktop: DesktopApi = {
   previews: {
     network: (id, enabled) => ipcRenderer.invoke("preview:network", id, enabled),
-    open: (worktree, path) => ipcRenderer.invoke("preview:open", worktree, path),
+    pick: (worktree) => ipcRenderer.invoke("preview:pick", worktree),
     close: (id) => ipcRenderer.invoke("preview:close", id),
     bounds: (id, bounds) => ipcRenderer.invoke("preview:bounds", id, bounds),
+    cover: (covered) => ipcRenderer.invoke("preview:cover", covered),
+    onSnapshots(callback) {
+      const listener = (_event: IpcRendererEvent, value: unknown) => {
+        if (!Array.isArray(value) || value.length > 256) return;
+        const snapshots: PreviewSnapshot[] = [];
+        for (const entry of value) {
+          if (
+            !object(entry) ||
+            typeof entry["id"] !== "string" ||
+            !/^[a-f0-9]{32}$/.test(entry["id"]) ||
+            !object(entry["bounds"]) ||
+            typeof entry["image"] !== "string" ||
+            !/^data:image\/png;base64,[A-Za-z0-9+/=]+$/.test(entry["image"])
+          )
+            return;
+          const bounds = entry["bounds"];
+          const { x, y, width, height, visible } = bounds;
+          if (
+            typeof x !== "number" ||
+            typeof y !== "number" ||
+            typeof width !== "number" ||
+            typeof height !== "number" ||
+            ![x, y, width, height].every(Number.isFinite) ||
+            typeof visible !== "boolean"
+          )
+            return;
+          snapshots.push({
+            id: entry["id"],
+            bounds: { x, y, width, height, visible },
+            image: entry["image"],
+          });
+        }
+        callback(snapshots);
+      };
+      ipcRenderer.on("preview:snapshots", listener);
+      return () => {
+        ipcRenderer.removeListener("preview:snapshots", listener);
+      };
+    },
   },
   windows: {
     audio: {

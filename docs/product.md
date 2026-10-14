@@ -91,6 +91,12 @@ its terminal and focus input, using the placement rules below. Needs you remains
 
 Previews appear beneath their worktree with a document glyph and no light or attention state.
 Their rows show the worktree-relative path and shared tile number; clicking focuses the preview.
+Checkout panels offer **Preview file…**. The file picker starts in that checkout and accepts
+Markdown (`.md`, `.markdown`) and HTML (`.html`, `.htm`). Main validates the selection;
+files outside the checkout, hidden files and unsupported types are refused.
+Opening fills the landing spot, then empty space, and follows human session placement
+when the board is full. Opening keeps focus where it was. Previews and their v2 tile
+content survive restart. Removing a worktree closes its previews and leaves empty space.
 Closing a preview tile closes the preview. Preview inventory and display facts belong to main.
 
 Each row opens a labelled panel to the right of the sidebar, over the tiles.
@@ -409,7 +415,16 @@ Maximize/Restore and Close. The tile menu offers Allow network… when off, and 
 
 A preview has no running process to hide. Replacement closes previews that no longer fit. Split, Grow, drag, Tidy and focus
 shortcuts treat previews as occupied tiles. Opening or reloading a preview never
-moves focus; a click or explicit focus command does.
+moves focus; a click or explicit focus command does. While panels, trusted
+confirmation scrims, drag previews or maximize/restore motion cover previews,
+they show a frozen image of the page beneath the board UI and resume afterwards.
+Previews do not intercept board drags. Foom shortcuts remain available when a
+preview has keyboard focus.
+
+Markdown previews show headings, tables, task lists and syntax-highlighted code.
+Raw HTML is displayed as text; Mermaid fences remain code. Relative Markdown
+links open within the same tile and external links carry an arrow. Document
+colors follow the light/dark Appearance setting.
 
 Double-click a gutter, or press Enter while it is focused, to give every member
 of its run an equal share. A run follows consecutive splits on the same axis;

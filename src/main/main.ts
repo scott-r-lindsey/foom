@@ -1,3 +1,4 @@
+import { pickPreviewFile } from "./previews/pick";
 import { ForgeTracking } from "./control/forge-tracking";
 import { PreviewHost } from "./previews/host";
 import { PreviewRegistry } from "./previews/registry";
@@ -555,7 +556,9 @@ async function buildWindow(savedSize?: Size, saved?: WindowPlacement, initialSes
   );
   previewHosts.set(window.id, previewHost);
   await previewHost.restore();
-  const disposePreviews = attachPreviews(ipc, previewHost);
+  const disposePreviews = attachPreviews(ipc, previewHost, (worktree) =>
+    pickPreviewFile(window, previewHost, validatePreviewWorktree, worktree),
+  );
   const workspaceIpc = attachWorkspace(
     window,
     workspace,

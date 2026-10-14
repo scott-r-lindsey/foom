@@ -30,19 +30,22 @@ export function parseBounds(value: unknown): PreviewBounds {
   return { x, y, width, height, visible };
 }
 /** WindowIpcRouter validates the owning board and its top frame before dispatch. */
-export function attachPreviews(ipc: WindowIpc, host: PreviewHost): () => void {
-  ipc.handle("preview:open", (_event, ...args) => {
-    const [worktree, path] = args;
+export function attachPreviews(
+  ipc: WindowIpc,
+  host: PreviewHost,
+  pick: (worktree: string) => Promise<string | null>,
+): () => void {
+  ipc.handle("preview:pick", (_event, ...args) => {
+    const [worktree] = args;
     if (
-      args.length !== 2 ||
+      args.length !== 1 ||
       typeof worktree !== "string" ||
       !worktree ||
       worktree.length > 4096 ||
-      worktree.includes("\0") ||
-      typeof path !== "string"
+      worktree.includes("\0")
     )
       throw new Error("Invalid preview request");
-    return host.open(worktree, path);
+    return pick(worktree);
   });
   ipc.handle("preview:close", (_event, ...args) => {
     const [id] = args;
@@ -60,8 +63,19 @@ export function attachPreviews(ipc: WindowIpc, host: PreviewHost): () => void {
     if (args.length !== 2 || !previewId(id)) throw new Error("Invalid preview ID");
     host.bounds(id, parseBounds(bounds));
   });
+  ipc.handle("preview:cover", (_event, ...args) => {
+    if (args.length !== 1 || typeof args[0] !== "boolean")
+      throw new Error("Invalid preview cover request");
+    return host.cover(args[0]);
+  });
   return () => {
-    for (const channel of ["preview:open", "preview:close", "preview:bounds", "preview:network"])
+    for (const channel of [
+      "preview:pick",
+      "preview:close",
+      "preview:bounds",
+      "preview:cover",
+      "preview:network",
+    ])
       ipc.removeHandler(channel);
   };
 }

@@ -32,7 +32,11 @@ export function canonicalRoot(root: string): string {
  * owns `fd` and must close it. The file is opened by its resolved real path and
  * re-checked by descriptor so a swapped final component cannot redirect it.
  */
-export function openInside(root: string, pathname: unknown): OpenedFile | Refusal {
+export function openInside(
+  root: string,
+  pathname: unknown,
+  recordMissing?: (file: string) => void,
+): OpenedFile | Refusal {
   const parsed = segmentsFor(pathname);
   if ("error" in parsed) return { status: 400, reason: parsed.error };
   let candidate = path.join(root, ...parsed.segments);
@@ -46,6 +50,7 @@ export function openInside(root: string, pathname: unknown): OpenedFile | Refusa
       if (!inside(root, real, path.sep)) return { status: 403, reason: "escape" };
     }
   } catch {
+    recordMissing?.(candidate);
     return { status: 404, reason: "missing" };
   }
   const relative = path.relative(root, real);
@@ -73,13 +78,18 @@ export function openInside(root: string, pathname: unknown): OpenedFile | Refusa
     }
     return { status: 200, fd, real, relative, size: stat.size, type };
   } catch {
+    recordMissing?.(real);
     if (fd !== undefined) fs.closeSync(fd);
     return { status: 404, reason: "unreadable" };
   }
 }
 
-export function readInside(root: string, pathname: unknown): ReadFile | Refusal {
-  const opened = openInside(root, pathname);
+export function readInside(
+  root: string,
+  pathname: unknown,
+  recordMissing?: (file: string) => void,
+): ReadFile | Refusal {
+  const opened = openInside(root, pathname, recordMissing);
   if (opened.status !== 200) return opened;
   try {
     const body = Buffer.alloc(opened.size);
@@ -107,10 +117,16 @@ export function readPreview(
   root: string,
   url: unknown,
   origin: string,
+  record?: (file: string) => void,
   network = false,
 ): (ReadFile | Refusal) & { headers: Record<string, string> } {
   const parsed = pathnameFor(url, origin);
-  const result = "pathname" in parsed ? readInside(root, parsed.pathname) : parsed;
+  const result = "pathname" in parsed ? readInside(root, parsed.pathname, record) : parsed;
+  if ("pathname" in parsed && (result.status === 200 || result.status === 404)) {
+    const segments = segmentsFor(parsed.pathname);
+    if ("segments" in segments) record?.(path.join(root, ...segments.segments));
+    if (result.status === 200) record?.(result.real);
+  }
   return {
     ...result,
     headers: responseHeaders(

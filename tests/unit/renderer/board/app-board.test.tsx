@@ -211,12 +211,21 @@ afterEach(() => {
 test("source connects independently of views, reconciles events, preserves ordering, and keeps activity outside snapshots", async () => {
   const source = createAppSource();
   expect(source.previews?.getSnapshot()).toEqual([]);
-  await expect(source.previews?.close("unknown")).rejects.toThrow("Preview host unavailable");
+  await expect(source.previews?.close("unknown")).resolves.toBeUndefined();
+  await expect(source.previews?.pick("unknown")).resolves.toBeNull();
+  await source.previews?.bounds("unknown", { x: 0, y: 0, width: 0, height: 0, visible: false });
   await expect(source.previews?.network?.("unknown", true)).rejects.toThrow(
     "Preview host unavailable",
   );
   const network = vi.fn(() => Promise.resolve());
-  window.desktop.previews = { network, open: vi.fn(), close: vi.fn(), bounds: vi.fn() };
+  window.desktop.previews = {
+    network,
+    pick: vi.fn(),
+    close: vi.fn(),
+    bounds: vi.fn(),
+    cover: vi.fn(),
+    onSnapshots: vi.fn(),
+  };
   await source.previews?.network?.("id", true);
   expect(network).toHaveBeenCalledWith("id", true);
   delete window.desktop.previews;
@@ -995,4 +1004,27 @@ test("activity subscribers receive the final cached zero when views remount", as
   expect(listener).toHaveBeenCalledWith([{ id: "a", rate: 0 }]);
   off();
   disconnect?.();
+});
+
+test("the application owns and disposes preview composition independently of tile mounting", async () => {
+  const off = vi.fn();
+  const cover = vi.fn(() => Promise.resolve());
+  const onSnapshots = vi.fn(() => off);
+  window.desktop.previews = {
+    pick: vi.fn(),
+    network: vi.fn(),
+    close: vi.fn(),
+    bounds: vi.fn(),
+    cover,
+    onSnapshots,
+  };
+  Object.defineProperty(document, "getAnimations", { configurable: true, value: () => [] });
+  const screen = render(<App />);
+  await act(async () => {});
+  expect(onSnapshots).toHaveBeenCalled();
+  screen.unmount();
+  expect(off).toHaveBeenCalled();
+  expect(cover).toHaveBeenCalledWith(false);
+  delete window.desktop.previews;
+  Reflect.deleteProperty(document, "getAnimations");
 });

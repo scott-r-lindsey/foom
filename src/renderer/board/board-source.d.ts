@@ -1,3 +1,4 @@
+import type { PreviewBounds } from "../../shared/previews";
 import type { PreviewSummary } from "../../shared/workspace";
 import type { ActionLogApi } from "../../shared/action-log";
 import type { GitPanelFacts, HomeShellFacts } from "../../shared/panel";
@@ -36,6 +37,8 @@ export interface BoardSource {
   previews?: {
     getSnapshot(): readonly PreviewSummary[];
     network?(id: string, enabled: boolean): Promise<void>;
+    pick(worktree: string): Promise<string | null>;
+    bounds(id: string, bounds: PreviewBounds): Promise<void>;
     close(id: string): Promise<void>;
   };
   actionLog?: ActionLogApi;

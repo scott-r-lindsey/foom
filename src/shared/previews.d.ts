@@ -11,9 +11,16 @@ export interface PreviewBounds {
   height: number;
   visible: boolean;
 }
+export interface PreviewSnapshot {
+  id: string;
+  bounds: PreviewBounds;
+  image: string;
+}
 export interface PreviewApi {
-  open(worktree: string, relativePath: string): Promise<string>;
+  pick(worktree: string): Promise<string | null>;
   network(id: string, enabled: boolean): Promise<void>;
   close(id: string): Promise<void>;
   bounds(id: string, bounds: PreviewBounds): Promise<void>;
+  cover(covered: boolean): Promise<void>;
+  onSnapshots(callback: (snapshots: readonly PreviewSnapshot[]) => void): () => void;
 }

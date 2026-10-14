@@ -54,6 +54,24 @@ await build({
   outfile: fileURLToPath(new URL("../build/renderer/renderer.js", import.meta.url)),
 });
 
+// One browser-only runtime shared by every isolated Markdown preview.
+await build({
+  entryPoints: [join(root, "src/renderer/preview/runtime.ts")],
+  bundle: true,
+  minify: true,
+  platform: "browser",
+  format: "iife",
+  outfile: join(root, "build/preview/markdown.js"),
+});
+await copyFile(
+  join(root, "src/renderer/preview/markdown.css"),
+  join(root, "build/preview/markdown.css"),
+);
+
+for (const font of ["geist.ttf", "geist-mono.ttf"]) {
+  await copyFile(join(root, "src/renderer/fonts", font), join(root, "build/preview", font));
+}
+
 await cp(
   new URL("../src/renderer/fonts/", import.meta.url),
   new URL("../build/renderer/fonts/", import.meta.url),
@@ -64,6 +82,14 @@ await cp(
 // derived agent rules. Source reference checkouts are never packaged or read here.
 const thirdPartyNotices = [
   "src/shared/terminal-theme-LICENSE.txt",
+  "node_modules/markdown-it/LICENSE",
+  "node_modules/highlight.js/LICENSE",
+  "node_modules/argparse/LICENSE",
+  "node_modules/entities/LICENSE",
+  "node_modules/linkify-it/LICENSE",
+  "node_modules/mdurl/LICENSE",
+  "node_modules/punycode.js/LICENSE-MIT.txt",
+  "node_modules/uc.micro/LICENSE.txt",
   "src/sounds/NOTICES.txt",
   "src/main/evaluator/agent-rules/LICENSE.txt",
 ];

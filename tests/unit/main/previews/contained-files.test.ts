@@ -251,3 +251,17 @@ test.skipIf(process.platform === "win32" || !links)(
     });
   },
 );
+
+test("records served targets, requested names and missing directory indexes, but not refused requests", () => {
+  const record = vi.fn();
+  const origin = "foom-preview://id";
+  readPreview(root, origin + "/docs/page.html", origin, record);
+  expect(record).toHaveBeenCalledWith(path.join(root, "docs", "page.html"));
+  record.mockClear();
+  readPreview(root, origin + "/docs/assets/", origin, record);
+  expect(record).toHaveBeenCalledWith(path.join(root, "docs", "assets", "index.html"));
+  record.mockClear();
+  readPreview(root, origin + "/.env", origin, record);
+  readPreview(root, "foom-preview://other/a", origin, record);
+  expect(record).not.toHaveBeenCalled();
+});
