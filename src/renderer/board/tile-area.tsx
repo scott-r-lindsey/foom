@@ -221,6 +221,7 @@ function Tile({
               <span className="tile-name" title={preview.relativePath}>
                 {preview.relativePath}
               </span>
+              {preview.network && <span className="session-program">network</span>}
             </>
           )}
           <button
@@ -271,6 +272,17 @@ function Tile({
           number={number}
           view={view}
           popout={Boolean(source.windows)}
+          network={
+            preview && source.previews?.network
+              ? () => {
+                  void source.previews
+                    ?.network?.(preview.id, !preview.network)
+                    .catch((error: unknown) => {
+                      setError(error instanceof Error ? error.message : "Network change failed");
+                    });
+                }
+              : undefined
+          }
           close={() => {
             setMenu(undefined);
           }}
@@ -295,7 +307,6 @@ function Tile({
               </button>
             </div>
           )}
-          {error && <p role="alert">{error}</p>}
           {row.kind === "sample" && (
             <div className="sample-terminal">
               <pre>{row.tail.join("\n")}</pre>
@@ -304,6 +315,7 @@ function Tile({
           )}
         </>
       )}
+      {error && <p role="alert">{error}</p>}
       {view && (
         <div className="tile-shell" hidden={!row || row.kind === "sample"}>
           <TerminalView

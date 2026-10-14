@@ -1,8 +1,9 @@
-import { app, session, WebContentsView } from "electron";
+import { app, session, shell, WebContentsView } from "electron";
 import type { BrowserWindow, Session, WebContents } from "electron";
 import type { PreviewBounds, PreviewRecord } from "../../shared/previews";
 import { canonicalRoot, readInside, readPreview } from "./contained-files";
-import { pathnameFor } from "./policy";
+import type { DialogContent } from "../../shared/confirmation";
+import { externalLink, pathnameFor } from "./policy";
 import type { PreviewRegistry } from "./registry";
 import { previewPath } from "./registry";
 
@@ -21,8 +22,12 @@ interface HostedPreview {
 }
 const RECREATION_INTERVAL_MS = 250;
 const EMPTY_BOUNDS: PreviewBounds = { x: 0, y: 0, width: 0, height: 0, visible: false };
-export function requestAllowed(url: string, origin: string): boolean {
-  return /^(data|blob):/.test(url) || "pathname" in pathnameFor(url, origin);
+export function requestAllowed(url: string, origin: string, network = false): boolean {
+  return (
+    (network && /^(https|wss):/.test(url)) ||
+    /^(data|blob):/.test(url) ||
+    "pathname" in pathnameFor(url, origin)
+  );
 }
 export function navigationAllowed(url: string, origin: string): boolean {
   const parsed = pathnameFor(url, origin);
@@ -32,6 +37,7 @@ export function navigationAllowed(url: string, origin: string): boolean {
 /** One host per board window. No page or IPC capability can focus a preview. */
 export class PreviewHost {
   private readonly hosted = new Map<string, HostedPreview>();
+  private readonly confirmations = new Map<string, AbortController>();
   private lastFocused: WebContents;
   private disposed = false;
   private pendingFocus: WebContents | undefined;
@@ -40,6 +46,10 @@ export class PreviewHost {
     readonly registry: PreviewRegistry,
     private readonly validateWorktree: (worktree: string) => Promise<void>,
     private readonly changed: () => void,
+    private readonly confirm: (
+      content: DialogContent,
+      signal: AbortSignal,
+    ) => Promise<boolean> = () => Promise.resolve(false),
   ) {
     this.lastFocused = window.webContents;
     window.webContents.on("focus", this.boardFocused);
@@ -118,10 +128,10 @@ export class PreviewHost {
       event.preventDefault();
     });
     partition.webRequest.onBeforeRequest((details, callback) => {
-      callback({ cancel: !requestAllowed(details.url, origin) });
+      callback({ cancel: !requestAllowed(details.url, origin, record.network) });
     });
     partition.protocol.handle("foom-preview", (request) => {
-      const result = readPreview(root, request.url, origin);
+      const result = readPreview(root, request.url, origin, record.network);
       return new Response(
         result.status === 200 ? new Uint8Array(result.body) : "Preview file unavailable",
         {
@@ -175,13 +185,17 @@ export class PreviewHost {
       this.lastFocused = contents;
       this.pendingFocus = contents;
     }
-    contents.setWindowOpenHandler(() => ({ action: "deny" }));
+    contents.setWindowOpenHandler(({ url }) => {
+      void this.openExternal(record, url);
+      return { action: "deny" };
+    });
     contents.on("will-attach-webview", (event) => {
       event.preventDefault();
     });
     contents.on("will-frame-navigate", (event) => {
       if (!navigationAllowed(event.url, origin)) {
         event.preventDefault();
+        void this.openExternal(record, event.url);
         entry.loaded ||= entry.previouslyLoaded;
         this.applyBounds(entry);
       } else if (event.isMainFrame) {
@@ -191,6 +205,7 @@ export class PreviewHost {
     });
     contents.on("will-redirect", (event) => {
       event.preventDefault();
+      void this.openExternal(record, event.url);
     });
     contents.on("did-start-navigation", (event) => {
       if (entry.replacementTimer || contents.isDestroyed()) return;
@@ -312,8 +327,67 @@ export class PreviewHost {
       this.lastFocused = this.window.webContents;
     this.applyBounds(entry);
   }
+  private async review(record: PreviewRecord, content: DialogContent): Promise<boolean> {
+    if (this.disposed || !this.registry.records.has(record.id) || this.confirmations.has(record.id))
+      return false;
+    const controller = new AbortController();
+    this.confirmations.set(record.id, controller);
+    try {
+      return (
+        (await this.confirm(content, controller.signal)) &&
+        !controller.signal.aborted &&
+        !this.closed() &&
+        this.registry.records.get(record.id) === record
+      );
+    } catch {
+      return false;
+    } finally {
+      if (this.confirmations.get(record.id) === controller) this.confirmations.delete(record.id);
+    }
+  }
+  private async openExternal(record: PreviewRecord, url: string): Promise<void> {
+    if (!externalLink(url)) return;
+    if (
+      (await this.review(record, {
+        title: "Open this link?",
+        accept: "Open in browser",
+        glyph: "link",
+        subject: record.relativePath,
+        facts: [{ label: "URL", value: url, mono: true }],
+      })) &&
+      this.registry.records.get(record.id) === record &&
+      !this.closed()
+    ) {
+      await shell.openExternal(url).catch(() => {});
+    }
+  }
+  async network(id: string, enabled: boolean): Promise<void> {
+    const record = this.registry.records.get(id);
+    if (!record || this.disposed) throw new Error("Unknown preview ID");
+    if (record.network === enabled) return;
+    if (
+      enabled &&
+      !(await this.review(record, {
+        title: "Allow network for this preview?",
+        accept: "Allow network",
+        glyph: "shield",
+        subject: record.relativePath,
+        detail: "This page can send files from this worktree to the internet",
+      }))
+    )
+      return;
+    if (this.registry.records.get(id) !== record || this.closed()) return;
+    record.network = enabled;
+    this.changed();
+    const entry = this.hosted.get(id);
+    if (entry) {
+      await entry.partition.closeAllConnections();
+      if (!entry.view.webContents.isDestroyed()) entry.view.webContents.reload();
+    }
+  }
   async close(id: string): Promise<void> {
     if (!this.registry.records.delete(id)) throw new Error("Unknown preview ID");
+    this.confirmations.get(id)?.abort();
     const entry = this.hosted.get(id);
     if (entry) {
       clearTimeout(entry.replacementTimer);

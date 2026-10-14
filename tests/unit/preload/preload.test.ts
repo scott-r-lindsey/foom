@@ -708,3 +708,9 @@ test("forwards action log queries and clearing through dedicated capabilities", 
     ["workspace:clear-action-log"],
   ]);
 });
+
+test("preview network permission forwards only ID and desired state to main", async () => {
+  const api = await bridge();
+  await api.previews?.network("preview", true);
+  expect(mock.invoke).toHaveBeenCalledWith("preview:network", "preview", true);
+});

@@ -35,6 +35,7 @@ export interface WorktreeSource {
 export interface BoardSource {
   previews?: {
     getSnapshot(): readonly PreviewSummary[];
+    network?(id: string, enabled: boolean): Promise<void>;
     close(id: string): Promise<void>;
   };
   actionLog?: ActionLogApi;

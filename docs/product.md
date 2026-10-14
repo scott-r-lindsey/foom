@@ -405,7 +405,9 @@ shortcuts. The focused tile's number is highlighted. Tile presets are unavailabl
 Split right/down, Grow, gutters and Tidy arrange the layout.
 
 Preview title bars show a document glyph, MD or HTML badge, relative path, tile menu,
-Maximize/Restore and Close. A preview has no running process to hide. Replacement closes previews that no longer fit. Split, Grow, drag, Tidy and focus
+Maximize/Restore and Close. The tile menu offers Allow network… when off, and Block network when on; its facts show Network Off or On, and the title bar marks enabled network. Allow network asks in the trusted confirmation window: "This page can send files from this worktree to the internet". Permission belongs to that preview, permits HTTPS and secure WebSockets, and resets on restart. Plain HTTP stays blocked. External link requests always ask in the trusted window, showing the full URL, even when page script requested them without a click. Only HTTPS, HTTP and mailto links are eligible. Each preview has at most one pending confirmation; requests received while one is pending are dropped. Declining opens nothing.
+
+A preview has no running process to hide. Replacement closes previews that no longer fit. Split, Grow, drag, Tidy and focus
 shortcuts treat previews as occupied tiles. Opening or reloading a preview never
 moves focus; a click or explicit focus command does.
 

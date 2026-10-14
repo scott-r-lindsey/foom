@@ -117,6 +117,7 @@ const windowArgument = (name: string) =>
   process.argv.find((arg) => arg.startsWith(`--foom-${name}=`))?.split("=")[1];
 const desktop: DesktopApi = {
   previews: {
+    network: (id, enabled) => ipcRenderer.invoke("preview:network", id, enabled),
     open: (worktree, path) => ipcRenderer.invoke("preview:open", worktree, path),
     close: (id) => ipcRenderer.invoke("preview:close", id),
     bounds: (id, bounds) => ipcRenderer.invoke("preview:bounds", id, bounds),

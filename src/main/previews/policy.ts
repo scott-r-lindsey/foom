@@ -111,10 +111,41 @@ export const HTML_CSP =
 export const MARKDOWN_CSP =
   "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
 
-export function responseHeaders(type: string): Record<string, string> {
+export function externalLink(url: string): boolean {
+  try {
+    return ["https:", "http:", "mailto:"].includes(new URL(url).protocol);
+  } catch {
+    return false;
+  }
+}
+
+export function previewCsp(type: string, network: boolean): string {
+  const policy = type.startsWith("text/markdown") ? MARKDOWN_CSP : HTML_CSP;
+  if (!network) return policy;
+  const sources = new Set([
+    "default-src",
+    "script-src",
+    "style-src",
+    "img-src",
+    "font-src",
+    "media-src",
+    "worker-src",
+    "frame-src",
+  ]);
+  const directives = policy.split("; ").map((directive) => {
+    const name = directive.split(" ")[0] ?? "";
+    if (name === "connect-src") return `${directive} https: wss:`;
+    return sources.has(name) && !directive.includes("'none'") ? `${directive} https:` : directive;
+  });
+  if (!directives.some((directive) => directive.startsWith("connect-src ")))
+    directives.push("connect-src 'self' https: wss:");
+  return directives.join("; ");
+}
+
+export function responseHeaders(type: string, network = false): Record<string, string> {
   return {
     "content-type": type,
-    "content-security-policy": type.startsWith("text/markdown") ? MARKDOWN_CSP : HTML_CSP,
+    "content-security-policy": previewCsp(type, network),
     "x-content-type-options": "nosniff",
     "cache-control": "no-store",
     "referrer-policy": "no-referrer",

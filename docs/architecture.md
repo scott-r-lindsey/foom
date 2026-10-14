@@ -1656,15 +1656,21 @@ unreadable files 404, and oversized files 413. Types use a fixed extension map,
 with unknown extensions served as `application/octet-stream`. Success and refusal
 headers include `nosniff`, `no-store` and `no-referrer`; HTML uses the default CSP
 in `docs/previews.md` §4, and Markdown has no inline scripts, frames or workers.
-There is no network-enabled policy. Each session filters requests to its own
-origin plus `data:` and `blob:`, denies permission checks, permission requests and
+Network permission defaults off and is never persisted. Each session filters requests to its own
+origin plus `data:` and `blob:`; a confirmed per-preview permission also permits
+`https:` and `wss:` and adds secure sources to its response CSP. Plain `http:` and
+`ws:` remain blocked. The board's validated `preview:network` command requests a
+trusted disclosure before enabling; disabling closes connections and reloads with
+the restricted CSP. Each session denies permission checks, permission requests and
 device requests, and prevents downloads. The view has no preload, uses sandboxing
 and context isolation, disables Node integration (including workers and child
 frames), dialogs, drag navigation and webviews, and disables devtools in packaged
-builds. Window opens and redirects are denied. Only same-origin `.md` or
-`.markdown` page navigation is allowed; HTML and external links are blocked.
-Markdown rendering and the confirmed external-link/network flow remain separate
-follow-ups.
+builds. Window opens and redirects are prevented. Eligible external URLs (`https:`,
+`http:` and `mailto:`) go through the trusted confirmation window with the full
+URL before main calls `shell.openExternal`. Navigation requests use this same
+path even without a user gesture. A per-preview pending guard drops overlapping
+requests; close aborts pending review and revokes any later answer. Only same-origin `.md` or
+`.markdown` page navigation is allowed; HTML navigation is blocked. Markdown rendering remains a separate follow-up.
 Every non-hidden file in the captured worktree is readable by a preview page.
 
 As in the spike, a parent directory swap between realpath/stat and open is not

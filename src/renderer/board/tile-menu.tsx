@@ -19,6 +19,7 @@ export function TileMenu({
   number,
   view,
   popout,
+  network,
   close,
   action,
 }: {
@@ -31,6 +32,7 @@ export function TileMenu({
   number: number;
   view: TerminalViewSource | undefined;
   popout: boolean;
+  network?: (() => void) | undefined;
   close: () => void;
   action: (action: TileAction) => void;
 }) {
@@ -67,6 +69,18 @@ export function TileMenu({
           hint: navigator.platform.includes("Mac") ? "⇧⌘↵" : "Ctrl+Shift+Enter",
         },
         ...(popout && row ? [item("popout", "Move to new window")] : []),
+        ...(preview && network
+          ? [
+              null,
+              {
+                label: preview.network ? "Block network" : "Allow network…",
+                run: () => {
+                  close();
+                  network();
+                },
+              },
+            ]
+          : []),
         null,
         item(preview || row?.exited ? "close" : "hide", preview || row?.exited ? "Close" : "Hide"),
       ]}
@@ -95,6 +109,8 @@ export function TileMenu({
                 <dd>{preview.relativePath}</dd>
                 <dt>Kind</dt>
                 <dd>{preview.kind === "markdown" ? "Markdown" : "HTML"}</dd>
+                <dt>Network</dt>
+                <dd>{preview.network ? "On" : "Off"}</dd>
               </>
             )}
             {row && (

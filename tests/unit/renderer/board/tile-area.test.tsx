@@ -876,6 +876,7 @@ test.each(["markdown", "html"] as const)(
       id: "preview",
       repository: row.repository,
       worktree: `${row.repository}/${row.branch}`,
+      network: false,
       relativePath: "docs/test.md",
       kind,
     };
@@ -885,10 +886,11 @@ test.each(["markdown", "html"] as const)(
     if (!layout) throw new Error("Missing preview");
     saveLayout(localStorage, { ...layout, focused: terminal.focused });
     const close = vi.fn(() => Promise.resolve());
+    const network = vi.fn(async () => {});
     let command: ((command: BoardCommand) => void) | undefined;
     const source: BoardSource = {
       ...data,
-      previews: { getSnapshot: () => [preview], close },
+      previews: { getSnapshot: () => [preview], close, network },
       subscribeCommands: (listener) => {
         command = listener;
         return () => {
@@ -917,6 +919,25 @@ test.each(["markdown", "html"] as const)(
     expect(
       screen.getByText(kind === "markdown" ? "Markdown" : "HTML", { selector: "dd" }),
     ).toBeTruthy();
+    expect(screen.getByText("Off", { selector: "dd" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("menuitem", { name: "Allow network…" }));
+    await act(async () => {});
+    expect(network).toHaveBeenCalledWith("preview", true);
+    preview.network = true;
+    screen.rerender(<Board source={{ ...source }} />);
+    expect(within(tile).getByText("network")).toBeTruthy();
+    fireEvent.click(within(tile).getByRole("button", { name: "Tile 2 menu" }));
+    expect(screen.getByText("On", { selector: "dd" })).toBeTruthy();
+    network.mockRejectedValueOnce(
+      kind === "markdown" ? new Error("Network unavailable") : "failed",
+    );
+    fireEvent.click(screen.getByRole("menuitem", { name: "Block network" }));
+    await act(async () => {});
+    expect(network).toHaveBeenCalledWith("preview", false);
+    expect(screen.getByRole("alert").textContent).toBe(
+      kind === "markdown" ? "Network unavailable" : "Network change failed",
+    );
+    fireEvent.click(within(tile).getByRole("button", { name: "Tile 2 menu" }));
     fireEvent.click(screen.getByRole("menuitem", { name: /^Maximize/ }));
     expect(tile.getAttribute("data-maximized")).toBe("true");
     fireEvent.click(within(tile).getByRole("button", { name: "Close" }));
@@ -931,6 +952,7 @@ test("replacing a preview closes it and reports close failures", async () => {
     id: "p",
     repository: "Foom",
     worktree: "/tree",
+    network: false,
     relativePath: "page.html",
     kind: "html" as const,
   };

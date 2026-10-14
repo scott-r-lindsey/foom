@@ -551,6 +551,7 @@ async function buildWindow(savedSize?: Size, saved?: WindowPlacement, initialSes
     () => {
       if (!window.webContents.isDestroyed()) window.webContents.send("workspace:changed");
     },
+    (content, signal) => confirmations.request(content, signal),
   );
   previewHosts.set(window.id, previewHost);
   await previewHost.restore();

@@ -212,6 +212,14 @@ test("source connects independently of views, reconciles events, preserves order
   const source = createAppSource();
   expect(source.previews?.getSnapshot()).toEqual([]);
   await expect(source.previews?.close("unknown")).rejects.toThrow("Preview host unavailable");
+  await expect(source.previews?.network?.("unknown", true)).rejects.toThrow(
+    "Preview host unavailable",
+  );
+  const network = vi.fn(() => Promise.resolve());
+  window.desktop.previews = { network, open: vi.fn(), close: vi.fn(), bounds: vi.fn() };
+  await source.previews?.network?.("id", true);
+  expect(network).toHaveBeenCalledWith("id", true);
+  delete window.desktop.previews;
   expect(source.isReady?.()).toBe(false);
   const disconnect = source.connect?.();
   await settle();

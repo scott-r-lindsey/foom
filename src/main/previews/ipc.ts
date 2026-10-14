@@ -49,13 +49,19 @@ export function attachPreviews(ipc: WindowIpc, host: PreviewHost): () => void {
     if (args.length !== 1 || !previewId(id)) throw new Error("Invalid preview ID");
     return host.close(id);
   });
+  ipc.handle("preview:network", (_event, ...args) => {
+    const [id, enabled] = args;
+    if (args.length !== 2 || !previewId(id) || typeof enabled !== "boolean")
+      throw new Error("Invalid preview network request");
+    return host.network(id, enabled);
+  });
   ipc.handle("preview:bounds", (_event, ...args) => {
     const [id, bounds] = args;
     if (args.length !== 2 || !previewId(id)) throw new Error("Invalid preview ID");
     host.bounds(id, parseBounds(bounds));
   });
   return () => {
-    for (const channel of ["preview:open", "preview:close", "preview:bounds"])
+    for (const channel of ["preview:open", "preview:close", "preview:bounds", "preview:network"])
       ipc.removeHandler(channel);
   };
 }

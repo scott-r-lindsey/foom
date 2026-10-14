@@ -361,6 +361,9 @@ export function createAppSource(): BoardSource {
     isDevelopment: window.desktop.isDevelopment,
     previews: {
       getSnapshot: () => previews,
+      network: (id, enabled) =>
+        window.desktop.previews?.network(id, enabled) ??
+        Promise.reject(new Error("Preview host unavailable")),
       close: () => Promise.reject(new Error("Preview host unavailable")),
     },
     connect,
