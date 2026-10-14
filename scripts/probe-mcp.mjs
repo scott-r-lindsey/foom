@@ -42,7 +42,7 @@ const bundle = join(scratch, "control.mjs");
 await build({
   stdin: {
     contents:
-      'export { PreviewBroker } from "./src/main/control/previews"; export { ControlMcp } from "./src/main/control/mcp"; export { ControlService } from "./src/main/control/service"; export { ControlHttp } from "./src/main/control/http"; export { Operations } from "./src/main/control/operations"; export { prepareMcpLaunch } from "./src/main/agents/mcp-launch";',
+      'export { PreviewBroker } from "./src/main/control/previews"; export { ControlMcp } from "./src/main/control/mcp"; export { ControlService } from "./src/main/control/service"; export { ControlHttp } from "./src/main/control/http"; export { Operations } from "./src/main/control/operations"; export { prepareMcpLaunch } from "./src/main/agents/mcp-launch"; export { mergeAllowedTools } from "./src/main/agents/cli-launch";',
     resolveDir: process.cwd(),
   },
   bundle: true,
@@ -50,8 +50,15 @@ await build({
   format: "esm",
   outfile: bundle,
 });
-const { PreviewBroker, ControlMcp, ControlService, ControlHttp, Operations, prepareMcpLaunch } =
-  await import(bundle);
+const {
+  PreviewBroker,
+  ControlMcp,
+  ControlService,
+  ControlHttp,
+  Operations,
+  prepareMcpLaunch,
+  mergeAllowedTools,
+} = await import(bundle);
 const protocol = [];
 const mcpDispatch = ControlMcp.prototype.dispatch;
 ControlMcp.prototype.dispatch = function (actor, headers, input) {
@@ -259,7 +266,7 @@ try {
       CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1",
       CLAUDE_CODE_DISABLE_1M_CONTEXT: "1",
     };
-    const args =
+    let args =
       agent === "claude"
         ? [
             "-p",
@@ -288,6 +295,7 @@ try {
       const config = JSON.parse(await readFile(attachment.args[1], "utf8"));
       args[args.indexOf("--allowedTools") + 1] =
         `mcp__${Object.keys(config.mcpServers)[0]}__whoami,mcp__${Object.keys(config.mcpServers)[0]}__open_preview`;
+      args = mergeAllowedTools(args);
     }
     args.push(
       "--",
