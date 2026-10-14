@@ -31,14 +31,23 @@ test("board IPC accepts exact requests and routes only IDs to its window host", 
     },
   };
   const host = {
+    registry: {
+      records: new Map([
+        [
+          "a".repeat(32),
+          { id: "a".repeat(32), worktree: "/repo", relativePath: "a.html", network: false },
+        ],
+      ]),
+    },
     open: vi.fn(() => Promise.resolve("a".repeat(32))),
     close: vi.fn(async () => {}),
     bounds: vi.fn(),
     cover: vi.fn(async () => {}),
     network: vi.fn(async () => {}),
   };
+  const humanClose = vi.fn();
   const pick = vi.fn(() => Promise.resolve("a".repeat(32)));
-  const dispose = attachPreviews(ipc, host as unknown as PreviewHost, pick);
+  const dispose = attachPreviews(ipc, host as unknown as PreviewHost, pick, humanClose);
   const invoke = (name: string, ...args: unknown[]) =>
     handlers.get(`preview:${name}`)?.({} as IpcMainInvokeEvent, ...args);
   const id = "a".repeat(32);
@@ -51,6 +60,9 @@ test("board IPC accepts exact requests and routes only IDs to its window host", 
     expect(() => invoke("network", ...args)).toThrow();
   expect(pick).toHaveBeenCalledWith("/repo");
   expect(host.close).toHaveBeenCalledWith(id);
+  expect(humanClose).toHaveBeenCalledExactlyOnceWith(id);
+  expect(() => invoke("close", "b".repeat(32))).toThrow("Unknown preview ID");
+  expect(humanClose).toHaveBeenCalledTimes(1);
   expect(host.bounds).toHaveBeenCalledWith(id, bounds);
   for (const args of [[], [1], [""], ["\0"], ["a".repeat(4097)], ["/repo", "a.html"]])
     expect(() => invoke("pick", ...args)).toThrow();
@@ -64,4 +76,7 @@ test("board IPC accepts exact requests and routes only IDs to its window host", 
     expect(() => invoke("cover", ...args)).toThrow();
   dispose();
   expect(handlers.size).toBe(0);
+  const disposeWithoutObserver = attachPreviews(ipc, host as unknown as PreviewHost, pick);
+  await invoke("close", id);
+  disposeWithoutObserver();
 });

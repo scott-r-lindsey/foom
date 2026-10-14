@@ -118,6 +118,22 @@ const windowArgument = (name: string) =>
   process.argv.find((arg) => arg.startsWith(`--foom-${name}=`))?.split("=")[1];
 const desktop: DesktopApi = {
   previews: {
+    onPlace(callback) {
+      const listener = (
+        _event: Electron.IpcRendererEvent,
+        request: string,
+        id: string,
+        expiresAt: number,
+      ) => {
+        void callback(id, expiresAt)
+          .then((placement) => ipcRenderer.invoke("preview:placed", request, id, placement))
+          .catch(() => {});
+      };
+      ipcRenderer.on("preview:place", listener);
+      return () => {
+        ipcRenderer.removeListener("preview:place", listener);
+      };
+    },
     network: (id, enabled) => ipcRenderer.invoke("preview:network", id, enabled),
     pick: (worktree) => ipcRenderer.invoke("preview:pick", worktree),
     close: (id) => ipcRenderer.invoke("preview:close", id),

@@ -115,7 +115,8 @@ export interface WorkspaceDependencies {
   };
   /** Started on the first agent launch, independently of hook support. */
   control?: () => Promise<
-    Pick<ControlRuntime, "prepare" | "close" | "setRole"> & Partial<Pick<ControlRuntime, "audit">>
+    Pick<ControlRuntime, "prepare" | "close" | "setRole"> &
+      Partial<Pick<ControlRuntime, "audit" | "takeOver">>
   >;
   /** Started on the first launch that attaches hooks, then reused. */
   receiver: () => Promise<HookRegistrar & { close(): Promise<void> }>;
@@ -176,7 +177,7 @@ export class Workspace {
   private control:
     | Promise<
         Pick<ControlRuntime, "prepare" | "close" | "setRole"> &
-          Partial<Pick<ControlRuntime, "audit">>
+          Partial<Pick<ControlRuntime, "audit" | "takeOver">>
       >
     | undefined;
   private receiver: ReturnType<WorkspaceDependencies["receiver"]> | undefined;
@@ -1568,6 +1569,7 @@ export class Workspace {
       await this.auditHuman("take_over", command.id, command.id, "running", operationId);
       try {
         this.orchestration.takeOver(command.id);
+        (await this.control)?.takeOver?.(command.id);
       } catch (error) {
         await this.auditHuman("take_over", command.id, command.id, "refused", operationId);
         throw error;

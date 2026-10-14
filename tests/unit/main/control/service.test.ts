@@ -41,7 +41,15 @@ describe("control identity and capability checks", () => {
       repository: locationId(actor.repository),
       worktree: locationId(actor.worktree),
       name: metadataName(basename(actor.worktree)),
-      capabilities: ["whoami", "sessions", "session_state", "operation_status"],
+      capabilities: [
+        "whoami",
+        "sessions",
+        "session_state",
+        "open_preview",
+        "list_previews",
+        "close_preview",
+        "operation_status",
+      ],
     });
     expect(JSON.stringify(service.dispatch(actor, request("whoami")))).not.toContain(token);
     expect(() => {
@@ -65,7 +73,14 @@ describe("control identity and capability checks", () => {
     const reader = service.authenticate(fresh.env["FOOM_CONTROL_TOKEN"] ?? "");
     expect(service.dispatch(reader, request("whoami"))).toMatchObject({
       role: "agent",
-      capabilities: ["whoami", "sessions", "session_state"],
+      capabilities: [
+        "whoami",
+        "sessions",
+        "session_state",
+        "open_preview",
+        "list_previews",
+        "close_preview",
+      ],
     });
     expect(() =>
       service.dispatch(reader, request("operation_status", { operationId: "id" })),

@@ -1,6 +1,7 @@
 import { arrangedLayout } from "../../../fixtures/tile-layout";
 import { expect, test } from "vitest";
 import {
+  placeAgentPreview,
   blankColumns,
   evenSplitRun,
   tidyTiles,
@@ -619,4 +620,31 @@ test("closing inventory content leaves its space as the next arrival's landing s
   expect(
     leaves(arrival?.tree ?? pruned.tree).find((tile) => tile.id === childTile?.id)?.content,
   ).toEqual({ kind: "terminal", session: "next" });
+});
+
+test("agent previews fill landing then tree-order empties without altering focus or geometry", () => {
+  const layout = arrangedLayout(initialLayout(), "grid");
+  const tiles = leaves(layout.tree);
+  const start = {
+    ...layout,
+    landing: tiles[2]?.id ?? "missing",
+    focused: tiles[1]?.id ?? "",
+    maximized: tiles[1]?.id ?? "",
+  };
+  const first = placeAgentPreview(start, "a");
+  expect(first.placement).toBe("landing");
+  expect(first.layout.focused).toBe(start.focused);
+  expect(first.layout.maximized).toBe(start.maximized);
+  expect(rectangles(first.layout.tree).tiles.map(({ rect }) => rect)).toEqual(
+    rectangles(start.tree).tiles.map(({ rect }) => rect),
+  );
+  expect(leaves(first.layout.tree)[2]?.content).toEqual({ kind: "preview", preview: "a" });
+  let next = placeAgentPreview(first.layout, "b");
+  expect(next.placement).toBe("empty");
+  expect(leaves(next.layout.tree)[0]?.content).toEqual({ kind: "preview", preview: "b" });
+  for (const id of ["c", "d"]) next = placeAgentPreview(next.layout, id);
+  const full = placeAgentPreview(next.layout, "e");
+  expect(full.placement).toBe("sidebar");
+  expect(full.layout).toBe(next.layout);
+  expect(placeAgentPreview(initialLayout(), "only").placement).toBe("empty");
 });

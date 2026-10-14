@@ -2345,6 +2345,9 @@ test("launches an agent in a managed worktree and routes its attention signals",
       "whoami",
       "sessions",
       "session_state",
+      "open_preview",
+      "list_previews",
+      "close_preview",
       "create_worktree",
       "launch",
       "stop",
@@ -11469,6 +11472,145 @@ test("terminal font picker updates open shells and config shells and refits thei
   await page.keyboard.press("Escape");
   for (const rows of await page.locator(".xterm-rows").all())
     await expect(rows).toHaveCSS("font-family", '"Hack Nerd Font Mono", "Geist Mono", monospace');
+});
+
+test("an agent fixture opens a preview into the landing spot while terminal focus keeps every key", {
+  skip: process.platform === "win32" && "The fake agent is a POSIX script",
+}, async (context) => {
+  const { chmod, symlink } = require("node:fs/promises");
+  const { existsSync } = require("node:fs");
+  const root = await mkdtemp(path.join(tmpdir(), "foom-agent-preview-"));
+  removeAfterApps(context, root);
+  const bin = path.join(root, "bin");
+  const repo = path.join(root, "app");
+  const home = path.join(root, "home");
+  for (const directory of [bin, repo, home]) await mkdir(directory);
+  await writeFile(path.join(bin, "claude"), FAKE_ORCHESTRATED_CLAUDE);
+  await chmod(path.join(bin, "claude"), 0o755);
+  await symlink(process.execPath, path.join(bin, "node"));
+  isolatedGit(["init", "-q", "-b", "main"], { cwd: repo });
+  await writeFile(
+    path.join(repo, "grabby.html"),
+    `<input autofocus><script>window.stolen=""; window.attempts=0; addEventListener("keydown", event => window.stolen+=event.key); setInterval(() => { window.attempts++; window.focus(); document.querySelector("input").focus(); },20);</script>`,
+  );
+  const credentials = path.join(root, "credentials");
+  const app = await launchApp(context, true, {
+    args: [`--user-data-dir=${path.join(root, "user-data")}`],
+    env: {
+      HOME: home,
+      PATH: [bin, "/usr/bin", "/bin"].join(path.delimiter),
+      TEST_FAKE_CREDENTIALS: credentials,
+    },
+  });
+  const page = await boardPage(app);
+  await app.evaluate(({ dialog }, directory) => {
+    dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [directory] });
+  }, repo);
+  await page.evaluate(async () => {
+    const repo = await window.desktop.addRepository();
+    await window.desktop.sidebarCommand({
+      kind: "launch",
+      repository: repo.path,
+      worktree: repo.path,
+      run: "claude",
+    });
+  });
+  await expect.poll(() => existsSync(`${credentials}.app`)).toBe(true);
+  let terminals;
+  await expect
+    .poll(async () => {
+      terminals = (await page.evaluate(() => window.desktop.workspace())).terminals;
+      return terminals.some((row) => row.agent === "claude");
+    })
+    .toBe(true);
+  const agent = terminals.find((row) => row.agent === "claude");
+  const shell = terminals.find((row) => row.kind === "shell");
+  assert.ok(agent && shell);
+  await expect
+    .poll(async () => (await page.evaluate((id) => window.desktop.tail(id, 20), agent.id)).join(""))
+    .toContain("FOOM_AGENT_READY");
+  await page.evaluate(
+    ({ shellId }) => {
+      const key = `foom.tiles.v1.${window.desktop.windows.id}`;
+      localStorage.setItem(
+        key,
+        JSON.stringify({
+          version: 2,
+          tree: {
+            kind: "split",
+            id: "pair",
+            direction: "horizontal",
+            ratio: 0.5,
+            first: {
+              kind: "tile",
+              id: "terminal",
+              content: { kind: "terminal", session: shellId },
+            },
+            second: { kind: "tile", id: "landing", content: null },
+          },
+          focused: "terminal",
+          maximized: null,
+          landing: "landing",
+        }),
+      );
+    },
+    { shellId: shell.id },
+  );
+  await page.reload();
+  await expect(page.locator('[data-tile="terminal"] .xterm-helper-textarea')).toBeVisible();
+  await page.locator('[data-tile="terminal"] .xterm-helper-textarea').focus();
+  await app.evaluate(({ BrowserWindow }) => {
+    const board = BrowserWindow.getAllWindows().find(
+      (window) => window.webContents.getURL() === "app://bundle/index.html",
+    );
+    board.focus();
+    board.webContents.focus();
+  });
+  await expect
+    .poll(() => app.evaluate(({ webContents }) => webContents.getFocusedWebContents()?.getURL()))
+    .toBe("app://bundle/index.html");
+  await page.evaluate(
+    ({ id }) =>
+      window.desktop.input(
+        id,
+        JSON.stringify({ id: "preview", args: ["open-preview", "grabby.html", "--json"] }) + "\n",
+      ),
+    { id: agent.id },
+  );
+  await expect.poll(() => existsSync(`${credentials}.response-preview`)).toBe(true);
+  const response = JSON.parse(await readFile(`${credentials}.response-preview`, "utf8"));
+  assert.equal(response.code, 0, response.stderr);
+  const result = JSON.parse(response.stdout).result;
+  assert.equal(result.placement, "landing");
+  assert.equal(result.reused, false);
+  await expect(page.locator('[data-tile="landing"]')).toHaveAttribute("data-kind", "preview");
+  await expect(page.locator('[data-tile="terminal"]')).toHaveAttribute("data-focused", "true");
+  await expect(page.locator('[data-tile="terminal"] .xterm-helper-textarea')).toBeFocused();
+  // Exercise the existing bounds bridge; overlay composition supplies these reports in #292.
+  await page.evaluate(
+    (id) =>
+      window.desktop.previews.bounds(id, {
+        x: 500,
+        y: 150,
+        width: 250,
+        height: 200,
+        visible: true,
+      }),
+    result.previewId,
+  );
+  await expect
+    .poll(async () => (await previewViewState(app, result.previewId)).attached)
+    .toBe(true);
+  await expect
+    .poll(() => previewContents(app, result.previewId, "window.attempts"))
+    .toBeGreaterThan(0);
+  const keys = "a".repeat(100);
+  await typeIntoFocusedContents(app, keys);
+  await expect
+    .poll(async () => (await page.evaluate((id) => window.desktop.tail(id, 20), shell.id)).join(""))
+    .toContain(keys);
+  assert.equal(await previewContents(app, result.previewId, "window.stolen"), "");
+  await page.evaluate((id) => window.desktop.previews.close(id), result.previewId);
 });
 
 async function composedPreview(context, borderWidth = 1) {

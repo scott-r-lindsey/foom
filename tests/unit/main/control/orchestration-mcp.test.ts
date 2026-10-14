@@ -185,7 +185,17 @@ it("a human transfer takes effect on the next call over each client's existing M
   const agent = client(tokens.agent);
   await agent.init();
   expect(await agent.tool("whoami", {})).toMatchObject({
-    structuredContent: { role: "agent", capabilities: ["whoami", "sessions", "session_state"] },
+    structuredContent: {
+      role: "agent",
+      capabilities: [
+        "whoami",
+        "sessions",
+        "session_state",
+        "open_preview",
+        "list_previews",
+        "close_preview",
+      ],
+    },
   });
   service.setRole("parent", "agent");
   orchestration.revoke("parent");

@@ -172,7 +172,14 @@ describe("orchestrator slots and authority", () => {
       params: { idempotencyKey: "k", branch: "x" },
     });
     await expect(service.call(agent, request("create_worktree"))).rejects.toThrow("forbidden");
-    expect(service.capabilities(agent)).toEqual(["whoami", "sessions", "session_state"]);
+    expect(service.capabilities(agent)).toEqual([
+      "whoami",
+      "sessions",
+      "session_state",
+      "open_preview",
+      "list_previews",
+      "close_preview",
+    ]);
     const unbound = service.prepare(other, other, "orchestrator");
     unbound.bind("unbound");
     const actor = service.authenticate(unbound.env["FOOM_CONTROL_TOKEN"] ?? "");

@@ -1,3 +1,4 @@
+import type { PreviewRecord } from "../../../src/shared/previews";
 import type { ForgeWorktree } from "../../../src/main/control/forge.d";
 const forgeMock = vi.hoisted(() => ({
   open: vi.fn<
@@ -12,6 +13,7 @@ vi.mock("../../../src/main/control/forge-tracking", () => ({
   ForgeTracking: { open: forgeMock.open },
 }));
 const previewMock = vi.hoisted(() => ({
+  humanClose: undefined as ((id: string) => void) | undefined,
   pick: undefined as ((worktree: string) => Promise<string | null>) | undefined,
   pickFile: vi.fn(() => Promise.resolve("a".repeat(32))),
   hosts: [] as {
@@ -25,7 +27,13 @@ const previewMock = vi.hoisted(() => ({
 }));
 vi.mock("../../../src/main/previews/host", () => ({
   PreviewHost: class {
-    registry = { records: new Map() };
+    registry = { records: new Map<string, PreviewRecord>() };
+    open = vi.fn((_worktree: string, _path: string, _agent?: { id: string }) =>
+      Promise.resolve("preview"),
+    );
+    close = vi.fn(() => Promise.resolve());
+    visible = vi.fn(() => false);
+    placed = vi.fn();
     restore = async () => {};
     refresh = vi.fn();
     reconcile = vi.fn(async () => {});
@@ -54,8 +62,10 @@ vi.mock("../../../src/main/previews/ipc", () => ({
     _ipc: unknown,
     _host: unknown,
     pick: (worktree: string) => Promise<string | null>,
+    humanClose: (id: string) => void,
   ) => {
     previewMock.pick = pick;
+    previewMock.humanClose = humanClose;
     return () => {};
   },
 }));
@@ -1307,6 +1317,7 @@ test("control startup publishes private discovery and binds trusted pairing call
       undefined,
       expect.any(Function),
       expect.any(Function),
+      expect.any(Object),
     );
     startControl.mock.calls[0]?.[5]?.();
     expect(mock.workspace.refresh).toHaveBeenCalled();
@@ -1876,6 +1887,71 @@ test("child placement targets the parent's board or current board without focusi
   );
   expect(mock.window.focus).not.toHaveBeenCalled();
   expect(mock.window.show).not.toHaveBeenCalled();
+});
+
+test("main preview composition targets the opener's board and releases human-closed ownership", async () => {
+  const { mkdtemp, rm } = await import("node:fs/promises");
+  const path = await import("node:path");
+  const os = await import("node:os");
+  const { ControlRuntime } = await import("../../../src/main/control/runtime");
+  const directory = await mkdtemp(path.join(os.tmpdir(), "foom-preview-composition-"));
+  const realStart = ControlRuntime.start.bind(ControlRuntime);
+  let runtime: Awaited<ReturnType<typeof ControlRuntime.start>> | undefined;
+  const initialize = vi.spyOn(ControlRuntime, "start").mockImplementation((_profile, ...args) =>
+    realStart(directory, ...args).then((created) => {
+      runtime = created;
+      return created;
+    }),
+  );
+  try {
+    await start();
+    const control = mock.workspace.deps?.control;
+    if (!control) throw new Error("Missing control startup");
+    await control();
+    previewMock.humanClose?.("unknown");
+    const backend = initialize.mock.calls[0]?.[6];
+    if (!backend) throw new Error("Missing preview backend");
+    const { previewHosts } = await import("../../../src/main/main");
+    const actor = {
+      generation: "g",
+      sessionId: "s",
+      terminalId: "t1",
+      parentId: null,
+      role: "agent" as const,
+      repository: directory,
+      worktree: directory,
+    };
+    const preview = {
+      owner: "g",
+      previewId: "a".repeat(32),
+      session: "s",
+      worktree: directory,
+      real: path.join(directory, "plan.md"),
+      path: "plan.md",
+      kind: "markdown" as const,
+    };
+    await newWindow();
+    const second = mock.instances[1];
+    if (!second) throw new Error("Missing board");
+    mock.window.isFocused.mockReturnValue(false);
+    second.isFocused = vi.fn(() => true);
+    expect(await backend.open(actor, preview, true)).toBe("sidebar");
+    const secondHost = previewHosts.get(second.id);
+    if (!secondHost) throw new Error("Missing second host");
+    expect(vi.spyOn(secondHost, "open").mock.calls).toHaveLength(1);
+    await invokeWindow(0, "windows:sync", ["t1"]);
+    expect(await backend.open(actor, preview, true)).toBe("sidebar");
+    const firstHost = previewHosts.values().next().value;
+    if (!firstHost) throw new Error("Missing first host");
+    expect(vi.spyOn(firstHost, "open").mock.calls).toHaveLength(1);
+    await invokeWindow(0, "windows:sync", []);
+    second.isFocused.mockReturnValue(false);
+    expect(await backend.open(actor, preview, true)).toBe("sidebar");
+  } finally {
+    initialize.mockRestore();
+    await runtime?.close();
+    await rm(directory, { recursive: true, force: true });
+  }
 });
 
 test("worktree removal blocks preview opens and closes every window's previews before Git", async () => {

@@ -34,6 +34,7 @@ export function attachPreviews(
   ipc: WindowIpc,
   host: PreviewHost,
   pick: (worktree: string) => Promise<string | null>,
+  humanClose: (id: string) => void = () => {},
 ): () => void {
   ipc.handle("preview:pick", (_event, ...args) => {
     const [worktree] = args;
@@ -50,6 +51,8 @@ export function attachPreviews(
   ipc.handle("preview:close", (_event, ...args) => {
     const [id] = args;
     if (args.length !== 1 || !previewId(id)) throw new Error("Invalid preview ID");
+    if (!host.registry.records.has(id)) throw new Error("Unknown preview ID");
+    humanClose(id);
     return host.close(id);
   });
   ipc.handle("preview:network", (_event, ...args) => {

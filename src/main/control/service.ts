@@ -1,3 +1,5 @@
+import { PREVIEW_METHODS } from "./previews";
+import type { PreviewBroker } from "./previews";
 import type { McpConnection } from "../../shared/workspace";
 
 import { createHash, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
@@ -52,6 +54,7 @@ export class ControlService {
       status: "refused" | "succeeded",
       target: string | null,
     ) => Promise<void> = () => Promise.resolve(),
+    readonly previews?: PreviewBroker,
   ) {
     this.metadata = new SessionMetadata(source, (row) => this.orchestration?.pullRequest?.(row));
   }
@@ -112,7 +115,10 @@ export class ControlService {
       },
       dispose: () => {
         if (this.grants.get(generation) !== grant) return;
-        if (grant.principal) this.operations.revoke(grant.principal);
+        if (grant.principal) {
+          this.operations.revoke(grant.principal);
+          this.previews?.revoke(grant.principal);
+        }
         clearTimeout(grant.timer);
         clearTimeout(grant.mcpTimer);
         if (grant.principal) this.connectionChanged(grant.principal.terminalId, undefined);
@@ -252,7 +258,17 @@ export class ControlService {
     }
     if (current.role === role) return;
     grant.principal = Object.freeze({ ...current, role, parentId: null });
-    if (current.role === "orchestrator") this.operations.revoke(current);
+    if (current.role === "orchestrator") {
+      this.operations.revoke(current);
+      this.previews?.revoke(current);
+    }
+  }
+
+  takeOver(terminalId: string): void {
+    this.previews?.takeOver(
+      terminalId,
+      [...this.grants.values()].flatMap((grant) => (grant.principal ? [grant.principal] : [])),
+    );
   }
 
   /** Whether a grant generation still has a principal; protocol state lives no longer. */
@@ -269,9 +285,15 @@ export class ControlService {
 
   /** Granted methods. Orchestration methods need a main-granted orchestrator principal. */
   capabilities(actor: Principal): string[] {
+    const views = actor.role === "cli" ? [] : PREVIEW_METHODS;
     return actor.role === "orchestrator"
-      ? [...READ_ONLY, ...(this.orchestration ? ORCHESTRATION_METHODS : []), "operation_status"]
-      : [...READ_ONLY];
+      ? [
+          ...READ_ONLY,
+          ...views,
+          ...(this.orchestration ? ORCHESTRATION_METHODS : []),
+          "operation_status",
+        ]
+      : [...READ_ONLY, ...views];
   }
 
   /** Every method an agent could be granted; listing one grants nothing. */
@@ -286,6 +308,16 @@ export class ControlService {
     this.assertActive(actor);
     const request = object(input);
     const method = request["method"];
+    if (typeof method === "string" && PREVIEW_METHODS.includes(method)) {
+      exact(request, ["version", "instanceId", "method", "params"]);
+      if (request["version"] !== 1 || request["instanceId"] !== this.instanceId)
+        throw new ControlError("invalid_request");
+      if (actor.role === "cli") throw new ControlError("forbidden");
+      if (!this.previews) throw new ControlError("unavailable");
+      const result = await this.previews.call(actor, method, request["params"]);
+      this.assertActive(actor);
+      return result;
+    }
     if (typeof method !== "string" || !ORCHESTRATION_METHODS.includes(method))
       return this.dispatch(actor, input);
     try {
@@ -316,7 +348,10 @@ export class ControlService {
       clearTimeout(grant.timer);
       clearTimeout(grant.mcpTimer);
       if (grant.principal) this.connectionChanged(grant.principal.terminalId, undefined);
-      if (grant.principal) this.operations.revoke(grant.principal);
+      if (grant.principal) {
+        this.operations.revoke(grant.principal);
+        this.previews?.revoke(grant.principal);
+      }
     }
     this.grants.clear();
   }

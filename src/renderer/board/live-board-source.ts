@@ -367,6 +367,17 @@ export function createAppSource(): BoardSource {
       pick: (worktree) => window.desktop.previews?.pick(worktree) ?? Promise.resolve(null),
       bounds: (id, bounds) => window.desktop.previews?.bounds(id, bounds) ?? Promise.resolve(),
       close: (id) => window.desktop.previews?.close(id) ?? Promise.resolve(),
+      ...(window.desktop.previews?.onPlace
+        ? {
+            onPlace: (callback) =>
+              window.desktop.previews?.onPlace?.(async (id, expiresAt) => {
+                const inventory = await window.desktop.sidebarInventory();
+                previews = inventory.previews ?? [];
+                publish();
+                return callback(id, expiresAt);
+              }) ?? (() => {}),
+          }
+        : {}),
     },
     connect,
     createView: () => {

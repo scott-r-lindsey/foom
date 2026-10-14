@@ -361,3 +361,75 @@ it("keeps legacy recovery events readable without an actor", async () => {
     (await store.read({ search: "", action: "", status: "", offset: 0 })).entries[0],
   ).toMatchObject({ actorId: "unknown", status: "indeterminate", reason: "recovery" });
 });
+
+it("persists fixed preview audit metadata without raw arguments or file contents", async () => {
+  const store = new ControlStore(directory);
+  await store.preview({
+    session: "session",
+    action: "open_preview",
+    preview: "a".repeat(32),
+    path: "docs/plan.md",
+    outcome: "opened",
+  });
+  const page = await store.read({ search: "", action: "open_preview", status: "", offset: 0 });
+  expect(page.entries).toMatchObject([
+    {
+      session: "session",
+      actorId: "session",
+      targetId: "a".repeat(32),
+      path: "docs/plan.md",
+      status: "opened",
+    },
+  ]);
+  const raw = await readFile(join(directory, "actions-0.jsonl"), "utf8");
+  expect(raw).not.toContain("token");
+  expect(raw).not.toContain("raw");
+});
+
+it("runtime binds preview tools to the launch grant, audits and hands ownership over", async () => {
+  const previews = new Set<string>();
+  await writeFile(join(root, "plan.md"), "# plan");
+  const runtime = await ControlRuntime.start(
+    root,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    {
+      open: (_actor, preview) => {
+        previews.add(preview.previewId);
+        return Promise.resolve("sidebar");
+      },
+      close: (id) => {
+        previews.delete(id);
+        return Promise.resolve();
+      },
+      has: (id) => previews.has(id),
+      visible: () => false,
+    },
+  );
+  try {
+    const launch = runtime.prepare(root, root);
+    launch.bind("terminal");
+    const actor = runtime.service.authenticate(launch.env["FOOM_CONTROL_TOKEN"] ?? "");
+    const call = (method: string, params: unknown = {}) =>
+      runtime.service.call(actor, {
+        version: 1,
+        instanceId: runtime.service.instanceId,
+        method,
+        params,
+      });
+    expect(await call("open_preview", { path: "plan.md" })).toMatchObject({ placement: "sidebar" });
+    expect(
+      (await runtime.audit.read({ search: "", action: "open_preview", status: "", offset: 0 }))
+        .entries,
+    ).toMatchObject([{ path: "plan.md" }, { path: "plan.md" }]);
+    runtime.takeOver("terminal");
+    expect(await call("list_previews")).toEqual({ previews: [] });
+    expect(previews.size).toBe(1);
+    launch.dispose();
+  } finally {
+    await runtime.close();
+  }
+});
