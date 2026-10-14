@@ -294,7 +294,7 @@ const fixtureCleanups = new WeakMap();
 function fixtureCleanup(context) {
   let cleanup = fixtureCleanups.get(context);
   if (!cleanup) {
-    cleanup = { apps: [], directories: new Set(), probeLogs: [] };
+    cleanup = { apps: [], directories: new Set(), probeLogs: [], launches: new WeakMap() };
     fixtureCleanups.set(context, cleanup);
     context.after(async () => {
       const failures = [];
@@ -541,6 +541,7 @@ async function launchApp(context, openShell = true, options = {}) {
       clearTimeout(watchdog);
       throw error;
     });
+  cleanup.launches.set(app, { entry, env });
   const child = app.process();
   cleanup.audit.add(child.pid);
   // Tests must never play through the developer's speakers, even under Xvfb.
@@ -5707,8 +5708,7 @@ test("profile lock focuses the first app, exits duplicates and permits another p
     });
     window.hide();
   });
-  const env = { ...process.env };
-  delete env.ELECTRON_RUN_AS_NODE;
+  const { entry, env } = fixtureCleanup(context).launches.get(first);
   let child;
   let exited;
   fixtureCleanup(context).apps.push(async () => {
@@ -5717,7 +5717,7 @@ test("profile lock focuses the first app, exits duplicates and permits another p
   });
   child = require("node:child_process").spawn(
     require("electron"),
-    [path.join(__dirname, "../.."), `--user-data-dir=${profile}`, "--mute-audio"],
+    [entry, `--user-data-dir=${profile}`, "--mute-audio"],
     { env, stdio: "ignore" },
   );
   exited = new Promise((resolve, reject) => {
