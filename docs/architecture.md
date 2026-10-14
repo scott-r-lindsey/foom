@@ -1707,7 +1707,11 @@ IDs grant access only within their owning window. Sidebar inventory reports thos
 IDs and display facts. The board places human previews with `placeContent`, preserving
 focus, and measures each preview body to report bounds through the source interface.
 Restored registry entries stay detached and allocate no view until bounds arrive.
-Worktree removal closes previews when workspace inventory refreshes.
+Confirmed Foom worktree removal closes that checkout’s previews in all windows before
+Git runs, releasing live-reload directory handles. New preview opens are refused
+until removal finishes, including opens awaiting registry persistence. External
+removal closes previews when workspace inventory refreshes; on Windows, close
+preview tiles first because directory watches can block external deletion.
 
 An unfocused preview never acquires keyboard focus on open, reload or navigation. Main loads
 it detached and attaches only after `did-finish-load`, when its board rectangle is

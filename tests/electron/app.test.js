@@ -10460,6 +10460,35 @@ test("worktree panel previews pick contained Markdown and HTML, persist v2 tiles
   };
   let app = await launchApp(context, false, options);
   let page = await boardPage(app);
+  await app.evaluate(({ app }) => {
+    globalThis.previewTrace = [];
+    app.on("web-contents-created", (_event, contents) => {
+      for (const name of [
+        "did-start-loading",
+        "did-finish-load",
+        "did-fail-load",
+        "will-frame-navigate",
+        "did-start-navigation",
+      ]) {
+        contents.on(name, (event, ...args) => {
+          globalThis.previewTrace.push({
+            name,
+            id: contents.id,
+            url: contents.isDestroyed() ? "destroyed" : contents.getURL(),
+            eventUrl: event?.url,
+            main: event?.isMainFrame,
+            args: args.filter(
+              (value) =>
+                typeof value === "string" ||
+                typeof value === "number" ||
+                typeof value === "boolean",
+            ),
+          });
+        });
+      }
+    });
+  });
+
   await page.emulateMedia({ reducedMotion: "reduce" });
   await app.evaluate(({ dialog }, repo) => {
     dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [repo] });
@@ -10492,7 +10521,52 @@ test("worktree panel previews pick contained Markdown and HTML, persist v2 tiles
     assert.ok(preview);
     ids.push(preview.id);
     assert.equal(await app.evaluate(() => globalThis.previewPickerOptions.defaultPath), checkout);
-    await expect.poll(async () => (await previewViewState(app, preview.id)).attached).toBe(true);
+    try {
+      await expect.poll(async () => (await previewViewState(app, preview.id)).attached).toBe(true);
+    } catch (error) {
+      console.error(
+        "Preview attach diagnostics",
+        file,
+        await previewViewState(app, preview.id),
+        await page.evaluate(() => ({
+          overlays: [
+            ...document.querySelectorAll(
+              '.row-menu, .wordmark-menu[aria-expanded="true"], .board-confirmation-scrim, dialog[open], .board-home[data-dragging="true"], .board-home[data-preview-covered="true"]',
+            ),
+          ].map((element) => element.outerHTML),
+          animations: document.getAnimations().map((animation) => ({
+            state: animation.playState,
+            target: animation.effect?.target?.outerHTML,
+          })),
+          tiles: [...document.querySelectorAll("[data-preview-id]")].map((element) => ({
+            html: element.outerHTML,
+            rect: element.getBoundingClientRect().toJSON(),
+          })),
+        })),
+        await app.evaluate(
+          async ({ webContents }, main) => {
+            const { previewHosts } = await import(main);
+            return JSON.stringify({
+              contents: webContents
+                .getAllWebContents()
+                .map((contents) => ({ url: contents.getURL(), loading: contents.isLoading() })),
+              hosts: [...previewHosts.values()].map((host) => ({
+                covered: host.covered,
+                entries: [...host.hosted.entries()].map(([id, entry]) => ({
+                  id,
+                  loaded: entry.loaded,
+                  attached: entry.attached,
+                  bounds: entry.bounds,
+                })),
+              })),
+              trace: globalThis.previewTrace,
+            });
+          },
+          require("node:url").pathToFileURL(path.resolve("build/main/main.js")).href,
+        ),
+      );
+      throw error;
+    }
     await expect
       .poll(() => previewContents(app, preview.id, "document.body.innerText"))
       .toContain(file === "guide.md" ? "Panel Markdown" : "Panel HTML");
@@ -10532,7 +10606,10 @@ test("worktree panel previews pick contained Markdown and HTML, persist v2 tiles
   await expect(page.locator('.terminal-tile[data-kind="preview"]')).toHaveCount(2);
   for (const id of ids)
     await expect.poll(async () => (await previewViewState(app, id)).attached).toBe(true);
-  git("worktree", "remove", "--force", checkout);
+  await page.getByRole("button", { name: "Actions for topic/preview", exact: true }).click();
+  await page.getByRole("menuitem", { name: "Delete worktree…", exact: true }).click();
+  const removal = await confirmationPage(app);
+  await removal.getByRole("button", { name: "Discard 2 changes and remove", exact: true }).click();
   await expect(page.locator(".preview-row")).toHaveCount(0);
   await expect(page.locator('.terminal-tile[data-kind="preview"]')).toHaveCount(0);
   await expect

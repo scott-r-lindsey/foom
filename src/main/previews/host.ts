@@ -178,6 +178,7 @@ export class PreviewHost {
     const record = this.registry.add(worktree, relativePath);
     try {
       await this.registry.save();
+      await this.validateWorktree(worktree);
       if (this.closed() || !this.registry.records.has(record.id))
         throw new Error("Preview host closed");
       this.create(record, root);
@@ -578,6 +579,12 @@ export class PreviewHost {
     await this.registry.save();
     // Shutdown frees views without publishing a transient empty inventory to the board.
     if (!this.disposed) this.changed();
+  }
+  async closeWorktree(worktree: string): Promise<void> {
+    for (const record of [...this.registry.records.values()]) {
+      if (record.worktree === worktree && this.registry.records.has(record.id))
+        await this.close(record.id);
+    }
   }
   async reconcile(): Promise<void> {
     for (const record of [...this.registry.records.values()]) {
