@@ -1186,6 +1186,16 @@ test("bundled brand fonts and both system themes render in Electron", {
     // Main can refresh nativeTheme while setup changes settle. Keep the page's
     // preference explicit, but agree with the host rather than racing its OSCs.
     await page.emulateMedia({ colorScheme: mode });
+    // Chromium queues MediaQueryList changes as animation-frame events:
+    // third_party/blink/renderer/core/css/media_query_matcher.cc.
+    // Node-side polling/evaluation can observe the new input without advancing
+    // that queue. Request frames until attachInterfaceTheme acknowledges the
+    // applied scheme, then verify the complete rendered palette below.
+    await page.waitForFunction(
+      (mode) => document.documentElement.style.colorScheme === mode,
+      mode,
+      { polling: "raf" },
+    );
     // A matching media query is input, not acknowledgement from either listener.
     // Observe both rendered backgrounds and the complete interface palette in one
     // snapshot before inspecting fonts; separate waits can accept different frames.
