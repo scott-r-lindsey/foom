@@ -1,6 +1,6 @@
 import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
-import { expect, test, vi } from "vitest";
+import { expect, onTestFinished, test, vi } from "vitest";
 import {
   boundedRegex,
   detectAgent,
@@ -239,6 +239,11 @@ test("rate-limit advice and incomplete model-switch screens are not provider blo
 test.each([capacityWorking, rateLimitWorking, modelSwitchWorking, usageLimitWorking])(
   "active working title wins over visible provider history: $source",
   (fixture) => {
+    // Rule priority is logical; injected clocks above test deadline behavior.
+    const clock = vi.spyOn(performance, "now").mockReturnValue(0);
+    onTestFinished(() => {
+      clock.mockRestore();
+    });
     const input = {
       terminalId: "t",
       agent: "codex" as const,
