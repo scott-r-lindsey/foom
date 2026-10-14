@@ -60,7 +60,7 @@ const orchestration = (childLimit: number) =>
     {
       name: "create_worktree",
       description:
-        "Create a worktree for one child: supply exactly one of branch (new local branch) or pullRequest (open same-repository PR number, fetched and tracking origin). Forks, the default branch and branches checked out elsewhere are refused; your own unused checkout may be reused. At most four unused worktrees. Returns an operation whose resultId is the worktree ID.",
+        "Create a worktree for one child: supply exactly one of branch (new local branch) or pullRequest (open same-repository PR number, fetched and tracking origin). Forks, the default branch and branches checked out elsewhere are refused; your own unused checkout may be reused. Existing local branches fast-forward to the fetched PR head; local commits absent from it are refused with branch_diverged. At most four unused worktrees. Returns an operation whose resultId is the worktree ID.",
       properties: {
         idempotencyKey: key,
         branch: { type: "string", maxLength: 200 },

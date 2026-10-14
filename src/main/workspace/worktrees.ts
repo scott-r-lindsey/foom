@@ -463,11 +463,6 @@ export class WorktreeService {
     };
   }
 
-  /**
-   * Check out `branch` in a new worktree: an existing local branch as is, a branch only on
-   * the remote tracking it, and otherwise a new branch from HEAD. A branch that is already
-   * checked out is reported, not added again.
-   */
   /** Only main-owned unused checkouts can be reused; no caller supplies a remote or path. */
   async adoptWorktree(
     repositoryPath: string,
@@ -533,6 +528,24 @@ export class WorktreeService {
         owned.identity
       )
         throw new ControlError("branch_in_use");
+      await this.fastForwardAdoptedBranch(
+        repositoryPath,
+        branch,
+        async () => {
+          revalidate(existing.path, branch);
+          const current = (await this.listWorktrees(repositoryPath)).filter(
+            (tree) => tree.branch === branch,
+          );
+          if (current.length !== 1 || current[0]?.path !== existing.path)
+            throw new ControlError("branch_in_use");
+          if (
+            (await this.launchIdentity(repositoryPath, existing.path).catch(() => undefined)) !==
+            owned.identity
+          )
+            throw new ControlError("branch_in_use");
+        },
+        existing.path,
+      );
       await git(repositoryPath, [
         "branch",
         "--set-upstream-to",
@@ -552,6 +565,9 @@ export class WorktreeService {
       `+refs/heads/${branch}:refs/remotes/origin/${branch}`,
     ]);
     revalidate(undefined, branch);
+    await this.fastForwardAdoptedBranch(repositoryPath, branch, () => {
+      revalidate(undefined, branch);
+    });
     try {
       const { path } = await this.createWorktree(repositoryPath, branch, {
         location,
@@ -564,6 +580,45 @@ export class WorktreeService {
       const trees = await this.listWorktrees(repositoryPath).catch(() => undefined);
       if (!trees || trees.some((tree) => tree.branch === branch)) throw new UncertainEffect();
       throw error;
+    }
+  }
+
+  /** Advance only by ancestry; Git also guards against concurrent local ref changes. */
+  private async fastForwardAdoptedBranch(
+    repository: string,
+    branch: string,
+    revalidate: () => void | Promise<void>,
+    checkout?: string,
+  ): Promise<void> {
+    const localRef = `refs/heads/${branch}`;
+    const local = (
+      await git(repository, ["branch", "--list", "--format=%(objectname)", "--", branch])
+    ).trim();
+    if (!local) return;
+    const target = (
+      await git(repository, ["rev-parse", "--verify", `refs/remotes/origin/${branch}`])
+    ).trim();
+    if (local === target) return;
+    await git(repository, ["merge-base", "--is-ancestor", local, target]).catch(
+      (error: unknown) => {
+        if (record(error) && error["code"] === 1) throw new ControlError("branch_diverged");
+        throw error;
+      },
+    );
+    await revalidate();
+    if (checkout) {
+      await git(checkout, ["merge", "--ff-only", "--no-edit", target]);
+    } else {
+      // Unlike branch -f/update-ref, a non-forced fetch refuses both a concurrent
+      // divergence and a branch that has become checked out in another worktree.
+      await git(repository, [
+        "fetch",
+        "--no-tags",
+        "--no-write-fetch-head",
+        "--",
+        ".",
+        `${target}:${localRef}`,
+      ]);
     }
   }
 

@@ -356,13 +356,16 @@ selects `origin`; the API accepts no remote, branch override or path. Both
 `isCrossRepository` and `headRepositoryOwner` must establish the selected repository:
 a fork is refused even when its branch name also exists locally. Fixed refusal
 codes are `forge_unavailable` (no provider or failed lookup/default discovery),
-`pr_not_open`, `pr_from_fork`, `default_branch`, `invalid_branch` and
-`branch_in_use`. Existing branch validation and remote default discovery precede
-fetching. Main fetches the validated head with argument arrays and creates a
+`pr_not_open`, `pr_from_fork`, `default_branch`, `invalid_branch`, `branch_in_use`
+and `branch_diverged` (local commits absent from the PR head). Existing branch
+validation and remote default discovery precede fetching. Main fetches the validated head with argument arrays and creates a
 checkout tracking `origin/<branch>` and sets its branch-specific `pushRemote` to
 origin, so plain `git push` targets that PR branch even with another default push
 remote.
-Existing local commits are preserved; adoption never resets a branch. A checkout
+An existing local branch is fast-forwarded to the fetched PR head when behind,
+and left unchanged when equal. Local commits absent from that head refuse adoption
+with `branch_diverged`, including a branch ahead of origin; adoption never resets
+a branch or discards commits. This also applies to reused checkouts. A checkout
 already owned by this orchestrator and still unused may be reused after its
 identity and session eligibility are rechecked. Other checked-out branches are
 refused. Adopted checkouts count against the four-unused-worktree budget and are
