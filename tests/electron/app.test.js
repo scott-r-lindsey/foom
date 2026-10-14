@@ -9808,6 +9808,7 @@ test("merged cleanup opens checking, continues hidden, reopens progress and stop
     });
     globalThis.cleanupRemovals = [];
     globalThis.cleanupOperations = [];
+    globalThis.cleanupFetchReady = false;
     const originals = new Map();
     for (const method of ["removalIdentity", "changes", "mergedCommit"]) {
       const original = WorktreeService.prototype[method];
@@ -9835,9 +9836,15 @@ test("merged cleanup opens checking, continues hidden, reopens progress and stop
     WorktreeService.prototype.mergedDefault = async function (...args) {
       const entry = { method: "mergedDefault", refresh: args[1], started: Date.now() };
       globalThis.cleanupOperations.push(entry);
-      await gate;
       try {
-        return await fetch.apply(this, args);
+        const result = await fetch.apply(this, args);
+        // Gate the foreground result, without blocking the repository's initial
+        // background eligibility scan or putting native fetch time after release.
+        if (args[1]) {
+          globalThis.cleanupFetchReady = true;
+          await gate;
+        }
+        return result;
       } catch (error) {
         entry.error = error.message;
         throw error;
@@ -9890,6 +9897,7 @@ test("merged cleanup opens checking, continues hidden, reopens progress and stop
   };
   await expect(confirmation.getByRole("list", { name: "Checking worktrees" })).toBeVisible();
   await expect(confirmation.getByRole("button", { name: "Delete", exact: true })).toBeDisabled();
+  await expect.poll(() => app.evaluate(() => globalThis.cleanupFetchReady)).toBe(true);
   await app.evaluate(() => globalThis.cleanupFetchRelease());
   await expect(confirmation.getByRole("button", { name: "Delete 8", exact: true })).toBeEnabled();
   await expect(confirmation.getByRole("list", { name: "Kept worktrees" })).toContainText(
