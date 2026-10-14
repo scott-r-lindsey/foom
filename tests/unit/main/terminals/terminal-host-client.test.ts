@@ -455,6 +455,49 @@ test("bounds host stderr, excludes terminal messages and isolates replacement ho
   expect(appEvents.listenerCount("child-process-gone")).toBe(0);
   expect(console.error).toHaveBeenLastCalledWith(
     "Terminal host diagnostic:",
-    expect.stringContaining('"stderr":""'),
+    expect.stringContaining('"exitCode":9'),
+  );
+});
+
+test.each([true, false])(
+  "clean disposal keeps host stderr private (gone before=%s)",
+  async (before) => {
+    await create();
+    child.stderr.emit("data", "host stderr during normal operation");
+    expect(console.error).not.toHaveBeenCalled();
+    const closing = client.dispose();
+    if (before) gone({ reason: "clean-exit", exitCode: 0 });
+    child.emit("exit", 0);
+    if (!before) gone({ reason: "clean-exit", exitCode: 0 });
+    child.stderr.emit("data", "late stderr");
+    await closing;
+    expect(console.error).not.toHaveBeenCalled();
+  },
+);
+
+test("an unexpected zero exit still rejects shutdown and records diagnostics", async () => {
+  await create();
+  const shutdown = client.shutdown();
+  const rejected = expect(shutdown).rejects.toThrow("Terminal host stopped");
+  child.emit("exit", 0);
+  gone({ reason: "clean-exit", exitCode: 0 });
+  await rejected;
+  expect(console.error).toHaveBeenCalledWith(
+    "Terminal host diagnostic:",
+    expect.stringContaining('"exitCode":0'),
+  );
+});
+
+test.each(["exit", "gone"])("abnormal final disposal logs host stderr (%s)", async (source) => {
+  await create();
+  child.stderr.emit("data", "native failure during disposal");
+  const closing = client.dispose();
+  if (source === "gone") gone();
+  child.emit("exit", source === "exit" ? 1 : 0);
+  child.stderr.emit("data", " late stderr");
+  await closing;
+  expect(console.error).toHaveBeenLastCalledWith(
+    "Terminal host diagnostic:",
+    expect.stringContaining("native failure during disposal late stderr"),
   );
 });

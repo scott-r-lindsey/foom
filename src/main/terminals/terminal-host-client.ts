@@ -90,6 +90,7 @@ export class TerminalHostClient {
     this.child = child;
     this.diagnostics = diagnostics;
     let stderr = Buffer.alloc(0);
+    let abnormalExit = false;
     // Only the utility process's own stderr is piped. PTY output stays on the
     // validated message channel and must never be copied into diagnostics.
     child.stderr?.on("data", (chunk: unknown) => {
@@ -101,7 +102,7 @@ export class TerminalHostClient {
       if (!bytes) return;
       stderr = Buffer.concat([stderr, bytes]).subarray(-HOST_STDERR_LIMIT);
       diagnostics.stderr = stderr.toString("utf8");
-      if (this.diagnostics === diagnostics && this.failure) {
+      if (abnormalExit && this.diagnostics === diagnostics && this.failure) {
         this.failure.message = this.failureMessage(diagnostics);
         console.error("Terminal host diagnostic:", JSON.stringify(diagnostics));
       }
@@ -117,11 +118,12 @@ export class TerminalHostClient {
         reason: details.reason,
         exitCode: details.exitCode,
       };
+      if (details.reason !== "clean-exit") abnormalExit = true;
       // The app and utility exit events have no documented ordering. Preserve
       // late crash details in the same error and log them separately for CI.
       if (this.diagnostics === diagnostics && this.failure)
         this.failure.message = this.failureMessage(diagnostics);
-      console.error("Terminal host diagnostic:", JSON.stringify(diagnostics));
+      if (abnormalExit) console.error("Terminal host diagnostic:", JSON.stringify(diagnostics));
     };
     app.on("child-process-gone", gone);
     this.releaseDiagnostics = () => {
@@ -162,7 +164,9 @@ export class TerminalHostClient {
     });
     child.once("exit", (code) => {
       diagnostics.exitCode = code;
-      console.error("Terminal host diagnostic:", JSON.stringify(diagnostics));
+      // A zero exit while serving requests is still an unexpected host failure.
+      abnormalExit ||= code !== 0 || !this.disposed || this.pending.size > 0;
+      if (abnormalExit) console.error("Terminal host diagnostic:", JSON.stringify(diagnostics));
       this.fail(child);
     });
     return child;
