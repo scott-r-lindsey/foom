@@ -770,8 +770,31 @@ test("fresh focused terminal cursor blinks and preserves application style on re
     });
   });
   await launchCheckoutShell(app, page);
-  const rows = page.locator(".xterm-rows");
-  const cursor = page.locator(".xterm-cursor");
+  const shell = page.locator(".terminal-tile[data-kind='shell'] .tile-terminal");
+  const rows = shell.locator(".xterm-rows");
+  const cursor = rows.locator(".xterm-cursor");
+  const expectCursor = async (style, blinking, animation = /.*/) => {
+    await expect(shell.locator(".xterm")).toHaveCount(1);
+    // Focus paints the current row synchronously; the previous row can retain an
+    // outline cursor until xterm's queued frame. Check count and state together.
+    await expect
+      .poll(() =>
+        cursor.evaluateAll((elements) =>
+          elements.map((element) => ({
+            className: element.className,
+            blinking: element.classList.contains("xterm-cursor-blink"),
+            animation: getComputedStyle(element).animationName,
+          })),
+        ),
+      )
+      .toEqual([
+        {
+          className: expect.stringMatching(style),
+          blinking,
+          animation: expect.stringMatching(animation),
+        },
+      ]);
+  };
   const prompt = process.platform === "win32" ? /PS [\s\S]*>/ : /[$#%>]\s*$/;
   let id;
   try {
@@ -802,8 +825,7 @@ test("fresh focused terminal cursor blinks and preserves application style on re
       )
       .toBe(true);
     await expect(page.locator(".xterm-helper-textarea")).toBeFocused();
-    await expect(cursor).toHaveClass(/xterm-cursor-blink/);
-    await expect(cursor).toHaveCSS("animation-name", /blink_block_/);
+    await expectCursor(/xterm-cursor-block/, true, /blink_block_/);
   } catch (error) {
     const host = id
       ? await page
@@ -858,15 +880,13 @@ test("fresh focused terminal cursor blinks and preserves application style on re
   await page.keyboard.press("Enter");
   await expect(rows).toContainText("NORMAL_VIEW_READY");
   await page.keyboard.press("c");
-  await expect(cursor).toHaveClass(/xterm-cursor-underline/);
-  await expect(cursor).not.toHaveClass(/xterm-cursor-blink/);
+  await expectCursor(/xterm-cursor-underline/, false);
   await openSettingsScreen(page);
   await expect(page.getByRole("region", { name: "Settings" })).toBeVisible();
   await page.keyboard.press("Escape");
   await page.locator(".board-row[data-kind='shell']").click();
   await expect(page.locator(".xterm-helper-textarea")).toBeFocused();
-  await expect(cursor).toHaveClass(/xterm-cursor-underline/);
-  await expect(cursor).not.toHaveClass(/xterm-cursor-blink/);
+  await expectCursor(/xterm-cursor-underline/, false);
   await openSettingsScreen(page);
   await expect(page.getByRole("region", { name: "Settings" })).toBeVisible();
   await page.evaluate((id) => window.desktop.input(id, "b"), id);
@@ -874,18 +894,16 @@ test("fresh focused terminal cursor blinks and preserves application style on re
   await page.keyboard.press("Escape");
   await page.locator(".board-row[data-kind='shell']").click();
   await expect(page.locator(".xterm-helper-textarea")).toBeFocused();
-  await expect(cursor).toHaveClass(/xterm-cursor-bar/);
-  await expect(cursor).toHaveClass(/xterm-cursor-blink/);
-  await expect(cursor).toHaveCSS("animation-name", /blink_bar_/);
+  await expectCursor(/xterm-cursor-bar/, true, /blink_bar_/);
   await page.keyboard.press("r");
   await expect(rows).toContainText("CURSOR_DEFAULT_STEADY");
-  await expect(cursor).not.toHaveClass(/xterm-cursor-blink/);
+  await expectCursor(/xterm-cursor-block/, false);
   await openSettingsScreen(page);
   await expect(page.getByRole("region", { name: "Settings" })).toBeVisible();
   await page.keyboard.press("Escape");
   await page.locator(".board-row[data-kind='shell']").click();
   await expect(page.locator(".xterm-helper-textarea")).toBeFocused();
-  await expect(cursor).not.toHaveClass(/xterm-cursor-blink/);
+  await expectCursor(/xterm-cursor-block/, false);
   await stopSession(page, id);
   await expect(cursor).toHaveCount(0);
 });
