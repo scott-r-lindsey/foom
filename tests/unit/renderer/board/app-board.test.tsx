@@ -990,3 +990,25 @@ test("activity subscribers receive the final cached zero when views remount", as
   off();
   disconnect?.();
 });
+
+test("the application owns and disposes preview composition independently of tile mounting", async () => {
+  const off = vi.fn();
+  const cover = vi.fn(() => Promise.resolve());
+  const onSnapshots = vi.fn(() => off);
+  window.desktop.previews = {
+    pick: vi.fn(),
+    close: vi.fn(),
+    bounds: vi.fn(),
+    cover,
+    onSnapshots,
+  };
+  Object.defineProperty(document, "getAnimations", { configurable: true, value: () => [] });
+  const screen = render(<App />);
+  await act(async () => {});
+  expect(onSnapshots).toHaveBeenCalled();
+  screen.unmount();
+  expect(off).toHaveBeenCalled();
+  expect(cover).toHaveBeenCalledWith(false);
+  delete window.desktop.previews;
+  Reflect.deleteProperty(document, "getAnimations");
+});

@@ -173,6 +173,7 @@ function Tile({
       ref={elementRef}
       className="terminal-tile"
       data-tile={tile.id}
+      data-preview-id={preview?.id}
       data-focused={occupied && focused}
       data-landing={!occupied && landingSpace(layout)?.id === tile.id}
       data-collapsing={collapsing}

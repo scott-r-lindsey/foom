@@ -247,3 +247,11 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+.preview-snapshot {
+  position: fixed;
+  z-index: 4;
+  pointer-events: none;
+  user-select: none;
+  object-fit: fill;
+}

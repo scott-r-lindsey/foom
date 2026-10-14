@@ -1,3 +1,5 @@
+import fs from "node:fs";
+import { MARKDOWN_CSP } from "../../../../src/main/previews/policy";
 import { EventEmitter } from "node:events";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -37,7 +39,10 @@ class FakeSession extends EventEmitter {
 }
 class FakeContents extends EventEmitter {
   session = new FakeSession();
+  send = vi.fn();
+  capturePage = vi.fn(() => Promise.resolve({ toDataURL: () => "data:image/png;base64,AA==" }));
   focus = vi.fn();
+  executeJavaScript = vi.fn(async (_script: string) => {});
   isFocused = vi.fn(() => false);
   isDestroyed = vi.fn(() => false);
   setWindowOpenHandler = vi.fn<(handler: () => { action: string }) => void>();
@@ -48,6 +53,14 @@ class FakeContents extends EventEmitter {
     const result = fake.nextLoad;
     fake.nextLoad = undefined;
     return result ?? Promise.resolve();
+  });
+  executeJavaScriptInIsolatedWorld = vi.fn<() => Promise<unknown>>().mockResolvedValue([0, 1200]);
+  reload = vi.fn(() => {
+    this.emit("did-start-navigation", {
+      url: this.getURL(),
+      isMainFrame: true,
+      isSameDocument: false,
+    });
   });
   setZoomFactor = vi.fn();
   getZoomFactor = vi.fn(() => 1);
@@ -81,6 +94,7 @@ const roots: string[] = [];
 afterEach(async () => {
   fake.views.splice(0);
   fake.packaged = false;
+  vi.restoreAllMocks();
   vi.useRealTimers();
   for (const root of roots.splice(0)) await rm(root, { recursive: true, force: true });
 });
@@ -91,6 +105,7 @@ async function fixture() {
   const window = Object.assign(new EventEmitter(), {
     webContents: new FakeContents(),
     contentView: { addChildView: vi.fn(), removeChildView: vi.fn() },
+    isFocused: vi.fn(() => false),
     getContentBounds: vi.fn(() => ({ width: 800, height: 600 })),
   });
   partition = new FakeSession();
@@ -183,6 +198,23 @@ test("loads detached, denies capabilities, and attaches only loaded visible view
     f.host.bounds(id, { x: 0, y: 0, width: 1, height: 1, visible: true });
   }).toThrow("Unknown");
   await expect(f.host.close(id)).rejects.toThrow("Unknown");
+});
+test("serves bundled assets and wraps Markdown with its restrictive CSP", async () => {
+  const f = await fixture();
+  const { id } = await f.open();
+  const serve = partition.protocol.handle.mock.calls[0]?.[1];
+  if (!serve) throw new Error("Missing protocol");
+  await writeFile(join(f.root, "a.md"), "# Safe </script>");
+  const response = serve({ url: `foom-preview://${id}/a.md` });
+  expect(response.headers.get("content-type")).toBe("text/html; charset=utf-8");
+  expect(response.headers.get("content-security-policy")).toBe(MARKDOWN_CSP);
+  expect(await response.text()).toContain('"# Safe \\u003c/script>"');
+  const read = vi.spyOn(fs, "readFileSync").mockReturnValue(Buffer.from("bundled"));
+  const asset = serve({ url: `foom-preview://${id}/__foom__/markdown.js` });
+  read.mockRestore();
+  expect(asset.headers.get("content-type")).toBe("text/javascript; charset=utf-8");
+  expect(await asset.text()).toBe("bundled");
+  await f.host.dispose(false);
 });
 test("only a human mouse-down permits focus, and navigation/reload detach before loading", async () => {
   const f = await fixture();
@@ -428,8 +460,10 @@ test("hiding or closing a pending handoff unblocks board input", async () => {
     const event = { preventDefault: vi.fn() };
     f.window.webContents.emit("before-input-event", event);
     expect(event.preventDefault).toHaveBeenCalledOnce();
-    if (action === "hide") f.host.bounds(id, { ...bounds, visible: false });
-    else await f.host.close(id);
+    if (action === "hide") {
+      f.host.bounds(id, { ...bounds, visible: false });
+      await Promise.resolve();
+    } else await f.host.close(id);
     f.window.webContents.emit("before-input-event", event);
     expect(event.preventDefault).toHaveBeenCalledOnce();
     await f.host.dispose(false);
@@ -451,6 +485,7 @@ test("a failed replacement load cancels the input gate", async () => {
   const event = { preventDefault: vi.fn() };
   f.window.webContents.emit("before-input-event", event);
   expect(event.preventDefault).toHaveBeenCalledOnce();
+  await Promise.resolve();
   await Promise.resolve();
   f.window.webContents.emit("before-input-event", event);
   expect(event.preventDefault).toHaveBeenCalledOnce();
@@ -526,4 +561,280 @@ test("invalid files, revoked inventory, failed saves and shutdown during open le
   });
   await expect(f.host.open(f.root, "a.html")).rejects.toThrow("closed");
   expect(fake.views).toHaveLength(0);
+});
+
+test("cover snapshots loaded views, detaches before capture resolves, and restores without focus", async () => {
+  const f = await fixture();
+  const { id, view } = await f.open();
+  f.host.bounds(id, { x: 1, y: 2, width: 100, height: 80, visible: true });
+  view.webContents.emit("did-finish-load");
+  let release: (() => void) | undefined;
+  view.webContents.capturePage.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        release = () => {
+          resolve({ toDataURL: () => "data:image/png;base64,AA==" });
+        };
+      }),
+  );
+  const covering = f.host.cover(true);
+  expect(f.window.contentView.removeChildView).toHaveBeenCalledWith(view);
+  f.host.bounds(id, { x: 3, y: 4, width: 100, height: 80, visible: true });
+  release?.();
+  await covering;
+  expect(f.window.webContents.send).toHaveBeenLastCalledWith("preview:snapshots", [
+    {
+      id,
+      bounds: { x: 3, y: 4, width: 100, height: 80, visible: true },
+      image: "data:image/png;base64,AA==",
+    },
+  ]);
+  await f.host.cover(true);
+  expect(view.webContents.capturePage).toHaveBeenCalledTimes(1);
+  await f.host.cover(false);
+  expect(f.window.contentView.addChildView).toHaveBeenLastCalledWith(view);
+  expect(view.webContents.focus).not.toHaveBeenCalled();
+  expect(f.window.webContents.send).toHaveBeenLastCalledWith("preview:snapshots", []);
+  await f.host.dispose(false);
+  await f.host.cover(true);
+});
+test("cover handles loading pages, failed capture, stale capture and close", async () => {
+  const f = await fixture();
+  const { id, view } = await f.open();
+  f.host.bounds(id, { x: 0, y: 0, width: 100, height: 80, visible: true });
+  await f.host.cover(true);
+  expect(view.webContents.capturePage).not.toHaveBeenCalled();
+  view.webContents.capturePage.mockRejectedValueOnce(new Error("capture failed"));
+  view.webContents.emit("did-finish-load");
+  await Promise.resolve();
+  await f.host.cover(false);
+  let release: (() => void) | undefined;
+  view.webContents.capturePage.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        release = () => {
+          resolve({ toDataURL: () => "data:image/png;base64,AA==" });
+        };
+      }),
+  );
+  const covering = f.host.cover(true);
+  await f.host.cover(false);
+  release?.();
+  await covering;
+  expect(f.window.webContents.send).toHaveBeenLastCalledWith("preview:snapshots", []);
+  await f.host.cover(true);
+  await f.host.close(id);
+  expect(f.window.webContents.send).toHaveBeenLastCalledWith("preview:snapshots", []);
+  f.window.webContents.isDestroyed.mockReturnValue(true);
+  await f.host.cover(false);
+});
+test("every preview forwards native input to the board dispatcher without taking focus", async () => {
+  const f = await fixture();
+  const { view } = await f.open();
+  const handler = vi.fn();
+  f.window.webContents.on("before-input-event", handler);
+  const event = { preventDefault: vi.fn() };
+  const input = { type: "keyDown", key: "B", control: true, shift: true };
+  view.webContents.emit("before-input-event", event, input);
+  expect(handler).toHaveBeenCalledWith(event, input);
+  expect(view.webContents.focus).not.toHaveBeenCalled();
+  await f.host.dispose(false);
+});
+
+test.each(["Escape", "blur", "deadline"] as const)(
+  "%s releases a stuck handoff only after blurring terminal DOM focus and revokes late focus",
+  async (reason) => {
+    vi.useFakeTimers();
+    const f = await fixture();
+    const { id, view } = await f.open();
+    f.host.bounds(id, { x: 0, y: 0, width: 100, height: 100, visible: true });
+    view.webContents.emit("did-finish-load");
+    view.webContents.emit("before-mouse-event", {}, { type: "mouseDown" });
+    const navigation = { url: view.webContents.getURL(), isMainFrame: true, isSameDocument: false };
+    view.webContents.emit("did-start-navigation", navigation);
+    const replacement = fake.views[1];
+    if (!replacement) throw new Error("Missing replacement");
+    f.window.isFocused.mockReturnValue(reason !== "blur");
+    // A load can finish without the OS granting focus; it must still time out.
+    if (reason === "deadline") replacement.webContents.emit("did-finish-load");
+    let blurred = () => {};
+    f.window.webContents.executeJavaScript.mockReturnValueOnce(
+      new Promise<void>((resolve) => {
+        blurred = resolve;
+      }),
+    );
+    const event = { preventDefault: vi.fn() };
+    if (reason === "Escape")
+      replacement.webContents.emit("before-input-event", event, { key: "Escape" });
+    else if (reason === "blur") f.window.emit("blur");
+    else {
+      await vi.advanceTimersByTimeAsync(1499);
+      expect(f.window.webContents.executeJavaScript).not.toHaveBeenCalled();
+      await vi.advanceTimersByTimeAsync(1);
+    }
+    expect(f.window.webContents.executeJavaScript).toHaveBeenCalledOnce();
+    expect(f.window.webContents.executeJavaScript).toHaveBeenCalledWith(
+      'if (document.activeElement?.closest(".xterm")) document.activeElement.blur()',
+    );
+    event.preventDefault.mockClear();
+    f.window.webContents.emit("before-input-event", event, { key: "x" });
+    expect(event.preventDefault).toHaveBeenCalledOnce();
+    blurred();
+    await Promise.resolve();
+    event.preventDefault.mockClear();
+    f.window.webContents.emit("before-input-event", event, { key: "x" });
+    expect(event.preventDefault).not.toHaveBeenCalled();
+    replacement.webContents.focus.mockClear();
+    replacement.webContents.emit("did-finish-load");
+    replacement.webContents.emit("focus");
+    expect(replacement.webContents.focus).not.toHaveBeenCalled();
+    expect(f.window.webContents.focus).toHaveBeenCalledTimes(reason === "blur" ? 1 : 2);
+    await f.host.dispose(false);
+    expect(f.window.listenerCount("blur")).toBe(0);
+    expect(vi.getTimerCount()).toBe(0);
+  },
+);
+
+test("a cancelled handoff cannot be revived by a delayed replacement or stale blur completion", async () => {
+  vi.useFakeTimers();
+  const f = await fixture();
+  const { id, view } = await f.open();
+  f.host.bounds(id, { x: 0, y: 0, width: 100, height: 100, visible: true });
+  view.webContents.emit("did-finish-load");
+  view.webContents.emit("before-mouse-event", {}, { type: "mouseDown" });
+  const navigation = { url: view.webContents.getURL(), isMainFrame: true, isSameDocument: false };
+  view.webContents.emit("did-start-navigation", navigation);
+  const replacement = fake.views[1];
+  if (!replacement) throw new Error("Missing replacement");
+  replacement.webContents.emit("did-start-navigation", navigation);
+  let blurred = () => {};
+  f.window.webContents.executeJavaScript.mockReturnValueOnce(
+    new Promise<void>((resolve) => {
+      blurred = resolve;
+    }),
+  );
+  f.window.emit("blur");
+  f.window.webContents.emit("before-mouse-event", {}, { type: "mouseDown" });
+  await vi.advanceTimersByTimeAsync(250);
+  const delayed = fake.views[2];
+  if (!delayed) throw new Error("Missing delayed replacement");
+  delayed.webContents.emit("did-finish-load");
+  expect(delayed.webContents.focus).not.toHaveBeenCalled();
+  delayed.webContents.emit("before-mouse-event", {}, { type: "mouseDown" });
+  delayed.webContents.emit("did-start-navigation", navigation);
+  blurred();
+  await Promise.resolve();
+  const event = { preventDefault: vi.fn() };
+  f.window.webContents.emit("before-input-event", event);
+  expect(event.preventDefault).toHaveBeenCalledOnce();
+  await f.host.dispose(false);
+  await vi.advanceTimersByTimeAsync(2000);
+  expect(vi.getTimerCount()).toBe(0);
+});
+
+test("blur failure keeps PTY input gated and Escape can retry", async () => {
+  const f = await fixture();
+  const { id, view } = await f.open();
+  f.host.bounds(id, { x: 0, y: 0, width: 100, height: 100, visible: true });
+  view.webContents.emit("did-finish-load");
+  view.webContents.emit("before-mouse-event", {}, { type: "mouseDown" });
+  view.webContents.emit("did-start-navigation", {
+    url: view.webContents.getURL(),
+    isMainFrame: true,
+    isSameDocument: false,
+  });
+  f.window.webContents.executeJavaScript.mockRejectedValueOnce(new Error("Board unavailable"));
+  f.window.emit("blur");
+  await Promise.resolve();
+  await Promise.resolve();
+  const event = { preventDefault: vi.fn() };
+  f.window.webContents.emit("before-input-event", event, { key: "x" });
+  expect(event.preventDefault).toHaveBeenCalledOnce();
+  f.window.webContents.isDestroyed.mockReturnValue(true);
+  f.window.webContents.executeJavaScript.mockRejectedValueOnce(new Error("Destroyed"));
+  f.window.webContents.emit("before-input-event", event, { key: "Escape" });
+  await Promise.resolve();
+  await Promise.resolve();
+  event.preventDefault.mockClear();
+  f.window.webContents.emit("before-input-event", event);
+  expect(event.preventDefault).not.toHaveBeenCalled();
+});
+
+test("served and missing files reload with isolated scroll, release watchers and survive read/restore failures", async () => {
+  vi.useFakeTimers();
+  let notify: (() => void) | undefined;
+  vi.spyOn(fs, "watch").mockImplementation(
+    (_name: fs.PathLike, _options: unknown, listener?: fs.WatchListener<string>) => {
+      notify = () => {
+        if (typeof listener === "function") listener("change", "a.html");
+      };
+      return Object.assign(new EventEmitter(), { close: vi.fn(), ref: vi.fn(), unref: vi.fn() });
+    },
+  );
+  const f = await fixture();
+  const { id, view } = await f.open();
+  const handler = partition.protocol.handle.mock.calls[0]?.[1];
+  if (!handler) throw new Error("Missing protocol");
+  handler({ url: `foom-preview://${id}/a.html` });
+  expect(f.host.watcherCount).toBe(1);
+  expect(await handler({ url: `foom-preview://${id}/missing.html` }).text()).toBe(
+    "File not found. Waiting for it to appear.",
+  );
+  notify?.();
+  await vi.advanceTimersByTimeAsync(120);
+  expect(view.webContents.executeJavaScriptInIsolatedWorld).toHaveBeenCalledWith(999, [
+    { code: "[window.scrollX, window.scrollY]" },
+  ]);
+  const replacement = fake.views[1];
+  if (!replacement) throw new Error("Missing replacement");
+  replacement.webContents.executeJavaScriptInIsolatedWorld.mockRejectedValueOnce(
+    new Error("closed"),
+  );
+  replacement.webContents.emit("did-finish-load");
+  await Promise.resolve();
+  expect(replacement.webContents.executeJavaScriptInIsolatedWorld).toHaveBeenCalledWith(999, [
+    { code: "window.scrollTo(0, 1200)" },
+  ]);
+  replacement.webContents.executeJavaScriptInIsolatedWorld.mockRejectedValueOnce(
+    new Error("read failed"),
+  );
+  notify?.();
+  await vi.advanceTimersByTimeAsync(500);
+  const third = fake.views[2];
+  third?.webContents.emit("did-finish-load");
+  expect(third?.webContents.executeJavaScriptInIsolatedWorld).not.toHaveBeenCalled();
+  await f.host.close(id);
+  expect(f.host.watcherCount).toBe(0);
+  await f.host.dispose(false);
+});
+test("closing while isolated scroll capture is pending cannot resurrect a preview", async () => {
+  vi.useFakeTimers();
+  let notify: (() => void) | undefined;
+  vi.spyOn(fs, "watch").mockImplementation(
+    (_name: fs.PathLike, _options: unknown, listener?: fs.WatchListener<string>) => {
+      notify = () => {
+        if (typeof listener === "function") listener("change", "a.html");
+      };
+      return Object.assign(new EventEmitter(), { close: vi.fn(), ref: vi.fn(), unref: vi.fn() });
+    },
+  );
+  const f = await fixture();
+  const { id, view } = await f.open();
+  partition.protocol.handle.mock.calls[0]?.[1]({ url: `foom-preview://${id}/a.html` });
+  let resolve: ((value: unknown) => void) | undefined;
+  view.webContents.executeJavaScriptInIsolatedWorld.mockReturnValueOnce(
+    new Promise((done) => {
+      resolve = done;
+    }),
+  );
+  notify?.();
+  await vi.advanceTimersByTimeAsync(120);
+  notify?.();
+  await vi.advanceTimersByTimeAsync(120);
+  expect(view.webContents.executeJavaScriptInIsolatedWorld).toHaveBeenCalledOnce();
+  await f.host.close(id);
+  resolve?.([0, 100]);
+  await Promise.resolve();
+  expect(view.webContents.reload).not.toHaveBeenCalled();
+  await f.host.dispose(false);
 });

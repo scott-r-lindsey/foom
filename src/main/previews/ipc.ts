@@ -57,8 +57,13 @@ export function attachPreviews(
     if (args.length !== 2 || !previewId(id)) throw new Error("Invalid preview ID");
     host.bounds(id, parseBounds(bounds));
   });
+  ipc.handle("preview:cover", (_event, ...args) => {
+    if (args.length !== 1 || typeof args[0] !== "boolean")
+      throw new Error("Invalid preview cover request");
+    return host.cover(args[0]);
+  });
   return () => {
-    for (const channel of ["preview:pick", "preview:close", "preview:bounds"])
+    for (const channel of ["preview:pick", "preview:close", "preview:bounds", "preview:cover"])
       ipc.removeHandler(channel);
   };
 }

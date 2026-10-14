@@ -10619,6 +10619,93 @@ async function typeIntoFocusedContents(app, text, allowNoFocus = false) {
   }
 }
 
+test("Markdown previews render hostile documents safely, follow native theme and navigate to a sibling", async (context) => {
+  const app = await launchApp(context);
+  const page = await boardPage(app);
+  const terminal = (await page.evaluate(() => window.desktop.workspace())).terminals[0];
+  const root = terminal.worktree;
+  const hostile = await readFile(path.join(__dirname, "../fixtures/previews/hostile.md"), "utf8");
+  await writeFile(
+    path.join(root, "document.md"),
+    `${hostile}\n\n- [x] Done\n\n[Sibling](sibling.md)\n\n[External](https://example.com)`,
+  );
+  await writeFile(
+    path.join(root, "sibling.md"),
+    "# Sibling document\n\n```js\nconst answer = 42;\n```\n",
+  );
+  const id = await pickPreviewFile(app, page, root, "document.md");
+  await page.evaluate(
+    (id) =>
+      window.desktop.previews.bounds(id, {
+        x: 350,
+        y: 100,
+        width: 400,
+        height: 250,
+        visible: true,
+      }),
+    id,
+  );
+  await expect.poll(async () => (await previewViewState(app, id)).attached).toBe(true);
+  assert.equal(
+    await previewContents(app, id, 'document.querySelector("h1")?.textContent'),
+    "Hostile Markdown",
+  );
+  assert.deepEqual(
+    await previewContents(
+      app,
+      id,
+      `({
+    pwned: window.__pwned ?? null,
+    frames: document.querySelectorAll("iframe").length,
+    handlers: [...document.querySelectorAll("*")].flatMap(element => element.getAttributeNames()).filter(name => /^on/i.test(name)),
+    unsafe: [...document.querySelectorAll("a")].filter(link => /^(javascript|vbscript|data|file):/i.test(link.getAttribute("href"))).length,
+    scripts: document.scripts.length,
+    task: document.querySelector('input[type="checkbox"]')?.disabled,
+    external: document.querySelector('a[href="https://example.com"]')?.className,
+  })`,
+    ),
+    {
+      pwned: null,
+      frames: 0,
+      handlers: [],
+      unsafe: 0,
+      scripts: 2,
+      task: true,
+      external: "external",
+    },
+  );
+  for (const [mode, background] of [
+    ["dark", "rgb(5, 4, 10)"],
+    ["light", "rgb(243, 240, 250)"],
+  ]) {
+    await page.evaluate((colorMode) => window.desktop.saveSetup({ colorMode }), mode);
+    await expect
+      .poll(() =>
+        previewContents(app, id, "getComputedStyle(document.documentElement).backgroundColor"),
+      )
+      .toBe(background);
+  }
+  const oldContents = (await previewViewState(app, id)).contentsId;
+  await previewContents(app, id, `document.querySelector('a[href="sibling.md"]').click()`);
+  await expect
+    .poll(async () => {
+      const state = await previewViewState(app, id);
+      return state.attached && state.contentsId !== oldContents;
+    })
+    .toBe(true);
+  assert.equal(
+    await previewContents(app, id, 'document.querySelector("h1")?.textContent'),
+    "Sibling document",
+  );
+  assert.equal(await previewContents(app, id, "location.pathname"), "/sibling.md");
+  assert.equal(
+    await previewContents(app, id, 'document.querySelector(".hljs-keyword")?.textContent'),
+    "const",
+  );
+  assert.equal((await previewViewState(app, id)).focused, false);
+  await page.evaluate((id) => window.desktop.previews.close(id), id);
+});
+
 test("preview host loads and reloads detached, never steals terminal keystrokes, and focuses on a click", async (context) => {
   const app = await launchApp(context);
   const page = await boardPage(app);
@@ -10819,7 +10906,7 @@ test("preview host keeps keyboard focus after a user-clicked link navigation", a
   );
   const domFocus = await page.evaluate(() => document.activeElement?.className);
   context.diagnostic(`handoff native focus ${nativeFocus}, board DOM focus ${domFocus}`);
-  await typeIntoFocusedContents(app, "gap".repeat(40), true);
+  await typeIntoFocusedContents(app, "gap", true);
   // Exercise native board fallback even on platforms which leave no responder.
   await app.evaluate(({ BrowserWindow }) => {
     BrowserWindow.getAllWindows()
@@ -10829,7 +10916,7 @@ test("preview host keeps keyboard focus after a user-clicked link navigation", a
   await expect
     .poll(() => app.evaluate(({ webContents }) => webContents.getFocusedWebContents()?.getURL()))
     .toBe("app://bundle/index.html");
-  await typeIntoFocusedContents(app, "blocked".repeat(40));
+  await typeIntoFocusedContents(app, "blocked");
   await app.evaluate(() => globalThis.releasePreviewLink());
   await expect.poll(async () => (await previewViewState(app, id)).attached).toBe(true);
   await expect
@@ -10887,6 +10974,102 @@ test("preview host keeps keyboard focus after a user-clicked link navigation", a
   await expect.poll(async () => (await previewViewState(app, id)).attached).toBe(true);
   assert.equal((await previewViewState(app, id)).focused, false);
   await page.evaluate((id) => window.desktop.previews.close(id), id);
+});
+
+// Each response stays pending until app teardown: no network or elapsed-time mock.
+async function stuckPreviewHandoff(context, cancellation) {
+  const app = await launchApp(context);
+  const page = await boardPage(app);
+  const terminal = (await page.evaluate(() => window.desktop.workspace())).terminals[0];
+  await writeFile(
+    path.join(terminal.worktree, "stuck.html"),
+    '<a href="never.md" style="display:block;width:200px;height:100px">Continue</a>',
+  );
+  await writeFile(path.join(terminal.worktree, "never.md"), "Never loaded");
+  await app.evaluate(({ app }) => {
+    app.on("session-created", (partition) => {
+      const handle = partition.protocol.handle.bind(partition.protocol);
+      partition.protocol.handle = (scheme, handler) =>
+        handle(scheme, (request) => {
+          if (!request.url.endsWith("/never.md")) return handler(request);
+          globalThis.stuckPreviewRequested = true;
+          return new Promise(() => {});
+        });
+    });
+  });
+  await expect
+    .poll(() => page.locator(".xterm-rows").innerText())
+    .toMatch(process.platform === "win32" ? /PS [\s\S]*>/ : /[$#%>]\s*$/);
+  await page.locator(".xterm-helper-textarea").focus();
+  const before = await page.evaluate((id) => window.desktop.tail(id, 20), terminal.id);
+  const id = await pickPreviewFile(app, page, terminal.worktree, "stuck.html");
+  await page.evaluate(
+    (id) =>
+      window.desktop.previews.bounds(id, {
+        x: 350,
+        y: 100,
+        width: 400,
+        height: 250,
+        visible: true,
+      }),
+    id,
+  );
+  await expect.poll(async () => (await previewViewState(app, id)).attached).toBe(true);
+  await app.evaluate(({ webContents }, id) => {
+    const contents = webContents
+      .getAllWebContents()
+      .find((entry) => entry.getURL().startsWith(`foom-preview://${id}/`));
+    contents.sendInputEvent({ type: "mouseDown", x: 30, y: 30, button: "left", clickCount: 1 });
+    contents.sendInputEvent({ type: "mouseUp", x: 30, y: 30, button: "left", clickCount: 1 });
+  }, id);
+  await expect.poll(() => app.evaluate(() => globalThis.stuckPreviewRequested)).toBe(true);
+  // Exercise board fallback while its terminal textarea still holds DOM focus.
+  await app.evaluate(({ BrowserWindow }) => {
+    BrowserWindow.getAllWindows()
+      .find((window) => window.webContents.getURL() === "app://bundle/index.html")
+      .webContents.focus();
+  });
+  await expect
+    .poll(() => app.evaluate(({ webContents }) => webContents.getFocusedWebContents()?.getURL()))
+    .toBe("app://bundle/index.html");
+  await typeIntoFocusedContents(app, "gap");
+  if (cancellation === "Escape") {
+    await app.evaluate(({ webContents }) => {
+      const contents = webContents.getFocusedWebContents();
+      contents.sendInputEvent({ type: "keyDown", keyCode: "Escape" });
+      contents.sendInputEvent({ type: "keyUp", keyCode: "Escape" });
+    });
+  }
+  await expect(page.locator(".xterm-helper-textarea")).not.toBeFocused();
+  assert.equal((await previewViewState(app, id)).attached, false);
+  await typeIntoFocusedContents(app, "after");
+  // A real main-process shortcut works without any intervening mouse click.
+  const collapsed = await page
+    .locator(".sidebar-shell")
+    .evaluate((element) => element.getAttribute("data-compact") === "true");
+  await app.evaluate(({ webContents }) => {
+    const contents = webContents.getFocusedWebContents();
+    const modifiers = process.platform === "darwin" ? ["meta"] : ["control", "shift"];
+    contents.sendInputEvent({ type: "keyDown", keyCode: "B", modifiers });
+    contents.sendInputEvent({ type: "keyUp", keyCode: "B", modifiers });
+  });
+  await expect
+    .poll(() =>
+      page
+        .locator(".sidebar-shell")
+        .evaluate((element) => element.getAttribute("data-compact") === "true"),
+    )
+    .toBe(!collapsed);
+  assert.deepEqual(await page.evaluate((id) => window.desktop.tail(id, 20), terminal.id), before);
+  await page.evaluate((id) => window.desktop.previews.close(id), id);
+}
+
+test("preview handoff Escape restores board keyboard input during a never-finishing local load", async (context) => {
+  await stuckPreviewHandoff(context, "Escape");
+});
+
+test("preview handoff deadline restores board keyboard input during a never-finishing local load", async (context) => {
+  await stuckPreviewHandoff(context, "deadline");
 });
 
 test("preview host isolates hostile pages, blocks network and navigation, scales bounds and clears closed partitions", async (context) => {
@@ -11229,4 +11412,314 @@ test("terminal font picker updates open shells and config shells and refits thei
   await page.keyboard.press("Escape");
   for (const rows of await page.locator(".xterm-rows").all())
     await expect(rows).toHaveCSS("font-family", '"Hack Nerd Font Mono", "Geist Mono", monospace');
+});
+
+async function composedPreview(context, borderWidth = 1) {
+  const app = await launchApp(context);
+  const page = await boardPage(app);
+  const terminal = (await page.evaluate(() => window.desktop.workspace())).terminals[0];
+  await writeFile(
+    path.join(terminal.worktree, "overlay.html"),
+    `<style>html,body{margin:0;background:#123456;height:100%}</style><input style="height:70px;width:90%"><script>window.pointerCount=0;addEventListener('pointerdown',()=>window.pointerCount++);window.keys=[];addEventListener('keydown',e=>window.keys.push(e.key));</script>`,
+  );
+  const id = await pickPreviewFile(app, page, terminal.worktree, "overlay.html");
+  await page.evaluate(
+    ({ id, session }) => {
+      localStorage.setItem(
+        `foom.tiles.v1.${window.desktop.windows.id}`,
+        JSON.stringify({
+          version: 2,
+          focused: "preview",
+          tree: {
+            kind: "split",
+            id: "columns",
+            direction: "horizontal",
+            ratio: 0.5,
+            first: { kind: "tile", id: "shell", content: { kind: "terminal", session } },
+            second: { kind: "tile", id: "preview", content: { kind: "preview", preview: id } },
+          },
+        }),
+      );
+    },
+    { id, session: terminal.id },
+  );
+  await page.reload();
+  const tile = page.locator('[data-tile="preview"]');
+  await expect(tile).toHaveAttribute("data-kind", "preview");
+  await tile.evaluate((element, width) => {
+    element.style.borderWidth = `${width}px`;
+  }, borderWidth);
+  const bounds = await tile.evaluate((element) => {
+    const rect = element.getBoundingClientRect();
+    const title = element.querySelector(".tile-title").getBoundingClientRect();
+    const style = getComputedStyle(element);
+    const left = parseFloat(style.borderLeftWidth) + parseFloat(style.paddingLeft);
+    const right = parseFloat(style.borderRightWidth) + parseFloat(style.paddingRight);
+    const bottom = parseFloat(style.borderBottomWidth) + parseFloat(style.paddingBottom);
+    return {
+      x: rect.left + left,
+      y: title.bottom,
+      width: rect.width - left - right,
+      height: rect.bottom - title.bottom - bottom,
+      visible: true,
+    };
+  });
+  await page.evaluate(({ id, bounds }) => window.desktop.previews.bounds(id, bounds), {
+    id,
+    bounds,
+  });
+  await expect.poll(async () => (await previewViewState(app, id)).attached).toBe(true);
+  return { app, page, id, tile, bounds };
+}
+async function expectPreviewSnapshot(page, id) {
+  const snapshot = page.locator(`.preview-snapshot[data-preview="${id}"]`);
+  await expect(snapshot).toBeVisible();
+  await expect
+    .poll(() =>
+      snapshot.evaluate((canvas) =>
+        Array.from(
+          canvas.getContext("2d").getImageData(canvas.width / 2, canvas.height / 2, 1, 1).data,
+        ),
+      ),
+    )
+    .toEqual([18, 52, 86, 255]);
+  await expect(snapshot).toHaveCSS("pointer-events", "none");
+}
+
+test("preview composition keeps tile and row panels visible and usable above captured pages", async (context) => {
+  const { app, page, id, tile, bounds } = await composedPreview(context, 2);
+  await tile.getByRole("button", { name: "Tile 2 menu" }).click();
+  await expect(page.getByRole("menuitem", { name: "Split down" })).toBeVisible();
+  await expect.poll(async () => (await previewViewState(app, id)).attached).toBe(false);
+  await expectPreviewSnapshot(page, id);
+  await expect(page.locator(".preview-snapshot")).toHaveCSS("left", `${bounds.x}px`);
+  await expect(page.locator(".preview-snapshot")).toHaveCSS("width", `${bounds.width}px`);
+  await page.screenshot({
+    path: "test-results/preview-overlays-panel.png",
+    animations: "disabled",
+  });
+  await page.getByRole("menuitem", { name: "Split down" }).click();
+  await expect(page.locator(".terminal-tile")).toHaveCount(3);
+  await expect.poll(async () => (await previewViewState(app, id)).attached).toBe(true);
+  await page.locator(".board-row").first().click({ button: "right" });
+  await expect(page.locator(".row-menu")).toBeVisible();
+  await expectPreviewSnapshot(page, id);
+  await page.reload();
+  await expect(page.locator(".row-menu")).toHaveCount(0);
+  await expect(page.locator(".preview-snapshot")).toHaveCount(0);
+  await expect.poll(async () => (await previewViewState(app, id)).attached).toBe(true);
+});
+
+test("preview composition puts the trusted confirmation scrim above previews and restores on cancel", async (context) => {
+  const { app, page, id } = await composedPreview(context);
+  await app.evaluate(({ app }) => app.quit());
+  const dialog = await confirmationPage(app);
+  await expect(page.locator(".board-confirmation-scrim:popover-open")).toBeVisible();
+  await expect.poll(async () => (await previewViewState(app, id)).attached).toBe(false);
+  await expectPreviewSnapshot(page, id);
+  await page.screenshot({
+    path: "test-results/preview-overlays-scrim.png",
+    animations: "disabled",
+  });
+  await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
+  await expect(page.locator(".board-confirmation-scrim")).toHaveCount(0);
+  await expect(page.locator(".preview-snapshot")).toHaveCount(0);
+  await expect.poll(async () => (await previewViewState(app, id)).attached).toBe(true);
+  assert.equal((await previewViewState(app, id)).focused, false);
+});
+
+test("preview composition freezes maximize and restore animations and excludes preview hit testing throughout tile drags", async (context) => {
+  const { app, page, id, tile, bounds } = await composedPreview(context);
+  // Lengthen only the product animation being observed, never a test deadline.
+  await page.addStyleTag({ content: ".terminal-tile { transition-duration: 1s; }" });
+  await tile.getByRole("button", { name: "Maximize tile" }).click();
+  await expectPreviewSnapshot(page, id);
+  await expect.poll(async () => (await previewViewState(app, id)).attached).toBe(false);
+  await expect.poll(async () => (await previewViewState(app, id)).attached).toBe(true);
+  await tile.getByRole("button", { name: "Restore tile" }).click();
+  await expectPreviewSnapshot(page, id);
+  await expect.poll(async () => (await previewViewState(app, id)).attached).toBe(true);
+  const title = await page.locator('[data-tile="shell"] .tile-title').boundingBox();
+  assert.ok(title);
+  await page.mouse.move(title.x + 10, title.y + 10);
+  await page.mouse.down();
+  await page.mouse.move(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2, { steps: 12 });
+  await expect(page.locator(".tile-drop-preview")).toBeVisible();
+  await expectPreviewSnapshot(page, id);
+  assert.equal((await previewViewState(app, id)).attached, false);
+  await page.screenshot({ path: "test-results/preview-overlays-drag.png", animations: "disabled" });
+  assert.equal(await previewContents(app, id, "window.pointerCount"), 0);
+  await page.mouse.up();
+  await expect(page.locator(".tile-drop-preview")).toHaveCount(0);
+  await expect.poll(async () => (await previewViewState(app, id)).attached).toBe(true);
+});
+
+test("preview focused native input reaches board shortcuts including the tile leader and leaves ordinary keys in the page", async (context) => {
+  const { app, page, id } = await composedPreview(context);
+  await app.evaluate(({ webContents }, id) => {
+    const contents = webContents
+      .getAllWebContents()
+      .find((entry) => entry.getURL().startsWith(`foom-preview://${id}/`));
+    contents.sendInputEvent({ type: "mouseDown", x: 20, y: 20, button: "left", clickCount: 1 });
+    contents.sendInputEvent({ type: "mouseUp", x: 20, y: 20, button: "left", clickCount: 1 });
+  }, id);
+  await expect.poll(async () => (await previewViewState(app, id)).focused).toBe(true);
+  await typeIntoFocusedContents(app, "x");
+  await expect.poll(() => previewContents(app, id, "window.keys")).toEqual(["x"]);
+  const send = async (keyCode, modifiers) =>
+    app.evaluate(
+      ({ webContents }, { keyCode, modifiers }) => {
+        const contents = webContents.getFocusedWebContents();
+        if (!contents) throw new Error("No native input target");
+        for (const type of ["keyDown", "keyUp"])
+          contents.sendInputEvent({ type, keyCode, modifiers });
+      },
+      { keyCode, modifiers },
+    );
+  const mac = process.platform === "darwin";
+  await send("B", mac ? ["meta"] : ["control", "shift"]);
+  await expect(page.getByRole("button", { name: /Expand sidebar/ })).toBeVisible();
+  if (!mac) await send("Space", ["control", "shift"]);
+  await send("1", mac ? ["meta"] : []);
+  await expect(page.locator('[data-tile="shell"]')).toHaveAttribute("data-focused", "true");
+  assert.equal(
+    await previewContents(app, id, "window.keys.includes('B') || window.keys.includes('1')"),
+    false,
+  );
+});
+
+test("preview live reload handles saves, assets, missing files, scroll and closes watchers", async (context) => {
+  const { rename, unlink } = require("node:fs/promises");
+  const app = await launchApp(context);
+  const page = await boardPage(app);
+  const root = (await page.evaluate(() => window.desktop.workspace())).terminals[0].worktree;
+  const document = (text) =>
+    `<link rel="stylesheet" href="live.css"><div style="height:4000px">${text}</div>`;
+  await writeFile(path.join(root, "live.html"), document("first"));
+  await writeFile(path.join(root, "live.css"), "body { color: rgb(1, 2, 3); }");
+  // Count real native subscriptions and completed loads, including replacement contents.
+  await app.evaluate(({ app }, root) => {
+    const fs = process.getBuiltinModule("node:fs");
+    const original = fs.watch;
+    globalThis.liveStats = { watchers: 0, loads: 0 };
+    fs.watch = function (filename, ...args) {
+      const watch = original.call(this, filename, ...args);
+      if (String(filename).startsWith(root)) {
+        globalThis.liveStats.watchers++;
+        const close = watch.close.bind(watch);
+        let closed = false;
+        watch.close = () => {
+          if (!closed) {
+            closed = true;
+            globalThis.liveStats.watchers--;
+          }
+          return close();
+        };
+      }
+      return watch;
+    };
+    app.on("web-contents-created", (_event, contents) => {
+      contents.on("did-finish-load", () => {
+        if (contents.getURL().startsWith("foom-preview://")) globalThis.liveStats.loads++;
+      });
+    });
+  }, root);
+  const id = await pickPreviewFile(app, page, root, "live.html");
+  await page.evaluate(
+    (id) =>
+      window.desktop.previews.bounds(id, {
+        x: 400,
+        y: 100,
+        width: 250,
+        height: 180,
+        visible: true,
+      }),
+    id,
+  );
+  const loaded = async (text) => {
+    await expect
+      .poll(async () => {
+        const state = await previewViewState(app, id);
+        if (!state.attached || state.loading) return "loading";
+        return previewContents(app, id, "document.body.textContent");
+      })
+      .toContain(text);
+    assert.equal((await previewViewState(app, id)).focused, false);
+  };
+  await loaded("first");
+  await previewContents(app, id, "window.scrollTo(0, 1200)");
+  await expect.poll(() => previewContents(app, id, "window.scrollY")).toBe(1200);
+  // Page-world overrides cannot spoof the isolated-world scroll capture.
+  await previewContents(
+    app,
+    id,
+    'Object.defineProperty(window, "scrollY", { value: 13 }); window.scrollTo = () => {}; undefined;',
+  );
+  await writeFile(path.join(root, "live.html"), document("direct"));
+  await loaded("direct");
+  assert.equal(await previewContents(app, id, "window.scrollY"), 1200);
+  await writeFile(path.join(root, "live.tmp"), document("atomic"));
+  await rename(path.join(root, "live.tmp"), path.join(root, "live.html"));
+  await loaded("atomic");
+  const before = await app.evaluate(() => globalThis.liveStats.loads);
+  // Elapsed quiet time is the behavior under test: duplicate reloads within the
+  // one-second debounce maximum would fail this observation.
+  for (let index = 0; index < 20; index++)
+    await writeFile(path.join(root, "live.html"), document(`burst ${index}`));
+  await loaded("burst 19");
+  await app.evaluate(() => new Promise((resolve) => setTimeout(resolve, 1000)));
+  assert.equal(await app.evaluate(() => globalThis.liveStats.loads), before + 1);
+  await writeFile(path.join(root, "live.css"), "body { color: rgb(4, 5, 6); }");
+  await expect
+    .poll(async () => {
+      if (!(await previewViewState(app, id)).attached) return "loading";
+      return previewContents(app, id, "getComputedStyle(document.body).color");
+    })
+    .toBe("rgb(4, 5, 6)");
+  await unlink(path.join(root, "live.html"));
+  await loaded("File not found. Waiting for it to appear.");
+  await writeFile(path.join(root, "live.html"), document("recreated"));
+  await loaded("recreated");
+  assert.equal(await app.evaluate(() => globalThis.liveStats.watchers), 1);
+  await page.evaluate((id) => window.desktop.previews.close(id), id);
+  assert.equal(await app.evaluate(() => globalThis.liveStats.watchers), 0);
+});
+
+test("preview live reload follows retargeted symlinks and junctions", async (context) => {
+  const { symlink, rename } = require("node:fs/promises");
+  const app = await launchApp(context);
+  const page = await boardPage(app);
+  const root = (await page.evaluate(() => window.desktop.workspace())).terminals[0].worktree;
+  for (const name of ["one", "two"]) {
+    await mkdir(path.join(root, name));
+    await writeFile(path.join(root, name, "index.html"), `<p>${name}</p>`);
+  }
+  const kind = process.platform === "win32" ? "junction" : "dir";
+  await symlink(path.join(root, "one"), path.join(root, "alias"), kind);
+  const id = await pickPreviewFile(app, page, root, "alias/index.html");
+  await page.evaluate(
+    (id) =>
+      window.desktop.previews.bounds(id, {
+        x: 400,
+        y: 100,
+        width: 250,
+        height: 180,
+        visible: true,
+      }),
+    id,
+  );
+  const text = async () =>
+    (await previewViewState(app, id)).attached
+      ? previewContents(app, id, "document.body.textContent")
+      : "loading";
+  await expect.poll(text).toContain("one");
+  await symlink(path.join(root, "two"), path.join(root, "next-alias"), kind);
+  // Windows does not rename over an existing directory junction. Move the old
+  // entry aside, then rename the replacement, within the debounce window.
+  await rename(path.join(root, "alias"), path.join(root, "old-alias"));
+  await rename(path.join(root, "next-alias"), path.join(root, "alias"));
+  await expect.poll(text).toContain("two");
+  await writeFile(path.join(root, "two", "index.html"), "<p>new target changed</p>");
+  await expect.poll(text).toContain("new target changed");
+  await page.evaluate((id) => window.desktop.previews.close(id), id);
 });
