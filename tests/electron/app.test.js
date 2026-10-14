@@ -7150,7 +7150,12 @@ test("console pairing requires trusted approval and gives only read-only reposit
 });
 
 test("sidebar panels hover, pin, rename and launch a home shell", async (context) => {
-  const app = await launchApp(context, false, { emptyBoard: true });
+  const root = await mkdtemp(path.join(tmpdir(), "foom-home-panel-"));
+  removeAfterApps(context, root);
+  // Exercise soft-wrapped cwd output even on platforms with short temporary paths.
+  const fixtureHome = path.join(root, `home-${"x".repeat(80)}`);
+  await mkdir(fixtureHome);
+  const app = await launchApp(context, false, { emptyBoard: true, home: fixtureHome });
   const page = await boardPage(app);
   const home = page.getByRole("treeitem", { name: "Home shell", exact: true });
   await home.hover();
@@ -7194,10 +7199,11 @@ test("sidebar panels hover, pin, rename and launch a home shell", async (context
   await expect(page.locator(".xterm-helper-textarea")).toBeFocused();
   await page.keyboard.type(process.platform === "win32" ? "(Get-Location).Path" : "pwd");
   await page.keyboard.press("Enter");
+  // Tail returns physical screen rows; a canonical home path can soft-wrap.
   await expect
     .poll(() =>
       page.evaluate(
-        async (id) => (await window.desktop.tail(id, 40)).join("\n"),
+        async (id) => (await window.desktop.tail(id, 40)).join(""),
         snapshot.terminals[0].id,
       ),
     )
