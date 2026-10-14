@@ -1,3 +1,4 @@
+import { pickPreviewFile } from "./previews/pick";
 import { ForgeTracking } from "./control/forge-tracking";
 import { previewBackend } from "./previews/control-backend";
 import type { PreviewBroker } from "./control/previews";
@@ -567,12 +568,18 @@ async function buildWindow(savedSize?: Size, saved?: WindowPlacement, initialSes
     () => {
       if (!window.webContents.isDestroyed()) window.webContents.send("workspace:changed");
     },
+    (content, signal) => confirmations.request(content, signal),
   );
   previewHosts.set(window.id, previewHost);
   await previewHost.restore();
   const previewPlacement = new PreviewPlacement(window.webContents, ipc);
   previewPlacements.set(window.id, previewPlacement);
-  const disposePreviews = attachPreviews(ipc, previewHost, (id) => agentPreviews?.humanClose(id));
+  const disposePreviews = attachPreviews(
+    ipc,
+    previewHost,
+    (worktree) => pickPreviewFile(window, previewHost, validatePreviewWorktree, worktree),
+    (id) => agentPreviews?.humanClose(id),
+  );
   const workspaceIpc = attachWorkspace(
     window,
     workspace,

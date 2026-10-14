@@ -293,6 +293,7 @@ test("preview-only worktrees participate in filtering and active sections withou
     worktree: "/b",
     relativePath: "docs/guide.md",
     kind: "markdown" as const,
+    network: false,
   };
   const repositories = [repo("/a"), repo("/b")];
   const result = buildSidebar([], repositories, emptyPreferences(), "guide", [preview]);

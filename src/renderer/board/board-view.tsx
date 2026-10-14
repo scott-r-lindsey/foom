@@ -11,6 +11,7 @@ import {
   loadLayout,
   leaves,
   placeSession,
+  placeContent,
   tidyTiles,
   splitTile,
   closeTile,
@@ -433,6 +434,38 @@ export function Board({
       buttonsRef.current.get(selected)?.focus();
     wasInactiveRef.current = paneInactive;
   }, [paneInactive, selected]);
+  const pickPreview = async (worktree: string) => {
+    setRemoveError("");
+    try {
+      const id = await source.previews?.pick(worktree);
+      if (!id) return;
+      const area = boardRef.current?.querySelector(".tile-area");
+      const probe = document.createElement("span");
+      probe.style.cssText = `position:absolute;visibility:hidden;font:${String(fontSizeRef.current)}px ${fontFamilyRef.current}`;
+      probe.textContent = "M";
+      boardRef.current?.append(probe);
+      const cell = probe.getBoundingClientRect().width || fontSizeRef.current * 0.6;
+      probe.remove();
+      const current = layoutRef.current;
+      const next = placeContent(current, { kind: "preview", preview: id }, false, {
+        columns: (area?.getBoundingClientRect().width ?? 0) / cell,
+        needsYou: new Set(
+          source
+            .getSnapshot()
+            .filter((row) => row.state === "needs_input")
+            .map((row) => row.id),
+        ),
+        focusedAt: focusedAtRef.current,
+      });
+      if (!next) {
+        await source.previews?.close(id);
+        throw new Error("The tile layout has reached its size limit.");
+      }
+      changeLayout({ ...next, focused: current.focused, maximized: current.maximized });
+    } catch (error) {
+      setRemoveError(error instanceof Error ? error.message : "Unable to open preview.");
+    }
+  };
   const open = useCallback(
     (
       row: BoardRow,
@@ -718,6 +751,8 @@ export function Board({
   return (
     <main
       className="board-home"
+      data-dragging={Boolean(drag)}
+      data-preview-covered={paneInactive}
       ref={boardRef}
       aria-label="Board"
       hidden={inactive}
@@ -782,6 +817,7 @@ export function Board({
             )
           }
           previews={previews}
+          pickPreview={pickPreview}
           openPreview={(id) => {
             const tile = leaves(layoutRef.current.tree).find(
               (tile) => tile.content?.kind === "preview" && tile.content.preview === id,

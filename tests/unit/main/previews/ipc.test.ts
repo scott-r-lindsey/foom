@@ -42,38 +42,41 @@ test("board IPC accepts exact requests and routes only IDs to its window host", 
     open: vi.fn(() => Promise.resolve("a".repeat(32))),
     close: vi.fn(async () => {}),
     bounds: vi.fn(),
+    cover: vi.fn(async () => {}),
+    network: vi.fn(async () => {}),
   };
   const humanClose = vi.fn();
-  const dispose = attachPreviews(ipc, host as unknown as PreviewHost, humanClose);
+  const pick = vi.fn(() => Promise.resolve("a".repeat(32)));
+  const dispose = attachPreviews(ipc, host as unknown as PreviewHost, pick, humanClose);
   const invoke = (name: string, ...args: unknown[]) =>
     handlers.get(`preview:${name}`)?.({} as IpcMainInvokeEvent, ...args);
   const id = "a".repeat(32);
-  await expect(invoke("open", "/repo", "a.html")).resolves.toBe(id);
+  await expect(invoke("pick", "/repo")).resolves.toBe(id);
   await invoke("close", id);
   invoke("bounds", id, bounds);
-  expect(host.open).toHaveBeenCalledWith("/repo", "a.html");
+  await invoke("network", id, true);
+  expect(host.network).toHaveBeenCalledWith(id, true);
+  for (const args of [[], [id], [id, 1], ["wrong", true], [id, false, "extra"]])
+    expect(() => invoke("network", ...args)).toThrow();
+  expect(pick).toHaveBeenCalledWith("/repo");
   expect(host.close).toHaveBeenCalledWith(id);
   expect(humanClose).toHaveBeenCalledExactlyOnceWith(id);
   expect(() => invoke("close", "b".repeat(32))).toThrow("Unknown preview ID");
   expect(humanClose).toHaveBeenCalledTimes(1);
   expect(host.bounds).toHaveBeenCalledWith(id, bounds);
-  for (const args of [
-    [],
-    [1, "a.html"],
-    ["", "a.html"],
-    ["\0", "a.html"],
-    ["a".repeat(4097), "a.html"],
-    ["/repo", 1],
-    ["/repo", "a.html", "extra"],
-  ])
-    expect(() => invoke("open", ...args)).toThrow();
+  for (const args of [[], [1], [""], ["\0"], ["a".repeat(4097)], ["/repo", "a.html"]])
+    expect(() => invoke("pick", ...args)).toThrow();
   for (const args of [[], [null], ["wrong"], [id, "extra"]])
     expect(() => invoke("close", ...args)).toThrow();
   for (const args of [[], ["wrong", bounds], [id, bounds, "extra"], [id, {}]])
     expect(() => invoke("bounds", ...args)).toThrow();
+  await invoke("cover", true);
+  expect(host.cover).toHaveBeenCalledWith(true);
+  for (const args of [[], [null], [1], [true, false]])
+    expect(() => invoke("cover", ...args)).toThrow();
   dispose();
   expect(handlers.size).toBe(0);
-  const disposeWithoutObserver = attachPreviews(ipc, host as unknown as PreviewHost);
+  const disposeWithoutObserver = attachPreviews(ipc, host as unknown as PreviewHost, pick);
   await invoke("close", id);
   disposeWithoutObserver();
 });

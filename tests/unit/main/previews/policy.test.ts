@@ -144,3 +144,20 @@ test("uses a fixed MIME map, byte limits and restrictive response headers", () =
     "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
   );
 });
+
+test("network policy adds secure sources without weakening navigation or script restrictions", async () => {
+  const { externalLink, previewCsp } = await import("../../../../src/main/previews/policy");
+  for (const url of ["https://example.com", "http://example.com", "mailto:a@example.com"])
+    expect(externalLink(url)).toBe(true);
+  for (const url of ["garbage", "file:///a", "javascript:alert(1)", "data:text/plain,x"])
+    expect(externalLink(url)).toBe(false);
+  for (const type of ["text/html", "text/markdown"]) {
+    const policy = previewCsp(type, true);
+    expect(policy).toContain("connect-src 'self' https: wss:");
+    expect(policy).toContain("img-src 'self' data:");
+    expect(policy).toContain("form-action 'none'");
+    expect(policy).not.toContain(" http:");
+    expect(policy).not.toContain("'unsafe-eval'");
+    expect(responseHeaders(type, true)["content-security-policy"]).toBe(policy);
+  }
+});
