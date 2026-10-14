@@ -90,10 +90,14 @@ const http = await ControlHttp.listen(service);
 const grant = service.prepare(scratch, scratch);
 grant.bind("synthetic");
 let calls = 0;
+const observedMethods = new Set();
 const dispatch = service.call.bind(service);
-service.call = (actor, input) => {
+service.call = async (actor, input) => {
   calls++;
-  return dispatch(actor, input);
+  const result = await dispatch(actor, input);
+  if (actor.terminalId === "synthetic" && ["whoami", "open_preview"].includes(input.method))
+    observedMethods.add(input.method);
+  return result;
 };
 let requests = 0;
 const observed = { existing: false };
@@ -113,10 +117,11 @@ const model = createServer(async (req, res) => {
   const event = (type, data) =>
     res.write(`event: ${type}\ndata: ${JSON.stringify({ type, ...data })}\n\n`);
   if (req.url?.includes("messages")) {
-    const completed =
-      body.messages
-        ?.flatMap((m) => (Array.isArray(m.content) ? m.content : []))
-        .filter((c) => c.type === "tool_result").length ?? 0;
+    const completed = observedMethods.has("whoami")
+      ? observedMethods.has("open_preview")
+        ? 2
+        : 1
+      : 0;
     const name = completed === 0 ? "whoami" : "open_preview";
     const tool = body.tools?.find(
       (t) => t.name.startsWith("mcp__foom_") && t.name.endsWith(`__${name}`),
@@ -166,8 +171,11 @@ const model = createServer(async (req, res) => {
     const namespace = body.tools?.find(
       (t) => t.type === "namespace" && t.name.startsWith("mcp__foom_"),
     );
-    const completed =
-      body.input?.filter((item) => item.type === "function_call_output").length ?? 0;
+    const completed = observedMethods.has("whoami")
+      ? observedMethods.has("open_preview")
+        ? 2
+        : 1
+      : 0;
     const name = completed === 0 ? "whoami" : "open_preview";
     const tool =
       namespace?.tools.find((t) => t.name === name) ??
@@ -285,6 +293,7 @@ try {
       "--",
       "Task from your Foom orchestrator (another agent, not the user):\n\nRun the Foom whoami tool, then open_preview with path probe.html.",
     );
+    observedMethods.clear();
     const before = calls;
     protocol.length = 0;
     try {
@@ -309,6 +318,7 @@ try {
         );
       await phase("authenticated tool call");
       assert(calls > before, `${agent}: no authenticated tool call (${requests} model requests)`);
+      assert(observedMethods.has("whoami"), `${agent}: no authenticated identity call`);
       assert(previewIds.size > 0, `${agent}: no preview opened`);
       previewIds.clear();
       console.log(
@@ -326,6 +336,7 @@ try {
           : "[mcp_servers]\n",
       );
       const command = process.env[`FOOM_${agent.toUpperCase()}_EXECUTABLE`] ?? agent;
+      observedMethods.clear();
       const deniedBefore = calls;
       observed.existing = false;
       await phase("managed-policy execution");
