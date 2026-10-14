@@ -11106,3 +11106,142 @@ test("terminal font picker updates open shells and config shells and refits thei
   for (const rows of await page.locator(".xterm-rows").all())
     await expect(rows).toHaveCSS("font-family", '"Hack Nerd Font Mono", "Geist Mono", monospace');
 });
+
+test("preview live reload handles saves, assets, missing files, scroll and closes watchers", async (context) => {
+  const { rename, unlink } = require("node:fs/promises");
+  const app = await launchApp(context);
+  const page = await boardPage(app);
+  const root = (await page.evaluate(() => window.desktop.workspace())).terminals[0].worktree;
+  const document = (text) =>
+    `<link rel="stylesheet" href="live.css"><div style="height:4000px">${text}</div>`;
+  await writeFile(path.join(root, "live.html"), document("first"));
+  await writeFile(path.join(root, "live.css"), "body { color: rgb(1, 2, 3); }");
+  // Count real native subscriptions and completed loads, including replacement contents.
+  await app.evaluate(({ app }, root) => {
+    const fs = process.getBuiltinModule("node:fs");
+    const original = fs.watch;
+    globalThis.liveStats = { watchers: 0, loads: 0 };
+    fs.watch = function (filename, ...args) {
+      const watch = original.call(this, filename, ...args);
+      if (String(filename).startsWith(root)) {
+        globalThis.liveStats.watchers++;
+        const close = watch.close.bind(watch);
+        let closed = false;
+        watch.close = () => {
+          if (!closed) {
+            closed = true;
+            globalThis.liveStats.watchers--;
+          }
+          return close();
+        };
+      }
+      return watch;
+    };
+    app.on("web-contents-created", (_event, contents) => {
+      contents.on("did-finish-load", () => {
+        if (contents.getURL().startsWith("foom-preview://")) globalThis.liveStats.loads++;
+      });
+    });
+  }, root);
+  const id = await page.evaluate((root) => window.desktop.previews.open(root, "live.html"), root);
+  await page.evaluate(
+    (id) =>
+      window.desktop.previews.bounds(id, {
+        x: 400,
+        y: 100,
+        width: 250,
+        height: 180,
+        visible: true,
+      }),
+    id,
+  );
+  const loaded = async (text) => {
+    await expect
+      .poll(async () => {
+        const state = await previewViewState(app, id);
+        if (!state.attached || state.loading) return "loading";
+        return previewContents(app, id, "document.body.textContent");
+      })
+      .toContain(text);
+    assert.equal((await previewViewState(app, id)).focused, false);
+  };
+  await loaded("first");
+  await previewContents(app, id, "window.scrollTo(0, 1200)");
+  await expect.poll(() => previewContents(app, id, "window.scrollY")).toBe(1200);
+  // Page-world overrides cannot spoof the isolated-world scroll capture.
+  await previewContents(
+    app,
+    id,
+    'Object.defineProperty(window, "scrollY", { value: 13 }); window.scrollTo = () => {};',
+  );
+  await writeFile(path.join(root, "live.html"), document("direct"));
+  await loaded("direct");
+  assert.equal(await previewContents(app, id, "window.scrollY"), 1200);
+  await writeFile(path.join(root, "live.tmp"), document("atomic"));
+  await rename(path.join(root, "live.tmp"), path.join(root, "live.html"));
+  await loaded("atomic");
+  const before = await app.evaluate(() => globalThis.liveStats.loads);
+  // Elapsed quiet time is the behavior under test: duplicate reloads within the
+  // one-second debounce maximum would fail this observation.
+  for (let index = 0; index < 20; index++)
+    await writeFile(path.join(root, "live.html"), document(`burst ${index}`));
+  await loaded("burst 19");
+  await app.evaluate(() => new Promise((resolve) => setTimeout(resolve, 1000)));
+  assert.equal(await app.evaluate(() => globalThis.liveStats.loads), before + 1);
+  await writeFile(path.join(root, "live.css"), "body { color: rgb(4, 5, 6); }");
+  await expect
+    .poll(async () => {
+      if (!(await previewViewState(app, id)).attached) return "loading";
+      return previewContents(app, id, "getComputedStyle(document.body).color");
+    })
+    .toBe("rgb(4, 5, 6)");
+  await unlink(path.join(root, "live.html"));
+  await loaded("File not found. Waiting for it to appear.");
+  await writeFile(path.join(root, "live.html"), document("recreated"));
+  await loaded("recreated");
+  assert.equal(await app.evaluate(() => globalThis.liveStats.watchers), 1);
+  await page.evaluate((id) => window.desktop.previews.close(id), id);
+  assert.equal(await app.evaluate(() => globalThis.liveStats.watchers), 0);
+});
+
+test("preview live reload follows retargeted symlinks and junctions", async (context) => {
+  const { symlink, rename } = require("node:fs/promises");
+  const app = await launchApp(context);
+  const page = await boardPage(app);
+  const root = (await page.evaluate(() => window.desktop.workspace())).terminals[0].worktree;
+  for (const name of ["one", "two"]) {
+    await mkdir(path.join(root, name));
+    await writeFile(path.join(root, name, "index.html"), `<p>${name}</p>`);
+  }
+  const kind = process.platform === "win32" ? "junction" : "dir";
+  await symlink(path.join(root, "one"), path.join(root, "alias"), kind);
+  const id = await page.evaluate(
+    (root) => window.desktop.previews.open(root, "alias/index.html"),
+    root,
+  );
+  await page.evaluate(
+    (id) =>
+      window.desktop.previews.bounds(id, {
+        x: 400,
+        y: 100,
+        width: 250,
+        height: 180,
+        visible: true,
+      }),
+    id,
+  );
+  const text = async () =>
+    (await previewViewState(app, id)).attached
+      ? previewContents(app, id, "document.body.textContent")
+      : "loading";
+  await expect.poll(text).toContain("one");
+  await symlink(path.join(root, "two"), path.join(root, "next-alias"), kind);
+  // Windows does not rename over an existing directory junction. Move the old
+  // entry aside, then rename the replacement, within the debounce window.
+  await rename(path.join(root, "alias"), path.join(root, "old-alias"));
+  await rename(path.join(root, "next-alias"), path.join(root, "alias"));
+  await expect.poll(text).toContain("two");
+  await writeFile(path.join(root, "two", "index.html"), "<p>new target changed</p>");
+  await expect.poll(text).toContain("new target changed");
+  await page.evaluate((id) => window.desktop.previews.close(id), id);
+});
