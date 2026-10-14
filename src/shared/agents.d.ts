@@ -12,6 +12,9 @@ export interface AgentInstallation {
   readonly path: string | null;
   readonly version: string | null;
   readonly hooks: boolean;
+  readonly resume?: boolean;
+  readonly source?: string;
+  readonly bypassArguments?: readonly string[];
   readonly agyPlugin?: AgyPluginStatus;
   readonly inline?: boolean;
   readonly cliGuidance?: boolean;

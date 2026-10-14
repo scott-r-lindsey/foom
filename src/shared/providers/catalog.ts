@@ -56,6 +56,6 @@ export function validAgentId(value: unknown): value is string {
     typeof value === "string" &&
     value.length <= 40 &&
     /^[a-z][a-z0-9-]*$/u.test(value) &&
-    value !== "shell"
+    !["shell", "all", "constructor", "prototype", "__proto__"].includes(value)
   );
 }

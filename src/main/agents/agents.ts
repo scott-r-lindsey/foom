@@ -103,6 +103,7 @@ export class AgentService {
   private scanResult: AgentScan | undefined;
   private scannedRevision = -1;
   private hooksEnabled = true;
+  private agentHooks: Readonly<Record<string, boolean>> = {};
   private closed = false;
   private readonly occupied = new Set<string>();
   private readonly launched = new Map<string, string>();
@@ -129,8 +130,9 @@ export class AgentService {
     if (this.closed) throw new Error("Agent service is disposed");
   }
 
-  setHooksEnabled(enabled: boolean): void {
+  setHooksEnabled(enabled: boolean, preferences: Readonly<Record<string, boolean>> = {}): void {
     this.hooksEnabled = enabled;
+    this.agentHooks = preferences;
   }
 
   async scan(): Promise<AgentScan> {
@@ -138,7 +140,19 @@ export class AgentService {
     const revision = providerRevision();
     const agents = await Promise.all(
       agentProviders().map(async (provider) =>
-        provider.enrich(await detect(provider.id, resolved.path), this.agyPlugin),
+        provider.enrich(await detect(provider.id, resolved.path), this.agyPlugin).then((agent) => ({
+          ...agent,
+          name: provider.name,
+          mark: provider.mark,
+          command: provider.executableNames[0] ?? provider.id,
+          resume: !provider.manifest || provider.manifest.launch.resume.length > 0,
+          ...(provider.manifest
+            ? {
+                source: `agents/${provider.id}.json`,
+                bypassArguments: provider.manifest.bypassArguments,
+              }
+            : {}),
+        })),
       ),
     );
     if (revision !== providerRevision()) {
@@ -209,7 +223,8 @@ export class AgentService {
     const agent = scan.agents.find((entry) => entry.id === request.agent);
     if (!agent?.path)
       throw new Error(`${request.agent} is not installed. Rescan after installing it.`);
-    const attach = this.hooksEnabled && agent.hooks && this.prepareHooks;
+    const attach =
+      this.hooksEnabled && this.agentHooks[agent.id] !== false && agent.hooks && this.prepareHooks;
     const binding = attach ? await attach(agent.id) : undefined;
     const notify = agentProvider(agent.id).needsNotifier(agent, binding);
     if (attach && notify && !request.acknowledgeCodexNotifierReplacement) {

@@ -1,7 +1,5 @@
-import type { BuiltinAgentId } from "./agents";
-
 /** All sessions, or one agent. Shells get "all" only; agents get "all" then their own. */
-export type EnvironmentScope = "all" | BuiltinAgentId;
+export type EnvironmentScope = string;
 
 /** One validated variable, as main applies it at launch. Main-only: values may be secret. */
 export interface EnvironmentVariable {
@@ -17,7 +15,10 @@ export interface EnvironmentRow {
 }
 
 export interface EnvironmentState {
-  readonly lists: Readonly<Record<EnvironmentScope, readonly EnvironmentRow[]>>;
+  readonly lists: Readonly<
+    Record<"all" | "claude" | "codex" | "agy", readonly EnvironmentRow[]> &
+      Record<EnvironmentScope, readonly EnvironmentRow[]>
+  >;
   /** Names compare case-insensitively and PATH uses `;` with drive-letter directories. */
   readonly windows: boolean;
   /** Secrets need OS-backed `safeStorage`; without it, secret rows are refused. */

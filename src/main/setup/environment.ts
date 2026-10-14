@@ -1,4 +1,4 @@
-import { isAgentId } from "../../shared/providers/catalog";
+import { validAgentId } from "../../shared/providers/catalog";
 import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
@@ -9,7 +9,6 @@ import type { AgentId } from "../../shared/agents";
 import type {
   EnvironmentCandidate,
   EnvironmentChange,
-  EnvironmentRow,
   EnvironmentScope,
   EnvironmentState,
   EnvironmentVariable,
@@ -17,7 +16,6 @@ import type {
 import {
   ENVIRONMENT_NAME_LIMIT,
   ENVIRONMENT_ROW_LIMIT,
-  ENVIRONMENT_SCOPES,
   IMPORTABLE,
   LOOPBACK,
   environmentProblem,
@@ -57,16 +55,15 @@ interface Row {
   value: string;
   secret: boolean;
 }
-type Lists = Record<EnvironmentScope, Row[]>;
+type Lists = Record<"all" | "claude" | "codex" | "agy", Row[]> & Record<EnvironmentScope, Row[]>;
 
 function record(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function scope(value: unknown): EnvironmentScope {
-  if (typeof value !== "string" || !(ENVIRONMENT_SCOPES as readonly string[]).includes(value))
-    throw new Error("Invalid environment list");
-  return value as EnvironmentScope;
+  if (value !== "all" && !validAgentId(value)) throw new Error("Invalid environment list");
+  return value;
 }
 
 function text(value: unknown, limit: number): string {
@@ -255,7 +252,9 @@ export class EnvironmentStore {
       return store;
     }
     if (!record(state) || state["version"] !== 1 || !record(state["lists"])) return store;
-    for (const id of ENVIRONMENT_SCOPES) {
+    for (const id of Object.keys(state["lists"]).slice(0, 100)) {
+      if (id !== "all" && !validAgentId(id)) continue;
+      store.lists[id] = [];
       const rows = state["lists"][id];
       if (!Array.isArray(rows)) continue;
       for (const row of rows.slice(0, ENVIRONMENT_ROW_LIMIT)) {
@@ -285,9 +284,14 @@ export class EnvironmentStore {
   }
 
   state(): EnvironmentState {
-    const lists = {} as Record<EnvironmentScope, readonly EnvironmentRow[]>;
-    for (const id of ENVIRONMENT_SCOPES)
-      lists[id] = this.lists[id].map((row) => ({
+    const lists: EnvironmentState["lists"] extends Readonly<infer T> ? T : never = {
+      all: [],
+      claude: [],
+      codex: [],
+      agy: [],
+    };
+    for (const id of Object.keys(this.lists))
+      lists[id] = (this.lists[id] ?? []).map((row) => ({
         name: row.name,
         value: row.secret ? null : row.value,
         secret: row.secret,
@@ -298,16 +302,16 @@ export class EnvironmentStore {
   /** The layers for a launch: All sessions, then the agent's own. Shells get All only. */
   layers(target: AgentId): readonly (readonly EnvironmentVariable[])[] {
     const copy = (rows: Row[]) => rows.map(({ name, value }) => ({ name, value }));
-    return target === "shell" || !isAgentId(target)
+    return target === "shell" || !validAgentId(target)
       ? [copy(this.lists.all)]
-      : [copy(this.lists.all), copy(this.lists[target])];
+      : [copy(this.lists.all), copy(this.lists[target] ?? [])];
   }
 
   /** Secret values and URL credentials, for terminal-tail redaction. */
   redactions(): string[] {
     const values = new Set<string>();
-    for (const id of ENVIRONMENT_SCOPES)
-      for (const row of this.lists[id]) {
+    for (const id of Object.keys(this.lists))
+      for (const row of this.lists[id] ?? []) {
         if (row.secret && row.value) values.add(row.value);
         const credentials = urlCredentials(row.value);
         if (credentials) {
@@ -330,7 +334,7 @@ export class EnvironmentStore {
   async save(input: unknown): Promise<EnvironmentState> {
     const change = parseEnvironmentChange(input);
     return this.write((lists) => {
-      const rows = lists[change.scope];
+      const rows = (lists[change.scope] ??= []);
       const fold = (name: string) => foldName(name, this.windows);
       const index =
         change.previous === null
@@ -363,7 +367,7 @@ export class EnvironmentStore {
     const id = scope(scopeValue);
     const name = text(nameValue, ENVIRONMENT_NAME_LIMIT);
     return this.write((lists) => {
-      lists[id] = lists[id].filter(
+      lists[id] = (lists[id] ?? []).filter(
         (row) => foldName(row.name, this.windows) !== foldName(name, this.windows),
       );
     });
@@ -434,16 +438,18 @@ export class EnvironmentStore {
       .catch(() => undefined)
       .then(async () => {
         const next = {} as Lists;
-        for (const id of ENVIRONMENT_SCOPES) next[id] = this.lists[id].map((row) => ({ ...row }));
+        for (const id of Object.keys(this.lists))
+          next[id] = (this.lists[id] ?? []).map((row) => ({ ...row }));
         change(next);
+        if (Object.keys(next).length > 100) throw new Error("Too many environment lists");
         if (
-          ENVIRONMENT_SCOPES.some((id) => next[id].some((row) => row.secret)) &&
+          Object.values(next).some((rows) => rows.some((row) => row.secret)) &&
           !this.cipher.available()
         )
           throw new Error("Secrets need the system keychain, which is unavailable");
         const stored = {} as Record<EnvironmentScope, unknown[]>;
-        for (const id of ENVIRONMENT_SCOPES)
-          stored[id] = next[id].map((row) =>
+        for (const id of Object.keys(next))
+          stored[id] = (next[id] ?? []).map((row) =>
             row.secret
               ? {
                   name: row.name,

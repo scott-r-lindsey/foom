@@ -12,6 +12,7 @@ export interface Settings {
   agyPluginOfferAnswered: boolean;
   /** Attach Foom's hooks per launch. Off means every agent uses the evaluator. */
   hooks: boolean;
+  agentHooks?: Readonly<Record<string, boolean>>;
   restoreSessions: boolean;
   /** Starting, running and stopping children per orchestrator, integer 1–16. */
   concurrentChildren: number;

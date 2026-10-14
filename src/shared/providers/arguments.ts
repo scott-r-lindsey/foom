@@ -1,3 +1,4 @@
+import { validAgentId } from "./catalog";
 import type { AgentId, AgentValues } from "../agents";
 
 export const EMPTY_AGENT_ARGUMENTS: AgentValues<readonly string[]> = Object.freeze({
@@ -115,7 +116,7 @@ export function parseAgentArguments(agent: AgentId, value: unknown): readonly st
         ? /^(?:--resume|--continue|--session-id|--fork-session)(?:=|$)|^-[rc]/u.test(arg)
         : agent === "codex"
           ? /^(?:--last|--fork)(?:=|$)/u.test(arg) || arg === "resume" || arg === "fork"
-          : /^(?:--conversation|--continue)(?:=|$)|^-c/u.test(arg);
+          : agent === "agy" && /^(?:--conversation|--continue)(?:=|$)|^-c/u.test(arg);
     if (conversationOption)
       throw argumentError(
         agent,
@@ -139,7 +140,7 @@ export function parseAgentDefaults(value: unknown): AgentValues<readonly string[
     typeof value !== "object" ||
     value === null ||
     Array.isArray(value) ||
-    Object.keys(value).length !== 3 ||
+    Object.keys(value).length > 100 ||
     !("claude" in value) ||
     !("codex" in value) ||
     !("agy" in value)
@@ -147,9 +148,14 @@ export function parseAgentDefaults(value: unknown): AgentValues<readonly string[
     throw new AgentArgumentsError(
       "Default arguments must name Claude Code, Codex and Antigravity.",
     );
-  return Object.freeze({
-    claude: parseAgentArguments("claude", value.claude),
-    codex: parseAgentArguments("codex", value.codex),
-    agy: parseAgentArguments("agy", value.agy),
-  });
+  const result: Record<string, readonly string[]> & {
+    claude: readonly string[];
+    codex: readonly string[];
+    agy: readonly string[];
+  } = { claude: [], codex: [], agy: [] };
+  for (const [id, args] of Object.entries(value)) {
+    if (!validAgentId(id)) throw new AgentArgumentsError("Invalid agent ID");
+    result[id] = parseAgentArguments(id, args);
+  }
+  return Object.freeze(result);
 }

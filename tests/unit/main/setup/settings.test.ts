@@ -54,7 +54,7 @@ test("patches copy only known, well-formed fields", () => {
     { worktreeLocation: "elsewhere" },
     { agents: { claude: true, codex: true } },
     { agents: { claude: true, codex: true, agy: "yes" } },
-    { agents: { claude: true, codex: true, agy: true, other: true } },
+    { agents: { claude: true, codex: true, agy: true, "../other": true } },
     { agents: [] },
     { extra: true },
     { inferenceTimeoutMs: 999 },
@@ -624,3 +624,30 @@ test.each(["true", 1, null, {}, ["relative"], ["/bad\0path"], [42], Array(1001).
     expect((await SettingsStore.open(dir)).get().autoRemoveMergedWorktrees).toBe(false);
   },
 );
+
+test("per-agent hook preferences and plugin enablement persist as bounded validated data", async () => {
+  const dir = await directory();
+  const store = await SettingsStore.open(dir);
+  await store.update(
+    parseSettingsPatch({
+      agentHooks: { claude: false, fixture: true },
+      agents: { claude: true, codex: true, agy: true, fixture: false },
+      agentArguments: { claude: [], codex: [], agy: [], fixture: ["--config", "literal"] },
+      agentBypassAcknowledged: { claude: false, codex: false, agy: false, fixture: true },
+    }),
+  );
+  const reopened = (await SettingsStore.open(dir)).get();
+  expect(reopened.agentHooks).toEqual({ claude: false, fixture: true });
+  expect(reopened.agents["fixture"]).toBe(false);
+  expect(reopened.agentArguments["fixture"]).toEqual(["--config", "literal"]);
+  expect(reopened.agentBypassAcknowledged["fixture"]).toBe(true);
+  for (const agentHooks of [
+    null,
+    [],
+    { fixture: "yes" },
+    { "../fixture": false },
+    { constructor: true },
+    Object.fromEntries(Array.from({ length: 101 }, (_, i) => [`a${String(i)}`, false])),
+  ])
+    expect(() => parseSettingsPatch({ agentHooks })).toThrow("Invalid settings");
+});

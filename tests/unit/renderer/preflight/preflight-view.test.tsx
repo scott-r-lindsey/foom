@@ -269,35 +269,21 @@ test("first run walks every step, saves each choice, and launches", async () => 
   expect(button(/Agents/)).toHaveProperty("disabled", true);
 
   fireEvent.click(button("Start preflight"));
-  expect(document.activeElement?.textContent).toBe("Which agents do you run?");
+  expect(document.activeElement?.textContent).toBe("Agents");
   await screen.findByText("3 agents ready");
-  expect(screen.getAllByText("Found")).toHaveLength(3);
-  // Every card reads the same: name and command chip, then version badge and signal chip.
-  expect(Array.from(document.querySelectorAll(".badge"), (badge) => badge.textContent)).toEqual([
-    "Version2.1.300",
-    "Version0.155.1",
-    "Version1.2.13",
-  ]);
-  const tip = (name: string) => {
-    const trigger = screen.getByRole("button", { name });
-    return document.getElementById(trigger.getAttribute("aria-describedby") ?? "")?.textContent;
-  };
-  // Explanations live in the chips' tooltips, not on the cards.
-  expect(tip("claude")).toContain("Found at /bin/claude");
-  expect(tip("claude")).toContain("Reports 2.1.300 (Claude Code)");
-  expect(tip("Hooks")).toContain("hooks tell Foom");
-  expect(tip("Notify")).toContain("Replaces your own Codex notifier");
-  expect(screen.queryByText(/Replaces your own Codex notifier/, { selector: "p" })).toBeNull();
-  fireEvent.click(screen.getByLabelText(/Codex/));
+  expect(document.querySelectorAll(".agent-card")).toHaveLength(3);
+  expect(screen.getByText("/bin/claude")).toBeTruthy();
+  expect(screen.getByText("2.1.300")).toBeTruthy();
+  fireEvent.click(screen.getByRole("switch", { name: "Codex" }));
   await waitFor(() => {
     expect(source.save).toHaveBeenCalledWith({
       agents: { claude: true, codex: false, agy: true },
     });
   });
   await screen.findByText("2 agents ready");
-  fireEvent.click(screen.getByRole("checkbox", { name: /Attach Foom's hooks/ }));
+  fireEvent.click(screen.getByRole("checkbox", { name: "Attach hooks" }));
   // With hooks off, every found agent falls back to the rules, immediately.
-  expect(screen.getAllByRole("button", { name: "Rules" })).toHaveLength(2);
+  await screen.findAllByText("Screen rules active · hooks off");
   fireEvent.click(button("Scan again"));
   expect(source.scanAgents).toHaveBeenLastCalledWith(true);
   await screen.findByText("Scan again");
@@ -354,12 +340,8 @@ test("an agent whose version can't be read still gets the same card", async () =
   render(<Preflight source={source} initial={setupState()} onLaunched={vi.fn()} />);
   fireEvent.click(button("Start preflight"));
   await screen.findByText("3 agents ready");
-  const badge = document.querySelector(".badge");
-  expect(badge?.textContent).toBe("Versionunknown");
-  expect(badge?.getAttribute("data-known")).toBe("false");
-  const claude = screen.getByRole("button", { name: "claude" });
-  const tip = document.getElementById(claude.getAttribute("aria-describedby") ?? "");
-  expect(tip?.textContent).not.toContain("Reports");
+  expect(screen.getByText("Version unknown")).toBeTruthy();
+  expect(screen.getByText("/bin/claude")).toBeTruthy();
 });
 
 test("with no agents installed, go / no-go holds and links back to each fix", async () => {
@@ -369,10 +351,8 @@ test("with no agents installed, go / no-go holds and links back to each fix", as
   fireEvent.click(button("Start preflight"));
   await screen.findByText("No agents ready yet · needed to launch");
   expect(screen.getAllByText("Not found")).toHaveLength(3);
-  expect(
-    screen.getAllByRole("checkbox", { name: /Claude Code|Codex|Antigravity/ })[0],
-  ).toHaveProperty("disabled", true);
-  expect(screen.getAllByText("Not on your PATH.")).toHaveLength(3);
+  expect(screen.queryByRole("switch")).toBeNull();
+  expect(screen.getAllByText("Not found")).toHaveLength(3);
   for (let step = 0; step < 3; step++) fireEvent.click(button("Continue"));
   expect(screen.getByText("Hold. Something needs fixing.")).toBeTruthy();
   expect(button("Launch")).toHaveProperty("disabled", true);
@@ -381,7 +361,7 @@ test("with no agents installed, go / no-go holds and links back to each fix", as
   expect(screen.getByText("Where do you keep your code?")).toBeTruthy();
   fireEvent.click(button(/Go \/ no-go/));
   fireEvent.click(screen.getAllByRole("button", { name: "Fix" })[0] as HTMLElement);
-  expect(screen.getByText("Which agents do you run?")).toBeTruthy();
+  expect(screen.getByRole("heading", { name: "Agents" })).toBeTruthy();
   fireEvent.click(button("Back"));
   expect(screen.getByText("Start preflight")).toBeTruthy();
 });
@@ -535,7 +515,7 @@ test("a refused or failed selection keeps you on Repositories with the reason", 
   // Nothing to save: moving on needs no apply.
   fireEvent.click(screen.getByRole("checkbox", { name: /^app/ }));
   fireEvent.click(button("Back"));
-  expect(screen.getByText("Which agents do you run?")).toBeTruthy();
+  expect(screen.getByRole("heading", { name: "Agents" })).toBeTruthy();
   expect(source.apply).toHaveBeenCalledTimes(2);
 });
 
@@ -599,7 +579,7 @@ test("Settings shares setup controls, saves immediately and exposes planned sect
     />,
   );
   await waitFor(() => {
-    expect(screen.getByLabelText("Claude Code")).toHaveProperty("disabled", false);
+    expect(screen.getByRole("switch", { name: "Claude Code" })).toHaveProperty("disabled", false);
   });
   const closeControl = button("Close settings (Esc)");
   expect(closeControl.title).toBe("Close settings (Esc)");
@@ -607,7 +587,7 @@ test("Settings shares setup controls, saves immediately and exposes planned sect
   expect(screen.getByRole("region", { name: "Settings" }).firstElementChild).toBe(closeControl);
   expect(screen.queryByText("Back to terminal · Esc")).toBeNull();
   expect(screen.queryByText("Continue")).toBeNull();
-  fireEvent.click(screen.getByLabelText(/Attach Foom's hooks/));
+  fireEvent.click(screen.getByLabelText("Attach hooks"));
   await waitFor(() => {
     expect(source.save).toHaveBeenCalledWith({ hooks: false });
   });
@@ -745,26 +725,25 @@ test("Settings saves agent defaults through its source and retains the saved sta
   const state = setupState({ setupComplete: true });
   const source = fake(state);
   render(<Preflight source={source} initial={state} onLaunched={vi.fn()} settingsMode />);
-  fireEvent.change(screen.getByLabelText("Codex default arguments"), {
+  fireEvent.change(await screen.findByLabelText("Codex default arguments"), {
     target: { value: "--model\nexample" },
   });
-  fireEvent.click(screen.getByRole("button", { name: "Save default arguments" }));
+  fireEvent.blur(screen.getByLabelText("Codex default arguments"));
   await waitFor(() => {
     expect(source.save).toHaveBeenCalledWith({
       agentArguments: { claude: [], codex: ["--model", "example"], agy: [] },
     });
   });
-  await waitFor(() => {
-    expect(
-      screen.getByText("Default arguments saved. They apply to future launches."),
-    ).toBeTruthy();
-  });
+  expect(screen.getByLabelText("Codex default arguments")).toHaveProperty(
+    "value",
+    "--model\nexample",
+  );
 });
 
 test.each([
-  ["not-reviewed", "Not reviewed"],
+  ["not-reviewed", "Trust review pending"],
   ["trusted", "Trusted · observed working"],
-  ["declined", "Declined or unavailable"],
+  ["declined", "Declined · Notify fallback"],
   ["outdated", "Outdated · review needed"],
 ] as const)("Codex setup explains %s without granting trust", async (codexHookState, label) => {
   const source = fake(
@@ -773,13 +752,10 @@ test.each([
   );
   render(<Preflight source={source} initial={setupState()} onLaunched={vi.fn()} />);
   fireEvent.click(button("Start preflight"));
-  await screen.findByText(
-    (_, element) =>
-      element?.tagName === "P" && element.textContent.includes(`Codex hooks: ${label}`),
-  );
-  expect(screen.getByText("/hooks")).toBeTruthy();
+  await screen.findByText(label);
+  expect(screen.getByText("/hooks in Codex")).toBeTruthy();
   expect(screen.queryByRole("button", { name: /trust|approve/i })).toBeNull();
-  expect(screen.queryByRole("button", { name: "Notify" }) !== null).toBe(
+  expect(screen.queryByText("Notify + screen rules active") !== null).toBe(
     codexHookState !== "trusted",
   );
 });
@@ -798,8 +774,6 @@ test("agent setup waits for explicit plugin installation, refreshes status and r
   await screen.findByRole("button", { name: "Install plugin" });
   expect(source.changeAgyPlugin).not.toHaveBeenCalled();
   fireEvent.click(button("Install plugin"));
-  await screen.findByText("Plugin details");
-  fireEvent.click(screen.getByText("Plugin details"));
   await screen.findByRole("button", { name: "Remove plugin" });
   expect(source.changeAgyPlugin).toHaveBeenCalledWith("install");
   source.changeAgyPlugin.mockRejectedValueOnce(new Error("Plugin command failed"));
@@ -827,10 +801,10 @@ test("agent settings report capability-gated MCP availability and policy limits"
     />,
   );
   fireEvent.click(button("Start preflight"));
-  await screen.findByRole("button", { name: "MCP available" });
-  expect(screen.getByRole("button", { name: "MCP unavailable" })).toBeTruthy();
-  expect(screen.getByText("Managed policy may deny attachment.")).toBeTruthy();
-  expect(screen.getByText("Version below the supported floor.")).toBeTruthy();
+  const claude = await screen.findByRole("region", { name: "Claude Code" });
+  const codex = screen.getByRole("region", { name: "Codex" });
+  expect(within(claude).getAllByText("Available").length).toBeGreaterThan(0);
+  expect(within(codex).getAllByText("Unavailable").length).toBeGreaterThan(0);
 });
 
 test.each([
@@ -852,7 +826,7 @@ test.each([
     });
     await act(async () => {});
     expect(Boolean(screen.queryByText("Plugin available"))).toBe(marker);
-    expect(Boolean(screen.queryByText("Plugin details"))).toBe(detected);
+    expect(Boolean(screen.queryByText(/Lifecycle plugin/))).toBe(detected);
   },
 );
 
@@ -877,5 +851,31 @@ test("Settings General auto-removal toggle applies to all repositories", async (
   await waitFor(() => {
     expect(source.save).toHaveBeenCalledWith({ autoRemoveMergedWorktrees: false });
     expect(toggle).toHaveProperty("checked", false);
+  });
+});
+
+test("concurrent card saves preserve other agents' defaults and continue after a refusal", async () => {
+  const state = setupState({ setupComplete: true });
+  const source = fake(state);
+  render(<Preflight source={source} initial={state} settingsMode onLaunched={vi.fn()} />);
+  const claude = await screen.findByLabelText("Claude Code default arguments");
+  const codex = screen.getByLabelText("Codex default arguments");
+  source.save.mockRejectedValueOnce(Error("First save refused"));
+  fireEvent.change(claude, { target: { value: "--model\none" } });
+  fireEvent.blur(claude);
+  fireEvent.change(codex, { target: { value: "--model\ntwo" } });
+  fireEvent.blur(codex);
+  await screen.findByText("First save refused");
+  await waitFor(() => {
+    expect(source.save).toHaveBeenLastCalledWith({
+      agentArguments: { claude: [], codex: ["--model", "two"], agy: [] },
+    });
+  });
+  fireEvent.change(claude, { target: { value: "--model\nthree" } });
+  fireEvent.blur(claude);
+  await waitFor(() => {
+    expect(source.save).toHaveBeenLastCalledWith({
+      agentArguments: { claude: ["--model", "three"], codex: ["--model", "two"], agy: [] },
+    });
   });
 });

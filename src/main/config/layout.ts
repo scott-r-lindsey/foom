@@ -86,7 +86,12 @@ const settingsSchema = schema("foom:settings", {
     },
     agents: {
       type: "object",
-      additionalProperties: false,
+      maxProperties: 100,
+      propertyNames: {
+        pattern: "^[a-z][a-z0-9-]{0,39}$",
+        not: { enum: ["shell", "all", "constructor", "prototype"] },
+      },
+      additionalProperties: { type: "boolean" },
       required: ["claude", "codex", "agy"],
       properties: {
         claude: { type: "boolean" },
@@ -96,7 +101,16 @@ const settingsSchema = schema("foom:settings", {
     },
     agentArguments: {
       type: "object",
-      additionalProperties: false,
+      maxProperties: 100,
+      propertyNames: {
+        pattern: "^[a-z][a-z0-9-]{0,39}$",
+        not: { enum: ["shell", "all", "constructor", "prototype"] },
+      },
+      additionalProperties: {
+        type: "array",
+        maxItems: 64,
+        items: { type: "string", minLength: 1, maxLength: 4096, pattern: "^[^\\p{Cc}]+$" },
+      },
       required: ["claude", "codex", "agy"],
       properties: Object.fromEntries(
         ["claude", "codex", "agy"].map((agent) => [

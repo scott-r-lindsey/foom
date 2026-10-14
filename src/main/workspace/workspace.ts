@@ -188,6 +188,7 @@ export class Workspace {
   private location: "root" | "adjacent" = "root";
   private acknowledged = false;
   private hooksEnabled = true;
+  private agentHooks: Readonly<Record<string, boolean>> = {};
   private concurrentChildren = 4;
   private autoRemoveMergedWorktrees = false;
   private defaultArguments = EMPTY_AGENT_ARGUMENTS;
@@ -419,6 +420,7 @@ export class Workspace {
           | "worktreeLocation"
           | "codexNotifierAcknowledged"
           | "agentArguments"
+          | "agentHooks"
           | "restoreSessions"
           | "concurrentChildren"
           | "autoRemoveMergedWorktrees"
@@ -428,7 +430,9 @@ export class Workspace {
     this.restoreEnabled = settings.restoreSessions ?? true;
     this.concurrentChildren = settings.concurrentChildren ?? 4;
     this.autoRemoveMergedWorktrees = settings.autoRemoveMergedWorktrees ?? false;
-    this.agents.setHooksEnabled(settings.hooks);
+    if (settings.agentHooks) this.agents.setHooksEnabled(settings.hooks, settings.agentHooks);
+    else this.agents.setHooksEnabled(settings.hooks);
+    this.agentHooks = settings.agentHooks ?? {};
     this.hooksEnabled = settings.hooks;
     this.defaultArguments = settings.agentArguments ?? EMPTY_AGENT_ARGUMENTS;
     this.enabled = settings.agents;
@@ -1428,6 +1432,7 @@ export class Workspace {
       if (
         builtinAgent(run)?.hookHealth &&
         this.hooksEnabled &&
+        this.agentHooks[run] !== false &&
         !this.acknowledged &&
         scan.agents.some(
           (agent) =>
@@ -1752,6 +1757,7 @@ export class Workspace {
           if (
             builtinAgent(run)?.hookHealth &&
             this.hooksEnabled &&
+            this.agentHooks[run] !== false &&
             !this.acknowledged &&
             scan.agents.some(
               (agent) =>

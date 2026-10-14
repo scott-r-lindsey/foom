@@ -74,9 +74,9 @@ export class Setup {
     const before = this.deps.store.get();
     if (patch.agentArguments) {
       const acknowledged = { ...before.agentBypassAcknowledged };
-      for (const agent of ["claude", "codex", "agy"] as const) {
-        if (hasBypassArgument(agent, patch.agentArguments[agent]) && !acknowledged[agent]) {
-          if (!(await this.deps.confirmBypass?.(agent, patch.agentArguments[agent])))
+      for (const [agent, args] of Object.entries(patch.agentArguments)) {
+        if (hasBypassArgument(agent, args) && !acknowledged[agent]) {
+          if (!(await this.deps.confirmBypass?.(agent, args)))
             throw new Error("Default arguments were not saved. Bypass disclosure was cancelled.");
           acknowledged[agent] = true;
         }

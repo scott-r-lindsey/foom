@@ -1,63 +1,9 @@
 // @vitest-environment jsdom
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
-import {
-  AgentDefaultArguments,
-  argumentLines,
-} from "../../../../src/renderer/preflight/agent-default-arguments";
+import { argumentLines } from "../../../../src/renderer/preflight/agent-default-arguments";
 
 afterEach(cleanup);
-const empty = { claude: [], codex: [], agy: [] };
-
-test("edits each agent as literal lines, waits for save, and clears a list", async () => {
-  let resolve: (() => void) | undefined;
-  const save = vi.fn(
-    () =>
-      new Promise<void>((done) => {
-        resolve = done;
-      }),
-  );
-  const view = render(
-    <AgentDefaultArguments defaults={{ ...empty, codex: ["--model", "old"] }} save={save} />,
-  );
-  const claude = screen.getByLabelText("Claude Code default arguments");
-  fireEvent.change(claude, { target: { value: "--model\na model\n'literal quotes'" } });
-  fireEvent.change(screen.getByLabelText("Codex default arguments"), { target: { value: "" } });
-  fireEvent.change(screen.getByLabelText("Antigravity default arguments"), {
-    target: { value: "--mode\nplan" },
-  });
-  fireEvent.click(screen.getByRole("button", { name: "Save default arguments" }));
-  const defaults = {
-    claude: ["--model", "a model", "'literal quotes'"],
-    codex: [],
-    agy: ["--mode", "plan"],
-  };
-  expect(save).toHaveBeenCalledExactlyOnceWith(defaults);
-  expect(claude).toHaveProperty("disabled", true);
-  view.rerender(<AgentDefaultArguments defaults={defaults} save={save} />);
-  await act(async () => {
-    resolve?.();
-    await Promise.resolve();
-  });
-  expect(screen.getByRole("status").textContent).toContain("saved");
-  expect(claude).toHaveProperty("value", defaults.claude.join("\n"));
-  expect(claude).toHaveProperty("disabled", false);
-});
-
-test("keeps a refused draft for correction, reports errors, and ignores trailing blank lines", async () => {
-  const save = vi.fn().mockRejectedValue(new Error("Reserved argument"));
-  render(<AgentDefaultArguments defaults={empty} save={save} />);
-  const input = screen.getByLabelText("Codex default arguments");
-  fireEvent.change(input, { target: { value: "--config=notify=[]\n" } });
-  fireEvent.click(screen.getByRole("button", { name: "Save default arguments" }));
-  await waitFor(() => {
-    expect(screen.getByRole("status").textContent).toBe("Reserved argument");
-  });
-  expect(save).toHaveBeenCalledWith({ ...empty, codex: ["--config=notify=[]"] });
-  expect(input).toHaveProperty("value", "--config=notify=[]\n");
-  fireEvent.change(input, { target: { value: "--model\nx" } });
-  expect(screen.getByRole("status").textContent).toBe("");
-});
 
 test.each([
   ["--model\nopus\n\n", ["--model", "opus"]],
@@ -71,14 +17,34 @@ test.each([
   expect(argumentLines(text)).toEqual(expected);
 });
 
-test("saves pasted Windows lines and a final Enter without changing argument contents", async () => {
-  const save = vi.fn(() => Promise.resolve());
-  render(<AgentDefaultArguments defaults={empty} save={save} />);
-  fireEvent.change(screen.getByLabelText("Claude Code default arguments"), {
-    target: { value: "--model\r\n  a model  \r\n\r\n" },
-  });
-  fireEvent.click(screen.getByRole("button", { name: "Save default arguments" }));
+test("in-place defaults save on blur, preserve refused drafts, and disclose builtin bypass", async () => {
+  const { AgentArguments } = await import(
+    "../../../../src/renderer/preflight/agent-default-arguments"
+  );
+  const save = vi.fn().mockRejectedValueOnce(Error("Cancelled")).mockResolvedValue(undefined);
+  const view = render(<AgentArguments id="claude" name="Claude Code" value={[]} save={save} />);
+  const input = screen.getByRole("textbox");
+  fireEvent.blur(input);
+  expect(save).not.toHaveBeenCalled();
+  fireEvent.change(input, { target: { value: "" } });
+  fireEvent.blur(input);
+  expect(save).not.toHaveBeenCalled();
+  fireEvent.change(input, { target: { value: "--dangerously-skip-permissions" } });
+  expect(screen.getByText(/Bypass approvals/)).toBeTruthy();
+  fireEvent.blur(input);
+  expect(await screen.findByRole("alert")).toHaveProperty("textContent", "Cancelled");
+  expect(input).toHaveProperty("value", "--dangerously-skip-permissions");
+  fireEvent.change(input, { target: { value: "--model\nnew" } });
+  expect(screen.queryByRole("alert")).toBeNull();
+  fireEvent.blur(input);
   await waitFor(() => {
-    expect(save).toHaveBeenCalledWith({ ...empty, claude: ["--model", "  a model  "] });
+    expect(save).toHaveBeenLastCalledWith(["--model", "new"]);
   });
+  view.rerender(
+    <AgentArguments id="claude" name="Claude Code" value={["--model", "new"]} save={save} />,
+  );
+  await waitFor(() => {
+    expect(input).toHaveProperty("disabled", false);
+  });
+  expect(input).toHaveProperty("value", "--model\nnew");
 });

@@ -258,3 +258,26 @@ test("file edits cannot silence attention through the master without approval", 
   ]);
   expect(weakenings(quiet, base)).toEqual([]);
 });
+
+test("config plugin arguments and disabling require review, including removal of plugin defaults", () => {
+  const plugin = {
+    ...base,
+    agents: { ...base.agents, fixture: false },
+    agentArguments: { ...base.agentArguments, fixture: ["--model", "literal model"] },
+  };
+  expect(weakenings(base, plugin)).toContainEqual({
+    action: "turn off fixture",
+    detail: "agents.fixture: on → off",
+  });
+  expect(argumentChanges(base, plugin)).toEqual([
+    { action: "change fixture launch arguments", detail: "agentArguments.fixture" },
+  ]);
+  expect(argumentDisclosure(base, plugin).sections).toEqual([
+    { label: "fixture before", arguments: true, items: ["(no arguments)"] },
+    { label: "fixture after", arguments: true, items: ["--model", "literal model"] },
+  ]);
+  expect(argumentDisclosure(plugin, base).sections).toEqual([
+    { label: "fixture before", arguments: true, items: ["--model", "literal model"] },
+    { label: "fixture after", arguments: true, items: ["(no arguments)"] },
+  ]);
+});

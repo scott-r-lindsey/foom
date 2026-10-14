@@ -321,3 +321,34 @@ test("helpers: change parsing, inherited scrub and the safeStorage adapter", () 
   ).toBe(true);
   expect(adapter.decrypt(adapter.encrypt("x"))).toBe("x");
 });
+
+test("manifest-only agent environment persists encrypted secrets and applies only to that agent", async () => {
+  const dir = await directory();
+  const store = await EnvironmentStore.open(dir, cipher);
+  await store.save(change("REGION", "global"));
+  await store.save(change("REGION", "plugin", { scope: "fixture-agent" }));
+  const saved = await store.save(
+    change("API_TOKEN", "private-value", { scope: "fixture-agent", secret: true }),
+  );
+  expect(saved.lists["fixture-agent"]).toEqual([
+    { name: "REGION", value: "plugin", secret: false },
+    { name: "API_TOKEN", value: null, secret: true },
+  ]);
+  expect(await readFile(path.join(dir, "environment.json"), "utf8")).not.toContain("private-value");
+  const reopened = await EnvironmentStore.open(dir, cipher);
+  expect(reopened.layers("fixture-agent")).toEqual([
+    [{ name: "REGION", value: "global" }],
+    [
+      { name: "REGION", value: "plugin" },
+      { name: "API_TOKEN", value: "private-value" },
+    ],
+  ]);
+  expect(reopened.layers("other-agent")).toEqual([[{ name: "REGION", value: "global" }], []]);
+  expect(reopened.redactions()).toContain("private-value");
+  for (const scope of ["../fixture", "constructor", "__proto__", "shell"])
+    await expect(reopened.save(change("BAD", "value", { scope }))).rejects.toThrow(
+      "Invalid environment list",
+    );
+  await reopened.remove("fixture-agent", "API_TOKEN");
+  expect(reopened.redactions()).not.toContain("private-value");
+});

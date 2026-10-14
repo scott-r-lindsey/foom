@@ -639,8 +639,15 @@ export class ConfigService {
   }
 
   private async decidePlugin(decision: "allow" | "keep", id: unknown): Promise<ConfigStatus> {
-    const held = this.heldPlugins.entries().next().value;
-    if (!held) throw new Error("No change is waiting for approval");
+    const held = [...this.heldPlugins.entries()].find(
+      ([file, proposal]) => digest(file + proposal.text) === id,
+    );
+    if (!held)
+      throw new Error(
+        this.heldPlugins.size
+          ? "The change was replaced. Review it again."
+          : "No change is waiting for approval",
+      );
     const [file, proposal] = held;
     if (id !== digest(file + proposal.text))
       throw new Error("The change was replaced. Review it again.");
@@ -1016,6 +1023,29 @@ export class ConfigService {
     const held = this.heldThemes.entries().next().value;
     const plugin = this.heldPlugins.entries().next().value;
     return {
+      agentPlugins: [
+        ...[...this.heldPlugins].map(([file, proposal]) => ({
+          id: proposal.manifest.id,
+          name: proposal.manifest.name,
+          mark: proposal.manifest.badge,
+          command: proposal.manifest.executables[0] ?? proposal.manifest.id,
+          file,
+          state: "pending" as const,
+          decisionId: digest(file + proposal.text),
+        })),
+        ...[...this.rejected.keys()]
+          .filter((file) => file.startsWith("agents/"))
+          .map((file) => ({
+            id: file.slice(7, -5),
+            name: file.slice(7, -5),
+            mark: "?",
+            command: file.slice(7, -5),
+            file,
+            state: "rejected" as const,
+            reason: this.events.find((event) => event.file === file && event.state === "rejected")
+              ?.reason,
+          })),
+      ],
       folder: this.deps.root,
       available: this.available,
       uncommitted: this.uncommitted,
@@ -1097,6 +1127,8 @@ export class ConfigService {
     if (decision !== "allow" && decision !== "keep")
       return Promise.reject(new Error("Invalid decision"));
     return this.serial(async () => {
+      if ([...this.heldPlugins].some(([file, proposal]) => digest(file + proposal.text) === id))
+        return this.decidePlugin(decision, id);
       const pending = this.pending;
       if (!pending) {
         const held = this.heldThemes.entries().next().value;

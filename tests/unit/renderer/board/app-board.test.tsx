@@ -142,6 +142,12 @@ beforeEach(() => {
         notices: () => Promise.resolve(""),
       },
       setupState: mock.setupState,
+      environmentState: () =>
+        Promise.resolve({
+          lists: { all: [], claude: [], codex: [], agy: [] },
+          windows: false,
+          secrets: true,
+        }),
       onSetupChange: () => () => {},
       configStatus: mock.configStatus,
       decideConfig: mock.configStatus,

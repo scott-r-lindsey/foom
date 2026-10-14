@@ -30,7 +30,13 @@ function source(initial = corp) {
     readShellEnvironment: vi.fn<EnvironmentApi["readShellEnvironment"]>().mockResolvedValue([]),
     importEnvironment: vi.fn<EnvironmentApi["importEnvironment"]>().mockResolvedValue(initial),
   };
-  render(<EnvironmentSettings source={api} headingRef={null} />);
+  render(
+    <EnvironmentSettings
+      source={api}
+      headingRef={null}
+      scopes={["all", "claude", "codex", "agy"]}
+    />,
+  );
   return api;
 }
 const row = (scope: string, name: string) =>
@@ -210,7 +216,13 @@ test("reports a failed load and refuses secrets without a keychain", async () =>
   const api = {
     environmentState: vi.fn().mockRejectedValue(new Error("Unavailable")),
   } as unknown as EnvironmentApi;
-  render(<EnvironmentSettings source={api} headingRef={null} />);
+  render(
+    <EnvironmentSettings
+      source={api}
+      headingRef={null}
+      scopes={["all", "claude", "codex", "agy"]}
+    />,
+  );
   expect((await screen.findByRole("alert")).textContent).toBe("Unavailable");
   cleanup();
   source(state({}, { secrets: false, windows: true }));
@@ -228,4 +240,56 @@ test("reports a failed load and refuses secrets without a keychain", async () =>
     target: { value: "http://u:p@h" },
   });
   expect(within(token).getByRole("alert").textContent).toContain("keychain");
+});
+
+test("an agent card edits a manifest-only scope with inherited overrides and no global import", async () => {
+  const initial = state({ all: [{ name: "REGION", value: "global", secret: false }] });
+  const api = {
+    environmentState: vi.fn(() => Promise.resolve(initial)),
+    saveEnvironment: vi.fn(() =>
+      Promise.resolve(
+        state({ ...initial.lists, fixture: [{ name: "REGION", value: "local", secret: false }] }),
+      ),
+    ),
+    removeEnvironment: vi.fn(() => Promise.resolve(initial)),
+    readShellEnvironment: vi.fn(() => Promise.resolve([])),
+    importEnvironment: vi.fn(() => Promise.resolve(initial)),
+  };
+  render(<EnvironmentSettings source={api} scope="fixture" label="Fixture" />);
+  fireEvent.change(await screen.findByLabelText("New Fixture variable name"), {
+    target: { value: "REGION" },
+  });
+  const region = screen.getByRole("region", { name: "Fixture environment" });
+  expect(within(region).getByText("overrides all")).toBeTruthy();
+  fireEvent.change(screen.getByLabelText("REGION value"), { target: { value: "local" } });
+  fireEvent.focusOut(screen.getByLabelText("REGION value"));
+  await waitFor(() => {
+    expect(api.saveEnvironment).toHaveBeenCalledWith({
+      scope: "fixture",
+      previous: null,
+      name: "REGION",
+      value: "local",
+      secret: false,
+    });
+  });
+  expect(screen.queryByRole("button", { name: "Import from login shell" })).toBeNull();
+  expect(screen.queryByRole("heading", { name: "Environment" })).toBeNull();
+  expect(await screen.findByText("Saved for new sessions")).toBeTruthy();
+});
+
+test("a plugin scope without a display label falls back to its provider ID", async () => {
+  const initial = state();
+  const api = {
+    environmentState: () => Promise.resolve(initial),
+    saveEnvironment: () => Promise.resolve(initial),
+    removeEnvironment: () => Promise.resolve(initial),
+    readShellEnvironment: () => Promise.resolve([]),
+    importEnvironment: () => Promise.resolve(initial),
+  };
+  const view = render(<EnvironmentSettings source={api} scope="fixture" />);
+  expect(await screen.findByRole("region", { name: "fixture environment" })).toBeTruthy();
+  expect(screen.getByLabelText("New fixture variable name")).toBeTruthy();
+  view.rerender(<EnvironmentSettings source={api} scopes={["fixture"]} />);
+  expect(await screen.findByRole("heading", { name: "Environment" })).toBeTruthy();
+  expect(screen.getByRole("region", { name: "fixture" })).toBeTruthy();
 });

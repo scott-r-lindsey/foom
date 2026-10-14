@@ -1,3 +1,4 @@
+import { validAgentId } from "./providers/catalog";
 import { isTerminalFont } from "./terminal-fonts";
 import { parseAgentDefaults } from "./agent-arguments";
 import type { ConfigSettings, ConfigSetting } from "./config";
@@ -52,11 +53,17 @@ export function parseConfigSettings(value: unknown): ConfigSettings {
         throw new Error("Invalid settings");
       const agents = themeRecord(entry, "$.agents");
       if (
-        Object.keys(agents).length !== 3 ||
+        Object.keys(agents).length > 100 ||
+        Object.entries(agents).some(
+          ([id, enabled]) => !validAgentId(id) || typeof enabled !== "boolean",
+        ) ||
         !["claude", "codex", "agy"].every((id) => typeof agents[id] === "boolean")
       )
         throw new Error("Invalid settings");
       result.agents = {
+        ...Object.fromEntries(
+          Object.entries(agents).map(([id, enabled]) => [id, enabled === true]),
+        ),
         claude: agents["claude"] === true,
         codex: agents["codex"] === true,
         agy: agents["agy"] === true,
