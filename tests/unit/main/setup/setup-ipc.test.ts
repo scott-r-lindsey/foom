@@ -42,6 +42,7 @@ function invoke(channel: string, args: unknown[] = [], event: unknown = trusted)
 test("every channel rejects untrusted senders", () => {
   const channels = mock.handle.mock.calls.map(([name]) => name);
   expect(channels).toEqual([
+    "setup:terminal-fonts",
     "setup:state",
     "setup:save",
     "setup:code-suggestions",
@@ -137,4 +138,9 @@ test("removed inference channels have no handlers", () => {
     "setup:models",
   ])
     expect(mock.handle.mock.calls.some(([channel]) => channel === name)).toBe(false);
+});
+
+test("font enumeration accepts no payload", async () => {
+  expect(() => invoke("setup:terminal-fonts", ["injected"])).toThrow("Invalid font request");
+  expect(Array.isArray(await invoke("setup:terminal-fonts"))).toBe(true);
 });

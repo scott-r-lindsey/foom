@@ -32,6 +32,8 @@ export interface Settings {
   interfaceScale: number;
   /** Terminal text size in CSS pixels, 10–32 in whole pixels. */
   terminalFontSize: number;
+  /** Validated family name; bundled default and monospace always remain fallbacks. */
+  terminalFont: string;
   terminalTheme: TerminalThemeChoice;
   sound: SoundSettings;
   /** Where the user keeps their code; preflight scans it for repositories. */
@@ -90,6 +92,7 @@ export interface SetupState {
 }
 
 export interface SetupApi {
+  listTerminalFonts(): Promise<readonly string[]>;
   listThemes(): Promise<ThemeCatalog>;
   openThemesFolder(kind: ThemeKind): Promise<void>;
   setupState(): Promise<SetupState>;

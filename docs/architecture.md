@@ -827,6 +827,7 @@ in the profile. Validation alone grants no approval.
 | `panelColor` | `vivid`, `subtle`, `plain` |
 | `interfaceTheme`, `terminalTheme` | `follow`, a corresponding built-in ID, or `user:<filename>.json`; no inline palette objects |
 | `interfaceScale` | 80–150 in steps of 10, then 175, 200, 250 and 300 |
+| `terminalFont` | Validated family name, default Hack Nerd Font Mono |
 | `terminalFontSize` | Integer 10–32 |
 | `sound` | Exact current `shared/sounds.ts` settings format |
 | `agents` | Exactly boolean `claude`, `codex`, `agy` switches |
@@ -893,7 +894,7 @@ controllers mounted but detaches and hides their views while Settings is open. E
 restores sidebar row focus after the terminal has reattached; selecting a sidebar
 terminal closes Settings. The shared setup coordinator renders the same Agents,
 Repositories, Worktrees, Evaluator and Appearance controls in both paths, with guided
-navigation only in preflight. Settings adds Terminal font size, interface Themes and
+navigation only in preflight. Settings adds Terminal font and size, interface Themes and
 Sound controls. Successful `setup:save` calls publish `setup:changed` to keep live
 consumers synchronized. Repository selection changes save immediately in Settings,
 with controls disabled during the write and refused selections restored to the
@@ -1698,3 +1699,24 @@ and cache, and removes the registry entry. Quit preserves validated registry
 metadata while releasing views and partitions. Watchers and live reload are #294;
 there are no watchers to stop yet. Overlay composition and shortcut forwarding
 remain #292.
+
+### Terminal font selection (#363)
+
+Main enumerates installed monospace families with fixed `execFile` arguments:
+Fontconfig `fc-list` spacing 100 on Linux, AppKit fixed-pitch fonts through a fixed
+JXA script on macOS, and WPF glyph advance widths through a fixed PowerShell script
+on Windows. Commands accept no renderer data, have bounded output and a ten-second
+deadline, and return an empty list on failure. `setup:terminal-fonts` checks the
+trusted top frame and accepts no arguments; preload exposes only the family list.
+No font permission, sandbox, context isolation or CSP changes are needed.
+
+`terminalFont` defaults to `Hack Nerd Font Mono` and uses the shared config settings
+validation for IPC and disk. Family names are 1–128 Unicode letters/numbers, spaces,
+dots, underscores, parentheses, plus signs or hyphens, beginning with a letter or
+number and without leading/trailing whitespace. Main validates enumeration output;
+the renderer revalidates lists and settings before constructing a quoted stack.
+Every stack retains the bundled Hack Nerd Font Mono, Geist Mono and `monospace`
+fallbacks. Uninstalled families remain saved and degrade silently. Controllers
+apply family and size together through their existing settings subscription,
+refitting visible attachments and deferring hidden grids until attachment. Settings
+uses the same stack for its preview.

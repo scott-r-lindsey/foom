@@ -1,3 +1,4 @@
+import { listTerminalFonts } from "../fonts/terminal-fonts";
 import type { WindowIpc } from "../window/window-ipc";
 import { ipcMain } from "electron";
 import type { BrowserWindow, IpcMainInvokeEvent } from "electron";
@@ -33,6 +34,13 @@ export function attachSetup(
       contents.send(channel, ...args);
   };
   const handlers = new Map<string, (...args: unknown[]) => unknown>([
+    [
+      "setup:terminal-fonts",
+      (...args) => {
+        if (args.length !== 0) throw new Error("Invalid font request");
+        return listTerminalFonts();
+      },
+    ],
     ["setup:state", () => setup.state()],
     [
       "setup:save",

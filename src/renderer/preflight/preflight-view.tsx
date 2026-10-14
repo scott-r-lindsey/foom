@@ -1,3 +1,4 @@
+import { TerminalFontPicker } from "./terminal-font-picker";
 import { message } from "./message";
 import { AgentDefaultArguments } from "./agent-default-arguments";
 import { EnvironmentSettings } from "./environment-settings";
@@ -405,6 +406,7 @@ export function Preflight({
         <p className="preflight-intro">
           Text size applies to every terminal, independently of interface size.
         </p>
+        <TerminalFontPicker source={source} value={state.settings.terminalFont} onChange={save} />
         <label className="terminal-font-size">
           Terminal font size
           <select
@@ -426,7 +428,6 @@ export function Preflight({
           openFolder={() => source.openThemesFolder("terminal-theme")}
           onChange={save}
         />
-        <p className="preflight-note">More terminal options are coming.</p>
       </>
     );
   } else if (step === 7) {

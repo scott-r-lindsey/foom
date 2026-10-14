@@ -60,6 +60,7 @@ const LABELS: Record<ConfigSetting, string> = {
   terminalTheme: "Terminal colors",
   interfaceScale: "Interface size",
   terminalFontSize: "Terminal font size",
+  terminalFont: "Terminal font",
   sound: "Sound",
   agents: "Agents",
   agentArguments: "Agent launch arguments",

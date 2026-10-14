@@ -1,3 +1,4 @@
+import { terminalFontStack, TERMINAL_FONT_FALLBACK } from "../../shared/terminal-fonts";
 import type { PreviewSummary } from "../../shared/workspace";
 import type { WindowAudioState } from "../../shared/windows";
 import { ActionLog } from "./action-log-view";
@@ -84,6 +85,7 @@ export function Board({
   const [sidebarCompact, setSidebarCompact] = useState(false);
   const boardRef = useRef<HTMLDivElement>(null);
   const fontSizeRef = useRef(14);
+  const fontFamilyRef = useRef(TERMINAL_FONT_FALLBACK);
   const focusedAtRef = useRef(new Map<string, number>());
   const focusClockRef = useRef(0);
   useEffect(() => {
@@ -93,11 +95,15 @@ export function Board({
     const off = soundSetup.subscribe((state) => {
       changed = true;
       fontSizeRef.current = state.settings.terminalFontSize;
+      fontFamilyRef.current = terminalFontStack(state.settings.terminalFont);
     });
     void soundSetup
       .state()
       .then((state) => {
-        if (active && !changed) fontSizeRef.current = state.settings.terminalFontSize;
+        if (active && !changed) {
+          fontSizeRef.current = state.settings.terminalFontSize;
+          fontFamilyRef.current = terminalFontStack(state.settings.terminalFont);
+        }
       })
       .catch(() => {});
     return () => {
@@ -417,7 +423,7 @@ export function Board({
       const present = () => {
         const area = boardRef.current?.querySelector(".tile-area");
         const probe = document.createElement("span");
-        probe.style.cssText = `position:absolute;visibility:hidden;font:${String(fontSizeRef.current)}px "Hack Nerd Font Mono", "Geist Mono", monospace`;
+        probe.style.cssText = `position:absolute;visibility:hidden;font:${String(fontSizeRef.current)}px ${fontFamilyRef.current}`;
         probe.textContent = "M";
         boardRef.current?.append(probe);
         const cell = probe.getBoundingClientRect().width || fontSizeRef.current * 0.6;

@@ -25,6 +25,7 @@ export function setupState(
       interfaceTheme: "follow",
       interfaceScale: 100,
       terminalFontSize: 14,
+      terminalFont: "Hack Nerd Font Mono",
       terminalTheme: "follow",
       sound: DEFAULT_SOUND,
       codeFolder: null,
