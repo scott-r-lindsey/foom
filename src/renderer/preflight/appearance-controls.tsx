@@ -1,6 +1,6 @@
 import type { ThemeCatalog } from "../../shared/theme-file";
 import { resolveInterfaceTheme } from "../../shared/interface-themes";
-import { useRef } from "react";
+import { useWheelNotch } from "../wheel-notch";
 import type { Settings } from "../../shared/setup";
 import { SCALES } from "../../shared/config-settings";
 
@@ -9,8 +9,6 @@ const MODES = [
   { id: "light", label: "Light" },
   { id: "dark", label: "Dark" },
 ] as const;
-/** Scrolling this far changes the size one step: a mouse notch, or a short trackpad swipe. */
-const WHEEL_STEP = 50;
 const shortcutHint = () =>
   navigator.platform.startsWith("Mac") ? "⌘ + / − / 0" : "Ctrl+Shift+= / − / 0";
 
@@ -36,7 +34,7 @@ export function AppearanceControls({
           onChange({ interfaceScale: next });
         };
   // Trackpads send many small deltas; they add up to a step.
-  const wheelRef = useRef(0);
+  const wheelNotch = useWheelNotch();
   return (
     <div className="appearance">
       <fieldset className="appearance-mode">
@@ -72,11 +70,9 @@ export function AppearanceControls({
         <output
           aria-live="polite"
           onWheel={(event) => {
-            // Line and page modes come from mouse wheels: each event is a notch.
-            wheelRef.current += event.deltaMode === 0 ? event.deltaY : event.deltaY * WHEEL_STEP;
-            if (Math.abs(wheelRef.current) < WHEEL_STEP) return;
-            const next = wheelRef.current < 0 ? larger : smaller;
-            wheelRef.current = 0;
+            const direction = wheelNotch(event);
+            if (!direction) return;
+            const next = direction > 0 ? larger : smaller;
             if (next !== undefined) onChange({ interfaceScale: next });
           }}
         >

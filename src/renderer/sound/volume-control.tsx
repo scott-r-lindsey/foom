@@ -1,3 +1,5 @@
+import { useEffect, useRef } from "react";
+import { useWheelNotch } from "../wheel-notch";
 import type { SoundSettings } from "../../shared/sound";
 
 export function VolumeControl({
@@ -9,6 +11,14 @@ export function VolumeControl({
   onChange: (settings: SoundSettings) => void;
   onSample: (settings: SoundSettings) => void;
 }) {
+  const wheelNotch = useWheelNotch();
+  const sampleTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
+  useEffect(
+    () => () => {
+      clearTimeout(sampleTimerRef.current);
+    },
+    [],
+  );
   const percent = Math.round(settings.volume * 100);
   const label = settings.muted
     ? `Volume, muted (${String(percent)}%)`
@@ -19,6 +29,23 @@ export function VolumeControl({
       role="group"
       aria-label="Volume"
       data-muted={settings.muted || undefined}
+      onWheel={(event) => {
+        const direction = wheelNotch(event);
+        if (!direction && sampleTimerRef.current === undefined) return;
+        const next = direction
+          ? {
+              ...settings,
+              volume: Math.max(0, Math.min(100, percent + direction * 5)) / 100,
+              muted: false,
+            }
+          : settings;
+        if (direction) onChange(next);
+        clearTimeout(sampleTimerRef.current);
+        sampleTimerRef.current = setTimeout(() => {
+          sampleTimerRef.current = undefined;
+          onSample(next);
+        }, 150);
+      }}
     >
       <button
         className="footer-tool"

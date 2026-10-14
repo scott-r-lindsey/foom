@@ -150,3 +150,29 @@ test("sample boards without a settings source remain usable", () => {
   fireEvent.click(view.getByRole("button", { name: "Zoom in" }));
   expect(view.getByRole("button", { name: "Zoom 110%, reset to 100%" })).toBeTruthy();
 });
+
+test("zoom wheel accumulates pixels, steps in both directions and stops at the ends", async () => {
+  const f = fixture();
+  const view = render(<SidebarControls source={f.source} />);
+  await settle();
+  const zoom = view.getByRole("group", { name: "Zoom" });
+  await settle(() => fireEvent.wheel(zoom, { deltaY: -25 }));
+  expect(f.source.save).not.toHaveBeenCalled();
+  await settle(() =>
+    fireEvent.wheel(view.getByRole("button", { name: "Zoom 100%" }), { deltaY: -25 }),
+  );
+  expect(f.source.save).toHaveBeenLastCalledWith({ interfaceScale: 110 });
+  await settle(() => fireEvent.wheel(zoom, { deltaY: 1, deltaMode: 1 }));
+  expect(f.source.save).toHaveBeenLastCalledWith({ interfaceScale: 100 });
+  for (const [interfaceScale, deltaY] of [
+    [80, 1],
+    [300, -1],
+  ] as const) {
+    act(() => {
+      f.send(setupState({ interfaceScale }));
+    });
+    f.source.save.mockClear();
+    await settle(() => fireEvent.wheel(zoom, { deltaY, deltaMode: 2 }));
+    expect(f.source.save).not.toHaveBeenCalled();
+  }
+});

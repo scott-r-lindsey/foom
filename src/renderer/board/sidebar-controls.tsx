@@ -5,6 +5,7 @@ import type { AudioSink } from "../../shared/sound";
 import { DEFAULT_SOUND, soundVolume } from "../../shared/sounds";
 import type { SetupSource } from "../preflight/setup-source.d";
 import { VolumeControl } from "../sound/volume-control";
+import { useWheelNotch } from "../wheel-notch";
 import { createAudioSink } from "../sound/web-audio";
 
 type FooterSource = Pick<SetupSource, "state" | "subscribe"> & Partial<Pick<SetupSource, "save">>;
@@ -85,10 +86,21 @@ export function SidebarControls({ source }: { source: FooterSource | undefined }
     }
     savingRef.current = false;
   };
+  const wheelNotch = useWheelNotch();
   const index = SCALES.indexOf(settings.interfaceScale);
   return (
     <>
-      <div className="footer-zoom" role="group" aria-label="Zoom">
+      <div
+        className="footer-zoom"
+        role="group"
+        aria-label="Zoom"
+        onWheel={(event) => {
+          const direction = wheelNotch(event);
+          if (!direction) return;
+          const next = SCALES[SCALES.indexOf(settingsRef.current.interfaceScale) + direction];
+          if (next !== undefined) void save({ interfaceScale: next });
+        }}
+      >
         <button
           className="footer-tool"
           type="button"
