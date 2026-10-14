@@ -6,7 +6,8 @@ export function attachPreviewComposition(api: PreviewApi): () => void {
   const images = new Map<string, HTMLCanvasElement>();
   const decoded = new WeakMap<HTMLCanvasElement, string>();
   let disposed = false;
-  let covered = false;
+  // A replacement renderer must reset any cover state left by its predecessor.
+  let covered: boolean | undefined;
   let frame = 0;
   const draw = (snapshots: readonly PreviewSnapshot[]) => {
     const retained = new Set(snapshots.map(({ id }) => id));

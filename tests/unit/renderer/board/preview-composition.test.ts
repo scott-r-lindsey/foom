@@ -54,6 +54,7 @@ const flush = async () => {
 };
 test("freezes for panels, scrim, full drag and settings; preserves overlapping reasons and disposes", async () => {
   const f = fixture();
+  expect(f.cover).toHaveBeenCalledWith(false);
   const root = document.getElementById("root");
   if (!root) throw new Error("root");
   for (const markup of [

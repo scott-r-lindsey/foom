@@ -11181,15 +11181,20 @@ test("preview composition keeps tile and row panels visible and usable above cap
   await expect(page.getByRole("menuitem", { name: "Split down" })).toBeVisible();
   await expect.poll(async () => (await previewViewState(app, id)).attached).toBe(false);
   await expectPreviewSnapshot(page, id);
-  await page.screenshot({ path: "test-results/preview-overlays-panel.png" });
+  await page.screenshot({
+    path: "test-results/preview-overlays-panel.png",
+    animations: "disabled",
+  });
   await page.getByRole("menuitem", { name: "Split down" }).click();
   await expect(page.locator(".terminal-tile")).toHaveCount(3);
   await expect.poll(async () => (await previewViewState(app, id)).attached).toBe(true);
   await page.locator(".board-row").first().click({ button: "right" });
   await expect(page.locator(".row-menu")).toBeVisible();
   await expectPreviewSnapshot(page, id);
-  await page.keyboard.press("Escape");
+  await page.reload();
+  await expect(page.locator(".row-menu")).toHaveCount(0);
   await expect(page.locator(".preview-snapshot")).toHaveCount(0);
+  await expect.poll(async () => (await previewViewState(app, id)).attached).toBe(true);
 });
 
 test("preview composition puts the trusted confirmation scrim above previews and restores on cancel", async (context) => {
@@ -11199,7 +11204,10 @@ test("preview composition puts the trusted confirmation scrim above previews and
   await expect(page.locator(".board-confirmation-scrim:popover-open")).toBeVisible();
   await expect.poll(async () => (await previewViewState(app, id)).attached).toBe(false);
   await expectPreviewSnapshot(page, id);
-  await page.screenshot({ path: "test-results/preview-overlays-scrim.png" });
+  await page.screenshot({
+    path: "test-results/preview-overlays-scrim.png",
+    animations: "disabled",
+  });
   await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
   await expect(page.locator(".board-confirmation-scrim")).toHaveCount(0);
   await expect(page.locator(".preview-snapshot")).toHaveCount(0);
@@ -11226,7 +11234,7 @@ test("preview composition freezes maximize and restore animations and excludes p
   await expect(page.locator(".tile-drop-preview")).toBeVisible();
   await expectPreviewSnapshot(page, id);
   assert.equal((await previewViewState(app, id)).attached, false);
-  await page.screenshot({ path: "test-results/preview-overlays-drag.png" });
+  await page.screenshot({ path: "test-results/preview-overlays-drag.png", animations: "disabled" });
   assert.equal(await previewContents(app, id, "window.pointerCount"), 0);
   await page.mouse.up();
   await expect(page.locator(".tile-drop-preview")).toHaveCount(0);
