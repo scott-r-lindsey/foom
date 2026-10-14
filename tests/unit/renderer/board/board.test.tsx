@@ -421,7 +421,10 @@ test("opens the action log from the app command and restores the terminal pane o
 
 test("agent placement uses existing space, preserves focus, rejects stale arrivals and unsubscribes", async () => {
   let arrival:
-    | ((id: string, expiresAt: number) => Promise<"landing" | "empty" | "sidebar">)
+    | ((
+        id: string,
+        expiresAt: number,
+      ) => Promise<"landing" | "empty" | "column" | "replace" | "existing" | "sidebar">)
     | undefined;
   // A placed preview tile reports its bounds (#296).
   vi.stubGlobal(
@@ -495,7 +498,7 @@ test("agent placement uses existing space, preserves focus, rejects stale arriva
   if (!arrived) throw new Error("Missing arrival");
   fireEvent.pointerEnter(arrived);
   expect(arrived.getAttribute("data-arrived")).toBe("false");
-  await expect(arrival("preview", Date.now() + 5000)).resolves.toBe("sidebar");
+  await expect(arrival("preview", Date.now() + 5000)).resolves.toBe("existing");
   view.unmount();
   expect(off).toHaveBeenCalled();
 });

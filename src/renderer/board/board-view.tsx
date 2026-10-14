@@ -162,6 +162,25 @@ export function Board({
     },
     [storageKey, source],
   );
+  const placementOptions = useCallback(() => {
+    const area = boardRef.current?.querySelector(".tile-area");
+    const probe = document.createElement("span");
+    probe.style.cssText = `position:absolute;visibility:hidden;font:${String(fontSizeRef.current)}px ${fontFamilyRef.current}`;
+    probe.textContent = "M";
+    boardRef.current?.append(probe);
+    const cell = probe.getBoundingClientRect().width || fontSizeRef.current * 0.6;
+    probe.remove();
+    return {
+      columns: (area?.getBoundingClientRect().width ?? 0) / cell,
+      needsYou: new Set(
+        source
+          .getSnapshot()
+          .filter((row) => row.state === "needs_input")
+          .map((row) => row.id),
+      ),
+      focusedAt: focusedAtRef.current,
+    };
+  }, [source]);
   useEffect(
     () =>
       source.previews?.onPlace?.((id, expiresAt) => {
@@ -170,14 +189,14 @@ export function Board({
           !source.previews?.getSnapshot().some((preview) => preview.id === id)
         )
           return Promise.resolve("sidebar");
-        const placed = placeAgentPreview(layoutRef.current, id);
+        const placed = placeAgentPreview(layoutRef.current, id, placementOptions());
         if (placed.layout !== layoutRef.current) {
           setArrivals((current) => new Set([...current, id]));
           changeLayout(placed.layout);
         }
         return Promise.resolve(placed.placement);
       }),
-    [source, changeLayout],
+    [source, changeLayout, placementOptions],
   );
   useEffect(() => {
     if (source.isReady && !source.isReady()) return;
@@ -454,24 +473,13 @@ export function Board({
     try {
       const id = await source.previews?.pick(worktree);
       if (!id) return;
-      const area = boardRef.current?.querySelector(".tile-area");
-      const probe = document.createElement("span");
-      probe.style.cssText = `position:absolute;visibility:hidden;font:${String(fontSizeRef.current)}px ${fontFamilyRef.current}`;
-      probe.textContent = "M";
-      boardRef.current?.append(probe);
-      const cell = probe.getBoundingClientRect().width || fontSizeRef.current * 0.6;
-      probe.remove();
       const current = layoutRef.current;
-      const next = placeContent(current, { kind: "preview", preview: id }, false, {
-        columns: (area?.getBoundingClientRect().width ?? 0) / cell,
-        needsYou: new Set(
-          source
-            .getSnapshot()
-            .filter((row) => row.state === "needs_input")
-            .map((row) => row.id),
-        ),
-        focusedAt: focusedAtRef.current,
-      });
+      const next = placeContent(
+        current,
+        { kind: "preview", preview: id },
+        false,
+        placementOptions(),
+      );
       if (!next) {
         await source.previews?.close(id);
         throw new Error("The tile layout has reached its size limit.");
@@ -489,13 +497,6 @@ export function Board({
       background = false,
     ) => {
       const present = () => {
-        const area = boardRef.current?.querySelector(".tile-area");
-        const probe = document.createElement("span");
-        probe.style.cssText = `position:absolute;visibility:hidden;font:${String(fontSizeRef.current)}px ${fontFamilyRef.current}`;
-        probe.textContent = "M";
-        boardRef.current?.append(probe);
-        const cell = probe.getBoundingClientRect().width || fontSizeRef.current * 0.6;
-        probe.remove();
         const current = layoutRef.current;
         const own =
           destination &&
@@ -509,14 +510,7 @@ export function Board({
           row.id,
           replace || Boolean(own),
           {
-            columns: (area?.getBoundingClientRect().width ?? 0) / cell,
-            needsYou: new Set(
-              source
-                .getSnapshot()
-                .filter((item) => item.state === "needs_input")
-                .map((item) => item.id),
-            ),
-            focusedAt: focusedAtRef.current,
+            ...placementOptions(),
             preserveFocus: background,
           },
         );
@@ -547,7 +541,7 @@ export function Board({
           });
       } else present();
     },
-    [source, onCloseSettings, changeLayout],
+    [source, onCloseSettings, changeLayout, placementOptions],
   );
   const initialSessionOpenedRef = useRef(false);
   useEffect(() => {

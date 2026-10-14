@@ -615,10 +615,14 @@ principal's launch-bound worktree using the contained-file protocol. Only Markdo
 and HTML documents are allowed; unknown fields and caller-supplied roots are refused.
 
 Ownership follows the grant generation. Canonical-path reuse returns `existing`
-and moves nothing. Exit, takeover and orchestrator revocation hand existing
+and leaves a tiled preview in place; an existing sidebar preview is placed on the
+board unless that canonical path was human-dismissed. Exit, takeover and orchestrator revocation hand existing
 previews to the human; worktree removal closes them. Opening fills the landing
-spot, then the first empty tile in tree order, otherwise only a sidebar entry.
-It never adds a column, splits or replaces content, or takes keyboard focus.
+spot, then the first empty tile in tree order. On a full board it reuses terminal
+`placeContent` placement: add a far-right column with proportional shrinkage, or
+use the minimum-width replacement fallback, excluding the focused tile. Keyboard
+focus and the focused tile stay unchanged. Placement reports `column` or `replace`
+for overflow; layout resource limits and unavailable boards can still return `sidebar`.
 Sidebar entries create no view until shown; they do not restore after quitting.
 Agent attribution and detailed arrival visibility follow in #298.
 

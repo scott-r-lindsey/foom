@@ -21,13 +21,19 @@ export class PreviewPlacement {
         typeof request !== "string" ||
         !previewId(id) ||
         typeof placement !== "string" ||
-        !["landing", "empty", "sidebar"].includes(placement)
+        !["landing", "empty", "column", "replace", "existing", "sidebar"].includes(placement)
       )
         throw new Error("Invalid preview placement");
       const pending = this.pending.get(request);
       if (!pending || pending.id !== id) throw new Error("Unknown preview placement");
       pending.finish(
-        placement === "landing" ? "landing" : placement === "empty" ? "empty" : "sidebar",
+        placement === "landing" ||
+          placement === "empty" ||
+          placement === "column" ||
+          placement === "replace" ||
+          placement === "existing"
+          ? placement
+          : "sidebar",
       );
     });
   }

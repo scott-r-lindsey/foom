@@ -620,14 +620,34 @@ export function placeSession(
   return placeContent(layout, { kind: "terminal", session }, replace, placement);
 }
 
-/** Agent arrivals fill existing space and preserve every view-state choice. */
+/** Agent arrivals reuse full-board placement without moving keyboard focus. */
 export function placeAgentPreview(
   layout: TileLayout,
   id: string,
-): { layout: TileLayout; placement: "landing" | "empty" | "sidebar" } {
+  placement: TilePlacement = { columns: 0 },
+): {
+  layout: TileLayout;
+  placement: "landing" | "empty" | "column" | "replace" | "existing" | "sidebar";
+} {
+  if (
+    leaves(layout.tree).some(
+      (tile) => tile.content?.kind === "preview" && tile.content.preview === id,
+    )
+  )
+    return { layout, placement: "existing" };
   const empty = leaves(layout.tree).filter((tile) => tile.content === null);
   const target = empty.find((tile) => tile.id === layout.landing) ?? empty[0];
-  if (!target) return { layout, placement: "sidebar" };
+  if (!target) {
+    const next = placeContent(layout, { kind: "preview", preview: id }, false, {
+      ...placement,
+      preserveFocus: true,
+    });
+    if (!next) return { layout, placement: "sidebar" };
+    return {
+      layout: { ...next, focused: layout.focused, maximized: layout.maximized },
+      placement: leaves(next.tree).length > leaves(layout.tree).length ? "column" : "replace",
+    };
+  }
   const fill = (node: TileNode): TileNode =>
     node.kind === "tile"
       ? node.id === target.id
