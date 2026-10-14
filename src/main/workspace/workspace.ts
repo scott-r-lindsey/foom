@@ -1,3 +1,4 @@
+import { builtinAgent, isAgentId } from "../../shared/providers/catalog";
 import { ControlError } from "../control/validation";
 import type { ForgeTracking } from "../control/forge-tracking";
 import { CleanupRun, KeptWorktree } from "./cleanup-run";
@@ -263,7 +264,7 @@ export class Workspace {
         this.receiver = undefined;
         throw error;
       });
-      const healthLaunch = agent === "codex" ? this.codexHooks.begin() : undefined;
+      const healthLaunch = builtinAgent(agent)?.hookHealth ? this.codexHooks.begin() : undefined;
       const binding = await prepareHookLaunch(await this.receiver, agent, (key, terminalId) => {
         if (terminalId) {
           this.hookKeys.set(key, terminalId);
@@ -271,7 +272,7 @@ export class Workspace {
           if (healthLaunch !== undefined) this.track(terminalId).codexHealthLaunch = healthLaunch;
         } else this.hookKeys.delete(key);
       });
-      return agent === "codex"
+      return builtinAgent(agent)?.hookHealth
         ? {
             ...binding,
             codexHookCommand: codexObserverCommand(),
@@ -794,7 +795,7 @@ export class Workspace {
     confirm: () => Promise<boolean> = () => Promise.resolve(false),
   ): Promise<AgentReport> {
     const report = await this.scanAgents(true);
-    const executable = report.agents.find((agent) => agent.id === "agy")?.path;
+    const executable = report.agents.find((agent) => builtinAgent(agent.id)?.pluginSetup)?.path;
     if (!executable) throw new Error("Antigravity is not installed");
     if (action === "install" || action === "update") {
       const accepted = await confirm();
@@ -933,7 +934,7 @@ export class Workspace {
         if (request.run !== "shell") {
           if (!(await this.confirmAgentLaunch(tree.path, confirm))) return null;
           if (
-            request.run === "codex" &&
+            builtinAgent(request.run)?.hookHealth &&
             request.acknowledgeCodexNotifierReplacement &&
             !this.acknowledged
           ) {
@@ -1114,13 +1115,7 @@ export class Workspace {
     const sessions = [...this.launched.values()].filter((item) => item.worktree === worktree);
     if (sessions.some((item) => this.terminals.get(item.id)?.exitCode === undefined))
       return "running";
-    if (
-      sessions.some(
-        (item) =>
-          (item.agent === "claude" || item.agent === "codex" || item.agent === "agy") &&
-          conversationId(item.conversationId),
-      )
-    )
+    if (sessions.some((item) => isAgentId(item.agent) && conversationId(item.conversationId)))
       return "resumable conversation";
     return undefined;
   }
@@ -1426,11 +1421,12 @@ export class Workspace {
       if (!this.enabled[run]) throw new Error("This agent is turned off in preflight");
       const scan = await this.scanAgents(false);
       if (
-        run === "codex" &&
+        builtinAgent(run)?.hookHealth &&
         this.hooksEnabled &&
         !this.acknowledged &&
         scan.agents.some(
-          (agent) => agent.id === "codex" && agent.hooks && agent.codexHookState !== "trusted",
+          (agent) =>
+            builtinAgent(agent.id)?.hookHealth && agent.hooks && agent.codexHookState !== "trusted",
         )
       ) {
         if (!(await confirm({ kind: "notifier" }))) return;
@@ -1745,11 +1741,14 @@ export class Workspace {
         if (run !== "shell") {
           const scan = await this.scanAgents(false);
           if (
-            run === "codex" &&
+            builtinAgent(run)?.hookHealth &&
             this.hooksEnabled &&
             !this.acknowledged &&
             scan.agents.some(
-              (agent) => agent.id === "codex" && agent.hooks && agent.codexHookState !== "trusted",
+              (agent) =>
+                builtinAgent(agent.id)?.hookHealth &&
+                agent.hooks &&
+                agent.codexHookState !== "trusted",
             )
           ) {
             if (!(await confirm({ kind: "notifier" }))) return;
@@ -2044,7 +2043,7 @@ export class Workspace {
       phase === "idle" &&
       event.from === "working" &&
       source !== "hook" &&
-      this.launched.get(id)?.agent === "codex" &&
+      builtinAgent(this.launched.get(id)?.agent)?.hookHealth &&
       terminal.codexPromptTurn !== event.turn &&
       this.codexHooks.get() === "trusted"
     )
@@ -2056,9 +2055,10 @@ export class Workspace {
     const entry = this.launched.get(id);
     return (
       entry?.attention === "hooks" &&
-      (entry.agent === "agy" ||
-        entry.agent === "claude" ||
-        (entry.agent === "codex" && this.track(id).codexPromptTurn !== undefined))
+      Boolean(
+        builtinAgent(entry.agent)?.completionHook ||
+          (builtinAgent(entry.agent)?.hookHealth && this.track(id).codexPromptTurn !== undefined),
+      )
     );
   }
 
@@ -2149,7 +2149,7 @@ export class Workspace {
       // A failed host has no screen. Exit codes and hooks still decide.
     }
     if (
-      this.launched.get(id)?.agent === "codex" &&
+      builtinAgent(this.launched.get(id)?.agent)?.hookHealth &&
       terminal.exitCode === undefined &&
       terminal.codexHealthLaunch !== undefined &&
       tail.slice(-20).some((line) => line.includes("Hooks need review"))

@@ -1,3 +1,4 @@
+import { builtinAgent } from "../../shared/providers/catalog";
 import { AgyPluginControl } from "./agy-plugin-control";
 import type { AgyPluginAction } from "../../shared/agy-plugin";
 import type { SetupState } from "../../shared/setup";
@@ -115,12 +116,16 @@ export function AgentsStep({
                   </Tooltip>
                   <Tooltip
                     className="chip chip-signal"
-                    label={id === "agy" && how === "rules" ? "Screen rules" : SIGNAL_LABEL[how]}
+                    label={
+                      builtinAgent(id)?.pluginSetup && how === "rules"
+                        ? "Screen rules"
+                        : SIGNAL_LABEL[how]
+                    }
                   >
                     {SIGNALS[how]}
                     {note && <span>{note}</span>}
                   </Tooltip>
-                  {id === "agy" && agent.agyPlugin && (
+                  {builtinAgent(id)?.pluginSetup && agent.agyPlugin && (
                     <AgyPluginControl
                       status={agent.agyPlugin}
                       busy={scanning}

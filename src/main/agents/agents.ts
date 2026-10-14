@@ -1,8 +1,6 @@
-import { meetsMinimum } from "./version";
+import { agentProvider } from "./providers/registry";
 import { AgyPlugin } from "./agy-plugin";
-import { cliGuidance, CONFIG_PROMPT, initialPrompt, mergeAllowedTools } from "./cli-launch";
-import { prepareMcpLaunch, supportsMcp } from "./mcp-launch";
-import { codexHookArguments } from "./codex-hooks";
+import { prepareMcpLaunch } from "./mcp-launch";
 import { resumeArguments } from "./conversation";
 import type { ControlLaunch } from "../control/types";
 import { parseAgentArguments } from "./default-arguments";
@@ -80,40 +78,7 @@ async function detect(id: AgentId, path: string): Promise<AgentInstallation> {
     version = (await execute(executable, ["--version"], options)).stdout.trim();
     if (!version) throw new Error("Empty version");
     const help = (await execute(executable, ["--help"], options)).stdout;
-    const hooks =
-      (id === "claude" &&
-        meetsMinimum(
-          version,
-          /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?: \(Claude Code\))?$/u,
-          [2, 1, 284],
-        ) &&
-        /(?:^|\s)--settings(?:[ =,]|$)/mu.test(help)) ||
-      (id === "codex" &&
-        meetsMinimum(
-          version,
-          /^codex-cli (0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/u,
-          [0, 155, 1],
-        ) &&
-        /(?:^|\s)-c(?:[ ,]|$)/mu.test(help));
-    return {
-      id,
-      path: executable,
-      version,
-      hooks,
-      cliGuidance: id === "agy" && /(?:^|\s)--prompt-interactive(?:[ =,]|$)/mu.test(help),
-      mcp: supportsMcp(id, version, help),
-      mcpReason: supportsMcp(id, version, help)
-        ? "Per-launch MCP supported; managed policy may deny attachment."
-        : "Per-launch MCP unavailable: requires a supported version and attachment flag.",
-      ...(id === "codex" &&
-      meetsMinimum(version, /^codex-cli (0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/u, [0, 161, 0])
-        ? { codexLifecycle: true }
-        : {}),
-      inline: id === "codex" && /(?:^|\s)--no-alt-screen(?:[ =,]|$)/mu.test(help),
-      reason: hooks
-        ? "Per-launch hooks supported."
-        : "Unverified hook support; using output evaluation.",
-    };
+    return agentProvider(id).discover(executable, version, help);
   } catch {
     return {
       id,
@@ -162,20 +127,9 @@ export class AgentService {
   async scan(): Promise<AgentScan> {
     const resolved = await loginPath();
     const agents = await Promise.all(
-      ids.map(async (id) => {
-        const agent = await detect(id, resolved.path);
-        if (id !== "agy" || !agent.path) return agent;
-        const agyPlugin = await this.agyPlugin.status(agent.path);
-        return {
-          ...agent,
-          agyPlugin,
-          hooks: agyPlugin.state === "installed" || agyPlugin.state === "outdated",
-          reason:
-            agyPlugin.state === "installed" || agyPlugin.state === "outdated"
-              ? "Opt-in Foom plugin installed."
-              : "Plugin unavailable or disabled; using output evaluation.",
-        };
-      }),
+      ids.map(async (id) =>
+        agentProvider(id).enrich(await detect(id, resolved.path), this.agyPlugin),
+      ),
     );
     const result = Object.freeze({
       ...resolved,
@@ -239,9 +193,8 @@ export class AgentService {
       throw new Error(`${request.agent} is not installed. Rescan after installing it.`);
     const attach = this.hooksEnabled && agent.hooks && this.prepareHooks;
     const binding = attach ? await attach(agent.id) : undefined;
-    const notify =
-      !agent.codexLifecycle || !binding?.codexHookCommand || binding.codexNotify !== false;
-    if (attach && agent.id === "codex" && notify && !request.acknowledgeCodexNotifierReplacement) {
+    const notify = agentProvider(agent.id).needsNotifier(agent, binding);
+    if (attach && notify && !request.acknowledgeCodexNotifierReplacement) {
       binding?.dispose();
       throw new Error(
         "Foom replaces your Codex notifier for this launch. Acknowledge this or disable hooks.",
@@ -271,41 +224,15 @@ export class AgentService {
         throw new Error("Worktree has changed. Select it and try again.");
       if (request.control !== undefined && "role" in request.control && !control)
         throw new Error("Orchestration needs control credentials");
-      const configGreeting = config !== undefined && request.conversationId === undefined;
-      const prompt = initialPrompt(agent, request.prompt);
-      let args = [
-        ...resume,
-        ...((control || configGreeting) && agent.cliGuidance
-          ? cliGuidance([...defaults, ...prompt.guidance], configGreeting)
-          : [...defaults, ...prompt.guidance]),
-        ...(agent.inline ? ["--no-alt-screen"] : []),
-        ...(mcp?.args ?? []),
-      ];
-      if (mcp && agent.id === "claude") args = mergeAllowedTools(args);
-      if (binding) {
-        if (agent.id === "claude") {
-          const hook = [{ hooks: [{ type: "command", command: binding.claudeCommand }] }];
-          args.push(
-            "--settings",
-            JSON.stringify({
-              hooks: {
-                UserPromptSubmit: hook,
-                PreToolUse: hook,
-                Stop: hook,
-                PermissionRequest: hook,
-                Notification: hook,
-              },
-            }),
-          );
-        } else if (agent.id === "codex") {
-          if (agent.codexLifecycle && binding.codexHookCommand)
-            args.push(...codexHookArguments(binding.codexHookCommand));
-          if (notify) args.push("-c", `notify=${JSON.stringify(binding.codexCommand)}`);
-        }
-      }
-      // A positional prompt goes last, after every option Foom adds.
-      args.push(
-        ...(configGreeting && agent.id !== "agy" ? ["--", CONFIG_PROMPT] : prompt.positional),
+      const args = agentProvider(agent.id).arguments(
+        agent,
+        request,
+        defaults,
+        resume,
+        binding,
+        mcp,
+        Boolean(control),
+        config !== undefined,
       );
       const environment = buildLaunchEnvironment({
         layers: request.environment ?? [],

@@ -1,3 +1,4 @@
+import { builtinAgent } from "../../shared/providers/catalog";
 import type { AgentId, AgentInstallation } from "../../shared/agents";
 import type { SetupState } from "../../shared/setup";
 import type { AgentReport } from "../../shared/workspace";
@@ -31,7 +32,7 @@ export const SIGNALS = {
 export function signalNote(agent: AgentInstallation, hooks: boolean): string | undefined {
   const how = signal(agent, hooks);
   if (how === "notify") return "Replaces your own Codex notifier, for Foom's launches only.";
-  if (how === "rules" && hooks && agent.id !== "agy") return agent.reason;
+  if (how === "rules" && hooks && !builtinAgent(agent.id)?.pluginSetup) return agent.reason;
   return undefined;
 }
 
@@ -69,9 +70,12 @@ export function readyAgents(
 /** How this agent will tell Foom it needs attention. */
 export function signal(agent: AgentInstallation, hooks: boolean): "hooks" | "notify" | "rules" {
   if (!hooks) return "rules";
-  if (agent.id === "agy") return agent.agyPlugin?.state === "installed" ? "hooks" : "rules";
+  if (builtinAgent(agent.id)?.pluginSetup)
+    return agent.agyPlugin?.state === "installed" ? "hooks" : "rules";
   if (!agent.hooks) return "rules";
-  return agent.id === "codex" && agent.codexHookState !== "trusted" ? "notify" : "hooks";
+  return builtinAgent(agent.id)?.hookHealth && agent.codexHookState !== "trusted"
+    ? "notify"
+    : "hooks";
 }
 
 /** Where `feat/search` would land. Branch slashes become folders. */

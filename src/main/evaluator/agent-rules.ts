@@ -1,3 +1,4 @@
+import { isAgentId } from "../../shared/providers/catalog";
 import claude from "./agent-rules/claude.json";
 import codex from "./agent-rules/codex.json";
 import agy from "./agent-rules/agy.json";
@@ -22,7 +23,7 @@ export function parseManifest(data: typeof claude | typeof codex | typeof agy): 
   // JSON imports are compiled and shipped, never loaded from agent output or a URL.
   if (data.minimumEngineVersion !== 1) throw new Error("Unsupported detection engine");
   const id = data.id;
-  if (id !== "claude" && id !== "codex" && id !== "agy") throw new Error("Unknown agent");
+  if (!isAgentId(id)) throw new Error("Unknown agent");
   const rules = data.rules.map((rule): AgentRule => {
     const state = rule.state;
     const region = rule.region;

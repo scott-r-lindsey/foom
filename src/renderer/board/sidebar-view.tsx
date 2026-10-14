@@ -1,3 +1,4 @@
+import { isAgentId } from "../../shared/providers/catalog";
 import type { PreviewSummary } from "../../shared/workspace";
 import { ResumeField } from "./resume-field-view";
 import { PanelIntent } from "./panel-intent";
@@ -551,9 +552,7 @@ export function Sidebar({
                   null,
                 ]
             : [
-                ...(!row.worktreeRemoved &&
-                row.conversationId &&
-                (row.agent === "claude" || row.agent === "codex" || row.agent === "agy")
+                ...(!row.worktreeRemoved && row.conversationId && isAgentId(row.agent)
                   ? [
                       {
                         label: "Resume conversation",

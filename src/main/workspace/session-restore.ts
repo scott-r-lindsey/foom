@@ -1,3 +1,4 @@
+import { builtinAgent } from "../../shared/providers/catalog";
 import type { StoredSession } from "./session-restore.d";
 import type { AgentInstallation } from "../../shared/agents";
 
@@ -23,7 +24,7 @@ export function restoreAuthority(
     entry.orchestrator.identity === identity &&
     agent?.path !== null &&
     agent?.mcp === true &&
-    (agent.id === "claude" || agent.id === "codex")
+    builtinAgent(agent.id)?.restoreControl === true
   );
 }
 

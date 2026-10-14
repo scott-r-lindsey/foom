@@ -1,3 +1,4 @@
+import { isAgentId } from "../../shared/providers/catalog";
 import { readFile, mkdir, writeFile, rename } from "node:fs/promises";
 import { isAbsolute, join } from "node:path";
 import { conversationId } from "../agents/conversation";
@@ -47,13 +48,10 @@ export function readSessions(value: unknown): StoredSession[] {
         branch === null ||
         (typeof branch === "string" && branch.length <= 4096 && !/\p{Cc}/u.test(branch))
       ) ||
-      (conversation !== undefined &&
-        (!conversationId(conversation) ||
-          (agent !== "claude" && agent !== "codex" && agent !== "agy")))
+      (conversation !== undefined && (!conversationId(conversation) || !isAgentId(agent)))
     )
       throw new Error("Invalid session");
-    if (agent !== "claude" && agent !== "codex" && agent !== "agy" && agent !== "shell")
-      throw new Error("Invalid agent");
+    if (!isAgentId(agent) && agent !== "shell") throw new Error("Invalid agent");
     const role = readOrchestrator(orchestrator);
     if (role && (parentId !== undefined || agent === "shell" || home || config))
       throw new Error("Invalid role");
