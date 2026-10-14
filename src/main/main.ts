@@ -821,25 +821,30 @@ async function performQuit() {
     const count = terminals.runningCount;
     if (count > 0) {
       const snapshot = workspace.snapshot();
-      const accepted = await confirmations.request({
-        title: `Quit with ${String(count)} ${count === 1 ? "terminal" : "terminals"} running?`,
-        accept: "Stop all and quit",
-        glyph: "power",
-        subject: "Each one is stopped",
-        sessions: terminals.runningSessions().map((session) => {
-          const entry = snapshot.terminals.find((item) => item.id === session.id);
-          return {
-            id: session.id,
-            name: builtinAgent(entry?.agent)?.name ?? path.basename(session.command),
-            location: entry?.config
-              ? "Foom config"
-              : entry
-                ? `${path.basename(entry.repository)} › ${entry.branch ?? entry.worktree}`
-                : session.cwd,
-            state: entry?.state?.state ?? "quiet_ok",
-          };
-        }),
-      });
+      const accepted = await confirmations.request(
+        {
+          title: `Quit with ${String(count)} ${count === 1 ? "terminal" : "terminals"} running?`,
+          accept: "Stop all and quit",
+          glyph: "power",
+          subject: "Each one is stopped",
+          sessions: terminals.runningSessions().map((session) => {
+            const entry = snapshot.terminals.find((item) => item.id === session.id);
+            return {
+              id: session.id,
+              name: builtinAgent(entry?.agent)?.name ?? path.basename(session.command),
+              location: entry?.config
+                ? "Foom config"
+                : entry
+                  ? `${path.basename(entry.repository)} › ${entry.branch ?? entry.worktree}`
+                  : session.cwd,
+              state: entry?.state?.state ?? "quiet_ok",
+            };
+          }),
+        },
+        undefined,
+        // A person asked Foom to quit, possibly from the Dock while another app is frontmost.
+        { activate: true },
+      );
       if (!accepted) return;
     }
     await saveWindows().catch((error: unknown) => {

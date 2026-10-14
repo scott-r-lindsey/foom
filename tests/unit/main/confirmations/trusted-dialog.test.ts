@@ -9,6 +9,7 @@ const mock = vi.hoisted(() => ({
   windows: [] as FakeWindow[],
   construct: vi.fn(),
   load: vi.fn<() => Promise<void>>(),
+  activate: vi.fn(),
 }));
 class FakeWindow extends EventEmitter {
   webContents = Object.assign(new EventEmitter(), {
@@ -44,6 +45,7 @@ class FakeWindow extends EventEmitter {
   }
 }
 vi.mock("electron", () => ({
+  app: { focus: mock.activate },
   BrowserWindow: vi.fn(function (options: BrowserWindowConstructorOptions) {
     return new FakeWindow(options);
   }),
@@ -612,6 +614,75 @@ test("late native hide/minimize notifications cannot cancel a visible reused chi
   expect(parent.webContents.send).toHaveBeenLastCalledWith("confirmation:scrim", true);
   answer(id, true);
   expect(await next).toBe(true);
+  dialog.dispose();
+});
+
+test.each(["linux", "win32"] as const)("%s never steals app activation", async (platform) => {
+  const dialog = setup(platform);
+  const pending = dialog.request(content);
+  const id = await shown();
+  expect(mock.activate).not.toHaveBeenCalled();
+  answer(id, false);
+  expect(await pending).toBe(false);
+  dialog.dispose();
+});
+
+test.each([true, false])(
+  "macOS activation success=%s preserves the consent boundary",
+  async (activates) => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    mock.autoSize = false;
+    let active = false;
+    const dialog = setup("darwin");
+    window().isFocused.mockReturnValue(false);
+    mock.activate.mockImplementation(() => {
+      active = activates;
+      if (active) parent.emit("focus");
+    });
+    window().focus.mockImplementation(() => {
+      window().isFocused.mockReturnValue(active);
+      if (active) window().emit("focus");
+    });
+    expect(mock.activate).not.toHaveBeenCalled();
+    const pending = dialog.request(content, undefined, { activate: true });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(mock.activate).not.toHaveBeenCalled();
+    resize({ width: 440, height: 240 });
+    expect(mock.activate).toHaveBeenCalledWith({ steal: true });
+    expect(window().isFocused()).toBe(activates);
+    await vi.advanceTimersByTimeAsync(2000);
+    if (activates) {
+      expect(window().hide).not.toHaveBeenCalled();
+      expect(window().show).toHaveBeenCalledOnce();
+      const request: unknown = window().webContents.send.mock.calls.at(-1)?.[1];
+      if (!request || typeof request !== "object" || !("id" in request))
+        throw Error("Missing request");
+      answer(request.id, true);
+      expect(await pending).toBe(true);
+    } else {
+      expect(await pending).toBe(false);
+      expect(parent.setFocusable).toHaveBeenLastCalledWith(true);
+      expect(parent.webContents.send).toHaveBeenLastCalledWith("confirmation:scrim", false);
+    }
+    mock.activate.mockClear();
+    parent.emit("focus");
+    expect(mock.activate).not.toHaveBeenCalled();
+    dialog.dispose();
+  },
+);
+
+test("macOS requests no person started never steal activation and still fail closed", async () => {
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+  mock.autoSize = false;
+  const dialog = setup("darwin");
+  window().isFocused.mockReturnValue(false);
+  const pending = dialog.request(content);
+  await vi.advanceTimersByTimeAsync(0);
+  resize({ width: 440, height: 240 });
+  expect(mock.activate).not.toHaveBeenCalled();
+  await vi.advanceTimersByTimeAsync(2000);
+  expect(await pending).toBe(false);
+  expect(mock.activate).not.toHaveBeenCalled();
   dialog.dispose();
 });
 

@@ -1593,6 +1593,71 @@ test("trusted quit dialog appears above the board on first show and after hide/s
   if (paintErrors.length) throw paintErrors[0];
 });
 
+test("macOS quit from an inactive app activates trusted consent and keeps board close guarded", {
+  skip: process.platform !== "darwin",
+  timeout: deadline(45_000),
+}, async (context) => {
+  const app = await launchApp(context);
+  const board = await boardPage(app);
+  const dialog = await confirmationPage(app);
+  for (const accept of [false, true]) {
+    await app.evaluate(({ app }) => app.hide());
+    await expect
+      .poll(() => app.evaluate(({ BrowserWindow }) => BrowserWindow.getFocusedWindow() === null))
+      .toBe(true);
+    // Keep the board available without activating Foom, as with Dock -> Quit.
+    const inactive = await app.evaluate(({ app, BrowserWindow }) => {
+      const board = BrowserWindow.getAllWindows().find(
+        (window) => window.webContents.getURL() === "app://bundle/index.html",
+      );
+      board.showInactive();
+      const inactive = BrowserWindow.getFocusedWindow() === null;
+      app.quit();
+      return inactive;
+    });
+    assert.equal(inactive, true, "Quit must start without a focused Foom window");
+    await expect(dialog.getByRole("alertdialog")).toHaveAccessibleName(
+      "Quit with 1 terminal running?",
+    );
+    await expect
+      .poll(() =>
+        app.evaluate(({ BrowserWindow }) =>
+          BrowserWindow.getAllWindows()
+            .find(
+              (window) => window.webContents.getURL() === "app://confirmation/confirmation.html",
+            )
+            .isFocused(),
+        ),
+      )
+      .toBe(true);
+    // The native board close button must not bypass or replace pending consent.
+    await app.evaluate(({ BrowserWindow }) => {
+      BrowserWindow.getAllWindows()
+        .find((window) => window.webContents.getURL() === "app://bundle/index.html")
+        .close();
+    });
+    await expect(board.locator(".board-confirmation-scrim")).toBeVisible();
+    assert.equal(app.process().exitCode, null);
+    if (accept) {
+      await quitAndWait(app, () =>
+        dialog
+          .getByRole("button", {
+            name: "Stop all and quit",
+            exact: true,
+          })
+          .click(),
+      );
+    } else {
+      await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
+      await expect(board.locator(".board-confirmation-scrim")).toHaveCount(0);
+      assert.equal(
+        await board.evaluate(async () => (await window.desktop.workspace()).terminals[0].exited),
+        false,
+      );
+    }
+  }
+});
+
 test("trusted dialog presentation failure releases the board and allows a new request", {
   timeout: deadline(45_000),
 }, async (context) => {
