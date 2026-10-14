@@ -80,22 +80,26 @@ test("manual runs, unknown events, new branches, and empty diffs require desktop
   );
 });
 
-test("desktop jobs use three shards on every platform", () => {
+test("desktop jobs use four shards on every platform", () => {
   assert.deepEqual(desktopMatrix(), [
-    { os: "ubuntu-24.04", shard: "1/3" },
-    { os: "ubuntu-24.04", shard: "2/3" },
-    { os: "ubuntu-24.04", shard: "3/3" },
-    { os: "windows-2025", shard: "1/3" },
-    { os: "windows-2025", shard: "2/3" },
-    { os: "windows-2025", shard: "3/3" },
-    { os: "macos-15", shard: "1/3" },
-    { os: "macos-15", shard: "2/3" },
-    { os: "macos-15", shard: "3/3" },
+    { os: "ubuntu-24.04", shard: "1/4" },
+    { os: "ubuntu-24.04", shard: "2/4" },
+    { os: "ubuntu-24.04", shard: "3/4" },
+    { os: "ubuntu-24.04", shard: "4/4" },
+    { os: "windows-2025", shard: "1/4" },
+    { os: "windows-2025", shard: "2/4" },
+    { os: "windows-2025", shard: "3/4" },
+    { os: "windows-2025", shard: "4/4" },
+    { os: "macos-15", shard: "1/4" },
+    { os: "macos-15", shard: "2/4" },
+    { os: "macos-15", shard: "3/4" },
+    { os: "macos-15", shard: "4/4" },
   ]);
   assert.deepEqual(desktopMatrix(["ubuntu-24.04"]), [
-    { os: "ubuntu-24.04", shard: "1/3" },
-    { os: "ubuntu-24.04", shard: "2/3" },
-    { os: "ubuntu-24.04", shard: "3/3" },
+    { os: "ubuntu-24.04", shard: "1/4" },
+    { os: "ubuntu-24.04", shard: "2/4" },
+    { os: "ubuntu-24.04", shard: "3/4" },
+    { os: "ubuntu-24.04", shard: "4/4" },
   ]);
 });
 
@@ -308,7 +312,7 @@ test("Quality gate rejects failed, cancelled or skipped required desktop shards"
     }).status;
   assert.equal(run("true", "success"), 0);
   assert.equal(run("false", "skipped"), 0);
-  // GitHub aggregates the eight matrix jobs into needs.desktop.result.
+  // GitHub aggregates all twelve matrix jobs into needs.desktop.result.
   for (const { os, shard } of desktopMatrix()) {
     for (const result of ["failure", "cancelled", "skipped"]) {
       assert.notEqual(run("true", result), 0, `${os} ${shard}: ${result}`);

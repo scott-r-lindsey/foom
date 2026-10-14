@@ -23,10 +23,10 @@ export function requiresDesktop(paths) {
 /** Every run, including draft pull requests, validates all three platforms. */
 export const allPlatforms = ["ubuntu-24.04", "windows-2025", "macos-15"];
 
-/** Every platform needs three shards to keep each Electron step inside its timeout. */
+/** Every platform needs four duration-balanced shards to keep each Electron step inside its timeout. */
 export function desktopMatrix(platforms = allPlatforms) {
   return platforms.flatMap((os) =>
-    Array.from({ length: 3 }, (_, index) => ({ os, shard: `${index + 1}/3` })),
+    Array.from({ length: 4 }, (_, index) => ({ os, shard: `${index + 1}/4` })),
   );
 }
 
