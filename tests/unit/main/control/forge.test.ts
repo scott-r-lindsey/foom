@@ -284,3 +284,47 @@ it("does not let an old closed PR claim a newly tracked branch, but follows an a
     });
   }
 });
+it("resolves PR numbers with validated ownership and fixed read-only arguments", async () => {
+  const head = {
+    number: 337,
+    headRefName: "continue",
+    state: "OPEN",
+    headRepositoryOwner: { login: "O" },
+    isCrossRepository: false,
+  };
+  const runner = vi.fn(() => Promise.resolve(JSON.stringify(head)));
+  const provider = forgeProvider("https://github.com/o/r", runner);
+  expect(await provider?.resolve?.(337)).toEqual({
+    branch: "continue",
+    state: "OPEN",
+    sameRepository: true,
+  });
+  expect(runner).toHaveBeenCalledWith([
+    "pr",
+    "view",
+    "337",
+    "--repo",
+    "github.com/o/r",
+    "--json",
+    "number,headRefName,state,headRepositoryOwner,isCrossRepository",
+  ]);
+  for (const number of [0, -1, 1.5, NaN, Number.MAX_SAFE_INTEGER + 1])
+    expect(await provider?.resolve?.(number)).toBeUndefined();
+  for (const data of [
+    null,
+    [],
+    { ...head, number: 338 },
+    { ...head, headRefName: 5 },
+    { ...head, state: "unknown" },
+    { ...head, headRepositoryOwner: null },
+    { ...head, headRepositoryOwner: { login: 7 } },
+    { ...head, isCrossRepository: null },
+  ]) {
+    runner.mockResolvedValueOnce(JSON.stringify(data));
+    expect(await provider?.resolve?.(337)).toBeUndefined();
+  }
+  runner.mockResolvedValueOnce("garbage");
+  expect(await provider?.resolve?.(337)).toBeUndefined();
+  runner.mockRejectedValueOnce(new Error("private diagnostics"));
+  expect(await provider?.resolve?.(337)).toBeUndefined();
+});

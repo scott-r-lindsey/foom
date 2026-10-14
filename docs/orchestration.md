@@ -341,7 +341,7 @@ under the existing launch/removal locks. Git and processes use argument arrays.
 | `whoami` | Every authenticated agent | Own session, role, repository/worktree and capability names; no secrets |
 | `sessions` | Every agent, own repository only | Paginated metadata, 100 rows maximum; no output, prompts, arbitrary reasons or environment |
 | `session_state` | Every agent, own repository only | State, server-generated reason, revision and attention kind; no terminal content |
-| `create_worktree` | Orchestrator | New validated branch/worktree in its repository, main-owned provenance; never adopt existing worktrees |
+| `create_worktree` | Orchestrator | New validated branch/worktree, or adoption by open same-repository PR number; main-owned provenance |
 | `launch` | Orchestrator | One ordinary child in its newly created empty worktree; enabled agent and ≤16 KiB initial prompt; no role/permission-policy arguments |
 | `tail` | Orchestrator, own child only | Latest 1–40 physical lines, redacted, ≤16 KiB UTF-8 result, no historical pagination |
 | `reply` | Orchestrator, own child only | Exact question revision plus ≤4 KiB proposal; gate below, never general terminal input |
@@ -349,6 +349,26 @@ under the existing launch/removal locks. Git and processes use argument arrays.
 | `remove_worktree` | Orchestrator, own created worktree only | Requests an app confirmation unless Auto-remove merged worktrees is enabled in Settings → General; no force option or deleting branches |
 | `wait_for` | Orchestrator, own children only | Up to the configured child limit of IDs, after-revision cursor, timeout 0–30 seconds; returns state metadata or timeout |
 | `operation_status` | Orchestrator or authorized human CLI grant, own operations only | Exactly one of operation ID or idempotency key; returns the operation record described below, never child output |
+
+`create_worktree({ pullRequest: N, idempotencyKey })` (#337) uses the #340
+forge provider and the user's read-only `gh` login to resolve the PR head. Main
+selects `origin`; the API accepts no remote, branch override or path. Both
+`isCrossRepository` and `headRepositoryOwner` must establish the selected repository:
+a fork is refused even when its branch name also exists locally. Fixed refusal
+codes are `forge_unavailable` (no provider or failed lookup/default discovery),
+`pr_not_open`, `pr_from_fork`, `default_branch`, `invalid_branch` and
+`branch_in_use`. Existing branch validation and remote default discovery precede
+fetching. Main fetches the validated head with argument arrays and creates a
+checkout tracking `origin/<branch>` and sets its branch-specific `pushRemote` to
+origin, so plain `git push` targets that PR branch even with another default push
+remote.
+Existing local commits are preserved; adoption never resets a branch. A checkout
+already owned by this orchestrator and still unused may be reused after its
+identity and session eligibility are rechecked. Other checked-out branches are
+refused. Adopted checkouts count against the four-unused-worktree budget and are
+registered with forge tracking by the requested PR number for child session PR
+metadata, including when multiple open PRs share a head branch. The console fallback
+is `foom create-worktree --pull-request N --idempotency-key KEY`.
 
 Ordinary agents never see orchestration tools in `tools/list`; the service also
 rejects direct calls to hidden methods. Config-only tools for #84 are a separate
@@ -764,7 +784,7 @@ retry with the same key returns that record.
 
 | Tool | Parameters | Result |
 |---|---|---|
-| `create_worktree` | `branch` | New local branch only (an existing branch is refused); `resultId` is the opaque worktree ID |
+| `create_worktree` | Exactly one of `branch` or `pullRequest` | New local branch, or continue an open same-repository PR; `resultId` is the opaque worktree ID |
 | `launch` | `worktreeId`, `agent` (`claude`, `codex`, `agy`), optional `prompt` ≤16 KiB | `resultId` is the child session ID |
 | `stop` | `id` | Existing graceful stop; an already exited child succeeds; a stop error is `indeterminate` |
 | `remove_worktree` | `worktreeId` | Returns an operation (`pending_confirmation` when review is needed); poll `operation_status` |

@@ -690,8 +690,13 @@ orchestrator it would replace. After the dialog it rechecks the session and the
 current orchestrator, revokes the old one, reserves the repository's slot, swaps
 the grant's principal (`ControlService.setRole`) and binds the slot. Every
 orchestrator has the CLI fallback; Antigravity can be elevated without interactive
-prompt support. Child worktree creation requires a new local branch, refuses checked-out branches,
-and starts from HEAD even when a same-named remote ref exists. Children launch with
+prompt support. Child worktree creation with `branch` requires a new local branch, refuses
+checked-out branches, and starts from HEAD even when a same-named remote ref exists.
+The narrow `pullRequest` path (#337) resolves an open PR through the #340 forge
+provider, rejects forks and the default branch, validates its head, fetches from
+main-selected origin and tracks origin's branch for plain push. An orchestrator's
+own unused checkout may be reused after identity checks; other checked-out heads
+are refused. Both paths share the unused budget, branch locks and forge tracking. Children launch with
 no default arguments (so never bypass), `sharedCheckout` off, a read-only grant
 naming their parent, and an optional prompt as one final argv entry. Claude Code
 and Codex place `--` immediately before that prompt, after all launch options, so

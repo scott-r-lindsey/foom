@@ -7,7 +7,13 @@ export class ControlError extends Error {
       | "not_found"
       | "conflict"
       | "capacity"
-      | "unavailable",
+      | "unavailable"
+      | "forge_unavailable"
+      | "pr_not_open"
+      | "pr_from_fork"
+      | "default_branch"
+      | "invalid_branch"
+      | "branch_in_use",
   ) {
     super(code);
   }

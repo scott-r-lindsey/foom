@@ -110,6 +110,7 @@ beforeEach(() => {
       deleteMergedBranch: vi.fn(async () => {}),
       removeRepository: vi.fn(async () => {}),
       removeWorktree: vi.fn(async () => {}),
+      adoptWorktree: vi.fn(),
       createWorktree: vi.fn(
         (): Promise<CreatedWorktree> => Promise.resolve({ path: tree.path, outcome: "new" }),
       ),
