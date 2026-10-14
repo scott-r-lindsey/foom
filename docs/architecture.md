@@ -1708,7 +1708,13 @@ or closing a user-focused preview, main blocks the board's native keyboard event
 (including shortcuts) until that handoff completes. Native fallback focus does not
 cancel the handoff; a native mouse-down on the board or another preview does,
 allowing ordinary input immediately. Hiding or closing the pending preview also
-unblocks board input. These listeners belong to the host and are disposed with it.
+unblocks board input. Escape, window blur, or a 1.5-second deadline cancels a
+pending handoff and discards its focus intent, including if attachment failed to
+acquire native focus. Cancellation first blurs an active terminal in the trusted
+board DOM; main keeps blocking keys until that operation completes. The board's
+shortcuts and keyboard navigation then work, while ordinary typing cannot reach a
+PTY until the user selects a target. A late load cannot restore cancelled focus.
+These listeners and the deadline belong to the host and are disposed with it.
 Recreation is bounded to once per 250 ms per preview; the old contents closes immediately
 and only one replacement can be pending. Closing cancels pending recreation.
 A previously clicked native contents can reacquire keyboard focus during reload on

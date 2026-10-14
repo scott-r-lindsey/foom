@@ -24,6 +24,7 @@ interface HostedPreview {
   readingScroll?: boolean;
 }
 const RECREATION_INTERVAL_MS = 250;
+const HANDOFF_DEADLINE_MS = 1500;
 const EMPTY_BOUNDS: PreviewBounds = { x: 0, y: 0, width: 0, height: 0, visible: false };
 export function requestAllowed(url: string, origin: string): boolean {
   return /^(data|blob):/.test(url) || "pathname" in pathnameFor(url, origin);
@@ -60,6 +61,8 @@ export class PreviewHost {
   private lastFocused: WebContents;
   private disposed = false;
   private pendingFocus: WebContents | undefined;
+  private handoffTimer: ReturnType<typeof setTimeout> | undefined;
+  private handoffVersion = 0;
   constructor(
     private readonly window: BrowserWindow,
     readonly registry: PreviewRegistry,
@@ -71,27 +74,69 @@ export class PreviewHost {
     window.webContents.prependListener("before-input-event", this.boardInput);
     window.webContents.on("before-mouse-event", this.boardMouse);
     window.on("resize", this.refresh);
+    window.on("blur", this.releaseHandoff);
   }
   private readonly boardFocused = () => {
     // Native fallback after detaching/closing is not a deliberate board selection.
     if (!this.pendingFocus) this.lastFocused = this.window.webContents;
   };
-  private readonly boardInput = (event: Electron.Event) => {
+  private readonly boardInput = (event: Electron.Event, input?: Electron.Input) => {
     // Block synchronously in main, before Chromium can deliver a key to xterm
-    // or an accelerator. No renderer round trip can protect the first key.
-    if (this.pendingFocus) event.preventDefault();
+    // or an accelerator. Consume Escape while cancellation is pending.
+    if (!this.pendingFocus) return;
+    event.preventDefault();
+    if (input?.key === "Escape") this.releaseHandoff();
   };
+  private clearHandoff() {
+    clearTimeout(this.handoffTimer);
+    this.handoffTimer = undefined;
+    this.pendingFocus = undefined;
+    this.handoffVersion++;
+  }
   private readonly boardMouse = (_event: Electron.Event, mouse: Electron.MouseInputEvent) => {
     if (mouse.type !== "mouseDown") return;
-    this.pendingFocus = undefined;
+    this.clearHandoff();
     this.lastFocused = this.window.webContents;
   };
   private beginHandoff(contents: WebContents) {
-    if (this.lastFocused === contents) this.pendingFocus = contents;
+    if (this.lastFocused !== contents || this.pendingFocus) return;
+    this.pendingFocus = contents;
+    this.handoffTimer = setTimeout(this.releaseHandoff, HANDOFF_DEADLINE_MS);
   }
   private cancelHandoff(contents: WebContents) {
-    if (this.pendingFocus === contents) this.pendingFocus = undefined;
+    if (this.pendingFocus === contents) this.releaseHandoff();
   }
+  private readonly releaseHandoff = () => {
+    if (!this.pendingFocus) return;
+    // Revoke focus intent immediately, including during a recreation delay.
+    this.lastFocused = this.window.webContents;
+    for (const entry of this.hosted.values()) {
+      entry.restoreFocus = false;
+      if (entry.view.webContents === this.pendingFocus) entry.clicked = false;
+    }
+    const version = ++this.handoffVersion;
+    clearTimeout(this.handoffTimer);
+    this.handoffTimer = undefined;
+    // Native fallback may have left xterm's textarea focused in the board DOM.
+    // Keep the main-process gate closed until the trusted board has blurred it.
+    // No preview-controlled data is evaluated here.
+    void this.window.webContents
+      .executeJavaScript(
+        'if (document.activeElement?.closest(".xterm")) document.activeElement.blur()',
+      )
+      .then(() => {
+        if (this.handoffVersion !== version) return;
+        this.clearHandoff();
+        // Some platforms leave no native responder after detaching the preview.
+        // Focus the board only after DOM blur, and never activate another window.
+        if (this.window.isFocused()) this.window.webContents.focus();
+      })
+      .catch(() => {
+        // A destroyed board cannot receive input; otherwise Escape can try again.
+        if (this.window.webContents.isDestroyed() && this.handoffVersion === version)
+          this.clearHandoff();
+      });
+  };
   readonly refresh = () => {
     for (const entry of this.hosted.values()) this.applyBounds(entry);
   };
@@ -224,6 +269,7 @@ export class PreviewHost {
       this.lastFocused = contents;
       this.pendingFocus = contents;
     }
+    contents.prependListener("before-input-event", this.boardInput);
     contents.setWindowOpenHandler(() => ({ action: "deny" }));
     contents.on("will-attach-webview", (event) => {
       event.preventDefault();
@@ -300,7 +346,7 @@ export class PreviewHost {
     contents.on("before-mouse-event", (_event, mouse) => {
       if (mouse.type !== "mouseDown" || !entry.attached) return;
       // Native input only: page script cannot raise this event.
-      this.pendingFocus = undefined;
+      this.clearHandoff();
       this.lastFocused = contents;
       entry.clicked = true;
       if (!contents.isFocused()) contents.focus();
@@ -311,7 +357,7 @@ export class PreviewHost {
     contents.on("focus", () => {
       if (entry.attached && entry.clicked) {
         this.lastFocused = contents;
-        this.cancelHandoff(contents);
+        if (this.pendingFocus === contents) this.clearHandoff();
       }
       // Attached or not: macOS can hand focus to a detached view that is still loading.
       else if (this.lastFocused !== contents) {
@@ -360,7 +406,7 @@ export class PreviewHost {
       if (entry.restoreFocus && this.lastFocused === entry.view.webContents) {
         entry.clicked = true;
         entry.view.webContents.focus();
-        if (entry.view.webContents.isFocused()) this.cancelHandoff(entry.view.webContents);
+        if (entry.view.webContents.isFocused()) this.clearHandoff();
       }
       entry.restoreFocus = false;
     }
@@ -409,6 +455,8 @@ export class PreviewHost {
   async dispose(persist: boolean): Promise<void> {
     if (this.disposed) return;
     this.disposed = true;
+    this.clearHandoff();
+    this.window.removeListener("blur", this.releaseHandoff);
     this.window.removeListener("resize", this.refresh);
     this.window.webContents.removeListener("focus", this.boardFocused);
     this.window.webContents.removeListener("before-input-event", this.boardInput);

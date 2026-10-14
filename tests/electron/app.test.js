@@ -10812,7 +10812,7 @@ test("preview host keeps keyboard focus after a user-clicked link navigation", a
   );
   const domFocus = await page.evaluate(() => document.activeElement?.className);
   context.diagnostic(`handoff native focus ${nativeFocus}, board DOM focus ${domFocus}`);
-  await typeIntoFocusedContents(app, "gap".repeat(40), true);
+  await typeIntoFocusedContents(app, "gap", true);
   // Exercise native board fallback even on platforms which leave no responder.
   await app.evaluate(({ BrowserWindow }) => {
     BrowserWindow.getAllWindows()
@@ -10822,7 +10822,7 @@ test("preview host keeps keyboard focus after a user-clicked link navigation", a
   await expect
     .poll(() => app.evaluate(({ webContents }) => webContents.getFocusedWebContents()?.getURL()))
     .toBe("app://bundle/index.html");
-  await typeIntoFocusedContents(app, "blocked".repeat(40));
+  await typeIntoFocusedContents(app, "blocked");
   await app.evaluate(() => globalThis.releasePreviewLink());
   await expect.poll(async () => (await previewViewState(app, id)).attached).toBe(true);
   await expect
@@ -10880,6 +10880,105 @@ test("preview host keeps keyboard focus after a user-clicked link navigation", a
   await expect.poll(async () => (await previewViewState(app, id)).attached).toBe(true);
   assert.equal((await previewViewState(app, id)).focused, false);
   await page.evaluate((id) => window.desktop.previews.close(id), id);
+});
+
+// Each response stays pending until app teardown: no network or elapsed-time mock.
+async function stuckPreviewHandoff(context, cancellation) {
+  const app = await launchApp(context);
+  const page = await boardPage(app);
+  const terminal = (await page.evaluate(() => window.desktop.workspace())).terminals[0];
+  await writeFile(
+    path.join(terminal.worktree, "stuck.html"),
+    '<a href="never.md" style="display:block;width:200px;height:100px">Continue</a>',
+  );
+  await writeFile(path.join(terminal.worktree, "never.md"), "Never loaded");
+  await app.evaluate(({ app }) => {
+    app.on("session-created", (partition) => {
+      const handle = partition.protocol.handle.bind(partition.protocol);
+      partition.protocol.handle = (scheme, handler) =>
+        handle(scheme, (request) => {
+          if (!request.url.endsWith("/never.md")) return handler(request);
+          globalThis.stuckPreviewRequested = true;
+          return new Promise(() => {});
+        });
+    });
+  });
+  await expect
+    .poll(() => page.locator(".xterm-rows").innerText())
+    .toMatch(process.platform === "win32" ? /PS [\s\S]*>/ : /[$#%>]\s*$/);
+  await page.locator(".xterm-helper-textarea").focus();
+  const before = await page.evaluate((id) => window.desktop.tail(id, 20), terminal.id);
+  const id = await page.evaluate(
+    (root) => window.desktop.previews.open(root, "stuck.html"),
+    terminal.worktree,
+  );
+  await page.evaluate(
+    (id) =>
+      window.desktop.previews.bounds(id, {
+        x: 350,
+        y: 100,
+        width: 400,
+        height: 250,
+        visible: true,
+      }),
+    id,
+  );
+  await expect.poll(async () => (await previewViewState(app, id)).attached).toBe(true);
+  await app.evaluate(({ webContents }, id) => {
+    const contents = webContents
+      .getAllWebContents()
+      .find((entry) => entry.getURL().startsWith(`foom-preview://${id}/`));
+    contents.sendInputEvent({ type: "mouseDown", x: 30, y: 30, button: "left", clickCount: 1 });
+    contents.sendInputEvent({ type: "mouseUp", x: 30, y: 30, button: "left", clickCount: 1 });
+  }, id);
+  await expect.poll(() => app.evaluate(() => globalThis.stuckPreviewRequested)).toBe(true);
+  // Exercise board fallback while its terminal textarea still holds DOM focus.
+  await app.evaluate(({ BrowserWindow }) => {
+    BrowserWindow.getAllWindows()
+      .find((window) => window.webContents.getURL() === "app://bundle/index.html")
+      .webContents.focus();
+  });
+  await expect
+    .poll(() => app.evaluate(({ webContents }) => webContents.getFocusedWebContents()?.getURL()))
+    .toBe("app://bundle/index.html");
+  await typeIntoFocusedContents(app, "gap");
+  if (cancellation === "Escape") {
+    await app.evaluate(({ webContents }) => {
+      const contents = webContents.getFocusedWebContents();
+      contents.sendInputEvent({ type: "keyDown", keyCode: "Escape" });
+      contents.sendInputEvent({ type: "keyUp", keyCode: "Escape" });
+    });
+  }
+  await expect(page.locator(".xterm-helper-textarea")).not.toBeFocused();
+  assert.equal((await previewViewState(app, id)).attached, false);
+  await typeIntoFocusedContents(app, "after");
+  // A real main-process shortcut works without any intervening mouse click.
+  const collapsed = await page
+    .locator(".sidebar-shell")
+    .evaluate((element) => element.getAttribute("data-compact") === "true");
+  await app.evaluate(({ webContents }) => {
+    const contents = webContents.getFocusedWebContents();
+    const modifiers = process.platform === "darwin" ? ["meta"] : ["control", "shift"];
+    contents.sendInputEvent({ type: "keyDown", keyCode: "B", modifiers });
+    contents.sendInputEvent({ type: "keyUp", keyCode: "B", modifiers });
+  });
+  await expect
+    .poll(() =>
+      page
+        .locator(".sidebar-shell")
+        .evaluate((element) => element.getAttribute("data-compact") === "true"),
+    )
+    .toBe(!collapsed);
+  assert.deepEqual(await page.evaluate((id) => window.desktop.tail(id, 20), terminal.id), before);
+  await page.evaluate((id) => window.desktop.previews.close(id), id);
+}
+
+test("preview handoff Escape restores board keyboard input during a never-finishing local load", async (context) => {
+  await stuckPreviewHandoff(context, "Escape");
+});
+
+test("preview handoff deadline restores board keyboard input during a never-finishing local load", async (context) => {
+  await stuckPreviewHandoff(context, "deadline");
 });
 
 test("preview host isolates hostile pages, blocks network and navigation, scales bounds and clears closed partitions", async (context) => {
