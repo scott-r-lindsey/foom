@@ -34,8 +34,11 @@ function record(
   if (required.some((key) => !Object.hasOwn(value, key))) fail(path, "missing-key");
   return value;
 }
+// The trusted dialog shows these strings verbatim. Format characters (bidi overrides,
+// zero-width joiners), private-use and unpaired surrogates could disguise what it shows.
+const HIDDEN = /[\p{Cc}\p{Cf}\p{Co}\p{Cs}\u2028\u2029]/u;
 function text(value: unknown, path: string, max = 4096): string {
-  if (typeof value !== "string" || !value.length || value.length > max || /\p{Cc}/u.test(value))
+  if (typeof value !== "string" || !value.length || value.length > max || HIDDEN.test(value))
     fail(path);
   return value;
 }

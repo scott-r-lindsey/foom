@@ -146,6 +146,14 @@ const invalid: readonly [string, unknown][] = [
 it.each(invalid)("rejects invalid %s (%j)", (path, value) => {
   expect(() => parseAgentPlugin(changed(path, value))).toThrow(AgentManifestError);
 });
+it("refuses characters that could disguise argv or names in the trusted dialog", () => {
+  for (const hidden of ["\u202e", "\u200b", "\u2066", "\ue000", "\ud800", "\u2028", "\u0007"]) {
+    expect(() => parseAgentPlugin(changed("launch.arguments", [`--y${hidden}olo`]))).toThrow(
+      AgentManifestError,
+    );
+    expect(() => parseAgentPlugin(changed("name", `Agent${hidden}`))).toThrow(AgentManifestError);
+  }
+});
 it("refuses malformed, oversized, non-object and incomplete JSON with stable reasons", () => {
   for (const text of ["{", "[]", "null", "0", "{}", " ".repeat(65537)])
     expect(() => parseAgentPlugin(text)).toThrow(AgentManifestError);
