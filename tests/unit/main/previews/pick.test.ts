@@ -4,7 +4,8 @@ import { expect, test, vi } from "vitest";
 const show = vi.hoisted(() => vi.fn());
 vi.mock("electron", () => ({ dialog: { showOpenDialog: show } }));
 import { pickPreviewFile } from "../../../../src/main/previews/pick";
-const window = {} as BrowserWindow;
+const send = vi.fn();
+const window = { webContents: { send } } as unknown as BrowserWindow;
 test("validates before showing the main-owned picker, revalidating through the host on selection", async () => {
   const root = path.resolve("checkout");
   const validate = vi.fn(async () => {});
@@ -12,6 +13,8 @@ test("validates before showing the main-owned picker, revalidating through the h
   show.mockResolvedValue({ canceled: false, filePaths: [path.join(root, "docs", "page.html")] });
   expect(await pickPreviewFile(window, host, validate, root)).toBe("preview");
   expect(validate).toHaveBeenCalledWith(root);
+  expect(send).toHaveBeenCalledWith("confirmation:dialog");
+  expect(send.mock.invocationCallOrder[0]).toBeLessThan(show.mock.invocationCallOrder[0] ?? 0);
   expect(show).toHaveBeenCalledWith(window, {
     title: "Preview file",
     defaultPath: root,
@@ -21,8 +24,10 @@ test("validates before showing the main-owned picker, revalidating through the h
   expect(host.open).toHaveBeenCalledWith(root, "docs/page.html");
   validate.mockRejectedValueOnce(new Error("Unknown worktree"));
   show.mockClear();
+  send.mockClear();
   await expect(pickPreviewFile(window, host, validate, root)).rejects.toThrow("Unknown worktree");
   expect(show).not.toHaveBeenCalled();
+  expect(send).not.toHaveBeenCalled();
 });
 test("cancel and malformed selections create no preview; host refusals propagate", async () => {
   const root = path.resolve("checkout");

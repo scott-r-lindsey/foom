@@ -1606,6 +1606,33 @@ test("removing a shared worktree clears all exited sessions before the final sta
   expect(workspace.snapshot().terminals).toEqual([]);
 });
 
+test.each([false, true])(
+  "worktree removal releases preview resources before Git and unlocks after failure=%s",
+  async (fails) => {
+    const order: string[] = [];
+    deps.prepareWorktreeRemoval = vi.fn((worktree) => {
+      expect(worktree).toBe(tree.path);
+      order.push("close previews");
+      return Promise.resolve(() => {
+        order.push("unlock");
+      });
+    });
+    vi.mocked(deps.worktrees.removeWorktree).mockImplementation(() => {
+      order.push("git remove");
+      return fails ? Promise.reject(new Error("Git failed")) : Promise.resolve();
+    });
+    const workspace = new Workspace(deps);
+    await workspace.startWorktree(start);
+    await workspace.exited("t1", 0);
+    expect(await workspace.removeWorktree("t1", () => Promise.resolve(false))).toBe(false);
+    expect(order).toEqual([]);
+    const removal = workspace.removeWorktree("t1", () => Promise.resolve(true));
+    if (fails) await expect(removal).rejects.toThrow("Git failed");
+    else expect(await removal).toBe(true);
+    expect(order).toEqual(["close previews", "git remove", "unlock"]);
+  },
+);
+
 test("shell lifecycle reports ready, working, done and failed, preserving completion while editing", async () => {
   const workspace = new Workspace(deps);
   workspace.shellState("t1", { phase: "prompt", exitCode: 0 });
