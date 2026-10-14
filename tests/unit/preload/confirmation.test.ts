@@ -39,7 +39,15 @@ test("rejects malformed structured fields and preserves literal data", async () 
   const valid = {
     id: "structured",
     subject: "<img src=x>",
-    removals: [{ id: "one", branch: "<img src=x>", path: "/trees/one", changes: "?? file\0" }],
+    removals: [
+      {
+        id: "one",
+        branch: "<img src=x>",
+        path: "/trees/one",
+        changes: "?? file\0",
+        pullRequest: { number: 338, state: "MERGED" },
+      },
+    ],
     quiet: "Global config unchanged",
     cancel: "Not now",
     note: "Replacement",
@@ -64,6 +72,16 @@ test("rejects malformed structured fields and preserves literal data", async () 
     { removals: {} },
     { removals: [null] },
     { removals: [{ id: "one", branch: "one", path: "/one", changes: 1 }] },
+    ...[
+      null,
+      {},
+      { number: 0, state: "OPEN" },
+      { number: 1.5, state: "OPEN" },
+      { number: 338, state: "unknown" },
+      { number: "338", state: "OPEN" },
+    ].map((pullRequest) => ({
+      removals: [{ id: "one", branch: "one", path: "/one", changes: "", pullRequest }],
+    })),
     { subject: 1 },
     { quiet: null },
     { note: [] },

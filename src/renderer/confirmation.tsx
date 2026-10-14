@@ -458,6 +458,11 @@ export function ConfirmationPage() {
                         <span className="name">
                           {item.branch}
                           <span className="sub">{item.path}</span>
+                          {item.pullRequest && (
+                            <span className="sub">
+                              PR #{item.pullRequest.number} · {item.pullRequest.state}
+                            </span>
+                          )}
                         </span>
                         <span className="why">
                           {item.changes && <Glyph name="warning" />}

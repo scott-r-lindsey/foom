@@ -432,7 +432,11 @@ counts come from the latest inventory; fetch ages use the successful main-owned 
 timestamp, never a new timer started by opening the dialog. Its sandboxed preload
 exposes only request rendering, sizing and answering; it buffers the request until the page
 subscribes. `confirmation:answer` validates the exact window, top frame, URL,
-request ID and boolean. Board frames, stale IDs and malformed answers are ignored.
+request ID and boolean, or a nonempty, unique subset of displayed operation IDs
+for a batch removal. Main groups pending removals by orchestrator generation and
+rotates the request ID on list changes. A single removal keeps the ordinary
+boolean confirmation. The board cannot submit either answer. Board frames, stale IDs
+and malformed answers are ignored.
 Closing, renderer failure and disposal cancel. A failed window is recreated for
 the next request. This main-only content API also serves merged-worktree cleanup and can later serve #119.
 

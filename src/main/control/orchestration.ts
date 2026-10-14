@@ -695,6 +695,7 @@ export class Orchestration {
               .update(JSON.stringify([worktreeId, tree.identity, changes]))
               .digest("hex");
             const answer = operations.confirmation(actor, operation.operationId, identity);
+            const pr = this.host.forge?.read(parent.repository, tree.path);
             const answered = await this.host.dialog(
               {
                 removal: {
@@ -704,6 +705,7 @@ export class Orchestration {
                     branch: metadataName(branch),
                     path: tree.path,
                     changes,
+                    ...(pr ? { pullRequest: { number: pr.number, state: pr.state } } : {}),
                   },
                 },
                 title: "Remove worktrees?",

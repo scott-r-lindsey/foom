@@ -1,5 +1,5 @@
 import { expect, test, vi } from "vitest";
-import { RemovalReview } from "../../../../src/main/confirmations/removal-review";
+import { RemovalReview, removalContent } from "../../../../src/main/confirmations/removal-review";
 import type { DialogContent } from "../../../../src/shared/confirmation";
 
 function harness() {
@@ -13,6 +13,37 @@ function harness() {
   return { review: new RemovalReview(dialog), dialog, pending };
 }
 const item = (id: string) => ({ id, branch: id, path: `/trees/${id}`, changes: "" });
+
+test("single removals keep their ordinary dialog and disclose cached PR state when present", () => {
+  expect(removalContent([item("clean")])).toMatchObject({
+    title: "Remove worktree?",
+    subject: "clean",
+    accept: "Remove worktree",
+    facts: [
+      { label: "Worktree", value: "/trees/clean", mono: true },
+      { label: "State", value: "Clean" },
+    ],
+  });
+  const dirty = {
+    ...item("dirty"),
+    changes: "?? file\0",
+    pullRequest: { number: 338, state: "MERGED" as const },
+  };
+  expect(removalContent([dirty])).toMatchObject({
+    title: "Remove worktree with uncommitted changes?",
+    accept: "Discard changes and remove",
+    changes: dirty.changes,
+    facts: expect.arrayContaining([
+      { label: "State", value: "Dirty" },
+      { label: "PR", value: "#338 · MERGED" },
+    ]) as unknown,
+  });
+  expect(removalContent([item("clean"), dirty])).toMatchObject({
+    title: "Remove worktrees?",
+    accept: "Approve all",
+    removals: [item("clean"), dirty],
+  });
+});
 
 test("groups only one actor's pending reviews, approves a subset and declines the rest", async () => {
   const { review, dialog, pending } = harness();

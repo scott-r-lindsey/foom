@@ -1,5 +1,6 @@
 import { ControlError } from "../../../../src/main/control/validation";
 import type { PullRequest } from "../../../../src/main/control/forge.d";
+import type { DialogContent } from "../../../../src/shared/confirmation";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { describe, expect, it, vi } from "vitest";
@@ -88,7 +89,7 @@ function harness() {
         confirm: (branch: string, changes: string) => Promise<boolean>,
       ) => confirm("feature", ""),
     ),
-    dialog: vi.fn((_content: unknown, _signal: AbortSignal) => Promise.resolve(true)),
+    dialog: vi.fn((_content: DialogContent, _signal: AbortSignal) => Promise.resolve(true)),
     changed: vi.fn(),
   } satisfies OrchestrationHost;
   const persist = vi.fn((_record: StoredOperation) => Promise.resolve());
@@ -559,6 +560,29 @@ describe("stop, tail and wait_for", () => {
 
 describe("worktree removal", () => {
   const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+  it.each(["OPEN", "CLOSED", "MERGED", undefined] as const)(
+    "includes only available cached PR metadata in removal review (%s)",
+    async (state) => {
+      const h = harness();
+      const tree = await h.mutate("create_worktree", { branch: "review" });
+      if (state)
+        h.host.forge.read.mockReturnValue({
+          number: 338,
+          state,
+          headSha: "a".repeat(40),
+          requiredChecks: "success",
+        });
+      await h.call("remove_worktree", { idempotencyKey: "remove", worktreeId: tree.resultId });
+      await vi.waitFor(() => {
+        expect(h.host.dialog).toHaveBeenCalledOnce();
+      });
+      expect(h.host.dialog.mock.calls[0]?.[0].removal?.item.pullRequest).toEqual(
+        state ? { number: 338, state } : undefined,
+      );
+      expect(h.host.forge.read).toHaveBeenCalledWith(repo, join(repo, "trees", "review"));
+    },
+  );
 
   it("always asks the human, even for a clean worktree, and keeps the branch", async () => {
     const h = harness();

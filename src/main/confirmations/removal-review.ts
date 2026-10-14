@@ -8,6 +8,32 @@ interface Batch {
   result: Promise<boolean>;
 }
 
+/** Preserve the ordinary confirmation until there is more than one item to review. */
+export function removalContent(items: readonly RemovalItem[]): DialogContent {
+  const item = items.length === 1 ? items[0] : undefined;
+  if (!item)
+    return { title: "Remove worktrees?", glyph: "branch", accept: "Approve all", removals: items };
+  return {
+    title: item.changes ? "Remove worktree with uncommitted changes?" : "Remove worktree?",
+    subject: item.branch,
+    glyph: "branch",
+    accept: item.changes ? "Discard changes and remove" : "Remove worktree",
+    facts: [
+      { label: "Worktree", value: item.path, mono: true },
+      { label: "State", value: item.changes ? "Dirty" : "Clean" },
+      ...(item.pullRequest
+        ? [
+            {
+              label: "PR",
+              value: `#${String(item.pullRequest.number)} · ${item.pullRequest.state}`,
+            },
+          ]
+        : []),
+    ],
+    ...(item.changes ? { changes: item.changes } : {}),
+  };
+}
+
 /** Review together; each caller resumes its own independently revalidated removal. */
 export class RemovalReview {
   private readonly batches = new Map<string, Batch>();

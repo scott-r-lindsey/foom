@@ -371,6 +371,13 @@ test("live removal batches reject stale, forged and malformed selections and res
   });
   const first = dialog.request(removal("one"));
   const stale = await shown();
+  expect(window().webContents.send.mock.calls.at(-1)?.[1]).toMatchObject({
+    title: "Remove worktree?",
+    accept: "Remove worktree",
+    subject: "one",
+  });
+  answer(stale, ["one"]);
+  expect(window().hide).not.toHaveBeenCalled();
   const second = dialog.request(removal("two"));
   const third = dialog.request(removal("three"));
   const foreign = dialog.request(removal("foreign", "other"));
@@ -443,7 +450,7 @@ test("a removal arriving after decline gets its own review before the old promis
   await vi.waitFor(() => {
     expect(window().show).toHaveBeenCalledTimes(2);
   });
-  answer(await shown(), ["two"]);
+  answer(await shown(), true);
   await expect(next).resolves.toBe(true);
   dialog.dispose();
 });
@@ -470,7 +477,7 @@ test("one aborted removal rotates the answer ID while peers stay under review", 
   expect(fresh).not.toBe(stale);
   answer(stale, ["one", "two"]);
   expect(window().hide).not.toHaveBeenCalled();
-  answer(fresh, ["two"]);
+  answer(fresh, true);
   await expect(second).resolves.toBe(true);
   dialog.dispose();
 });

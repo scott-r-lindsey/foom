@@ -579,7 +579,14 @@ Permission and credential prompts always stay with you. With the current agent
 interfaces, proposed answers to prose questions also require review in Foom;
 unattended replies need a verified question-specific routing mechanism first.
 Take over cancels pending replies. Worktree removal asks you and rechecks its
-identity and changed files. Settings → General offers **Auto-remove merged worktrees**, allowing an orchestrator to auto-remove its own clean, fully merged
+identity and changed files. Several pending removals from the same orchestrator
+share one trusted dialog with each worktree path, branch, clean/dirty state and
+changed files, plus PR number and OPEN/CLOSED/MERGED state when already available
+from forge tracking. Approve all, approve a selected subset, or Decline; unselected
+items are declined. Dirty approvals explicitly say Discard changes and remove.
+Each approved removal rechecks independently; a recheck failure preserves that worktree
+and does not stop the others. A single pending removal keeps its ordinary dialog.
+Settings → General offers **Auto-remove merged worktrees**, allowing an orchestrator to auto-remove its own clean, fully merged
 worktrees with no running sessions across all repositories; this option is off by default. The app menu’s
 **Action log** opens searchable local history with actor/parent,
 repository/worktree, action, target/result IDs, outcomes and redacted reply proposals.
