@@ -1,3 +1,4 @@
+import type { PreviewOpenAction } from "../../shared/previews";
 import type { PreviewApi, PreviewBounds } from "../../shared/previews";
 import type { PreviewSummary } from "../../shared/workspace";
 import type { ActionLogApi } from "../../shared/action-log";
@@ -36,6 +37,7 @@ export interface WorktreeSource {
 export interface BoardSource {
   previews?: {
     getSnapshot(): readonly PreviewSummary[];
+    getHistory?(): readonly PreviewOpenAction[];
     network?(id: string, enabled: boolean): Promise<void>;
     pick(worktree: string): Promise<string | null>;
     bounds(id: string, bounds: PreviewBounds): Promise<void>;

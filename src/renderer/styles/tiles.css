@@ -248,6 +248,42 @@
   white-space: nowrap;
 }
 
+.preview-opener {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex-shrink: 0;
+  white-space: nowrap;
+  color: var(--muted);
+}
+.preview-row[data-child="true"] {
+  padding-left: 52px;
+}
+.preview-row-opener {
+  display: block;
+  font-size: 10px;
+  color: var(--muted);
+}
+.terminal-tile[data-arrived="true"] {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 40%, transparent);
+  animation: preview-arrival 900ms ease 2;
+}
+.terminal-tile[data-arrived="true"] .tile-title {
+  background: color-mix(in srgb, var(--accent) 22%, var(--surface));
+}
+@keyframes preview-arrival {
+  50% {
+    box-shadow:
+      0 0 0 3px color-mix(in srgb, var(--accent) 55%, transparent),
+      0 0 24px color-mix(in srgb, var(--accent) 45%, transparent);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .terminal-tile[data-arrived="true"] {
+    animation: none;
+  }
+}
 .preview-snapshot {
   position: fixed;
   z-index: 4;

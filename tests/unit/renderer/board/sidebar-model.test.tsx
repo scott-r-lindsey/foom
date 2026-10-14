@@ -3,6 +3,7 @@ import { afterEach, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, render } from "@testing-library/react";
 import {
   buildSidebar,
+  previewOpener,
   repositoryKey,
   worktreeKey,
   rollup,
@@ -306,4 +307,42 @@ test("preview-only worktrees participate in filtering and active sections withou
   expect(all.tree[0]?.repository.path).toBe("/b");
   expect(all.tree[0]?.expanded).toBe(true);
   expect(buildSidebar([], repositories, emptyPreferences(), "missing", [preview]).tree).toEqual([]);
+});
+
+test("preview filtering retains the opener, and attribution retains identity after rename or removal", () => {
+  const opener = { ...row("agent", "/repo"), agent: "claude" };
+  const preview = {
+    id: "preview",
+    repository: "/repo",
+    worktree: "/repo",
+    relativePath: "docs/mockup.html",
+    kind: "html" as const,
+    network: false,
+    openedBy: { terminalId: opener.id, agent: "claude" },
+  };
+  const preferences = renameSession(emptyPreferences(), opener.id, "Designer");
+  expect(previewOpener(preview, [opener], preferences)).toBe("Claude Code · Designer");
+  expect(previewOpener(preview, [], preferences)).toBe("Claude Code");
+  expect(
+    previewOpener(
+      { ...preview, openedBy: { terminalId: "gone", agent: "Custom" } },
+      [],
+      preferences,
+    ),
+  ).toBe("Custom");
+  const human = {
+    id: "human",
+    repository: "/repo",
+    worktree: "/repo",
+    relativePath: "plan.md",
+    kind: "markdown" as const,
+    network: false,
+  };
+  expect(previewOpener(human, [], preferences)).toBe("");
+  for (const query of ["mockup", "Designer"]) {
+    const worktree = buildSidebar([opener], [repo("/repo")], preferences, query, [preview, human])
+      .tree[0]?.worktrees[0];
+    expect(worktree?.sessions.map((session) => session.id)).toEqual(["agent"]);
+    expect(worktree?.previews.map((item) => item.id)).toEqual(["preview"]);
+  }
 });

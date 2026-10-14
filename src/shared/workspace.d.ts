@@ -1,3 +1,4 @@
+import type { PreviewOpenAction } from "./previews";
 import type { ActionLogQuery, ActionLogPage } from "./action-log";
 import type { CleanupProgress } from "./cleanup";
 import type { GitPanelFacts, HomeShellFacts } from "./panel";
@@ -163,6 +164,7 @@ export interface WorkspaceApi {
 }
 
 export interface SidebarInventory {
+  previewActions?: readonly PreviewOpenAction[];
   previews?: readonly PreviewSummary[];
   repositories: readonly (Repository & {
     worktrees: readonly Worktree[];
@@ -203,6 +205,7 @@ export type SidebarCommand =
 
 /** Main-owned display facts. An opaque ID grants no filesystem capability. */
 export interface PreviewSummary {
+  openedBy?: { terminalId: string; agent: string };
   network: boolean;
   id: string;
   repository: string;

@@ -509,14 +509,19 @@ async function buildWindow(savedSize?: Size, saved?: WindowPlacement, initialSes
           () => {
             workspace.refresh();
           },
-          previewBackend(previewHosts, previewPlacements, (id) => {
-            const owner = views.owner(id);
-            return (
-              (owner === undefined ? undefined : windows.get(owner)) ??
-              [...windows.values()].find(({ window }) => window.isFocused()) ??
-              windows.values().next().value
-            )?.window.id;
-          }),
+          previewBackend(
+            previewHosts,
+            previewPlacements,
+            (id) => {
+              const owner = views.owner(id);
+              return (
+                (owner === undefined ? undefined : windows.get(owner)) ??
+                [...windows.values()].find(({ window }) => window.isFocused()) ??
+                windows.values().next().value
+              )?.window.id;
+            },
+            (id) => workspace.snapshot().terminals.find((row) => row.id === id)?.agent ?? "agent",
+          ),
         ).then((runtime) => {
           agentPreviews = runtime.service.previews;
           return runtime;
@@ -603,6 +608,7 @@ async function buildWindow(savedSize?: Size, saved?: WindowPlacement, initialSes
     (content) => confirmations.request(content),
     ipc,
     () => [...previewHost.registry.records.values()],
+    () => agentPreviews?.history ?? [],
   );
   window.on("focus", () => {
     // A trusted dialog can return focus to a crashed board during quit.

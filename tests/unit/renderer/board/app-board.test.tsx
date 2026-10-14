@@ -1025,9 +1025,11 @@ test("live preview arrivals refresh main-owned inventory before asking the board
   const inventory = vi.spyOn(window.desktop, "sidebarInventory").mockResolvedValue({
     repositories: [],
     shell: "bash",
+    previewActions: [{ id: "open", terminalId: "agent", path: "plan.md", at: 100 }],
     previews: [
       {
         id: "preview",
+        openedBy: { terminalId: "agent", agent: "claude" },
         relativePath: "plan.md",
         kind: "markdown",
         repository: "/repo",
@@ -1037,12 +1039,20 @@ test("live preview arrivals refresh main-owned inventory before asking the board
     ],
   });
   const source = createAppSource();
+  expect(source.previews?.getHistory?.()).toEqual([]);
   const callback = vi.fn(() => Promise.resolve("empty" as const));
   const dispose = source.previews?.onPlace?.(callback);
   if (!listener || !dispose) throw new Error("Missing preview arrival");
   expect(await listener("preview", 1234)).toBe("empty");
   expect(inventory).toHaveBeenCalled();
   expect(source.previews?.getSnapshot()).toMatchObject([{ id: "preview" }]);
+  expect(source.previews?.getHistory?.()).toEqual([
+    { id: "open", terminalId: "agent", path: "plan.md", at: 100 },
+  ]);
+  expect(source.previews?.getSnapshot()[0]?.openedBy).toEqual({
+    terminalId: "agent",
+    agent: "claude",
+  });
   expect(callback).toHaveBeenCalledWith("preview", 1234);
   await source.previews?.close("preview");
   expect(close).toHaveBeenCalledWith("preview");

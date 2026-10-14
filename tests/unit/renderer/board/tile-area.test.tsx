@@ -991,6 +991,81 @@ test("replacing a preview closes it and reports close failures", async () => {
   expect(screen.getByRole("alert").textContent).toBe("Unable to close preview.");
 });
 
+test.each(["claude", "custom"])(
+  "agent %s preview chrome identifies the opener and nests a sidebar-only row that the human can show",
+  async (agent) => {
+    const data = createSampleSource(
+      sampleRows(100)
+        .slice(0, 1)
+        .map((row) => ({ ...row, agent })),
+    );
+    const row = data.getSnapshot()[0];
+    if (!row) throw new Error("Missing row");
+    const first = {
+      id: "first",
+      repository: row.repository,
+      worktree: `${row.repository}/${row.branch}`,
+      relativePath: "docs/first.html",
+      kind: "html" as const,
+      network: false,
+      openedBy: { terminalId: row.id, agent },
+    };
+    const second = {
+      ...first,
+      id: "second",
+      relativePath: "docs/second.md",
+      kind: "markdown" as const,
+    };
+    const layout = placeContent(initialLayout(), { kind: "preview", preview: first.id });
+    if (!layout) throw new Error("Missing layout");
+    saveLayout(localStorage, layout);
+    const close = vi.fn(() => Promise.resolve());
+    const screen = render(
+      <Board
+        source={{
+          ...data,
+          previews: {
+            getSnapshot: () => [first, second],
+            pick: () => Promise.resolve(null),
+            bounds: () => Promise.resolve(),
+            close,
+            getHistory: () => [
+              { id: "event", terminalId: row.id, path: first.relativePath, at: 100 },
+            ],
+          },
+        }}
+      />,
+    );
+    const identity = agent === "claude" ? "Claude Code" : agent;
+    const tile = screen.getByRole("region", {
+      name: `Tile 1: docs/first.html, opened by ${identity}`,
+    });
+    expect(within(tile).getByText("opened by")).toBeTruthy();
+    expect(tile.querySelector(".preview-opener .board-agent")?.textContent).toBe(
+      agent === "claude" ? "CC" : "?",
+    );
+    const sidebar = screen.getByRole("treeitem", {
+      name: `Markdown preview: docs/second.md, opened by ${identity}, not shown`,
+    });
+    expect(sidebar.querySelector('[data-child="true"]')).toBeTruthy();
+    expect(sidebar.parentElement?.querySelector(".board-row")).toBeTruthy();
+    fireEvent.click(
+      screen.getByRole("button", { name: `Actions for ${identity} in ${row.branch}` }),
+    );
+    expect(screen.getByText("Opened preview docs/first.html")).toBeTruthy();
+    fireEvent.keyDown(document, { key: "Escape" });
+    fireEvent.click(within(sidebar).getByRole("button"));
+    await act(async () => {});
+    const shown = screen.getByRole("region", {
+      name: `Tile 1: docs/second.md, opened by ${identity}`,
+    });
+    expect(shown.getAttribute("data-focused")).toBe("true");
+    expect(close).toHaveBeenCalledWith("first");
+    fireEvent.click(within(shown).getByRole("button", { name: "Tile 1 menu" }));
+    expect(screen.getByText(identity, { selector: "dd" })).toBeTruthy();
+  },
+);
+
 test("panel picking fills the landing spot without focus, and handles cancel and refusal", async () => {
   const data = createSampleSource(sampleRows(100).slice(1, 2));
   const row = data.getSnapshot()[0];

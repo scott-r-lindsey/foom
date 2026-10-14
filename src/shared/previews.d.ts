@@ -4,6 +4,7 @@ export interface PreviewRecord {
   relativePath: string;
   network: boolean;
   agentOpened?: true;
+  openedBy?: { terminalId: string; agent: string };
 }
 export interface PreviewBounds {
   x: number;
@@ -26,4 +27,11 @@ export interface PreviewApi {
   bounds(id: string, bounds: PreviewBounds): Promise<void>;
   cover(covered: boolean): Promise<void>;
   onSnapshots(callback: (snapshots: readonly PreviewSnapshot[]) => void): () => void;
+}
+
+export interface PreviewOpenAction {
+  id: string;
+  terminalId: string;
+  path: string;
+  at: number;
 }

@@ -114,6 +114,8 @@ export function ActionLog({
           >
             <option value="">All actions</option>
             {[
+              "open_preview",
+              "close_preview",
               "create_worktree",
               "launch",
               "stop",
@@ -233,7 +235,11 @@ export function ActionLog({
                   <br />
                   {entry.worktree}
                 </td>
-                <td>{entry.action.replaceAll("_", " ")}</td>
+                <td>
+                  {entry.action === "open_preview"
+                    ? `${entry.reason === "completed" ? "Opened preview" : "Open preview"} ${entry.path ?? ""}`
+                    : entry.action.replaceAll("_", " ")}
+                </td>
                 <td>
                   {entry.targetId ?? "—"}
                   {entry.resultId && (

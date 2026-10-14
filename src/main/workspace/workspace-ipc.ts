@@ -1,4 +1,4 @@
-import type { PreviewRecord } from "../../shared/previews";
+import type { PreviewOpenAction, PreviewRecord } from "../../shared/previews";
 import { conversationId } from "../../shared/conversation";
 import type { WindowIpc } from "../window/window-ipc";
 import type { ExecutionTransition } from "../../shared/execution";
@@ -173,6 +173,7 @@ export function attachWorkspace(
   requestDialog: (content: DialogContent) => Promise<boolean>,
   ipc: WindowIpc = ipcMain,
   previews: () => readonly PreviewRecord[] = () => [],
+  previewActions: () => readonly PreviewOpenAction[] = () => [],
 ): {
   sendExecution(event: ExecutionTransition): void;
   sendState(state: TerminalState): void;
@@ -315,6 +316,7 @@ export function attachWorkspace(
         const inventory = await workspace.sidebarInventory();
         return {
           ...inventory,
+          previewActions: previewActions(),
           previews: previews().flatMap((record) => {
             const repository = inventory.repositories.find((entry) =>
               entry.worktrees.some((tree) => tree.path === record.worktree),
@@ -322,6 +324,7 @@ export function attachWorkspace(
             return repository
               ? [
                   {
+                    ...(record.openedBy ? { openedBy: record.openedBy } : {}),
                     id: record.id,
                     repository: repository.path,
                     worktree: record.worktree,

@@ -424,6 +424,20 @@ export function PanelFacts({
           {subject.row.orchestration && (
             <OrchestrationFacts view={subject.row.orchestration} source={source} />
           )}
+          {source.previews?.getHistory?.().some((entry) => entry.terminalId === subject.row.id) && (
+            <Fact label="Recent">
+              <ul className="panel-actions">
+                {source.previews
+                  .getHistory()
+                  .filter((entry) => entry.terminalId === subject.row.id)
+                  .slice(-6)
+                  .reverse()
+                  .map((entry) => (
+                    <li key={entry.id}>Opened preview {entry.path}</li>
+                  ))}
+              </ul>
+            </Fact>
+          )}
           <Fact label="Launch flags">
             {subject.row.bypass && <strong className="panel-bypass">BYPASS</strong>}{" "}
             {subject.row.launchFlags?.join(" ") || <Sub>None recorded</Sub>}

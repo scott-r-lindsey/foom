@@ -1,3 +1,4 @@
+import { agentNames } from "./sidebar-model";
 import type { PreviewSummary } from "../../shared/workspace";
 import { useSyncExternalStore } from "react";
 import type { BoardRow } from "./board.d";
@@ -107,6 +108,12 @@ export function TileMenu({
               <>
                 <dt>Path</dt>
                 <dd>{preview.relativePath}</dd>
+                {preview.openedBy && (
+                  <>
+                    <dt>Opened by</dt>
+                    <dd>{agentNames.get(preview.openedBy.agent) ?? preview.openedBy.agent}</dd>
+                  </>
+                )}
                 <dt>Kind</dt>
                 <dd>{preview.kind === "markdown" ? "Markdown" : "HTML"}</dd>
                 <dt>Network</dt>

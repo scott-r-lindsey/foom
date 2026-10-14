@@ -393,3 +393,32 @@ it("refuses completion failures and preserves a live record when rollback itself
   });
   expect(board.previews.size).toBe(0);
 });
+
+it("keeps bounded successful open history after human dismissal, with terminal identity and no contents", async () => {
+  const changed = vi.fn();
+  broker = new PreviewBroker(
+    board,
+    audit,
+    active,
+    () => now,
+    { ...PREVIEW_LIMITS, burst: 300 },
+    changed,
+  );
+  const preview = id(await open("docs/plan.md"));
+  broker.humanClose(preview);
+  await board.close(preview);
+  expect(broker.history).toEqual([
+    { id: broker.history[0]?.id, terminalId: "t1", path: "docs/plan.md", at: 0 },
+  ]);
+  for (let index = 0; index < 256; index++) {
+    now = index + 1;
+    await open("docs/plan.md");
+  }
+  expect(broker.history).toHaveLength(256);
+  expect(broker.history[0]?.at).toBe(1);
+  expect(broker.history[255]?.at).toBe(256);
+  expect(changed).toHaveBeenCalledTimes(257);
+  audit.mockRejectedValueOnce(new Error("audit"));
+  await expect(open("mockup.html")).rejects.toMatchObject({ code: "unavailable" });
+  expect(broker.history).toHaveLength(256);
+});

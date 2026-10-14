@@ -90,7 +90,7 @@ Hover and keyboard focus do not preview terminal output or switch the pane. Clic
 its terminal and focus input, using the placement rules below. Needs you remains; Done and Failed dim once seen.
 
 Previews appear beneath their worktree with a document glyph and no light or attention state.
-Their rows show the worktree-relative path and shared tile number; clicking focuses the preview.
+Their rows show the worktree-relative path and shared tile number. Agent-opened previews nest beneath the opener’s session and name that agent. Clicking a visible row focuses its preview; showing a sidebar-only preview uses human placement.
 Checkout panels offer **Preview file…**. The file picker starts in that checkout and accepts
 Markdown (`.md`, `.markdown`) and HTML (`.html`, `.htm`). Main validates the selection;
 files outside the checkout, hidden files and unsupported types are refused.
@@ -426,6 +426,16 @@ Raw HTML is displayed as text; Mermaid fences remain code. Relative Markdown
 links open within the same tile and external links carry an arrow. Document
 colors follow the light/dark Appearance setting.
 
+Agent-opened previews fill only the landing spot or first empty space, never split,
+replace a tile or add a column. With a full board they wait as lazy sidebar rows
+under the opener’s session. Foom draws their kind badge, worktree-relative path and
+“opened by” agent badge outside the page; accessible names identify the agent and
+session. A newly filled tile flares twice in the accent, never amber, then keeps
+its tint and edge until hover or focus. Reduced motion keeps the tint and edge
+without animation. The highlight is local view state; attribution remains textual.
+A human close sticks: the same agent reopening the same file gets only a sidebar
+row. Showing that row follows the same placement as a human open.
+
 Double-click a gutter, or press Enter while it is focused, to give every member
 of its run an equal share. A run follows consecutive splits on the same axis;
 perpendicular subtrees and their nested ratios stay unchanged. Equal shares of
@@ -497,11 +507,19 @@ Every verdict and the user's next action (replied, dismissed, ignored) go into a
 
 ## Orchestration and privacy
 
+Foom-launched agents can open Markdown and HTML previews from their own worktree
+through MCP or the console. Previews never take focus, and you can close any of
+them. The opener’s session panel and the local action log list “Opened preview
+<path>”, including sidebar-only opens and reopens after a human close. These
+records contain attribution and paths, never page contents. Preview pages have
+no Foom bridge and network access is blocked by default. Agent ownership ends
+on exit, revocation or takeover; the preview remains under human control.
+
 The [control-plane design](orchestration.md) has an authentication and HTTP
 foundation, read-only MCP tools, a packaged console CLI and repository
 orchestrators. Ordinary agent launches receive a private credential for their own
-identity, with no mutation capabilities. Claude Code 2.1.293+ and Codex 0.161.0+ stable releases with their per-launch MCP
-help flag receive read-only MCP access to session metadata in their own repository,
+identity, with no process or file mutation capabilities. Claude Code 2.1.293+ and Codex 0.161.0+ stable releases with their per-launch MCP
+help flag receive MCP access to read-only session metadata and scoped preview view actions in their own repository,
 independently of hooks. These tested releases are the version floors. Older or
 unparseable versions, missing flags and Antigravity do not attach MCP; managed client policy may deny attachment. These tools
 never return terminal output. **Make orchestrator…** in a running Claude Code, Codex or
