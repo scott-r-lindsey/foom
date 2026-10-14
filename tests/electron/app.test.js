@@ -1186,14 +1186,41 @@ test("bundled brand fonts and both system themes render in Electron", {
     // Main can refresh nativeTheme while setup changes settle. Keep the page's
     // preference explicit, but agree with the host rather than racing its OSCs.
     await page.emulateMedia({ colorScheme: mode });
+    // A matching media query is input, not acknowledgement from either listener.
+    // Observe both rendered backgrounds and the complete interface palette in one
+    // snapshot before inspecting fonts; separate waits can accept different frames.
     await expect
-      .poll(() => page.evaluate(() => matchMedia("(prefers-color-scheme: dark)").matches))
-      .toBe(mode === "dark");
-    await expect(page.locator("html")).toHaveCSS("background-color", background);
-    await expect(page.locator(".xterm-scrollable-element")).toHaveCSS(
-      "background-color",
-      background,
-    );
+      .poll(() =>
+        page.evaluate(() => {
+          const style = getComputedStyle(document.documentElement);
+          return {
+            dark: matchMedia("(prefers-color-scheme: dark)").matches,
+            background: style.backgroundColor,
+            terminalBackground: getComputedStyle(
+              document.querySelector(".xterm-scrollable-element"),
+            ).backgroundColor,
+            tokens: [
+              "bg",
+              "surface",
+              "line",
+              "ink",
+              "muted",
+              "accent",
+              "accent-deep",
+              "attention",
+              "done",
+              "failed",
+              "hole",
+            ].map((name) => style.getPropertyValue(`--${name}`).trim().toUpperCase()),
+          };
+        }),
+      )
+      .toEqual({
+        dark: mode === "dark",
+        background,
+        terminalBackground: background,
+        tokens: palettes[mode],
+      });
     const rendered = await page.evaluate(async () => {
       const style = getComputedStyle(document.documentElement);
       const families = ["Archivo Black", "Courier Prime", "Geist", "Geist Mono"];
