@@ -140,7 +140,11 @@ test("removed inference channels have no handlers", () => {
     expect(mock.handle.mock.calls.some(([channel]) => channel === name)).toBe(false);
 });
 
-test("font enumeration accepts no payload", async () => {
+test("font enumeration accepts only an optional boolean refresh flag", async () => {
   expect(() => invoke("setup:terminal-fonts", ["injected"])).toThrow("Invalid font request");
+  for (const args of [[true, false], [null], [{}], [0]])
+    expect(() => invoke("setup:terminal-fonts", args)).toThrow("Invalid font request");
   expect(Array.isArray(await invoke("setup:terminal-fonts"))).toBe(true);
+  expect(Array.isArray(await invoke("setup:terminal-fonts", [true]))).toBe(true);
+  expect(Array.isArray(await invoke("setup:terminal-fonts", [false]))).toBe(true);
 });
