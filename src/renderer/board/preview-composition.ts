@@ -86,16 +86,22 @@ export function attachPreviewComposition(api: PreviewApi): () => void {
   };
   const update = () => {
     if (disposed) return;
-    const moving = document
-      .getAnimations()
-      .some(
-        (animation) =>
-          animation.effect instanceof KeyframeEffect &&
-          animation.effect.target instanceof Element &&
-          animation.effect.target.matches(".terminal-tile") &&
-          animation.playState !== "finished" &&
-          animation.playState !== "idle",
-      );
+    // getAnimations flushes style/layout. Do not disturb unrelated panel input
+    // on boards without previews (including native views represented by rows).
+    const hasPreviews =
+      images.size > 0 || document.querySelector("[data-preview-id], .preview-row") !== null;
+    const moving =
+      hasPreviews &&
+      document
+        .getAnimations()
+        .some(
+          (animation) =>
+            animation.effect instanceof KeyframeEffect &&
+            animation.effect.target instanceof Element &&
+            animation.effect.target.matches(".terminal-tile") &&
+            animation.playState !== "finished" &&
+            animation.playState !== "idle",
+        );
     const next =
       moving ||
       Boolean(

@@ -11,7 +11,8 @@ afterEach(() => {
 function fixture(root = true) {
   if (root) document.body.innerHTML = '<div id="root"></div>';
   const animations: Animation[] = [];
-  Object.defineProperty(document, "getAnimations", { configurable: true, value: () => animations });
+  const getAnimations = vi.fn(() => animations);
+  Object.defineProperty(document, "getAnimations", { configurable: true, value: getAnimations });
   vi.stubGlobal(
     "KeyframeEffect",
     class {
@@ -41,7 +42,7 @@ function fixture(root = true) {
     },
   });
   const send = (snapshots: readonly PreviewSnapshot[]) => listener?.(snapshots);
-  return { cover, dispose, off, send, bitmap, drawImage, animations };
+  return { cover, dispose, off, send, bitmap, drawImage, animations, getAnimations };
 }
 const snapshot = {
   id: "a".repeat(32),
@@ -75,10 +76,12 @@ test("freezes for panels, scrim, full drag and settings; preserves overlapping r
     await flush();
     expect(f.cover).toHaveBeenLastCalledWith(false);
   }
+  expect(f.getAnimations).not.toHaveBeenCalled();
   f.send([snapshot]);
   await flush();
   expect(document.querySelector("canvas")?.style.left).toBe("2px");
   expect(f.drawImage).toHaveBeenCalled();
+  expect(f.getAnimations).toHaveBeenCalled();
   f.send([snapshot]);
   await flush();
   expect(document.querySelectorAll("canvas")).toHaveLength(1);
