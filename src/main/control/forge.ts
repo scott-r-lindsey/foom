@@ -67,7 +67,8 @@ export function pullRequest(value: unknown): PullRequest | undefined {
     (data["requiredChecks"] !== "pending" &&
       data["requiredChecks"] !== "success" &&
       data["requiredChecks"] !== "failure" &&
-      data["requiredChecks"] !== "none")
+      data["requiredChecks"] !== "none" &&
+      data["requiredChecks"] !== "unknown")
   )
     return undefined;
   return {
@@ -169,20 +170,7 @@ export function forgeProvider(
         });
         if (!candidate || (number === undefined && state === "open" && candidate.state !== "OPEN"))
           return undefined;
-        const checks: unknown = JSON.parse(
-          await runner([
-            "pr",
-            "checks",
-            String(candidate.number),
-            "--repo",
-            repository,
-            "--required",
-            "--json",
-            "bucket",
-          ]),
-        );
-        const conclusion = requiredChecks(checks);
-        if (conclusion === undefined) return undefined;
+        const conclusion = await checkConclusion(runner, repository, candidate);
         // Verify that a concurrent push did not associate checks with the old head.
         const verified: unknown = JSON.parse(
           await runner([
@@ -210,4 +198,133 @@ export function forgeProvider(
       }
     },
   };
+}
+
+// The same isRequired query used by gh 2.45's non-JSON `pr checks` command.
+// Variables are data; the query is fixed and contains no mutations.
+const CHECK_QUERY = `query($id: ID!) {
+  node(id: $id) { ... on PullRequest {
+    headRefOid
+    commits(last: 1) { nodes { commit {
+      oid
+      statusCheckRollup { contexts(first: 100) {
+        pageInfo { hasNextPage }
+        nodes {
+          __typename
+          ... on CheckRun { isRequired(pullRequestId: $id) status conclusion }
+          ... on StatusContext { isRequired(pullRequestId: $id) state }
+        }
+      } }
+    } } }
+  } }
+}`;
+
+async function checkConclusion(
+  runner: ForgeRunner,
+  repository: string,
+  candidate: PullRequest,
+): Promise<PullRequest["requiredChecks"]> {
+  try {
+    const checks: unknown = JSON.parse(
+      await runner([
+        "pr",
+        "checks",
+        String(candidate.number),
+        "--repo",
+        repository,
+        "--required",
+        "--json",
+        "bucket",
+      ]),
+    );
+    return requiredChecks(checks) ?? "unknown";
+  } catch {
+    // Unsupported flags, CLI/API failures and diagnostics never hide a valid PR.
+    try {
+      const identity: unknown = JSON.parse(
+        await runner([
+          "pr",
+          "view",
+          String(candidate.number),
+          "--repo",
+          repository,
+          "--json",
+          "id",
+        ]),
+      );
+      const id = record(identity)?.["id"];
+      if (typeof id !== "string" || !/^[A-Za-z0-9][A-Za-z0-9_+/=-]{0,199}$/u.test(id))
+        return "unknown";
+      const response: unknown = JSON.parse(
+        await runner([
+          "api",
+          "graphql",
+          "--hostname",
+          "github.com",
+          "-f",
+          `query=${CHECK_QUERY}`,
+          "-f",
+          `id=${id}`,
+        ]),
+      );
+      return rollupChecks(response, candidate.headSha);
+    } catch {
+      return "unknown";
+    }
+  }
+}
+
+export function rollupChecks(value: unknown, headSha: string): PullRequest["requiredChecks"] {
+  const response = record(value);
+  if (!response || response["errors"] !== undefined) return "unknown";
+  const node = record(record(response["data"])?.["node"]);
+  const commits = record(node?.["commits"])?.["nodes"];
+  if (node?.["headRefOid"] !== headSha || !Array.isArray(commits) || commits.length !== 1)
+    return "unknown";
+  const commit = record(record(commits[0])?.["commit"]);
+  const contexts = record(record(commit?.["statusCheckRollup"])?.["contexts"]);
+  const nodes = contexts?.["nodes"];
+  // Refuse partial pages: optional checks must never obscure a required failure.
+  if (
+    commit?.["oid"] !== headSha ||
+    record(contexts?.["pageInfo"])?.["hasNextPage"] !== false ||
+    !Array.isArray(nodes) ||
+    nodes.length > 100
+  )
+    return "unknown";
+  const buckets: { bucket: string }[] = [];
+  for (const item of nodes) {
+    const check = record(item);
+    if (!check || typeof check["isRequired"] !== "boolean") return "unknown";
+    if (!check["isRequired"]) continue;
+    let state: unknown;
+    if (check["__typename"] === "CheckRun") {
+      const status = check["status"];
+      if (
+        typeof status !== "string" ||
+        !["COMPLETED", "IN_PROGRESS", "QUEUED", "PENDING", "WAITING", "REQUESTED"].includes(status)
+      )
+        return "unknown";
+      state = check["status"] === "COMPLETED" ? check["conclusion"] : "PENDING";
+    } else if (check["__typename"] === "StatusContext") state = check["state"];
+    else return "unknown";
+    if (typeof state !== "string") return "unknown";
+    const bucket = {
+      SUCCESS: "pass",
+      NEUTRAL: "pass",
+      SKIPPED: "skipping",
+      FAILURE: "fail",
+      ERROR: "fail",
+      TIMED_OUT: "fail",
+      ACTION_REQUIRED: "fail",
+      STARTUP_FAILURE: "fail",
+      STALE: "fail",
+      CANCELLED: "cancel",
+      PENDING: "pending",
+    };
+    const result = record(bucket)?.[state];
+    if (typeof result !== "string") return "unknown";
+    buckets.push({ bucket: result });
+  }
+  return requiredChecks(buckets) ?? "unknown";
 }
