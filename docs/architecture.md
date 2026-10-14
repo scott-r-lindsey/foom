@@ -1722,8 +1722,16 @@ Main scales CSS rectangles by board zoom, applies that zoom to each view, clamps
 them to window content bounds, and refreshes on resize and interface-scale changes.
 Closing destroys contents, unregisters its protocol/request handler, clears storage
 and cache, and removes the registry entry. Quit preserves validated registry
-metadata while releasing views and partitions. Watchers and live reload are #294;
-there are no watchers to stop yet. Overlay composition and shortcut forwarding
+metadata while releasing views and partitions. The session protocol handler records served and missing contained files. Each
+preview watches their parent directory entries with non-recursive `fs.watch`,
+filtered by name, capped at 64 directories. Requested symlink names and parent
+symlinks/junctions are watched as well as resolved targets. Missing nested parents
+use their nearest existing contained ancestor until a reload can subscribe closer.
+A 120 ms trailing debounce with a one-second maximum wait triggers the existing
+detached replacement path. Main captures finite, bounded `[scrollX, scrollY]` in
+an isolated world and restores it after `did-finish-load`, before attachment.
+Missing files show "File not found. Waiting for it to appear." and recover on
+recreation. Closing or disposing the host cancels timers and closes watchers. Overlay composition and shortcut forwarding
 remain #292.
 
 ### Terminal font selection (#363)

@@ -6,6 +6,7 @@ import { MARKDOWN_CSP, pathnameFor, responseHeaders } from "./policy";
 import { markdownAsset, markdownPage } from "./markdown";
 import type { PreviewRegistry } from "./registry";
 import { previewPath } from "./registry";
+import { PreviewWatcher, scrollPosition } from "./watcher";
 
 interface HostedPreview {
   view: WebContentsView;
@@ -19,6 +20,8 @@ interface HostedPreview {
   restoreFocus: boolean;
   replacementTimer?: ReturnType<typeof setTimeout>;
   nextReplacementAt: number;
+  scroll: [number, number] | undefined;
+  readingScroll?: boolean;
 }
 const RECREATION_INTERVAL_MS = 250;
 const EMPTY_BOUNDS: PreviewBounds = { x: 0, y: 0, width: 0, height: 0, visible: false };
@@ -33,6 +36,27 @@ export function navigationAllowed(url: string, origin: string): boolean {
 /** One host per board window. No page or IPC capability can focus a preview. */
 export class PreviewHost {
   private readonly hosted = new Map<string, HostedPreview>();
+  private readonly watchers = new Map<string, PreviewWatcher>();
+  get watcherCount(): number {
+    return [...this.watchers.values()].reduce((count, watcher) => count + watcher.count, 0);
+  }
+  private async reload(id: string): Promise<void> {
+    const entry = this.hosted.get(id);
+    if (!entry || entry.readingScroll || entry.view.webContents.isDestroyed()) return;
+    const contents = entry.view.webContents;
+    entry.readingScroll = true;
+    try {
+      const value: unknown = await contents.executeJavaScriptInIsolatedWorld(999, [
+        { code: "[window.scrollX, window.scrollY]" },
+      ]);
+      entry.scroll = scrollPosition(value);
+    } catch {
+      entry.scroll = undefined;
+    } finally {
+      entry.readingScroll = false;
+    }
+    if (this.hosted.get(id) === entry && !contents.isDestroyed()) contents.reload();
+  }
   private lastFocused: WebContents;
   private disposed = false;
   private pendingFocus: WebContents | undefined;
@@ -121,11 +145,17 @@ export class PreviewHost {
     partition.webRequest.onBeforeRequest((details, callback) => {
       callback({ cancel: !requestAllowed(details.url, origin) });
     });
+    const watcher = new PreviewWatcher(root, () => {
+      void this.reload(record.id);
+    });
+    this.watchers.set(record.id, watcher);
     partition.protocol.handle("foom-preview", (request) => {
       const asset = markdownAsset(request.url, origin);
       if (asset)
         return new Response(new Uint8Array(asset.body), { headers: responseHeaders(asset.type) });
-      const result = readPreview(root, request.url, origin);
+      const result = readPreview(root, request.url, origin, (file) => {
+        watcher.record(file);
+      });
       if (result.status === 200 && result.type.startsWith("text/markdown")) {
         return new Response(markdownPage(result.body.toString("utf8")), {
           headers: {
@@ -136,7 +166,11 @@ export class PreviewHost {
         });
       }
       return new Response(
-        result.status === 200 ? new Uint8Array(result.body) : "Preview file unavailable",
+        result.status === 200
+          ? new Uint8Array(result.body)
+          : result.status === 404
+            ? "File not found. Waiting for it to appear."
+            : "Preview file unavailable",
         {
           status: result.status,
           headers: result.headers,
@@ -153,6 +187,7 @@ export class PreviewHost {
     bounds: PreviewBounds,
     restoreFocus = false,
     nextReplacementAt = 0,
+    scroll?: [number, number],
   ): HostedPreview {
     const origin = `foom-preview://${record.id}`;
     const view = new WebContentsView({
@@ -181,6 +216,7 @@ export class PreviewHost {
       clicked: false,
       restoreFocus,
       nextReplacementAt,
+      scroll,
     };
     this.hosted.set(record.id, entry);
     const contents = view.webContents;
@@ -229,6 +265,7 @@ export class PreviewHost {
           entry.bounds,
           heldFocus && this.lastFocused === contents,
           Date.now() + RECREATION_INTERVAL_MS,
+          entry.scroll,
         );
       };
       const delay = Math.max(0, entry.nextReplacementAt - Date.now());
@@ -245,8 +282,20 @@ export class PreviewHost {
     });
     contents.on("did-finish-load", () => {
       if (contents.isDestroyed()) return;
-      entry.loaded = true;
-      this.applyBounds(entry);
+      const attach = () => {
+        if (contents.isDestroyed()) return;
+        entry.loaded = true;
+        this.applyBounds(entry);
+      };
+      if (entry.scroll) {
+        const [x, y] = entry.scroll;
+        entry.scroll = undefined;
+        void contents
+          .executeJavaScriptInIsolatedWorld(999, [
+            { code: `window.scrollTo(${String(x)}, ${String(y)})` },
+          ])
+          .then(attach, attach);
+      } else attach();
     });
     contents.on("before-mouse-event", (_event, mouse) => {
       if (mouse.type !== "mouseDown" || !entry.attached) return;
@@ -327,6 +376,8 @@ export class PreviewHost {
   }
   async close(id: string): Promise<void> {
     if (!this.registry.records.delete(id)) throw new Error("Unknown preview ID");
+    this.watchers.get(id)?.close();
+    this.watchers.delete(id);
     const entry = this.hosted.get(id);
     if (entry) {
       clearTimeout(entry.replacementTimer);
