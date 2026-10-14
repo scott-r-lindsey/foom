@@ -372,8 +372,8 @@ test("resuming in the same row reattaches its existing controller without remoun
 });
 
 test("menu commands and Dock navigation use the same board placement and report view state", async () => {
-  const { screen, source, send } = setup();
-  let navigate: ((id: string) => void) | undefined;
+  const { screen, source, send, views } = setup();
+  let navigate: ((id: string, background?: boolean) => void) | undefined;
   const setView = vi.fn().mockResolvedValue(undefined);
   const dispose = vi.fn();
   source.appMenu = {
@@ -409,6 +409,20 @@ test("menu commands and Dock navigation use the same board placement and report 
   expect(screen.getByRole("region", { name: /Tile 1:/ }).textContent).toContain(
     source.getSnapshot()[1]?.repository,
   );
+  await act(async () => {});
+  const focused = screen.container.querySelector('.terminal-tile[data-focused="true"]');
+  const focusCalls = views.map((view) => view.focus.mock.calls.length);
+  act(() => {
+    navigate?.(source.getSnapshot()[0]?.id ?? "missing", true);
+    navigate?.("pending-child", true);
+  });
+  await act(async () => {});
+  expect(screen.container.querySelectorAll('.terminal-tile[data-empty="false"]')).toHaveLength(2);
+  expect(screen.container.querySelector('.terminal-tile[data-focused="true"]')).toBe(focused);
+  expect(views.slice(0, focusCalls.length).map((view) => view.focus.mock.calls.length)).toEqual(
+    focusCalls,
+  );
+  expect(views.at(-1)?.focus).not.toHaveBeenCalled();
   const error = vi.spyOn(console, "error").mockImplementation(() => {});
   setView.mockRejectedValueOnce(new Error("offline"));
   screen.rerender(<Board source={{ ...source }} inactive />);

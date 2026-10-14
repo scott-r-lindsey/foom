@@ -2321,6 +2321,7 @@ test("launches an agent in a managed worktree and routes its attention signals",
       "create_worktree",
       "launch",
       "stop",
+      "close",
       "remove_worktree",
       "tail",
       "wait_for",
@@ -7959,7 +7960,7 @@ process.stdin.on("data", (key) => {
 });
 `;
 
-test("an orchestrator adopts an open PR then launches its child", {
+test("an orchestrator adopts an open PR, launches its child without taking focus and closes it after exit", {
   skip: process.platform === "win32" && "The fake agent is a POSIX script",
 }, async (context) => {
   const { chmod, mkdir, readFile, symlink, writeFile } = require("node:fs/promises");
@@ -8042,16 +8043,59 @@ test("an orchestrator adopts an open PR then launches its child", {
     .click();
   await page.getByRole("menuitem", { name: "Make orchestrator…" }).click();
   const confirmation = await confirmationPage(app);
+  await expect(
+    confirmation.getByText(/Close its exited children, discarding their final screens/),
+  ).toBeVisible();
   await confirmation.getByRole("button", { name: "Make orchestrator" }).click();
   await expect.poll(async () => (await call("whoami")).role).toBe("orchestrator");
+  const mcpUrl = parent.controlUrl.replace("/control/v1", "/mcp");
+  let mcpSession;
+  const mcp = async (method, params, notification = false) => {
+    const response = await fetch(mcpUrl, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${parent.controlToken}`,
+        "Content-Type": "application/json",
+        Accept: "application/json, text/event-stream",
+        ...(mcpSession ? { "Mcp-Session-Id": mcpSession } : {}),
+      },
+      body: JSON.stringify({ jsonrpc: "2.0", ...(notification ? {} : { id: 1 }), method, params }),
+    });
+    if (method === "initialize") mcpSession = response.headers.get("mcp-session-id");
+    assert.equal(response.status, notification ? 202 : 200);
+    if (notification) return;
+    return (await response.json()).result;
+  };
+  await mcp("initialize", {
+    protocolVersion: "2025-11-25",
+    capabilities: {},
+    clientInfo: { name: "fixture", version: "1" },
+  });
+  await mcp("notifications/initialized", {}, true);
+  const tool = async (name, args) => {
+    const result = await mcp("tools/call", { name, arguments: args });
+    assert.ok(!result.isError, JSON.stringify(result));
+    return JSON.parse(result.content[0].text);
+  };
+  await page.locator(`[data-drag-session="${parentId}"]`).click();
+  const focusedTile = page.locator('.terminal-tile[data-focused="true"]');
+  const tileId = await focusedTile.getAttribute("data-tile");
+  const input = focusedTile.locator("textarea.xterm-helper-textarea");
+  await expect(input).toBeFocused();
   const tree = await call("create_worktree", { pullRequest: 340, idempotencyKey: "adopt-tree" });
   assert.equal(tree.status, "succeeded");
-  const child = await call("launch", {
+  const child = await tool("launch", {
     worktreeId: tree.resultId,
     agent: "claude",
     idempotencyKey: "adopt-child",
   });
   assert.equal(child.status, "succeeded");
+  await expect(page.locator('.terminal-tile[data-empty="false"]')).toHaveCount(2);
+  await expect(focusedTile).toHaveAttribute("data-tile", tileId);
+  await expect(input).toBeFocused();
+  // A single character would exit either fixture if an arrival stole input.
+  await page.keyboard.type("x");
+  await expect(input).toBeFocused();
   await expect
     .poll(async () => (await call("session_state", { id: child.resultId })).pullRequest?.number)
     .toBe(340);
@@ -8069,6 +8113,22 @@ test("an orchestrator adopts an open PR then launches its child", {
   assert.equal(
     isolatedGit(["rev-parse", "HEAD"], { cwd: childRow.worktree, encoding: "utf8" }).trim(),
     git("rev-parse", "origin/child-one").trim(),
+  );
+  const closed = await tool("stop", { id: child.resultId, idempotencyKey: "stop-child" });
+  assert.equal(closed.status, "succeeded");
+  await expect
+    .poll(async () => (await call("session_state", { id: child.resultId })).state)
+    .toBe("exited");
+  const close = await tool("close", { id: child.resultId, idempotencyKey: "close-child" });
+  assert.equal(close.status, "succeeded");
+  await expect(page.locator(`[data-drag-session="${child.resultId}"]`)).toHaveCount(0);
+  await expect(page.locator('.terminal-tile[data-empty="false"]')).toHaveCount(1);
+  await expect(input).toBeFocused();
+  assert.ok(existsSync(childRow.worktree));
+  assert.match(git("branch", "--list", "child-one"), /child-one/);
+  assert.equal(
+    (await tool("close", { id: child.resultId, idempotencyKey: "close-child" })).operationId,
+    close.operationId,
   );
 });
 
@@ -8197,205 +8257,243 @@ test("an orchestrator wait_for wakes on a child PR required-check conclusion", {
   );
 });
 
-for (const cliOnly of [false, true])
-  test(cliOnly
-    ? "an Antigravity orchestrator manages children through the packaged console"
-    : "an agent made orchestrator from its session menu manages only its own children", {
-    timeout: deadline(90_000),
-    skip: process.platform === "win32" && "The fake agent is a POSIX script",
-  }, async (context) => {
-    const { chmod, mkdir, readdir, readFile, symlink, writeFile } = require("node:fs/promises");
-    const { existsSync } = require("node:fs");
-    const root = await mkdtemp(path.join(tmpdir(), "foom-orchestrator-"));
-    removeAfterApps(context, root);
-    const bin = path.join(root, "bin");
-    const repo = path.join(root, "app");
-    const home = path.join(root, "home");
-    await mkdir(bin);
-    await mkdir(repo);
-    await mkdir(home);
-    await writeFile(path.join(bin, "claude"), FAKE_ORCHESTRATED_CLAUDE);
-    if (cliOnly) {
-      await writeFile(
-        path.join(bin, "agy"),
-        FAKE_ORCHESTRATED_CLAUDE.replace("2.1.296 (Claude Code)", "1.2.13 (Antigravity)").replace(
-          "--mcp-config <configs...>",
-          "--prompt-interactive <prompt>",
-        ),
-      );
-      await chmod(path.join(bin, "agy"), 0o755);
-    }
-    // Screen-only Codex stand-in: no hooks/MCP advertised and no notifier consent.
-    const providerScreens = {
-      "@": "Selected model is at capacity",
-      "#": "■ rate limit exceeded: Please try again in 10s.",
-      $: "Approaching rate limits\nSwitch to gpt-6-luna for lower credit usage?\nKeep current model\nenter select · esc back",
-    };
+test("an agent made orchestrator reports MCP attachment independently", {
+  timeout: deadline(90_000),
+  skip: process.platform === "win32" && "The fake agent is a POSIX script",
+}, async (context) => {
+  await runOrchestratorScenario(context, false, "attachment");
+});
+
+test("an Antigravity orchestrator has no MCP attachment indicator", {
+  timeout: deadline(90_000),
+  skip: process.platform === "win32" && "The fake agent is a POSIX script",
+}, async (context) => {
+  await runOrchestratorScenario(context, true, "attachment");
+});
+
+test("an agent made orchestrator manages and reviews only its own children", {
+  timeout: deadline(90_000),
+  skip: process.platform === "win32" && "The fake agent is a POSIX script",
+}, async (context) => {
+  await runOrchestratorScenario(context, false, "children");
+});
+
+test("an Antigravity orchestrator manages and reviews children through the packaged console", {
+  timeout: deadline(90_000),
+  skip: process.platform === "win32" && "The fake agent is a POSIX script",
+}, async (context) => {
+  await runOrchestratorScenario(context, true, "children");
+});
+
+test("an agent made orchestrator reviews worktree cleanup and revokes with a live child", {
+  timeout: deadline(90_000),
+  skip: process.platform === "win32" && "The fake agent is a POSIX script",
+}, async (context) => {
+  await runOrchestratorScenario(context, false, "cleanup");
+});
+
+test("an Antigravity orchestrator reviews worktree cleanup and revokes through the packaged console", {
+  timeout: deadline(90_000),
+  skip: process.platform === "win32" && "The fake agent is a POSIX script",
+}, async (context) => {
+  await runOrchestratorScenario(context, true, "cleanup");
+});
+
+// Each scenario owns its app/profile and cleanup; no state crosses test boundaries.
+async function runOrchestratorScenario(context, cliOnly, phase) {
+  const { chmod, mkdir, readdir, readFile, symlink, writeFile } = require("node:fs/promises");
+  const { existsSync } = require("node:fs");
+  const root = await mkdtemp(path.join(tmpdir(), "foom-orchestrator-"));
+  removeAfterApps(context, root);
+  const bin = path.join(root, "bin");
+  const repo = path.join(root, "app");
+  const home = path.join(root, "home");
+  await mkdir(bin);
+  await mkdir(repo);
+  await mkdir(home);
+  await writeFile(path.join(bin, "claude"), FAKE_ORCHESTRATED_CLAUDE);
+  if (cliOnly) {
     await writeFile(
-      path.join(bin, "codex"),
-      FAKE_ORCHESTRATED_CLAUDE.replace("2.1.296 (Claude Code)", "codex-cli 0.160.1")
-        .replace("--settings <file-or-json>  Load settings", "--no-alt-screen")
-        .replace(
-          "  if (isChild) {",
-          `  if (isChild && ${JSON.stringify(providerScreens)}[key.toString()]) {
+      path.join(bin, "agy"),
+      FAKE_ORCHESTRATED_CLAUDE.replace("2.1.296 (Claude Code)", "1.2.13 (Antigravity)").replace(
+        "--mcp-config <configs...>",
+        "--prompt-interactive <prompt>",
+      ),
+    );
+    await chmod(path.join(bin, "agy"), 0o755);
+  }
+  // Screen-only Codex stand-in: no hooks/MCP advertised and no notifier consent.
+  const providerScreens = {
+    "@": "Selected model is at capacity",
+    "#": "■ rate limit exceeded: Please try again in 10s.",
+    $: "Approaching rate limits\nSwitch to gpt-6-luna for lower credit usage?\nKeep current model\nenter select · esc back",
+  };
+  await writeFile(
+    path.join(bin, "codex"),
+    FAKE_ORCHESTRATED_CLAUDE.replace("2.1.296 (Claude Code)", "codex-cli 0.160.1")
+      .replace("--settings <file-or-json>  Load settings", "--no-alt-screen")
+      .replace(
+        "  if (isChild) {",
+        `  if (isChild && ${JSON.stringify(providerScreens)}[key.toString()]) {
         process.stdout.write("\\x1b[2J\\x1b[H" + ${JSON.stringify(providerScreens)}[key.toString()].replaceAll("\\n", "\\r\\n") + "\\r\\n");
         return;
       }
       if (isChild) {`,
-        ),
-    );
-    await chmod(path.join(bin, "codex"), 0o755);
-    await chmod(path.join(bin, "claude"), 0o755);
-    // Only the fake agent and system tools: real agents on PATH write their own state when probed.
-    await symlink(process.execPath, path.join(bin, "node"));
-    const git = (...args) =>
-      isolatedGit(["-c", "user.name=Foom", "-c", "user.email=foom@example.com", ...args], {
-        cwd: repo,
-      });
-    git("init", "-q", "-b", "main");
-    git("commit", "-q", "--allow-empty", "-m", "init");
-    const credentials = path.join(root, "credentials.json");
-    const app = await launchApp(context, false, {
-      args: [`--user-data-dir=${path.join(root, "user-data")}`],
-      env: {
-        HOME: home,
-        PATH: bin,
-        TEST_FAKE_CREDENTIALS: credentials,
-      },
+      ),
+  );
+  await chmod(path.join(bin, "codex"), 0o755);
+  await chmod(path.join(bin, "claude"), 0o755);
+  // Only the fake agent and system tools: real agents on PATH write their own state when probed.
+  await symlink(process.execPath, path.join(bin, "node"));
+  const git = (...args) =>
+    isolatedGit(["-c", "user.name=Foom", "-c", "user.email=foom@example.com", ...args], {
+      cwd: repo,
     });
-    const page = await boardPage(app);
-    await app.evaluate(({ dialog }, directory) => {
-      dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [directory] });
-    }, repo);
-    const repository = await page.evaluate(async () => (await window.desktop.addRepository()).path);
-    const claude = await page.evaluate(async () =>
-      (await window.desktop.scanAgents(true)).agents.find((agent) => agent.id === "claude"),
-    );
-    assert.equal(claude.mcp, true, `Fake agent lacks MCP: ${JSON.stringify(claude)}`);
-    const read = async (name) => JSON.parse(await readFile(`${credentials}.${name}`, "utf8"));
+  git("init", "-q", "-b", "main");
+  git("commit", "-q", "--allow-empty", "-m", "init");
+  const credentials = path.join(root, "credentials.json");
+  const app = await launchApp(context, false, {
+    args: [`--user-data-dir=${path.join(root, "user-data")}`],
+    env: {
+      HOME: home,
+      PATH: bin,
+      TEST_FAKE_CREDENTIALS: credentials,
+    },
+  });
+  const page = await boardPage(app);
+  await app.evaluate(({ dialog }, directory) => {
+    dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [directory] });
+  }, repo);
+  const repository = await page.evaluate(async () => (await window.desktop.addRepository()).path);
+  const claude = await page.evaluate(async () =>
+    (await window.desktop.scanAgents(true)).agents.find((agent) => agent.id === "claude"),
+  );
+  assert.equal(claude.mcp, true, `Fake agent lacks MCP: ${JSON.stringify(claude)}`);
+  const read = async (name) => JSON.parse(await readFile(`${credentials}.${name}`, "utf8"));
 
-    await page.evaluate(
-      ({ repository, run }) =>
-        window.desktop.sidebarCommand({ kind: "launch", repository, worktree: repository, run }),
-      { repository, run: cliOnly ? "agy" : "claude" },
-    );
-    await expect
-      .poll(() => existsSync(`${credentials}.app`), { timeout: deadline(15000) })
-      .toBe(true);
-    const parent = await read("app");
-    // Per-launch MCP with an environment-sourced header; no token in argv or the file.
-    if (cliOnly) {
-      assert.equal(parent.mcp, null);
-      assert.ok(parent.args.includes("--prompt-interactive"));
-      assert.ok(parent.args.some((arg) => arg.includes("foom whoami --json lists your current")));
-    } else {
-      assert.ok(parent.args.includes("--mcp-config"));
-      const server = Object.values(parent.mcp.mcpServers)[0];
-      assert.equal(server.headers.Authorization, "Bearer ${FOOM_CONTROL_TOKEN}");
+  await page.evaluate(
+    ({ repository, run }) =>
+      window.desktop.sidebarCommand({ kind: "launch", repository, worktree: repository, run }),
+    { repository, run: cliOnly ? "agy" : "claude" },
+  );
+  await expect
+    .poll(() => existsSync(`${credentials}.app`), { timeout: deadline(15000) })
+    .toBe(true);
+  const parent = await read("app");
+  // Per-launch MCP with an environment-sourced header; no token in argv or the file.
+  if (cliOnly) {
+    assert.equal(parent.mcp, null);
+    assert.ok(parent.args.includes("--prompt-interactive"));
+    assert.ok(parent.args.some((arg) => arg.includes("foom whoami --json lists your current")));
+  } else {
+    assert.ok(parent.args.includes("--mcp-config"));
+    const server = Object.values(parent.mcp.mcpServers)[0];
+    assert.equal(server.headers.Authorization, "Bearer ${FOOM_CONTROL_TOKEN}");
+  }
+  assert.ok(!JSON.stringify(parent.args).includes(parent.controlToken));
+  let requestId = 0;
+  let parentId;
+  let elevated = false;
+  const call = async (token, method, params = {}) => {
+    if (cliOnly && elevated && token === parent.controlToken && method !== "whoami") {
+      const args = [method.replaceAll("_", "-")];
+      if (params.branch) args.push(params.branch);
+      if (params.worktreeId) args.push(params.worktreeId);
+      if (params.id) args.push(params.id);
+      if (params.ids) args.push(...params.ids);
+      for (const [key, flag] of [
+        ["idempotencyKey", "--idempotency-key"],
+        ["agent", "--agent"],
+        ["prompt", "--prompt"],
+        ["lines", "--lines"],
+        ["timeoutMs", "--timeout-ms"],
+        ["revision", "--revision"],
+        ["verdictId", "--verdict-id"],
+        ["text", "--text"],
+      ])
+        if (params[key] !== undefined) args.push(flag, String(params[key]));
+      if (params.after) args.push("--after", JSON.stringify(params.after));
+      const id = ++requestId;
+      await page.evaluate(({ parentId, text }) => window.desktop.input(parentId, text), {
+        parentId,
+        text: JSON.stringify({ id, args }) + "\n",
+      });
+      const file = `${credentials}.response-${id}`;
+      await expect.poll(() => existsSync(file), { timeout: deadline(40000) }).toBe(true);
+      const result = JSON.parse(await readFile(file, "utf8"));
+      return {
+        status: result.code === 0 ? 200 : result.code === 3 ? 403 : 400,
+        body: JSON.parse(result.stdout || result.stderr),
+      };
     }
-    assert.ok(!JSON.stringify(parent.args).includes(parent.controlToken));
-    let requestId = 0;
-    let parentId;
-    let elevated = false;
-    const call = async (token, method, params = {}) => {
-      if (cliOnly && elevated && token === parent.controlToken && method !== "whoami") {
-        const args = [method.replaceAll("_", "-")];
-        if (params.branch) args.push(params.branch);
-        if (params.worktreeId) args.push(params.worktreeId);
-        if (params.id) args.push(params.id);
-        if (params.ids) args.push(...params.ids);
-        for (const [key, flag] of [
-          ["idempotencyKey", "--idempotency-key"],
-          ["agent", "--agent"],
-          ["prompt", "--prompt"],
-          ["lines", "--lines"],
-          ["timeoutMs", "--timeout-ms"],
-          ["revision", "--revision"],
-          ["verdictId", "--verdict-id"],
-          ["text", "--text"],
-        ])
-          if (params[key] !== undefined) args.push(flag, String(params[key]));
-        if (params.after) args.push("--after", JSON.stringify(params.after));
-        const id = ++requestId;
-        await page.evaluate(({ parentId, text }) => window.desktop.input(parentId, text), {
-          parentId,
-          text: JSON.stringify({ id, args }) + "\n",
-        });
-        const file = `${credentials}.response-${id}`;
-        await expect.poll(() => existsSync(file), { timeout: deadline(40000) }).toBe(true);
-        const result = JSON.parse(await readFile(file, "utf8"));
-        return {
-          status: result.code === 0 ? 200 : result.code === 3 ? 403 : 400,
-          body: JSON.parse(result.stdout || result.stderr),
-        };
-      }
-      const response = await fetch(parent.controlUrl, {
-        method: "POST",
-        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-        body: JSON.stringify({ version: 1, instanceId: parent.instanceId, method, params }),
-      });
-      return { status: response.status, body: await response.json() };
-    };
-    const ordinary = await call(parent.controlToken, "whoami");
-    assert.equal(ordinary.body.result.role, "agent");
-    assert.ok(!ordinary.body.result.capabilities.includes("launch"));
-    parentId = ordinary.body.result.terminalId;
-    assert.equal(
-      (await call(parent.controlToken, "create_worktree", { idempotencyKey: "early", branch: "x" }))
-        .status,
-      403,
-    );
+    const response = await fetch(parent.controlUrl, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ version: 1, instanceId: parent.instanceId, method, params }),
+    });
+    return { status: response.status, body: await response.json() };
+  };
+  const ordinary = await call(parent.controlToken, "whoami");
+  assert.equal(ordinary.body.result.role, "agent");
+  assert.ok(!ordinary.body.result.capabilities.includes("launch"));
+  parentId = ordinary.body.result.terminalId;
+  assert.equal(
+    (await call(parent.controlToken, "create_worktree", { idempotencyKey: "early", branch: "x" }))
+      .status,
+    403,
+  );
 
-    // The human grants the role from the session menu; the agent keeps running.
-    const parentRow = page
-      .locator(".session-entry")
-      .filter({ has: page.locator(`[data-drag-session="${parentId}"]`) });
-    await parentRow
-      .locator(":scope > .board-row")
-      .getByRole("button", { name: /^Actions for/ })
-      .click();
-    await page.getByRole("menuitem", { name: "Make orchestrator…" }).click();
-    const confirmation = await confirmationPage(app);
-    await expect(
-      confirmation.getByRole("heading", {
-        name: `Make ${cliOnly ? "Antigravity" : "Claude Code"} the Foom orchestrator?`,
-      }),
-    ).toBeVisible();
-    await expect(confirmation.getByText(/model provider/)).toBeVisible();
-    await confirmation.getByRole("button", { name: "Make orchestrator" }).click();
-    await expect
-      .poll(async () => (await call(parent.controlToken, "whoami")).body.result?.role)
-      .toBe("orchestrator");
-    elevated = true;
-    const whoami = await call(parent.controlToken, "whoami");
-    assert.ok(whoami.body.result.capabilities.includes("launch"));
-    assert.equal(whoami.body.result.terminalId, parentId);
+  // The human grants the role from the session menu; the agent keeps running.
+  const parentRow = page
+    .locator(".session-entry")
+    .filter({ has: page.locator(`[data-drag-session="${parentId}"]`) });
+  await parentRow
+    .locator(":scope > .board-row")
+    .getByRole("button", { name: /^Actions for/ })
+    .click();
+  await page.getByRole("menuitem", { name: "Make orchestrator…" }).click();
+  const confirmation = await confirmationPage(app);
+  await expect(
+    confirmation.getByRole("heading", {
+      name: `Make ${cliOnly ? "Antigravity" : "Claude Code"} the Foom orchestrator?`,
+    }),
+  ).toBeVisible();
+  await expect(confirmation.getByText(/model provider/)).toBeVisible();
+  await confirmation.getByRole("button", { name: "Make orchestrator" }).click();
+  await expect
+    .poll(async () => (await call(parent.controlToken, "whoami")).body.result?.role)
+    .toBe("orchestrator");
+  elevated = true;
+  const whoami = await call(parent.controlToken, "whoami");
+  assert.ok(whoami.body.result.capabilities.includes("launch"));
+  assert.equal(whoami.body.result.terminalId, parentId);
 
-    const connection = async (id) =>
-      (await page.evaluate(() => window.desktop.workspace())).terminals.find((row) => row.id === id)
-        ?.mcpConnection;
-    const connect = async (client) => {
-      const response = await fetch(client.controlUrl.replace("/control/v1", "/mcp"), {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${client.controlToken}`,
-          "Content-Type": "application/json",
-          Accept: "application/json, text/event-stream",
+  const connection = async (id) =>
+    (await page.evaluate(() => window.desktop.workspace())).terminals.find((row) => row.id === id)
+      ?.mcpConnection;
+  const connect = async (client) => {
+    const response = await fetch(client.controlUrl.replace("/control/v1", "/mcp"), {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${client.controlToken}`,
+        "Content-Type": "application/json",
+        Accept: "application/json, text/event-stream",
+      },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "initialize",
+        params: {
+          protocolVersion: "2025-11-25",
+          capabilities: {},
+          clientInfo: { name: "fixture", version: "1" },
         },
-        body: JSON.stringify({
-          jsonrpc: "2.0",
-          id: 1,
-          method: "initialize",
-          params: {
-            protocolVersion: "2025-11-25",
-            capabilities: {},
-            clientInfo: { name: "fixture", version: "1" },
-          },
-        }),
-      });
-      assert.equal(response.status, 200);
-      await response.json();
-    };
+      }),
+    });
+    assert.equal(response.status, 200);
+    await response.json();
+  };
+  if (phase === "attachment") {
     if (!cliOnly) {
       // The fake client never calls MCP. CLI traffic cannot prove attachment.
       assert.equal(await connection(parentId), "connecting");
@@ -8421,22 +8519,25 @@ for (const cliOnly of [false, true])
     } else {
       assert.equal(await connection(parentId), undefined);
     }
+  }
 
-    await openSettingsScreen(page);
-    await page.getByRole("button", { name: "General", exact: true }).click();
-    const limit = page.getByRole("spinbutton", { name: "Concurrent children per orchestrator" });
-    await expect(limit).toHaveValue("4");
-    await limit.fill("1");
-    await expect
-      .poll(
-        async () =>
-          (await page.evaluate(() => window.desktop.setupState())).settings.concurrentChildren,
-      )
-      .toBe(1);
-    await page.screenshot({ path: `test-results/child-limit-${cliOnly ? "agy" : "claude"}.png` });
-    await assertAccessible(page);
-    await page.keyboard.press("Escape");
-
+  if (phase !== "attachment") {
+    if (phase === "children") {
+      await openSettingsScreen(page);
+      await page.getByRole("button", { name: "General", exact: true }).click();
+      const limit = page.getByRole("spinbutton", { name: "Concurrent children per orchestrator" });
+      await expect(limit).toHaveValue("4");
+      await limit.fill("1");
+      await expect
+        .poll(
+          async () =>
+            (await page.evaluate(() => window.desktop.setupState())).settings.concurrentChildren,
+        )
+        .toBe(1);
+      await page.screenshot({ path: `test-results/child-limit-${cliOnly ? "agy" : "claude"}.png` });
+      await assertAccessible(page);
+      await page.keyboard.press("Escape");
+    }
     const tree = await call(parent.controlToken, "create_worktree", {
       idempotencyKey: "tree-1",
       branch: "child-one",
@@ -8458,126 +8559,131 @@ for (const cliOnly of [false, true])
       prompt: "Summarize the README",
     });
     assert.equal(launched.body.result.status, "succeeded", JSON.stringify(launched.body));
-    const extraTree = await call(parent.controlToken, "create_worktree", {
-      idempotencyKey: "tree-limit",
-      branch: "child-limit",
-    });
-    assert.equal(extraTree.body.result.status, "succeeded");
-    const refusedLaunch = await call(parent.controlToken, "launch", {
-      idempotencyKey: "launch-limit",
-      worktreeId: extraTree.body.result.resultId,
-      agent: "claude",
-    });
-    assert.equal(refusedLaunch.status, 400);
-    assert.equal(refusedLaunch.body.error, "capacity");
-    await openSettingsScreen(page);
-    await page.getByRole("button", { name: "General", exact: true }).click();
-    await expect(
-      page.getByRole("spinbutton", { name: "Concurrent children per orchestrator" }),
-    ).toHaveValue("1");
-    await page.keyboard.press("Escape");
     const childId = launched.body.result.resultId;
-    await expect.poll(() => existsSync(`${credentials}.child-one`)).toBe(true);
-    const child = await read("child-one");
-    assert.match(
-      child.args.at(-1),
-      /^Task from your Foom orchestrator.*\n\nSummarize the README$/s,
-    );
-    const childIdentity = (await call(child.controlToken, "whoami")).body.result;
-    assert.equal(childIdentity.role, "agent");
-    assert.equal(childIdentity.parentId, parentId);
-    assert.equal(await connection(childId), "connecting");
-    await connect(child);
-    await expect.poll(() => connection(childId)).toBe("connected");
-    // Question replies require review over the real MCP/CLI and PTY boundaries.
-    await expect
-      .poll(
-        async () =>
-          (await call(parent.controlToken, "session_state", { id: childId })).body.result
-            .attentionKind,
-      )
-      .toBe("question");
-    const question = (await call(parent.controlToken, "session_state", { id: childId })).body
-      .result;
-    const proposal = {
-      id: childId,
-      revision: question.revision,
-      verdictId: question.verdictId,
-      idempotencyKey: "reply-1",
-      text: "src/app.ts",
-    };
-    const proposed = await call(parent.controlToken, "reply", proposal);
-    assert.equal(proposed.body.result.status, "pending_confirmation");
-    const replyReview = await confirmationPage(app);
-    await expect(replyReview.getByRole("heading", { name: "Reply to child-one?" })).toBeVisible();
-    await expect(replyReview.getByLabel("Current child context")).toContainText(
-      "Which file should I change?",
-    );
-    await expect(replyReview.getByLabel("Exact proposed reply")).toHaveText("src/app.ts");
-    assert.equal(existsSync(`${credentials}.reply-child-one`), false);
-    await replyReview.getByRole("button", { name: "Send reply" }).click();
-    await expect.poll(() => existsSync(`${credentials}.reply-child-one`)).toBe(true);
-    assert.equal(await readFile(`${credentials}.reply-child-one`, "utf8"), "src/app.ts\r");
-    await expect
-      .poll(
-        async () =>
-          (await call(parent.controlToken, "operation_status", { idempotencyKey: "reply-1" })).body
-            .result.status,
-      )
-      .toBe("succeeded");
-    assert.equal(
-      (await call(parent.controlToken, "reply", proposal)).body.result.status,
-      "succeeded",
-    );
-    // No grandchildren: a child's credential cannot reach orchestration.
-    assert.equal(
-      (await call(child.controlToken, "create_worktree", { idempotencyKey: "x", branch: "nested" }))
-        .status,
-      403,
-    );
-    await expect
-      .poll(
-        async () => {
-          const tail = await call(parent.controlToken, "tail", { id: childId, lines: 5 });
-          return tail.body.result?.lines?.join("\n") ?? "";
-        },
-        { intervals: [1100], timeout: deadline(15000) },
-      )
-      .toContain("FOOM_AGENT_READY");
-    const waited = await call(parent.controlToken, "wait_for", { ids: [childId], timeoutMs: 0 });
-    assert.equal(waited.body.result.sessions[0].id, childId);
-    // Children belong to their own checkout and retain an independent light.
-    const childRow = page.locator(`[data-drag-session="${childId}"]`);
-    const parentSession = page.locator(`[data-drag-session="${parentId}"]`);
-    const childEntry = childRow.locator("..");
-    const parentEntry = parentSession.locator("..");
-    await expect(childRow).toHaveCount(1);
-    await expect(childRow.locator(".session-child-mark")).toHaveText("↳");
-    await expect(childRow).toHaveAttribute(
-      "title",
-      `Child of ${cliOnly ? "Antigravity" : "Claude Code"}`,
-    );
-    const checkout = childRow.locator('xpath=ancestor::div[@role="group"][1]/..');
-    await expect(checkout.locator(".worktree-row").first()).toContainText("child-one");
-    await expect(checkout.locator(`[data-drag-session="${parentId}"]`)).toHaveCount(0);
-    await expect(childRow.locator(".board-light")).toHaveCount(1);
-    await parentSession.focus();
-    await expect(childEntry).toHaveAttribute("data-related", "true");
-    await childRow.focus();
-    await expect(parentEntry).toHaveAttribute("data-related", "true");
-    await page.getByRole("textbox", { name: "Filter repositories and sessions" }).focus();
-    await childRow.hover();
-    await expect(parentEntry).toHaveAttribute("data-related", "true");
-    await parentSession.hover();
-    await expect(childEntry).toHaveAttribute("data-related", "true");
-    await childRow.focus();
-    // Finish the hover interaction before the later Settings checks: its panel
-    // otherwise follows the stationary pointer and covers Settings navigation.
-    await page.getByRole("textbox", { name: "Filter repositories and sessions" }).hover();
-    await page.keyboard.press("Escape");
-    await expect(page.locator(".row-menu")).toHaveCount(0);
-    await assertAccessible(page);
-
+    if (phase === "children") {
+      const extraTree = await call(parent.controlToken, "create_worktree", {
+        idempotencyKey: "tree-limit",
+        branch: "child-limit",
+      });
+      assert.equal(extraTree.body.result.status, "succeeded");
+      const refusedLaunch = await call(parent.controlToken, "launch", {
+        idempotencyKey: "launch-limit",
+        worktreeId: extraTree.body.result.resultId,
+        agent: "claude",
+      });
+      assert.equal(refusedLaunch.status, 400);
+      assert.equal(refusedLaunch.body.error, "capacity");
+      await openSettingsScreen(page);
+      await page.getByRole("button", { name: "General", exact: true }).click();
+      await expect(
+        page.getByRole("spinbutton", { name: "Concurrent children per orchestrator" }),
+      ).toHaveValue("1");
+      await page.keyboard.press("Escape");
+      await expect.poll(() => existsSync(`${credentials}.child-one`)).toBe(true);
+      const child = await read("child-one");
+      assert.match(
+        child.args.at(-1),
+        /^Task from your Foom orchestrator.*\n\nSummarize the README$/s,
+      );
+      const childIdentity = (await call(child.controlToken, "whoami")).body.result;
+      assert.equal(childIdentity.role, "agent");
+      assert.equal(childIdentity.parentId, parentId);
+      assert.equal(await connection(childId), "connecting");
+      await connect(child);
+      await expect.poll(() => connection(childId)).toBe("connected");
+      // Question replies require review over the real MCP/CLI and PTY boundaries.
+      await expect
+        .poll(
+          async () =>
+            (await call(parent.controlToken, "session_state", { id: childId })).body.result
+              .attentionKind,
+        )
+        .toBe("question");
+      const question = (await call(parent.controlToken, "session_state", { id: childId })).body
+        .result;
+      const proposal = {
+        id: childId,
+        revision: question.revision,
+        verdictId: question.verdictId,
+        idempotencyKey: "reply-1",
+        text: "src/app.ts",
+      };
+      const proposed = await call(parent.controlToken, "reply", proposal);
+      assert.equal(proposed.body.result.status, "pending_confirmation");
+      const replyReview = await confirmationPage(app);
+      await expect(replyReview.getByRole("heading", { name: "Reply to child-one?" })).toBeVisible();
+      await expect(replyReview.getByLabel("Current child context")).toContainText(
+        "Which file should I change?",
+      );
+      await expect(replyReview.getByLabel("Exact proposed reply")).toHaveText("src/app.ts");
+      assert.equal(existsSync(`${credentials}.reply-child-one`), false);
+      await replyReview.getByRole("button", { name: "Send reply" }).click();
+      await expect.poll(() => existsSync(`${credentials}.reply-child-one`)).toBe(true);
+      assert.equal(await readFile(`${credentials}.reply-child-one`, "utf8"), "src/app.ts\r");
+      await expect
+        .poll(
+          async () =>
+            (await call(parent.controlToken, "operation_status", { idempotencyKey: "reply-1" }))
+              .body.result.status,
+        )
+        .toBe("succeeded");
+      assert.equal(
+        (await call(parent.controlToken, "reply", proposal)).body.result.status,
+        "succeeded",
+      );
+      // No grandchildren: a child's credential cannot reach orchestration.
+      assert.equal(
+        (
+          await call(child.controlToken, "create_worktree", {
+            idempotencyKey: "x",
+            branch: "nested",
+          })
+        ).status,
+        403,
+      );
+      await expect
+        .poll(
+          async () => {
+            const tail = await call(parent.controlToken, "tail", { id: childId, lines: 5 });
+            return tail.body.result?.lines?.join("\n") ?? "";
+          },
+          { intervals: [1100], timeout: deadline(15000) },
+        )
+        .toContain("FOOM_AGENT_READY");
+      const waited = await call(parent.controlToken, "wait_for", { ids: [childId], timeoutMs: 0 });
+      assert.equal(waited.body.result.sessions[0].id, childId);
+      // Children belong to their own checkout and retain an independent light.
+      const childRow = page.locator(`[data-drag-session="${childId}"]`);
+      const parentSession = page.locator(`[data-drag-session="${parentId}"]`);
+      const childEntry = childRow.locator("..");
+      const parentEntry = parentSession.locator("..");
+      await expect(childRow).toHaveCount(1);
+      await expect(childRow.locator(".session-child-mark")).toHaveText("↳");
+      await expect(childRow).toHaveAttribute(
+        "title",
+        `Child of ${cliOnly ? "Antigravity" : "Claude Code"}`,
+      );
+      const checkout = childRow.locator('xpath=ancestor::div[@role="group"][1]/..');
+      await expect(checkout.locator(".worktree-row").first()).toContainText("child-one");
+      await expect(checkout.locator(`[data-drag-session="${parentId}"]`)).toHaveCount(0);
+      await expect(childRow.locator(".board-light")).toHaveCount(1);
+      await parentSession.focus();
+      await expect(childEntry).toHaveAttribute("data-related", "true");
+      await childRow.focus();
+      await expect(parentEntry).toHaveAttribute("data-related", "true");
+      await page.getByRole("textbox", { name: "Filter repositories and sessions" }).focus();
+      await childRow.hover();
+      await expect(parentEntry).toHaveAttribute("data-related", "true");
+      await parentSession.hover();
+      await expect(childEntry).toHaveAttribute("data-related", "true");
+      await childRow.focus();
+      // Finish the hover interaction before the later Settings checks: its panel
+      // otherwise follows the stationary pointer and covers Settings navigation.
+      await page.getByRole("textbox", { name: "Filter repositories and sessions" }).hover();
+      await page.keyboard.press("Escape");
+      await expect(page.locator(".row-menu")).toHaveCount(0);
+      await assertAccessible(page);
+    }
     const stopped = await call(parent.controlToken, "stop", {
       idempotencyKey: "stop-1",
       id: childId,
@@ -8592,339 +8698,354 @@ for (const cliOnly of [false, true])
       )
       .toBe(true);
 
-    // Exercise the shared main-process policy once through MCP. The CLI case
-    // retains its transport and batch-review checks without duplicating this flow.
-    if (!cliOnly) {
-      // Part 2: profile opt-in, real Git fetch/ancestry, and operation completion.
-      const remote = path.join(root, "remote.git");
-      git("clone", "--bare", repo, remote);
-      git("remote", "add", "origin", remote);
-      await openSettingsScreen(page);
-      await page.getByRole("button", { name: "Repositories", exact: true }).click();
-      await expect(
-        page.getByRole("checkbox", { name: /Auto-remove merged worktrees/ }),
-      ).toHaveCount(0);
-      await page.getByRole("button", { name: "General", exact: true }).click();
-      const autoRemove = page.getByRole("checkbox", { name: "Auto-remove merged worktrees" });
-      await expect(autoRemove).not.toBeChecked();
-      await autoRemove.check();
-      await expect
-        .poll(
-          async () =>
-            (await page.evaluate(() => window.desktop.setupState())).settings
-              .autoRemoveMergedWorktrees,
-        )
-        .toBe(true);
-      await assertAccessible(page);
-      await page.keyboard.press("Escape");
-      const automaticTree = await call(parent.controlToken, "create_worktree", {
-        idempotencyKey: "auto-tree",
-        branch: "auto-merged",
-      });
-      assert.equal(automaticTree.body.result.status, "succeeded");
-      await call(parent.controlToken, "remove_worktree", {
-        idempotencyKey: "auto-remove",
-        worktreeId: automaticTree.body.result.resultId,
-      });
-      await expect
-        .poll(
-          async () =>
-            (await call(parent.controlToken, "operation_status", { idempotencyKey: "auto-remove" }))
-              .body.result.status,
-        )
-        .toBe("succeeded");
-      assert.equal(
-        String(git("worktree", "list", "--porcelain")).includes("refs/heads/auto-merged"),
-        false,
-      );
-      assert.match(String(git("branch", "--list", "auto-merged")), /auto-merged/);
-      await expect(
-        confirmation.getByRole("heading", { name: "Remove worktrees?" }),
-      ).not.toBeVisible();
-      const dirtyAuto = await call(parent.controlToken, "create_worktree", {
-        idempotencyKey: "auto-dirty-tree",
-        branch: "auto-dirty",
-      });
-      const dirtyAutoTree = (
-        await page.evaluate((repository) => window.desktop.worktrees(repository), repository)
-      ).find((worktree) => worktree.branch === "auto-dirty");
-      assert.ok(dirtyAutoTree);
-      await writeFile(path.join(dirtyAutoTree.path, "untracked.txt"), "needs review");
-      await call(parent.controlToken, "remove_worktree", {
-        idempotencyKey: "auto-dirty-remove",
-        worktreeId: dirtyAuto.body.result.resultId,
-      });
-      await expect(confirmation.getByRole("heading", { name: "Remove worktrees?" })).toBeVisible();
-      await expect(confirmation.getByRole("list", { name: "Worktrees to remove" })).toContainText(
-        "untracked.txt",
-      );
-      await confirmation.getByRole("button", { name: "Discard changes and remove all" }).click();
-      await expect
-        .poll(
-          async () =>
-            (
-              await call(parent.controlToken, "operation_status", {
-                idempotencyKey: "auto-dirty-remove",
-              })
-            ).body.result.status,
-        )
-        .toBe("succeeded");
-      await openSettingsScreen(page);
-      await page.getByRole("button", { name: "General", exact: true }).click();
-      await expect(autoRemove).toBeChecked();
-      await autoRemove.uncheck();
-      await expect
-        .poll(
-          async () =>
-            (await page.evaluate(() => window.desktop.setupState())).settings
-              .autoRemoveMergedWorktrees,
-        )
-        .toBe(false);
-      await page.keyboard.press("Escape");
-    }
-    // With the policy off, clean merged branches still join the review batch.
-    const extraTrees = [];
-    for (const branch of ["batch-selected", "batch-declined"]) {
-      const created = await call(parent.controlToken, "create_worktree", {
-        idempotencyKey: `create-${branch}`,
-        branch,
-      });
-      assert.equal(created.body.result.status, "succeeded");
-      extraTrees.push({ branch, id: created.body.result.resultId });
-    }
-    const dirtyTree = (
-      await page.evaluate((repository) => window.desktop.worktrees(repository), repository)
-    ).find((worktree) => worktree.branch === "batch-selected");
-    assert.ok(dirtyTree);
-    await writeFile(path.join(dirtyTree.path, "uncommitted.txt"), "discard only by named action");
-    const removal = await call(parent.controlToken, "remove_worktree", {
-      idempotencyKey: "remove-1",
-      worktreeId: tree.body.result.resultId,
-    });
-    assert.equal(removal.body.result.status, "pending_confirmation");
-    await expect(confirmation.getByRole("heading", { name: "Remove worktrees?" })).toBeVisible();
-    for (const tree of extraTrees) {
-      const queued = await call(parent.controlToken, "remove_worktree", {
-        idempotencyKey: `remove-${tree.branch}`,
-        worktreeId: tree.id,
-      });
-      assert.equal(queued.body.result.status, "pending_confirmation");
-    }
-    await expect(confirmation.getByRole("checkbox")).toHaveCount(3);
-    await expect(confirmation.getByRole("list", { name: "Worktrees to remove" })).toContainText(
-      "Clean",
-    );
-    await assertAccessible(confirmation);
-    await confirmation.screenshot({
-      path: `test-results/batch-removal-${cliOnly ? "agy" : "claude"}.png`,
-      animations: "disabled",
-    });
-    await confirmation.getByRole("checkbox", { name: "child-one", exact: true }).check();
-    await confirmation.getByRole("checkbox", { name: "batch-selected", exact: true }).check();
-    await confirmation.getByRole("button", { name: "Discard changes and remove selected" }).click();
-    for (const tree of extraTrees) {
-      await expect
-        .poll(
-          async () =>
-            (
-              await call(parent.controlToken, "operation_status", {
-                idempotencyKey: `remove-${tree.branch}`,
-              })
-            ).body.result.status,
-        )
-        .toBe(tree.branch === "batch-selected" ? "succeeded" : "declined");
-    }
-    assert.equal(
-      String(git("worktree", "list", "--porcelain")).includes("refs/heads/batch-selected"),
-      false,
-    );
-    assert.equal(
-      String(git("worktree", "list", "--porcelain")).includes("refs/heads/batch-declined"),
-      true,
-    );
-
-    await expect
-      .poll(
-        async () =>
-          (await call(parent.controlToken, "operation_status", { idempotencyKey: "remove-1" })).body
-            .result.status,
-      )
-      .toBe("succeeded");
-    assert.match(String(git("branch", "--list", "child-one")), /child-one/);
-
-    await assert.rejects(
-      page.evaluate(() =>
-        window.desktop.actionLog({ search: "", action: "", status: "", offset: -1 }),
-      ),
-    );
-    await assert.rejects(
-      page.evaluate(() =>
-        window.desktop.actionLog({
-          search: "",
-          action: "",
-          status: "",
-          offset: 0,
-          path: "/secret",
-        }),
-      ),
-    );
-    await page.getByRole("button", { name: "Foom menu" }).click();
-    await page.getByRole("menuitem", { name: "Action log", exact: true }).click();
-    await expect(page.getByRole("heading", { name: "Action log" })).toBeVisible();
-    const history = page.getByRole("region", { name: "Action history" });
-    await expect(history.getByText("make orchestrator", { exact: true }).first()).toBeVisible();
-    await page.getByRole("searchbox").fill("remove_worktree");
-    await page.getByLabel("Outcome", { exact: true }).selectOption("succeeded");
-    await expect(history.getByText("remove worktree", { exact: true })).toHaveCount(
-      cliOnly ? 2 : 4,
-    );
-    await page.screenshot({
-      path: `test-results/action-log-${cliOnly ? "agy" : "claude"}.png`,
-      animations: "disabled",
-    });
-    await assertAccessible(page);
-    await page.getByRole("searchbox").press("Escape");
-    await expect(page.getByRole("heading", { name: "Action log" })).toHaveCount(0);
-
-    // Making the orchestrator again is a no-op without a dialog.
-    await page.evaluate(
-      (id) => window.desktop.sidebarCommand({ kind: "make-orchestrator", id }),
-      parentId,
-    );
-    const orchestrators = (await page.evaluate(() => window.desktop.workspace())).terminals.filter(
-      (row) => row.orchestration?.role === "orchestrator",
-    );
-    assert.equal(orchestrators.length, 1);
-
-    // Keep a live child when its parent is revoked and exits.
-    const liveTree = await call(parent.controlToken, "create_worktree", {
-      idempotencyKey: "tree-live",
-      branch: "child-live",
-    });
-    assert.equal(liveTree.body.result.status, "succeeded");
-    const liveLaunch = await call(parent.controlToken, "launch", {
-      idempotencyKey: "launch-live",
-      worktreeId: liveTree.body.result.resultId,
-      agent: cliOnly ? "claude" : "codex",
-    });
-    assert.equal(liveLaunch.body.result.status, "succeeded");
-    const liveId = liveLaunch.body.result.resultId;
-    await expect(page.locator(".session-child-mark")).toHaveCount(1);
-
-    if (!cliOnly) {
-      let previous = (await call(parent.controlToken, "session_state", { id: liveId })).body.result;
-      for (const [key, label] of [
-        ["@", "Provider unavailable"],
-        ["#", "Provider rate limit"],
-        ["$", "Model switch requested"],
-      ]) {
-        const waiting = call(parent.controlToken, "wait_for", {
-          ids: [liveId],
-          after: { [liveId]: previous.revision },
-          timeoutMs: 30000,
-        });
-        await page.evaluate(({ id, key }) => window.desktop.input(id, key), { id: liveId, key });
+    if (phase === "cleanup") {
+      // Exercise the shared main-process policy once through MCP. The CLI case
+      // retains its transport and batch-review checks without duplicating this flow.
+      if (!cliOnly) {
+        // Part 2: profile opt-in, real Git fetch/ancestry, and operation completion.
+        const remote = path.join(root, "remote.git");
+        git("clone", "--bare", repo, remote);
+        git("remote", "add", "origin", remote);
+        await openSettingsScreen(page);
+        await page.getByRole("button", { name: "Repositories", exact: true }).click();
+        await expect(
+          page.getByRole("checkbox", { name: /Auto-remove merged worktrees/ }),
+        ).toHaveCount(0);
+        await page.getByRole("button", { name: "General", exact: true }).click();
+        const autoRemove = page.getByRole("checkbox", { name: "Auto-remove merged worktrees" });
+        await expect(autoRemove).not.toBeChecked();
+        await autoRemove.check();
         await expect
           .poll(
             async () =>
-              (await call(parent.controlToken, "session_state", { id: liveId })).body.result.reason,
+              (await page.evaluate(() => window.desktop.setupState())).settings
+                .autoRemoveMergedWorktrees,
           )
-          .toBe("provider_unavailable");
-        const stalled = (await call(parent.controlToken, "session_state", { id: liveId })).body
-          .result;
-        assert.equal(stalled.state, "needs_input");
-        assert.equal(stalled.attentionKind, "provider");
-        assert.notEqual(stalled.revision, previous.revision);
-        // A wait may wake on input invalidation before classification; waiting again
-        // from that revision must expose the same fixed stall metadata.
-        const awakened = (await waiting).body.result.sessions[0];
-        const observed =
-          awakened.reason === "provider_unavailable"
-            ? awakened
-            : (
-                await call(parent.controlToken, "wait_for", {
-                  ids: [liveId],
-                  after: { [liveId]: awakened.revision },
-                  timeoutMs: 30000,
-                })
-              ).body.result.sessions[0];
-        assert.equal(observed.reason, "provider_unavailable");
-        assert.equal(observed.attentionKind, "provider");
-        const rejected = await call(parent.controlToken, "reply", {
-          id: liveId,
-          revision: stalled.revision,
-          verdictId: stalled.verdictId,
-          idempotencyKey: `provider-reply-${key.codePointAt(0)}`,
-          text: "Switch model",
+          .toBe(true);
+        await assertAccessible(page);
+        await page.keyboard.press("Escape");
+        const automaticTree = await call(parent.controlToken, "create_worktree", {
+          idempotencyKey: "auto-tree",
+          branch: "auto-merged",
         });
-        assert.equal(rejected.status, 400);
-        assert.equal(rejected.body.error, "conflict");
+        assert.equal(automaticTree.body.result.status, "succeeded");
+        await call(parent.controlToken, "remove_worktree", {
+          idempotencyKey: "auto-remove",
+          worktreeId: automaticTree.body.result.resultId,
+        });
+        await expect
+          .poll(
+            async () =>
+              (
+                await call(parent.controlToken, "operation_status", {
+                  idempotencyKey: "auto-remove",
+                })
+              ).body.result.status,
+          )
+          .toBe("succeeded");
+        assert.equal(
+          String(git("worktree", "list", "--porcelain")).includes("refs/heads/auto-merged"),
+          false,
+        );
+        assert.match(String(git("branch", "--list", "auto-merged")), /auto-merged/);
         await expect(
-          page.getByRole("treeitem", { name: new RegExp(`Needs you.*${label}`) }),
+          confirmation.getByRole("heading", { name: "Remove worktrees?" }),
+        ).not.toBeVisible();
+        const dirtyAuto = await call(parent.controlToken, "create_worktree", {
+          idempotencyKey: "auto-dirty-tree",
+          branch: "auto-dirty",
+        });
+        const dirtyAutoTree = (
+          await page.evaluate((repository) => window.desktop.worktrees(repository), repository)
+        ).find((worktree) => worktree.branch === "auto-dirty");
+        assert.ok(dirtyAutoTree);
+        await writeFile(path.join(dirtyAutoTree.path, "untracked.txt"), "needs review");
+        await call(parent.controlToken, "remove_worktree", {
+          idempotencyKey: "auto-dirty-remove",
+          worktreeId: dirtyAuto.body.result.resultId,
+        });
+        await expect(
+          confirmation.getByRole("heading", { name: "Remove worktrees?" }),
         ).toBeVisible();
-        previous = stalled;
+        await expect(confirmation.getByRole("list", { name: "Worktrees to remove" })).toContainText(
+          "untracked.txt",
+        );
+        await confirmation.getByRole("button", { name: "Discard changes and remove all" }).click();
+        await expect
+          .poll(
+            async () =>
+              (
+                await call(parent.controlToken, "operation_status", {
+                  idempotencyKey: "auto-dirty-remove",
+                })
+              ).body.result.status,
+          )
+          .toBe("succeeded");
+        await openSettingsScreen(page);
+        await page.getByRole("button", { name: "General", exact: true }).click();
+        await expect(autoRemove).toBeChecked();
+        await autoRemove.uncheck();
+        await expect
+          .poll(
+            async () =>
+              (await page.evaluate(() => window.desktop.setupState())).settings
+                .autoRemoveMergedWorktrees,
+          )
+          .toBe(false);
+        await page.keyboard.press("Escape");
       }
-    }
+      // With the policy off, clean merged branches still join the review batch.
+      const extraTrees = [];
+      for (const branch of ["batch-selected", "batch-declined"]) {
+        const created = await call(parent.controlToken, "create_worktree", {
+          idempotencyKey: `create-${branch}`,
+          branch,
+        });
+        assert.equal(created.body.result.status, "succeeded");
+        extraTrees.push({ branch, id: created.body.result.resultId });
+      }
+      const dirtyTree = (
+        await page.evaluate((repository) => window.desktop.worktrees(repository), repository)
+      ).find((worktree) => worktree.branch === "batch-selected");
+      assert.ok(dirtyTree);
+      await writeFile(path.join(dirtyTree.path, "uncommitted.txt"), "discard only by named action");
+      const removal = await call(parent.controlToken, "remove_worktree", {
+        idempotencyKey: "remove-1",
+        worktreeId: tree.body.result.resultId,
+      });
+      assert.equal(removal.body.result.status, "pending_confirmation");
+      await expect(confirmation.getByRole("heading", { name: "Remove worktrees?" })).toBeVisible();
+      for (const tree of extraTrees) {
+        const queued = await call(parent.controlToken, "remove_worktree", {
+          idempotencyKey: `remove-${tree.branch}`,
+          worktreeId: tree.id,
+        });
+        assert.equal(queued.body.result.status, "pending_confirmation");
+      }
+      await expect(confirmation.getByRole("checkbox")).toHaveCount(3);
+      await expect(confirmation.getByRole("list", { name: "Worktrees to remove" })).toContainText(
+        "Clean",
+      );
+      await assertAccessible(confirmation);
+      await confirmation.screenshot({
+        path: `test-results/batch-removal-${cliOnly ? "agy" : "claude"}.png`,
+        animations: "disabled",
+      });
+      await confirmation.getByRole("checkbox", { name: "child-one", exact: true }).check();
+      await confirmation.getByRole("checkbox", { name: "batch-selected", exact: true }).check();
+      await confirmation
+        .getByRole("button", { name: "Discard changes and remove selected" })
+        .click();
+      for (const tree of extraTrees) {
+        await expect
+          .poll(
+            async () =>
+              (
+                await call(parent.controlToken, "operation_status", {
+                  idempotencyKey: `remove-${tree.branch}`,
+                })
+              ).body.result.status,
+          )
+          .toBe(tree.branch === "batch-selected" ? "succeeded" : "declined");
+      }
+      assert.equal(
+        String(git("worktree", "list", "--porcelain")).includes("refs/heads/batch-selected"),
+        false,
+      );
+      assert.equal(
+        String(git("worktree", "list", "--porcelain")).includes("refs/heads/batch-declined"),
+        true,
+      );
 
-    // Revoke ends orchestration on the same credential; the session keeps running.
-    await parentRow
-      .locator(":scope > .board-row")
-      .getByRole("button", { name: /^Actions for/ })
-      .click();
-    await page.getByRole("menuitem", { name: "Revoke orchestrator" }).click();
-    await expect
-      .poll(async () => (await call(parent.controlToken, "whoami")).body.result?.role)
-      .toBe("agent");
-    assert.equal((await call(parent.controlToken, "tail", { id: childId, lines: 1 })).status, 403);
-
-    const liveChild = (await page.evaluate(() => window.desktop.workspace())).terminals.find(
-      (row) => row.id === liveId,
-    );
-    assert.equal(liveChild.exited, false);
-    await expect(page.getByText("Revoked orchestrator", { exact: true })).toBeVisible();
-    await expect(page.locator(".session-child-mark")).toHaveCount(1);
-    const logged = await page.evaluate(() =>
-      window.desktop.actionLog({
-        search: "",
-        action: "revoke_orchestrator",
-        status: "succeeded",
-        offset: 0,
-      }),
-    );
-    assert.equal(logged.total, 1);
-    await page.evaluate(() => window.desktop.clearActionLog());
-    assert.equal(
-      (
-        await page.evaluate(() =>
-          window.desktop.actionLog({ search: "", action: "", status: "", offset: 0 }),
+      await expect
+        .poll(
+          async () =>
+            (await call(parent.controlToken, "operation_status", { idempotencyKey: "remove-1" }))
+              .body.result.status,
         )
-      ).total,
-      0,
-    );
+        .toBe("succeeded");
+      assert.match(String(git("branch", "--list", "child-one")), /child-one/);
 
-    // Exit revokes the credential itself; the snapshot keeps the history.
-    await page.evaluate((id) => window.desktop.input(id, "q"), parentId);
-    await expect.poll(async () => (await call(parent.controlToken, "whoami")).status).toBe(401);
-    const after = (await page.evaluate(() => window.desktop.workspace())).terminals.find(
-      (row) => row.id === parentId,
-    );
-    assert.equal(after.orchestration.active, false);
-    await expect(page.getByText("Exited orchestrator", { exact: true })).toBeVisible();
-    await expect(page.locator(".session-child-mark")).toHaveCount(1);
-    await assert.rejects(
-      page.evaluate((id) => window.desktop.sidebarCommand({ kind: "close", id }), parentId),
-      /Close the orchestrator/u,
-    );
-    assert.ok(after.orchestration.history.some((entry) => entry.action === "remove_worktree"));
+      await assert.rejects(
+        page.evaluate(() =>
+          window.desktop.actionLog({ search: "", action: "", status: "", offset: -1 }),
+        ),
+      );
+      await assert.rejects(
+        page.evaluate(() =>
+          window.desktop.actionLog({
+            search: "",
+            action: "",
+            status: "",
+            offset: 0,
+            path: "/secret",
+          }),
+        ),
+      );
+      await page.getByRole("button", { name: "Foom menu" }).click();
+      await page.getByRole("menuitem", { name: "Action log", exact: true }).click();
+      await expect(page.getByRole("heading", { name: "Action log" })).toBeVisible();
+      const history = page.getByRole("region", { name: "Action history" });
+      await expect(history.getByText("make orchestrator", { exact: true }).first()).toBeVisible();
+      await page.getByRole("searchbox").fill("remove_worktree");
+      await page.getByLabel("Outcome", { exact: true }).selectOption("succeeded");
+      await expect(history.getByText("remove worktree", { exact: true })).toHaveCount(
+        cliOnly ? 2 : 4,
+      );
+      await page.screenshot({
+        path: `test-results/action-log-${cliOnly ? "agy" : "claude"}.png`,
+        animations: "disabled",
+      });
+      await assertAccessible(page);
+      await page.getByRole("searchbox").press("Escape");
+      await expect(page.getByRole("heading", { name: "Action log" })).toHaveCount(0);
 
-    // Attachment is per launch: nothing written to the user's agent config or the repository.
-    const homeEntries = await readdir(home);
-    for (const name of [".claude", ".claude.json", ".codex", ".gemini"])
-      assert.ok(!homeEntries.includes(name), `${name} was written`);
-    const repoEntries = await readdir(repo);
-    for (const name of [".mcp.json", ".claude", ".codex"])
-      assert.ok(!repoEntries.includes(name), `${name} was written to the repository`);
-  });
+      // Making the orchestrator again is a no-op without a dialog.
+      await page.evaluate(
+        (id) => window.desktop.sidebarCommand({ kind: "make-orchestrator", id }),
+        parentId,
+      );
+      const orchestrators = (
+        await page.evaluate(() => window.desktop.workspace())
+      ).terminals.filter((row) => row.orchestration?.role === "orchestrator");
+      assert.equal(orchestrators.length, 1);
+
+      // Keep a live child when its parent is revoked and exits.
+      const liveTree = await call(parent.controlToken, "create_worktree", {
+        idempotencyKey: "tree-live",
+        branch: "child-live",
+      });
+      assert.equal(liveTree.body.result.status, "succeeded");
+      const liveLaunch = await call(parent.controlToken, "launch", {
+        idempotencyKey: "launch-live",
+        worktreeId: liveTree.body.result.resultId,
+        agent: cliOnly ? "claude" : "codex",
+      });
+      assert.equal(liveLaunch.body.result.status, "succeeded");
+      const liveId = liveLaunch.body.result.resultId;
+      await expect(page.locator(".session-child-mark")).toHaveCount(1);
+
+      if (!cliOnly) {
+        let previous = (await call(parent.controlToken, "session_state", { id: liveId })).body
+          .result;
+        for (const [key, label] of [
+          ["@", "Provider unavailable"],
+          ["#", "Provider rate limit"],
+          ["$", "Model switch requested"],
+        ]) {
+          const waiting = call(parent.controlToken, "wait_for", {
+            ids: [liveId],
+            after: { [liveId]: previous.revision },
+            timeoutMs: 30000,
+          });
+          await page.evaluate(({ id, key }) => window.desktop.input(id, key), { id: liveId, key });
+          await expect
+            .poll(
+              async () =>
+                (await call(parent.controlToken, "session_state", { id: liveId })).body.result
+                  .reason,
+            )
+            .toBe("provider_unavailable");
+          const stalled = (await call(parent.controlToken, "session_state", { id: liveId })).body
+            .result;
+          assert.equal(stalled.state, "needs_input");
+          assert.equal(stalled.attentionKind, "provider");
+          assert.notEqual(stalled.revision, previous.revision);
+          // A wait may wake on input invalidation before classification; waiting again
+          // from that revision must expose the same fixed stall metadata.
+          const awakened = (await waiting).body.result.sessions[0];
+          const observed =
+            awakened.reason === "provider_unavailable"
+              ? awakened
+              : (
+                  await call(parent.controlToken, "wait_for", {
+                    ids: [liveId],
+                    after: { [liveId]: awakened.revision },
+                    timeoutMs: 30000,
+                  })
+                ).body.result.sessions[0];
+          assert.equal(observed.reason, "provider_unavailable");
+          assert.equal(observed.attentionKind, "provider");
+          const rejected = await call(parent.controlToken, "reply", {
+            id: liveId,
+            revision: stalled.revision,
+            verdictId: stalled.verdictId,
+            idempotencyKey: `provider-reply-${key.codePointAt(0)}`,
+            text: "Switch model",
+          });
+          assert.equal(rejected.status, 400);
+          assert.equal(rejected.body.error, "conflict");
+          await expect(
+            page.getByRole("treeitem", { name: new RegExp(`Needs you.*${label}`) }),
+          ).toBeVisible();
+          previous = stalled;
+        }
+      }
+
+      // Revoke ends orchestration on the same credential; the session keeps running.
+      await parentRow
+        .locator(":scope > .board-row")
+        .getByRole("button", { name: /^Actions for/ })
+        .click();
+      await page.getByRole("menuitem", { name: "Revoke orchestrator" }).click();
+      await expect
+        .poll(async () => (await call(parent.controlToken, "whoami")).body.result?.role)
+        .toBe("agent");
+      assert.equal(
+        (await call(parent.controlToken, "tail", { id: childId, lines: 1 })).status,
+        403,
+      );
+
+      const liveChild = (await page.evaluate(() => window.desktop.workspace())).terminals.find(
+        (row) => row.id === liveId,
+      );
+      assert.equal(liveChild.exited, false);
+      await expect(page.getByText("Revoked orchestrator", { exact: true })).toBeVisible();
+      await expect(page.locator(".session-child-mark")).toHaveCount(1);
+      const logged = await page.evaluate(() =>
+        window.desktop.actionLog({
+          search: "",
+          action: "revoke_orchestrator",
+          status: "succeeded",
+          offset: 0,
+        }),
+      );
+      assert.equal(logged.total, 1);
+      await page.evaluate(() => window.desktop.clearActionLog());
+      assert.equal(
+        (
+          await page.evaluate(() =>
+            window.desktop.actionLog({ search: "", action: "", status: "", offset: 0 }),
+          )
+        ).total,
+        0,
+      );
+
+      // Exit revokes the credential itself; the snapshot keeps the history.
+      await page.evaluate((id) => window.desktop.input(id, "q"), parentId);
+      await expect.poll(async () => (await call(parent.controlToken, "whoami")).status).toBe(401);
+      const after = (await page.evaluate(() => window.desktop.workspace())).terminals.find(
+        (row) => row.id === parentId,
+      );
+      assert.equal(after.orchestration.active, false);
+      await expect(page.getByText("Exited orchestrator", { exact: true })).toBeVisible();
+      await expect(page.locator(".session-child-mark")).toHaveCount(1);
+      await assert.rejects(
+        page.evaluate((id) => window.desktop.sidebarCommand({ kind: "close", id }), parentId),
+        /Close the orchestrator/u,
+      );
+      assert.ok(after.orchestration.history.some((entry) => entry.action === "remove_worktree"));
+    }
+  }
+
+  // Attachment is per launch: nothing written to the user's agent config or the repository.
+  const homeEntries = await readdir(home);
+  for (const name of [".claude", ".claude.json", ".codex", ".gemini"])
+    assert.ok(!homeEntries.includes(name), `${name} was written`);
+  const repoEntries = await readdir(repo);
+  for (const name of [".mcp.json", ".claude", ".codex"])
+    assert.ok(!repoEntries.includes(name), `${name} was written to the repository`);
+}
 
 test("Settings agent menu launches config and focuses its existing window", {
   timeout: deadline(60_000),

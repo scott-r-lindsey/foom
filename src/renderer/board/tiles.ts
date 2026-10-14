@@ -272,7 +272,10 @@ export function placeContent(
     const canGrow = tiles.length < 256 && depth(layout.tree) < 64;
     if (fits && canGrow) return addColumn(layout, content);
     const eligible = tiles.filter(
-      (tile) => tile.content && !placement.needsYou?.has(sessionId(tile) ?? ""),
+      (tile) =>
+        tile.content &&
+        (!placement.preserveFocus || tile.id !== layout.focused) &&
+        !placement.needsYou?.has(sessionId(tile) ?? ""),
     );
     const unfocused = eligible.filter((tile) => tile.id !== layout.focused);
     const oldest = (unfocused.length ? unfocused : eligible).sort(
@@ -486,6 +489,14 @@ export function pruneContent(
         ? { ...node, content: null }
         : node
       : { ...node, first: prune(node.first), second: prune(node.second) };
+  const freed = leaves(layout.tree).filter(
+    (tile) =>
+      tile.content &&
+      !(tile.content.kind === "terminal"
+        ? inventory.sessions.has(tile.content.session)
+        : inventory.previews.has(tile.content.preview)),
+  );
+  const landing = freed.at(-1)?.id;
   const tree = prune(layout.tree);
   const occupied = terminals(tree);
   const focused =
@@ -498,6 +509,7 @@ export function pruneContent(
     tree,
     focused,
     maximized: occupied.some((tile) => tile.id === layout.maximized) ? layout.maximized : null,
+    ...(landing ? { landing } : {}),
   };
 }
 export function saveLayout(

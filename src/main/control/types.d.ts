@@ -13,7 +13,7 @@ export interface ControlLaunch {
   bind(terminalId: string, mcp?: boolean): void;
   dispose(): void;
 }
-export type Action = "create_worktree" | "launch" | "stop" | "remove_worktree" | "reply";
+export type Action = "create_worktree" | "launch" | "stop" | "close" | "remove_worktree" | "reply";
 export type Status =
   | "pending_confirmation"
   | "running"

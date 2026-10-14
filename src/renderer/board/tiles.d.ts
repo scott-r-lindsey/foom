@@ -45,5 +45,7 @@ export interface TilePlacement {
   /** Available tile-area width in terminal character cells at the current font size. */
   columns: number;
   needsYou?: ReadonlySet<string>;
+  /** Background arrivals must preserve the user's current terminal. */
+  preserveFocus?: boolean;
   focusedAt?: ReadonlyMap<string, number>;
 }

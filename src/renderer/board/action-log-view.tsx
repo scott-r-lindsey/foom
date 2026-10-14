@@ -117,6 +117,7 @@ export function ActionLog({
               "create_worktree",
               "launch",
               "stop",
+              "close",
               "remove_worktree",
               "reply",
               "take_over",

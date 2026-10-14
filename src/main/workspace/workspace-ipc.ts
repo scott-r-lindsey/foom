@@ -139,6 +139,7 @@ export function orchestratorDisclosure(
         items: [
           "Create worktrees and run child agents in this repository up to the limit in Settings → General.",
           "Stop them, and ask you to remove worktrees it created.",
+          "Close its exited children, discarding their final screens; their worktrees and branches remain.",
           "Keep its own launch flags; children do not inherit them and cannot orchestrate.",
         ],
       },

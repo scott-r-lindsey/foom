@@ -70,7 +70,14 @@ export interface WorkspaceTerminal {
 /** One orchestrator action. Labels are redacted, bounded metadata, never prompts or output. */
 export interface OrchestrationEntry {
   id: string;
-  action: "create_worktree" | "launch" | "stop" | "remove_worktree" | "reply" | "take_over";
+  action:
+    | "create_worktree"
+    | "launch"
+    | "stop"
+    | "close"
+    | "remove_worktree"
+    | "reply"
+    | "take_over";
   label: string;
   status:
     | "pending_confirmation"

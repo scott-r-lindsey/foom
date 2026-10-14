@@ -6,6 +6,7 @@ const actions: readonly string[] = [
   "create_worktree",
   "launch",
   "stop",
+  "close",
   "remove_worktree",
   "reply",
 ];

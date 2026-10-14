@@ -38,5 +38,5 @@ export interface AppMenuApi {
   execute: (id: string) => Promise<void>;
   onOpen: (callback: () => void) => () => void;
   onShortcuts: (callback: () => void) => () => void;
-  onSession: (callback: (id: string) => void) => () => void;
+  onSession: (callback: (id: string, background?: boolean) => void) => () => void;
 }

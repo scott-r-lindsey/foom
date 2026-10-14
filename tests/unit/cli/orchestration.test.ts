@@ -18,6 +18,7 @@ it.each([
     "launch",
     { worktreeId: "tree", agent: "codex", prompt: "x".repeat(16384), idempotencyKey: "retry-1" },
   ],
+  [["close", "child", ...key], "close", { id: "child", idempotencyKey: "retry-1" }],
   [["stop", "child", ...key], "stop", { id: "child", idempotencyKey: "retry-1" }],
   [
     ["remove-worktree", "tree", ...key],
@@ -47,6 +48,9 @@ it.each([
   ["launch", "tree", "--agent", "claude", "--prompt", "bad\0", ...key],
   ["launch", "tree", "--agent", "claude", "--prompt", "é".repeat(8193), ...key],
   ["stop", "bad/id", ...key],
+  ["close", "child"],
+  ["close", "bad/id", ...key],
+  ["close", "child", ...key, "--force", "true"],
   ["remove-worktree", "tree", ...key, "--force", "true"],
   ["tail", "child", "--lines", "0"],
   ["tail", "child", "--lines", "41"],
