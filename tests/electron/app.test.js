@@ -480,6 +480,9 @@ async function launchApp(context, openShell = true, options = {}) {
     };
     if (!options.env?.HOME) removeAfterApps(context, options.home);
   }
+  // Match native shells' canonical spelling (Windows TEMP may use an 8.3 path).
+  await mkdir(options.home, { recursive: true });
+  options = { ...options, home: await realpath(options.home) };
   const isolation = await mkdtemp(path.join(tmpdir(), "foom-agent-isolation-"));
   removeAfterApps(context, isolation);
   const isolated = await isolatedEnvironment(isolation, options.env?.PATH);
@@ -6081,23 +6084,27 @@ test("application menu uses the command registry and supports native keyboard ac
     await app.evaluate(({ clipboard }) => clipboard.writeText("menu clipboard sentinel"));
     await filter.fill("menu edit probe");
     await focusEditTarget(filter);
-    for (const keyCode of ["A", "X"]) {
-      await app.evaluate(({ BrowserWindow }, keyCode) => {
-        const window = BrowserWindow.getAllWindows().find(
-          (window) => window.webContents.getURL() === "app://bundle/index.html",
-        );
-        for (const type of ["keyDown", "keyUp"])
-          window.webContents.sendInputEvent({ type, keyCode, modifiers: ["meta"] });
-      }, keyCode);
-      if (keyCode === "A")
-        await expect
-          .poll(() =>
-            filter.evaluate(
-              (input) => input.selectionStart === 0 && input.selectionEnd === input.value.length,
-            ),
-          )
-          .toBe(true);
-    }
+    await app.evaluate(({ BrowserWindow }) => {
+      const window = BrowserWindow.getAllWindows().find(
+        (window) => window.webContents.getURL() === "app://bundle/index.html",
+      );
+      for (const type of ["keyDown", "keyUp"])
+        window.webContents.sendInputEvent({ type, keyCode: "A", modifiers: ["meta"] });
+    });
+    await expect
+      .poll(() =>
+        filter.evaluate(
+          (input) => input.selectionStart === 0 && input.selectionEnd === input.value.length,
+        ),
+      )
+      .toBe(true);
+    await app.evaluate(({ Menu }) => {
+      // Exercise the native Cut responder, matching the native Paste role below.
+      // Synthetic renderer key events can edit the input without native clipboard evidence.
+      if (Menu.getApplicationMenu().getMenuItemById("cut").role !== "cut")
+        throw new Error("Missing Cut role");
+      Menu.sendActionToFirstResponder("cut:");
+    });
     await expect(filter).toHaveValue("");
     await expect
       .poll(() => app.evaluate(({ clipboard }) => clipboard.readText()))
