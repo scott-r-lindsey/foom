@@ -850,15 +850,33 @@ test("wheel input uses the selected attachment and stops while hidden", async ()
 });
 
 test("saved terminal size loads, follows live changes and unsubscribes on disposal", async () => {
-  mock.setupState.mockResolvedValueOnce(setupState({ terminalFontSize: 20 }));
+  mock.setupState.mockResolvedValueOnce(
+    setupState({ terminalFontSize: 20, terminalFont: "Initial Mono" }),
+  );
   const controller = createShell(document.createElement("div"), vi.fn(), false, undefined, false);
   await Promise.resolve();
   expect(mock.options.fontSize).toBe(20);
+  expect(mock.options.fontFamily).toBe(
+    '"Initial Mono", "Hack Nerd Font Mono", "Geist Mono", monospace',
+  );
   await controller.open("font-session");
   mock.resize.mockClear();
   const change = mock.onSetupChange.mock.calls[0]?.[0];
-  change?.(setupState({ terminalFontSize: 24 }));
+  change?.(setupState({ terminalFontSize: 24, terminalFont: "Live Mono" }));
+  expect(mock.options.fontFamily).toBe(
+    '"Live Mono", "Hack Nerd Font Mono", "Geist Mono", monospace',
+  );
   expect(mock.options.fontSize).toBe(24);
+  expect(mock.resize).toHaveBeenCalledWith("font-session", 80, 24);
+  mock.resize.mockClear();
+  change?.(setupState({ terminalFontSize: 24, terminalFont: "Another Mono" }));
+  expect(mock.options.fontFamily).toBe(
+    '"Another Mono", "Hack Nerd Font Mono", "Geist Mono", monospace',
+  );
+  expect(mock.resize).toHaveBeenCalledWith("font-session", 80, 24);
+  mock.resize.mockClear();
+  change?.(setupState({ terminalFontSize: 24, terminalFont: 'bad"' }));
+  expect(mock.options.fontFamily).toBe('"Hack Nerd Font Mono", "Geist Mono", monospace');
   expect(mock.resize).toHaveBeenCalledWith("font-session", 80, 24);
   await controller.hide();
   mock.resize.mockClear();

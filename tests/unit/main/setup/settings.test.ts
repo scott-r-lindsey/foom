@@ -104,13 +104,18 @@ test("updates are private, atomic, serialized and survive a restart", async () =
   const store = await SettingsStore.open(dir);
   const [first, second] = await Promise.all([
     store.update({ hooks: false }),
-    store.update({ worktreeLocation: "adjacent", terminalFontSize: 32 }),
+    store.update({
+      worktreeLocation: "adjacent",
+      terminalFontSize: 32,
+      terminalFont: "Missing Mono",
+    }),
   ]);
   expect(first.hooks).toBe(false);
   expect(second).toMatchObject({
     hooks: false,
     worktreeLocation: "adjacent",
     terminalFontSize: 32,
+    terminalFont: "Missing Mono",
   });
   expect(await readdir(dir)).toEqual(["settings.json"]);
   const file = path.join(dir, "settings.json");

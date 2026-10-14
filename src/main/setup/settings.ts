@@ -1,3 +1,4 @@
+import { DEFAULT_TERMINAL_FONT } from "../../shared/terminal-fonts";
 import {
   EMPTY_AGENT_ARGUMENTS,
   parseAgentDefaults,
@@ -37,6 +38,7 @@ export const DEFAULT_SETTINGS: Settings = Object.freeze({
   interfaceTheme: "follow",
   interfaceScale: 100,
   terminalFontSize: 14,
+  terminalFont: DEFAULT_TERMINAL_FONT,
   terminalTheme: "follow",
   sound: DEFAULT_SOUND,
   codeFolder: null,

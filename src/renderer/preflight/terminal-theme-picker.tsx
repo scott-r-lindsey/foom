@@ -1,3 +1,8 @@
+import {
+  DEFAULT_TERMINAL_FONT,
+  isTerminalFont,
+  terminalFontStack,
+} from "../../shared/terminal-fonts";
 import type { ThemeCatalog } from "../../shared/theme-file";
 import { ThemeFilesStatus } from "./theme-files-status";
 import { useEffect, useState } from "react";
@@ -65,11 +70,12 @@ export function TerminalThemePicker({
         aria-label="Terminal theme preview"
         style={{
           fontSize: settings.terminalFontSize,
+          fontFamily: terminalFontStack(settings.terminalFont),
           color: theme.foreground,
           backgroundColor: theme.background,
         }}
       >
-        {"Hack Nerd Font Mono · Aa Bb 0123456789\n\n"}
+        {`${isTerminalFont(settings.terminalFont) ? settings.terminalFont : DEFAULT_TERMINAL_FONT} · Aa Bb 0123456789\n\n`}
         <span style={{ color: theme.blue }}>{"~/code/foom"}</span>
         {" $ npm test\n"}
         <b>Bold text</b>

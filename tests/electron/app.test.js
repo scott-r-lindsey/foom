@@ -914,6 +914,7 @@ test("terminal runs an interactive shell behind an isolated bridge", {
           "revertConfig",
           "openConfigFolder",
           "onConfigChange",
+          "listTerminalFonts",
           "listThemes",
           "openThemesFolder",
           "setupState",
@@ -2986,6 +2987,7 @@ test("first run goes from no agents to go, launches by keyboard, and can be repl
     interfaceTheme: "follow",
     interfaceScale: 100,
     terminalFontSize: 14,
+    terminalFont: "Hack Nerd Font Mono",
     terminalTheme: "follow",
     sound: {
       choices: {
@@ -10639,4 +10641,76 @@ test("sidebar footer zoom and master volume stay synchronized and presets are ab
   await expect(footer.getByRole("button", { name: "Foom config", exact: true })).toBeVisible();
   await expect(footer.getByRole("group", { name: "Zoom", exact: true })).toBeHidden();
   await expect(volume).toBeHidden();
+});
+
+test("terminal font picker updates open shells and config shells and refits their grids", async (context) => {
+  const app = await launchApp(context);
+  const page = await boardPage(app);
+  await page.getByRole("button", { name: "Tile 1 menu", exact: true }).click();
+  await page.getByRole("menuitem", { name: "Split right", exact: true }).click();
+  await page.evaluate(() => window.desktop.sidebarCommand({ kind: "config-launch", run: "shell" }));
+  await page.locator(".config-dock .board-row").press("Enter");
+  await expect(page.locator(".xterm-rows:visible")).toHaveCount(2);
+  await expect(page.locator(".xterm-helper-textarea").last()).toBeFocused();
+  const ids = await page.evaluate(async () =>
+    (await window.desktop.workspace()).terminals.map((entry) => entry.id),
+  );
+  assert.equal(ids.length, 2);
+  await app.evaluate(({ ipcMain }) => {
+    global.fontResizes = [];
+    ipcMain.on("terminal:resize", (_event, id, cols, rows) =>
+      global.fontResizes.push({ id, cols, rows }),
+    );
+  });
+  await openSettingsScreen(page);
+  await page
+    .getByRole("navigation", { name: "Settings sections" })
+    .getByRole("button", { name: "Terminal", exact: true })
+    .click();
+  const picker = page.getByLabel("Terminal font", { exact: true });
+  await expect.poll(() => picker.locator("option").count()).toBeGreaterThan(1);
+  const family = await picker.locator("option").nth(1).getAttribute("value");
+  assert.ok(family);
+  await picker.selectOption(family);
+  const stack = `"${family}", "Hack Nerd Font Mono", "Geist Mono", monospace`;
+  await expect
+    .poll(() =>
+      page.evaluate(async () => (await window.desktop.setupState()).settings.terminalFont),
+    )
+    .toBe(family);
+  await expect(page.getByLabel("Terminal theme preview")).toHaveCSS("font-family", stack);
+  await app.evaluate(() => {
+    global.fontResizes = [];
+  });
+  await page.keyboard.press("Escape");
+  for (const rows of await page.locator(".xterm-rows").all())
+    await expect(rows).toHaveCSS("font-family", stack);
+  await expect
+    .poll(() =>
+      app.evaluate(() =>
+        [
+          ...new Set(
+            global.fontResizes
+              .filter((entry) => entry.cols > 0 && entry.rows > 0)
+              .map((entry) => entry.id),
+          ),
+        ].sort(),
+      ),
+    )
+    .toEqual(ids.sort());
+  await openSettingsScreen(page);
+  await page
+    .getByRole("navigation", { name: "Settings sections" })
+    .getByRole("button", { name: "Terminal", exact: true })
+    .click();
+  await expect(picker).toHaveValue(family);
+  await picker.selectOption("Hack Nerd Font Mono");
+  await expect
+    .poll(() =>
+      page.evaluate(async () => (await window.desktop.setupState()).settings.terminalFont),
+    )
+    .toBe("Hack Nerd Font Mono");
+  await page.keyboard.press("Escape");
+  for (const rows of await page.locator(".xterm-rows").all())
+    await expect(rows).toHaveCSS("font-family", '"Hack Nerd Font Mono", "Geist Mono", monospace');
 });

@@ -648,6 +648,12 @@ Decoration uses highlight; Working continues to use accent.
 Appearance shares the preflight rail's System/Light/Dark and interface-size controls.
 Changing either view is reflected in the other without restarting.
 
+Terminal font lists the bundled Hack Nerd Font Mono first, followed by installed
+monospace families. The choice persists and applies immediately to every terminal
+view, including config shells and the Settings preview. Open terminals refit their
+columns and rows. Missing fonts fall back silently to Hack Nerd Font Mono, Geist
+Mono and `monospace`.
+
 Terminal font size applies to every terminal view: 10–32 pixels, 14 by default,
 independent of interface size. The Terminal section previews text size, all 16 ANSI colors, bold, dim and selection.
 Terminal colors default to Follow interface, with Foom Light/Dark, Solarized Light/Dark
