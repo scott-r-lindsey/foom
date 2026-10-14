@@ -5866,9 +5866,11 @@ if (resumed) {
       .getByRole("button", { name: `Actions for ${agentName} in resume-test`, exact: true })
       .click();
     await restored.getByRole("menuitem", { name: "Copy session ID", exact: true }).click();
-    // Clipboard writing finishes before the source's inventory refresh and menu
-    // dismissal. Wait for the completed UI action before opening it again.
-    await expect(restored.getByRole("menu", { name: "Actions", exact: true })).toHaveCount(0);
+    // Clipboard writing finishes before the source's inventory refresh and panel
+    // dismissal. Wait for the actual details dialog to close before opening it again.
+    await expect(
+      restored.getByRole("dialog", { name: `${agentName} details and commands`, exact: true }),
+    ).toHaveCount(0);
     await expect
       .poll(() => restoredApp.evaluate(({ clipboard }) => clipboard.readText()))
       .toBe(conversation);

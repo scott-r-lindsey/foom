@@ -1,6 +1,7 @@
 const assert = require("node:assert/strict");
 const path = require("node:path");
 const { promisify } = require("node:util");
+const { execFileSync } = require("node:child_process");
 const { appendFileSync, realpathSync } = require("node:fs");
 const { copyFile, mkdir, symlink, writeFile } = require("node:fs/promises");
 
@@ -57,6 +58,19 @@ async function isolatedEnvironment(root, extraPath = "") {
           process.env.SystemRoot,
           path.join(process.env.SystemRoot, "System32"),
           path.join(process.env.SystemRoot, "System32", "WindowsPowerShell", "v1.0"),
+          // Git is installed outside Windows system folders. Resolve that one
+          // required tool, never inherit the surrounding developer PATH.
+          path.dirname(
+            realpathSync(
+              execFileSync(
+                path.join(process.env.SystemRoot, "System32", "where.exe"),
+                ["git.exe"],
+                { encoding: "utf8" },
+              )
+                .trim()
+                .split(/\r?\n/)[0],
+            ),
+          ),
         ]
       : ["/usr/bin", "/bin"];
   const controlled = [
