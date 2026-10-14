@@ -37,7 +37,11 @@ async function run(dir: string, env: NodeJS.ProcessEnv, event: string, input?: s
   if (process.platform === "win32") {
     const observer = windowsObserver(dir, observerEnv, event, input);
     supervisors.push(observer.closed);
-    result = await observer.result;
+    const parent = await observer.result;
+    result = parent;
+    console.info(
+      `Observer ${event} supervisor observation: ${String(Math.round(parent.observedElapsed))}ms`,
+    );
   } else {
     const started = performance.now();
     result = await new Promise<{ stdout: string; stderr: string; elapsed: number }>(
@@ -204,6 +208,27 @@ test("observer exits before an unresponsive HTTP receiver finishes", {
     );
   }
 });
+
+test.skipIf(process.platform !== "win32")(
+  "parent lifetime includes shell startup but excludes delayed supervisor observation",
+  { timeout: nativeDeadline(15000) },
+  async () => {
+    const dir = await fixture();
+    // Keep the child alive long enough to verify that actual runtime is counted.
+    await writeFile(
+      join(dir, "observer.ps1"),
+      "Start-Sleep -Milliseconds 200; [Console]::Out.WriteLine('{}')",
+    );
+    const observer = windowsObserver(dir, process.env, "Stop", "{}", 3200);
+    supervisors.push(observer.closed);
+    const result = await observer.result;
+    expect(JSON.parse(result.stdout)).toEqual({});
+    expect(result.elapsed).toBeGreaterThanOrEqual(200);
+    expect(result.elapsed).toBeLessThan(3000);
+    expect(result.observedElapsed - result.elapsed).toBeGreaterThanOrEqual(3000);
+    expect(await observer.closed).toBeNull();
+  },
+);
 
 test.skipIf(process.platform !== "win32")(
   "supervisor waits for detached workers after publishing the parent result",
