@@ -387,3 +387,53 @@ it("cancels an in-flight CLI operation through the process abort signal and rele
   );
   await e.service.change(e.input());
 });
+
+it("never exposes raw status-probe stderr when an action cannot recheck ownership", async () => {
+  const e = await environment();
+  e.run.mockRejectedValueOnce(Error("private CLI stderr must not leave main"));
+  await expect(e.service.change(e.input())).rejects.toThrow(
+    "Plugin setup status unavailable. Scan again.",
+  );
+});
+
+it("rejects mutation probes and ownership without the fixed list probe at the parser boundary", () => {
+  for (const probe of [undefined, { arguments: ["plugin", "uninstall", "foom"], format: "json" }]) {
+    expect(() =>
+      parseAgentManifest(
+        JSON.stringify({
+          ...fixture,
+          id: "setup-fixture",
+          setup: { ...fixture.setup, status: { ...fixture.setup.status, probe } },
+        }),
+      ),
+    ).toThrow("incompatible-combination");
+  }
+});
+it("refuses unreviewed extra staging files before any CLI receives the staging directory", async () => {
+  const e = await environment();
+  const stage = await stagePlugin(e.m, e.home, {});
+  await writeFile(join(stage.directory, "unreviewed.json"), "{}");
+  await expect(stage.verify()).rejects.toThrow("Staged plugin changed");
+});
+
+it("requires the post-probe to verify mutations even when the CLI exits successfully", async () => {
+  for (const action of ["install", "enable", "remove"] as const) {
+    const e = await environment();
+    if (action !== "install") await e.owned(2, action === "enable" ? false : true);
+    e.run.mockImplementation(() => Promise.resolve({ stdout: '{"imports":[]}' }));
+    await expect(e.service.change(e.input(action))).rejects.toThrow(
+      "Plugin setup command failed. Scan again",
+    );
+  }
+});
+
+it("preserves a CLI-owned disabled preference after install and offers enable separately", async () => {
+  const e = await environment();
+  await mkdir(join(e.home, ".gemini/config"), { recursive: true });
+  await writeFile(e.config, JSON.stringify({ plugins: { foom: { enabled: false } } }));
+  await e.service.change(e.input());
+  expect(await e.status()).toMatchObject({
+    state: "disabled",
+    actions: [{ id: "enable" }, { id: "remove" }],
+  });
+});

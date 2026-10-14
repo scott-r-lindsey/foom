@@ -44,6 +44,8 @@ export class PluginSetup {
       const { stdout } = await this.run(executable, status.probe.arguments, {
         ...limits,
         ...(signal ? { signal } : {}),
+      }).catch(() => {
+        throw new Error("Plugin setup status unavailable. Scan again.");
       });
       if (Buffer.byteLength(stdout) > 65536) throw new Error("Invalid setup probe");
       probe =
@@ -280,7 +282,17 @@ export class PluginSetup {
       try {
         await this.run(executable, args, { ...limits, signal });
         await validate();
-        await this.inspect(setup, executable, input.facts(), signal);
+        const result = await this.inspect(setup, executable, input.facts(), signal);
+        const installedVersion = result.facts["version"];
+        const verified =
+          operation === "uninstall"
+            ? result.facts["absent"] === true
+            : result.facts["owned"] === true &&
+              (operation === "enable"
+                ? result.facts["disabled"] === false
+                : typeof installedVersion === "number" &&
+                  installedVersion >= (setup.status.ownership?.currentVersion ?? 0));
+        if (!verified) throw new Error("Setup state did not change");
       } catch {
         throw new Error("Plugin setup command failed. Scan again to check its status.");
       }
@@ -308,7 +320,14 @@ export class PluginSetup {
         { label: "Executable and fixed arguments", arguments: true, items: [executable, ...args] },
         {
           label: "Installation and state",
-          items: [model.setup?.status.ownership?.directory ?? "No installation change", state],
+          items: [
+            model.id,
+            model.setup?.status.ownership
+              ? `~/${model.setup.status.ownership.directory}`
+              : "No installation change",
+            state,
+            JSON.stringify(action.when),
+          ],
         },
         {
           label: "Status and ownership checks",
