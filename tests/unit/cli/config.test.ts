@@ -326,3 +326,33 @@ test("validates agent manifests offline without approval and reports malformed o
     problems: [{ reason: "invalid-value" }],
   });
 });
+
+test("validates v2 agents offline and reports parser reasons without probing or approving", async () => {
+  const root = await fixture();
+  const agents = join(root, "agents");
+  await mkdir(agents);
+  const draft = await import("../../fixtures/agent-plugins-v2/claude.json");
+  const file = join(agents, "offline-agent.json");
+  await writeFile(file, JSON.stringify({ ...draft.default, id: "offline-agent" }));
+  expect(await validateConfig(agents)).toEqual({ problems: [], code: 0 });
+  await writeFile(
+    file,
+    JSON.stringify({
+      ...draft.default,
+      id: "offline-agent",
+      launch: { ...draft.default.launch, order: Array(9).fill("resume") },
+    }),
+  );
+  const invalid = await validateConfig(agents);
+  expect(invalid.code).toBe(1);
+  expect(invalid.problems).toEqual([
+    {
+      file: "offline-agent.json",
+      path: "$.launch.order",
+      reason: "invalid-value",
+      detail: "duplicate-id",
+    },
+  ]);
+  await writeFile(file, JSON.stringify({ ...draft.default, id: "different-id" }));
+  expect((await validateConfig(agents)).problems[0]?.reason).toBe("invalid-value");
+});

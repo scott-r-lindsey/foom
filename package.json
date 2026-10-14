@@ -73,6 +73,7 @@
     "node-pty": "1.2.0-beta.15",
     "react": "19.3.0",
     "react-dom": "19.3.0",
+    "smol-toml": "1.9.1",
     "strtok3": "10.3.5"
   },
   "packageManager": "pnpm@10.34.7",

@@ -1,0 +1,568 @@
+{
+  "kind": "agent",
+  "version": 2,
+  "id": "agy",
+  "name": "Antigravity",
+  "badge": "AG",
+  "executables": ["agy"],
+  "discovery": {
+    "version": {
+      "prefix": "",
+      "suffixes": [""]
+    },
+    "facts": [
+      {
+        "id": "guidance",
+        "helpTokens": ["--prompt-interactive"]
+      },
+      {
+        "id": "hookSupport",
+        "when": {
+          "all": [
+            {
+              "field": "setupState",
+              "op": "in",
+              "value": ["installed", "outdated"]
+            }
+          ]
+        }
+      }
+    ]
+  },
+  "launch": {
+    "order": [
+      "resume",
+      "defaults",
+      "arguments",
+      "display",
+      "guidance",
+      "mcp",
+      "hooks",
+      "tools",
+      "prompt"
+    ],
+    "arguments": {
+      "arguments": []
+    },
+    "prompt": {
+      "arguments": ["--prompt-interactive", "{prompt}"],
+      "requires": "guidance"
+    },
+    "resume": {
+      "arguments": ["--conversation", "{conversationId}"]
+    },
+    "guidance": {
+      "when": {
+        "all": [
+          {
+            "field": "guidance",
+            "op": "eq",
+            "value": true
+          }
+        ],
+        "any": [
+          {
+            "field": "control",
+            "op": "eq",
+            "value": true
+          },
+          {
+            "field": "configGreeting",
+            "op": "eq",
+            "value": true
+          }
+        ]
+      },
+      "merge": {
+        "flags": ["--prompt-interactive", "-i"],
+        "output": "--prompt-interactive",
+        "separators": "whitespace"
+      }
+    }
+  },
+  "files": [
+    {
+      "name": "plugin.json",
+      "scope": "plugin",
+      "format": "json",
+      "content": "{\"name\":\"foom\",\"version\":\"1.0.0\",\"foomObserverVersion\":{observerVersion:lifecycle}}"
+    },
+    {
+      "name": "hooks.json",
+      "scope": "plugin",
+      "format": "json",
+      "content": "{\"foom-observer-v1\":{\"PreInvocation\":[{\"type\":\"command\",\"command\":{observerCommand:lifecycle.PreInvocation:json},\"timeout\":3}],\"PostToolUse\":[{\"matcher\":\"*\",\"hooks\":[{\"type\":\"command\",\"command\":{observerCommand:lifecycle.PostToolUse:json},\"timeout\":3}]}],\"Stop\":[{\"type\":\"command\",\"command\":{observerCommand:lifecycle.Stop:json},\"timeout\":3}]}}"
+    }
+  ],
+  "reservedArguments": [
+    {
+      "flag": "--conversation",
+      "forms": ["exact", "equals"]
+    },
+    {
+      "flag": "--continue",
+      "forms": ["exact", "equals"]
+    },
+    {
+      "prefix": "-c"
+    }
+  ],
+  "bypassArguments": [
+    {
+      "flag": "--dangerously-skip-permissions",
+      "forms": ["exact"]
+    }
+  ],
+  "bypassEnvironment": [],
+  "conversation": {
+    "resumePin": "requested-on-paste",
+    "restoreControl": false
+  },
+  "resumePaste": [
+    {
+      "command": "agy",
+      "selector": "--conversation"
+    }
+  ],
+  "attention": {
+    "minimumEngineVersion": 1,
+    "rules": [
+      {
+        "id": "trust_prompt",
+        "state": "blocked",
+        "priority": 280,
+        "region": "bottom",
+        "match": {
+          "contains": [
+            "do you trust the contents of this project?",
+            "yes, i trust this folder",
+            "enter confirm"
+          ]
+        },
+        "reason": "Workspace trust requested",
+        "comment": "Trust dialog footer; bottom nonempty lines exclude blank padding.",
+        "lines": 8
+      }
+    ],
+    "provenance": {
+      "source": "https://github.com/herdrdev/herdr/tree/ff83689f1512f11b762fe52fb3a0032e7373c35e/src/detect/manifests/antigravity.toml",
+      "license": "Apache-2.0; Herdr contributors (upstream provides no separate copyright notice)",
+      "modified": "Modified for Foom: bounded regions, restricted regexes, capture-backed subset and local reasons."
+    }
+  },
+  "execution": {
+    "completion": "attached",
+    "completionChannels": ["lifecycle"]
+  },
+  "hooks": {
+    "channels": [
+      {
+        "id": "lifecycle",
+        "when": {
+          "all": [
+            {
+              "field": "hooksEnabled",
+              "op": "eq",
+              "value": true
+            },
+            {
+              "field": "hookSupport",
+              "op": "eq",
+              "value": true
+            }
+          ]
+        },
+        "observer": {
+          "transport": "stdin",
+          "placement": "plugin",
+          "version": 2,
+          "response": "empty-json-first",
+          "delivery": "detached",
+          "timeoutMs": 1000,
+          "sequence": true
+        },
+        "arguments": [],
+        "mapping": {
+          "session": {
+            "source": "payload",
+            "path": ["conversationId"]
+          },
+          "event": {
+            "source": "header",
+            "path": ["X-Foom-Event"]
+          },
+          "sequence": {
+            "source": "header",
+            "path": ["X-Foom-Sequence"]
+          },
+          "cases": [
+            {
+              "id": "PreInvocation",
+              "event": "PreInvocation",
+              "action": "working"
+            },
+            {
+              "id": "PostToolUse",
+              "event": "PostToolUse",
+              "action": "working"
+            },
+            {
+              "id": "stop-failed",
+              "event": "Stop",
+              "when": {
+                "all": [
+                  {
+                    "field": {
+                      "source": "payload",
+                      "path": ["terminationReason"]
+                    },
+                    "op": "in",
+                    "value": ["error", "max_steps_exceeded"]
+                  }
+                ]
+              },
+              "require": [
+                {
+                  "field": {
+                    "source": "payload",
+                    "path": ["terminationReason"]
+                  },
+                  "type": "string",
+                  "values": ["model_stop", "NO_TOOL_CALL", "max_steps_exceeded", "error"]
+                },
+                {
+                  "field": {
+                    "source": "payload",
+                    "path": ["fullyIdle"]
+                  },
+                  "type": "boolean"
+                }
+              ],
+              "action": "failed",
+              "facts": [
+                {
+                  "name": "terminationReason",
+                  "field": {
+                    "source": "payload",
+                    "path": ["terminationReason"]
+                  },
+                  "aliases": {
+                    "NO_TOOL_CALL": "model_stop"
+                  }
+                },
+                {
+                  "name": "fullyIdle",
+                  "field": {
+                    "source": "payload",
+                    "path": ["fullyIdle"]
+                  }
+                }
+              ]
+            },
+            {
+              "id": "stop-background",
+              "event": "Stop",
+              "when": {
+                "all": [
+                  {
+                    "field": {
+                      "source": "payload",
+                      "path": ["fullyIdle"]
+                    },
+                    "op": "eq",
+                    "value": false
+                  }
+                ]
+              },
+              "require": [
+                {
+                  "field": {
+                    "source": "payload",
+                    "path": ["terminationReason"]
+                  },
+                  "type": "string",
+                  "values": ["model_stop", "NO_TOOL_CALL", "max_steps_exceeded", "error"]
+                },
+                {
+                  "field": {
+                    "source": "payload",
+                    "path": ["fullyIdle"]
+                  },
+                  "type": "boolean"
+                }
+              ],
+              "action": "working",
+              "facts": [
+                {
+                  "name": "terminationReason",
+                  "field": {
+                    "source": "payload",
+                    "path": ["terminationReason"]
+                  },
+                  "aliases": {
+                    "NO_TOOL_CALL": "model_stop"
+                  }
+                },
+                {
+                  "name": "fullyIdle",
+                  "field": {
+                    "source": "payload",
+                    "path": ["fullyIdle"]
+                  }
+                }
+              ]
+            },
+            {
+              "id": "stop-idle",
+              "event": "Stop",
+              "when": {
+                "all": [
+                  {
+                    "field": {
+                      "source": "payload",
+                      "path": ["fullyIdle"]
+                    },
+                    "op": "eq",
+                    "value": true
+                  }
+                ]
+              },
+              "require": [
+                {
+                  "field": {
+                    "source": "payload",
+                    "path": ["terminationReason"]
+                  },
+                  "type": "string",
+                  "values": ["model_stop", "NO_TOOL_CALL", "max_steps_exceeded", "error"]
+                },
+                {
+                  "field": {
+                    "source": "payload",
+                    "path": ["fullyIdle"]
+                  },
+                  "type": "boolean"
+                }
+              ],
+              "action": "classify",
+              "facts": [
+                {
+                  "name": "terminationReason",
+                  "field": {
+                    "source": "payload",
+                    "path": ["terminationReason"]
+                  },
+                  "aliases": {
+                    "NO_TOOL_CALL": "model_stop"
+                  }
+                },
+                {
+                  "name": "fullyIdle",
+                  "field": {
+                    "source": "payload",
+                    "path": ["fullyIdle"]
+                  }
+                }
+              ],
+              "recoverTurn": true
+            }
+          ]
+        }
+      }
+    ]
+  },
+  "setup": {
+    "status": {
+      "probe": {
+        "arguments": ["plugin", "list"],
+        "format": "json",
+        "empty": {
+          "text": "No imported plugins.",
+          "value": {
+            "imports": []
+          }
+        }
+      },
+      "metadata": [
+        {
+          "id": "manifest",
+          "path": ".gemini/config/plugins/foom/plugin.json",
+          "optional": true
+        },
+        {
+          "id": "config",
+          "path": ".gemini/config/config.json",
+          "optional": true
+        }
+      ],
+      "ownership": {
+        "directory": ".gemini/config/plugins/foom",
+        "manifest": "manifest",
+        "require": [
+          {
+            "field": {
+              "source": "metadata",
+              "path": ["manifest", "name"]
+            },
+            "type": "string",
+            "values": ["foom"]
+          },
+          {
+            "field": {
+              "source": "metadata",
+              "path": ["manifest", "foomObserverVersion"]
+            },
+            "type": "integer"
+          }
+        ],
+        "versionField": {
+          "source": "metadata",
+          "path": ["manifest", "foomObserverVersion"]
+        },
+        "currentVersion": 2,
+        "disabledField": {
+          "source": "metadata",
+          "path": ["manifest", "disabled"]
+        },
+        "enabledField": {
+          "source": "metadata",
+          "path": ["config", "plugins", "foom", "enabled"]
+        }
+      },
+      "cases": [
+        {
+          "when": {
+            "all": [
+              {
+                "field": "absent",
+                "op": "eq",
+                "value": true
+              }
+            ]
+          },
+          "state": "not-installed"
+        },
+        {
+          "when": {
+            "all": [
+              {
+                "field": "owned",
+                "op": "eq",
+                "value": true
+              },
+              {
+                "field": "disabled",
+                "op": "eq",
+                "value": true
+              }
+            ]
+          },
+          "state": "disabled"
+        },
+        {
+          "when": {
+            "all": [
+              {
+                "field": "owned",
+                "op": "eq",
+                "value": true
+              },
+              {
+                "field": "version",
+                "op": "lt",
+                "value": 2
+              }
+            ]
+          },
+          "state": "outdated"
+        },
+        {
+          "when": {
+            "all": [
+              {
+                "field": "owned",
+                "op": "eq",
+                "value": true
+              }
+            ]
+          },
+          "state": "installed"
+        }
+      ],
+      "default": "unavailable"
+    },
+    "actions": [
+      {
+        "id": "install",
+        "label": "Install",
+        "kind": "command",
+        "arguments": ["plugin", "install", "{pluginDir}"],
+        "when": {
+          "all": [
+            {
+              "field": "setupState",
+              "op": "in",
+              "value": ["not-installed"]
+            }
+          ]
+        },
+        "disclosure": "CLI-owned opt-in Foom lifecycle plugin at ~/.gemini/config/plugins/foom; observes only Foom launches, approves no tools, stores no credentials. Remove with agy plugin uninstall foom.",
+        "statusProbe": ["plugin", "list"]
+      },
+      {
+        "id": "update",
+        "label": "Update",
+        "kind": "command",
+        "arguments": ["plugin", "install", "{pluginDir}"],
+        "when": {
+          "all": [
+            {
+              "field": "setupState",
+              "op": "in",
+              "value": ["outdated"]
+            }
+          ]
+        },
+        "disclosure": "CLI-owned opt-in Foom lifecycle plugin at ~/.gemini/config/plugins/foom; observes only Foom launches, approves no tools, stores no credentials. Remove with agy plugin uninstall foom.",
+        "statusProbe": ["plugin", "list"]
+      },
+      {
+        "id": "enable",
+        "label": "Enable",
+        "kind": "command",
+        "arguments": ["plugin", "enable", "foom"],
+        "when": {
+          "all": [
+            {
+              "field": "setupState",
+              "op": "in",
+              "value": ["disabled"]
+            }
+          ]
+        },
+        "disclosure": "CLI-owned opt-in Foom lifecycle plugin at ~/.gemini/config/plugins/foom; observes only Foom launches, approves no tools, stores no credentials. Remove with agy plugin uninstall foom.",
+        "statusProbe": ["plugin", "list"]
+      },
+      {
+        "id": "remove",
+        "label": "Remove",
+        "kind": "command",
+        "arguments": ["plugin", "uninstall", "foom"],
+        "when": {
+          "all": [
+            {
+              "field": "setupState",
+              "op": "in",
+              "value": ["installed", "outdated", "disabled"]
+            }
+          ]
+        },
+        "disclosure": "CLI-owned opt-in Foom lifecycle plugin at ~/.gemini/config/plugins/foom; observes only Foom launches, approves no tools, stores no credentials. Remove with agy plugin uninstall foom.",
+        "statusProbe": ["plugin", "list"]
+      }
+    ],
+    "offer": {
+      "unansweredLabel": "Plugin available"
+    }
+  }
+}

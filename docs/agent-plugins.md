@@ -1,10 +1,12 @@
 # Agent plugin format v2 — review draft (#423)
 
-Status: specification only, 2026-10-14. The shipping parser accepts v1; none of the
-v2 fields below is implemented by this PR. User review precedes implementation.
-[Issue #423](https://github.com/scott-r-lindsey/foom/issues/423) depends on the
-still-open [agent cards #409](https://github.com/scott-r-lindsey/foom/issues/409).
-This document does not close #423 or start that implementation.
+Status: parser implemented by #430, 2026-10-14. Offline validation accepts v2;
+config v2 files are rejected with `v2-engine-unavailable` before approval or
+provider registration. Only v1 remains launchable. The common launch engine and
+bundled conversion described below are future work; parsing grants no capability.
+[Issue #423](https://github.com/scott-r-lindsey/foom/issues/423) established the
+reviewed specification; [agent cards #409](https://github.com/scott-r-lindsey/foom/issues/409)
+is now closed.
 
 Read with [agent measurements](agents.md), [architecture](architecture.md), and
 [orchestration](orchestration.md). #407/#415 established v1; the
@@ -63,11 +65,12 @@ execution/health integration. The v1 fixture is `tests/fixtures/agent-plugin.jso
 
 ## Closed schema and limits
 
-These tables are the complete proposed wire schema. `?` means optional. Objects
+These tables are the complete wire schema. `?` means optional. Objects
 reject unknown keys, duplicate JSON member names, unsafe keys (`__proto__`,
 `prototype`, `constructor`), dangling references and incompatible combinations.
-Arrays are ordered; IDs are unique within their scope. Missing arrays default to
-[], missing optional objects disable their feature. No implicit agent defaults.
+Arrays are ordered; IDs are unique within their scope. Missing optional arrays default to
+[]; arrays explicitly required in these tables must be present, including empty
+protection lists. Missing optional objects disable their feature. No implicit agent defaults.
 A future executable JSON Schema must agree with these tables and the runtime parser.
 
 | Primitive | Definition |
@@ -77,10 +80,11 @@ A future executable JSON Schema must agree with these tables and the runtime par
 | Text | 1–4096 Unicode code units unless narrower below; no Cc/Cf/Co/Cs or U+2028/U+2029; literal rendered text |
 | Multiline template | <=16384 bytes each, LF and tab allowed; other hidden/control characters forbidden; aggregate template bytes <=32768 |
 | Argv | <=64 nonempty Text entries; <=256 expanded entries/65536 bytes per process invocation, each expanded entry <=20480 bytes (prompt may contain LF/tab); no shell evaluation |
-| Relative file | <=100 ASCII characters, <=4 components; [A-Za-z0-9_.-]+ per component, no empty/dot/dotdot components, drive letters or absolute path; generated files forbid hidden components, metadata paths permit fixed hidden agent roots |
+| Relative file | <=100 ASCII characters, <=4 components (fixed home metadata paths <=5); [A-Za-z0-9_.-]+ per component, no empty/dot/dotdot components, drive letters or absolute path; generated files forbid hidden components, metadata paths permit fixed hidden agent roots |
 | Selector | `{source,path}`; source payload, header, probe, metadata, facts; path 1–8 literal keys (each <=64) or nonnegative integer indexes <=63; no wildcard, recursion or expressions |
 | Condition | `{all?:[Test,...],any?:[Test,...]}` with 1–16 Tests total, no nesting; omitted all is true, omitted any is true; both present means AND of all-tests and any-test; `{all:[]}` alone means unconditional |
 | Test | `{field,op,value?}`; field is a named fact or Selector; op eq, in, exists, absent, lt, gte; eq primitive, in <=16 primitives, numeric comparison safe integers only; exists/absent omit value |
+| Local fact/case name | 1–40 ASCII letters/digits/underscore/hyphens, first letter; discovery facts cannot shadow engine or setup-derived facts. Unlike provider/channel IDs, these names allow uppercase letters |
 | Fact condition | Tests refer only to engine facts or earlier declared discovery/setup/health facts; dependency DAG, no loops; missing/failed fact never satisfies eq/in/lt/gte |
 | Argument matcher | One of `{flag,forms,value?}`, `{word}`, `{prefix}`, `{override}`; details below; <=64 per list |
 
@@ -102,7 +106,7 @@ A future executable JSON Schema must agree with these tables and the runtime par
 
 `discovery` performs only fixed --version/--help, never arbitrary probe argv.
 Version parsing requires exactly three decimal components (no leading zeros except
-0), exact prefix and one suffix; prereleases/custom suffixes fail. Version prefix/suffix may be empty, and suffix permits LF for the fixed version notice (<=256 bytes); this is the sole non-template Text control exception. Optional
+0), exact prefix and one suffix; prereleases/custom suffixes fail. Version prefix/suffix may be empty (prefix <=4096 code units), and suffix permits LF for the fixed version notice (<=256 bytes); this is the sole non-template Text control exception. Optional
 minimum on facts overrides the version-level minimum; no version grammar means
 version-dependent facts false. `helpTokens` (<=8, <=128 each) must match complete
 option boundaries as in today's probes, not substrings of longer options. A fact
@@ -112,6 +116,15 @@ Engine facts are `hooksEnabled`, `control`, `configGreeting`, `hasPrompt`, `resu
 health only. Each declaration without a minimum does not require a parsed version unless discovery.version.minimum is set; this preserves help-only inline/guidance gates. Failed help/version makes its dependent requirements false. Independent status-only facts can still succeed after a resolved executable and successful setup probe, preserving agy enrichment when help/version failed.
 
 ### Launch, substitutions and hook files
+
+The parser checks template references and proves each attachment's condition
+implies its referenced file/channel condition. This proof is conservative: each
+required all-test must occur in the selecting all-tests; a required any-clause
+must be guaranteed by one selecting all-test or by a subset selecting any-clause.
+Logically equivalent conditions outside this form are rejected rather than guessed.
+Actual expanded argv counts and byte limits are checked by the future launch
+engine after substitution and layering; this parser never expands launch data.
+
 
 | Object | Closed fields and semantics |
 | --- | --- |
@@ -151,7 +164,27 @@ The drafts use :json/:toml only.
 Files are data, not executable scripts. Parse hook files and accept command-bearing
 values only when their *entire value* is a generated fixed observer invocation;
 reject literal commands, appended shell syntax, executable/plugin module entry
-points, and unknown executable hook types. The declarative templates may contain
+points, and unknown executable hook types. JSON/TOML containers share a conservative,
+agent-independent data grammar: arbitrary object/array nesting and numeric/boolean
+metadata are permitted; literal string leaves are limited to `name`, `version`,
+`matcher`, `type` (`command` or `http`), `url`, `Authorization`, and
+`bearer_token_env_var`. Command/cmd/bash/powershell slots require an entire fixed
+observer value; notify/argv slots require the entire generated observer array.
+Validation's `FOOM_OBSERVER_*` and `FOOM_*_SENTINEL` stand-ins cannot be authored
+in templates, including through Unicode escapes or TOML line continuations; this
+prevents literal values from masquerading as generated slots.
+Other string-bearing extension points and script/module/entrypoint/executable/code/
+handler/shell/source members reject. A command type requires a command member.
+TOML uses the full TOML data parser with depth/node checks; dates and nonfinite
+numbers reject. Typed observer-version substitution must occupy a native numeric
+slot. Observer-command slots select stdin channels; observer-argv slots select
+argv-last channels. MCP files must be referenced by the MCP block and their
+conditions must imply that block's selection. Literal environment expansion is
+accepted only in those MCP files. URL slots require the complete generated
+mcpUrl value; Authorization requires the exact bearer environment reference, and
+bearer_token_env_var requires FOOM_CONTROL_TOKEN. Literal remote endpoints or
+other credential variables reject. This closes previously unspecified extension-point validation without an
+agent-specific container parser. The declarative templates may contain
 agent-specific hook container keys, matchers and timeouts, but cannot provide hook
 program source. Foom supplies scripts/native transports. Agent CLIs may themselves
 run a hook command through a shell; Foom's platform serializer handles quoting
@@ -229,6 +262,11 @@ X-Foom-Event and X-Foom-Sequence. Mapping validation happens before any pin/cach
 mutation; require fields for an event are validated even when a conditional case
 is not selected. Cases for the same event must share requirements. Unknown string
 events are inert; malformed fields are rejected. `classify` never means success. endsTurn=false evaluates the current tail without ending execution (Claude idle_prompt); recoverTurn=true recovers an overtaken working report before ending the turn (agy fully idle Stop).
+Only classify/failed actions may set endsTurn=true; recovery must end the turn.
+It requires a fullyIdle=true all-test and validated terminationReason values;
+each non-model-stop value must be excluded by the case's all-tests or consumed by
+an earlier failed case with a single reason eq/in all-test. Cases sharing an event
+must carry identical ordered requirement arrays.
 All channels share one conversation pin; first accepted recognized event establishes
 it, subsequent differences reject. IDs are 1–200 ASCII letters/digits/_/-, first
 letter/digit. Manual resume preserves first-event pinning (agy may silently start
@@ -300,6 +338,10 @@ patterns but raw paste stays local; main checks plugin approval and ID again.
 | ownership | `{directory,manifest,require,versionField,currentVersion,disabledField,enabledField}`; home-relative directory, metadata ID, <=16 Requirements, Selectors; currentVersion 1–100000; disabledField optional Selector; enabledField optional Selector |
 | action | `{id,label,kind,arguments?,instructions?,when,disclosure,statusProbe}`; ID, label <=40; kind command/instructions; exactly argv or instructions Text; disclosure Text <=4096; statusProbe fixed Argv for command or observed-health for instructions |
 
+Setup status selectors may inspect validated metadata and the bounded probe
+`imports[index].name` field, in addition to derived facts. No other probe fields
+are selectable.
+
 Probe output/metadata is untrusted; cases use facts derived from validated records,
 not arbitrary evaluator expressions. Probe JSON validates imports array <=64 and
 entries with name Text <=64. Ownership requires real nonlinked expected directory,
@@ -307,10 +349,22 @@ manifest name/version and recognized observer identity. The engine derives facts
 `owned`, `absent`, `disabled`, `version`: absent means no directory, manifest or list
 entry; conflicting/unrecognized/invalid data => unavailable, never absent. Version
 safe nonnegative integer; disabled uses enabledField if present, else disabledField;
-wrong types => unavailable. Metadata readers are read-only; paths disclosed exactly,
+wrong types => unavailable. Metadata readers are read-only. The current generic reader accepts only
+`<hidden-agent-root>/config/plugins/<name>/plugin.json` and the matching
+`<hidden-agent-root>/config/config.json`; ownership.directory is the former file's
+parent, and its required name is exactly `<name>`. This fixed layout bounds the
+read facility; a new layout requires a reviewed schema change. Paths are disclosed exactly,
 never exposed through arbitrary file IPC. Other home files (transcripts, secrets,
 trust databases) cannot be selected. This reader facility is restricted to plugin
 manifest and enabled-state metadata and does not weaken the no-transcript contract.
+
+The current command grammar is `plugin install {pluginDir}`, `plugin enable NAME`,
+or `plugin uninstall NAME`, with `plugin list` as the status probe. NAME must equal
+the ownership target; the selecting all-clause must restrict setupState to
+not-installed/outdated for install, disabled for enable, or
+installed/outdated/disabled for uninstall. Install also requires a plugin-scope JSON `plugin.json` whose name is exactly
+the ownership target. Action IDs do not choose operations.
+Other CLI mutation surfaces require their own reviewed architecture decision.
 
 Command actions use the same resolved agent executable, fixed argv and only
 {pluginDir}; no user/payload interpolation, subprocess choice, cwd selection, shell,
@@ -406,12 +460,13 @@ plugin ownership, setup cancellation, bypass environment redaction, protected ar
 forms and prompt/tool merge. Extend offline validation without probing/approval.
 Do not lower coverage or relax security to accommodate a template. Copilot shipping
 requires human recorded screen captures and isolated hook/MCP measurements; help
-alone is not that gate. This docs PR runs npm run check, not real-agent sessions.
+alone is not that gate. Parser validation runs `pnpm run check`; tests never run real-agent sessions.
 
 ## Complete draft manifests
 
 The four standalone JSON blocks below instantiate this schema with no inheritance
-or external includes. They are review data, not files the v1 parser can load.
+or external includes. They are parser fixtures, not launchable config files. Tests use bundled origin
+to validate reserved identities; config copies need a distinct ID.
 Rules for existing agents are copied from current packaged JSON including priority,
 provenance and measured limitations. The Copilot draft contains disabled proposed hook and MCP templates, with no setup. They cannot attach until contracts are verified and revised bytes approved; it specifies verified
 launch surfaces and conservative environment disclosure. Open questions follow.

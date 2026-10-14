@@ -511,9 +511,11 @@ Git commands have a 30-second process deadline.
 
 ## Agent discovery and launch
 
-The proposed [agent plugin format v2](agent-plugins.md) is a review draft for
-#423. It inventories current behavior and specifies a common declarative engine;
-the shipping v1 behavior below remains unchanged until implementation is reviewed.
+The [agent plugin format v2](agent-plugins.md) parser (#430) supports offline
+validation and a normalized v1 compatibility model. Config v2 files are rejected
+before approval/provider registration with `v2-engine-unavailable`; no v2 launch,
+probe, setup or hook behavior is implemented. The shipping v1 behavior below
+remains unchanged. The common declarative engine is future work.
 
 **Today:** `src/main/agents/agents.ts` provides a main-only `AgentService`, following the worktree service's integration boundary. `scan()` resolves PATH with the account's login shell (`-ilc`, a fixed printf program with NUL delimiters), then probes each resolved executable with bounded `--version` and `--help` calls. It retains full version strings. Shell failures report a warning and use inherited PATH; Windows uses inherited PATH and native executables. Relative and empty PATH components are ignored. Windows batch/PowerShell wrappers are not executed through a command shell; installations exposing only those wrappers currently need a native executable on PATH.
 

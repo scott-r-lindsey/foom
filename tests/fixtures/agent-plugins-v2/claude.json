@@ -1,0 +1,352 @@
+{
+  "kind": "agent",
+  "version": 2,
+  "id": "claude",
+  "name": "Claude Code",
+  "badge": "CC",
+  "executables": ["claude"],
+  "discovery": {
+    "version": {
+      "prefix": "",
+      "suffixes": ["", " (Claude Code)"]
+    },
+    "facts": [
+      {
+        "id": "hookSupport",
+        "minimum": [2, 1, 284],
+        "helpTokens": ["--settings"]
+      },
+      {
+        "id": "mcpSupport",
+        "minimum": [2, 1, 293],
+        "helpTokens": ["--mcp-config"]
+      }
+    ]
+  },
+  "launch": {
+    "order": [
+      "resume",
+      "defaults",
+      "arguments",
+      "display",
+      "guidance",
+      "mcp",
+      "hooks",
+      "tools",
+      "prompt"
+    ],
+    "arguments": {
+      "arguments": []
+    },
+    "prompt": {
+      "arguments": ["--", "{prompt}"]
+    },
+    "resume": {
+      "arguments": ["--resume", "{conversationId}"]
+    },
+    "mcp": {
+      "arguments": ["--mcp-config", "{file:mcp.json}"],
+      "when": {
+        "all": [
+          {
+            "field": "control",
+            "op": "eq",
+            "value": true
+          },
+          {
+            "field": "mcpSupport",
+            "op": "eq",
+            "value": true
+          }
+        ]
+      }
+    },
+    "toolPermissions": {
+      "names": ["open_preview", "list_previews", "close_preview"],
+      "format": "mcp-double-underscore",
+      "arguments": ["--allowedTools", "{tool}"],
+      "merge": {
+        "flags": ["--allowedTools", "--allowed-tools"],
+        "output": "--allowedTools",
+        "separators": "whitespace-comma-parentheses"
+      }
+    }
+  },
+  "files": [
+    {
+      "name": "hooks.json",
+      "scope": "launch",
+      "format": "json",
+      "content": "{\"hooks\":{\"UserPromptSubmit\":[{\"hooks\":[{\"type\":\"command\",\"command\":{observerCommand:lifecycle:json}}]}],\"PreToolUse\":[{\"hooks\":[{\"type\":\"command\",\"command\":{observerCommand:lifecycle:json}}]}],\"Stop\":[{\"hooks\":[{\"type\":\"command\",\"command\":{observerCommand:lifecycle:json}}]}],\"PermissionRequest\":[{\"hooks\":[{\"type\":\"command\",\"command\":{observerCommand:lifecycle:json}}]}],\"Notification\":[{\"hooks\":[{\"type\":\"command\",\"command\":{observerCommand:lifecycle:json}}]}]}}",
+      "when": {
+        "all": [
+          {
+            "field": "hookSupport",
+            "op": "eq",
+            "value": true
+          },
+          {
+            "field": "hooksEnabled",
+            "op": "eq",
+            "value": true
+          }
+        ]
+      }
+    },
+    {
+      "name": "mcp.json",
+      "scope": "launch",
+      "format": "json",
+      "content": "{\"mcpServers\":{{mcpName:json}:{\"type\":\"http\",\"url\":{mcpUrl:json},\"headers\":{\"Authorization\":\"Bearer ${FOOM_CONTROL_TOKEN}\"}}}}",
+      "when": {
+        "all": [
+          {
+            "field": "control",
+            "op": "eq",
+            "value": true
+          },
+          {
+            "field": "mcpSupport",
+            "op": "eq",
+            "value": true
+          }
+        ]
+      }
+    }
+  ],
+  "reservedArguments": [
+    {
+      "flag": "--settings",
+      "forms": ["exact", "equals"]
+    },
+    {
+      "flag": "--safe-mode",
+      "forms": ["exact", "equals"]
+    },
+    {
+      "flag": "--bare",
+      "forms": ["exact", "equals"]
+    },
+    {
+      "flag": "--resume",
+      "forms": ["exact", "equals"]
+    },
+    {
+      "flag": "--continue",
+      "forms": ["exact", "equals"]
+    },
+    {
+      "flag": "--session-id",
+      "forms": ["exact", "equals"]
+    },
+    {
+      "flag": "--fork-session",
+      "forms": ["exact", "equals"]
+    },
+    {
+      "prefix": "-r"
+    },
+    {
+      "prefix": "-c"
+    }
+  ],
+  "bypassArguments": [
+    {
+      "flag": "--dangerously-skip-permissions",
+      "forms": ["exact"]
+    },
+    {
+      "flag": "--permission-mode",
+      "forms": ["separate", "equals"],
+      "value": "bypassPermissions"
+    }
+  ],
+  "bypassEnvironment": [],
+  "conversation": {
+    "resumePin": "requested-on-paste",
+    "restoreControl": true
+  },
+  "resumePaste": [
+    {
+      "command": "claude",
+      "selector": "--resume"
+    },
+    {
+      "command": "claude",
+      "selector": "-r"
+    }
+  ],
+  "attention": {
+    "minimumEngineVersion": 1,
+    "rules": [
+      {
+        "id": "live_blocked_form",
+        "state": "blocked",
+        "priority": 1200,
+        "region": "after_horizontal_rule",
+        "match": {
+          "contains": ["esc to cancel", "enter to confirm"]
+        },
+        "reason": "Confirmation requested",
+        "comment": "Ported Enter-to-confirm branch; other navigation variants await captures."
+      },
+      {
+        "id": "live_question_form",
+        "state": "blocked",
+        "priority": 1200,
+        "region": "after_horizontal_rule",
+        "match": {
+          "contains": ["esc to cancel", "enter to select", "↑/↓ to navigate"]
+        },
+        "reason": "Question form",
+        "comment": "Ported live_blocked_form navigation branch; the last divider leaves the form footer visible."
+      },
+      {
+        "id": "osc_title_working",
+        "state": "working",
+        "priority": 1100,
+        "region": "title",
+        "match": {
+          "regex": ["^[◐◓◑◒] "]
+        },
+        "reason": "Agent is working",
+        "comment": "Half-circle spinner introduced in Claude 2.1.228; captured in 2.1.291. Earlier braille variant omitted without a capture."
+      },
+      {
+        "id": "osc_title_idle",
+        "state": "idle",
+        "priority": 250,
+        "region": "title",
+        "match": {
+          "regex": ["^✳ "]
+        },
+        "reason": "Agent turn ended; checking output",
+        "comment": "Idle title can coexist with a question form. Screen blockers have higher priority."
+      }
+    ],
+    "provenance": {
+      "source": "https://github.com/herdrdev/herdr/tree/ff83689f1512f11b762fe52fb3a0032e7373c35e/src/detect/manifests/claude.toml",
+      "license": "Apache-2.0; Herdr contributors (upstream provides no separate copyright notice)",
+      "modified": "Modified for Foom: bounded regions, restricted regexes, capture-backed subset and local reasons."
+    }
+  },
+  "execution": {
+    "completion": "attached",
+    "completionChannels": ["lifecycle"]
+  },
+  "hooks": {
+    "channels": [
+      {
+        "id": "lifecycle",
+        "when": {
+          "all": [
+            {
+              "field": "hooksEnabled",
+              "op": "eq",
+              "value": true
+            },
+            {
+              "field": "hookSupport",
+              "op": "eq",
+              "value": true
+            }
+          ]
+        },
+        "observer": {
+          "transport": "stdin",
+          "placement": "launch",
+          "version": 1,
+          "response": "silent",
+          "delivery": "foreground",
+          "timeoutMs": 3000
+        },
+        "arguments": ["--settings", "{hookFile:hooks.json}"],
+        "mapping": {
+          "session": {
+            "source": "payload",
+            "path": ["session_id"]
+          },
+          "event": {
+            "source": "payload",
+            "path": ["hook_event_name"]
+          },
+          "cases": [
+            {
+              "id": "UserPromptSubmit",
+              "event": "UserPromptSubmit",
+              "action": "working"
+            },
+            {
+              "id": "PreToolUse",
+              "event": "PreToolUse",
+              "action": "working"
+            },
+            {
+              "id": "Stop",
+              "event": "Stop",
+              "action": "classify"
+            },
+            {
+              "id": "PermissionRequest",
+              "event": "PermissionRequest",
+              "action": "needs_input"
+            },
+            {
+              "id": "permission-notification",
+              "event": "Notification",
+              "when": {
+                "all": [
+                  {
+                    "field": {
+                      "source": "payload",
+                      "path": ["notification_type"]
+                    },
+                    "op": "eq",
+                    "value": "permission_prompt"
+                  }
+                ]
+              },
+              "require": [
+                {
+                  "field": {
+                    "source": "payload",
+                    "path": ["notification_type"]
+                  },
+                  "type": "string"
+                }
+              ],
+              "action": "needs_input"
+            },
+            {
+              "id": "idle-notification",
+              "event": "Notification",
+              "when": {
+                "all": [
+                  {
+                    "field": {
+                      "source": "payload",
+                      "path": ["notification_type"]
+                    },
+                    "op": "eq",
+                    "value": "idle_prompt"
+                  }
+                ]
+              },
+              "require": [
+                {
+                  "field": {
+                    "source": "payload",
+                    "path": ["notification_type"]
+                  },
+                  "type": "string"
+                }
+              ],
+              "action": "classify",
+              "endsTurn": false
+            }
+          ]
+        }
+      }
+    ]
+  }
+}

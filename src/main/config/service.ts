@@ -1,4 +1,5 @@
-import { parseAgentPlugin, AgentManifestError } from "../../shared/agent-manifest";
+import { parseAgentManifest } from "../../shared/agent-plugin-parser";
+import { AgentManifestError } from "../../shared/agent-manifest";
 import type { AgentPluginManifest } from "../../shared/agent-plugin";
 import type { AgentProvider } from "../agents/providers/registry";
 import { configProvider } from "../agents/providers/config";
@@ -588,7 +589,10 @@ export class ConfigService {
       let manifest: AgentPluginManifest;
       try {
         text = decode(bytes);
-        manifest = parseAgentPlugin(text);
+        const parsed = parseAgentManifest(text);
+        if (parsed.version === 2)
+          throw new AgentManifestError("$.version", "v2-engine-unavailable");
+        manifest = parsed.manifest;
         if (file !== `agents/${manifest.id}.json`)
           throw new AgentManifestError("$.id", "filename-mismatch");
       } catch (error) {

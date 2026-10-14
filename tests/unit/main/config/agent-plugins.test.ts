@@ -198,3 +198,34 @@ it("exposes pending/rejected plugin cards and reviews the selected digest when a
   expect(rejected.agentPlugins?.[0]).toMatchObject({ id: manifest.id, state: "rejected" });
   expect(rejected.agentPlugins?.[0]?.reason).toContain("missing-key");
 });
+
+it("withdraws v1 authority and refuses v2 before approval even with an approved byte digest", async () => {
+  const f = await fixture();
+  await writeFile(f.file, JSON.stringify(manifest));
+  f.confirm.mockResolvedValue(true);
+  await f.service.decide("allow", await pending(f.service));
+  const old = agentProvider(manifest.id);
+  const v2 = await import("../../../fixtures/agent-plugins-v2/claude.json");
+  const text = JSON.stringify({ ...v2.default, id: manifest.id });
+  await writeFile(f.file, text);
+  f.digests.set(`agents/${manifest.id}.json`, digest(text));
+  f.confirm.mockClear();
+  const status = await f.service.refresh();
+  expect(status.agentPlugins).toContainEqual(
+    expect.objectContaining({
+      id: manifest.id,
+      state: "rejected",
+      reason: "$.version: v2-engine-unavailable",
+    }),
+  );
+  expect(status.pending).toBeNull();
+  expect(knownAgentId(manifest.id)).toBe(false);
+  expect(f.confirm).not.toHaveBeenCalled();
+  await expect(old.validate?.()).rejects.toThrow("changed");
+  await f.service.dispose();
+  const restarted = new ConfigService(f.dependencies);
+  services.push(restarted);
+  await restarted.initialize();
+  expect(knownAgentId(manifest.id)).toBe(false);
+  expect(restarted.status().agentPlugins?.[0]?.reason).toBe("$.version: v2-engine-unavailable");
+});
