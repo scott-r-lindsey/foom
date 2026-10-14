@@ -424,7 +424,7 @@ it("runtime binds preview tools to the launch grant, audits and hands ownership 
     expect(
       (await runtime.audit.read({ search: "", action: "open_preview", status: "", offset: 0 }))
         .entries,
-    ).toMatchObject([{ path: "plan.md" }]);
+    ).toMatchObject([{ path: "plan.md" }, { path: "plan.md" }]);
     runtime.takeOver("terminal");
     expect(await call("list_previews")).toEqual({ previews: [] });
     expect(previews.size).toBe(1);

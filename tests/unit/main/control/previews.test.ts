@@ -307,3 +307,89 @@ it("returns not_found if a document disappears between containment validation an
   expect(board.previews.size).toBe(0);
   expect(events).toEqual([]);
 });
+
+it("refuses an in-flight close after takeover while the grant remains live", async () => {
+  const previewId = id(await open("mockup.html"));
+  audit.mockImplementationOnce(() => {
+    broker.revoke(actor);
+    return Promise.resolve();
+  });
+  await expect(broker.call(actor, "close_preview", { previewId })).rejects.toMatchObject({
+    code: "not_found",
+  });
+  expect(board.has(previewId)).toBe(true);
+  expect(await list()).toEqual({ previews: [] });
+});
+
+it("refuses reuse after ownership release and a human close during the audit write", async () => {
+  const previewId = id(await open("mockup.html"));
+  audit.mockImplementationOnce(() => {
+    broker.revoke(actor);
+    return Promise.resolve();
+  });
+  await expect(open("mockup.html")).rejects.toMatchObject({ code: "not_found" });
+  expect(board.has(previewId)).toBe(true);
+  const next = id(await open("mockup.html"));
+  audit.mockImplementationOnce(() => {
+    broker.humanClose(next);
+    return Promise.resolve();
+  });
+  await expect(broker.call(actor, "close_preview", { previewId: next })).rejects.toMatchObject({
+    code: "not_found",
+  });
+});
+it("refuses a result if its view disappears during placement", async () => {
+  vi.spyOn(board, "open").mockImplementationOnce(async (who, preview, sidebar) => {
+    await Board.prototype.open.call(board, who, preview, sidebar);
+    await board.close(preview.previewId);
+    return "landing";
+  });
+  await expect(open("mockup.html")).rejects.toMatchObject({ code: "not_found" });
+  expect(await list()).toEqual({ previews: [] });
+});
+
+it("rolls back a new preview when completion auditing fails, while preserving a takeover", async () => {
+  audit
+    .mockImplementationOnce((event) => {
+      events.push(event);
+      return Promise.resolve();
+    })
+    .mockRejectedValueOnce(new Error("completion audit"));
+  await expect(open("mockup.html")).rejects.toMatchObject({ code: "unavailable" });
+  expect(board.previews.size).toBe(0);
+  expect(await list()).toEqual({ previews: [] });
+  audit
+    .mockImplementationOnce((event) => {
+      events.push(event);
+      return Promise.resolve();
+    })
+    .mockImplementationOnce(() => {
+      broker.revoke(actor);
+      return Promise.reject(new Error("completion audit"));
+    });
+  await expect(open("mockup.html")).rejects.toMatchObject({ code: "unavailable" });
+  expect(board.previews.size).toBe(1);
+  expect(await list()).toEqual({ previews: [] });
+});
+it("refuses completion failures and preserves a live record when rollback itself fails", async () => {
+  audit
+    .mockImplementationOnce((event) => {
+      events.push(event);
+      return Promise.resolve();
+    })
+    .mockRejectedValueOnce(new Error("completion audit"));
+  vi.spyOn(board, "close").mockRejectedValueOnce(new Error("rollback"));
+  await expect(open("mockup.html")).rejects.toMatchObject({ code: "unavailable" });
+  expect(board.previews.size).toBe(1);
+  const previewId = id(await open("mockup.html"));
+  audit
+    .mockImplementationOnce((event) => {
+      events.push(event);
+      return Promise.resolve();
+    })
+    .mockRejectedValueOnce(new Error("closed audit"));
+  await expect(broker.call(actor, "close_preview", { previewId })).rejects.toMatchObject({
+    code: "unavailable",
+  });
+  expect(board.previews.size).toBe(0);
+});

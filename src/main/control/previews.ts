@@ -154,13 +154,15 @@ export class PreviewBroker {
       exact(params, ["previewId"]);
       const preview = owned.find((p) => p.previewId === params["previewId"]);
       if (!preview) throw new ControlError("not_found");
-      await this.record(actor, method, preview, "closed");
+      await this.record(actor, method, preview, "closing");
+      this.assertOwned(actor, preview);
       try {
         await this.backend.close(preview.previewId);
       } catch {
         throw new ControlError("unavailable");
       }
       this.previews.delete(preview.previewId);
+      await this.record(actor, method, preview, "closed");
       return { previewId: preview.previewId, closed: true };
     }
     if (method !== "open_preview") throw new ControlError("forbidden");
@@ -170,6 +172,7 @@ export class PreviewBroker {
     const existing = owned.find((p) => p.real === target.real);
     if (existing) {
       await this.record(actor, method, existing, "existing");
+      this.assertOwned(actor, existing);
       return this.view(existing, "existing", true);
     }
     if (owned.length >= this.limits.perAgent || this.previews.size >= this.limits.total)
@@ -181,7 +184,7 @@ export class PreviewBroker {
       worktree: actor.worktree,
       ...target,
     };
-    await this.record(actor, method, preview, "opened");
+    await this.record(actor, method, preview, "opening");
     this.previews.set(preview.previewId, preview);
     try {
       const placement = await this.backend.open(
@@ -191,12 +194,35 @@ export class PreviewBroker {
       );
       // Revocation during placement transfers ownership rather than undoing the human's view.
       this.active(actor);
+      this.assertOwned(actor, preview);
+      await this.record(actor, method, preview, placement);
+      this.assertOwned(actor, preview);
       return this.view(preview, placement, false);
     } catch (error) {
+      // Undo a refused new view only while the caller still owns it. A takeover keeps it.
+      if (
+        preview.owner === actor.generation &&
+        this.previews.get(preview.previewId) === preview &&
+        this.backend.has(preview.previewId)
+      ) {
+        try {
+          await this.backend.close(preview.previewId);
+        } catch {
+          throw new ControlError("unavailable");
+        }
+      }
       if (!this.backend.has(preview.previewId)) this.previews.delete(preview.previewId);
       if (error instanceof ControlError) throw error;
       throw new ControlError("unavailable");
     }
+  }
+  private assertOwned(actor: Principal, preview: AgentPreview): void {
+    if (
+      preview.owner !== actor.generation ||
+      this.previews.get(preview.previewId) !== preview ||
+      !this.backend.has(preview.previewId)
+    )
+      throw new ControlError("not_found");
   }
   private view(preview: AgentPreview, placement: Placement | "existing", reused: boolean) {
     return {

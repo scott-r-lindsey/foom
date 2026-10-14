@@ -80,7 +80,7 @@ export class ControlStore {
         path: event.path,
         session: event.session,
         status: event.outcome,
-        reason: "completed",
+        reason: event.outcome === "opening" || event.outcome === "closing" ? "intent" : "completed",
       }),
     );
   }
