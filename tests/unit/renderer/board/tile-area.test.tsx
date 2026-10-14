@@ -1163,11 +1163,67 @@ test("preview bounds follow body measurement and transitions, hide under setting
   bounds.mockRejectedValueOnce(new Error("already closed"));
   screen.unmount();
   await act(async () => {});
-  expect(disconnect).toHaveBeenCalledTimes(2);
-  expect(observe).toHaveBeenCalledTimes(2);
+  expect(disconnect).toHaveBeenCalledTimes(1);
+  expect(observe).toHaveBeenCalledTimes(1);
   bounds.mockClear();
   fireEvent(window, new Event("resize"));
   expect(bounds).not.toHaveBeenCalled();
+});
+
+test("resizing a preview tile moves its native view without hiding it between steps", async () => {
+  vi.stubGlobal(
+    "ResizeObserver",
+    class {
+      observe = vi.fn();
+      disconnect = vi.fn();
+    },
+  );
+  const preview = {
+    id: "p",
+    repository: "repo",
+    worktree: "/tree",
+    relativePath: "page.html",
+    kind: "html" as const,
+    network: false,
+  };
+  const layout = placeContent(arrangedLayout(initialLayout(), "columns"), {
+    kind: "preview",
+    preview: preview.id,
+  });
+  if (!layout) throw new Error("Missing layout");
+  saveLayout(localStorage, layout);
+  const bounds = vi.fn(() => Promise.resolve());
+  const screen = render(
+    <Board
+      source={{
+        ...createSampleSource([]),
+        previews: {
+          getSnapshot: () => [preview],
+          pick: () => Promise.resolve(null),
+          close: () => Promise.resolve(),
+          bounds,
+        },
+      }}
+    />,
+  );
+  const area = screen.container.querySelector<HTMLElement>(".tile-area");
+  if (!area) throw new Error("No area");
+  vi.spyOn(area, "getBoundingClientRect").mockReturnValue(new DOMRect(0, 0, 1000, 600));
+  vi.spyOn(HTMLDivElement.prototype, "getBoundingClientRect").mockReturnValue(
+    new DOMRect(0, 0, 400, 300),
+  );
+  fireEvent(window, new Event("resize"));
+  await act(async () => {});
+  bounds.mockClear();
+  const gutter = screen.getAllByRole("separator")[0];
+  if (!gutter) throw new Error("No gutter");
+  for (const key of ["ArrowRight", "ArrowRight", "ArrowLeft", "End", "Home"])
+    fireEvent.keyDown(gutter, { key });
+  await act(async () => {});
+  expect(bounds).toHaveBeenCalled();
+  expect(bounds).not.toHaveBeenCalledWith("p", expect.objectContaining({ visible: false }));
+  screen.unmount();
+  expect(bounds).toHaveBeenLastCalledWith("p", expect.objectContaining({ visible: false }));
 });
 
 test("human previews on a full narrow board replace the eligible tile as human sessions do", async () => {

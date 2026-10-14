@@ -12067,6 +12067,38 @@ test("preview composition freezes maximize and restore animations and excludes p
   await expect.poll(async () => (await previewViewState(app, id)).attached).toBe(true);
 });
 
+test("preview gutter drags keep the native view attached and resize it in place", async (context) => {
+  const { app, page, id, tile, bounds } = await composedPreview(context);
+  const gutter = page.getByRole("separator", { name: "Resize tiles" });
+  const handle = await gutter.boundingBox();
+  assert.ok(handle);
+  const y = handle.y + handle.height / 2;
+  await page.mouse.move(handle.x + handle.width / 2, y);
+  await page.mouse.down();
+  await expect(gutter).toHaveAttribute("data-dragging", "true");
+  // Every step leaves the view attached: no hide/show churn and no snapshot swap.
+  for (const offset of [20, 40, 60, 80]) {
+    await page.mouse.move(handle.x - offset, y);
+    await expect(gutter).not.toHaveAttribute("aria-valuenow", "50");
+    assert.equal((await previewViewState(app, id)).attached, true);
+  }
+  await expect(page.locator(`.preview-snapshot[data-preview="${id}"]`)).toHaveCount(0);
+  await page.mouse.up();
+  await expect(gutter).toHaveAttribute("data-dragging", "false");
+  const finalBounds = await tile.locator(".tile-shell:not([hidden])").boundingBox();
+  assert.ok(finalBounds);
+  assert.ok(finalBounds.width > bounds.width);
+  await expect
+    .poll(async () => (await previewViewState(app, id)).bounds)
+    .toEqual({
+      x: Math.round(finalBounds.x),
+      y: Math.round(finalBounds.y),
+      width: Math.round(finalBounds.width),
+      height: Math.round(finalBounds.height),
+    });
+  assert.equal((await previewViewState(app, id)).attached, true);
+});
+
 test("preview focused native input reaches board shortcuts including the tile leader and leaves ordinary keys in the page", async (context) => {
   const { app, page, id } = await composedPreview(context);
   await app.evaluate(({ webContents }, id) => {

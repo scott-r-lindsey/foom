@@ -133,11 +133,37 @@ function Tile({
     [source, rowId],
   );
   const previewRef = useRef<HTMLDivElement>(null);
+  const reportRef = useRef(() => {});
+  // Hide the native view only when this preview leaves the tile. Re-running the
+  // lifetime effect on every layout change detached and re-attached the view on
+  // each step of a gutter drag, which some X11 compositors never repaint.
   useEffect(() => {
     const id = preview?.id;
     const element = previewRef.current;
     if (!id || !element || !source.previews) return;
     const report = () => {
+      reportRef.current();
+    };
+    const observer = new ResizeObserver(report);
+    observer.observe(element);
+    window.addEventListener("resize", report);
+    const tileElement = element.parentElement;
+    tileElement?.addEventListener("transitionend", report);
+    return () => {
+      observer.disconnect();
+      tileElement?.removeEventListener("transitionend", report);
+      window.removeEventListener("resize", report);
+      reportRef.current = () => {};
+      void source.previews
+        ?.bounds(id, { x: 0, y: 0, width: 0, height: 0, visible: false })
+        .catch(() => {});
+    };
+  }, [source, preview?.id]);
+  useEffect(() => {
+    const id = preview?.id;
+    const element = previewRef.current;
+    if (!id || !element || !source.previews) return;
+    reportRef.current = () => {
       const bounds = element.getBoundingClientRect();
       void source.previews
         ?.bounds(id, {
@@ -151,20 +177,7 @@ function Tile({
           setError("Unable to display preview.");
         });
     };
-    report();
-    const observer = new ResizeObserver(report);
-    observer.observe(element);
-    window.addEventListener("resize", report);
-    const tileElement = element.parentElement;
-    tileElement?.addEventListener("transitionend", report);
-    return () => {
-      observer.disconnect();
-      tileElement?.removeEventListener("transitionend", report);
-      window.removeEventListener("resize", report);
-      void source.previews
-        ?.bounds(id, { x: 0, y: 0, width: 0, height: 0, visible: false })
-        .catch(() => {});
-    };
+    reportRef.current();
   }, [source, preview?.id, inactive, behind, rect.x, rect.y, rect.width, rect.height]);
   const lastFocusRef = useRef(0);
   useEffect(() => {
