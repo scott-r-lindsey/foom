@@ -3107,7 +3107,8 @@ test("first run goes from no agents to go, launches by keyboard, and can be repl
   await expect(page.locator(".board-terminal")).toBeHidden();
   await page.keyboard.press("Escape");
   await expect(page.locator(".board-home")).toBeVisible();
-  assert.equal(await shellRow.evaluate((row) => row === document.activeElement), true);
+  // Focus returns after the board is shown; macOS can report it a frame later.
+  await expect.poll(() => shellRow.evaluate((row) => row === document.activeElement)).toBe(true);
 });
 
 test("the board stays usable at 300% in a small window", async (context) => {
