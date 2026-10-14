@@ -1139,6 +1139,20 @@ test("bundled brand fonts and both system themes render in Electron", {
 }, async (context) => {
   const app = await launchApp(context);
   const page = await boardPage(app);
+  // This can be a shard's first native window on a cold display. As in the
+  // interactive-shell test, activate the board before relying on renderer frames.
+  await app.evaluate(({ BrowserWindow }) => {
+    const window = BrowserWindow.getAllWindows().find(
+      (window) => window.webContents.getURL() === "app://bundle/index.html",
+    );
+    window.show();
+    window.focus();
+    window.webContents.focus();
+  });
+  await page.bringToFront();
+  await expect
+    .poll(() => page.evaluate(() => document.visibilityState === "visible" && document.hasFocus()))
+    .toBe(true);
   await page.waitForLoadState("domcontentloaded");
   const palettes = {
     dark: [
