@@ -12368,12 +12368,23 @@ test("preview live reload handles saves, assets, missing files, scroll and close
     `<link rel="stylesheet" href="live.css"><div style="height:4000px">${text}</div>`;
   await writeFile(path.join(root, "live.html"), document("first"));
   await writeFile(path.join(root, "live.css"), "body { color: rgb(1, 2, 3); }");
-  // Count real native subscriptions and completed loads, including replacement contents.
+  // Count native subscriptions and load starts, including replacement contents.
   await app.evaluate(({ app }, root) => {
     const fs = process.getBuiltinModule("node:fs");
     const original = fs.watch;
-    globalThis.liveStats = { watchers: 0, loads: 0 };
+    globalThis.liveStats = { watchers: 0, burst: undefined };
     fs.watch = function (filename, ...args) {
+      if (String(filename).startsWith(root)) {
+        const callback = args.pop();
+        args.push((event, name) => {
+          const burst = globalThis.liveStats.burst;
+          if (burst && (name === null || String(name) === "live.html")) {
+            burst.lastEvent = performance.now();
+            burst.firstEvent ??= burst.lastEvent;
+          }
+          callback(event, name);
+        });
+      }
       const watch = original.call(this, filename, ...args);
       if (String(filename).startsWith(root)) {
         globalThis.liveStats.watchers++;
@@ -12390,8 +12401,14 @@ test("preview live reload handles saves, assets, missing files, scroll and close
       return watch;
     };
     app.on("web-contents-created", (_event, contents) => {
-      contents.on("did-finish-load", () => {
-        if (contents.getURL().startsWith("foom-preview://")) globalThis.liveStats.loads++;
+      contents.on("did-start-loading", () => {
+        if (!contents.getURL().startsWith("foom-preview://")) return;
+        const burst = globalThis.liveStats.burst;
+        if (burst) {
+          burst.lastLoad = performance.now();
+          burst.firstLoad ??= burst.lastLoad;
+          burst.loads++;
+        }
       });
     });
   }, root);
@@ -12469,14 +12486,48 @@ test("preview live reload handles saves, assets, missing files, scroll and close
   await writeFile(path.join(root, "live.tmp"), document("atomic"));
   await rename(path.join(root, "live.tmp"), path.join(root, "live.html"));
   await loaded("atomic");
-  const before = await app.evaluate(() => globalThis.liveStats.loads);
-  // Elapsed quiet time is the behavior under test: duplicate reloads within the
-  // one-second debounce maximum would fail this observation.
+  await app.evaluate(() => {
+    globalThis.liveStats.burst = {
+      loads: 0,
+      firstEvent: undefined,
+      firstLoad: undefined,
+      lastEvent: undefined,
+      lastLoad: undefined,
+    };
+  });
+  // A burst may span several trailing/max-wait windows on a busy filesystem.
+  // Test delayed reload, final content and eventual quiet, not a total load count.
   for (let index = 0; index < 20; index++)
     await writeFile(path.join(root, "live.html"), document(`burst ${index}`));
   await loaded("burst 19");
+  // An earlier reload can read the final bytes while the last event is still
+  // pending. Wait for a completed reload that started after that event.
+  await expect
+    .poll(() =>
+      app.evaluate(({ webContents }, id) => {
+        const contents = webContents
+          .getAllWebContents()
+          .find((entry) => entry.getURL().startsWith(`foom-preview://${id}/`));
+        const burst = globalThis.liveStats.burst;
+        return contents && !contents.isLoading() && burst.lastLoad >= burst.lastEvent;
+      }, id),
+    )
+    .toBe(true);
+  const burst = await app.evaluate(() => globalThis.liveStats.burst);
+  assert.ok(burst.firstEvent !== undefined, "observed a native file event");
+  assert.ok(burst.firstLoad !== undefined, "observed a reload after the writes");
+  // Leave 20 ms for real timer precision around the 120 ms trailing delay.
+  assert.ok(
+    burst.firstLoad - burst.firstEvent >= 100,
+    `reload waited for debounce: ${burst.firstLoad - burst.firstEvent} ms`,
+  );
+  // Elapsed quiet time is the behavior under test. Once the final page finishes,
+  // no pending trailing or maximum-wait timer should cause another reload.
   await app.evaluate(() => new Promise((resolve) => setTimeout(resolve, 1000)));
-  assert.equal(await app.evaluate(() => globalThis.liveStats.loads), before + 1);
+  assert.equal(await app.evaluate(() => globalThis.liveStats.burst.loads), burst.loads);
+  await app.evaluate(() => {
+    globalThis.liveStats.burst = undefined;
+  });
   await writeFile(path.join(root, "live.css"), "body { color: rgb(4, 5, 6); }");
   await expect
     .poll(async () => {

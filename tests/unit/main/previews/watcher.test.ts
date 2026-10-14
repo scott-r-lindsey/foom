@@ -48,8 +48,13 @@ test("filters names, shares directories, debounces 20 writes, and closes pending
   for (let i = 0; i < 20; i++) {
     watch.event("rename", "a.html");
     vi.advanceTimersByTime(10);
+    expect(changed).not.toHaveBeenCalled();
   }
-  vi.advanceTimersByTime(119);
+  vi.advanceTimersByTime(109);
+  expect(changed).not.toHaveBeenCalled();
+  vi.advanceTimersByTime(1);
+  expect(changed).toHaveBeenCalledOnce();
+  vi.advanceTimersByTime(1000);
   expect(changed).toHaveBeenCalledOnce();
   watch.event("change", "style.css");
   watcher.close();
