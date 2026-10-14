@@ -248,3 +248,12 @@ test.each([
     });
   },
 );
+
+test("file edits cannot silence attention through the master without approval", () => {
+  const quiet = effective(base, { sound: { ...base.sound, volume: 0, muted: true } });
+  expect(weakenings(base, quiet).map((entry) => entry.detail)).toEqual([
+    "sound.volume: 1 → 0",
+    "sound.muted: off → on",
+  ]);
+  expect(weakenings(quiet, base)).toEqual([]);
+});

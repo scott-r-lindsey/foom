@@ -24,6 +24,7 @@ test.each(["linux", "win32", "darwin"])(
   (platform) => {
     const calls = actions();
     const commands = createCommands(platform, true, calls);
+    expect(commands.some((command) => command.id.startsWith("preset-"))).toBe(false);
     const shortcuts = createShortcuts(commands, platform, vi.fn());
     const seen = new Set<string>();
     for (const command of commands) {
@@ -44,7 +45,7 @@ test.each(["linux", "win32", "darwin"])(
       }
       if (command.enabled) void command.run();
     }
-    expect(calls.board).toHaveBeenCalledWith("preset-grid");
+    expect(calls.board).toHaveBeenCalledWith("tidy-tiles");
     expect(calls.zoom).toHaveBeenCalledWith("reset");
     expect(calls.native).toHaveBeenCalledWith("quit");
     expect(calls.native).toHaveBeenCalledWith("new-window");
@@ -83,7 +84,7 @@ test("packaged registry cannot reload or open DevTools; native menu comes from t
       .sort(),
   );
   expect(items.map((item) => item.id)).toEqual(
-    expect.arrayContaining(["add-repository", "shortcuts", "licenses", "github", "preset-grid"]),
+    expect.arrayContaining(["add-repository", "shortcuts", "licenses", "github", "tidy-tiles"]),
   );
   expect(items.every((item) => item.registerAccelerator === false)).toBe(true);
   expect(items.find((item) => item.id === "maximize")).toMatchObject({

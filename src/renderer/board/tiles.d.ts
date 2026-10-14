@@ -28,7 +28,6 @@ export interface TileRect {
   width: number;
   height: number;
 }
-export type TilePreset = "one" | "columns" | "rows" | "grid" | "main2" | "main3";
 export type DropZone = "center" | "left" | "right" | "up" | "down";
 export type TileDrag = { kind: "tile" | "session"; id: string };
 

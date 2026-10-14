@@ -42,6 +42,13 @@ export function weakenings(before: EffectiveConfig, after: EffectiveConfig): Wea
       action: "set the needs-you volume to 0",
       detail: `sound.alertVolume: ${String(before.sound.alertVolume)} → 0`,
     });
+  if (before.sound.volume > 0 && after.sound.volume <= 0)
+    result.push({
+      action: "set the master volume to 0",
+      detail: `sound.volume: ${String(before.sound.volume)} → 0`,
+    });
+  if (!before.sound.muted && after.sound.muted)
+    result.push({ action: "mute sounds", detail: "sound.muted: off → on" });
   if (before.hooks && !after.hooks)
     result.push({ action: "turn hooks off", detail: "hooks: on → off" });
   for (const agent of ["claude", "codex", "agy"] as const)

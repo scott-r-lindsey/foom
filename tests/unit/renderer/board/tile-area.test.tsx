@@ -1,3 +1,4 @@
+import { arrangedLayout } from "../../../fixtures/tile-layout";
 // @vitest-environment jsdom
 import { act, cleanup, fireEvent, render, within } from "@testing-library/react";
 import { beforeEach, afterEach, expect, test, vi } from "vitest";
@@ -11,7 +12,6 @@ import {
   TILE_STORAGE,
   initialLayout,
   leaves,
-  preset,
   placeSession,
   placeContent,
   saveLayout,
@@ -86,7 +86,7 @@ function setup() {
   const click = (index: number) => fireEvent.click(row(index));
   return { screen, data, views, source, send, row, click };
 }
-test("irregular splits, presets and maximize retain leaf elements and mounted controllers", async () => {
+test("irregular splits and maximize retain leaf elements and mounted controllers", async () => {
   const { screen, views, click, send } = setup();
   click(0);
   await act(async () => {});
@@ -109,7 +109,7 @@ test("irregular splits, presets and maximize retain leaf elements and mounted co
   send("maximize");
   expect(views.map((view) => view.open.mock.calls.length)).toEqual(opens);
   expect(views.every((view) => view.dispose.mock.calls.length === 0)).toBe(true);
-  fireEvent.click(screen.getByRole("button", { name: "One and three" }));
+  send("split-down");
   await act(async () => {});
   expect(screen.container.querySelectorAll(".terminal-tile")).toHaveLength(4);
   expect(views[0]?.mount.mock.calls.length).toBe(firstMount);
@@ -247,7 +247,7 @@ test("activity changes tile light brightness without remounting, and only attent
   ).not.toBe("");
 });
 test("restored live sessions wait for inventory; removed sessions become empty without stopping processes", () => {
-  const layout = placeSession(preset(initialLayout(), "rows"), "permission");
+  const layout = placeSession(arrangedLayout(initialLayout(), "rows"), "permission");
   if (!layout) throw new Error("No layout");
   localStorage.setItem(TILE_STORAGE, JSON.stringify({ version: 1, ...layout }));
   const { screen, data } = setup();
@@ -371,7 +371,7 @@ test("resuming in the same row reattaches its existing controller without remoun
   expect(views[0]?.mount.mock.calls.length).toBe(mounts);
 });
 
-test("menu presets and Dock navigation use the same board placement and report view state", async () => {
+test("menu commands and Dock navigation use the same board placement and report view state", async () => {
   const { screen, source, send } = setup();
   let navigate: ((id: string) => void) | undefined;
   const setView = vi.fn().mockResolvedValue(undefined);
@@ -390,17 +390,6 @@ test("menu presets and Dock navigation use the same board placement and report v
     },
   };
   screen.rerender(<Board source={{ ...source }} />);
-  for (const [command, count] of [
-    ["preset-columns", 2],
-    ["preset-rows", 2],
-    ["preset-grid", 4],
-    ["preset-main2", 3],
-    ["preset-main3", 4],
-    ["preset-one", 1],
-  ] as const) {
-    send(command);
-    expect(screen.container.querySelectorAll(".terminal-tile")).toHaveLength(count);
-  }
   send("toggle-sidebar");
   expect(screen.getByRole("button", { name: "Expand sidebar" })).toBeTruthy();
   send("toggle-sidebar");
@@ -750,7 +739,7 @@ test.each(["empty", "reassigned", "removed"] as const)(
     await act(async () => {});
     expect(screen.container.querySelector('.terminal-tile[data-empty="true"]')).not.toBeNull();
     if (mode === "reassigned") click(2);
-    if (mode === "removed") send("preset-one");
+    if (mode === "removed") send("tidy-tiles");
     await act(async () => {
       finish?.();
       await Promise.resolve();
@@ -788,7 +777,7 @@ test("gutter double-click and Enter even a run; footer and command tidy keep occ
   });
   send("split-down");
   send("maximize");
-  fireEvent.click(screen.getByRole("button", { name: "Tidy tiles" }));
+  send("tidy-tiles");
   expect(tiles()).toEqual(original);
   expect(tiles().every((tile) => tile.dataset["maximized"] === "false")).toBe(true);
   expect(tiles()[2]?.dataset["focused"]).toBe("true");
@@ -811,7 +800,7 @@ test.each(["markdown", "html"] as const)(
       relativePath: "docs/test.md",
       kind,
     };
-    const terminal = placeSession(preset(initialLayout(), "columns"), row.id);
+    const terminal = placeSession(arrangedLayout(initialLayout(), "columns"), row.id);
     if (!terminal) throw new Error("Missing terminal");
     const layout = placeContent(terminal, { kind: "preview", preview: preview.id });
     if (!layout) throw new Error("Missing preview");

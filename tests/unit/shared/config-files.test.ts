@@ -156,3 +156,23 @@ test.each([
   );
   expect(() => validateConfigJson(text)).toThrow();
 });
+
+test("older persisted sound settings retain choices and levels with an unmuted master", () => {
+  const old = {
+    choices: DEFAULT_SOUND.choices,
+    working: true,
+    workingVolume: 0.3,
+    alerts: false,
+    alertVolume: 0.6,
+  };
+  expect(parseSettingsFile(JSON.stringify({ kind: "settings", sound: old })).sound).toEqual({
+    ...old,
+    volume: 1,
+    muted: false,
+  });
+  expect(() =>
+    parseSettingsFile(
+      JSON.stringify({ kind: "settings", sound: { ...old, volume: "1", muted: false } }),
+    ),
+  ).toThrow();
+});

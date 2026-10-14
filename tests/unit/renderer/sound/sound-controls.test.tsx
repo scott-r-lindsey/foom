@@ -185,3 +185,22 @@ test("ignores stale selections and late catalog failures", async () => {
     reject?.(Error("late"));
   });
 });
+
+test("master control precedes levels, multiplies previews and external mute stops previews", async () => {
+  const f = await fixture();
+  const sound = { ...DEFAULT_SOUND, volume: 0.4 };
+  f.view().rerender(<SoundControls settings={sound} onChange={f.change} />);
+  expect(screen.getAllByRole("slider")[0]).toBe(screen.getByRole("slider", { name: "Volume" }));
+  fireEvent.click(screen.getByRole("button", { name: "Preview working" }));
+  expect(sink.working).toHaveBeenLastCalledWith(0.6, 0.06);
+  fireEvent.click(screen.getByRole("button", { name: "Preview done" }));
+  expect(sink.alert).toHaveBeenLastCalledWith("done", 0.2);
+  fireEvent.pointerUp(screen.getByRole("slider", { name: "Volume" }));
+  expect(sink.alert).toHaveBeenLastCalledWith("done", 0.2);
+  fireEvent.change(screen.getByRole("slider", { name: "Volume" }), { target: { value: "60" } });
+  expect(f.change).toHaveBeenLastCalledWith({ sound: { ...sound, volume: 0.6, muted: false } });
+  f.view().rerender(<SoundControls settings={{ ...sound, muted: true }} onChange={f.change} />);
+  expect(sink.working).toHaveBeenLastCalledWith(0, 0);
+  fireEvent.click(screen.getByRole("button", { name: "Preview done" }));
+  expect(sink.alert).toHaveBeenLastCalledWith("done", 0);
+});

@@ -65,7 +65,10 @@ async function measure() {
     }, repository);
     const rows = page.locator(".board-row");
     await expect(rows).toHaveCount(6);
-    await page.getByRole("button", { name: "Two by two", exact: true }).click();
+    await page.evaluate(async () => {
+      await window.desktop.appMenu.execute("split-right");
+      await window.desktop.appMenu.execute("split-down");
+    });
     for (let index = 0; index < 4; index++) await rows.nth(index).click();
     await page.getByRole("button", { name: "Split down", exact: true }).nth(1).click();
     await rows.nth(4).click();

@@ -69,6 +69,8 @@ const settingsSchema = schema("foom:settings", {
           required: SOUND_KINDS,
           properties: Object.fromEntries(SOUND_KINDS.map((kind) => [kind, choice])),
         },
+        volume: { type: "number", minimum: 0, maximum: 1 },
+        muted: { type: "boolean" },
         working: { type: "boolean" },
         workingVolume: { type: "number", minimum: 0, maximum: 1 },
         alerts: { type: "boolean" },

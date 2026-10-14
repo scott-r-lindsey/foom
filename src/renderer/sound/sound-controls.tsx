@@ -7,8 +7,9 @@ import type {
   SoundKind,
   SoundSettings,
 } from "../../shared/sound";
-import { parseSoundSettings, soundName } from "../../shared/sounds";
+import { parseSoundSettings, soundName, soundVolume } from "../../shared/sounds";
 import { createAudioSink } from "./web-audio";
+import { VolumeControl } from "./volume-control";
 const LABELS: Record<SoundKind, string> = {
   working: "Working",
   done: "Done",
@@ -57,6 +58,12 @@ export function SoundControls({
   useEffect(() => {
     sinkRef.current?.configure(settings.choices);
   }, [settings.choices]);
+  useEffect(() => {
+    if (settings.muted || settings.volume === 0) {
+      sinkRef.current?.silenceAlerts();
+      sinkRef.current?.working(0, 0);
+    }
+  }, [settings.muted, settings.volume]);
   const change = (patch: Partial<SoundSettings>) => {
     stop();
     try {
@@ -69,8 +76,8 @@ export function SoundControls({
   };
   const play = (kind: SoundKind) => {
     stop();
-    if (kind === "working") sinkRef.current?.working(0.6, settings.workingVolume);
-    else sinkRef.current?.alert(kind, settings.alertVolume);
+    if (kind === "working") sinkRef.current?.working(0.6, soundVolume(settings, "working"));
+    else sinkRef.current?.alert(kind, soundVolume(settings, "alert"));
     timerRef.current = setTimeout(stop, kind === "working" ? 5000 : 2000);
   };
   const picker = (kind: SoundKind) => {
@@ -126,6 +133,20 @@ export function SoundControls({
   };
   return (
     <div className="sound-controls">
+      <label className="preflight-field">
+        Volume · {Math.round(settings.volume * 100)}%
+        <VolumeControl
+          settings={settings}
+          onChange={(next) => {
+            change(next);
+          }}
+          onSample={(next) => {
+            stop();
+            sinkRef.current?.alert("done", soundVolume(next, "alert"));
+            timerRef.current = setTimeout(stop, 2000);
+          }}
+        />
+      </label>
       <div className="sound-panels">
         <section className="sound-panel" aria-label="Working sound">
           <h3>Working</h3>

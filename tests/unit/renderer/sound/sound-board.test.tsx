@@ -68,7 +68,7 @@ test("board uses the displayed terminal and window focus for muting and disposes
   });
   expect(sink.alert).toHaveBeenCalledTimes(2);
   view.unmount();
-  expect(sink.dispose).toHaveBeenCalledOnce();
+  expect(sink.dispose).toHaveBeenCalledTimes(2);
 });
 
 test("completion is audible in the focused tile while focused attention is muted", async () => {

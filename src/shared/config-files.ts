@@ -1,3 +1,4 @@
+import { migrateSoundSettings } from "./sounds";
 import { AgentArgumentsError } from "./agent-arguments";
 import { parseConfigSettings, CONFIG_SETTINGS } from "./config-settings";
 import type { ConfigSettings } from "./config";
@@ -37,7 +38,10 @@ export function parseSettingsFile(text: string): ConfigSettings {
   const result: ConfigSettings = {};
   for (const [key, entry] of Object.entries(settings)) {
     try {
-      Object.assign(result, parseConfigSettings({ [key]: entry }));
+      Object.assign(
+        result,
+        parseConfigSettings({ [key]: key === "sound" ? migrateSoundSettings(entry) : entry }),
+      );
     } catch (error) {
       throw new ThemeValidationError(
         `$.${key}`,

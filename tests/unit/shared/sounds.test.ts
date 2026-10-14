@@ -7,6 +7,7 @@ import {
   parseSoundSettings,
   sameSound,
   soundName,
+  soundVolume,
   validSoundFile,
 } from "../../../src/shared/sounds";
 test("choices are copied, independent and strictly validated", () => {
@@ -83,4 +84,32 @@ test("legacy disk settings drop synthesis but preserve switches and volumes", ()
   }
   expect(migrateSoundSettings(DEFAULT_SOUND)).toEqual(DEFAULT_SOUND);
   expect(() => migrateSoundSettings({ soundscape: "drive" })).toThrow();
+});
+
+test("master gain multiplies both individual levels and mute preserves them", () => {
+  const settings = { ...DEFAULT_SOUND, volume: 0.4, workingVolume: 0.2, alertVolume: 0.7 };
+  expect(soundVolume(settings, "working")).toBeCloseTo(0.08);
+  expect(soundVolume(settings, "alert")).toBeCloseTo(0.28);
+  for (const kind of ["working", "alert"] as const) {
+    expect(soundVolume({ ...settings, volume: 0 }, kind)).toBe(0);
+    expect(soundVolume({ ...settings, muted: true }, kind)).toBe(0);
+  }
+  expect(settings.workingVolume).toBe(0.2);
+  expect(settings.alertVolume).toBe(0.7);
+});
+test("master settings validate strictly and older recordings migrate only on disk", () => {
+  const old = {
+    choices: DEFAULT_SOUND.choices,
+    working: DEFAULT_SOUND.working,
+    alerts: DEFAULT_SOUND.alerts,
+    workingVolume: DEFAULT_SOUND.workingVolume,
+    alertVolume: DEFAULT_SOUND.alertVolume,
+  };
+  expect(migrateSoundSettings(old)).toEqual(DEFAULT_SOUND);
+  expect(() => parseSoundSettings(old)).toThrow();
+  for (const volume of [-1, 1.1, NaN, Infinity, "1", null])
+    expect(() => parseSoundSettings({ ...DEFAULT_SOUND, volume })).toThrow();
+  for (const muted of [0, "false", null])
+    expect(() => parseSoundSettings({ ...DEFAULT_SOUND, muted })).toThrow();
+  expect(() => migrateSoundSettings({ ...old, volume: 0.5 })).toThrow();
 });

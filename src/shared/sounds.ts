@@ -7,6 +7,8 @@ export const DEFAULT_SOUND: SoundSettings = {
     "needs-you": { source: "builtin", file: "bicycle-bell.ogg" },
     refusal: { source: "builtin", file: "lip-pop.ogg" },
   },
+  volume: 1,
+  muted: false,
   working: false,
   workingVolume: 0.15,
   alerts: true,
@@ -48,7 +50,15 @@ export function sameSound(a: SoundChoice, b: SoundChoice): boolean {
   return a.source === b.source && a.file.toLowerCase() === b.file.toLowerCase();
 }
 export function parseSoundSettings(value: unknown): SoundSettings {
-  const data = record(value, ["choices", "working", "workingVolume", "alerts", "alertVolume"]);
+  const data = record(value, [
+    "choices",
+    "volume",
+    "muted",
+    "working",
+    "workingVolume",
+    "alerts",
+    "alertVolume",
+  ]);
   const choices = record(data["choices"], SOUND_KINDS);
   const parsed = {
     working: parseSoundChoice(choices["working"]),
@@ -58,7 +68,11 @@ export function parseSoundSettings(value: unknown): SoundSettings {
   };
   if (sameSound(parsed["needs-you"], parsed.done) || sameSound(parsed["needs-you"], parsed.refusal))
     throw new Error("Needs you must use a different file from Done and Refusal");
-  if (typeof data["working"] !== "boolean" || typeof data["alerts"] !== "boolean")
+  if (
+    typeof data["working"] !== "boolean" ||
+    typeof data["alerts"] !== "boolean" ||
+    typeof data["muted"] !== "boolean"
+  )
     throw new Error("Invalid sound switches");
   const volume = (value: unknown) => {
     if (typeof value !== "number" || !Number.isFinite(value) || value < 0 || value > 1)
@@ -67,6 +81,8 @@ export function parseSoundSettings(value: unknown): SoundSettings {
   };
   return {
     choices: parsed,
+    volume: volume(data["volume"]),
+    muted: data["muted"],
     working: data["working"],
     alerts: data["alerts"],
     workingVolume: volume(data["workingVolume"]),
@@ -79,15 +95,26 @@ export function migrateSoundSettings(value: unknown): SoundSettings {
     const data = record(value, ["soundscape", "working", "workingVolume", "alerts", "alertVolume"]);
     return parseSoundSettings({
       choices: DEFAULT_SOUND.choices,
+      volume: 1,
+      muted: false,
       working: data["working"],
       alerts: data["alerts"],
       workingVolume: data["workingVolume"],
       alertVolume: data["alertVolume"],
     });
   }
+  if (isRecord(value) && !Object.hasOwn(value, "volume") && !Object.hasOwn(value, "muted"))
+    return parseSoundSettings({ ...value, volume: 1, muted: false });
   return parseSoundSettings(value);
 }
 export function soundName(file: string): string {
   const name = file.replace(/\.[^.]+$/, "").replace(/[-_]+/g, " ");
   return name.charAt(0).toUpperCase() + name.slice(1);
+}
+
+/** Master gain applies equally to playback and previews without changing individual levels. */
+export function soundVolume(settings: SoundSettings, kind: "working" | "alert"): number {
+  return settings.muted
+    ? 0
+    : settings.volume * (kind === "working" ? settings.workingVolume : settings.alertVolume);
 }

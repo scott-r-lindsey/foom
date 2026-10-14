@@ -155,12 +155,17 @@ test("sound choices, mutes and volumes persist after reopening", async () => {
     ...DEFAULT_SETTINGS.sound,
     working: true,
     alerts: false,
+    volume: 0.4,
+    muted: true,
     workingVolume: 0.3,
     alertVolume: 0.7,
   };
   await store.update(parseSettingsPatch({ sound }));
   expect((await SettingsStore.open(dir)).get().sound).toEqual(sound);
   expect(() => parseSettingsPatch({ sound: { ...sound, alertVolume: 2 } })).toThrow();
+  for (const volume of [-1, 2, NaN, Infinity, "1", null])
+    expect(() => parseSettingsPatch({ sound: { ...sound, volume } })).toThrow();
+  expect(() => parseSettingsPatch({ sound: { ...sound, muted: "yes" } })).toThrow();
 });
 
 test("stores default argv and per-agent acknowledgement and migrates old profiles", async () => {
