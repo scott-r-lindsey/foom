@@ -83,6 +83,7 @@ export function Sidebar({
   tileNumbers,
   previews = [],
   openPreview,
+  pickPreview,
   otherViews,
   openSettings,
 }: {
@@ -110,6 +111,7 @@ export function Sidebar({
   otherViews?: ReadonlySet<string>;
   previews?: readonly PreviewSummary[];
   openPreview?: (id: string) => void;
+  pickPreview?: (worktree: string) => Promise<void>;
   tileNumbers?: ReadonlyMap<string, { number: number; focused: boolean }>;
   openSettings?: (section?: "config") => void;
 }) {
@@ -1275,6 +1277,14 @@ export function Sidebar({
                                           if (anchor) openField(wid, anchor);
                                         },
                                       },
+                                      ...(source.previews && !worktree.bare
+                                        ? [
+                                            {
+                                              label: "Preview file…",
+                                              run: () => pickPreview?.(worktree.path),
+                                            },
+                                          ]
+                                        : []),
                                       ...(!main && !worktree.bare
                                         ? [
                                             null,

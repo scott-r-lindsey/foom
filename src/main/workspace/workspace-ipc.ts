@@ -326,6 +326,7 @@ export function attachWorkspace(
                     repository: repository.path,
                     worktree: record.worktree,
                     relativePath: record.relativePath,
+                    network: record.network,
                     kind: /\.(md|markdown)$/i.test(record.relativePath) ? "markdown" : "html",
                   },
                 ]

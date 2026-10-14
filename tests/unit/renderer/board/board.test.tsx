@@ -25,6 +25,7 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   vi.useRealTimers();
+  vi.unstubAllGlobals();
 });
 let command: ((command: "sidebar" | "next-waiting") => void) | undefined;
 function mountBoard(_host: HTMLElement, rows: BoardRow[]) {
@@ -422,6 +423,14 @@ test("agent placement uses existing space, preserves focus, rejects stale arriva
   let arrival:
     | ((id: string, expiresAt: number) => Promise<"landing" | "empty" | "sidebar">)
     | undefined;
+  // A placed preview tile reports its bounds (#296).
+  vi.stubGlobal(
+    "ResizeObserver",
+    class {
+      observe() {}
+      disconnect() {}
+    },
+  );
   const off = vi.fn();
   const rows = sampleRows(Date.now());
   const row = rows[0];
@@ -455,8 +464,11 @@ test("agent placement uses existing space, preserves focus, rejects stale arriva
               kind: "markdown",
               repository: row.repository,
               worktree: row.worktree ?? "",
+              network: false,
             },
           ],
+          pick: () => Promise.resolve(null),
+          bounds: () => Promise.resolve(),
           close: () => Promise.resolve(),
           onPlace: (callback) => {
             arrival = callback;

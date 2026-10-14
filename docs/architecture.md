@@ -1163,7 +1163,8 @@ routes come from `main/agents/agent-list.ts`, followed by Via Settings UI), and 
 `size` row carrying Bigger/Smaller and main's current interface scale. Action log
 is an enabled board command in both the wordmark and macOS menus; it has no direct
 shortcut binding.
-Main owns one `before-input-event` dispatcher; native accelerators are
+Main owns one `before-input-event` dispatcher, shared by the board and every preview
+(including its synchronous focus-handoff and trusted-dialog input guards); native accelerators are
 display-only (`registerAccelerator: false`). Windows/Linux have no native
 application menu. The existing two-second Ctrl+Shift+Space tile leader resolves
 from the registry; blur, timeout and unmatched input cancel it. Alt alone and F10
@@ -1681,15 +1682,33 @@ unreadable files 404, and oversized files 413. Types use a fixed extension map,
 with unknown extensions served as `application/octet-stream`. Success and refusal
 headers include `nosniff`, `no-store` and `no-referrer`; HTML uses the default CSP
 in `docs/previews.md` §4, and Markdown has no inline scripts, frames or workers.
-There is no network-enabled policy. Each session filters requests to its own
-origin plus `data:` and `blob:`, denies permission checks, permission requests and
+Network permission defaults off and is never persisted. Each session filters requests to its own
+origin plus `data:` and `blob:`; a confirmed per-preview permission also permits
+`https:` and `wss:` and adds secure sources to its response CSP. Plain `http:` and
+`ws:` remain blocked. The board's validated `preview:network` command requests a
+trusted disclosure before enabling; disabling closes connections and reloads with
+the restricted CSP. Each session denies permission checks, permission requests and
 device requests, and prevents downloads. The view has no preload, uses sandboxing
 and context isolation, disables Node integration (including workers and child
 frames), dialogs, drag navigation and webviews, and disables devtools in packaged
-builds. Window opens and redirects are denied. Only same-origin `.md` or
-`.markdown` page navigation is allowed; HTML and external links are blocked.
-Markdown rendering and the confirmed external-link/network flow remain separate
-follow-ups.
+builds. Window opens and redirects are prevented. Eligible external URLs (`https:`,
+`http:` and `mailto:`) go through the trusted confirmation window with the full
+URL before main calls `shell.openExternal`. Navigation requests use this same
+path even without a user gesture. A per-preview pending guard drops overlapping
+requests; close aborts pending review and revokes any later answer. Only same-origin `.md` or
+`.markdown` page navigation is allowed; HTML navigation is blocked.
+
+Markdown responses embed the source as inert JSON with every `<` escaped, then run
+one synchronous browser bundle inside the preview origin. markdown-it 15 disables
+raw HTML and accepts only relative, HTTP(S) and mailto links; highlight.js 11 uses
+its common subset. A small core rule generates disabled task checkboxes. Mermaid
+remains escaped code. Relative Markdown links navigate within the same tile;
+external links have a visible arrow and go through the same confirmation.
+The exact `/__foom__/markdown.js` and `/__foom__/markdown.css` assets are served only
+by preview sessions; the reserved `__foom__` segment cannot name worktree files or
+symlink targets. The isolated stylesheet uses Eclipse tokens and follows
+`prefers-color-scheme` from `nativeTheme`; custom interface themes are not conveyed.
+Bundled dependency licenses are included in `THIRD_PARTY_NOTICES.txt`.
 Every non-hidden file in the captured worktree is readable by a preview page.
 
 As in the spike, a parent directory swap between realpath/stat and open is not
@@ -1703,11 +1722,15 @@ The main-owned registry stores `{ id, worktree, relativePath, network: false }`
 per stable window ID in profile JSON, with bounded validation and serialized
 atomic writes. Paths never enter layout localStorage. Opens revalidate membership
 and canonical checkout identity against registered worktrees, then validate and
-read the contained document. `preview:open`, `preview:close` and `preview:bounds`
+read the contained document. `preview:pick`, `preview:close` and `preview:bounds`
 use `WindowIpcRouter` to validate the owning board, exact app URL and top frame,
-and validate argument counts, document paths, IDs and finite bounded rectangles.
+and validate argument counts, worktree IDs and finite bounded rectangles.
+The picker command carries only the inventory worktree path that identifies the checkout.
+Main shows the native picker rooted there and derives the relative document path;
+the renderer never chooses or sends a document path.
 IDs grant access only within their owning window. Sidebar inventory reports those
-IDs and display facts; renderer UI placement and measurement belong to #296.
+IDs and display facts. The board places human previews with `placeContent`, preserving
+focus, and measures each preview body to report bounds through the source interface.
 Restored registry entries stay detached and allocate no view until bounds arrive.
 Worktree removal closes previews when workspace inventory refreshes.
 
@@ -1721,7 +1744,13 @@ or closing a user-focused preview, main blocks the board's native keyboard event
 (including shortcuts) until that handoff completes. Native fallback focus does not
 cancel the handoff; a native mouse-down on the board or another preview does,
 allowing ordinary input immediately. Hiding or closing the pending preview also
-unblocks board input. These listeners belong to the host and are disposed with it.
+unblocks board input. Escape, window blur, or a 1.5-second deadline cancels a
+pending handoff and discards its focus intent, including if attachment failed to
+acquire native focus. Cancellation first blurs an active terminal in the trusted
+board DOM; main keeps blocking keys until that operation completes. The board's
+shortcuts and keyboard navigation then work, while ordinary typing cannot reach a
+PTY until the user selects a target. A late load cannot restore cancelled focus.
+These listeners and the deadline belong to the host and are disposed with it.
 Recreation is bounded to once per 250 ms per preview; the old contents closes immediately
 and only one replacement can be pending. Closing cancels pending recreation.
 A previously clicked native contents can reacquire keyboard focus during reload on
@@ -1735,9 +1764,32 @@ Main scales CSS rectangles by board zoom, applies that zoom to each view, clamps
 them to window content bounds, and refreshes on resize and interface-scale changes.
 Closing destroys contents, unregisters its protocol/request handler, clears storage
 and cache, and removes the registry entry. Quit preserves validated registry
-metadata while releasing views and partitions. Watchers and live reload are #294;
-there are no watchers to stop yet. Overlay composition and shortcut forwarding
-remain #292.
+metadata while releasing views and partitions. The session protocol handler records served and missing contained files. Each
+preview watches their parent directory entries with non-recursive `fs.watch`,
+filtered by name, capped at 64 directories. Requested symlink names and parent
+symlinks/junctions are watched as well as resolved targets. Missing nested parents
+use their nearest existing contained ancestor until a reload can subscribe closer.
+A 120 ms trailing debounce with a one-second maximum wait triggers the existing
+detached replacement path. Main captures finite, bounded `[scrollX, scrollY]` in
+an isolated world and restores it after `did-finish-load`, before attachment.
+Missing files show "File not found. Waiting for it to appear." and recover on
+recreation. Closing or disposing the host cancels timers and closes watchers.
+
+Every preview forwards native `before-input-event` to its owning board's existing
+shortcut dispatcher and input guards, without moving focus. The renderer observes
+board panels (including portals), trusted scrims, modal sheets, settings, tile
+drags and tile transitions. While any is active, validated `preview:cover` hides
+and detaches the window's views immediately. Main starts `capturePage` before
+detaching and sends PNG snapshots and CSS bounds through `preview:snapshots`.
+The renderer decodes those pixels into inert canvases under board overlays; the
+board CSP and asset allowlist remain unchanged. Snapshots follow preview tile
+geometry and opacity through maximize/restore. Drag coverage starts with the drag,
+before a drop target exists, so previews cannot intercept its pointer events.
+Overlapping reasons keep views covered until all finish; real animation completion
+also handles reduced motion and cancellation. Restore reattaches only loaded,
+visible views and never grants focus. Capture failure leaves views detached, and
+late captures after restore or close are discarded. Subscriptions, observers and
+animation frames are disposed on unmount.
 
 ### Terminal font selection (#363)
 

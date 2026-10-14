@@ -734,3 +734,65 @@ test("preview placement strips the event, acknowledges only the requested ID and
   off();
   expect(mock.removeListener).toHaveBeenCalledWith("preview:place", listener);
 });
+
+test("preview network permission forwards only ID and desired state to main", async () => {
+  const api = await bridge();
+  await api.previews?.network("preview", true);
+  expect(mock.invoke).toHaveBeenCalledWith("preview:network", "preview", true);
+});
+
+test("preview picker sends only the inventory worktree ID; bounds and close send preview IDs", async () => {
+  const api = await bridge();
+  mock.invoke.mockResolvedValue("preview");
+  await api.previews?.pick("/checkout");
+  const bounds = { x: 1, y: 2, width: 300, height: 200, visible: true };
+  await api.previews?.bounds("preview", bounds);
+  await api.previews?.close("preview");
+  expect(mock.invoke.mock.calls).toEqual([
+    ["preview:pick", "/checkout"],
+    ["preview:bounds", "preview", bounds],
+    ["preview:close", "preview"],
+  ]);
+  expect(api.previews).not.toHaveProperty("open");
+});
+
+test("preview cover and snapshots expose only validated image pixels and geometry", async () => {
+  const api = (await bridge()).previews;
+  if (!api) throw new Error("Missing preview API");
+  mock.invoke.mockResolvedValue(undefined);
+  await api.cover(true);
+  expect(mock.invoke).toHaveBeenCalledWith("preview:cover", true);
+  const callback = vi.fn();
+  const off = api.onSnapshots(callback);
+  const listener = mock.on.mock.calls.find(([channel]) => channel === "preview:snapshots")?.[1];
+  if (!listener) throw new Error("Missing snapshots listener");
+  const entry = {
+    id: "a".repeat(32),
+    bounds: { x: 0, y: 1, width: 2, height: 3, visible: true },
+    image: "data:image/png;base64,AA==",
+  };
+  listener({}, [entry]);
+  expect(callback).toHaveBeenLastCalledWith([entry]);
+  callback.mockClear();
+  for (const value of [
+    null,
+    {},
+    Array.from({ length: 257 }, () => entry),
+    [null],
+    [{ ...entry, id: 1 }],
+    [{ ...entry, id: "wrong" }],
+    [{ ...entry, bounds: null }],
+    [{ ...entry, image: 1 }],
+    [{ ...entry, image: "https://example.com" }],
+    ...["x", "y", "width", "height"].flatMap((key) =>
+      ["1", NaN].map((n) => [{ ...entry, bounds: { ...entry.bounds, [key]: n } }]),
+    ),
+    [{ ...entry, bounds: { ...entry.bounds, visible: "true" } }],
+  ])
+    listener({}, value);
+  expect(callback).not.toHaveBeenCalled();
+  listener({}, []);
+  expect(callback).toHaveBeenCalledWith([]);
+  off();
+  expect(mock.removeListener).toHaveBeenCalledWith("preview:snapshots", listener);
+});
