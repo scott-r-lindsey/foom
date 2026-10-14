@@ -2,13 +2,14 @@ import { execFile } from "node:child_process";
 import { resolve } from "node:path";
 import { nativeDeadline } from "./native-test-policy";
 
-type ObserverResult = { stdout: string; stderr: string; elapsed: number };
+type ObserverResult = { stdout: string; stderr: string; elapsed: number; observedElapsed: number };
 
 export function windowsObserver(
   cwd: string,
   env: NodeJS.ProcessEnv,
   event: string,
   input?: string,
+  observationDelay = 0,
 ) {
   let complete: (error: Error | null) => void = () => undefined;
   // Resolve with errors as data so a late failure cannot become an unhandled
@@ -52,17 +53,27 @@ export function windowsObserver(
           typeof value.stderr !== "string" ||
           !("elapsed" in value) ||
           typeof value.elapsed !== "number" ||
-          !Number.isFinite(value.elapsed)
+          !Number.isFinite(value.elapsed) ||
+          value.elapsed < 0 ||
+          !("observedElapsed" in value) ||
+          typeof value.observedElapsed !== "number" ||
+          !Number.isFinite(value.observedElapsed) ||
+          value.observedElapsed < 0
         ) {
           throw new Error("Invalid observer supervisor result");
         }
-        resolveResult({ stdout: value.stdout, stderr: value.stderr, elapsed: value.elapsed });
+        resolveResult({
+          stdout: value.stdout,
+          stderr: value.stderr,
+          elapsed: value.elapsed,
+          observedElapsed: value.observedElapsed,
+        });
       } catch (error) {
         reject(new Error("Invalid observer supervisor output", { cause: error }));
       }
     });
     child.stdin?.end(
-      `${JSON.stringify({ event, input: input ?? null, deadline: nativeDeadline(5000) })}\n`,
+      `${JSON.stringify({ event, input: input ?? null, deadline: nativeDeadline(5000), observationDelay })}\n`,
     );
   });
   return { result, closed };

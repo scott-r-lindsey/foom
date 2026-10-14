@@ -106,10 +106,16 @@ try {
     $child.StandardInput.Close()
   }
   if (!$child.WaitForExit($request.deadline)) { throw 'Observer parent did not exit' }
-  $elapsed = $timer.ElapsedMilliseconds
+  # Test-only delay proves that a late supervisor observation cannot extend the
+  # product measurement. The OS timestamps include cold shell startup and the
+  # startup gate, but exclude Process.Start overhead and supervisor scheduling
+  # after the observer has exited. Never subtract shell startup from the deadline.
+  if ($request.observationDelay -gt 0) { Start-Sleep -Milliseconds $request.observationDelay }
+  $observedElapsed = $timer.ElapsedMilliseconds
+  $elapsed = ($child.ExitTime - $child.StartTime).TotalMilliseconds
   if ($child.ExitCode -ne 0) { throw ('Observer exit code: ' + $child.ExitCode) }
   # Publish the parent's result immediately, before waiting for descendants.
-  [Console]::Out.WriteLine((@{ stdout = $output.GetAwaiter().GetResult(); stderr = $errors.GetAwaiter().GetResult(); elapsed = $elapsed } | ConvertTo-Json -Compress))
+  [Console]::Out.WriteLine((@{ stdout = $output.GetAwaiter().GetResult(); stderr = $errors.GetAwaiter().GetResult(); elapsed = $elapsed; observedElapsed = $observedElapsed } | ConvertTo-Json -Compress))
   [Console]::Out.Flush()
   $job.Wait($request.deadline)
 } catch { [Console]::Error.WriteLine($_); exit 1 }
