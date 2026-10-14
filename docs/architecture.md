@@ -1810,7 +1810,7 @@ recreation. Closing or disposing the host cancels timers and closes watchers.
 Every preview forwards native `before-input-event` to its owning board's existing
 shortcut dispatcher and input guards, without moving focus. The renderer observes
 board panels (including portals), trusted scrims, modal sheets, settings, tile
-drags and tile transitions. While any is active, validated `preview:cover` hides
+drags, tile gutter drags and tile transitions. While any is active, validated `preview:cover` hides
 and detaches the window's views immediately. Main starts `capturePage` before
 detaching and sends PNG snapshots and CSS bounds through `preview:snapshots`.
 The renderer decodes those pixels into inert canvases under board overlays; the

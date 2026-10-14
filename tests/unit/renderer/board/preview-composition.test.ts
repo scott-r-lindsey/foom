@@ -95,6 +95,29 @@ test("freezes for panels, scrim, full drag and settings; preserves overlapping r
   expect(f.bitmap.close).toHaveBeenCalled();
   expect(document.querySelector("canvas")).toBeNull();
 });
+test("gutter dragging covers until release without covering single-step keyboard resizes", async () => {
+  const f = fixture();
+  const gutter = document.createElement("div");
+  gutter.className = "tile-gutter";
+  gutter.dataset["dragging"] = "false";
+  document.body.append(gutter);
+  await flush();
+  expect(f.cover).toHaveBeenCalledTimes(1);
+  gutter.dataset["dragging"] = "true";
+  await flush();
+  expect(f.cover).toHaveBeenLastCalledWith(true);
+  gutter.style.left = "60%";
+  await flush();
+  expect(f.cover).toHaveBeenCalledTimes(2);
+  gutter.dataset["dragging"] = "false";
+  await flush();
+  expect(f.cover).toHaveBeenLastCalledWith(false);
+  expect(f.cover).toHaveBeenCalledTimes(3);
+  gutter.style.left = "65%";
+  await flush();
+  expect(f.cover).toHaveBeenCalledTimes(3);
+  f.dispose();
+});
 test("snapshots follow tile geometry and opacity during real animation lifetime", async () => {
   const f = fixture(false);
   document.body.innerHTML = `<section class="terminal-tile" data-preview-id="${snapshot.id}" style="opacity:0.4;padding:3px;border:2px solid black"><header class="tile-title"></header></section>`;

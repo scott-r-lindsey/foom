@@ -12082,6 +12082,37 @@ test("preview composition freezes maximize and restore animations and excludes p
   await expect.poll(async () => (await previewViewState(app, id)).attached).toBe(true);
 });
 
+test("preview composition covers gutter drags and reattaches at the final bounds", async (context) => {
+  const { app, page, id, tile, bounds } = await composedPreview(context);
+  const gutter = page.getByRole("separator", { name: "Resize tiles" });
+  const handle = await gutter.boundingBox();
+  assert.ok(handle);
+  await page.mouse.move(handle.x + handle.width / 2, handle.y + handle.height / 2);
+  await page.mouse.down();
+  await expect(gutter).toHaveAttribute("data-dragging", "true");
+  await expect.poll(async () => (await previewViewState(app, id)).attached).toBe(false);
+  const snapshot = page.locator(`.preview-snapshot[data-preview="${id}"]`);
+  await expect(snapshot).toBeVisible();
+  await page.mouse.move(handle.x - 80, handle.y + handle.height / 2, { steps: 12 });
+  await expect(gutter).not.toHaveAttribute("aria-valuenow", "50");
+  assert.equal((await previewViewState(app, id)).attached, false);
+  await page.mouse.up();
+  await expect(gutter).toHaveAttribute("data-dragging", "false");
+  await expect(snapshot).toHaveCount(0);
+  await expect.poll(async () => (await previewViewState(app, id)).attached).toBe(true);
+  const finalBounds = await tile.locator(".tile-shell:not([hidden])").boundingBox();
+  assert.ok(finalBounds);
+  assert.ok(finalBounds.width > bounds.width);
+  await expect
+    .poll(async () => (await previewViewState(app, id)).bounds)
+    .toEqual({
+      x: Math.round(finalBounds.x),
+      y: Math.round(finalBounds.y),
+      width: Math.round(finalBounds.width),
+      height: Math.round(finalBounds.height),
+    });
+});
+
 test("preview focused native input reaches board shortcuts including the tile leader and leaves ordinary keys in the page", async (context) => {
   const { app, page, id } = await composedPreview(context);
   await app.evaluate(({ webContents }, id) => {
