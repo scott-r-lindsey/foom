@@ -13,7 +13,7 @@ vi.mock("../../../src/main/control/forge-tracking", () => ({
 }));
 const previewMock = vi.hoisted(() => ({
   pick: undefined as ((worktree: string) => Promise<string | null>) | undefined,
-  pickFile: vi.fn(async () => "a".repeat(32)),
+  pickFile: vi.fn(() => Promise.resolve("a".repeat(32))),
   hosts: [] as {
     validate: (worktree: string) => Promise<void>;
     changed: () => void;
