@@ -2,6 +2,39 @@ import type { AgentInstallation } from "../../shared/agents";
 
 export const CHILD_PROMPT = "Task from your Foom orchestrator (another agent, not the user):";
 
+/** Merge Claude's variadic allow options so a later option cannot replace user rules. */
+export function mergeAllowedTools(args: readonly string[]): string[] {
+  const result: string[] = [];
+  const rules = new Set<string>();
+  const add = (value: string) => {
+    // Separators inside a tool's argument pattern belong to the rule, not the list.
+    let depth = 0;
+    let rule = "";
+    for (const character of value) {
+      if (character === "(") depth++;
+      if (character === ")") depth--;
+      if (depth === 0 && /[,\s]/u.test(character)) {
+        if (rule) rules.add(rule);
+        rule = "";
+      } else rule += character;
+    }
+    if (rule) rules.add(rule);
+  };
+  for (let index = 0; index < args.length; index++) {
+    const arg = args[index];
+    if (arg === undefined) continue;
+    if (arg === "--allowedTools" || arg === "--allowed-tools") {
+      while (args[index + 1] !== undefined && !args[index + 1]?.startsWith("-")) {
+        index++;
+        add(args[index] ?? "");
+      }
+    } else if (arg.startsWith("--allowedTools=") || arg.startsWith("--allowed-tools=")) {
+      add(arg.slice(arg.indexOf("=") + 1));
+    } else result.push(arg);
+  }
+  return [...result, "--allowedTools", ...rules];
+}
+
 /**
  * An orchestrator child's initial prompt as one argv entry. Claude Code and Codex take
  * it positionally after an option terminator; Antigravity composes it through `--prompt-interactive`. A fixed

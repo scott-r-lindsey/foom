@@ -951,3 +951,54 @@ it("releases a failed config greeting launch so it can be retried", async () => 
   await service.launch({ ...request, agent: "agy", configCli: "/app/console" });
   expect(create.mock.calls.at(-1)?.[0].args).toEqual(["--prompt-interactive", CONFIG_PROMPT]);
 });
+
+it.each([
+  { attached: true, defaults: [] },
+  { attached: true, defaults: ["--model", "example"] },
+  { attached: true, defaults: ["--allowedTools", "Read", "Bash(git log *)"] },
+  {
+    attached: true,
+    defaults: ["--allowed-tools=Read,mcp__foom_test__open_preview", "--allowedTools", "Read"],
+  },
+  { attached: false, defaults: ["--allowedTools", "Read", "Bash(git log *)"] },
+])("composes preview grants with defaults: $attached $defaults", async ({ attached, defaults }) => {
+  const previous = versions.claude;
+  versions.claude = "2.1.293 (Claude Code)";
+  if (attached) help += "\n--mcp-config <file>";
+  const grants = ["open_preview", "list_previews", "close_preview"].map(
+    (tool) => `mcp__foom_test__${tool}`,
+  );
+  vi.mocked(prepareMcpLaunch).mockResolvedValue({
+    args: ["--mcp-config", "/private/mcp.json", "--allowedTools", grants.join(",")],
+    dispose: vi.fn(),
+  });
+  service = new AgentService({ listWorktrees, launchIdentity }, { create }, prepare, () =>
+    Promise.resolve({
+      env: { FOOM_CONTROL_URL: "http://127.0.0.1:1234/control/v1" },
+      bind: vi.fn(),
+      dispose: vi.fn(),
+    }),
+  );
+  service.setHooksEnabled(false);
+  try {
+    await service.launch({ ...request, defaultArguments: defaults, prompt: "Show the mockup" });
+    const args = create.mock.calls.at(-1)?.[0].args ?? [];
+    expect(args.slice(-2)).toEqual([
+      "--",
+      "Task from your Foom orchestrator (another agent, not the user):\n\nShow the mockup",
+    ]);
+    if (attached) {
+      expect(args.filter((arg) => arg === "--allowedTools")).toHaveLength(1);
+      expect(args).toEqual(expect.arrayContaining(grants));
+      for (const grant of grants) expect(args.filter((arg) => arg === grant)).toHaveLength(1);
+      if (defaults.some((arg) => arg.includes("Read"))) expect(args).toContain("Read");
+      if (defaults.includes("Bash(git log *)")) expect(args).toContain("Bash(git log *)");
+      if (defaults.includes("--model")) expect(args.slice(0, 2)).toEqual(["--model", "example"]);
+    } else {
+      expect(args.slice(0, -2)).toEqual(defaults);
+      expect(prepareMcpLaunch).not.toHaveBeenCalled();
+    }
+  } finally {
+    versions.claude = previous;
+  }
+});

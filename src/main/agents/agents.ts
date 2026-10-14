@@ -1,6 +1,6 @@
 import { meetsMinimum } from "./version";
 import { AgyPlugin } from "./agy-plugin";
-import { cliGuidance, CONFIG_PROMPT, initialPrompt } from "./cli-launch";
+import { cliGuidance, CONFIG_PROMPT, initialPrompt, mergeAllowedTools } from "./cli-launch";
 import { prepareMcpLaunch, supportsMcp } from "./mcp-launch";
 import { codexHookArguments } from "./codex-hooks";
 import { resumeArguments } from "./conversation";
@@ -273,7 +273,7 @@ export class AgentService {
         throw new Error("Orchestration needs control credentials");
       const configGreeting = config !== undefined && request.conversationId === undefined;
       const prompt = initialPrompt(agent, request.prompt);
-      const args = [
+      let args = [
         ...resume,
         ...((control || configGreeting) && agent.cliGuidance
           ? cliGuidance([...defaults, ...prompt.guidance], configGreeting)
@@ -281,6 +281,7 @@ export class AgentService {
         ...(agent.inline ? ["--no-alt-screen"] : []),
         ...(mcp?.args ?? []),
       ];
+      if (mcp && agent.id === "claude") args = mergeAllowedTools(args);
       if (binding) {
         if (agent.id === "claude") {
           const hook = [{ hooks: [{ type: "command", command: binding.claudeCommand }] }];

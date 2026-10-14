@@ -101,6 +101,14 @@ Orchestrator children are outside this feature's scope; see [orchestration](orch
 
 ## Claude Code
 
+Claude Code launches with MCP also pre-approve only `open_preview`, `list_previews`
+and `close_preview` on that random per-launch server using `--allowedTools`.
+User default allow rules are merged and deduplicated, including the `--allowed-tools`
+alias, equals forms and variadic/comma-separated lists. Managed policy and deny
+rules still win; no metadata or orchestration tool receives this grant. Launches
+without MCP retain their default arguments unchanged. See the
+[per-launch disclosure](orchestration.md#claude-code).
+
 `--settings <file-or-json>` loads additional settings for that invocation. Foom can supply a private temporary file without editing `~/.claude/settings.json`; the CLI itself may still write session/runtime data under `~/.claude`. The local Stop capture confirmed attachment through this flag. Keep ordinary user settings in interactive agent launches; the isolated evaluation probe below deliberately disabled them. [CLI reference](https://code.claude.com/docs/en/cli-reference)
 
 Minimal Foom-owned settings (helper path is illustrative):

@@ -52,3 +52,42 @@ it("gives Antigravity one CLI guidance for either role, after the user's own pro
   expect(CLI_GUIDANCE).toContain("foom whoami --json lists your current capabilities");
   expect(CLI_GUIDANCE).not.toContain("mutations are unavailable");
 });
+
+it("merges Claude allow aliases, equals forms and variadic rules without widening patterns", () => {
+  const grants =
+    "mcp__foom_launch__open_preview,mcp__foom_launch__list_previews,mcp__foom_launch__close_preview";
+  expect(
+    cliLaunch.mergeAllowedTools(["--mcp-config", "private.json", "--allowedTools", grants]),
+  ).toEqual(["--mcp-config", "private.json", "--allowedTools", ...grants.split(",")]);
+  expect(
+    cliLaunch.mergeAllowedTools([
+      "--model",
+      "example",
+      "--allowedTools",
+      "Read,Edit",
+      "Bash(git log *, git diff *)",
+      "Read",
+      "--allowed-tools=Read mcp__foom_launch__open_preview",
+      "--allowedTools=Edit",
+      "--allowed-tools",
+      "Write",
+      "--permission-mode",
+      "default",
+      "--allowedTools",
+      grants,
+    ]),
+  ).toEqual([
+    "--model",
+    "example",
+    "--permission-mode",
+    "default",
+    "--allowedTools",
+    "Read",
+    "Edit",
+    "Bash(git log *, git diff *)",
+    "mcp__foom_launch__open_preview",
+    "Write",
+    "mcp__foom_launch__list_previews",
+    "mcp__foom_launch__close_preview",
+  ]);
+});

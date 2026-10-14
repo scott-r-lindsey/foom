@@ -642,7 +642,15 @@ Agent discovery reports MCP support independently of hooks, using stable version
 floors (Claude Code 2.1.293, Codex 0.161.0) and the corresponding help flag
 (`--mcp-config` or `-c`). Supported releases receive a random server name: Claude gets a private temporary MCP JSON file
 with environment expansion, Codex gets an additive `-c` server table referencing the
-bearer environment variable. Tokens never enter argv or files. Exit, early exit,
+bearer environment variable.
+Claude Code launches with MCP also pre-approve only `open_preview`, `list_previews`
+and `close_preview` on that random per-launch server using `--allowedTools`.
+User default allow rules are merged and deduplicated, including the `--allowed-tools`
+alias, equals forms and variadic/comma-separated lists. Managed policy and deny
+rules still win; no metadata or orchestration tool receives this grant. Launches
+without MCP retain their default arguments unchanged. See the
+[per-launch disclosure](orchestration.md#claude-code).
+Tokens never enter argv or files. Exit, early exit,
 spawn/attachment failure and shutdown dispose attachments and revoke credentials.
 Managed policy may refuse attachment in the client; no settings are weakened. The control
 service tracks attachment per principal after terminal binding: Connecting for up

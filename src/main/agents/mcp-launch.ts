@@ -62,7 +62,14 @@ export async function prepareMcpLaunch(
       },
     });
     return {
-      args: ["--mcp-config", join(directory, "mcp.json")],
+      args: [
+        "--mcp-config",
+        join(directory, "mcp.json"),
+        "--allowedTools",
+        ["open_preview", "list_previews", "close_preview"]
+          .map((tool) => `mcp__${name}__${tool}`)
+          .join(","),
+      ],
       dispose: () => {
         void rm(scratch, { recursive: true, force: true }).catch(() => undefined);
       },

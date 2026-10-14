@@ -66,7 +66,7 @@ skills later, but no plugin or skill is needed here.
 Proposed argv fragment, represented as JSON rather than a shell command:
 
 ```json
-["--mcp-config", "/private/foom/launch-id/mcp.json"]
+["--mcp-config", "/private/foom/launch-id/mcp.json", "--allowedTools", "mcp__foom_launch_id__open_preview", "mcp__foom_launch_id__list_previews", "mcp__foom_launch_id__close_preview"]
 ```
 
 The file is in Foom's private launch directory, outside the checkout:
@@ -82,6 +82,17 @@ The file is in Foom's private launch directory, outside the checkout:
   }
 }
 ```
+
+When MCP is attached, Foom pre-approves exactly `open_preview`, `list_previews`
+and `close_preview` on its random per-launch server through Claude Code's
+`--allowedTools`. User default allow rules (including `--allowed-tools`, `=` forms
+and variadic/comma-separated lists) are merged into one option with duplicate rules
+removed; argument patterns retain their internal spaces and commas. No other Foom
+tool is added. This permits view changes without an approval prompt, not broader
+file, process or network access. Managed policy and deny rules still win. Codex
+needs no corresponding grant; launches without MCP keep their defaults unchanged.
+[CLI allow options](https://code.claude.com/docs/en/cli-reference),
+[permission precedence](https://code.claude.com/docs/en/permissions).
 
 The port and name are illustrative. Claude documents environment expansion in MCP
 headers and HTTP transport. Supply the variable only in the launched process's
