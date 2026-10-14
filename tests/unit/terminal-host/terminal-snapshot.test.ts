@@ -193,3 +193,71 @@ test("rejects incompatible pinned row serializers when restoring pending wrap", 
     host.dispose();
   }
 });
+
+test.each([false, true])(
+  "restores cursor defaults and application styles (alternate=%s)",
+  async (alternate) => {
+    const host = new Terminal({ cursorBlink: true, allowProposedApi: true });
+    const view = new Terminal({ cursorBlink: false, allowProposedApi: true });
+    const addon = new SerializeAddon();
+    const viewAddon = new SerializeAddon();
+    host.loadAddon(addon);
+    view.loadAddon(viewAddon);
+    try {
+      if (alternate) await write(host, "\x1b[?1049h");
+      for (const [data, expected] of [
+        ["", "\x1b[?12h\x1b[0 q"],
+        ["\x1b[?12l", "\x1b[?12l\x1b[0 q"],
+        ["\x1b[?12h", "\x1b[?12h\x1b[0 q"],
+        ["\x1b[1 q", "\x1b[?12h\x1b[1 q"],
+        ["\x1b[2 q", "\x1b[?12h\x1b[2 q"],
+        ["\x1b[3 q", "\x1b[?12h\x1b[3 q"],
+        ["\x1b[4 q", "\x1b[?12h\x1b[4 q"],
+        ["\x1b[5 q", "\x1b[?12h\x1b[5 q"],
+        ["\x1b[6 q", "\x1b[?12h\x1b[6 q"],
+        ["\x1b[?12l", "\x1b[?12l\x1b[6 q"],
+        ["\x1b[0 q", "\x1b[?12l\x1b[0 q"],
+        ["\x1b[?12h", "\x1b[?12h\x1b[0 q"],
+        ["\x1bc", "\x1b[?12h\x1b[0 q"],
+      ]) {
+        await write(host, data ?? "");
+        const snapshot = terminalSnapshot(host, addon);
+        expect(snapshot.endsWith(expected ?? "")).toBe(true);
+        for (let cycle = 0; cycle < 2; cycle++) {
+          view.reset();
+          await write(view, snapshot);
+          expect(view.options.cursorBlink).toBe(host.options.cursorBlink);
+          expect(terminalSnapshot(view, viewAddon).endsWith(expected ?? "")).toBe(true);
+        }
+      }
+    } finally {
+      host.dispose();
+      view.dispose();
+    }
+  },
+);
+
+test("rejects incompatible pinned cursor state", () => {
+  const host = new Terminal();
+  const addon = new SerializeAddon();
+  host.loadAddon(addon);
+  const original = Object.getOwnPropertyDescriptor(host, "_core");
+  try {
+    for (const value of [
+      undefined,
+      null,
+      {},
+      { coreService: null },
+      { coreService: {} },
+      { coreService: { decPrivateModes: {} } },
+      { coreService: { decPrivateModes: { cursorBlink: "yes", cursorStyle: undefined } } },
+      { coreService: { decPrivateModes: { cursorBlink: undefined, cursorStyle: "beam" } } },
+    ]) {
+      Object.defineProperty(host, "_core", { value, configurable: true });
+      expect(() => terminalSnapshot(host, addon)).toThrow("cursor state");
+    }
+  } finally {
+    if (original) Object.defineProperty(host, "_core", original);
+    host.dispose();
+  }
+});

@@ -81,6 +81,7 @@ export class TerminalManager {
       throw error;
     }
     const screen = new Terminal({
+      cursorBlink: true,
       cols: spec.cols,
       rows: spec.rows,
       scrollback: 10000,
