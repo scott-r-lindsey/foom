@@ -12346,7 +12346,9 @@ test("a manifest-only fixture agent cannot launch before trusted approval and re
     })
     .toEqual(["$(literal)", "--yolo"]);
   const snapshot = await page.evaluate(() => window.desktop.workspace());
-  assert.equal(snapshot.terminals.find((entry) => entry.agent === "foom-test-agent").bypass, true);
+  const launched = snapshot.terminals.find((entry) => entry.agent === "foom-test-agent");
+  assert.equal(launched.bypass, true);
+  assert.equal(launched.providerOrigin, "config");
   await writeFile(file, JSON.stringify({ ...manifest, name: "Edited fixture" }));
   await expect(banner).toBeVisible();
   await assert.rejects(launch(), /Invalid sidebar command/);

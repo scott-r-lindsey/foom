@@ -1,3 +1,7 @@
+import pluginFixture from "../../../fixtures/agent-plugin.json";
+import { parseAgentPlugin } from "../../../../src/shared/agent-manifest";
+import { configProvider } from "../../../../src/main/agents/providers/config";
+import { replaceConfigProviders } from "../../../../src/main/agents/providers/registry";
 import { AgyPlugin } from "../../../../src/main/agents/agy-plugin";
 import { CodexHookStatus } from "../../../../src/main/agents/codex-hook-status";
 import type { ConfirmWorkspace } from "../../../../src/shared/confirmation";
@@ -145,7 +149,7 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-async function launched(agent: "claude" | "agy" = "claude"): Promise<Workspace> {
+async function launched(agent: AgentId = "claude"): Promise<Workspace> {
   if (agent === "agy")
     agents.scan.mockResolvedValue({
       ...scan,
@@ -511,7 +515,7 @@ function held<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
 }
 
 /** Prepares and binds a Claude launch to t1, returning its hook key. */
-async function bound(agent: "claude" | "agy" = "claude"): Promise<string> {
+async function bound(agent: AgentId = "claude"): Promise<string> {
   const hooks = await prepare?.(agent);
   hooks?.bind?.("t1");
   return receiver.register.mock.calls.at(-1)?.[0] ?? "";
@@ -3597,4 +3601,37 @@ test("provider stalls recover on a working title while the provider line remains
   expect(states.at(-1)).toMatchObject({ state: "working", execution: { phase: "working" } });
   expect(states.at(-1)?.attentionKind).toBeUndefined();
   await workspace.dispose();
+});
+
+test("an unavailable config plugin still protects its recorded conversation from merged cleanup", async () => {
+  const manifest = parseAgentPlugin(JSON.stringify(pluginFixture));
+  replaceConfigProviders([configProvider(manifest, () => Promise.resolve())]);
+  const workspace = await launched(manifest.id);
+  try {
+    await workspace.hook({
+      terminalId: await bound(manifest.id),
+      action: "classify",
+      signal: `plugin:${manifest.id}:stop`,
+      conversationId: "saved-plugin-conversation",
+    });
+    await workspace.exited("t1", 0);
+    replaceConfigProviders([]);
+    const spare = { ...tree, path: "/spare", branch: "spare" };
+    vi.mocked(deps.worktrees.listWorktrees).mockResolvedValue([tree, spare]);
+    vi.mocked(deps.worktrees.mergedCommit).mockResolvedValue(true);
+    const confirm = vi.fn<ConfirmWorkspace>(() => Promise.resolve(false));
+    await cleanupCommand(
+      workspace,
+      { kind: "delete-merged-worktrees", repository: repo.path },
+      confirm,
+    );
+    expect(confirm).toHaveBeenLastCalledWith({
+      kind: "merged-worktrees",
+      worktrees: [{ branch: "feature", reason: "resumable conversation" }, { branch: "spare" }],
+    });
+    expect(deps.worktrees.removeWorktree).not.toHaveBeenCalled();
+  } finally {
+    replaceConfigProviders([]);
+    await workspace.dispose();
+  }
 });

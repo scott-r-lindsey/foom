@@ -70,6 +70,7 @@ export interface AgentLaunch {
   readonly environment?: readonly (readonly EnvironmentVariable[])[];
 }
 export interface AgentLaunched {
+  readonly providerOrigin?: "config";
   readonly id: string;
   readonly attention: "hooks" | "evaluator";
   /** Names of the variables Foom set from Environment settings; never values. */

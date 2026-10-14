@@ -1902,3 +1902,9 @@ Unknown events are inert. The launch supplies the same private fixed stdin/argv
 adapter, loopback token and cleanup lifecycle as built-ins. Neither templates nor
 hook output can request capabilities, execute code inside main or obtain secrets.
 Terminal content stays in the existing local evaluator.
+
+Session metadata marks config-agent origin separately from approval. A missing or
+unapproved provider retains its dormant conversation row across restart; syntactic
+ID validation and that marker grant no launch authority. Resume still resolves an
+approved provider and revalidates the checkout. Merged cleanup retains a recorded
+agent conversation even while its provider is unavailable.

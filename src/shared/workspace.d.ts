@@ -42,6 +42,8 @@ export interface WorkspaceTerminal {
   id: string;
   kind: "agent" | "shell";
   agent: AgentId;
+  /** Metadata only: preserves unavailable config-agent rows, never launch approval. */
+  providerOrigin?: "config";
   repository: string;
   worktree: string;
   branch: string | null;

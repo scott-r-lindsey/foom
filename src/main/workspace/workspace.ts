@@ -1,4 +1,4 @@
-import { knownAgentId, providerRevision } from "../agents/providers/registry";
+import { providerRevision } from "../agents/providers/registry";
 import { builtinAgent } from "../../shared/providers/catalog";
 import { ControlError } from "../control/validation";
 import type { ForgeTracking } from "../control/forge-tracking";
@@ -893,6 +893,7 @@ export class Workspace {
       this.launched.set(result.id, {
         ...(launchVersion === undefined ? {} : { launchVersion }),
         id: result.id,
+        ...(result.providerOrigin ? { providerOrigin: result.providerOrigin } : {}),
         startedAt: this.now(),
         launchFlags: [...defaultArguments],
         ...(result.environment?.length ? { environment: [...result.environment] } : {}),
@@ -1119,7 +1120,7 @@ export class Workspace {
     const sessions = [...this.launched.values()].filter((item) => item.worktree === worktree);
     if (sessions.some((item) => this.terminals.get(item.id)?.exitCode === undefined))
       return "running";
-    if (sessions.some((item) => knownAgentId(item.agent) && conversationId(item.conversationId)))
+    if (sessions.some((item) => item.kind === "agent" && conversationId(item.conversationId)))
       return "resumable conversation";
     return undefined;
   }
@@ -1480,6 +1481,7 @@ export class Workspace {
       this.launched.set(result.id, {
         ...(launchVersion === undefined ? {} : { launchVersion }),
         id: result.id,
+        ...(result.providerOrigin ? { providerOrigin: result.providerOrigin } : {}),
         startedAt: this.now(),
         launchFlags: [...defaultArguments],
         ...(result.environment?.length ? { environment: [...result.environment] } : {}),

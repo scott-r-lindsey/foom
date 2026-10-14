@@ -280,6 +280,7 @@ export class AgentService {
         binding?.dispose();
         return {
           id,
+          ...(provider.manifest ? { providerOrigin: "config" as const } : {}),
           attention: binding ? "hooks" : "evaluator",
           ...(environment.names.length ? { environment: environment.names } : {}),
         };
@@ -296,6 +297,7 @@ export class AgentService {
       }
       return {
         id,
+        ...(provider.manifest ? { providerOrigin: "config" as const } : {}),
         attention: binding ? "hooks" : "evaluator",
         ...(environment.names.length ? { environment: environment.names } : {}),
       };

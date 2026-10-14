@@ -244,3 +244,30 @@ test("round trips owned worktrees and refuses malformed ownership and budgets", 
   }
   expect(() => readSessions([{ ...record, orchestrator: { ...role, uncertain: 4 } }])).toThrow();
 });
+
+test("preserves config-agent conversation metadata while its provider is unavailable without granting launch authority", async () => {
+  const { knownAgentId } = await import("../../../../src/main/agents/providers/registry");
+  const plugin = { ...record, agent: "unavailable-fixture", providerOrigin: "config" };
+  expect(knownAgentId(plugin.agent)).toBe(false);
+  const entries = readSessions([plugin]);
+  expect(entries[0]).toMatchObject({
+    agent: plugin.agent,
+    providerOrigin: "config",
+    conversationId: record.conversationId,
+    exited: true,
+    dormant: true,
+  });
+  const { store } = await setup();
+  await store.save(entries);
+  expect(await store.load()).toEqual(entries);
+  expect(knownAgentId(plugin.agent)).toBe(false);
+  for (const value of [
+    { ...plugin, providerOrigin: true },
+    { ...plugin, providerOrigin: "builtin" },
+    { ...plugin, agent: "shell" },
+    { ...plugin, agent: "claude" },
+    { ...plugin, agent: "../escape" },
+  ])
+    expect(() => readSessions([value])).toThrow();
+  expect(() => readSessions([{ ...record, agent: "unavailable-fixture" }])).toThrow();
+});

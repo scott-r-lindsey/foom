@@ -1026,3 +1026,23 @@ it("discards a discovery result when an approved plugin changes during probing",
   replaceConfigProviders([]);
   expect((await service.scan()).agents.some((agent) => agent.id === "claude")).toBe(true);
 });
+
+it("marks config-agent results as metadata on both normal launch and immediate exit", async () => {
+  const manifest = parseAgentPlugin(JSON.stringify(pluginFixture));
+  replaceConfigProviders([configProvider(manifest, () => Promise.resolve())]);
+  const launch = { ...request, agent: manifest.id };
+  expect(await service.launch(launch)).toMatchObject({
+    id: "terminal-id",
+    providerOrigin: "config",
+  });
+  expect(create.mock.calls[0]?.[0].args).toEqual(manifest.launch.arguments);
+  service.release("terminal-id");
+  create.mockImplementationOnce(() => {
+    service.release("terminal-id");
+    return "terminal-id";
+  });
+  expect(await service.launch(launch)).toMatchObject({
+    id: "terminal-id",
+    providerOrigin: "config",
+  });
+});
