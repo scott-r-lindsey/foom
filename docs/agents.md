@@ -461,6 +461,10 @@ until recorded evidence or a verified structured signal is available.
 
 ## Agent providers and config-authored plugins (#407)
 
+The proposed [agent plugin format v2](agent-plugins.md) is a review draft for
+#423. It inventories current behavior and specifies a common declarative engine;
+the shipping v1 behavior below remains unchanged until implementation is reviewed.
+
 Main uses one `AgentProvider` interface for discovery, executable names, resume,
 MCP attachment, hook selection and launch argv. Claude Code, Codex and Antigravity
 are registered built-in providers. Their version floors, argument ordering,
