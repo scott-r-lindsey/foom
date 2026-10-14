@@ -7901,7 +7901,7 @@ process.stdin.on("data", (key) => {
 });
 `;
 
-test("an orchestrator adopts an open PR launches a child without taking focus and closes it after exit", {
+test("an orchestrator adopts an open PR, launches its child without taking focus and closes it after exit", {
   skip: process.platform === "win32" && "The fake agent is a POSIX script",
 }, async (context) => {
   const { chmod, mkdir, readFile, symlink, writeFile } = require("node:fs/promises");
@@ -7984,6 +7984,9 @@ test("an orchestrator adopts an open PR launches a child without taking focus an
     .click();
   await page.getByRole("menuitem", { name: "Make orchestrator…" }).click();
   const confirmation = await confirmationPage(app);
+  await expect(
+    confirmation.getByText(/Close its exited children, discarding their final screens/),
+  ).toBeVisible();
   await confirmation.getByRole("button", { name: "Make orchestrator" }).click();
   await expect.poll(async () => (await call("whoami")).role).toBe("orchestrator");
   const mcpUrl = parent.controlUrl.replace("/control/v1", "/mcp");

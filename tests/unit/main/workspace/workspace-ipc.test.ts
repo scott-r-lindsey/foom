@@ -440,6 +440,9 @@ test("orchestrator commands name only an owned terminal; the disclosure names a 
   const disclosure = orchestratorDisclosure("claude");
   expect(disclosure.title).toBe("Make Claude Code the Foom orchestrator?");
   expect(disclosure.accept).toBe("Make orchestrator");
+  expect(JSON.stringify(disclosure.sections)).toContain(
+    "Close its exited children, discarding their final screens; their worktrees and branches remain.",
+  );
   expect(JSON.stringify(disclosure.sections)).toMatch(/model provider/u);
   expect(JSON.stringify(disclosure.sections)).toMatch(/redaction cannot catch every secret/u);
   expect(JSON.stringify(disclosure.sections)).not.toMatch(/stops orchestrating/u);
