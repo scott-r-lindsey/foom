@@ -10659,23 +10659,61 @@ async function pickPreviewFile(app, page, root, file) {
   );
   return page.evaluate((root) => window.desktop.previews.pick(root), root);
 }
-async function previewContents(app, id, code) {
+async function previewContents(app, id, code, { requireAttached = false } = {}) {
   return app.evaluate(
-    ({ webContents }, { id, code }) => {
-      const contents = webContents
-        .getAllWebContents()
-        .find((entry) => entry.getURL().startsWith(`foom-preview://${id}/`));
-      if (!contents) throw new Error("Missing preview contents");
-      if (contents.isLoading()) {
-        contents.debugger.attach("1.3");
-        return contents.debugger
-          .sendCommand("Runtime.evaluate", { expression: code, returnByValue: true })
-          .then((result) => result.result.value)
-          .finally(() => contents.debugger.detach());
+    async ({ BrowserWindow, webContents }, { id, code, requireAttached }) => {
+      const current = () =>
+        webContents
+          .getAllWebContents()
+          .find((entry) => entry.getURL().startsWith(`foom-preview://${id}/`));
+      const contents = current();
+      const ready = () => {
+        const board = BrowserWindow.getAllWindows().find(
+          (window) => window.webContents.getURL() === "app://bundle/index.html",
+        );
+        return (
+          !contents.isDestroyed() &&
+          current() === contents &&
+          !contents.isLoading() &&
+          board.contentView.children.some((view) => view.webContents === contents)
+        );
+      };
+      if (!contents) {
+        if (requireAttached) return undefined;
+        throw new Error("Missing preview contents");
       }
-      return contents.executeJavaScript(code);
+      if (!requireAttached) {
+        if (contents.isLoading()) {
+          contents.debugger.attach("1.3");
+          return contents.debugger
+            .sendCommand("Runtime.evaluate", { expression: code, returnByValue: true })
+            .then((result) => result.result.value)
+            .finally(() => contents.debugger.detach());
+        }
+        return contents.executeJavaScript(code);
+      }
+      if (!ready()) return undefined;
+      let onDestroyed;
+      const destroyed = new Promise((resolve) => {
+        onDestroyed = () => resolve(undefined);
+        contents.once("destroyed", onDestroyed);
+      });
+      try {
+        // Electron can leave executeJavaScript pending after destruction.
+        const value = await Promise.race([contents.executeJavaScript(code), destroyed]);
+        // Replacement can happen while the renderer command is in flight. The
+        // next poll resolves the new contents and its main-process load signal.
+        if (!ready()) return undefined;
+        return value;
+      } catch (error) {
+        // A command can reject as navigation starts, before destruction fires.
+        if (!ready()) return undefined;
+        throw error;
+      } finally {
+        contents.removeListener("destroyed", onDestroyed);
+      }
     },
-    { id, code },
+    { id, code, requireAttached },
   );
 }
 async function previewViewState(app, id) {
@@ -11963,14 +12001,51 @@ test("preview live reload handles saves, assets, missing files, scroll and close
   const loaded = async (text) => {
     await expect
       .poll(async () => {
-        const state = await previewViewState(app, id);
-        if (!state.attached || state.loading) return "loading";
-        return previewContents(app, id, "document.body.textContent");
+        return previewContents(app, id, "document.body.textContent", { requireAttached: true });
       })
       .toContain(text);
     assert.equal((await previewViewState(app, id)).focused, false);
   };
   await loaded("first");
+  // Force replacement while a read is pending, through both Electron's
+  // executeJavaScript and CDP paths. Neither may strand or reject the poll.
+  for (const useDebugger of [false, true]) {
+    await app.evaluate(
+      ({ webContents }, { id, useDebugger }) => {
+        const contents = webContents
+          .getAllWebContents()
+          .find((entry) => entry.getURL().startsWith(`foom-preview://${id}/`));
+        const execute = contents.executeJavaScript.bind(contents);
+        contents.executeJavaScript = (code) => {
+          contents.executeJavaScript = execute;
+          let result;
+          if (useDebugger) {
+            contents.debugger.attach("1.3");
+            result = contents.debugger.sendCommand("Runtime.evaluate", {
+              expression: code,
+              awaitPromise: true,
+              returnByValue: true,
+            });
+          } else {
+            result = execute(code);
+          }
+          contents.reload();
+          return result;
+        };
+      },
+      { id, useDebugger },
+    );
+    assert.equal(
+      await previewContents(app, id, "new Promise(() => {})", { requireAttached: true }),
+      undefined,
+    );
+    await loaded("first");
+  }
+  // A script error on the current contents is still a test failure.
+  await assert.rejects(
+    previewContents(app, id, "throw new Error('preview read failed')", { requireAttached: true }),
+    /Script failed to execute/,
+  );
   await previewContents(app, id, "window.scrollTo(0, 1200)");
   await expect.poll(() => previewContents(app, id, "window.scrollY")).toBe(1200);
   // Page-world overrides cannot spoof the isolated-world scroll capture.
@@ -11996,8 +12071,9 @@ test("preview live reload handles saves, assets, missing files, scroll and close
   await writeFile(path.join(root, "live.css"), "body { color: rgb(4, 5, 6); }");
   await expect
     .poll(async () => {
-      if (!(await previewViewState(app, id)).attached) return "loading";
-      return previewContents(app, id, "getComputedStyle(document.body).color");
+      return previewContents(app, id, "getComputedStyle(document.body).color", {
+        requireAttached: true,
+      });
     })
     .toBe("rgb(4, 5, 6)");
   await unlink(path.join(root, "live.html"));
@@ -12033,9 +12109,7 @@ test("preview live reload follows retargeted symlinks and junctions", async (con
     id,
   );
   const text = async () =>
-    (await previewViewState(app, id)).attached
-      ? previewContents(app, id, "document.body.textContent")
-      : "loading";
+    previewContents(app, id, "document.body.textContent", { requireAttached: true });
   await expect.poll(text).toContain("one");
   await symlink(path.join(root, "two"), path.join(root, "next-alias"), kind);
   // Windows does not rename over an existing directory junction. Move the old
