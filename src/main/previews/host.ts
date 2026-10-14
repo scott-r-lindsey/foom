@@ -1,6 +1,6 @@
 import { app, session, WebContentsView } from "electron";
 import type { BrowserWindow, Session, WebContents } from "electron";
-import type { PreviewBounds, PreviewRecord } from "../../shared/previews";
+import type { PreviewBounds, PreviewRecord, PreviewSnapshot } from "../../shared/previews";
 import { canonicalRoot, readInside, readPreview } from "./contained-files";
 import { MARKDOWN_CSP, pathnameFor, responseHeaders } from "./policy";
 import { markdownAsset, markdownPage } from "./markdown";
@@ -12,6 +12,7 @@ interface HostedPreview {
   view: WebContentsView;
   partition: Session;
   bounds: PreviewBounds;
+  snapshot?: string;
   loaded: boolean;
   navigated: boolean;
   previouslyLoaded: boolean;
@@ -60,6 +61,8 @@ export class PreviewHost {
   }
   private lastFocused: WebContents;
   private disposed = false;
+  private covered = false;
+  private generation = 0;
   private pendingFocus: WebContents | undefined;
   private handoffTimer: ReturnType<typeof setTimeout> | undefined;
   private handoffVersion = 0;
@@ -269,7 +272,13 @@ export class PreviewHost {
       this.lastFocused = contents;
       this.pendingFocus = contents;
     }
-    contents.prependListener("before-input-event", this.boardInput);
+    // The board's own guard (prepended in the constructor) runs first, so a pending
+    // focus handoff blocks and Escape cancels it here too.
+    contents.on("before-input-event", (event, input) => {
+      // Use the owning board's dispatcher and synchronous input guards, including
+      // the trusted confirmation guard. Forwarding never changes native focus.
+      this.window.webContents.emit("before-input-event", event, input);
+    });
     contents.setWindowOpenHandler(() => ({ action: "deny" }));
     contents.on("will-attach-webview", (event) => {
       event.preventDefault();
@@ -332,6 +341,7 @@ export class PreviewHost {
         if (contents.isDestroyed()) return;
         entry.loaded = true;
         this.applyBounds(entry);
+        if (this.covered) void this.capture(entry, this.generation);
       };
       if (entry.scroll) {
         const [x, y] = entry.scroll;
@@ -392,11 +402,10 @@ export class PreviewHost {
     };
     entry.view.setBounds(bounds);
     entry.view.webContents.setZoomFactor(zoom);
-    const visible = entry.bounds.visible && bounds.width > 0 && bounds.height > 0;
+    const visible = !this.covered && entry.bounds.visible && bounds.width > 0 && bounds.height > 0;
     entry.view.setVisible(visible);
     if (!visible) {
-      if (entry.restoreFocus && this.lastFocused === entry.view.webContents)
-        this.lastFocused = this.window.webContents;
+      if (this.lastFocused === entry.view.webContents) this.lastFocused = this.window.webContents;
       this.cancelHandoff(entry.view.webContents);
       entry.restoreFocus = false;
       this.detach(entry);
@@ -419,6 +428,51 @@ export class PreviewHost {
     if (!bounds.visible && this.lastFocused === entry.view.webContents)
       this.lastFocused = this.window.webContents;
     this.applyBounds(entry);
+    this.publishSnapshots();
+  }
+  private publishSnapshots() {
+    if (this.window.webContents.isDestroyed()) return;
+    const snapshots: PreviewSnapshot[] = [];
+    if (this.covered) {
+      for (const [id, entry] of this.hosted) {
+        if (entry.snapshot && entry.bounds.visible)
+          snapshots.push({ id, bounds: entry.bounds, image: entry.snapshot });
+      }
+    }
+    this.window.webContents.send("preview:snapshots", snapshots);
+  }
+  async cover(covered: boolean): Promise<void> {
+    if (this.disposed || this.covered === covered) return;
+    this.covered = covered;
+    const generation = ++this.generation;
+    if (!covered) {
+      for (const entry of this.hosted.values()) {
+        delete entry.snapshot;
+        this.applyBounds(entry);
+      }
+      this.publishSnapshots();
+      return;
+    }
+    await Promise.all([...this.hosted.values()].map((entry) => this.capture(entry, generation)));
+  }
+  private async capture(entry: HostedPreview, generation: number) {
+    const contents = entry.view.webContents;
+    // Start capture before detaching. A slow/failed capture cannot retain native
+    // hit-testing over board UI. stayHidden also covers loads completed underneath.
+    const capture =
+      entry.loaded && !contents.isDestroyed()
+        ? contents.capturePage(undefined, { stayHidden: true })
+        : undefined;
+    this.applyBounds(entry);
+    if (!capture) return;
+    try {
+      const image = await capture;
+      if (this.disposed || generation !== this.generation || contents.isDestroyed()) return;
+      entry.snapshot = image.toDataURL();
+      this.publishSnapshots();
+    } catch {
+      // Keep the overlay usable if the page closes or capture fails.
+    }
   }
   async close(id: string): Promise<void> {
     if (!this.registry.records.delete(id)) throw new Error("Unknown preview ID");
@@ -434,6 +488,7 @@ export class PreviewHost {
       if (this.lastFocused === contents) this.lastFocused = this.window.webContents;
       if (!contents.isDestroyed()) contents.close();
       this.hosted.delete(id);
+      this.publishSnapshots();
       partition.protocol.unhandle("foom-preview");
       partition.webRequest.onBeforeRequest(null);
       await partition.clearStorageData();

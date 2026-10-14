@@ -34,6 +34,7 @@ test("board IPC accepts exact requests and routes only IDs to its window host", 
     open: vi.fn(() => Promise.resolve("a".repeat(32))),
     close: vi.fn(async () => {}),
     bounds: vi.fn(),
+    cover: vi.fn(async () => {}),
   };
   const dispose = attachPreviews(ipc, host as unknown as PreviewHost);
   const invoke = (name: string, ...args: unknown[]) =>
@@ -59,6 +60,10 @@ test("board IPC accepts exact requests and routes only IDs to its window host", 
     expect(() => invoke("close", ...args)).toThrow();
   for (const args of [[], ["wrong", bounds], [id, bounds, "extra"], [id, {}]])
     expect(() => invoke("bounds", ...args)).toThrow();
+  await invoke("cover", true);
+  expect(host.cover).toHaveBeenCalledWith(true);
+  for (const args of [[], [null], [1], [true, false]])
+    expect(() => invoke("cover", ...args)).toThrow();
   dispose();
   expect(handlers.size).toBe(0);
 });
