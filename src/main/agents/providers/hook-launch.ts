@@ -1,3 +1,6 @@
+import { prepareV2Hooks } from "./v2-hook-launch";
+import type { ManifestChannel } from "../../../shared/agent-manifest-v2";
+import type { V2HookState } from "./v2-events";
 import { agentProvider } from "./registry";
 import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
@@ -10,7 +13,11 @@ import type { AgentHooks } from "../../../shared/agents";
 import type { HookAgent, HookLaunch } from "../../../shared/hooks";
 
 export interface HookRegistrar {
-  register(key: string, agent: HookAgent): HookLaunch;
+  register(
+    key: string,
+    agent: HookAgent,
+    v2?: { channels: Map<string, ManifestChannel>; state: V2HookState },
+  ): HookLaunch;
 }
 
 /** POSIX single-quoting: the path is data to the agent's hook shell, never syntax. */
@@ -30,8 +37,11 @@ export async function prepareHookLaunch(
   platform: NodeJS.Platform = process.platform,
   scratch = tmpdir(),
   execute = promisify(execFile),
+  stableDirectory?: string,
 ): Promise<AgentHooks> {
   const windows = platform === "win32";
+  const model = agentProvider(agent).model;
+  if (model) return prepareV2Hooks(receiver, model, bind, windows, scratch, stableDirectory);
   const adapter =
     agent === "agy"
       ? undefined

@@ -66,10 +66,19 @@ export function pluginDisclosure(
           arguments: true,
           items: [JSON.stringify(review?.text ?? manifest)],
         },
+        ...(manifest.hooks?.channels
+          .filter((channel) => channel.disclosure)
+          .map((channel) => ({
+            label: `Channel acknowledgement: ${channel.disclosure?.id ?? channel.id}`,
+            items: [
+              channel.disclosure?.text ?? "",
+              "Allow plugin acknowledges this disclosure for these exact manifest bytes in this profile.",
+            ],
+          })) ?? []),
         {
           label: "Unavailable capabilities",
           items: [
-            "Hook channels, health and setup require later engine versions.",
+            "Setup actions require a later engine version.",
             "Environment bypass confirmation shows names and predicates only, never values.",
           ],
         },

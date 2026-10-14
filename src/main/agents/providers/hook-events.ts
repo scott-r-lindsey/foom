@@ -1,3 +1,5 @@
+import type { ManifestChannel } from "../../../shared/agent-manifest-v2";
+import { reduceV2, type V2HookState } from "./v2-events";
 import type { HookMapping } from "../../../shared/agent-plugin";
 import { conversationId } from "../conversation";
 import type { HookAgent, HookSignal } from "../../../shared/hooks";
@@ -9,6 +11,8 @@ export type HookSession = {
   sequence?: number;
   completedTurns?: Set<string>;
   mapping?: HookMapping;
+  channels?: Map<string, ManifestChannel>;
+  v2State?: V2HookState;
 };
 function record(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -23,7 +27,22 @@ export function reduceEvent(
   value: unknown,
   event?: string | string[],
   sequenceHeader?: string | string[],
+  channelHeader?: string | string[],
 ): HookSignal | undefined {
+  if (session.channels) {
+    const channel =
+      typeof channelHeader === "string" ? session.channels.get(channelHeader) : undefined;
+    if (!channel || !session.v2State) throw new Error("Invalid channel");
+    return reduceV2(
+      channel,
+      session.v2State,
+      session.terminalId,
+      session.agent,
+      value,
+      event,
+      sequenceHeader,
+    );
+  }
   if (!record(value)) throw new Error("Invalid event");
   if (session.mapping) {
     const mapping = session.mapping;

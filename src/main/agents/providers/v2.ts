@@ -12,8 +12,6 @@ import { CHILD_PROMPT, CONFIG_PROMPT, CLI_GUIDANCE } from "./cli-launch";
 import { boundedArguments, collectMerge, discoveryFacts, expandV2, selected } from "./v2-values";
 
 export function availableV2(model: AgentManifestV2): void {
-  if (model.hooks) throw new AgentManifestError("$.hooks", "v2-hooks-unavailable");
-  if (model.health) throw new AgentManifestError("$.health", "v2-health-unavailable");
   if (model.setup || model.files.some((file) => file.scope === "plugin"))
     throw new AgentManifestError("$.setup", "v2-setup-unavailable");
 }
@@ -60,7 +58,18 @@ export function v2Provider(input: AgentManifestV2, validate: () => Promise<void>
         id: model.id,
         path,
         version: version || null,
-        hooks: false,
+        hooks: Boolean(
+          model.hooks?.channels.some((channel) =>
+            selected(
+              channel.when,
+              discoveryFacts(model, version, help, {
+                hooksEnabled: true,
+                healthTrusted: false,
+                setupState: "unavailable",
+              }),
+            ),
+          ),
+        ),
         mcp: mcpAvailable(false) || resumeMcp,
         restoreControl: model.conversation.restoreControl && resumeMcp,
         reason: "Config-authored agent; approved launch manifest.",
@@ -79,6 +88,7 @@ export function v2Provider(input: AgentManifestV2, validate: () => Promise<void>
       control,
       configSession,
       hooksEnabled,
+      binding,
     ): Promise<PreparedLaunch> {
       await validate();
       const probe = probes.get(installation.path ?? "");
@@ -89,7 +99,7 @@ export function v2Provider(input: AgentManifestV2, validate: () => Promise<void>
         configGreeting,
         hasPrompt: request.prompt !== undefined,
         resume: request.conversationId !== undefined,
-        healthTrusted: false,
+        healthTrusted: binding?.v2?.runtime?.health.get() === "trusted",
         setupState: "unavailable",
       });
       if (
@@ -119,14 +129,29 @@ export function v2Provider(input: AgentManifestV2, validate: () => Promise<void>
       else if (guidance) prompts.push(CLI_GUIDANCE);
       const newId =
         request.conversationId === undefined && model.conversation.newId ? randomUUID() : undefined;
-      const values: Record<string, string> = {
+      const values: Record<string, string | string[] | number> = {
+        ...binding?.v2?.values,
         ...(request.conversationId === undefined ? {} : { conversationId: request.conversationId }),
         ...(newId === undefined ? {} : { newId }),
         ...(prompts.length ? { prompt: prompts.join("\n\n") } : {}),
       };
+      for (const channel of model.hooks?.channels ?? []) {
+        const attached = Boolean(binding?.v2 && selected(channel.when, facts));
+        if (attached) binding?.v2?.channels.set(channel.id, channel);
+        Object.assign(facts, { [`channelAttached:${channel.id}`]: attached });
+      }
+      if (
+        binding?.v2 &&
+        (newId ||
+          (request.pinConversation && model.conversation.resumePin === "requested-on-paste"))
+      ) {
+        const pin = newId ?? request.conversationId;
+        if (pin) binding.v2.state.conversation = pin;
+      }
       const mcp = Boolean(control && model.launch.mcp && selected(model.launch.mcp.when, facts));
       let scratch: string | undefined;
       const dispose = () => {
+        binding?.dispose();
         if (scratch) void rm(scratch, { recursive: true, force: true }).catch(() => undefined);
       };
       try {
@@ -146,29 +171,42 @@ export function v2Provider(input: AgentManifestV2, validate: () => Promise<void>
           url.pathname = "/mcp";
           values["mcpUrl"] = url.href;
           values["mcpName"] = `foom_${randomUUID().replaceAll("-", "")}`;
-          const files = model.files.filter((file) => selected(file.when, facts));
-          if (files.length) {
+        }
+        const files = model.files.filter(
+          (file) =>
+            selected(file.when, facts) &&
+            (mcp ||
+              !model.launch.mcp?.arguments.some((arg) => arg.includes(`{file:${file.name}}`))),
+        );
+        if (files.length) {
+          const hookDirectory = binding?.v2?.values["hookDir"];
+          if (typeof hookDirectory !== "string")
             scratch = await mkdtemp(join(tmpdir(), "foom-v2-"));
-            const directory = await privateDirectory(scratch);
-            for (const file of files) values[`file:${file.name}`] = join(directory, file.name);
-            for (const file of files) {
-              const target = values[`file:${file.name}`];
-              if (!target) throw new Error("Missing launch file");
-              const content = expandV2(file.content, values);
-              dataContainer(content, file.format, "$.files", true);
-              // Every directory is new, beneath the private launch root.
-              let parent = directory;
-              for (const component of file.name.split("/").slice(0, -1))
-                parent = await privateDirectory(parent, component);
-              const handle = await createPrivateFile(target);
-              try {
-                await handle.writeFile(content);
-                await handle.sync();
-              } finally {
-                await handle.close();
-              }
-              await verifyPrivate(target, false);
+          const directory =
+            typeof hookDirectory === "string"
+              ? hookDirectory
+              : await privateDirectory(scratch ?? "");
+          for (const file of files) {
+            values[`file:${file.name}`] = join(directory, file.name);
+            values[`hookFile:${file.name}`] = join(directory, file.name);
+          }
+          for (const file of files) {
+            const target = values[`file:${file.name}`];
+            if (typeof target !== "string") throw new Error("Missing launch file");
+            const content = expandV2(file.content, values);
+            dataContainer(content, file.format, "$.files", true);
+            // Every directory is new, beneath the private launch root.
+            let parent = directory;
+            for (const component of file.name.split("/").slice(0, -1))
+              parent = await privateDirectory(parent, component);
+            const handle = await createPrivateFile(target);
+            try {
+              await handle.writeFile(content);
+              await handle.sync();
+            } finally {
+              await handle.close();
             }
+            await verifyPrivate(target, false);
           }
         }
         const args: string[] = [];
@@ -178,8 +216,8 @@ export function v2Provider(input: AgentManifestV2, validate: () => Promise<void>
         if (mcp && tools)
           grants = tools.names.map((tool) =>
             tools.format === "mcp-double-underscore"
-              ? `mcp__${values["mcpName"] ?? ""}__${tool}`
-              : `${values["mcpName"] ?? ""}(${tool})`,
+              ? `mcp__${String(values["mcpName"] ?? "")}__${tool}`
+              : `${String(values["mcpName"] ?? "")}(${tool})`,
           );
         const expand = (templates: readonly string[]) =>
           templates.map((arg) => expandV2(arg, values));
@@ -201,6 +239,9 @@ export function v2Provider(input: AgentManifestV2, validate: () => Promise<void>
               args.push(...expand(model.launch.display.arguments));
           } else if (stage === "mcp") {
             if (mcp && model.launch.mcp) args.push(...expand(model.launch.mcp.arguments));
+          } else if (stage === "hooks") {
+            for (const channel of binding?.v2?.channels.values() ?? [])
+              args.push(...expand(channel.arguments));
           } else if (stage === "tools") {
             toolIndex = args.length;
             if (tools?.merge && mcp && grants.length) args.push(tools.merge.output, ...grants);
@@ -230,9 +271,11 @@ export function v2Provider(input: AgentManifestV2, validate: () => Promise<void>
           dispose,
         };
       } catch (error) {
+        binding?.dispose();
         if (scratch) {
           try {
             control?.dispose();
+            binding?.dispose();
           } finally {
             await rm(scratch, { recursive: true, force: true });
           }

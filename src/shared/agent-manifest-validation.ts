@@ -158,6 +158,11 @@ export function validateV2(manifest: AgentManifestV2): void {
     const owner = `channel:${channel.id}`;
     condition(channel.when, `${path}.when`, owner, available, ["facts"], earlier);
     const mapping = channel.mapping;
+    if (
+      mapping.event.source === "header" &&
+      mapping.cases.some((entry) => !/^[A-Za-z][A-Za-z0-9_-]{0,63}$/u.test(entry.event))
+    )
+      fail(path, "incompatible-combination");
     selector(mapping.session, `${path}.mapping.session`, ["payload"]);
     selector(mapping.event, `${path}.mapping.event`, ["payload", "header"]);
     if (mapping.event.source === "header" && mapping.event.path[0] !== "X-Foom-Event")

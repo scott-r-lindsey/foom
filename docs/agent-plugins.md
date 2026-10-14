@@ -3,11 +3,10 @@
 Status: parser implemented by #430 and the generic config launch engine by #431,
 2026-10-14. Approved v2 config plugins support discovery, launch, private MCP files,
 prompts, preview grants, argument/environment bypass disclosure, resume and local
-attention rules. Manifests declaring hooks, health or setup remain unavailable with
-fixed `v2-hooks-unavailable`, `v2-health-unavailable` or `v2-setup-unavailable` reasons.
+attention rules. Hook channels, private hook files, payload mapping and observed health are implemented
+by #432. Manifests declaring setup remain unavailable with `v2-setup-unavailable`.
 Built-in conversion and those remaining capabilities are future work; parsing alone
-grants no capability. Completion in attached mode and resume pinning are vacuous
-without attached hooks; #432 adds their channel integration.
+grants no capability. Built-in providers retain their existing hook implementation pending conversion.
 [Issue #423](https://github.com/scott-r-lindsey/foom/issues/423) established the
 reviewed specification; [agent cards #409](https://github.com/scott-r-lindsey/foom/issues/409)
 is now closed.
@@ -140,7 +139,7 @@ engine after substitution and layering; this parser never expands launch data.
 | File | `{name,scope,format,content,when?}`; scope launch or plugin; format json or toml; content multiline template; must parse after typed expansion |
 | Channel | `{id,when,observer,arguments,mapping,disclosure?}` |
 | observer | `{transport,placement,version,response,delivery,timeoutMs,sequence?,basename?,commandArguments?}`; transport stdin or argv-last; placement launch, stable or plugin; version 1–100000 integer or `{posix,win32}` integers for existing platform ABIs; response silent or empty-json-first; delivery foreground or detached; timeoutMs 1000–3000; sequence boolean default false; basename [A-Za-z][A-Za-z0-9_-]* <=40 default observer; commandArguments <=8 literal event/label tokens [A-Za-z][A-Za-z0-9_-]* <=64, never executable code |
-| disclosure | `{id,text,acknowledgement:"profile"}`; ID and Text; selected channel requires main-recorded digest-bound acknowledgement; never renderer boolean consent |
+| disclosure | `{id,text,acknowledgement:"profile"}`; ID and Text; selected channel requires main-recorded digest-bound acknowledgement; the trusted Allow plugin dialog explicitly acknowledges each channel disclosure for those exact bytes in that profile, using the existing plugin approval baseline; never renderer boolean consent |
 
 Allowed placeholders, with no recursion or environment interpolation by Foom:
 
@@ -156,7 +155,8 @@ Allowed placeholders, with no recursion or environment interpolation by Foom:
 | {mcpName}, {mcpUrl}, {tool} | MCP file/argv; tool only toolPermissions arguments; JSON/TOML string positions require :json/:toml suffix |
 | {observerVersion:CHANNEL} | Plugin JSON numeric metadata slot |
 
-A CHANNEL reference may append `.EVENT` to pass that one declared event as a fixed observer argv entry; this is how an agy handler sets the event header. EVENT must match a mapping event, never payload text.
+A CHANNEL reference may append `.EVENT` to pass that one declared event as a fixed observer argv entry;
+command suffixes and header event names must match `[A-Za-z][A-Za-z0-9_-]{0,63}`; this is how an agy handler sets the event header. EVENT must match a mapping event, never payload text.
 
 `:json` serializes a native value; `:toml` serializes a TOML basic string.
 Literal JSON/TOML braces are not placeholders. Unknown/malformed placeholders,

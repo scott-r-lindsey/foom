@@ -1,3 +1,4 @@
+import type { V2Binding } from "./v2-hooks";
 import type { EnvironmentVariable } from "./environment";
 import type { AgyPluginStatus } from "./agy-plugin";
 export type CodexHookState = "not-reviewed" | "trusted" | "declined" | "outdated";
@@ -33,6 +34,7 @@ export interface AgentScan {
 }
 /** Trusted main-process adapters supplied by the hook receiver, never the renderer. */
 export interface AgentHooks {
+  readonly v2?: V2Binding;
   readonly observerCommand: string;
   readonly observerArgv: readonly string[];
   readonly lifecycleCommand?: string;
@@ -45,6 +47,8 @@ export interface AgentHooks {
 export interface AgentLaunch {
   readonly terminalId?: string;
   readonly conversationId?: string;
+  /** Main-only strict identity for pasted or explicitly assigned conversations. */
+  readonly pinConversation?: boolean;
   /** Validated defaults from main settings, never copied from a renderer launch request. */
   readonly defaultArguments?: readonly string[];
   /** Main-only authorization; never copied from renderer payloads. */

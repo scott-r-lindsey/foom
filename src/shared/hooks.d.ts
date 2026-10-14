@@ -5,6 +5,10 @@ export interface HookSignal {
   terminalId: string;
   conversationId?: string;
   action: "classify" | "needs_input" | "working" | "ready" | "failed";
+  channel?: string;
+  caseId?: string;
+  endsTurn?: boolean;
+  recoverTurn?: boolean;
   terminationReason?: "model_stop" | "max_steps_exceeded" | "error";
   fullyIdle?: boolean;
   signal:

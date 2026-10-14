@@ -166,13 +166,16 @@ export function bypassEnvironment(
     .map((rule) => `${rule.name}: ${rule.match}`);
 }
 
-export function expandV2(template: string, values: Readonly<Record<string, string>>): string {
+export function expandV2(
+  template: string,
+  values: Readonly<Record<string, string | string[] | number>>,
+): string {
   return template.replace(
-    /\{(prompt|conversationId|newId|mcpName|mcpUrl|tool|file:[A-Za-z0-9_./-]+)(:json|:toml)?\}/gu,
+    /\{(prompt|conversationId|newId|mcpName|mcpUrl|tool|hookDir|(?:file|hookFile):[A-Za-z0-9_./-]+|(?:observerCommand|observerArgv|observerVersion):[A-Za-z0-9_.-]+)(:json|:toml)?\}/gu,
     (_whole, key: string, format: string | undefined) => {
       const value = values[key];
       if (value === undefined) throw new Error("Unselected launch substitution");
-      return format ? JSON.stringify(value) : value;
+      return format ? JSON.stringify(value) : String(value);
     },
   );
 }

@@ -1,3 +1,5 @@
+import type { ManifestChannel } from "../../shared/agent-manifest-v2";
+import type { V2HookState } from "./providers/v2-events";
 import { agentProvider } from "./providers/registry";
 import { reduceEvent, identifier } from "./providers/hook-events";
 import type { HookSession as Session } from "./providers/hook-events";
@@ -49,17 +51,22 @@ export class HookReceiver {
     return receiver;
   }
 
-  register(terminalId: string, agent: HookAgent): HookLaunch {
+  register(
+    terminalId: string,
+    agent: HookAgent,
+    v2?: { channels: Map<string, ManifestChannel>; state: V2HookState },
+  ): HookLaunch {
     if (this.closed) throw new Error("Receiver is closed");
     if (!identifier(terminalId)) throw new Error("Invalid terminal ID");
     const sessionId = randomUUID();
     const token = randomBytes(32).toString("hex");
-    const mapping = agentProvider(agent).manifest?.attention.hook;
+    const mapping = v2 ? undefined : agentProvider(agent).manifest?.attention.hook;
     this.sessions.set(sessionId, {
       terminalId,
       agent,
       digest: digest(token),
       ...(mapping ? { mapping } : {}),
+      ...(v2 ? { channels: v2.channels, v2State: v2.state } : {}),
     });
     return {
       env: { FOOM_SESSION: sessionId, FOOM_TOKEN: token, FOOM_HOOK_URL: `${this.origin}/hooks` },
@@ -148,6 +155,7 @@ export class HookReceiver {
           value,
           request.headers["x-foom-event"],
           request.headers["x-foom-sequence"],
+          request.headers["x-foom-channel"],
         );
       } catch {
         end(400);

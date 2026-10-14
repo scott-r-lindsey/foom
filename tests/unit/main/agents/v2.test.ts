@@ -394,16 +394,16 @@ it("supports file-free server-parentheses grants, conditional blocks and alterna
   expect(noMcp.prepared.mcp).toBe(false);
   expect(noMcp.prepared.args).toContain("--allow=Bad(");
 });
-it("refuses hooks/health/setup, reviews the whole surface, and applies approved attention rules", () => {
+it("supports hooks/health, refuses setup, reviews the whole surface, and applies approved attention rules", () => {
   const m = model();
   expect(() => {
     availableV2(model({ ...hookFixture, id: fixture.id }));
-  }).toThrow("v2-hooks-unavailable");
+  }).not.toThrow();
   const health = model({ ...healthFixture, id: fixture.id });
   health.hooks = undefined;
   expect(() => {
     availableV2(health);
-  }).toThrow("v2-health-unavailable");
+  }).toThrow("v2-setup-unavailable");
   const setup = model({ ...setupFixture, id: fixture.id });
   setup.hooks = undefined;
   expect(() => {
