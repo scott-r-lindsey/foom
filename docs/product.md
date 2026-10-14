@@ -588,7 +588,7 @@ It replaces the terminal tiles beside the persistent sidebar in the same window.
 Esc returns to the tiles and restores the same focused sidebar row.
 Selecting a terminal in the sidebar also leaves Settings; terminals keep running throughout.
 
-General offers **Auto-remove merged worktrees**, off by default and applying to all repositories, and **Restore sessions on launch**, on by default. Turning it on through agent-edited config requires Allow because it also permits restoring orchestrator control.
+General offers **Restore sessions on launch**, on by default. Turning it on through agent-edited config requires Allow because it also permits restoring orchestrator control. General also offers **Auto-remove merged worktrees**, off by default and applying to all repositories.
 
 Agents and hooks, Repositories, and Worktrees use the same controls as
 preflight. Changes apply immediately and persist. A repository scan in Settings
