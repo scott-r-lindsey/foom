@@ -1663,8 +1663,20 @@ and context isolation, disables Node integration (including workers and child
 frames), dialogs, drag navigation and webviews, and disables devtools in packaged
 builds. Window opens and redirects are denied. Only same-origin `.md` or
 `.markdown` page navigation is allowed; HTML and external links are blocked.
-Markdown rendering and the confirmed external-link/network flow remain separate
-follow-ups.
+The confirmed external-link/network flow remains a separate follow-up.
+
+Markdown responses embed the source as inert JSON with every `<` escaped, then run
+one synchronous browser bundle inside the preview origin. markdown-it 15 disables
+raw HTML and accepts only relative, HTTP(S) and mailto links; highlight.js 11 uses
+its common subset. A small core rule generates disabled task checkboxes. Mermaid
+remains escaped code. Relative Markdown links navigate within the same tile;
+external links have a visible arrow and remain subject to main's navigation guard.
+The exact `/__foom__/markdown.js` and `/__foom__/markdown.css` assets are served only
+by preview sessions; the reserved `__foom__` segment cannot name worktree files or
+symlink targets. The isolated stylesheet uses Eclipse tokens and follows
+`prefers-color-scheme` from `nativeTheme`; custom interface themes are not conveyed.
+Bundled dependency licenses are included in `THIRD_PARTY_NOTICES.txt`.
+
 Every non-hidden file in the captured worktree is readable by a preview page.
 
 As in the spike, a parent directory swap between realpath/stat and open is not

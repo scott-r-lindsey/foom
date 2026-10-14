@@ -1,3 +1,5 @@
+import fs from "node:fs";
+import { MARKDOWN_CSP } from "../../../../src/main/previews/policy";
 import { EventEmitter } from "node:events";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -183,6 +185,23 @@ test("loads detached, denies capabilities, and attaches only loaded visible view
     f.host.bounds(id, { x: 0, y: 0, width: 1, height: 1, visible: true });
   }).toThrow("Unknown");
   await expect(f.host.close(id)).rejects.toThrow("Unknown");
+});
+test("serves bundled assets and wraps Markdown with its restrictive CSP", async () => {
+  const f = await fixture();
+  const { id } = await f.open();
+  const serve = partition.protocol.handle.mock.calls[0]?.[1];
+  if (!serve) throw new Error("Missing protocol");
+  await writeFile(join(f.root, "a.md"), "# Safe </script>");
+  const response = serve({ url: `foom-preview://${id}/a.md` });
+  expect(response.headers.get("content-type")).toBe("text/html; charset=utf-8");
+  expect(response.headers.get("content-security-policy")).toBe(MARKDOWN_CSP);
+  expect(await response.text()).toContain('"# Safe \\u003c/script>"');
+  const read = vi.spyOn(fs, "readFileSync").mockReturnValue(Buffer.from("bundled"));
+  const asset = serve({ url: `foom-preview://${id}/__foom__/markdown.js` });
+  read.mockRestore();
+  expect(asset.headers.get("content-type")).toBe("text/javascript; charset=utf-8");
+  expect(await asset.text()).toBe("bundled");
+  await f.host.dispose(false);
 });
 test("only a human mouse-down permits focus, and navigation/reload detach before loading", async () => {
   const f = await fixture();

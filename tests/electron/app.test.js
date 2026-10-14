@@ -10489,6 +10489,93 @@ async function typeIntoFocusedContents(app, text, allowNoFocus = false) {
   }
 }
 
+test("Markdown previews render hostile documents safely, follow native theme and navigate to a sibling", async (context) => {
+  const app = await launchApp(context);
+  const page = await boardPage(app);
+  const terminal = (await page.evaluate(() => window.desktop.workspace())).terminals[0];
+  const root = terminal.worktree;
+  const hostile = await readFile(path.join(__dirname, "../fixtures/previews/hostile.md"), "utf8");
+  await writeFile(
+    path.join(root, "document.md"),
+    `${hostile}\n\n- [x] Done\n\n[Sibling](sibling.md)\n\n[External](https://example.com)`,
+  );
+  await writeFile(
+    path.join(root, "sibling.md"),
+    "# Sibling document\n\n```js\nconst answer = 42;\n```\n",
+  );
+  const id = await page.evaluate((root) => window.desktop.previews.open(root, "document.md"), root);
+  await page.evaluate(
+    (id) =>
+      window.desktop.previews.bounds(id, {
+        x: 350,
+        y: 100,
+        width: 400,
+        height: 250,
+        visible: true,
+      }),
+    id,
+  );
+  await expect.poll(async () => (await previewViewState(app, id)).attached).toBe(true);
+  assert.equal(
+    await previewContents(app, id, 'document.querySelector("h1")?.textContent'),
+    "Hostile Markdown",
+  );
+  assert.deepEqual(
+    await previewContents(
+      app,
+      id,
+      `({
+    pwned: window.__pwned ?? null,
+    frames: document.querySelectorAll("iframe").length,
+    handlers: [...document.querySelectorAll("*")].flatMap(element => element.getAttributeNames()).filter(name => /^on/i.test(name)),
+    unsafe: [...document.querySelectorAll("a")].filter(link => /^(javascript|vbscript|data|file):/i.test(link.getAttribute("href"))).length,
+    scripts: document.scripts.length,
+    task: document.querySelector('input[type="checkbox"]')?.disabled,
+    external: document.querySelector('a[href="https://example.com"]')?.className,
+  })`,
+    ),
+    {
+      pwned: null,
+      frames: 0,
+      handlers: [],
+      unsafe: 0,
+      scripts: 2,
+      task: true,
+      external: "external",
+    },
+  );
+  for (const [mode, background] of [
+    ["dark", "rgb(5, 4, 10)"],
+    ["light", "rgb(243, 240, 250)"],
+  ]) {
+    await page.evaluate((colorMode) => window.desktop.saveSetup({ colorMode }), mode);
+    await expect
+      .poll(() =>
+        previewContents(app, id, "getComputedStyle(document.documentElement).backgroundColor"),
+      )
+      .toBe(background);
+  }
+  const oldContents = (await previewViewState(app, id)).contentsId;
+  await previewContents(app, id, `document.querySelector('a[href="sibling.md"]').click()`);
+  await expect
+    .poll(async () => {
+      const state = await previewViewState(app, id);
+      return state.attached && state.contentsId !== oldContents;
+    })
+    .toBe(true);
+  assert.equal(
+    await previewContents(app, id, 'document.querySelector("h1")?.textContent'),
+    "Sibling document",
+  );
+  assert.equal(await previewContents(app, id, "location.pathname"), "/sibling.md");
+  assert.equal(
+    await previewContents(app, id, 'document.querySelector(".hljs-keyword")?.textContent'),
+    "const",
+  );
+  assert.equal((await previewViewState(app, id)).focused, false);
+  await page.evaluate((id) => window.desktop.previews.close(id), id);
+});
+
 test("preview host loads and reloads detached, never steals terminal keystrokes, and focuses on a click", async (context) => {
   const app = await launchApp(context);
   const page = await boardPage(app);
