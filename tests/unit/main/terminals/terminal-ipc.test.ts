@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
+import { Terminal } from "@xterm/headless";
 import { SerializeAddon } from "@xterm/addon-serialize";
 import type { TerminalTelemetry, TerminalSpec } from "../../../../src/shared/desktop";
 import type { BrowserWindow, WebContents, IpcMainEvent, IpcMainInvokeEvent } from "electron";
@@ -230,6 +231,35 @@ test("detached output continuously updates real headless screen and scrollback",
   expect(pty().resize).toHaveBeenCalledWith(100, 30);
   expect(pty().write).toHaveBeenCalledWith("hello");
 });
+
+test.each(["before", "after"])(
+  "initial prompt output %s the attach barrier reaches the view exactly once",
+  async (order) => {
+    const id = manager.create(spec);
+    const view = new Terminal({ cols: spec.cols, rows: spec.rows, allowProposedApi: true });
+    const delivered: string[] = [];
+    try {
+      if (order === "before") output("fixture$ ");
+      const attaching = manager.attach(id, (token, data) => {
+        delivered.push(data);
+        view.write(data, () => {
+          manager.acknowledge(id, token, data.length);
+        });
+      });
+      if (order === "after") output("fixture$ ");
+      await attaching;
+      output("live");
+      expect(await manager.tail(id, 1)).toEqual(["fixture$ live"]);
+      await new Promise<void>((resolve) => {
+        view.write("", resolve);
+      });
+      expect(view.buffer.active.getLine(0)?.translateToString(true)).toBe("fixture$ live");
+      expect(delivered.join("").match(/fixture\$/g)).toHaveLength(1);
+    } finally {
+      view.dispose();
+    }
+  },
+);
 
 test("backpressure only affects attached views and old view acknowledgements are ignored", async () => {
   const id = manager.create(spec);
