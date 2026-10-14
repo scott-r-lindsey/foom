@@ -13,7 +13,8 @@ export class ControlError extends Error {
       | "pr_from_fork"
       | "default_branch"
       | "invalid_branch"
-      | "branch_in_use",
+      | "branch_in_use"
+      | "branch_diverged",
   ) {
     super(code);
   }

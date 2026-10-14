@@ -190,3 +190,113 @@ it("uses the fixed in-use refusal when checkout identity cannot be revalidated",
   identity.mockResolvedValueOnce(tree.identity).mockResolvedValueOnce("replaced-after-fetch");
   await expect(adopt([tree])).rejects.toThrow("branch_in_use");
 });
+
+it.each([false, true])("adopts only fast-forwardable local branches (reuse=%s)", async (reuse) => {
+  await run("branch", "child-one");
+  const owned = reuse ? await adopt() : undefined;
+  const unused = owned ? [owned] : [];
+  const initial = (await run("rev-parse", "child-one")).trim();
+  const commit = async (parent: string, message: string) =>
+    (
+      await run(
+        "-c",
+        "user.name=Test",
+        "-c",
+        "user.email=t@example.com",
+        "commit-tree",
+        "HEAD^{tree}",
+        "-p",
+        parent,
+        "-m",
+        message,
+      )
+    ).trim();
+  const target = await commit(initial, "remote advance");
+  await run("push", "origin", `${target}:refs/heads/child-one`);
+  const tree = await adopt(unused);
+  if (owned) expect(tree).toEqual(owned);
+  expect((await git(["rev-parse", "HEAD"], { cwd: tree.path })).stdout.trim()).toBe(target);
+  expect((await run("rev-parse", "child-one")).trim()).toBe(target);
+  expect((await git(["status", "--porcelain"], { cwd: tree.path })).stdout).toBe("");
+
+  // Equality succeeds without changing the checkout or its identity.
+  if (!reuse) await run("worktree", "remove", tree.path);
+  const equal = await adopt(reuse ? [tree] : []);
+  if (reuse) expect(equal).toEqual(tree);
+  expect((await git(["rev-parse", "HEAD"], { cwd: equal.path })).stdout.trim()).toBe(target);
+
+  // Both ahead-only and truly divergent histories preserve all local commits.
+  const local = await commit(target, "local advance");
+  await git(["update-ref", "refs/heads/child-one", local], { cwd: equal.path });
+  if (!reuse) await run("worktree", "remove", equal.path);
+  const count = (await service.listWorktrees(repo)).length;
+  await expect(adopt(reuse ? [equal] : [])).rejects.toThrow("branch_diverged");
+  const divergent = await commit(target, "another remote advance");
+  await run("push", "origin", `${divergent}:refs/heads/child-one`);
+  await expect(adopt(reuse ? [equal] : [])).rejects.toThrow("branch_diverged");
+  expect((await run("rev-parse", "child-one")).trim()).toBe(local);
+  expect(await service.listWorktrees(repo)).toHaveLength(count);
+});
+
+it.each([false, true])(
+  "rechecks authority immediately before fast-forward (reuse=%s)",
+  async (reuse) => {
+    await run("branch", "child-one");
+    const owned = reuse ? await adopt() : undefined;
+    await run(
+      "-c",
+      "user.name=Test",
+      "-c",
+      "user.email=t@example.com",
+      "commit",
+      "--allow-empty",
+      "-m",
+      "advance",
+    );
+    await run("push", "origin", "main:child-one");
+    const before = await run("rev-parse", "child-one");
+    const revalidate = vi
+      .fn()
+      .mockImplementationOnce(() => undefined)
+      .mockImplementationOnce(() => undefined)
+      .mockImplementationOnce(() => {
+        throw new Error("revoked before fast-forward");
+      });
+    await expect(adopt(owned ? [owned] : [], revalidate)).rejects.toThrow(
+      "revoked before fast-forward",
+    );
+    expect(await run("rev-parse", "child-one")).toBe(before);
+  },
+);
+
+it.each(["external", "switched", "replaced"])(
+  "refuses checkout changes before a fast-forward (%s)",
+  async (change) => {
+    await run("branch", "child-one");
+    const tree = await adopt();
+    await run(
+      "-c",
+      "user.name=Test",
+      "-c",
+      "user.email=t@example.com",
+      "commit",
+      "--allow-empty",
+      "-m",
+      "advance",
+    );
+    await run("push", "origin", "main:child-one");
+    const before = await run("rev-parse", "child-one");
+    const original = service.launchIdentity.bind(service);
+    const identity = vi.spyOn(service, "launchIdentity");
+    identity.mockImplementationOnce(original).mockImplementationOnce(async (...args) => {
+      const result = await original(...args);
+      if (change === "external")
+        await run("worktree", "add", "--force", join(root, "external"), "child-one");
+      else if (change === "switched") await git(["switch", "-c", "other"], { cwd: tree.path });
+      else identity.mockResolvedValueOnce("replacement");
+      return result;
+    });
+    await expect(adopt([tree])).rejects.toThrow("branch_in_use");
+    expect(await run("rev-parse", "child-one")).toBe(before);
+  },
+);
