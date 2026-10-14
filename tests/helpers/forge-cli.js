@@ -21,7 +21,7 @@ if (args[0] === "api") {
 }
 if (args[0] !== "pr" || !["list", "view", "checks"].includes(args[1])) process.exit(2);
 if (!args.includes("--repo") || !args.includes("--json")) process.exit(2);
-const pr = { number: 340, headRefOid: "a".repeat(40), headRefName: "child-one", state: "OPEN", ...fixture.pr };
+const pr = { number: 340, headRefOid: "a".repeat(40), headRefName: "child-one", state: "OPEN", headRepositoryOwner: { login: "o" }, isCrossRepository: false, ...fixture.pr };
 if (args[1] === "list") process.stdout.write(JSON.stringify(fixture.absent ? [] : [pr]));
 if (args[1] === "view") process.stdout.write(JSON.stringify(args.at(-1) === "id" ? { id: "PR_test" } : pr));
 if (args[1] === "checks") {

@@ -465,9 +465,17 @@ it("supports the shared old-gh mode, API failures and all PR states", async () =
             ],
           }),
         );
-        expect(
-          await forgeProvider("https://github.com/o/r", runner)?.lookup("child-one", 340),
-        ).toEqual({ ...pr, state, requiredChecks: expected });
+        const provider = forgeProvider("https://github.com/o/r", runner);
+        expect(await provider?.resolve?.(340)).toEqual({
+          branch: "child-one",
+          state,
+          sameRepository: true,
+        });
+        expect(await provider?.lookup("child-one", 340)).toEqual({
+          ...pr,
+          state,
+          requiredChecks: expected,
+        });
       }
     }
     for (const patch of [{ contexts: [] }, { apiError: true }, { rollup: {} }]) {
@@ -480,4 +488,48 @@ it("supports the shared old-gh mode, API failures and all PR states", async () =
   } finally {
     await rm(root, { recursive: true, force: true });
   }
+});
+it("resolves PR numbers with validated ownership and fixed read-only arguments", async () => {
+  const head = {
+    number: 337,
+    headRefName: "continue",
+    state: "OPEN",
+    headRepositoryOwner: { login: "O" },
+    isCrossRepository: false,
+  };
+  const runner = vi.fn(() => Promise.resolve(JSON.stringify(head)));
+  const provider = forgeProvider("https://github.com/o/r", runner);
+  expect(await provider?.resolve?.(337)).toEqual({
+    branch: "continue",
+    state: "OPEN",
+    sameRepository: true,
+  });
+  expect(runner).toHaveBeenCalledWith([
+    "pr",
+    "view",
+    "337",
+    "--repo",
+    "github.com/o/r",
+    "--json",
+    "number,headRefName,state,headRepositoryOwner,isCrossRepository",
+  ]);
+  for (const number of [0, -1, 1.5, NaN, Number.MAX_SAFE_INTEGER + 1])
+    expect(await provider?.resolve?.(number)).toBeUndefined();
+  for (const data of [
+    null,
+    [],
+    { ...head, number: 338 },
+    { ...head, headRefName: 5 },
+    { ...head, state: "unknown" },
+    { ...head, headRepositoryOwner: null },
+    { ...head, headRepositoryOwner: { login: 7 } },
+    { ...head, isCrossRepository: null },
+  ]) {
+    runner.mockResolvedValueOnce(JSON.stringify(data));
+    expect(await provider?.resolve?.(337)).toBeUndefined();
+  }
+  runner.mockResolvedValueOnce("garbage");
+  expect(await provider?.resolve?.(337)).toBeUndefined();
+  runner.mockRejectedValueOnce(new Error("private diagnostics"));
+  expect(await provider?.resolve?.(337)).toBeUndefined();
 });

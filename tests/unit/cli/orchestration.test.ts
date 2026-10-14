@@ -87,3 +87,17 @@ it("parses reviewed replies and rejects control characters, slash commands and m
     expect(() => command([...args, text])).toThrow("invalid_request");
   expect(() => command(["reply", "child", ...key, "--text", "answer"])).toThrow("invalid_request");
 });
+
+it("parses PR adoption without branch, remote or path parameters", () => {
+  expect(command(["create-worktree", "--pull-request", "337", ...key])).toEqual({
+    method: "create_worktree",
+    params: { pullRequest: 337, idempotencyKey: "retry-1" },
+  });
+  for (const args of [
+    ["create-worktree", "branch", "--pull-request", "337", ...key],
+    ["create-worktree", "--pull-request", "0", ...key],
+    ["create-worktree", "--pull-request", "9007199254740992", ...key],
+    ["create-worktree", "--pull-request", "337", "--remote", "other", ...key],
+  ])
+    expect(() => command(args)).toThrow("invalid_request");
+});

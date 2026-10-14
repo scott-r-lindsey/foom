@@ -39,9 +39,15 @@ export class UncertainEffect extends Error {}
 /** Main-owned effects. Every path is chosen by main; the API only names IDs. */
 export interface OrchestrationHost {
   forge?: Pick<ForgeTracking, "track" | "read">;
+  adoptWorktree?(
+    repository: string,
+    number: number,
+    unused: readonly { path: string; identity: string }[],
+    revalidate: (path?: string, branch?: string) => void,
+  ): Promise<{ path: string; branch: string; identity: string }>;
   terminals(): readonly WorkspaceTerminal[];
   /**
-   * A new branch in a new worktree; never adopts an existing branch or checkout.
+   * A new local branch in a new worktree. PR adoption uses the separate narrow path.
    * Returns the checkout identity captured at creation; throws UncertainEffect when
    * the checkout may exist despite an error.
    */
@@ -438,26 +444,52 @@ export class Orchestration {
     params: Record<string, unknown>,
     operations: Operations,
   ): Promise<Operation> {
-    exact(params, ["idempotencyKey", "branch"]);
+    exact(params, ["idempotencyKey", "branch", "pullRequest"]);
     const key = identifier(params["idempotencyKey"]);
-    const branch = text(params["branch"], 200);
-    if (/\s/u.test(branch)) throw new ControlError("invalid_request");
+    const number = params["pullRequest"];
+    if (
+      number !== undefined &&
+      (params["branch"] !== undefined ||
+        typeof number !== "number" ||
+        !Number.isSafeInteger(number) ||
+        number <= 0)
+    )
+      throw new ControlError("invalid_request");
+    const branch = number === undefined ? text(params["branch"], 200) : `PR #${String(number)}`;
+    if (number === undefined && /\s/u.test(branch)) throw new ControlError("invalid_request");
     const operation = await operations.begin(
       actor,
       "create_worktree",
       key,
-      JSON.stringify([branch]),
+      JSON.stringify([branch, number ?? null]),
     );
     if (!operation.created) return publicOperation(operation);
     const parent = this.parent(actor);
     const label = metadataName(branch);
-    if (this.unused(parent) + parent.creating >= WORKTREE_LIMIT)
+    if (number === undefined && this.unused(parent) + parent.creating >= WORKTREE_LIMIT)
       return this.refuse(actor, parent, operations, operation, label, "capacity");
     parent.creating++;
     this.note(parent, this.entry(operation, label));
     try {
-      const tree = await this.host.createWorktree(parent.repository, branch);
-      this.host.forge?.track({ repository: parent.repository, ...tree });
+      const unused = [...parent.worktrees.values()].filter((tree) => tree.state === "unused");
+      const tree =
+        number === undefined
+          ? await this.host.createWorktree(parent.repository, branch)
+          : await (this.host.adoptWorktree?.(parent.repository, number, unused, (path) => {
+              this.parent(actor);
+              if (path === undefined && this.unused(parent) + parent.creating > WORKTREE_LIMIT)
+                throw new ControlError("capacity");
+              if (
+                unused.some(
+                  (tree) =>
+                    tree.path === path &&
+                    (tree.state !== "unused" || ![...parent.worktrees.values()].includes(tree)),
+                )
+              )
+                throw new ControlError("branch_in_use");
+            }) ?? Promise.reject(new ControlError("forge_unavailable")));
+      if (number === undefined) this.host.forge?.track({ repository: parent.repository, ...tree });
+      else this.host.forge?.track({ repository: parent.repository, ...tree }, number);
       const id = locationId(tree.path);
       parent.worktrees.set(id, {
         path: tree.path,
@@ -467,7 +499,8 @@ export class Orchestration {
       });
       return await this.finish(actor, parent, operations, operation, label, "succeeded", id);
     } catch (error) {
-      if (error instanceof ControlError) throw error;
+      if (error instanceof ControlError)
+        return await this.refuse(actor, parent, operations, operation, label, error.code);
       if (error instanceof UncertainEffect) {
         parent.uncertain++;
         return await this.finish(actor, parent, operations, operation, label, "indeterminate");
@@ -855,7 +888,7 @@ export class Orchestration {
     operations: Operations,
     operation: Operation,
     label: string,
-    code: "capacity" | "conflict" | "not_found",
+    code: ControlError["code"],
   ): Promise<never> {
     const record = await operations.finish(actor, operation.operationId, "failed", "refused");
     this.note(parent, this.entry(record, label));

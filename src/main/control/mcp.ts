@@ -60,9 +60,13 @@ const orchestration = (childLimit: number) =>
     {
       name: "create_worktree",
       description:
-        "Create a new branch in a new worktree of your repository for one child. Never adopts an existing branch. At most four unused worktrees. Returns an operation whose resultId is the worktree ID.",
-      properties: { idempotencyKey: key, branch: { type: "string", maxLength: 200 } },
-      required: ["idempotencyKey", "branch"],
+        "Create a worktree for one child: supply exactly one of branch (new local branch) or pullRequest (open same-repository PR number, fetched and tracking origin). Forks, the default branch and branches checked out elsewhere are refused; your own unused checkout may be reused. At most four unused worktrees. Returns an operation whose resultId is the worktree ID.",
+      properties: {
+        idempotencyKey: key,
+        branch: { type: "string", maxLength: 200 },
+        pullRequest: { type: "integer", minimum: 1 },
+      },
+      required: ["idempotencyKey"],
       readOnly: false,
       destructive: false,
     },
@@ -150,6 +154,9 @@ const orchestration = (childLimit: number) =>
       properties: tool.properties,
       additionalProperties: false,
       required: "required" in tool ? tool.required : [],
+      ...(tool.name === "create_worktree"
+        ? { oneOf: [{ required: ["branch"] }, { required: ["pullRequest"] }] }
+        : {}),
     },
     annotations: {
       readOnlyHint: tool.readOnly,

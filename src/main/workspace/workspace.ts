@@ -1,3 +1,4 @@
+import { ControlError } from "../control/validation";
 import type { ForgeTracking } from "../control/forge-tracking";
 import { CleanupRun, KeptWorktree } from "./cleanup-run";
 import type { CleanupCandidate } from "./cleanup-run";
@@ -84,6 +85,7 @@ export interface WorkspaceDependencies {
     | "listWorktrees"
     | "branches"
     | "createWorktree"
+    | "adoptWorktree"
     | "validateBranch"
     | "changes"
     | "removalIdentity"
@@ -296,6 +298,36 @@ export class Workspace {
         ...(deps.forge === undefined ? {} : { forge: deps.forge }),
         terminals: () => this.snapshot().terminals,
         createWorktree: (repository, branch) => this.createChildWorktree(repository, branch),
+        adoptWorktree: (repository, number, unused, revalidate) =>
+          this.withRepository(repository, async () => {
+            const key = `${repository}\0:adopt-pr-${String(number)}`;
+            if (this.busyWorktrees.has(key)) throw new ControlError("branch_in_use");
+            this.busyWorktrees.add(key);
+            let branchKey: string | undefined;
+            try {
+              return await this.deps.worktrees.adoptWorktree(
+                repository,
+                number,
+                unused,
+                (path, branch) => {
+                  if (branchKey === undefined) {
+                    const candidate = `${repository}\0${branch ?? ""}`;
+                    if (this.busyWorktrees.has(candidate)) throw new ControlError("branch_in_use");
+                    branchKey = candidate;
+                    this.busyWorktrees.add(candidate);
+                  }
+                  revalidate(path, branch);
+                  if (this.snapshot().terminals.some((row) => row.worktree === path && !row.exited))
+                    throw new ControlError("branch_in_use");
+                },
+                this.location,
+              );
+            } finally {
+              this.busyWorktrees.delete(key);
+              if (branchKey !== undefined) this.busyWorktrees.delete(branchKey);
+              this.refresh();
+            }
+          }),
         launch: (parentId, repository, worktree, identity, agent, prompt) =>
           this.launchChild(parentId, repository, worktree, identity, agent, prompt),
         restoreWorktree: async (repository, path) => {

@@ -305,3 +305,37 @@ it("persists unknown check conclusions, refreshes normally and publishes recover
   expect(next.changed).toHaveBeenCalledTimes(2);
   expect(next.tracker.read(tree.repository, tree.path)?.requiredChecks).toBe("success");
 });
+it("binds an adopted checkout to its requested PR, including before the first successful poll", async () => {
+  const h = harness();
+  h.result(undefined);
+  h.tracker.track(tree, 337);
+  h.tracker.track(tree);
+  await h.tracker.poll();
+  expect(h.lookup).toHaveBeenCalledWith("child-one", 337);
+  await h.tracker.close();
+  const next = harness();
+  next.result({ ...pending, number: 337 });
+  await next.tracker.load();
+  await next.tracker.poll();
+  expect(next.lookup).toHaveBeenCalledWith("child-one", 337);
+  expect(next.tracker.read(tree.repository, tree.path)?.number).toBe(337);
+  next.tracker.track(tree, 338);
+  await next.tracker.poll();
+  expect(next.lookup).toHaveBeenLastCalledWith("child-one", 338);
+  next.advance(30000);
+  next.inspect.mockResolvedValueOnce("https://github.com/other/repo");
+  await next.tracker.poll();
+  expect(next.lookup).toHaveBeenLastCalledWith("child-one", undefined);
+});
+it("refuses invalid adoption numbers in memory and persisted tracking", async () => {
+  const h = harness();
+  for (const number of [0, -1, 1.5, NaN]) h.tracker.track(tree, number);
+  await h.tracker.poll();
+  expect(h.lookup).not.toHaveBeenCalled();
+  for (const number of [0, -1, 1.5, "337"]) {
+    await atomicPrivate(directory, "forge.json", [{ ...tree, number }]);
+    await h.tracker.load();
+    await h.tracker.poll();
+  }
+  expect(h.lookup).not.toHaveBeenCalled();
+});

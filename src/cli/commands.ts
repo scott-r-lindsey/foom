@@ -61,7 +61,10 @@ function text(value: string | undefined, bytes: number): string {
 
 function orchestration(name: string | undefined, words: string[]): Command {
   const params: Record<string, unknown> = {};
-  const positional = name === "wait-for" ? [] : words.splice(0, 1);
+  const positional =
+    name === "wait-for" || (name === "create-worktree" && words[0]?.startsWith("--"))
+      ? []
+      : words.splice(0, 1);
   if (name === "wait-for") {
     while (words[0] !== undefined && !words[0].startsWith("--")) {
       positional.push(words[0]);
@@ -84,6 +87,12 @@ function orchestration(name: string | undefined, words: string[]): Command {
     params["idempotencyKey"] = identifier(take("--idempotency-key"));
   switch (name) {
     case "create-worktree": {
+      const number = take("--pull-request");
+      if (number !== undefined) {
+        if (positional.length > 0) throw new ControlError("invalid_request");
+        params["pullRequest"] = integer(number, Number.MAX_SAFE_INTEGER, 1);
+        break;
+      }
       const branch = text(positional[0], 200);
       if (/\s/u.test(branch)) throw new ControlError("invalid_request");
       params["branch"] = branch;

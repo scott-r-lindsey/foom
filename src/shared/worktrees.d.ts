@@ -18,6 +18,8 @@ export interface CreateWorktreeOptions {
   readonly location?: "root" | "adjacent";
   /** Require a new local branch from HEAD; never reuse or track existing refs (orchestrator children). */
   readonly newBranch?: boolean;
+  /** Main-only PR adoption: fetch and track origin, preserving existing local commits. */
+  readonly trackOrigin?: boolean;
 }
 
 /** What creating a worktree for a branch did: `open` means it was already checked out. */
