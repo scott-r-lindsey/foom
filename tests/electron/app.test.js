@@ -9472,29 +9472,59 @@ test("merged cleanup opens checking, continues hidden, reopens progress and stop
     await app.evaluate(() => globalThis.cleanupRestore?.()).catch(() => {});
   });
   const page = await boardPage(app);
-  // Gates stop at real service boundaries; releasing them runs the original Git operations.
+  // Gate the start of each removal sequence, before its many real Git safety checks.
+  // Releasing a gate still runs the original sequence, including every revalidation.
   await app.evaluate(({ app, dialog }, repo) => {
     const load = process
       .getBuiltinModule("node:module")
       .createRequire(app.getAppPath() + "/package.json");
     const { WorktreeService } = load("./build/main/workspace/worktrees.js");
+    const { Workspace } = load("./build/main/workspace/workspace.js");
     const fetch = WorktreeService.prototype.mergedDefault;
-    const remove = WorktreeService.prototype.removeWorktree;
+    const remove = Workspace.prototype.removeTree;
     const gate = new Promise((resolve) => {
       globalThis.cleanupFetchRelease = resolve;
     });
     globalThis.cleanupRemovals = [];
+    globalThis.cleanupOperations = [];
+    const originals = new Map();
+    for (const method of ["removalIdentity", "changes", "mergedCommit"]) {
+      const original = WorktreeService.prototype[method];
+      originals.set(method, original);
+      WorktreeService.prototype[method] = async function (...args) {
+        const entry = { method, branch: args[1]?.branch, started: Date.now() };
+        globalThis.cleanupOperations.push(entry);
+        try {
+          return await original.apply(this, args);
+        } catch (error) {
+          entry.error = error.message;
+          throw error;
+        } finally {
+          entry.elapsed = Date.now() - entry.started;
+        }
+      };
+    }
     globalThis.cleanupRestore = async () => {
+      for (const [method, original] of originals) WorktreeService.prototype[method] = original;
       WorktreeService.prototype.mergedDefault = fetch;
-      WorktreeService.prototype.removeWorktree = remove;
+      Workspace.prototype.removeTree = remove;
       globalThis.cleanupFetchRelease();
       await Promise.allSettled(globalThis.cleanupRemovals.splice(0).map((finish) => finish()));
     };
     WorktreeService.prototype.mergedDefault = async function (...args) {
+      const entry = { method: "mergedDefault", refresh: args[1], started: Date.now() };
+      globalThis.cleanupOperations.push(entry);
       await gate;
-      return fetch.apply(this, args);
+      try {
+        return await fetch.apply(this, args);
+      } catch (error) {
+        entry.error = error.message;
+        throw error;
+      } finally {
+        entry.elapsed = Date.now() - entry.started;
+      }
     };
-    WorktreeService.prototype.removeWorktree = function (...args) {
+    Workspace.prototype.removeTree = function (...args) {
       let release;
       const gate = new Promise((resolve) => {
         release = resolve;
@@ -9514,6 +9544,29 @@ test("merged cleanup opens checking, continues hidden, reopens progress and stop
     void window.desktop.sidebarCommand({ kind: "delete-merged-worktrees", repository: repo });
   }, repo);
   const confirmation = await confirmationPage(app);
+  const reportCleanup = async (stage) => {
+    context.diagnostic(
+      JSON.stringify({
+        stage,
+        cleanup: await confirmation.locator("body").innerText(),
+        operations: await app.evaluate(() => {
+          const methods = [...new Set(globalThis.cleanupOperations.map((entry) => entry.method))];
+          return methods.map((method) => {
+            const entries = globalThis.cleanupOperations.filter((entry) => entry.method === method);
+            return {
+              method,
+              count: entries.length,
+              pending: entries.filter((entry) => entry.elapsed === undefined).length,
+              longest: Math.max(
+                ...entries.map((entry) => entry.elapsed ?? Date.now() - entry.started),
+              ),
+              errors: entries.flatMap((entry) => (entry.error ? [entry.error] : [])),
+            };
+          });
+        }),
+      }),
+    );
+  };
   await expect(confirmation.getByRole("list", { name: "Checking worktrees" })).toBeVisible();
   await expect(confirmation.getByRole("button", { name: "Delete", exact: true })).toBeDisabled();
   await app.evaluate(() => globalThis.cleanupFetchRelease());
@@ -9551,7 +9604,13 @@ test("merged cleanup opens checking, continues hidden, reopens progress and stop
   // Acceptance changes the feed synchronously, before the fetch and removals.
   // Keep a lost click distinct from a blocked service boundary.
   await expect(confirmation.getByRole("button", { name: "Hide", exact: true })).toBeVisible();
-  await expect.poll(() => app.evaluate(() => globalThis.cleanupRemovals.length)).toBe(4);
+  try {
+    await expect.poll(() => app.evaluate(() => globalThis.cleanupRemovals.length)).toBe(4);
+    await reportCleanup("four removal sequences started");
+  } catch (error) {
+    await reportCleanup("waiting for removal sequences failed");
+    throw error;
+  }
   await confirmation.getByRole("button", { name: "Hide", exact: true }).click();
   await expect(page.getByText("deleting 0/8", { exact: true })).toBeVisible();
   await app.evaluate(() => globalThis.cleanupRemovals.shift()());
@@ -9569,6 +9628,7 @@ test("merged cleanup opens checking, continues hidden, reopens progress and stop
     await Promise.all(globalThis.cleanupRemovals.splice(0).map((finish) => finish()));
   });
   await expect(confirmation.getByRole("button", { name: "Done", exact: true })).toBeVisible();
+  await reportCleanup("stopped run finished");
   await expect(confirmation.getByRole("list", { name: "Kept worktrees" })).toContainText(
     "not started",
   );
