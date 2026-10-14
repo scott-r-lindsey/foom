@@ -2,7 +2,8 @@ import { app, session, WebContentsView } from "electron";
 import type { BrowserWindow, Session, WebContents } from "electron";
 import type { PreviewBounds, PreviewRecord } from "../../shared/previews";
 import { canonicalRoot, readInside, readPreview } from "./contained-files";
-import { pathnameFor } from "./policy";
+import { MARKDOWN_CSP, pathnameFor, responseHeaders } from "./policy";
+import { markdownAsset, markdownPage } from "./markdown";
 import type { PreviewRegistry } from "./registry";
 import { previewPath } from "./registry";
 import { PreviewWatcher, scrollPosition } from "./watcher";
@@ -149,9 +150,21 @@ export class PreviewHost {
     });
     this.watchers.set(record.id, watcher);
     partition.protocol.handle("foom-preview", (request) => {
+      const asset = markdownAsset(request.url, origin);
+      if (asset)
+        return new Response(new Uint8Array(asset.body), { headers: responseHeaders(asset.type) });
       const result = readPreview(root, request.url, origin, (file) => {
         watcher.record(file);
       });
+      if (result.status === 200 && result.type.startsWith("text/markdown")) {
+        return new Response(markdownPage(result.body.toString("utf8")), {
+          headers: {
+            ...result.headers,
+            "content-type": "text/html; charset=utf-8",
+            "content-security-policy": MARKDOWN_CSP,
+          },
+        });
+      }
       return new Response(
         result.status === 200
           ? new Uint8Array(result.body)

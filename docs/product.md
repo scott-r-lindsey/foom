@@ -409,6 +409,11 @@ Maximize/Restore and Close. A preview has no running process to hide. Replacemen
 shortcuts treat previews as occupied tiles. Opening or reloading a preview never
 moves focus; a click or explicit focus command does.
 
+Markdown previews show headings, tables, task lists and syntax-highlighted code.
+Raw HTML is displayed as text; Mermaid fences remain code. Relative Markdown
+links open within the same tile and external links carry an arrow. Document
+colors follow the light/dark Appearance setting.
+
 Double-click a gutter, or press Enter while it is focused, to give every member
 of its run an equal share. A run follows consecutive splits on the same axis;
 perpendicular subtrees and their nested ratios stay unchanged. Equal shares of

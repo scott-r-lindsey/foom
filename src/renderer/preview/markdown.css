@@ -1,0 +1,114 @@
+@font-face {
+  font-family: Geist;
+  src: url("/__foom__/geist.ttf") format("truetype");
+  font-weight: 100 900;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Geist Mono";
+  src: url("/__foom__/geist-mono.ttf") format("truetype");
+  font-weight: 100 900;
+  font-display: swap;
+}
+/* Foom tokens (src/renderer/styles/tokens.css), copied: the preview origin
+   cannot load board assets. Light/dark follows prefers-color-scheme, which
+   Electron derives from nativeTheme.themeSource, i.e. Foom's setting. */
+:root {
+  --font-interface: "Geist", sans-serif;
+  --font-mono: "Geist Mono", monospace;
+  color-scheme: light dark;
+  --bg: #f3f0fa;
+  --surface: #e9e4f5;
+  --line: #ddd6ee;
+  --ink: #14101f;
+  --muted: #625a7a;
+  --accent: #5b2bd9;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #05040a;
+    --surface: #0d0a17;
+    --line: #251d3f;
+    --ink: #f4efff;
+    --muted: #9d93bd;
+    --accent: #9b6bff;
+  }
+}
+html {
+  background: var(--bg);
+  color: var(--ink);
+}
+body {
+  margin: 0;
+  font: 14px / 1.6 var(--font-interface);
+}
+main {
+  max-width: 860px;
+  margin: 0 auto;
+  padding: 16px 24px 48px;
+}
+a {
+  color: var(--accent);
+}
+a.external::after {
+  content: " ↗";
+  font-size: 0.8em;
+}
+h1,
+h2 {
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 0.2em;
+}
+code,
+pre {
+  font-family: var(--font-mono);
+  font-size: 13px;
+}
+:not(pre) > code {
+  background: var(--surface);
+  padding: 0.1em 0.3em;
+  border-radius: 4px;
+}
+pre {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  padding: 12px;
+  overflow: auto;
+  border-radius: 6px;
+}
+table {
+  border-collapse: collapse;
+}
+th,
+td {
+  border: 1px solid var(--line);
+  padding: 4px 10px;
+}
+blockquote {
+  margin: 0;
+  padding-left: 12px;
+  border-left: 3px solid var(--line);
+  color: var(--muted);
+}
+li.task {
+  list-style: none;
+  margin-left: -1.3em;
+}
+img {
+  max-width: 100%;
+}
+.hljs-keyword,
+.hljs-selector-tag,
+.hljs-built_in {
+  color: var(--accent);
+}
+.hljs-string,
+.hljs-attr,
+.hljs-number,
+.hljs-literal {
+  color: var(--ink);
+}
+.hljs-comment {
+  color: var(--muted);
+  font-style: italic;
+}
