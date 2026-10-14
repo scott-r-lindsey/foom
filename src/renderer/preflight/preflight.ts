@@ -1,5 +1,5 @@
 import { builtinAgent } from "../../shared/providers/catalog";
-import type { AgentId, AgentInstallation } from "../../shared/agents";
+import type { AgentId, BuiltinAgentId, AgentInstallation } from "../../shared/agents";
 import type { SetupState } from "../../shared/setup";
 import type { AgentReport } from "../../shared/workspace";
 import type { Repository } from "../../shared/worktrees";
@@ -12,11 +12,26 @@ export const STEPS = [
   { t: "T-0", label: "Go / no-go" },
 ] as const;
 
-export const AGENTS: readonly { id: AgentId; name: string; command: string }[] = [
+export const AGENTS: readonly { id: BuiltinAgentId; name: string; command: string }[] = [
   { id: "claude", name: "Claude Code", command: "claude" },
   { id: "codex", name: "Codex", command: "codex" },
   { id: "agy", name: "Antigravity", command: "agy" },
 ];
+
+export function agentChoices(
+  report: AgentReport | undefined,
+): readonly { id: AgentId; name: string; command: string }[] {
+  return [
+    ...AGENTS,
+    ...(report?.agents
+      .filter((agent) => !builtinAgent(agent.id))
+      .map((agent) => ({
+        id: agent.id,
+        name: agent.name ?? agent.id,
+        command: agent.command ?? agent.id,
+      })) ?? []),
+  ];
+}
 
 /** What each signal means, for the tag's tooltip. */
 export const SIGNALS = {
@@ -61,9 +76,9 @@ export function readyAgents(
   report: AgentReport | undefined,
   state: SetupState,
 ): AgentInstallation[] {
-  return AGENTS.flatMap(({ id }) => {
+  return agentChoices(report).flatMap(({ id }) => {
     const agent = found(report, id);
-    return agent && state.settings.agents[id] ? [agent] : [];
+    return agent && state.settings.agents[id] !== false ? [agent] : [];
   });
 }
 

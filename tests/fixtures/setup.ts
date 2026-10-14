@@ -44,7 +44,7 @@ const VERSIONS = {
 } as const;
 
 export function installation(
-  id: AgentInstallation["id"],
+  id: "claude" | "codex" | "agy",
   found = true,
   hooks = id !== "agy",
 ): AgentInstallation {

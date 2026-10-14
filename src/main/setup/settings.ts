@@ -14,10 +14,10 @@ import { DEFAULT_SOUND, migrateSoundSettings } from "../../shared/sounds";
 import { randomUUID } from "node:crypto";
 import { mkdir, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
 import { dirname, isAbsolute, join } from "node:path";
-import type { AgentId } from "../../shared/agents";
+import type { BuiltinAgentId } from "../../shared/agents";
 import type { Settings, SettingsPatch } from "../../shared/setup";
 
-const AGENTS: readonly AgentId[] = ["claude", "codex", "agy"];
+const AGENTS: readonly BuiltinAgentId[] = ["claude", "codex", "agy"];
 /** Twice the theme folder limit, so renames settle before old entries are removed. */
 const MAX_THEME_DIGESTS = 100;
 
@@ -196,7 +196,7 @@ export class SettingsStore {
             const kept: Record<string, string> = {};
             for (const [file, value] of Object.entries(themes).slice(0, MAX_THEME_DIGESTS))
               if (
-                /^themes\/[^/]{1,200}$/.test(file) &&
+                /^(?:themes|agents)\/[^/]{1,200}$/.test(file) &&
                 typeof value === "string" &&
                 /^[0-9a-f]{64}$/.test(value)
               )

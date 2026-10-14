@@ -1,7 +1,7 @@
-import type { AgentId } from "./agents";
+import type { BuiltinAgentId } from "./agents";
 
 /** All sessions, or one agent. Shells get "all" only; agents get "all" then their own. */
-export type EnvironmentScope = "all" | AgentId;
+export type EnvironmentScope = "all" | BuiltinAgentId;
 
 /** One validated variable, as main applies it at launch. Main-only: values may be secret. */
 export interface EnvironmentVariable {

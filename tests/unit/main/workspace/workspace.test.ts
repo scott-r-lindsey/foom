@@ -456,8 +456,8 @@ test("hook preparation starts the receiver once, retries a failed start, and giv
   const first = await prepare?.("claude");
   const second = await prepare?.("codex");
   expect(startReceiver).toHaveBeenCalledTimes(2);
-  expect(first?.claudeCommand).toMatch(/^sh '.*claude\.sh'$/u);
-  expect(second?.codexCommand.at(-1)).toMatch(/codex\.sh$/u);
+  expect(first?.observerCommand).toMatch(/^sh '.*claude\.sh'$/u);
+  expect(second?.observerArgv.at(-1)).toMatch(/codex\.sh$/u);
   const agy = await prepare?.("agy");
   expect(agy?.env["FOOM_TOKEN"]).toBeDefined();
   agy?.dispose();
@@ -2412,7 +2412,7 @@ async function codexWorkspace() {
 test("Codex observations drive execution and preserve the user's notifier only after a confirmed turn", async () => {
   const { workspace, hooks, key } = await codexWorkspace();
   try {
-    expect(hooks.codexNotify).toBe(true);
+    expect(hooks.notifyFallback).toBe(true);
     const report = () => workspace.scanAgents(false);
     expect((await report()).agents[0]?.codexHookState).toBe("not-reviewed");
     tails.set("t1", ["All done."]);
@@ -2438,8 +2438,8 @@ test("Codex observations drive execution and preserve the user's notifier only a
     await send("codex:agent-turn-complete", "classify");
     expect(classify).toHaveBeenCalledTimes(count);
     const later = await prepare?.("codex");
-    expect(later?.codexNotify).toBe(false);
-    expect(later?.codexHookCommand).toBe(hooks.codexHookCommand);
+    expect(later?.notifyFallback).toBe(false);
+    expect(later?.lifecycleCommand).toBe(hooks.lifecycleCommand);
     later?.dispose();
   } finally {
     hooks.dispose();
@@ -2463,7 +2463,7 @@ test("Codex review and absent hooks retain the notifier and explain the fallback
     expect((await workspace.scanAgents(false)).agents[0]?.codexHookState).toBe("declined");
     expect(states.at(-1)?.state).toBe("done");
     const next = await prepare?.("codex");
-    expect(next?.codexNotify).toBe(true);
+    expect(next?.notifyFallback).toBe(true);
     next?.dispose();
     // One isolated Stop cannot establish working lifecycle hooks.
     await workspace.hook({ terminalId: key, signal: "codex:Stop", action: "classify" });
@@ -2482,7 +2482,7 @@ test.each([true, false])(
     deps.codexHooks = health;
     const { workspace, hooks } = await codexWorkspace();
     try {
-      expect(hooks.codexNotify).toBe(false);
+      expect(hooks.notifyFallback).toBe(false);
       if (review) {
         tails.set("t1", ["Hooks need review"]);
         await workspace.quiet("t1");
@@ -2495,7 +2495,7 @@ test.each([true, false])(
         expect(health.get()).toBe("declined");
       }
       const next = await prepare?.("codex");
-      expect(next?.codexNotify).toBe(true);
+      expect(next?.notifyFallback).toBe(true);
       next?.dispose();
     } finally {
       hooks.dispose();
@@ -2532,7 +2532,7 @@ test.each(["notify", "idle-then-notify", "idle-only"])(
       }
       expect((await workspace.scanAgents(false)).agents[0]?.codexHookState).toBe("declined");
       const next = await prepare?.("codex");
-      expect(next?.codexNotify).toBe(true);
+      expect(next?.notifyFallback).toBe(true);
       next?.dispose();
     } finally {
       hooks.dispose();

@@ -1843,3 +1843,62 @@ fallbacks. Uninstalled families remain saved and degrade silently. Controllers
 apply family and size together through their existing settings subscription,
 refitting visible attachments and deferring hidden grids until attachment. Settings
 uses the same stack for its preview.
+
+## Agent provider registry and manifest approval (#407)
+
+`main/agents/providers/provider.d.ts` declares the single `AgentProvider` contract.
+Built-ins register through `providers/{claude,codex,agy}.ts`; their shared reviewed
+implementation owns discovery gates, launch argv, MCP attachment, observer selection
+and hook payload reduction. Workspace uses capability metadata rather than comparing
+agent IDs. Shared built-in policy metadata is browser-safe. Existing built-in IPC
+capability fields remain compatible with their consumers; config manifests cannot
+set them. Agent identities can now be strings, but runtime IPC accepts only IDs in
+main's current approved provider registry. Config providers cannot register a
+built-in ID or duplicate another provider. Built-in orchestration restore checks
+remain unchanged; config plugins cannot claim that capability.
+
+`shared/agent-manifest.ts` validates the [version 1 format](agents.md#agent-providers-and-config-authored-plugins-407)
+from `unknown`, rejecting unknown keys at every object boundary, including capability,
+script, environment and network-reference fields. Manifest rules use the shared
+`boundedRegex` implementation used by built-in rules. Manifest argv uses fixed,
+field-specific substitutions and argument arrays; expanded values are never parsed
+again. Discovery probes are fixed and bounded. Executables use the existing PATH
+resolver and platform wrapper restrictions. Foom fetches nothing for plugins.
+
+The config service creates and watches `agents/`, resubscribing when it is replaced.
+It considers at most 50 matching direct JSON filenames per directory scan. Reads
+use the same contained-directory and descriptor-bounded 64 KiB policy as config
+settings. Missing, unsafe, malformed or unapproved manifests never enter the active
+registry, so they cannot launch even discovery probes. Pending additions/changes
+appear in the existing Foom config dock and Settings status; invalid manifests
+appear in Recent changes with fixed paths/reasons. Approved files are committed
+through the hardened config git plumbing. Plugin paths also support Revert;
+restored bytes must pass the same validation and approval gate.
+
+`pluginDisclosure` supplies every executable, fixed probe, argv template, bypass
+argument, hook mapping and detection rule to the main-owned trusted window. A board
+Allow request only opens that window; it grants nothing itself. Cancel leaves the
+proposal pending. Main re-reads the proposal before and after the answer and refuses
+changed bytes. Approval digests live only in the profile (the existing per-file
+`themeDigests` record also stores `agents/<id>.json` digests), never in agent-editable
+config. Recording a digest must succeed before registration. An agent's own config
+git commit cannot approve its manifest. Keep restores the approved committed bytes
+when available, otherwise removes an unapproved addition. Deletion clears approval.
+
+Registry revisions invalidate both workspace and agent-service discovery caches.
+Each config provider captures a main-only byte-validation callback. Discovery checks
+it before probing; launch checks it before preparation and again immediately before
+spawning, and rejects a replaced provider. Approval is for manifest bytes, not the
+contents of an executable on the user's PATH; worktrees and same-user processes
+remain outside an isolation guarantee. Running sessions keep their launch-bound
+hook extractors after a file change. Config sessions receive no repository control
+grant, as before. Config agents inherit All sessions environment settings; the
+existing per-agent Environment editors remain built-in scopes.
+
+The hook receiver captures the approved mapping at registration. Fixed top-level
+extractors discard all other fields, validate and pin conversation identity, and
+emit only a bounded `plugin:<id>:<event>` signal plus the existing enumerated action.
+Unknown events are inert. The launch supplies the same private fixed stdin/argv
+adapter, loopback token and cleanup lifecycle as built-ins. Neither templates nor
+hook output can request capabilities, execute code inside main or obtain secrets.
+Terminal content stays in the existing local evaluator.

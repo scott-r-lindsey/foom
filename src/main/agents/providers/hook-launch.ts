@@ -1,3 +1,4 @@
+import { agentProvider } from "./registry";
 import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
@@ -31,7 +32,17 @@ export async function prepareHookLaunch(
   execute = promisify(execFile),
 ): Promise<AgentHooks> {
   const windows = platform === "win32";
-  const adapter = agent === "agy" ? undefined : hookAdapter(agent, windows ? "win32" : "posix");
+  const adapter =
+    agent === "agy"
+      ? undefined
+      : hookAdapter(
+          agentProvider(agent).manifest?.attention.hook?.transport === "argv"
+            ? "codex"
+            : agentProvider(agent).manifest
+              ? "claude"
+              : agent,
+          windows ? "win32" : "posix",
+        );
   // mkdtemp creates the directory with mode 0700, so other users can't swap the script.
   const directory = await mkdtemp(join(scratch, "foom-hooks-"));
   const script = join(directory, `${agent}${adapter?.extension ?? ".order"}`);
@@ -58,12 +69,12 @@ export async function prepareHookLaunch(
     let disposed = false;
     return {
       // Claude runs hook commands through a shell; Codex receives an argument array.
-      claudeCommand: !adapter
+      observerCommand: !adapter
         ? ""
         : windows
           ? `powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "${script}"`
           : `sh ${quote(script)}`,
-      codexCommand: adapter ? [command, ...args] : [],
+      observerArgv: adapter ? [command, ...args] : [],
       env: { ...launch.env, ...(!adapter ? { FOOM_HOOK_ORDER: script } : {}) },
       bind: (terminalId) => {
         if (!disposed) bind(key, terminalId);

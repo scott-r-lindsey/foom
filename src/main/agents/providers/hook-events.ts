@@ -1,3 +1,4 @@
+import type { HookMapping } from "../../../shared/agent-plugin";
 import { conversationId } from "../conversation";
 import type { HookAgent, HookSignal } from "../../../shared/hooks";
 export type HookSession = {
@@ -7,6 +8,7 @@ export type HookSession = {
   agentId?: string;
   sequence?: number;
   completedTurns?: Set<string>;
+  mapping?: HookMapping;
 };
 function record(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -23,6 +25,24 @@ export function reduceEvent(
   sequenceHeader?: string | string[],
 ): HookSignal | undefined {
   if (!record(value)) throw new Error("Invalid event");
+  if (session.mapping) {
+    const mapping = session.mapping;
+    const agentId = value[mapping.sessionField];
+    if (!conversationId(agentId) || (session.agentId !== undefined && session.agentId !== agentId))
+      throw new Error("Invalid agent session");
+    const event = value[mapping.eventField];
+    if (typeof event !== "string" || event.length > 64) throw new Error("Invalid hook event");
+    if (!Object.hasOwn(mapping.events, event)) return;
+    const action = mapping.events[event];
+    if (!action) return;
+    session.agentId = agentId;
+    return {
+      terminalId: session.terminalId,
+      conversationId: agentId,
+      action,
+      signal: `plugin:${session.agent}:${event}`,
+    };
+  }
   if (session.agent === "agy") {
     if (typeof sequenceHeader !== "string" || !/^[1-9][0-9]{0,9}$/.test(sequenceHeader))
       throw new Error("Invalid observer sequence");

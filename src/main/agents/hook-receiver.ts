@@ -1,3 +1,4 @@
+import { agentProvider } from "./providers/registry";
 import { reduceEvent, identifier } from "./providers/hook-events";
 import type { HookSession as Session } from "./providers/hook-events";
 import { createHash, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
@@ -53,7 +54,13 @@ export class HookReceiver {
     if (!identifier(terminalId)) throw new Error("Invalid terminal ID");
     const sessionId = randomUUID();
     const token = randomBytes(32).toString("hex");
-    this.sessions.set(sessionId, { terminalId, agent, digest: digest(token) });
+    const mapping = agentProvider(agent).manifest?.attention.hook;
+    this.sessions.set(sessionId, {
+      terminalId,
+      agent,
+      digest: digest(token),
+      ...(mapping ? { mapping } : {}),
+    });
     return {
       env: { FOOM_SESSION: sessionId, FOOM_TOKEN: token, FOOM_HOOK_URL: `${this.origin}/hooks` },
       revoke: () => {

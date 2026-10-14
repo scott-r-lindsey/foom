@@ -1,13 +1,21 @@
 import type { AgentProvider } from "./provider";
-import type { AgentHooks, AgentId, AgentInstallation, AgentLaunch } from "../../../shared/agents";
+import type {
+  AgentHooks,
+  BuiltinAgentId,
+  AgentInstallation,
+  AgentLaunch,
+} from "../../../shared/agents";
 import { meetsMinimum } from "../version";
 import type { prepareMcpLaunch } from "../mcp-launch";
 import { supportsMcp } from "../mcp-launch";
 import { cliGuidance, CONFIG_PROMPT, initialPrompt, mergeAllowedTools } from "../cli-launch";
+import { BUILTIN_POLICIES } from "../../../shared/providers/catalog";
+import { conversationId } from "../../../shared/conversation";
+import { prepareMcpLaunch as mcpLaunch } from "../mcp-launch";
 import { codexHookArguments } from "../codex-hooks";
 
 function discover(
-  id: AgentId,
+  id: BuiltinAgentId,
   executable: string,
   version: string,
   help: string,
@@ -55,7 +63,7 @@ function argumentsFor(
   configSession: boolean,
 ): string[] {
   const notify =
-    !agent.codexLifecycle || !binding?.codexHookCommand || binding.codexNotify !== false;
+    !agent.codexLifecycle || !binding?.lifecycleCommand || binding.notifyFallback !== false;
   const configGreeting = configSession && request.conversationId === undefined;
   const prompt = initialPrompt(agent, request.prompt);
   let args = [
@@ -69,7 +77,7 @@ function argumentsFor(
   if (mcp && agent.id === "claude") args = mergeAllowedTools(args);
   if (binding) {
     if (agent.id === "claude") {
-      const hook = [{ hooks: [{ type: "command", command: binding.claudeCommand }] }];
+      const hook = [{ hooks: [{ type: "command", command: binding.observerCommand }] }];
       args.push(
         "--settings",
         JSON.stringify({
@@ -83,9 +91,9 @@ function argumentsFor(
         }),
       );
     } else if (agent.id === "codex") {
-      if (agent.codexLifecycle && binding.codexHookCommand)
-        args.push(...codexHookArguments(binding.codexHookCommand));
-      if (notify) args.push("-c", `notify=${JSON.stringify(binding.codexCommand)}`);
+      if (agent.codexLifecycle && binding.lifecycleCommand)
+        args.push(...codexHookArguments(binding.lifecycleCommand));
+      if (notify) args.push("-c", `notify=${JSON.stringify(binding.observerArgv)}`);
     }
   }
   // A positional prompt goes last, after every option Foom adds.
@@ -93,9 +101,16 @@ function argumentsFor(
   return args;
 }
 
-export function builtinProvider(id: AgentId): AgentProvider {
+export function builtinProvider(id: BuiltinAgentId): AgentProvider {
   return {
     id,
+    name: BUILTIN_POLICIES[id].name,
+    mark: BUILTIN_POLICIES[id].mark,
+    resume: (conversation) => {
+      if (!conversationId(conversation)) throw new Error("Invalid conversation ID");
+      return [BUILTIN_POLICIES[id].resume[0], conversation];
+    },
+    prepareMcp: (endpoint) => mcpLaunch(id, endpoint),
     executableNames: [id],
     discover: (executable, version, help) => discover(id, executable, version, help),
     enrich: async (agent, plugin) => {
@@ -113,7 +128,7 @@ export function builtinProvider(id: AgentId): AgentProvider {
     },
     needsNotifier: (agent, binding) =>
       id === "codex" &&
-      (!agent.codexLifecycle || !binding?.codexHookCommand || binding.codexNotify !== false),
+      (!agent.codexLifecycle || !binding?.lifecycleCommand || binding.notifyFallback !== false),
     arguments: argumentsFor,
   };
 }

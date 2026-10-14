@@ -1,4 +1,4 @@
-import { isAgentId } from "../../shared/providers/catalog";
+import { knownAgentId as isAgentId } from "../agents/providers/registry";
 import { readFile, mkdir, writeFile, rename } from "node:fs/promises";
 import { isAbsolute, join } from "node:path";
 import { conversationId } from "../agents/conversation";

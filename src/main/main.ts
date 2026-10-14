@@ -1,3 +1,4 @@
+import { replaceConfigProviders, providerRevision } from "./agents/providers/registry";
 import { builtinAgent } from "../shared/providers/catalog";
 import { pickPreviewFile } from "./previews/pick";
 import { ForgeTracking } from "./control/forge-tracking";
@@ -632,9 +633,8 @@ async function buildWindow(savedSize?: Size, saved?: WindowPlacement, initialSes
       },
     },
     confirmBypass: async (agent, args) => {
-      const names = { claude: "Claude Code", codex: "Codex", agy: "Antigravity" };
       return confirmations.request({
-        title: `Save bypass defaults for ${names[agent]}?`,
+        title: `Save bypass defaults for ${builtinAgent(agent)?.name ?? agent}?`,
         glyph: "shield",
         subject: "Future launches from Foom",
         arguments: args,
@@ -936,6 +936,24 @@ if (!ownsProfile) {
           get: (file) => settings.themeDigest(file),
           set: (file, value) => settings.setThemeDigest(file, value),
         },
+        pluginBaseline: {
+          get: (file) => settings.themeDigest(file),
+          set: (file, value) => settings.setThemeDigest(file, value),
+        },
+        applyPlugins: (providers) => {
+          const before = providerRevision();
+          replaceConfigProviders(providers);
+          if (before !== providerRevision() && initialized)
+            void workspace
+              .scanAgents(true)
+              .then(() => {
+                workspace.refresh();
+              })
+              .catch(() => {
+                console.error("Unable to refresh agent plugins");
+              });
+        },
+        confirmPlugin: (content) => requestTrusted(content, new AbortController().signal),
         confirmArguments: (content) => requestTrusted(content, new AbortController().signal),
         acknowledgeBypass: async (agents) => {
           const acknowledged = { ...settings.get().agentBypassAcknowledged };

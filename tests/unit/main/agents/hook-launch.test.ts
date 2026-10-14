@@ -40,8 +40,8 @@ test("writes a private POSIX adapter and quotes its path for the hook shell", as
   const [directory] = await readdir(scratch);
   if (!directory) throw new Error("Missing launch directory");
   const script = join(scratch, directory, "claude.sh");
-  expect(hooks.codexCommand).toEqual(["sh", script]);
-  expect(hooks.claudeCommand).toBe(`sh '${script.replaceAll("'", `'\\''`)}'`);
+  expect(hooks.observerArgv).toEqual(["sh", script]);
+  expect(hooks.observerCommand).toBe(`sh '${script.replaceAll("'", `'\\''`)}'`);
   expect(hooks.env).toEqual({ FOOM_SESSION: "s", FOOM_TOKEN: "t", FOOM_HOOK_URL: "u" });
   expect(await readFile(script, "utf8")).toContain("curl");
   if (process.platform !== "win32") {
@@ -70,7 +70,7 @@ test("uses PowerShell on Windows", async () => {
   const [directory] = await readdir(scratch);
   if (!directory) throw new Error("Missing launch directory");
   const script = join(scratch, directory, "codex.ps1");
-  expect(hooks.codexCommand).toEqual([
+  expect(hooks.observerArgv).toEqual([
     "powershell.exe",
     "-NoProfile",
     "-NonInteractive",
@@ -79,12 +79,12 @@ test("uses PowerShell on Windows", async () => {
     "-File",
     script,
   ]);
-  expect(hooks.claudeCommand).toBe(
+  expect(hooks.observerCommand).toBe(
     `powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "${script}"`,
   );
   expect(execute).toHaveBeenCalledExactlyOnceWith(
     "powershell.exe",
-    [...hooks.codexCommand.slice(1), "--foom-probe"],
+    [...hooks.observerArgv.slice(1), "--foom-probe"],
     { timeout: 8000, maxBuffer: 65536 },
   );
   expect(await readFile(script, "utf8")).toContain("--foom-probe");
@@ -120,7 +120,7 @@ test("defaults to the system temporary directory", async () => {
   const execute = vi.fn().mockResolvedValue({ stdout: "", stderr: "" });
   const hooks = await prepareHookLaunch(receiver, "claude", vi.fn(), undefined, undefined, execute);
   try {
-    expect(hooks.codexCommand.at(-1)?.startsWith(tmpdir())).toBe(true);
+    expect(hooks.observerArgv.at(-1)?.startsWith(tmpdir())).toBe(true);
   } finally {
     hooks.dispose();
   }
@@ -136,7 +136,7 @@ test.skipIf(process.platform === "win32")(
     try {
       const hooks = await prepareHookLaunch(real, "claude", vi.fn(), process.platform, scratch);
       const payload = JSON.stringify({ session_id: "abc", hook_event_name: "PermissionRequest" });
-      const child = execFile("sh", ["-c", hooks.claudeCommand], {
+      const child = execFile("sh", ["-c", hooks.observerCommand], {
         env: { ...process.env, ...hooks.env },
       });
       child.stdin?.end(payload);
@@ -180,7 +180,7 @@ test.skipIf(process.platform !== "win32").each(["claude", "codex"] as const)(
       const hooks = await prepareHookLaunch(real, agent, vi.fn(), "win32", scratch);
       try {
         expect(signals).toEqual([]); // Startup probe must not send an event.
-        const [file, ...args] = hooks.codexCommand;
+        const [file, ...args] = hooks.observerArgv;
         if (!file) throw new Error("Missing hook executable");
         // Restricted can block Get-ExecutionPolicy's own module import. Prove
         // the inherited policy by executing this file without its override.
@@ -198,7 +198,7 @@ test.skipIf(process.platform !== "win32").each(["claude", "codex"] as const)(
         const env = { ...process.env, ...hooks.env };
         if (agent === "claude") {
           expect(
-            await runCommand("cmd.exe", ["/d", "/s", "/c", hooks.claudeCommand], env, payload),
+            await runCommand("cmd.exe", ["/d", "/s", "/c", hooks.observerCommand], env, payload),
           ).toBe("");
         } else {
           expect(await runCommand(file, [...args, payload], env)).toBe("");
@@ -225,8 +225,8 @@ test("Antigravity binds and revokes credentials with only a private ordering cou
   const order = hooks.env["FOOM_HOOK_ORDER"];
   if (!order) throw new Error("Missing ordering path");
   expect(await readFile(order, "utf8")).toBe("0");
-  expect(hooks.claudeCommand).toBe("");
-  expect(hooks.codexCommand).toEqual([]);
+  expect(hooks.observerCommand).toBe("");
+  expect(hooks.observerArgv).toEqual([]);
   expect(receiver.register).toHaveBeenCalledWith(expect.any(String), "agy");
   hooks.bind?.("terminal-1");
   expect(bind).toHaveBeenLastCalledWith(receiver.register.mock.calls[0]?.[0], "terminal-1");

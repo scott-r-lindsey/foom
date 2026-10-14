@@ -1,4 +1,4 @@
-import type { AgentId } from "../agents";
+import type { BuiltinAgentId } from "../agents";
 
 /** Built-in policy metadata shared with the UI; no process capabilities cross IPC. */
 export const BUILTIN_AGENTS = [
@@ -40,7 +40,7 @@ export const BUILTIN_AGENTS = [
 export function builtinAgent(id: string | undefined) {
   return BUILTIN_AGENTS.find((entry) => entry.id === id);
 }
-export function isAgentId(id: unknown): id is AgentId {
+export function isAgentId(id: unknown): id is BuiltinAgentId {
   return typeof id === "string" && builtinAgent(id) !== undefined;
 }
 
@@ -49,3 +49,13 @@ export const BUILTIN_POLICIES = {
   codex: BUILTIN_AGENTS[1],
   agy: BUILTIN_AGENTS[2],
 } as const;
+
+/** Syntactic ID validation grants no installation or launch authority. */
+export function validAgentId(value: unknown): value is string {
+  return (
+    typeof value === "string" &&
+    value.length <= 40 &&
+    /^[a-z][a-z0-9-]*$/u.test(value) &&
+    value !== "shell"
+  );
+}

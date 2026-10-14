@@ -1,3 +1,7 @@
+import pluginFixture from "../../fixtures/agent-plugin.json";
+import { parseAgentPlugin } from "../../../src/shared/agent-manifest";
+import { configProvider } from "../../../src/main/agents/providers/config";
+import { replaceConfigProviders } from "../../../src/main/agents/providers/registry";
 import type { PreviewRecord } from "../../../src/shared/previews";
 import type { ForgeWorktree } from "../../../src/main/control/forge.d";
 const forgeMock = vi.hoisted(() => ({
@@ -200,13 +204,7 @@ vi.mock("../../../src/main/workspace/workspace", () => ({
     hook = mock.workspace.hook;
     dispose = mock.workspace.dispose;
     configure = mock.workspace.configure;
-    scanAgents = () =>
-      Promise.resolve({
-        agents: [
-          { id: "claude", path: "/bin/claude" },
-          { id: "codex", path: null },
-        ],
-      });
+    scanAgents = mock.workspace.scanAgents;
     addRepository = mock.workspace.addRepository;
     removeRepository = mock.workspace.removeRepository;
     constructor(deps: WorkspaceDependencies) {
@@ -363,6 +361,14 @@ const mock = vi.hoisted(() => {
     shellState: vi.fn(),
     mcpConnectionChanged: vi.fn(),
     ownsSession: vi.fn(() => true),
+    scanAgents: vi.fn((_refresh?: boolean) =>
+      Promise.resolve({
+        agents: [
+          { id: "claude", path: "/bin/claude" },
+          { id: "codex", path: null },
+        ],
+      }),
+    ),
     initializeControl: vi.fn<() => Promise<void>>(() => Promise.resolve()),
     refresh: vi.fn(),
     quiet: vi.fn(),
@@ -440,6 +446,8 @@ const mock = vi.hoisted(() => {
       configDigest: vi.fn(() => null),
       attachConfig: vi.fn(() => Promise.resolve()),
       setConfig: vi.fn(),
+      themeDigest: vi.fn<(_file: string) => string | null>(() => null),
+      setThemeDigest: vi.fn((_file: string, _digest: string | null) => Promise.resolve()),
       setConfigDigest: vi.fn(() => Promise.resolve()),
       update: vi.fn(() => Promise.resolve()),
       get: (): Pick<Settings, "colorMode" | "interfaceScale" | "interfaceTheme"> &
@@ -1995,4 +2003,57 @@ test("worktree removal blocks preview opens and closes every window's previews b
   vi.mocked(second.closeWorktree).mockRejectedValueOnce(new Error("cleanup failed"));
   await expect(prepare("/tree")).rejects.toThrow("cleanup failed");
   await expect(first.validate("/tree")).resolves.toBeUndefined();
+});
+
+test("config plugin consent uses the trusted window and profile digests, refreshes changed registries and reports discovery failure", async () => {
+  await start();
+  const deps = mock.config.deps;
+  if (!deps?.pluginBaseline || !deps.applyPlugins || !deps.confirmPlugin)
+    throw Error("Missing plugin consent capabilities");
+  expect(deps.pluginBaseline.get("agents/fixture.json")).toBeNull();
+  await deps.pluginBaseline.set("agents/fixture.json", "a".repeat(64));
+  expect(mock.settingsStore.setThemeDigest).toHaveBeenCalledWith(
+    "agents/fixture.json",
+    "a".repeat(64),
+  );
+  const content = { title: "Allow fixture plugin?", accept: "Allow plugin" };
+  mock.message.mockResolvedValueOnce({ response: 1 });
+  expect(await deps.confirmPlugin(content)).toBe(true);
+  expect(mock.message).toHaveBeenLastCalledWith(content);
+  const provider = configProvider(parseAgentPlugin(JSON.stringify(pluginFixture)), () =>
+    Promise.resolve(),
+  );
+  deps.applyPlugins([provider]);
+  await vi.waitFor(() => {
+    expect(mock.workspace.scanAgents).toHaveBeenCalledWith(true);
+  });
+  await vi.waitFor(() => {
+    expect(mock.workspace.refresh).toHaveBeenCalled();
+  });
+  mock.workspace.scanAgents.mockClear();
+  deps.applyPlugins([provider]);
+  expect(mock.workspace.scanAgents).not.toHaveBeenCalled();
+  const warn = vi.spyOn(console, "error").mockImplementation(() => undefined);
+  mock.workspace.scanAgents.mockRejectedValueOnce(Error("unavailable"));
+  deps.applyPlugins([]);
+  await vi.waitFor(() => {
+    expect(warn).toHaveBeenCalledWith("Unable to refresh agent plugins");
+  });
+  warn.mockRestore();
+  replaceConfigProviders([]);
+});
+
+test("approved plugins load before the first workspace exists without starting discovery from the config callback", async () => {
+  const warn = vi.spyOn(console, "error").mockImplementation(() => undefined);
+  mock.config.initialize.mockImplementationOnce(() => {
+    const provider = configProvider(parseAgentPlugin(JSON.stringify(pluginFixture)), () =>
+      Promise.resolve(),
+    );
+    mock.config.deps?.applyPlugins?.([provider]);
+    return Promise.resolve({});
+  });
+  await start();
+  expect(warn).not.toHaveBeenCalledWith("Foom config is unavailable:", expect.anything());
+  expect(mock.settingsStore.attachConfig).toHaveBeenCalled();
+  warn.mockRestore();
 });

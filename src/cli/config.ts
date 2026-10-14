@@ -1,3 +1,4 @@
+import { parseAgentPlugin } from "../shared/agent-manifest";
 import type { ConfigDirectory } from "./types";
 import { soundDuration } from "./sound-duration";
 import { constants } from "node:fs";
@@ -98,10 +99,17 @@ async function validateFile(
     } catch {
       return fail("malformed-json");
     }
-    return validateConfigJson(
+    const diagnostics = validateConfigJson(
       text,
-      kind === "settings" || kind === "theme" || kind === "terminal-theme" ? kind : undefined,
+      kind === "agent" || kind === "settings" || kind === "theme" || kind === "terminal-theme"
+        ? kind
+        : undefined,
     );
+    if (kind === "agent") {
+      const manifest = parseAgentPlugin(text);
+      if (basename(path) !== `${manifest.id}.json`) fail("invalid-value");
+    }
+    return diagnostics;
   }
   return [];
 }
@@ -171,6 +179,7 @@ export async function validateConfig(
           if (entry.name === "themes") child = "theme";
           if (entry.name === "terminal-themes") child = "terminal-theme";
           if (entry.name === "sounds") child = "sounds";
+          if (entry.name === "agents") child = "agent";
         } else if (kind === "sounds") child = SOUND_KINDS.find((value) => value === entry.name);
         else {
           if (soundKind(kind) && entry.name === ".gitkeep") continue;
@@ -193,13 +202,15 @@ export async function validateConfig(
     if (info.isDirectory()) {
       const name = basename(absolute);
       const kind =
-        name === "themes"
-          ? "theme"
-          : name === "terminal-themes"
-            ? "terminal-theme"
-            : name === "sounds"
-              ? "sounds"
-              : (SOUND_KINDS.find((value) => value === name) ?? "config");
+        name === "agents"
+          ? "agent"
+          : name === "themes"
+            ? "theme"
+            : name === "terminal-themes"
+              ? "terminal-theme"
+              : name === "sounds"
+                ? "sounds"
+                : (SOUND_KINDS.find((value) => value === name) ?? "config");
       await folder(absolute, "", kind);
     } else {
       const kind = SOUND_KINDS.find((value) => value === basename(dirname(absolute)));

@@ -50,7 +50,7 @@ it.skipIf(process.platform === "win32")(
     const launch = receiver.register("real-probe-terminal", "claude");
     const adapter = join(directory, "observer.sh");
     await writeFile(adapter, hookAdapter("claude", "posix").source, { mode: 0o600 });
-    const claudeCommand = `sh '${adapter}'`;
+    const observerCommand = `sh '${adapter}'`;
     const create = vi.fn((_spec: TerminalSpec) => "real-probe-terminal");
     const service = new AgentService(
       {
@@ -71,8 +71,8 @@ it.skipIf(process.platform === "win32")(
       { create },
       () =>
         Promise.resolve({
-          claudeCommand,
-          codexCommand: ["foom-notify"],
+          observerCommand,
+          observerArgv: ["foom-notify"],
           env: launch.env,
           dispose: () => {
             launch.revoke();
@@ -99,7 +99,7 @@ it.skipIf(process.platform === "win32")(
     try {
       const spec = create.mock.calls[0]?.[0];
       const settings: unknown = JSON.parse(spec?.args[1] ?? "null");
-      const hook = [{ hooks: [{ type: "command", command: claudeCommand }] }];
+      const hook = [{ hooks: [{ type: "command", command: observerCommand }] }];
       expect(settings).toEqual({
         hooks: {
           UserPromptSubmit: hook,

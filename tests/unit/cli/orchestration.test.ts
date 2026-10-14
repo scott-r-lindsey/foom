@@ -126,3 +126,12 @@ it("parses agent preview console commands without operation keys", () => {
   ])
     expect(() => command(args)).toThrow("invalid_request");
 });
+
+it("passes a syntactically valid custom agent ID to main, which owns approval and availability", () => {
+  expect(command(["launch", "tree", "--agent", "foom-test-agent", ...key])).toEqual({
+    method: "launch",
+    params: { worktreeId: "tree", agent: "foom-test-agent", idempotencyKey: "retry-1" },
+  });
+  for (const agent of ["/bin/agent", "Agent", "x".repeat(41), "shell"])
+    expect(() => command(["launch", "tree", "--agent", agent, ...key])).toThrow();
+});

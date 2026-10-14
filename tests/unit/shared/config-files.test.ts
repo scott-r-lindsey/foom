@@ -176,3 +176,12 @@ test("older persisted sound settings retain choices and levels with an unmuted m
     ),
   ).toThrow();
 });
+
+test("offline validation uses the same agent manifest gate and reports stable paths without approving it", async () => {
+  const { default: manifest } = await import("../../fixtures/agent-plugin.json");
+  expect(validateConfigJson(JSON.stringify(manifest), "agent")).toEqual([]);
+  expect(() =>
+    validateConfigJson(JSON.stringify({ ...manifest, capabilities: ["codex-hooks"] }), "agent"),
+  ).toThrow(expect.objectContaining({ path: "$", reason: "invalid-value", detail: "unknown-key" }));
+  expect(() => validateConfigJson(JSON.stringify(manifest), "settings")).toThrow();
+});

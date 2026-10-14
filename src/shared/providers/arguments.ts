@@ -1,19 +1,19 @@
-import type { AgentId } from "../agents";
+import type { AgentId, AgentValues } from "../agents";
 
-export const EMPTY_AGENT_ARGUMENTS: Readonly<Record<AgentId, readonly string[]>> = Object.freeze({
+export const EMPTY_AGENT_ARGUMENTS: AgentValues<readonly string[]> = Object.freeze({
   claude: Object.freeze([]),
   codex: Object.freeze([]),
   agy: Object.freeze([]),
 });
 
 /** A fixed disclosure table, not an attempt to infer effective policy from arbitrary flags. */
-const BYPASS: Record<AgentId, readonly string[]> = {
+const BYPASS: Readonly<Record<string, readonly string[]>> = {
   claude: ["--dangerously-skip-permissions", "--permission-mode=bypassPermissions"],
   codex: ["--dangerously-bypass-approvals-and-sandbox"],
   agy: ["--dangerously-skip-permissions"],
 };
 
-const AGENT_NAMES: Record<AgentId, string> = {
+const AGENT_NAMES: Readonly<Record<string, string>> = {
   claude: "Claude Code",
   codex: "Codex",
   agy: "Antigravity",
@@ -57,7 +57,7 @@ function codexFullAccess(arg: string, next: string | undefined): boolean {
 export function hasBypassArgument(agent: AgentId, args: readonly string[]): boolean {
   return args.some(
     (arg, index) =>
-      BYPASS[agent].includes(arg) ||
+      (BYPASS[agent] ?? []).includes(arg) ||
       (agent === "claude" &&
         arg === "--permission-mode" &&
         args[index + 1] === "bypassPermissions") ||
@@ -68,14 +68,16 @@ export function hasBypassArgument(agent: AgentId, args: readonly string[]): bool
 export class AgentArgumentsError extends Error {}
 
 function argumentError(agent: AgentId, index: number, message: string): Error {
-  return new AgentArgumentsError(`${AGENT_NAMES[agent]}, line ${String(index + 1)}: ${message}`);
+  return new AgentArgumentsError(
+    `${AGENT_NAMES[agent] ?? agent}, line ${String(index + 1)}: ${message}`,
+  );
 }
 
 /** Copy argv without trimming, splitting, quote interpretation, or shell expansion. */
 export function parseAgentArguments(agent: AgentId, value: unknown): readonly string[] {
   if (!Array.isArray(value) || value.length > 64)
     throw new AgentArgumentsError(
-      `${AGENT_NAMES[agent]}: use a list of at most 64 default arguments.`,
+      `${AGENT_NAMES[agent] ?? agent}: use a list of at most 64 default arguments.`,
     );
   const args: string[] = [];
   for (const [index, arg] of value.entries()) {
@@ -132,7 +134,7 @@ export function parseAgentArguments(agent: AgentId, value: unknown): readonly st
   return Object.freeze(args);
 }
 
-export function parseAgentDefaults(value: unknown): Readonly<Record<AgentId, readonly string[]>> {
+export function parseAgentDefaults(value: unknown): AgentValues<readonly string[]> {
   if (
     typeof value !== "object" ||
     value === null ||

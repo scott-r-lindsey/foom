@@ -1,9 +1,14 @@
 import type { EnvironmentVariable } from "./environment";
 import type { AgyPluginStatus } from "./agy-plugin";
 export type CodexHookState = "not-reviewed" | "trusted" | "declined" | "outdated";
-export type AgentId = "claude" | "codex" | "agy";
+export type BuiltinAgentId = "claude" | "codex" | "agy";
+export type AgentId = string;
+export type AgentValues<T> = Readonly<Record<BuiltinAgentId, T> & Record<string, T>>;
 export interface AgentInstallation {
   readonly id: AgentId;
+  readonly name?: string;
+  readonly mark?: string;
+  readonly command?: string;
   readonly path: string | null;
   readonly version: string | null;
   readonly hooks: boolean;
@@ -23,10 +28,10 @@ export interface AgentScan {
 }
 /** Trusted main-process adapters supplied by the hook receiver, never the renderer. */
 export interface AgentHooks {
-  readonly claudeCommand: string;
-  readonly codexCommand: readonly string[];
-  readonly codexHookCommand?: string;
-  readonly codexNotify?: boolean;
+  readonly observerCommand: string;
+  readonly observerArgv: readonly string[];
+  readonly lifecycleCommand?: string;
+  readonly notifyFallback?: boolean;
   readonly env: Readonly<Record<string, string>>;
   /** Called once the launch has a terminal ID, before any hook can matter. */
   bind?(terminalId: string): void;

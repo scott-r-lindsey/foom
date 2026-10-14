@@ -1,5 +1,5 @@
 import { useState } from "react";
-import type { AgentId } from "../../shared/agents";
+import type { AgentId, BuiltinAgentId, AgentValues } from "../../shared/agents";
 import { AGENTS } from "./preflight";
 import { message } from "./message";
 
@@ -14,14 +14,14 @@ export function AgentDefaultArguments({
   defaults,
   save,
 }: {
-  defaults: Readonly<Record<AgentId, readonly string[]>>;
-  save: (defaults: Readonly<Record<AgentId, readonly string[]>>) => Promise<void>;
+  defaults: AgentValues<readonly string[]>;
+  save: (defaults: AgentValues<readonly string[]>) => Promise<void>;
 }) {
   const [draft, setDraft] = useState<Partial<Record<AgentId, string>>>({});
   const [saving, setSaving] = useState(false);
   const [status, setStatus] = useState("");
-  const text = (agent: AgentId) => draft[agent] ?? defaults[agent].join("\n");
-  const argumentsFor = (agent: AgentId) => argumentLines(text(agent));
+  const text = (agent: BuiltinAgentId) => draft[agent] ?? defaults[agent].join("\n");
+  const argumentsFor = (agent: BuiltinAgentId) => argumentLines(text(agent));
   return (
     <form
       className="agent-defaults"

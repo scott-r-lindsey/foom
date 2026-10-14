@@ -1,4 +1,5 @@
-import { builtinAgent, isAgentId } from "../../shared/providers/catalog";
+import { knownAgentId, providerRevision } from "../agents/providers/registry";
+import { builtinAgent } from "../../shared/providers/catalog";
 import { ControlError } from "../control/validation";
 import type { ForgeTracking } from "../control/forge-tracking";
 import { CleanupRun, KeptWorktree } from "./cleanup-run";
@@ -148,7 +149,7 @@ export interface WorkspaceDependencies {
   placeChild?: (id: string, parentId: string) => void;
   now?: () => number;
   /** Validated Environment layers for a launch: All sessions, then the agent's own. */
-  environment?: (target: AgentId | "shell") => readonly (readonly EnvironmentVariable[])[];
+  environment?: (target: AgentId) => readonly (readonly EnvironmentVariable[])[];
   /** The Foom config folder: sessions there run without a repository or worktree. */
   config?: {
     root: string;
@@ -275,8 +276,8 @@ export class Workspace {
       return builtinAgent(agent)?.hookHealth
         ? {
             ...binding,
-            codexHookCommand: codexObserverCommand(),
-            codexNotify: this.codexHooks.get() !== "trusted",
+            lifecycleCommand: codexObserverCommand(),
+            notifyFallback: this.codexHooks.get() !== "trusted",
           }
         : binding;
     };
@@ -774,8 +775,10 @@ export class Workspace {
     return { ...created, outcome };
   }
 
+  private scannedProviders = -1;
   async scanAgents(refresh: boolean): Promise<AgentReport> {
-    if (refresh) this.scanned = undefined;
+    if (refresh || this.scannedProviders !== providerRevision()) this.scanned = undefined;
+    this.scannedProviders = providerRevision();
     this.scanned ??= this.agents.scan();
     try {
       const { warning, agents } = await this.scanned;
@@ -854,7 +857,8 @@ export class Workspace {
     extra: Pick<AgentLaunch, "control" | "prompt" | "conversationId"> = {},
   ): Promise<{ id: string; attention: "hooks" | "evaluator" }> {
     return this.withRepository(request.repository, async () => {
-      if (!this.enabled[request.agent]) throw new Error("This agent is turned off in preflight");
+      if (this.enabled[request.agent] === false)
+        throw new Error("This agent is turned off in preflight");
       // Scan once so launches don't each probe the login shell.
       await this.scanAgents(false);
       // Look up the branch before spawning, so nothing can fail between spawn and tracking.
@@ -863,7 +867,7 @@ export class Workspace {
       );
       // Orchestrator children never inherit the user's (possibly bypass) defaults.
       const child = extra.control !== undefined && "parentId" in extra.control;
-      const defaultArguments = child ? [] : this.defaultArguments[request.agent];
+      const defaultArguments = child ? [] : (this.defaultArguments[request.agent] ?? []);
       const result = await this.agents.launch({
         ...request,
         ...extra,
@@ -1115,7 +1119,7 @@ export class Workspace {
     const sessions = [...this.launched.values()].filter((item) => item.worktree === worktree);
     if (sessions.some((item) => this.terminals.get(item.id)?.exitCode === undefined))
       return "running";
-    if (sessions.some((item) => isAgentId(item.agent) && conversationId(item.conversationId)))
+    if (sessions.some((item) => knownAgentId(item.agent) && conversationId(item.conversationId)))
       return "resumable conversation";
     return undefined;
   }
@@ -1373,7 +1377,7 @@ export class Workspace {
    * renderer focuses the running session. No worktree is created.
    */
   private async startConfig(
-    run: AgentId | "shell",
+    run: AgentId,
     confirm: ConfirmWorkspace,
     replacement?: { id: string; conversationId?: string },
   ): Promise<void> {
@@ -1418,7 +1422,7 @@ export class Workspace {
         this.refresh();
         return;
       }
-      if (!this.enabled[run]) throw new Error("This agent is turned off in preflight");
+      if (this.enabled[run] === false) throw new Error("This agent is turned off in preflight");
       const scan = await this.scanAgents(false);
       if (
         builtinAgent(run)?.hookHealth &&
@@ -1443,7 +1447,7 @@ export class Workspace {
         this.terminals.delete(old.id);
         this.deps.verdicts.forget(old.id);
       }
-      const defaultArguments = this.defaultArguments[run];
+      const defaultArguments = this.defaultArguments[run] ?? [];
       let result: AgentLaunched;
       try {
         result = await this.agents.launch({
@@ -1681,7 +1685,10 @@ export class Workspace {
       this.known(checkout.repository);
       await this.deps.worktrees.launchIdentity(checkout.repository, checkout.worktree);
       const scan = await this.scanAgents(false);
-      if (!this.enabled[agent] || !scan.agents.some((entry) => entry.id === agent && entry.path))
+      if (
+        this.enabled[agent] === false ||
+        !scan.agents.some((entry) => entry.id === agent && entry.path)
+      )
         throw new Error("Agent is unavailable");
       const running = [...this.launched.values()].find(
         (entry) =>
@@ -1717,7 +1724,7 @@ export class Workspace {
   private async startExisting(
     repository: string,
     worktree: string,
-    run: AgentId | "shell",
+    run: AgentId,
     confirm: ConfirmWorkspace,
     replacement?: { id: string; conversationId?: string },
     control?: AgentLaunch["control"],
@@ -2056,7 +2063,8 @@ export class Workspace {
     return (
       entry?.attention === "hooks" &&
       Boolean(
-        builtinAgent(entry.agent)?.completionHook ||
+        !builtinAgent(entry.agent) ||
+          builtinAgent(entry.agent)?.completionHook ||
           (builtinAgent(entry.agent)?.hookHealth && this.track(id).codexPromptTurn !== undefined),
       )
     );
@@ -2385,6 +2393,10 @@ export class Workspace {
     }
     if (this.track(id).exitCode !== undefined) return Promise.resolve();
     const health = this.track(id);
+    if (signal.action === "ready" && signal.signal.startsWith("plugin:")) {
+      this.transition(id, "idle", "hook");
+      return Promise.resolve();
+    }
     if (signal.signal === "codex:SessionStart") {
       health.codexStarted = true;
       return Promise.resolve();
@@ -2432,7 +2444,8 @@ export class Workspace {
       const turn = terminal.execution?.snapshot().turn;
       if (
         turn &&
-        (signal.signal === "agy:Stop" ||
+        (signal.signal.startsWith("plugin:") ||
+          signal.signal === "agy:Stop" ||
           signal.signal === "claude:Stop" ||
           signal.signal === "codex:Stop" ||
           signal.signal === "codex:agent-turn-complete")

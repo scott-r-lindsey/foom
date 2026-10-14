@@ -236,6 +236,14 @@ can be reviewed and reverted from Settings → Foom config.
 - \`sounds/{working,done,needs-you,refusal}/\`: recordings. They are not committed.
 - \`schemas/\`: JSON Schemas for the three JSON formats.
 
+## Agent plugins
+
+- Put declarative version 1 manifests in \`agents/<id>.json\`. Foom never fetches plugins or loads scripts from them.
+- A minimal manifest is \`{ "kind": "agent", "version": 1, "id": "example-agent", "name": "Example Agent", "badge": "EX", "executables": ["example-agent"], "launch": { "arguments": [], "prompt": ["--prompt", "{prompt}"], "resume": ["--resume", "{conversationId}"] }, "bypassArguments": ["--yolo"], "attention": { "minimumEngineVersion": 1, "rules": [] } }\`.
+- IDs match filenames and cannot be claude, codex, agy or shell. Executables are names on PATH, not paths or shell command strings. Every argv entry is literal. Unknown keys and unsafe detection regexes are rejected.
+- New and edited manifests wait for a trusted confirmation showing executables, all argv templates, bypass flags and hook mappings. A commit does not approve them. Changed or invalid plugins cannot launch; running sessions keep their original launch bindings.
+- \`foom config validate\` checks manifests offline but grants no consent. To remove a plugin, remove its manifest. Keep it on restores approved bytes or removes an unapproved addition.
+
 ## Not in this folder
 
 These are set in Foom's Settings window, not here. Tell the user exactly what to enter:
@@ -293,6 +301,7 @@ export const OWNED_FILES: Readonly<Record<string, string>> = {
  */
 export const OWNED_HISTORY: Readonly<Record<string, readonly string[]>> = {
   "README.md": [
+    "c8255169631ec679c29d78bd2ece6f88f1b6dc0fcf1b2a41d9683a07a60b0b03",
     "88acb3815e8efc866973c2d329491c63bef04d67b19e61579fe5abcf9af1221e",
     "205d3cac8e70f43434c221c43f8611ba846c580084e3b6b2a53d9a966e410810",
     "35a362caf6cfdec503b113efd0b66a6b89be3dc835b597e39f1fb8679b20875f",
@@ -301,6 +310,7 @@ export const OWNED_HISTORY: Readonly<Record<string, readonly string[]>> = {
     "d71127b1f24427c8f3a36b5b32fde2aac496941c5bc038960f0d81399519c3e5",
   ],
   "AGENTS.md": [
+    "c8255169631ec679c29d78bd2ece6f88f1b6dc0fcf1b2a41d9683a07a60b0b03",
     "88acb3815e8efc866973c2d329491c63bef04d67b19e61579fe5abcf9af1221e",
     "205d3cac8e70f43434c221c43f8611ba846c580084e3b6b2a53d9a966e410810",
     "35a362caf6cfdec503b113efd0b66a6b89be3dc835b597e39f1fb8679b20875f",
@@ -309,6 +319,7 @@ export const OWNED_HISTORY: Readonly<Record<string, readonly string[]>> = {
     "d71127b1f24427c8f3a36b5b32fde2aac496941c5bc038960f0d81399519c3e5",
   ],
   "CLAUDE.md": [
+    "c8255169631ec679c29d78bd2ece6f88f1b6dc0fcf1b2a41d9683a07a60b0b03",
     "88acb3815e8efc866973c2d329491c63bef04d67b19e61579fe5abcf9af1221e",
     "205d3cac8e70f43434c221c43f8611ba846c580084e3b6b2a53d9a966e410810",
     "35a362caf6cfdec503b113efd0b66a6b89be3dc835b597e39f1fb8679b20875f",
