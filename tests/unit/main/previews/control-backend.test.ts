@@ -34,7 +34,10 @@ it("targets only the opener's selected host; sidebar registration never requests
   const backend = previewBackend(new Map([[2, host]]), new Map([[2, { place }]]), board);
   expect(await backend.open(actor, preview, false)).toBe("landing");
   expect(board).toHaveBeenCalledWith("terminal");
-  expect(host.open).toHaveBeenCalledWith("/tree", "plan.md", { id: preview.previewId });
+  expect(host.open).toHaveBeenCalledWith("/tree", "plan.md", {
+    id: preview.previewId,
+    openedBy: { terminalId: "terminal", agent: "agent" },
+  });
   place.mockClear();
   expect(await backend.open(actor, preview, true)).toBe("sidebar");
   expect(place).not.toHaveBeenCalled();

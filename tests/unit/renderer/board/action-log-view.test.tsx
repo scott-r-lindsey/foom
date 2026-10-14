@@ -116,3 +116,37 @@ it("shows failures, empty results, and ignores reads after unmount", async () =>
     await Promise.resolve();
   });
 });
+
+it("shows the worktree-relative path for preview opens and supports preview action filtering", async () => {
+  const read = vi.fn(() =>
+    Promise.resolve({
+      entries: [
+        {
+          ...entry,
+          action: "open_preview",
+          path: "docs/mockup.html",
+          status: "sidebar",
+          reason: "completed",
+        },
+      ],
+      total: 1,
+    }),
+  );
+  const view = render(
+    <ActionLog
+      api={{ read, clear: () => Promise.resolve() }}
+      subscribe={() => () => {}}
+      close={() => {}}
+    />,
+  );
+  await view.findByText("Opened preview docs/mockup.html");
+  fireEvent.change(view.getByLabelText("Action"), { target: { value: "open_preview" } });
+  await waitFor(() => {
+    expect(read).toHaveBeenLastCalledWith({
+      search: "",
+      action: "open_preview",
+      status: "",
+      offset: 0,
+    });
+  });
+});

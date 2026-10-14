@@ -28,6 +28,7 @@ import {
   repositoryKey,
   sessionName,
   sessionIdentity,
+  previewOpener,
   sidebarRepositories,
   worktreeKey,
   rowRepository,
@@ -794,12 +795,13 @@ export function Sidebar({
     <div
       key={preview.id}
       role="treeitem"
-      aria-label={`${preview.kind === "markdown" ? "Markdown" : "HTML"} preview: ${preview.relativePath}`}
+      aria-label={`${preview.kind === "markdown" ? "Markdown" : "HTML"} preview: ${preview.relativePath}${preview.openedBy ? `, opened by ${previewOpener(preview, rows, preferences)}` : ""}${tileNumbers?.has(preview.id) ? "" : ", not shown"}`}
     >
       <button
         type="button"
         data-nav
         className="tree-row preview-row"
+        data-child={Boolean(preview.openedBy)}
         onClick={() => openPreview?.(preview.id)}
       >
         <svg className="preview-glyph" aria-hidden="true" viewBox="0 0 16 16">
@@ -807,6 +809,11 @@ export function Sidebar({
         </svg>
         <span className="tree-label">
           <Highlight text={preview.relativePath} filter={filter} />
+          {preview.openedBy && (
+            <span className="preview-row-opener">
+              opened by {previewOpener(preview, rows, preferences)}
+            </span>
+          )}
         </span>
         {tileNumbers?.has(preview.id) && (
           <span
@@ -1301,7 +1308,17 @@ export function Sidebar({
                                 {expanded && (
                                   <div role="group">
                                     {sessions.length
-                                      ? sessions.map((row) => session(row))
+                                      ? sessions.map((row) => (
+                                          <div key={row.id}>
+                                            {session(row)}
+                                            {matchingPreviews
+                                              .filter(
+                                                (preview) =>
+                                                  preview.openedBy?.terminalId === row.id,
+                                              )
+                                              .map(previewRow)}
+                                          </div>
+                                        ))
                                       : !filter.trim() &&
                                         !matchingPreviews.some(
                                           (preview) => preview.worktree === worktree.path,
@@ -1309,6 +1326,9 @@ export function Sidebar({
                                     {matchingPreviews
                                       .filter(
                                         (preview) =>
+                                          !sessions.some(
+                                            (row) => row.id === preview.openedBy?.terminalId,
+                                          ) &&
                                           preview.worktree === worktree.path &&
                                           preview.repository === repo.repository.path,
                                       )

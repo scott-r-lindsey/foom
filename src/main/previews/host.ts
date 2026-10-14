@@ -85,7 +85,11 @@ export class PreviewHost {
     }
     await this.registry.save();
   }
-  async open(worktree: string, relativePath: string, agent?: { id: string }): Promise<string> {
+  async open(
+    worktree: string,
+    relativePath: string,
+    agent?: { id: string; openedBy?: PreviewRecord["openedBy"] },
+  ): Promise<string> {
     if (!previewPath(relativePath)) throw new Error("Invalid preview path");
     await this.validateWorktree(worktree);
     if (this.disposed) throw new Error("Preview host closed");
@@ -94,7 +98,10 @@ export class PreviewHost {
     const file = readInside(root, pathname);
     if (file.status !== 200) throw new Error("Preview file unavailable");
     const record = this.registry.add(worktree, relativePath, agent?.id);
-    if (agent) record.agentOpened = true;
+    if (agent) {
+      record.agentOpened = true;
+      if (agent.openedBy) record.openedBy = agent.openedBy;
+    }
     try {
       await this.registry.save();
       if (this.closed() || !this.registry.records.has(record.id))
@@ -362,7 +369,7 @@ export class PreviewHost {
     this.window.webContents.removeListener("before-mouse-event", this.boardMouse);
     const saved = [...this.registry.records.values()]
       .filter((record) => !record.agentOpened || this.visible(record.id))
-      .map(({ agentOpened: _agentOpened, ...record }) => record);
+      .map(({ agentOpened: _agentOpened, openedBy: _openedBy, ...record }) => record);
     for (const id of [...this.registry.records.keys()]) await this.close(id);
     if (persist) {
       for (const record of saved) this.registry.records.set(record.id, record);

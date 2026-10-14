@@ -1,3 +1,4 @@
+import type { PreviewOpenAction } from "../../shared/previews";
 import type { PreviewSummary } from "../../shared/workspace";
 import type { HomeShellFacts } from "../../shared/panel";
 import type { ExecutionSnapshot } from "../../shared/execution";
@@ -37,6 +38,7 @@ export function createAppSource(): BoardSource {
   let repositories: readonly string[] = [];
   let sidebar: readonly SidebarRepository[] = [];
   let previews: readonly PreviewSummary[] = [];
+  let previewActions: readonly PreviewOpenAction[] = [];
   let shellName = "Shell";
   let home: HomeShellFacts | undefined;
   let shellId = pendingShell;
@@ -279,6 +281,7 @@ export function createAppSource(): BoardSource {
         if (!disposed && current === revision) {
           sidebar = inventory.repositories;
           previews = inventory.previews ?? [];
+          previewActions = inventory.previewActions ?? [];
           shellName = inventory.shell;
           home = inventory.home;
           snapshot(next);
@@ -361,6 +364,7 @@ export function createAppSource(): BoardSource {
     isDevelopment: window.desktop.isDevelopment,
     previews: {
       getSnapshot: () => previews,
+      getHistory: () => previewActions,
       close: (id) =>
         window.desktop.previews?.close(id) ?? Promise.reject(new Error("Preview host unavailable")),
       ...(window.desktop.previews?.onPlace
@@ -369,6 +373,7 @@ export function createAppSource(): BoardSource {
               window.desktop.previews?.onPlace?.(async (id, expiresAt) => {
                 const inventory = await window.desktop.sidebarInventory();
                 previews = inventory.previews ?? [];
+                previewActions = inventory.previewActions ?? [];
                 publish();
                 return callback(id, expiresAt);
               }) ?? (() => {}),
@@ -450,6 +455,7 @@ export function createAppSource(): BoardSource {
       const inventory = await window.desktop.sidebarInventory();
       sidebar = inventory.repositories;
       previews = inventory.previews ?? [];
+      previewActions = inventory.previewActions ?? [];
       shellName = inventory.shell;
       home = inventory.home;
       snapshot(await window.desktop.workspace());
@@ -477,6 +483,7 @@ export function createAppSource(): BoardSource {
         const inventory = await window.desktop.sidebarInventory();
         sidebar = inventory.repositories;
         previews = inventory.previews ?? [];
+        previewActions = inventory.previewActions ?? [];
         shellName = inventory.shell;
         home = inventory.home;
         snapshot(await window.desktop.workspace());

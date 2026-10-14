@@ -24,6 +24,7 @@ import {
   rowRepository,
   rowWorktree,
   agentBadges,
+  previewOpener,
 } from "./sidebar-model";
 import {
   rectangles,
@@ -79,6 +80,7 @@ function Tile({
   number,
   source,
   row,
+  rows,
   preview,
   preferences,
   focused,
@@ -90,9 +92,14 @@ function Tile({
   action,
   layout,
   collapsing,
+  arrived,
+  acknowledgePreview,
 }: {
   layout: TileLayout;
   collapsing: boolean;
+  arrived: boolean;
+  acknowledgePreview: () => void;
+  rows: readonly BoardRow[];
   tile: TileLeaf;
   rect: TileRect;
   number: number;
@@ -139,6 +146,8 @@ function Tile({
       ref={elementRef}
       className="terminal-tile"
       data-tile={tile.id}
+      data-arrived={arrived}
+      onPointerEnter={acknowledgePreview}
       data-focused={occupied && focused}
       data-landing={!occupied && landingSpace(layout)?.id === tile.id}
       data-collapsing={collapsing}
@@ -149,15 +158,17 @@ function Tile({
       data-maximized={maximized}
       data-behind={behind}
       style={position(maximized ? { x: 0, y: 0, width: 100, height: 100 } : rect)}
-      aria-label={`Tile ${String(number)}${occupied ? `: ${name}` : ": empty"}`}
+      aria-label={`Tile ${String(number)}${occupied ? `: ${name}` : ": empty"}${preview?.openedBy ? `, opened by ${previewOpener(preview, rows, preferences)}` : ""}`}
       aria-hidden={!occupied || undefined}
       tabIndex={occupied ? (focused ? 0 : -1) : undefined}
       inert={behind || inactive}
       onFocus={() => {
+        acknowledgePreview();
         if (occupied) select();
       }}
       onPointerDown={(event) => {
         if (!occupied) return;
+        acknowledgePreview();
         select();
         if (
           event.button !== 2 &&
@@ -214,6 +225,11 @@ function Tile({
           )}
           {preview && (
             <>
+              {arrived && (
+                <span className="visually-hidden" role="status">
+                  New preview
+                </span>
+              )}
               <svg className="preview-glyph" aria-hidden="true" viewBox="0 0 16 16">
                 <path d="M4 1.5h5l3 3v10H4z M9 1.5v3h3 M6 8h4 M6 10.5h4" />
               </svg>
@@ -221,6 +237,15 @@ function Tile({
               <span className="tile-name" title={preview.relativePath}>
                 {preview.relativePath}
               </span>
+              {preview.openedBy && (
+                <span
+                  className="preview-opener"
+                  title={`Opened by ${previewOpener(preview, rows, preferences)}`}
+                >
+                  <span>opened by</span>
+                  <AgentBadge mark={agentBadges.get(preview.openedBy.agent) ?? "?"} />
+                </span>
+              )}
             </>
           )}
           <button
@@ -410,6 +435,8 @@ export function TileArea({
   setLayout,
   rows,
   previews,
+  arrivals,
+  acknowledgePreview,
   preferences,
   inactive,
   focusRequest,
@@ -423,6 +450,8 @@ export function TileArea({
   setLayout: (next: TileLayout) => void;
   rows: readonly BoardRow[];
   previews: readonly PreviewSummary[];
+  arrivals: ReadonlySet<string>;
+  acknowledgePreview: (id: string) => void;
   preferences: SidebarPreferences;
   inactive: boolean;
   focusRequest: number;
@@ -550,6 +579,12 @@ export function TileArea({
             );
           })}
           source={source}
+          rows={rows}
+          arrived={tile.content?.kind === "preview" && arrivals.has(tile.content.preview)}
+          acknowledgePreview={() => {
+            if (tile.content?.kind === "preview" && arrivals.has(tile.content.preview))
+              acknowledgePreview(tile.content.preview);
+          }}
           row={rows.find((row) => row.id === sessionId(tile))}
           preview={previews.find(
             (preview) => tile.content?.kind === "preview" && preview.id === tile.content.preview,

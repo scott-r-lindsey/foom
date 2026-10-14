@@ -34,6 +34,17 @@ export function sessionIdentity(row: BoardRow, shell: string | undefined): strin
 export function sessionName(row: BoardRow, preferences: SidebarPreferences): string {
   return preferences.names[row.id] || agentNames.get(row.agent) || row.agent;
 }
+export function previewOpener(
+  preview: PreviewSummary,
+  rows: readonly BoardRow[],
+  preferences: SidebarPreferences,
+): string {
+  if (!preview.openedBy) return "";
+  const row = rows.find((item) => item.id === preview.openedBy?.terminalId);
+  const identity = agentNames.get(preview.openedBy.agent) ?? preview.openedBy.agent;
+  const name = row && sessionName(row, preferences);
+  return name && name !== identity ? `${identity} · ${name}` : identity;
+}
 export function rollup(rows: readonly BoardRow[]): BoardRow | undefined {
   return rows.reduce<BoardRow | undefined>(
     (best, row) => (!best || ranks[row.state] > ranks[best.state] ? row : best),
@@ -125,13 +136,19 @@ export function buildSidebar(
           branchMatches ||
           matching(row) ||
           (parentOf(row) !== undefined && matching(parentOf(row) ?? row)) ||
+          previews.some(
+            (preview) => preview.openedBy?.terminalId === row.id && matches(preview.relativePath),
+          ) ||
           sessions.some((child) => parentOf(child)?.id === row.id && matching(child)),
       );
       const previewRows = previews.filter(
         (preview) =>
           preview.repository === repository.path &&
           preview.worktree === item.path &&
-          (repoMatches || branchMatches || matches(preview.relativePath)),
+          (repoMatches ||
+            branchMatches ||
+            matches(preview.relativePath) ||
+            sessions.some((row) => row.id === preview.openedBy?.terminalId && matching(row))),
       );
       if (query && !repoMatches && !branchMatches && !filtered.length && !previewRows.length)
         continue;

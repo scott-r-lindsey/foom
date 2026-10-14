@@ -478,6 +478,11 @@ test("agent placement uses existing space, preserves focus, rejects stale arriva
   expect(document.querySelector('[data-tile="landing"]')?.getAttribute("data-kind")).toBe(
     "preview",
   );
+  const arrived = document.querySelector('[data-tile="landing"]');
+  expect(arrived?.getAttribute("data-arrived")).toBe("true");
+  if (!arrived) throw new Error("Missing arrival");
+  fireEvent.pointerEnter(arrived);
+  expect(arrived.getAttribute("data-arrived")).toBe("false");
   await expect(arrival("preview", Date.now() + 5000)).resolves.toBe("sidebar");
   view.unmount();
   expect(off).toHaveBeenCalled();

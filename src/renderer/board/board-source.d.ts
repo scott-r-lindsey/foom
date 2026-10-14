@@ -1,3 +1,4 @@
+import type { PreviewOpenAction } from "../../shared/previews";
 import type { PreviewApi } from "../../shared/previews";
 import type { PreviewSummary } from "../../shared/workspace";
 import type { ActionLogApi } from "../../shared/action-log";
@@ -36,6 +37,7 @@ export interface WorktreeSource {
 export interface BoardSource {
   previews?: {
     getSnapshot(): readonly PreviewSummary[];
+    getHistory?(): readonly PreviewOpenAction[];
     close(id: string): Promise<void>;
     onPlace?: PreviewApi["onPlace"];
   };

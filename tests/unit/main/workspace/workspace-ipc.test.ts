@@ -596,7 +596,13 @@ test("action log capabilities reject extra arguments and keep queries behind mai
 test("sidebar inventory reports previews only for worktrees it lists", async () => {
   mock.handle.mockClear();
   attachWorkspace(window, workspace as unknown as Workspace, owns, requestDialog, undefined, () => [
-    { id: "a".repeat(32), worktree: "/tree", relativePath: "docs/Readme.MD", network: false },
+    {
+      id: "a".repeat(32),
+      worktree: "/tree",
+      relativePath: "docs/Readme.MD",
+      network: false,
+      openedBy: { terminalId: "agent", agent: "claude" },
+    },
     { id: "b".repeat(32), worktree: "/tree", relativePath: "site/index.html", network: false },
     { id: "c".repeat(32), worktree: "/gone", relativePath: "a.md", network: false },
   ]);
@@ -618,6 +624,7 @@ test("sidebar inventory reports previews only for worktrees it lists", async () 
         repository: "/repo",
         worktree: "/tree",
         relativePath: "docs/Readme.MD",
+        openedBy: { terminalId: "agent", agent: "claude" },
         kind: "markdown",
       },
       {

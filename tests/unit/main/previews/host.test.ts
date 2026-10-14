@@ -530,7 +530,10 @@ test("agent registry entries create no native view until shown and drop sidebar-
   const f = await fixture();
   const first = "a".repeat(32);
   const second = "b".repeat(32);
-  await f.host.open(f.root, "a.html", { id: first });
+  await f.host.open(f.root, "a.html", {
+    id: first,
+    openedBy: { terminalId: "terminal", agent: "claude" },
+  });
   await f.host.open(f.root, "a.html", { id: second });
   expect(fake.views).toHaveLength(0);
   expect(f.host.visible(first)).toBe(false);
@@ -540,6 +543,10 @@ test("agent registry entries create no native view until shown and drop sidebar-
   f.host.placed(first, true);
   expect(f.host.visible(first)).toBe(true);
   expect(f.registry.records.get(first)?.agentOpened).toBe(true);
+  expect(f.registry.records.get(first)?.openedBy).toEqual({
+    terminalId: "terminal",
+    agent: "claude",
+  });
   f.host.bounds(first, { x: 0, y: 0, width: 100, height: 100, visible: false });
   expect(fake.views).toHaveLength(0);
   f.host.bounds(first, { x: 0, y: 0, width: 100, height: 100, visible: true });
@@ -548,6 +555,7 @@ test("agent registry entries create no native view until shown and drop sidebar-
   await f.host.dispose(true);
   expect([...f.registry.records.keys()]).toEqual([first]);
   expect(f.registry.records.get(first)?.agentOpened).toBeUndefined();
+  expect(f.registry.records.get(first)?.openedBy).toBeUndefined();
   const restored = new PreviewRegistry(join(f.root, "registry.json"));
   await restored.load();
   expect([...restored.records.keys()]).toEqual([first]);

@@ -11,6 +11,7 @@ export function previewBackend(
   >,
   placements: ReadonlyMap<number, Pick<PreviewPlacement, "place">>,
   board: (terminalId: string) => number | undefined,
+  agent: (terminalId: string) => string = () => "agent",
 ): PreviewBackend {
   return {
     open: async (actor, preview, sidebar) => {
@@ -19,7 +20,10 @@ export function previewBackend(
       const host = hosts.get(windowId);
       if (!host) throw new ControlError("unavailable");
       if (host.registry.records.size >= 256) throw new ControlError("capacity");
-      await host.open(preview.worktree, preview.path, { id: preview.previewId });
+      await host.open(preview.worktree, preview.path, {
+        id: preview.previewId,
+        openedBy: { terminalId: actor.terminalId, agent: agent(actor.terminalId) },
+      });
       return sidebar
         ? "sidebar"
         : (placements.get(windowId)?.place(preview.previewId) ?? "sidebar");

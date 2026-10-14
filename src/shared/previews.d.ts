@@ -4,6 +4,7 @@ export interface PreviewRecord {
   relativePath: string;
   network: false;
   agentOpened?: true;
+  openedBy?: { terminalId: string; agent: string };
 }
 export interface PreviewBounds {
   x: number;
@@ -18,4 +19,11 @@ export interface PreviewApi {
   open(worktree: string, relativePath: string): Promise<string>;
   close(id: string): Promise<void>;
   bounds(id: string, bounds: PreviewBounds): Promise<void>;
+}
+
+export interface PreviewOpenAction {
+  id: string;
+  terminalId: string;
+  path: string;
+  at: number;
 }

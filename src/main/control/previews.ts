@@ -1,3 +1,4 @@
+import type { PreviewOpenAction } from "../../shared/previews";
 import { randomBytes } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
@@ -33,6 +34,7 @@ export interface PreviewBackend {
 
 /** Instance-wide policy; no transport or renderer can supply a worktree or owner. */
 export class PreviewBroker {
+  readonly history: PreviewOpenAction[] = [];
   private readonly previews = new Map<string, AgentPreview>();
   private readonly buckets = new Map<string, { tokens: number; at: number }>();
   private readonly dismissed = new Set<string>();
@@ -43,6 +45,7 @@ export class PreviewBroker {
     private readonly active: (actor: Principal) => void,
     private readonly now: () => number = Date.now,
     private readonly limits = PREVIEW_LIMITS,
+    private readonly changed: () => void = () => {},
   ) {}
   call(actor: Principal, method: string, input: unknown): Promise<unknown> {
     const next = this.pending.then(() => this.dispatch(actor, method, input));
@@ -133,6 +136,16 @@ export class PreviewBroker {
       throw new ControlError("unavailable");
     }
     this.active(actor);
+    if (action === "open_preview" && outcome !== "opening") {
+      this.history.push({
+        id: randomBytes(16).toString("hex"),
+        terminalId: actor.terminalId,
+        path: preview.path,
+        at: this.now(),
+      });
+      if (this.history.length > 256) this.history.shift();
+      this.changed();
+    }
   }
   private async dispatch(actor: Principal, method: string, input: unknown): Promise<unknown> {
     this.active(actor);

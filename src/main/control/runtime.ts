@@ -50,6 +50,9 @@ export class ControlRuntime {
             (actor) => {
               service.assertActive(actor);
             },
+            undefined,
+            undefined,
+            auditChanged,
           )
         : undefined,
     );

@@ -11110,7 +11110,7 @@ test("terminal font picker updates open shells and config shells and refits thei
     await expect(rows).toHaveCSS("font-family", '"Hack Nerd Font Mono", "Geist Mono", monospace');
 });
 
-test("an agent fixture opens a preview into the landing spot while terminal focus keeps every key", {
+test("an agent fixture opens tile and sidebar previews on a full board, retains focus and respects human close", {
   skip: process.platform === "win32" && "The fake agent is a POSIX script",
 }, async (context) => {
   const { chmod, symlink } = require("node:fs/promises");
@@ -11129,6 +11129,7 @@ test("an agent fixture opens a preview into the landing spot while terminal focu
     path.join(repo, "grabby.html"),
     `<input autofocus><script>window.stolen=""; window.attempts=0; addEventListener("keydown", event => window.stolen+=event.key); setInterval(() => { window.attempts++; window.focus(); document.querySelector("input").focus(); },20);</script>`,
   );
+  await writeFile(path.join(repo, "notes.md"), "# Agent notes");
   const credentials = path.join(root, "credentials");
   const app = await launchApp(context, true, {
     args: [`--user-data-dir=${path.join(root, "user-data")}`],
@@ -11222,6 +11223,44 @@ test("an agent fixture opens a preview into the landing spot while terminal focu
   await expect(page.locator('[data-tile="landing"]')).toHaveAttribute("data-kind", "preview");
   await expect(page.locator('[data-tile="terminal"]')).toHaveAttribute("data-focused", "true");
   await expect(page.locator('[data-tile="terminal"] .xterm-helper-textarea')).toBeFocused();
+  await expect(page.locator('[data-tile="landing"]')).toHaveAttribute("data-arrived", "true");
+  await expect(page.locator('[data-tile="landing"] .preview-opener')).toHaveText("opened byCC");
+  await expect(page.locator('[data-tile="landing"]')).toHaveAttribute(
+    "aria-label",
+    /opened by Claude Code/,
+  );
+  await page.screenshot({ path: "test-results/preview-attribution.png" });
+  const requestPreview = async (requestId, file) => {
+    await page.evaluate(
+      ({ id, requestId, file }) =>
+        window.desktop.input(
+          id,
+          JSON.stringify({ id: requestId, args: ["open-preview", file, "--json"] }) + "\n",
+        ),
+      { id: agent.id, requestId, file },
+    );
+    await expect.poll(() => existsSync(`${credentials}.response-${requestId}`)).toBe(true);
+    const response = JSON.parse(await readFile(`${credentials}.response-${requestId}`, "utf8"));
+    assert.equal(response.code, 0, response.stderr);
+    return JSON.parse(response.stdout).result;
+  };
+  const sidebarResult = await requestPreview("notes", "notes.md");
+  assert.equal(sidebarResult.placement, "sidebar");
+  await expect(page.locator('.terminal-tile[data-kind="preview"]')).toHaveCount(1);
+  const notesRow = page.getByRole("treeitem", {
+    name: "Markdown preview: notes.md, opened by Claude Code, not shown",
+  });
+  await expect(notesRow).toBeVisible();
+  assert.ok(
+    await notesRow.evaluate(
+      (row) => row.parentElement.querySelector('.board-row[data-kind="agent"]') !== null,
+    ),
+  );
+  await page.getByRole("button", { name: "Actions for Claude Code in main" }).click();
+  await expect(page.getByText("Opened preview grabby.html", { exact: true })).toBeVisible();
+  await expect(page.getByText("Opened preview notes.md", { exact: true })).toBeVisible();
+  await page.keyboard.press("Escape");
+  await page.locator('[data-tile="terminal"] .xterm-helper-textarea').focus();
   // Exercise the existing bounds bridge; overlay composition supplies these reports in #292.
   await page.evaluate(
     (id) =>
@@ -11246,5 +11285,32 @@ test("an agent fixture opens a preview into the landing spot while terminal focu
     .poll(async () => (await page.evaluate((id) => window.desktop.tail(id, 20), shell.id)).join(""))
     .toContain(keys);
   assert.equal(await previewContents(app, result.previewId, "window.stolen"), "");
-  await page.evaluate((id) => window.desktop.previews.close(id), result.previewId);
+  await page
+    .locator('[data-tile="landing"]')
+    .getByRole("button", { name: "Close", exact: true })
+    .click();
+  await expect(page.locator('[data-tile="landing"]')).toHaveAttribute("data-empty", "true");
+  await expect
+    .poll(async () =>
+      (await page.evaluate(() => window.desktop.sidebarInventory())).previews.some(
+        (preview) => preview.id === result.previewId,
+      ),
+    )
+    .toBe(false);
+  const reopened = await requestPreview("reopen", "grabby.html");
+  assert.equal(reopened.placement, "sidebar");
+  await expect(page.locator('.terminal-tile[data-kind="preview"]')).toHaveCount(0);
+  const reopenedRow = page.getByRole("treeitem", {
+    name: "HTML preview: grabby.html, opened by Claude Code, not shown",
+  });
+  await expect(reopenedRow).toBeVisible();
+  await expect(page.locator('[data-tile="landing"]')).toHaveAttribute("data-empty", "true");
+  await reopenedRow.getByRole("button").click();
+  await expect(page.locator('[data-tile="landing"]')).toHaveAttribute("data-kind", "preview");
+  await expect(page.locator('[data-tile="landing"]')).toHaveAttribute("data-arrived", "false");
+  await page
+    .locator('[data-tile="landing"]')
+    .getByRole("button", { name: "Close", exact: true })
+    .click();
+  await assertAccessible(page);
 });

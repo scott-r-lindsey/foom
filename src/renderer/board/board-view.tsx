@@ -5,6 +5,7 @@ import { ActionLog } from "./action-log-view";
 import { TileArea } from "./tile-area";
 import {
   placeAgentPreview,
+  placeContent,
   TILE_STORAGE,
   restoreLayout,
   saveLayout,
@@ -74,6 +75,14 @@ export function Board({
   const paneInactive = inactive || settingsOpen;
   const rows = useSyncExternalStore(source.subscribe, source.getSnapshot);
   const previews = source.previews?.getSnapshot() ?? emptyPreviews;
+  const [arrivals, setArrivals] = useState<ReadonlySet<string>>(() => new Set());
+  const acknowledgePreview = (id: string) => {
+    setArrivals((current) => {
+      const next = new Set(current);
+      next.delete(id);
+      return next;
+    });
+  };
   useEffect(() => source.connect?.(), [source]);
   const [layout, setLayout] = useState(() => {
     try {
@@ -132,6 +141,10 @@ export function Board({
           tile.content?.kind === "preview" ? [tile.content.preview] : [],
         ),
       );
+      setArrivals((current) => {
+        const nextArrivals = new Set([...current].filter((id) => retained.has(id)));
+        return nextArrivals.size === current.size ? current : nextArrivals;
+      });
       for (const tile of leaves(layoutRef.current.tree)) {
         if (tile.content?.kind === "preview" && !retained.has(tile.content.preview)) {
           void source.previews?.close(tile.content.preview).catch(() => {
@@ -158,7 +171,10 @@ export function Board({
         )
           return Promise.resolve("sidebar");
         const placed = placeAgentPreview(layoutRef.current, id);
-        if (placed.layout !== layoutRef.current) changeLayout(placed.layout);
+        if (placed.layout !== layoutRef.current) {
+          setArrivals((current) => new Set([...current, id]));
+          changeLayout(placed.layout);
+        }
         return Promise.resolve(placed.placement);
       }),
     [source, changeLayout],
@@ -783,12 +799,37 @@ export function Board({
           }
           previews={previews}
           openPreview={(id) => {
+            acknowledgePreview(id);
             const tile = leaves(layoutRef.current.tree).find(
               (tile) => tile.content?.kind === "preview" && tile.content.preview === id,
             );
             if (tile) {
               changeLayout({ ...layoutRef.current, focused: tile.id });
               setFocusRequest((value) => value + 1);
+            } else {
+              const area = boardRef.current?.querySelector(".tile-area");
+              const probe = document.createElement("span");
+              probe.style.cssText = `position:absolute;visibility:hidden;font:${String(fontSizeRef.current)}px ${fontFamilyRef.current}`;
+              probe.textContent = "M";
+              boardRef.current?.append(probe);
+              const cell = probe.getBoundingClientRect().width || fontSizeRef.current * 0.6;
+              probe.remove();
+              const next = placeContent(
+                layoutRef.current,
+                { kind: "preview", preview: id },
+                false,
+                {
+                  columns: (area?.getBoundingClientRect().width ?? 0) / cell,
+                  needsYou: new Set(
+                    rows.filter((row) => row.state === "needs_input").map((row) => row.id),
+                  ),
+                  focusedAt: focusedAtRef.current,
+                },
+              );
+              if (next) {
+                changeLayout(next);
+                setFocusRequest((value) => value + 1);
+              } else setRemoveError("The tile layout has reached its size limit.");
             }
           }}
           revealRef={revealRef}
@@ -841,6 +882,8 @@ export function Board({
             setLayout={changeLayout}
             rows={rows}
             previews={previews}
+            arrivals={arrivals}
+            acknowledgePreview={acknowledgePreview}
             preferences={preferences}
             inactive={paneInactive}
             action={(tile, action) => {
