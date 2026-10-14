@@ -11529,14 +11529,14 @@ test("sidebar footer zoom and master volume stay synchronized and presets are ab
     )
     .toBe(0.05);
   await footer.getByRole("button", { name: "Zoom 100%", exact: true }).hover();
-  await page.mouse.wheel(0, -50);
+  await page.mouse.wheel(0, -100);
   await expect
     .poll(() =>
       page.evaluate(async () => (await window.desktop.setupState()).settings.interfaceScale),
     )
     .toBe(110);
   await footer.getByRole("button", { name: "Zoom 110%, reset to 100%", exact: true }).hover();
-  await page.mouse.wheel(0, 50);
+  await page.mouse.wheel(0, 100);
   await expect
     .poll(() =>
       page.evaluate(async () => (await window.desktop.setupState()).settings.interfaceScale),
@@ -11544,13 +11544,13 @@ test("sidebar footer zoom and master volume stay synchronized and presets are ab
     .toBe(100);
   await footer.getByRole("button", { name: "Mute", exact: true }).click();
   await footer.getByRole("button", { name: "Unmute", exact: true }).hover();
-  await page.mouse.wheel(0, -50);
+  await page.mouse.wheel(0, -100);
   await expect(volume).toHaveValue("10");
   await expect
     .poll(() => page.evaluate(async () => (await window.desktop.setupState()).settings.sound))
     .toMatchObject({ volume: 0.1, muted: false });
   await volume.hover();
-  await page.mouse.wheel(0, 50);
+  await page.mouse.wheel(0, 100);
   await expect(volume).toHaveValue("5");
   await expect
     .poll(() =>
