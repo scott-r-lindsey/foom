@@ -4823,10 +4823,10 @@ test("launching into a narrow full tile uses the focused fallback and empty tile
   await expect(page.locator(".xterm-helper-textarea").first()).toBeFocused();
   assert.equal(sessions.find((session) => session.id === original.id).exited, false);
 
-  await page.evaluate(async () => {
-    await window.desktop.appMenu.execute("split-right");
-    await window.desktop.appMenu.execute("split-down");
-  });
+  await page.evaluate(() => window.desktop.appMenu.execute("split-right"));
+  await expect(page.locator(".terminal-tile")).toHaveCount(2);
+  await page.evaluate(() => window.desktop.appMenu.execute("split-down"));
+  await expect(page.locator(".terminal-tile")).toHaveCount(3);
   const empty = page.locator('.terminal-tile[data-empty="true"]').last();
   await expect(empty).toHaveAttribute("aria-hidden", "true");
   await expect(empty.locator(".tile-title")).toHaveCount(0);
@@ -4931,10 +4931,10 @@ test("tile terminal viewport has no native overflow bars", async (context) => {
     )
     .toBe("dracula");
   await page.keyboard.press("Escape");
-  await page.evaluate(async () => {
-    await window.desktop.appMenu.execute("split-right");
-    await window.desktop.appMenu.execute("split-down");
-  });
+  await page.evaluate(() => window.desktop.appMenu.execute("split-right"));
+  await expect(page.locator(".terminal-tile")).toHaveCount(2);
+  await page.evaluate(() => window.desktop.appMenu.execute("split-down"));
+  await expect(page.locator(".terminal-tile")).toHaveCount(3);
   await expect(page.locator(".terminal-tile").first()).toHaveCSS(
     "background-color",
     "rgb(40, 42, 54)",
@@ -6758,7 +6758,9 @@ test("multiple windows restore independent layouts, bounds and interface size", 
   const options = { args: [`--user-data-dir=${profile}`], emptyBoard: true };
   const app = await launchApp(context, false, options);
   const first = await boardPage(app);
+  await expect(first.getByRole("button", { name: "Foom config", exact: true })).toBeVisible();
   await first.evaluate(() => window.desktop.appMenu.execute("split-right"));
+  await expect(first.locator(".terminal-tile")).toHaveCount(2);
   await first.evaluate(() => window.desktop.saveSetup({ interfaceScale: 110 }));
   await first.evaluate(() => window.desktop.appMenu.execute("new-window"));
   let second;
@@ -6770,10 +6772,12 @@ test("multiple windows restore independent layouts, bounds and interface size", 
       return Boolean(second);
     })
     .toBe(true);
-  await second.evaluate(async () => {
-    await window.desktop.appMenu.execute("split-right");
-    await window.desktop.appMenu.execute("split-down");
-  });
+  await expect(second.getByRole("button", { name: "Foom config", exact: true })).toBeVisible();
+  await expect(second.locator(".terminal-tile")).toHaveCount(1);
+  await second.evaluate(() => window.desktop.appMenu.execute("split-right"));
+  await expect(second.locator(".terminal-tile")).toHaveCount(2);
+  await second.evaluate(() => window.desktop.appMenu.execute("split-down"));
+  await expect(second.locator(".terminal-tile")).toHaveCount(3);
   await second.evaluate(() => window.desktop.saveSetup({ interfaceScale: 90 }));
   assert.equal(
     (await first.evaluate(() => window.desktop.setupState())).settings.interfaceScale,

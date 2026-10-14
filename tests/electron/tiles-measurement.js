@@ -65,14 +65,21 @@ async function measure() {
     }, repository);
     const rows = page.locator(".board-row");
     await expect(rows).toHaveCount(6);
-    await page.evaluate(async () => {
-      await window.desktop.appMenu.execute("split-right");
-      await window.desktop.appMenu.execute("split-down");
-    });
-    for (let index = 0; index < 4; index++) await rows.nth(index).click();
-    await page.getByRole("button", { name: "Split down", exact: true }).nth(1).click();
+    await page.evaluate(() => window.desktop.appMenu.execute("split-right"));
+    await expect(page.locator(".terminal-tile")).toHaveCount(2);
+    await page.evaluate(() => window.desktop.appMenu.execute("split-down"));
+    await expect(page.locator(".terminal-tile")).toHaveCount(3);
+    for (let index = 0; index < 3; index++) await rows.nth(index).click();
+    const splitDown = async (tile, count) => {
+      await page.getByRole("button", { name: `Tile ${tile} menu`, exact: true }).click();
+      await page.getByRole("menuitem", { name: "Split down", exact: true }).click();
+      await expect(page.locator(".terminal-tile")).toHaveCount(count);
+    };
+    await splitDown(3, 4);
+    await rows.nth(3).click();
+    await splitDown(2, 5);
     await rows.nth(4).click();
-    await page.getByRole("button", { name: "Split down", exact: true }).last().click();
+    await splitDown(5, 6);
     await rows.nth(5).click();
     await expect(page.locator(".xterm")).toHaveCount(6);
     const sessions = (await page.evaluate(() => window.desktop.workspace())).terminals;
