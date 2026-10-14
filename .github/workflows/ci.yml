@@ -229,23 +229,14 @@ jobs:
           fi
           # Permit Chromium's user-namespace sandbox on this ephemeral CI runner.
           sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
-      # The full suite runs as three disjoint named-test shards on every platform.
+      # The full suite runs as four disjoint, duration-balanced named-test shards.
+      # See docs/electron-shards.md for measurements and the checked-in plan.
       # Per-test deadlines and the Electron worker watchdog still bound hangs.
       - name: Test Electron on Linux
-        # Runs 38450424417/38456129505: all 46 shard-2 cases passed in
-        # 350–352s, then build/cleanup exhausted six minutes. Run 38580547600:
-        # two name-hash shards took 265s/412s and shard 2 exhausted seven
-        # minutes; three shards project 272s/143s/262s from the same cases.
-        # Keep the step timeout and per-test deadlines unchanged.
         timeout-minutes: 7
         if: runner.os == 'Linux'
         run: xvfb-run -a pnpm run test:electron
       - name: Test Electron on macOS and Windows
-        # Runs 38391083094–38419352620: macOS test cases total 742–840s;
-        # three name-hash shards project 175–335s each, leaving runner headroom.
-        # Runs 38406022244–38428051783: Windows two-shard median steps were
-        # 423s/447s; three name-hash shards project median steps of 280–315s.
-        # Keep the shared per-test deadline policy and worker watchdog.
         timeout-minutes: 10
         if: runner.os != 'Linux'
         run: pnpm run test:electron

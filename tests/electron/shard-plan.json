@@ -1,0 +1,307 @@
+{
+  "sourceRuns": [38627968212, 38611379264, 38638986050],
+  "platforms": ["ubuntu-24.04", "windows-2025", "macos-15"],
+  "shards": [
+    {
+      "a crashed utility host reports failure and the renderer can restart": [3.117, 11.805, 7.724],
+      "an Antigravity orchestrator reviews worktree cleanup and revokes through the packaged console": [
+        17.367, 0, 35.364
+      ],
+      "an agent made orchestrator manages and reviews only its own children": [7.171, 0, 14.538],
+      "appearance switches light and dark, and zoom shortcuts resize the interface": [
+        10.188, 16.458, 14.303
+      ],
+      "board starts with live terminals only and focuses rows without opening": [
+        6.125, 11.924, 7.576
+      ],
+      "config file agent arguments require trusted Allow before a fake Codex launch": [
+        6.947, 21.411, 13.896
+      ],
+      "console pairing requires trusted approval and gives only read-only repository scope": [
+        3.086, 16.347, 6.639
+      ],
+      "every Settings section passes axe in light and dark, including the narrow layout": [
+        11.243, 18.567, 16.829
+      ],
+      "every interface theme applies live to native chrome and passes axe on board and Settings": [
+        19.437, 26.756, 21.948
+      ],
+      "first run goes from no agents to go, launches by keyboard, and can be replayed": [
+        8.16, 0, 12.425
+      ],
+      "focus reports reach the shell without counting as a reply": [5.149, 0, 7.672],
+      "fresh focused terminal cursor blinks and preserves application style on reattach": [
+        7.131, 13.152, 13.678
+      ],
+      "legacy inference profiles upgrade without evaluator controls or stored keys": [
+        2.073, 8.261, 5.742
+      ],
+      "multiple windows restore independent layouts, bounds and interface size": [
+        5.098, 77.079, 11.125
+      ],
+      "pastes claude --resume in a checkout and retains rejected conversations": [3.085, 0, 7.787],
+      "pastes claude -r in a checkout and retains rejected conversations": [3.089, 0, 8.944],
+      "persistent sidebar keeps Escape in the PTY and routes keyboard navigation": [
+        7.145, 14.543, 10.483
+      ],
+      "preview composition freezes maximize and restore animations and excludes preview hit testing throughout tile drags": [
+        8.163, 20.664, 12.97
+      ],
+      "preview composition keeps tile and row panels visible and usable above captured pages": [
+        3.068, 17.195, 7.831
+      ],
+      "preview composition puts the trusted confirmation scrim above previews and restores on cancel": [
+        3.08, 10.367, 7.829
+      ],
+      "preview focused native input reaches board shortcuts including the tile leader and leaves ordinary keys in the page": [
+        3.079, 16.575, 7.835
+      ],
+      "quit via close confirms, cancel preserves PTYs, and confirm reaps shells": [
+        3.053, 11.394, 6.543
+      ],
+      "quit via quit confirms, cancel preserves PTYs, and confirm reaps shells": [
+        11.168, 25.024, 13.074
+      ],
+      "restores running codex, shell and orchestrator children across windows": [12.319, 0, 30.253],
+      "resumes exited claude conversations in place after a Foom restart": [5.136, 0.001, 13.322],
+      "stable Codex observers drive execution and retire the notifier after a verified turn": [
+        6.141, 0, 10.861
+      ],
+      "tile leader avoids AltGr chords and cancels unmatched keys": [2.053, 12.703, 0],
+      "tiles build irregular layouts, preserve views and replace explicitly for attention": [
+        7.17, 18.871, 13.388
+      ],
+      "utility host survives concurrent terminal exits and drains multi-terminal shutdown": [
+        2.061, 10.537, 7.403
+      ],
+      "version 2 themes scope portaled colors, shape and warnings and hold attention edits": [
+        4.09, 13.416, 9.925
+      ]
+    },
+    {
+      "Antigravity plugin Settings disclosure installs and removes an observer that reports lifecycle": [
+        6.166, 0, 12.358
+      ],
+      "Settings shares live preflight values, sizes the terminal and restores keyboard focus": [
+        5.115, 16.678, 12.165
+      ],
+      "a fresh profile opens preflight, and it passes accessibility checks": [4.099, 9.847, 6.443],
+      "a manifest-only fixture agent cannot launch before trusted approval and requires approval again after edits": [
+        5.782, 18.87, 11.709
+      ],
+      "agent discovery uses the fixture login shell and controlled PATH": [4.087, 37.141, 12.168],
+      "an agent fixture opens full-board previews in columns, retains focus and respects human close": [
+        11.23, 0, 20.642
+      ],
+      "an orchestrator adopts an open PR, launches its child without taking focus and closes it after exit": [
+        5.171, 0, 12.397
+      ],
+      "an orchestrator wait_for wakes on a child PR required-check conclusion": [34.647, 0, 40.962],
+      "commands removed from the wordmark menu keep their shortcuts": [2.063, 17.535, 0],
+      "empty sidebar and terminal pane stay accessible at both widths": [4.12, 15.704, 5.552],
+      "external worktrees support independent shells and confirmed shared agents": [
+        8.22, 19.319, 18.739
+      ],
+      "fake Codex receives inline flag only when help advertises it": [3.139, 0, 5.424],
+      "fixture cleanup closes every app before removing directories and retains quit failures": [
+        0.01, 0.037, 0.015
+      ],
+      "footer config gear opens Settings and launches a docked Shell": [4.089, 12.112, 7.654],
+      "merged cleanup opens checking, continues hidden, reopens progress and stops unstarted worktrees": [
+        8.297, 35.395, 22.414
+      ],
+      "middle click reports without pasting while tracking and Shift preserves Linux primary selection": [
+        3.082, 11.157, 6.723
+      ],
+      "pastes codex resume in a checkout and retains rejected conversations": [3.101, 0, 9.167],
+      "preview live reload follows retargeted symlinks and junctions": [3.073, 11.585, 7.919],
+      "recorded sounds refresh and preview user files while shell attention and completion stay silent": [
+        10.203, 19.352, 15.615
+      ],
+      "restores running claude, shell and orchestrator children across windows": [
+        12.295, 0, 28.619
+      ],
+      "shell fixture starts through keyboard while startup layout moves": [2.062, 12.45, 6.787],
+      "sidebar collapses at any width, refits once and opens a narrow overlay without reflow": [
+        6.14, 12.565, 9.624
+      ],
+      "sidebar panels hover, pin, rename and launch a home shell": [5.135, 14.85, 10.965],
+      "terminal runs an interactive shell behind an isolated bridge": [6.127, 18.086, 10.923],
+      "the branch field creates a worktree by keyboard without launching; dirty removal confirms": [
+        6.163, 20.378, 14.1
+      ],
+      "tile layouts restore v1 terminal content and v2 mixed content after inventory": [
+        8.182, 15.047, 10.7
+      ],
+      "tile terminal viewport has no native overflow bars": [3.074, 10.491, 6.723],
+      "trusted card follows interface scale and clears its scrim on every dismissal": [
+        4.113, 13.165, 10.055
+      ],
+      "utility host survives output floods without losing rows or delaying another PTY": [
+        4.067, 21.807, 6.516
+      ],
+      "worktree panel previews pick contained Markdown and HTML, persist v2 tiles and close on removal": [
+        5.15, 26.846, 14.375
+      ]
+    },
+    {
+      "Antigravity plugin first run disclosure installs and removes an observer that reports lifecycle": [
+        5.21, 0, 9.928
+      ],
+      "Bash command status reaches the sidebar without closing the shell": [10.231, 0, 0.001],
+      "Markdown previews render hostile documents safely, follow native theme and navigate to a sibling": [
+        3.088, 11.978, 7.751
+      ],
+      "agent hooks and titles publish execution transitions independently of terminal output": [
+        5.165, 0, 8.995
+      ],
+      "an Antigravity orchestrator has no MCP attachment indicator": [3.138, 0, 7.933],
+      "an agent made orchestrator reviews worktree cleanup and revokes with a live child": [
+        33.665, 0, 53.03
+      ],
+      "application menu uses the command registry and supports native keyboard access": [
+        5.151, 13.033, 9.587
+      ],
+      "bundled brand fonts and both system themes render in Electron": [7.158, 16.034, 20.474],
+      "click-again repository removal rejects double clicks, cancels, expires and confirms": [
+        6.124, 12.529, 9.952
+      ],
+      "closing with an exited terminal quits without confirmation": [3.086, 8.572, 5.877],
+      "custom theme files appear live, update selected colors and retain rejected edits": [
+        7.148, 20.607, 9.69
+      ],
+      "external Git changes refresh inventory and retain sessions in removed worktrees": [
+        5.142, 15.033, 9.875
+      ],
+      "gutter double-click evens three columns and Tidy tiles removes holes through the menu": [
+        4.095, 15.335, 8.689
+      ],
+      "host answers color queries once through real view transitions and system themes": [
+        8.154, 16.033, 12.265
+      ],
+      "large repository scans remain readable and filter without changing scale": [
+        2.482, 20.845, 4.94
+      ],
+      "launches an agent in a managed worktree and routes its attention signals": [
+        14.405, 0, 22.27
+      ],
+      "launching into a narrow full tile uses the focused fallback and empty tiles support mouse controls": [
+        6.107, 13.67, 11.148
+      ],
+      "preflight fits safely through resize, zoom, long input and changing steps": [
+        9.175, 14.371, 13.315
+      ],
+      "preflight scans a code folder and adds the repositories worked on recently": [
+        4.162, 15.769, 6.545
+      ],
+      "preview host isolates hostile pages, blocks network and navigation, scales bounds and clears closed partitions": [
+        3.079, 11.509, 9.125
+      ],
+      "preview host loads and reloads detached, never steals terminal keystrokes, and focuses on a click": [
+        3.067, 19.026, 7.634
+      ],
+      "preview network permission allows local HTTPS only and resets after restart": [
+        5.145, 19.562, 14.424
+      ],
+      "profile lock focuses the first app, exits duplicates and permits another profile": [
+        4.111, 13.782, 9.363
+      ],
+      "sidebar choice restores after restart and new windows start expanded": [
+        4.102, 24.434, 8.784
+      ],
+      "sidebar footer zoom and master volume stay synchronized and presets are absent": [
+        4.1, 23.357, 10.924
+      ],
+      "sidebar menus escape the scroll area, stay in the window and launch from a worktree": [
+        17.389, 49.229, 26.322
+      ],
+      "the board stays usable at 300% in a small window": [3.082, 10.403, 6.528],
+      "trusted quit dialog isolates answers, passes axe in every theme and survives a board crash": [
+        7.229, 17.155, 10.99
+      ],
+      "volume sliders keep the dragged value while sound saves settle": [2.06, 10.586, 6.459]
+    },
+    {
+      "Environment settings reach a launched shell; main refuses reserved names": [
+        4.063, 9.996, 5.407
+      ],
+      "Settings agent menu launches config and focuses its existing window": [3.135, 15.651, 8.087],
+      "Settings persists literal agent defaults and discloses bypass once per agent": [
+        4.214, 12.451, 9.571
+      ],
+      "Settings transitions restore background fullscreen output repeatedly": [
+        17.287, 27.792, 24.008
+      ],
+      "an Antigravity orchestrator manages and reviews children through the packaged console": [
+        10.208, 0, 17.687
+      ],
+      "an agent configures Foom in the config folder with review, approval and revert": [
+        6.205, 0, 12.2
+      ],
+      "an agent made orchestrator reports MCP attachment independently": [33.627, 0, 37.075],
+      "merged cleanup deletes external worktrees and branches while preserving a skipped checkout": [
+        6.193, 28.158, 14.511
+      ],
+      "multiple windows share sessions, keep views exclusive and retain terminals on close": [
+        9.223, 17.672, 18.464
+      ],
+      "neutral identity badges keep labels and geometry across themes and interface scales": [
+        5.131, 12.899, 8.818
+      ],
+      "pastes agy --conversation in a checkout and retains rejected conversations": [
+        3.092, 0, 8.08
+      ],
+      "preview external links always use trusted review and drop scripted requests while pending": [
+        3.086, 16.349, 7.891
+      ],
+      "preview gutter drags keep the native view attached and resize it in place": [
+        3.079, 11.344, 6.619
+      ],
+      "preview handoff Escape restores board keyboard input during a never-finishing local load": [
+        3.084, 16.699, 7.706
+      ],
+      "preview handoff deadline restores board keyboard input during a never-finishing local load": [
+        5.086, 54.121, 8.882
+      ],
+      "preview host keeps keyboard focus after a user-clicked link navigation": [
+        3.069, 12.372, 7.837
+      ],
+      "preview live reload handles saves, assets, missing files, scroll and closes watchers": [
+        6.131, 18.463, 10.889
+      ],
+      "quit via shortcut confirms, cancel preserves PTYs, and confirm reaps shells": [
+        3.071, 11.999, 8.942
+      ],
+      "renderer bundle contains production React without a Node process dependency": [
+        0.638, 0.669, 0.608
+      ],
+      "restored exited sessions hide the unattached terminal until restarted": [
+        4.094, 17.695, 12.113
+      ],
+      "resumes exited agy conversations in place after a Foom restart": [5.138, 0, 13.371],
+      "resumes exited codex conversations in place after a Foom restart": [5.147, 0, 13.614],
+      "sidebar refuses deletion of a running shell and enables it after exit, preserving branches and the main checkout": [
+        5.134, 16.581, 13.7
+      ],
+      "terminal font picker updates open shells and config shells and refits their grids": [
+        3.091, 11.73, 9.206
+      ],
+      "tile drag drops replace, split every edge, swap and move without reattachment; keyboard swaps and Escape": [
+        7.148, 14.546, 12.961
+      ],
+      "trusted dialog presentation failure releases the board and allows a new request": [
+        11.194, 15.46, 13.831
+      ],
+      "trusted quit dialog appears above the board on first show and after hide/show reuse": [
+        12.176, 18.593, 17.602
+      ],
+      "wheel moves less and preserves normal shell scrollback": [3.066, 0, 6.538],
+      "wide blank tiles start as columns, full boards grow right, and hide refills without moving siblings": [
+        4.119, 10.499, 8.846
+      ],
+      "window size defaults to 60 percent and survives a normal quit and relaunch": [
+        4.075, 19.167, 9.876
+      ]
+    }
+  ]
+}
