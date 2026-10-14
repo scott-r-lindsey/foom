@@ -1664,8 +1664,20 @@ and context isolation, disables Node integration (including workers and child
 frames), dialogs, drag navigation and webviews, and disables devtools in packaged
 builds. Window opens and redirects are denied. Only same-origin `.md` or
 `.markdown` page navigation is allowed; HTML and external links are blocked.
-Markdown rendering and the confirmed external-link/network flow remain separate
-follow-ups.
+The confirmed external-link/network flow remains a separate follow-up.
+
+Markdown responses embed the source as inert JSON with every `<` escaped, then run
+one synchronous browser bundle inside the preview origin. markdown-it 15 disables
+raw HTML and accepts only relative, HTTP(S) and mailto links; highlight.js 11 uses
+its common subset. A small core rule generates disabled task checkboxes. Mermaid
+remains escaped code. Relative Markdown links navigate within the same tile;
+external links have a visible arrow and remain subject to main's navigation guard.
+The exact `/__foom__/markdown.js` and `/__foom__/markdown.css` assets are served only
+by preview sessions; the reserved `__foom__` segment cannot name worktree files or
+symlink targets. The isolated stylesheet uses Eclipse tokens and follows
+`prefers-color-scheme` from `nativeTheme`; custom interface themes are not conveyed.
+Bundled dependency licenses are included in `THIRD_PARTY_NOTICES.txt`.
+
 Every non-hidden file in the captured worktree is readable by a preview page.
 
 As in the spike, a parent directory swap between realpath/stat and open is not
@@ -1697,7 +1709,13 @@ or closing a user-focused preview, main blocks the board's native keyboard event
 (including shortcuts) until that handoff completes. Native fallback focus does not
 cancel the handoff; a native mouse-down on the board or another preview does,
 allowing ordinary input immediately. Hiding or closing the pending preview also
-unblocks board input. These listeners belong to the host and are disposed with it.
+unblocks board input. Escape, window blur, or a 1.5-second deadline cancels a
+pending handoff and discards its focus intent, including if attachment failed to
+acquire native focus. Cancellation first blurs an active terminal in the trusted
+board DOM; main keeps blocking keys until that operation completes. The board's
+shortcuts and keyboard navigation then work, while ordinary typing cannot reach a
+PTY until the user selects a target. A late load cannot restore cancelled focus.
+These listeners and the deadline belong to the host and are disposed with it.
 Recreation is bounded to once per 250 ms per preview; the old contents closes immediately
 and only one replacement can be pending. Closing cancels pending recreation.
 A previously clicked native contents can reacquire keyboard focus during reload on
@@ -1711,8 +1729,16 @@ Main scales CSS rectangles by board zoom, applies that zoom to each view, clamps
 them to window content bounds, and refreshes on resize and interface-scale changes.
 Closing destroys contents, unregisters its protocol/request handler, clears storage
 and cache, and removes the registry entry. Quit preserves validated registry
-metadata while releasing views and partitions. Watchers and live reload are #294;
-there are no watchers to stop yet.
+metadata while releasing views and partitions. The session protocol handler records served and missing contained files. Each
+preview watches their parent directory entries with non-recursive `fs.watch`,
+filtered by name, capped at 64 directories. Requested symlink names and parent
+symlinks/junctions are watched as well as resolved targets. Missing nested parents
+use their nearest existing contained ancestor until a reload can subscribe closer.
+A 120 ms trailing debounce with a one-second maximum wait triggers the existing
+detached replacement path. Main captures finite, bounded `[scrollX, scrollY]` in
+an isolated world and restores it after `did-finish-load`, before attachment.
+Missing files show "File not found. Waiting for it to appear." and recover on
+recreation. Closing or disposing the host cancels timers and closes watchers.
 
 Every preview forwards native `before-input-event` to its owning board's existing
 shortcut dispatcher and input guards, without moving focus. The renderer observes
