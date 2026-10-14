@@ -12491,6 +12491,14 @@ test("preview network permission allows local HTTPS only and resets after restar
   });
   const restored = await launchApp(context, false, options);
   const restoredPage = await boardPage(restored);
+  // Board startup can finish before the persisted previews have been restored.
+  await expect
+    .poll(async () =>
+      (await restoredPage.evaluate(() => window.desktop.sidebarInventory())).previews.some(
+        (preview) => preview.id === id,
+      ),
+    )
+    .toBe(true);
   const restoredInventory = await restoredPage.evaluate(() => window.desktop.sidebarInventory());
   assert.equal(restoredInventory.previews.find((preview) => preview.id === id).network, false);
   const before = secureConnections;
