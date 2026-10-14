@@ -1821,3 +1821,30 @@ test("an unavailable private forge store leaves the app usable", async () => {
   await start();
   expect(mock.workspace.deps?.forge).toBeUndefined();
 });
+
+test("child placement targets the parent's board or current board without focusing it", async () => {
+  await start();
+  await newWindow();
+  await invokeWindow(1, "windows:sync", ["t1"]);
+  const place = mock.workspace.deps?.placeChild;
+  if (!place) throw new Error("Missing placement callback");
+  mock.window.focus.mockClear();
+  mock.window.show.mockClear();
+  place("child", "t1");
+  expect(mock.window.webContents.send).toHaveBeenCalledWith("app-menu:session", "child", true);
+  place("hidden-child", "hidden-parent");
+  expect(mock.window.webContents.send).toHaveBeenCalledWith(
+    "app-menu:session",
+    "hidden-child",
+    true,
+  );
+  mock.window.isFocused.mockReturnValue(false);
+  place("fallback-child", "hidden-parent");
+  expect(mock.window.webContents.send).toHaveBeenCalledWith(
+    "app-menu:session",
+    "fallback-child",
+    true,
+  );
+  expect(mock.window.focus).not.toHaveBeenCalled();
+  expect(mock.window.show).not.toHaveBeenCalled();
+});

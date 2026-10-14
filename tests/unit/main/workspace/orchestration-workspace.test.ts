@@ -92,6 +92,7 @@ beforeEach(() => {
     onState: vi.fn(),
     onChange: vi.fn(),
     reveal: vi.fn(),
+    placeChild: vi.fn(),
     dialog: vi.fn(() => Promise.resolve(true)),
     agents: () => ({
       scan: vi.fn(() => Promise.resolve(scanned)),
@@ -331,6 +332,7 @@ it("creates fresh branches and launches children without bypass defaults or conf
     operations,
   )) as Operation;
   expect(started).toMatchObject({ status: "succeeded", resultId: "child" });
+  expect(deps.placeChild).toHaveBeenCalledWith("child", "parent");
   expect(confirm).not.toHaveBeenCalled();
   expect(launch).toHaveBeenLastCalledWith(
     expect.objectContaining({
@@ -366,6 +368,16 @@ it("creates fresh branches and launches children without bypass defaults or conf
   await expect(
     workspace.sidebarCommand({ kind: "take-over", id: "parent" }, confirm),
   ).rejects.toThrow("no orchestrator");
+  await workspace.exited("child", 0);
+  // A taken-over child cannot be closed by its former parent, even after exit.
+  await expect(
+    workspace.orchestration.call(
+      actor,
+      "close",
+      { id: "child", idempotencyKey: "refused-close" },
+      operations,
+    ),
+  ).rejects.toThrow("forbidden");
   workspace.removed("child");
   expect(workspace.snapshot().terminals.some((entry) => entry.id === "child")).toBe(false);
 });
@@ -1649,4 +1661,41 @@ it("does not confuse a valid adoption-named head with the PR reservation lock", 
     ),
   ).toMatchObject({ status: "succeeded" });
   await workspace.dispose();
+});
+
+it("closes an exited child through the normal session removal path", async () => {
+  const kill = vi.spyOn(deps.terminals, "kill");
+  const forget = vi.spyOn(deps.verdicts, "forget");
+  const workspace = new Workspace(deps);
+  await orchestrate(workspace);
+  const actor = principal();
+  const operations = new Operations(
+    () => Promise.resolve(),
+    () => undefined,
+  );
+  const tree = (await workspace.orchestration.call(
+    actor,
+    "create_worktree",
+    { branch: "feature", idempotencyKey: "tree" },
+    operations,
+  )) as Operation;
+  launch.mockResolvedValueOnce({ id: "child", attention: "evaluator" });
+  await workspace.orchestration.call(
+    actor,
+    "launch",
+    { worktreeId: tree.resultId, agent: "claude", idempotencyKey: "launch" },
+    operations,
+  );
+  await workspace.exited("child", 0);
+  const result = await workspace.orchestration.call(
+    actor,
+    "close",
+    { id: "child", idempotencyKey: "close" },
+    operations,
+  );
+  expect(result).toMatchObject({ status: "succeeded" });
+  expect(kill).toHaveBeenCalledWith("child");
+  expect(forget).toHaveBeenCalledWith("child");
+  expect(workspace.snapshot().terminals.some((row) => row.id === "child")).toBe(false);
+  expect(deps.worktrees.removeWorktree).not.toHaveBeenCalled();
 });

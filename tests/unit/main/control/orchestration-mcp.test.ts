@@ -37,6 +37,7 @@ beforeEach(async () => {
     },
     restoreWorktree: () => Promise.resolve(undefined),
     stop: () => Promise.resolve(),
+    close: () => Promise.resolve(),
     tail: () => Promise.resolve(["ok"]),
     remove: () => Promise.resolve(false),
     dialog: () => Promise.resolve(false),
@@ -117,7 +118,15 @@ it("lists orchestration tools only to the orchestrator and runs them through the
   const init = await orchestrator.init();
   expect(JSON.stringify(init)).toMatch(/Foom orchestrator/u);
   const listed = JSON.stringify(await orchestrator.send("tools/list"));
-  for (const name of ["create_worktree", "launch", "stop", "remove_worktree", "tail", "wait_for"])
+  for (const name of [
+    "create_worktree",
+    "launch",
+    "stop",
+    "close",
+    "remove_worktree",
+    "tail",
+    "wait_for",
+  ])
     expect(listed).toContain(`"name":"${name}"`);
   expect(listed).toContain(`"name":"operation_status"`);
   expect(listed).toContain(`"name":"reply"`);

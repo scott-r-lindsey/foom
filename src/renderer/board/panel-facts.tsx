@@ -70,6 +70,7 @@ const actionNames: Record<OrchestrationEntry["action"], string> = {
   create_worktree: "New worktree",
   launch: "Launch",
   stop: "Stop",
+  close: "Close",
   remove_worktree: "Remove worktree",
   take_over: "You took over",
   reply: "Reviewed reply",

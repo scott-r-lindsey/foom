@@ -83,7 +83,9 @@ function orchestration(name: string | undefined, words: string[]): Command {
     flags.delete(flag);
     return value;
   };
-  if (["create-worktree", "launch", "stop", "remove-worktree", "reply"].includes(name ?? ""))
+  if (
+    ["create-worktree", "launch", "stop", "close", "remove-worktree", "reply"].includes(name ?? "")
+  )
     params["idempotencyKey"] = identifier(take("--idempotency-key"));
   switch (name) {
     case "create-worktree": {
@@ -118,6 +120,7 @@ function orchestration(name: string | undefined, words: string[]): Command {
       params["text"] = reply;
       break;
     }
+    case "close":
     case "stop":
     case "remove-worktree":
     case "tail": {

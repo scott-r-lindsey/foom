@@ -256,8 +256,11 @@ const desktop: DesktopApi = {
       };
     },
     onSession(callback) {
-      const listener = (_event: IpcRendererEvent, id: unknown) => {
-        if (typeof id === "string" && id.length > 0 && id.length <= 256) callback(id);
+      const listener = (_event: IpcRendererEvent, id: unknown, background: unknown) => {
+        if (typeof id === "string" && id.length > 0 && id.length <= 256) {
+          if (background === true) callback(id, true);
+          else callback(id);
+        }
       };
       ipcRenderer.on("app-menu:session", listener);
       return () => {

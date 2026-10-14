@@ -141,6 +141,7 @@ export interface WorkspaceDependencies {
   dialog?: (content: DialogContent, signal: AbortSignal) => Promise<boolean>;
   /** Shows an existing session, for example a repository's running orchestrator. */
   reveal?: (id: string) => void;
+  placeChild?: (id: string, parentId: string) => void;
   now?: () => number;
   /** Validated Environment layers for a launch: All sessions, then the agent's own. */
   environment?: (target: AgentId | "shell") => readonly (readonly EnvironmentVariable[])[];
@@ -341,6 +342,8 @@ export class Workspace {
           return { branch: tree.branch, identity };
         },
         stop: (id) => this.deps.terminals.stop(id),
+        close: (id) => this.sidebarCommand({ kind: "close", id }, () => Promise.resolve(true)),
+        place: (id, parentId) => this.deps.placeChild?.(id, parentId),
         starting: (id) => this.restoring.has(id),
         reply: async (id, data) => {
           if (!this.deps.terminals.reply) throw new Error("Reply adapter unavailable");

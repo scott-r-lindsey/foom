@@ -604,3 +604,19 @@ test("v1 migrates unchanged and invalid v2 preview content becomes space", () =>
     null,
   ]);
 });
+
+test("closing inventory content leaves its space as the next arrival's landing spot", () => {
+  const first = placeSession(initialLayout(), "parent");
+  if (!first) throw new Error("Missing layout");
+  const second = placeSession(splitTile(first, "horizontal"), "child");
+  if (!second) throw new Error("Missing child");
+  const childTile = leaves(second.tree).find(
+    (tile) => tile.content?.kind === "terminal" && tile.content.session === "child",
+  );
+  const pruned = pruneContent(second, { sessions: new Set(["parent"]), previews: new Set() });
+  expect(pruned.landing).toBe(childTile?.id);
+  const arrival = placeSession(pruned, "next");
+  expect(
+    leaves(arrival?.tree ?? pruned.tree).find((tile) => tile.id === childTile?.id)?.content,
+  ).toEqual({ kind: "terminal", session: "next" });
+});

@@ -2265,6 +2265,7 @@ test("launches an agent in a managed worktree and routes its attention signals",
       "create_worktree",
       "launch",
       "stop",
+      "close",
       "remove_worktree",
       "tail",
       "wait_for",
@@ -7900,7 +7901,7 @@ process.stdin.on("data", (key) => {
 });
 `;
 
-test("an orchestrator adopts an open PR then launches its child", {
+test("an orchestrator adopts an open PR launches a child without taking focus and closes it after exit", {
   skip: process.platform === "win32" && "The fake agent is a POSIX script",
 }, async (context) => {
   const { chmod, mkdir, readFile, symlink, writeFile } = require("node:fs/promises");
@@ -7985,14 +7986,54 @@ test("an orchestrator adopts an open PR then launches its child", {
   const confirmation = await confirmationPage(app);
   await confirmation.getByRole("button", { name: "Make orchestrator" }).click();
   await expect.poll(async () => (await call("whoami")).role).toBe("orchestrator");
+  const mcpUrl = parent.controlUrl.replace("/control/v1", "/mcp");
+  let mcpSession;
+  const mcp = async (method, params, notification = false) => {
+    const response = await fetch(mcpUrl, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${parent.controlToken}`,
+        "Content-Type": "application/json",
+        Accept: "application/json, text/event-stream",
+        ...(mcpSession ? { "Mcp-Session-Id": mcpSession } : {}),
+      },
+      body: JSON.stringify({ jsonrpc: "2.0", ...(notification ? {} : { id: 1 }), method, params }),
+    });
+    if (method === "initialize") mcpSession = response.headers.get("mcp-session-id");
+    assert.equal(response.status, notification ? 202 : 200);
+    if (notification) return;
+    return (await response.json()).result;
+  };
+  await mcp("initialize", {
+    protocolVersion: "2025-11-25",
+    capabilities: {},
+    clientInfo: { name: "fixture", version: "1" },
+  });
+  await mcp("notifications/initialized", {}, true);
+  const tool = async (name, args) => {
+    const result = await mcp("tools/call", { name, arguments: args });
+    assert.ok(!result.isError, JSON.stringify(result));
+    return JSON.parse(result.content[0].text);
+  };
+  await page.locator(`[data-drag-session="${parentId}"]`).click();
+  const focusedTile = page.locator('.terminal-tile[data-focused="true"]');
+  const tileId = await focusedTile.getAttribute("data-tile");
+  const input = focusedTile.locator("textarea.xterm-helper-textarea");
+  await expect(input).toBeFocused();
   const tree = await call("create_worktree", { pullRequest: 340, idempotencyKey: "adopt-tree" });
   assert.equal(tree.status, "succeeded");
-  const child = await call("launch", {
+  const child = await tool("launch", {
     worktreeId: tree.resultId,
     agent: "claude",
     idempotencyKey: "adopt-child",
   });
   assert.equal(child.status, "succeeded");
+  await expect(page.locator('.terminal-tile[data-empty="false"]')).toHaveCount(2);
+  await expect(focusedTile).toHaveAttribute("data-tile", tileId);
+  await expect(input).toBeFocused();
+  // A single character would exit either fixture if an arrival stole input.
+  await page.keyboard.type("x");
+  await expect(input).toBeFocused();
   await expect
     .poll(async () => (await call("session_state", { id: child.resultId })).pullRequest?.number)
     .toBe(340);
@@ -8010,6 +8051,22 @@ test("an orchestrator adopts an open PR then launches its child", {
   assert.equal(
     isolatedGit(["rev-parse", "HEAD"], { cwd: childRow.worktree, encoding: "utf8" }).trim(),
     git("rev-parse", "origin/child-one").trim(),
+  );
+  const closed = await tool("stop", { id: child.resultId, idempotencyKey: "stop-child" });
+  assert.equal(closed.status, "succeeded");
+  await expect
+    .poll(async () => (await call("session_state", { id: child.resultId })).state)
+    .toBe("exited");
+  const close = await tool("close", { id: child.resultId, idempotencyKey: "close-child" });
+  assert.equal(close.status, "succeeded");
+  await expect(page.locator(`[data-drag-session="${child.resultId}"]`)).toHaveCount(0);
+  await expect(page.locator('.terminal-tile[data-empty="false"]')).toHaveCount(1);
+  await expect(input).toBeFocused();
+  assert.ok(existsSync(childRow.worktree));
+  assert.match(git("branch", "--list", "child-one"), /child-one/);
+  assert.equal(
+    (await tool("close", { id: child.resultId, idempotencyKey: "close-child" })).operationId,
+    close.operationId,
   );
 });
 

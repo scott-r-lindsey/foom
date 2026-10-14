@@ -97,6 +97,7 @@ it("authenticates initialization, listing, calls, reconnects and deletion", asyn
     "launch",
     "reply",
     "stop",
+    "close",
     "create_worktree",
     "remove_worktree",
     "wait_for",

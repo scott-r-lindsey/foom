@@ -419,7 +419,12 @@ export function Board({
     wasInactiveRef.current = paneInactive;
   }, [paneInactive, selected]);
   const open = useCallback(
-    (row: BoardRow, replace = false, destination?: { tile: string; session: string }) => {
+    (
+      row: BoardRow,
+      replace = false,
+      destination?: { tile: string; session: string },
+      background = false,
+    ) => {
       const present = () => {
         const area = boardRef.current?.querySelector(".tile-area");
         const probe = document.createElement("span");
@@ -449,13 +454,17 @@ export function Board({
                 .map((item) => item.id),
             ),
             focusedAt: focusedAtRef.current,
+            preserveFocus: background,
           },
         );
         if (!next) {
           setRemoveError("The tile layout has reached its size limit.");
           return;
         }
-        changeLayout(next);
+        changeLayout(
+          background ? { ...next, focused: current.focused, maximized: current.maximized } : next,
+        );
+        if (background) return;
         setFocusRequest((value) => value + 1);
         setSelection(row.id);
         revealRef.current?.(row);
@@ -464,7 +473,7 @@ export function Board({
         onCloseSettings?.();
         source.markSeen(row.id);
       };
-      if (source.windows) {
+      if (source.windows && !background) {
         void source.windows
           .select(row.id)
           .then((selected) => {
@@ -657,9 +666,30 @@ export function Board({
         console.error("Unable to update menu state:", error);
       });
   }, [source, inactive, settingsOpen, layout, sidebarCompact]);
+  const arrivalsRef = useRef(new Set<string>());
+  const placeArrivals = useEffectEvent(() => {
+    for (const id of arrivalsRef.current) {
+      const row = source.getSnapshot().find((row) => row.id === id);
+      if (!row) continue;
+      arrivalsRef.current.delete(id);
+      open(row, false, undefined, true);
+    }
+  });
   useEffect(
     () =>
-      source.appMenu?.onSession((id) => {
+      source.subscribe(() => {
+        placeArrivals();
+      }),
+    [source],
+  );
+  useEffect(
+    () =>
+      source.appMenu?.onSession((id, background) => {
+        if (background) {
+          arrivalsRef.current.add(id);
+          placeArrivals();
+          return;
+        }
         if (inactive) return;
         const row = source.getSnapshot().find((row) => row.id === id);
         if (row) {

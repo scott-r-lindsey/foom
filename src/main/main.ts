@@ -502,6 +502,14 @@ async function buildWindow(savedSize?: Size, saved?: WindowPlacement, initialSes
           },
         ),
       dialog: requestTrusted,
+      placeChild: (id, parentId) => {
+        const owner = views.owner(parentId);
+        const target =
+          (owner === undefined ? undefined : windows.get(owner)) ??
+          [...windows.values()].find(({ window }) => window.isFocused()) ??
+          windows.values().next().value;
+        target?.window.webContents.send("app-menu:session", id, true);
+      },
       reveal: (id) => {
         revealSession(id);
       },

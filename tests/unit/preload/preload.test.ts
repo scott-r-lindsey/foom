@@ -541,6 +541,9 @@ test("application menu bridge forwards IDs and strips events from validated sess
   for (const value of [null, 1, "", "x".repeat(257), "one"]) navigate?.({}, value);
   expect(open.mock.calls).toEqual([[]]);
   expect(session.mock.calls).toEqual([["one"]]);
+  navigate?.({}, "child", true);
+  navigate?.({}, "normal", "true");
+  expect(session.mock.calls).toEqual([["one"], ["child", true], ["normal"]]);
   offOpen();
   offSession();
   expect(mock.removeListener).toHaveBeenCalledWith("app-menu:session", navigate);

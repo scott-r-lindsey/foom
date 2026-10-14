@@ -675,8 +675,8 @@ Chromium can decode the audio and checks its samples.
 
 **Orchestrators and children implemented in #155.** `main/control/orchestration.ts`
 owns slots, limits, ownership and the action history; `Workspace` supplies main's
-existing effects (worktree creation, agent launch, stop, host tail, removal) and
-the service delegates `create_worktree`, `launch`, `stop`, `remove_worktree`,
+existing effects (worktree creation, agent launch, stop, close, host tail, removal) and
+the service delegates `create_worktree`, `launch`, `stop`, `close`, `remove_worktree`,
 `tail` and `wait_for` to it through an asynchronous `call`. MCP lists these tools
 and `operation_status` to every agent but runs them only for an orchestrator
 principal. `reply` (#156) creates a single-use proposal for human review; it never
@@ -704,7 +704,13 @@ variadic options cannot consume it. Launches without a prompt omit the terminato
 removal or revocation of the parent ends its authority, aborts pending removal
 dialogs and frees the slot; children keep running. Snapshots carry a main-computed `orchestration`
 view (role, children, last 20 actions); validated session metadata retains bounded history across restart. `take-over` is a sidebar
-command that removes the orchestrator's stop, tail and wait access to that child.
+command that removes the orchestrator's stop, close, tail and wait access to that child.
+New child launches send a background placement event to the parent's board (or the
+current board when hidden). The renderer queues it until inventory arrives, uses
+sidebar placement without replacing the current tile, and preserves focus. Restore
+sends no placement event. `close` accepts only owned, exited children and delegates
+to the normal sidebar close path; the final screen is discarded while the checkout,
+branch and review state remain.
 
 Foom also reads PR and required-check status for orchestrator-owned child
 worktrees through a main-owned forge provider. GitHub is supported through your

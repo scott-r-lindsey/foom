@@ -25,6 +25,7 @@ export const ORCHESTRATION_METHODS: readonly string[] = [
   "create_worktree",
   "launch",
   "stop",
+  "close",
   "remove_worktree",
   "tail",
   "wait_for",
@@ -70,6 +71,8 @@ export interface OrchestrationHost {
     path: string,
   ): Promise<{ branch: string; identity: string } | undefined>;
   stop(id: string): Promise<void>;
+  close(id: string): Promise<void>;
+  place?(id: string, parentId: string): void;
   /** Starting restored sessions do not yet have a stoppable PTY. */
   starting?(id: string): boolean;
   tail(id: string, lines: number): Promise<string[]>;
@@ -426,6 +429,8 @@ export class Orchestration {
         return this.createWorktree(actor, params, operations);
       case "launch":
         return this.launch(actor, params, operations);
+      case "close":
+        return this.close(actor, params, operations);
       case "stop":
         return this.stop(actor, params, operations);
       case "remove_worktree":
@@ -562,6 +567,7 @@ export class Orchestration {
         tailAt: 0,
       });
       this.host.changed();
+      this.host.place?.(id, actor.terminalId);
       return await this.finish(actor, parent, operations, operation, label, "succeeded", id);
     } catch (error) {
       if (error instanceof ControlError) throw error;
@@ -571,6 +577,32 @@ export class Orchestration {
       parent.starting--;
       if (!this.launching()) this.early.clear();
     }
+  }
+
+  private async close(
+    actor: Principal,
+    params: Record<string, unknown>,
+    operations: Operations,
+  ): Promise<Operation> {
+    exact(params, ["idempotencyKey", "id"]);
+    const key = identifier(params["idempotencyKey"]);
+    const id = identifier(params["id"]);
+    const operation = await operations.begin(actor, "close", key, JSON.stringify([id]), id);
+    if (!operation.created) return publicOperation(operation);
+    const parent = this.parent(actor);
+    const child = parent.children.get(id);
+    const label = child ? this.label(id) : metadataName(id);
+    if (!child) return this.refuse(actor, parent, operations, operation, label, "not_found");
+    if (child.takenOver)
+      return this.refuse(actor, parent, operations, operation, label, "forbidden");
+    if (!child.exited) return this.refuse(actor, parent, operations, operation, label, "conflict");
+    this.note(parent, this.entry(operation, label));
+    try {
+      await this.host.close(id);
+    } catch {
+      return this.finish(actor, parent, operations, operation, label, "failed", id);
+    }
+    return this.finish(actor, parent, operations, operation, label, "succeeded", id);
   }
 
   private async stop(
