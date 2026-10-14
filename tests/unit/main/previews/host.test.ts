@@ -38,6 +38,7 @@ class FakeSession extends EventEmitter {
 class FakeContents extends EventEmitter {
   session = new FakeSession();
   focus = vi.fn();
+  executeJavaScript = vi.fn(async (_script: string) => {});
   isFocused = vi.fn(() => false);
   isDestroyed = vi.fn(() => false);
   setWindowOpenHandler = vi.fn<(handler: () => { action: string }) => void>();
@@ -91,6 +92,7 @@ async function fixture() {
   const window = Object.assign(new EventEmitter(), {
     webContents: new FakeContents(),
     contentView: { addChildView: vi.fn(), removeChildView: vi.fn() },
+    isFocused: vi.fn(() => false),
     getContentBounds: vi.fn(() => ({ width: 800, height: 600 })),
   });
   partition = new FakeSession();
@@ -428,8 +430,10 @@ test("hiding or closing a pending handoff unblocks board input", async () => {
     const event = { preventDefault: vi.fn() };
     f.window.webContents.emit("before-input-event", event);
     expect(event.preventDefault).toHaveBeenCalledOnce();
-    if (action === "hide") f.host.bounds(id, { ...bounds, visible: false });
-    else await f.host.close(id);
+    if (action === "hide") {
+      f.host.bounds(id, { ...bounds, visible: false });
+      await Promise.resolve();
+    } else await f.host.close(id);
     f.window.webContents.emit("before-input-event", event);
     expect(event.preventDefault).toHaveBeenCalledOnce();
     await f.host.dispose(false);
@@ -451,6 +455,7 @@ test("a failed replacement load cancels the input gate", async () => {
   const event = { preventDefault: vi.fn() };
   f.window.webContents.emit("before-input-event", event);
   expect(event.preventDefault).toHaveBeenCalledOnce();
+  await Promise.resolve();
   await Promise.resolve();
   f.window.webContents.emit("before-input-event", event);
   expect(event.preventDefault).toHaveBeenCalledOnce();
@@ -524,4 +529,124 @@ test("invalid files, revoked inventory, failed saves and shutdown during open le
   });
   await expect(f.host.open(f.root, "a.html")).rejects.toThrow("closed");
   expect(fake.views).toHaveLength(0);
+});
+
+test.each(["Escape", "blur", "deadline"] as const)(
+  "%s releases a stuck handoff only after blurring terminal DOM focus and revokes late focus",
+  async (reason) => {
+    vi.useFakeTimers();
+    const f = await fixture();
+    const { id, view } = await f.open();
+    f.host.bounds(id, { x: 0, y: 0, width: 100, height: 100, visible: true });
+    view.webContents.emit("did-finish-load");
+    view.webContents.emit("before-mouse-event", {}, { type: "mouseDown" });
+    const navigation = { url: view.webContents.getURL(), isMainFrame: true, isSameDocument: false };
+    view.webContents.emit("did-start-navigation", navigation);
+    const replacement = fake.views[1];
+    if (!replacement) throw new Error("Missing replacement");
+    f.window.isFocused.mockReturnValue(reason !== "blur");
+    // A load can finish without the OS granting focus; it must still time out.
+    if (reason === "deadline") replacement.webContents.emit("did-finish-load");
+    let blurred = () => {};
+    f.window.webContents.executeJavaScript.mockReturnValueOnce(
+      new Promise<void>((resolve) => {
+        blurred = resolve;
+      }),
+    );
+    const event = { preventDefault: vi.fn() };
+    if (reason === "Escape")
+      replacement.webContents.emit("before-input-event", event, { key: "Escape" });
+    else if (reason === "blur") f.window.emit("blur");
+    else {
+      await vi.advanceTimersByTimeAsync(1499);
+      expect(f.window.webContents.executeJavaScript).not.toHaveBeenCalled();
+      await vi.advanceTimersByTimeAsync(1);
+    }
+    expect(f.window.webContents.executeJavaScript).toHaveBeenCalledOnce();
+    expect(f.window.webContents.executeJavaScript).toHaveBeenCalledWith(
+      'if (document.activeElement?.closest(".xterm")) document.activeElement.blur()',
+    );
+    event.preventDefault.mockClear();
+    f.window.webContents.emit("before-input-event", event, { key: "x" });
+    expect(event.preventDefault).toHaveBeenCalledOnce();
+    blurred();
+    await Promise.resolve();
+    event.preventDefault.mockClear();
+    f.window.webContents.emit("before-input-event", event, { key: "x" });
+    expect(event.preventDefault).not.toHaveBeenCalled();
+    replacement.webContents.focus.mockClear();
+    replacement.webContents.emit("did-finish-load");
+    replacement.webContents.emit("focus");
+    expect(replacement.webContents.focus).not.toHaveBeenCalled();
+    expect(f.window.webContents.focus).toHaveBeenCalledTimes(reason === "blur" ? 1 : 2);
+    await f.host.dispose(false);
+    expect(f.window.listenerCount("blur")).toBe(0);
+    expect(vi.getTimerCount()).toBe(0);
+  },
+);
+
+test("a cancelled handoff cannot be revived by a delayed replacement or stale blur completion", async () => {
+  vi.useFakeTimers();
+  const f = await fixture();
+  const { id, view } = await f.open();
+  f.host.bounds(id, { x: 0, y: 0, width: 100, height: 100, visible: true });
+  view.webContents.emit("did-finish-load");
+  view.webContents.emit("before-mouse-event", {}, { type: "mouseDown" });
+  const navigation = { url: view.webContents.getURL(), isMainFrame: true, isSameDocument: false };
+  view.webContents.emit("did-start-navigation", navigation);
+  const replacement = fake.views[1];
+  if (!replacement) throw new Error("Missing replacement");
+  replacement.webContents.emit("did-start-navigation", navigation);
+  let blurred = () => {};
+  f.window.webContents.executeJavaScript.mockReturnValueOnce(
+    new Promise<void>((resolve) => {
+      blurred = resolve;
+    }),
+  );
+  f.window.emit("blur");
+  f.window.webContents.emit("before-mouse-event", {}, { type: "mouseDown" });
+  await vi.advanceTimersByTimeAsync(250);
+  const delayed = fake.views[2];
+  if (!delayed) throw new Error("Missing delayed replacement");
+  delayed.webContents.emit("did-finish-load");
+  expect(delayed.webContents.focus).not.toHaveBeenCalled();
+  delayed.webContents.emit("before-mouse-event", {}, { type: "mouseDown" });
+  delayed.webContents.emit("did-start-navigation", navigation);
+  blurred();
+  await Promise.resolve();
+  const event = { preventDefault: vi.fn() };
+  f.window.webContents.emit("before-input-event", event);
+  expect(event.preventDefault).toHaveBeenCalledOnce();
+  await f.host.dispose(false);
+  await vi.advanceTimersByTimeAsync(2000);
+  expect(vi.getTimerCount()).toBe(0);
+});
+
+test("blur failure keeps PTY input gated and Escape can retry", async () => {
+  const f = await fixture();
+  const { id, view } = await f.open();
+  f.host.bounds(id, { x: 0, y: 0, width: 100, height: 100, visible: true });
+  view.webContents.emit("did-finish-load");
+  view.webContents.emit("before-mouse-event", {}, { type: "mouseDown" });
+  view.webContents.emit("did-start-navigation", {
+    url: view.webContents.getURL(),
+    isMainFrame: true,
+    isSameDocument: false,
+  });
+  f.window.webContents.executeJavaScript.mockRejectedValueOnce(new Error("Board unavailable"));
+  f.window.emit("blur");
+  await Promise.resolve();
+  await Promise.resolve();
+  const event = { preventDefault: vi.fn() };
+  f.window.webContents.emit("before-input-event", event, { key: "x" });
+  expect(event.preventDefault).toHaveBeenCalledOnce();
+  f.window.webContents.isDestroyed.mockReturnValue(true);
+  f.window.webContents.executeJavaScript.mockRejectedValueOnce(new Error("Destroyed"));
+  f.window.webContents.emit("before-input-event", event, { key: "Escape" });
+  await Promise.resolve();
+  await Promise.resolve();
+  event.preventDefault.mockClear();
+  f.window.webContents.emit("before-input-event", event);
+  expect(event.preventDefault).not.toHaveBeenCalled();
+  await f.host.dispose(false);
 });
