@@ -1629,3 +1629,27 @@ it("refuses reuse with a live human session in the unused checkout", async () =>
   ).rejects.toThrow("branch_in_use");
   await workspace.dispose();
 });
+
+it("does not confuse a valid adoption-named head with the PR reservation lock", async () => {
+  const workspace = new Workspace(deps);
+  await orchestrate(workspace);
+  const operations = new Operations(
+    () => Promise.resolve(),
+    () => undefined,
+  );
+  vi.mocked(deps.worktrees.adoptWorktree).mockImplementationOnce(
+    (_repo, _number, _unused, revalidate) => {
+      revalidate(undefined, "adopt-pr-337");
+      return Promise.resolve({ path: child.path, branch: "adopt-pr-337", identity: "identity" });
+    },
+  );
+  expect(
+    await workspace.orchestration.call(
+      principal(),
+      "create_worktree",
+      { idempotencyKey: "named-head", pullRequest: 337 },
+      operations,
+    ),
+  ).toMatchObject({ status: "succeeded" });
+  await workspace.dispose();
+});

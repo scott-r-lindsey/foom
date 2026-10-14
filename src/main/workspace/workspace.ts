@@ -300,7 +300,7 @@ export class Workspace {
         createWorktree: (repository, branch) => this.createChildWorktree(repository, branch),
         adoptWorktree: (repository, number, unused, revalidate) =>
           this.withRepository(repository, async () => {
-            const key = `${repository}\0adopt-pr-${String(number)}`;
+            const key = `${repository}\0:adopt-pr-${String(number)}`;
             if (this.busyWorktrees.has(key)) throw new ControlError("branch_in_use");
             this.busyWorktrees.add(key);
             let branchKey: string | undefined;
