@@ -1138,7 +1138,8 @@ routes come from `main/agents/agent-list.ts`, followed by Via Settings UI), and 
 `size` row carrying Bigger/Smaller and main's current interface scale. Action log
 is an enabled board command in both the wordmark and macOS menus; it has no direct
 shortcut binding.
-Main owns one `before-input-event` dispatcher; native accelerators are
+Main owns one `before-input-event` dispatcher, shared by the board and every preview
+(including its synchronous focus-handoff and trusted-dialog input guards); native accelerators are
 display-only (`registerAccelerator: false`). Windows/Linux have no native
 application menu. The existing two-second Ctrl+Shift+Space tile leader resolves
 from the registry; blur, timeout and unmatched input cancel it. Alt alone and F10
@@ -1711,8 +1712,23 @@ them to window content bounds, and refreshes on resize and interface-scale chang
 Closing destroys contents, unregisters its protocol/request handler, clears storage
 and cache, and removes the registry entry. Quit preserves validated registry
 metadata while releasing views and partitions. Watchers and live reload are #294;
-there are no watchers to stop yet. Overlay composition and shortcut forwarding
-remain #292.
+there are no watchers to stop yet.
+
+Every preview forwards native `before-input-event` to its owning board's existing
+shortcut dispatcher and input guards, without moving focus. The renderer observes
+board panels (including portals), trusted scrims, modal sheets, settings, tile
+drags and tile transitions. While any is active, validated `preview:cover` hides
+and detaches the window's views immediately. Main starts `capturePage` before
+detaching and sends PNG snapshots and CSS bounds through `preview:snapshots`.
+The renderer decodes those pixels into inert canvases under board overlays; the
+board CSP and asset allowlist remain unchanged. Snapshots follow preview tile
+geometry and opacity through maximize/restore. Drag coverage starts with the drag,
+before a drop target exists, so previews cannot intercept its pointer events.
+Overlapping reasons keep views covered until all finish; real animation completion
+also handles reduced motion and cancellation. Restore reattaches only loaded,
+visible views and never grants focus. Capture failure leaves views detached, and
+late captures after restore or close are discarded. Subscriptions, observers and
+animation frames are disposed on unmount.
 
 ### Terminal font selection (#363)
 

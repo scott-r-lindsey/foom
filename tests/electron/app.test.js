@@ -11106,3 +11106,163 @@ test("terminal font picker updates open shells and config shells and refits thei
   for (const rows of await page.locator(".xterm-rows").all())
     await expect(rows).toHaveCSS("font-family", '"Hack Nerd Font Mono", "Geist Mono", monospace');
 });
+
+async function composedPreview(context) {
+  const app = await launchApp(context);
+  const page = await boardPage(app);
+  const terminal = (await page.evaluate(() => window.desktop.workspace())).terminals[0];
+  await writeFile(
+    path.join(terminal.worktree, "overlay.html"),
+    `<style>html,body{margin:0;background:#123456;height:100%}</style><input style="height:70px;width:90%"><script>window.pointerCount=0;addEventListener('pointerdown',()=>window.pointerCount++);window.keys=[];addEventListener('keydown',e=>window.keys.push(e.key));</script>`,
+  );
+  const id = await page.evaluate(
+    (root) => window.desktop.previews.open(root, "overlay.html"),
+    terminal.worktree,
+  );
+  await page.evaluate(
+    ({ id, session }) => {
+      localStorage.setItem(
+        `foom.tiles.v1.${window.desktop.windows.id}`,
+        JSON.stringify({
+          version: 2,
+          focused: "preview",
+          tree: {
+            kind: "split",
+            id: "columns",
+            direction: "horizontal",
+            ratio: 0.5,
+            first: { kind: "tile", id: "shell", content: { kind: "terminal", session } },
+            second: { kind: "tile", id: "preview", content: { kind: "preview", preview: id } },
+          },
+        }),
+      );
+    },
+    { id, session: terminal.id },
+  );
+  await page.reload();
+  const tile = page.locator('[data-tile="preview"]');
+  await expect(tile).toHaveAttribute("data-kind", "preview");
+  const bounds = await tile.evaluate((element) => {
+    const rect = element.getBoundingClientRect();
+    const title = element.querySelector(".tile-title").getBoundingClientRect();
+    return {
+      x: rect.left + 4,
+      y: title.bottom,
+      width: rect.width - 8,
+      height: rect.bottom - title.bottom - 4,
+      visible: true,
+    };
+  });
+  await page.evaluate(({ id, bounds }) => window.desktop.previews.bounds(id, bounds), {
+    id,
+    bounds,
+  });
+  await expect.poll(async () => (await previewViewState(app, id)).attached).toBe(true);
+  return { app, page, id, tile, bounds };
+}
+async function expectPreviewSnapshot(page, id) {
+  const snapshot = page.locator(`.preview-snapshot[data-preview="${id}"]`);
+  await expect(snapshot).toBeVisible();
+  await expect
+    .poll(() =>
+      snapshot.evaluate((canvas) =>
+        Array.from(
+          canvas.getContext("2d").getImageData(canvas.width / 2, canvas.height / 2, 1, 1).data,
+        ),
+      ),
+    )
+    .toEqual([18, 52, 86, 255]);
+  await expect(snapshot).toHaveCSS("pointer-events", "none");
+}
+
+test("preview composition keeps tile and row panels visible and usable above captured pages", async (context) => {
+  const { app, page, id, tile } = await composedPreview(context);
+  await tile.getByRole("button", { name: "Tile 2 menu" }).click();
+  await expect(page.getByRole("menuitem", { name: "Split down" })).toBeVisible();
+  await expect.poll(async () => (await previewViewState(app, id)).attached).toBe(false);
+  await expectPreviewSnapshot(page, id);
+  await page.screenshot({ path: "test-results/preview-overlays-panel.png" });
+  await page.getByRole("menuitem", { name: "Split down" }).click();
+  await expect(page.locator(".terminal-tile")).toHaveCount(3);
+  await expect.poll(async () => (await previewViewState(app, id)).attached).toBe(true);
+  await page.locator(".board-row").first().click({ button: "right" });
+  await expect(page.locator(".row-menu")).toBeVisible();
+  await expectPreviewSnapshot(page, id);
+  await page.keyboard.press("Escape");
+  await expect(page.locator(".preview-snapshot")).toHaveCount(0);
+});
+
+test("preview composition puts the trusted confirmation scrim above previews and restores on cancel", async (context) => {
+  const { app, page, id } = await composedPreview(context);
+  await app.evaluate(({ app }) => app.quit());
+  const dialog = await confirmationPage(app);
+  await expect(page.locator(".board-confirmation-scrim:popover-open")).toBeVisible();
+  await expect.poll(async () => (await previewViewState(app, id)).attached).toBe(false);
+  await expectPreviewSnapshot(page, id);
+  await page.screenshot({ path: "test-results/preview-overlays-scrim.png" });
+  await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
+  await expect(page.locator(".board-confirmation-scrim")).toHaveCount(0);
+  await expect(page.locator(".preview-snapshot")).toHaveCount(0);
+  await expect.poll(async () => (await previewViewState(app, id)).attached).toBe(true);
+  assert.equal((await previewViewState(app, id)).focused, false);
+});
+
+test("preview composition freezes maximize and restore animations and excludes preview hit testing throughout tile drags", async (context) => {
+  const { app, page, id, tile, bounds } = await composedPreview(context);
+  // Lengthen only the product animation being observed, never a test deadline.
+  await page.addStyleTag({ content: ".terminal-tile { transition-duration: 1s; }" });
+  await tile.getByRole("button", { name: "Maximize tile" }).click();
+  await expectPreviewSnapshot(page, id);
+  await expect.poll(async () => (await previewViewState(app, id)).attached).toBe(false);
+  await expect.poll(async () => (await previewViewState(app, id)).attached).toBe(true);
+  await tile.getByRole("button", { name: "Restore tile" }).click();
+  await expectPreviewSnapshot(page, id);
+  await expect.poll(async () => (await previewViewState(app, id)).attached).toBe(true);
+  const title = await page.locator('[data-tile="shell"] .tile-title').boundingBox();
+  assert.ok(title);
+  await page.mouse.move(title.x + 10, title.y + 10);
+  await page.mouse.down();
+  await page.mouse.move(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2, { steps: 12 });
+  await expect(page.locator(".tile-drop-preview")).toBeVisible();
+  await expectPreviewSnapshot(page, id);
+  assert.equal((await previewViewState(app, id)).attached, false);
+  await page.screenshot({ path: "test-results/preview-overlays-drag.png" });
+  assert.equal(await previewContents(app, id, "window.pointerCount"), 0);
+  await page.mouse.up();
+  await expect(page.locator(".tile-drop-preview")).toHaveCount(0);
+  await expect.poll(async () => (await previewViewState(app, id)).attached).toBe(true);
+});
+
+test("preview focused native input reaches board shortcuts including the tile leader and leaves ordinary keys in the page", async (context) => {
+  const { app, page, id } = await composedPreview(context);
+  await app.evaluate(({ webContents }, id) => {
+    const contents = webContents
+      .getAllWebContents()
+      .find((entry) => entry.getURL().startsWith(`foom-preview://${id}/`));
+    contents.sendInputEvent({ type: "mouseDown", x: 20, y: 20, button: "left", clickCount: 1 });
+    contents.sendInputEvent({ type: "mouseUp", x: 20, y: 20, button: "left", clickCount: 1 });
+  }, id);
+  await expect.poll(async () => (await previewViewState(app, id)).focused).toBe(true);
+  await typeIntoFocusedContents(app, "x");
+  await expect.poll(() => previewContents(app, id, "window.keys")).toEqual(["x"]);
+  const send = async (keyCode, modifiers) =>
+    app.evaluate(
+      ({ webContents }, { keyCode, modifiers }) => {
+        const contents = webContents.getFocusedWebContents();
+        if (!contents) throw new Error("No native input target");
+        for (const type of ["keyDown", "keyUp"])
+          contents.sendInputEvent({ type, keyCode, modifiers });
+      },
+      { keyCode, modifiers },
+    );
+  const mac = process.platform === "darwin";
+  await send("B", mac ? ["meta"] : ["control", "shift"]);
+  await expect(page.getByRole("button", { name: /Expand sidebar/ })).toBeVisible();
+  if (!mac) await send("Space", ["control", "shift"]);
+  await send("1", mac ? ["meta"] : []);
+  await expect(page.locator('[data-tile="shell"]')).toHaveAttribute("data-focused", "true");
+  assert.equal(
+    await previewContents(app, id, "window.keys.includes('B') || window.keys.includes('1')"),
+    false,
+  );
+});

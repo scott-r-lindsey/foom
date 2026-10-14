@@ -407,7 +407,11 @@ Split right/down, Grow, gutters and Tidy arrange the layout.
 Preview title bars show a document glyph, MD or HTML badge, relative path, tile menu,
 Maximize/Restore and Close. A preview has no running process to hide. Replacement closes previews that no longer fit. Split, Grow, drag, Tidy and focus
 shortcuts treat previews as occupied tiles. Opening or reloading a preview never
-moves focus; a click or explicit focus command does.
+moves focus; a click or explicit focus command does. While panels, trusted
+confirmation scrims, drag previews or maximize/restore motion cover previews,
+they show a frozen image of the page beneath the board UI and resume afterwards.
+Previews do not intercept board drags. Foom shortcuts remain available when a
+preview has keyboard focus.
 
 Double-click a gutter, or press Enter while it is focused, to give every member
 of its run an equal share. A run follows consecutive splits on the same axis;

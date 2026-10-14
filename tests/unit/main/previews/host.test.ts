@@ -37,6 +37,8 @@ class FakeSession extends EventEmitter {
 }
 class FakeContents extends EventEmitter {
   session = new FakeSession();
+  send = vi.fn();
+  capturePage = vi.fn(() => Promise.resolve({ toDataURL: () => "data:image/png;base64,AA==" }));
   focus = vi.fn();
   isFocused = vi.fn(() => false);
   isDestroyed = vi.fn(() => false);
@@ -524,4 +526,82 @@ test("invalid files, revoked inventory, failed saves and shutdown during open le
   });
   await expect(f.host.open(f.root, "a.html")).rejects.toThrow("closed");
   expect(fake.views).toHaveLength(0);
+});
+
+test("cover snapshots loaded views, detaches before capture resolves, and restores without focus", async () => {
+  const f = await fixture();
+  const { id, view } = await f.open();
+  f.host.bounds(id, { x: 1, y: 2, width: 100, height: 80, visible: true });
+  view.webContents.emit("did-finish-load");
+  let release: (() => void) | undefined;
+  view.webContents.capturePage.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        release = () => {
+          resolve({ toDataURL: () => "data:image/png;base64,AA==" });
+        };
+      }),
+  );
+  const covering = f.host.cover(true);
+  expect(f.window.contentView.removeChildView).toHaveBeenCalledWith(view);
+  f.host.bounds(id, { x: 3, y: 4, width: 100, height: 80, visible: true });
+  release?.();
+  await covering;
+  expect(f.window.webContents.send).toHaveBeenLastCalledWith("preview:snapshots", [
+    {
+      id,
+      bounds: { x: 3, y: 4, width: 100, height: 80, visible: true },
+      image: "data:image/png;base64,AA==",
+    },
+  ]);
+  await f.host.cover(true);
+  expect(view.webContents.capturePage).toHaveBeenCalledTimes(1);
+  await f.host.cover(false);
+  expect(f.window.contentView.addChildView).toHaveBeenLastCalledWith(view);
+  expect(view.webContents.focus).not.toHaveBeenCalled();
+  expect(f.window.webContents.send).toHaveBeenLastCalledWith("preview:snapshots", []);
+  await f.host.dispose(false);
+  await f.host.cover(true);
+});
+test("cover handles loading pages, failed capture, stale capture and close", async () => {
+  const f = await fixture();
+  const { id, view } = await f.open();
+  f.host.bounds(id, { x: 0, y: 0, width: 100, height: 80, visible: true });
+  await f.host.cover(true);
+  expect(view.webContents.capturePage).not.toHaveBeenCalled();
+  view.webContents.capturePage.mockRejectedValueOnce(new Error("capture failed"));
+  view.webContents.emit("did-finish-load");
+  await Promise.resolve();
+  await f.host.cover(false);
+  let release: (() => void) | undefined;
+  view.webContents.capturePage.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        release = () => {
+          resolve({ toDataURL: () => "data:image/png;base64,AA==" });
+        };
+      }),
+  );
+  const covering = f.host.cover(true);
+  await f.host.cover(false);
+  release?.();
+  await covering;
+  expect(f.window.webContents.send).toHaveBeenLastCalledWith("preview:snapshots", []);
+  await f.host.cover(true);
+  await f.host.close(id);
+  expect(f.window.webContents.send).toHaveBeenLastCalledWith("preview:snapshots", []);
+  f.window.webContents.isDestroyed.mockReturnValue(true);
+  await f.host.cover(false);
+});
+test("every preview forwards native input to the board dispatcher without taking focus", async () => {
+  const f = await fixture();
+  const { view } = await f.open();
+  const handler = vi.fn();
+  f.window.webContents.on("before-input-event", handler);
+  const event = { preventDefault: vi.fn() };
+  const input = { type: "keyDown", key: "B", control: true, shift: true };
+  view.webContents.emit("before-input-event", event, input);
+  expect(handler).toHaveBeenCalledWith(event, input);
+  expect(view.webContents.focus).not.toHaveBeenCalled();
+  await f.host.dispose(false);
 });

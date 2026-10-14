@@ -703,6 +703,8 @@ export function Board({
   return (
     <main
       className="board-home"
+      data-dragging={Boolean(drag)}
+      data-preview-covered={paneInactive}
       ref={boardRef}
       aria-label="Board"
       hidden={inactive}
