@@ -7,12 +7,14 @@ import { parseResume } from "./resume-field";
 
 export function ResumeField({
   agents,
+  patterns = [],
   confirmations,
   back,
   launch,
   done,
 }: {
   agents: readonly AgentId[];
+  patterns?: readonly { agent: AgentId; command: string; selector: string }[];
   confirmations?: ConfirmationClient | undefined;
   back: () => void;
   done?: () => void;
@@ -25,7 +27,7 @@ export function ResumeField({
   const [failed, setFailed] = useState(false);
   const confirmation = useConfirmation(confirmations);
   const pending = confirmation.pending;
-  const parsed = parseResume(text);
+  const parsed = parseResume(text, patterns);
   const agent = parsed?.agent ?? choice;
   const invalid =
     failed ||

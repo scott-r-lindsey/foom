@@ -1,3 +1,4 @@
+import { agentProviders } from "../agents/providers/registry";
 import { detectAgent } from "./agent-rules";
 import type { EvaluationInput, Verdict } from "../../shared/evaluator";
 
@@ -58,7 +59,10 @@ export function evaluateRules(input: EvaluationInput): Verdict {
       0.95,
     );
     // Only the packaged adapter selects this namespace; output cannot supply a kind.
-    return detected.id.startsWith("provider_")
+    return detected.id.startsWith("provider_") ||
+      agentProviders()
+        .find((provider) => provider.id === input.agent)
+        ?.model?.execution.providerRules.includes(detected.id)
       ? { ...blocked, attentionKind: "provider" }
       : blocked;
   }

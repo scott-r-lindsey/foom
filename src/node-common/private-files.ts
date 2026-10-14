@@ -70,9 +70,9 @@ export async function verifyPrivate(path: string, directory: boolean): Promise<v
     throw new ControlError("unavailable");
 }
 
-export async function privateDirectory(parent: string): Promise<string> {
+export async function privateDirectory(parent: string, name = "control"): Promise<string> {
   // The profile is app-owned; reject redirected control roots and existing insecure entries.
-  const directory = join(await realpath(parent), "control");
+  const directory = join(await realpath(parent), name);
   let created = false;
   try {
     await mkdir(directory, { mode: 0o700 });

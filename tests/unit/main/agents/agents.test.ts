@@ -1069,3 +1069,124 @@ it("per-agent screen rules suppress only that agent's hooks and retain the globa
   service.setHooksEnabled(false, { claude: true });
   expect((await service.launch(request)).attention).toBe("evaluator");
 });
+
+it("v2 checks final environment bypass on every launch, redacts values, and rejects unattended bypass", async () => {
+  const { parseAgentManifest } = await import("../../../../src/shared/agent-plugin-parser");
+  const { v2Provider } = await import("../../../../src/main/agents/providers/v2");
+  const fixture = await import("../../../fixtures/agent-plugin-v2.json");
+  const parsed = parseAgentManifest(
+    JSON.stringify({
+      ...fixture.default,
+      files: [],
+      launch: { ...fixture.default.launch, mcp: undefined, toolPermissions: undefined },
+    }),
+  );
+  if (parsed.version !== 2) throw Error("Expected v2");
+  const validate = vi.fn(() => Promise.resolve());
+  replaceConfigProviders([v2Provider(parsed.model, validate)]);
+  versions[parsed.model.id] = "fixture 1.2.3";
+  help = "--inline --prompt --mcp";
+  vi.stubEnv("FIXTURE_BYPASS", "private-bypass-value");
+  const approve = vi.fn(() => Promise.resolve(false));
+  const revoke = vi.fn();
+  const grant = vi.fn(() => Promise.resolve({ env: {}, bind: vi.fn(), dispose: revoke }));
+  service = new AgentService(
+    { listWorktrees, launchIdentity },
+    { create },
+    prepare,
+    grant,
+    new AgyPlugin(),
+    approve,
+  );
+  const v2Request = { ...request, agent: parsed.model.id };
+  const scan = await service.scan();
+  expect(scan.agents.find((agent) => agent.id === parsed.model.id)).toMatchObject({
+    resume: true,
+    restoreControl: true,
+    source: "agents/fixture-v2.json",
+    resumePaste: [{ command: "fixture-v2", selector: "--resume" }],
+  });
+  await expect(service.launch(v2Request)).rejects.toThrow("cancelled");
+  expect(create).not.toHaveBeenCalled();
+  expect(revoke).toHaveBeenCalledOnce();
+  expect(JSON.stringify(approve.mock.calls)).toContain("FIXTURE_BYPASS: present-nonempty");
+  expect(JSON.stringify(approve.mock.calls)).not.toContain("private-bypass-value");
+  approve.mockResolvedValue(true);
+  const result = await service.launch(v2Request);
+  expect(result).toMatchObject({
+    bypass: true,
+    providerOrigin: "config",
+  });
+  expect(result.conversationId).toMatch(/^[a-f0-9-]{36}$/u);
+  expect(create.mock.calls.at(-1)?.[0].env?.["FIXTURE_BYPASS"]).toBe("private-bypass-value");
+  service.release(result.id);
+  await service.launch(v2Request);
+  expect(approve).toHaveBeenCalledTimes(3);
+  service.release(result.id);
+  await expect(
+    service.launch({ ...v2Request, control: { parentId: "parent" }, prompt: "task" }),
+  ).rejects.toThrow("Unattended child");
+  expect(approve).toHaveBeenCalledTimes(3);
+  vi.stubEnv("FIXTURE_BYPASS", "");
+  await expect(
+    service.launch({ ...v2Request, defaultArguments: ["--resume=abc"] }),
+  ).rejects.toThrow("reserved");
+  await expect(
+    service.launch({ ...v2Request, defaultArguments: ["--yolo"], control: { parentId: "parent" } }),
+  ).rejects.toThrow("Unattended child");
+  validate.mockRejectedValue(Error("Agent plugin changed"));
+  await expect(service.launch(v2Request)).rejects.toThrow("changed");
+});
+
+it("v2 revokes launch on approval races, disposal and failed version/help probes", async () => {
+  const { parseAgentManifest } = await import("../../../../src/shared/agent-plugin-parser");
+  const { v2Provider } = await import("../../../../src/main/agents/providers/v2");
+  const fixture = await import("../../../fixtures/agent-plugin-v2.json");
+  const parsed = parseAgentManifest(
+    JSON.stringify({
+      ...fixture.default,
+      files: [],
+      launch: { ...fixture.default.launch, mcp: undefined, toolPermissions: undefined },
+    }),
+  );
+  if (parsed.version !== 2) throw Error("Expected v2");
+  let changed = false;
+  const validate = () =>
+    changed ? Promise.reject(Error("Agent plugin changed")) : Promise.resolve();
+  replaceConfigProviders([v2Provider(parsed.model, validate)]);
+  versions[parsed.model.id] = "fixture 1.2.3";
+  help = "--inline --prompt";
+  const approve = vi.fn(() => {
+    changed = true;
+    return Promise.resolve(true);
+  });
+  service = new AgentService(
+    { listWorktrees, launchIdentity },
+    { create },
+    undefined,
+    undefined,
+    new AgyPlugin(),
+    approve,
+  );
+  await service.scan();
+  const v2Request = { ...request, agent: parsed.model.id, defaultArguments: ["--yolo"] };
+  await expect(service.launch(v2Request)).rejects.toThrow("changed");
+  expect(create).not.toHaveBeenCalled();
+  changed = false;
+  approve.mockImplementation(() => {
+    service.dispose();
+    return Promise.resolve(true);
+  });
+  await expect(service.launch(v2Request)).rejects.toThrow("disposed");
+  service = new AgentService({ listWorktrees, launchIdentity }, { create });
+  failed = "--help";
+  const scan = await service.scan();
+  expect(scan.agents.find((agent) => agent.id === parsed.model.id)).toMatchObject({
+    hooks: false,
+    mcp: false,
+    version: null,
+  });
+  await expect(
+    service.launch({ ...request, agent: parsed.model.id, prompt: "task" }),
+  ).rejects.toThrow("cannot take");
+});

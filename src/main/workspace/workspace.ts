@@ -408,7 +408,15 @@ export class Workspace {
     );
     this.agents = deps.agents
       ? deps.agents(prepare, prepareControl)
-      : new AgentService(deps.worktrees, deps.terminals, prepare, prepareControl, this.agyPlugin);
+      : new AgentService(
+          deps.worktrees,
+          deps.terminals,
+          prepare,
+          prepareControl,
+          this.agyPlugin,
+          (content) =>
+            deps.dialog?.(content, new AbortController().signal) ?? Promise.resolve(false),
+        );
   }
 
   /** Setup's choices apply to later launches; running agents keep theirs. */
@@ -910,7 +918,8 @@ export class Workspace {
         ...((replacement?.conversationId ?? extra.conversationId) === undefined
           ? {}
           : { conversationId: replacement?.conversationId ?? extra.conversationId }),
-        bypass: hasBypassArgument(request.agent, defaultArguments),
+        ...(result.conversationId ? { conversationId: result.conversationId } : {}),
+        bypass: result.bypass ?? hasBypassArgument(request.agent, defaultArguments),
         state: null,
       });
       const tracked = this.track(result.id);
@@ -1500,7 +1509,8 @@ export class Workspace {
         ...(replacement?.conversationId === undefined
           ? {}
           : { conversationId: replacement.conversationId }),
-        bypass: hasBypassArgument(run, defaultArguments),
+        ...(result.conversationId ? { conversationId: result.conversationId } : {}),
+        bypass: result.bypass ?? hasBypassArgument(run, defaultArguments),
         state: null,
       });
       const tracked = this.track(result.id);

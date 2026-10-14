@@ -1,3 +1,6 @@
+import type { DialogContent } from "../../shared/confirmation";
+import type { PreparedLaunch } from "./providers/provider";
+import { matchesArguments, bypassEnvironment } from "./providers/v2-values";
 import {
   agentProvider,
   agentProviders,
@@ -85,9 +88,16 @@ async function detect(id: AgentId, path: string): Promise<AgentInstallation> {
     const options = { ...probeOptions, cwd: homedir(), env: { ...process.env, PATH: path } };
     version = (await execute(executable, ["--version"], options)).stdout.trim();
     if (!version) throw new Error("Empty version");
+    await provider.validate?.();
+    if (agentProvider(id) !== provider) throw new Error("Agent plugins changed. Scan again.");
     const help = (await execute(executable, ["--help"], options)).stdout;
-    return agentProvider(id).discover(executable, version, help);
+    await provider.validate?.();
+    if (agentProvider(id) !== provider) throw new Error("Agent plugins changed. Scan again.");
+    return provider.discover(executable, version, help);
   } catch {
+    await provider.validate?.();
+    if (agentProvider(id) !== provider) throw new Error("Agent plugins changed. Scan again.");
+    if (provider.model) return provider.discover(executable, "", "");
     return {
       id,
       path: executable,
@@ -124,6 +134,7 @@ export class AgentService {
       control?: AgentLaunch["control"],
     ) => Promise<ControlLaunch>,
     private readonly agyPlugin = new AgyPlugin(),
+    private readonly confirmLaunchBypass?: (content: DialogContent) => Promise<boolean>,
   ) {}
 
   private ensureOpen(): void {
@@ -145,7 +156,16 @@ export class AgentService {
           name: provider.name,
           mark: provider.mark,
           command: provider.executableNames[0] ?? provider.id,
-          resume: !provider.manifest || provider.manifest.launch.resume.length > 0,
+          resume: provider.model
+            ? Boolean(provider.model.launch.resume)
+            : !provider.manifest || provider.manifest.launch.resume.length > 0,
+          ...(provider.model
+            ? {
+                source: `agents/${provider.id}.json`,
+                resumePaste: provider.model.resumePaste,
+                restoreControl: provider.model.conversation.restoreControl,
+              }
+            : {}),
           ...(provider.manifest
             ? {
                 source: `agents/${provider.id}.json`,
@@ -235,6 +255,7 @@ export class AgentService {
     }
     let control: ControlLaunch | undefined;
     let mcp: Awaited<ReturnType<typeof prepareMcpLaunch>> | undefined;
+    let prepared: PreparedLaunch | undefined;
     try {
       // Config sessions get no repository-scoped control grant.
       control =
@@ -246,7 +267,7 @@ export class AgentService {
               request.control,
             )
           : undefined;
-      if (control && agent.mcp)
+      if (control && agent.mcp && !provider.prepareLaunch)
         mcp = await provider.prepareMcp(control.env["FOOM_CONTROL_URL"] ?? "");
       this.ensureOpen();
       if (
@@ -257,26 +278,84 @@ export class AgentService {
         throw new Error("Worktree has changed. Select it and try again.");
       if (request.control !== undefined && "role" in request.control && !control)
         throw new Error("Orchestration needs control credentials");
-      const args = agentProvider(agent.id).arguments(
+      prepared = await provider.prepareLaunch?.(
         agent,
         request,
         defaults,
-        resume,
-        binding,
-        mcp,
-        Boolean(control),
+        control,
         config !== undefined,
+        this.hooksEnabled && this.agentHooks[agent.id] !== false,
       );
+      const args =
+        prepared?.args ??
+        agentProvider(agent.id).arguments(
+          agent,
+          request,
+          defaults,
+          resume,
+          binding,
+          mcp,
+          Boolean(control),
+          config !== undefined,
+        );
+      const baseEnvironment = inheritedEnvironment();
       const environment = buildLaunchEnvironment({
         layers: request.environment ?? [],
-        base: inheritedEnvironment(),
+        base: baseEnvironment,
         path: scan.path,
         pathFirst: config ?? control?.env["FOOM_CLI_DIRECTORY"],
         foom: { ...control?.env, ...binding?.env },
       });
+      const finalEnvironment = provider.model
+        ? { ...baseEnvironment, ...environment.env }
+        : environment.env;
+      const environmentMatches = provider.model
+        ? bypassEnvironment(provider.model, finalEnvironment)
+        : [];
+      const argumentBypass = provider.model
+        ? matchesArguments(provider.model.bypassArguments, args)
+        : false;
+      const bypass = argumentBypass || environmentMatches.length > 0;
+      if (bypass) {
+        if (request.control && "parentId" in request.control)
+          throw new Error("Unattended child bypass is unavailable");
+        if (
+          !(await this.confirmLaunchBypass?.({
+            title: `Launch ${provider.name} with bypass?`,
+            glyph: "shield",
+            subject: "This invocation",
+            accept: "Launch with bypass",
+            detail:
+              "This agent can act as you anywhere on the machine. A worktree is not a sandbox. Manifest approval does not approve bypass for this launch.",
+            sections: [
+              {
+                label: "Argument bypass",
+                items: [
+                  argumentBypass
+                    ? "A declared bypass matcher matches the selected launch arguments"
+                    : "(none)",
+                ],
+              },
+              {
+                label: "Environment bypass (names and predicates only)",
+                items: environmentMatches.length ? environmentMatches : ["(none)"],
+              },
+            ],
+          }))
+        )
+          throw new Error("Bypass launch was cancelled");
+      }
       await provider.validate?.();
+      if (
+        provider.model &&
+        config === undefined &&
+        (await this.worktrees.launchIdentity(request.repository, request.worktree)) !==
+          checkoutIdentity
+      )
+        throw new Error("Worktree has changed. Select it and try again.");
       if (agentProvider(request.agent) !== provider)
         throw new Error("Agent plugin changed. Review it again.");
+      this.ensureOpen();
       const id = await this.terminals.create({
         ...(request.terminalId === undefined ? {} : { id: request.terminalId }),
         command: agent.path,
@@ -284,26 +363,30 @@ export class AgentService {
         cwd: request.worktree,
         cols: request.cols,
         rows: request.rows,
-        env: environment.env,
+        env: finalEnvironment,
       });
       this.ensureOpen();
       if (this.earlyExits.has(id)) {
         if (![...this.launched.values()].includes(request.worktree))
           this.occupied.delete(request.worktree);
         mcp?.dispose();
+        prepared?.dispose();
         control?.dispose();
         binding?.dispose();
         return {
           id,
-          ...(provider.manifest ? { providerOrigin: "config" as const } : {}),
+          ...(provider.manifest || provider.model ? { providerOrigin: "config" as const } : {}),
           attention: binding ? "hooks" : "evaluator",
+          ...(prepared?.conversationId ? { conversationId: prepared.conversationId } : {}),
+          ...(provider.model ? { bypass } : {}),
           ...(environment.names.length ? { environment: environment.names } : {}),
         };
       }
       this.launched.set(id, request.worktree);
       if (mcp) this.mcpBindings.set(id, mcp);
+      if (prepared) this.mcpBindings.set(id, prepared);
       if (control) {
-        control.bind(id, Boolean(mcp));
+        control.bind(id, prepared?.mcp ?? Boolean(mcp));
         this.controls.set(id, control);
       }
       if (binding) {
@@ -312,12 +395,15 @@ export class AgentService {
       }
       return {
         id,
-        ...(provider.manifest ? { providerOrigin: "config" as const } : {}),
+        ...(provider.manifest || provider.model ? { providerOrigin: "config" as const } : {}),
         attention: binding ? "hooks" : "evaluator",
+        ...(prepared?.conversationId ? { conversationId: prepared.conversationId } : {}),
+        ...(provider.model ? { bypass } : {}),
         ...(environment.names.length ? { environment: environment.names } : {}),
       };
     } catch (error) {
       mcp?.dispose();
+      prepared?.dispose();
       control?.dispose();
       binding?.dispose();
       throw error;

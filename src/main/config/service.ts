@@ -1,6 +1,8 @@
 import { parseAgentManifest } from "../../shared/agent-plugin-parser";
 import { AgentManifestError } from "../../shared/agent-manifest";
 import type { AgentPluginManifest } from "../../shared/agent-plugin";
+import type { AgentManifestV2 } from "../../shared/agent-manifest-v2";
+import { v2Provider, availableV2 } from "../agents/providers/v2";
 import type { AgentProvider } from "../agents/providers/registry";
 import { configProvider } from "../agents/providers/config";
 import { pluginDisclosure } from "../agents/providers/disclosure";
@@ -8,7 +10,7 @@ import { randomUUID } from "node:crypto";
 import { constants, watch } from "node:fs";
 import { lstat, mkdir, open, readdir, realpath, rename, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import { hasBypassArgument } from "../../shared/agent-arguments";
+import { hasBypassArgument, parseAgentDefaults } from "../agents/default-arguments";
 import type { DialogContent } from "../../shared/confirmation";
 import { setTimeout as sleep } from "node:timers/promises";
 import type { ConfigSettings } from "../../shared/config";
@@ -151,6 +153,15 @@ function themeKind(path: string): ThemeKind | undefined {
       : undefined;
 }
 
+function createConfigProvider(
+  manifest: AgentPluginManifest | AgentManifestV2,
+  validate: () => Promise<void>,
+): AgentProvider {
+  return manifest.version === 2
+    ? v2Provider(manifest, validate)
+    : configProvider(manifest, validate);
+}
+
 /** Paths Foom validates, applies and commits on its own. */
 export function revertable(path: string): boolean {
   return (
@@ -170,7 +181,7 @@ export class ConfigService {
   private pending: Pending | null = null;
   private heldPlugins = new Map<
     string,
-    { text: string; manifest: AgentPluginManifest; previous: string | null }
+    { text: string; manifest: AgentPluginManifest | AgentManifestV2; previous: string | null }
   >();
   private approvedPlugins = new Map<string, { text: string; provider: AgentProvider }>();
   private events: ConfigChange[] = [];
@@ -586,13 +597,12 @@ export class ConfigService {
         continue;
       }
       let text: string;
-      let manifest: AgentPluginManifest;
+      let manifest: AgentPluginManifest | AgentManifestV2;
       try {
         text = decode(bytes);
         const parsed = parseAgentManifest(text);
-        if (parsed.version === 2)
-          throw new AgentManifestError("$.version", "v2-engine-unavailable");
-        manifest = parsed.manifest;
+        if (parsed.version === 2) availableV2(parsed.model);
+        manifest = parsed.version === 2 ? parsed.model : parsed.manifest;
         if (file !== `agents/${manifest.id}.json`)
           throw new AgentManifestError("$.id", "filename-mismatch");
       } catch (error) {
@@ -624,7 +634,7 @@ export class ConfigService {
       const provider =
         previous?.text === text
           ? previous.provider
-          : configProvider(manifest, async () => {
+          : createConfigProvider(manifest, async () => {
               const current = await this.read(file);
               if (
                 !current ||
@@ -664,7 +674,16 @@ export class ConfigService {
     };
     await check();
     if (decision === "allow") {
-      if (!(await this.deps.confirmPlugin?.(pluginDisclosure(proposal.manifest))))
+      if (
+        !(await this.deps.confirmPlugin?.(
+          pluginDisclosure(proposal.manifest, {
+            file,
+            digest: digest(proposal.text),
+            text: proposal.text,
+            previous: proposal.previous,
+          }),
+        ))
+      )
         return this.status();
       await check();
       if (!this.deps.pluginBaseline) throw new Error("Agent approval storage is unavailable");
@@ -1095,6 +1114,7 @@ export class ConfigService {
     let values: ConfigSettings;
     try {
       values = parseSettingsFile(text);
+      if (values.agentArguments) parseAgentDefaults(values.agentArguments);
     } catch {
       throw new Error("This setting cannot be stored in the Foom config folder");
     }

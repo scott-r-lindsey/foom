@@ -3,7 +3,11 @@ import type { AgentId } from "../../shared/agents";
 import { conversationId } from "../../shared/conversation";
 
 /** Deliberately not a shell parser: only the CLI's literal resume forms are accepted. */
-export function parseResume(text: string): { id: string; agent?: AgentId } | undefined {
+export function parseResume(
+  text: string,
+  patterns: readonly { agent: AgentId; command: string; selector: string }[] = [],
+): { id: string; agent?: AgentId } | undefined {
+  if (text.length > 512) return;
   const trimmed = text.trim();
   if (conversationId(text.trim())) return { id: trimmed };
   if (/[\r\n]/u.test(trimmed)) return;
@@ -18,6 +22,14 @@ export function parseResume(text: string): { id: string; agent?: AgentId } | und
         entry.command === command &&
         entry.resume.some((selector) => selector === option),
     );
-  if (agent) return { agent: agent.id, id };
+  const matches = new Set(
+    patterns
+      .filter((entry) => entry.command === command && entry.selector === option)
+      .map((entry) => entry.agent),
+  );
+  if (agent) matches.add(agent.id);
+  const match = matches.values().next().value;
+  if (matches.size === 1 && match !== undefined) return { agent: match, id };
+  if (matches.size > 1) return { id };
   return;
 }

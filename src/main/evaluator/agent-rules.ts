@@ -72,6 +72,12 @@ export function detectAgent(
   tail: readonly string[],
   rules = manifests.find((manifest) => manifest.id === agent)?.rules ??
     agentProviders().find((provider) => provider.id === agent)?.manifest?.attention.rules ??
+    agentProviders()
+      .find((provider) => provider.id === agent)
+      ?.model?.attention.rules.map(({ lines, ...rule }) => ({
+        ...rule,
+        ...(lines === undefined ? {} : { lines }),
+      })) ??
     [],
   now: () => number = () => performance.now(),
 ): AgentRule | undefined {
