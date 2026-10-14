@@ -97,6 +97,41 @@ function assertConfigValidation(executable, scratch) {
         assert.match(result.stdout, /broken.json.*\$\.agentBypassAcknowledged.*unknown-key/);
     }
   }
+  // Real packaged SEA, offline even with inherited credentials: v2 never probes agents.
+  const manifest = require("../fixtures/agent-plugins-v2/codex.json");
+  const v2 = join(directory, "offline-codex.json");
+  writeFileSync(v2, JSON.stringify({ ...manifest, id: "offline-codex" }));
+  const validV2 = spawnSync(executable, ["config", "validate", v2, "--json"], {
+    env,
+    encoding: "utf8",
+    timeout: deadline(10000),
+    windowsHide: true,
+  });
+  assert.equal(validV2.status, 0, validV2.stderr);
+  assert.deepEqual(JSON.parse(validV2.stdout), []);
+  writeFileSync(
+    v2,
+    JSON.stringify({
+      ...manifest,
+      id: "offline-codex",
+      launch: { ...manifest.launch, order: Array(9).fill("resume") },
+    }),
+  );
+  const invalidV2 = spawnSync(executable, ["config", "validate", v2, "--json"], {
+    env,
+    encoding: "utf8",
+    timeout: deadline(10000),
+    windowsHide: true,
+  });
+  assert.equal(invalidV2.status, 1, invalidV2.stderr);
+  assert.deepEqual(JSON.parse(invalidV2.stdout), [
+    {
+      file: "offline-codex.json",
+      path: "$.launch.order",
+      reason: "invalid-value",
+      detail: "duplicate-id",
+    },
+  ]);
   const sounds = join(directory, "done");
   mkdirSync(sounds, { recursive: true });
   const recording = join(sounds, "tone.flac");

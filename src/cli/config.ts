@@ -1,4 +1,4 @@
-import { parseAgentPlugin } from "../shared/agent-manifest";
+import { parseAgentManifest } from "../shared/agent-plugin-parser";
 import type { ConfigDirectory } from "./types";
 import { soundDuration } from "./sound-duration";
 import { constants } from "node:fs";
@@ -106,7 +106,7 @@ async function validateFile(
         : undefined,
     );
     if (kind === "agent") {
-      const manifest = parseAgentPlugin(text);
+      const manifest = parseAgentManifest(text).model;
       if (basename(path) !== `${manifest.id}.json`) fail("invalid-value");
     }
     return diagnostics;

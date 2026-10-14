@@ -1,0 +1,474 @@
+{
+  "kind": "agent",
+  "version": 2,
+  "id": "copilot",
+  "name": "GitHub Copilot",
+  "badge": "CP",
+  "executables": ["copilot"],
+  "discovery": {
+    "version": {
+      "prefix": "GitHub Copilot CLI ",
+      "suffixes": [".", ".\nRun 'copilot update' to check for updates."],
+      "minimum": [1, 0, 95]
+    },
+    "facts": [
+      {
+        "id": "promptSupport",
+        "minimum": [1, 0, 95],
+        "helpTokens": ["--interactive"]
+      },
+      {
+        "id": "mcpSurface",
+        "minimum": [1, 0, 95],
+        "helpTokens": ["--additional-mcp-config", "--allow-tool"]
+      },
+      {
+        "id": "pluginSurface",
+        "minimum": [1, 0, 95],
+        "helpTokens": ["--plugin-dir"]
+      },
+      {
+        "id": "mcpVerified",
+        "enabled": false,
+        "when": {
+          "all": [
+            {
+              "field": "mcpSurface",
+              "op": "eq",
+              "value": true
+            }
+          ]
+        }
+      },
+      {
+        "id": "hookVerified",
+        "enabled": false,
+        "when": {
+          "all": [
+            {
+              "field": "pluginSurface",
+              "op": "eq",
+              "value": true
+            }
+          ]
+        }
+      }
+    ]
+  },
+  "launch": {
+    "order": [
+      "resume",
+      "defaults",
+      "arguments",
+      "display",
+      "guidance",
+      "mcp",
+      "hooks",
+      "tools",
+      "prompt"
+    ],
+    "arguments": {
+      "arguments": []
+    },
+    "prompt": {
+      "arguments": ["--interactive", "{prompt}"],
+      "requires": "promptSupport"
+    },
+    "resume": {
+      "arguments": ["--resume", "{conversationId}"]
+    },
+    "mcp": {
+      "arguments": ["--additional-mcp-config", "@{file:mcp.json}"],
+      "when": {
+        "all": [
+          {
+            "field": "control",
+            "op": "eq",
+            "value": true
+          },
+          {
+            "field": "mcpVerified",
+            "op": "eq",
+            "value": true
+          }
+        ]
+      }
+    },
+    "toolPermissions": {
+      "names": ["open_preview", "list_previews", "close_preview"],
+      "format": "server-parentheses",
+      "arguments": ["--allow-tool", "{tool}"]
+    }
+  },
+  "files": [
+    {
+      "name": "mcp.json",
+      "scope": "launch",
+      "format": "json",
+      "content": "{\"mcpServers\":{{mcpName:json}:{\"type\":\"http\",\"url\":{mcpUrl:json},\"headers\":{\"Authorization\":\"Bearer ${FOOM_CONTROL_TOKEN}\"}}}}",
+      "when": {
+        "all": [
+          {
+            "field": "control",
+            "op": "eq",
+            "value": true
+          },
+          {
+            "field": "mcpVerified",
+            "op": "eq",
+            "value": true
+          }
+        ]
+      }
+    },
+    {
+      "name": "plugin.json",
+      "scope": "launch",
+      "format": "json",
+      "content": "{\"name\":\"foom-observer\",\"version\":\"1.0.0\"}",
+      "when": {
+        "all": [
+          {
+            "field": "hooksEnabled",
+            "op": "eq",
+            "value": true
+          },
+          {
+            "field": "hookVerified",
+            "op": "eq",
+            "value": true
+          }
+        ]
+      }
+    },
+    {
+      "name": "hooks.json",
+      "scope": "launch",
+      "format": "json",
+      "content": "{\"hooks\":{\"SessionStart\":[{\"type\":\"command\",\"command\":{observerCommand:lifecycle:json},\"timeout\":3}],\"UserPromptSubmit\":[{\"type\":\"command\",\"command\":{observerCommand:lifecycle:json},\"timeout\":3}],\"PreToolUse\":[{\"type\":\"command\",\"command\":{observerCommand:lifecycle:json},\"timeout\":3}],\"PermissionRequest\":[{\"type\":\"command\",\"command\":{observerCommand:lifecycle:json},\"timeout\":3}],\"PostToolUse\":[{\"type\":\"command\",\"command\":{observerCommand:lifecycle:json},\"timeout\":3}],\"Stop\":[{\"type\":\"command\",\"command\":{observerCommand:lifecycle:json},\"timeout\":3}]}}",
+      "when": {
+        "all": [
+          {
+            "field": "hooksEnabled",
+            "op": "eq",
+            "value": true
+          },
+          {
+            "field": "hookVerified",
+            "op": "eq",
+            "value": true
+          }
+        ]
+      }
+    }
+  ],
+  "reservedArguments": [
+    {
+      "flag": "--resume",
+      "forms": ["exact", "equals"]
+    },
+    {
+      "flag": "--continue",
+      "forms": ["exact", "equals"]
+    },
+    {
+      "flag": "--session-id",
+      "forms": ["exact", "equals"]
+    },
+    {
+      "flag": "--connect",
+      "forms": ["exact", "equals"]
+    },
+    {
+      "prefix": "-r"
+    }
+  ],
+  "bypassArguments": [
+    {
+      "flag": "--yolo",
+      "forms": ["exact", "equals"]
+    },
+    {
+      "flag": "--allow-all",
+      "forms": ["exact", "equals"]
+    },
+    {
+      "flag": "--allow-all-tools",
+      "forms": ["exact", "equals"]
+    },
+    {
+      "flag": "--allow-all-paths",
+      "forms": ["exact", "equals"]
+    },
+    {
+      "flag": "--allow-all-urls",
+      "forms": ["exact", "equals"]
+    }
+  ],
+  "bypassEnvironment": [
+    {
+      "name": "COPILOT_ALLOW_ALL",
+      "match": "present-nonempty"
+    }
+  ],
+  "conversation": {
+    "resumePin": "requested-on-paste",
+    "restoreControl": false,
+    "newId": {
+      "format": "uuid",
+      "arguments": ["--session-id", "{newId}"]
+    }
+  },
+  "resumePaste": [
+    {
+      "command": "copilot",
+      "selector": "--resume"
+    },
+    {
+      "command": "copilot",
+      "selector": "-r"
+    }
+  ],
+  "attention": {
+    "minimumEngineVersion": 1,
+    "rules": [
+      {
+        "id": "selection-0-0",
+        "state": "blocked",
+        "priority": 300,
+        "region": "bottom",
+        "lines": 40,
+        "match": {
+          "contains": ["esc to cancel", "enter to select"]
+        },
+        "reason": "Selection requested",
+        "comment": "Herdr selection_blocker translated as conjunction; unmeasured Copilot screen."
+      },
+      {
+        "id": "selection-0-1",
+        "state": "blocked",
+        "priority": 300,
+        "region": "bottom",
+        "lines": 40,
+        "match": {
+          "contains": ["esc to cancel", "enter to confirm"]
+        },
+        "reason": "Selection requested",
+        "comment": "Herdr selection_blocker translated as conjunction; unmeasured Copilot screen."
+      },
+      {
+        "id": "selection-0-2",
+        "state": "blocked",
+        "priority": 300,
+        "region": "bottom",
+        "lines": 40,
+        "match": {
+          "contains": ["esc to cancel", "enter to submit"]
+        },
+        "reason": "Selection requested",
+        "comment": "Herdr selection_blocker translated as conjunction; unmeasured Copilot screen."
+      },
+      {
+        "id": "selection-0-3",
+        "state": "blocked",
+        "priority": 300,
+        "region": "bottom",
+        "lines": 40,
+        "match": {
+          "contains": ["esc to cancel", "enter accept"]
+        },
+        "reason": "Selection requested",
+        "comment": "Herdr selection_blocker translated as conjunction; unmeasured Copilot screen."
+      },
+      {
+        "id": "selection-1-0",
+        "state": "blocked",
+        "priority": 300,
+        "region": "bottom",
+        "lines": 40,
+        "match": {
+          "contains": ["esc cancel", "enter to select"]
+        },
+        "reason": "Selection requested",
+        "comment": "Herdr selection_blocker translated as conjunction; unmeasured Copilot screen."
+      },
+      {
+        "id": "selection-1-1",
+        "state": "blocked",
+        "priority": 300,
+        "region": "bottom",
+        "lines": 40,
+        "match": {
+          "contains": ["esc cancel", "enter to confirm"]
+        },
+        "reason": "Selection requested",
+        "comment": "Herdr selection_blocker translated as conjunction; unmeasured Copilot screen."
+      },
+      {
+        "id": "selection-1-2",
+        "state": "blocked",
+        "priority": 300,
+        "region": "bottom",
+        "lines": 40,
+        "match": {
+          "contains": ["esc cancel", "enter to submit"]
+        },
+        "reason": "Selection requested",
+        "comment": "Herdr selection_blocker translated as conjunction; unmeasured Copilot screen."
+      },
+      {
+        "id": "selection-1-3",
+        "state": "blocked",
+        "priority": 300,
+        "region": "bottom",
+        "lines": 40,
+        "match": {
+          "contains": ["esc cancel", "enter accept"]
+        },
+        "reason": "Selection requested",
+        "comment": "Herdr selection_blocker translated as conjunction; unmeasured Copilot screen."
+      },
+      {
+        "id": "background-agents",
+        "state": "working",
+        "priority": 110,
+        "region": "bottom",
+        "lines": 6,
+        "match": {
+          "contains": ["◎", "Waiting for background agents"]
+        },
+        "reason": "Waiting for background agents",
+        "comment": "Bounded approximation of Herdr line regex; requires captures before shipping."
+      },
+      {
+        "id": "working-cancel-0",
+        "state": "working",
+        "priority": 100,
+        "region": "bottom",
+        "lines": 40,
+        "match": {
+          "contains": ["esc to cancel"]
+        },
+        "reason": "Agent is working",
+        "comment": "Herdr cancel hint; selection blockers outrank it; unmeasured."
+      },
+      {
+        "id": "working-cancel-1",
+        "state": "working",
+        "priority": 100,
+        "region": "bottom",
+        "lines": 40,
+        "match": {
+          "contains": ["esc cancel"]
+        },
+        "reason": "Agent is working",
+        "comment": "Herdr cancel hint; selection blockers outrank it; unmeasured."
+      },
+      {
+        "id": "working-cancel-2",
+        "state": "working",
+        "priority": 100,
+        "region": "bottom",
+        "lines": 40,
+        "match": {
+          "contains": ["esc again to cancel"]
+        },
+        "reason": "Agent is working",
+        "comment": "Herdr cancel hint; selection blockers outrank it; unmeasured."
+      },
+      {
+        "id": "working-cancel-3",
+        "state": "working",
+        "priority": 100,
+        "region": "bottom",
+        "lines": 40,
+        "match": {
+          "contains": ["esc interrupt"]
+        },
+        "reason": "Agent is working",
+        "comment": "Herdr cancel hint; selection blockers outrank it; unmeasured."
+      }
+    ],
+    "provenance": {
+      "source": "inspiration/herdr/src/detect/manifests/github-copilot.toml (2026.08.29.1)",
+      "license": "Apache-2.0; Herdr contributors",
+      "modified": "Draft bounded translation: 8 selection conjunctions, 1 background approximation, 4 cancel hints; no idle rule or real screen measurement."
+    }
+  },
+  "execution": {
+    "completion": "observed",
+    "completionChannels": ["lifecycle"]
+  },
+  "hooks": {
+    "channels": [
+      {
+        "id": "lifecycle",
+        "when": {
+          "all": [
+            {
+              "field": "hooksEnabled",
+              "op": "eq",
+              "value": true
+            },
+            {
+              "field": "hookVerified",
+              "op": "eq",
+              "value": true
+            }
+          ]
+        },
+        "observer": {
+          "transport": "stdin",
+          "placement": "launch",
+          "version": 1,
+          "response": "silent",
+          "delivery": "foreground",
+          "timeoutMs": 3000
+        },
+        "arguments": ["--plugin-dir", "{hookDir}"],
+        "mapping": {
+          "session": {
+            "source": "payload",
+            "path": ["session_id"]
+          },
+          "event": {
+            "source": "payload",
+            "path": ["hook_event_name"]
+          },
+          "cases": [
+            {
+              "id": "SessionStart",
+              "event": "SessionStart",
+              "action": "ready"
+            },
+            {
+              "id": "UserPromptSubmit",
+              "event": "UserPromptSubmit",
+              "action": "working"
+            },
+            {
+              "id": "PreToolUse",
+              "event": "PreToolUse",
+              "action": "working"
+            },
+            {
+              "id": "PermissionRequest",
+              "event": "PermissionRequest",
+              "action": "needs_input"
+            },
+            {
+              "id": "PostToolUse",
+              "event": "PostToolUse",
+              "action": "working"
+            },
+            {
+              "id": "Stop",
+              "event": "Stop",
+              "action": "classify"
+            }
+          ]
+        }
+      }
+    ]
+  }
+}

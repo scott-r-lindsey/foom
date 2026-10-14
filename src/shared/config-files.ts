@@ -1,4 +1,5 @@
-import { parseAgentPlugin, AgentManifestError } from "./agent-manifest";
+import { AgentManifestError } from "./agent-manifest";
+import { parseAgentManifest } from "./agent-plugin-parser";
 import { migrateSoundSettings } from "./sounds";
 import { AgentArgumentsError } from "./agent-arguments";
 import { parseConfigSettings, CONFIG_SETTINGS } from "./config-settings";
@@ -66,7 +67,7 @@ export function validateConfigJson(
     throw new ThemeValidationError("$.kind", "invalid-value");
   if (kind === "agent") {
     try {
-      parseAgentPlugin(text);
+      parseAgentManifest(text);
     } catch (error) {
       if (error instanceof AgentManifestError)
         throw new ThemeValidationError(error.path, "invalid-value", error.reason);
