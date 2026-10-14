@@ -451,17 +451,17 @@ These are proposed tickets, not claims that new GitHub issues were opened:
 
 ## Local validation and delivery boundary
 
-- `npm ci` with Node 24.17.0; no dependency or lockfile changes.
-- `npm run format`, `npm run lint:fix`, and `npm run check`: passed;
+- `pnpm install --frozen-lockfile` with Node 24.17.0; no dependency or lockfile changes.
+- `pnpm run format`, `pnpm run lint:fix`, and `pnpm run check`: passed;
   911 unit tests passed, 3 skipped, plus 6 CI-selection tests.
-- `npm run test:coverage`: passed per-file gates; 99.41% lines, 99.11%
+- `pnpm run test:coverage`: passed per-file gates; 99.41% lines, 99.11%
   statements, 98.36% functions, 96.9% branches.
-- `xvfb-run -a npm run test:electron`: all 41 passed, with sandboxing enabled.
-- `npm run make`: passed, Linux x64 development ZIP created.
+- `xvfb-run -a pnpm run test:electron`: all 41 passed, with sandboxing enabled.
+- `pnpm run make`: passed, Linux x64 development ZIP created.
 - Fixture syntax checks, live research/sizing/browser probes and `git diff --check`:
   passed. All test-session API sockets were unreachable after cleanup.
 
-The first sandboxed `npm run check` failed because loopback listeners were denied
+The first sandboxed `pnpm run check` failed because loopback listeners were denied
 with `EPERM`; the complete run outside that filesystem/process sandbox passed.
 Electron's own sandbox stayed enabled throughout. Only this document and
 `spikes/herdr/` are delivered; `src/` and existing build/lint/coverage settings are

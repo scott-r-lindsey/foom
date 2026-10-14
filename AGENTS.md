@@ -26,11 +26,11 @@ Read `docs/product.md` and `docs/architecture.md` before changing terminal, eval
 ## Building Foom inside Foom
 
 Run everyday Foom from a packaged build, or a dedicated checkout no agent edits.
-Use a separate worktree for development. `npm start` and `npm run start:samples`
+Use a separate worktree for development. `pnpm start` and `pnpm run start:samples`
 use the persistent **Foom Dev** profile; packaged builds use the everyday profile.
 Only one app can own each profile. A repeated launch focuses the existing window,
 so quit Foom Dev before testing a rebuilt version. To run another development app
-alongside it, pass a distinct `--user-data-dir` to Electron. `npm run start:fresh`
+alongside it, pass a distinct `--user-data-dir` to Electron. `pnpm run start:fresh`
 uses an isolated disposable profile and deletes it on exit.
 
 ## Planning and tasks
@@ -42,18 +42,18 @@ uses an isolated disposable profile and deletes it on exit.
 ## Code quality
 
 - Preserve strict compiler flags. Use `unknown` and narrowing at untrusted boundaries; do not add `any`, unchecked assertions, or blanket lint suppressions to bypass checks.
-- Biome owns formatting; ESLint owns linting, including type-aware TypeScript rules. Run `npm run format` and `npm run lint:fix` for safe fixes.
-- Run `npm run audit` for dependency changes; it includes development tools and is required in CI. Do not suppress advisories or remove the audit from the Quality gate. Document and validate transitive overrides.
-- Keep compiler and lint dependencies compatible; update the lockfile when dependencies change. Use Node 24 and `npm ci` for reproducible installs.
+- Biome owns formatting; ESLint owns linting, including type-aware TypeScript rules. Run `pnpm run format` and `pnpm run lint:fix` for safe fixes.
+- Run `pnpm run audit` for dependency changes; it includes development tools and is required in CI. Do not suppress advisories or remove the audit from the Quality gate. Document and validate transitive overrides.
+- Keep compiler and lint dependencies compatible; update the lockfile when dependencies change. Use Node 24, `corepack enable`, and the `packageManager`-pinned pnpm with `pnpm install --frozen-lockfile` for reproducible installs. Keep the hoisted layout in `.npmrc` for Forge/native compatibility and declare transitive overrides under `pnpm.overrides`.
 - Tests and Vitest configuration are type-checked. Production builds exclude test files and development tooling.
 
 ## Tests and coverage
 
 - Tests spawning Git must use `tests/helpers/git.js` (`git` or `gitSync`), which removes inherited Git variables and disables global/system Git configuration. Never launch Git directly from a test.
 
-- `npm test` runs fast unit tests without a display. Test behavior, failure paths, and security boundaries. Keep logic separable from platform APIs as the app grows.
-- `npm run test:electron` launches the real app and verifies the Electron boundary. Mocks do not replace this check.
-- On Linux, run Electron tests under Xvfb (`xvfb-run -a npm run test:electron`) so test windows do not appear on the user’s desktop or steal focus. Use the same virtual-display wrapper for packaged smoke tests and automated Electron previews; use the visible desktop only when the user explicitly requests it. Keep sandboxing enabled.
+- `pnpm test` runs fast unit tests without a display. Test behavior, failure paths, and security boundaries. Keep logic separable from platform APIs as the app grows.
+- `pnpm run test:electron` launches the real app and verifies the Electron boundary. Mocks do not replace this check.
+- On Linux, run Electron tests under Xvfb (`xvfb-run -a pnpm run test:electron`) so test windows do not appear on the user’s desktop or steal focus. Use the same virtual-display wrapper for packaged smoke tests and automated Electron previews; use the visible desktop only when the user explicitly requests it. Keep sandboxing enabled.
 - Tests must never run the developer's real agent CLIs (`claude`, `codex`, or `agy`), including discovery and plugin probes. Electron launches use a fixture login shell and controlled PATH; agent tests provide fake CLIs in fixture directories. Never append the inherited PATH; add only the directory of a specifically required system tool. The agent guard must remain enabled.
 - Electron tests use an isolated profile and fixture repositories per test. Register cleanup before launching; quit all apps before deleting fixtures, including on assertion or startup failure. The process audit tracks app descendants and fails on surviving processes; never use retries to hide leaks.
 - Wait for visible UI, bridge state, terminal output or quit acknowledgement before the next interaction. Use `tests/electron/test-policy.js` for platform-scaled deadlines, not individual timeout increases. Keep fixed delays only when elapsed time is the behavior under test. A test must also pass alone with `--test-name-pattern`.
@@ -64,21 +64,21 @@ uses an isolated disposable profile and deletes it on exit.
 
 ## Validation and delivery
 
-Before committing, run `npm run check` (format, lint, typecheck, unit tests). Husky enforces this locally.
+Before committing, run `pnpm run check` (format, lint, typecheck, unit tests). Husky enforces this locally.
 For runtime, build, or tooling changes, also run:
 
 ```sh
-npm run test:coverage
-npm run test:electron
-npm run make
-npm run test:packaged
-npm run clean
+pnpm run test:coverage
+pnpm run test:electron
+pnpm run make
+pnpm run test:packaged
+pnpm run clean
 git diff --check
 ```
 
-Run `npm run clean` only after `npm run make` and `npm run test:packaged` pass. It removes local `out/` packaging output so development worktrees do not retain it. On Linux, wrap both Electron test commands in `xvfb-run -a`. Keep CI packaging output until its artifact uploads finish; do not add this cleanup to CI.
+Run `pnpm run clean` only after `pnpm run make` and `pnpm run test:packaged` pass. It removes local `out/` packaging output so development worktrees do not retain it. On Linux, wrap both Electron test commands in `xvfb-run -a`. Keep CI packaging output until its artifact uploads finish; do not add this cleanup to CI.
 
-Open a **draft** pull request after the first coherent commit and push at each working step. CI runs on drafts, so Windows and macOS failures surface while the work is in progress; a newer push cancels the branch's previous run. Watch results with `gh pr checks --watch` and mark the PR ready for review only when it is green. Pass local `npm run check` before each push, reproduce Linux failures locally, and don't push only to re-run CI.
+Open a **draft** pull request after the first coherent commit and push at each working step. CI runs on drafts, so Windows and macOS failures surface while the work is in progress; a newer push cancels the branch's previous run. Watch results with `gh pr checks --watch` and mark the PR ready for review only when it is green. Pass local `pnpm run check` before each push, reproduce Linux failures locally, and don't push only to re-run CI.
 
 CI repeats these checks and runs Electron and packaging for code, configuration, and unknown-path changes. Every pull request push, `main` push and manual run validates Linux, Windows and macOS; nightly runs do so when `main` changed. Electron jobs start alongside static checks rather than after them. Explicitly allowlisted documentation/reference-only changes (including `inspiration/` and `spikes/`) skip desktop jobs. Development ZIP uploads remain manual opt-in and retained for three days. Scheduled runs with changed main, or manual main runs with publish_nightly, reuse tested ZIPs to update the rolling nightly prerelease only after the Quality gate succeeds. Only the nightly job has contents write permission; pull requests, failed runs and unchanged nights never publish. Nightly packages carry a CI-only version stamp and macOS bundles must pass strict ad-hoc signature verification. Report what ran locally versus what passed remotely. Packages are unsigned development artifacts; release signing/notarization is a separate configuration task.
 

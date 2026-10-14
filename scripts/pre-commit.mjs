@@ -22,7 +22,7 @@ const keys = ["core.bare", "core.worktree"];
 const before = keys.map(values);
 const bare = () => git(["rev-parse", "--is-bare-repository"]).trim();
 const wasBare = bare();
-const result = spawnSync(process.platform === "win32" ? "npm.cmd" : "npm", ["run", "check"], {
+const result = spawnSync(process.platform === "win32" ? "pnpm.cmd" : "pnpm", ["run", "check"], {
   env,
   stdio: "inherit",
   shell: process.platform === "win32",

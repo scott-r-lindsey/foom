@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { mkdtemp, readFile, writeFile, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -60,14 +60,22 @@ export async function probe(env = process.env, run = execute) {
       const row = { agent, version: "unavailable", assertion: "installation", passed: false };
       rows.push(row);
       const prefix = join(root, agent);
+      await mkdir(prefix);
       const status = join(root, `${agent}.json`);
       const pkg = agent === "claude" ? "@anthropic-ai/claude-code" : "@openai/codex";
       try {
         // No shell interpolation, global installation, provider credentials or Actions token.
         const childEnv = { PATH: env.PATH, HOME: root };
         await run(
-          "npm",
-          ["install", "--prefix", prefix, "--no-audit", "--no-fund", `${pkg}@${pins[index]}`],
+          "pnpm",
+          [
+            "--dir",
+            prefix,
+            "add",
+            "--ignore-workspace",
+            "--config.node-linker=hoisted",
+            `${pkg}@${pins[index]}`,
+          ],
           { env: childEnv, timeout: 180000, maxBuffer: 1024 * 1024 },
         );
         row.assertion = "version";

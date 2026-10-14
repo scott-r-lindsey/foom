@@ -137,7 +137,7 @@ pruned only after the source's first inventory completes, so an asynchronous loa
 cannot erase valid assignments. This data grants no process capabilities. Maximize
 is not persisted. All terminal IPC remains ID-scoped and main-validated.
 
-The board starts empty. Shells and agents launch from checkout panels; home shells use the home row; **New worktree** is a repository action. `npm run start:samples` explicitly builds the development sample board. Normal builds omit its data, and Forge rebuilds without the sample flag before packaging, including when invoked directly. New worktree is a branch field inside the repository panel (`branch-field.ts` holds its pure completion, status and ref-rule logic; `branch-field-view.tsx` the field). It reads `workspace:branches` and creates through `workspace:create-worktree` without a location, so main applies the configured one; it never launches. Whether a panel shows the field is part of the panel intent target, so it closes with its panel. Repository paths come from main’s registry or native directory picker; main chooses worktree destinations and executables.
+The board starts empty. Shells and agents launch from checkout panels; home shells use the home row; **New worktree** is a repository action. `pnpm run start:samples` explicitly builds the development sample board. Normal builds omit its data, and Forge rebuilds without the sample flag before packaging, including when invoked directly. New worktree is a branch field inside the repository panel (`branch-field.ts` holds its pure completion, status and ref-rule logic; `branch-field-view.tsx` the field). It reads `workspace:branches` and creates through `workspace:create-worktree` without a location, so main applies the configured one; it never launches. Whether a panel shows the field is part of the panel intent target, so it closes with its panel. Repository paths come from main’s registry or native directory picker; main chooses worktree destinations and executables.
 
 Main's inventory watcher derives the common Git directory with `rev-parse`, validates
 its canonical path, and watches metadata directories for `HEAD`, `packed-refs`,
@@ -966,7 +966,7 @@ with controls disabled during the write and refused selections restored to the
 registered repositories. Scans in Settings start from existing registrations;
 preflight continues to suggest recent repositories and save when leaving the step.
 
-Repositories come from the user's code folder (one, saved as `codeFolder`). Main offers common folders under home (`~/code`, `~/src`, `~/projects` and similar) that hold repositories, each with a count from a quick scan (the same walk, stopped at 5,000 folders), or shows the native picker; then `src/main/setup/code-scan.ts` walks the folder breadth first with live progress: at most three levels and 20,000 folders (reporting when it stopped early), never following symbolic links, skipping hidden folders, `node_modules`, `Library`, `AppData`, `Applications` and Foom's worktree folder, stopping at each repository, and skipping `.git` files (linked worktrees and submodules). Last activity comes from the modification times of `.git/logs/HEAD`, `.git/index` and `.git/HEAD`, without running git; activity in the last 30 days preselects a repository, as does already being added. The renderer may add or remove only paths from main's latest scan; leaving the step applies the selection, and a refusal (for example a repository with Foom-made worktrees) keeps the user on the step with the reason. `npm run start:fresh` runs the app with a throwaway profile to test first run.
+Repositories come from the user's code folder (one, saved as `codeFolder`). Main offers common folders under home (`~/code`, `~/src`, `~/projects` and similar) that hold repositories, each with a count from a quick scan (the same walk, stopped at 5,000 folders), or shows the native picker; then `src/main/setup/code-scan.ts` walks the folder breadth first with live progress: at most three levels and 20,000 folders (reporting when it stopped early), never following symbolic links, skipping hidden folders, `node_modules`, `Library`, `AppData`, `Applications` and Foom's worktree folder, stopping at each repository, and skipping `.git` files (linked worktrees and submodules). Last activity comes from the modification times of `.git/logs/HEAD`, `.git/index` and `.git/HEAD`, without running git; activity in the last 30 days preselects a repository, as does already being added. The renderer may add or remove only paths from main's latest scan; leaving the step applies the selection, and a refusal (for example a repository with Foom-made worktrees) keeps the user on the step with the reason. `pnpm run start:fresh` runs the app with a throwaway profile to test first run.
 
 ## Agent signals
 
@@ -1118,7 +1118,7 @@ There is no Checking state. Ambiguous results say
 
 ## Tile renderer measurement
 
-After `npm run make`, run
+After `pnpm run make`, run
 `xvfb-run -a node tests/electron/tiles-measurement.js` on Linux (omit Xvfb on
 other platforms). It starts the packaged app with a private profile and temporary
 repository, opens six real terminal tiles, and floods two of them for 12 seconds.
