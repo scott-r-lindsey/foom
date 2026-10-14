@@ -647,3 +647,39 @@ it("discovers hooks for resume/prompt/control contexts while preserving hard ver
   m.hooks = undefined;
   expect(hookCapability(m, "", "")).toBe(false);
 });
+it("excludes launch paths from health fingerprints when channel IDs share a prefix", async () => {
+  const root = await directory();
+  const m = model();
+  channel(m).id = "life";
+  channel(m, 1).id = "lifecycle";
+  const health = required(m.health);
+  health.channel = "life";
+  m.execution.completionChannels = ["life", "lifecycle"];
+  for (const test of channel(m, 1).when.any ?? [])
+    if (test.field === "channelAttached:lifecycle") test.field = "channelAttached:life";
+  const receiver = {
+    register: () => ({
+      env: { FOOM_SESSION: "s", FOOM_TOKEN: "t", FOOM_HOOK_URL: "u" },
+      revoke: vi.fn(),
+    }),
+  };
+  const first = await prepareV2Hooks(receiver, m, vi.fn(), false, root);
+  cleanup.push(() => {
+    first.dispose();
+  });
+  const second = await prepareV2Hooks(receiver, m, vi.fn(), false, root);
+  cleanup.push(() => {
+    second.dispose();
+  });
+  expect(first.v2?.values["observerCommand:lifecycle"]).not.toBe(
+    second.v2?.values["observerCommand:lifecycle"],
+  );
+  expect(first.v2?.runtime?.health).toBe(second.v2?.runtime?.health);
+});
+it("preserves PowerShell dollar/quote syntax when inserting the fixed event validator", () => {
+  const c = channel(model(ordered));
+  const script = required(observerAssets(c, true)["observer.ps1"]);
+  expect(script).toContain("if ($event -notmatch '^[A-Za-z][A-Za-z0-9_-]{0,63}$') { exit 0 }");
+  expect(script).toContain("$event, $sequence, $payload)");
+  expect(script.match(/public static class FoomObserverTransport/gu)).toHaveLength(1);
+});

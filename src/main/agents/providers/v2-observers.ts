@@ -78,7 +78,8 @@ exit 0
       worker = files["send.ps1"];
       source = source.replace(
         "if ($args.Count -ne 1 -or $args[0] -notin @('PreInvocation','PostToolUse','Stop')) { exit 0 }",
-        `$event = if ($args.Count -gt ${String(options.commandArguments.length)}) { $args[${String(options.commandArguments.length)}] } else { 'FoomEvent' }\nif ($event -notmatch '^[A-Za-z][A-Za-z0-9_-]{0,63}$') { exit 0 }`,
+        () =>
+          `$event = if ($args.Count -gt ${String(options.commandArguments.length)}) { $args[${String(options.commandArguments.length)}] } else { 'FoomEvent' }\nif ($event -notmatch '^[A-Za-z][A-Za-z0-9_-]{0,63}$') { exit 0 }`,
       );
       source = source.replace("$args[0], $sequence, $payload", "$event, $sequence, $payload");
       if (!options.sequence) {

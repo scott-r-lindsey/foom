@@ -2487,7 +2487,7 @@ export class Workspace {
       this.transition(id, "working", "hook");
     if (signal.action === "failed") {
       this.track(id).hook = { terminalId: id, action: signal.action, signal: signal.signal };
-      this.transition(id, "idle", "hook");
+      if (signal.endsTurn !== false) this.transition(id, "idle", "hook");
     } else if (signal.action === "needs_input") {
       delete this.track(id).permissionReply;
       delete this.track(id).permissionProgress;

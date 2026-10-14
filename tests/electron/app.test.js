@@ -12986,6 +12986,7 @@ process.stdin.resume();`,
                         event: "PermissionRequest",
                         action: "needs_input",
                       },
+                      { id: "Stop", event: "Stop", action: "classify" },
                     ],
                   },
                 },
@@ -13019,6 +13020,9 @@ process.stdin.resume();`,
           }),
         repository.path,
       );
+    require("../../build/shared/agent-plugin-parser.js").parseAgentManifest(
+      JSON.stringify(manifest),
+    );
     await writeFile(file, JSON.stringify(manifest));
     const card = page
       .locator(".agent-card")

@@ -3697,6 +3697,13 @@ test("v2 workspace treats startup as metadata, suppresses duplicate completion a
     expect(workspace.snapshot().terminals[0]?.execution?.turn).toBe(2);
     expect(hooks.v2.runtime?.health.get()).toBe("declined");
     await signal("UserPromptSubmit", "working");
+    await workspace.hook({
+      terminalId: key,
+      signal: `plugin:${model.id}:background-error`,
+      action: "failed",
+      endsTurn: false,
+    });
+    expect(workspace.snapshot().terminals[0]?.execution?.phase).toBe("working");
     await workspace.evidence("t1", { title: "codex", progress: null });
     await workspace.quiet("t1");
     workspace.removed("t1");

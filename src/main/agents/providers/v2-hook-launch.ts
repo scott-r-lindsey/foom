@@ -104,7 +104,8 @@ export async function prepareV2Hooks(
           model.hooks?.channels.some(
             (channel) =>
               channel.observer.placement === "stable" &&
-              key.startsWith(`observerCommand:${channel.id}`),
+              (key === `observerCommand:${channel.id}` ||
+                key.startsWith(`observerCommand:${channel.id}.`)),
           ),
         ),
       );
