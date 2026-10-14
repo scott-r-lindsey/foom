@@ -465,23 +465,46 @@ reported capacity line and upstream render snapshots are in
 Main tracks branches only in orchestrator-owned worktrees, choosing a read-only
 forge provider from the repository's origin URL (or its sole remote). GitHub on
 `github.com` is supported first, through the user's existing `gh` login. Unknown
-hosts, missing or logged-out CLIs and unavailable/malformed results omit PR
-metadata; they do not fail a control request. No additional opt-in is required by
+hosts, missing or logged-out CLIs and unavailable/malformed PR results omit PR
+metadata; they do not fail a control request. Unavailable check results preserve
+verified PR fields with an `unknown` conclusion. No additional opt-in is required by
 the 2026-10-13 decision. GitLab and enterprise hosts await providers.
 
 The provider's branch lookup is reusable by #337. It runs only fixed `gh pr list`,
-`gh pr view` and `gh pr checks --required` subcommands with execFile argument arrays,
+`gh pr view`, `gh pr checks --required` and read-only `gh api graphql` queries
+with execFile argument arrays,
 explicit repository selection, disabled prompts, 10-second command deadlines and
 256 KiB output limits. Initial discovery requires one unambiguous open PR, so a closed PR from an older
 use of the same branch cannot claim a newly created worktree. The same open lookup
 is reusable by #337. Once
 bound, its number is used to follow OPEN, CLOSED and MERGED states. Output is
 untrusted: main exposes only a positive PR number, a 40-character head SHA, the
-fixed state and `requiredChecks` (`pending`, `success`, `failure`, `none`). Cancelled
+fixed state and `requiredChecks` (`pending`, `success`, `failure`, `none`, `unknown`). Cancelled
 checks count as failure; skipped checks count as success; an empty required-check
 set is `none`. Main rereads the PR head after checks and suppresses a sample if a
 push or state change raced it. The forge's required checks, including Quality gate
 when configured as required, determine the conclusion; optional checks do not.
+
+Compatibility fallback (#374): `gh` 2.45.0 (Ubuntu 24.04's package) supports PR
+metadata but lacks `pr checks --json`. If that command fails, main reads the PR's
+validated GraphQL ID with `pr view --json id`, then sends a fixed GraphQL query
+through `gh api graphql --hostname github.com`. It reads the head commit's status
+rollup and each CheckRun/StatusContext's `isRequired(pullRequestId: ...)`, the same
+required-check discovery used by gh 2.45 itself. Only required contexts contribute;
+neutral/skipped checks count as success, cancelled/failed/error/timed-out/action-required
+checks as failure, and unfinished checks as pending. The queried commit must match
+the sampled head. No branch-protection write or additional admin permission is needed.
+
+The fallback bounds its rollup to 100 contexts and refuses a partial page rather
+than guessing from incomplete data. Missing rollups, invalid/unknown states,
+GraphQL errors, denied/rate-limited calls and malformed check JSON yield `unknown`.
+This contract addition is persisted and exposed like the other conclusions;
+`unknown` is neither success nor proof that no checks are required. A verified PR
+with unknown checks refreshes at the normal 30-second interval and changes session
+revisions when its conclusion recovers. The final PR head/state recheck is required
+for every conclusion, including `unknown`. Newer gh versions keep the existing
+`pr checks --required --json bucket` path. No minimum-version upgrade is needed
+for the tested 2.45.0 fallback.
 
 `sessions`, `session_state` and `wait_for` include an optional `pullRequest` object.
 Its validated fields participate in the session revision, so `wait_for` wakes on
@@ -496,8 +519,9 @@ Successful observations are refreshed every 30 seconds. Unavailable results or
 branches without a PR back off to 60, 120, 240, 480 and at most 600 seconds, resetting
 to 30 seconds on success. Polls process one worktree at a time with at least one
 second between samples; there are no overlapping processes or catch-up bursts.
-Large sets therefore take longer. A failed/rate-limited CLI call is treated as
-unavailable and receives this same backoff. Tracking is bounded to 1,000 worktrees.
+Large sets therefore take longer. A failed/rate-limited PR metadata call is treated as
+unavailable and receives this same backoff; a check-only failure yields `unknown`
+without hiding verified PR metadata. Tracking is bounded to 1,000 worktrees.
 Main checks managed-worktree identity and branch before each sample; removal or
 replacement retires the observation. Polling ends at app shutdown.
 
