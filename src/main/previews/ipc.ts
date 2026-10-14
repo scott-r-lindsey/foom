@@ -52,6 +52,12 @@ export function attachPreviews(
     if (args.length !== 1 || !previewId(id)) throw new Error("Invalid preview ID");
     return host.close(id);
   });
+  ipc.handle("preview:network", (_event, ...args) => {
+    const [id, enabled] = args;
+    if (args.length !== 2 || !previewId(id) || typeof enabled !== "boolean")
+      throw new Error("Invalid preview network request");
+    return host.network(id, enabled);
+  });
   ipc.handle("preview:bounds", (_event, ...args) => {
     const [id, bounds] = args;
     if (args.length !== 2 || !previewId(id)) throw new Error("Invalid preview ID");
@@ -63,7 +69,13 @@ export function attachPreviews(
     return host.cover(args[0]);
   });
   return () => {
-    for (const channel of ["preview:pick", "preview:close", "preview:bounds", "preview:cover"])
+    for (const channel of [
+      "preview:pick",
+      "preview:close",
+      "preview:bounds",
+      "preview:cover",
+      "preview:network",
+    ])
       ipc.removeHandler(channel);
   };
 }

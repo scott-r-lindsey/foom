@@ -10513,6 +10513,8 @@ test("worktree panel previews pick contained Markdown and HTML, persist v2 tiles
       ({ dialog }, file) => {
         dialog.showOpenDialog = async (_window, options) => {
           globalThis.previewPickerOptions = options;
+          // Native pickers can blur the pending command before their IPC resolves.
+          await _window.webContents.executeJavaScript("document.activeElement?.blur()");
           return { canceled: false, filePaths: [file] };
         };
       },
@@ -10528,6 +10530,7 @@ test("worktree panel previews pick contained Markdown and HTML, persist v2 tiles
     assert.ok(preview);
     ids.push(preview.id);
     assert.equal(await app.evaluate(() => globalThis.previewPickerOptions.defaultPath), checkout);
+    await expect(page.locator(".row-menu")).toHaveCount(0);
     await expect.poll(async () => (await previewViewState(app, preview.id)).attached).toBe(true);
     await expect
       .poll(() => previewContents(app, preview.id, "document.body.innerText"))
@@ -10568,7 +10571,10 @@ test("worktree panel previews pick contained Markdown and HTML, persist v2 tiles
   await expect(page.locator('.terminal-tile[data-kind="preview"]')).toHaveCount(2);
   for (const id of ids)
     await expect.poll(async () => (await previewViewState(app, id)).attached).toBe(true);
-  git("worktree", "remove", "--force", checkout);
+  await page.getByRole("button", { name: "Actions for topic/preview", exact: true }).click();
+  await page.getByRole("menuitem", { name: "Delete worktree…", exact: true }).click();
+  const removal = await confirmationPage(app);
+  await removal.getByRole("button", { name: "Discard 2 changes and remove", exact: true }).click();
   await expect(page.locator(".preview-row")).toHaveCount(0);
   await expect(page.locator('.terminal-tile[data-kind="preview"]')).toHaveCount(0);
   await expect
@@ -11150,8 +11156,15 @@ test("preview host isolates hostile pages, blocks network and navigation, scales
         }),
       preview,
     );
-    await expect.poll(async () => (await previewViewState(app, preview)).attached).toBe(true);
   }
+  // The hostile page's window.open asks for review at once; the trusted scrim
+  // covers previews (#292) until it is answered, so answer before attaching.
+  const linkDialog = await confirmationPage(app);
+  await expect(linkDialog.getByRole("heading", { name: "Open this link?" })).toBeVisible();
+  await linkDialog.getByRole("button", { name: "Cancel", exact: true }).click();
+  await expect(linkDialog.getByRole("heading", { name: "Open this link?" })).toHaveCount(0);
+  for (const preview of [id, clean])
+    await expect.poll(async () => (await previewViewState(app, preview)).attached).toBe(true);
   assert.deepEqual(await previewContents(app, id, "window.probes"), {
     bridge: "undefined",
     require: "undefined",
@@ -11180,6 +11193,11 @@ test("preview host isolates hostile pages, blocks network and navigation, scales
       { id, link },
     );
     assert.equal(prevented, true);
+    if (link === "external") {
+      await expect(linkDialog.getByRole("heading", { name: "Open this link?" })).toBeVisible();
+      await linkDialog.getByRole("button", { name: "Cancel", exact: true }).click();
+      await expect(linkDialog.getByRole("heading", { name: "Open this link?" })).toHaveCount(0);
+    }
   }
   assert.equal(connections, 0);
   assert.deepEqual((await previewViewState(app, id)).bounds, {
@@ -11761,4 +11779,181 @@ test("preview live reload follows retargeted symlinks and junctions", async (con
   await writeFile(path.join(root, "two", "index.html"), "<p>new target changed</p>");
   await expect.poll(text).toContain("new target changed");
   await page.evaluate((id) => window.desktop.previews.close(id), id);
+});
+
+test("preview external links always use trusted review and drop scripted requests while pending", async (context) => {
+  const app = await launchApp(context);
+  const page = await boardPage(app);
+  const root = (await page.evaluate(() => window.desktop.workspace())).terminals[0].worktree;
+  await writeFile(path.join(root, "links.html"), "<p>Links</p>");
+  await app.evaluate(({ shell }) => {
+    globalThis.previewExternalOpened = [];
+    shell.openExternal = async (url) => {
+      globalThis.previewExternalOpened.push(url);
+    };
+  });
+  const id = await pickPreviewFile(app, page, root, "links.html");
+  await expect.poll(async () => (await previewViewState(app, id)).loading).toBe(false);
+  const dialog = await confirmationPage(app);
+  await app.evaluate(({ BrowserWindow }) => {
+    const contents = BrowserWindow.getAllWindows().find(
+      (window) => window.webContents.getURL() === "app://confirmation/confirmation.html",
+    ).webContents;
+    const send = contents.send.bind(contents);
+    globalThis.previewLinkReviews = [];
+    contents.send = (channel, ...args) => {
+      if (channel === "confirmation:render" && args[0]) globalThis.previewLinkReviews.push(args[0]);
+      send(channel, ...args);
+    };
+  });
+  const url = "https://example.com/full/path?query=shown%20in%20full#fragment";
+  await previewContents(
+    app,
+    id,
+    `window.open(${JSON.stringify(url)}); window.open('http://example.com/dropped'); location.href='https://example.com/also-dropped';`,
+  );
+  await expect(dialog.getByRole("heading", { name: "Open this link?" })).toBeVisible();
+  await expect(dialog.locator(".facts dd")).toHaveText(url);
+  assert.equal(await app.evaluate(() => globalThis.previewLinkReviews.length), 1);
+  assert.deepEqual(await app.evaluate(() => globalThis.previewExternalOpened), []);
+  await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
+  await expect(dialog.getByRole("heading", { name: "Open this link?" })).toHaveCount(0);
+  assert.deepEqual(await app.evaluate(() => globalThis.previewExternalOpened), []);
+  await previewContents(
+    app,
+    id,
+    "window.open('file:///tmp/never'); window.open('javascript:alert(1)'); window.open('data:text/plain,never')",
+  );
+  assert.equal(await app.evaluate(() => globalThis.previewLinkReviews.length), 1);
+  await previewContents(app, id, "window.open('mailto:hello@example.com?subject=Preview')");
+  await expect(dialog.locator(".facts dd")).toHaveText("mailto:hello@example.com?subject=Preview");
+  await dialog.getByRole("button", { name: "Open in browser", exact: true }).click();
+  await expect
+    .poll(() => app.evaluate(() => globalThis.previewExternalOpened))
+    .toEqual(["mailto:hello@example.com?subject=Preview"]);
+  await previewContents(app, id, "window.open('http://example.com/cancel-on-close')");
+  await expect(dialog.locator(".facts dd")).toHaveText("http://example.com/cancel-on-close");
+  await page.evaluate((id) => window.desktop.previews.close(id), id);
+  await expect(dialog.getByRole("heading", { name: "Open this link?" })).toHaveCount(0);
+  assert.deepEqual(await app.evaluate(() => globalThis.previewExternalOpened), [
+    "mailto:hello@example.com?subject=Preview",
+  ]);
+});
+
+test("preview network permission allows local HTTPS only and resets after restart", async (context) => {
+  const profile = await mkdtemp(path.join(tmpdir(), "foom-preview-network-"));
+  removeAfterApps(context, profile);
+  const options = { args: [`--user-data-dir=${profile}`] };
+  const certificateRoot = path.join(__dirname, "../fixtures/preview-network");
+  const secure = require("node:https").createServer(
+    {
+      key: await readFile(path.join(certificateRoot, "key.pem")),
+      cert: await readFile(path.join(certificateRoot, "cert.pem")),
+    },
+    (_request, response) => {
+      response.setHeader("Access-Control-Allow-Origin", "*");
+      response.end("secure");
+    },
+  );
+  const plain = require("node:http").createServer((_request, response) => response.end("blocked"));
+  let secureConnections = 0,
+    plainConnections = 0;
+  secure.on("connection", () => secureConnections++);
+  plain.on("connection", () => plainConnections++);
+  context.after(async () => {
+    for (const server of [secure, plain]) {
+      server.closeAllConnections();
+      await new Promise((resolve) => server.close(resolve));
+    }
+  });
+  for (const server of [secure, plain])
+    await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const secureUrl = `https://127.0.0.1:${secure.address().port}/`;
+  const plainUrl = `http://127.0.0.1:${plain.address().port}/`;
+  const app = await launchApp(context, true, options);
+  const page = await boardPage(app);
+  const root = (await page.evaluate(() => window.desktop.workspace())).terminals[0].worktree;
+  await writeFile(
+    path.join(root, "network.html"),
+    `<p>Network probe</p><script>
+    window.results=null;
+    Promise.all([${JSON.stringify(secureUrl)}, ${JSON.stringify(plainUrl)}].map(url => fetch(url).then(response=>response.text()).catch(()=>"blocked"))).then(results => window.results=results);
+  </script>`,
+  );
+  await app.evaluate(({ app }) => {
+    app.on("session-created", (partition) => {
+      // Trust only this test's loopback certificate; never disable app-wide verification.
+      partition.setCertificateVerifyProc((request, callback) =>
+        callback(request.hostname === "127.0.0.1" ? 0 : -3),
+      );
+    });
+  });
+  const id = await pickPreviewFile(app, page, root, "network.html");
+  const bounds = { x: 400, y: 100, width: 250, height: 180, visible: true };
+  await page.evaluate(({ id, bounds }) => window.desktop.previews.bounds(id, bounds), {
+    id,
+    bounds,
+  });
+  await expect.poll(async () => (await previewViewState(app, id)).attached).toBe(true);
+  await expect
+    .poll(() => previewContents(app, id, "window.results"))
+    .toEqual(["blocked", "blocked"]);
+  assert.equal(secureConnections, 0);
+  assert.equal(plainConnections, 0);
+  const dialog = await confirmationPage(app);
+  await page.evaluate((id) => {
+    window.previewNetworkChange = window.desktop.previews.network(id, true);
+  }, id);
+  await expect(
+    dialog.getByRole("heading", { name: "Allow network for this preview?" }),
+  ).toBeVisible();
+  await expect(
+    dialog.getByText("This page can send files from this worktree to the internet", {
+      exact: true,
+    }),
+  ).toBeVisible();
+  await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
+  await page.evaluate(() => window.previewNetworkChange);
+  assert.equal(
+    (await page.evaluate(() => window.desktop.sidebarInventory())).previews.find(
+      (preview) => preview.id === id,
+    ).network,
+    false,
+  );
+  await page.evaluate((id) => {
+    window.previewNetworkChange = window.desktop.previews.network(id, true);
+  }, id);
+  await dialog.getByRole("button", { name: "Allow network", exact: true }).click();
+  await page.evaluate(() => window.previewNetworkChange);
+  await expect.poll(async () => (await previewViewState(app, id)).attached).toBe(true);
+  await expect
+    .poll(() => previewContents(app, id, "window.results"))
+    .toEqual(["secure", "blocked"]);
+  assert.ok(secureConnections > 0);
+  assert.equal(plainConnections, 0);
+  assert.equal(
+    (await page.evaluate(() => window.desktop.sidebarInventory())).previews.find(
+      (preview) => preview.id === id,
+    ).network,
+    true,
+  );
+  await quitAndWait(app, async () => {
+    await app.evaluate(({ app }) => app.quit());
+    await dialog.getByRole("button", { name: "Stop all and quit", exact: true }).click();
+  });
+  const restored = await launchApp(context, false, options);
+  const restoredPage = await boardPage(restored);
+  const restoredInventory = await restoredPage.evaluate(() => window.desktop.sidebarInventory());
+  assert.equal(restoredInventory.previews.find((preview) => preview.id === id).network, false);
+  const before = secureConnections;
+  await restoredPage.evaluate(({ id, bounds }) => window.desktop.previews.bounds(id, bounds), {
+    id,
+    bounds,
+  });
+  await expect.poll(async () => (await previewViewState(restored, id)).attached).toBe(true);
+  await expect
+    .poll(() => previewContents(restored, id, "window.results"))
+    .toEqual(["blocked", "blocked"]);
+  assert.equal(secureConnections, before);
+  assert.equal(plainConnections, 0);
 });

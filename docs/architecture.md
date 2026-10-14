@@ -1657,27 +1657,33 @@ unreadable files 404, and oversized files 413. Types use a fixed extension map,
 with unknown extensions served as `application/octet-stream`. Success and refusal
 headers include `nosniff`, `no-store` and `no-referrer`; HTML uses the default CSP
 in `docs/previews.md` §4, and Markdown has no inline scripts, frames or workers.
-There is no network-enabled policy. Each session filters requests to its own
-origin plus `data:` and `blob:`, denies permission checks, permission requests and
+Network permission defaults off and is never persisted. Each session filters requests to its own
+origin plus `data:` and `blob:`; a confirmed per-preview permission also permits
+`https:` and `wss:` and adds secure sources to its response CSP. Plain `http:` and
+`ws:` remain blocked. The board's validated `preview:network` command requests a
+trusted disclosure before enabling; disabling closes connections and reloads with
+the restricted CSP. Each session denies permission checks, permission requests and
 device requests, and prevents downloads. The view has no preload, uses sandboxing
 and context isolation, disables Node integration (including workers and child
 frames), dialogs, drag navigation and webviews, and disables devtools in packaged
-builds. Window opens and redirects are denied. Only same-origin `.md` or
-`.markdown` page navigation is allowed; HTML and external links are blocked.
-The confirmed external-link/network flow remains a separate follow-up.
+builds. Window opens and redirects are prevented. Eligible external URLs (`https:`,
+`http:` and `mailto:`) go through the trusted confirmation window with the full
+URL before main calls `shell.openExternal`. Navigation requests use this same
+path even without a user gesture. A per-preview pending guard drops overlapping
+requests; close aborts pending review and revokes any later answer. Only same-origin `.md` or
+`.markdown` page navigation is allowed; HTML navigation is blocked.
 
 Markdown responses embed the source as inert JSON with every `<` escaped, then run
 one synchronous browser bundle inside the preview origin. markdown-it 15 disables
 raw HTML and accepts only relative, HTTP(S) and mailto links; highlight.js 11 uses
 its common subset. A small core rule generates disabled task checkboxes. Mermaid
 remains escaped code. Relative Markdown links navigate within the same tile;
-external links have a visible arrow and remain subject to main's navigation guard.
+external links have a visible arrow and go through the same confirmation.
 The exact `/__foom__/markdown.js` and `/__foom__/markdown.css` assets are served only
 by preview sessions; the reserved `__foom__` segment cannot name worktree files or
 symlink targets. The isolated stylesheet uses Eclipse tokens and follows
 `prefers-color-scheme` from `nativeTheme`; custom interface themes are not conveyed.
 Bundled dependency licenses are included in `THIRD_PARTY_NOTICES.txt`.
-
 Every non-hidden file in the captured worktree is readable by a preview page.
 
 As in the spike, a parent directory swap between realpath/stat and open is not
@@ -1695,13 +1701,19 @@ read the contained document. `preview:pick`, `preview:close` and `preview:bounds
 use `WindowIpcRouter` to validate the owning board, exact app URL and top frame,
 and validate argument counts, worktree IDs and finite bounded rectangles.
 The picker command carries only the inventory worktree path that identifies the checkout.
-Main shows the native picker rooted there and derives the relative document path;
+Main dismisses the command panel before the native picker can change focus, so
+blur cancellation cannot leave a panel covering the loaded preview. It shows the
+picker rooted there and derives the relative document path;
 the renderer never chooses or sends a document path.
 IDs grant access only within their owning window. Sidebar inventory reports those
 IDs and display facts. The board places human previews with `placeContent`, preserving
 focus, and measures each preview body to report bounds through the source interface.
 Restored registry entries stay detached and allocate no view until bounds arrive.
-Worktree removal closes previews when workspace inventory refreshes.
+Confirmed Foom worktree removal closes that checkout’s previews in all windows before
+Git runs, releasing live-reload directory handles. New preview opens are refused
+until removal finishes, including opens awaiting registry persistence. External
+removal closes previews when workspace inventory refreshes; on Windows, close
+preview tiles first because directory watches can block external deletion.
 
 An unfocused preview never acquires keyboard focus on open, reload or navigation. Main loads
 it detached and attaches only after `did-finish-load`, when its board rectangle is

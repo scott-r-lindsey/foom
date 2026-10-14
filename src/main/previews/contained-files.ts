@@ -118,6 +118,7 @@ export function readPreview(
   url: unknown,
   origin: string,
   record?: (file: string) => void,
+  network = false,
 ): (ReadFile | Refusal) & { headers: Record<string, string> } {
   const parsed = pathnameFor(url, origin);
   const result = "pathname" in parsed ? readInside(root, parsed.pathname, record) : parsed;
@@ -128,7 +129,10 @@ export function readPreview(
   }
   return {
     ...result,
-    headers: responseHeaders(result.status === 200 ? result.type : "text/plain; charset=utf-8"),
+    headers: responseHeaders(
+      result.status === 200 ? result.type : "text/plain; charset=utf-8",
+      network,
+    ),
   };
 }
 

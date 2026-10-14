@@ -33,6 +33,7 @@ function fixture(root = true) {
   const cover = vi.fn(async (_value: boolean) => {});
   const dispose = attachPreviewComposition({
     pick: vi.fn(),
+    network: vi.fn(),
     close: vi.fn(),
     bounds: vi.fn(),
     cover,

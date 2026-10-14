@@ -4,11 +4,13 @@ import { EventEmitter } from "node:events";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { DialogContent } from "../../../../src/shared/confirmation";
 import type { BrowserWindow } from "electron";
 import { afterEach, expect, test, vi } from "vitest";
 const fake = vi.hoisted(() => ({
   views: [] as FakeView[],
   packaged: false,
+  external: vi.fn(async (_url: string) => {}),
   nextLoad: undefined as Promise<void> | undefined,
 }));
 class FakeSession extends EventEmitter {
@@ -36,6 +38,7 @@ class FakeSession extends EventEmitter {
   setDevicePermissionHandler = vi.fn<(handler: () => boolean) => void>();
   clearStorageData = vi.fn(async () => {});
   clearCache = vi.fn(async () => {});
+  closeAllConnections = vi.fn(async () => {});
 }
 class FakeContents extends EventEmitter {
   session = new FakeSession();
@@ -45,7 +48,8 @@ class FakeContents extends EventEmitter {
   executeJavaScript = vi.fn(async (_script: string) => {});
   isFocused = vi.fn(() => false);
   isDestroyed = vi.fn(() => false);
-  setWindowOpenHandler = vi.fn<(handler: () => { action: string }) => void>();
+  setWindowOpenHandler =
+    vi.fn<(handler: (details: { url: string }) => { action: string }) => void>();
   getURL = vi.fn(() => "");
   loadURL = vi.fn((url: string) => {
     this.getURL.mockReturnValue(url);
@@ -84,6 +88,7 @@ vi.mock("electron", () => ({
   },
   session: { fromPartition: () => partition },
   WebContentsView: FakeView,
+  shell: { openExternal: fake.external },
 }));
 let partition: FakeSession;
 const { PreviewHost, navigationAllowed, requestAllowed } = await import(
@@ -94,11 +99,16 @@ const roots: string[] = [];
 afterEach(async () => {
   fake.views.splice(0);
   fake.packaged = false;
+  fake.external.mockReset();
   vi.restoreAllMocks();
   vi.useRealTimers();
   for (const root of roots.splice(0)) await rm(root, { recursive: true, force: true });
 });
-async function fixture() {
+async function fixture(
+  confirm: (content: DialogContent, signal: AbortSignal) => Promise<boolean> = vi.fn(() =>
+    Promise.resolve(false),
+  ),
+) {
   const root = await mkdtemp(join(tmpdir(), "foom-host-"));
   roots.push(root);
   await writeFile(join(root, "a.html"), "<input autofocus>");
@@ -112,7 +122,13 @@ async function fixture() {
   const registry = new PreviewRegistry(join(root, "registry.json"));
   const validate = vi.fn(async (_worktree: string) => {});
   const changed = vi.fn();
-  const host = new PreviewHost(window as unknown as BrowserWindow, registry, validate, changed);
+  const host = new PreviewHost(
+    window as unknown as BrowserWindow,
+    registry,
+    validate,
+    changed,
+    confirm,
+  );
   const open = async () => {
     const id = await host.open(root, "a.html");
     const view = fake.views.at(-1);
@@ -120,7 +136,7 @@ async function fixture() {
     view.webContents.session = partition;
     return { id, view };
   };
-  return { root, window, registry, validate, changed, host, open };
+  return { root, window, registry, validate, changed, host, open, confirm };
 }
 test("requests and navigation admit only own origin, with data/blob only for assets", () => {
   const origin = `foom-preview://${"a".repeat(32)}`;
@@ -165,7 +181,9 @@ test("loads detached, denies capabilities, and attaches only loaded visible view
   partition.emit("will-download", event);
   wc.emit("will-attach-webview", event);
   expect(event.preventDefault).toHaveBeenCalledTimes(2);
-  expect(wc.setWindowOpenHandler.mock.calls[0]?.[0]?.()).toEqual({ action: "deny" });
+  expect(wc.setWindowOpenHandler.mock.calls[0]?.[0]?.({ url: "invalid" })).toEqual({
+    action: "deny",
+  });
   const request = partition.webRequest.onBeforeRequest.mock.calls[0]?.[0];
   request?.({ url: "http://example.com" }, callback);
   expect(callback).toHaveBeenLastCalledWith({ cancel: true });
@@ -563,6 +581,97 @@ test("invalid files, revoked inventory, failed saves and shutdown during open le
   expect(fake.views).toHaveLength(0);
 });
 
+test("external requests always confirm, drop overlapping requests and revoke on close", async () => {
+  let answer: (value: boolean) => void = () => {};
+  const confirm = vi.fn(
+    (_content: DialogContent, _signal: AbortSignal) =>
+      new Promise<boolean>((resolve) => {
+        answer = resolve;
+      }),
+  );
+  const f = await fixture(confirm);
+  const { id, view } = await f.open();
+  const popup = view.webContents.setWindowOpenHandler.mock.calls[0]?.[0];
+  const url = "https://example.com/full?secret=visible#fragment";
+  expect(popup?.({ url })).toEqual({ action: "deny" });
+  popup?.({ url: "http://example.com/dropped" });
+  view.webContents.emit("will-frame-navigate", {
+    url: "mailto:a@example.com",
+    preventDefault: vi.fn(),
+  });
+  expect(confirm).toHaveBeenCalledTimes(1);
+  expect(confirm.mock.calls[0]?.[0]).toMatchObject({ facts: [{ label: "URL", value: url }] });
+  answer(false);
+  await Promise.resolve();
+  await Promise.resolve();
+  expect(fake.external).not.toHaveBeenCalled();
+  popup?.({ url: "mailto:a@example.com" });
+  answer(true);
+  await Promise.resolve();
+  await Promise.resolve();
+  expect(fake.external).toHaveBeenCalledExactlyOnceWith("mailto:a@example.com");
+  popup?.({ url });
+  await f.host.close(id);
+  answer(true);
+  await Promise.resolve();
+  await Promise.resolve();
+  expect(fake.external).toHaveBeenCalledTimes(1);
+  for (const url of ["invalid", "javascript:alert(1)", "file:///tmp/test", "data:text/plain,x"])
+    popup?.({ url });
+  expect(confirm).toHaveBeenCalledTimes(3);
+});
+test("network needs disclosure, updates both policies, reloads and persists only off", async () => {
+  const confirm = vi.fn(() => Promise.resolve(false));
+  const f = await fixture(confirm);
+  const { id, view } = await f.open();
+  await expect(f.host.network("missing", true)).rejects.toThrow("Unknown");
+  await f.host.network(id, true);
+  expect(f.registry.records.get(id)?.network).toBe(false);
+  expect(confirm).toHaveBeenCalledWith(
+    expect.objectContaining({
+      detail: "This page can send files from this worktree to the internet",
+    }),
+    expect.any(AbortSignal),
+  );
+  confirm.mockResolvedValue(true);
+  await f.host.network(id, true);
+  await f.host.network(id, true);
+  expect(confirm).toHaveBeenCalledTimes(2);
+  expect(view.webContents.reload).toHaveBeenCalledOnce();
+  const request = partition.webRequest.onBeforeRequest.mock.calls[0]?.[0];
+  for (const [url, cancel] of [
+    ["https://example.com", false],
+    ["wss://example.com", false],
+    ["http://example.com", true],
+    ["ws://example.com", true],
+  ] as const) {
+    const callback = vi.fn();
+    request?.({ url }, callback);
+    expect(callback).toHaveBeenCalledWith({ cancel });
+  }
+  const response = partition.protocol.handle.mock.calls[0]?.[1]({
+    url: `foom-preview://${id}/a.html`,
+  });
+  expect(response?.headers.get("content-security-policy")).toContain(
+    "connect-src 'self' https: wss:",
+  );
+  await f.registry.save();
+  const restored = new PreviewRegistry(join(f.root, "registry.json"));
+  await restored.load();
+  expect(restored.records.get(id)?.network).toBe(false);
+  await f.host.network(id, false);
+  expect(f.registry.records.get(id)?.network).toBe(false);
+  expect(partition.closeAllConnections).toHaveBeenCalledTimes(2);
+  await f.host.dispose(false);
+});
+test("failed or overlapping reviews grant no network capability", async () => {
+  const f = await fixture(vi.fn(() => Promise.reject(new Error("dialog unavailable"))));
+  const { id } = await f.open();
+  await f.host.network(id, true);
+  expect(f.registry.records.get(id)?.network).toBe(false);
+  await f.host.dispose(false);
+});
+
 test("cover snapshots loaded views, detaches before capture resolves, and restores without focus", async () => {
   const f = await fixture();
   const { id, view } = await f.open();
@@ -837,4 +946,30 @@ test("closing while isolated scroll capture is pending cannot resurrect a previe
   await Promise.resolve();
   expect(view.webContents.reload).not.toHaveBeenCalled();
   await f.host.dispose(false);
+});
+
+test("worktree removal closes its previews and watches while retaining other checkouts", async () => {
+  const f = await fixture();
+  const { id, view } = await f.open();
+  const handler = partition.protocol.handle.mock.calls[0]?.[1];
+  handler?.({ url: `foom-preview://${id}/a.html` });
+  expect(f.host.watcherCount).toBe(1);
+  const other = f.registry.add("/another/checkout", "a.html");
+  await f.host.closeWorktree("/unknown");
+  expect(view.webContents.close).not.toHaveBeenCalled();
+  await f.host.closeWorktree(f.root);
+  expect(f.host.watcherCount).toBe(0);
+  expect(view.webContents.close).toHaveBeenCalledOnce();
+  expect(f.registry.records.has(id)).toBe(false);
+  expect(f.registry.records.has(other.id)).toBe(true);
+  await f.host.dispose(false);
+});
+
+test("open revalidates after saving so removal cannot race a new watch", async () => {
+  const f = await fixture();
+  f.validate.mockResolvedValueOnce(undefined).mockRejectedValue(new Error("being removed"));
+  await expect(f.open()).rejects.toThrow("being removed");
+  expect(f.host.watcherCount).toBe(0);
+  expect(f.registry.records.size).toBe(0);
+  expect(fake.views).toHaveLength(0);
 });

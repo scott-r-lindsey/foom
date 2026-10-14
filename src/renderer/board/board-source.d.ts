@@ -36,6 +36,7 @@ export interface WorktreeSource {
 export interface BoardSource {
   previews?: {
     getSnapshot(): readonly PreviewSummary[];
+    network?(id: string, enabled: boolean): Promise<void>;
     pick(worktree: string): Promise<string | null>;
     bounds(id: string, bounds: PreviewBounds): Promise<void>;
     close(id: string): Promise<void>;

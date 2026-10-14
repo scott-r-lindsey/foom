@@ -11,6 +11,9 @@ export async function pickPreviewFile(
   worktree: string,
 ): Promise<string | null> {
   await validate(worktree);
+  // Dismiss command panels before the native picker can blur their pending action.
+  // Otherwise cancellation can leave a panel covering the newly loaded preview.
+  window.webContents.send("confirmation:dialog");
   const result = await dialog.showOpenDialog(window, {
     title: "Preview file",
     defaultPath: worktree,

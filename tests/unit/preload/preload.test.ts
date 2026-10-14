@@ -709,6 +709,12 @@ test("forwards action log queries and clearing through dedicated capabilities", 
   ]);
 });
 
+test("preview network permission forwards only ID and desired state to main", async () => {
+  const api = await bridge();
+  await api.previews?.network("preview", true);
+  expect(mock.invoke).toHaveBeenCalledWith("preview:network", "preview", true);
+});
+
 test("preview picker sends only the inventory worktree ID; bounds and close send preview IDs", async () => {
   const api = await bridge();
   mock.invoke.mockResolvedValue("preview");

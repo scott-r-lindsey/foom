@@ -2,7 +2,7 @@ export interface PreviewRecord {
   id: string;
   worktree: string;
   relativePath: string;
-  network: false;
+  network: boolean;
 }
 export interface PreviewBounds {
   x: number;
@@ -18,6 +18,7 @@ export interface PreviewSnapshot {
 }
 export interface PreviewApi {
   pick(worktree: string): Promise<string | null>;
+  network(id: string, enabled: boolean): Promise<void>;
   close(id: string): Promise<void>;
   bounds(id: string, bounds: PreviewBounds): Promise<void>;
   cover(covered: boolean): Promise<void>;

@@ -12,10 +12,14 @@ vi.mock("../../../src/main/control/forge-tracking", () => ({
   ForgeTracking: { open: forgeMock.open },
 }));
 const previewMock = vi.hoisted(() => ({
+  pick: undefined as ((worktree: string) => Promise<string | null>) | undefined,
+  pickFile: vi.fn(() => Promise.resolve("a".repeat(32))),
   hosts: [] as {
     validate: (worktree: string) => Promise<void>;
     changed: () => void;
+    confirm: (content: unknown, signal: AbortSignal) => Promise<boolean>;
     reconcile: () => Promise<void>;
+    closeWorktree: (worktree: string) => Promise<void>;
     dispose: () => Promise<void>;
   }[],
 }));
@@ -25,23 +29,37 @@ vi.mock("../../../src/main/previews/host", () => ({
     restore = async () => {};
     refresh = vi.fn();
     reconcile = vi.fn(async () => {});
+    closeWorktree = vi.fn((_worktree: string) => Promise.resolve());
     dispose = vi.fn(async () => {});
     constructor(
       _window: unknown,
       _registry: unknown,
       validate: (worktree: string) => Promise<void>,
       changed: () => void,
+      confirm: (content: unknown, signal: AbortSignal) => Promise<boolean>,
     ) {
       previewMock.hosts.push({
         validate,
         changed,
+        confirm,
         reconcile: this.reconcile,
+        closeWorktree: this.closeWorktree,
         dispose: this.dispose,
       });
     }
   },
 }));
-vi.mock("../../../src/main/previews/ipc", () => ({ attachPreviews: () => () => {} }));
+vi.mock("../../../src/main/previews/ipc", () => ({
+  attachPreviews: (
+    _ipc: unknown,
+    _host: unknown,
+    pick: (worktree: string) => Promise<string | null>,
+  ) => {
+    previewMock.pick = pick;
+    return () => {};
+  },
+}));
+vi.mock("../../../src/main/previews/pick", () => ({ pickPreviewFile: previewMock.pickFile }));
 import type { ThemeCatalog } from "../../../src/shared/theme-file";
 import { interfaceThemes } from "../../../src/shared/interface-themes";
 import { terminalThemes } from "../../../src/shared/terminal-themes";
@@ -1717,6 +1735,17 @@ test("preview hosts validate registered worktrees, notify the board, reconcile a
   mock.window.webContents.send.mockClear();
   host.changed();
   expect(mock.window.webContents.send).not.toHaveBeenCalled();
+  mock.message.mockResolvedValueOnce({ response: 1 });
+  await expect(
+    host.confirm({ title: "Open this link?", accept: "Open" }, new AbortController().signal),
+  ).resolves.toBe(true);
+  await expect(previewMock.pick?.("/tree")).resolves.toBe("a".repeat(32));
+  expect(previewMock.pickFile).toHaveBeenCalledWith(
+    expect.anything(),
+    expect.anything(),
+    expect.any(Function),
+    "/tree",
+  );
   vi.mocked(host.reconcile).mockRejectedValueOnce(new Error("gone"));
   mock.workspace.deps?.onChange?.();
   await vi.waitFor(() => {
@@ -1847,4 +1876,47 @@ test("child placement targets the parent's board or current board without focusi
   );
   expect(mock.window.focus).not.toHaveBeenCalled();
   expect(mock.window.show).not.toHaveBeenCalled();
+});
+
+test("worktree removal blocks preview opens and closes every window's previews before Git", async () => {
+  previewMock.hosts.length = 0;
+  const launchIdentity = vi.fn(() => Promise.resolve());
+  mock.openWorktrees.mockResolvedValue({
+    listRepositories: () => [{ path: "/repo", name: "repo" }],
+    listWorktrees: () => Promise.resolve([{ path: "/tree" }]),
+    launchIdentity,
+  });
+  await start();
+  await newWindow();
+  const [first, second] = previewMock.hosts;
+  const deps = mock.workspace.deps;
+  if (!first || !second || !deps?.prepareWorktreeRemoval)
+    throw new Error("Missing preview lifecycle");
+  const prepare = (worktree: string) => {
+    if (!deps.prepareWorktreeRemoval) throw new Error("Missing removal lifecycle");
+    return deps.prepareWorktreeRemoval(worktree);
+  };
+  await first.validate("/tree");
+  let finish: () => void = () => {};
+  launchIdentity.mockImplementationOnce(
+    () =>
+      new Promise<void>((resolve) => {
+        finish = resolve;
+      }),
+  );
+  const pending = first.validate("/tree");
+  await vi.waitFor(() => {
+    expect(launchIdentity).toHaveBeenCalledTimes(2);
+  });
+  const release = await prepare("/tree");
+  expect(first.closeWorktree).toHaveBeenCalledWith("/tree");
+  expect(second.closeWorktree).toHaveBeenCalledWith("/tree");
+  await expect(first.validate("/tree")).rejects.toThrow("being removed");
+  finish();
+  await expect(pending).rejects.toThrow("being removed");
+  release();
+  await first.validate("/tree");
+  vi.mocked(second.closeWorktree).mockRejectedValueOnce(new Error("cleanup failed"));
+  await expect(prepare("/tree")).rejects.toThrow("cleanup failed");
+  await expect(first.validate("/tree")).resolves.toBeUndefined();
 });
