@@ -675,15 +675,7 @@ test("fresh focused terminal cursor blinks and preserves application style on re
   await page.locator(".board-row[data-kind='shell']").click();
   await expect(page.locator(".xterm-helper-textarea")).toBeFocused();
   await expect(cursor).not.toHaveClass(/xterm-cursor-blink/);
-  await page.keyboard.press("q");
-  await expect
-    .poll(() => rows.innerText())
-    .toMatch(process.platform === "win32" ? /PS [\s\S]*>/ : /[$#%>]\s*$/);
-  await page.keyboard.type("exit");
-  await page.keyboard.press("Enter");
-  await expect
-    .poll(async () => (await page.evaluate(() => window.desktop.workspace())).terminals[0].exited)
-    .toBe(true);
+  await stopSession(page, id);
   await expect(cursor).toHaveCount(0);
 });
 
