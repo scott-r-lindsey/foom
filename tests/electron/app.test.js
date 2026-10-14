@@ -783,9 +783,10 @@ test("fresh focused terminal cursor blinks and preserves application style on re
       .toBe(true);
     // Shell readiness belongs to the always-parsing host, not xterm's rAF paint.
     // A focused view can still have an unpainted cursor row on a cold CI display.
+    // Join physical rows so a wrapped PowerShell prompt remains one readiness signal.
     await expect
-      .poll(() => page.evaluate((id) => window.desktop.tail(id, 40), id))
-      .toEqual(expect.arrayContaining([expect.stringMatching(prompt)]));
+      .poll(async () => (await page.evaluate((id) => window.desktop.tail(id, 40), id)).join("\n"))
+      .toMatch(prompt);
     await app.evaluate(({ BrowserWindow }) => {
       const board = BrowserWindow.getAllWindows().find(
         (window) => window.webContents.getURL() === "app://bundle/index.html",
@@ -825,7 +826,7 @@ test("fresh focused terminal cursor blinks and preserves application style on re
         id,
         phase: host.error
           ? "host tail unavailable"
-          : host.lines.some((line) => prompt.test(line))
+          : prompt.test(host.lines.join("\n"))
             ? prompt.test(renderer.rows ?? "")
               ? "host prompt rendered; cursor or focus not ready"
               : "host prompt produced; output not rendered"
