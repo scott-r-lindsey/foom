@@ -12224,3 +12224,128 @@ test("preview network permission allows local HTTPS only and resets after restar
   assert.equal(secureConnections, before);
   assert.equal(plainConnections, 0);
 });
+
+// #419: sample the composed desktop, since page DOM and a capture of the
+// preview itself cannot detect a missing or black native surface.
+test("preview pixels survive gutter drag, sidebar width changes, window resize and panel uncover", async (context) => {
+  const app = await launchApp(context);
+  const page = await boardPage(app);
+  const terminal = (await page.evaluate(() => window.desktop.workspace())).terminals[0];
+  await writeFile(
+    path.join(terminal.worktree, "resize.html"),
+    "<style>html,body{margin:0;background:#123456;height:100%}</style>",
+  );
+  const id = await pickPreviewFile(app, page, terminal.worktree, "resize.html");
+  await page.getByRole("button", { name: /resize\.html/ }).click();
+  const tile = page.locator(`[data-preview-id="${id}"]`);
+  await expect.poll(async () => (await previewViewState(app, id)).attached).toBe(true);
+  await tile.getByRole("button", { name: /Tile \d+ menu/ }).click();
+  await page.getByRole("menuitem", { name: "Split right", exact: true }).click();
+  await expect(page.getByRole("separator", { name: "Resize tiles" })).toBeVisible();
+  await mkdir("test-results", { recursive: true });
+  const pixels = async (name) => {
+    const body = await tile.locator(".tile-shell:not([hidden])").boundingBox();
+    assert.ok(body);
+    const evidence = await app.evaluate(
+      async ({ BrowserWindow, desktopCapturer, screen }, body) => {
+        const board = BrowserWindow.getAllWindows().find(
+          (window) => window.webContents.getURL() === "app://bundle/index.html",
+        );
+        const origin = board.getContentBounds();
+        const zoom = board.webContents.getZoomFactor();
+        const display = screen.getDisplayMatching(origin);
+        const sources = await desktopCapturer.getSources({
+          types: ["screen"],
+          thumbnailSize: {
+            width: Math.round(display.bounds.width * display.scaleFactor),
+            height: Math.round(display.bounds.height * display.scaleFactor),
+          },
+        });
+        const image = sources.find((source) => source.display_id === String(display.id))?.thumbnail;
+        if (!image || image.isEmpty()) throw Error("Missing composed desktop capture");
+        const size = image.getSize();
+        const patch = image.crop({
+          x: Math.round(
+            ((origin.x + (body.x + body.width / 2) * zoom - display.bounds.x) * size.width) /
+              display.bounds.width,
+          ),
+          y: Math.round(
+            ((origin.y + (body.y + body.height / 2) * zoom - display.bounds.y) * size.height) /
+              display.bounds.height,
+          ),
+          width: 1,
+          height: 1,
+        });
+        return {
+          color: Array.from(patch.toBitmap()).slice(0, 3),
+          png: image.toPNG().toString("base64"),
+        };
+      },
+      body,
+    );
+    await writeFile(`test-results/preview-419-${name}.png`, Buffer.from(evidence.png, "base64"));
+    return evidence.color;
+  };
+  const visible = async (name) => {
+    await expect.poll(async () => (await previewViewState(app, id)).attached).toBe(true);
+    await expect(page.locator(".preview-snapshot")).toHaveCount(0);
+    await expect
+      .poll(() => pixels(name), { message: `composed preview pixels after ${name}` })
+      .toEqual([86, 52, 18]);
+  };
+  await visible("initial");
+  // Negative control: detaching the view must fail the same composed-pixel check.
+  const initial = (await previewViewState(app, id)).bounds;
+  assert.ok(initial);
+  await page.evaluate(
+    ({ id, bounds }) => window.desktop.previews.bounds(id, { ...bounds, visible: false }),
+    { id, bounds: initial },
+  );
+  await expect.poll(() => pixels("negative-control")).not.toEqual([86, 52, 18]);
+  await page.evaluate(
+    ({ id, bounds }) => window.desktop.previews.bounds(id, { ...bounds, visible: true }),
+    { id, bounds: initial },
+  );
+  await visible("reattach");
+  const gutter = page.getByRole("separator", { name: "Resize tiles" });
+  const box = await gutter.boundingBox();
+  assert.ok(box);
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(box.x + 100, box.y + box.height / 2, { steps: 12 });
+  await expect(gutter).toHaveAttribute("data-dragging", "true");
+  await visible("gutter-during");
+  await page.mouse.up();
+  await expect(gutter).toHaveAttribute("data-dragging", "false");
+  await expect
+    .poll(async () => (await previewViewState(app, id)).bounds.width)
+    .toBeGreaterThan(initial.width);
+  await visible("gutter-after");
+  // There is no sidebar-width drag handle in this version. Exercise its actual
+  // width transition through the sidebar controls, in both directions.
+  await page.getByRole("button", { name: "Collapse sidebar", exact: true }).click();
+  await expect(page.locator(".sidebar-shell")).toHaveCSS("flex-basis", "64px");
+  await visible("sidebar-collapse");
+  await page.getByRole("button", { name: "Expand sidebar", exact: true }).click();
+  await expect(page.locator(".sidebar-shell")).toHaveCSS("flex-basis", "300px");
+  await visible("sidebar-expand");
+  await tile.getByRole("button", { name: /Tile \d+ menu/ }).click();
+  await expectPreviewSnapshot(page, id);
+  await page.keyboard.press("Escape");
+  await expect(page.locator(".row-menu")).toHaveCount(0);
+  await expect(page.locator(".preview-snapshot")).toHaveCount(0);
+  await visible("uncover");
+  const beforeResize = await tile.locator(".tile-shell:not([hidden])").boundingBox();
+  assert.ok(beforeResize);
+  await app.evaluate(({ BrowserWindow }) => {
+    const board = BrowserWindow.getAllWindows().find(
+      (window) => window.webContents.getURL() === "app://bundle/index.html",
+    );
+    const [width, height] = board.getSize();
+    board.setSize(width + 100, height + 80);
+  });
+  await expect
+    .poll(async () => (await tile.locator(".tile-shell:not([hidden])").boundingBox()).width)
+    .toBeGreaterThan(beforeResize.width);
+  await visible("window");
+});
