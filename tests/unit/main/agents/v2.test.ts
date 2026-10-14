@@ -21,7 +21,9 @@ import {
   parseAgentArguments,
   parseAgentDefaults,
   hasBypassArgument,
+  recoverAgentDefaults,
 } from "../../../../src/main/agents/default-arguments";
+import { evaluateRules } from "../../../../src/main/evaluator/evaluator";
 import { detectAgent } from "../../../../src/main/evaluator/agent-rules";
 import { pluginDisclosure } from "../../../../src/main/agents/providers/disclosure";
 import type { AgentManifestV2 } from "../../../../src/shared/agent-manifest-v2";
@@ -430,4 +432,101 @@ it("refuses hooks/health/setup, reviews the whole surface, and applies approved 
   expect(pluginDisclosure(m).sections?.length).toBeGreaterThan(10);
   for (const section of disclosure.sections ?? [])
     expect(section.items.every((item) => typeof item === "string")).toBe(true);
+});
+
+it("recovers only invalid provider defaults and keeps immutable approved launch data", async () => {
+  const m = model();
+  const provider = v2Provider(m, () => Promise.resolve());
+  replaceConfigProviders([provider]);
+  expect(
+    recoverAgentDefaults({
+      claude: ["--model", "safe"],
+      codex: [],
+      agy: [],
+      [m.id]: ["--resume=reserved"],
+      other: ["--ordinary"],
+    }),
+  ).toEqual({ claude: ["--model", "safe"], codex: [], agy: [], [m.id]: [], other: ["--ordinary"] });
+  required(m.launch.arguments).arguments.push("--yolo");
+  const installation = provider.discover("/fake/fixture-v2", "fixture 1.2.3", "--prompt");
+  const prepared = await provider.prepareLaunch?.(
+    installation,
+    request,
+    [],
+    undefined,
+    false,
+    false,
+  );
+  expect(prepared?.args).not.toContain("--yolo");
+  prepared?.dispose();
+  expect(Object.isFrozen(provider.model?.launch)).toBe(true);
+});
+
+it("guidance merge emits its declared canonical flag and preserves literal prompt text", async () => {
+  const m = model();
+  required(m.launch.guidance).merge = {
+    flags: ["--prompt", "-i"],
+    output: "-i",
+    separators: "whitespace",
+  };
+  const prepared = await launch(m, {}, ["--prompt=hello, literal text"], control);
+  expect(prepared.prepared.args.at(-2)).toBe("-i");
+  expect(prepared.prepared.args.at(-1)).toContain("hello, literal text\n\nFoom provides");
+});
+
+it("approved provider attention remains human-only metadata", () => {
+  const m = model();
+  m.attention.rules.push({
+    id: "capacity",
+    state: "blocked",
+    priority: 500,
+    region: "title",
+    match: { contains: ["Capacity"], regex: [] },
+    reason: "Provider unavailable",
+    lines: undefined,
+    not: [],
+    comment: "Fixture",
+  });
+  m.execution.providerRules = ["capacity"];
+  replaceConfigProviders([v2Provider(m, () => Promise.resolve())]);
+  expect(
+    evaluateRules({
+      terminalId: "fixture",
+      agent: m.id,
+      evidence: { title: "Capacity", progress: null },
+      tail: [],
+    }),
+  ).toMatchObject({ state: "needs_input", attentionKind: "provider" });
+});
+
+it("restoration evaluates MCP capability for a resume invocation", async () => {
+  const m = model();
+  required(m.launch.mcp).when?.all?.push({ field: "resume", op: "eq", value: true });
+  const fresh = await launch(m, {}, [], control);
+  expect(fresh.install.mcp).toBe(true);
+  expect(fresh.install.restoreControl).toBe(true);
+  expect(fresh.prepared.mcp).toBe(false);
+  const resume = await launch(m, { conversationId: "saved" }, [], control);
+  expect(resume.prepared.mcp).toBe(true);
+  required(m.launch.mcp).when?.all?.pop();
+  required(m.launch.mcp).when?.all?.push({ field: "resume", op: "eq", value: false });
+  const freshOnly = await launch(m, {}, [], control);
+  expect(freshOnly.install.mcp).toBe(true);
+  expect(freshOnly.install.restoreControl).toBe(false);
+});
+
+it("materializes a validated private TOML MCP file with environment-only authentication", async () => {
+  const data = structuredClone(fixture);
+  required(data.files[0]).name = "config/mcp.toml";
+  required(data.files[0]).format = "toml";
+  required(data.files[0]).content =
+    '[mcp_servers.{mcpName:toml}]\nurl = {mcpUrl:toml}\nbearer_token_env_var = "FOOM_CONTROL_TOKEN"';
+  data.launch.mcp.arguments = ["--mcp", "{file:config/mcp.toml}"];
+  const result = await launch(model(data), {}, [], control);
+  const file = result.prepared.args[result.prepared.args.indexOf("--mcp") + 1];
+  if (!file) throw Error("Missing TOML attachment");
+  const text = await readFile(file, "utf8");
+  expect(text).toContain('bearer_token_env_var = "FOOM_CONTROL_TOKEN"');
+  expect(text).toContain('url = "http://127.0.0.1:23456/mcp"');
+  expect(text).not.toContain("must-stay-private");
 });

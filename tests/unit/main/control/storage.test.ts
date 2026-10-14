@@ -433,3 +433,10 @@ it("runtime binds preview tools to the launch grant, audits and hands ownership 
     await runtime.close();
   }
 });
+
+it("private child directories reject paths and dot components", async () => {
+  for (const name of ["..", ".", "../outside", "/absolute", "a/b", ".hidden"])
+    await expect(privateDirectory(root, name)).rejects.toThrow("unavailable");
+  const nested = await privateDirectory(directory, "mcp-data");
+  await verifyPrivate(nested, true);
+});

@@ -83,6 +83,23 @@ async function detect(id: AgentId, path: string): Promise<AgentInstallation> {
   }
   if (!executable)
     return { id, path: null, version: null, hooks: false, reason: "Not found on PATH." };
+  if (provider.model) {
+    const options = { ...probeOptions, cwd: homedir(), env: { ...process.env, PATH: path } };
+    const probe = async (flag: "--version" | "--help"): Promise<string> => {
+      await provider.validate?.();
+      if (agentProvider(id) !== provider) throw new Error("Agent plugins changed. Scan again.");
+      try {
+        return (await execute(executable, [flag], options)).stdout;
+      } catch {
+        return "";
+      }
+    };
+    const version = (await probe("--version")).trim();
+    const help = await probe("--help");
+    await provider.validate?.();
+    if (agentProvider(id) !== provider) throw new Error("Agent plugins changed. Scan again.");
+    return provider.discover(executable, version, help);
+  }
   let version: string | null = null;
   try {
     const options = { ...probeOptions, cwd: homedir(), env: { ...process.env, PATH: path } };
@@ -97,7 +114,6 @@ async function detect(id: AgentId, path: string): Promise<AgentInstallation> {
   } catch {
     await provider.validate?.();
     if (agentProvider(id) !== provider) throw new Error("Agent plugins changed. Scan again.");
-    if (provider.model) return provider.discover(executable, "", "");
     return {
       id,
       path: executable,
@@ -163,7 +179,7 @@ export class AgentService {
             ? {
                 source: `agents/${provider.id}.json`,
                 resumePaste: provider.model.resumePaste,
-                restoreControl: provider.model.conversation.restoreControl,
+                restoreControl: agent.restoreControl ?? provider.model.conversation.restoreControl,
               }
             : {}),
           ...(provider.manifest
@@ -286,6 +302,8 @@ export class AgentService {
         config !== undefined,
         this.hooksEnabled && this.agentHooks[agent.id] !== false,
       );
+      if (prepared && request.control && "role" in request.control && !prepared.mcp)
+        throw new Error("This launch cannot restore orchestration without MCP");
       const args =
         prepared?.args ??
         agentProvider(agent.id).arguments(
@@ -309,12 +327,23 @@ export class AgentService {
       const finalEnvironment = provider.model
         ? { ...baseEnvironment, ...environment.env }
         : environment.env;
+      // The host inherits OS names such as ProgramFiles(x86) itself. IPC accepts
+      // portable names only; freeze inspected inherited bypass names in that surface.
+      const launchEnvironment = provider.model
+        ? Object.fromEntries(
+            Object.entries(finalEnvironment).filter(([name]) =>
+              /^[A-Za-z_][A-Za-z0-9_]*$/u.test(name),
+            ),
+          )
+        : environment.env;
       const environmentMatches = provider.model
         ? bypassEnvironment(provider.model, finalEnvironment)
         : [];
-      const argumentBypass = provider.model
-        ? matchesArguments(provider.model.bypassArguments, args)
-        : false;
+      const argumentMatches =
+        provider.model?.bypassArguments
+          .filter((matcher) => matchesArguments([matcher], args))
+          .map((matcher) => JSON.stringify(matcher)) ?? [];
+      const argumentBypass = argumentMatches.length > 0;
       const bypass = argumentBypass || environmentMatches.length > 0;
       if (bypass) {
         if (request.control && "parentId" in request.control)
@@ -329,12 +358,9 @@ export class AgentService {
               "This agent can act as you anywhere on the machine. A worktree is not a sandbox. Manifest approval does not approve bypass for this launch.",
             sections: [
               {
-                label: "Argument bypass",
-                items: [
-                  argumentBypass
-                    ? "A declared bypass matcher matches the selected launch arguments"
-                    : "(none)",
-                ],
+                label: "Argument bypass matchers",
+                arguments: true,
+                items: argumentMatches.length ? argumentMatches : ["(none)"],
               },
               {
                 label: "Environment bypass (names and predicates only)",
@@ -363,16 +389,16 @@ export class AgentService {
         cwd: request.worktree,
         cols: request.cols,
         rows: request.rows,
-        env: finalEnvironment,
+        env: launchEnvironment,
       });
       this.ensureOpen();
       if (this.earlyExits.has(id)) {
         if (![...this.launched.values()].includes(request.worktree))
           this.occupied.delete(request.worktree);
-        mcp?.dispose();
-        prepared?.dispose();
         control?.dispose();
         binding?.dispose();
+        mcp?.dispose();
+        prepared?.dispose();
         return {
           id,
           ...(provider.manifest || provider.model ? { providerOrigin: "config" as const } : {}),
@@ -402,10 +428,10 @@ export class AgentService {
         ...(environment.names.length ? { environment: environment.names } : {}),
       };
     } catch (error) {
-      mcp?.dispose();
-      prepared?.dispose();
       control?.dispose();
       binding?.dispose();
+      mcp?.dispose();
+      prepared?.dispose();
       throw error;
     }
   }
@@ -414,10 +440,10 @@ export class AgentService {
   release(id: string): void {
     const worktree = this.launched.get(id);
     if (!worktree && this.starting > 0) this.earlyExits.add(id);
-    this.mcpBindings.get(id)?.dispose();
-    this.mcpBindings.delete(id);
     this.controls.get(id)?.dispose();
     this.controls.delete(id);
+    this.mcpBindings.get(id)?.dispose();
+    this.mcpBindings.delete(id);
     this.launched.delete(id);
     if (worktree && ![...this.launched.values()].includes(worktree)) this.occupied.delete(worktree);
     const binding = this.bindings.get(id);

@@ -34,3 +34,18 @@ export function parseAgentDefaults(value: unknown): AgentValues<readonly string[
   for (const [agent, args] of Object.entries(parsed)) parseAgentArguments(agent, args);
   return parsed;
 }
+
+/** Loading may discard one newly protected provider list without losing other defaults. */
+export function recoverAgentDefaults(
+  value: AgentValues<readonly string[]>,
+): AgentValues<readonly string[]> {
+  const recovered = { ...value };
+  for (const [agent, args] of Object.entries(value)) {
+    try {
+      recovered[agent] = parseAgentArguments(agent, args);
+    } catch {
+      recovered[agent] = [];
+    }
+  }
+  return recovered;
+}

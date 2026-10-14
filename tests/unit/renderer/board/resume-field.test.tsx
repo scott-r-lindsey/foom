@@ -207,3 +207,17 @@ test("approved plugin paste patterns are bounded and ambiguous commands require 
   });
   expect(launch).toHaveBeenCalledWith("fixture-v2", "saved");
 });
+
+test("plugin choices show approved names and badges and retain a fallback for absent metadata", () => {
+  const view = render(
+    <ResumeField
+      agents={["fixture-v2", "unknown"]}
+      identities={[{ id: "fixture-v2", name: "Fixture v2", mark: "V2" }]}
+      launch={() => Promise.resolve()}
+      back={() => {}}
+    />,
+  );
+  fireEvent.change(view.getByRole("textbox"), { target: { value: "saved" } });
+  expect(view.getByRole("button", { name: "Fixture v2" }).textContent).toBe("V2");
+  expect(view.getByRole("button", { name: "unknown" }).textContent).toBe("?");
+});

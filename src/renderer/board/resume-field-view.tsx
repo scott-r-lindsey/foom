@@ -1,19 +1,21 @@
 import { useConfirmation } from "./use-confirmation";
 import type { ConfirmationClient } from "../../shared/confirmation";
 import { useEffect, useRef, useState } from "react";
-import type { AgentId } from "../../shared/agents";
+import type { AgentId, AgentInstallation } from "../../shared/agents";
 import { agentBadges, agentNames } from "./sidebar-model";
 import { parseResume } from "./resume-field";
 
 export function ResumeField({
   agents,
   patterns = [],
+  identities = [],
   confirmations,
   back,
   launch,
   done,
 }: {
   agents: readonly AgentId[];
+  identities?: readonly Pick<AgentInstallation, "id" | "name" | "mark">[];
   patterns?: readonly { agent: AgentId; command: string; selector: string }[];
   confirmations?: ConfirmationClient | undefined;
   back: () => void;
@@ -109,7 +111,9 @@ export function ResumeField({
             <button
               key={id}
               type="button"
-              aria-label={agentNames.get(id)}
+              aria-label={
+                identities.find((entry) => entry.id === id)?.name ?? agentNames.get(id) ?? id
+              }
               aria-pressed={choice === id}
               disabled={pending}
               onClick={() => {
@@ -118,7 +122,7 @@ export function ResumeField({
                 inputRef.current?.focus();
               }}
             >
-              {agentBadges.get(id)}
+              {identities.find((entry) => entry.id === id)?.mark ?? agentBadges.get(id) ?? "?"}
             </button>
           ))}
         </div>

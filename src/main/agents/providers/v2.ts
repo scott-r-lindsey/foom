@@ -43,21 +43,26 @@ export function v2Provider(input: AgentManifestV2, validate: () => Promise<void>
     },
     discover(path, version, help) {
       probes.set(path, { version, help });
-      const facts = discoveryFacts(model, version, help, {
-        control: true,
-        hooksEnabled: false,
-        configGreeting: false,
-        hasPrompt: false,
-        resume: false,
-        healthTrusted: false,
-        setupState: "unavailable",
-      });
+      const mcpAvailable = (resume: boolean) => {
+        const facts = discoveryFacts(model, version, help, {
+          control: true,
+          hooksEnabled: true,
+          configGreeting: false,
+          hasPrompt: false,
+          resume,
+          healthTrusted: false,
+          setupState: "unavailable",
+        });
+        return Boolean(model.launch.mcp && selected(model.launch.mcp.when, facts));
+      };
+      const resumeMcp = mcpAvailable(true);
       return {
         id: model.id,
         path,
         version: version || null,
         hooks: false,
-        mcp: Boolean(model.launch.mcp && selected(model.launch.mcp.when, facts)),
+        mcp: mcpAvailable(false) || resumeMcp,
+        restoreControl: model.conversation.restoreControl && resumeMcp,
         reason: "Config-authored agent; approved launch manifest.",
       };
     },
@@ -202,8 +207,12 @@ export function v2Provider(input: AgentManifestV2, validate: () => Promise<void>
             else if (tools)
               for (const tool of grants)
                 args.push(...tools.arguments.map((arg) => expandV2(arg, { ...values, tool })));
-          } else if (stage === "prompt" && prompts.length && model.launch.prompt)
-            args.push(...expand(model.launch.prompt.arguments));
+          } else if (stage === "prompt" && prompts.length && model.launch.prompt) {
+            const merge = guidance ? model.launch.guidance?.merge : undefined;
+            args.push(
+              ...expand(merge ? [merge.output, "{prompt}"] : model.launch.prompt.arguments),
+            );
+          }
         }
         let finalArgs = args;
         if (mcp && tools?.merge) {

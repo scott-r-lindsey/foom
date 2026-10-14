@@ -135,7 +135,7 @@ engine after substitution and layering; this parser never expands launch data.
 | launch.order | Required permutation of resume, defaults, arguments, display, guidance, mcp, hooks, tools, prompt; all once. Defaults engine-controlled; hooks follow channel array order |
 | Launch block | `{arguments,when?}`; Argv and Condition. arguments/display/resume/mcp use this shape; resume implies validated requested conversationId |
 | prompt | `{arguments,requires?}`; requires fact ID; final task is one argv value. Foom rejects a launch requiring a missing fact |
-| guidance | `{when,merge?}`; inserts fixed CLI_GUIDANCE or CONFIG_PROMPT through prompt template; merge `{flags,output,separators}` with <=8 flag names, output flag, separators literal whitespace-comma or whitespace; only merges when selected |
+| guidance | `{when,merge?}`; inserts fixed CLI_GUIDANCE or CONFIG_PROMPT through the prompt stage; merge `{flags,output,separators}` with <=8 flag names, output flag, separators literal whitespace-comma or whitespace; only merges when selected |
 | toolPermissions | `{names,format,arguments,merge?}`; names subset of open_preview/list_previews/close_preview, <=3 unique; format mcp-double-underscore or server-parentheses; arguments template expanded once per tool (unless merge combines); merge `{flags,output,separators:"whitespace-comma-parentheses"}` |
 | File | `{name,scope,format,content,when?}`; scope launch or plugin; format json or toml; content multiline template; must parse after typed expansion |
 | Channel | `{id,when,observer,arguments,mapping,disclosure?}` |
@@ -218,7 +218,7 @@ trim, no controls except LF/tab. Positional prompts go last after --; flag promp
 remain a single value. Greeting and CLI guidance are the exact Foom-owned constants
 in `providers/cli-launch.ts`, not editable manifest prose. Config resume adds no
 greeting; no repository control grant is created. Guidance merges user prompt
-aliases/equals forms in order, then appends Foom text with two newlines. Guidance treats each user argv value as literal prompt text, preserving internal whitespace and punctuation; its separators describe the variadic option surface, not words to split inside a prompt. The guidance stage collects prompt text and the prompt stage emits it exactly once; no duplicate interactive prompt flags. Config greeting is omitted when the required prompt fact is false, matching agy today; an explicit child task fails instead. Children
+aliases/equals forms in order, then appends Foom text with two newlines. Guidance treats each user argv value as literal prompt text, preserving internal whitespace and punctuation; its separators describe the variadic option surface, not words to split inside a prompt. When guidance merge is selected, its canonical `output` flag replaces the prompt argv layout and carries the composed text as one value. Otherwise `prompt.arguments` supplies that layout. The guidance stage collects prompt text and the prompt stage emits it exactly once; no duplicate interactive prompt flags. Config greeting is omitted when the required prompt fact is false, matching agy today; an explicit child task fails instead. Children
 use no user default arguments; reject manifest-selected argument/environment bypass
 rather than granting unattended bypass. Human role promotion and service tool
 permissions never come from manifest text. Availability is not authorization.

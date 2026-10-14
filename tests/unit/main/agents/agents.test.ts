@@ -1,3 +1,5 @@
+import { hostRequest } from "../../../../src/shared/terminal-host-protocol";
+import type { AgentProvider } from "../../../../src/main/agents/providers/provider";
 import pluginFixture from "../../../fixtures/agent-plugin.json";
 import { parseAgentPlugin } from "../../../../src/shared/agent-manifest";
 import { configProvider } from "../../../../src/main/agents/providers/config";
@@ -71,6 +73,7 @@ const request: AgentLaunch = {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  create.mockReset().mockImplementation(() => "terminal-id");
   launchIdentity.mockReset().mockResolvedValue("identity");
   vi.stubEnv("PATH", root);
   help = "--settings <file-or-json>\n-c, --config <key=value>";
@@ -1087,6 +1090,7 @@ it("v2 checks final environment bypass on every launch, redacts values, and reje
   versions[parsed.model.id] = "fixture 1.2.3";
   help = "--inline --prompt --mcp";
   vi.stubEnv("FIXTURE_BYPASS", "private-bypass-value");
+  vi.stubEnv("ProgramFiles(x86)", "C:\\Program Files (x86)");
   const approve = vi.fn(() => Promise.resolve(false));
   const revoke = vi.fn();
   const grant = vi.fn(() => Promise.resolve({ env: {}, bind: vi.fn(), dispose: revoke }));
@@ -1102,7 +1106,7 @@ it("v2 checks final environment bypass on every launch, redacts values, and reje
   const scan = await service.scan();
   expect(scan.agents.find((agent) => agent.id === parsed.model.id)).toMatchObject({
     resume: true,
-    restoreControl: true,
+    restoreControl: false,
     source: "agents/fixture-v2.json",
     resumePaste: [{ command: "fixture-v2", selector: "--resume" }],
   });
@@ -1117,6 +1121,9 @@ it("v2 checks final environment bypass on every launch, redacts values, and reje
     bypass: true,
     providerOrigin: "config",
   });
+  const spec = create.mock.calls.at(-1)?.[0];
+  expect(spec?.env).not.toHaveProperty("ProgramFiles(x86)");
+  expect(hostRequest({ type: "create", request: 1, id: "terminal-id", spec })).toBe(true);
   expect(result.conversationId).toMatch(/^[a-f0-9-]{36}$/u);
   expect(create.mock.calls.at(-1)?.[0].env?.["FIXTURE_BYPASS"]).toBe("private-bypass-value");
   service.release(result.id);
@@ -1134,6 +1141,9 @@ it("v2 checks final environment bypass on every launch, redacts values, and reje
   await expect(
     service.launch({ ...v2Request, defaultArguments: ["--yolo"], control: { parentId: "parent" } }),
   ).rejects.toThrow("Unattended child");
+  await expect(
+    service.launch({ ...v2Request, conversationId: "saved", control: { role: "orchestrator" } }),
+  ).rejects.toThrow("without MCP");
   validate.mockRejectedValue(Error("Agent plugin changed"));
   await expect(service.launch(v2Request)).rejects.toThrow("changed");
 });
@@ -1184,9 +1194,97 @@ it("v2 revokes launch on approval races, disposal and failed version/help probes
   expect(scan.agents.find((agent) => agent.id === parsed.model.id)).toMatchObject({
     hooks: false,
     mcp: false,
-    version: null,
+    version: "fixture 1.2.3",
   });
   await expect(
     service.launch({ ...request, agent: parsed.model.id, prompt: "task" }),
   ).rejects.toThrow("cannot take");
+});
+
+it("v2 revokes control credentials before removing launch resources on release, early exit and spawn failure", async () => {
+  const { parseAgentManifest } = await import("../../../../src/shared/agent-plugin-parser");
+  const { v2Provider } = await import("../../../../src/main/agents/providers/v2");
+  const fixture = await import("../../../fixtures/agent-plugin-v2.json");
+  const parsed = parseAgentManifest(
+    JSON.stringify({
+      ...fixture.default,
+      files: [],
+      launch: { ...fixture.default.launch, mcp: undefined, toolPermissions: undefined },
+    }),
+  );
+  if (parsed.version !== 2) throw Error("Expected v2");
+  const provider = v2Provider(parsed.model, () => Promise.resolve());
+  let revoked = false;
+  const dispose = vi.fn(() => {
+    expect(revoked).toBe(true);
+  });
+  const guarded: AgentProvider = {
+    ...provider,
+    prepareLaunch: async (...args) => {
+      const prepared = await provider.prepareLaunch?.(...args);
+      if (!prepared) throw Error("Missing preparation");
+      return {
+        ...prepared,
+        dispose: () => {
+          dispose();
+          prepared.dispose();
+        },
+      };
+    },
+  };
+  replaceConfigProviders([guarded]);
+  versions[parsed.model.id] = "fixture 1.2.3";
+  help = "--inline --prompt";
+  const grant = () =>
+    Promise.resolve({
+      env: {},
+      bind: () => undefined,
+      dispose: () => {
+        revoked = true;
+      },
+    });
+  service = new AgentService({ listWorktrees, launchIdentity }, { create }, undefined, grant);
+  const v2Request = { ...request, agent: parsed.model.id };
+  for (const mode of ["release", "early", "failure"]) {
+    revoked = false;
+    create.mockImplementation(() => {
+      if (mode === "failure") throw Error("spawn failed");
+      if (mode === "early") service.release("terminal-id");
+      return "terminal-id";
+    });
+    if (mode === "failure") await expect(service.launch(v2Request)).rejects.toThrow("spawn failed");
+    else {
+      const result = await service.launch(v2Request);
+      if (mode === "release") service.release(result.id);
+    }
+  }
+  expect(dispose).toHaveBeenCalledTimes(3);
+});
+
+it("v2 preserves successful discovery data when only the independent version probe fails", async () => {
+  const { parseAgentManifest } = await import("../../../../src/shared/agent-plugin-parser");
+  const { v2Provider } = await import("../../../../src/main/agents/providers/v2");
+  const fixture = await import("../../../fixtures/agent-plugin-v2.json");
+  const parsed = parseAgentManifest(
+    JSON.stringify({
+      ...fixture.default,
+      files: [],
+      discovery: { facts: fixture.default.discovery.facts },
+      launch: { ...fixture.default.launch, mcp: undefined, toolPermissions: undefined },
+    }),
+  );
+  if (parsed.version !== 2) throw Error("Expected v2");
+  replaceConfigProviders([v2Provider(parsed.model, () => Promise.resolve())]);
+  help = "--inline --prompt";
+  failed = "--version";
+  service = new AgentService({ listWorktrees, launchIdentity }, { create });
+  const scan = await service.scan();
+  expect(scan.agents.find((agent) => agent.id === parsed.model.id)?.version).toBeNull();
+  const result = await service.launch({
+    ...request,
+    agent: parsed.model.id,
+    prompt: "a supported task",
+  });
+  expect(create.mock.calls.at(-1)?.[0].args.at(-1)).toContain("a supported task");
+  service.release(result.id);
 });

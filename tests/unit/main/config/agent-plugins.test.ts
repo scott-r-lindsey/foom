@@ -14,6 +14,7 @@ import {
   knownAgentId,
   replaceConfigProviders,
 } from "../../../../src/main/agents/providers/registry";
+import type { ConfigSettings } from "../../../../src/shared/config";
 import type { DialogContent } from "../../../../src/shared/confirmation";
 import { digest } from "../../../../src/main/config/layout";
 
@@ -43,7 +44,7 @@ async function fixture() {
     root: folder,
     git,
     defaults: configPart(DEFAULT_SETTINGS),
-    apply: () => undefined,
+    apply: vi.fn((_values: ConfigSettings) => undefined),
     baseline: { get: () => null, set: () => Promise.resolve() },
     themeBaseline: baseline,
     pluginBaseline: baseline,
@@ -261,4 +262,34 @@ it("approves exact v2 bytes with complete before/after disclosure and withdraws 
   await expect(f.service.decide("allow", next)).rejects.toThrow("file changed");
   expect(knownAgentId(v2Fixture.id)).toBe(false);
   expect(f.digests.get(`agents/${v2Fixture.id}.json`)).toBe(digest(original));
+});
+
+it("drops only a newly protected provider default list on approval and rejects invalid saves", async () => {
+  const f = await fixture();
+  const argumentsBefore = {
+    claude: ["--model", "safe"],
+    codex: [],
+    agy: [],
+    [v2Fixture.id]: ["--resume=saved"],
+    other: ["ordinary"],
+  };
+  await f.service.write({ agentArguments: argumentsBefore });
+  const settingsFile = join(f.folder, "settings.json");
+  const settingsBytes = await readFile(settingsFile, "utf8");
+  await writeFile(join(f.folder, "agents", `${v2Fixture.id}.json`), JSON.stringify(v2Fixture));
+  const pending = await f.service.refresh();
+  f.confirm.mockResolvedValue(true);
+  await f.service.decide(
+    "allow",
+    pending.agentPlugins?.find((plugin) => plugin.id === v2Fixture.id)?.decisionId,
+  );
+  expect(f.dependencies.apply.mock.calls.at(-1)?.[0].agentArguments).toEqual({
+    ...argumentsBefore,
+    [v2Fixture.id]: [],
+  });
+  expect(await readFile(settingsFile, "utf8")).toBe(settingsBytes);
+  await expect(f.service.write({ agentArguments: argumentsBefore })).rejects.toThrow(
+    "cannot be stored",
+  );
+  expect(await readFile(settingsFile, "utf8")).toBe(settingsBytes);
 });

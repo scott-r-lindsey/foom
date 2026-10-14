@@ -185,6 +185,7 @@ export class Workspace {
   private receiver: ReturnType<WorkspaceDependencies["receiver"]> | undefined;
   private scanned: ReturnType<Agents["scan"]> | undefined;
   private closed = false;
+  private readonly launchAbort = new AbortController();
   private location: "root" | "adjacent" = "root";
   private acknowledged = false;
   private hooksEnabled = true;
@@ -414,8 +415,10 @@ export class Workspace {
           prepare,
           prepareControl,
           this.agyPlugin,
-          (content) =>
-            deps.dialog?.(content, new AbortController().signal) ?? Promise.resolve(false),
+          async (content) => {
+            const approved = await deps.dialog?.(content, this.launchAbort.signal);
+            return approved === true && !this.closed;
+          },
         );
   }
 
@@ -2582,6 +2585,7 @@ export class Workspace {
   async dispose(): Promise<void> {
     if (this.closed) return;
     this.closed = true;
+    this.launchAbort.abort();
     for (const run of this.cleanupRuns.values()) run.stop();
     await Promise.all([...this.cleanupRuns.values()].map((run) => run.settled()));
     this.cleanupRuns.clear();

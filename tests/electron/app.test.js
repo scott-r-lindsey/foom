@@ -12544,7 +12544,9 @@ test("preview network permission allows local HTTPS only and resets after restar
 });
 
 for (const version of [1, 2])
-  test(`a manifest-only v${version} fixture agent cannot launch before trusted approval and requires approval again after edits`, {
+  test(version === 1
+    ? "a manifest-only fixture agent cannot launch before trusted approval and requires approval again after edits"
+    : "a manifest-only v2 fixture agent cannot launch before trusted approval and requires approval again after edits", {
     timeout: deadline(60_000),
   }, async (context) => {
     const { chmod, copyFile } = require("node:fs/promises");

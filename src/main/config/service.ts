@@ -10,7 +10,11 @@ import { randomUUID } from "node:crypto";
 import { constants, watch } from "node:fs";
 import { lstat, mkdir, open, readdir, realpath, rename, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import { hasBypassArgument, parseAgentDefaults } from "../agents/default-arguments";
+import {
+  hasBypassArgument,
+  parseAgentDefaults,
+  recoverAgentDefaults,
+} from "../agents/default-arguments";
 import type { DialogContent } from "../../shared/confirmation";
 import { setTimeout as sleep } from "node:timers/promises";
 import type { ConfigSettings } from "../../shared/config";
@@ -181,7 +185,12 @@ export class ConfigService {
   private pending: Pending | null = null;
   private heldPlugins = new Map<
     string,
-    { text: string; manifest: AgentPluginManifest | AgentManifestV2; previous: string | null }
+    {
+      text: string;
+      hash: string;
+      manifest: AgentPluginManifest | AgentManifestV2;
+      previous: string | null;
+    }
   >();
   private approvedPlugins = new Map<string, { text: string; provider: AgentProvider }>();
   private events: ConfigChange[] = [];
@@ -616,18 +625,16 @@ export class ConfigService {
         continue;
       }
       this.rejected.delete(file);
+      const hash = digest(bytes);
       const previous = this.approvedPlugins.get(file);
-      if (this.deps.pluginBaseline?.get(file) !== digest(text)) {
+      if (this.deps.pluginBaseline?.get(file) !== hash) {
         let restore = previous?.text ?? this.heldPlugins.get(file)?.previous ?? null;
         if (!restore) {
           const committed = await this.committed(file);
-          if (
-            committed &&
-            digest(committed.toString("utf8")) === this.deps.pluginBaseline?.get(file)
-          )
+          if (committed && digest(committed) === this.deps.pluginBaseline?.get(file))
             restore = decode(committed);
         }
-        this.heldPlugins.set(file, { text, manifest, previous: restore });
+        this.heldPlugins.set(file, { text, hash, manifest, previous: restore });
         this.approvedPlugins.delete(file);
         continue;
       }
@@ -638,8 +645,8 @@ export class ConfigService {
               const current = await this.read(file);
               if (
                 !current ||
-                digest(current) !== digest(text) ||
-                this.deps.pluginBaseline?.get(file) !== digest(text)
+                digest(current) !== hash ||
+                this.deps.pluginBaseline?.get(file) !== hash
               )
                 throw new Error("Agent plugin changed. Review it again.");
             });
@@ -650,6 +657,14 @@ export class ConfigService {
         await this.commit(new Map([[file, bytes]]), `Approve ${manifest.name} agent plugin`);
     }
     this.deps.applyPlugins?.(active);
+    const defaults = this.applied.values.agentArguments;
+    if (defaults) {
+      const recovered = recoverAgentDefaults(defaults);
+      if (JSON.stringify(recovered) !== JSON.stringify(defaults)) {
+        this.applied.values = { ...this.applied.values, agentArguments: recovered };
+        this.deps.apply(this.applied.values);
+      }
+    }
   }
 
   private async decidePlugin(decision: "allow" | "keep", id: unknown): Promise<ConfigStatus> {
@@ -667,7 +682,7 @@ export class ConfigService {
       throw new Error("The change was replaced. Review it again.");
     const check = async () => {
       const bytes = await this.read(file);
-      if (!bytes || decode(bytes) !== proposal.text) {
+      if (!bytes || digest(bytes) !== proposal.hash) {
         await this.scan();
         throw new Error("The file changed. Review the new change.");
       }
@@ -678,7 +693,7 @@ export class ConfigService {
         !(await this.deps.confirmPlugin?.(
           pluginDisclosure(proposal.manifest, {
             file,
-            digest: digest(proposal.text),
+            digest: proposal.hash,
             text: proposal.text,
             previous: proposal.previous,
           }),
@@ -687,7 +702,7 @@ export class ConfigService {
         return this.status();
       await check();
       if (!this.deps.pluginBaseline) throw new Error("Agent approval storage is unavailable");
-      await this.deps.pluginBaseline.set(file, digest(proposal.text));
+      await this.deps.pluginBaseline.set(file, proposal.hash);
     } else {
       if (proposal.previous === null) await this.removePluginFile(file);
       else await this.writeFile(file, proposal.previous);

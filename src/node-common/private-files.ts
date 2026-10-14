@@ -71,6 +71,8 @@ export async function verifyPrivate(path: string, directory: boolean): Promise<v
 }
 
 export async function privateDirectory(parent: string, name = "control"): Promise<string> {
+  // Names are single validated components, never arbitrary relative paths.
+  if (!/^[A-Za-z0-9_-][A-Za-z0-9_.-]*$/u.test(name)) throw new ControlError("unavailable");
   // The profile is app-owned; reject redirected control roots and existing insecure entries.
   const directory = join(await realpath(parent), name);
   let created = false;
