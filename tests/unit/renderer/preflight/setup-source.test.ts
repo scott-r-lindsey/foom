@@ -25,6 +25,8 @@ test("preflight reaches main only through the setup bridge", async () => {
   Object.defineProperty(window, "desktop", { configurable: true, value: desktop });
   const source = createSetupSource();
   await expect(source.listTerminalFonts?.()).resolves.toEqual(["Mono"]);
+  await source.listTerminalFonts?.(true);
+  expect(desktop.listTerminalFonts).toHaveBeenLastCalledWith(true);
   await source.openThemesFolder("theme");
   expect(desktop.openThemesFolder).toHaveBeenCalledWith("theme");
   await expect(source.state()).resolves.toBe("state");

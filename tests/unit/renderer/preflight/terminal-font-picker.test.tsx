@@ -6,7 +6,7 @@ import type { SetupSource } from "../../../../src/renderer/preflight/setup-sourc
 import { DEFAULT_TERMINAL_FONT } from "../../../../src/shared/terminal-fonts";
 afterEach(cleanup);
 function source(
-  listTerminalFonts?: () => Promise<readonly string[]>,
+  listTerminalFonts?: (refresh?: boolean) => Promise<readonly string[]>,
 ): Pick<SetupSource, "listTerminalFonts"> {
   return listTerminalFonts ? { listTerminalFonts } : {};
 }
@@ -67,4 +67,68 @@ test("late enumeration does not update an unmounted picker", async () => {
     await Promise.resolve();
   });
   expect(screen.queryByRole("option")).toBeNull();
+});
+
+test("cached families show before the background refresh adds a new family", async () => {
+  let finish: (fonts: readonly string[]) => void = () => {};
+  const list = vi.fn((refresh?: boolean) =>
+    refresh
+      ? new Promise<readonly string[]>((resolve) => {
+          finish = resolve;
+        })
+      : Promise.resolve(["Cached Mono"]),
+  );
+  const { unmount } = render(
+    <TerminalFontPicker source={source(list)} value="Saved Mono" onChange={vi.fn()} />,
+  );
+  await screen.findByRole("option", { name: "Cached Mono" });
+  expect(list.mock.calls).toEqual([[], [true]]);
+  expect(screen.queryByRole("option", { name: "New Mono" })).toBeNull();
+  await act(async () => {
+    finish(["Cached Mono", "New Mono", 'bad"']);
+    await Promise.resolve();
+  });
+  expect(screen.getByRole("option", { name: "New Mono" })).toBeTruthy();
+  expect(screen.getByRole<HTMLSelectElement>("combobox").value).toBe("Saved Mono");
+  expect(list).toHaveBeenCalledTimes(2);
+  unmount();
+});
+
+test("a failed refresh keeps cached families", async () => {
+  const list = vi.fn((refresh?: boolean) =>
+    refresh ? Promise.reject(new Error("refresh failed")) : Promise.resolve(["Cached Mono"]),
+  );
+  render(
+    <TerminalFontPicker source={source(list)} value={DEFAULT_TERMINAL_FONT} onChange={vi.fn()} />,
+  );
+  await screen.findByRole("option", { name: "Cached Mono" });
+  expect(list).toHaveBeenCalledTimes(2);
+});
+
+test("a late refresh cannot update a replacement picker", async () => {
+  let finish: (fonts: readonly string[]) => void = () => {};
+  const list = vi.fn((refresh?: boolean) =>
+    refresh
+      ? new Promise<readonly string[]>((resolve) => {
+          finish = resolve;
+        })
+      : Promise.resolve(["Cached Mono"]),
+  );
+  const { rerender } = render(
+    <TerminalFontPicker source={source(list)} value={DEFAULT_TERMINAL_FONT} onChange={vi.fn()} />,
+  );
+  await screen.findByRole("option", { name: "Cached Mono" });
+  rerender(
+    <TerminalFontPicker
+      source={source(() => Promise.resolve(["Replacement Mono"]))}
+      value={DEFAULT_TERMINAL_FONT}
+      onChange={vi.fn()}
+    />,
+  );
+  await screen.findByRole("option", { name: "Replacement Mono" });
+  await act(async () => {
+    finish(["Late Mono"]);
+    await Promise.resolve();
+  });
+  expect(screen.queryByRole("option", { name: "Late Mono" })).toBeNull();
 });

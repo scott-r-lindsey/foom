@@ -37,8 +37,9 @@ export function attachSetup(
     [
       "setup:terminal-fonts",
       (...args) => {
-        if (args.length !== 0) throw new Error("Invalid font request");
-        return listTerminalFonts();
+        if (args.length > 1 || (args.length === 1 && typeof args[0] !== "boolean"))
+          throw new Error("Invalid font request");
+        return listTerminalFonts(args[0] === true);
       },
     ],
     ["setup:state", () => setup.state()],

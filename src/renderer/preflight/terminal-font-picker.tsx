@@ -19,10 +19,23 @@ export function TerminalFontPicker({
   const [families, setFamilies] = useState<readonly string[]>([]);
   useEffect(() => {
     let disposed = false;
+    const update = (fonts: readonly string[]) => {
+      if (disposed) return;
+      const next = terminalFontFamilies(fonts);
+      setFamilies((previous) =>
+        previous.length === next.length && previous.every((family, index) => family === next[index])
+          ? previous
+          : next,
+      );
+    };
     void source
       .listTerminalFonts?.()
-      .then((fonts) => {
-        if (!disposed) setFamilies(terminalFontFamilies(fonts));
+      .then(async (fonts) => {
+        update(fonts);
+        if (!disposed) {
+          const refreshed = await source.listTerminalFonts?.(true);
+          if (refreshed) update(refreshed);
+        }
       })
       .catch(() => undefined);
     return () => {

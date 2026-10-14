@@ -177,11 +177,15 @@ test("workspace requests use their own channels", async () => {
 test("setup requests use their own channels and never read a key back", async () => {
   const api = await bridge();
   mock.invoke.mockResolvedValue("reply");
+  await expect(api.listTerminalFonts()).resolves.toBe("reply");
+  await expect(api.listTerminalFonts(true)).resolves.toBe("reply");
   await expect(api.listThemes()).resolves.toBe("reply");
   await api.openThemesFolder("theme");
   await expect(api.setupState()).resolves.toBe("reply");
   await api.saveSetup({ hooks: false });
   expect(mock.invoke.mock.calls).toEqual([
+    ["setup:terminal-fonts", false],
+    ["setup:terminal-fonts", true],
     ["theme:list"],
     ["theme:open-folder", "theme"],
     ["setup:state"],

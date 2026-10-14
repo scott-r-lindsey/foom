@@ -92,7 +92,7 @@ export interface SetupState {
 }
 
 export interface SetupApi {
-  listTerminalFonts(): Promise<readonly string[]>;
+  listTerminalFonts(refresh?: boolean): Promise<readonly string[]>;
   listThemes(): Promise<ThemeCatalog>;
   openThemesFolder(kind: ThemeKind): Promise<void>;
   setupState(): Promise<SetupState>;

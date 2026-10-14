@@ -1821,8 +1821,12 @@ Main enumerates installed monospace families with fixed `execFile` arguments:
 Fontconfig `fc-list` spacing 100 on Linux, AppKit fixed-pitch fonts through a fixed
 JXA script on macOS, and WPF glyph advance widths through a fixed PowerShell script
 on Windows. Commands accept no renderer data, have bounded output and a ten-second
-deadline, and return an empty list on failure. `setup:terminal-fonts` checks the
-trusted top frame and accepts no arguments; preload exposes only the family list.
+deadline. Main caches successful lists for the app session and shares one in-flight
+enumeration. Failures preserve the last successful list (or return an empty list)
+and remain retryable. `setup:terminal-fonts` checks the trusted top frame and accepts
+only an optional boolean refresh flag; preload exposes only the family list.
+Settings reads the cache first, then requests a background refresh and updates changed
+families. Successful enumerations limit refreshes to once every thirty seconds.
 No font permission, sandbox, context isolation or CSP changes are needed.
 
 `terminalFont` defaults to `Hack Nerd Font Mono` and uses the shared config settings

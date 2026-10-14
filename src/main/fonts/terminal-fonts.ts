@@ -40,18 +40,43 @@ export function parseFontOutput(output: string): string[] {
   return terminalFontFamilies(output.split(/\r?\n/));
 }
 
-/** Missing platform tools or enumeration failures leave the bundled default usable. */
-export async function listTerminalFonts(): Promise<readonly string[]> {
+/** Null distinguishes failed enumeration from a successful empty list. */
+async function enumerateTerminalFonts(): Promise<readonly string[] | null> {
   const command = fontCommand(process.platform);
-  if (!command) return [];
+  if (!command) return null;
   return new Promise((resolve) => {
     execFile(
       command[0],
       [...command[1]],
       { encoding: "utf8", timeout: 10000, maxBuffer: 1024 * 1024, windowsHide: true },
       (error, stdout) => {
-        resolve(error ? [] : parseFontOutput(stdout));
+        resolve(error ? null : parseFontOutput(stdout));
       },
     );
   });
+}
+
+const REFRESH_INTERVAL_MS = 30_000;
+let cached: readonly string[] | undefined;
+let refreshedAt = 0;
+let inFlight: Promise<readonly string[]> | undefined;
+
+/** Session cache; refresh callers await new output while ordinary reads stay immediate. */
+export async function listTerminalFonts(refresh = false): Promise<readonly string[]> {
+  if (cached && (!refresh || Date.now() - refreshedAt < REFRESH_INTERVAL_MS)) return cached;
+  if (!inFlight) {
+    inFlight = enumerateTerminalFonts()
+      .then((fonts) => {
+        if (fonts !== null) {
+          cached = fonts;
+          refreshedAt = Date.now();
+        }
+        return cached ?? [];
+      })
+      .catch(() => cached ?? [])
+      .finally(() => {
+        inFlight = undefined;
+      });
+  }
+  return inFlight;
 }
