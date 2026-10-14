@@ -1,4 +1,7 @@
 import { ForgeTracking } from "./control/forge-tracking";
+import { previewBackend } from "./previews/control-backend";
+import type { PreviewBroker } from "./control/previews";
+import { PreviewPlacement } from "./previews/placement";
 import { PreviewHost } from "./previews/host";
 import { PreviewRegistry } from "./previews/registry";
 import { attachPreviews } from "./previews/ipc";
@@ -144,6 +147,8 @@ protocol.registerSchemesAsPrivileged([
 const router = new WindowIpcRouter();
 const views = new TerminalViews();
 const audio = new WindowAudio();
+const previewPlacements = new Map<number, PreviewPlacement>();
+let agentPreviews: PreviewBroker | undefined;
 export const previewHosts = new Map<number, PreviewHost>();
 async function validatePreviewWorktree(path: string): Promise<void> {
   for (const repository of worktrees.listRepositories()) {
@@ -500,7 +505,18 @@ async function buildWindow(savedSize?: Size, saved?: WindowPlacement, initialSes
           () => {
             workspace.refresh();
           },
-        ),
+          previewBackend(previewHosts, previewPlacements, (id) => {
+            const owner = views.owner(id);
+            return (
+              (owner === undefined ? undefined : windows.get(owner)) ??
+              [...windows.values()].find(({ window }) => window.isFocused()) ??
+              windows.values().next().value
+            )?.window.id;
+          }),
+        ).then((runtime) => {
+          agentPreviews = runtime.service.previews;
+          return runtime;
+        }),
       dialog: requestTrusted,
       placeChild: (id, parentId) => {
         const owner = views.owner(parentId);
@@ -554,7 +570,9 @@ async function buildWindow(savedSize?: Size, saved?: WindowPlacement, initialSes
   );
   previewHosts.set(window.id, previewHost);
   await previewHost.restore();
-  const disposePreviews = attachPreviews(ipc, previewHost);
+  const previewPlacement = new PreviewPlacement(window.webContents, ipc);
+  previewPlacements.set(window.id, previewPlacement);
+  const disposePreviews = attachPreviews(ipc, previewHost, (id) => agentPreviews?.humanClose(id));
   const workspaceIpc = attachWorkspace(
     window,
     workspace,
@@ -690,6 +708,8 @@ async function buildWindow(savedSize?: Size, saved?: WindowPlacement, initialSes
   window.once("closed", () => {
     disposePreviews();
     previewHosts.delete(window.id);
+    previewPlacement.dispose();
+    previewPlacements.delete(window.id);
     if (!quitting)
       void previewHost.dispose(false).catch(() => {
         console.warn("Unable to close previews");

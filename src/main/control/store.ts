@@ -1,3 +1,4 @@
+import type { PreviewAudit } from "./previews";
 import { randomUUID } from "node:crypto";
 import type { ActionLogEntry, ActionLogPage } from "../../shared/action-log";
 import { prepareTail } from "../evaluator/terminal-tail";
@@ -65,6 +66,21 @@ export class ControlStore {
         status,
         targetId,
         reason: status === "refused" ? "refused" : "completed",
+      }),
+    );
+  }
+
+  preview(event: PreviewAudit): Promise<void> {
+    return this.serialize(() =>
+      this.append({
+        operationId: randomUUID(),
+        actorId: event.session,
+        action: event.action,
+        targetId: event.preview,
+        path: event.path,
+        session: event.session,
+        status: event.outcome,
+        reason: "completed",
       }),
     );
   }
@@ -266,6 +282,9 @@ function auditEntry(value: unknown): ActionLogEntry {
     resultId: data["resultId"] == null ? null : identity(data["resultId"]),
     status: text(data["status"]),
     reason: text(data["reason"]),
+    ...(data["path"] === undefined
+      ? {}
+      : { path: text(data["path"]), session: identity(data["session"]) }),
     ...(data["proposal"] === undefined ? {} : { proposal: text(data["proposal"]) }),
   };
 }

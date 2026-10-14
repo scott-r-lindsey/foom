@@ -4,6 +4,7 @@ import type { WindowAudioState } from "../../shared/windows";
 import { ActionLog } from "./action-log-view";
 import { TileArea } from "./tile-area";
 import {
+  placeAgentPreview,
   TILE_STORAGE,
   restoreLayout,
   saveLayout,
@@ -147,6 +148,20 @@ export function Board({
       }
     },
     [storageKey, source],
+  );
+  useEffect(
+    () =>
+      source.previews?.onPlace?.((id, expiresAt) => {
+        if (
+          Date.now() >= expiresAt ||
+          !source.previews?.getSnapshot().some((preview) => preview.id === id)
+        )
+          return Promise.resolve("sidebar");
+        const placed = placeAgentPreview(layoutRef.current, id);
+        if (placed.layout !== layoutRef.current) changeLayout(placed.layout);
+        return Promise.resolve(placed.placement);
+      }),
+    [source, changeLayout],
   );
   useEffect(() => {
     if (source.isReady && !source.isReady()) return;

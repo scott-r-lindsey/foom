@@ -708,3 +708,29 @@ test("forwards action log queries and clearing through dedicated capabilities", 
     ["workspace:clear-action-log"],
   ]);
 });
+
+test("preview placement strips the event, acknowledges only the requested ID and disposes", async () => {
+  const api = await bridge();
+  mock.invoke.mockResolvedValue(undefined);
+  const callback = vi.fn(() => Promise.resolve("landing" as const));
+  const off = api.previews?.onPlace?.(callback);
+  const listener = mock.on.mock.calls.find(([channel]) => channel === "preview:place")?.[1];
+  if (!listener || !off) throw new Error("Missing placement bridge");
+  listener({}, "request", "a".repeat(32), 1234);
+  await vi.waitFor(() => {
+    expect(mock.invoke).toHaveBeenCalledWith(
+      "preview:placed",
+      "request",
+      "a".repeat(32),
+      "landing",
+    );
+  });
+  expect(callback).toHaveBeenCalledWith("a".repeat(32), 1234);
+  callback.mockRejectedValueOnce(new Error("renderer"));
+  listener({}, "request2", "b".repeat(32), 1234);
+  await Promise.resolve();
+  await Promise.resolve();
+  expect(mock.invoke).toHaveBeenCalledTimes(1);
+  off();
+  expect(mock.removeListener).toHaveBeenCalledWith("preview:place", listener);
+});

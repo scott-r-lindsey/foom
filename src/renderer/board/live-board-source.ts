@@ -361,7 +361,19 @@ export function createAppSource(): BoardSource {
     isDevelopment: window.desktop.isDevelopment,
     previews: {
       getSnapshot: () => previews,
-      close: () => Promise.reject(new Error("Preview host unavailable")),
+      close: (id) =>
+        window.desktop.previews?.close(id) ?? Promise.reject(new Error("Preview host unavailable")),
+      ...(window.desktop.previews?.onPlace
+        ? {
+            onPlace: (callback) =>
+              window.desktop.previews?.onPlace?.(async (id, expiresAt) => {
+                const inventory = await window.desktop.sidebarInventory();
+                previews = inventory.previews ?? [];
+                publish();
+                return callback(id, expiresAt);
+              }) ?? (() => {}),
+          }
+        : {}),
     },
     connect,
     createView: () => {

@@ -619,3 +619,23 @@ export function placeSession(
 ): TileLayout | null {
   return placeContent(layout, { kind: "terminal", session }, replace, placement);
 }
+
+/** Agent arrivals fill existing space and preserve every view-state choice. */
+export function placeAgentPreview(
+  layout: TileLayout,
+  id: string,
+): { layout: TileLayout; placement: "landing" | "empty" | "sidebar" } {
+  const empty = leaves(layout.tree).filter((tile) => tile.content === null);
+  const target = empty.find((tile) => tile.id === layout.landing) ?? empty[0];
+  if (!target) return { layout, placement: "sidebar" };
+  const fill = (node: TileNode): TileNode =>
+    node.kind === "tile"
+      ? node.id === target.id
+        ? { ...node, content: { kind: "preview", preview: id } }
+        : node
+      : { ...node, first: fill(node.first), second: fill(node.second) };
+  return {
+    layout: { ...layout, tree: fill(layout.tree) },
+    placement: target.id === layout.landing ? "landing" : "empty",
+  };
+}

@@ -31,6 +31,7 @@ export function navigationAllowed(url: string, origin: string): boolean {
 
 /** One host per board window. No page or IPC capability can focus a preview. */
 export class PreviewHost {
+  private readonly tiled = new Set<string>();
   private readonly hosted = new Map<string, HostedPreview>();
   private lastFocused: WebContents;
   private disposed = false;
@@ -84,7 +85,7 @@ export class PreviewHost {
     }
     await this.registry.save();
   }
-  async open(worktree: string, relativePath: string): Promise<string> {
+  async open(worktree: string, relativePath: string, agent?: { id: string }): Promise<string> {
     if (!previewPath(relativePath)) throw new Error("Invalid preview path");
     await this.validateWorktree(worktree);
     if (this.disposed) throw new Error("Preview host closed");
@@ -92,12 +93,21 @@ export class PreviewHost {
     const pathname = `/${relativePath.split("/").map(encodeURIComponent).join("/")}`;
     const file = readInside(root, pathname);
     if (file.status !== 200) throw new Error("Preview file unavailable");
-    const record = this.registry.add(worktree, relativePath);
+    const record = agent
+      ? {
+          id: agent.id,
+          worktree,
+          relativePath,
+          network: false as const,
+          agentOpened: true as const,
+        }
+      : this.registry.add(worktree, relativePath);
+    this.registry.records.set(record.id, record);
     try {
       await this.registry.save();
       if (this.closed() || !this.registry.records.has(record.id))
         throw new Error("Preview host closed");
-      this.create(record, root);
+      if (!agent) this.create(record, root);
     } catch (error) {
       this.registry.records.delete(record.id);
       await this.registry.save();
@@ -303,9 +313,17 @@ export class PreviewHost {
       entry.restoreFocus = false;
     }
   }
+  placed(id: string, visible: boolean): void {
+    if (visible && this.registry.records.has(id)) this.tiled.add(id);
+  }
+  visible(id: string): boolean {
+    return this.tiled.has(id);
+  }
   bounds(id: string, bounds: PreviewBounds): void {
     const record = this.registry.records.get(id);
     if (!record || this.disposed) throw new Error("Unknown preview ID");
+    if (bounds.visible) this.tiled.add(id);
+    if (!bounds.visible && !this.hosted.has(id)) return;
     const entry = this.hosted.get(id) ?? this.create(record, canonicalRoot(record.worktree));
     entry.bounds = bounds;
     if (!bounds.visible && this.lastFocused === entry.view.webContents)
@@ -314,6 +332,7 @@ export class PreviewHost {
   }
   async close(id: string): Promise<void> {
     if (!this.registry.records.delete(id)) throw new Error("Unknown preview ID");
+    this.tiled.delete(id);
     const entry = this.hosted.get(id);
     if (entry) {
       clearTimeout(entry.replacementTimer);
@@ -349,7 +368,9 @@ export class PreviewHost {
     this.window.webContents.removeListener("focus", this.boardFocused);
     this.window.webContents.removeListener("before-input-event", this.boardInput);
     this.window.webContents.removeListener("before-mouse-event", this.boardMouse);
-    const saved = [...this.registry.records.values()];
+    const saved = [...this.registry.records.values()]
+      .filter((record) => !record.agentOpened || this.visible(record.id))
+      .map(({ agentOpened: _agentOpened, ...record }) => record);
     for (const id of [...this.registry.records.keys()]) await this.close(id);
     if (persist) {
       for (const record of saved) this.registry.records.set(record.id, record);

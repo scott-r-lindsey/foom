@@ -1,6 +1,8 @@
 import type { McpConnection, WorkspaceTerminal } from "../../shared/workspace";
 import { rm } from "node:fs/promises";
 import { join } from "node:path";
+import { PreviewBroker } from "./previews";
+import type { PreviewBackend } from "./previews";
 import { ControlService } from "./service";
 import { ControlHttp } from "./http";
 import { Operations } from "./operations";
@@ -24,6 +26,7 @@ export class ControlRuntime {
     orchestration?: Pick<Orchestration, "call">,
     connectionChanged?: (id: string, state: McpConnection | undefined) => void,
     auditChanged?: () => void,
+    previews?: PreviewBackend,
   ): Promise<ControlRuntime> {
     const directory = await privateDirectory(userData);
     const store = new ControlStore(directory, auditChanged);
@@ -40,6 +43,15 @@ export class ControlRuntime {
       orchestration,
       connectionChanged,
       (actor, method, status, target) => store.refused(actor, method, status, target),
+      previews
+        ? new PreviewBroker(
+            previews,
+            (event) => store.preview(event),
+            (actor) => {
+              service.assertActive(actor);
+            },
+          )
+        : undefined,
     );
     const http = await ControlHttp.listen(service, pairing);
     try {
@@ -78,6 +90,9 @@ export class ControlRuntime {
   /** The human's elevate or revoke for a running session; see ControlService.setRole. */
   setRole(terminalId: string, role: "agent" | "orchestrator"): void {
     this.service.setRole(terminalId, role);
+  }
+  takeOver(id: string): void {
+    this.service.takeOver(id);
   }
   async close(): Promise<void> {
     await this.http.close();

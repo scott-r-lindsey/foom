@@ -591,13 +591,38 @@ indeterminate, then retires old-generation deduplication files. It never restore
 authority or replays actions. Mutation handlers, trusted dialog wiring, visibility
 and takeover must ship together in later issues.
 
+### Agent preview view actions (#297)
+
+View actions change only Foom's presentation and need no trusted confirmation.
+`open_preview`, `list_previews` and `close_preview` are listed and granted to
+ordinary agents and orchestrators, never paired `cli` principals, through both
+MCP and `/control/v1`. Main's instance-wide broker resolves documents in the
+principal's launch-bound worktree using the contained-file protocol. Only Markdown
+and HTML documents are allowed; unknown fields and caller-supplied roots are refused.
+
+Ownership follows the grant generation. Canonical-path reuse returns `existing`
+and moves nothing. Exit, takeover and orchestrator revocation hand existing
+previews to the human; worktree removal closes them. Opening fills the landing
+spot, then the first empty tile in tree order, otherwise only a sidebar entry.
+It never adds a column, splits or replaces content, or takes keyboard focus.
+Sidebar entries create no view until shown; they do not restore after quitting.
+Agent attribution and detailed arrival visibility follow in #298.
+
+Limits refuse with `capacity`, never evict: four per agent, twelve per instance,
+and six opens in a burst with one token refilled every ten seconds (reuse costs
+one). A human close makes future opens of that canonical path sidebar-only for
+that generation. Fixed session/action/preview/relative-path/outcome audit metadata
+is written before creation or closure; storage failure refuses the action. Grants
+are rechecked after asynchronous work. View actions have no operation record or
+idempotency key; recover a lost result with `list_previews` or canonical-path reuse.
+
 **Read-only MCP implemented in #153.** `POST /mcp` uses the same authentication,
 body/header/connection limits and service authorization as the versioned endpoint.
 It negotiates MCP 2025-03-26, 2025-06-18 or 2025-11-25, returns JSON responses and
 binds one random protocol session to each live grant generation, so it survives a
 role change. Reinitializing replaces that grant's old protocol session; DELETE terminates it. GET authenticates and
 validates the session before returning 405 (no SSE stream). Revocation is rechecked
-at dispatch. Ordinary agents can call only `whoami`, `sessions` and `session_state`.
+at dispatch. Ordinary agents can call `whoami`, `sessions`, `session_state` and the three preview view actions.
 Because clients fetch tools once (#303), MCP lists the orchestration tools to every
 agent; calls without the role are refused with a message naming `whoami`, here and
 by direct invocation.

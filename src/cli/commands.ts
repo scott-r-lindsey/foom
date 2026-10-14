@@ -5,6 +5,15 @@ export function command(args: readonly string[]): Command {
   if (args.length > 16 || args.some((arg) => Buffer.byteLength(arg) > 16384))
     throw new ControlError("invalid_request");
   const [name, ...words] = args;
+  if (name === "previews" && words.length === 0) return { method: "list_previews", params: {} };
+  if (name === "open-preview" && words.length === 1) {
+    const path = words[0];
+    if (!path || Buffer.byteLength(path) > 1024 || /\p{Cc}/u.test(path))
+      throw new ControlError("invalid_request");
+    return { method: "open_preview", params: { path } };
+  }
+  if (name === "close-preview" && words.length === 1)
+    return { method: "close_preview", params: { previewId: identifier(words[0]) } };
   if (name === "whoami" && words.length === 0) return { method: "whoami", params: {} };
   if (name === "session-state" && words.length === 1)
     return { method: "session_state", params: { id: identifier(words[0]) } };

@@ -30,7 +30,11 @@ export function parseBounds(value: unknown): PreviewBounds {
   return { x, y, width, height, visible };
 }
 /** WindowIpcRouter validates the owning board and its top frame before dispatch. */
-export function attachPreviews(ipc: WindowIpc, host: PreviewHost): () => void {
+export function attachPreviews(
+  ipc: WindowIpc,
+  host: PreviewHost,
+  humanClose: (id: string) => void = () => {},
+): () => void {
   ipc.handle("preview:open", (_event, ...args) => {
     const [worktree, path] = args;
     if (
@@ -47,6 +51,7 @@ export function attachPreviews(ipc: WindowIpc, host: PreviewHost): () => void {
   ipc.handle("preview:close", (_event, ...args) => {
     const [id] = args;
     if (args.length !== 1 || !previewId(id)) throw new Error("Invalid preview ID");
+    humanClose(id);
     return host.close(id);
   });
   ipc.handle("preview:bounds", (_event, ...args) => {

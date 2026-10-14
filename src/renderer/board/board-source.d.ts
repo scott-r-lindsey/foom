@@ -1,3 +1,4 @@
+import type { PreviewApi } from "../../shared/previews";
 import type { PreviewSummary } from "../../shared/workspace";
 import type { ActionLogApi } from "../../shared/action-log";
 import type { GitPanelFacts, HomeShellFacts } from "../../shared/panel";
@@ -36,6 +37,7 @@ export interface BoardSource {
   previews?: {
     getSnapshot(): readonly PreviewSummary[];
     close(id: string): Promise<void>;
+    onPlace?: PreviewApi["onPlace"];
   };
   actionLog?: ActionLogApi;
   windows?: WindowsApi;

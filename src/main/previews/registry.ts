@@ -77,7 +77,9 @@ export class PreviewRegistry {
     return record;
   }
   save(): Promise<void> {
-    const text = JSON.stringify([...this.records.values()]);
+    const text = JSON.stringify(
+      [...this.records.values()].map(({ agentOpened: _agentOpened, ...record }) => record),
+    );
     this.saving = this.saving
       .catch(() => {})
       .then(async () => {

@@ -1,5 +1,7 @@
 /** Credential-free, redacted audit metadata; never terminal output or initial prompts. */
 export interface ActionLogEntry {
+  path?: string;
+  session?: string;
   operationId: string;
   timestamp: string;
   actorId: string;

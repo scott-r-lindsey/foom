@@ -105,3 +105,24 @@ it("parses PR adoption without branch, remote or path parameters", () => {
   ])
     expect(() => command(args)).toThrow("invalid_request");
 });
+
+it("parses agent preview console commands without operation keys", () => {
+  expect(command(["open-preview", "docs/plan.md"])).toEqual({
+    method: "open_preview",
+    params: { path: "docs/plan.md" },
+  });
+  expect(command(["previews"])).toEqual({ method: "list_previews", params: {} });
+  expect(command(["close-preview", "opaque"])).toEqual({
+    method: "close_preview",
+    params: { previewId: "opaque" },
+  });
+  for (const args of [
+    ["open-preview"],
+    ["open-preview", ""],
+    ["open-preview", "a\nb.md"],
+    ["open-preview", "x".repeat(1025)],
+    ["previews", "extra"],
+    ["close-preview", ""],
+  ])
+    expect(() => command(args)).toThrow("invalid_request");
+});

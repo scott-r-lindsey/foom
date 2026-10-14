@@ -42,7 +42,7 @@ const bundle = join(scratch, "control.mjs");
 await build({
   stdin: {
     contents:
-      'export { ControlMcp } from "./src/main/control/mcp"; export { ControlService } from "./src/main/control/service"; export { ControlHttp } from "./src/main/control/http"; export { Operations } from "./src/main/control/operations"; export { prepareMcpLaunch } from "./src/main/agents/mcp-launch";',
+      'export { PreviewBroker } from "./src/main/control/previews"; export { ControlMcp } from "./src/main/control/mcp"; export { ControlService } from "./src/main/control/service"; export { ControlHttp } from "./src/main/control/http"; export { Operations } from "./src/main/control/operations"; export { prepareMcpLaunch } from "./src/main/agents/mcp-launch";',
     resolveDir: process.cwd(),
   },
   bundle: true,
@@ -50,9 +50,8 @@ await build({
   format: "esm",
   outfile: bundle,
 });
-const { ControlMcp, ControlService, ControlHttp, Operations, prepareMcpLaunch } = await import(
-  bundle
-);
+const { PreviewBroker, ControlMcp, ControlService, ControlHttp, Operations, prepareMcpLaunch } =
+  await import(bundle);
 const protocol = [];
 const mcpDispatch = ControlMcp.prototype.dispatch;
 ControlMcp.prototype.dispatch = function (actor, headers, input) {
@@ -60,18 +59,39 @@ ControlMcp.prototype.dispatch = function (actor, headers, input) {
   protocol.push({ actor: actor.terminalId, method: input.method });
   return result;
 };
+await writeFile(join(scratch, "probe.html"), "<h1>Synthetic preview</h1>");
+const previewIds = new Set();
 const service = new ControlService(
   new Operations(
     async () => {},
     () => {},
+  ),
+  undefined,
+  undefined,
+  undefined,
+  undefined,
+  new PreviewBroker(
+    {
+      open: async (_actor, preview) => {
+        previewIds.add(preview.previewId);
+        return "sidebar";
+      },
+      close: async (id) => {
+        previewIds.delete(id);
+      },
+      has: (id) => previewIds.has(id),
+      visible: () => false,
+    },
+    async () => {},
+    (actor) => service.assertActive(actor),
   ),
 );
 const http = await ControlHttp.listen(service);
 const grant = service.prepare(scratch, scratch);
 grant.bind("synthetic");
 let calls = 0;
-const dispatch = service.dispatch.bind(service);
-service.dispatch = (actor, input) => {
+const dispatch = service.call.bind(service);
+service.call = (actor, input) => {
   calls++;
   return dispatch(actor, input);
 };
@@ -93,10 +113,16 @@ const model = createServer(async (req, res) => {
   const event = (type, data) =>
     res.write(`event: ${type}\ndata: ${JSON.stringify({ type, ...data })}\n\n`);
   if (req.url?.includes("messages")) {
+    const completed =
+      body.messages
+        ?.flatMap((m) => (Array.isArray(m.content) ? m.content : []))
+        .filter((c) => c.type === "tool_result").length ?? 0;
+    const name = completed === 0 ? "whoami" : "open_preview";
     const tool = body.tools?.find(
-      (t) => t.name.startsWith("mcp__foom_") && t.name.endsWith("__whoami"),
+      (t) => t.name.startsWith("mcp__foom_") && t.name.endsWith(`__${name}`),
     );
-    const done = body.messages?.some((m) => m.content?.some?.((c) => c.type === "tool_result"));
+    const done = completed >= 2;
+    const argumentsForTool = name === "whoami" ? {} : { path: "probe.html" };
     event("message_start", {
       message: {
         id: "msg_probe",
@@ -112,11 +138,16 @@ const model = createServer(async (req, res) => {
     if (tool && !done) {
       event("content_block_start", {
         index: 0,
-        content_block: { type: "tool_use", id: "tool_probe", name: tool.name, input: {} },
+        content_block: {
+          type: "tool_use",
+          id: `tool_probe_${completed}`,
+          name: tool.name,
+          input: {},
+        },
       });
       event("content_block_delta", {
         index: 0,
-        delta: { type: "input_json_delta", partial_json: "{}" },
+        delta: { type: "input_json_delta", partial_json: JSON.stringify(argumentsForTool) },
       });
     } else {
       event("content_block_start", { index: 0, content_block: { type: "text", text: "" } });
@@ -135,19 +166,23 @@ const model = createServer(async (req, res) => {
     const namespace = body.tools?.find(
       (t) => t.type === "namespace" && t.name.startsWith("mcp__foom_"),
     );
+    const completed =
+      body.input?.filter((item) => item.type === "function_call_output").length ?? 0;
+    const name = completed === 0 ? "whoami" : "open_preview";
     const tool =
-      namespace?.tools.find((t) => t.name === "whoami") ??
-      body.tools?.find((t) => t.name?.endsWith("__whoami"));
-    const done = body.input?.some((item) => item.type === "function_call_output");
+      namespace?.tools.find((t) => t.name === name) ??
+      body.tools?.find((t) => t.name?.endsWith(`__${name}`));
+    const done = completed >= 2;
+    const argumentsForTool = name === "whoami" ? {} : { path: "probe.html" };
     const output =
       tool && !done
         ? {
             type: "function_call",
-            id: "fc_probe",
-            call_id: "call_probe",
+            id: `fc_probe_${completed}`,
+            call_id: `call_probe_${completed}`,
             ...(namespace ? { namespace: namespace.name } : {}),
             name: tool.name,
-            arguments: "{}",
+            arguments: JSON.stringify(argumentsForTool),
             status: "completed",
           }
         : {
@@ -244,11 +279,11 @@ try {
     if (agent === "claude") {
       const config = JSON.parse(await readFile(attachment.args[1], "utf8"));
       args[args.indexOf("--allowedTools") + 1] =
-        `mcp__${Object.keys(config.mcpServers)[0]}__whoami`;
+        `mcp__${Object.keys(config.mcpServers)[0]}__whoami,mcp__${Object.keys(config.mcpServers)[0]}__open_preview`;
     }
     args.push(
       "--",
-      "Task from your Foom orchestrator (another agent, not the user):\n\nRun the Foom whoami tool.",
+      "Task from your Foom orchestrator (another agent, not the user):\n\nRun the Foom whoami tool, then open_preview with path probe.html.",
     );
     const before = calls;
     protocol.length = 0;
@@ -274,6 +309,8 @@ try {
         );
       await phase("authenticated tool call");
       assert(calls > before, `${agent}: no authenticated tool call (${requests} model requests)`);
+      assert(previewIds.size > 0, `${agent}: no preview opened`);
+      previewIds.clear();
       console.log(
         `${agent}: authenticated initialize/list/call and existing-server coexistence passed`,
       );

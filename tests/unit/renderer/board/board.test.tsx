@@ -417,3 +417,68 @@ test("opens the action log from the app command and restores the terminal pane o
   });
   expect(view.queryByRole("heading", { name: "Action log" })).toBeNull();
 });
+
+test("agent placement uses existing space, preserves focus, rejects stale arrivals and unsubscribes", async () => {
+  let arrival:
+    | ((id: string, expiresAt: number) => Promise<"landing" | "empty" | "sidebar">)
+    | undefined;
+  const off = vi.fn();
+  const rows = sampleRows(Date.now());
+  const row = rows[0];
+  if (!row) throw new Error("Missing row");
+  localStorage.setItem(
+    "foom.tiles.v1",
+    JSON.stringify({
+      version: 2,
+      tree: {
+        kind: "split",
+        id: "pair",
+        direction: "horizontal",
+        ratio: 0.5,
+        first: { kind: "tile", id: "terminal", content: { kind: "terminal", session: row.id } },
+        second: { kind: "tile", id: "landing", content: null },
+      },
+      focused: "terminal",
+      landing: "landing",
+      maximized: null,
+    }),
+  );
+  const view = render(
+    <Board
+      source={{
+        ...createSampleSource(rows),
+        previews: {
+          getSnapshot: () => [
+            {
+              id: "preview",
+              relativePath: "plan.md",
+              kind: "markdown",
+              repository: row.repository,
+              worktree: row.worktree ?? "",
+            },
+          ],
+          close: () => Promise.resolve(),
+          onPlace: (callback) => {
+            arrival = callback;
+            return off;
+          },
+        },
+      }}
+    />,
+  );
+  if (!arrival) throw new Error("Missing arrival subscription");
+  await expect(arrival("preview", Date.now())).resolves.toBe("sidebar");
+  await expect(arrival("unknown", Date.now() + 5000)).resolves.toBe("sidebar");
+  await act(async () => {
+    expect(await arrival?.("preview", Date.now() + 5000)).toBe("landing");
+  });
+  expect(document.querySelector('[data-tile="terminal"]')?.getAttribute("data-focused")).toBe(
+    "true",
+  );
+  expect(document.querySelector('[data-tile="landing"]')?.getAttribute("data-kind")).toBe(
+    "preview",
+  );
+  await expect(arrival("preview", Date.now() + 5000)).resolves.toBe("sidebar");
+  view.unmount();
+  expect(off).toHaveBeenCalled();
+});

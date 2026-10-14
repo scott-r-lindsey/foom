@@ -988,3 +988,47 @@ test("activity subscribers receive the final cached zero when views remount", as
   off();
   disconnect?.();
 });
+
+test("live preview arrivals refresh main-owned inventory before asking the board to place", async () => {
+  let listener:
+    | ((id: string, expiresAt: number) => Promise<"landing" | "empty" | "sidebar">)
+    | undefined;
+  const close = vi.fn(() => Promise.resolve());
+  const off = vi.fn();
+  Object.defineProperty(window.desktop, "previews", {
+    configurable: true,
+    value: {
+      close,
+      onPlace: (callback: typeof listener) => {
+        listener = callback;
+        return off;
+      },
+    },
+  });
+  const inventory = vi.spyOn(window.desktop, "sidebarInventory").mockResolvedValue({
+    repositories: [],
+    shell: "bash",
+    previews: [
+      {
+        id: "preview",
+        relativePath: "plan.md",
+        kind: "markdown",
+        repository: "/repo",
+        worktree: "/tree",
+      },
+    ],
+  });
+  const source = createAppSource();
+  const callback = vi.fn(() => Promise.resolve("empty" as const));
+  const dispose = source.previews?.onPlace?.(callback);
+  if (!listener || !dispose) throw new Error("Missing preview arrival");
+  expect(await listener("preview", 1234)).toBe("empty");
+  expect(inventory).toHaveBeenCalled();
+  expect(source.previews?.getSnapshot()).toMatchObject([{ id: "preview" }]);
+  expect(callback).toHaveBeenCalledWith("preview", 1234);
+  await source.previews?.close("preview");
+  expect(close).toHaveBeenCalledWith("preview");
+  dispose();
+  expect(off).toHaveBeenCalled();
+  delete window.desktop.previews;
+});
