@@ -1,9 +1,12 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render } from "@testing-library/react";
+import { act, cleanup, fireEvent, render } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
 import { VolumeControl } from "../../../../src/renderer/sound/volume-control";
 import { DEFAULT_SOUND } from "../../../../src/shared/sounds";
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  vi.useRealTimers();
+});
 test("speaker shapes, mute, retained level and slider release samples", () => {
   const change = vi.fn(),
     sample = vi.fn();
@@ -45,4 +48,54 @@ test("speaker shapes, mute, retained level and slider release samples", () => {
     />,
   );
   expect(view.container.querySelector("path:last-child")?.getAttribute("d")).toContain("l3 3");
+});
+
+test("wheel over speaker and slider accumulates, unmutes, clamps and samples once after settling", () => {
+  vi.useFakeTimers();
+  let settings = { ...DEFAULT_SOUND, muted: true, volume: 0.5 };
+  const sample = vi.fn();
+  const change = vi.fn((next: typeof settings) => {
+    settings = next;
+    view.rerender(<VolumeControl settings={settings} onChange={change} onSample={sample} />);
+  });
+  const view = render(<VolumeControl settings={settings} onChange={change} onSample={sample} />);
+  fireEvent.wheel(view.getByRole("button"), { deltaY: -20 });
+  fireEvent.wheel(view.getByRole("slider"), { deltaY: -29 });
+  expect(change).not.toHaveBeenCalled();
+  fireEvent.wheel(view.getByRole("slider"), { deltaY: -1 });
+  expect(settings).toEqual({ ...DEFAULT_SOUND, volume: 0.55, muted: false });
+  act(() => {
+    vi.advanceTimersByTime(100);
+  });
+  fireEvent.wheel(view.getByRole("button"), { deltaY: -1, deltaMode: 1 });
+  expect(settings.volume).toBe(0.6);
+  act(() => {
+    vi.advanceTimersByTime(100);
+  });
+  fireEvent.wheel(view.getByRole("slider"), { deltaY: -1 });
+  act(() => {
+    vi.advanceTimersByTime(149);
+  });
+  expect(sample).not.toHaveBeenCalled();
+  act(() => {
+    vi.advanceTimersByTime(1);
+  });
+  expect(sample).toHaveBeenCalledExactlyOnceWith(settings);
+  fireEvent.wheel(view.getByRole("slider"), { deltaY: 1, deltaMode: 2 });
+  expect(settings.volume).toBe(0.55);
+  for (let i = 0; i < 25; i++) fireEvent.wheel(view.getByRole("slider"), { deltaY: 50 });
+  expect(settings.volume).toBe(0);
+  for (let i = 0; i < 25; i++) fireEvent.wheel(view.getByRole("button"), { deltaY: -50 });
+  expect(settings.volume).toBe(1);
+  act(() => {
+    vi.advanceTimersByTime(150);
+  });
+  expect(sample).toHaveBeenCalledTimes(2);
+  expect(sample).toHaveBeenLastCalledWith(settings);
+  fireEvent.wheel(view.getByRole("slider"), { deltaY: 50 });
+  view.unmount();
+  act(() => {
+    vi.advanceTimersByTime(150);
+  });
+  expect(sample).toHaveBeenCalledTimes(2);
 });
