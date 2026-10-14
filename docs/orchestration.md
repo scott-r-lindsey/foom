@@ -474,14 +474,20 @@ The provider's branch lookup is reusable by #337. It runs only fixed `gh pr list
 `gh pr view`, `gh pr checks --required` and read-only `gh api graphql` queries
 with execFile argument arrays,
 explicit repository selection, disabled prompts, 10-second command deadlines and
-256 KiB output limits. Initial discovery requires one unambiguous open PR, so a closed PR from an older
+256 KiB output limits. Initial discovery requires one unambiguous open PR with a same-repository head:
+`isCrossRepository` must be false and `headRepositoryOwner.login` must match the
+selected repository owner (case-insensitively), as for PR adoption. Missing ownership
+or a fork head is refused, including on bound lookups and the final recheck. A closed PR from an older
 use of the same branch cannot claim a newly created worktree. The same open lookup
 is reusable by #337. Once
 bound, its number is used to follow OPEN, CLOSED and MERGED states. Output is
 untrusted: main exposes only a positive PR number, a 40-character head SHA, the
 fixed state and `requiredChecks` (`pending`, `success`, `failure`, `none`, `unknown`). Cancelled
 checks count as failure; skipped checks count as success; an empty required-check
-set is `none`. Main rereads the PR head after checks and suppresses a sample if a
+set is `none`. gh's exit-1, empty-stdout diagnostic for no required checks (or
+no checks at all) is recognized only for the required-check command with a validated
+branch name; arbitrary empty output, unsupported flags and other failures still use
+the fallback. Main rereads the PR head after checks and suppresses a sample if a
 push or state change raced it. The forge's required checks, including Quality gate
 when configured as required, determine the conclusion; optional checks do not.
 
@@ -496,7 +502,8 @@ checks as failure, and unfinished checks as pending. The queried commit must mat
 the sampled head. No branch-protection write or additional admin permission is needed.
 
 The fallback bounds its rollup to 100 contexts and refuses a partial page rather
-than guessing from incomplete data. Missing rollups, invalid/unknown states,
+than guessing from incomplete data. A null status rollup on the verified head commit, an empty complete context page,
+or only optional contexts yields `none`. Missing rollup fields, invalid/unknown states,
 GraphQL errors, denied/rate-limited calls and malformed check JSON yield `unknown`.
 This contract addition is persisted and exposed like the other conclusions;
 `unknown` is neither success nor proof that no checks are required. A verified PR
@@ -504,7 +511,13 @@ with unknown checks refreshes at the normal 30-second interval and changes sessi
 revisions when its conclusion recovers. The final PR head/state recheck is required
 for every conclusion, including `unknown`. Newer gh versions keep the existing
 `pr checks --required --json bucket` path. No minimum-version upgrade is needed
-for the tested 2.45.0 fallback.
+for the tested 2.45.0 fallback. Read-only verification for #366 on 2026-10-13:
+`/usr/bin/gh` 2.45.0 rejects `--json` and PR #1 in this repository returns exit 1,
+empty stdout and `no required checks reported` with `--required`. The
+[current manual](https://cli.github.com/manual/gh_pr_checks) documents the newer
+JSON buckets and pending exit code; the
+[current implementation](https://github.com/cli/cli/blob/trunk/pkg/cmd/pr/checks/checks.go)
+returns the no-check diagnostic before JSON export.
 
 `sessions`, `session_state` and `wait_for` include an optional `pullRequest` object.
 Its validated fields participate in the session revision, so `wait_for` wakes on

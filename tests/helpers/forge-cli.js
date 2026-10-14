@@ -21,12 +21,19 @@ if (args[0] === "api") {
 }
 if (args[0] !== "pr" || !["list", "view", "checks"].includes(args[1])) process.exit(2);
 if (!args.includes("--repo") || !args.includes("--json")) process.exit(2);
-const pr = { number: 340, headRefOid: "a".repeat(40), headRefName: "child-one", state: "OPEN", headRepositoryOwner: { login: "o" }, isCrossRepository: false, ...fixture.pr };
+// Default fixtures represent a head in the explicitly selected repository.
+const owner = args[args.indexOf("--repo") + 1].split("/").at(-2);
+const pr = { number: 340, headRefOid: "a".repeat(40), headRefName: "child-one", state: "OPEN", headRepositoryOwner: { login: owner }, isCrossRepository: false, ...fixture.pr };
 if (args[1] === "list") process.stdout.write(JSON.stringify(fixture.absent ? [] : [pr]));
 if (args[1] === "view") process.stdout.write(JSON.stringify(args.at(-1) === "id" ? { id: "PR_test" } : pr));
 if (args[1] === "checks") {
   if (fixture.oldGh) { process.stderr.write("unknown flag: --json"); process.exit(1); }
   if (!args.includes("--required")) process.exit(2);
+  if (fixture.checksError) {
+    process.stdout.write(fixture.stdout ?? "");
+    process.stderr.write(fixture.checksError);
+    process.exit(fixture.exitCode ?? 1);
+  }
   process.stdout.write(JSON.stringify(fixture.checks ?? [{ bucket: "pending" }]));
   process.exit(fixture.exitCode ?? 0);
 }

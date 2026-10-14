@@ -3,7 +3,7 @@ import { promisify } from "node:util";
 import type { ForgeProvider, PullRequest } from "./forge.d";
 
 const execute = promisify(execFile);
-const FIELDS = "number,headRefOid,headRefName,state";
+const FIELDS = "number,headRefOid,headRefName,state,headRepositoryOwner,isCrossRepository";
 export type ForgeRunner = (args: readonly string[]) => Promise<string>;
 
 /** Fail closed without surfacing CLI diagnostics (which can contain credentials). */
@@ -17,6 +17,24 @@ const run: ForgeRunner = async (args) => {
     });
     return result.stdout;
   } catch (error) {
+    // gh reports an empty required set before its JSON exporter runs.
+    if (
+      args[0] === "pr" &&
+      args[1] === "checks" &&
+      args.includes("--required") &&
+      error instanceof Error &&
+      "code" in error &&
+      error.code === 1 &&
+      "stdout" in error &&
+      error.stdout === "" &&
+      "stderr" in error &&
+      typeof error.stderr === "string"
+    ) {
+      const match = /^no (?:required )?checks reported on the '(.+)' branch\r?\n?$/u.exec(
+        error.stderr,
+      );
+      if (forgeBranch(match?.[1])) return "[]";
+    }
     // `pr checks` exits 1 for failed checks and 8 for pending checks, with valid JSON.
     if (
       error instanceof Error &&
@@ -51,6 +69,15 @@ function record(value: unknown): Record<string, unknown> | undefined {
   return typeof value === "object" && value !== null && !Array.isArray(value)
     ? Object.fromEntries(Object.entries(value))
     : undefined;
+}
+
+function sameRepository(data: Record<string, unknown>, selected: string): boolean {
+  const owner = record(data["headRepositoryOwner"])?.["login"];
+  return (
+    data["isCrossRepository"] === false &&
+    typeof owner === "string" &&
+    owner.toLowerCase() === selected.split("/")[0]?.toLowerCase()
+  );
 }
 
 /** Whitelist persisted and public metadata as well as network output. */
@@ -153,9 +180,7 @@ export function forgeProvider(
         return {
           branch: data["headRefName"],
           state,
-          sameRepository:
-            !data["isCrossRepository"] &&
-            owner.toLowerCase() === selected.split("/")[0]?.toLowerCase(),
+          sameRepository: sameRepository(data, selected),
         };
       } catch {
         return undefined;
@@ -197,6 +222,7 @@ export function forgeProvider(
         );
         if (
           !data ||
+          !sameRepository(data, selected) ||
           data["headRefName"] !== branch ||
           (number !== undefined && data["number"] !== number)
         )
@@ -225,6 +251,7 @@ export function forgeProvider(
         const head = record(verified);
         if (
           !head ||
+          !sameRepository(head, selected) ||
           head["headRefOid"] !== candidate.headSha ||
           head["headRefName"] !== branch ||
           head["number"] !== candidate.number ||
@@ -321,11 +348,13 @@ export function rollupChecks(value: unknown, headSha: string): PullRequest["requ
   if (node?.["headRefOid"] !== headSha || !Array.isArray(commits) || commits.length !== 1)
     return "unknown";
   const commit = record(record(commits[0])?.["commit"]);
-  const contexts = record(record(commit?.["statusCheckRollup"])?.["contexts"]);
+  if (commit?.["oid"] !== headSha) return "unknown";
+  // GitHub returns null when the verified head commit has no check contexts.
+  if (commit["statusCheckRollup"] === null) return "none";
+  const contexts = record(record(commit["statusCheckRollup"])?.["contexts"]);
   const nodes = contexts?.["nodes"];
   // Refuse partial pages: optional checks must never obscure a required failure.
   if (
-    commit?.["oid"] !== headSha ||
     record(contexts?.["pageInfo"])?.["hasNextPage"] !== false ||
     !Array.isArray(nodes) ||
     nodes.length > 100

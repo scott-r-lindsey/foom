@@ -652,7 +652,6 @@ export class WorktreeService {
     { branch: string | null; time: number; failed: boolean; head: string | null }
   >();
 
-  /** Authorize even cache hits. Opening a panel never starts or awaits a network fetch. */
   /** Local remote metadata only; no fetch or credential lookup. */
   async forgeRemote(repository: string): Promise<string | undefined> {
     const remote = pickRemote(await git(repository, ["remote"]));
@@ -660,6 +659,7 @@ export class WorktreeService {
     return (await git(repository, ["config", "--get", `remote.${remote}.url`])).trim();
   }
 
+  /** Authorize even cache hits. Opening a panel never starts or awaits a network fetch. */
   async panelFacts(repository: string, worktree: string): Promise<GitPanelFacts> {
     const identity = await this.launchIdentity(repository, worktree);
     const key = `${repository}\0${worktree}`;
