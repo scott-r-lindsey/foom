@@ -13,7 +13,12 @@ export class TrustedDialog {
   private window: BrowserWindow | undefined;
   private ready: Promise<void> | undefined;
   private pending:
-    | { id: string; request: DialogRequest; resolve: (answer: boolean) => void }
+    | {
+        id: string;
+        request: DialogRequest;
+        resolve: (answer: boolean) => void;
+        activate: boolean;
+      }
     | undefined;
   private feed: DialogContent["feed"];
   private removalFeed: DialogContent["removalFeed"];
@@ -177,7 +182,15 @@ export class TrustedDialog {
       this.window = undefined;
     });
   }
-  request(content: DialogContent, signal?: AbortSignal): Promise<boolean> {
+  /**
+   * `activate` is only for confirmations a person started in Foom (quit, Settings).
+   * Agent, CLI and preview requests never bring Foom in front of another app.
+   */
+  request(
+    content: DialogContent,
+    signal?: AbortSignal,
+    { activate = false }: { activate?: boolean } = {},
+  ): Promise<boolean> {
     if (content.removal)
       return this.removals.request(content.removal.group, content.removal.item, signal);
     const result = this.queue.then(async () => {
@@ -204,7 +217,7 @@ export class TrustedDialog {
       };
       this.size = undefined;
       const answer = new Promise<boolean>((resolve) => {
-        this.pending = { id, request, resolve };
+        this.pending = { id, request, resolve, activate };
       });
       this.unsubscribe = feed?.subscribe(() => {
         if (this.pending?.id !== id) return;
@@ -317,8 +330,8 @@ export class TrustedDialog {
       window.setParentWindow(this.parent);
       this.syncBounds();
       // On macOS, window.focus() cannot activate an app behind another app.
-      // Only steal activation while a measured trusted request needs an answer.
-      if (this.platform === "darwin") app.focus({ steal: true });
+      // Only steal activation for a measured request a person started.
+      if (this.platform === "darwin" && this.pending.activate) app.focus({ steal: true });
       window.show();
       // Some window managers place a child when mapping it. Reapply after show.
       this.syncBounds();
