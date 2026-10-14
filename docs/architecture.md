@@ -713,7 +713,11 @@ sends no terminal content. The CLI contacts GitHub with repository and branch/PR
 identifiers to read PR and CI metadata. Unknown remotes and missing, logged-out or
 unavailable CLIs leave these fields absent. Validated PR number, head SHA, state
 and required-check conclusion appear in session metadata, and `wait_for` wakes on
-conclusion changes. The mapping survives restart and a new orchestrator generation,
+conclusion changes. gh 2.45.0 uses a read-only GraphQL fallback when
+`pr checks --json` fails. Unavailable, malformed or incomplete check results retain
+verified PR fields with `requiredChecks: "unknown"`; this is never a successful
+conclusion or evidence of an empty required set. Every conclusion retains the PR
+head/state recheck. The mapping survives restart and a new orchestrator generation,
 without transferring authority over old children. Successful reads recur every
 30 seconds; unavailable results back off from 60 seconds to at most 10 minutes.
 Polling is serial with at least a second between worktrees and stops on shutdown.

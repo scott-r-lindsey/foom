@@ -2,7 +2,7 @@ export interface PullRequest {
   number: number;
   headSha: string;
   state: "OPEN" | "CLOSED" | "MERGED";
-  requiredChecks: "pending" | "success" | "failure" | "none";
+  requiredChecks: "pending" | "success" | "failure" | "none" | "unknown";
 }
 export interface AdoptionHead {
   branch: string;

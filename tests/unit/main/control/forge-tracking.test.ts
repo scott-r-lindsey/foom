@@ -276,6 +276,35 @@ it("changes metadata revision on PR conclusion while narrowing untrusted fields"
   );
   expect(hostile.read(actor, "session_state", { id: "child" })).not.toHaveProperty("pullRequest");
 });
+
+it("persists unknown check conclusions, refreshes normally and publishes recovery", async () => {
+  const h = harness();
+  const unknown: PullRequest = { ...pending, requiredChecks: "unknown" };
+  h.result(unknown);
+  h.tracker.track(tree);
+  await h.tracker.poll();
+  expect(h.tracker.read(tree.repository, tree.path)).toEqual(unknown);
+  h.advance(29999);
+  await h.tracker.poll();
+  expect(h.lookup).toHaveBeenCalledTimes(1);
+  h.advance(1);
+  await h.tracker.poll();
+  expect(h.lookup).toHaveBeenCalledTimes(2);
+  expect(h.changed).toHaveBeenCalledTimes(1);
+  await h.tracker.close();
+  const next = harness();
+  next.result(unknown);
+  await next.tracker.load();
+  expect(next.tracker.read(tree.repository, tree.path)).toBeUndefined();
+  await next.tracker.poll();
+  expect(next.lookup).toHaveBeenCalledWith(tree.branch, pending.number);
+  expect(next.tracker.read(tree.repository, tree.path)).toEqual(unknown);
+  next.advance(30000);
+  next.result({ ...pending, requiredChecks: "success" });
+  await next.tracker.poll();
+  expect(next.changed).toHaveBeenCalledTimes(2);
+  expect(next.tracker.read(tree.repository, tree.path)?.requiredChecks).toBe("success");
+});
 it("binds an adopted checkout to its requested PR, including before the first successful poll", async () => {
   const h = harness();
   h.result(undefined);
