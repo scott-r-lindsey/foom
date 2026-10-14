@@ -106,7 +106,7 @@ export function attachPreviewComposition(api: PreviewApi): () => void {
       moving ||
       Boolean(
         document.querySelector(
-          '.row-menu, .wordmark-menu[aria-expanded="true"], .board-confirmation-scrim, dialog[open], .board-home[data-dragging="true"], .tile-gutter[data-dragging="true"], .board-home[data-preview-covered="true"]',
+          '.row-menu, .wordmark-menu[aria-expanded="true"], .board-confirmation-scrim, dialog[open], .board-home[data-dragging="true"], .board-home[data-preview-covered="true"]',
         ),
       );
     if (next !== covered) {
