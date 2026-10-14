@@ -435,6 +435,8 @@ export function TileArea({
   }>();
   const preview = lastPreview?.drag === drag ? lastPreview : undefined;
   const geometry = rectangles(layout.tree);
+  const placing =
+    preview && !geometry.tiles.find(({ tile }) => tile.id === preview.tile)?.tile.content;
   const targetAt = (event: DragEvent<HTMLDivElement>) => {
     if (
       !drag ||
@@ -494,7 +496,7 @@ export function TileArea({
       <span className="visually-hidden" role="status">
         {drag
           ? preview
-            ? `Drop ${preview.zone === "center" ? (drag.kind === "tile" ? "to swap" : "to replace session") : `to split ${preview.zone}`} on tile ${String(geometry.tiles.findIndex(({ tile }) => tile.id === preview.tile) + 1)}. Escape cancels.`
+            ? `Drop ${preview.zone === "center" ? (placing ? "to place here" : drag.kind === "tile" ? "to swap" : "to replace session") : `to split ${preview.zone}`} on tile ${String(geometry.tiles.findIndex(({ tile }) => tile.id === preview.tile) + 1)}. Escape cancels.`
             : "Drag to a tile center to replace or swap, or an edge to split. Escape cancels."
           : ""}
       </span>
@@ -521,9 +523,11 @@ export function TileArea({
           )}
         >
           {preview.zone === "center"
-            ? drag.kind === "tile"
-              ? "Swap tiles"
-              : "Replace session"
+            ? placing
+              ? "Place here"
+              : drag.kind === "tile"
+                ? "Swap tiles"
+                : "Replace session"
             : `Split ${preview.zone}`}
         </div>
       )}

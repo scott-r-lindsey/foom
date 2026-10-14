@@ -6268,6 +6268,46 @@ test("tile drag drops replace, split every edge, swap and move without reattachm
   };
   const saved = () =>
     page.evaluate(() => localStorage.getItem(`foom.tiles.v1.${window.desktop.windows.id}`));
+  for (const theme of ["light", "dark"]) {
+    await page.emulateMedia({ colorScheme: theme, reducedMotion: "reduce" });
+    await page.getByRole("button", { name: "Tile 1 menu" }).click();
+    await page.getByRole("menuitem", { name: "Split right", exact: true }).click();
+    await page.getByRole("button", { name: "Tile 1 menu" }).click();
+    await page.getByRole("menuitem", { name: "Split down", exact: true }).click();
+    const landing = page.locator('.terminal-tile[data-landing="true"]');
+    const other = page.locator('.terminal-tile[data-empty="true"][data-landing="false"]');
+    const appearance = (element) => {
+      const style = getComputedStyle(element);
+      return [style.backgroundColor, style.borderColor, style.borderStyle];
+    };
+    await expect(landing).toHaveCount(1);
+    await expect(other).toHaveCount(1);
+    assert.deepEqual(await landing.evaluate(appearance), await other.evaluate(appearance));
+    await expect(landing).toHaveCSS("border-top-style", "dashed");
+    await expect(page.locator(".tile-drop-preview")).toHaveCount(0);
+    for (const source of [rows.nth(1), tiles.first().locator(".tile-title")]) {
+      const before = await saved();
+      const from = await source.boundingBox(),
+        to = await landing.boundingBox();
+      assert.ok(from && to);
+      await page.mouse.move(from.x + 10, from.y + from.height / 2);
+      await page.mouse.down();
+      await page.mouse.move(to.x + to.width / 2, to.y + to.height / 2, { steps: 12 });
+      const preview = page.locator(".tile-drop-preview");
+      await expect(preview).toBeVisible();
+      await expect(preview).toHaveText("Place here");
+      await expect(preview).toHaveCSS("border-top-style", "dashed");
+      await expect(page.locator('.tile-area > [role="status"]')).toContainText(
+        "Drop to place here",
+      );
+      await page.keyboard.press("Escape");
+      await page.mouse.up();
+      await expect(preview).toHaveCount(0);
+      assert.equal(await saved(), before);
+      assert.deepEqual(await landing.evaluate(appearance), await other.evaluate(appearance));
+    }
+    await page.getByRole("button", { name: "One", exact: true }).click();
+  }
   const initial = await saved();
   await drag(rows.nth(1), tiles.first(), 0.5, 0.5, true);
   assert.equal(await saved(), initial);
