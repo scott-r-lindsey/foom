@@ -18,6 +18,7 @@ const { spawn, execFile, execFileSync } = require("node:child_process");
 const { chromium } = require("@playwright/test");
 const { deadline, expect } = require("./test-policy.js");
 const { auditProcesses } = require("./process-audit.js");
+const { isolatedEnvironment, isolatedLoginProfiles } = require("./agent-isolation.js");
 const { getCurrentFuseWire, FuseV1Options } = require("@electron/fuses");
 
 test("packaged utility host runs native PTYs with RunAsNode disabled", {
@@ -118,9 +119,13 @@ test("packaged utility host runs native PTYs with RunAsNode disabled", {
     path.join(profile, "worktrees.json"),
     JSON.stringify({ version: 1, repositories: [repository], managed: [] }),
   );
+  Object.assign(env, await isolatedEnvironment(profile));
+  await isolatedLoginProfiles(profile, env.PATH);
+  env.ZDOTDIR = profile;
   env.HOME = profile;
   env.USERPROFILE = profile;
   const audit = await auditProcesses(context);
+  audit.forbidAgentsOutside(new Set([profile]));
   context.after(() => audit.finish());
   // Match Playwright's development launcher on macOS: this disposable smoke
   // profile stores no credentials and must not open an interactive Keychain dialog.

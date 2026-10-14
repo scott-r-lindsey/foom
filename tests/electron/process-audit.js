@@ -1,9 +1,11 @@
+const path = require("node:path");
 const assert = require("node:assert/strict");
 const { execFile } = require("node:child_process");
 const { promisify } = require("node:util");
 const { setTimeout: delay } = require("node:timers/promises");
 const { deadline } = require("./test-policy.js");
 const run = promisify(execFile);
+const { assertFixtureAgent } = require("./agent-isolation.js");
 
 async function snapshot() {
   if (process.platform === "win32") {
@@ -22,6 +24,7 @@ async function snapshot() {
       parent: entry.ParentProcessId,
       name: entry.Name,
       start: entry.CreationDate,
+      command: entry.CommandLine ?? "",
       host: /node.mojom.NodeService/.test(entry.CommandLine ?? ""),
     }));
   }
@@ -39,6 +42,7 @@ async function snapshot() {
         parent: Number(fields[1]),
         start: fields.slice(2, 7).join(" "),
         name: fields[7],
+        command: fields.slice(8).join(" "),
         host: /node.mojom.NodeService/.test(fields.slice(8).join(" ")),
       };
     });
@@ -78,13 +82,29 @@ async function auditProcesses(context) {
   context.diagnostic(`process counts before: ${JSON.stringify(counts)}`);
   let stopped = false;
   let failure;
+  let fixtureDirectories;
+  const forbidden = new Set();
   const capture = async () => {
     const rows = await snapshot();
     const liveRoots = [...roots].filter((pid) => {
       const previous = tracked.get(pid);
       return !previous || rows.some((row) => row.pid === pid && row.start === previous.start);
     });
-    for (const row of descendants(rows, liveRoots, baseline)) tracked.set(row.pid, row);
+    for (const row of descendants(rows, liveRoots, baseline)) {
+      tracked.set(row.pid, row);
+      if (!fixtureDirectories) continue;
+      // Include script argv as well as comm: fake and npm CLIs may run as Node.
+      const candidates = row.command.match(/"[^"\n]+"|[^\s]+/g) ?? [];
+      for (const candidate of candidates) {
+        const file = candidate.replace(/^"|"$/g, "");
+        if (!path.isAbsolute(file)) continue;
+        try {
+          assertFixtureAgent(file, [...fixtureDirectories]);
+        } catch (error) {
+          forbidden.add(error.message);
+        }
+      }
+    }
   };
   const polling = (async () => {
     while (!stopped) {
@@ -95,6 +115,9 @@ async function auditProcesses(context) {
     failure = error;
   });
   return {
+    forbidAgentsOutside(directories) {
+      fixtureDirectories = directories;
+    },
     add(pid) {
       tracked.delete(pid); // A later launch in the same test may reuse an exited app PID.
       roots.add(pid);
@@ -113,6 +136,7 @@ async function auditProcesses(context) {
       } while (Date.now() < until);
       context.diagnostic(`processes after: ${JSON.stringify(survivors)}`);
       assert.deepEqual(survivors, [], "Test left app, utility-host or shell processes alive");
+      assert.deepEqual([...forbidden], [], "Test started an agent outside its fixtures");
     },
   };
 }
