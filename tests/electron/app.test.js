@@ -1203,8 +1203,8 @@ test("bundled brand fonts and both system themes render in Electron", {
 }, async (context) => {
   const app = await launchApp(context);
   const page = await boardPage(app);
-  // This can be a shard's first native window on a cold display. As in the
-  // interactive-shell test, activate the board before relying on renderer frames.
+  // This can be a shard's first native window on a cold display. Activate the
+  // board before checking rendered terminal backgrounds and bundled fonts.
   await app.evaluate(({ BrowserWindow }) => {
     const window = BrowserWindow.getAllWindows().find(
       (window) => window.webContents.getURL() === "app://bundle/index.html",
@@ -1248,67 +1248,86 @@ test("bundled brand fonts and both system themes render in Electron", {
   };
   for (const mode of ["dark", "light", "dark"]) {
     const background = mode === "dark" ? "rgb(5, 4, 10)" : "rgb(243, 240, 250)";
-    // Page media emulation only controls renderer listeners. The host also sends
-    // OSC palettes on attachment and nativeTheme updates, so let that palette
-    // reach xterm before changing the renderer's media preference.
-    await app.evaluate(({ nativeTheme }, theme) => {
-      nativeTheme.themeSource = theme;
-    }, mode);
-    await expect
-      .poll(() => app.evaluate(({ nativeTheme }) => nativeTheme.shouldUseDarkColors))
-      .toBe(mode === "dark");
-    await expect(page.locator(".xterm-scrollable-element")).toHaveCSS(
-      "background-color",
-      background,
-    );
-    // Main can refresh nativeTheme while setup changes settle. Keep the page's
-    // preference explicit, but agree with the host rather than racing its OSCs.
-    await page.emulateMedia({ colorScheme: mode });
-    // Chromium queues MediaQueryList changes as animation-frame events:
-    // third_party/blink/renderer/core/css/media_query_matcher.cc.
-    // Node-side polling/evaluation can observe the new input without advancing
-    // that queue. Request frames until attachInterfaceTheme acknowledges the
-    // applied scheme, then verify the complete rendered palette below.
-    await page.waitForFunction(
-      (mode) => document.documentElement.style.colorScheme === mode,
-      mode,
-      { polling: "raf" },
-    );
-    // A matching media query is input, not acknowledgement from either listener.
-    // Observe both rendered backgrounds and the complete interface palette in one
-    // snapshot before inspecting fonts; separate waits can accept different frames.
-    await expect
-      .poll(() =>
-        page.evaluate(() => {
-          const style = getComputedStyle(document.documentElement);
+    // Use the same setting path as Appearance. It updates nativeTheme/host OSCs
+    // and publishes setup:changed, so attachInterfaceTheme applies immediately.
+    // CDP media emulation queues a separate frame-dependent change event and can
+    // leave the media input and applied palette disagreeing on an idle display.
+    await page.evaluate((colorMode) => window.desktop.saveSetup({ colorMode }), mode);
+    try {
+      // A matching media query is input, not acknowledgement from either listener.
+      // Observe both rendered backgrounds and the complete interface palette in one
+      // snapshot before inspecting fonts; separate waits can accept different frames.
+      await expect
+        .poll(() =>
+          page.evaluate(() => {
+            const style = getComputedStyle(document.documentElement);
+            return {
+              dark: matchMedia("(prefers-color-scheme: dark)").matches,
+              scheme: document.documentElement.style.colorScheme,
+              background: style.backgroundColor,
+              terminalBackground: getComputedStyle(
+                document.querySelector(".xterm-scrollable-element"),
+              ).backgroundColor,
+              tokens: [
+                "bg",
+                "surface",
+                "line",
+                "ink",
+                "muted",
+                "accent",
+                "accent-deep",
+                "attention",
+                "done",
+                "failed",
+                "hole",
+              ].map((name) => style.getPropertyValue(`--${name}`).trim().toUpperCase()),
+            };
+          }),
+        )
+        .toEqual({
+          dark: mode === "dark",
+          scheme: mode,
+          background,
+          terminalBackground: background,
+          tokens: palettes[mode],
+        });
+    } catch (error) {
+      console.error("System theme application diagnostics:", {
+        requested: mode,
+        renderer: await page.evaluate(async (mode) => {
+          const root = document.documentElement;
+          const style = getComputedStyle(root);
+          const { settings } = await window.desktop.setupState();
           return {
-            dark: matchMedia("(prefers-color-scheme: dark)").matches,
+            pendingStep:
+              settings.colorMode !== mode
+                ? "setup persistence"
+                : root.style.colorScheme !== mode
+                  ? "attachInterfaceTheme setup:changed application"
+                  : matchMedia("(prefers-color-scheme: dark)").matches !== (mode === "dark")
+                    ? "nativeTheme media propagation"
+                    : "rendered interface/terminal palette",
+            mediaDark: matchMedia("(prefers-color-scheme: dark)").matches,
+            appliedScheme: root.style.colorScheme,
+            themeReady: root.dataset.themeReady,
             background: style.backgroundColor,
+            tokenBackground: style.getPropertyValue("--bg"),
             terminalBackground: getComputedStyle(
               document.querySelector(".xterm-scrollable-element"),
             ).backgroundColor,
-            tokens: [
-              "bg",
-              "surface",
-              "line",
-              "ink",
-              "muted",
-              "accent",
-              "accent-deep",
-              "attention",
-              "done",
-              "failed",
-              "hole",
-            ].map((name) => style.getPropertyValue(`--${name}`).trim().toUpperCase()),
+            colorMode: settings.colorMode,
+            interfaceTheme: settings.interfaceTheme,
+            visibility: document.visibilityState,
+            focused: document.hasFocus(),
           };
-        }),
-      )
-      .toEqual({
-        dark: mode === "dark",
-        background,
-        terminalBackground: background,
-        tokens: palettes[mode],
+        }, mode),
+        host: await app.evaluate(({ nativeTheme }) => ({
+          source: nativeTheme.themeSource,
+          dark: nativeTheme.shouldUseDarkColors,
+        })),
       });
+      throw error;
+    }
     const rendered = await page.evaluate(async () => {
       const style = getComputedStyle(document.documentElement);
       const families = ["Archivo Black", "Courier Prime", "Geist", "Geist Mono"];
