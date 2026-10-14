@@ -96,7 +96,9 @@ test("isolated installs use argument arrays, omit credentials and clean up", asy
     "--ignore-workspace",
     "--config.node-linker=hoisted",
   ]);
+  assert.ok(calls[0].args.includes("--allow-build=@anthropic-ai/claude-code"));
   assert.ok(calls[0].args.includes("@anthropic-ai/claude-code@1.2.3"));
+  assert.ok(calls[3].args.includes("--allow-build=@openai/codex"));
   assert.ok(calls[3].args.includes("@openai/codex@latest"));
   await assert.rejects(access(root));
 });

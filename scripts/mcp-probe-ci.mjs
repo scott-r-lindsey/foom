@@ -74,6 +74,7 @@ export async function probe(env = process.env, run = execute) {
             "add",
             "--ignore-workspace",
             "--config.node-linker=hoisted",
+            `--allow-build=${pkg}`,
             `${pkg}@${pins[index]}`,
           ],
           { env: childEnv, timeout: 180000, maxBuffer: 1024 * 1024 },
