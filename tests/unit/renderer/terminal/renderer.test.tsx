@@ -1069,6 +1069,20 @@ test("a fresh incarnation of an exited terminal discards its old exit state", as
   controller.dispose();
 });
 
+test("view controls preserve an application's steady cursor until the next snapshot", async () => {
+  const controller = createShell(document.createElement("div"), vi.fn());
+  await waitFor(() => {
+    expect(mock.focus).toHaveBeenCalled();
+  });
+  // DEC mode 12 updates xterm's option, independently of DECSCUSR overrides.
+  mock.options.cursorBlink = false;
+  await controller.open("one");
+  expect(mock.options.cursorBlink).toBe(false);
+  await controller.hide();
+  expect(mock.options.cursorBlink).toBe(false);
+  controller.dispose();
+});
+
 test("exit disables input and hides the cursor across snapshots, reopening and restart", async () => {
   const controller = createShell(document.createElement("div"), vi.fn());
   await waitFor(() => {
