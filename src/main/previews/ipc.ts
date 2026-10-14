@@ -51,6 +51,7 @@ export function attachPreviews(
   ipc.handle("preview:close", (_event, ...args) => {
     const [id] = args;
     if (args.length !== 1 || !previewId(id)) throw new Error("Invalid preview ID");
+    if (!host.registry.records.has(id)) throw new Error("Unknown preview ID");
     humanClose(id);
     return host.close(id);
   });
