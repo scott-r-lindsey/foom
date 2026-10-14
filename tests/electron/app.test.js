@@ -4415,6 +4415,14 @@ test("Settings shares live preflight values, sizes the terminal and restores key
     await expect(close).toHaveCount(1);
     await expect(close).toHaveAttribute("title", "Close settings (Esc)");
     await expect(close).toBeInViewport();
+    if (scale > 100) {
+      const navigation = page.getByRole("navigation", { name: "Settings sections" });
+      assert.equal(
+        await navigation.evaluate((element) => element.scrollHeight > element.clientHeight + 1),
+        false,
+        "Compact Settings sections scroll with the page",
+      );
+    }
     const geometry = await close.evaluate((element) => {
       const box = element.getBoundingClientRect();
       const root = element.closest(".settings-view");
