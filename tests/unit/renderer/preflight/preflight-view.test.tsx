@@ -601,6 +601,11 @@ test("Settings shares setup controls, saves immediately and exposes planned sect
   await waitFor(() => {
     expect(screen.getByLabelText("Claude Code")).toHaveProperty("disabled", false);
   });
+  const closeControl = button("Close settings (Esc)");
+  expect(closeControl.title).toBe("Close settings (Esc)");
+  expect(closeControl.tabIndex).toBe(0);
+  expect(screen.getByRole("region", { name: "Settings" }).firstElementChild).toBe(closeControl);
+  expect(screen.queryByText("Back to terminal · Esc")).toBeNull();
   expect(screen.queryByText("Continue")).toBeNull();
   fireEvent.click(screen.getByLabelText(/Attach Foom's hooks/));
   await waitFor(() => {
@@ -697,6 +702,8 @@ test("Settings rolls back refused repository changes and prevents leaving during
   );
   fireEvent.click(screen.getByRole("checkbox", { name: /app/ }));
   expect(button("Terminal")).toHaveProperty("disabled", true);
+  expect(button("Close settings (Esc)")).toHaveProperty("disabled", true);
+  fireEvent.click(button("Close settings (Esc)"));
   fireEvent.keyDown(screen.getByRole("region", { name: "Settings" }), { key: "Escape" });
   expect(close).not.toHaveBeenCalled();
   await act(async () => {
@@ -713,7 +720,7 @@ test("Settings rolls back refused repository changes and prevents leaving during
   await screen.findByText("Cannot write");
   expect(source.apply).toHaveBeenLastCalledWith(["/home/me/code/app"]);
   expect(screen.getByRole("checkbox", { name: /app/ })).toHaveProperty("checked", false);
-  fireEvent.click(button("Back to terminal · Esc"));
+  fireEvent.click(button("Close settings (Esc)"));
   expect(close).toHaveBeenCalledOnce();
 });
 

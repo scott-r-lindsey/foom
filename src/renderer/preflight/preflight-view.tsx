@@ -566,6 +566,18 @@ export function Preflight({
   if (settingsMode)
     return (
       <section className="settings-view" aria-label="Settings">
+        <button
+          type="button"
+          className="settings-close"
+          aria-label="Close settings (Esc)"
+          title="Close settings (Esc)"
+          disabled={applying}
+          onClick={onClose}
+        >
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <path d="M5 5 19 19M19 5 5 19" stroke="currentColor" strokeWidth="2" />
+          </svg>
+        </button>
         <nav className="settings-sections" aria-label="Settings sections">
           <h2>Settings</h2>
           {SETTINGS_SECTIONS.filter(
@@ -599,9 +611,6 @@ export function Preflight({
                 )}
             </button>
           ))}
-          <button type="button" className="settings-close" disabled={applying} onClick={onClose}>
-            Back to terminal · Esc
-          </button>
         </nav>
         <div className="settings-stage">
           <div className="settings-inner">

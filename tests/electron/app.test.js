@@ -3201,7 +3201,7 @@ test("the board stays usable at 300% in a small window", async (context) => {
   assert.equal(await pageScrolls(), false, "Settings does not widen the page");
   assert.deepEqual(await outside(".settings-view"), []);
   assert.equal(await scrollsWithin(settings), true, "Settings scrolls within itself");
-  await expect(settings.getByRole("button", { name: "Back to terminal · Esc" })).toBeVisible();
+  await expect(settings.getByRole("button", { name: "Close settings (Esc)" })).toBeVisible();
   // Teardown quits through the real confirmation, which must settle at this size.
 });
 
@@ -4396,6 +4396,75 @@ test("Settings shares live preflight values, sizes the terminal and restores key
   await expect(page.getByRole("status").filter({ hasText: "120%" })).toBeVisible();
   await page.keyboard.press("Escape");
   await expect(row).toBeFocused();
+  // The close control stays at the top right in both layouts and scales with zoom.
+  for (const scale of [100, 150, 300]) {
+    await page.evaluate((interfaceScale) => window.desktop.saveSetup({ interfaceScale }), scale);
+    const bounds = await app.evaluate(({ BrowserWindow }, scale) => {
+      const window = BrowserWindow.getAllWindows().find(
+        (window) => window.webContents.getURL() === "app://bundle/index.html",
+      );
+      window.setMinimumSize(1, 1);
+      window.setContentSize(scale === 100 ? 1400 : 1000, 720);
+      return window.getContentBounds();
+    }, scale);
+    await expect
+      .poll(() => page.evaluate(() => window.innerWidth))
+      .toBeCloseTo(bounds.width / (scale / 100), 0);
+    await shortcut();
+    const close = page.getByRole("button", { name: "Close settings (Esc)", exact: true });
+    await expect(close).toHaveCount(1);
+    await expect(close).toHaveAttribute("title", "Close settings (Esc)");
+    await expect(close).toBeInViewport();
+    const geometry = await close.evaluate((element) => {
+      const box = element.getBoundingClientRect();
+      const root = element.closest(".settings-view");
+      const settings = root.getBoundingClientRect();
+      return {
+        width: box.width,
+        height: box.height,
+        top: box.top - settings.top,
+        right: settings.left + root.clientLeft + root.clientWidth - box.right,
+      };
+    });
+    assert.ok(geometry.width >= 32 && geometry.height >= 32);
+    assert.ok(geometry.top >= 0 && geometry.top <= 12);
+    assert.ok(geometry.right >= 0 && geometry.right <= 16);
+    const firstSection = page.getByRole("button", { name: "General", exact: true });
+    await expect(firstSection).toBeEnabled();
+    await firstSection.focus();
+    await expect(firstSection).toBeFocused();
+    await page.keyboard.press("Shift+Tab");
+    await expect(close).toBeFocused();
+    assert.equal(await close.evaluate((element) => element.matches(":focus-visible")), true);
+    const focus = await close.evaluate((element) => {
+      const style = getComputedStyle(element);
+      const ink = getComputedStyle(element.closest(".settings-view")).color;
+      return { color: style.color, ink, outline: style.outlineStyle, width: style.outlineWidth };
+    });
+    assert.equal(focus.color, focus.ink);
+    assert.notEqual(focus.outline, "none");
+    assert.notEqual(focus.width, "0px");
+    await page.keyboard.press("Tab");
+    await expect(firstSection).toBeFocused();
+    await close.hover();
+    await expect(close).toHaveCSS("color", focus.ink);
+    await page.mouse.move(0, 0);
+    assert.notEqual(await close.evaluate((element) => getComputedStyle(element).color), focus.ink);
+    const screenshot = await app.evaluate(async ({ BrowserWindow }) => {
+      const window = BrowserWindow.getAllWindows().find(
+        (window) => window.webContents.getURL() === "app://bundle/index.html",
+      );
+      return (await window.webContents.capturePage()).toPNG().toString("base64");
+    });
+    await writeFile(`test-results/settings-close-${scale}.png`, Buffer.from(screenshot, "base64"));
+    await close.click();
+    await expect(page.getByRole("region", { name: "Settings" })).toBeHidden();
+    await expect(row).toBeFocused();
+    await shortcut();
+    await page.keyboard.press("Escape");
+    await expect(page.getByRole("region", { name: "Settings" })).toBeHidden();
+    await expect(row).toBeFocused();
+  }
   assert.deepEqual(
     await app.evaluate(({ BrowserWindow }) =>
       BrowserWindow.getAllWindows()
@@ -6230,7 +6299,7 @@ test("application menu uses the command registry and supports native keyboard ac
     await page.keyboard.press("Enter");
     await expect(page.getByRole("heading", { name: "Settings", exact: true })).toBeVisible();
     await expect(menu).toHaveCount(0);
-    await page.getByRole("button", { name: "Back to terminal · Esc" }).click();
+    await page.getByRole("button", { name: "Close settings (Esc)" }).click();
   }
   // A disabled agent route does nothing when clicked.
   await trigger.click();
@@ -10052,7 +10121,7 @@ test("version 2 themes scope portaled colors, shape and warnings and hold attent
   await expect(
     page.locator(".config-change").filter({ hasText: "themes/personal.json" }).first(),
   ).toContainText(/Applied · \d+ warnings/);
-  await page.getByRole("button", { name: "Back to terminal · Esc", exact: true }).click();
+  await page.getByRole("button", { name: "Close settings (Esc)", exact: true }).click();
   await expect(page.locator(".tile-title").first()).toHaveCSS("--surface", "#141414");
   await expect(page.locator(".board-row").first()).toHaveCSS("border-radius", "0px");
   await page.getByRole("button", { name: "Actions for Main checkout", exact: true }).press("Enter");
