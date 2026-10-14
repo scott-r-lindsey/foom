@@ -3722,10 +3722,17 @@ process.stdin.resume();
         )
         .toBe(true);
       await expect.poll(() => page.evaluate(() => document.hasFocus())).toBe(true);
-      await page.getByRole("button", { name: "Actions for agent", exact: true }).click();
+      // A pointer leave cancels even while main is still preparing the launch,
+      // before an arm exists. CI recorded click + pointerleave with no arm:
+      // native activation succeeded, but cancellation invalidated that request.
+      // Keep the pointer outside the moving panel and activate its focused item.
+      await page.getByRole("button", { name: "Add repository", exact: true }).hover();
+      await page.getByRole("button", { name: "Actions for agent", exact: true }).press("Enter");
       const panel = page.getByRole("dialog", { name: "agent details and commands" });
       await expect(panel).toHaveAttribute("data-pinned", "true");
       const item = panel.getByRole("menuitem", { name: "Claude Code", exact: true });
+      await item.focus();
+      await expect(item).toBeFocused();
       await item.evaluate((element) => {
         window.sharedAgentTrace = [];
         for (const type of ["click", "blur", "pointerleave"])
@@ -3735,10 +3742,10 @@ process.stdin.resume();
         });
       });
       try {
-        await item.click();
+        await item.press("Enter");
         assert.ok(
           await page.evaluate(() => window.sharedAgentTrace.includes("click")),
-          "Shared-agent click must reach the menu item after native activation",
+          "Shared-agent activation must reach the focused menu item",
         );
         await expect
           .poll(() =>
@@ -3751,6 +3758,8 @@ process.stdin.resume();
           name: "Click again for multiple agents here",
         });
         await expect(armed).toBeVisible();
+        await expect(armed).toHaveAttribute("data-armed", "true");
+        await expect(armed).toBeFocused();
         return armed;
       } catch (error) {
         console.error("Shared-agent confirmation diagnostics:", {
@@ -3781,7 +3790,7 @@ process.stdin.resume();
     const sharedArm = await armSharedAgent();
     // Measure the minimum interval from main's arm, not from the async launch request.
     await page.waitForTimeout(310);
-    await sharedArm.click();
+    await sharedArm.press("Enter");
     await expect
       .poll(async () => (await sharedSessions()).filter((t) => t.kind === "agent").length)
       .toBe(2);
