@@ -95,7 +95,8 @@ test("pending and rejected cards block launch and only request main's trusted re
   const view = render(<AgentsStep {...f.props} />);
   const card = await screen.findByRole("region", { name: "Fixture" });
   expect(within(card).getByRole("switch")).toHaveProperty("disabled", true);
-  expect(within(card).queryByRole("textbox")).toBeNull();
+  expect(within(card).getByRole("textbox")).toBeTruthy();
+  expect(within(card).getAllByText("Approval required")).toHaveLength(3);
   expect(screen.getByText("$.id: invalid")).toBeTruthy();
   expect(f.config.decide).not.toHaveBeenCalled();
   fireEvent.click(within(card).getByRole("button", { name: "Review…" }));
@@ -108,6 +109,24 @@ test("pending and rejected cards block launch and only request main's trusted re
   expect(f.scan).toHaveBeenCalledWith(true);
   act(() => f.update(pending));
   expect(screen.getByRole("region", { name: "Fixture" })).toBeTruthy();
+  act(() =>
+    f.update({
+      ...pending,
+      agentPlugins: [
+        {
+          id: "claude",
+          name: "Invalid shadow",
+          mark: "X",
+          command: "bad",
+          file: "agents/claude.json",
+          state: "rejected",
+        },
+      ],
+    }),
+  );
+  const builtin = screen.getByRole("region", { name: "Claude Code" });
+  expect(within(builtin).getByText("Built-in")).toBeTruthy();
+  expect(within(builtin).getByRole("switch")).toHaveProperty("disabled", false);
   view.unmount();
   expect(f.unsubscribe).toHaveBeenCalledOnce();
 });

@@ -8,13 +8,6 @@
 .preflight-note {
   max-width: 72ch;
 }
-.agent-grid {
-  grid-template-columns: repeat(auto-fill, minmax(min(100%, 290px), 1fr));
-  align-items: stretch;
-}
-.agent-grid .preflight-item {
-  align-content: start;
-}
 .preflight-split {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr));

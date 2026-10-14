@@ -79,9 +79,6 @@
 .settings-controls .preflight-eyebrow {
   display: none;
 }
-.settings-controls .agent-grid {
-  grid-template-columns: repeat(auto-fit, minmax(min(220px, 100%), 1fr));
-}
 .settings-controls .preflight-split {
   grid-template-columns: repeat(auto-fit, minmax(min(240px, 100%), 1fr));
 }
@@ -299,31 +296,6 @@
   font-size: 12px;
 }
 
-.agent-defaults {
-  margin-top: 28px;
-  display: grid;
-  gap: 14px;
-}
-.agent-defaults p {
-  color: var(--muted);
-}
-.agent-defaults label {
-  display: grid;
-  gap: 8px;
-}
-.agent-defaults textarea {
-  width: 100%;
-  resize: vertical;
-  padding: 10px;
-  color: var(--ink);
-  background: var(--bg);
-  border: var(--shape-border, 1px) solid var(--line);
-  border-radius: var(--shape-radius, 6px);
-  font-family: var(--font-mono);
-}
-.agent-defaults button {
-  justify-self: start;
-}
 .session-bypass {
   color: var(--muted);
   font-size: 10px;

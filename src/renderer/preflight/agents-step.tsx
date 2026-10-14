@@ -56,7 +56,7 @@ export function AgentsStep({
       dispose();
     };
   }, [configSource]);
-  const held = config?.agentPlugins ?? [];
+  const held = (config?.agentPlugins ?? []).filter((plugin) => !builtinAgent(plugin.id));
   const choices = [
     ...agentChoices(report),
     ...held.filter((plugin) => !agentChoices(report).some((agent) => agent.id === plugin.id)),
@@ -219,39 +219,44 @@ export function AgentsStep({
                       ].map(([label, available]) => (
                         <div key={String(label)}>
                           <dt>{label}</dt>
-                          <dd>{available ? "Available" : "Unavailable"}</dd>
+                          <dd>
+                            {blocked
+                              ? "Approval required"
+                              : available
+                                ? "Available"
+                                : "Unavailable"}
+                          </dd>
                         </div>
                       ))}
                     </dl>
                   </div>
-                  {!blocked && (
-                    <>
+                  <>
+                    <div className="agent-setting">
+                      <span className="agent-label">Default arguments</span>
+                      <AgentArguments
+                        id={id}
+                        name={name}
+                        value={state.settings.agentArguments[id] ?? []}
+                        bypass={agent?.bypassArguments ?? []}
+                        save={async (args) => {
+                          await saveArguments(id, args);
+                        }}
+                      />
+                    </div>
+                    {source?.environment && (
                       <div className="agent-setting">
-                        <span className="agent-label">Default arguments</span>
-                        <AgentArguments
-                          id={id}
-                          name={name}
-                          value={state.settings.agentArguments[id] ?? []}
-                          bypass={agent?.bypassArguments ?? []}
-                          save={async (args) => {
-                            await saveArguments(id, args);
-                          }}
-                        />
-                      </div>
-                      {source?.environment && (
-                        <div className="agent-setting">
-                          <span className="agent-label">Environment</span>
-                          <div>
-                            <EnvironmentSettings
-                              source={source.environment}
-                              scope={id}
-                              label={name}
-                            />
-                          </div>
+                        <span className="agent-label">Environment</span>
+                        <div>
+                          <EnvironmentSettings
+                            source={source.environment}
+                            scope={id}
+                            label={name}
+                          />
                         </div>
-                      )}
-                    </>
-                  )}
+                      </div>
+                    )}
+                  </>
+
                   <div className="agent-setting">
                     <span className="agent-label">Plugin source</span>
                     <div className="agent-inline">
