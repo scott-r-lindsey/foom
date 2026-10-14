@@ -9426,15 +9426,43 @@ test("merged cleanup opens checking, continues hidden, reopens progress and stop
       globalThis.cleanupFetchRelease = resolve;
     });
     globalThis.cleanupRemovals = [];
+    globalThis.cleanupOperations = [];
+    const originals = new Map();
+    for (const method of ["removalIdentity", "changes", "mergedCommit"]) {
+      const original = WorktreeService.prototype[method];
+      originals.set(method, original);
+      WorktreeService.prototype[method] = async function (...args) {
+        const entry = { method, branch: args[1]?.branch, started: Date.now() };
+        globalThis.cleanupOperations.push(entry);
+        try {
+          return await original.apply(this, args);
+        } catch (error) {
+          entry.error = error.message;
+          throw error;
+        } finally {
+          entry.elapsed = Date.now() - entry.started;
+        }
+      };
+    }
     globalThis.cleanupRestore = async () => {
+      for (const [method, original] of originals) WorktreeService.prototype[method] = original;
       WorktreeService.prototype.mergedDefault = fetch;
       WorktreeService.prototype.removeWorktree = remove;
       globalThis.cleanupFetchRelease();
       await Promise.allSettled(globalThis.cleanupRemovals.splice(0).map((finish) => finish()));
     };
     WorktreeService.prototype.mergedDefault = async function (...args) {
+      const entry = { method: "mergedDefault", refresh: args[1], started: Date.now() };
+      globalThis.cleanupOperations.push(entry);
       await gate;
-      return fetch.apply(this, args);
+      try {
+        return await fetch.apply(this, args);
+      } catch (error) {
+        entry.error = error.message;
+        throw error;
+      } finally {
+        entry.elapsed = Date.now() - entry.started;
+      }
     };
     WorktreeService.prototype.removeWorktree = function (...args) {
       let release;
@@ -9493,7 +9521,20 @@ test("merged cleanup opens checking, continues hidden, reopens progress and stop
   // Acceptance changes the feed synchronously, before the fetch and removals.
   // Keep a lost click distinct from a blocked service boundary.
   await expect(confirmation.getByRole("button", { name: "Hide", exact: true })).toBeVisible();
-  await expect.poll(() => app.evaluate(() => globalThis.cleanupRemovals.length)).toBe(4);
+  try {
+    await expect.poll(() => app.evaluate(() => globalThis.cleanupRemovals.length)).toBe(4);
+    context.diagnostic(
+      `Cleanup reached four removal gates: ${JSON.stringify(await app.evaluate(() => globalThis.cleanupOperations))}`,
+    );
+  } catch (error) {
+    context.diagnostic(
+      JSON.stringify({
+        cleanup: await confirmation.locator("body").innerText(),
+        operations: await app.evaluate(() => globalThis.cleanupOperations),
+      }),
+    );
+    throw error;
+  }
   await confirmation.getByRole("button", { name: "Hide", exact: true }).click();
   await expect(page.getByText("deleting 0/8", { exact: true })).toBeVisible();
   await app.evaluate(() => globalThis.cleanupRemovals.shift()());
