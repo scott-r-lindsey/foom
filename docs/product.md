@@ -91,6 +91,12 @@ its terminal and focus input, using the placement rules below. Needs you remains
 
 Previews appear beneath their worktree with a document glyph and no light or attention state.
 Their rows show the worktree-relative path and shared tile number; clicking focuses the preview.
+Checkout panels offer **Preview file…**. The file picker starts in that checkout and accepts
+Markdown (`.md`, `.markdown`) and HTML (`.html`, `.htm`). Main validates the selection;
+files outside the checkout, hidden files and unsupported types are refused.
+Opening fills the landing spot, then empty space, and follows human session placement
+when the board is full. Opening keeps focus where it was. Previews and their v2 tile
+content survive restart. Removing a worktree closes its previews and leaves empty space.
 Closing a preview tile closes the preview. Preview inventory and display facts belong to main.
 
 Each row opens a labelled panel to the right of the sidebar, over the tiles.

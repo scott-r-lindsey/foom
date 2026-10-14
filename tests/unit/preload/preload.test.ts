@@ -709,6 +709,21 @@ test("forwards action log queries and clearing through dedicated capabilities", 
   ]);
 });
 
+test("preview picker sends only the inventory worktree ID; bounds and close send preview IDs", async () => {
+  const api = await bridge();
+  mock.invoke.mockResolvedValue("preview");
+  await api.previews?.pick("/checkout");
+  const bounds = { x: 1, y: 2, width: 300, height: 200, visible: true };
+  await api.previews?.bounds("preview", bounds);
+  await api.previews?.close("preview");
+  expect(mock.invoke.mock.calls).toEqual([
+    ["preview:pick", "/checkout"],
+    ["preview:bounds", "preview", bounds],
+    ["preview:close", "preview"],
+  ]);
+  expect(api.previews).not.toHaveProperty("open");
+});
+
 test("preview cover and snapshots expose only validated image pixels and geometry", async () => {
   const api = (await bridge()).previews;
   if (!api) throw new Error("Missing preview API");

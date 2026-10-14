@@ -4578,6 +4578,8 @@ test("sidebar menus escape the scroll area, stay in the window and launch from a
   await launchItem.focus();
   await page.keyboard.press("End");
   await page.keyboard.press("ArrowUp");
+  await expect(page.getByRole("menuitem", { name: "Preview file…", exact: true })).toBeFocused();
+  await page.keyboard.press("ArrowUp");
   await expect(
     page.getByRole("menuitem", { name: "Resume conversation…", exact: true }),
   ).toBeFocused();
@@ -4590,6 +4592,8 @@ test("sidebar menus escape the scroll area, stay in the window and launch from a
 
   await page.keyboard.press("End");
   await expect(page.getByRole("menuitem", { name: "Delete worktree…" })).toBeFocused();
+  await page.keyboard.press("ArrowUp");
+  await expect(page.getByRole("menuitem", { name: "Preview file…", exact: true })).toBeFocused();
   await page.keyboard.press("ArrowUp");
   await expect(
     page.getByRole("menuitem", { name: "Resume conversation…", exact: true }),
@@ -10416,6 +10420,8 @@ test("tile layouts restore v1 terminal content and v2 mixed content after invent
   await app.evaluate(({ ipcMain }, inventory) => {
     ipcMain.removeHandler("workspace:sidebar");
     ipcMain.handle("workspace:sidebar", () => inventory);
+    ipcMain.removeHandler("preview:bounds");
+    ipcMain.handle("preview:bounds", () => {});
   }, inventory);
   await page.evaluate((id) => {
     const leaf = (id, content) => ({ kind: "tile", id, content });
@@ -10466,6 +10472,130 @@ test("tile layouts restore v1 terminal content and v2 mixed content after invent
   }
 });
 
+test("worktree panel previews pick contained Markdown and HTML, persist v2 tiles and close on removal", async (context) => {
+  const root = await realpath(await mkdtemp(path.join(tmpdir(), "foom-panel-previews-")));
+  removeAfterApps(context, root);
+  const repo = path.join(root, "repo");
+  const checkout = path.join(root, "checkout");
+  const profile = path.join(root, "profile");
+  await mkdir(repo);
+  const git = (...args) =>
+    isolatedGit(["-c", "user.name=Test", "-c", "user.email=test@example.com", ...args], {
+      cwd: repo,
+    });
+  git("init", "-q", "-b", "main");
+  await writeFile(path.join(repo, "guide.md"), "# Panel Markdown\n\nLocal preview.\n");
+  await writeFile(path.join(repo, "page.html"), "<!doctype html><h1>Panel HTML</h1>");
+  git("add", ".");
+  git("commit", "-qm", "preview fixtures");
+  git("worktree", "add", "-b", "topic/preview", checkout);
+  const options = {
+    emptyBoard: true,
+    args: [`--user-data-dir=${profile}`],
+    home: path.join(root, "home"),
+  };
+  let app = await launchApp(context, false, options);
+  let page = await boardPage(app);
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await app.evaluate(({ dialog }, repo) => {
+    dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [repo] });
+  }, repo);
+  await page.getByRole("button", { name: "Add repository", exact: true }).click();
+  await expect(
+    page.getByRole("button", { name: "Actions for topic/preview", exact: true }),
+  ).toBeVisible();
+  // A deliberate split establishes the landing spot before the first open.
+  await page.evaluate(() => window.desktop.appMenu.execute("split-right"));
+  const landing = await page.locator('[data-landing="true"]').getAttribute("data-tile");
+  const ids = [];
+  for (const file of ["guide.md", "page.html"]) {
+    await app.evaluate(
+      ({ dialog }, file) => {
+        dialog.showOpenDialog = async (_window, options) => {
+          globalThis.previewPickerOptions = options;
+          return { canceled: false, filePaths: [file] };
+        };
+      },
+      path.join(checkout, file),
+    );
+    await page.getByRole("button", { name: "Actions for topic/preview", exact: true }).click();
+    await page.getByRole("menuitem", { name: "Preview file…", exact: true }).click();
+    const tile = page.locator('.terminal-tile[data-kind="preview"]').filter({ hasText: file });
+    await expect(tile).toBeVisible();
+    if (file === "guide.md") assert.equal(await tile.getAttribute("data-tile"), landing);
+    const inventory = await page.evaluate(() => window.desktop.sidebarInventory());
+    const preview = inventory.previews.find((preview) => preview.relativePath === file);
+    assert.ok(preview);
+    ids.push(preview.id);
+    assert.equal(await app.evaluate(() => globalThis.previewPickerOptions.defaultPath), checkout);
+    await expect.poll(async () => (await previewViewState(app, preview.id)).attached).toBe(true);
+    await expect
+      .poll(() => previewContents(app, preview.id, "document.body.innerText"))
+      .toContain(file === "guide.md" ? "Panel Markdown" : "Panel HTML");
+    assert.equal((await previewViewState(app, preview.id)).focused, false);
+  }
+  const saved = await page.evaluate(() =>
+    JSON.parse(localStorage.getItem(`foom.tiles.v1.${window.desktop.windows.id}`)),
+  );
+  assert.equal(saved.version, 2);
+  assert.equal(JSON.stringify(saved).includes(checkout), false);
+  for (const id of ids) assert.ok(JSON.stringify(saved).includes(id));
+  await writeFile(path.join(checkout, ".hidden.html"), "hidden");
+  await writeFile(path.join(checkout, "unsupported.txt"), "unsupported");
+  await writeFile(path.join(root, "outside.html"), "outside");
+  for (const file of [
+    path.join(root, "outside.html"),
+    path.join(checkout, ".hidden.html"),
+    path.join(checkout, "unsupported.txt"),
+  ]) {
+    await app.evaluate(({ dialog }, file) => {
+      dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [file] });
+    }, file);
+    await page.getByRole("button", { name: "Actions for topic/preview", exact: true }).click();
+    await page.getByRole("menuitem", { name: "Preview file…", exact: true }).click();
+    await expect(page.getByRole("alert")).toBeVisible();
+    await expect(page.locator('.terminal-tile[data-kind="preview"]')).toHaveCount(2);
+  }
+  await app.evaluate(({ dialog }) => {
+    dialog.showOpenDialog = async () => ({ canceled: true, filePaths: [] });
+  });
+  await page.getByRole("button", { name: "Actions for topic/preview", exact: true }).click();
+  await page.getByRole("menuitem", { name: "Preview file…", exact: true }).click();
+  await expect(page.getByRole("alert")).toHaveCount(0);
+  await quitAndWait(app, () => app.evaluate(({ app }) => app.quit()));
+  app = await launchApp(context, false, options);
+  page = await boardPage(app);
+  await expect(page.locator('.terminal-tile[data-kind="preview"]')).toHaveCount(2);
+  for (const id of ids)
+    await expect.poll(async () => (await previewViewState(app, id)).attached).toBe(true);
+  git("worktree", "remove", "--force", checkout);
+  await expect(page.locator(".preview-row")).toHaveCount(0);
+  await expect(page.locator('.terminal-tile[data-kind="preview"]')).toHaveCount(0);
+  await expect
+    .poll(
+      async () => (await page.evaluate(() => window.desktop.sidebarInventory())).previews.length,
+    )
+    .toBe(0);
+  assert.equal(
+    await app.evaluate(
+      ({ webContents }) =>
+        webContents
+          .getAllWebContents()
+          .filter((contents) => contents.getURL().startsWith("foom-preview:")).length,
+    ),
+    0,
+  );
+});
+
+async function pickPreviewFile(app, page, root, file) {
+  await app.evaluate(
+    ({ dialog }, file) => {
+      dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [file] });
+    },
+    path.join(root, file),
+  );
+  return page.evaluate((root) => window.desktop.previews.pick(root), root);
+}
 async function previewContents(app, id, code) {
   return app.evaluate(
     ({ webContents }, { id, code }) => {
@@ -10539,7 +10669,7 @@ test("Markdown previews render hostile documents safely, follow native theme and
     path.join(root, "sibling.md"),
     "# Sibling document\n\n```js\nconst answer = 42;\n```\n",
   );
-  const id = await page.evaluate((root) => window.desktop.previews.open(root, "document.md"), root);
+  const id = await pickPreviewFile(app, page, root, "document.md");
   await page.evaluate(
     (id) =>
       window.desktop.previews.bounds(id, {
@@ -10663,7 +10793,7 @@ test("preview host loads and reloads detached, never steals terminal keystrokes,
   await expect
     .poll(() => app.evaluate(({ webContents }) => webContents.getFocusedWebContents()?.getURL()))
     .toBe("app://bundle/index.html");
-  const id = await page.evaluate((root) => window.desktop.previews.open(root, "grabby.html"), root);
+  const id = await pickPreviewFile(app, page, root, "grabby.html");
   await page.evaluate(
     (id) =>
       window.desktop.previews.bounds(id, {
@@ -10779,7 +10909,7 @@ test("preview host keeps keyboard focus after a user-clicked link navigation", a
     });
   });
   await page.locator(".xterm-helper-textarea").focus();
-  const id = await page.evaluate((root) => window.desktop.previews.open(root, "links.html"), root);
+  const id = await pickPreviewFile(app, page, root, "links.html");
   await page.evaluate(
     (id) =>
       window.desktop.previews.bounds(id, {
@@ -10908,10 +11038,7 @@ async function stuckPreviewHandoff(context, cancellation) {
     .toMatch(process.platform === "win32" ? /PS [\s\S]*>/ : /[$#%>]\s*$/);
   await page.locator(".xterm-helper-textarea").focus();
   const before = await page.evaluate((id) => window.desktop.tail(id, 20), terminal.id);
-  const id = await page.evaluate(
-    (root) => window.desktop.previews.open(root, "stuck.html"),
-    terminal.worktree,
-  );
+  const id = await pickPreviewFile(app, page, terminal.worktree, "stuck.html");
   await page.evaluate(
     (id) =>
       window.desktop.previews.bounds(id, {
@@ -11009,14 +11136,8 @@ test("preview host isolates hostile pages, blocks network and navigation, scales
     '<input><script>window.privateValue=localStorage.getItem("private")</script>',
   );
   const baseline = await app.evaluate(({ webContents }) => webContents.getAllWebContents().length);
-  const id = await page.evaluate(
-    (root) => window.desktop.previews.open(root, "hostile.html"),
-    root,
-  );
-  const clean = await page.evaluate(
-    (root) => window.desktop.previews.open(root, "clean.html"),
-    root,
-  );
+  const id = await pickPreviewFile(app, page, root, "hostile.html");
+  const clean = await pickPreviewFile(app, page, root, "clean.html");
   for (const preview of [id, clean]) {
     await page.evaluate(
       (id) =>
@@ -11340,10 +11461,7 @@ async function composedPreview(context, borderWidth = 1) {
     path.join(terminal.worktree, "overlay.html"),
     `<style>html,body{margin:0;background:#123456;height:100%}</style><input style="height:70px;width:90%"><script>window.pointerCount=0;addEventListener('pointerdown',()=>window.pointerCount++);window.keys=[];addEventListener('keydown',e=>window.keys.push(e.key));</script>`,
   );
-  const id = await page.evaluate(
-    (root) => window.desktop.previews.open(root, "overlay.html"),
-    terminal.worktree,
-  );
+  const id = await pickPreviewFile(app, page, terminal.worktree, "overlay.html");
   await page.evaluate(
     ({ id, session }) => {
       localStorage.setItem(
@@ -11545,7 +11663,7 @@ test("preview live reload handles saves, assets, missing files, scroll and close
       });
     });
   }, root);
-  const id = await page.evaluate((root) => window.desktop.previews.open(root, "live.html"), root);
+  const id = await pickPreviewFile(app, page, root, "live.html");
   await page.evaluate(
     (id) =>
       window.desktop.previews.bounds(id, {
@@ -11617,10 +11735,7 @@ test("preview live reload follows retargeted symlinks and junctions", async (con
   }
   const kind = process.platform === "win32" ? "junction" : "dir";
   await symlink(path.join(root, "one"), path.join(root, "alias"), kind);
-  const id = await page.evaluate(
-    (root) => window.desktop.previews.open(root, "alias/index.html"),
-    root,
-  );
+  const id = await pickPreviewFile(app, page, root, "alias/index.html");
   await page.evaluate(
     (id) =>
       window.desktop.previews.bounds(id, {
