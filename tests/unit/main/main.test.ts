@@ -14,9 +14,12 @@ vi.mock("../../../src/main/control/forge-tracking", () => ({
 }));
 const previewMock = vi.hoisted(() => ({
   humanClose: undefined as ((id: string) => void) | undefined,
+  pick: undefined as ((worktree: string) => Promise<string | null>) | undefined,
+  pickFile: vi.fn(async () => "a".repeat(32)),
   hosts: [] as {
     validate: (worktree: string) => Promise<void>;
     changed: () => void;
+    confirm: (content: unknown, signal: AbortSignal) => Promise<boolean>;
     reconcile: () => Promise<void>;
     dispose: () => Promise<void>;
   }[],
@@ -39,10 +42,12 @@ vi.mock("../../../src/main/previews/host", () => ({
       _registry: unknown,
       validate: (worktree: string) => Promise<void>,
       changed: () => void,
+      confirm: (content: unknown, signal: AbortSignal) => Promise<boolean>,
     ) {
       previewMock.hosts.push({
         validate,
         changed,
+        confirm,
         reconcile: this.reconcile,
         dispose: this.dispose,
       });
@@ -50,11 +55,18 @@ vi.mock("../../../src/main/previews/host", () => ({
   },
 }));
 vi.mock("../../../src/main/previews/ipc", () => ({
-  attachPreviews: (_ipc: unknown, _host: unknown, humanClose: (id: string) => void) => {
+  attachPreviews: (
+    _ipc: unknown,
+    _host: unknown,
+    pick: (worktree: string) => Promise<string | null>,
+    humanClose: (id: string) => void,
+  ) => {
+    previewMock.pick = pick;
     previewMock.humanClose = humanClose;
     return () => {};
   },
 }));
+vi.mock("../../../src/main/previews/pick", () => ({ pickPreviewFile: previewMock.pickFile }));
 import type { ThemeCatalog } from "../../../src/shared/theme-file";
 import { interfaceThemes } from "../../../src/shared/interface-themes";
 import { terminalThemes } from "../../../src/shared/terminal-themes";
@@ -1731,6 +1743,17 @@ test("preview hosts validate registered worktrees, notify the board, reconcile a
   mock.window.webContents.send.mockClear();
   host.changed();
   expect(mock.window.webContents.send).not.toHaveBeenCalled();
+  mock.message.mockResolvedValueOnce({ response: 1 });
+  await expect(
+    host.confirm({ title: "Open this link?", accept: "Open" }, new AbortController().signal),
+  ).resolves.toBe(true);
+  await expect(previewMock.pick?.("/tree")).resolves.toBe("a".repeat(32));
+  expect(previewMock.pickFile).toHaveBeenCalledWith(
+    expect.anything(),
+    expect.anything(),
+    expect.any(Function),
+    "/tree",
+  );
   vi.mocked(host.reconcile).mockRejectedValueOnce(new Error("gone"));
   mock.workspace.deps?.onChange?.();
   await vi.waitFor(() => {
