@@ -13,7 +13,7 @@ export interface PreviewBounds {
   height: number;
   visible: boolean;
 }
-export type PreviewPlacement = "landing" | "empty" | "sidebar";
+export type PreviewPlacement = "landing" | "empty" | "column" | "replace" | "existing" | "sidebar";
 export interface PreviewSnapshot {
   id: string;
   bounds: PreviewBounds;

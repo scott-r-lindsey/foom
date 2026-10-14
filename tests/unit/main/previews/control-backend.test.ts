@@ -49,6 +49,13 @@ it("targets only the opener's selected host; sidebar registration never requests
     network: false,
   });
   expect(backend.has(preview.previewId)).toBe(true);
+  host.open.mockClear();
+  expect(await backend.open(actor, preview, false)).toBe("landing");
+  expect(host.open).not.toHaveBeenCalled();
+  expect(await backend.open(actor, preview, true)).toBe("sidebar");
+  expect(
+    await previewBackend(new Map([[2, host]]), new Map(), board).open(actor, preview, false),
+  ).toBe("sidebar");
   expect(backend.visible(preview.previewId)).toBe(true);
   host.visible.mockReturnValue(false);
   expect(backend.visible(preview.previewId)).toBe(false);
@@ -68,7 +75,9 @@ it("targets only the opener's selected host; sidebar registration never requests
       network: false,
     });
   const before = host.open.mock.calls.length;
-  await expect(backend.open(actor, preview, false)).rejects.toMatchObject({ code: "capacity" });
+  await expect(
+    backend.open(actor, { ...preview, previewId: "b".repeat(32) }, false),
+  ).rejects.toMatchObject({ code: "capacity" });
   expect(host.open.mock.calls.length).toBe(before);
 });
 it("refuses missing boards and hosts without creating a preview", async () => {

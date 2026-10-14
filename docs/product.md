@@ -426,9 +426,10 @@ Raw HTML is displayed as text; Mermaid fences remain code. Relative Markdown
 links open within the same tile and external links carry an arrow. Document
 colors follow the light/dark Appearance setting.
 
-Agent-opened previews fill only the landing spot or first empty space, never split,
-replace a tile or add a column. With a full board they wait as lazy sidebar rows
-under the opener’s session. Foom draws their kind badge, worktree-relative path and
+Agent-opened previews fill the landing spot or first empty space. With a full board,
+they use the same far-right column growth and minimum-width fallback as new
+terminals, preserving the focused tile and keyboard focus. Reopening an existing
+sidebar preview places it on the board; reopening a tiled preview leaves it in place. Foom draws their kind badge, worktree-relative path and
 “opened by” agent badge outside the page; accessible names identify the agent and
 session. A newly filled tile flares twice in the accent, never amber, then keeps
 its tint and edge until hover or focus. Reduced motion keeps the tint and edge

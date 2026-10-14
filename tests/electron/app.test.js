@@ -11576,7 +11576,7 @@ test("terminal font picker updates open shells and config shells and refits thei
     await expect(rows).toHaveCSS("font-family", '"Hack Nerd Font Mono", "Geist Mono", monospace');
 });
 
-test("an agent fixture opens tile and sidebar previews on a full board, retains focus and respects human close", {
+test("an agent fixture opens full-board previews in columns, retains focus and respects human close", {
   skip: process.platform === "win32" && "The fake agent is a POSIX script",
 }, async (context) => {
   const { chmod, symlink } = require("node:fs/promises");
@@ -11596,6 +11596,7 @@ test("an agent fixture opens tile and sidebar previews on a full board, retains 
     `<input autofocus><script>window.stolen=""; window.attempts=0; addEventListener("keydown", event => window.stolen+=event.key); setInterval(() => { window.attempts++; window.focus(); document.querySelector("input").focus(); },20);</script>`,
   );
   await writeFile(path.join(repo, "notes.md"), "# Agent notes");
+  await writeFile(path.join(repo, "narrow.md"), "# Narrow notes");
   const credentials = path.join(root, "credentials");
   const app = await launchApp(context, true, {
     args: [`--user-data-dir=${path.join(root, "user-data")}`],
@@ -11666,6 +11667,7 @@ test("an agent fixture opens tile and sidebar previews on a full board, retains 
     const board = BrowserWindow.getAllWindows().find(
       (window) => window.webContents.getURL() === "app://bundle/index.html",
     );
+    board.setContentSize(2400, 900);
     board.focus();
     board.webContents.focus();
   });
@@ -11709,11 +11711,32 @@ test("an agent fixture opens tile and sidebar previews on a full board, retains 
     assert.equal(response.code, 0, response.stderr);
     return JSON.parse(response.stdout).result;
   };
-  const sidebarResult = await requestPreview("notes", "notes.md");
-  assert.equal(sidebarResult.placement, "sidebar");
-  await expect(page.locator('.terminal-tile[data-kind="preview"]')).toHaveCount(1);
+  await expect
+    .poll(() => page.locator(".tile-area").evaluate((area) => area.clientWidth))
+    .toBeGreaterThan(2000);
+  const before = await page.locator('[data-tile="terminal"]').boundingBox();
+  const columnResult = await requestPreview("notes", "notes.md");
+  assert.equal(columnResult.placement, "column");
+  await expect(page.locator('.terminal-tile[data-kind="preview"]')).toHaveCount(2);
+  await expect
+    .poll(async () => (await previewViewState(app, columnResult.previewId)).attached)
+    .toBe(true);
+  await expect
+    .poll(() =>
+      previewContents(app, columnResult.previewId, "document.querySelector('h1')?.textContent"),
+    )
+    .toBe("Agent notes");
+  await expect(page.locator('[data-tile="terminal"] .xterm-helper-textarea')).toBeFocused();
+  const notesTile = page.locator(`[data-preview-id="${columnResult.previewId}"]`);
+  await expect(notesTile).toHaveAttribute("data-arrived", "true");
+  const after = await page.locator('[data-tile="terminal"]').boundingBox();
+  const added = await notesTile.boundingBox();
+  assert.ok(
+    before && after && added && after.width < before.width && added.x > after.x + after.width,
+  );
+  assert.equal((await requestPreview("existing", "notes.md")).placement, "existing");
   const notesRow = page.getByRole("treeitem", {
-    name: "Markdown preview: notes.md, opened by Claude Code, not shown",
+    name: "Markdown preview: notes.md, opened by Claude Code",
   });
   await expect(notesRow).toBeVisible();
   const glyphBounds = await notesRow.locator(".preview-glyph").boundingBox();
@@ -11729,7 +11752,8 @@ test("an agent fixture opens tile and sidebar previews on a full board, retains 
   );
   await page.getByRole("button", { name: "Actions for Claude Code in main" }).click();
   await expect(page.getByText("Opened preview grabby.html", { exact: true })).toBeVisible();
-  await expect(page.getByText("Opened preview notes.md", { exact: true })).toBeVisible();
+  await expect(page.getByText("Opened preview notes.md", { exact: true })).toHaveCount(2);
+  await expect(page.getByText("Opened preview notes.md", { exact: true }).first()).toBeVisible();
   await page.keyboard.press("Escape");
   await page.locator('[data-tile="terminal"] .xterm-helper-textarea').focus();
   // Exercise the existing bounds bridge; overlay composition supplies these reports in #292.
@@ -11756,6 +11780,43 @@ test("an agent fixture opens tile and sidebar previews on a full board, retains 
     .poll(async () => (await page.evaluate((id) => window.desktop.tail(id, 20), shell.id)).join(""))
     .toContain(keys);
   assert.equal(await previewContents(app, result.previewId, "window.stolen"), "");
+  // A restored sidebar preview is placed again with its original identity.
+  await page.evaluate((id) => {
+    const key = `foom.tiles.v1.${window.desktop.windows.id}`;
+    const layout = JSON.parse(localStorage.getItem(key));
+    const clear = (node) => {
+      if (node.kind === "tile") {
+        if (node.content?.kind === "preview" && node.content.preview === id) node.content = null;
+      } else {
+        clear(node.first);
+        clear(node.second);
+      }
+    };
+    clear(layout.tree);
+    localStorage.setItem(key, JSON.stringify(layout));
+  }, columnResult.previewId);
+  await page.reload();
+  await page.locator('[data-tile="terminal"] .xterm-helper-textarea').focus();
+  await expect(
+    page.getByRole("treeitem", {
+      name: "Markdown preview: notes.md, opened by Claude Code, not shown",
+    }),
+  ).toBeVisible();
+  await page.evaluate(
+    (id) => window.desktop.previews.bounds(id, { x: 0, y: 0, width: 0, height: 0, visible: false }),
+    columnResult.previewId,
+  );
+  await expect
+    .poll(async () => (await previewViewState(app, columnResult.previewId)).attached)
+    .toBe(false);
+  const reused = await requestPreview("reshow", "notes.md");
+  assert.equal(reused.previewId, columnResult.previewId);
+  assert.equal(reused.reused, true);
+  assert.equal(reused.placement, "empty");
+  await expect
+    .poll(async () => (await previewViewState(app, reused.previewId)).attached)
+    .toBe(true);
+  await expect(page.locator('[data-tile="terminal"] .xterm-helper-textarea')).toBeFocused();
   await page
     .locator('[data-tile="landing"]')
     .getByRole("button", { name: "Close", exact: true })
@@ -11770,7 +11831,7 @@ test("an agent fixture opens tile and sidebar previews on a full board, retains 
     .toBe(false);
   const reopened = await requestPreview("reopen", "grabby.html");
   assert.equal(reopened.placement, "sidebar");
-  await expect(page.locator('.terminal-tile[data-kind="preview"]')).toHaveCount(0);
+  await expect(page.locator('.terminal-tile[data-kind="preview"]')).toHaveCount(1);
   const reopenedRow = page.getByRole("treeitem", {
     name: "HTML preview: grabby.html, opened by Claude Code, not shown",
   });
@@ -11779,8 +11840,26 @@ test("an agent fixture opens tile and sidebar previews on a full board, retains 
   await reopenedRow.getByRole("button").click();
   await expect(page.locator('[data-tile="landing"]')).toHaveAttribute("data-kind", "preview");
   await expect(page.locator('[data-tile="landing"]')).toHaveAttribute("data-arrived", "false");
+  await page.locator('[data-tile="terminal"] .xterm-helper-textarea').focus();
+  // At minimum width, use terminal replacement fallback and protect the focused shell.
+  await app.evaluate(({ BrowserWindow }) => {
+    BrowserWindow.getAllWindows()
+      .find((window) => window.webContents.getURL() === "app://bundle/index.html")
+      .setContentSize(900, 640);
+  });
+  await expect.poll(() => page.evaluate(() => innerWidth)).toBe(900);
+  const narrow = await requestPreview("narrow", "narrow.md");
+  assert.equal(narrow.placement, "replace");
+  await expect(page.locator('.terminal-tile[data-kind="preview"]')).toHaveCount(2);
+  await expect
+    .poll(async () => (await previewViewState(app, narrow.previewId)).attached)
+    .toBe(true);
+  await expect
+    .poll(() => previewContents(app, narrow.previewId, "document.querySelector('h1')?.textContent"))
+    .toBe("Narrow notes");
+  await expect(page.locator('[data-tile="terminal"] .xterm-helper-textarea')).toBeFocused();
   await page
-    .locator('[data-tile="landing"]')
+    .locator(`[data-preview-id="${narrow.previewId}"]`)
     .getByRole("button", { name: "Close", exact: true })
     .click();
   await assertAccessible(page);

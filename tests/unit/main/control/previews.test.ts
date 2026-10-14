@@ -20,7 +20,7 @@ import type {
   PreviewBackend,
 } from "../../../../src/main/control/previews";
 import type { Principal } from "../../../../src/main/control/types";
-import { identifier, object } from "../../../../src/main/control/validation";
+import { ControlError, identifier, object } from "../../../../src/main/control/validation";
 
 class Board implements PreviewBackend {
   landing: string | null = "t2";
@@ -28,6 +28,7 @@ class Board implements PreviewBackend {
   focused = "t1";
   previews = new Map<string, { preview: AgentPreview; tile: string | null }>();
   open(_actor: Principal, preview: AgentPreview, sidebar: boolean): Promise<Placement> {
+    if (this.visible(preview.previewId)) return Promise.resolve("existing");
     const tile = sidebar ? null : (this.landing ?? this.empty[0] ?? null);
     const placement = tile === null ? "sidebar" : tile === this.landing ? "landing" : "empty";
     if (tile) {
@@ -124,6 +125,46 @@ it("reuses canonical file identity without moving any tile", async () => {
     });
   expect(board.previews.size).toBe(1);
   expect(board.empty).toEqual(["t3"]);
+});
+it("places a reused sidebar preview without creating a new identity", async () => {
+  board.landing = null;
+  board.empty = [];
+  const first = id(await open("docs/plan.md"));
+  board.empty = ["available"];
+  expect(await open("docs/plan.md")).toMatchObject({
+    previewId: first,
+    placement: "empty",
+    reused: true,
+  });
+  expect(board.previews.size).toBe(1);
+  expect(board.visible(first)).toBe(true);
+});
+it("keeps human-dismissed sidebar previews hidden when reused", async () => {
+  const first = id(await open("docs/plan.md"));
+  broker.humanClose(first);
+  await board.close(first);
+  const second = id(await open("docs/plan.md"));
+  expect(await open("docs/plan.md")).toMatchObject({
+    previewId: second,
+    placement: "existing",
+    reused: true,
+  });
+  expect(board.visible(second)).toBe(false);
+});
+it("validates reuse after asynchronous placement and maps backend failures", async () => {
+  board.landing = null;
+  board.empty = [];
+  await open("docs/plan.md");
+  vi.spyOn(board, "open").mockRejectedValueOnce(new Error("failed"));
+  await expect(open("docs/plan.md")).rejects.toMatchObject({ code: "unavailable" });
+  vi.spyOn(board, "open").mockRejectedValueOnce(new ControlError("capacity"));
+  await expect(open("docs/plan.md")).rejects.toMatchObject({ code: "capacity" });
+  vi.spyOn(board, "open").mockImplementationOnce(async (who, preview, sidebar) => {
+    await Board.prototype.open.call(board, who, preview, sidebar);
+    broker.revoke(actor);
+    return "empty";
+  });
+  await expect(open("docs/plan.md")).rejects.toMatchObject({ code: "not_found" });
 });
 it("refuses traversal, hidden names, unsupported types, missing files and malformed input", async () => {
   broker = new PreviewBroker(board, audit, active, () => now, { ...PREVIEW_LIMITS, burst: 100 });

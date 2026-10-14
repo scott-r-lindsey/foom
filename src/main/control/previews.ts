@@ -8,7 +8,7 @@ import { ControlError, exact, object } from "./validation";
 
 export const PREVIEW_METHODS = ["open_preview", "list_previews", "close_preview"];
 export const PREVIEW_LIMITS = { perAgent: 4, total: 12, burst: 6, refillMs: 10000 };
-export type Placement = "landing" | "empty" | "sidebar";
+export type Placement = "landing" | "empty" | "column" | "replace" | "existing" | "sidebar";
 export interface AgentPreview {
   previewId: string;
   owner: string | null;
@@ -186,6 +186,18 @@ export class PreviewBroker {
     if (existing) {
       await this.record(actor, method, existing, "existing");
       this.assertOwned(actor, existing);
+      if (!this.dismissed.has(`${actor.generation}\0${existing.real}`)) {
+        let placement: Placement;
+        try {
+          placement = await this.backend.open(actor, existing, false);
+        } catch (error) {
+          if (error instanceof ControlError) throw error;
+          throw new ControlError("unavailable");
+        }
+        this.active(actor);
+        this.assertOwned(actor, existing);
+        return this.view(existing, placement, true);
+      }
       return this.view(existing, "existing", true);
     }
     if (owned.length >= this.limits.perAgent || this.previews.size >= this.limits.total)

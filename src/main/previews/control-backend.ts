@@ -15,6 +15,13 @@ export function previewBackend(
 ): PreviewBackend {
   return {
     open: async (actor, preview, sidebar) => {
+      const existing = [...hosts.entries()].find(([, host]) =>
+        host.registry.records.has(preview.previewId),
+      );
+      if (existing)
+        return sidebar
+          ? "sidebar"
+          : (placements.get(existing[0])?.place(preview.previewId) ?? "sidebar");
       const windowId = board(actor.terminalId);
       if (windowId === undefined) throw new ControlError("unavailable");
       const host = hosts.get(windowId);

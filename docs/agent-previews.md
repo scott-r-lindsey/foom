@@ -24,11 +24,11 @@ Not verified: real models deciding on their own to call the tool (§5), Claude C
 
 | Tool | Input | Result | Errors |
 |---|---|---|---|
-| `open_preview` | `path`: string, ≤1024 bytes, relative to the caller's worktree (an absolute path is accepted only if it is inside) | `{ previewId, path, kind: "markdown" \| "html", placement: "landing" \| "empty" \| "sidebar" \| "existing", reused }` | `invalid_request` (malformed, unsupported type, too large), `forbidden` (outside the worktree, hidden name, symlink escape, not a regular file), `not_found` (missing file), `capacity` (count or rate), `unavailable` |
+| `open_preview` | `path`: string, ≤1024 bytes, relative to the caller's worktree (an absolute path is accepted only if it is inside) | `{ previewId, path, kind: "markdown" \| "html", placement: "landing" \| "empty" \| "column" \| "replace" \| "sidebar" \| "existing", reused }` | `invalid_request` (malformed, unsupported type, too large), `forbidden` (outside the worktree, hidden name, symlink escape, not a regular file), `not_found` (missing file), `capacity` (count or rate), `unavailable` |
 | `list_previews` | none | `{ previews: [{ previewId, path, kind, visible }] }`, the caller's own only | — |
 | `close_preview` | `previewId` | `{ previewId, closed: true }` | `not_found` for unknown **and** foreign IDs |
 
-- **Idempotency by identity, not by key.** Opening the same canonical file again returns the same `previewId` with `placement: "existing"` and moves nothing. The broker resolves real paths, so `./docs/plan.md`, `docs//plan.md` and the absolute path all reuse one preview (tested). So the tools need no `idempotencyKey` and no operation record. A lost response is recovered with `list_previews` or by opening again. The orchestration operation store exists for side effects that need human reconciliation; a preview has none.
+- **Idempotency by identity, not by key.** Opening the same canonical file again returns the same `previewId` with `placement: "existing"` when already tiled. A sidebar preview is placed on the board unless its canonical path was human-dismissed; its placement reports the destination. The broker resolves real paths, so `./docs/plan.md`, `docs//plan.md` and the absolute path all reuse one preview (tested). So the tools need no `idempotencyKey` and no operation record. A lost response is recovered with `list_previews` or by opening again. The orchestration operation store exists for side effects that need human reconciliation; a preview has none.
 - **No `update`.** #221's live reload already re-renders when the agent rewrites the file, so an update call would only duplicate the watcher.
 - **Envelope and roles.** The tools go through `ControlService.call` like every other method, so both adapters get them. `capabilities()` adds them for `agent` and `orchestrator` principals and never for `cli` (human pairing grants): `fallback.mjs` shows the paired CLI refused with 403 `forbidden`. Results are returned as `structuredContent` plus text, like today's tools. Broker refusals map onto the service's fixed error vocabulary (`unsupported_type` and `too_large` → `invalid_request`, `rate_limited` → `capacity`); the vocabulary gains no new codes.
 - **Fail closed.** Each open writes a fixed-field audit event: session, action, preview ID, worktree-relative path and outcome. It never holds file contents or the raw argument (tested). As with orchestration, a failed audit write refuses the call. The service rechecks the grant after the call, as it does for orchestration.
@@ -76,7 +76,7 @@ The claim "it only changes Foom's view" holds only if four rules hold:
 
 ## 4. Placement
 
-- Fill the landing spot (#220), then the first empty space in tree order, the same order sessions use. If there is no empty space, the preview appears **only as a sidebar row** under the opener's session. It never adds a column, splits the opener's tile, or replaces a tile. Those rules exist for things the human launched; an agent shouldn't rearrange the board.
+- Fill the landing spot (#220), then the first empty space in tree order, the same order sessions use. If there is no empty space, #421 uses the same far-right column growth and minimum-width fallback as new terminals, while preserving the focused tile and keyboard focus.
 - **Beside the opener's tile?** Considered and rejected: it would mean splitting a tile the human arranged. When the opener's tile is visible, the landing spot is usually next to it anyway, because Hide and Close leave it there.
 - **Sidebar-only previews cost nothing.** They are registry entries without a view, renderer process or watchers until the human shows one. That keeps #221's rule that hidden previews don't pile up resources. They still count toward the agent's limit of four.
 - **Attribution.** The tile title says "opened by Claude Code" (agent name and session), and so does the sidebar row. The arrival highlight (accent, never amber) marks a newly filled tile. The opener's session panel lists "Opened preview docs/mockup.html", next to the orchestrator action history; #157's action log records it too.
@@ -124,7 +124,7 @@ Same exit codes as today: 0 success, 2 usage or schema, 3 auth or scope, 4 capac
 2. A main-process preview broker in front of #221's preview registry:
    - Paths resolve in the principal's launch-bound worktree with #221's containment. Only `.md`, `.markdown`, `.html` and `.htm` can be opened.
    - Ownership is per principal generation. Revocation, exit or takeover hands previews to the human, and worktree removal closes them.
-   - Placement: landing spot, then first empty space, then sidebar only. Never a new column, split or replacement.
+   - Placement: landing spot, then first empty space, then the same far-right column growth and minimum-width fallback as a new terminal (#421). Preserve the focused tile and keyboard focus.
    - Limits: 4 previews per agent, 12 per instance, and calls of 6 in a burst then 1 every 10 s. Refuse; never evict. A human close sticks for that agent and path.
    - Fixed-field audit before the result; audit failure refuses.
 3. The preview host loads each view detached and attaches it after `did-finish-load`. Only a human click focuses a preview. This applies to all previews.
@@ -136,7 +136,7 @@ Same exit codes as today: 0 success, 2 usage or schema, 3 auth or scope, 4 capac
 
 - **`architecture.md`, Control plane.** "Mutation handlers, trusted dialog wiring, visibility and takeover must ship together" stays true for orchestration. Add a second category, **view actions**: calls that change only Foom's presentation, scoped to the caller's own objects. They need no confirmation, but they ship with attribution, refusal limits and human takeover (close or show). Name the preview methods and their roles, and state the no-focus rule.
 - **`orchestration.md`.** Add the three tools to the tool table (every authenticated agent; own worktree; own previews). Note the Claude Code `--allowedTools` grant beside the per-launch attachment, and the console commands.
-- **`product.md`.** In Orchestration and privacy: agents can show you previews of files in their own worktree; previews never take focus; you can close any of them. In Terminal tiles: agent-opened previews fill the landing spot or empty space, never add a column, and are labelled with the agent that opened them.
+- **`product.md`.** In Orchestration and privacy: agents can show you previews of files in their own worktree; previews never take focus; you can close any of them. In Terminal tiles: agent-opened previews fill the landing spot or empty space, use terminal overflow placement on a full board, and are labelled with the agent that opened them.
 - **`previews.md` (#221).** The preview host loads views detached and attaches them after load (§3), for every preview.
 
 ## Follow-up implementation tickets

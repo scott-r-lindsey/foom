@@ -643,8 +643,52 @@ test("agent previews fill landing then tree-order empties without altering focus
   expect(next.placement).toBe("empty");
   expect(leaves(next.layout.tree)[0]?.content).toEqual({ kind: "preview", preview: "b" });
   for (const id of ["c", "d"]) next = placeAgentPreview(next.layout, id);
-  const full = placeAgentPreview(next.layout, "e");
-  expect(full.placement).toBe("sidebar");
-  expect(full.layout).toBe(next.layout);
+  const full = placeAgentPreview(next.layout, "e", { columns: 600 });
+  expect(full.placement).toBe("column");
+  expect(full.layout.focused).toBe(start.focused);
+  expect(full.layout.maximized).toBe(start.maximized);
+  expect(leaves(full.layout.tree).at(-1)?.content).toEqual({ kind: "preview", preview: "e" });
+  expect(placeAgentPreview(full.layout, "e")).toEqual({
+    layout: full.layout,
+    placement: "existing",
+  });
   expect(placeAgentPreview(initialLayout(), "only").placement).toBe("empty");
+});
+
+test("agent previews use terminal overflow geometry and narrow fallback without replacing focus", () => {
+  const arranged = arrangedLayout(initialLayout(), "grid");
+  let full = arranged;
+  for (const id of ["a", "b", "c", "d"]) full = placeAgentPreview(full, id).layout;
+  for (const columns of [600, 80]) {
+    const options = { columns, preserveFocus: true };
+    const expected = placeContent(full, { kind: "preview", preview: "new" }, false, options);
+    const placed = placeAgentPreview(full, "new", options);
+    expect(placed.placement).toBe(columns === 600 ? "column" : "replace");
+    expect(placed.layout.focused).toBe(full.focused);
+    expect(leaves(placed.layout.tree).find((tile) => tile.id === full.focused)?.content).toEqual(
+      leaves(full.tree).find((tile) => tile.id === full.focused)?.content,
+    );
+    expect(rectangles(placed.layout.tree).tiles.map(({ rect }) => rect)).toEqual(
+      expected && rectangles(expected.tree).tiles.map(({ rect }) => rect),
+    );
+  }
+  let limited = full;
+  while (leaves(limited.tree).length < 256) {
+    const next = splitTile(limited, "horizontal");
+    if (next.tree === limited.tree) break;
+    const landing = next.landing;
+    if (!landing) throw new Error("Missing landing");
+    limited = { ...placeAgentPreview(next, landing).layout, focused: landing };
+  }
+  const needsYou = new Set<string>();
+  const terminalTree = (node: TileNode): TileNode =>
+    node.kind === "tile"
+      ? { ...node, content: { kind: "terminal", session: node.id } }
+      : { ...node, first: terminalTree(node.first), second: terminalTree(node.second) };
+  limited = { ...limited, tree: terminalTree(limited.tree) };
+  for (const tile of leaves(limited.tree)) needsYou.add(tile.id);
+  expect(placeAgentPreview(limited, "overflow", { columns: 0, needsYou })).toEqual({
+    layout: limited,
+    placement: "sidebar",
+  });
 });

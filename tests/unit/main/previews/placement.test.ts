@@ -33,13 +33,13 @@ function fixture() {
 it("accepts only a matching, validated placement answer from the window router", async () => {
   const f = fixture();
   const id = "a".repeat(32);
-  for (const result of ["landing", "empty", "sidebar"]) {
+  for (const result of ["landing", "empty", "column", "replace", "existing", "sidebar"]) {
     const pending = f.placement.place(id);
     const request = f.send.mock.lastCall?.[1];
     for (const args of [
       [],
       [request, "bad", result],
-      [request, id, "replace"],
+      [request, id, "invalid"],
       [3, id, result],
       [request, id, result, true],
     ])

@@ -156,7 +156,7 @@ it("returns canonical reuse, ownership and fixed errors through both adapters", 
   const previewId = identifier(object(object(opened.body)["result"])["previewId"]);
   expect(await client.call("open_preview", { path: join(root, "plan.md") })).toMatchObject({
     result: {
-      structuredContent: { previewId, reused: true, placement: "existing" },
+      structuredContent: { previewId, reused: true, placement: "sidebar" },
       isError: false,
     },
   });
