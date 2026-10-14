@@ -11,6 +11,7 @@ export interface Principal {
 export interface ControlLaunch {
   readonly env: Readonly<Record<string, string>>;
   bind(terminalId: string, mcp?: boolean): void;
+  /** Idempotent; preparation and the owning service may both revoke on failure. */
   dispose(): void;
 }
 export type Action = "create_worktree" | "launch" | "stop" | "close" | "remove_worktree" | "reply";

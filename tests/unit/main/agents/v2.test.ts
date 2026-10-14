@@ -1,5 +1,7 @@
 import { afterEach, expect, it, vi } from "vitest";
 import { readFile, stat } from "node:fs/promises";
+import * as fs from "node:fs/promises";
+vi.mock("node:fs/promises", async (original) => ({ ...(await original<typeof fs>()) }));
 import hookFixture from "../../../fixtures/agent-plugins-v2/claude.json";
 import setupFixture from "../../../fixtures/agent-plugins-v2/agy.json";
 import healthFixture from "../../../fixtures/agent-plugins-v2/codex.json";
@@ -529,4 +531,38 @@ it("materializes a validated private TOML MCP file with environment-only authent
   expect(text).toContain('bearer_token_env_var = "FOOM_CONTROL_TOKEN"');
   expect(text).toContain('url = "http://127.0.0.1:23456/mcp"');
   expect(text).not.toContain("must-stay-private");
+});
+
+it("an empty preview-grant subset emits no empty permission option and still preserves user rules", async () => {
+  const m = model();
+  required(m.launch.toolPermissions).names = [];
+  const empty = await launch(m, {}, [], control);
+  expect(empty.prepared.mcp).toBe(true);
+  expect(empty.prepared.args).not.toContain("--allow");
+  const user = await launch(m, {}, ["--allowed=Read"], control);
+  expect(
+    user.prepared.args.slice(
+      user.prepared.args.indexOf("--allow"),
+      user.prepared.args.indexOf("--allow") + 2,
+    ),
+  ).toEqual(["--allow", "Read"]);
+  expect(user.prepared.args.some((arg) => arg.startsWith("mcp__foom_"))).toBe(false);
+});
+
+it("revokes credentials before deleting files when preparation fails", async () => {
+  let revoked = false;
+  const remove = fs.rm;
+  const cleanup = vi.spyOn(fs, "rm").mockImplementation(async (...args) => {
+    expect(revoked).toBe(true);
+    await remove(...args);
+  });
+  await expect(
+    launch(model(), {}, ["--allow=Broken("], {
+      ...control,
+      dispose: () => {
+        revoked = true;
+      },
+    }),
+  ).rejects.toThrow("Unbalanced");
+  expect(cleanup).toHaveBeenCalledOnce();
 });

@@ -219,7 +219,9 @@ export function v2Provider(input: AgentManifestV2, validate: () => Promise<void>
           const merged = collectMerge(args, tools.merge);
           const insertion = collectMerge(args.slice(0, toolIndex), tools.merge).args.length;
           finalArgs = [...merged.args];
-          finalArgs.splice(insertion, 0, tools.merge.output, ...new Set(merged.values));
+          const permissions = [...new Set(merged.values)];
+          if (permissions.length)
+            finalArgs.splice(insertion, 0, tools.merge.output, ...permissions);
         }
         return {
           args: boundedArguments(finalArgs),
@@ -228,7 +230,13 @@ export function v2Provider(input: AgentManifestV2, validate: () => Promise<void>
           dispose,
         };
       } catch (error) {
-        if (scratch) await rm(scratch, { recursive: true, force: true });
+        if (scratch) {
+          try {
+            control?.dispose();
+          } finally {
+            await rm(scratch, { recursive: true, force: true });
+          }
+        }
         throw error;
       }
     },
