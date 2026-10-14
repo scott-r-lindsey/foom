@@ -1,5 +1,5 @@
 const { gitSync } = require("../helpers/git.js");
-// Manual: xvfb-run -a node tests/electron/tiles-measurement.js (after npm run make).
+// Manual: xvfb-run -a node tests/electron/tiles-measurement.js (after pnpm run make).
 // Six real tiles, two bounded output floods, DOM renderer, packaged sandbox intact.
 const { chromium, expect } = require("@playwright/test");
 const { spawn } = require("node:child_process");

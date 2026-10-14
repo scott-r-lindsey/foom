@@ -22,7 +22,8 @@ test("only explicitly allowed documentation and reference changes skip desktop",
   );
   for (const path of [
     "src/main/main.ts",
-    "package-lock.json",
+    "pnpm-lock.yaml",
+    ".npmrc",
     "tests/electron/app.test.js",
     "scripts/build.mjs",
     ".github/workflows/ci.yml",
@@ -313,4 +314,27 @@ test("Quality gate rejects failed, cancelled or skipped required desktop shards"
       assert.notEqual(run("true", result), 0, `${os} ${shard}: ${result}`);
     }
   }
+});
+
+test("dependency jobs enable pinned pnpm before caching and freeze every repository install", async () => {
+  const { readFileSync } = await import("node:fs");
+  const workflow = readFileSync(new URL("../.github/workflows/ci.yml", import.meta.url), "utf8");
+  const manifest = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
+  assert.match(manifest.packageManager, /^pnpm@\d+\.\d+\.\d+$/);
+  assert.equal(manifest.scripts.audit, "pnpm audit --audit-level=low");
+  assert.doesNotMatch(workflow, /\bnpm (?:ci|install|run)|\bnpx\b|cache: npm/);
+  for (const name of ["checks", "unit", "desktop", "mcp-probe"]) {
+    const job = workflow.split(`\n  ${name}:\n`)[1].split(/\n {2}[a-z-]+:\n/)[0];
+    const enable = job.indexOf("run: corepack enable");
+    const cache = job.indexOf("cache: pnpm");
+    const install = job.indexOf("run: pnpm install --frozen-lockfile");
+    assert.ok(enable >= 0 && cache > enable && install > cache, name);
+  }
+  const checks = workflow.split("\n  checks:\n")[1].split("\n  unit:\n")[0];
+  assert.match(checks, /run: pnpm run audit/);
+  assert.doesNotMatch(checks, /continue-on-error/);
+  const npmrc = readFileSync(new URL("../.npmrc", import.meta.url), "utf8");
+  assert.match(npmrc, /^node-linker=hoisted$/m);
+  assert.match(npmrc, /^package-import-method=hardlink$/m);
+  assert.deepEqual(manifest.pnpm.onlyBuiltDependencies, ["electron", "esbuild", "node-pty"]);
 });

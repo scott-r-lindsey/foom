@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { access, readFile, writeFile } from "node:fs/promises";
 import { test } from "node:test";
+import { join } from "node:path";
 import { probe, reportIssue, safeReport, versionInput } from "./mcp-probe-ci.mjs";
 import { requiresDesktop } from "./ci-changes.mjs";
 
@@ -87,7 +88,17 @@ test("isolated installs use argument arrays, omit credentials and clean up", asy
     },
   );
   assert.deepEqual(rows, green);
+  assert.equal(calls[0].command, "pnpm");
+  assert.deepEqual(calls[0].args.slice(0, 5), [
+    "--dir",
+    join(root, "claude"),
+    "add",
+    "--ignore-workspace",
+    "--config.node-linker=hoisted",
+  ]);
+  assert.ok(calls[0].args.includes("--allow-build=@anthropic-ai/claude-code"));
   assert.ok(calls[0].args.includes("@anthropic-ai/claude-code@1.2.3"));
+  assert.ok(calls[3].args.includes("--allow-build=@openai/codex"));
   assert.ok(calls[3].args.includes("@openai/codex@latest"));
   await assert.rejects(access(root));
 });

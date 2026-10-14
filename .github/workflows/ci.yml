@@ -73,13 +73,17 @@ jobs:
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version-file: .nvmrc
-          cache: npm
-      - run: npm ci
-      - run: npm run format:check
-      - run: npm run lint
-      - run: npm run typecheck
-      - run: npm run audit
-      - run: npm run test:ci
+      - run: corepack enable
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run format:check
+      - run: pnpm run lint
+      - run: pnpm run typecheck
+      - run: pnpm run audit
+      - run: pnpm run test:ci
       - name: Check committed whitespace
         run: git show --format= --check HEAD
 
@@ -98,9 +102,13 @@ jobs:
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version-file: .nvmrc
-          cache: npm
-      - run: npm ci
-      - run: npm run test:coverage
+      - run: corepack enable
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run test:coverage
       - name: Enforce changed-line coverage
         if: github.event_name == 'pull_request'
         env:
@@ -169,8 +177,12 @@ jobs:
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version-file: .nvmrc
-          cache: npm
-      - run: npm ci
+      - run: corepack enable
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
       - name: Prepare Electron binary
         timeout-minutes: 3
         # Electron 44 can download lazily on require; keep network setup outside
@@ -187,17 +199,17 @@ jobs:
         if: startsWith(matrix.shard, '1/')
         # Cold PowerShell probes compete for startup when these files run together.
         # Exercise native transport once per platform, with one OS probe at a time.
-        run: npx vitest run --reporter=default --reporter=junit --outputFile.junit=test-results/hooks.xml --no-file-parallelism tests/unit/main/agents/hook-receiver.test.ts tests/unit/main/agents/hook-adapters.test.ts tests/unit/main/agents/agy-observer.test.ts tests/unit/main/agents/hook-launch.test.ts tests/unit/main/control/private-native.test.ts
+        run: pnpm exec vitest run --reporter=default --reporter=junit --outputFile.junit=test-results/hooks.xml --no-file-parallelism tests/unit/main/agents/hook-receiver.test.ts tests/unit/main/agents/hook-adapters.test.ts tests/unit/main/agents/agy-observer.test.ts tests/unit/main/agents/hook-launch.test.ts tests/unit/main/control/private-native.test.ts
       - name: Test Antigravity observer alone
         if: startsWith(matrix.shard, '1/')
-        run: npx vitest run tests/unit/main/agents/agy-observer.test.ts --reporter=default --reporter=junit --outputFile.junit=test-results/agy-observer.xml
+        run: pnpm exec vitest run tests/unit/main/agents/agy-observer.test.ts --reporter=default --reporter=junit --outputFile.junit=test-results/agy-observer.xml
       - name: Test Git inventory paths on native filesystem
         if: startsWith(matrix.shard, '1/')
-        run: npx vitest run --no-file-parallelism tests/unit/main/workspace/worktrees.test.ts tests/unit/main/workspace/inventory-watch.test.ts -t 'derives watch directories|validates paths'
+        run: pnpm exec vitest run --no-file-parallelism tests/unit/main/workspace/worktrees.test.ts tests/unit/main/workspace/inventory-watch.test.ts -t 'derives watch directories|validates paths'
       - name: Test preview containment on native filesystem
         if: startsWith(matrix.shard, '1/')
         # Windows junction tests must run on Windows, not just the Linux unit job.
-        run: npx vitest run tests/unit/main/previews --reporter=default --reporter=junit --outputFile.junit=test-results/previews.xml
+        run: pnpm exec vitest run tests/unit/main/previews --reporter=default --reporter=junit --outputFile.junit=test-results/previews.xml
       - name: Prepare Linux display and sandbox
         timeout-minutes: 3
         if: runner.os == 'Linux'
@@ -227,7 +239,7 @@ jobs:
         # Keep the step timeout and per-test deadlines unchanged.
         timeout-minutes: 7
         if: runner.os == 'Linux'
-        run: xvfb-run -a npm run test:electron
+        run: xvfb-run -a pnpm run test:electron
       - name: Test Electron on macOS and Windows
         # Runs 38391083094–38419352620: macOS test cases total 742–840s;
         # three name-hash shards project 175–335s each, leaving runner headroom.
@@ -236,7 +248,7 @@ jobs:
         # Keep the shared per-test deadline policy and worker watchdog.
         timeout-minutes: 10
         if: runner.os != 'Linux'
-        run: npm run test:electron
+        run: pnpm run test:electron
       - name: Stamp nightly package version
         if: >-
           startsWith(matrix.shard, '1/') && github.ref == 'refs/heads/main' &&
@@ -244,16 +256,16 @@ jobs:
         run: node scripts/nightly.mjs stamp
       - name: Package desktop application
         if: startsWith(matrix.shard, '1/')
-        run: npm run make
+        run: pnpm run make
       - name: Verify macOS ad-hoc signature after packaging and fuses
         if: runner.os == 'macOS' && startsWith(matrix.shard, '1/')
         run: codesign --verify --deep --strict out/Foom-darwin-arm64/Foom.app
       - name: Test packaged terminal host on Linux
         if: runner.os == 'Linux' && startsWith(matrix.shard, '1/')
-        run: xvfb-run -a npm run test:packaged
+        run: xvfb-run -a pnpm run test:packaged
       - name: Test packaged terminal host on macOS and Windows
         if: runner.os != 'Linux' && startsWith(matrix.shard, '1/')
-        run: npm run test:packaged
+        run: pnpm run test:packaged
       - name: Upload Electron timing and process diagnostics
         if: always()
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
@@ -316,8 +328,12 @@ jobs:
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version-file: .nvmrc
-          cache: npm
-      - run: npm ci
+      - run: corepack enable
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
       - name: Prepare managed-policy namespaces
         run: |
           sudo apt-get -o Acquire::Retries=1 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 update

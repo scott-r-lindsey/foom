@@ -1139,6 +1139,20 @@ test("bundled brand fonts and both system themes render in Electron", {
 }, async (context) => {
   const app = await launchApp(context);
   const page = await boardPage(app);
+  // This can be a shard's first native window on a cold display. As in the
+  // interactive-shell test, activate the board before relying on renderer frames.
+  await app.evaluate(({ BrowserWindow }) => {
+    const window = BrowserWindow.getAllWindows().find(
+      (window) => window.webContents.getURL() === "app://bundle/index.html",
+    );
+    window.show();
+    window.focus();
+    window.webContents.focus();
+  });
+  await page.bringToFront();
+  await expect
+    .poll(() => page.evaluate(() => document.visibilityState === "visible" && document.hasFocus()))
+    .toBe(true);
   await page.waitForLoadState("domcontentloaded");
   const palettes = {
     dark: [
@@ -5340,10 +5354,12 @@ test("volume sliders keep the dragged value while sound saves settle", async (co
 
   const alerts = page.getByLabel("Alert volume", { exact: true });
   await alerts.press("Home");
+  // The preceding save may have persisted before its renderer reply settled.
+  // Wait until this edit is in flight before queuing edits behind its gate.
+  await expect.poll(() => app.evaluate(() => globalThis.soundSaveCount)).toBe(3);
   await alerts.press("ArrowRight");
   await alerts.press("ArrowRight");
   await expect(alerts).toHaveValue("2");
-  await expect.poll(() => app.evaluate(() => globalThis.soundSaveCount)).toBe(3);
   await alerts.press("Escape");
   await expect(alerts).toHaveCount(0);
   await app.evaluate(() => globalThis.soundSaveGates.shift()());
@@ -9771,6 +9787,7 @@ test("merged cleanup opens checking, continues hidden, reopens progress and stop
     });
     globalThis.cleanupRemovals = [];
     globalThis.cleanupOperations = [];
+    globalThis.cleanupFetchReady = false;
     const originals = new Map();
     for (const method of ["removalIdentity", "changes", "mergedCommit"]) {
       const original = WorktreeService.prototype[method];
@@ -9798,9 +9815,15 @@ test("merged cleanup opens checking, continues hidden, reopens progress and stop
     WorktreeService.prototype.mergedDefault = async function (...args) {
       const entry = { method: "mergedDefault", refresh: args[1], started: Date.now() };
       globalThis.cleanupOperations.push(entry);
-      await gate;
       try {
-        return await fetch.apply(this, args);
+        const result = await fetch.apply(this, args);
+        // Gate the foreground result, without blocking the repository's initial
+        // background eligibility scan or putting native fetch time after release.
+        if (args[1]) {
+          globalThis.cleanupFetchReady = true;
+          await gate;
+        }
+        return result;
       } catch (error) {
         entry.error = error.message;
         throw error;
@@ -9853,6 +9876,7 @@ test("merged cleanup opens checking, continues hidden, reopens progress and stop
   };
   await expect(confirmation.getByRole("list", { name: "Checking worktrees" })).toBeVisible();
   await expect(confirmation.getByRole("button", { name: "Delete", exact: true })).toBeDisabled();
+  await expect.poll(() => app.evaluate(() => globalThis.cleanupFetchReady)).toBe(true);
   await app.evaluate(() => globalThis.cleanupFetchRelease());
   await expect(confirmation.getByRole("button", { name: "Delete 8", exact: true })).toBeEnabled();
   await expect(confirmation.getByRole("list", { name: "Kept worktrees" })).toContainText(

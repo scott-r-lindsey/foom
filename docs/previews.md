@@ -11,7 +11,7 @@ Electron 44.4.5 (Chromium 152) on Linux under Xvfb (1600×1000, software GL), us
 | Run | Command (from the repo root, with `xvfb-run -a -s "-screen 0 1600x1000x24"`) |
 |---|---|
 | Containment unit tests | `node --test spikes/previews/containment.test.cjs` (no display) |
-| Hostile fixtures, recommended design | `npx electron spikes/previews/main.cjs verify --isolation=view` |
+| Hostile fixtures, recommended design | `pnpm exec electron spikes/previews/main.cjs verify --isolation=view` |
 | Request filter alone (preview CSP removed) | `… verify --isolation=view --preview-csp=off` |
 | Iframe alternative (board CSP plus `frame-src foom-preview:`) | `… verify --isolation=iframe` |
 | Iframe with Foom's board CSP unchanged | `… verify --isolation=iframe --board-csp=foom` |
@@ -180,7 +180,7 @@ Two production dependencies: `markdown-it` (6 transitive packages) and `highligh
 2. **Preview host in main:** registry, `WebContentsView` lifecycle, per-preview partition and session policy, the IPC contract for open/close/bounds/overlay with validation, and Electron tests with the hostile fixtures ported from `spikes/previews/fixtures/`.
 3. **Contained file protocol:** port `containment.cjs` to TypeScript under `src/main/previews/` with unit tests (including Windows junctions on the Windows CI job) and the CSP/header policy.
 4. **Composition with board overlays:** snapshot swap for row/tile panels, the confirmation scrim, drag previews and maximize; shortcut forwarding.
-5. **Markdown renderer:** markdown-it + highlight.js bundle served at a reserved path, task lists, token-based light/dark stylesheet, and in-tile `.md` navigation. Dependency review and `npm run audit`.
+5. **Markdown renderer:** markdown-it + highlight.js bundle served at a reserved path, task lists, token-based light/dark stylesheet, and in-tile `.md` navigation. Dependency review and `pnpm run audit`.
 6. **Live reload:** served-file watcher, debounce, scroll restore, and missing-file recovery; Electron tests on all three platforms.
 7. **External links and Allow network:** the confirm flow with one prompt at a time, plus the per-preview network switch and its disclosure. Decide whether a fonts-only allowlist replaces it.
 8. **Opening previews:** worktree panel and file picker commands (paths chosen in main), and closing previews when a worktree is removed.

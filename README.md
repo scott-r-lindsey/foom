@@ -11,18 +11,21 @@ macOS's quarantine removal command and Windows's SmartScreen prompt.
 
 ## Develop
 
-Use Node.js 24 LTS (`nvm use`) and npm:
+Use Node.js 24 LTS (`nvm use`) and the pinned pnpm version through Corepack:
 
 ```sh
-npm ci
-npm start
+corepack enable
+pnpm install --frozen-lockfile
+pnpm start
 ```
+
+The package manager is pinned in `package.json`. `.npmrc` keeps a hoisted layout for Electron Forge and native addons, with hardlinks to pnpm’s shared content-addressed store on the same filesystem. Only Electron, esbuild, and node-pty may run dependency build scripts. Side-effect caching stays disabled because Forge rebuilds native modules for Electron. Use `pnpm store path` to locate the shared store; generated binaries still occupy space in each worktree.
 
 The first launch opens **preflight**, the setup countdown: agents, repositories, the evaluator, then go / no-go. To see it again, click **Preflight** on the board; your choices are prefilled. To see it exactly as a new user would, run:
 
 ```sh
-npm run start:fresh          # a throwaway profile, deleted when Foom quits
-npm run start:fresh -- --keep  # keep the profile to reopen it later
+pnpm run start:fresh        # a throwaway profile, deleted when Foom quits
+pnpm run start:fresh --keep  # keep the profile to reopen it later
 ```
 
 A fresh profile starts with no settings, repositories or keys. Your real profile isn't touched.
@@ -33,15 +36,15 @@ Change the interface size with **⌘ +/−/0** on macOS, or **Ctrl+Shift+=/−**
 
 On Linux and Windows, select terminal text with the mouse and press **Ctrl+Shift+C** to copy. Press **Ctrl+Shift+V** to paste clipboard text into the terminal. These shortcuts work without an application menu; **Ctrl+C** still interrupts the running command.
 
-Each terminal has 10,000 lines of scrollback. Terminal sessions are not restored after quitting. Restart `npm start` after editing source files.
+Each terminal has 10,000 lines of scrollback. Terminal sessions are not restored after quitting. Restart `pnpm start` after editing source files.
 
 `node-pty` is a native dependency. The build corrects executable permissions on its macOS prebuilt spawn helper to work around [node-pty #850](https://github.com/microsoft/node-pty/issues/850). If a prebuilt binary is unavailable, installation/rebuild requires Python and a C++ toolchain (Xcode command line tools on macOS, build-essential on Linux, Visual Studio C++ build tools on Windows).
 
-`npm ci` installs the Husky pre-commit hook. Every commit checks formatting, lint, types, and fast unit tests. It does not launch a desktop window or silently rewrite files.
+`pnpm install --frozen-lockfile` installs the Husky pre-commit hook. Every commit checks formatting, lint, types, and fast unit tests. It does not launch a desktop window or silently rewrite files.
 
 ## How TypeScript fits into Electron
 
-Electron runs JavaScript compiled from your TypeScript. `npm start`, `npm run test:electron`, `npm run package`, and `npm run make` compile automatically. Edit files in `src/`; `build/` is generated and ignored by Git.
+Electron runs JavaScript compiled from your TypeScript. `pnpm start`, `pnpm run test:electron`, `pnpm run package`, and `pnpm run make` compile automatically. Edit files in `src/`; `build/` is generated and ignored by Git.
 
 - **Main process** (`src/main/main.ts`): composes window management, terminal capabilities, workspace/worktree services, agents, evaluator, and setup. Each feature has its own directory under `src/main/`.
 - **Terminal host** (`src/terminal-host/terminal-host.ts`): an Electron utility process owns PTYs, headless xterm screens, activity, and backpressure.
@@ -57,17 +60,17 @@ Main, host, and preload compile to CommonJS. esbuild bundles the renderer and xt
 
 | Command | Purpose |
 | --- | --- |
-| `npm run check` | Formatting, lint, all type checks, and fast unit tests; also the pre-commit check |
-| `npm run format` | Apply Biome formatting |
-| `npm run format:check` | Check formatting without changing files |
-| `npm run lint` / `npm run lint:fix` | Type-aware ESLint checks / safe autofixes |
-| `npm run audit` | Scan the full dependency tree, including development tools; fail on any reported vulnerability |
-| `npm run typecheck` | Check application, tests, and Vitest configuration without emitting files |
-| `npm test` / `npm run test:watch` | Run Vitest once / in watch mode, without a desktop display |
-| `npm run test:coverage` | Enforce per-file coverage and write HTML, LCOV, JSON, and terminal reports |
-| `npm run test:electron` | Build and launch the real Electron integration test |
-| `npm run build` | Compile application code, bundle xterm, and copy assets |
-| `npm run package` / `npm run make` | Create an executable application / a distributable ZIP |
+| `pnpm run check` | Formatting, lint, all type checks, and fast unit tests; also the pre-commit check |
+| `pnpm run format` | Apply Biome formatting |
+| `pnpm run format:check` | Check formatting without changing files |
+| `pnpm run lint` / `pnpm run lint:fix` | Type-aware ESLint checks / safe autofixes |
+| `pnpm run audit` | Scan the full dependency tree, including development tools; fail on any reported vulnerability |
+| `pnpm run typecheck` | Check application, tests, and Vitest configuration without emitting files |
+| `pnpm test` / `pnpm run test:watch` | Run Vitest once / in watch mode, without a desktop display |
+| `pnpm run test:coverage` | Enforce per-file coverage and write HTML, LCOV, JSON, and terminal reports |
+| `pnpm run test:electron` | Build and launch the real Electron integration test |
+| `pnpm run build` | Compile application code, bundle xterm, and copy assets |
+| `pnpm run package` / `pnpm run make` | Create an executable application / a distributable ZIP |
 
 Biome owns formatting, and ESLint owns lint rules. Strict TypeScript includes checked indexed access, exact optional properties, explicit overrides, and unused-code checks. ESLint uses type information to catch unsafe values and mishandled promises. No generated output, `inspiration/` reference or `spikes/` prototype is checked or packaged.
 
@@ -75,9 +78,9 @@ Biome owns formatting, and ESLint owns lint rules. Strict TypeScript includes ch
 
 `tests/unit/` mirrors source ownership and contains TypeScript unit tests for the main process, preload, renderer, and coverage-reporting tools. Tests exercise IPC trust boundaries, asset restrictions, permissions, startup failures, UI pending/error states, and bridge response validation. Electron is mocked in unit tests; jsdom provides the UI environment.
 
-`tests/electron/` contains the real Electron tests and their PTY probe scripts. `app.test.js` is the integration suite for real shell I/O, exit/restart, the isolated bridge, sandbox settings, asset restrictions, and popup blocking. On Linux and Windows it verifies mouse selection and Ctrl+Shift+C / Ctrl+Shift+V against the native clipboard and a real shell. On Linux/macOS it also checks TTY support and Ctrl+C. Detached output, snapshot restoration, and clean application shutdown are required on every platform. Alternate-screen behavior uses deterministic escape sequences in unit tests; Vim and top remain optional manual smoke tests. A second Electron test checks bundled fonts and system themes. Both Electron tests have bounded shutdown cleanup and a hard worker deadline. On Linux, use a graphical session or `xvfb-run -a npm run test:electron` with Electron's system libraries installed. Keep Chromium's sandbox enabled.
+`tests/electron/` contains the real Electron tests and their PTY probe scripts. `app.test.js` is the integration suite for real shell I/O, exit/restart, the isolated bridge, sandbox settings, asset restrictions, and popup blocking. On Linux and Windows it verifies mouse selection and Ctrl+Shift+C / Ctrl+Shift+V against the native clipboard and a real shell. On Linux/macOS it also checks TTY support and Ctrl+C. Detached output, snapshot restoration, and clean application shutdown are required on every platform. Alternate-screen behavior uses deterministic escape sequences in unit tests; Vim and top remain optional manual smoke tests. A second Electron test checks bundled fonts and system themes. Both Electron tests have bounded shutdown cleanup and a hard worker deadline. On Linux, use a graphical session or `xvfb-run -a pnpm run test:electron` with Electron's system libraries installed. Keep Chromium's sandbox enabled.
 
-Coverage includes every executable TypeScript file under `src/`, including files no test imports. Only `.d.ts` declarations are excluded. Each file must reach **90% lines, statements, and functions, and 85% branches**. Every successful `npm run test:coverage` prints a `file://` URL for the HTML report at `coverage/index.html`; the `coverage/` directory is ignored by Git. This is unit-test coverage; it does not imply the real Electron process was instrumented.
+Coverage includes every executable TypeScript file under `src/`, including files no test imports. Only `.d.ts` declarations are excluded. Each file must reach **90% lines, statements, and functions, and 85% branches**. Every successful `pnpm run test:coverage` prints a `file://` URL for the HTML report at `coverage/index.html`; the `coverage/` directory is ignored by Git. This is unit-test coverage; it does not imply the real Electron process was instrumented.
 
 PR checks additionally require **90% changed executable line coverage**, and fail if a changed application file is missing from LCOV. The scripts under `scripts/` adapt the reporting tools from the Crab Attack II reference, with stricter enforcement and regression tests.
 
@@ -93,7 +96,7 @@ CI runs for pull requests and pushes to `main`, avoiding duplicate branch-push r
 
 Desktop validation is skipped only when every changed path is `README.md`, `AGENTS.md`, `LICENSE`, `NOTICE`, Markdown under `docs/`, or reference material under `inspiration/`. Reference files are classified by path only; CI never tests or packages their contents. Unknown paths, empty diffs, and manual runs require desktop validation. PR detection uses the merge-base diff against the base branch; pushes compare the previous commit with the new commit. Renames include both old and new paths. Missing comparison history fails the checks job.
 
-CI retains HTML/LCOV coverage for three days. Platform ZIPs are still built and validated on every required desktop run, and are uploaded for scheduled nightlies or **Actions → CI → Run workflow → publish_nightly** on `main`. Only the publication job has repository contents write permission, and it waits for the Quality gate. An unchanged or failing night leaves the previous nightly up. Manual runs without `publish_nightly` never publish. The separate `upload_packages` option uploads development ZIPs without publishing. These manually requested ZIPs are retained for three days. PRs get changed-line annotations and a job summary; same-repository PRs also get one updated coverage comment. Comment permission failures do not bypass the coverage gate. GitHub Actions are pinned to commit SHAs, dependencies use `npm ci`, and Node comes from `.nvmrc`.
+CI retains HTML/LCOV coverage for three days. Platform ZIPs are still built and validated on every required desktop run, and are uploaded for scheduled nightlies or **Actions → CI → Run workflow → publish_nightly** on `main`. Only the publication job has repository contents write permission, and it waits for the Quality gate. An unchanged or failing night leaves the previous nightly up. Manual runs without `publish_nightly` never publish. The separate `upload_packages` option uploads development ZIPs without publishing. These manually requested ZIPs are retained for three days. PRs get changed-line annotations and a job summary; same-repository PRs also get one updated coverage comment. Comment permission failures do not bypass the coverage gate. GitHub Actions are pinned to commit SHAs, dependencies use `pnpm install --frozen-lockfile`, and Node comes from `.nvmrc`.
 
 `main` requires a pull request, an up-to-date branch, and a passing **Quality gate**, including for administrators. No second-person approval is required. Force pushes and deletion are blocked. Linux CI permits unprivileged user namespaces on its ephemeral runner so Chromium can keep its sandbox enabled.
 
@@ -111,7 +114,7 @@ Keep Electron updated and review the [Electron security checklist](https://www.e
 
 ### Dependency maintenance
 
-The full `npm run audit` scan currently reports **zero vulnerabilities**, including development dependencies. It runs as a required CI job before packaging. A registry failure also fails that job; advisories are not suppressed. This scan does not replace monitoring Electron's Chromium and Node.js security updates.
+The full `pnpm run audit` scan currently reports **zero vulnerabilities**, including development dependencies. It runs as a required CI job before packaging. A registry failure also fails that job; advisories are not suppressed. This scan does not replace monitoring Electron's Chromium and Node.js security updates.
 
 Forge CLI, ZIP maker, and fuses plugin are pinned together at 8.0.1, with `@electron/fuses` 2.1.3 to satisfy the plugin peer requirement. Forge 8 removes the vulnerable `braces` and `http-cache-semantics` dependency chains that blocked the audit gate. Its maintained rebuild and Packager dependencies also replace the older chains, so the previous rebuild, ZIP-extractor, and temporary-file overrides are no longer needed.
 
