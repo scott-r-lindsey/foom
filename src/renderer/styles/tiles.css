@@ -257,7 +257,7 @@
   color: var(--muted);
 }
 .preview-row[data-child="true"] {
-  padding-left: 32px;
+  padding-left: 52px;
 }
 .preview-row-opener {
   display: block;

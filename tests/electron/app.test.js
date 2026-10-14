@@ -11229,7 +11229,6 @@ test("an agent fixture opens tile and sidebar previews on a full board, retains 
     "aria-label",
     /opened by Claude Code/,
   );
-  await page.screenshot({ path: "test-results/preview-attribution.png" });
   const requestPreview = async (requestId, file) => {
     await page.evaluate(
       ({ id, requestId, file }) =>
@@ -11251,6 +11250,12 @@ test("an agent fixture opens tile and sidebar previews on a full board, retains 
     name: "Markdown preview: notes.md, opened by Claude Code, not shown",
   });
   await expect(notesRow).toBeVisible();
+  const glyphBounds = await notesRow.locator(".preview-glyph").boundingBox();
+  const openerBounds = await page
+    .locator('.board-row[data-kind="agent"] .board-light')
+    .boundingBox();
+  assert.ok(glyphBounds && openerBounds && glyphBounds.x >= openerBounds.x + 16);
+  await page.screenshot({ path: "test-results/preview-attribution.png" });
   assert.ok(
     await notesRow.evaluate(
       (row) => row.parentElement.querySelector('.board-row[data-kind="agent"]') !== null,
