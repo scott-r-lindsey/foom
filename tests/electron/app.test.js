@@ -216,6 +216,7 @@ const { tmpdir } = require("node:os");
 const { _electron: electron } = require("@playwright/test");
 const { deadline, expect } = require("./test-policy.js");
 const { auditProcesses } = require("./process-audit.js");
+const { isolatedEnvironment } = require("./agent-isolation.js");
 
 async function boardCommand(app, keyCode, shift = true) {
   await app.evaluate(
@@ -293,7 +294,7 @@ const fixtureCleanups = new WeakMap();
 function fixtureCleanup(context) {
   let cleanup = fixtureCleanups.get(context);
   if (!cleanup) {
-    cleanup = { apps: [], directories: new Set() };
+    cleanup = { apps: [], directories: new Set(), probeLogs: [], launches: new WeakMap() };
     fixtureCleanups.set(context, cleanup);
     context.after(async () => {
       const failures = [];
@@ -314,6 +315,17 @@ function fixtureCleanup(context) {
       } catch (error) {
         failures.push(error);
       }
+      for (const log of cleanup.probeLogs) {
+        try {
+          assert.equal(
+            await readFile(log, "utf8"),
+            "",
+            "Test attempted to run an agent outside its fixtures",
+          );
+        } catch (error) {
+          failures.push(error);
+        }
+      }
       for (const directory of cleanup.directories) {
         try {
           await rm(directory, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
@@ -330,6 +342,27 @@ function fixtureCleanup(context) {
 function removeAfterApps(context, directory) {
   fixtureCleanup(context).directories.add(directory);
 }
+
+test("agent discovery uses the fixture login shell and controlled PATH", async (context) => {
+  const app = await launchApp(context, false, { firstRun: true });
+  const page = await boardPage(app);
+  const scan = await page.evaluate(() => window.desktop.scanAgents(true));
+  const environment = await app.evaluate(() => ({
+    path: process.env.PATH,
+    shell: process.env.SHELL,
+  }));
+  assert.equal(scan.warning, null);
+  assert.ok(
+    scan.agents.every((agent) => agent.path === null),
+    "Default fixtures expose no agents",
+  );
+  const directories = environment.path.split(path.delimiter);
+  assert.ok(directories[0].includes("foom-agent-isolation-"));
+  if (process.platform !== "win32") {
+    assert.deepEqual(directories.slice(1), ["/usr/bin", "/bin"]);
+    assert.ok(environment.shell.includes("foom-agent-isolation-"));
+  }
+});
 
 test("fixture cleanup closes every app before removing directories and retains quit failures", async () => {
   const root = await mkdtemp(path.join(tmpdir(), "foom-cleanup-order-"));
@@ -447,6 +480,16 @@ async function launchApp(context, openShell = true, options = {}) {
     };
     if (!options.env?.HOME) removeAfterApps(context, options.home);
   }
+  // Match native shells' canonical spelling (Windows TEMP may use an 8.3 path).
+  await mkdir(options.home, { recursive: true });
+  options = { ...options, home: await realpath(options.home) };
+  const isolation = await mkdtemp(path.join(tmpdir(), "foom-agent-isolation-"));
+  removeAfterApps(context, isolation);
+  const isolated = await isolatedEnvironment(isolation, options.env?.PATH);
+  const probeLog = path.join(isolation, "forbidden-agent-probes.log");
+  await writeFile(probeLog, "");
+  cleanup.probeLogs.push(probeLog);
+  cleanup.audit.forbidAgentsOutside(cleanup.directories);
   if (options.home) {
     // Electron resolves home from native OS APIs on macOS/Windows, not HOME.
     // A fixture package sets it before application modules construct services.
@@ -466,6 +509,14 @@ async function launchApp(context, openShell = true, options = {}) {
       path.join(fixture, "bootstrap.cjs"),
       [
         'const { app } = require("electron");',
+        `require(${JSON.stringify(path.join(__dirname, "agent-isolation.js"))}).guardAgentProbes(${JSON.stringify([...cleanup.directories])}, ${JSON.stringify(probeLog)});`,
+        ...(process.platform === "win32"
+          ? []
+          : [
+              'const os = require("node:os");',
+              "const userInfo = os.userInfo;",
+              `os.userInfo = (...args) => ({ ...userInfo(...args), shell: ${JSON.stringify(isolated.SHELL)} });`,
+            ]),
         `app.setPath("home", ${JSON.stringify(options.home)});`,
         `app.setAppPath(${JSON.stringify(entry)});`,
         `require(${JSON.stringify(path.join(entry, "build/main/main.js"))});`,
@@ -473,7 +524,13 @@ async function launchApp(context, openShell = true, options = {}) {
     );
     entry = fixture;
   }
-  const env = { ...process.env, ...options.env };
+  const env = {
+    ...process.env,
+    HOME: options.home,
+    USERPROFILE: options.home,
+    ...options.env,
+    ...isolated,
+  };
   delete env.ELECTRON_RUN_AS_NODE;
   const app = await electron
     .launch({
@@ -487,6 +544,7 @@ async function launchApp(context, openShell = true, options = {}) {
       clearTimeout(watchdog);
       throw error;
     });
+  cleanup.launches.set(app, { entry, env });
   const child = app.process();
   cleanup.audit.add(child.pid);
   // Tests must never play through the developer's speakers, even under Xvfb.
@@ -2100,6 +2158,7 @@ test("launches an agent in a managed worktree and routes its attention signals",
 }, async (context) => {
   const { chmod, mkdir, writeFile } = require("node:fs/promises");
   const root = await mkdtemp(path.join(tmpdir(), "foom-workspace-"));
+  removeAfterApps(context, root);
   const bin = path.join(root, "bin");
   const repo = path.join(root, "app");
   await mkdir(bin);
@@ -2121,12 +2180,9 @@ test("launches an agent in a managed worktree and routes its attention signals",
     // agent ahead of the fake one on PATH.
     env: {
       HOME: path.join(root, "home"),
-      PATH: `${bin}${path.delimiter}${process.env.PATH}`,
+      PATH: bin,
       TEST_FAKE_CREDENTIALS: credentials,
     },
-  }).finally(() => {
-    // Chromium may still write user-data until the app cleanup hook has finished.
-    removeAfterApps(context, root);
   });
   const page = await boardPage(app);
   await app.evaluate(({ dialog }, directory) => {
@@ -2736,7 +2792,7 @@ test("first run goes from no agents to go, launches by keyboard, and can be repl
     // A private HOME and PATH hide any agents installed on this machine.
     env: {
       HOME: path.join(root, "home"),
-      PATH: [bin, nodeBin, "/usr/bin", "/bin"].join(path.delimiter),
+      PATH: [bin, nodeBin].join(path.delimiter),
     },
   });
   const page = await boardPage(app);
@@ -3265,6 +3321,7 @@ test("the branch field creates a worktree by keyboard without launching; dirty r
   timeout: deadline(60000),
 }, async (context) => {
   const root = await mkdtemp(path.join(tmpdir(), "foom-launch-ui-"));
+  removeAfterApps(context, root);
   const repo = path.join(root, "app");
   const bin = path.join(root, "bin");
   await mkdir(repo);
@@ -3292,13 +3349,9 @@ test("the branch field creates a worktree by keyboard without launching; dirty r
     emptyBoard: true,
     env: {
       HOME: path.join(root, "home"),
-      PATH: `${bin}${path.delimiter}${process.env.PATH}`,
+      PATH: bin,
       TEST_FAKE_CREDENTIALS: path.join(root, "fake-hook.json"),
     },
-  }).finally(() => {
-    // Hooks run in registration order. Close Electron before deleting the second
-    // worktree: a live PowerShell process holds its working directory on Windows.
-    removeAfterApps(context, root);
   });
   const page = await boardPage(app);
   await page.getByRole("button", { name: "Add repository", exact: true }).waitFor();
@@ -3425,6 +3478,7 @@ test("sidebar refuses deletion of a running shell and enables it after exit, pre
 }, async (context) => {
   // Match main’s canonical paths on macOS temp aliases and Windows short paths.
   const root = await realpath(await mkdtemp(path.join(tmpdir(), "foom-external-removal-")));
+  removeAfterApps(context, root);
   const repo = path.join(root, "repo");
   const external = path.join(root, "external");
   await mkdir(repo);
@@ -3446,9 +3500,7 @@ test("sidebar refuses deletion of a running shell and enables it after exit, pre
   isolatedGit(["worktree", "add", "-b", "external", external], { cwd: repo });
   const dirty = path.join(external, "unsaved.txt");
   await writeFile(dirty, "keep until confirmed");
-  const app = await launchApp(context, false, { emptyBoard: true }).finally(() => {
-    removeAfterApps(context, root);
-  });
+  const app = await launchApp(context, false, { emptyBoard: true });
   const page = await boardPage(app);
   await app.evaluate(({ dialog }, repo) => {
     dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [repo] });
@@ -3531,6 +3583,7 @@ test("external worktrees support independent shells and confirmed shared agents"
 }, async (context) => {
   // macOS temp aliases and Windows short/case-normalized paths differ from Git's inventory.
   const root = await realpath(await mkdtemp(path.join(tmpdir(), "foom-external-launch-")));
+  removeAfterApps(context, root);
   const repo = path.join(root, "repo");
   const bin = path.join(root, "bin");
   await mkdir(repo);
@@ -3577,11 +3630,9 @@ process.stdin.resume();
     emptyBoard: true,
     env: {
       HOME: path.join(root, "home"),
-      PATH: `${bin}${path.delimiter}${process.env.PATH}`,
+      PATH: bin,
       TEST_FAKE_CREDENTIALS: path.join(root, "fake-hook.json"),
     },
-  }).finally(() => {
-    removeAfterApps(context, root);
   });
   const page = await boardPage(app);
   await app.evaluate(({ dialog }, repo) => {
@@ -4049,7 +4100,7 @@ else console.log('ARGS:' + JSON.stringify(process.argv.slice(2)));
   await writeFile(help, "--no-alt-screen");
   const app = await launchApp(context, false, {
     emptyBoard: true,
-    env: { HOME: home, PATH: `${bin}${path.delimiter}${process.env.PATH}` },
+    env: { HOME: home, PATH: bin },
   });
   const page = await boardPage(app);
   await app.evaluate(({ dialog }, repo) => {
@@ -4136,7 +4187,7 @@ else {
   await writeFile(help, "--no-alt-screen -c, --config <value>");
   const app = await launchApp(context, false, {
     emptyBoard: true,
-    env: { HOME: home, PATH: `${bin}${path.delimiter}${process.env.PATH}` },
+    env: { HOME: home, PATH: bin },
   });
   const page = await boardPage(app);
   await app.evaluate(({ dialog }, repo) => {
@@ -4399,6 +4450,7 @@ test("sidebar menus escape the scroll area, stay in the window and launch from a
   timeout: deadline(60000),
 }, async (context) => {
   const root = await mkdtemp(path.join(tmpdir(), "foom-sidebar-"));
+  removeAfterApps(context, root);
   const repo = path.join(root, "repo");
   await mkdir(repo);
   isolatedGit(["init", "-q", "-b", "main"], { cwd: repo });
@@ -4416,9 +4468,7 @@ test("sidebar menus escape the scroll area, stay in the window and launch from a
     ],
     { cwd: repo },
   );
-  const app = await launchApp(context, false, { emptyBoard: true }).finally(() => {
-    removeAfterApps(context, root);
-  });
+  const app = await launchApp(context, false, { emptyBoard: true });
   const page = await boardPage(app);
   await app.evaluate(({ dialog, BrowserWindow }, repo) => {
     dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [repo] });
@@ -4630,7 +4680,7 @@ test("Bash command status reaches the sidebar without closing the shell", {
   removeAfterApps(context, root);
   await require("node:fs/promises").copyFile("/bin/sleep", path.join(root, "vim"));
   const app = await launchApp(context, true, {
-    env: { SHELL: "/bin/bash", PATH: `${root}${path.delimiter}${process.env.PATH}` },
+    env: { SHELL: "/bin/bash", PATH: root },
   });
   const page = await boardPage(app);
   const row = page.locator(".board-row[data-kind='shell']");
@@ -4706,6 +4756,7 @@ test("tiles build irregular layouts, preserve views and replace explicitly for a
   timeout: deadline(60000),
 }, async (context) => {
   const root = await realpath(await mkdtemp(path.join(tmpdir(), "foom-tiles-")));
+  removeAfterApps(context, root);
   const repo = path.join(root, "repo");
   await mkdir(repo);
   await mkdir(path.join(root, "home"));
@@ -4713,8 +4764,6 @@ test("tiles build irregular layouts, preserve views and replace explicitly for a
   const app = await launchApp(context, false, {
     emptyBoard: true,
     env: { HOME: path.join(root, "home") },
-  }).finally(() => {
-    removeAfterApps(context, root);
   });
   const page = await boardPage(app);
   await installSoundSink(page);
@@ -5534,7 +5583,7 @@ test("Settings persists literal agent defaults and discloses bypass once per age
   const app = await launchApp(context, false, {
     args: [`--user-data-dir=${profile}`],
     emptyBoard: true,
-    env: { HOME: home, PATH: `${bin}${path.delimiter}${process.env.PATH}`, TEST_ARGV: output },
+    env: { HOME: home, PATH: bin, TEST_ARGV: output },
   });
   const page = await boardPage(app);
   await app.evaluate(({ dialog }, repo) => {
@@ -5663,8 +5712,7 @@ test("profile lock focuses the first app, exits duplicates and permits another p
     });
     window.hide();
   });
-  const env = { ...process.env };
-  delete env.ELECTRON_RUN_AS_NODE;
+  const { entry, env } = fixtureCleanup(context).launches.get(first);
   let child;
   let exited;
   fixtureCleanup(context).apps.push(async () => {
@@ -5673,7 +5721,7 @@ test("profile lock focuses the first app, exits duplicates and permits another p
   });
   child = require("node:child_process").spawn(
     require("electron"),
-    [path.join(__dirname, "../.."), `--user-data-dir=${profile}`, "--mute-audio"],
+    [entry, `--user-data-dir=${profile}`, "--mute-audio"],
     { env, stdio: "ignore" },
   );
   exited = new Promise((resolve, reject) => {
@@ -5778,7 +5826,7 @@ if (resumed) {
     const options = {
       emptyBoard: true,
       args: [`--user-data-dir=${profile}`],
-      env: { HOME: home, PATH: `${bin}${path.delimiter}${process.env.PATH}`, TEST_ARGV: argvFile },
+      env: { HOME: home, PATH: bin, TEST_ARGV: argvFile },
     };
     const app = await launchApp(context, false, options);
     const page = await boardPage(app);
@@ -5822,9 +5870,11 @@ if (resumed) {
       .getByRole("button", { name: `Actions for ${agentName} in resume-test`, exact: true })
       .click();
     await restored.getByRole("menuitem", { name: "Copy session ID", exact: true }).click();
-    // Clipboard writing finishes before the source's inventory refresh and menu
-    // dismissal. Wait for the completed UI action before opening it again.
-    await expect(restored.getByRole("menu", { name: "Actions", exact: true })).toHaveCount(0);
+    // Clipboard writing finishes before the source's inventory refresh and panel
+    // dismissal. Wait for the actual details dialog to close before opening it again.
+    await expect(
+      restored.getByRole("dialog", { name: `${agentName} details and commands`, exact: true }),
+    ).toHaveCount(0);
     await expect
       .poll(() => restoredApp.evaluate(({ clipboard }) => clipboard.readText()))
       .toBe(conversation);
@@ -6035,23 +6085,27 @@ test("application menu uses the command registry and supports native keyboard ac
     await app.evaluate(({ clipboard }) => clipboard.writeText("menu clipboard sentinel"));
     await filter.fill("menu edit probe");
     await focusEditTarget(filter);
-    for (const keyCode of ["A", "X"]) {
-      await app.evaluate(({ BrowserWindow }, keyCode) => {
-        const window = BrowserWindow.getAllWindows().find(
-          (window) => window.webContents.getURL() === "app://bundle/index.html",
-        );
-        for (const type of ["keyDown", "keyUp"])
-          window.webContents.sendInputEvent({ type, keyCode, modifiers: ["meta"] });
-      }, keyCode);
-      if (keyCode === "A")
-        await expect
-          .poll(() =>
-            filter.evaluate(
-              (input) => input.selectionStart === 0 && input.selectionEnd === input.value.length,
-            ),
-          )
-          .toBe(true);
-    }
+    await app.evaluate(({ BrowserWindow }) => {
+      const window = BrowserWindow.getAllWindows().find(
+        (window) => window.webContents.getURL() === "app://bundle/index.html",
+      );
+      for (const type of ["keyDown", "keyUp"])
+        window.webContents.sendInputEvent({ type, keyCode: "A", modifiers: ["meta"] });
+    });
+    await expect
+      .poll(() =>
+        filter.evaluate(
+          (input) => input.selectionStart === 0 && input.selectionEnd === input.value.length,
+        ),
+      )
+      .toBe(true);
+    await app.evaluate(({ Menu }) => {
+      // Exercise the native Cut responder, matching the native Paste role below.
+      // Synthetic renderer key events can edit the input without native clipboard evidence.
+      if (Menu.getApplicationMenu().getMenuItemById("cut").role !== "cut")
+        throw new Error("Missing Cut role");
+      Menu.sendActionToFirstResponder("cut:");
+    });
     await expect(filter).toHaveValue("");
     await expect
       .poll(() => app.evaluate(({ clipboard }) => clipboard.readText()))
@@ -6495,7 +6549,7 @@ process.stdin.on('data', data => {
   );
   const app = await launchApp(context, false, {
     emptyBoard: true,
-    env: { HOME: home, PATH: `${bin}${path.delimiter}${process.env.PATH}` },
+    env: { HOME: home, PATH: bin },
   });
   const page = await boardPage(app);
   await app.evaluate(({ dialog }, repo) => {
@@ -6973,7 +7027,7 @@ process.stdin.on('data', (data) => {
     );
     const app = await launchApp(context, false, {
       firstRun,
-      env: { HOME: home, PATH: `${bin}${path.delimiter}${process.env.PATH}` },
+      env: { HOME: home, PATH: bin },
     });
     const page = await boardPage(app);
     if (firstRun) await page.getByRole("button", { name: "Start preflight" }).click();
@@ -7097,7 +7151,12 @@ test("console pairing requires trusted approval and gives only read-only reposit
 });
 
 test("sidebar panels hover, pin, rename and launch a home shell", async (context) => {
-  const app = await launchApp(context, false, { emptyBoard: true });
+  const root = await mkdtemp(path.join(tmpdir(), "foom-home-panel-"));
+  removeAfterApps(context, root);
+  // Exercise soft-wrapped cwd output even on platforms with short temporary paths.
+  const fixtureHome = path.join(root, `home-${"x".repeat(80)}`);
+  await mkdir(fixtureHome);
+  const app = await launchApp(context, false, { emptyBoard: true, home: fixtureHome });
   const page = await boardPage(app);
   const home = page.getByRole("treeitem", { name: "Home shell", exact: true });
   await home.hover();
@@ -7141,10 +7200,11 @@ test("sidebar panels hover, pin, rename and launch a home shell", async (context
   await expect(page.locator(".xterm-helper-textarea")).toBeFocused();
   await page.keyboard.type(process.platform === "win32" ? "(Get-Location).Path" : "pwd");
   await page.keyboard.press("Enter");
+  // Tail returns physical screen rows; a canonical home path can soft-wrap.
   await expect
     .poll(() =>
       page.evaluate(
-        async (id) => (await window.desktop.tail(id, 40)).join("\n"),
+        async (id) => (await window.desktop.tail(id, 40)).join(""),
         snapshot.terminals[0].id,
       ),
     )
@@ -7644,6 +7704,7 @@ test("an agent configures Foom in the config folder with review, approval and re
   const { interfaceThemes } = require("../../build/shared/interface-themes.js");
   const { DEFAULT_SOUND } = require("../../build/shared/sounds.js");
   const root = await realpath(await mkdtemp(path.join(tmpdir(), "foom-config-env-")));
+  removeAfterApps(context, root);
   const bin = path.join(root, "bin");
   const home = path.join(root, "home");
   await mkdir(bin);
@@ -7683,9 +7744,7 @@ process.stdin.on("data", (key) => {
   await chmod(path.join(bin, "claude"), 0o755);
   const app = await launchApp(context, false, {
     home,
-    env: { HOME: home, PATH: `${bin}${path.delimiter}${process.env.PATH}` },
-  }).finally(() => {
-    removeAfterApps(context, root);
+    env: { HOME: home, PATH: bin },
   });
   const page = await boardPage(app);
   const folder = path.join(home, ".foom", "config");
@@ -8102,7 +8161,7 @@ test("an orchestrator wait_for wakes on a child PR required-check conclusion", {
     args: [`--user-data-dir=${path.join(root, "user-data")}`],
     env: {
       HOME: home,
-      PATH: [bin, "/usr/local/bin", "/usr/bin", "/bin"].join(path.delimiter),
+      PATH: bin,
       TEST_FAKE_CREDENTIALS: credentials,
       TEST_FORGE_STATE: forgeState,
     },
@@ -8297,7 +8356,7 @@ async function runOrchestratorScenario(context, cliOnly, phase) {
     args: [`--user-data-dir=${path.join(root, "user-data")}`],
     env: {
       HOME: home,
-      PATH: [bin, "/usr/local/bin", "/usr/bin", "/bin"].join(path.delimiter),
+      PATH: bin,
       TEST_FAKE_CREDENTIALS: credentials,
     },
   });
@@ -9003,7 +9062,7 @@ test("Settings agent menu launches config and focuses its existing window", {
   const app = await launchApp(context, false, {
     home,
     emptyBoard: true,
-    env: { HOME: home, PATH: `${bin}${path.delimiter}${process.env.PATH}` },
+    env: { HOME: home, PATH: bin },
   });
   const first = await boardPage(app);
   await first.evaluate(() =>
@@ -9146,7 +9205,7 @@ req.end(JSON.stringify(payload));
       args: [`--user-data-dir=${profile}`],
       env: {
         HOME: home,
-        PATH: [bin, "/usr/bin", "/bin"].join(path.delimiter),
+        PATH: bin,
         TEST_FAKE_CREDENTIALS: credentials,
       },
     };
@@ -9451,7 +9510,7 @@ process.exit(1);
     const app = await launchApp(context, false, {
       emptyBoard: true,
       args: [`--user-data-dir=${profile}`],
-      env: { HOME: home, PATH: `${bin}${path.delimiter}${process.env.PATH}`, TEST_ARGV: argvFile },
+      env: { HOME: home, PATH: bin, TEST_ARGV: argvFile },
     });
     const page = await boardPage(app);
     await app.evaluate(({ dialog }, directory) => {
@@ -9534,29 +9593,59 @@ test("merged cleanup opens checking, continues hidden, reopens progress and stop
     await app.evaluate(() => globalThis.cleanupRestore?.()).catch(() => {});
   });
   const page = await boardPage(app);
-  // Gates stop at real service boundaries; releasing them runs the original Git operations.
+  // Gate the start of each removal sequence, before its many real Git safety checks.
+  // Releasing a gate still runs the original sequence, including every revalidation.
   await app.evaluate(({ app, dialog }, repo) => {
     const load = process
       .getBuiltinModule("node:module")
       .createRequire(app.getAppPath() + "/package.json");
     const { WorktreeService } = load("./build/main/workspace/worktrees.js");
+    const { Workspace } = load("./build/main/workspace/workspace.js");
     const fetch = WorktreeService.prototype.mergedDefault;
-    const remove = WorktreeService.prototype.removeWorktree;
+    const remove = Workspace.prototype.removeTree;
     const gate = new Promise((resolve) => {
       globalThis.cleanupFetchRelease = resolve;
     });
     globalThis.cleanupRemovals = [];
+    globalThis.cleanupOperations = [];
+    const originals = new Map();
+    for (const method of ["removalIdentity", "changes", "mergedCommit"]) {
+      const original = WorktreeService.prototype[method];
+      originals.set(method, original);
+      WorktreeService.prototype[method] = async function (...args) {
+        const entry = { method, branch: args[1]?.branch, started: Date.now() };
+        globalThis.cleanupOperations.push(entry);
+        try {
+          return await original.apply(this, args);
+        } catch (error) {
+          entry.error = error.message;
+          throw error;
+        } finally {
+          entry.elapsed = Date.now() - entry.started;
+        }
+      };
+    }
     globalThis.cleanupRestore = async () => {
+      for (const [method, original] of originals) WorktreeService.prototype[method] = original;
       WorktreeService.prototype.mergedDefault = fetch;
-      WorktreeService.prototype.removeWorktree = remove;
+      Workspace.prototype.removeTree = remove;
       globalThis.cleanupFetchRelease();
       await Promise.allSettled(globalThis.cleanupRemovals.splice(0).map((finish) => finish()));
     };
     WorktreeService.prototype.mergedDefault = async function (...args) {
+      const entry = { method: "mergedDefault", refresh: args[1], started: Date.now() };
+      globalThis.cleanupOperations.push(entry);
       await gate;
-      return fetch.apply(this, args);
+      try {
+        return await fetch.apply(this, args);
+      } catch (error) {
+        entry.error = error.message;
+        throw error;
+      } finally {
+        entry.elapsed = Date.now() - entry.started;
+      }
     };
-    WorktreeService.prototype.removeWorktree = function (...args) {
+    Workspace.prototype.removeTree = function (...args) {
       let release;
       const gate = new Promise((resolve) => {
         release = resolve;
@@ -9576,6 +9665,29 @@ test("merged cleanup opens checking, continues hidden, reopens progress and stop
     void window.desktop.sidebarCommand({ kind: "delete-merged-worktrees", repository: repo });
   }, repo);
   const confirmation = await confirmationPage(app);
+  const reportCleanup = async (stage) => {
+    context.diagnostic(
+      JSON.stringify({
+        stage,
+        cleanup: await confirmation.locator("body").innerText(),
+        operations: await app.evaluate(() => {
+          const methods = [...new Set(globalThis.cleanupOperations.map((entry) => entry.method))];
+          return methods.map((method) => {
+            const entries = globalThis.cleanupOperations.filter((entry) => entry.method === method);
+            return {
+              method,
+              count: entries.length,
+              pending: entries.filter((entry) => entry.elapsed === undefined).length,
+              longest: Math.max(
+                ...entries.map((entry) => entry.elapsed ?? Date.now() - entry.started),
+              ),
+              errors: entries.flatMap((entry) => (entry.error ? [entry.error] : [])),
+            };
+          });
+        }),
+      }),
+    );
+  };
   await expect(confirmation.getByRole("list", { name: "Checking worktrees" })).toBeVisible();
   await expect(confirmation.getByRole("button", { name: "Delete", exact: true })).toBeDisabled();
   await app.evaluate(() => globalThis.cleanupFetchRelease());
@@ -9613,7 +9725,13 @@ test("merged cleanup opens checking, continues hidden, reopens progress and stop
   // Acceptance changes the feed synchronously, before the fetch and removals.
   // Keep a lost click distinct from a blocked service boundary.
   await expect(confirmation.getByRole("button", { name: "Hide", exact: true })).toBeVisible();
-  await expect.poll(() => app.evaluate(() => globalThis.cleanupRemovals.length)).toBe(4);
+  try {
+    await expect.poll(() => app.evaluate(() => globalThis.cleanupRemovals.length)).toBe(4);
+    await reportCleanup("four removal sequences started");
+  } catch (error) {
+    await reportCleanup("waiting for removal sequences failed");
+    throw error;
+  }
   await confirmation.getByRole("button", { name: "Hide", exact: true }).click();
   await expect(page.getByText("deleting 0/8", { exact: true })).toBeVisible();
   await app.evaluate(() => globalThis.cleanupRemovals.shift()());
@@ -9631,6 +9749,7 @@ test("merged cleanup opens checking, continues hidden, reopens progress and stop
     await Promise.all(globalThis.cleanupRemovals.splice(0).map((finish) => finish()));
   });
   await expect(confirmation.getByRole("button", { name: "Done", exact: true })).toBeVisible();
+  await reportCleanup("stopped run finished");
   await expect(confirmation.getByRole("list", { name: "Kept worktrees" })).toContainText(
     "not started",
   );
@@ -9935,7 +10054,7 @@ test("config file agent arguments require trusted Allow before a fake Codex laun
   );
   const app = await launchApp(context, false, {
     emptyBoard: true,
-    env: { HOME: home, PATH: `${bin}${path.delimiter}${process.env.PATH}`, TEST_ARGV: output },
+    env: { HOME: home, PATH: bin, TEST_ARGV: output },
   });
   const page = await boardPage(app);
   await app.evaluate(({ dialog }, repo) => {
