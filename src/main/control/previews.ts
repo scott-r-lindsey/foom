@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { closeSync, statSync } from "node:fs";
+import fs from "node:fs";
 import path from "node:path";
 import { canonicalRoot, openInside } from "../previews/contained-files";
 import type { Principal } from "./types";
@@ -100,9 +100,14 @@ export class PreviewBroker {
             ? "invalid_request"
             : "forbidden",
       );
-    closeSync(opened.fd);
+    fs.closeSync(opened.fd);
     // A document-looking directory and a symlink onto an unsupported type are not documents.
-    if (!statSync(path.resolve(root, relative)).isFile()) throw new ControlError("forbidden");
+    try {
+      if (!fs.statSync(path.resolve(root, relative)).isFile()) throw new ControlError("forbidden");
+    } catch (error) {
+      if (error instanceof ControlError) throw error;
+      throw new ControlError("not_found");
+    }
     if (!/\.(md|markdown|html|htm)$/i.test(opened.real)) throw new ControlError("invalid_request");
     return {
       real: opened.real,
@@ -150,7 +155,11 @@ export class PreviewBroker {
       const preview = owned.find((p) => p.previewId === params["previewId"]);
       if (!preview) throw new ControlError("not_found");
       await this.record(actor, method, preview, "closed");
-      await this.backend.close(preview.previewId);
+      try {
+        await this.backend.close(preview.previewId);
+      } catch {
+        throw new ControlError("unavailable");
+      }
       this.previews.delete(preview.previewId);
       return { previewId: preview.previewId, closed: true };
     }

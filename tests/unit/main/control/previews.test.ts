@@ -1,3 +1,4 @@
+import fs from "node:fs";
 import {
   closeSync,
   mkdirSync,
@@ -265,6 +266,11 @@ it("audits fixed fields before presentation and refuses failed writes or inactiv
     code: "unavailable",
   });
   expect(board.has(first)).toBe(true);
+  vi.spyOn(board, "close").mockRejectedValueOnce(new Error("host close failed"));
+  await expect(broker.call(actor, "close_preview", { previewId: first })).rejects.toMatchObject({
+    code: "unavailable",
+  });
+  expect(board.has(first)).toBe(true);
   active.mockImplementationOnce(() => {
     throw new Error("revoked");
   });
@@ -289,4 +295,15 @@ it("refuses CLI callers, unknown methods, backend failure and authority lost dur
   await expect(open("p0.md")).rejects.toMatchObject({ code: "unavailable" });
   expect(await list()).toEqual({ previews: [] });
   expect(board.previews.size).toBe(1);
+});
+
+it("returns not_found if a document disappears between containment validation and registration", async () => {
+  const close = fs.closeSync;
+  vi.spyOn(fs, "closeSync").mockImplementationOnce((fd) => {
+    close(fd);
+    rmSync(join(tree, "docs", "plan.md"));
+  });
+  await expect(open("docs/plan.md")).rejects.toMatchObject({ code: "not_found" });
+  expect(board.previews.size).toBe(0);
+  expect(events).toEqual([]);
 });
