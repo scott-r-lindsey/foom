@@ -365,8 +365,12 @@ export function createAppSource(): BoardSource {
     previews: {
       getSnapshot: () => previews,
       getHistory: () => previewActions,
-      close: (id) =>
-        window.desktop.previews?.close(id) ?? Promise.reject(new Error("Preview host unavailable")),
+      network: (id, enabled) =>
+        window.desktop.previews?.network(id, enabled) ??
+        Promise.reject(new Error("Preview host unavailable")),
+      pick: (worktree) => window.desktop.previews?.pick(worktree) ?? Promise.resolve(null),
+      bounds: (id, bounds) => window.desktop.previews?.bounds(id, bounds) ?? Promise.resolve(),
+      close: (id) => window.desktop.previews?.close(id) ?? Promise.resolve(),
       ...(window.desktop.previews?.onPlace
         ? {
             onPlace: (callback) =>

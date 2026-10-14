@@ -294,6 +294,7 @@ test("preview-only worktrees participate in filtering and active sections withou
     worktree: "/b",
     relativePath: "docs/guide.md",
     kind: "markdown" as const,
+    network: false,
   };
   const repositories = [repo("/a"), repo("/b")];
   const result = buildSidebar([], repositories, emptyPreferences(), "guide", [preview]);
@@ -316,6 +317,7 @@ test("preview filtering retains the opener, and attribution retains identity aft
     worktree: "/repo",
     relativePath: "docs/mockup.html",
     kind: "html" as const,
+    network: false,
     openedBy: { terminalId: opener.id, agent: "claude" },
   };
   const preferences = renameSession(emptyPreferences(), opener.id, "Designer");
@@ -334,6 +336,7 @@ test("preview filtering retains the opener, and attribution retains identity aft
     worktree: "/repo",
     relativePath: "plan.md",
     kind: "markdown" as const,
+    network: false,
   };
   expect(previewOpener(human, [], preferences)).toBe("");
   for (const query of ["mockup", "Designer"]) {

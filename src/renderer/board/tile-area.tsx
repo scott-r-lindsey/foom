@@ -132,6 +132,40 @@ function Tile({
       }),
     [source, rowId],
   );
+  const previewRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const id = preview?.id;
+    const element = previewRef.current;
+    if (!id || !element || !source.previews) return;
+    const report = () => {
+      const bounds = element.getBoundingClientRect();
+      void source.previews
+        ?.bounds(id, {
+          x: bounds.x,
+          y: bounds.y,
+          width: bounds.width,
+          height: bounds.height,
+          visible: !inactive && !behind && bounds.width > 0 && bounds.height > 0,
+        })
+        .catch(() => {
+          setError("Unable to display preview.");
+        });
+    };
+    report();
+    const observer = new ResizeObserver(report);
+    observer.observe(element);
+    window.addEventListener("resize", report);
+    const tileElement = element.parentElement;
+    tileElement?.addEventListener("transitionend", report);
+    return () => {
+      observer.disconnect();
+      tileElement?.removeEventListener("transitionend", report);
+      window.removeEventListener("resize", report);
+      void source.previews
+        ?.bounds(id, { x: 0, y: 0, width: 0, height: 0, visible: false })
+        .catch(() => {});
+    };
+  }, [source, preview?.id, inactive, behind, rect.x, rect.y, rect.width, rect.height]);
   const lastFocusRef = useRef(0);
   useEffect(() => {
     if (focusRequest === lastFocusRef.current) return;
@@ -148,6 +182,7 @@ function Tile({
       data-tile={tile.id}
       data-arrived={arrived}
       onPointerEnter={acknowledgePreview}
+      data-preview-id={preview?.id}
       data-focused={occupied && focused}
       data-landing={!occupied && landingSpace(layout)?.id === tile.id}
       data-collapsing={collapsing}
@@ -246,6 +281,7 @@ function Tile({
                   <AgentBadge mark={agentBadges.get(preview.openedBy.agent) ?? "?"} />
                 </span>
               )}
+              {preview.network && <span className="session-program">network</span>}
             </>
           )}
           <button
@@ -296,6 +332,17 @@ function Tile({
           number={number}
           view={view}
           popout={Boolean(source.windows)}
+          network={
+            preview && source.previews?.network
+              ? () => {
+                  void source.previews
+                    ?.network?.(preview.id, !preview.network)
+                    .catch((error: unknown) => {
+                      setError(error instanceof Error ? error.message : "Network change failed");
+                    });
+                }
+              : undefined
+          }
           close={() => {
             setMenu(undefined);
           }}
@@ -320,7 +367,6 @@ function Tile({
               </button>
             </div>
           )}
-          {error && <p role="alert">{error}</p>}
           {row.kind === "sample" && (
             <div className="sample-terminal">
               <pre>{row.tail.join("\n")}</pre>
@@ -329,6 +375,8 @@ function Tile({
           )}
         </>
       )}
+      {preview && <div className="tile-shell" ref={previewRef} />}
+      {error && <p role="alert">{error}</p>}
       {view && (
         <div className="tile-shell" hidden={!row || row.kind === "sample"}>
           <TerminalView

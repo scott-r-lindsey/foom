@@ -206,6 +206,7 @@ export type SidebarCommand =
 /** Main-owned display facts. An opaque ID grants no filesystem capability. */
 export interface PreviewSummary {
   openedBy?: { terminalId: string; agent: string };
+  network: boolean;
   id: string;
   repository: string;
   worktree: string;

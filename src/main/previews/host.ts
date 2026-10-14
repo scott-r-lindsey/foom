@@ -1,15 +1,19 @@
-import { app, session, WebContentsView } from "electron";
+import { app, session, shell, WebContentsView } from "electron";
 import type { BrowserWindow, Session, WebContents } from "electron";
-import type { PreviewBounds, PreviewRecord } from "../../shared/previews";
+import type { PreviewBounds, PreviewRecord, PreviewSnapshot } from "../../shared/previews";
 import { canonicalRoot, readInside, readPreview } from "./contained-files";
-import { pathnameFor } from "./policy";
+import type { DialogContent } from "../../shared/confirmation";
+import { externalLink, pathnameFor, previewCsp, responseHeaders } from "./policy";
+import { markdownAsset, markdownPage } from "./markdown";
 import type { PreviewRegistry } from "./registry";
 import { previewPath } from "./registry";
+import { PreviewWatcher, scrollPosition } from "./watcher";
 
 interface HostedPreview {
   view: WebContentsView;
   partition: Session;
   bounds: PreviewBounds;
+  snapshot?: string;
   loaded: boolean;
   navigated: boolean;
   previouslyLoaded: boolean;
@@ -18,11 +22,18 @@ interface HostedPreview {
   restoreFocus: boolean;
   replacementTimer?: ReturnType<typeof setTimeout>;
   nextReplacementAt: number;
+  scroll: [number, number] | undefined;
+  readingScroll?: boolean;
 }
 const RECREATION_INTERVAL_MS = 250;
+const HANDOFF_DEADLINE_MS = 1500;
 const EMPTY_BOUNDS: PreviewBounds = { x: 0, y: 0, width: 0, height: 0, visible: false };
-export function requestAllowed(url: string, origin: string): boolean {
-  return /^(data|blob):/.test(url) || "pathname" in pathnameFor(url, origin);
+export function requestAllowed(url: string, origin: string, network = false): boolean {
+  return (
+    (network && /^(https|wss):/.test(url)) ||
+    /^(data|blob):/.test(url) ||
+    "pathname" in pathnameFor(url, origin)
+  );
 }
 export function navigationAllowed(url: string, origin: string): boolean {
   const parsed = pathnameFor(url, origin);
@@ -33,41 +44,113 @@ export function navigationAllowed(url: string, origin: string): boolean {
 export class PreviewHost {
   private readonly tiled = new Set<string>();
   private readonly hosted = new Map<string, HostedPreview>();
+  private readonly confirmations = new Map<string, AbortController>();
+  private readonly watchers = new Map<string, PreviewWatcher>();
+  get watcherCount(): number {
+    return [...this.watchers.values()].reduce((count, watcher) => count + watcher.count, 0);
+  }
+  private async reload(id: string): Promise<void> {
+    const entry = this.hosted.get(id);
+    if (!entry || entry.readingScroll || entry.view.webContents.isDestroyed()) return;
+    const contents = entry.view.webContents;
+    entry.readingScroll = true;
+    try {
+      const value: unknown = await contents.executeJavaScriptInIsolatedWorld(999, [
+        { code: "[window.scrollX, window.scrollY]" },
+      ]);
+      entry.scroll = scrollPosition(value);
+    } catch {
+      entry.scroll = undefined;
+    } finally {
+      entry.readingScroll = false;
+    }
+    if (this.hosted.get(id) === entry && !contents.isDestroyed()) contents.reload();
+  }
   private lastFocused: WebContents;
   private disposed = false;
+  private covered = false;
+  private generation = 0;
   private pendingFocus: WebContents | undefined;
+  private handoffTimer: ReturnType<typeof setTimeout> | undefined;
+  private handoffVersion = 0;
   constructor(
     private readonly window: BrowserWindow,
     readonly registry: PreviewRegistry,
     private readonly validateWorktree: (worktree: string) => Promise<void>,
     private readonly changed: () => void,
+    private readonly confirm: (
+      content: DialogContent,
+      signal: AbortSignal,
+    ) => Promise<boolean> = () => Promise.resolve(false),
   ) {
     this.lastFocused = window.webContents;
     window.webContents.on("focus", this.boardFocused);
     window.webContents.prependListener("before-input-event", this.boardInput);
     window.webContents.on("before-mouse-event", this.boardMouse);
     window.on("resize", this.refresh);
+    window.on("blur", this.releaseHandoff);
   }
   private readonly boardFocused = () => {
     // Native fallback after detaching/closing is not a deliberate board selection.
     if (!this.pendingFocus) this.lastFocused = this.window.webContents;
   };
-  private readonly boardInput = (event: Electron.Event) => {
+  private readonly boardInput = (event: Electron.Event, input?: Electron.Input) => {
     // Block synchronously in main, before Chromium can deliver a key to xterm
-    // or an accelerator. No renderer round trip can protect the first key.
-    if (this.pendingFocus) event.preventDefault();
+    // or an accelerator. Consume Escape while cancellation is pending.
+    if (!this.pendingFocus) return;
+    event.preventDefault();
+    if (input?.key === "Escape") this.releaseHandoff();
   };
+  private clearHandoff() {
+    clearTimeout(this.handoffTimer);
+    this.handoffTimer = undefined;
+    this.pendingFocus = undefined;
+    this.handoffVersion++;
+  }
   private readonly boardMouse = (_event: Electron.Event, mouse: Electron.MouseInputEvent) => {
     if (mouse.type !== "mouseDown") return;
-    this.pendingFocus = undefined;
+    this.clearHandoff();
     this.lastFocused = this.window.webContents;
   };
   private beginHandoff(contents: WebContents) {
-    if (this.lastFocused === contents) this.pendingFocus = contents;
+    if (this.lastFocused !== contents || this.pendingFocus) return;
+    this.pendingFocus = contents;
+    this.handoffTimer = setTimeout(this.releaseHandoff, HANDOFF_DEADLINE_MS);
   }
   private cancelHandoff(contents: WebContents) {
-    if (this.pendingFocus === contents) this.pendingFocus = undefined;
+    if (this.pendingFocus === contents) this.releaseHandoff();
   }
+  private readonly releaseHandoff = () => {
+    if (!this.pendingFocus) return;
+    // Revoke focus intent immediately, including during a recreation delay.
+    this.lastFocused = this.window.webContents;
+    for (const entry of this.hosted.values()) {
+      entry.restoreFocus = false;
+      if (entry.view.webContents === this.pendingFocus) entry.clicked = false;
+    }
+    const version = ++this.handoffVersion;
+    clearTimeout(this.handoffTimer);
+    this.handoffTimer = undefined;
+    // Native fallback may have left xterm's textarea focused in the board DOM.
+    // Keep the main-process gate closed until the trusted board has blurred it.
+    // No preview-controlled data is evaluated here.
+    void this.window.webContents
+      .executeJavaScript(
+        'if (document.activeElement?.closest(".xterm")) document.activeElement.blur()',
+      )
+      .then(() => {
+        if (this.handoffVersion !== version) return;
+        this.clearHandoff();
+        // Some platforms leave no native responder after detaching the preview.
+        // Focus the board only after DOM blur, and never activate another window.
+        if (this.window.isFocused()) this.window.webContents.focus();
+      })
+      .catch(() => {
+        // A destroyed board cannot receive input; otherwise Escape can try again.
+        if (this.window.webContents.isDestroyed() && this.handoffVersion === version)
+          this.clearHandoff();
+      });
+  };
   readonly refresh = () => {
     for (const entry of this.hosted.values()) this.applyBounds(entry);
   };
@@ -127,12 +210,40 @@ export class PreviewHost {
       event.preventDefault();
     });
     partition.webRequest.onBeforeRequest((details, callback) => {
-      callback({ cancel: !requestAllowed(details.url, origin) });
+      callback({ cancel: !requestAllowed(details.url, origin, record.network) });
     });
+    const watcher = new PreviewWatcher(root, () => {
+      void this.reload(record.id);
+    });
+    this.watchers.set(record.id, watcher);
     partition.protocol.handle("foom-preview", (request) => {
-      const result = readPreview(root, request.url, origin);
+      const asset = markdownAsset(request.url, origin);
+      if (asset)
+        return new Response(new Uint8Array(asset.body), { headers: responseHeaders(asset.type) });
+      const result = readPreview(
+        root,
+        request.url,
+        origin,
+        (file) => {
+          watcher.record(file);
+        },
+        record.network,
+      );
+      if (result.status === 200 && result.type.startsWith("text/markdown")) {
+        return new Response(markdownPage(result.body.toString("utf8")), {
+          headers: {
+            ...result.headers,
+            "content-type": "text/html; charset=utf-8",
+            "content-security-policy": previewCsp(result.type, record.network),
+          },
+        });
+      }
       return new Response(
-        result.status === 200 ? new Uint8Array(result.body) : "Preview file unavailable",
+        result.status === 200
+          ? new Uint8Array(result.body)
+          : result.status === 404
+            ? "File not found. Waiting for it to appear."
+            : "Preview file unavailable",
         {
           status: result.status,
           headers: result.headers,
@@ -149,6 +260,7 @@ export class PreviewHost {
     bounds: PreviewBounds,
     restoreFocus = false,
     nextReplacementAt = 0,
+    scroll?: [number, number],
   ): HostedPreview {
     const origin = `foom-preview://${record.id}`;
     const view = new WebContentsView({
@@ -177,6 +289,7 @@ export class PreviewHost {
       clicked: false,
       restoreFocus,
       nextReplacementAt,
+      scroll,
     };
     this.hosted.set(record.id, entry);
     const contents = view.webContents;
@@ -184,13 +297,24 @@ export class PreviewHost {
       this.lastFocused = contents;
       this.pendingFocus = contents;
     }
-    contents.setWindowOpenHandler(() => ({ action: "deny" }));
+    // The board's own guard (prepended in the constructor) runs first, so a pending
+    // focus handoff blocks and Escape cancels it here too.
+    contents.on("before-input-event", (event, input) => {
+      // Use the owning board's dispatcher and synchronous input guards, including
+      // the trusted confirmation guard. Forwarding never changes native focus.
+      this.window.webContents.emit("before-input-event", event, input);
+    });
+    contents.setWindowOpenHandler(({ url }) => {
+      void this.openExternal(record, url);
+      return { action: "deny" };
+    });
     contents.on("will-attach-webview", (event) => {
       event.preventDefault();
     });
     contents.on("will-frame-navigate", (event) => {
       if (!navigationAllowed(event.url, origin)) {
         event.preventDefault();
+        void this.openExternal(record, event.url);
         entry.loaded ||= entry.previouslyLoaded;
         this.applyBounds(entry);
       } else if (event.isMainFrame) {
@@ -200,6 +324,7 @@ export class PreviewHost {
     });
     contents.on("will-redirect", (event) => {
       event.preventDefault();
+      void this.openExternal(record, event.url);
     });
     contents.on("did-start-navigation", (event) => {
       if (entry.replacementTimer || contents.isDestroyed()) return;
@@ -225,6 +350,7 @@ export class PreviewHost {
           entry.bounds,
           heldFocus && this.lastFocused === contents,
           Date.now() + RECREATION_INTERVAL_MS,
+          entry.scroll,
         );
       };
       const delay = Math.max(0, entry.nextReplacementAt - Date.now());
@@ -241,13 +367,26 @@ export class PreviewHost {
     });
     contents.on("did-finish-load", () => {
       if (contents.isDestroyed()) return;
-      entry.loaded = true;
-      this.applyBounds(entry);
+      const attach = () => {
+        if (contents.isDestroyed()) return;
+        entry.loaded = true;
+        this.applyBounds(entry);
+        if (this.covered) void this.capture(entry, this.generation);
+      };
+      if (entry.scroll) {
+        const [x, y] = entry.scroll;
+        entry.scroll = undefined;
+        void contents
+          .executeJavaScriptInIsolatedWorld(999, [
+            { code: `window.scrollTo(${String(x)}, ${String(y)})` },
+          ])
+          .then(attach, attach);
+      } else attach();
     });
     contents.on("before-mouse-event", (_event, mouse) => {
       if (mouse.type !== "mouseDown" || !entry.attached) return;
       // Native input only: page script cannot raise this event.
-      this.pendingFocus = undefined;
+      this.clearHandoff();
       this.lastFocused = contents;
       entry.clicked = true;
       if (!contents.isFocused()) contents.focus();
@@ -258,7 +397,7 @@ export class PreviewHost {
     contents.on("focus", () => {
       if (entry.attached && entry.clicked) {
         this.lastFocused = contents;
-        this.cancelHandoff(contents);
+        if (this.pendingFocus === contents) this.clearHandoff();
       }
       // Attached or not: macOS can hand focus to a detached view that is still loading.
       else if (this.lastFocused !== contents) {
@@ -293,11 +432,10 @@ export class PreviewHost {
     };
     entry.view.setBounds(bounds);
     entry.view.webContents.setZoomFactor(zoom);
-    const visible = entry.bounds.visible && bounds.width > 0 && bounds.height > 0;
+    const visible = !this.covered && entry.bounds.visible && bounds.width > 0 && bounds.height > 0;
     entry.view.setVisible(visible);
     if (!visible) {
-      if (entry.restoreFocus && this.lastFocused === entry.view.webContents)
-        this.lastFocused = this.window.webContents;
+      if (this.lastFocused === entry.view.webContents) this.lastFocused = this.window.webContents;
       this.cancelHandoff(entry.view.webContents);
       entry.restoreFocus = false;
       this.detach(entry);
@@ -307,7 +445,7 @@ export class PreviewHost {
       if (entry.restoreFocus && this.lastFocused === entry.view.webContents) {
         entry.clicked = true;
         entry.view.webContents.focus();
-        if (entry.view.webContents.isFocused()) this.cancelHandoff(entry.view.webContents);
+        if (entry.view.webContents.isFocused()) this.clearHandoff();
       }
       entry.restoreFocus = false;
     }
@@ -328,10 +466,116 @@ export class PreviewHost {
     if (!bounds.visible && this.lastFocused === entry.view.webContents)
       this.lastFocused = this.window.webContents;
     this.applyBounds(entry);
+    this.publishSnapshots();
+  }
+  private publishSnapshots() {
+    if (this.window.webContents.isDestroyed()) return;
+    const snapshots: PreviewSnapshot[] = [];
+    if (this.covered) {
+      for (const [id, entry] of this.hosted) {
+        if (entry.snapshot && entry.bounds.visible)
+          snapshots.push({ id, bounds: entry.bounds, image: entry.snapshot });
+      }
+    }
+    this.window.webContents.send("preview:snapshots", snapshots);
+  }
+  async cover(covered: boolean): Promise<void> {
+    if (this.disposed || this.covered === covered) return;
+    this.covered = covered;
+    const generation = ++this.generation;
+    if (!covered) {
+      for (const entry of this.hosted.values()) {
+        delete entry.snapshot;
+        this.applyBounds(entry);
+      }
+      this.publishSnapshots();
+      return;
+    }
+    await Promise.all([...this.hosted.values()].map((entry) => this.capture(entry, generation)));
+  }
+  private async capture(entry: HostedPreview, generation: number) {
+    const contents = entry.view.webContents;
+    // Start capture before detaching. A slow/failed capture cannot retain native
+    // hit-testing over board UI. stayHidden also covers loads completed underneath.
+    const capture =
+      entry.loaded && !contents.isDestroyed()
+        ? contents.capturePage(undefined, { stayHidden: true })
+        : undefined;
+    this.applyBounds(entry);
+    if (!capture) return;
+    try {
+      const image = await capture;
+      if (this.disposed || generation !== this.generation || contents.isDestroyed()) return;
+      entry.snapshot = image.toDataURL();
+      this.publishSnapshots();
+    } catch {
+      // Keep the overlay usable if the page closes or capture fails.
+    }
+  }
+  private async review(record: PreviewRecord, content: DialogContent): Promise<boolean> {
+    if (this.disposed || !this.registry.records.has(record.id) || this.confirmations.has(record.id))
+      return false;
+    const controller = new AbortController();
+    this.confirmations.set(record.id, controller);
+    try {
+      return (
+        (await this.confirm(content, controller.signal)) &&
+        !controller.signal.aborted &&
+        !this.closed() &&
+        this.registry.records.get(record.id) === record
+      );
+    } catch {
+      return false;
+    } finally {
+      if (this.confirmations.get(record.id) === controller) this.confirmations.delete(record.id);
+    }
+  }
+  private async openExternal(record: PreviewRecord, url: string): Promise<void> {
+    if (!externalLink(url)) return;
+    if (
+      (await this.review(record, {
+        title: "Open this link?",
+        accept: "Open in browser",
+        glyph: "link",
+        subject: record.relativePath,
+        facts: [{ label: "URL", value: url, mono: true }],
+      })) &&
+      this.registry.records.get(record.id) === record &&
+      !this.closed()
+    ) {
+      await shell.openExternal(url).catch(() => {});
+    }
+  }
+  async network(id: string, enabled: boolean): Promise<void> {
+    const record = this.registry.records.get(id);
+    if (!record || this.disposed) throw new Error("Unknown preview ID");
+    if (record.network === enabled) return;
+    if (
+      enabled &&
+      !(await this.review(record, {
+        title: "Allow network for this preview?",
+        accept: "Allow network",
+        glyph: "shield",
+        subject: record.relativePath,
+        detail: "This page can send files from this worktree to the internet",
+      }))
+    )
+      return;
+    if (this.registry.records.get(id) !== record || this.closed()) return;
+    record.network = enabled;
+    this.changed();
+    const entry = this.hosted.get(id);
+    if (entry) {
+      await entry.partition.closeAllConnections();
+      if (!entry.view.webContents.isDestroyed()) entry.view.webContents.reload();
+    }
   }
   async close(id: string): Promise<void> {
     if (!this.registry.records.delete(id)) throw new Error("Unknown preview ID");
     this.tiled.delete(id);
+    this.confirmations.get(id)?.abort();
+    this.watchers.get(id)?.close();
+    this.watchers.delete(id);
     const entry = this.hosted.get(id);
     if (entry) {
       clearTimeout(entry.replacementTimer);
@@ -342,6 +586,7 @@ export class PreviewHost {
       if (this.lastFocused === contents) this.lastFocused = this.window.webContents;
       if (!contents.isDestroyed()) contents.close();
       this.hosted.delete(id);
+      this.publishSnapshots();
       partition.protocol.unhandle("foom-preview");
       partition.webRequest.onBeforeRequest(null);
       await partition.clearStorageData();
@@ -349,7 +594,8 @@ export class PreviewHost {
       partition.removeAllListeners("will-download");
     }
     await this.registry.save();
-    this.changed();
+    // Shutdown frees views without publishing a transient empty inventory to the board.
+    if (!this.disposed) this.changed();
   }
   async reconcile(): Promise<void> {
     for (const record of [...this.registry.records.values()]) {
@@ -363,6 +609,8 @@ export class PreviewHost {
   async dispose(persist: boolean): Promise<void> {
     if (this.disposed) return;
     this.disposed = true;
+    this.clearHandoff();
+    this.window.removeListener("blur", this.releaseHandoff);
     this.window.removeListener("resize", this.refresh);
     this.window.webContents.removeListener("focus", this.boardFocused);
     this.window.webContents.removeListener("before-input-event", this.boardInput);

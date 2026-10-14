@@ -625,6 +625,7 @@ test("sidebar inventory reports previews only for worktrees it lists", async () 
         worktree: "/tree",
         relativePath: "docs/Readme.MD",
         openedBy: { terminalId: "agent", agent: "claude" },
+        network: false,
         kind: "markdown",
       },
       {
@@ -632,6 +633,7 @@ test("sidebar inventory reports previews only for worktrees it lists", async () 
         repository: "/repo",
         worktree: "/tree",
         relativePath: "site/index.html",
+        network: false,
         kind: "html",
       },
     ],
