@@ -495,8 +495,10 @@ test("restores only validated worktrees lazily, closes removed worktrees and pre
   fake.packaged = true;
   f.host.bounds(a.id, { x: 0, y: 0, width: 100, height: 100, visible: true });
   expect(fake.views[0]?.options).toMatchObject({ webPreferences: { devTools: false } });
+  f.changed.mockClear();
   await f.host.dispose(true);
   await f.host.dispose(true);
+  expect(f.changed).not.toHaveBeenCalled();
   expect(f.registry.records.has(a.id)).toBe(true);
   expect(() => {
     f.host.bounds(a.id, { x: 0, y: 0, width: 1, height: 1, visible: true });

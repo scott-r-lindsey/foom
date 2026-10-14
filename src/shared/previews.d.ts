@@ -12,7 +12,7 @@ export interface PreviewBounds {
   visible: boolean;
 }
 export interface PreviewApi {
-  open(worktree: string, relativePath: string): Promise<string>;
+  pick(worktree: string): Promise<string | null>;
   close(id: string): Promise<void>;
   bounds(id: string, bounds: PreviewBounds): Promise<void>;
 }

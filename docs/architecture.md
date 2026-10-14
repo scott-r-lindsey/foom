@@ -1678,11 +1678,15 @@ The main-owned registry stores `{ id, worktree, relativePath, network: false }`
 per stable window ID in profile JSON, with bounded validation and serialized
 atomic writes. Paths never enter layout localStorage. Opens revalidate membership
 and canonical checkout identity against registered worktrees, then validate and
-read the contained document. `preview:open`, `preview:close` and `preview:bounds`
+read the contained document. `preview:pick`, `preview:close` and `preview:bounds`
 use `WindowIpcRouter` to validate the owning board, exact app URL and top frame,
-and validate argument counts, document paths, IDs and finite bounded rectangles.
+and validate argument counts, worktree IDs and finite bounded rectangles.
+The picker command carries only the inventory worktree path that identifies the checkout.
+Main shows the native picker rooted there and derives the relative document path;
+the renderer never chooses or sends a document path.
 IDs grant access only within their owning window. Sidebar inventory reports those
-IDs and display facts; renderer UI placement and measurement belong to #296.
+IDs and display facts. The board places human previews with `placeContent`, preserving
+focus, and measures each preview body to report bounds through the source interface.
 Restored registry entries stay detached and allocate no view until bounds arrive.
 Worktree removal closes previews when workspace inventory refreshes.
 

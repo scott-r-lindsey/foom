@@ -28,6 +28,13 @@ const snapshot = {
 };
 beforeEach(() => {
   localStorage.clear();
+  vi.stubGlobal(
+    "ResizeObserver",
+    class {
+      observe() {}
+      disconnect() {}
+    },
+  );
 });
 afterEach(() => {
   cleanup();
@@ -888,7 +895,12 @@ test.each(["markdown", "html"] as const)(
     let command: ((command: BoardCommand) => void) | undefined;
     const source: BoardSource = {
       ...data,
-      previews: { getSnapshot: () => [preview], close },
+      previews: {
+        getSnapshot: () => [preview],
+        pick: vi.fn(() => Promise.resolve(null)),
+        bounds: vi.fn(async () => {}),
+        close,
+      },
       subscribeCommands: (listener) => {
         command = listener;
         return () => {
@@ -939,9 +951,121 @@ test("replacing a preview closes it and reports close failures", async () => {
   saveLayout(localStorage, layout);
   const close = vi.fn(() => Promise.reject(new Error("closed")));
   const screen = render(
-    <Board source={{ ...data, previews: { getSnapshot: () => [preview], close } }} />,
+    <Board
+      source={{
+        ...data,
+        previews: {
+          getSnapshot: () => [preview],
+          pick: vi.fn(() => Promise.resolve(null)),
+          bounds: vi.fn(async () => {}),
+          close,
+        },
+      }}
+    />,
   );
   fireEvent.click(screen.getByRole("button", { name: "Close" }));
   await act(async () => {});
   expect(screen.getByRole("alert").textContent).toBe("Unable to close preview.");
+});
+
+test("panel picking fills the landing spot without focus, and handles cancel and refusal", async () => {
+  const data = createSampleSource(sampleRows(100).slice(1, 2));
+  const row = data.getSnapshot()[0];
+  if (!row) throw new Error("Missing row");
+  const preview = {
+    id: "picked",
+    repository: row.repository,
+    worktree: `${row.repository}/${row.branch}`,
+    relativePath: "page.html",
+    kind: "html" as const,
+  };
+  const pick = vi.fn(() => Promise.resolve<string | null>(preview.id));
+  const bounds = vi.fn(() => Promise.resolve());
+  const close = vi.fn(() => Promise.resolve());
+  const occupied = placeSession(arrangedLayout(initialLayout(), "columns"), row.id);
+  if (!occupied) throw new Error("Missing layout");
+  const landing = leaves(occupied.tree).find((tile) => !tile.content);
+  if (!landing) throw new Error("Missing landing spot");
+  saveLayout(localStorage, { ...occupied, landing: landing.id });
+  const screen = render(
+    <Board source={{ ...data, previews: { getSnapshot: () => [preview], pick, bounds, close } }} />,
+  );
+  const choose = async () => {
+    fireEvent.click(screen.getByRole("button", { name: `Actions for ${row.branch}` }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Preview file…" }));
+    await act(async () => {});
+  };
+  await choose();
+  expect(pick).toHaveBeenCalledWith(preview.worktree);
+  const tile = screen.getByRole("region", { name: "Tile 2: page.html" });
+  expect(tile.getAttribute("data-tile")).toBe(landing.id);
+  expect(tile.getAttribute("data-focused")).toBe("false");
+  expect(bounds).toHaveBeenCalledWith(preview.id, expect.objectContaining({ visible: false }));
+  pick.mockResolvedValueOnce(null);
+  await choose();
+  expect(close).not.toHaveBeenCalled();
+  pick.mockRejectedValueOnce(new Error("Refused file"));
+  await choose();
+  expect(screen.getByRole("alert").textContent).toBe("Refused file");
+});
+
+test("preview bounds follow body measurement and transitions, hide under settings, and dispose observers", async () => {
+  const observe = vi.fn();
+  const disconnect = vi.fn();
+  vi.stubGlobal(
+    "ResizeObserver",
+    class {
+      observe = observe;
+      disconnect = disconnect;
+    },
+  );
+  vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue(
+    new DOMRect(12, 34, 320, 180),
+  );
+  const preview = {
+    id: "p",
+    repository: "repo",
+    worktree: "/tree",
+    relativePath: "page.html",
+    kind: "html" as const,
+  };
+  const layout = placeContent(initialLayout(), { kind: "preview", preview: preview.id });
+  if (!layout) throw new Error("Missing layout");
+  saveLayout(localStorage, layout);
+  const bounds = vi.fn(() => Promise.resolve());
+  bounds.mockRejectedValueOnce(new Error("native view failed"));
+  const source = {
+    ...createSampleSource([]),
+    previews: {
+      getSnapshot: () => [preview],
+      pick: () => Promise.resolve(null),
+      close: () => Promise.resolve(),
+      bounds,
+    },
+  };
+  const screen = render(<Board source={source} />);
+  await act(async () => {});
+  expect(screen.getByRole("alert").textContent).toBe("Unable to display preview.");
+  const tile = screen.getByRole("region", { name: "Tile 1: page.html" });
+  fireEvent(tile, new Event("transitionend"));
+  fireEvent(window, new Event("resize"));
+  await act(async () => {});
+  expect(bounds).toHaveBeenLastCalledWith("p", {
+    x: 12,
+    y: 34,
+    width: 320,
+    height: 180,
+    visible: true,
+  });
+  screen.rerender(<Board source={source} inactive />);
+  await act(async () => {});
+  expect(bounds).toHaveBeenLastCalledWith("p", expect.objectContaining({ visible: false }));
+  bounds.mockRejectedValueOnce(new Error("already closed"));
+  screen.unmount();
+  await act(async () => {});
+  expect(disconnect).toHaveBeenCalledTimes(2);
+  expect(observe).toHaveBeenCalledTimes(2);
+  bounds.mockClear();
+  fireEvent(window, new Event("resize"));
+  expect(bounds).not.toHaveBeenCalled();
 });

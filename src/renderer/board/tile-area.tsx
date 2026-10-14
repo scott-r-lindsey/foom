@@ -125,6 +125,40 @@ function Tile({
       }),
     [source, rowId],
   );
+  const previewRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const id = preview?.id;
+    const element = previewRef.current;
+    if (!id || !element || !source.previews) return;
+    const report = () => {
+      const bounds = element.getBoundingClientRect();
+      void source.previews
+        ?.bounds(id, {
+          x: bounds.x,
+          y: bounds.y,
+          width: bounds.width,
+          height: bounds.height,
+          visible: !inactive && !behind && bounds.width > 0 && bounds.height > 0,
+        })
+        .catch(() => {
+          setError("Unable to display preview.");
+        });
+    };
+    report();
+    const observer = new ResizeObserver(report);
+    observer.observe(element);
+    window.addEventListener("resize", report);
+    const tileElement = element.parentElement;
+    tileElement?.addEventListener("transitionend", report);
+    return () => {
+      observer.disconnect();
+      tileElement?.removeEventListener("transitionend", report);
+      window.removeEventListener("resize", report);
+      void source.previews
+        ?.bounds(id, { x: 0, y: 0, width: 0, height: 0, visible: false })
+        .catch(() => {});
+    };
+  }, [source, preview?.id, inactive, behind, rect.x, rect.y, rect.width, rect.height]);
   const lastFocusRef = useRef(0);
   useEffect(() => {
     if (focusRequest === lastFocusRef.current) return;
@@ -304,6 +338,8 @@ function Tile({
           )}
         </>
       )}
+      {preview && <div className="tile-shell" ref={previewRef} />}
+      {preview && error && <p role="alert">{error}</p>}
       {view && (
         <div className="tile-shell" hidden={!row || row.kind === "sample"}>
           <TerminalView

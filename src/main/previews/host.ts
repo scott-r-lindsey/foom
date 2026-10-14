@@ -331,7 +331,8 @@ export class PreviewHost {
       partition.removeAllListeners("will-download");
     }
     await this.registry.save();
-    this.changed();
+    // Shutdown frees views without publishing a transient empty inventory to the board.
+    if (!this.disposed) this.changed();
   }
   async reconcile(): Promise<void> {
     for (const record of [...this.registry.records.values()]) {
