@@ -17,6 +17,7 @@ export interface RemovalItem {
   branch: string;
   path: string;
   changes: string;
+  pullRequest?: { number: number; state: "OPEN" | "CLOSED" | "MERGED" };
 }
 export interface RemovalFeed {
   current(): readonly RemovalItem[];

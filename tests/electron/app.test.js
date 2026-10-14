@@ -7549,6 +7549,16 @@ test("trusted card follows interface scale and clears its scrim on every dismiss
         clean: false,
         dirty: true,
       });
+    await queueBatch();
+    await expect(batchPage.getByRole("checkbox")).toHaveCount(3);
+    await batchPage.getByRole("button", { name: "Discard changes and remove all" }).click();
+    await expect
+      .poll(() => app.evaluate(() => globalThis.batchAnswers))
+      .toEqual({
+        clean: true,
+        dirty: true,
+        abort: true,
+      });
     await app.evaluate(() => {
       globalThis.testAnswer = undefined;
       void globalThis.testConfirmation
@@ -8765,12 +8775,14 @@ async function runOrchestratorScenario(context, cliOnly, phase) {
           worktreeId: dirtyAuto.body.result.resultId,
         });
         await expect(
-          confirmation.getByRole("heading", { name: "Remove worktrees?" }),
+          confirmation.getByRole("heading", { name: "Remove worktree with uncommitted changes?" }),
         ).toBeVisible();
-        await expect(confirmation.getByRole("list", { name: "Worktrees to remove" })).toContainText(
+        await expect(confirmation.getByRole("list", { name: "Uncommitted changes" })).toContainText(
           "untracked.txt",
         );
-        await confirmation.getByRole("button", { name: "Discard changes and remove all" }).click();
+        await confirmation
+          .getByRole("button", { name: "Discard changes and remove", exact: true })
+          .click();
         await expect
           .poll(
             async () =>
@@ -8814,7 +8826,9 @@ async function runOrchestratorScenario(context, cliOnly, phase) {
         worktreeId: tree.body.result.resultId,
       });
       assert.equal(removal.body.result.status, "pending_confirmation");
-      await expect(confirmation.getByRole("heading", { name: "Remove worktrees?" })).toBeVisible();
+      await expect(
+        confirmation.getByRole("heading", { name: "Remove worktree?", exact: true }),
+      ).toBeVisible();
       for (const tree of extraTrees) {
         const queued = await call(parent.controlToken, "remove_worktree", {
           idempotencyKey: `remove-${tree.branch}`,
@@ -8866,6 +8880,46 @@ async function runOrchestratorScenario(context, cliOnly, phase) {
         .toBe("succeeded");
       assert.match(String(git("branch", "--list", "child-one")), /child-one/);
 
+      // Exercise whole-batch decisions through the real control and Git removal paths.
+      for (const approve of [true, false]) {
+        const batch = [];
+        for (const suffix of ["one", "two"]) {
+          const branch = `batch-${approve ? "all" : "none"}-${suffix}`;
+          const created = await call(parent.controlToken, "create_worktree", {
+            idempotencyKey: `create-${branch}`,
+            branch,
+          });
+          assert.equal(created.body.result.status, "succeeded");
+          batch.push({ branch, id: created.body.result.resultId });
+        }
+        for (const tree of batch) {
+          await call(parent.controlToken, "remove_worktree", {
+            idempotencyKey: `remove-${tree.branch}`,
+            worktreeId: tree.id,
+          });
+        }
+        await expect(confirmation.getByRole("checkbox")).toHaveCount(2);
+        await confirmation
+          .getByRole("button", { name: approve ? "Approve all" : "Decline", exact: true })
+          .click();
+        for (const tree of batch) {
+          await expect
+            .poll(
+              async () =>
+                (
+                  await call(parent.controlToken, "operation_status", {
+                    idempotencyKey: `remove-${tree.branch}`,
+                  })
+                ).body.result.status,
+            )
+            .toBe(approve ? "succeeded" : "declined");
+          assert.equal(
+            String(git("worktree", "list", "--porcelain")).includes(`refs/heads/${tree.branch}`),
+            !approve,
+          );
+        }
+      }
+
       await assert.rejects(
         page.evaluate(() =>
           window.desktop.actionLog({ search: "", action: "", status: "", offset: -1 }),
@@ -8890,7 +8944,7 @@ async function runOrchestratorScenario(context, cliOnly, phase) {
       await page.getByRole("searchbox").fill("remove_worktree");
       await page.getByLabel("Outcome", { exact: true }).selectOption("succeeded");
       await expect(history.getByText("remove worktree", { exact: true })).toHaveCount(
-        cliOnly ? 2 : 4,
+        cliOnly ? 4 : 6,
       );
       await page.screenshot({
         path: `test-results/action-log-${cliOnly ? "agy" : "claude"}.png`,
@@ -9411,7 +9465,7 @@ req.end(JSON.stringify(payload));
           .filter((window) => window.url() === "app://confirmation/confirmation.html")) {
           if (
             await candidate
-              .getByRole("heading", { name: "Remove worktrees?", exact: true })
+              .getByRole("heading", { name: "Remove worktree?", exact: true })
               .isVisible()
           ) {
             removal = candidate;
@@ -9421,7 +9475,7 @@ req.end(JSON.stringify(payload));
         return false;
       })
       .toBe(true);
-    await removal.getByRole("button", { name: "Approve all" }).click();
+    await removal.getByRole("button", { name: "Remove worktree", exact: true }).click();
     await expect
       .poll(
         async () =>

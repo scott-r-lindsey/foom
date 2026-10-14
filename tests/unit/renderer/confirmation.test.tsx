@@ -428,7 +428,13 @@ test("batch review lists trusted snapshots, traps focus through selection and se
     accept: "Approve all",
     theme: resolveInterfaceTheme("follow", false),
     removals: [
-      { id: "one", branch: "clean", path: "/trees/clean", changes: "" },
+      {
+        id: "one",
+        branch: "clean",
+        path: "/trees/clean",
+        changes: "",
+        pullRequest: { number: 338, state: "MERGED" },
+      },
       { id: "two", branch: "<img src=x>", path: "/trees/dirty", changes: "?? file\0" },
     ],
   };
@@ -441,6 +447,7 @@ test("batch review lists trusted snapshots, traps focus through selection and se
   expect(answer).toHaveBeenLastCalledWith("batch", false);
   expect(view.getByRole("list", { name: "Worktrees to remove" }).textContent).toContain("Clean");
   expect(view.getByText("Dirty")).toBeTruthy();
+  expect(view.getByText("PR #338 · MERGED")).toBeTruthy();
   expect(view.getByText("/trees/dirty")).toBeTruthy();
   expect(view.getByRole("list", { name: "Uncommitted changes" }).textContent).toContain("file");
   expect(view.container.querySelector("img")).toBeNull();

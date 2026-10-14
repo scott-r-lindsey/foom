@@ -5,7 +5,7 @@ import type { Session, IpcMainEvent, Event, WebContents } from "electron";
 import type { DialogContent, DialogRequest } from "../../shared/confirmation";
 import type { InterfaceTheme } from "../../shared/interface-theme";
 
-import { RemovalReview } from "./removal-review";
+import { RemovalReview, removalContent } from "./removal-review";
 
 export const CONFIRMATION_URL = "app://confirmation/confirmation.html";
 /** Dedicated session and origin prevent process sharing or board access to this page. */
@@ -55,6 +55,13 @@ export class TrustedDialog {
         return;
       }
       const ids = new Set(this.pending.request.removals?.map((item) => item.id));
+      if (!this.pending.request.removals) {
+        const item = this.removalFeed.current()[0];
+        if (accepted !== true || !item) return;
+        this.removalFeed.select([item.id]);
+        this.finish(true);
+        return;
+      }
       if (
         !Array.isArray(accepted) ||
         accepted.length === 0 ||
@@ -193,7 +200,7 @@ export class TrustedDialog {
         id,
         theme: this.theme(),
         ...(feed ? { cleanup: feed.current() } : {}),
-        ...(removalFeed ? { removals: removalFeed.current() } : {}),
+        ...(removalFeed ? removalContent(removalFeed.current()) : {}),
       };
       this.size = undefined;
       const answer = new Promise<boolean>((resolve) => {
@@ -210,9 +217,10 @@ export class TrustedDialog {
           // Any list change invalidates answers authored against the older list.
           this.pending.id = randomUUID();
           this.pending.request = {
-            ...this.pending.request,
+            ...renderContent,
             id: this.pending.id,
-            removals: removalFeed.current(),
+            theme: this.theme(),
+            ...removalContent(removalFeed.current()),
           };
           this.refresh();
         });

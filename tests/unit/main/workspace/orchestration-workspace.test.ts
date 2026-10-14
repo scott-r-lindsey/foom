@@ -1386,6 +1386,9 @@ it.each(["dirty", "identity", "failure", "actor"])(
           pending.map((item) => operations.lookup(actor, { operationId: item.operationId }).status),
         ).toEqual(["succeeded", "failed", "succeeded"]);
       });
+      expect(
+        pending.map((item) => operations.lookup(actor, { operationId: item.operationId }).reason),
+      ).toEqual(["completed", "error", "completed"]);
       expect(vi.mocked(deps.worktrees.removeWorktree).mock.calls.map((call) => call[1])).toEqual(
         mode === "failure" ? paths : [paths[0], paths[2]],
       );

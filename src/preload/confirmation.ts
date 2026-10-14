@@ -17,7 +17,13 @@ function structured(value: unknown): boolean {
       value.removals.every(
         (item: unknown) =>
           record(item) &&
-          ["id", "branch", "path", "changes"].every((key) => typeof item[key] === "string"),
+          ["id", "branch", "path", "changes"].every((key) => typeof item[key] === "string") &&
+          (item["pullRequest"] === undefined ||
+            (record(item["pullRequest"]) &&
+              typeof item["pullRequest"]["number"] === "number" &&
+              Number.isSafeInteger(item["pullRequest"]["number"]) &&
+              item["pullRequest"]["number"] > 0 &&
+              ["OPEN", "CLOSED", "MERGED"].includes(String(item["pullRequest"]["state"])))),
       )
     )
   )
