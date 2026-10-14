@@ -2634,7 +2634,7 @@ test("a fresh profile opens preflight, and it passes accessibility checks", asyn
   await page.emulateMedia({ reducedMotion: null });
   await assertAccessible(page);
   await page.getByRole("button", { name: "Start preflight" }).click();
-  await page.getByText("Which agents do you run?").waitFor();
+  await page.getByRole("heading", { name: "Agents", exact: true }).waitFor();
   await expect(page.getByText("Looking…")).toHaveCount(0, { timeout: deadline(20000) });
   await assertAccessible(page);
 });
@@ -3019,30 +3019,13 @@ test("first run goes from no agents to go, launches by keyboard, and can be repl
     await chmod(path.join(bin, name), 0o755);
   }
   await page.getByRole("button", { name: "Scan again" }).click();
-  await expect(page.getByText("Found", { exact: true })).toHaveCount(3, {
-    timeout: deadline(20000),
-  });
-  await expect(page.locator(".badge-value")).toHaveText(["2.1.300", "0.155.1", "1.2.13"]);
-  for (const name of ["Hooks", "Notify", "Screen rules"])
-    await expect(page.getByRole("button", { name, exact: true })).toBeVisible();
-  // Where each agent was found is a tooltip away, by keyboard as well as pointer.
-  // Park the pointer away from the cards, so a hover can't win over keyboard focus.
-  await page.mouse.move(0, 0);
-  await page.getByRole("button", { name: "codex", exact: true }).focus();
-  await expect(page.getByRole("tooltip")).toContainText(`Found at ${path.join(bin, "codex")}`);
-  await expect
-    .poll(() =>
-      page.getByRole("button", { name: "codex", exact: true }).evaluate((trigger) => {
-        const bubble = document.querySelector('[role="tooltip"]:not([hidden])');
-        const bounds = bubble.getBoundingClientRect();
-        return Math.abs(bounds.top - trigger.getBoundingClientRect().bottom - 6);
-      }),
-    )
-    .toBeLessThan(2);
-  await assertPreflightFits(page, "Tooltip outside the scaled layout");
+  await expect(page.locator(".agent-version")).toHaveText(["2.1.300", "0.155.1", "1.2.13"]);
+  await expect(page.locator(".agent-card")).toHaveCount(3);
+  await expect(page.getByText(path.join(bin, "codex"), { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Hooks", exact: true })).toHaveCount(3);
+  await expect(page.getByText("Notify + screen rules active", { exact: true })).toBeVisible();
+  await assertPreflightFits(page, "Agent cards fit the scaled layout");
   await assertAccessible(page);
-  await page.keyboard.press("Escape");
-  await expect(page.getByRole("tooltip")).toHaveCount(0);
   await page.getByRole("button", { name: /Go \/ no-go/ }).click();
   await page.getByText("All stations go.").waitFor();
   await assertAccessible(page);
@@ -4345,7 +4328,7 @@ test("Settings shares live preflight values, sizes the terminal and restores key
     await tabTo(page, name);
     await page.keyboard.press("Enter");
   };
-  const hooks = page.getByLabel("Attach Foom's hooks when it launches an agent", { exact: false });
+  const hooks = page.getByLabel("Attach hooks", { exact: false });
   await tabToControl(hooks);
   await page.keyboard.press("Space");
   await expect
@@ -4501,7 +4484,7 @@ test("every Settings section passes axe in light and dark, including the narrow 
   const page = await boardPage(app);
   await openSettingsScreen(page);
   for (const name of [
-    "Agents and hooks",
+    "Agents",
     "Repositories",
     "Worktrees",
     "Appearance",
@@ -5725,9 +5708,9 @@ test("Settings persists literal agent defaults and discloses bypass once per age
   const input = page.getByLabel("Claude Code default arguments");
   await expect(input).toBeVisible();
   await input.fill("--settings={}");
-  await page.getByRole("button", { name: "Save default arguments", exact: true }).click();
-  await expect(page.locator(".agent-defaults [role=status]")).toContainText("Claude Code, line 1:");
-  await expect(page.locator(".agent-defaults [role=status]")).toContainText("reserved");
+  await input.blur();
+  await expect(page.locator(".agent-card [role=alert]")).toContainText("Claude Code, line 1:");
+  await expect(page.locator(".agent-card [role=alert]")).toContainText("reserved");
   const args = [
     "--eval",
     'require("node:fs").writeFileSync(process.env.TEST_ARGV, JSON.stringify([...process.execArgv, ...process.argv.slice(1)])); setInterval(() => {}, 1000)',
@@ -5737,7 +5720,7 @@ test("Settings persists literal agent defaults and discloses bypass once per age
     "--dangerously-skip-permissions",
   ];
   await input.fill(`${args.join("\r\n")}\r\n\r\n`);
-  await page.getByRole("button", { name: "Save default arguments", exact: true }).click();
+  await input.blur();
   const disclosure = await confirmationPage(app);
   await expect(disclosure.getByRole("alertdialog")).toHaveAccessibleName(
     "Save bypass defaults for Claude Code?",
@@ -5749,20 +5732,17 @@ test("Settings persists literal agent defaults and discloses bypass once per age
   const disclosureScan = await new AxeBuilder({ page: disclosure }).setLegacyMode().analyze();
   assert.deepEqual(disclosureScan.violations, []);
   await disclosure.keyboard.press("Enter");
-  await expect(page.locator(".agent-defaults [role=status]")).toContainText("cancelled");
+  await expect(page.locator(".agent-card [role=alert]")).toContainText("cancelled");
   assert.deepEqual(
     (await page.evaluate(() => window.desktop.setupState())).settings.agentArguments.claude,
     [],
   );
-  await page.getByRole("button", { name: "Save default arguments", exact: true }).click();
+  await input.focus();
+  await input.blur();
   await disclosure.getByRole("button", { name: "Save bypass defaults", exact: true }).click();
-  await expect(page.locator(".agent-defaults [role=status]")).toContainText(
-    "Default arguments saved",
-  );
-  await page.getByRole("button", { name: "Save default arguments", exact: true }).click();
-  await expect(page.locator(".agent-defaults [role=status]")).toContainText(
-    "Default arguments saved",
-  );
+  await expect(page.locator(".agent-card [role=alert]")).toHaveCount(0);
+  await input.blur();
+  await expect(page.locator(".agent-card [role=alert]")).toHaveCount(0);
   await expect(disclosure.getByRole("alertdialog")).toHaveCount(0);
   const persisted = JSON.parse(
     await readFile(path.join(profile, "settings.json"), "utf8"),
@@ -6756,9 +6736,9 @@ process.stdin.on('data', data => {
   await openSettingsScreen(page);
   await page
     .getByRole("navigation", { name: "Settings sections" })
-    .getByRole("button", { name: "Agents and hooks", exact: true })
+    .getByRole("button", { name: "Agents", exact: true })
     .click();
-  await expect(page.getByText(/Codex hooks: Trusted/)).toBeVisible();
+  await expect(page.getByText(/Trusted · observed working/)).toBeVisible();
   await page.screenshot({ path: path.join(__dirname, "../../test-results/codex-hook-setup.png") });
 });
 
@@ -7163,14 +7143,14 @@ process.stdin.on('data', (data) => {
     if (firstRun) await page.getByRole("button", { name: "Start preflight" }).click();
     else {
       await openSettingsScreen(page);
-      await page.getByRole("button", { name: "Agents and hooks", exact: true }).click();
+      await page.getByRole("button", { name: "Agents", exact: true }).click();
       await expect(page.getByText("Plugin available", { exact: true })).toBeVisible();
     }
     const agyRow = page
-      .locator("li")
+      .locator(".agent-card")
       .filter({ has: page.getByText("Antigravity", { exact: true }) });
     await expect(agyRow.getByRole("button", { name: "Screen rules", exact: true })).toBeVisible();
-    await expect(agyRow.locator("p")).toHaveCount(0);
+    await expect(agyRow.getByText("Screen rules active", { exact: true })).toBeVisible();
     await page.getByRole("button", { name: "Install plugin" }).click();
     let disclosure = await confirmationPage(app);
     await expect(disclosure.getByText(/~\/.gemini\/config\/plugins\/foom/u)).toBeVisible();
@@ -7193,8 +7173,7 @@ process.stdin.on('data', (data) => {
     await page.getByRole("button", { name: "Install plugin" }).click();
     disclosure = await confirmationPage(app);
     await disclosure.getByRole("button", { name: "Install plugin" }).click();
-    await page.getByText("Plugin details", { exact: true }).click();
-    await expect(page.getByText("Installed", { exact: true })).toBeVisible();
+    await expect(page.getByText("Lifecycle plugin · Installed", { exact: true })).toBeVisible();
     await expect(agyRow.getByRole("button", { name: "Hooks", exact: true })).toBeVisible();
     await assertAccessible(page);
     await app.evaluate(({ dialog }, directory) => {
@@ -10343,12 +10322,18 @@ test("config file agent arguments require trusted Allow before a fake Codex laun
     (await page.evaluate(() => window.desktop.setupState())).settings.agentBypassAcknowledged.codex,
     true,
   );
-  // Saving the approved bypass through Settings must not ask again.
-  await sections.getByRole("button", { name: "Agents and hooks", exact: true }).click();
-  await page.getByRole("button", { name: "Save default arguments", exact: true }).click();
-  await expect(page.locator(".agent-defaults [role=status]")).toContainText(
-    "Default arguments saved",
-  );
+  // Saving defaults from the card retains the prior main-owned bypass acknowledgement.
+  await sections.getByRole("button", { name: "Agents", exact: true }).click();
+  const input = page.getByLabel("Codex default arguments");
+  await expect(input).toBeVisible();
+  await input.fill([...args, bypass, "--model", "fixture"].join("\n"));
+  await input.blur();
+  await expect
+    .poll(
+      async () =>
+        (await page.evaluate(() => window.desktop.setupState())).settings.agentArguments.codex,
+    )
+    .toEqual([...args, bypass, "--model", "fixture"]);
   await expect(disclosure.getByRole("alertdialog")).toHaveCount(0);
   for (const name of [".claude", ".codex", ".gemini"])
     assert.ok(!(await readdir(home)).includes(name));
@@ -12515,7 +12500,7 @@ test("a manifest-only fixture agent cannot launch before trusted approval and re
   await openSettingsScreen(page);
   await page
     .getByRole("navigation", { name: "Settings sections" })
-    .getByRole("button", { name: "Foom config", exact: true })
+    .getByRole("button", { name: "Agents", exact: true })
     .click();
   const file = path.join(home, ".foom/config/agents/foom-test-agent.json");
   const manifest = {
@@ -12545,8 +12530,11 @@ test("a manifest-only fixture agent cannot launch before trusted approval and re
       repository.path,
     );
   await writeFile(file, JSON.stringify(manifest));
-  const banner = page.getByRole("region", { name: "Change waiting for approval" });
-  await expect(banner).toContainText("agent plugin");
+  const card = page
+    .locator(".agent-card")
+    .filter({ has: page.getByRole("heading", { name: "Fixture agent", exact: true }) });
+  await expect(card).toContainText("Approval pending · launch blocked");
+  await expect(card.getByRole("switch")).toBeDisabled();
   assert.equal(
     (await page.evaluate(() => window.desktop.scanAgents(true))).agents.some(
       (agent) => agent.id === "foom-test-agent",
@@ -12554,7 +12542,7 @@ test("a manifest-only fixture agent cannot launch before trusted approval and re
     false,
   );
   await assert.rejects(launch(), /Invalid sidebar command/);
-  await banner.getByRole("button", { name: "Allow", exact: true }).click();
+  await card.getByRole("button", { name: "Review…", exact: true }).click();
   let disclosure = await confirmationPage(app);
   await expect(disclosure.getByRole("button", { name: "Cancel" })).toBeFocused();
   await expect(disclosure.getByRole("alertdialog")).toContainText(
@@ -12563,11 +12551,11 @@ test("a manifest-only fixture agent cannot launch before trusted approval and re
   await expect(disclosure.getByRole("alertdialog")).toContainText("$(literal)");
   await expect(disclosure.getByRole("alertdialog")).toContainText("--yolo");
   await disclosure.getByRole("button", { name: "Cancel" }).click();
-  await expect(banner).toBeVisible();
-  await banner.getByRole("button", { name: "Allow", exact: true }).click();
+  await expect(page.getByText("Approval pending · launch blocked", { exact: true })).toBeVisible();
+  await card.getByRole("button", { name: "Review…", exact: true }).click();
   disclosure = await confirmationPage(app);
   await disclosure.getByRole("button", { name: "Allow plugin", exact: true }).click();
-  await expect(banner).toHaveCount(0);
+  await expect(card.getByText("Approved", { exact: true })).toBeVisible();
   await expect
     .poll(async () =>
       (await page.evaluate(() => window.desktop.scanAgents(true))).agents.some(
@@ -12575,6 +12563,11 @@ test("a manifest-only fixture agent cannot launch before trusted approval and re
       ),
     )
     .toBe(true);
+  await expect(card.getByLabel("Fixture agent default arguments")).toBeVisible();
+  await expect(card.getByLabel("New Fixture agent variable name")).toBeVisible();
+  await expect(card.getByText("Screen rules", { exact: true })).toBeVisible();
+  await assertAccessible(page);
+  await page.screenshot({ path: path.join(__dirname, "../../test-results/agents-settings.png") });
   await launch();
   await expect
     .poll(async () => {
@@ -12590,8 +12583,13 @@ test("a manifest-only fixture agent cannot launch before trusted approval and re
   assert.equal(launched.bypass, true);
   assert.equal(launched.providerOrigin, "config");
   await writeFile(file, JSON.stringify({ ...manifest, name: "Edited fixture" }));
-  await expect(banner).toBeVisible();
+  await expect(page.getByText("Approval pending · launch blocked", { exact: true })).toBeVisible();
   await assert.rejects(launch(), /Invalid sidebar command/);
+  await page
+    .getByRole("navigation", { name: "Settings sections" })
+    .getByRole("button", { name: "Foom config", exact: true })
+    .click();
+  const banner = page.getByRole("region", { name: "Change waiting for approval" });
   await banner.getByRole("button", { name: "Keep it on" }).click();
   await expect(banner).toHaveCount(0);
   assert.deepEqual(JSON.parse(await readFile(file, "utf8")), manifest);

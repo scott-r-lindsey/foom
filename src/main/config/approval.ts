@@ -18,7 +18,11 @@ export function configPart(settings: Settings): EffectiveConfig {
   return result as EffectiveConfig;
 }
 
-const AGENT_NAMES = { claude: "Claude Code", codex: "Codex", agy: "Antigravity" } as const;
+const AGENT_NAMES: Readonly<Record<string, string>> = {
+  claude: "Claude Code",
+  codex: "Codex",
+  agy: "Antigravity",
+};
 
 export interface Weakening {
   /** What the change would do, phrased to follow "An agent wants to". */
@@ -51,10 +55,10 @@ export function weakenings(before: EffectiveConfig, after: EffectiveConfig): Wea
     result.push({ action: "mute sounds", detail: "sound.muted: off → on" });
   if (before.hooks && !after.hooks)
     result.push({ action: "turn hooks off", detail: "hooks: on → off" });
-  for (const agent of ["claude", "codex", "agy"] as const)
-    if (before.agents[agent] && !after.agents[agent])
+  for (const agent of new Set([...Object.keys(before.agents), ...Object.keys(after.agents)]))
+    if (before.agents[agent] !== false && after.agents[agent] === false)
       result.push({
-        action: `turn off ${AGENT_NAMES[agent]}`,
+        action: `turn off ${AGENT_NAMES[agent] ?? agent}`,
         detail: `agents.${agent}: on → off`,
       });
   return result;
@@ -95,14 +99,14 @@ export function describe(before: EffectiveConfig, after: EffectiveConfig): strin
 
 /** Every argument change requires consent, including removal and apparently harmless flags. */
 export function argumentChanges(before: EffectiveConfig, after: EffectiveConfig): Weakening[] {
-  return (["claude", "codex", "agy"] as const)
+  return [...new Set([...Object.keys(before.agentArguments), ...Object.keys(after.agentArguments)])]
     .filter(
       (agent) =>
         JSON.stringify(before.agentArguments[agent]) !==
         JSON.stringify(after.agentArguments[agent]),
     )
     .map((agent) => ({
-      action: `change ${AGENT_NAMES[agent]} launch arguments`,
+      action: `change ${AGENT_NAMES[agent] ?? agent} launch arguments`,
       detail: `agentArguments.${agent}`,
     }));
 }
@@ -128,7 +132,9 @@ function bypassArguments(agent: AgentId, args: readonly string[]): readonly stri
 
 /** Literal argument lines stay in the trusted dialog, never the board's status metadata. */
 export function argumentDisclosure(before: EffectiveConfig, after: EffectiveConfig): DialogContent {
-  const agents = (["claude", "codex", "agy"] as const).filter(
+  const agents = [
+    ...new Set([...Object.keys(before.agentArguments), ...Object.keys(after.agentArguments)]),
+  ].filter(
     (agent) =>
       JSON.stringify(before.agentArguments[agent]) !== JSON.stringify(after.agentArguments[agent]),
   );
@@ -139,25 +145,25 @@ export function argumentDisclosure(before: EffectiveConfig, after: EffectiveConf
     accept: "Allow",
     sections: agents.flatMap((agent) => [
       {
-        label: `${AGENT_NAMES[agent]} before`,
+        label: `${AGENT_NAMES[agent] ?? agent} before`,
         arguments: true,
-        items: before.agentArguments[agent].length
-          ? before.agentArguments[agent]
+        items: (before.agentArguments[agent] ?? []).length
+          ? (before.agentArguments[agent] ?? [])
           : ["(no arguments)"],
       },
       {
-        label: `${AGENT_NAMES[agent]} after`,
+        label: `${AGENT_NAMES[agent] ?? agent} after`,
         arguments: true,
-        items: after.agentArguments[agent].length
-          ? after.agentArguments[agent]
+        items: (after.agentArguments[agent] ?? []).length
+          ? (after.agentArguments[agent] ?? [])
           : ["(no arguments)"],
       },
-      ...(hasBypassArgument(agent, after.agentArguments[agent])
+      ...(hasBypassArgument(agent, after.agentArguments[agent] ?? [])
         ? [
             {
-              label: `${AGENT_NAMES[agent]} bypass`,
+              label: `${AGENT_NAMES[agent] ?? agent} bypass`,
               arguments: true,
-              items: bypassArguments(agent, after.agentArguments[agent]),
+              items: bypassArguments(agent, after.agentArguments[agent] ?? []),
             },
           ]
         : []),

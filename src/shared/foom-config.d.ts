@@ -24,7 +24,18 @@ export interface ConfigPending {
   detail: string;
 }
 
+export interface ConfigAgent {
+  id: string;
+  name: string;
+  mark: string;
+  command: string;
+  file: string;
+  state: "pending" | "rejected";
+  decisionId?: string;
+  reason?: string | undefined;
+}
 export interface ConfigStatus {
+  agentPlugins?: readonly ConfigAgent[];
   folder: string;
   /** False when the folder or git is unusable; settings still apply from the file. */
   available: boolean;

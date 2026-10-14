@@ -1,6 +1,5 @@
 import { TerminalFontPicker } from "./terminal-font-picker";
 import { message } from "./message";
-import { AgentDefaultArguments } from "./agent-default-arguments";
 import { EnvironmentSettings } from "./environment-settings";
 import { InterfaceThemePicker } from "./interface-theme-picker";
 import { SoundControls } from "../sound/sound-controls";
@@ -16,7 +15,7 @@ import { centerStep } from "./center-step";
 import { scalePreflight } from "./scale-preflight";
 import { LaunchSequence } from "./launch-sequence";
 
-import { STEPS, readyAgents, pollRows, found } from "./preflight";
+import { STEPS, readyAgents, pollRows } from "./preflight";
 import { defaultSelection, pending } from "./repository-picker";
 import { Wordmark } from "../ui/wordmark";
 import { WelcomeStep } from "./welcome-step";
@@ -29,7 +28,7 @@ import type { SetupSource } from "./setup-source.d";
 
 const SETTINGS_SECTIONS = [
   { step: 11, label: "General" },
-  { step: 1, label: "Agents and hooks" },
+  { step: 1, label: "Agents" },
   { step: 10, label: "Environment" },
   { step: 2, label: "Repositories" },
   { step: 3, label: "Worktrees" },
@@ -70,6 +69,7 @@ export function Preflight({
   const [error, setError] = useState<string>();
   const [applying, setApplying] = useState(false);
   const [launching, setLaunching] = useState(false);
+  const argumentSaveRef = useRef<Promise<void>>(Promise.resolve());
   const pendingSoundRef = useRef<SoundSettings>(undefined);
   const queuedSoundRef = useRef<SoundSettings>(undefined);
   const savingSoundRef = useRef(false);
@@ -327,6 +327,21 @@ export function Preflight({
     content = (
       <>
         <AgentsStep
+          source={source}
+          saveArguments={(id, args) => {
+            const saving = argumentSaveRef.current
+              .catch(() => undefined)
+              .then(async () => {
+                const latest = await source.state();
+                receiveState(
+                  await source.save({
+                    agentArguments: { ...latest.settings.agentArguments, [id]: args },
+                  }),
+                );
+              });
+            argumentSaveRef.current = saving;
+            return saving;
+          }}
           headingRef={headingRef}
           state={state}
           report={report}
@@ -346,14 +361,6 @@ export function Preflight({
           }}
           save={save}
         />
-        {settingsMode && (
-          <AgentDefaultArguments
-            defaults={state.settings.agentArguments}
-            save={async (agentArguments) => {
-              receiveState(await source.save({ agentArguments }));
-            }}
-          />
-        )}
       </>
     );
   } else if (step === 2) {
@@ -589,26 +596,12 @@ export function Preflight({
               type="button"
               aria-current={entry.step === step ? "page" : undefined}
               aria-label={entry.label}
-              aria-describedby={
-                entry.step === 1 &&
-                !state.settings.agyPluginOfferAnswered &&
-                found(report, "agy")?.agyPlugin?.state === "not-installed"
-                  ? "agy-plugin-offer"
-                  : undefined
-              }
               disabled={applying}
               onClick={() => {
                 go(entry.step);
               }}
             >
               {entry.label}
-              {entry.step === 1 &&
-                !state.settings.agyPluginOfferAnswered &&
-                found(report, "agy")?.agyPlugin?.state === "not-installed" && (
-                  <span id="agy-plugin-offer" className="agy-plugin-offer">
-                    Plugin available
-                  </span>
-                )}
             </button>
           ))}
         </nav>

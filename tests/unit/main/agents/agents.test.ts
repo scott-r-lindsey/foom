@@ -1046,3 +1046,26 @@ it("marks config-agent results as metadata on both normal launch and immediate e
     providerOrigin: "config",
   });
 });
+
+it("per-agent screen rules suppress only that agent's hooks and retain the global switch", async () => {
+  service.setHooksEnabled(true, { claude: false });
+  expect((await service.launch(request)).attention).toBe("evaluator");
+  expect(prepare).not.toHaveBeenCalled();
+  service.release("terminal-id");
+  expect(
+    (
+      await service.launch({
+        ...request,
+        agent: "codex",
+        acknowledgeCodexNotifierReplacement: true,
+      })
+    ).attention,
+  ).toBe("hooks");
+  expect(prepare).toHaveBeenCalledOnce();
+  service.release("terminal-id");
+  service.setHooksEnabled(true, { claude: true });
+  expect((await service.launch(request)).attention).toBe("hooks");
+  service.release("terminal-id");
+  service.setHooksEnabled(false, { claude: true });
+  expect((await service.launch(request)).attention).toBe("evaluator");
+});

@@ -27,6 +27,7 @@ export function AgyPluginControl({
           : undefined;
   return (
     <div className="agy-plugin" aria-label="Antigravity lifecycle plugin">
+      <span>Lifecycle plugin · {labels[status.state]}</span>
       {action && (
         <button
           type="button"
@@ -42,25 +43,17 @@ export function AgyPluginControl({
               : "Enable plugin"}
         </button>
       )}
-      <details>
-        <summary>Plugin details</summary>
-        <span>{labels[status.state]}</span>
-        {status.state === "unavailable" ? (
-          <span>Scan again. Foom will not replace an unrecognized plugin.</span>
-        ) : (
-          status.state !== "not-installed" && (
-            <button
-              type="button"
-              disabled={busy}
-              onClick={() => {
-                void change("remove");
-              }}
-            >
-              Remove plugin
-            </button>
-          )
-        )}
-      </details>
+      {["installed", "outdated", "disabled"].includes(status.state) && (
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => {
+            void change("remove");
+          }}
+        >
+          Remove plugin
+        </button>
+      )}
     </div>
   );
 }

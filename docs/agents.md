@@ -474,7 +474,7 @@ Those reviewed capabilities belong to built-ins; a config manifest cannot claim 
 Add a UTF-8 JSON manifest to `~/.foom/config/agents/<id>.json`. This is data,
 never JavaScript loaded into Foom. The file is at most 64 KiB and its lowercase
 ID (1–40 letters, digits or hyphens, beginning with a letter) must match the
-filename. `claude`, `codex`, `agy` and `shell` are reserved. For example:
+filename. `claude`, `codex`, `agy`, `shell`, `all`, `constructor` and `prototype` are reserved. For example:
 
 ```json
 {
@@ -507,8 +507,8 @@ filename. `claude`, `codex`, `agy` and `shell` are reserved. For example:
 }
 ```
 
-Only an approved plugin appears in discovery and checkout launchers. Settings →
-Foom config holds every addition or edit. Allow opens the separate trusted dialog,
+Only an approved plugin appears in discovery and checkout launchers. Settings → Agents shows approval on the plugin’s card; Settings →
+Foom config also holds every addition or edit. Review… or Allow opens the separate trusted dialog,
 with Cancel focused, showing executable names, fixed probes, every argv template,
 allowed tools, bypass arguments, hook mapping and detection rules. Foom re-reads
 the exact bytes after approval and persists their digest in the profile. A git

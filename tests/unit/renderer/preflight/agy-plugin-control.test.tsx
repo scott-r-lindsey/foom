@@ -16,9 +16,8 @@ test.each([
     <AgyPluginControl status={{ state }} busy={false} change={change} />,
   );
   expect(container.querySelector("p")).toBeNull();
-  expect(screen.getByText("Plugin details")).toBeTruthy();
+  expect(screen.getByText(/Lifecycle plugin/)).toBeTruthy();
   expect(change).not.toHaveBeenCalled();
-  if (action === "remove") fireEvent.click(screen.getByText("Plugin details"));
   fireEvent.click(screen.getByRole("button", { name: label }));
   expect(change).toHaveBeenCalledWith(action);
 });
@@ -28,7 +27,6 @@ test.each(["not-installed", "installed", "outdated", "disabled"] as const)(
   (state) => {
     const change = vi.fn(() => Promise.resolve());
     render(<AgyPluginControl status={{ state }} busy change={change} />);
-    fireEvent.click(screen.getByText("Plugin details"));
     for (const button of screen.getAllByRole("button")) {
       fireEvent.click(button);
       expect(button.hasAttribute("disabled")).toBe(true);
@@ -41,5 +39,5 @@ test("unavailable status never offers to replace an unknown plugin", () => {
   const status: AgyPluginStatus = { state: "unavailable" };
   render(<AgyPluginControl status={status} busy={false} change={vi.fn()} />);
   expect(screen.queryByRole("button")).toBeNull();
-  expect(screen.getByText(/will not replace an unrecognized plugin/u)).toBeTruthy();
+  expect(screen.getByText(/Status unavailable/u)).toBeTruthy();
 });

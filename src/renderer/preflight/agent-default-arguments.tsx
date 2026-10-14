@@ -1,6 +1,6 @@
+import { hasBypassArgument } from "../../shared/agent-arguments";
 import { useState } from "react";
-import type { AgentId, BuiltinAgentId, AgentValues } from "../../shared/agents";
-import { AGENTS } from "./preflight";
+import type { AgentId } from "../../shared/agents";
 import { message } from "./message";
 
 /** Keep interior lines for useful error locations; only trailing empty lines are ignored. */
@@ -10,69 +10,63 @@ export function argumentLines(text: string): string[] {
   return lines;
 }
 
-export function AgentDefaultArguments({
-  defaults,
+export function AgentArguments({
+  id,
+  name,
+  value,
+  bypass = [],
   save,
 }: {
-  defaults: AgentValues<readonly string[]>;
-  save: (defaults: AgentValues<readonly string[]>) => Promise<void>;
+  id: AgentId;
+  name: string;
+  value: readonly string[];
+  bypass?: readonly string[];
+  save: (args: readonly string[]) => Promise<void>;
 }) {
-  const [draft, setDraft] = useState<Partial<Record<AgentId, string>>>({});
-  const [saving, setSaving] = useState(false);
-  const [status, setStatus] = useState("");
-  const text = (agent: BuiltinAgentId) => draft[agent] ?? defaults[agent].join("\n");
-  const argumentsFor = (agent: BuiltinAgentId) => argumentLines(text(agent));
+  const [draft, setDraft] = useState<string>();
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const text = draft ?? value.join("\n");
+  const args = argumentLines(text);
   return (
-    <form
-      className="agent-defaults"
-      onSubmit={(event) => {
-        event.preventDefault();
-        setSaving(true);
-        setStatus("");
-        void save({
-          claude: argumentsFor("claude"),
-          codex: argumentsFor("codex"),
-          agy: argumentsFor("agy"),
-        })
-          .then(
-            () => {
-              setDraft({});
-              setStatus("Default arguments saved. They apply to future launches.");
-            },
-            (error: unknown) => {
-              setStatus(message(error));
-            },
-          )
-          .finally(() => {
-            setSaving(false);
-          });
-      }}
-    >
-      <h3>Default launch arguments</h3>
-      <p id="agent-defaults-help">
-        One argument per line; values on separate lines. Passed literally before Foom’s flags.
-        Trailing blank lines are ignored.
-      </p>
-      {AGENTS.map(({ id, name }) => (
-        <label key={id}>
-          {name} default arguments
-          <textarea
-            aria-describedby="agent-defaults-help"
-            rows={4}
-            spellCheck={false}
-            disabled={saving}
-            value={text(id)}
-            onChange={(event) => {
-              setDraft({ ...draft, [id]: event.target.value });
-              setStatus("");
-            }}
-          />
-        </label>
-      ))}
-      <button type="submit" disabled={saving}>
-        {saving ? "Saving…" : "Save default arguments"}
-      </button>
-      <p role="status">{status}</p>
-    </form>
+    <div>
+      <textarea
+        aria-label={`${name} default arguments`}
+        rows={Math.max(1, args.length)}
+        spellCheck={false}
+        placeholder="None"
+        value={text}
+        disabled={busy}
+        onChange={(event) => {
+          setDraft(event.target.value);
+          setError("");
+        }}
+        onBlur={() => {
+          if (draft === undefined || text === value.join("\n")) return;
+          setError("");
+          setBusy(true);
+          void save(args)
+            .then(
+              () => {
+                setDraft(undefined);
+              },
+              (caught: unknown) => {
+                setError(message(caught));
+              },
+            )
+            .finally(() => {
+              setBusy(false);
+            });
+        }}
+      />
+      {(hasBypassArgument(id, args) || bypass.some((arg) => args.includes(arg))) && (
+        <p className="agent-bypass">◇ Bypass approvals · Agent can act anywhere on this machine.</p>
+      )}
+      {error && (
+        <p className="preflight-error" role="alert">
+          {error}
+        </p>
+      )}
+    </div>
   );
 }

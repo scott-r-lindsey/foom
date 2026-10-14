@@ -1,5 +1,5 @@
-import { builtinAgent } from "../../shared/providers/catalog";
-import type { AgentId, BuiltinAgentId, AgentInstallation } from "../../shared/agents";
+import { BUILTIN_AGENTS, builtinAgent } from "../../shared/providers/catalog";
+import type { AgentId, AgentInstallation } from "../../shared/agents";
 import type { SetupState } from "../../shared/setup";
 import type { AgentReport } from "../../shared/workspace";
 import type { Repository } from "../../shared/worktrees";
@@ -12,11 +12,7 @@ export const STEPS = [
   { t: "T-0", label: "Go / no-go" },
 ] as const;
 
-export const AGENTS: readonly { id: BuiltinAgentId; name: string; command: string }[] = [
-  { id: "claude", name: "Claude Code", command: "claude" },
-  { id: "codex", name: "Codex", command: "codex" },
-  { id: "agy", name: "Antigravity", command: "agy" },
-];
+export const AGENTS = BUILTIN_AGENTS;
 
 export function agentChoices(
   report: AgentReport | undefined,

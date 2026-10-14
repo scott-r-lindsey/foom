@@ -49,9 +49,9 @@ test.each([
   { claude: [], codex: [], other: [] },
   { claude: [], agy: [], other: [] },
   { codex: [], agy: [], other: [] },
-  { ...EMPTY_AGENT_ARGUMENTS, other: [] },
+  { ...EMPTY_AGENT_ARGUMENTS, "../other": [] },
   { ...EMPTY_AGENT_ARGUMENTS, agy: [null] },
-])("requires exactly the three supported agents %j", (value) => {
+])("requires builtin defaults and valid additional agent IDs %j", (value) => {
   expect(() => parseAgentDefaults(value)).toThrow();
 });
 

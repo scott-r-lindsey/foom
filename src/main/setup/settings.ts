@@ -14,6 +14,7 @@ import { DEFAULT_SOUND, migrateSoundSettings } from "../../shared/sounds";
 import { randomUUID } from "node:crypto";
 import { mkdir, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
 import { dirname, isAbsolute, join } from "node:path";
+import { validAgentId } from "../../shared/providers/catalog";
 import type { BuiltinAgentId } from "../../shared/agents";
 import type { Settings, SettingsPatch } from "../../shared/setup";
 
@@ -69,14 +70,29 @@ export function parseSettingsPatch(value: unknown): SettingsPatch {
     else if (
       key === "agentBypassAcknowledged" &&
       record(entry) &&
-      Object.keys(entry).length === AGENTS.length &&
-      AGENTS.every((id) => typeof entry[id] === "boolean")
+      Object.keys(entry).length <= 100 &&
+      AGENTS.every((id) => typeof entry[id] === "boolean") &&
+      Object.entries(entry).every(
+        ([id, enabled]) => validAgentId(id) && typeof enabled === "boolean",
+      )
     )
       patch[key] = {
+        ...Object.fromEntries(Object.entries(entry).map(([id, enabled]) => [id, enabled === true])),
         claude: entry["claude"] === true,
         codex: entry["codex"] === true,
         agy: entry["agy"] === true,
       };
+    else if (
+      key === "agentHooks" &&
+      record(entry) &&
+      Object.keys(entry).length <= 100 &&
+      Object.entries(entry).every(
+        ([id, enabled]) => validAgentId(id) && typeof enabled === "boolean",
+      )
+    )
+      patch.agentHooks = Object.fromEntries(
+        Object.entries(entry).map(([id, enabled]) => [id, enabled === true]),
+      );
     else if (key === "agentArguments") patch.agentArguments = parseAgentDefaults(entry);
     else if (isConfigSetting(key)) Object.assign(patch, parseConfigSettings({ [key]: entry }));
     else if (
@@ -152,7 +168,8 @@ export class SettingsStore {
             : rest;
         const recovered = { ...EMPTY_AGENT_ARGUMENTS };
         if (record(agentArguments)) {
-          for (const agent of AGENTS) {
+          for (const agent of Object.keys(agentArguments)) {
+            if (!validAgentId(agent)) continue;
             try {
               recovered[agent] = parseAgentArguments(agent, agentArguments[agent]);
             } catch {
@@ -185,7 +202,8 @@ export class SettingsStore {
           sound: sound === undefined || version === 2 ? DEFAULT_SOUND : migrateSoundSettings(sound),
           agentArguments: recovered,
         };
-        if (AGENTS.some((agent) => recovered[agent].length > 0)) store.argumentsToMove = recovered;
+        if (Object.values(recovered).some((args) => args.length > 0))
+          store.argumentsToMove = recovered;
         if (version === 2) {
           store.migrated = true;
           const digest = state["configDigest"];

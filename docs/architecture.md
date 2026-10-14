@@ -1395,7 +1395,7 @@ confirmation before the existing CLI path runs. The dialog discloses
 inert behavior outside Foom launches, and removal through the row or
 `agy plugin uninstall foom`. Main persists the profile-only boolean
 `agyPluginOfferAnswered` after an answer (including Not now). Missing values default
-to false; invalid values are rejected. Settings marks Agents and hooks with neutral
+to false; invalid values are rejected. Settings marks the Antigravity card with neutral
 Plugin available text only for detected agy with no plugin and an unanswered offer.
 The row action remains available after dismissal; no launch modal or toast is used.
 No credentials, arbitrary commands, paths or plugin
@@ -1916,3 +1916,22 @@ unapproved provider retains its dormant conversation row across restart; syntact
 ID validation and that marker grant no launch authority. Resume still resolves an
 approved provider and revalidates the checkout. Merged cleanup retains a recorded
 agent conversation even while its provider is unavailable.
+
+
+### Consolidated agent settings (#409)
+
+Settings → Agents and preflight's Agents step share the provider-driven card view.
+Discovery includes display-only provider name, badge, executable, resume support,
+plugin source and declared bypass flags. Config status separately reports pending
+and rejected manifests without probing unapproved executables. Review names the
+selected manifest digest through the existing config decision IPC, even when other
+changes are held; main retains its trusted confirmation and exact-byte recheck.
+
+Agent enablement, default argv and environment lists accept bounded syntactically
+valid provider IDs; those values grant no discovery or launch authority. Environment
+keeps at most 100 lists across provider absence, including encrypted secret values.
+The same editor serves global Environment and individual cards. `agentHooks` is a
+profile-only boolean map: an explicit false selects screen rules for that agent,
+and the global hooks switch takes precedence. Preferences apply on future launches,
+including notifier disclosure gating. Default arguments save on blur through the
+existing main-owned bypass disclosure and acknowledgement.

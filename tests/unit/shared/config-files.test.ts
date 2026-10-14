@@ -62,7 +62,7 @@ test.each([
   ["agents", null],
   ["agents", { claude: true }],
   ["agents", { claude: true, codex: true, agy: 1 }],
-  ["agents", { claude: true, codex: true, agy: true, evil: true }],
+  ["agents", { claude: true, codex: true, agy: true, "../evil": true }],
   ["interfaceScale", 101],
   ["interfaceScale", 160],
   ["interfaceScale", 400],

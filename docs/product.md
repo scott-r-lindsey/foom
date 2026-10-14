@@ -628,7 +628,7 @@ the action log and supports the same operations and idempotency as other mutatio
 
 Setup is a preflight countdown:
 
-1. **Agents** (T-3): detect the supported CLIs on PATH and show each one's attention signal. One setting controls whether Foom supplies hooks and credentials per launch. Antigravity’s row shows Hooks with an active plugin and Screen rules otherwise. It offers Install plugin, Update plugin or Enable plugin inline; Remove plugin lives in Plugin details. Install and update open a trusted confirmation disclosing location, behavior and removal, with no disclosure paragraphs in the step.
+1. **Agents** (T-3): detect the supported CLIs on PATH and show each one's attention signal. One setting controls whether Foom supplies hooks and credentials per launch. Antigravity’s row shows Hooks with an active plugin and Screen rules otherwise. It offers Install plugin, Update plugin or Enable plugin inline; Remove plugin is inline. Install and update open a trusted confirmation disclosing location, behavior and removal, with no disclosure paragraphs in the step.
 2. **Repositories** (T-2): "Where do you keep your code?" Foom suggests common code folders that hold repositories, with a count for each, or you choose one. It scans that folder and lists its Git repositories, with the ones worked on in the last 30 days checked.
 3. **Worktrees** (T-1): choose where new worktrees live: Foom's folder (`~/.foom/worktrees`, the default) or next to each repository.
 4. **Go / no-go** (T-0): each item shows GO or NO-GO with a link back to its step. Launch needs every item GO: at least one agent ready and one repository added.
@@ -656,18 +656,24 @@ Selecting a terminal in the sidebar also leaves Settings; terminals keep running
 
 General offers **Restore sessions on launch**, on by default. Turning it on through agent-edited config requires Allow because it also permits restoring orchestrator control. General also offers **Auto-remove merged worktrees**, off by default and applying to all repositories.
 
-Agents and hooks, Repositories, and Worktrees use the same controls as
-preflight. Changes apply immediately and persist. A repository scan in Settings
+Agents, Repositories, and Worktrees use the same controls as
+preflight. Agents shows one central-column card per provider, including config
+plugins pending approval or rejected by validation. A missing installation is one
+line. Each installed agent's card groups attention, MCP/resume/inline facts, default
+arguments, its environment editor, and plugin source/approval. Hooks/Screen rules
+appears only for agents with hook support; the global Attach hooks switch still
+wins. Per-agent attention preferences apply to future launches. Review… requests
+main's trusted plugin confirmation; a card never grants approval itself. Changes apply immediately and persist. A repository scan in Settings
 starts with the already-added repositories checked; toggling a selection saves it
 at once and reports any refusal.
 When agy is detected without its plugin and the user has never answered the offer,
-Settings → Agents and hooks shows a neutral **Plugin available** marker. There is no
+Settings → Agents shows a neutral **Plugin available** marker. There is no
 launch modal or toast. Answering the install confirmation, including **Not now**,
 persists the answer and clears the marker; the inline action stays available.
 Without agy on PATH, no plugin controls or marker appear.
 
-Settings → Agents and hooks also provides default launch arguments for each supported
-agent, one argument per line, with an explicit Save default arguments action. Put flag
+Settings → Agents also provides default launch arguments for each supported
+agent, one argument per line, saved when focus leaves the editor. Put flag
 values on separate lines. Spaces and quotes are literal, with no shell parsing or
 splitting. LF and CRLF are accepted; trailing blank lines are ignored. Errors name
 the agent and line. An empty editor uses the existing launch behavior. The user's agent policy
@@ -692,7 +698,7 @@ defaults from redirecting Resume or turning New conversation into a continuation
 Other agent arguments retain the existing validation and literal argv behavior.
 
 Settings → Environment sets environment variables for **All sessions** (every
-shell and agent) and for each agent, edited in place: a name, a value and a
+shell and agent) with per-agent lists in Settings → Agents, edited in place: a name, a value and a
 **Secret** toggle per row, and a blank row to add one. A valid row saves when focus
 leaves it and applies to new sessions; running sessions keep theirs. Agent rows
 override All sessions for that agent. `PATH` only prepends directories. A proxy URL

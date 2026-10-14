@@ -169,3 +169,32 @@ it("does not trust a config git commit, revokes deletions and invalid edits, and
   await expect(f.service.decide("allow", id)).rejects.toThrow("write failed");
   expect(knownAgentId(manifest.id)).toBe(false);
 });
+
+it("exposes pending/rejected plugin cards and reviews the selected digest when another change is held", async () => {
+  const f = await fixture();
+  await writeFile(f.file, JSON.stringify(manifest));
+  const other = { ...manifest, id: "second-agent", name: "Second agent" };
+  await writeFile(join(f.folder, "agents", "second-agent.json"), JSON.stringify(other));
+  await writeFile(
+    join(f.folder, "settings.json"),
+    JSON.stringify({ kind: "settings", hooks: false }),
+  );
+  const status = await f.service.refresh();
+  expect(status.pending?.file).toBe("settings.json");
+  expect(status.agentPlugins).toHaveLength(2);
+  const selected = status.agentPlugins?.find((plugin) => plugin.id === other.id);
+  expect(selected).toMatchObject({
+    name: "Second agent",
+    state: "pending",
+    file: "agents/second-agent.json",
+  });
+  f.confirm.mockResolvedValue(true);
+  const next = await f.service.decide("allow", selected?.decisionId);
+  expect(next.pending?.file).toBe("settings.json");
+  expect(knownAgentId(other.id)).toBe(true);
+  expect(knownAgentId(manifest.id)).toBe(false);
+  await writeFile(f.file, "{}");
+  const rejected = await f.service.refresh();
+  expect(rejected.agentPlugins?.[0]).toMatchObject({ id: manifest.id, state: "rejected" });
+  expect(rejected.agentPlugins?.[0]?.reason).toContain("missing-key");
+});

@@ -8,7 +8,6 @@ import type {
   EnvironmentState,
 } from "../../shared/environment";
 import {
-  ENVIRONMENT_SCOPES,
   LOOPBACK,
   environmentProblem,
   foldName,
@@ -20,7 +19,7 @@ import {
 import { AgentBadge } from "../board/agent-badge";
 import { message } from "./message";
 
-const LABELS: Record<EnvironmentScope, { label: string; mark?: string }> = {
+const LABELS: Partial<Record<EnvironmentScope, { label: string; mark?: string }>> = {
   all: { label: "All sessions" },
   claude: { label: "Claude Code", mark: "CC" },
   codex: { label: "Codex", mark: "CX" },
@@ -38,8 +37,13 @@ interface Draft {
   dirty: boolean;
   error: string;
 }
-type Drafts = Record<EnvironmentScope, Draft[]>;
+type Drafts = Record<"all" | "claude" | "codex" | "agy", Draft[]> &
+  Record<EnvironmentScope, Draft[]>;
 /** What a save sent, so its reply keeps edits made while it was in flight. */
+function rowsFor<T>(lists: Readonly<Record<string, readonly T[]>>, scope: string): readonly T[] {
+  return lists[scope] ?? [];
+}
+
 interface Sent {
   key: number;
   name: string;
@@ -53,7 +57,8 @@ function draft(row: EnvironmentRow): Draft {
 }
 function drafts(state: EnvironmentState): Drafts {
   const result = {} as Drafts;
-  for (const scope of ENVIRONMENT_SCOPES) result[scope] = state.lists[scope].map(draft);
+  for (const scope of Object.keys(state.lists))
+    result[scope] = rowsFor(state.lists, scope).map(draft);
   return result;
 }
 
@@ -81,9 +86,15 @@ function CrossIcon() {
 export function EnvironmentSettings({
   source,
   headingRef,
+  scope: selectedScope,
+  scopes = ["all"],
+  label,
 }: {
   source: EnvironmentApi;
-  headingRef: Ref<HTMLHeadingElement>;
+  headingRef?: Ref<HTMLHeadingElement>;
+  scope?: EnvironmentScope;
+  scopes?: readonly EnvironmentScope[];
+  label?: string;
 }) {
   const [state, setState] = useState<EnvironmentState>();
   const [lists, setLists] = useState<Drafts>();
@@ -99,7 +110,10 @@ export function EnvironmentSettings({
       (next) => {
         if (!active) return;
         setState(next);
-        setLists(drafts(next));
+        setLists({
+          ...drafts(next),
+          ...(selectedScope && !next.lists[selectedScope] ? { [selectedScope]: [] } : {}),
+        });
       },
       (caught: unknown) => {
         if (active) setError(message(caught));
@@ -109,7 +123,7 @@ export function EnvironmentSettings({
       active = false;
       clearTimeout(statusTimerRef.current);
     };
-  }, [source]);
+  }, [source, selectedScope]);
 
   if (!state || !lists)
     return (
@@ -139,14 +153,18 @@ export function EnvironmentSettings({
       current
         ? {
             ...current,
-            [scope]: current[scope].map((row) => (row.key === key ? { ...row, ...change } : row)),
+            [scope]: rowsFor(current, scope).map((row) =>
+              row.key === key ? { ...row, ...change } : row,
+            ),
           }
         : current,
     );
   };
   const drop = (scope: EnvironmentScope, key: number) => {
     setLists((current) =>
-      current ? { ...current, [scope]: current[scope].filter((row) => row.key !== key) } : current,
+      current
+        ? { ...current, [scope]: rowsFor(current, scope).filter((row) => row.key !== key) }
+        : current,
     );
   };
   /**
@@ -158,8 +176,8 @@ export function EnvironmentSettings({
     setState(next);
     setLists((current) => {
       if (!current) return drafts(next);
-      const kept = current[scope];
-      const rows = next.lists[scope].map((row) => {
+      const kept = rowsFor(current, scope);
+      const rows = rowsFor(next.lists, scope).map((row) => {
         if (sent && fold(row.name) === fold(sent.name)) {
           const entry = kept.find((candidate) => candidate.key === sent.key);
           if (!entry) return draft(row);
@@ -197,7 +215,9 @@ export function EnvironmentSettings({
     const reason =
       row.value === null ? nameProblem(name) : environmentProblem(name, row.value, windows);
     if (reason) return reason;
-    if (lists[scope].some((other, j) => j < index && fold(other.name.trim()) === fold(name)))
+    if (
+      rowsFor(lists, scope).some((other, j) => j < index && fold(other.name.trim()) === fold(name))
+    )
       return `${name} is already in this list`;
     if ((row.secret || (row.value !== null && hasUrlCredentials(row.value))) && !state.secrets)
       return "Secrets need the system keychain, which is unavailable";
@@ -219,7 +239,7 @@ export function EnvironmentSettings({
       }
       return;
     }
-    const index = lists[scope].findIndex((entry) => entry.key === row.key);
+    const index = rowsFor(lists, scope).findIndex((entry) => entry.key === row.key);
     if (!row.dirty || problem(scope, row, index)) return;
     try {
       const sent = { key: row.key, name, value: row.value, secret: row.secret };
@@ -239,12 +259,12 @@ export function EnvironmentSettings({
 
   const leave = (scope: EnvironmentScope, key: number) => (event: FocusEvent<HTMLDivElement>) => {
     if (event.currentTarget.contains(event.relatedTarget)) return;
-    const row = lists[scope].find((entry) => entry.key === key);
+    const row = rowsFor(lists, scope).find((entry) => entry.key === key);
     if (row) void commit(scope, row);
   };
 
-  const proxied = ENVIRONMENT_SCOPES.some((scope) =>
-    lists[scope].some((row) => isProxyName(row.name.trim()) && row.value !== ""),
+  const proxied = Object.values(lists).some((rows) =>
+    rows.some((row) => isProxyName(row.name.trim()) && row.value !== ""),
   );
 
   const rowView = (scope: EnvironmentScope, row: Draft, index: number) => {
@@ -379,18 +399,29 @@ export function EnvironmentSettings({
 
   return (
     <>
-      <div className="environment-head">
-        <h2 ref={headingRef} tabIndex={-1}>
-          Environment
-        </h2>
+      {!selectedScope && (
+        <div className="environment-head">
+          <h2 ref={headingRef} tabIndex={-1}>
+            Environment
+          </h2>
+          <span className="environment-status" role="status">
+            {status}
+          </span>
+          <span className="environment-grow" />
+          <button
+            type="button"
+            disabled={candidates !== undefined}
+            onClick={() => void readShell()}
+          >
+            Import from login shell
+          </button>
+        </div>
+      )}
+      {selectedScope && (
         <span className="environment-status" role="status">
           {status}
         </span>
-        <span className="environment-grow" />
-        <button type="button" disabled={candidates !== undefined} onClick={() => void readShell()}>
-          Import from login shell
-        </button>
-      </div>
+      )}
       {candidates === "reading" && <p className="environment-reading">Reading login shell…</p>}
       {candidates !== undefined && candidates !== "reading" && (
         <div className="environment-import" role="group" aria-label="Import from login shell">
@@ -454,14 +485,24 @@ export function EnvironmentSettings({
           {error}
         </p>
       )}
-      {ENVIRONMENT_SCOPES.map((scope) => (
-        <section key={scope} className="environment-scope" aria-label={LABELS[scope].label}>
-          <h3>
-            {LABELS[scope].mark && <AgentBadge mark={LABELS[scope].mark} />}
-            {LABELS[scope].label}
-          </h3>
+      {(selectedScope ? [selectedScope] : scopes).map((scope) => (
+        <section
+          key={scope}
+          className="environment-scope"
+          aria-label={
+            selectedScope
+              ? `${label ?? scope} environment`
+              : (label ?? LABELS[scope]?.label ?? scope)
+          }
+        >
+          {!selectedScope && (
+            <h3>
+              {LABELS[scope]?.mark && <AgentBadge mark={LABELS[scope].mark} />}
+              {label ?? LABELS[scope]?.label ?? scope}
+            </h3>
+          )}
           <div className="environment-rows">
-            {lists[scope].map((row, index) => rowView(scope, row, index))}
+            {rowsFor(lists, scope).map((row, index) => rowView(scope, row, index))}
             {scope === "all" &&
               proxied &&
               !lists.all.some((row) => row.name.trim().toUpperCase() === "NO_PROXY") && (
@@ -475,7 +516,7 @@ export function EnvironmentSettings({
                 <input
                   value=""
                   placeholder="NAME"
-                  aria-label={`New ${LABELS[scope].label} variable name`}
+                  aria-label={`New ${label ?? LABELS[scope]?.label ?? scope} variable name`}
                   spellCheck={false}
                   autoComplete="off"
                   onChange={(event) => {
@@ -485,7 +526,7 @@ export function EnvironmentSettings({
                         ? {
                             ...current,
                             [scope]: [
-                              ...current[scope],
+                              ...rowsFor(current, scope),
                               {
                                 key,
                                 saved: null,

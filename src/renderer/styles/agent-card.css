@@ -1,109 +1,196 @@
-/* Agent cards never overflow, whatever the version string. */
-.agent-grid .preflight-item > * {
-  min-width: 0;
-  overflow-wrap: anywhere;
-}
-.agent-meta {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px 10px;
-  align-items: center;
-}
-.agent-meta .preflight-sub {
-  flex-basis: 100%;
-}
-.agent-title {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px 10px;
-  align-items: center;
-  min-width: 0;
-}
-.agent-command {
-  font-family: var(--font-mono);
-  font-size: 12px;
-}
-/*
- * Chips open a tooltip; badges are data. All of them share one box, 20px tall with
- * centered text, so a row of them lines up whatever the font size or case.
- */
-.agent-title .tip,
-.agent-meta .tip {
-  display: inline-flex;
-}
-.preflight button.chip,
-.badge {
-  box-sizing: border-box;
-  height: 20px;
-  display: inline-flex;
-  align-items: center;
-  line-height: 1;
-  border-radius: var(--shape-radius, 6px);
-  font: 12px / 1 var(--font-mono);
-}
-.preflight button.chip {
-  padding: 0 7px;
-  color: var(--badge-ink);
-  background: var(--badge-fill);
-  border: var(--shape-border, 1px) solid transparent;
-  cursor: help;
-}
-.preflight button.chip:not(.chip-signal):hover {
-  border-color: var(--line);
-}
-/* The signal is the one outlined thing on a card. */
-.preflight button.chip-signal {
-  font-size: 10px;
-  letter-spacing: 0.5px;
-  text-transform: uppercase;
-  color: var(--highlight);
-  background: transparent;
-  border-color: var(--highlight);
-}
-.badge {
-  overflow: hidden;
-}
-.badge > span {
-  height: 100%;
-  display: inline-flex;
-  align-items: center;
-  padding: 0 7px;
-}
-.badge-label {
-  font-size: 10px;
-  letter-spacing: 0.5px;
-  text-transform: uppercase;
-  color: var(--badge-label-ink);
-  background: var(--badge-label-fill);
-}
-.badge-value {
-  color: var(--badge-ink);
-  background: var(--badge-fill);
-}
-.badge[data-known="false"] .badge-value {
-  font-style: italic;
-}
-
 .agy-plugin {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 6px 10px;
-  flex-basis: 100%;
   color: var(--muted);
 }
-.agy-plugin details[open] {
+/* Shared Settings and preflight agent cards. */
+.agents-head,
+.agent-card-head,
+.agent-inline {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+}
+.agents-head {
+  margin-bottom: 20px;
+}
+.agents-head h2 {
+  flex: 1;
+  margin: 0;
+}
+.agents-head label,
+.agent-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+}
+.agent-cards {
+  display: grid;
+  gap: 14px;
+}
+.agent-card {
+  border: 1px solid var(--line);
+  border-radius: var(--shape-radius, 8px);
+  padding: 18px 20px;
+  background: var(--surface);
+  min-width: 0;
+}
+.agent-card-head {
+  margin-bottom: 18px;
+}
+.agent-card-head h3 {
+  margin: 0;
+  font: 600 15px var(--font-interface);
+}
+.agent-version {
+  color: var(--muted);
+  font: 11px var(--font-mono);
+}
+.agent-toggle {
+  margin-left: auto;
+}
+.agent-path {
+  flex-basis: 100%;
+  overflow-wrap: anywhere;
+  color: var(--muted);
+  font: 11px var(--font-mono);
+}
+.agent-setting {
+  display: grid;
+  grid-template-columns: 130px minmax(0, 1fr);
+  gap: 12px;
+  margin-top: 16px;
+  font-size: 12px;
+}
+.agent-label {
+  color: var(--muted);
+  padding-top: 4px;
+}
+.agent-facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 22px;
+  margin: 0;
+}
+.agent-facts div {
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+}
+.agent-facts dt {
+  color: var(--muted);
+}
+.agent-facts dd {
+  margin: 0;
+}
+.agent-signals {
   display: flex;
 }
-.agy-plugin details > span,
-.agy-plugin details > button {
-  margin: 6px 10px 0 0;
+.agent-signals button {
+  padding: 4px 8px;
+  font-size: 12px;
 }
-.agy-plugin summary {
-  cursor: pointer;
+.agent-signals button[aria-pressed="true"] {
+  border-color: var(--highlight);
+  color: var(--highlight);
 }
-.agy-plugin-offer {
-  display: block;
-  font-size: 11px;
-  color: inherit;
+.agent-card textarea {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 30px;
+  padding: 5px 8px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--ink);
+  font: 12px / 1.6 var(--font-mono);
+  resize: vertical;
+}
+.agent-card textarea:hover {
+  border-color: var(--line);
+}
+.agent-card textarea:focus {
+  border-color: var(--highlight);
+  background: var(--bg);
+  outline: none;
+}
+.agent-card .environment-scope {
+  margin: 0;
+}
+.agent-card .environment-status:empty {
+  display: none;
+}
+.agent-needs {
+  color: var(--attention-ink);
+}
+.agent-needs::before {
+  content: "";
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--attention);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--attention) 22%, transparent);
+  margin-right: 8px;
+}
+.agent-bypass {
+  margin: 5px 0 0;
+}
+.agent-card.missing {
+  padding-block: 12px;
+}
+.agent-card.missing .agent-card-head {
+  margin: 0;
+}
+.agent-card.missing .agent-path {
+  flex-basis: auto;
+}
+.agent-card.missing .agent-version {
+  margin-left: auto;
+  order: 1;
+}
+@media (max-width: 850px) {
+  .agent-setting {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 6px;
+  }
+}
+.agent-card:not(.missing) .agent-path {
+  padding-left: 36px;
+  box-sizing: border-box;
+}
+.agent-toggle input[role="switch"] {
+  appearance: none;
+  width: 28px;
+  height: 16px;
+  margin: 0;
+  border-radius: 9px;
+  border: 1px solid var(--muted);
+  background: var(--bg);
+  position: relative;
+}
+.agent-toggle input[role="switch"]::after {
+  content: "";
+  position: absolute;
+  width: 10px;
+  height: 10px;
+  left: 2px;
+  top: 2px;
+  border-radius: 50%;
+  background: var(--muted);
+}
+.agent-toggle input[role="switch"]:checked {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+.agent-toggle input[role="switch"]:checked::after {
+  left: 14px;
+  background: var(--bg);
+}
+.agent-toggle input[role="switch"]:focus-visible {
+  outline: 2px solid var(--highlight);
+  outline-offset: 3px;
 }
