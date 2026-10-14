@@ -1,10 +1,23 @@
-import type { AgentManifestV2, ManifestCondition } from "../../../shared/agent-manifest-v2";
+import type {
+  AgentManifestV2,
+  ManifestCondition,
+  ManifestSelector,
+} from "../../../shared/agent-manifest-v2";
 
 export type Facts = Readonly<Record<string, unknown>>;
-export function selected(when: ManifestCondition | undefined, facts: Facts): boolean {
+export function selected(
+  when: ManifestCondition | undefined,
+  facts: Facts,
+  resolve?: (field: ManifestSelector) => unknown,
+): boolean {
   const test = (entry: NonNullable<ManifestCondition["all"]>[number]) => {
     const key = typeof entry.field === "string" ? entry.field : String(entry.field.path[0]);
-    const value = Object.hasOwn(facts, key) ? facts[key] : undefined;
+    const value =
+      typeof entry.field !== "string" && resolve
+        ? resolve(entry.field)
+        : Object.hasOwn(facts, key)
+          ? facts[key]
+          : undefined;
     switch (entry.op) {
       case "exists":
         return value !== undefined;

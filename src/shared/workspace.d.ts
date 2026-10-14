@@ -154,6 +154,7 @@ export interface WorkspaceApi {
     location?: "root" | "adjacent",
   ): Promise<Worktree & { outcome: CreateOutcome }>;
   scanAgents(refresh: boolean): Promise<AgentReport>;
+  changeAgentSetup(id: string, action: string): Promise<AgentReport>;
   changeAgyPlugin(action: AgyPluginAction): Promise<AgentReport>;
   /** Null means the user cancelled the shared-agent confirmation. */
   launchAgent(

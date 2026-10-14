@@ -3,8 +3,10 @@
 Status: parser implemented by #430 and the generic config launch engine by #431,
 2026-10-14. Approved v2 config plugins support discovery, launch, private MCP files,
 prompts, preview grants, argument/environment bypass disclosure, resume and local
-attention rules. Manifests declaring hooks, health or setup remain unavailable with
-fixed `v2-hooks-unavailable`, `v2-health-unavailable` or `v2-setup-unavailable` reasons.
+attention rules. Setup status, fixed plugin actions and private staging are implemented by #433.
+Manifests declaring hooks or health remain unavailable with fixed
+`v2-hooks-unavailable` or `v2-health-unavailable` reasons; observer staging and
+observed-health instruction actions connect through #432.
 Built-in conversion and those remaining capabilities are future work; parsing alone
 grants no capability. Completion in attached mode and resume pinning are vacuous
 without attached hooks; #432 adds their channel integration.
@@ -337,7 +339,7 @@ patterns but raw paste stays local; main checks plugin approval and ID again.
 | Object | Closed fields / limits |
 | --- | --- |
 | status | `{probe?,metadata?,ownership?,cases,default}`; default unavailable; <=16 ordered `{when,state}` cases; state not-installed/installed/outdated/disabled/unavailable |
-| probe | `{arguments,format,empty?}`; fixed Argv, format json; empty optional `{text,value}` exact text <=128 and bounded JSON value; timeout 5 s/output 64 KiB engine constants |
+| probe | `{arguments,format,empty?}`; fixed `plugin list` Argv, format json; empty optional `{text,value}` exact text <=128 and bounded JSON value; timeout 5 s/output 64 KiB engine constants |
 | metadata | <=4 `{id,path,optional}`; ID, home-relative Relative file, boolean; read JSON only <=64 KiB each |
 | ownership | `{directory,manifest,require,versionField,currentVersion,disabledField,enabledField}`; home-relative directory, metadata ID, <=16 Requirements, Selectors; currentVersion 1–100000; disabledField optional Selector; enabledField optional Selector |
 | action | `{id,label,kind,arguments?,instructions?,when,disclosure,statusProbe}`; ID, label <=40; kind command/instructions; exactly argv or instructions Text; disclosure Text <=4096; statusProbe fixed Argv for command or observed-health for instructions |

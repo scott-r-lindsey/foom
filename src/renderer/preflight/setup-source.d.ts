@@ -20,6 +20,7 @@ export interface SetupSource {
   state(): Promise<SetupState>;
   save(patch: SettingsPatch): Promise<SetupState>;
   scanAgents(refresh: boolean): Promise<AgentReport>;
+  changeAgentSetup?(id: string, action: string): Promise<AgentReport>;
   changeAgyPlugin(action: AgyPluginAction): Promise<AgentReport>;
   repositories(): Promise<readonly Repository[]>;
   suggestions(): Promise<readonly CodeSuggestion[]>;

@@ -234,3 +234,23 @@ test("registry-only agent cards save literal defaults and hook choices, with fac
   expect(screen.getAllByText("Looking…")).toHaveLength(3);
   expect(screen.getByRole("button", { name: "Scanning…" })).toHaveProperty("disabled", true);
 });
+
+test("setup controls request main's fixed action and refresh status, with failures inline", async () => {
+  const f = fixture();
+  const change = vi.fn(() => Promise.resolve(report()));
+  f.source.changeAgentSetup = change;
+  f.props.report = report({
+    ...installation("claude"),
+    setup: { state: "not-installed", actions: [{ id: "install", label: "Install" }] },
+  });
+  render(<AgentsStep {...f.props} />);
+  const button = screen.getByRole("button", { name: "Install" });
+  fireEvent.click(button);
+  await waitFor(() => {
+    expect(change).toHaveBeenCalledWith("claude", "install");
+    expect(button).toHaveProperty("disabled", false);
+  });
+  change.mockRejectedValueOnce(Error("Setup changed"));
+  fireEvent.click(button);
+  expect(await screen.findByRole("alert")).toHaveProperty("textContent", "Setup changed");
+});

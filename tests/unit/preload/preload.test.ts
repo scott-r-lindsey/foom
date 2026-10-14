@@ -152,6 +152,7 @@ test("workspace requests use their own channels", async () => {
   await api.branches("/repos/app");
   await api.createWorktree("/repos/app", "feature", "root");
   await api.scanAgents(true);
+  await api.changeAgentSetup("fixture", "install");
   await api.changeAgyPlugin("install");
   const request = {
     agent: "claude" as const,
@@ -169,6 +170,7 @@ test("workspace requests use their own channels", async () => {
     ["workspace:branches", "/repos/app"],
     ["workspace:create-worktree", "/repos/app", "feature", "root"],
     ["agents:scan", true],
+    ["agents:setup", "fixture", "install"],
     ["agents:agy-plugin", "install"],
     ["agents:launch", request],
     ["terminal:feedback", "t1", "v1", "dismissed"],

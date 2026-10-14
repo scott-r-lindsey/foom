@@ -417,7 +417,13 @@ export function validateV2(manifest: AgentManifestV2): void {
         [...STATUS, ...available.filter((fact) => fact !== "setupState")],
         ["facts", "probe", "metadata"],
       );
+    if (
+      setup.status.probe &&
+      JSON.stringify(setup.status.probe.arguments) !== JSON.stringify(["plugin", "list"])
+    )
+      fail("$.setup.status.probe.arguments", "incompatible-combination");
     if (setup.status.ownership) {
+      if (!setup.status.probe) fail("$.setup.status.probe", "incompatible-combination");
       const ownership = setup.status.ownership;
       if (
         !/^\.[A-Za-z][A-Za-z0-9_-]*\/config\/plugins\/[A-Za-z0-9][A-Za-z0-9_.-]*$/u.test(
