@@ -11089,6 +11089,10 @@ test("terminal font picker updates open shells and config shells and refits thei
     ipcMain.on("terminal:resize", (_event, id, cols, rows) =>
       global.fontResizes.push({ id, cols, rows }),
     );
+    // OS enumeration may legitimately return [] (including after its bounded
+    // PowerShell timeout). Exercise font changes with a font bundled on every OS.
+    ipcMain.removeHandler("setup:terminal-fonts");
+    ipcMain.handle("setup:terminal-fonts", () => ["Geist Mono"]);
   });
   await openSettingsScreen(page);
   await page
@@ -11096,9 +11100,8 @@ test("terminal font picker updates open shells and config shells and refits thei
     .getByRole("button", { name: "Terminal", exact: true })
     .click();
   const picker = page.getByLabel("Terminal font", { exact: true });
-  await expect.poll(() => picker.locator("option").count()).toBeGreaterThan(1);
-  const family = await picker.locator("option").nth(1).getAttribute("value");
-  assert.ok(family);
+  const family = "Geist Mono";
+  await expect(picker.getByRole("option", { name: family, exact: true })).toHaveCount(1);
   await picker.selectOption(family);
   const stack = `"${family}", "Hack Nerd Font Mono", "Geist Mono", monospace`;
   await expect
