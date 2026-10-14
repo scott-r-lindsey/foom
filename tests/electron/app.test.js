@@ -11172,7 +11172,7 @@ test("preview live reload handles saves, assets, missing files, scroll and close
   await previewContents(
     app,
     id,
-    'Object.defineProperty(window, "scrollY", { value: 13 }); window.scrollTo = () => {};',
+    'Object.defineProperty(window, "scrollY", { value: 13 }); window.scrollTo = () => {}; undefined;',
   );
   await writeFile(path.join(root, "live.html"), document("direct"));
   await loaded("direct");
