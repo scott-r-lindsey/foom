@@ -68,13 +68,19 @@ export function attachPreviewComposition(api: PreviewApi): () => void {
       if (!tile) continue;
       const rect = tile.getBoundingClientRect();
       const title = tile.querySelector(".tile-title")?.getBoundingClientRect();
-      const top = title?.bottom ?? rect.top;
+      const style = getComputedStyle(tile);
+      const pixels = (value: string) => Number.parseFloat(value) || 0;
+      const left = pixels(style.borderLeftWidth) + pixels(style.paddingLeft);
+      const right = pixels(style.borderRightWidth) + pixels(style.paddingRight);
+      const bottom = pixels(style.borderBottomWidth) + pixels(style.paddingBottom);
+      const top =
+        title?.bottom ?? rect.top + pixels(style.borderTopWidth) + pixels(style.paddingTop);
       Object.assign(image.style, {
-        left: `${String(rect.left + 4)}px`,
+        left: `${String(rect.left + left)}px`,
         top: `${String(top)}px`,
-        width: `${String(Math.max(0, rect.width - 8))}px`,
-        height: `${String(Math.max(0, rect.bottom - top - 4))}px`,
-        opacity: getComputedStyle(tile).opacity,
+        width: `${String(Math.max(0, rect.width - left - right))}px`,
+        height: `${String(Math.max(0, rect.bottom - top - bottom))}px`,
+        opacity: style.opacity,
       });
     }
   };

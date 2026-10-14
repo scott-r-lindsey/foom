@@ -11107,7 +11107,7 @@ test("terminal font picker updates open shells and config shells and refits thei
     await expect(rows).toHaveCSS("font-family", '"Hack Nerd Font Mono", "Geist Mono", monospace');
 });
 
-async function composedPreview(context) {
+async function composedPreview(context, borderWidth = 1) {
   const app = await launchApp(context);
   const page = await boardPage(app);
   const terminal = (await page.evaluate(() => window.desktop.workspace())).terminals[0];
@@ -11142,14 +11142,21 @@ async function composedPreview(context) {
   await page.reload();
   const tile = page.locator('[data-tile="preview"]');
   await expect(tile).toHaveAttribute("data-kind", "preview");
+  await tile.evaluate((element, width) => {
+    element.style.borderWidth = `${width}px`;
+  }, borderWidth);
   const bounds = await tile.evaluate((element) => {
     const rect = element.getBoundingClientRect();
     const title = element.querySelector(".tile-title").getBoundingClientRect();
+    const style = getComputedStyle(element);
+    const left = parseFloat(style.borderLeftWidth) + parseFloat(style.paddingLeft);
+    const right = parseFloat(style.borderRightWidth) + parseFloat(style.paddingRight);
+    const bottom = parseFloat(style.borderBottomWidth) + parseFloat(style.paddingBottom);
     return {
-      x: rect.left + 4,
+      x: rect.left + left,
       y: title.bottom,
-      width: rect.width - 8,
-      height: rect.bottom - title.bottom - 4,
+      width: rect.width - left - right,
+      height: rect.bottom - title.bottom - bottom,
       visible: true,
     };
   });
@@ -11176,11 +11183,13 @@ async function expectPreviewSnapshot(page, id) {
 }
 
 test("preview composition keeps tile and row panels visible and usable above captured pages", async (context) => {
-  const { app, page, id, tile } = await composedPreview(context);
+  const { app, page, id, tile, bounds } = await composedPreview(context, 2);
   await tile.getByRole("button", { name: "Tile 2 menu" }).click();
   await expect(page.getByRole("menuitem", { name: "Split down" })).toBeVisible();
   await expect.poll(async () => (await previewViewState(app, id)).attached).toBe(false);
   await expectPreviewSnapshot(page, id);
+  await expect(page.locator(".preview-snapshot")).toHaveCSS("left", `${bounds.x}px`);
+  await expect(page.locator(".preview-snapshot")).toHaveCSS("width", `${bounds.width}px`);
   await page.screenshot({
     path: "test-results/preview-overlays-panel.png",
     animations: "disabled",

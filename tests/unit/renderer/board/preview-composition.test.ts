@@ -93,7 +93,7 @@ test("freezes for panels, scrim, full drag and settings; preserves overlapping r
 });
 test("snapshots follow tile geometry and opacity during real animation lifetime", async () => {
   const f = fixture(false);
-  document.body.innerHTML = `<section class="terminal-tile" data-preview-id="${snapshot.id}" style="opacity:0.4"><header class="tile-title"></header></section>`;
+  document.body.innerHTML = `<section class="terminal-tile" data-preview-id="${snapshot.id}" style="opacity:0.4;padding:3px;border:2px solid black"><header class="tile-title"></header></section>`;
   const tile = document.querySelector("section");
   const title = document.querySelector("header");
   if (!tile || !title) throw new Error("tile");
@@ -107,8 +107,9 @@ test("snapshots follow tile geometry and opacity during real animation lifetime"
   f.send([snapshot]);
   await flush();
   const image = document.querySelector("canvas");
-  expect(image?.style.left).toBe("104px");
-  expect(image?.style.height).toBe("256px");
+  expect(image?.style.left).toBe("105px");
+  expect(image?.style.width).toBe("390px");
+  expect(image?.style.height).toBe("255px");
   expect(image?.style.opacity).toBe("0.4");
   let frame: FrameRequestCallback | undefined;
   vi.stubGlobal(
@@ -127,7 +128,12 @@ test("snapshots follow tile geometry and opacity during real animation lifetime"
   await flush();
   expect(f.cover).toHaveBeenLastCalledWith(true);
   f.animations.splice(0);
+  title.remove();
+  tile.style.padding = "0px";
+  tile.style.border = "none";
   frame?.(0);
+  expect(image?.style.left).toBe("100px");
+  expect(image?.style.height).toBe("300px");
   expect(f.cover).toHaveBeenLastCalledWith(false);
   f.dispose();
 });
