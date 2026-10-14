@@ -1,3 +1,4 @@
+import { validAgentId } from "../shared/providers/catalog";
 import { ControlError, identifier, object } from "../node-common/control-validation";
 import type { Command } from "./types";
 
@@ -112,8 +113,7 @@ function orchestration(name: string | undefined, words: string[]): Command {
     case "launch": {
       params["worktreeId"] = identifier(positional[0]);
       const agent = take("--agent");
-      if (agent !== "claude" && agent !== "codex" && agent !== "agy")
-        throw new ControlError("invalid_request");
+      if (!validAgentId(agent)) throw new ControlError("invalid_request");
       params["agent"] = agent;
       const prompt = take("--prompt");
       if (prompt !== undefined) params["prompt"] = text(prompt, 16384);

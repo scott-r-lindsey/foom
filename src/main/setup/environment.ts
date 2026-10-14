@@ -1,3 +1,4 @@
+import { isAgentId } from "../../shared/providers/catalog";
 import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
@@ -295,9 +296,9 @@ export class EnvironmentStore {
   }
 
   /** The layers for a launch: All sessions, then the agent's own. Shells get All only. */
-  layers(target: AgentId | "shell"): readonly (readonly EnvironmentVariable[])[] {
+  layers(target: AgentId): readonly (readonly EnvironmentVariable[])[] {
     const copy = (rows: Row[]) => rows.map(({ name, value }) => ({ name, value }));
-    return target === "shell"
+    return target === "shell" || !isAgentId(target)
       ? [copy(this.lists.all)]
       : [copy(this.lists.all), copy(this.lists[target])];
   }

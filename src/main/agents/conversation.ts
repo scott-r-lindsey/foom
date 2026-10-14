@@ -1,11 +1,5 @@
-import type { AgentId } from "../../shared/agents";
-
-import { conversationId } from "../../shared/conversation";
+import { agentProvider } from "./providers/registry";
 export { conversationId } from "../../shared/conversation";
-
-export function resumeArguments(agent: AgentId, id: unknown): string[] {
-  if (!conversationId(id)) throw new Error("Invalid conversation ID");
-  if (agent === "claude") return ["--resume", id];
-  if (agent === "codex") return ["resume", id];
-  return ["--conversation", id];
+export function resumeArguments(agent: string, id: unknown): string[] {
+  return agentProvider(agent).resume(id);
 }

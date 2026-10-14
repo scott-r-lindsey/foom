@@ -1,0 +1,54 @@
+{
+  "kind": "agent",
+  "version": 1,
+  "id": "foom-test-agent",
+  "name": "Fixture agent",
+  "badge": "FT",
+  "executables": ["foom-test-agent"],
+  "discovery": { "hooksHelp": ["--observer"], "mcpHelp": ["--mcp"] },
+  "launch": {
+    "arguments": ["--literal", "$(must-not-execute)"],
+    "prompt": ["--prompt", "{prompt}"],
+    "resume": ["--resume", "{conversationId}"],
+    "hooks": ["--observer", "{hookArgv}"],
+    "mcp": ["--mcp", "{mcpUrl}", "--tools", "{allowedTools}"],
+    "allowedTools": ["open_preview"]
+  },
+  "bypassArguments": ["--yolo"],
+  "attention": {
+    "minimumEngineVersion": 1,
+    "rules": [
+      {
+        "id": "working",
+        "state": "working",
+        "priority": 100,
+        "region": "title",
+        "match": { "contains": ["Fixture working"], "regex": ["^Fixture"] },
+        "reason": "Fixture is working"
+      },
+      {
+        "id": "permission",
+        "state": "blocked",
+        "priority": 200,
+        "region": "bottom",
+        "lines": 2,
+        "match": { "contains": ["Approve fixture?"] },
+        "not": [{ "contains": ["approved"] }],
+        "reason": "Fixture requests permission",
+        "comment": "Synthetic permission form"
+      }
+    ],
+    "hook": {
+      "transport": "argv",
+      "sessionField": "session",
+      "eventField": "event",
+      "events": {
+        "start": "working",
+        "stop": "classify",
+        "permission": "needs_input",
+        "ready": "ready",
+        "failed": "failed"
+      }
+    }
+  }
+}

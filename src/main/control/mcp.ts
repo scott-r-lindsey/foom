@@ -1,3 +1,4 @@
+import { agentProviders } from "../agents/providers/registry";
 import { randomUUID } from "node:crypto";
 import type { IncomingHttpHeaders } from "node:http";
 import type { ControlService } from "./service";
@@ -113,7 +114,7 @@ const orchestration = (childLimit: number) =>
       properties: {
         idempotencyKey: key,
         worktreeId: id,
-        agent: { type: "string", enum: ["claude", "codex", "agy"] },
+        agent: { type: "string", enum: agentProviders().map((provider) => provider.id) },
         prompt: { type: "string", maxLength: 16384 },
       },
       required: ["idempotencyKey", "worktreeId", "agent"],

@@ -1,3 +1,5 @@
+import { builtinAgent, validAgentId } from "../../shared/providers/catalog";
+import { knownAgentId as isAgentId } from "../agents/providers/registry";
 import { readFile, mkdir, writeFile, rename } from "node:fs/promises";
 import { isAbsolute, join } from "node:path";
 import { conversationId } from "../agents/conversation";
@@ -9,6 +11,10 @@ function path(value: unknown): value is string {
   return (
     typeof value === "string" && value.length <= 4096 && isAbsolute(value) && !value.includes("\0")
   );
+}
+
+function storedAgent(value: unknown, origin: unknown): value is string {
+  return isAgentId(value) || (origin === "config" && validAgentId(value) && !builtinAgent(value));
 }
 
 /** Validated main-owned metadata; executable paths and credentials are never stored. */
@@ -30,8 +36,11 @@ export function readSessions(value: unknown): StoredSession[] {
       running,
       orchestrator,
       parentId,
+      providerOrigin,
     } = data;
     if (
+      (providerOrigin !== undefined &&
+        (providerOrigin !== "config" || !validAgentId(agent) || builtinAgent(agent))) ||
       (home !== undefined &&
         (home !== true || agent !== "shell" || repository !== worktree || branch !== null)) ||
       (config !== undefined &&
@@ -48,18 +57,17 @@ export function readSessions(value: unknown): StoredSession[] {
         (typeof branch === "string" && branch.length <= 4096 && !/\p{Cc}/u.test(branch))
       ) ||
       (conversation !== undefined &&
-        (!conversationId(conversation) ||
-          (agent !== "claude" && agent !== "codex" && agent !== "agy")))
+        (!conversationId(conversation) || !storedAgent(agent, providerOrigin)))
     )
       throw new Error("Invalid session");
-    if (agent !== "claude" && agent !== "codex" && agent !== "agy" && agent !== "shell")
-      throw new Error("Invalid agent");
+    if (!storedAgent(agent, providerOrigin) && agent !== "shell") throw new Error("Invalid agent");
     const role = readOrchestrator(orchestrator);
     if (role && (parentId !== undefined || agent === "shell" || home || config))
       throw new Error("Invalid role");
     ids.add(id);
     return {
       id,
+      ...(providerOrigin === "config" ? { providerOrigin } : {}),
       ...(running === undefined ? {} : { running }),
       ...(role === undefined ? {} : { orchestrator: role }),
       ...(parentId === undefined ? {} : { parentId }),
@@ -102,6 +110,7 @@ export class SessionStore {
           worktree,
           branch,
           conversationId,
+          providerOrigin,
           home,
           config,
           running,
@@ -119,6 +128,7 @@ export class SessionStore {
           worktree,
           branch,
           conversationId,
+          ...(providerOrigin ? { providerOrigin } : {}),
         }),
       ),
     );

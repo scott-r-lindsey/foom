@@ -1,3 +1,7 @@
+import { agentProviders } from "../agents/providers/registry";
+import { boundedRegex } from "../../shared/providers/detection";
+export { boundedRegex } from "../../shared/providers/detection";
+import { isAgentId } from "../../shared/providers/catalog";
 import claude from "./agent-rules/claude.json";
 import codex from "./agent-rules/codex.json";
 import agy from "./agent-rules/agy.json";
@@ -7,22 +11,12 @@ import type { AgentId } from "../../shared/agents";
 
 /** Deliberately small regex language: no repetition, groups, alternation or backreferences.
  * Every accepted pattern has bounded, linear work even on adversarial screen text. */
-export function boundedRegex(pattern: string): RegExp {
-  if (
-    pattern.length === 0 ||
-    pattern.length > 128 ||
-    /[()*+?{}|]/.test(pattern) ||
-    /\\[^sSdDwW\\.[\]\-^$]/.test(pattern)
-  )
-    throw new Error("Unsafe detection regex");
-  return new RegExp(pattern, "iu");
-}
 
 export function parseManifest(data: typeof claude | typeof codex | typeof agy): AgentManifest {
   // JSON imports are compiled and shipped, never loaded from agent output or a URL.
   if (data.minimumEngineVersion !== 1) throw new Error("Unsupported detection engine");
   const id = data.id;
-  if (id !== "claude" && id !== "codex" && id !== "agy") throw new Error("Unknown agent");
+  if (!isAgentId(id)) throw new Error("Unknown agent");
   const rules = data.rules.map((rule): AgentRule => {
     const state = rule.state;
     const region = rule.region;
@@ -76,7 +70,9 @@ export function detectAgent(
   agent: AgentId,
   evidence: AgentEvidence,
   tail: readonly string[],
-  rules = manifests.find((manifest) => manifest.id === agent)?.rules ?? [],
+  rules = manifests.find((manifest) => manifest.id === agent)?.rules ??
+    agentProviders().find((provider) => provider.id === agent)?.manifest?.attention.rules ??
+    [],
   now: () => number = () => performance.now(),
 ): AgentRule | undefined {
   const deadline = now() + 5;

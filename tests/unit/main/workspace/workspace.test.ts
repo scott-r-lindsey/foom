@@ -1,3 +1,7 @@
+import pluginFixture from "../../../fixtures/agent-plugin.json";
+import { parseAgentPlugin } from "../../../../src/shared/agent-manifest";
+import { configProvider } from "../../../../src/main/agents/providers/config";
+import { replaceConfigProviders } from "../../../../src/main/agents/providers/registry";
 import { AgyPlugin } from "../../../../src/main/agents/agy-plugin";
 import { CodexHookStatus } from "../../../../src/main/agents/codex-hook-status";
 import type { ConfirmWorkspace } from "../../../../src/shared/confirmation";
@@ -145,7 +149,7 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-async function launched(agent: "claude" | "agy" = "claude"): Promise<Workspace> {
+async function launched(agent: AgentId = "claude"): Promise<Workspace> {
   if (agent === "agy")
     agents.scan.mockResolvedValue({
       ...scan,
@@ -456,8 +460,8 @@ test("hook preparation starts the receiver once, retries a failed start, and giv
   const first = await prepare?.("claude");
   const second = await prepare?.("codex");
   expect(startReceiver).toHaveBeenCalledTimes(2);
-  expect(first?.claudeCommand).toMatch(/^sh '.*claude\.sh'$/u);
-  expect(second?.codexCommand.at(-1)).toMatch(/codex\.sh$/u);
+  expect(first?.observerCommand).toMatch(/^sh '.*claude\.sh'$/u);
+  expect(second?.observerArgv.at(-1)).toMatch(/codex\.sh$/u);
   const agy = await prepare?.("agy");
   expect(agy?.env["FOOM_TOKEN"]).toBeDefined();
   agy?.dispose();
@@ -511,7 +515,7 @@ function held<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
 }
 
 /** Prepares and binds a Claude launch to t1, returning its hook key. */
-async function bound(agent: "claude" | "agy" = "claude"): Promise<string> {
+async function bound(agent: AgentId = "claude"): Promise<string> {
   const hooks = await prepare?.(agent);
   hooks?.bind?.("t1");
   return receiver.register.mock.calls.at(-1)?.[0] ?? "";
@@ -2412,7 +2416,7 @@ async function codexWorkspace() {
 test("Codex observations drive execution and preserve the user's notifier only after a confirmed turn", async () => {
   const { workspace, hooks, key } = await codexWorkspace();
   try {
-    expect(hooks.codexNotify).toBe(true);
+    expect(hooks.notifyFallback).toBe(true);
     const report = () => workspace.scanAgents(false);
     expect((await report()).agents[0]?.codexHookState).toBe("not-reviewed");
     tails.set("t1", ["All done."]);
@@ -2438,8 +2442,8 @@ test("Codex observations drive execution and preserve the user's notifier only a
     await send("codex:agent-turn-complete", "classify");
     expect(classify).toHaveBeenCalledTimes(count);
     const later = await prepare?.("codex");
-    expect(later?.codexNotify).toBe(false);
-    expect(later?.codexHookCommand).toBe(hooks.codexHookCommand);
+    expect(later?.notifyFallback).toBe(false);
+    expect(later?.lifecycleCommand).toBe(hooks.lifecycleCommand);
     later?.dispose();
   } finally {
     hooks.dispose();
@@ -2463,7 +2467,7 @@ test("Codex review and absent hooks retain the notifier and explain the fallback
     expect((await workspace.scanAgents(false)).agents[0]?.codexHookState).toBe("declined");
     expect(states.at(-1)?.state).toBe("done");
     const next = await prepare?.("codex");
-    expect(next?.codexNotify).toBe(true);
+    expect(next?.notifyFallback).toBe(true);
     next?.dispose();
     // One isolated Stop cannot establish working lifecycle hooks.
     await workspace.hook({ terminalId: key, signal: "codex:Stop", action: "classify" });
@@ -2482,7 +2486,7 @@ test.each([true, false])(
     deps.codexHooks = health;
     const { workspace, hooks } = await codexWorkspace();
     try {
-      expect(hooks.codexNotify).toBe(false);
+      expect(hooks.notifyFallback).toBe(false);
       if (review) {
         tails.set("t1", ["Hooks need review"]);
         await workspace.quiet("t1");
@@ -2495,7 +2499,7 @@ test.each([true, false])(
         expect(health.get()).toBe("declined");
       }
       const next = await prepare?.("codex");
-      expect(next?.codexNotify).toBe(true);
+      expect(next?.notifyFallback).toBe(true);
       next?.dispose();
     } finally {
       hooks.dispose();
@@ -2532,7 +2536,7 @@ test.each(["notify", "idle-then-notify", "idle-only"])(
       }
       expect((await workspace.scanAgents(false)).agents[0]?.codexHookState).toBe("declined");
       const next = await prepare?.("codex");
-      expect(next?.codexNotify).toBe(true);
+      expect(next?.notifyFallback).toBe(true);
       next?.dispose();
     } finally {
       hooks.dispose();
@@ -3597,4 +3601,37 @@ test("provider stalls recover on a working title while the provider line remains
   expect(states.at(-1)).toMatchObject({ state: "working", execution: { phase: "working" } });
   expect(states.at(-1)?.attentionKind).toBeUndefined();
   await workspace.dispose();
+});
+
+test("an unavailable config plugin still protects its recorded conversation from merged cleanup", async () => {
+  const manifest = parseAgentPlugin(JSON.stringify(pluginFixture));
+  replaceConfigProviders([configProvider(manifest, () => Promise.resolve())]);
+  const workspace = await launched(manifest.id);
+  try {
+    await workspace.hook({
+      terminalId: await bound(manifest.id),
+      action: "classify",
+      signal: `plugin:${manifest.id}:stop`,
+      conversationId: "saved-plugin-conversation",
+    });
+    await workspace.exited("t1", 0);
+    replaceConfigProviders([]);
+    const spare = { ...tree, path: "/spare", branch: "spare" };
+    vi.mocked(deps.worktrees.listWorktrees).mockResolvedValue([tree, spare]);
+    vi.mocked(deps.worktrees.mergedCommit).mockResolvedValue(true);
+    const confirm = vi.fn<ConfirmWorkspace>(() => Promise.resolve(false));
+    await cleanupCommand(
+      workspace,
+      { kind: "delete-merged-worktrees", repository: repo.path },
+      confirm,
+    );
+    expect(confirm).toHaveBeenLastCalledWith({
+      kind: "merged-worktrees",
+      worktrees: [{ branch: "feature", reason: "resumable conversation" }, { branch: "spare" }],
+    });
+    expect(deps.worktrees.removeWorktree).not.toHaveBeenCalled();
+  } finally {
+    replaceConfigProviders([]);
+    await workspace.dispose();
+  }
 });

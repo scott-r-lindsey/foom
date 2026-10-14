@@ -2,7 +2,7 @@ import type { ThemeCatalog, ThemeKind } from "./theme-file";
 import type { InterfaceThemeChoice } from "./interface-theme";
 import type { SoundSettings } from "./sound";
 import type { TerminalThemeChoice } from "./terminal-theme";
-import type { AgentId } from "./agents";
+import type { AgentValues } from "./agents";
 import type { Repository } from "./worktrees";
 /** Everything first-run setup decides. Stored in main; the renderer holds only a copy. */
 export interface Settings {
@@ -17,10 +17,10 @@ export interface Settings {
   concurrentChildren: number;
   /** Orchestrators may remove their own merged, clean worktrees without review. Profile only. */
   autoRemoveMergedWorktrees: boolean;
-  agents: Readonly<Record<AgentId, boolean>>;
-  agentArguments: Readonly<Record<AgentId, readonly string[]>>;
+  agents: AgentValues<boolean>;
+  agentArguments: AgentValues<readonly string[]>;
   /** Main-owned acknowledgement; renderer save requests may not set this. */
-  agentBypassAcknowledged: Readonly<Record<AgentId, boolean>>;
+  agentBypassAcknowledged: AgentValues<boolean>;
   /** Default for new worktrees: Foom's folder, or next to the repository. */
   worktreeLocation: "root" | "adjacent";
   /** Eclipse variant when interfaceTheme is Follow; fixed themes supply their own base. */

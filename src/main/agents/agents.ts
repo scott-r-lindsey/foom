@@ -1,9 +1,11 @@
-import { meetsMinimum } from "./version";
+import {
+  agentProvider,
+  agentProviders,
+  knownAgentId,
+  providerRevision,
+} from "./providers/registry";
 import { AgyPlugin } from "./agy-plugin";
-import { cliGuidance, CONFIG_PROMPT, initialPrompt, mergeAllowedTools } from "./cli-launch";
-import { prepareMcpLaunch, supportsMcp } from "./mcp-launch";
-import { codexHookArguments } from "./codex-hooks";
-import { resumeArguments } from "./conversation";
+import type { prepareMcpLaunch } from "./mcp-launch";
 import type { ControlLaunch } from "../control/types";
 import { parseAgentArguments } from "./default-arguments";
 import { buildLaunchEnvironment, inheritedEnvironment } from "../setup/environment";
@@ -23,10 +25,8 @@ import type {
 } from "../../shared/agents";
 import type { TerminalSpec } from "../../shared/desktop";
 import type { WorktreeService } from "../workspace/worktrees";
-import { AGENTS } from "./agent-list";
 
 const execute = promisify(execFile);
-const ids: readonly AgentId[] = AGENTS.map(({ id }) => id);
 const probeOptions = { encoding: "utf8", timeout: 5000, maxBuffer: 256 * 1024 } as const;
 
 /** Fixed shell program only: no executable paths, arguments, or agent output interpolated. */
@@ -52,7 +52,7 @@ export async function loginPath(): Promise<{ path: string; warning: string | nul
   }
 }
 
-async function findExecutable(id: AgentId, path: string): Promise<string | null> {
+async function findExecutable(id: string, path: string): Promise<string | null> {
   const suffixes = process.platform === "win32" ? [".exe", ".com", ""] : [""];
   for (const directory of path.split(delimiter)) {
     // Never discover an executable in an implicit current/worktree directory.
@@ -71,7 +71,13 @@ async function findExecutable(id: AgentId, path: string): Promise<string | null>
 }
 
 async function detect(id: AgentId, path: string): Promise<AgentInstallation> {
-  const executable = await findExecutable(id, path);
+  const provider = agentProvider(id);
+  await provider.validate?.();
+  let executable: string | null = null;
+  for (const name of provider.executableNames) {
+    executable = await findExecutable(name, path);
+    if (executable) break;
+  }
   if (!executable)
     return { id, path: null, version: null, hooks: false, reason: "Not found on PATH." };
   let version: string | null = null;
@@ -80,40 +86,7 @@ async function detect(id: AgentId, path: string): Promise<AgentInstallation> {
     version = (await execute(executable, ["--version"], options)).stdout.trim();
     if (!version) throw new Error("Empty version");
     const help = (await execute(executable, ["--help"], options)).stdout;
-    const hooks =
-      (id === "claude" &&
-        meetsMinimum(
-          version,
-          /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?: \(Claude Code\))?$/u,
-          [2, 1, 284],
-        ) &&
-        /(?:^|\s)--settings(?:[ =,]|$)/mu.test(help)) ||
-      (id === "codex" &&
-        meetsMinimum(
-          version,
-          /^codex-cli (0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/u,
-          [0, 155, 1],
-        ) &&
-        /(?:^|\s)-c(?:[ ,]|$)/mu.test(help));
-    return {
-      id,
-      path: executable,
-      version,
-      hooks,
-      cliGuidance: id === "agy" && /(?:^|\s)--prompt-interactive(?:[ =,]|$)/mu.test(help),
-      mcp: supportsMcp(id, version, help),
-      mcpReason: supportsMcp(id, version, help)
-        ? "Per-launch MCP supported; managed policy may deny attachment."
-        : "Per-launch MCP unavailable: requires a supported version and attachment flag.",
-      ...(id === "codex" &&
-      meetsMinimum(version, /^codex-cli (0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/u, [0, 161, 0])
-        ? { codexLifecycle: true }
-        : {}),
-      inline: id === "codex" && /(?:^|\s)--no-alt-screen(?:[ =,]|$)/mu.test(help),
-      reason: hooks
-        ? "Per-launch hooks supported."
-        : "Unverified hook support; using output evaluation.",
-    };
+    return agentProvider(id).discover(executable, version, help);
   } catch {
     return {
       id,
@@ -128,6 +101,7 @@ async function detect(id: AgentId, path: string): Promise<AgentInstallation> {
 /** Main-only service, like WorktreeService. No agent config files are written. */
 export class AgentService {
   private scanResult: AgentScan | undefined;
+  private scannedRevision = -1;
   private hooksEnabled = true;
   private closed = false;
   private readonly occupied = new Set<string>();
@@ -161,33 +135,28 @@ export class AgentService {
 
   async scan(): Promise<AgentScan> {
     const resolved = await loginPath();
+    const revision = providerRevision();
     const agents = await Promise.all(
-      ids.map(async (id) => {
-        const agent = await detect(id, resolved.path);
-        if (id !== "agy" || !agent.path) return agent;
-        const agyPlugin = await this.agyPlugin.status(agent.path);
-        return {
-          ...agent,
-          agyPlugin,
-          hooks: agyPlugin.state === "installed" || agyPlugin.state === "outdated",
-          reason:
-            agyPlugin.state === "installed" || agyPlugin.state === "outdated"
-              ? "Opt-in Foom plugin installed."
-              : "Plugin unavailable or disabled; using output evaluation.",
-        };
-      }),
+      agentProviders().map(async (provider) =>
+        provider.enrich(await detect(provider.id, resolved.path), this.agyPlugin),
+      ),
     );
+    if (revision !== providerRevision()) {
+      this.scanResult = undefined;
+      throw new Error("Agent plugins changed. Scan again.");
+    }
     const result = Object.freeze({
       ...resolved,
       agents: Object.freeze(agents.map((agent) => Object.freeze(agent))),
     });
     this.scanResult = result;
+    this.scannedRevision = revision;
     return result;
   }
 
   async launch(request: AgentLaunch): Promise<AgentLaunched> {
     this.ensureOpen();
-    if (!ids.includes(request.agent)) throw new Error("Unknown agent");
+    if (!knownAgentId(request.agent)) throw new Error("Unknown agent");
     if (
       ![request.cols, request.rows].every(
         (value) => Number.isInteger(value) && value >= 2 && value <= 500,
@@ -213,11 +182,11 @@ export class AgentService {
   }
 
   private async start(request: AgentLaunch): Promise<AgentLaunched> {
+    const provider = agentProvider(request.agent);
+    await provider.validate?.();
     const defaults = parseAgentArguments(request.agent, request.defaultArguments ?? []);
     const resume =
-      request.conversationId === undefined
-        ? []
-        : resumeArguments(request.agent, request.conversationId);
+      request.conversationId === undefined ? [] : provider.resume(request.conversationId);
     const config = request.configCli;
     if (config === undefined) {
       const trees = await this.worktrees.listWorktrees(request.repository);
@@ -233,15 +202,17 @@ export class AgentService {
         ? (request.checkoutIdentity ??
           (await this.worktrees.launchIdentity(request.repository, request.worktree)))
         : undefined;
-    const scan = this.scanResult ?? (await this.scan());
+    const scan =
+      this.scannedRevision === providerRevision() && this.scanResult
+        ? this.scanResult
+        : await this.scan();
     const agent = scan.agents.find((entry) => entry.id === request.agent);
     if (!agent?.path)
       throw new Error(`${request.agent} is not installed. Rescan after installing it.`);
     const attach = this.hooksEnabled && agent.hooks && this.prepareHooks;
     const binding = attach ? await attach(agent.id) : undefined;
-    const notify =
-      !agent.codexLifecycle || !binding?.codexHookCommand || binding.codexNotify !== false;
-    if (attach && agent.id === "codex" && notify && !request.acknowledgeCodexNotifierReplacement) {
+    const notify = agentProvider(agent.id).needsNotifier(agent, binding);
+    if (attach && notify && !request.acknowledgeCodexNotifierReplacement) {
       binding?.dispose();
       throw new Error(
         "Foom replaces your Codex notifier for this launch. Acknowledge this or disable hooks.",
@@ -261,7 +232,7 @@ export class AgentService {
             )
           : undefined;
       if (control && agent.mcp)
-        mcp = await prepareMcpLaunch(agent.id, control.env["FOOM_CONTROL_URL"] ?? "");
+        mcp = await provider.prepareMcp(control.env["FOOM_CONTROL_URL"] ?? "");
       this.ensureOpen();
       if (
         config === undefined &&
@@ -271,41 +242,15 @@ export class AgentService {
         throw new Error("Worktree has changed. Select it and try again.");
       if (request.control !== undefined && "role" in request.control && !control)
         throw new Error("Orchestration needs control credentials");
-      const configGreeting = config !== undefined && request.conversationId === undefined;
-      const prompt = initialPrompt(agent, request.prompt);
-      let args = [
-        ...resume,
-        ...((control || configGreeting) && agent.cliGuidance
-          ? cliGuidance([...defaults, ...prompt.guidance], configGreeting)
-          : [...defaults, ...prompt.guidance]),
-        ...(agent.inline ? ["--no-alt-screen"] : []),
-        ...(mcp?.args ?? []),
-      ];
-      if (mcp && agent.id === "claude") args = mergeAllowedTools(args);
-      if (binding) {
-        if (agent.id === "claude") {
-          const hook = [{ hooks: [{ type: "command", command: binding.claudeCommand }] }];
-          args.push(
-            "--settings",
-            JSON.stringify({
-              hooks: {
-                UserPromptSubmit: hook,
-                PreToolUse: hook,
-                Stop: hook,
-                PermissionRequest: hook,
-                Notification: hook,
-              },
-            }),
-          );
-        } else if (agent.id === "codex") {
-          if (agent.codexLifecycle && binding.codexHookCommand)
-            args.push(...codexHookArguments(binding.codexHookCommand));
-          if (notify) args.push("-c", `notify=${JSON.stringify(binding.codexCommand)}`);
-        }
-      }
-      // A positional prompt goes last, after every option Foom adds.
-      args.push(
-        ...(configGreeting && agent.id !== "agy" ? ["--", CONFIG_PROMPT] : prompt.positional),
+      const args = agentProvider(agent.id).arguments(
+        agent,
+        request,
+        defaults,
+        resume,
+        binding,
+        mcp,
+        Boolean(control),
+        config !== undefined,
       );
       const environment = buildLaunchEnvironment({
         layers: request.environment ?? [],
@@ -314,6 +259,9 @@ export class AgentService {
         pathFirst: config ?? control?.env["FOOM_CLI_DIRECTORY"],
         foom: { ...control?.env, ...binding?.env },
       });
+      await provider.validate?.();
+      if (agentProvider(request.agent) !== provider)
+        throw new Error("Agent plugin changed. Review it again.");
       const id = await this.terminals.create({
         ...(request.terminalId === undefined ? {} : { id: request.terminalId }),
         command: agent.path,
@@ -332,6 +280,7 @@ export class AgentService {
         binding?.dispose();
         return {
           id,
+          ...(provider.manifest ? { providerOrigin: "config" as const } : {}),
           attention: binding ? "hooks" : "evaluator",
           ...(environment.names.length ? { environment: environment.names } : {}),
         };
@@ -348,6 +297,7 @@ export class AgentService {
       }
       return {
         id,
+        ...(provider.manifest ? { providerOrigin: "config" as const } : {}),
         attention: binding ? "hooks" : "evaluator",
         ...(environment.names.length ? { environment: environment.names } : {}),
       };

@@ -72,7 +72,7 @@ export type WorkspaceConfirmation =
   | { kind: "dirty-worktree"; title: string; branch?: string; changes: string }
   | {
       kind: "orchestrator";
-      agent: "claude" | "codex" | "agy";
+      agent: string;
       subject?: string;
       replacing?: string;
     };

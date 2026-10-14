@@ -1,3 +1,4 @@
+import { knownAgentId } from "../agents/providers/registry";
 import type { PreviewOpenAction, PreviewRecord } from "../../shared/previews";
 import { conversationId } from "../../shared/conversation";
 import type { WindowIpc } from "../window/window-ipc";
@@ -12,7 +13,6 @@ import type { LaunchRequest, TerminalState, SidebarCommand } from "../../shared/
 import type { Workspace } from "./workspace";
 
 const APP_URL = "app://bundle/index.html";
-const agents: readonly AgentId[] = ["claude", "codex", "agy"];
 const actions: readonly VerdictAction[] = ["replied", "dismissed", "ignored"];
 
 function text(value: unknown, max = 4096): value is string {
@@ -27,7 +27,7 @@ function record(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 function agent(value: unknown): value is AgentId {
-  return agents.some((id) => id === value);
+  return knownAgentId(value);
 }
 function action(value: unknown): value is VerdictAction {
   return actions.some((name) => name === value);
@@ -121,15 +121,16 @@ function sidebarCommand(value: unknown): SidebarCommand {
   throw new Error("Invalid sidebar command");
 }
 
-const agentNames = { claude: "Claude Code", codex: "Codex", agy: "Antigravity" } as const;
+const agentNames: Readonly<Record<string, string>> = {
+  claude: "Claude Code",
+  codex: "Codex",
+  agy: "Antigravity",
+};
 
 /** Granting orchestration widens permissions, so it always uses the trusted dialog. */
-export function orchestratorDisclosure(
-  id: keyof typeof agentNames,
-  replacing?: string,
-): DialogContent {
+export function orchestratorDisclosure(id: string, replacing?: string): DialogContent {
   return {
-    title: `Make ${agentNames[id]} the Foom orchestrator?`,
+    title: `Make ${agentNames[id] ?? id} the Foom orchestrator?`,
     accept: "Make orchestrator",
     glyph: "orbit",
     ...(replacing ? { note: `${replacing} stops orchestrating; its children stay with you.` } : {}),

@@ -1,3 +1,7 @@
+import pluginFixture from "../../../fixtures/agent-plugin.json";
+import { parseAgentPlugin } from "../../../../src/shared/agent-manifest";
+import { configProvider } from "../../../../src/main/agents/providers/config";
+import { replaceConfigProviders } from "../../../../src/main/agents/providers/registry";
 import { CONFIG_PROMPT } from "../../../../src/main/agents/cli-launch";
 import { AgyPlugin } from "../../../../src/main/agents/agy-plugin";
 import { ChildProcess, execFile } from "node:child_process";
@@ -50,8 +54,8 @@ const launchIdentity = vi.fn(() => Promise.resolve("identity"));
 const create = vi.fn((_spec: TerminalSpec) => "terminal-id");
 const cleanup = vi.fn();
 const binding: AgentHooks = {
-  claudeCommand: "/foom adapter --stdin",
-  codexCommand: ["/foom adapter", "--argv"],
+  observerCommand: "/foom adapter --stdin",
+  observerArgv: ["/foom adapter", "--argv"],
   env: { FOOM_SESSION: "session", FOOM_TOKEN: "secret" },
   dispose: cleanup,
 };
@@ -95,7 +99,10 @@ beforeEach(() => {
   listWorktrees.mockResolvedValue([{ path: tree, managed: true, bare: false, prunable: false }]);
   service = new AgentService({ listWorktrees, launchIdentity }, { create }, prepare);
 });
-afterEach(() => vi.unstubAllEnvs());
+afterEach(() => {
+  vi.unstubAllEnvs();
+  replaceConfigProviders([]);
+});
 
 describe("detection", () => {
   it("preserves full versions and probes help before advertising hooks", async () => {
@@ -250,11 +257,15 @@ describe("launch", () => {
           "--settings",
           JSON.stringify({
             hooks: {
-              UserPromptSubmit: [{ hooks: [{ type: "command", command: binding.claudeCommand }] }],
-              PreToolUse: [{ hooks: [{ type: "command", command: binding.claudeCommand }] }],
-              Stop: [{ hooks: [{ type: "command", command: binding.claudeCommand }] }],
-              PermissionRequest: [{ hooks: [{ type: "command", command: binding.claudeCommand }] }],
-              Notification: [{ hooks: [{ type: "command", command: binding.claudeCommand }] }],
+              UserPromptSubmit: [
+                { hooks: [{ type: "command", command: binding.observerCommand }] },
+              ],
+              PreToolUse: [{ hooks: [{ type: "command", command: binding.observerCommand }] }],
+              Stop: [{ hooks: [{ type: "command", command: binding.observerCommand }] }],
+              PermissionRequest: [
+                { hooks: [{ type: "command", command: binding.observerCommand }] },
+              ],
+              Notification: [{ hooks: [{ type: "command", command: binding.observerCommand }] }],
             },
           }),
         ],
@@ -278,7 +289,7 @@ describe("launch", () => {
     expect(create).not.toHaveBeenCalled();
     await service.launch({ ...request, agent: "codex", acknowledgeCodexNotifierReplacement: true });
     expect(create).toHaveBeenCalledWith(
-      expect.objectContaining({ args: ["-c", `notify=${JSON.stringify(binding.codexCommand)}`] }),
+      expect.objectContaining({ args: ["-c", `notify=${JSON.stringify(binding.observerArgv)}`] }),
     );
     service.dispose();
     expect(cleanup).toHaveBeenCalledTimes(2);
@@ -452,7 +463,7 @@ it("prepends literal defaults to Foom's inline and hook flags", async () => {
     ...defaults,
     "--no-alt-screen",
     "-c",
-    `notify=${JSON.stringify(binding.codexCommand)}`,
+    `notify=${JSON.stringify(binding.observerArgv)}`,
   ]);
 });
 
@@ -753,8 +764,8 @@ it.each([true, false])(
     );
     prepare.mockResolvedValueOnce({
       ...binding,
-      codexHookCommand: "sh '/stable/observer.sh' codex",
-      codexNotify: !trusted,
+      lifecycleCommand: "sh '/stable/observer.sh' codex",
+      notifyFallback: !trusted,
     });
     try {
       await service.launch({
@@ -778,7 +789,7 @@ it.each([true, false])(
 );
 
 it("does not suppress the notifier when lifecycle hooks cannot be attached", async () => {
-  prepare.mockResolvedValueOnce({ ...binding, codexNotify: false });
+  prepare.mockResolvedValueOnce({ ...binding, notifyFallback: false });
   await expect(service.launch({ ...request, agent: "codex" })).rejects.toThrow(
     "replaces your Codex notifier",
   );
@@ -1001,4 +1012,37 @@ it.each([
   } finally {
     versions.claude = previous;
   }
+});
+
+it("discards a discovery result when an approved plugin changes during probing", async () => {
+  const manifest = parseAgentPlugin(JSON.stringify(pluginFixture));
+  const changed = configProvider(manifest, () => Promise.resolve());
+  const original = configProvider(manifest, () => {
+    replaceConfigProviders([changed]);
+    return Promise.resolve();
+  });
+  replaceConfigProviders([original]);
+  await expect(service.scan()).rejects.toThrow("Agent plugins changed. Scan again.");
+  replaceConfigProviders([]);
+  expect((await service.scan()).agents.some((agent) => agent.id === "claude")).toBe(true);
+});
+
+it("marks config-agent results as metadata on both normal launch and immediate exit", async () => {
+  const manifest = parseAgentPlugin(JSON.stringify(pluginFixture));
+  replaceConfigProviders([configProvider(manifest, () => Promise.resolve())]);
+  const launch = { ...request, agent: manifest.id };
+  expect(await service.launch(launch)).toMatchObject({
+    id: "terminal-id",
+    providerOrigin: "config",
+  });
+  expect(create.mock.calls[0]?.[0].args).toEqual(manifest.launch.arguments);
+  service.release("terminal-id");
+  create.mockImplementationOnce(() => {
+    service.release("terminal-id");
+    return "terminal-id";
+  });
+  expect(await service.launch(launch)).toMatchObject({
+    id: "terminal-id",
+    providerOrigin: "config",
+  });
 });

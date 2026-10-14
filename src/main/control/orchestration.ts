@@ -1,3 +1,4 @@
+import { knownAgentId } from "../agents/providers/registry";
 import type { ForgeTracking } from "./forge-tracking";
 import type { OwnedWorktree } from "../workspace/session-restore.d";
 import { ReviewedReplies } from "./replies";
@@ -20,7 +21,6 @@ export const WORKTREE_LIMIT = 4;
 const TAIL_BYTES = 16384;
 const PROMPT_BYTES = 16384;
 const HISTORY = 20;
-const agents: readonly string[] = ["claude", "codex", "agy"];
 export const ORCHESTRATION_METHODS: readonly string[] = [
   "create_worktree",
   "launch",
@@ -525,8 +525,7 @@ export class Orchestration {
     const key = identifier(params["idempotencyKey"]);
     const worktreeId = identifier(params["worktreeId"]);
     const agent = params["agent"];
-    if (typeof agent !== "string" || !agents.includes(agent))
-      throw new ControlError("invalid_request");
+    if (!knownAgentId(agent)) throw new ControlError("invalid_request");
     const prompt =
       params["prompt"] === undefined ? undefined : text(params["prompt"], PROMPT_BYTES);
     const operation = await operations.begin(
@@ -556,7 +555,7 @@ export class Orchestration {
         parent.repository,
         tree.path,
         tree.identity,
-        agent as AgentId,
+        agent,
         prompt,
       );
       tree.state = "used";

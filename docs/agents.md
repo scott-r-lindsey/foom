@@ -458,3 +458,97 @@ The current Claude observers and Antigravity plugin have no verified provider-sp
 mapping. Their lifecycle completion/error signals and generic exit codes cannot
 distinguish capacity or rate limits. Detection for those adapters remains unsupported
 until recorded evidence or a verified structured signal is available.
+
+## Agent providers and config-authored plugins (#407)
+
+Main uses one `AgentProvider` interface for discovery, executable names, resume,
+MCP attachment, hook selection and launch argv. Claude Code, Codex and Antigravity
+are registered built-in providers. Their version floors, argument ordering,
+notifier disclosure, observed hook health and opt-in lifecycle plugin are unchanged.
+Those reviewed capabilities belong to built-ins; a config manifest cannot claim them.
+
+Add a UTF-8 JSON manifest to `~/.foom/config/agents/<id>.json`. This is data,
+never JavaScript loaded into Foom. The file is at most 64 KiB and its lowercase
+ID (1–40 letters, digits or hyphens, beginning with a letter) must match the
+filename. `claude`, `codex`, `agy` and `shell` are reserved. For example:
+
+```json
+{
+  "kind": "agent",
+  "version": 1,
+  "id": "example-agent",
+  "name": "Example Agent",
+  "badge": "EX",
+  "executables": ["example-agent"],
+  "discovery": { "hooksHelp": ["--observer"], "mcpHelp": [] },
+  "launch": {
+    "arguments": [],
+    "prompt": ["--prompt", "{prompt}"],
+    "resume": ["--resume", "{conversationId}"],
+    "hooks": ["--observer", "{hookArgv}"],
+    "mcp": [],
+    "allowedTools": []
+  },
+  "bypassArguments": ["--yolo"],
+  "attention": {
+    "minimumEngineVersion": 1,
+    "rules": [],
+    "hook": {
+      "transport": "argv",
+      "sessionField": "session",
+      "eventField": "event",
+      "events": { "started": "working", "finished": "classify", "approval": "needs_input" }
+    }
+  }
+}
+```
+
+Only an approved plugin appears in discovery and checkout launchers. Settings →
+Foom config holds every addition or edit. Allow opens the separate trusted dialog,
+with Cancel focused, showing executable names, fixed probes, every argv template,
+allowed tools, bypass arguments, hook mapping and detection rules. Foom re-reads
+the exact bytes after approval and persists their digest in the profile. A git
+commit in the config folder grants no consent. Changed or invalid files revoke
+future launches immediately; an already running session retains its launch binding.
+Keep it on restores the approved file or removes an unapproved addition. Invalid
+files report a fixed JSON path/reason in Recent changes. Removing a file removes
+that provider and its approval. Restart trusts only an exact approved digest.
+
+Executable names are basenames, not paths or shell programs combined with arguments.
+Foom resolves them on its controlled login PATH and performs only fixed `--version`
+and `--help` probes after approval. `hooksHelp` and `mcpHelp` list literal help text
+required for the respective attachment; missing/failed probes disable attachment.
+Foom never downloads manifests or executes discovery scripts. Windows shell
+wrappers (`.cmd`, `.bat`, `.ps1`) are refused, as with built-in discovery.
+
+Each launch field is an argv array, with at most 64 nonempty entries of 1–4096
+characters and no controls. Arguments, spaces, quotes and shell punctuation remain
+literal. Optional fields default to empty arrays. Fixed substitutions are allowed
+only in their matching field: `{prompt}` in `prompt`, `{conversationId}` in
+`resume`, `{hookCommand}`/`{hookArgv}` in `hooks`, and
+`{mcpUrl}`/`{mcpName}`/`{allowedTools}` in `mcp`. JSON braces remain literal.
+Values are substituted once, never recursively interpreted. A positional prompt
+must be placed after the CLI's option terminator in its template if that CLI needs
+one. Child prompts keep the orchestrator provenance line. Resume IDs use the
+existing conversation validator. Tokens stay in the launch environment, unavailable
+to templates. The MCP URL is Foom's validated loopback endpoint; allowed tools may
+pre-approve only `open_preview`, `list_previews` and `close_preview`, never authority.
+
+`attention.hook` selects one fixed Foom observer: stdin or the CLI's last JSON argv
+entry. `hookCommand` is the quoted fixed adapter invocation and `hookArgv` is its
+JSON argument array. No script is supplied by a manifest. Extractors read only
+named top-level fields, validate/pin the conversation ID and map at most 16 bounded
+literal event names to `ready`, `working`, `needs_input`, `classify` or `failed`.
+Unknown events do nothing; malformed identities are refused. Prompt/tool/transcript
+fields are discarded. `classify` requests local evaluation, never unconditional
+success. Credentials, receiver limits and revocation are the same as built-ins.
+
+Detection rules use the existing states, regions, priorities, matchers and exclusions:
+`working`, `blocked`, `idle`, `unknown`; `title`, `bottom`, `after_horizontal_rule`;
+`match` and optional `not` contain `contains` or `regex` arrays. Every regex goes
+through `boundedRegex`; groups, repetition, alternation and backreferences are
+forbidden. There are at most 64 rules, eight strings per matcher and 128 characters
+per pattern. Screen tails and the evaluation budget retain their existing limits.
+`foom config validate` understands agent manifests but never approves or launches them.
+The manifest-only fixture in `tests/fixtures/agent-plugin.json` exercises this path;
+all automated agents remain fixture CLIs, never the user's installed agents.

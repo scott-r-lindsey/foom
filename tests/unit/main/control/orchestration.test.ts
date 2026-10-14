@@ -1,3 +1,7 @@
+import pluginFixture from "../../../fixtures/agent-plugin.json";
+import { parseAgentPlugin } from "../../../../src/shared/agent-manifest";
+import { configProvider } from "../../../../src/main/agents/providers/config";
+import { replaceConfigProviders } from "../../../../src/main/agents/providers/registry";
 import { ControlError } from "../../../../src/main/control/validation";
 import type { PullRequest } from "../../../../src/main/control/forge.d";
 import type { DialogContent } from "../../../../src/shared/confirmation";
@@ -1055,4 +1059,29 @@ describe("close exited children", () => {
     expect(await h.mutate("close", { id })).toMatchObject({ status: "failed" });
     expect(h.orchestration.view(id)).toMatchObject({ role: "child" });
   });
+});
+
+it("launches an approved manifest provider through the ordinary child authorization path", async () => {
+  const manifest = parseAgentPlugin(JSON.stringify(pluginFixture));
+  replaceConfigProviders([configProvider(manifest, () => Promise.resolve())]);
+  try {
+    const h = harness();
+    const tree = await h.mutate("create_worktree", { branch: "fixture-plugin" });
+    const launch = await h.mutate("launch", { worktreeId: tree.resultId, agent: manifest.id });
+    expect(launch.status).toBe("succeeded");
+    expect(h.host.launch).toHaveBeenCalledWith(
+      "parent",
+      repo,
+      expect.any(String),
+      expect.any(String),
+      manifest.id,
+      undefined,
+    );
+    replaceConfigProviders([]);
+    await expect(
+      h.mutate("launch", { worktreeId: tree.resultId, agent: manifest.id }),
+    ).rejects.toThrow("invalid_request");
+  } finally {
+    replaceConfigProviders([]);
+  }
 });

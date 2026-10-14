@@ -48,13 +48,13 @@ import type { AgentId } from "../../shared/agents";
 export function launcherActions(
   options: LaunchOptions | undefined,
   shell: string | undefined,
-): { label: string; badge: string; run: AgentId | "shell" }[] {
+): { label: string; badge: string; run: AgentId }[] {
   return [
     ...(options?.agents
-      .filter((agent) => agent.path && options.enabled[agent.id])
+      .filter((agent) => agent.path && options.enabled[agent.id] !== false)
       .map((agent) => ({
-        label: agentNames.get(agent.id) ?? agent.id,
-        badge: agentBadges.get(agent.id) ?? agent.id,
+        label: agent.name ?? agentNames.get(agent.id) ?? agent.id,
+        badge: agent.mark ?? agentBadges.get(agent.id) ?? agent.id,
         run: agent.id,
       })) ?? []),
     { label: shell ? `Shell (${shell})` : "Shell", badge: ">_", run: "shell" },
@@ -551,9 +551,7 @@ export function Sidebar({
                   null,
                 ]
             : [
-                ...(!row.worktreeRemoved &&
-                row.conversationId &&
-                (row.agent === "claude" || row.agent === "codex" || row.agent === "agy")
+                ...(!row.worktreeRemoved && row.conversationId && row.kind === "agent"
                   ? [
                       {
                         label: "Resume conversation",

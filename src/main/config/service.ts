@@ -1,3 +1,8 @@
+import { parseAgentPlugin, AgentManifestError } from "../../shared/agent-manifest";
+import type { AgentPluginManifest } from "../../shared/agent-plugin";
+import type { AgentProvider } from "../agents/providers/registry";
+import { configProvider } from "../agents/providers/config";
+import { pluginDisclosure } from "../agents/providers/disclosure";
 import { randomUUID } from "node:crypto";
 import { constants, watch } from "node:fs";
 import { lstat, mkdir, open, readdir, realpath, rename, rm, writeFile } from "node:fs/promises";
@@ -39,6 +44,12 @@ export interface ConfigServiceDependencies {
     get(file: string): string | null;
     set(file: string, value: string | null): Promise<void>;
   };
+  pluginBaseline?: {
+    get(file: string): string | null;
+    set(file: string, value: string | null): Promise<void>;
+  };
+  applyPlugins?(providers: readonly AgentProvider[]): void;
+  confirmPlugin?(content: DialogContent): Promise<boolean>;
   confirmArguments?(content: DialogContent): Promise<boolean>;
   acknowledgeBypass?(agents: readonly ("claude" | "codex" | "agy")[]): Promise<void>;
   onStatus?(status: ConfigStatus): void;
@@ -141,7 +152,11 @@ function themeKind(path: string): ThemeKind | undefined {
 
 /** Paths Foom validates, applies and commits on its own. */
 export function revertable(path: string): boolean {
-  return path === SETTINGS_FILE || themeKind(path) !== undefined;
+  return (
+    path === SETTINGS_FILE ||
+    themeKind(path) !== undefined ||
+    /^agents\/[a-z][a-z0-9-]{0,39}\.json$/u.test(path)
+  );
 }
 
 /**
@@ -152,6 +167,11 @@ export function revertable(path: string): boolean {
 export class ConfigService {
   private applied: Applied = DEFAULTS;
   private pending: Pending | null = null;
+  private heldPlugins = new Map<
+    string,
+    { text: string; manifest: AgentPluginManifest; previous: string | null }
+  >();
+  private approvedPlugins = new Map<string, { text: string; provider: AgentProvider }>();
   private events: ConfigChange[] = [];
   private appliedThemes = new Map<string, { text: string; parsed: ParsedThemeFile }>();
   private heldThemes = new Map<string, { text: string; previous: string | null }>();
@@ -278,6 +298,7 @@ export class ConfigService {
       THEME_FOLDERS.theme,
       THEME_FOLDERS["terminal-theme"],
       "schemas",
+      "agents",
       ...SOUND_KINDS.map((kind) => `sounds/${kind}`),
     ])
       await mkdir(this.path(folder), { recursive: true });
@@ -451,12 +472,14 @@ export class ConfigService {
 
   private startWatching(): void {
     this.watchFolder("", (file) => {
-      const replaced = Object.values(THEME_FOLDERS).find((folder) => folder === file);
+      const replaced = [...Object.values(THEME_FOLDERS), "agents"].find(
+        (folder) => folder === file,
+      );
       // A theme folder that was removed and recreated needs a new subscription.
       if (replaced) this.watchFolder(replaced);
       return file === null || file === SETTINGS_FILE || replaced !== undefined;
     });
-    for (const folder of Object.values(THEME_FOLDERS)) this.watchFolder(folder);
+    for (const folder of [...Object.values(THEME_FOLDERS), "agents"]) this.watchFolder(folder);
   }
 
   private watchFolder(folder: string, relevant: (file: string | null) => boolean = () => true) {
@@ -509,6 +532,7 @@ export class ConfigService {
     if (this.closed) return;
     const tree = await settle(this.headTree(), new Map<string, TreeEntry>());
     await this.scanSettings(tree);
+    await this.scanPlugins(tree);
     const themes = new Set([
       ...(await this.themePaths()),
       ...[...tree.keys()].filter((path) => themeKind(path) !== undefined),
@@ -516,6 +540,131 @@ export class ConfigService {
     for (const relative of [...themes].sort()) await this.scanTheme(relative, tree);
     await this.countUncommitted();
     this.publish();
+  }
+
+  private async removePluginFile(file: string): Promise<void> {
+    if (!(await this.contained("agents")))
+      throw new Error("A Foom config folder is redirected outside the config folder");
+    await rm(this.path(file), { force: true });
+  }
+
+  private async pluginPaths(): Promise<string[]> {
+    if (!(await this.contained("agents"))) return [];
+    const names = await readdir(this.path("agents")).catch(() => []);
+    return names
+      .filter((name) => /^[a-z][a-z0-9-]{0,39}\.json$/u.test(name))
+      .sort()
+      .slice(0, 50)
+      .map((name) => `agents/${name}`);
+  }
+
+  private async scanPlugins(tree: Map<string, TreeEntry>): Promise<void> {
+    const paths = new Set([
+      ...(await this.pluginPaths()),
+      ...this.approvedPlugins.keys(),
+      ...this.heldPlugins.keys(),
+      ...[...tree.keys()].filter((file) => /^agents\/[a-z][a-z0-9-]{0,39}\.json$/u.test(file)),
+    ]);
+    const active: AgentProvider[] = [];
+    for (const file of paths) {
+      let bytes: Buffer | null;
+      try {
+        bytes = await this.read(file);
+      } catch {
+        this.approvedPlugins.delete(file);
+        this.heldPlugins.delete(file);
+        this.reject(file, "unreadable", "$: unsafe-file");
+        continue;
+      }
+      if (!bytes) {
+        this.approvedPlugins.delete(file);
+        this.heldPlugins.delete(file);
+        this.rejected.delete(file);
+        await this.deps.pluginBaseline?.set(file, null);
+        if (tree.has(file)) await this.commit(new Map([[file, null]]), `Remove ${file}`);
+        continue;
+      }
+      let text: string;
+      let manifest: AgentPluginManifest;
+      try {
+        text = decode(bytes);
+        manifest = parseAgentPlugin(text);
+        if (file !== `agents/${manifest.id}.json`)
+          throw new AgentManifestError("$.id", "filename-mismatch");
+      } catch (error) {
+        this.approvedPlugins.delete(file);
+        this.heldPlugins.delete(file);
+        this.reject(
+          file,
+          digest(bytes),
+          error instanceof AgentManifestError ? error.message : "$: invalid-manifest",
+        );
+        continue;
+      }
+      this.rejected.delete(file);
+      const previous = this.approvedPlugins.get(file);
+      if (this.deps.pluginBaseline?.get(file) !== digest(text)) {
+        let restore = previous?.text ?? this.heldPlugins.get(file)?.previous ?? null;
+        if (!restore) {
+          const committed = await this.committed(file);
+          if (
+            committed &&
+            digest(committed.toString("utf8")) === this.deps.pluginBaseline?.get(file)
+          )
+            restore = decode(committed);
+        }
+        this.heldPlugins.set(file, { text, manifest, previous: restore });
+        this.approvedPlugins.delete(file);
+        continue;
+      }
+      const provider =
+        previous?.text === text
+          ? previous.provider
+          : configProvider(manifest, async () => {
+              const current = await this.read(file);
+              if (
+                !current ||
+                digest(current) !== digest(text) ||
+                this.deps.pluginBaseline?.get(file) !== digest(text)
+              )
+                throw new Error("Agent plugin changed. Review it again.");
+            });
+      this.approvedPlugins.set(file, { text, provider });
+      this.heldPlugins.delete(file);
+      active.push(provider);
+      if (tree.get(file)?.object !== (await this.deps.git.objectId(bytes)))
+        await this.commit(new Map([[file, bytes]]), `Approve ${manifest.name} agent plugin`);
+    }
+    this.deps.applyPlugins?.(active);
+  }
+
+  private async decidePlugin(decision: "allow" | "keep", id: unknown): Promise<ConfigStatus> {
+    const held = this.heldPlugins.entries().next().value;
+    if (!held) throw new Error("No change is waiting for approval");
+    const [file, proposal] = held;
+    if (id !== digest(file + proposal.text))
+      throw new Error("The change was replaced. Review it again.");
+    const check = async () => {
+      const bytes = await this.read(file);
+      if (!bytes || decode(bytes) !== proposal.text) {
+        await this.scan();
+        throw new Error("The file changed. Review the new change.");
+      }
+    };
+    await check();
+    if (decision === "allow") {
+      if (!(await this.deps.confirmPlugin?.(pluginDisclosure(proposal.manifest))))
+        return this.status();
+      await check();
+      if (!this.deps.pluginBaseline) throw new Error("Agent approval storage is unavailable");
+      await this.deps.pluginBaseline.set(file, digest(proposal.text));
+    } else {
+      if (proposal.previous === null) await this.removePluginFile(file);
+      else await this.writeFile(file, proposal.previous);
+    }
+    this.heldPlugins.delete(file);
+    await this.scan();
+    return this.status();
   }
 
   private async scanSettings(tree: Map<string, TreeEntry>): Promise<void> {
@@ -801,6 +950,7 @@ export class ConfigService {
         ...Object.keys(OWNED_FILES),
         SETTINGS_FILE,
         ...(await this.themePaths()),
+        ...(await this.pluginPaths()),
         ...[...tree.keys()].filter((path) => revertable(path) || path in OWNED_FILES),
       ]);
       let count = 0;
@@ -864,6 +1014,7 @@ export class ConfigService {
     }));
     const pending = this.pending;
     const held = this.heldThemes.entries().next().value;
+    const plugin = this.heldPlugins.entries().next().value;
     return {
       folder: this.deps.root,
       available: this.available,
@@ -882,7 +1033,14 @@ export class ConfigService {
               action: "use a theme where needs-you is hard to tell apart",
               detail: "attention-distinctness",
             }
-          : null,
+          : plugin
+            ? {
+                id: digest(plugin[0] + plugin[1].text),
+                file: plugin[0],
+                action: "add or change an agent plugin",
+                detail: "Review its executable, arguments, bypass flags and hook mapping",
+              }
+            : null,
       changes: [...this.events, ...applied].sort((a, b) => b.time - a.time).slice(0, MAX_EVENTS),
       rejected: this.rejected.size,
       ...(this.error ? { error: this.error } : {}),
@@ -942,7 +1100,7 @@ export class ConfigService {
       const pending = this.pending;
       if (!pending) {
         const held = this.heldThemes.entries().next().value;
-        if (!held) throw new Error("No change is waiting for approval");
+        if (!held) return this.decidePlugin(decision, id);
         const [file, proposal] = held;
         if (id !== digest(file + proposal.text))
           throw new Error("The change was replaced. Review it again.");

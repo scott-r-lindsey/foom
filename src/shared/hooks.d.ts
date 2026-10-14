@@ -1,4 +1,4 @@
-export type HookAgent = "claude" | "codex" | "agy";
+export type HookAgent = string;
 
 /** Reduced evidence only: no agent text, paths, prompts, or credentials. */
 export interface HookSignal {
@@ -8,6 +8,7 @@ export interface HookSignal {
   terminationReason?: "model_stop" | "max_steps_exceeded" | "error";
   fullyIdle?: boolean;
   signal:
+    | `plugin:${string}`
     | "agy:PreInvocation"
     | "agy:PostToolUse"
     | "agy:Stop"

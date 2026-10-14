@@ -1,3 +1,5 @@
+import { providerRevision } from "../agents/providers/registry";
+import { builtinAgent } from "../../shared/providers/catalog";
 import { ControlError } from "../control/validation";
 import type { ForgeTracking } from "../control/forge-tracking";
 import { CleanupRun, KeptWorktree } from "./cleanup-run";
@@ -147,7 +149,7 @@ export interface WorkspaceDependencies {
   placeChild?: (id: string, parentId: string) => void;
   now?: () => number;
   /** Validated Environment layers for a launch: All sessions, then the agent's own. */
-  environment?: (target: AgentId | "shell") => readonly (readonly EnvironmentVariable[])[];
+  environment?: (target: AgentId) => readonly (readonly EnvironmentVariable[])[];
   /** The Foom config folder: sessions there run without a repository or worktree. */
   config?: {
     root: string;
@@ -263,7 +265,7 @@ export class Workspace {
         this.receiver = undefined;
         throw error;
       });
-      const healthLaunch = agent === "codex" ? this.codexHooks.begin() : undefined;
+      const healthLaunch = builtinAgent(agent)?.hookHealth ? this.codexHooks.begin() : undefined;
       const binding = await prepareHookLaunch(await this.receiver, agent, (key, terminalId) => {
         if (terminalId) {
           this.hookKeys.set(key, terminalId);
@@ -271,11 +273,11 @@ export class Workspace {
           if (healthLaunch !== undefined) this.track(terminalId).codexHealthLaunch = healthLaunch;
         } else this.hookKeys.delete(key);
       });
-      return agent === "codex"
+      return builtinAgent(agent)?.hookHealth
         ? {
             ...binding,
-            codexHookCommand: codexObserverCommand(),
-            codexNotify: this.codexHooks.get() !== "trusted",
+            lifecycleCommand: codexObserverCommand(),
+            notifyFallback: this.codexHooks.get() !== "trusted",
           }
         : binding;
     };
@@ -773,8 +775,10 @@ export class Workspace {
     return { ...created, outcome };
   }
 
+  private scannedProviders = -1;
   async scanAgents(refresh: boolean): Promise<AgentReport> {
-    if (refresh) this.scanned = undefined;
+    if (refresh || this.scannedProviders !== providerRevision()) this.scanned = undefined;
+    this.scannedProviders = providerRevision();
     this.scanned ??= this.agents.scan();
     try {
       const { warning, agents } = await this.scanned;
@@ -794,7 +798,7 @@ export class Workspace {
     confirm: () => Promise<boolean> = () => Promise.resolve(false),
   ): Promise<AgentReport> {
     const report = await this.scanAgents(true);
-    const executable = report.agents.find((agent) => agent.id === "agy")?.path;
+    const executable = report.agents.find((agent) => builtinAgent(agent.id)?.pluginSetup)?.path;
     if (!executable) throw new Error("Antigravity is not installed");
     if (action === "install" || action === "update") {
       const accepted = await confirm();
@@ -853,7 +857,8 @@ export class Workspace {
     extra: Pick<AgentLaunch, "control" | "prompt" | "conversationId"> = {},
   ): Promise<{ id: string; attention: "hooks" | "evaluator" }> {
     return this.withRepository(request.repository, async () => {
-      if (!this.enabled[request.agent]) throw new Error("This agent is turned off in preflight");
+      if (this.enabled[request.agent] === false)
+        throw new Error("This agent is turned off in preflight");
       // Scan once so launches don't each probe the login shell.
       await this.scanAgents(false);
       // Look up the branch before spawning, so nothing can fail between spawn and tracking.
@@ -862,7 +867,7 @@ export class Workspace {
       );
       // Orchestrator children never inherit the user's (possibly bypass) defaults.
       const child = extra.control !== undefined && "parentId" in extra.control;
-      const defaultArguments = child ? [] : this.defaultArguments[request.agent];
+      const defaultArguments = child ? [] : (this.defaultArguments[request.agent] ?? []);
       const result = await this.agents.launch({
         ...request,
         ...extra,
@@ -888,6 +893,7 @@ export class Workspace {
       this.launched.set(result.id, {
         ...(launchVersion === undefined ? {} : { launchVersion }),
         id: result.id,
+        ...(result.providerOrigin ? { providerOrigin: result.providerOrigin } : {}),
         startedAt: this.now(),
         launchFlags: [...defaultArguments],
         ...(result.environment?.length ? { environment: [...result.environment] } : {}),
@@ -933,7 +939,7 @@ export class Workspace {
         if (request.run !== "shell") {
           if (!(await this.confirmAgentLaunch(tree.path, confirm))) return null;
           if (
-            request.run === "codex" &&
+            builtinAgent(request.run)?.hookHealth &&
             request.acknowledgeCodexNotifierReplacement &&
             !this.acknowledged
           ) {
@@ -1114,13 +1120,7 @@ export class Workspace {
     const sessions = [...this.launched.values()].filter((item) => item.worktree === worktree);
     if (sessions.some((item) => this.terminals.get(item.id)?.exitCode === undefined))
       return "running";
-    if (
-      sessions.some(
-        (item) =>
-          (item.agent === "claude" || item.agent === "codex" || item.agent === "agy") &&
-          conversationId(item.conversationId),
-      )
-    )
+    if (sessions.some((item) => item.kind === "agent" && conversationId(item.conversationId)))
       return "resumable conversation";
     return undefined;
   }
@@ -1378,7 +1378,7 @@ export class Workspace {
    * renderer focuses the running session. No worktree is created.
    */
   private async startConfig(
-    run: AgentId | "shell",
+    run: AgentId,
     confirm: ConfirmWorkspace,
     replacement?: { id: string; conversationId?: string },
   ): Promise<void> {
@@ -1423,14 +1423,15 @@ export class Workspace {
         this.refresh();
         return;
       }
-      if (!this.enabled[run]) throw new Error("This agent is turned off in preflight");
+      if (this.enabled[run] === false) throw new Error("This agent is turned off in preflight");
       const scan = await this.scanAgents(false);
       if (
-        run === "codex" &&
+        builtinAgent(run)?.hookHealth &&
         this.hooksEnabled &&
         !this.acknowledged &&
         scan.agents.some(
-          (agent) => agent.id === "codex" && agent.hooks && agent.codexHookState !== "trusted",
+          (agent) =>
+            builtinAgent(agent.id)?.hookHealth && agent.hooks && agent.codexHookState !== "trusted",
         )
       ) {
         if (!(await confirm({ kind: "notifier" }))) return;
@@ -1447,7 +1448,7 @@ export class Workspace {
         this.terminals.delete(old.id);
         this.deps.verdicts.forget(old.id);
       }
-      const defaultArguments = this.defaultArguments[run];
+      const defaultArguments = this.defaultArguments[run] ?? [];
       let result: AgentLaunched;
       try {
         result = await this.agents.launch({
@@ -1480,6 +1481,7 @@ export class Workspace {
       this.launched.set(result.id, {
         ...(launchVersion === undefined ? {} : { launchVersion }),
         id: result.id,
+        ...(result.providerOrigin ? { providerOrigin: result.providerOrigin } : {}),
         startedAt: this.now(),
         launchFlags: [...defaultArguments],
         ...(result.environment?.length ? { environment: [...result.environment] } : {}),
@@ -1685,7 +1687,10 @@ export class Workspace {
       this.known(checkout.repository);
       await this.deps.worktrees.launchIdentity(checkout.repository, checkout.worktree);
       const scan = await this.scanAgents(false);
-      if (!this.enabled[agent] || !scan.agents.some((entry) => entry.id === agent && entry.path))
+      if (
+        this.enabled[agent] === false ||
+        !scan.agents.some((entry) => entry.id === agent && entry.path)
+      )
         throw new Error("Agent is unavailable");
       const running = [...this.launched.values()].find(
         (entry) =>
@@ -1721,7 +1726,7 @@ export class Workspace {
   private async startExisting(
     repository: string,
     worktree: string,
-    run: AgentId | "shell",
+    run: AgentId,
     confirm: ConfirmWorkspace,
     replacement?: { id: string; conversationId?: string },
     control?: AgentLaunch["control"],
@@ -1745,11 +1750,14 @@ export class Workspace {
         if (run !== "shell") {
           const scan = await this.scanAgents(false);
           if (
-            run === "codex" &&
+            builtinAgent(run)?.hookHealth &&
             this.hooksEnabled &&
             !this.acknowledged &&
             scan.agents.some(
-              (agent) => agent.id === "codex" && agent.hooks && agent.codexHookState !== "trusted",
+              (agent) =>
+                builtinAgent(agent.id)?.hookHealth &&
+                agent.hooks &&
+                agent.codexHookState !== "trusted",
             )
           ) {
             if (!(await confirm({ kind: "notifier" }))) return;
@@ -2044,7 +2052,7 @@ export class Workspace {
       phase === "idle" &&
       event.from === "working" &&
       source !== "hook" &&
-      this.launched.get(id)?.agent === "codex" &&
+      builtinAgent(this.launched.get(id)?.agent)?.hookHealth &&
       terminal.codexPromptTurn !== event.turn &&
       this.codexHooks.get() === "trusted"
     )
@@ -2056,9 +2064,11 @@ export class Workspace {
     const entry = this.launched.get(id);
     return (
       entry?.attention === "hooks" &&
-      (entry.agent === "agy" ||
-        entry.agent === "claude" ||
-        (entry.agent === "codex" && this.track(id).codexPromptTurn !== undefined))
+      Boolean(
+        !builtinAgent(entry.agent) ||
+          builtinAgent(entry.agent)?.completionHook ||
+          (builtinAgent(entry.agent)?.hookHealth && this.track(id).codexPromptTurn !== undefined),
+      )
     );
   }
 
@@ -2149,7 +2159,7 @@ export class Workspace {
       // A failed host has no screen. Exit codes and hooks still decide.
     }
     if (
-      this.launched.get(id)?.agent === "codex" &&
+      builtinAgent(this.launched.get(id)?.agent)?.hookHealth &&
       terminal.exitCode === undefined &&
       terminal.codexHealthLaunch !== undefined &&
       tail.slice(-20).some((line) => line.includes("Hooks need review"))
@@ -2385,6 +2395,10 @@ export class Workspace {
     }
     if (this.track(id).exitCode !== undefined) return Promise.resolve();
     const health = this.track(id);
+    if (signal.action === "ready" && signal.signal.startsWith("plugin:")) {
+      this.transition(id, "idle", "hook");
+      return Promise.resolve();
+    }
     if (signal.signal === "codex:SessionStart") {
       health.codexStarted = true;
       return Promise.resolve();
@@ -2432,7 +2446,8 @@ export class Workspace {
       const turn = terminal.execution?.snapshot().turn;
       if (
         turn &&
-        (signal.signal === "agy:Stop" ||
+        (signal.signal.startsWith("plugin:") ||
+          signal.signal === "agy:Stop" ||
           signal.signal === "claude:Stop" ||
           signal.signal === "codex:Stop" ||
           signal.signal === "codex:agent-turn-complete")

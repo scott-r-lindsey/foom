@@ -304,3 +304,25 @@ test("offline validation accepts literal defaults and reports fixed per-line res
   );
   expect(out).toHaveBeenLastCalledWith(expect.stringContaining("Codex, line 3:"));
 });
+
+test("validates agent manifests offline without approval and reports malformed or mismatched plugin files", async () => {
+  const { default: manifest } = await import("../../fixtures/agent-plugin.json");
+  const folder = await mkdtemp(join(tmpdir(), "foom-plugin-validation-"));
+  roots.push(folder);
+  const agents = join(folder, "agents");
+  await mkdir(agents);
+  const file = join(agents, `${manifest.id}.json`);
+  await writeFile(file, JSON.stringify(manifest));
+  expect(await validateConfig(folder)).toEqual({ problems: [], code: 0 });
+  expect(await validateConfig(agents)).toEqual({ problems: [], code: 0 });
+  await writeFile(file, JSON.stringify({ ...manifest, capabilities: ["codex-hooks"] }));
+  expect(await validateConfig(agents)).toMatchObject({
+    code: 1,
+    problems: [{ path: "$", reason: "invalid-value", detail: "unknown-key" }],
+  });
+  await writeFile(file, JSON.stringify({ ...manifest, id: "mismatch" }));
+  expect(await validateConfig(agents)).toMatchObject({
+    code: 1,
+    problems: [{ reason: "invalid-value" }],
+  });
+});

@@ -41,7 +41,9 @@ export interface WorkspaceTerminal {
   attentionKind?: AttentionKind;
   id: string;
   kind: "agent" | "shell";
-  agent: AgentId | "shell";
+  agent: AgentId;
+  /** Metadata only: preserves unavailable config-agent rows, never launch approval. */
+  providerOrigin?: "config";
   repository: string;
   worktree: string;
   branch: string | null;
@@ -123,7 +125,7 @@ export interface LaunchRequest {
 export interface StartWorktreeRequest {
   repository: string;
   branch: string;
-  run: AgentId | "shell";
+  run: AgentId;
   acknowledgeCodexNotifierReplacement: boolean;
 }
 
@@ -179,10 +181,10 @@ export interface SidebarInventory {
 export type SidebarCommand =
   | { kind: "home-shell" }
   | { kind: "copy-home-path" }
-  | { kind: "config-launch"; run: AgentId | "shell"; origin?: "menu" }
+  | { kind: "config-launch"; run: AgentId; origin?: "menu" }
   | { kind: "copy-config-path" }
   | { kind: "copy-worktree-path"; repository: string; worktree: string }
-  | { kind: "launch"; repository: string; worktree: string; run: AgentId | "shell" }
+  | { kind: "launch"; repository: string; worktree: string; run: AgentId }
   | { kind: "remove-worktree"; repository: string; worktree: string }
   | { kind: "delete-merged-worktrees"; repository: string }
   | { kind: "remove-repository"; repository: string }

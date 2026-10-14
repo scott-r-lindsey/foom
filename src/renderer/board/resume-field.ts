@@ -1,3 +1,4 @@
+import { builtinAgent } from "../../shared/providers/catalog";
 import type { AgentId } from "../../shared/agents";
 import { conversationId } from "../../shared/conversation";
 
@@ -9,9 +10,14 @@ export function parseResume(text: string): { id: string; agent?: AgentId } | und
   const parts = trimmed.split(/[ \t]+/u);
   const [command, option, id] = parts;
   if (parts.length !== 3 || !conversationId(id)) return;
-  if (command === "claude" && (option === "--resume" || option === "-r"))
-    return { agent: "claude", id };
-  if (command === "codex" && option === "resume") return { agent: "codex", id };
-  if (command === "agy" && option === "--conversation") return { agent: "agy", id };
+  const agent = ["claude", "codex", "agy"]
+    .map(builtinAgent)
+    .find(
+      (entry) =>
+        entry !== undefined &&
+        entry.command === command &&
+        entry.resume.some((selector) => selector === option),
+    );
+  if (agent) return { agent: agent.id, id };
   return;
 }

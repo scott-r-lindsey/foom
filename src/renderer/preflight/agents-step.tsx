@@ -1,10 +1,11 @@
+import { builtinAgent } from "../../shared/providers/catalog";
 import { AgyPluginControl } from "./agy-plugin-control";
 import type { AgyPluginAction } from "../../shared/agy-plugin";
 import type { SetupState } from "../../shared/setup";
 import type { AgentReport } from "../../shared/workspace";
 import type { StepHeading, StepActions } from "./preflight-step.d";
 import { Tooltip } from "../ui/tooltip";
-import { AGENTS, found, signal, signalNote, SIGNALS, versionNumber } from "./preflight";
+import { agentChoices, found, signal, signalNote, SIGNALS, versionNumber } from "./preflight";
 
 const SIGNAL_LABEL = { hooks: "Hooks", notify: "Notify", rules: "Rules" } as const;
 
@@ -64,7 +65,7 @@ export function AgentsStep({
       </p>
       {report?.warning && <p className="preflight-warning">{report.warning}</p>}
       <ul className="preflight-list agent-grid">
-        {AGENTS.map(({ id, name, command }) => {
+        {agentChoices(report).map(({ id, name, command }) => {
           const agent = found(report, id);
           const how = agent && signal(agent, state.settings.hooks);
           const note = agent && signalNote(agent, state.settings.hooks);
@@ -73,8 +74,8 @@ export function AgentsStep({
               <input
                 type="checkbox"
                 id={`agent-${id}`}
-                checked={Boolean(agent) && state.settings.agents[id]}
-                disabled={!agent}
+                checked={Boolean(agent) && state.settings.agents[id] !== false}
+                disabled={!agent || !builtinAgent(id)}
                 onChange={(event) => {
                   save({ agents: { ...state.settings.agents, [id]: event.target.checked } });
                 }}
@@ -115,12 +116,16 @@ export function AgentsStep({
                   </Tooltip>
                   <Tooltip
                     className="chip chip-signal"
-                    label={id === "agy" && how === "rules" ? "Screen rules" : SIGNAL_LABEL[how]}
+                    label={
+                      builtinAgent(id)?.pluginSetup && how === "rules"
+                        ? "Screen rules"
+                        : SIGNAL_LABEL[how]
+                    }
                   >
                     {SIGNALS[how]}
                     {note && <span>{note}</span>}
                   </Tooltip>
-                  {id === "agy" && agent.agyPlugin && (
+                  {builtinAgent(id)?.pluginSetup && agent.agyPlugin && (
                     <AgyPluginControl
                       status={agent.agyPlugin}
                       busy={scanning}
