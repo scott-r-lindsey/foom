@@ -1,0 +1,287 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Foom Agents Settings</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo+Black&family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&display=swap">
+<style>
+/* Settings → Agents (#408), using the declarative plugin model proposed in #407.
+   Illustrative versions and capabilities, not a compatibility matrix. Self-contained
+   reference only. Settings shell and environment rows follow environment.html. */
+:root {
+  --bg: #f3f0fa; --surface: #e9e4f5; --line: #ddd6ee; --ink: #14101f; --muted: #625a7a;
+  --accent: #5b2bd9; --accent-deep: #3b1a99; --attention: #d98200; --attention-ink: #8c5000;
+  --done: #13804a; --done-ink: #0e6b3c; --failed: #d6166e; --failed-ink: #b0105a;
+  --idle: #b9b0d3; --badge: #4a4263; --badge-ink: #f4efff; --badge-fill: #d6cfe9; --hole: #06050b;
+  --display: "Archivo Black", sans-serif;
+  --sans: "Geist", system-ui, sans-serif; --mono: "Geist Mono", ui-monospace, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #05040a; --surface: #0d0a17; --line: #251d3f; --ink: #f4efff; --muted: #9d93bd;
+    --accent: #9b6bff; --accent-deep: #7a3cff; --attention: #ffb23e; --attention-ink: #ffb23e;
+    --done: #6fe0a3; --done-ink: #6fe0a3; --failed: #ff2e88; --failed-ink: #ff2e88;
+    --idle: #4a4263; --badge: #3a3060; --badge-ink: #f4efff; --badge-fill: #1c1632; --hole: #06050b;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #05040a; --surface: #0d0a17; --line: #251d3f; --ink: #f4efff; --muted: #9d93bd;
+  --accent: #9b6bff; --accent-deep: #7a3cff; --attention: #ffb23e; --attention-ink: #ffb23e;
+  --done: #6fe0a3; --done-ink: #6fe0a3; --failed: #ff2e88; --failed-ink: #ff2e88;
+  --idle: #4a4263; --badge: #3a3060; --badge-ink: #f4efff; --badge-fill: #1c1632; --hole: #06050b;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; }
+body { background: var(--bg); color: var(--ink); font: 13px/1.45 var(--sans); }
+button, input { font: inherit; color: inherit; }
+button { padding: 5px 10px; background: var(--bg); border: 1px solid var(--line); border-radius: 5px; cursor: pointer; }
+button:disabled { opacity: .4; cursor: default; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.frame { height: 100%; overflow-x: auto; }
+.app { position: relative; display: flex; height: 100%; min-width: 1000px; overflow: hidden; }
+
+/* Board sidebar slice */
+.side { width: 270px; flex-shrink: 0; display: flex; flex-direction: column; background: var(--surface); border-right: 1px solid var(--line); }
+.head { padding: 16px 12px 10px; font: 22px/1 var(--display); }
+.hole { display: inline-block; width: .52em; height: .52em; margin: 0 .035em; border-radius: 50%; background: var(--hole); box-shadow: 0 0 0 2px var(--accent), 0 0 10px var(--accent); }
+.group { padding: 10px 14px 4px; font: 600 12px var(--sans); color: var(--muted); }
+.srow { display: flex; gap: 8px; padding: 6px 14px; }
+.srow .lines { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.srow .top { font: 12px var(--mono); }
+.srow .reason { font-size: 12px; color: var(--muted); }
+.light { flex-shrink: 0; width: 8px; height: 8px; margin-top: 4px; border-radius: 50%; background: var(--idle); }
+.light.working { background: var(--accent); box-shadow: 0 0 8px var(--accent); }
+.light.done { background: var(--done); }
+.badge { flex-shrink: 0; min-width: 24px; height: 20px; padding: 0 4px; display: inline-flex; align-items: center; justify-content: center; border-radius: 3px; background: var(--badge); color: var(--badge-ink); font: 600 11px var(--mono); }
+
+/* Settings shell, as settings.css */
+.settings-sections { flex: 0 0 170px; display: flex; flex-direction: column; gap: 6px; padding: 20px 12px; border-right: 1px solid var(--line); }
+.settings-sections h2 { margin: 0 8px 12px; font: 12px var(--mono); color: var(--muted); font-weight: 400; }
+.settings-sections button { text-align: left; border-color: transparent; background: transparent; }
+.settings-sections button[aria-current] { background: var(--badge-fill); }
+.settings-sections .close { margin-top: auto; color: var(--muted); }
+.stage { flex: 1; min-width: 0; overflow: auto; padding: 28px; }
+.inner { max-width: 820px; margin: 0 auto; }
+.page-head { display: flex; align-items: center; gap: 14px; margin: 0 0 22px; }
+.page-head h2 { margin: 0; font: 600 24px var(--sans); font-weight: 400; }
+.page-head .status { font: 12px var(--mono); color: var(--done-ink); }
+.page-head .grow { flex: 1; }
+
+[hidden] { display: none !important; }
+/* One quiet surface per agent. Only the editable fields gain borders on hover. */
+.inner { max-width: 860px; padding-bottom: 64px; }
+.page-head { flex-wrap: wrap; }
+.page-head h1 { margin: 0; font-size: 24px; font-weight: 600; }
+.page-head label { font-size: 12px; color: var(--muted); }
+input[type=checkbox] { accent-color: var(--accent); }
+.agent { margin-bottom: 16px; padding: 18px 20px; border-radius: 8px; background: var(--surface); }
+.agent-head { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; }
+h2 { font-size: 15px; font-weight: 600; margin: 0; }
+.version { font: 11px var(--mono); color: var(--muted); }
+.toggle { display: flex; align-items: center; gap: 6px; margin-left: auto; font-size: 12px; }
+.toggle input { appearance: none; width: 28px; height: 16px; margin: 0; border-radius: 12px; background: var(--line); position: relative; cursor: pointer; }
+.toggle input::after { content: ''; position: absolute; width: 10px; height: 10px; left: 3px; top: 3px; border-radius: 50%; background: var(--muted); }
+.toggle input:checked { background: var(--accent); }
+.toggle input:checked::after { left: 15px; background: var(--bg); }
+.toggle input:disabled { cursor: default; opacity: .5; }
+.path { flex-basis: 100%; font: 11px var(--mono); color: var(--muted); overflow-wrap: anywhere; margin: 0 0 6px 36px; }
+.setting { display: grid; grid-template-columns: 124px minmax(0,1fr); gap: 10px; margin-top: 12px; align-items: start; }
+.setting > .label { padding-top: 3px; color: var(--muted); font-size: 12px; }
+.inline { display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: center; min-height: 24px; }
+.inline button { font-size: 12px; padding: 2px 8px; background: transparent; }
+.segment { display: inline-flex; gap: 2px; }
+.segment button { border-color: transparent; color: var(--muted); }
+.segment button[aria-pressed=true] { background: var(--badge-fill); color: var(--ink); }
+.facts { display: flex; flex-wrap: wrap; gap: 6px 22px; margin: 0; font-size: 12px; }
+.facts div { display: flex; gap: 6px; }
+dt { color: var(--muted); } dd { margin: 0; }
+code { font: 11px var(--mono); overflow-wrap: anywhere; }
+textarea { resize: vertical; width: 100%; min-height: 34px; padding: 5px 8px; border: 1px solid transparent; border-radius: 4px; background: transparent; color: var(--ink); font: 12px/1.6 var(--mono); }
+textarea:hover { border-color: var(--line); }
+textarea:focus { background: var(--bg); border-color: var(--accent); }
+textarea::placeholder { color: var(--muted); }
+.notice { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; margin-top: 5px; font-size: 12px; }
+.needs { color: var(--attention-ink); }
+.needs::before { content: ''; display: inline-block; width: 7px; height: 7px; margin-right: 8px; border-radius: 50%; background: var(--attention); box-shadow: 0 0 0 3px color-mix(in srgb,var(--attention) 22%,transparent); }
+.failure { color: var(--failed-ink); }
+.failure::before { content: '■'; margin-right: 6px; }
+.rows { border-top: 1px solid var(--line); }
+.env-row { display: grid; grid-template-columns: minmax(130px, .8fr) minmax(0,1fr) 28px 28px; gap: 4px; align-items: center; border-bottom: 1px solid var(--line); padding: 2px 0; }
+.env-row input { width: 100%; min-width: 0; height: 28px; padding: 0 6px; font: 11px var(--mono); background: transparent; border: 1px solid transparent; border-radius: 4px; }
+.env-row input:hover { border-color: var(--line); }
+.env-row input:focus { background: var(--bg); border-color: var(--accent); }
+.env-row input::placeholder { color: var(--muted); opacity: .7; }
+.name-cell,.value-cell { display: flex; min-width: 0; align-items: center; }
+.tag,.suffix { flex-shrink: 0; font: 10px var(--mono); color: var(--muted); }
+.masked { font: 12px var(--mono); color: var(--muted); display: flex; align-items: center; gap: 8px; padding-left: 6px; }
+.masked button { font: 11px var(--sans); padding: 2px 6px; }
+.icon { padding: 0; width: 28px; height: 28px; border-color: transparent; background: transparent; color: var(--muted); }
+.icon[aria-pressed=true] { color: var(--accent); }
+.icon svg { width: 13px; height: 13px; fill: none; stroke: currentColor; stroke-width: 1.5; }
+.error { grid-column: 1 / -1; padding: 0 6px 4px; font-size: 11px; }
+.missing { padding-block: 12px; }
+.missing .agent-head { flex-wrap: nowrap; }
+.missing .version { margin-left: auto; }
+.side { width: 250px; }
+.side .tree { flex: 1; }
+.side .branch { margin: 4px 14px 0 28px; font: 11px var(--mono); color: var(--muted); }
+.side .srow { padding-left: 36px; }
+.side footer { border-top: 1px solid var(--line); padding: 10px 14px; display: flex; justify-content: space-between; color: var(--muted); }
+.mock { position: fixed; right: 14px; bottom: 12px; z-index: 5; display: flex; gap: 14px; padding: 6px 10px; background: var(--surface); border: 1px dashed var(--line); border-radius: 6px; font: 11px var(--mono); color: var(--muted); }
+.mock select { color: var(--ink); background: var(--bg); border: 1px solid var(--line); font: inherit; }
+.app.scaled { zoom: 1.5; height: calc(100vh / 1.5); }
+.app.scaled .side { width: 200px; }
+.app.scaled .settings-sections { flex-basis: 150px; }
+.app.scaled .stage { padding: 22px; }
+dialog { width: 540px; max-width: calc(100vw - 32px); max-height: calc(100vh - 32px); padding: 24px; border: 1px solid var(--line); border-radius: 12px; color: var(--ink); background: var(--surface); box-shadow: 0 24px 60px -20px #06050b66; }
+dialog::backdrop { background: #06050b66; }
+dialog h2 { font-size: 18px; margin-bottom: 8px; }
+dialog p { font-size: 13px; }
+dialog dl { display: grid; grid-template-columns: 100px minmax(0,1fr); gap: 12px; font-size: 12px; }
+dialog pre { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font: 11px/1.6 var(--mono); }
+dialog footer { display: flex; justify-content: flex-end; gap: 8px; margin-top: 24px; }
+</style>
+</head>
+<body>
+<div class="frame"><div class="app" id="app">
+<aside class="side" aria-label="Workspace">
+  <div class="head">fo<span class="hole"></span>m</div>
+  <div class="tree">
+    <div class="group">⌄ foom</div><div class="branch">⌄ 408-agents-mockup</div>
+    <div class="srow"><span class="light working" aria-label="Working"></span><span class="badge">CX</span><div class="lines"><div class="top">Agents mockup</div><div class="reason">Working</div></div></div>
+    <div class="branch">⌄ 407-agent-plugins</div>
+    <div class="srow"><span class="light done" aria-label="Done"></span><span class="badge">CC</span><div class="lines"><div class="top">Agent providers</div><div class="reason">Turn ended</div></div></div>
+  </div>
+  <div class="group needs">Foom config · Needs you</div>
+  <div class="srow"><span class="badge">CC</span><div class="lines"><div class="top">Add Amp</div><div class="reason">Approval pending</div></div></div>
+  <footer><span>◈ &nbsp; <span id="size-label">100%</span></span><span aria-label="Foom config, needs you">⚙</span></footer>
+</aside>
+<nav class="settings-sections" aria-label="Settings sections">
+  <h2>Settings</h2><button aria-current="page">Agents</button><button>Environment</button><button>Repositories</button><button>Worktrees</button><button>Appearance</button><button>Terminal</button><button>Themes</button><button>Sound</button><button class="close">Back to terminal · Esc</button>
+</nav>
+<main class="stage"><div class="inner">
+  <header class="page-head"><h1>Agents</h1><span class="grow"></span><label><input id="hooks" type="checkbox" checked> Attach hooks</label><button id="scan">Scan again</button></header>
+  <div id="agents"></div>
+</div></main>
+</div></div>
+<div class="mock" aria-label="Mockup controls">
+<label>Mockup <select id="theme"><option value="light">Light</option><option value="dark">Dark</option></select></label>
+<label>Scale <select id="scale"><option value="100">100%</option><option value="150">150%</option></select></label>
+<label>Codex <select id="trust"><option value="pending">Not reviewed</option><option value="trusted">Trusted</option><option value="outdated">Outdated</option><option value="declined">Declined</option></select></label>
+<label>Antigravity <select id="plugin"><option>Not installed</option><option>Installed</option><option>Outdated</option><option>Disabled</option><option>Status unavailable</option></select></label>
+</div>
+<dialog id="review" aria-labelledby="review-title"><h2 id="review-title"></h2><div id="review-body"></div><footer><button id="cancel" autofocus>Cancel</button><button id="reject" hidden>Reject plugin</button><button id="accept">Allow</button></footer></dialog>
+<script>
+/* All interactions are local examples. No CLI, config file, or network probes. */
+const $ = (s, r = document) => r.querySelector(s);
+const esc = (s) => String(s).replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('"','&quot;');
+const LOCK = '<svg viewBox="0 0 14 14" aria-hidden="true"><rect x="3" y="6.5" width="8" height="5.5" rx="1"/><path d="M4.75 6.5V4.75a2.25 2.25 0 0 1 4.5 0V6.5"/></svg>';
+const agents = [
+ {id:'claude',name:'Claude Code',badge:'CC',exe:'claude',version:'2.1.12',hooks:true,mcp:true,resume:true,inline:true,args:'--model\nsonnet',env:[{name:'HTTPS_PROXY',value:'',secret:true,saved:true},{name:'AWS_REGION',value:'us-west-2'}]},
+ {id:'codex',name:'Codex',badge:'CX',exe:'codex',version:'0.104.0',hooks:true,mcp:true,resume:true,inline:true,args:'--sandbox\nworkspace-write',env:[{name:'CODEX_HOME',value:'/Users/sam/.codex-work'}]},
+ {id:'agy',name:'Antigravity',badge:'AG',exe:'agy',version:'1.18.0',hooks:true,mcp:true,resume:true,inline:false,args:'',env:[]},
+ {id:'copilot',name:'GitHub Copilot',badge:'CP',exe:'copilot',version:'0.0.402',hooks:false,mcp:true,resume:true,inline:true,args:'--allow-all',env:[{name:'GH_TOKEN',value:'',secret:true,saved:true}]},
+ {id:'cursor',name:'Cursor',badge:'CU',exe:'cursor-agent',version:'2026.01.09',hooks:false,mcp:false,resume:true,inline:true,args:'',env:[]},
+ {id:'opencode',name:'OpenCode',badge:'OC',exe:'opencode',version:'1.1.8',hooks:false,mcp:true,resume:true,inline:true,source:'approved',args:'',env:[{name:'PATH',value:'/Users/sam/bin'}]},
+ {id:'gemini',name:'Gemini',badge:'GM',exe:'gemini',version:'0.25.0',hooks:false,mcp:true,resume:true,inline:true,source:'rejected',reason:'Hook mapping uses an unknown extractor: eval',args:'',env:[]},
+ {id:'amp',name:'Amp',badge:'AM',exe:'amp',version:'0.0.176',hooks:false,mcp:false,resume:true,inline:true,source:'pending',args:'',env:[]},
+ {id:'aider',name:'Aider',badge:'AI',exe:'aider',missing:true},
+ {id:'goose',name:'Goose',badge:'GS',exe:'goose',missing:true},
+];
+for (const a of agents) { a.on = !a.missing && !['pending','rejected'].includes(a.source); a.signal='hooks'; }
+let trust='pending', plugin='Not installed';
+const bypass = (text) => /--(dangerously-skip-permissions|yolo|dangerously-bypass-approvals-and-sandbox|allow-all|dangerously-allow-all)|danger-full-access/.test(text);
+function attention(a) {
+ const hooks = $('#hooks').checked && a.hooks && a.signal==='hooks';
+ let status = '';
+ if (a.id==='codex') status = trust==='trusted' ? '<span>Trusted · observed working</span>' : trust==='declined' ? '<span>Declined · Notify fallback</span>' : `<span class="needs">${trust==='outdated'?'Outdated · review needed':'Trust review pending'}</span>`;
+ if (a.id==='codex') status += ' <code>/hooks in Codex</code>';
+ if (a.id==='agy') {
+   const action = {'Not installed':'Install plugin',Outdated:'Update plugin',Disabled:'Enable plugin'}[plugin];
+   status = `<span>Lifecycle plugin · ${esc(plugin)}</span>${action?`<button data-action="agy">${action}</button>`:''}${['Installed','Outdated','Disabled'].includes(plugin)?'<button data-action="remove-plugin">Remove plugin</button>':''}`;
+ }
+ const active = hooks && (a.id!=='agy' || plugin==='Installed') && (a.id!=='codex' || trust==='trusted');
+ return `${a.hooks?`<span class="segment"><button data-signal="hooks" aria-pressed="${a.signal==='hooks'}">Hooks</button><button data-signal="rules" aria-pressed="${a.signal==='rules'}">Screen rules</button></span>`:'<span>Screen rules</span>'}${hooks&&!active?`<span>${a.id==='codex'?'Notify + screen rules':'Screen rules'} active</span>`:''}${!$('#hooks').checked&&a.hooks?'<span>Screen rules active · hooks off</span>':''}${status}`;
+}
+function envRow(a,r,i) {
+ const suffix = r.name==='PATH'?'<span class="suffix">:$PATH</span>':r.name==='NO_PROXY'?'<span class="suffix">,localhost,127.0.0.1,::1</span>':'';
+ return `<div class="env-row" data-i="${i}"><div class="name-cell"><input data-field="name" aria-label="${a.name} variable name" placeholder="NAME" value="${esc(r.name)}" spellcheck="false">${r.name==='HTTPS_PROXY'?'<span class="tag">overrides all</span>':''}</div>${r.secret&&r.saved?'<div class="masked">••••••••<button data-action="replace">Replace</button></div>':`<div class="value-cell"><input data-field="value" aria-label="${esc(r.name||'New variable')} value" placeholder="value" type="${r.secret?'password':'text'}" value="${esc(r.value)}" spellcheck="false" autocomplete="off">${suffix}</div>`}<button class="icon" data-action="secret" aria-label="Secret" title="Secret" aria-pressed="${!!r.secret}" ${r.forced?'disabled':''}>${LOCK}</button><button class="icon" data-action="remove" aria-label="Remove ${esc(r.name||'variable')}" ${i==='new'?'disabled':''}>×</button><div class="error failure" role="alert" hidden></div></div>`;
+}
+function renderCard(a) {
+ const el=$(`[data-agent="${a.id}"]`);
+ const header=`<div class="agent-head"><span class="badge">${a.badge}</span><h2>${a.name}</h2>${a.missing?`<code>${a.exe}</code><span class="version">Not found</span>`:`<span class="version">${a.version}</span><label class="toggle"><input type="checkbox" role="switch" aria-label="${a.name}" ${a.on?'checked':''} ${['pending','rejected'].includes(a.source)?'disabled':''}><span>${a.on?'On':'Off'}</span></label><code class="path">/Users/sam/.local/bin/${a.exe}</code>`}</div>`;
+ if(a.missing) { el.innerHTML=header; return; }
+ const source = a.source?`<code>agents/${a.id}.json</code> <span class="${a.source==='pending'?'needs':a.source==='rejected'?'failure':''}">${a.source==='pending'?'Approval pending · launch blocked':a.source==='approved'?'Approved':'Rejected · launch blocked'}</span>${a.source==='pending'?'<button data-action="review">Review…</button>':''}`:'<span>Built-in</span>';
+ el.innerHTML=header+`<div class="setting"><span class="label">Attention</span><div class="inline">${attention(a)}</div></div>
+ <div class="setting"><span class="label">Capabilities</span><dl class="facts">${[['MCP',a.mcp],['Resume',a.resume],['Inline',a.inline]].map(([k,v])=>`<div><dt>${k}</dt><dd>${v?'Available':'Unavailable'}</dd></div>`).join('')}</dl></div>
+ <div class="setting"><label class="label" for="args-${a.id}">Default arguments</label><div><textarea id="args-${a.id}" aria-label="${a.name} default arguments" spellcheck="false" rows="${Math.max(1,a.args.split('\n').length)}" placeholder="None">${esc(a.args)}</textarea><div class="notice" ${bypass(a.args)?'':'hidden'}>◇ Bypass approvals <span>Agent can act anywhere on this machine.</span></div></div></div>
+ <div class="setting"><span class="label">Environment</span><div class="rows">${a.env.map((r,i)=>envRow(a,r,i)).join('')}${envRow(a,{name:'',value:''},'new')}</div></div>
+ <div class="setting"><span class="label">Plugin source</span><div class="inline">${a.source?'Foom config · ':''}${source}${a.reason?`<span class="failure">${esc(a.reason)}</span>`:''}</div></div>`;
+}
+function render() { $('#agents').innerHTML=agents.map(a=>`<section class="agent ${a.missing?'missing':''}" aria-label="${a.name}" data-agent="${a.id}"></section>`).join(''); agents.forEach(renderCard); }
+let decide, decline;
+function review(title,body,accept,onAccept,onCancel=()=>{}) {
+ $('#reject').hidden=true; $('#review-title').textContent=title; $('#review-body').innerHTML=body; $('#accept').textContent=accept; decide=onAccept; decline=onCancel; $('#review').showModal(); $('#cancel').focus();
+}
+function closeReview(allowed) { $('#review').close(); (allowed?decide:decline)(); }
+$('#accept').onclick=()=>closeReview(true); $('#cancel').onclick=()=>closeReview(false);
+$('#review').addEventListener('cancel',e=>{e.preventDefault();closeReview(false);});
+$('#agents').addEventListener('click',e=>{
+ const card=e.target.closest('[data-agent]'); if(!card)return;
+ const a=agents.find(a=>a.id===card.dataset.agent), b=e.target.closest('button'); if(!b)return;
+ if(b.dataset.signal) { a.signal=b.dataset.signal;renderCard(a);return; }
+ const action=b.dataset.action;
+ if(action==='review') { review(`Allow ${a.name} plugin?`, `<p>Foom config · <code>agents/amp.json</code></p><dl><dt>Executable</dt><dd><code>/Users/sam/.local/bin/amp</code></dd><dt>Prompt argv</dt><dd><pre>["-x", "{prompt}"]</pre></dd><dt>Resume argv</dt><dd><pre>["threads", "continue", "{sessionId}"]</pre></dd><dt>Hooks argv</dt><dd>None</dd><dt>MCP argv</dt><dd>None</dd><dt>Allowed tools</dt><dd>None</dd><dt>Bypass flags</dt><dd><code>--dangerously-allow-all</code></dd><dt>Hook mapping</dt><dd>None · screen rules</dd></dl>`, 'Allow plugin',()=>{a.source='approved';renderCard(a);syncDock();}); $('#reject').hidden=false; $('#reject').onclick=()=>{ $('#review').close();a.source='rejected';a.reason='Approval declined';renderCard(a);syncDock(); }; }
+ if(action==='agy') {
+  const install=plugin!=='Disabled';
+  if(!install){plugin='Installed';$('#plugin').value=plugin;renderCard(a);return;}
+  review(plugin==='Outdated'?'Update Antigravity plugin?':'Install Antigravity plugin?', '<p>Foom lifecycle observer</p><dl><dt>Location</dt><dd>Antigravity’s plugin directory</dd><dt>Command</dt><dd><code>agy plugin install foom-lifecycle</code></dd><dt>Behavior</dt><dd>Reports lifecycle events to Foom. Credentials supplied per launch.</dd><dt>Removal</dt><dd><code>agy plugin uninstall foom-lifecycle</code></dd></dl>',plugin==='Outdated'?'Update plugin':'Install plugin',()=>{plugin='Installed';$('#plugin').value=plugin;renderCard(a);});
+ }
+ if(action==='remove-plugin'){plugin='Not installed';$('#plugin').value=plugin;renderCard(a);}
+ const row=b.closest('.env-row'); if(!row)return; const i=Number(row.dataset.i), r=a.env[i]; if(!r)return;
+ if(action==='remove')a.env.splice(i,1);
+ if(action==='secret')r.secret=!r.secret;
+ if(action==='replace'){r.value='';r.saved=false;}
+ renderCard(a);
+ if(action==='replace') $(`[data-i="${i}"] [data-field="value"]`,card).focus();
+});
+function syncDock(){ const pending=agents.some(a=>a.source==='pending'); $('.side .group.needs').textContent=pending?'Foom config · Needs you':'Foom config'; $('.side .group.needs').classList.toggle('needs',pending); $('.side .srow:last-of-type .reason').textContent=pending?'Approval pending':agents.find(a=>a.id==='amp').source==='approved'?'Plugin approved':'Plugin rejected'; }
+$('#agents').addEventListener('change',e=>{
+ const card=e.target.closest('[data-agent]');if(!card)return; const a=agents.find(a=>a.id===card.dataset.agent);
+ if(e.target.matches('[role=switch]')){a.on=e.target.checked;renderCard(a);}
+});
+$('#agents').addEventListener('input',e=>{
+ const card=e.target.closest('[data-agent]');if(!card)return; const a=agents.find(a=>a.id===card.dataset.agent);
+ if(e.target.matches('textarea')) { const notice=$('.notice',card);notice.hidden=!bypass(e.target.value);if(!notice.hidden)notice.innerHTML='◇ Bypass approvals <span class="needs">Confirmation required</span>';return; }
+ const row=e.target.closest('.env-row'), f=e.target.dataset.field;if(!row||!f)return;
+ if(row.dataset.i==='new') {a.env.push({name:'',value:''});row.dataset.i=String(a.env.length-1);$('.rows',card).insertAdjacentHTML('beforeend',envRow(a,{name:'',value:''},'new'));$('[data-action=remove]',row).disabled=false;}
+ const r=a.env[Number(row.dataset.i)];r[f]=e.target.value;r.saved=false;
+ if(/^[a-z0-9+.-]+:\/\/[^/@\s]+:[^/@\s]*@/i.test(r.value)){r.secret=true;r.forced=true;$('[data-field=value]',row).type='password';$('[data-action=secret]',row).disabled=true;$('[data-action=secret]',row).setAttribute('aria-pressed','true');}
+ const problem=!/^[A-Za-z_][A-Za-z0-9_]*$/.test(r.name)?'Invalid variable name':/^(FOOM_|ELECTRON_|DYLD_|LD_PRELOAD$|LD_LIBRARY_PATH$|NODE_OPTIONS$|BASH_ENV$|ENV$|PROMPT_COMMAND$)/.test(r.name)?`${r.name} cannot be set`:a.env.some((v,i)=>i!==Number(row.dataset.i)&&v.name===r.name)?'Duplicate variable name':'';
+ const error=$('.error',row);error.hidden=!problem;error.textContent=problem;
+});
+$('#agents').addEventListener('focusout',e=>{
+ const card=e.target.closest('[data-agent]');if(!card)return;const a=agents.find(a=>a.id===card.dataset.agent);
+ if(e.target.matches('textarea')){
+  const draft=e.target.value;if(draft===a.args)return;
+  if(bypass(draft)) review(`Allow ${a.name} bypass defaults?`,`<p>A worktree is not a sandbox. ${a.name} can act as you anywhere on this machine.</p><dl><dt>Arguments</dt><dd><pre>${esc(draft)}</pre></dd></dl>`,'Allow bypass',()=>{a.args=draft;renderCard(a);},()=>renderCard(a));
+  else {a.args=draft;renderCard(a);} return;
+ }
+ const row=e.target.closest('.env-row');if(!row||row.dataset.i==='new'||row.contains(e.relatedTarget))return;
+ const r=a.env[Number(row.dataset.i)];if(r&&$('.error',row).hidden){r.saved=true;row.outerHTML=envRow(a,r,Number(row.dataset.i));}
+});
+$('#hooks').onchange=()=>agents.filter(a=>!a.missing).forEach(renderCard);
+$('#trust').onchange=e=>{trust=e.target.value;renderCard(agents[1]);};
+$('#plugin').onchange=e=>{plugin=e.target.value;renderCard(agents[2]);};
+$('#theme').onchange=e=>document.documentElement.dataset.theme=e.target.value;
+$('#scale').onchange=e=>{ $('#app').classList.toggle('scaled',e.target.value==='150'); $('#size-label').textContent=e.target.value+'%'; };
+$('#scan').onclick=()=>{ $('#scan').textContent='Scan complete'; };
+document.documentElement.dataset.theme='light';render();
+</script>
+</body>
+</html>
