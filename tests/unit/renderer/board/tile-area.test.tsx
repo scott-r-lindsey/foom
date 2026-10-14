@@ -512,6 +512,71 @@ test("title drags and keyboard swaps keep controllers attached; Escape and outsi
   vi.unstubAllGlobals();
 });
 
+test("empty-space placement marks only the drag target and clears on leave, end, cancel and drop", () => {
+  const { screen, click, send, row } = setup();
+  click(0);
+  send("split-right");
+  send("split-down");
+  const empty = [...screen.container.querySelectorAll<HTMLElement>('[data-empty="true"]')];
+  const landing = empty.find((tile) => tile.dataset["landing"] === "true");
+  const other = empty.find((tile) => tile !== landing);
+  const title = screen.container.querySelector(".tile-title");
+  const area = screen.container.querySelector(".tile-area");
+  if (!landing || !other || !title || !area) throw new Error("tiles");
+  for (const tile of empty) {
+    vi.spyOn(tile, "getBoundingClientRect").mockReturnValue({
+      left: 0,
+      top: 0,
+      width: 100,
+      height: 100,
+      x: 0,
+      y: 0,
+      right: 100,
+      bottom: 100,
+      toJSON: () => ({}),
+    });
+  }
+  vi.stubGlobal("DragEvent", MouseEvent);
+  const transfer = { setData: vi.fn(), effectAllowed: "", dropEffect: "" };
+  const over = (target: Element) =>
+    fireEvent.dragOver(target, {
+      dataTransfer: transfer,
+      clientX: 50,
+      clientY: 50,
+    });
+  const mark = () => screen.container.querySelector<HTMLElement>(".tile-drop-preview");
+  expect(mark()).toBeNull();
+  const saved = localStorage.getItem(TILE_STORAGE);
+  for (const source of [row(1), title]) {
+    fireEvent.dragStart(source, { dataTransfer: transfer });
+    expect(mark()).toBeNull();
+    over(landing);
+    expect(mark()?.textContent).toBe("Place here");
+    expect(area.textContent).toContain("Drop to place here");
+    expect(mark()?.style.left).toBe(landing.style.left);
+    over(other);
+    expect(mark()?.style.left).toBe(other.style.left);
+    expect(mark()?.style.top).toBe(other.style.top);
+    fireEvent.dragLeave(area, { relatedTarget: document.body });
+    expect(mark()).toBeNull();
+    over(landing);
+    fireEvent.dragEnd(source);
+    expect(mark()).toBeNull();
+    fireEvent.dragStart(source, { dataTransfer: transfer });
+    over(landing);
+    fireEvent.keyDown(area, { key: "Escape" });
+    expect(mark()).toBeNull();
+    expect(localStorage.getItem(TILE_STORAGE)).toBe(saved);
+  }
+  fireEvent.dragStart(row(1), { dataTransfer: transfer });
+  over(other);
+  fireEvent.drop(other, { dataTransfer: transfer, clientX: 50, clientY: 50 });
+  expect(mark()).toBeNull();
+  expect(other.dataset["empty"]).toBe("false");
+  expect(landing.dataset["empty"]).toBe("true");
+  vi.unstubAllGlobals();
+});
+
 test("tile panel exposes facts, keyboard navigation, blocked reasons and grow commands", async () => {
   const { screen, click, source, send } = setup();
   click(0);

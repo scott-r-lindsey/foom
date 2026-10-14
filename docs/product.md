@@ -393,7 +393,9 @@ enabled command receives focus; arrow keys navigate enabled commands; Escape
 returns focus to the tile menu button.
 
 Empty space is a dashed outline with no title bar, number or focus, hidden from
-accessibility navigation. The landing spot has a faint highlight. Sidebar placement
+accessibility navigation. Empty spaces have no landing marking at rest. While a tile
+or sidebar row is dragged over the board, a dashed, labelled drop preview marks
+the target; leaving the board, ending the drag or cancelling clears it. Sidebar placement
 fills it and focuses the terminal; dropping onto any empty space fills that space.
 Focus uses the highlight border and brighter occupied title bar; Needs you uses an
 amber border that takes precedence and a labelled, haloed light.
