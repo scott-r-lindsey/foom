@@ -12289,8 +12289,10 @@ test("preview live reload handles saves, assets, missing files, scroll and close
         const callback = args.pop();
         args.push((event, name) => {
           const burst = globalThis.liveStats.burst;
-          if (burst && (name === null || String(name) === "live.html"))
-            burst.firstEvent ??= performance.now();
+          if (burst && (name === null || String(name) === "live.html")) {
+            burst.lastEvent = performance.now();
+            burst.firstEvent ??= burst.lastEvent;
+          }
           callback(event, name);
         });
       }
@@ -12314,7 +12316,8 @@ test("preview live reload handles saves, assets, missing files, scroll and close
         if (!contents.getURL().startsWith("foom-preview://")) return;
         const burst = globalThis.liveStats.burst;
         if (burst) {
-          burst.firstLoad ??= performance.now();
+          burst.lastLoad = performance.now();
+          burst.firstLoad ??= burst.lastLoad;
           burst.loads++;
         }
       });
@@ -12395,20 +12398,29 @@ test("preview live reload handles saves, assets, missing files, scroll and close
   await rename(path.join(root, "live.tmp"), path.join(root, "live.html"));
   await loaded("atomic");
   await app.evaluate(() => {
-    globalThis.liveStats.burst = { loads: 0, firstEvent: undefined, firstLoad: undefined };
+    globalThis.liveStats.burst = {
+      loads: 0,
+      firstEvent: undefined,
+      firstLoad: undefined,
+      lastEvent: undefined,
+      lastLoad: undefined,
+    };
   });
   // A burst may span several trailing/max-wait windows on a busy filesystem.
   // Test delayed reload, final content and eventual quiet, not a total load count.
   for (let index = 0; index < 20; index++)
     await writeFile(path.join(root, "live.html"), document(`burst ${index}`));
   await loaded("burst 19");
+  // An earlier reload can read the final bytes while the last event is still
+  // pending. Wait for a completed reload that started after that event.
   await expect
     .poll(() =>
       app.evaluate(({ webContents }, id) => {
         const contents = webContents
           .getAllWebContents()
           .find((entry) => entry.getURL().startsWith(`foom-preview://${id}/`));
-        return contents && !contents.isLoading();
+        const burst = globalThis.liveStats.burst;
+        return contents && !contents.isLoading() && burst.lastLoad >= burst.lastEvent;
       }, id),
     )
     .toBe(true);
