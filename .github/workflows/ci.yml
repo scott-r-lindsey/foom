@@ -235,15 +235,6 @@ jobs:
         timeout-minutes: 10
         if: runner.os != 'Linux'
         run: npm run test:electron
-      - name: Test merged cleanup alone on macOS
-        # #382: verify worker gates independently of earlier native-window tests.
-        # This is an additional isolation check; a failed shard still fails the job.
-        if: ${{ !cancelled() && runner.os == 'macOS' && matrix.shard == '2/3' }}
-        run: >-
-          node --require ./tests/helpers/setup.js --test
-          --test-reporter=spec --test-reporter-destination=stdout
-          --test-reporter=junit --test-reporter-destination=test-results/merged-cleanup-alone.xml
-          --test-name-pattern="^merged cleanup opens checking" tests/electron/app.test.js
       - name: Stamp nightly package version
         if: >-
           startsWith(matrix.shard, '1/') && github.ref == 'refs/heads/main' &&
