@@ -14,7 +14,14 @@ import {
   rollupChecks,
 } from "../../../../src/main/control/forge";
 const pr = { number: 340, headSha: "a".repeat(40), state: "OPEN", requiredChecks: "pending" };
-const raw = { number: 340, headRefOid: pr.headSha, headRefName: "child-one", state: "OPEN" };
+const raw = {
+  number: 340,
+  headRefOid: pr.headSha,
+  headRefName: "child-one",
+  state: "OPEN",
+  headRepositoryOwner: { login: "O" },
+  isCrossRepository: false,
+};
 afterEach(() => vi.unstubAllEnvs());
 it("selects GitHub from exact remote hosts and refuses unfamiliar URLs", () => {
   for (const remote of [
@@ -114,7 +121,7 @@ it("uses fixed read-only argv and verifies the head after required checks", asyn
       "--limit",
       "2",
       "--json",
-      "number,headRefOid,headRefName,state",
+      "number,headRefOid,headRefName,state,headRepositoryOwner,isCrossRepository",
     ],
     ["pr", "checks", "340", "--repo", "github.com/o/r", "--required", "--json", "bucket"],
     [
@@ -124,7 +131,7 @@ it("uses fixed read-only argv and verifies the head after required checks", asyn
       "--repo",
       "github.com/o/r",
       "--json",
-      "number,headRefOid,headRefName,state",
+      "number,headRefOid,headRefName,state,headRepositoryOwner,isCrossRepository",
     ],
   ]);
   runner.mockClear();
@@ -532,4 +539,110 @@ it("resolves PR numbers with validated ownership and fixed read-only arguments",
   expect(await provider?.resolve?.(337)).toBeUndefined();
   runner.mockRejectedValueOnce(new Error("private diagnostics"));
   expect(await provider?.resolve?.(337)).toBeUndefined();
+});
+
+it("rejects fork heads and missing ownership at discovery, bound lookup and recheck", async () => {
+  for (const patch of [
+    { isCrossRepository: true },
+    { headRepositoryOwner: { login: "fork-owner" } },
+    { headRepositoryOwner: null },
+    { isCrossRepository: undefined },
+  ]) {
+    for (const number of [undefined, 340]) {
+      const runner = vi.fn(() =>
+        Promise.resolve(
+          JSON.stringify(number === undefined ? [{ ...raw, ...patch }] : { ...raw, ...patch }),
+        ),
+      );
+      expect(
+        await forgeProvider("https://github.com/o/r", runner)?.lookup("child-one", number),
+      ).toBeUndefined();
+      expect(runner).toHaveBeenCalledTimes(1);
+    }
+    const runner = vi.fn((args: readonly string[]) =>
+      Promise.resolve(
+        JSON.stringify(
+          args[1] === "list" ? [raw] : args[1] === "checks" ? [] : { ...raw, ...patch },
+        ),
+      ),
+    );
+    expect(
+      await forgeProvider("https://github.com/o/r", runner)?.lookup("child-one"),
+    ).toBeUndefined();
+  }
+});
+it.skipIf(process.platform === "win32")(
+  "recognizes only bounded no-check diagnostics from the required-check command",
+  async () => {
+    const root = await mkdtemp(join(tmpdir(), "forge-none-"));
+    try {
+      const fixture = join(root, "state.json");
+      await writeFile(join(root, "gh"), FAKE_GH);
+      await chmod(join(root, "gh"), 0o755);
+      vi.stubEnv("PATH", `${root}:${process.env["PATH"] ?? ""}`);
+      vi.stubEnv("TEST_FORGE_STATE", fixture);
+      for (const prefix of ["no required checks", "no checks"]) {
+        await writeFile(
+          fixture,
+          JSON.stringify({
+            checksError: `${prefix} reported on the 'child-one' branch\n`,
+            apiError: true,
+          }),
+        );
+        expect(await forgeProvider("https://github.com/o/r")?.lookup("child-one")).toEqual({
+          ...pr,
+          requiredChecks: "none",
+        });
+      }
+      for (const patch of [
+        { checksError: "rate limited" },
+        { checksError: "no required checks reported on the '--help' branch\n" },
+        { checksError: "no required checks reported on the 'child-one' branch\nextra" },
+        { checksError: "no required checks reported on the 'child-one' branch\n", exitCode: 2 },
+        {
+          checksError: "no required checks reported on the 'child-one' branch\n",
+          stdout: "unexpected",
+        },
+      ]) {
+        await writeFile(fixture, JSON.stringify({ ...patch, apiError: true }));
+        expect(await forgeProvider("https://github.com/o/r")?.lookup("child-one")).toEqual({
+          ...pr,
+          requiredChecks: "unknown",
+        });
+      }
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  },
+);
+it("reports none for a verified GraphQL head with a null rollup, keeping missing data unknown", async () => {
+  const response = (statusCheckRollup: unknown) => ({
+    data: {
+      node: {
+        headRefOid: pr.headSha,
+        commits: { nodes: [{ commit: { oid: pr.headSha, statusCheckRollup } }] },
+      },
+    },
+  });
+  expect(rollupChecks(response(null), pr.headSha)).toBe("none");
+  expect(rollupChecks(response(undefined), pr.headSha)).toBe("unknown");
+  expect(rollupChecks(response(null), "b".repeat(40))).toBe("unknown");
+  const runner = (args: readonly string[]) =>
+    args[1] === "checks"
+      ? Promise.reject(new Error("unsupported flag"))
+      : Promise.resolve(
+          JSON.stringify(
+            args[0] === "api"
+              ? response(null)
+              : args.at(-1) === "id"
+                ? { id: "PR_test" }
+                : args[1] === "list"
+                  ? [raw]
+                  : raw,
+          ),
+        );
+  expect(await forgeProvider("https://github.com/o/r", runner)?.lookup("child-one")).toEqual({
+    ...pr,
+    requiredChecks: "none",
+  });
 });

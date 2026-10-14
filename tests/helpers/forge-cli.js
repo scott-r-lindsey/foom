@@ -27,6 +27,11 @@ if (args[1] === "view") process.stdout.write(JSON.stringify(args.at(-1) === "id"
 if (args[1] === "checks") {
   if (fixture.oldGh) { process.stderr.write("unknown flag: --json"); process.exit(1); }
   if (!args.includes("--required")) process.exit(2);
+  if (fixture.checksError) {
+    process.stdout.write(fixture.stdout ?? "");
+    process.stderr.write(fixture.checksError);
+    process.exit(fixture.exitCode ?? 1);
+  }
   process.stdout.write(JSON.stringify(fixture.checks ?? [{ bucket: "pending" }]));
   process.exit(fixture.exitCode ?? 0);
 }
