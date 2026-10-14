@@ -122,8 +122,12 @@ show merged state and creation origin. Detached rows show a short hash with a
 detached glyph, and panels say “Detached at <hash>”. **Delete worktree…** names
 the existing folder-removal action and is unavailable while a session runs there.
 
-The sidebar footer holds the tile presets, Tidy and a **Foom config** gear the
-size of a preset button. The gear replaces the Settings text button and opens a
+The sidebar footer holds a compact −/value/+ zoom stepper, an always-visible
+master volume slider with a speaker mute button, and the **Foom config** gear.
+Zoom uses the same interface scale as Settings and the app menu; clicking its
+value resets to 100%. The speaker shape shows muted (also at zero), low or high
+volume. Moving the slider unmutes; releasing it plays a short sample. The rail
+keeps only the gear. The gear opens a
 pinned panel to the right, bottom-aligned and pointing at the gear. **Settings**
 is its first command, with its shortcut; ⌘, / Ctrl+, and the app menu still open
 Settings directly. Then come the agent launchers and Shell (run in the config
@@ -183,7 +187,7 @@ Below 720 CSS pixels the tree becomes a compact rail with each session’s light
 name. ⌘⇧B on macOS or Ctrl+Shift+Space, then B elsewhere focuses the sidebar; arrow keys navigate.
 ⌘⇧N or Ctrl+Shift+N reveals and opens the session that has waited longest for you, clearing
 its filter and expanding its ancestors. Other terminal keys, including Escape, remain input.
-Settings, the six tile preset icons and Tidy tiles stay at the bottom of the sidebar. Launch actions live in repository and checkout menus. An empty sidebar labels its starting action **Add repository**.
+Zoom, master volume and the Foom config gear stay at the bottom of the sidebar. Launch actions live in repository and checkout menus. An empty sidebar labels its starting action **Add repository**.
 
 ### Delete merged worktrees
 
@@ -251,9 +255,9 @@ Escape at the top level returns focus to the wordmark. The menu uses the same
 surface and motion as row actions, with a scrollable list on short windows. The
 native menu bar is absent on Windows and Linux, including after Alt.
 
-Individual tile, focus, swap and preset commands, Focus sidebar, Longest waiting, Maximize,
+Individual tile, focus and swap commands, Focus sidebar, Longest waiting, Maximize,
 Copy, Paste, Close Window and Foom on GitHub are not in the wordmark menu. Their
-shortcuts still work; presets stay in the sidebar footer. Third-party licenses
+shortcuts still work. Third-party licenses
 keeps its own item until the About screen (#96); its dialog links to the source
 repository. About uses the native About panel.
 
@@ -265,7 +269,7 @@ returns focus.
 
 On macOS, the native menu bar keeps every command: Foom (About, Settings, Hide,
 Hide Others, Quit), File (New Window, New Worktree, Add Repository, Close Window),
-standard Edit roles, View (tile actions and presets, interface size, sidebar and
+standard Edit roles, View (tile actions, interface size, sidebar and
 longest waiting), Window (Minimize, Zoom, Bring All to Front and windows), and
 Help (Keyboard Shortcuts, licenses and GitHub). New Window uses Command+N on macOS
 and Ctrl+Shift+O on Windows/Linux.
@@ -354,7 +358,7 @@ and make the newest space the landing spot. Hide and exited-session Close leave
 empty space in place, with sibling geometry unchanged, and make it the landing spot.
 Hide keeps the session running; Close closes it through the sidebar command.
 Tile chrome never stops a running process. Reclaim space with Grow, gutters
-(including Home/End), or presets. Presets leave hidden sessions running.
+(including Home/End), or Tidy tiles.
 
 Clicking a visible session focuses its tile. Clicking a hidden session or launching
 one fills the landing spot, then the first empty space in tree order. A full board
@@ -397,14 +401,11 @@ Focus uses the highlight border and brighter occupied title bar; Needs you uses 
 amber border that takes precedence and a labelled, haloed light.
 
 Terminals and previews are numbered, in tree order, including sidebar numbers and number
-shortcuts. The focused tile's number is highlighted. Presets are One, Two side by side, Two
-stacked, Two by two, One and two, and One and three. They keep the focused content
-first, then other occupied leaves in tree order, then empty leaves. Existing leaves keep
-their views; additional leaves start empty, and sessions that no longer fit hide.
+shortcuts. The focused tile's number is highlighted. Tile presets are unavailable;
+Split right/down, Grow, gutters and Tidy arrange the layout.
 
 Preview title bars show a document glyph, MD or HTML badge, relative path, tile menu,
-Maximize/Restore and Close. A preview has no running process to hide. Presets and
-replacement close previews that no longer fit. Split, Grow, drag, Tidy and focus
+Maximize/Restore and Close. A preview has no running process to hide. Replacement closes previews that no longer fit. Split, Grow, drag, Tidy and focus
 shortcuts treat previews as occupied tiles. Opening or reloading a preview never
 moves focus; a click or explicit focus command does.
 
@@ -417,8 +418,7 @@ runs longer than two members can exceed the usual ratio limits.
 every run. Tile order, content assignments, focus and surviving leaf identities
 stay unchanged. An all-empty layout keeps one empty space. Tidy restores any
 maximized tile first and uses the existing tile resize motion (immediate with
-reduced motion). It applies only to the focused window, from the sidebar footer
-icon after the six presets, View → Tidy tiles, or its shortcut.
+reduced motion). It applies only to the focused window, from View → Tidy tiles or its shortcut.
 
 When resizing between two occupied sides, gutters stay between 15% and 85%.
 An all-space side has no minimum. Below 8% (or above 92% for the second side),
@@ -681,6 +681,10 @@ Every interface theme keeps amber for Needs you, magenta for Failed, and violet 
 Needs you retains its halo, Failed its square light, and all states their labels.
 High Contrast provides at least 7:1 text contrast and stronger borders.
 
+Master **Volume** is first in Settings → Sound and stays in sync with the footer.
+It defaults to 100%, persists with mute, and multiplies the individual working
+and alert levels. Mute silences both without changing either level.
+
 Settings → Sound offers a separate recording picker and preview for Working, Done,
 Needs you and Refusal. Built-in and user files appear together, named from their
 filenames. Working is off at 15% by default. One steady loop plays at the selected
@@ -730,7 +734,7 @@ folder**. Agents configure Foom by editing that folder: `settings.json`, theme
 files and terminal themes. Each valid change applies live and is committed to the
 folder's git repository; an invalid file is rejected whole and the previous
 version stays in effect. Changes that would make Foom less able to say something
-needs you (turning alerts off, alert volume 0, hooks off, or turning an agent off)
+needs you (turning alerts off, alert or master volume 0, master mute, hooks off, or turning an agent off)
 wait in an amber banner, such as "An agent wants to turn off the needs-you sound",
 with **Allow** and **Keep it on**. Keep it on restores the file.
 

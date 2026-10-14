@@ -557,19 +557,14 @@ test("preload accepts menu board commands and rejects unknown values", async () 
     "via-claude",
     "via-codex",
     "via-agy",
-    "preset-one",
-    "preset-columns",
-    "preset-rows",
-    "preset-grid",
-    "preset-main2",
-    "preset-main3",
     "tidy-tiles",
     "action-log",
   ])
     listener?.({}, command);
   listener?.({}, "reload");
   listener?.({}, {});
-  expect(callback).toHaveBeenCalledTimes(13);
+  listener?.({}, "preset-grid");
+  expect(callback).toHaveBeenCalledTimes(7);
   off();
 });
 

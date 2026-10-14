@@ -2996,6 +2996,8 @@ test("first run goes from no agents to go, launches by keyboard, and can be repl
         "needs-you": { source: "builtin", file: "bicycle-bell.ogg" },
         refusal: { source: "builtin", file: "lip-pop.ogg" },
       },
+      volume: 1,
+      muted: false,
       working: false,
       workingVolume: 0.15,
       alerts: true,
@@ -4823,7 +4825,7 @@ test("tiles build irregular layouts, preserve views and replace explicitly for a
   );
   await page.getByRole("button", { name: "Hide", exact: true }).first().click();
   await rows.nth(0).click();
-  await page.getByRole("button", { name: "One and three", exact: true }).click();
+  await page.evaluate(() => window.desktop.appMenu.execute("split-down"));
   await expect(tiles).toHaveCount(4);
   assert.equal(
     await page.evaluate(() =>
@@ -4878,7 +4880,10 @@ test("launching into a narrow full tile uses the focused fallback and empty tile
   await expect(page.locator(".xterm-helper-textarea").first()).toBeFocused();
   assert.equal(sessions.find((session) => session.id === original.id).exited, false);
 
-  await page.getByRole("button", { name: "Two by two", exact: true }).click();
+  await page.evaluate(() => window.desktop.appMenu.execute("split-right"));
+  await expect(page.locator(".terminal-tile")).toHaveCount(2);
+  await page.evaluate(() => window.desktop.appMenu.execute("split-down"));
+  await expect(page.locator(".terminal-tile")).toHaveCount(3);
   const empty = page.locator('.terminal-tile[data-empty="true"]').last();
   await expect(empty).toHaveAttribute("aria-hidden", "true");
   await expect(empty.locator(".tile-title")).toHaveCount(0);
@@ -4910,7 +4915,7 @@ test("launching into a narrow full tile uses the focused fallback and empty tile
   await assertAccessible(page);
   await page.screenshot({ path: path.join(tmpdir(), "foom-220-tile-panel.png") });
   await menu.press("Escape");
-  await page.getByRole("button", { name: "Two side by side", exact: true }).click();
+  await page.evaluate(() => window.desktop.appMenu.execute("split-right"));
   for (const colorScheme of ["light", "dark"]) {
     await page.emulateMedia({ colorScheme });
     await expect(page.locator("html")).toHaveCSS("color-scheme", colorScheme);
@@ -4983,7 +4988,10 @@ test("tile terminal viewport has no native overflow bars", async (context) => {
     )
     .toBe("dracula");
   await page.keyboard.press("Escape");
-  await page.getByRole("button", { name: "Two by two", exact: true }).click();
+  await page.evaluate(() => window.desktop.appMenu.execute("split-right"));
+  await expect(page.locator(".terminal-tile")).toHaveCount(2);
+  await page.evaluate(() => window.desktop.appMenu.execute("split-down"));
+  await expect(page.locator(".terminal-tile")).toHaveCount(3);
   await expect(page.locator(".terminal-tile").first()).toHaveCSS(
     "background-color",
     "rgb(40, 42, 54)",
@@ -6268,6 +6276,19 @@ test("tile drag drops replace, split every edge, swap and move without reattachm
   };
   const saved = () =>
     page.evaluate(() => localStorage.getItem(`foom.tiles.v1.${window.desktop.windows.id}`));
+  const singleTile = async () => {
+    let occupied = await page.locator('.terminal-tile[data-empty="false"]').count();
+    while (occupied > 1) {
+      await page.evaluate(async () => {
+        await window.desktop.appMenu.execute("tile-2");
+        await window.desktop.appMenu.execute("hide-session");
+      });
+      occupied--;
+      await expect(page.locator('.terminal-tile[data-empty="false"]')).toHaveCount(occupied);
+    }
+    await page.evaluate(() => window.desktop.appMenu.execute("tidy-tiles"));
+    await expect(tiles).toHaveCount(1);
+  };
   for (const theme of ["light", "dark"]) {
     await page.emulateMedia({ colorScheme: theme, reducedMotion: "reduce" });
     await page.getByRole("button", { name: "Tile 1 menu" }).click();
@@ -6306,7 +6327,7 @@ test("tile drag drops replace, split every edge, swap and move without reattachm
       assert.equal(await saved(), before);
       assert.deepEqual(await landing.evaluate(appearance), await other.evaluate(appearance));
     }
-    await page.getByRole("button", { name: "One", exact: true }).click();
+    await singleTile();
   }
   const initial = await saved();
   await drag(rows.nth(1), tiles.first(), 0.5, 0.5, true);
@@ -6322,7 +6343,7 @@ test("tile drag drops replace, split every edge, swap and move without reattachm
   ]) {
     await page.emulateMedia({ colorScheme: theme, reducedMotion: "reduce" });
     await expect(page.locator("html")).toHaveCSS("color-scheme", theme);
-    await page.getByRole("button", { name: "One", exact: true }).click();
+    await singleTile();
     await drag(rows.nth(1), tiles.first(), 0.5, 0.5);
     await drag(rows.nth(2), tiles.first(), x, y);
     await expect(tiles).toHaveCount(2);
@@ -6335,8 +6356,11 @@ test("tile drag drops replace, split every edge, swap and move without reattachm
     // Restore the other session for the next edge's source/target pair.
     await drag(rows.nth(1), tiles.first(), 0.5, 0.5);
   }
-  await page.getByRole("button", { name: "Two side by side", exact: true }).click();
+  await singleTile();
+  await page.evaluate(() => window.desktop.appMenu.execute("split-right"));
   await rows.nth(0).click();
+  await expect(tiles).toHaveCount(2);
+  await expect(page.locator('.terminal-tile[data-empty="false"]')).toHaveCount(2);
   await expect(
     page.locator(".terminal-tile[data-focused='true'] .xterm-helper-textarea"),
   ).toBeFocused();
@@ -6831,7 +6855,9 @@ test("multiple windows restore independent layouts, bounds and interface size", 
   const options = { args: [`--user-data-dir=${profile}`], emptyBoard: true };
   const app = await launchApp(context, false, options);
   const first = await boardPage(app);
-  await first.getByRole("button", { name: "Two side by side", exact: true }).click();
+  await expect(first.getByRole("button", { name: "Foom config", exact: true })).toBeVisible();
+  await first.evaluate(() => window.desktop.appMenu.execute("split-right"));
+  await expect(first.locator(".terminal-tile")).toHaveCount(2);
   await first.evaluate(() => window.desktop.saveSetup({ interfaceScale: 110 }));
   await first.evaluate(() => window.desktop.appMenu.execute("new-window"));
   let second;
@@ -6843,7 +6869,12 @@ test("multiple windows restore independent layouts, bounds and interface size", 
       return Boolean(second);
     })
     .toBe(true);
-  await second.getByRole("button", { name: "One and two", exact: true }).click();
+  await expect(second.getByRole("button", { name: "Foom config", exact: true })).toBeVisible();
+  await expect(second.locator(".terminal-tile")).toHaveCount(1);
+  await second.evaluate(() => window.desktop.appMenu.execute("split-right"));
+  await expect(second.locator(".terminal-tile")).toHaveCount(2);
+  await second.evaluate(() => window.desktop.appMenu.execute("split-down"));
+  await expect(second.locator(".terminal-tile")).toHaveCount(3);
   await second.evaluate(() => window.desktop.saveSetup({ interfaceScale: 90 }));
   assert.equal(
     (await first.evaluate(() => window.desktop.setupState())).settings.interfaceScale,
@@ -10524,6 +10555,132 @@ test("preview host isolates hostile pages, blocks network and navigation, scales
     await app.evaluate(({ webContents }) => webContents.getAllWebContents().length),
     baseline,
   );
+});
+
+test("sidebar footer zoom and master volume stay synchronized and presets are absent", async (context) => {
+  const app = await launchApp(context, false);
+  const page = await boardPage(app);
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await expect(page.getByRole("button", { name: "Foom config", exact: true })).toBeVisible();
+  await installSoundSink(page);
+  const footer = page.locator(".sidebar-footer-bar");
+  await expect(footer.getByRole("group", { name: "Zoom", exact: true })).toBeVisible();
+  await expect(footer.getByRole("slider", { name: "Volume", exact: true })).toHaveValue("100");
+  for (const name of [
+    "One",
+    "Two side by side",
+    "Two stacked",
+    "Two by two",
+    "One and two",
+    "One and three",
+    "Tidy tiles",
+  ])
+    await expect(footer.getByRole("button", { name, exact: true })).toHaveCount(0);
+  assert.equal(
+    (await page.evaluate(() => window.desktop.appMenu.commands())).some((entry) =>
+      entry?.id?.startsWith("preset-"),
+    ),
+    false,
+  );
+  assert.equal(
+    await page.evaluate(async () => {
+      try {
+        await window.desktop.appMenu.execute("preset-grid");
+        return false;
+      } catch {
+        return true;
+      }
+    }),
+    true,
+  );
+  await footer.getByRole("button", { name: "Zoom in", exact: true }).click();
+  await expect
+    .poll(() =>
+      page.evaluate(async () => (await window.desktop.setupState()).settings.interfaceScale),
+    )
+    .toBe(110);
+  await footer.getByRole("button", { name: "Zoom 110%, reset to 100%", exact: true }).click();
+  await expect
+    .poll(() =>
+      page.evaluate(async () => (await window.desktop.setupState()).settings.interfaceScale),
+    )
+    .toBe(100);
+  await footer.getByRole("button", { name: "Mute", exact: true }).click();
+  await expect(footer.getByRole("button", { name: "Unmute", exact: true })).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
+  const volume = footer.getByRole("slider", { name: "Volume", exact: true });
+  await volume.press("Home");
+  await volume.press("ArrowRight");
+  await expect(volume).toHaveValue("5");
+  await expect.poll(() => page.evaluate(() => window.soundTones.length)).toBeGreaterThan(0);
+  await expect(footer.getByRole("button", { name: "Mute", exact: true })).toHaveAttribute(
+    "aria-pressed",
+    "false",
+  );
+  await expect
+    .poll(() =>
+      page.evaluate(async () => (await window.desktop.setupState()).settings.sound.volume),
+    )
+    .toBe(0.05);
+  await openSettingsScreen(page);
+  await page.getByRole("button", { name: "Sound", exact: true }).click();
+  const settingsVolume = page
+    .locator(".sound-controls")
+    .getByRole("slider", { name: "Volume", exact: true });
+  await expect(settingsVolume).toHaveValue("5");
+  await settingsVolume.press("End");
+  await expect(volume).toHaveValue("100");
+  await page.locator(".sound-controls").getByRole("button", { name: "Mute", exact: true }).click();
+  await expect(footer.getByRole("button", { name: "Unmute", exact: true })).toBeVisible();
+  await page.keyboard.press("Escape");
+  await footer.getByRole("button", { name: "Unmute", exact: true }).click();
+  for (const colorMode of ["dark", "light"]) {
+    await page.evaluate((colorMode) => window.desktop.saveSetup({ colorMode }), colorMode);
+    await expect
+      .poll(() =>
+        page
+          .locator(".sidebar-shell")
+          .evaluate((element) =>
+            getComputedStyle(element).getPropertyValue("--surface").trim().toLowerCase(),
+          ),
+      )
+      .toBe(colorMode === "dark" ? "#0d0a17" : "#e9e4f5");
+    await page.screenshot({
+      path: `test-results/footer-after-${colorMode}-300.png`,
+      animations: "disabled",
+    });
+    await page.locator(".sidebar-shell").evaluate((element) => {
+      element.style.flexBasis = "220px";
+    });
+    await expect(footer).toBeVisible();
+    await expect(page.locator(".sidebar-shell")).toHaveCSS("flex-basis", "220px");
+    const bounds = await footer.evaluate((element) => {
+      const outer = element.getBoundingClientRect();
+      return [...element.querySelectorAll("button, input")].every((control) => {
+        const rect = control.getBoundingClientRect();
+        return (
+          rect.left >= outer.left &&
+          rect.right <= outer.right &&
+          rect.top >= outer.top &&
+          rect.bottom <= outer.bottom
+        );
+      });
+    });
+    assert.equal(bounds, true, "footer controls fit the minimum sidebar width");
+    await page.screenshot({
+      path: `test-results/footer-after-${colorMode}-220.png`,
+      animations: "disabled",
+    });
+    await page.locator(".sidebar-shell").evaluate((element) => {
+      element.style.flexBasis = "300px";
+    });
+  }
+  await page.getByRole("button", { name: "Collapse sidebar", exact: true }).click();
+  await expect(footer.getByRole("button", { name: "Foom config", exact: true })).toBeVisible();
+  await expect(footer.getByRole("group", { name: "Zoom", exact: true })).toBeHidden();
+  await expect(volume).toBeHidden();
 });
 
 test("terminal font picker updates open shells and config shells and refits their grids", async (context) => {

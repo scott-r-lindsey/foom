@@ -1,5 +1,5 @@
 import type { AudioSink, SoundSettings } from "../../shared/sound";
-import { DEFAULT_SOUND } from "../../shared/sounds";
+import { DEFAULT_SOUND, soundVolume } from "../../shared/sounds";
 import type { BoardSource } from "../board/board-source";
 import type { BoardRow } from "../board/board.d";
 import type { SetupSource } from "../preflight/setup-source.d";
@@ -70,19 +70,19 @@ export function createSoundController(
     loaded = true;
     settings = next;
     sink.configure(settings.choices);
-    if (!settings.alerts || settings.alertVolume === 0) sink.silenceAlerts();
+    if (!settings.alerts || soundVolume(settings, "alert") === 0) sink.silenceAlerts();
     tick();
   };
   const tick = () => {
     if (!loaded) return;
     const time = now();
-    sink.working(settings.working && working.size > 0 ? 1 : 0, settings.workingVolume);
+    sink.working(settings.working && working.size > 0 ? 1 : 0, soundVolume(settings, "working"));
     const due = [...verdicts.entries()].filter(([id, verdict]) => {
       if (verdict.state !== "done" && verdict.state !== "needs_input") return false;
       if (
         (verdict.state === "needs_input" && id === focused()) ||
         !settings.alerts ||
-        settings.alertVolume === 0
+        soundVolume(settings, "alert") === 0
       ) {
         // Do not replay a completion later; attention can remind after leaving its view.
         verdict.next = verdict.state === "done" ? Infinity : time + REPEAT_MS;
@@ -95,7 +95,7 @@ export function createSoundController(
     // One mixed alert for a burst. Attention wins when both kinds arrive together.
     sink.alert(
       due.some(([, entry]) => entry.state === "needs_input") ? "needs-you" : "done",
-      settings.alertVolume,
+      soundVolume(settings, "alert"),
     );
     lastAlert = time;
     for (const [id, verdict] of due) {
@@ -127,7 +127,8 @@ export function createSoundController(
     sink.dispose();
   };
   dispose.refuse = () => {
-    if (loaded && !disposed && settings.alerts) sink.alert("refusal", settings.alertVolume);
+    if (loaded && !disposed && settings.alerts && soundVolume(settings, "alert") > 0)
+      sink.alert("refusal", soundVolume(settings, "alert"));
   };
   return dispose;
 }

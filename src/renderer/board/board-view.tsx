@@ -10,7 +10,6 @@ import {
   loadLayout,
   leaves,
   placeSession,
-  preset,
   tidyTiles,
   splitTile,
   closeTile,
@@ -23,10 +22,11 @@ import {
   neighbor,
   swapTiles,
 } from "./tiles";
-import type { TileDrag, TileLayout, TilePreset } from "./tiles.d";
+import type { TileDrag, TileLayout } from "./tiles.d";
 import type { SetupSource } from "../preflight/setup-source.d";
 import { createSoundController } from "../sound/sound-controller";
 import { createAudioSink } from "../sound/web-audio";
+import { SidebarControls } from "./sidebar-controls";
 import { Sidebar } from "./sidebar-view";
 import { readPreferences, writePreferences, renameSession } from "./sidebar-preferences";
 import type { SidebarCommand } from "../../shared/workspace";
@@ -57,7 +57,7 @@ export function Board({
   soundSetup,
 }: {
   source: BoardSource;
-  soundSetup?: Pick<SetupSource, "state" | "subscribe">;
+  soundSetup?: Pick<SetupSource, "state" | "subscribe"> & Partial<Pick<SetupSource, "save">>;
   /** Preflight is covering the board; it stays mounted so terminals keep running. */
   inactive?: boolean;
   onSettings?: (section?: "config") => void;
@@ -579,24 +579,7 @@ export function Board({
           if (next) open(next, true);
         } else if (!settingsOpen) {
           const current = layoutRef.current;
-          if (
-            command === "preset-one" ||
-            command === "preset-columns" ||
-            command === "preset-rows" ||
-            command === "preset-grid" ||
-            command === "preset-main2" ||
-            command === "preset-main3"
-          ) {
-            const presets = {
-              "preset-one": "one",
-              "preset-columns": "columns",
-              "preset-rows": "rows",
-              "preset-grid": "grid",
-              "preset-main2": "main2",
-              "preset-main3": "main3",
-            } as const;
-            changeLayout(preset(current, presets[command]));
-          } else if (command === "tidy-tiles") {
+          if (command === "tidy-tiles") {
             changeLayout(tidyTiles(current));
           } else if (
             command === "swap-left" ||
@@ -777,52 +760,7 @@ export function Board({
           newWorktreeRef={newWorktreeRef}
           command={command}
           options={options}
-          footer={
-            <>
-              <div className="tile-presets" role="group" aria-label="Tile layout">
-                {(
-                  [
-                    ["one", "One", "M1 1h14v10H1z"],
-                    ["columns", "Two side by side", "M1 1h14v10H1z M8 1v10"],
-                    ["rows", "Two stacked", "M1 1h14v10H1z M1 6h14"],
-                    ["grid", "Two by two", "M1 1h14v10H1z M8 1v10 M1 6h14"],
-                    ["main2", "One and two", "M1 1h14v10H1z M9 1v10 M9 6h6"],
-                    ["main3", "One and three", "M1 1h14v10H1z M9 1v10 M9 4h6 M9 8h6"],
-                  ] satisfies [TilePreset, string, string][]
-                ).map(([key, label, path]) => (
-                  <button
-                    key={key}
-                    type="button"
-                    aria-label={label}
-                    title={label}
-                    onClick={() => {
-                      changeLayout(preset(layoutRef.current, key));
-                    }}
-                  >
-                    <svg width="18" height="14" viewBox="0 0 16 12" aria-hidden="true">
-                      <path d={path} fill="none" stroke="currentColor" />
-                    </svg>
-                  </button>
-                ))}
-                <button
-                  type="button"
-                  aria-label="Tidy tiles"
-                  title="Tidy tiles"
-                  onClick={() => {
-                    changeLayout(tidyTiles(layoutRef.current));
-                  }}
-                >
-                  <svg width="18" height="14" viewBox="0 0 16 12" aria-hidden="true">
-                    <path
-                      d="M1 1h6v4H1z M9 1h6v4H9z M1 7h6v4H1z M9 7h6v4H9z"
-                      fill="none"
-                      stroke="currentColor"
-                    />
-                  </svg>
-                </button>
-              </div>
-            </>
-          }
+          footer={<SidebarControls source={soundSetup} />}
         />
         {!logOpen && settingsView}
         {logOpen && source.actionLog && (

@@ -6,6 +6,8 @@ export interface SoundChoice {
 export type SoundChoices = Record<SoundKind, SoundChoice>;
 export interface SoundSettings {
   choices: SoundChoices;
+  volume: number;
+  muted: boolean;
   working: boolean;
   workingVolume: number;
   alerts: boolean;

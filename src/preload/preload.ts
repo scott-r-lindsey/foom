@@ -278,12 +278,6 @@ const desktop: DesktopApi = {
         command === "via-agy" ||
         command === "new-worktree" ||
         command === "add-repository" ||
-        command === "preset-one" ||
-        command === "preset-columns" ||
-        command === "preset-rows" ||
-        command === "preset-grid" ||
-        command === "preset-main2" ||
-        command === "preset-main3" ||
         command === "tidy-tiles" ||
         command === "maximize" ||
         command === "left" ||

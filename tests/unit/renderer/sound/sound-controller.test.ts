@@ -312,3 +312,30 @@ test("shell attention and completion stay silent and cancel pending alerts on ki
   expect(f.sink.alert).not.toHaveBeenCalled();
   f.dispose();
 });
+
+test("master gain and mute apply to working, verdict and refusal audio", async () => {
+  const f = await fixture();
+  const settings = {
+    ...DEFAULT_SOUND,
+    working: true,
+    volume: 0.4,
+    workingVolume: 0.2,
+    alertVolume: 0.7,
+  };
+  f.settings(settings);
+  expect(f.sink.working).toHaveBeenLastCalledWith(1, expect.closeTo(0.08));
+  f.source.update("a", { state: "done" });
+  vi.advanceTimersByTime(1000);
+  expect(f.sink.alert).toHaveBeenLastCalledWith("done", expect.closeTo(0.28));
+  f.dispose.refuse();
+  expect(f.sink.alert).toHaveBeenLastCalledWith("refusal", expect.closeTo(0.28));
+  f.settings({ ...settings, muted: true });
+  expect(f.sink.silenceAlerts).toHaveBeenCalled();
+  expect(f.sink.working).toHaveBeenLastCalledWith(1, 0);
+  f.sink.alert.mockClear();
+  f.dispose.refuse();
+  f.source.update("b", { state: "needs_input" });
+  vi.advanceTimersByTime(2100);
+  expect(f.sink.alert).not.toHaveBeenCalled();
+  f.dispose();
+});

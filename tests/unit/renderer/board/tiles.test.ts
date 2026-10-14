@@ -1,3 +1,4 @@
+import { arrangedLayout } from "../../../fixtures/tile-layout";
 import { expect, test } from "vitest";
 import {
   blankColumns,
@@ -18,7 +19,6 @@ import {
   clampRatio,
   resizeSplit,
   placeSession,
-  preset,
   rectangles,
   neighbor,
   restoreLayout,
@@ -28,7 +28,7 @@ import {
   contentId,
   saveLayout,
 } from "../../../../src/renderer/board/tiles";
-import type { TileLayout, TileNode, TilePreset } from "../../../../src/renderer/board/tiles.d";
+import type { TileLayout, TileNode } from "../../../../src/renderer/board/tiles.d";
 function place(layout: TileLayout, session: string, replace = false) {
   const next = placeSession(layout, session, replace);
   if (!next) throw new Error("No space");
@@ -62,7 +62,7 @@ test("gutters clamp finite ratios and leave leaves untouched", () => {
   expect(rectangles(resized.tree).gutters[0]?.rect.y).toBe(85);
 });
 test("placing focuses visible sessions, uses focused empty then first empty, replaces the oldest eligible when full, and explicit replace moves once", () => {
-  let layout = preset(initialLayout(), "main2");
+  let layout = arrangedLayout(initialLayout(), "main2");
   const ids = leaves(layout.tree).map((tile) => tile.id);
   layout = place({ ...layout, focused: ids[1] ?? "" }, "a");
   expect(layout.focused).toBe(ids[1]);
@@ -84,36 +84,16 @@ test("placing focuses visible sessions, uses focused empty then first empty, rep
   expect(leaves(layout.tree).map((tile) => sessionId(tile) ?? null)).toEqual([null, null, "c"]);
   expect(placeSession({ ...layout, focused: "missing" }, "d", true)).toBeNull();
 });
-test.each<[TilePreset, number]>([
-  ["one", 1],
-  ["columns", 2],
-  ["rows", 2],
-  ["grid", 4],
-  ["main2", 3],
-  ["main3", 4],
-])("%s is a tree shortcut preserving the focused leaf first", (key, count) => {
-  let layout = preset(initialLayout(), "grid");
+test("directional focus follows split geometry", () => {
+  let layout = arrangedLayout(initialLayout(), "grid");
   for (const session of ["a", "b", "c", "d"]) layout = place(layout, session);
-  const focused = leaves(layout.tree).find((tile) => tile.id === layout.focused);
-  const next = preset({ ...layout, maximized: layout.focused }, key);
-  expect(leaves(next.tree)).toHaveLength(count);
-  expect(leaves(next.tree)[0]).toBe(focused);
-  expect(next.maximized).toBeNull();
-  expect(new Set(leaves(next.tree).map((tile) => tile.id)).size).toBe(count);
-});
-test("presets reuse empty identities, add empty slots and directional focus follows geometry", () => {
-  const start = initialLayout();
-  let layout = preset(start, "grid");
-  for (const session of ["a", "b", "c", "d"]) layout = place(layout, session);
-  layout = { ...layout, focused: start.focused };
   const ids = leaves(layout.tree).map((tile) => tile.id);
-  expect(ids[0]).toBe(start.focused);
+  layout = { ...layout, focused: ids[0] ?? "" };
   expect(neighbor(layout, "right")).toBe(ids[2]);
   expect(neighbor(layout, "down")).toBe(ids[1]);
   expect(neighbor(layout, "up")).toBe(ids[0]);
   expect(neighbor({ ...layout, focused: ids[3] ?? "" }, "left")).toBe(ids[1]);
   expect(neighbor({ ...layout, focused: "unknown" }, "left")).toBe("unknown");
-  expect(leaves(preset(layout, "grid").tree)).toEqual(leaves(layout.tree));
 });
 test("persistence restores ratios and identities but clears maximize and removes vanished sessions after inventory arrives", () => {
   let layout = place(splitTile(initialLayout(), "horizontal"), "a");
@@ -202,14 +182,6 @@ test("restore validates untrusted storage, including duplicate identities and se
   expect(restoreLayout(JSON.stringify({ version: 1, tree: deep })).tree.kind).toBe("tile");
 });
 
-test("shrinking a preset preserves an occupied session even when focus is empty", () => {
-  const filled = place(initialLayout(), "kept");
-  const layout = splitTile(filled, "horizontal");
-  const single = preset(layout, "one");
-  expect(leaves(single.tree).map((tile) => sessionId(tile) ?? null)).toEqual(["kept"]);
-  expect(single.focused).toBe(filled.focused);
-});
-
 test("split construction stays within restore bounds and ignores an absent focus", () => {
   let layout = initialLayout();
   expect(splitTile({ ...layout, focused: "absent" }, "horizontal").focused).toBe("absent");
@@ -261,7 +233,7 @@ test("center drops replace sessions, swap identities, and reject vanished or sel
 test.each(["left", "right", "up", "down"] as const)(
   "tile move %s collapses the old parent and keeps every leaf",
   (zone) => {
-    let start = preset(initialLayout(), "main3");
+    let start = arrangedLayout(initialLayout(), "main3");
     for (const session of ["a", "b", "c", "d"]) start = place(start, session);
     const original = leaves(start.tree);
     const from = original[2],
@@ -365,7 +337,7 @@ test("placement and center drops preserve narrow space; swaps restore gutter min
 });
 
 test("full columns scale proportionally and preserve nested rows", () => {
-  let layout = preset(initialLayout(), "main3");
+  let layout = arrangedLayout(initialLayout(), "main3");
   for (const session of ["a", "b", "c", "d"]) layout = place(layout, session);
   const before = rectangles(layout.tree).tiles;
   const next = placeSession(layout, "new", false, { columns: 400 });
@@ -381,7 +353,7 @@ test("full columns scale proportionally and preserve nested rows", () => {
   expect(after.at(-1)?.rect.x).toBeCloseTo(200 / 3);
 });
 test("a vertical root becomes the left half of a new two-column root", () => {
-  let layout = preset(initialLayout(), "rows");
+  let layout = arrangedLayout(initialLayout(), "rows");
   layout = place(place(layout, "a"), "b");
   expect(placeSession(layout, "c", false, { columns: 180 })?.tree).toMatchObject({
     direction: "horizontal",
@@ -391,7 +363,7 @@ test("a vertical root becomes the left half of a new two-column root", () => {
   });
 });
 test("minimum width uses LRU, protects focus and attention, and falls back to focused non-attention", () => {
-  let layout = preset(initialLayout(), "grid");
+  let layout = arrangedLayout(initialLayout(), "grid");
   for (const session of ["a", "b", "c", "d"]) layout = place(layout, session);
   const ids = leaves(layout.tree).map((tile) => tile.id);
   const focusedAt = new Map(ids.map((id, index) => [id, [3, 1, 2, 4][index] ?? 0]));
@@ -566,7 +538,6 @@ test("mixed content keeps occupancy, numbering and identities across tile operat
   expect(terminals(swapped.tree).map((tile) => contentId(tile.content))).toEqual(["p", "s"]);
   const dropped = dropTile(mixed, { kind: "tile", id: mixed.focused }, tiles[0]?.id ?? "", "down");
   expect(terminals(dropped.tree).map((tile) => contentId(tile.content))).toEqual(["s", "p"]);
-  expect(leaves(preset(mixed, "one").tree)[0]?.content).toEqual({ kind: "preview", preview: "p" });
   expect(terminals(tidyTiles(splitTile(mixed, "vertical")).tree)).toEqual(tiles);
   const pruned = pruneContent(mixed, { sessions: new Set(["s"]), previews: new Set() });
   expect(leaves(pruned.tree).map((tile) => tile.content)).toEqual([

@@ -296,17 +296,6 @@ export function createCommands(
         ...(id === "copy" || id === "paste" ? { sheet: ["App", label] as const } : {}),
       });
   }
-  for (const [id, label] of [
-    ["one", "One"],
-    ["columns", "Two side by side"],
-    ["rows", "Two stacked"],
-    ["grid", "Two by two"],
-    ["main2", "One and two"],
-    ["main3", "One and three"],
-  ] as const)
-    add(`preset-${id}`, label, "View", [], () => {
-      actions.board(`preset-${id}`);
-    });
   for (const [id, label, code] of [
     ["in", "Bigger interface", "Equal"],
     ["out", "Smaller interface", "Minus"],

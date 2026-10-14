@@ -179,17 +179,6 @@
 .tile-gutter[data-dragging="true"] {
   background: color-mix(in srgb, var(--highlight) 35%, transparent);
 }
-.tile-presets {
-  display: flex;
-  align-items: center;
-}
-.tile-presets button {
-  padding: 2px;
-  width: 24px;
-  height: 26px;
-  border: 0;
-  background: transparent;
-}
 @media (prefers-reduced-motion: reduce) {
   .terminal-tile {
     transition: none;

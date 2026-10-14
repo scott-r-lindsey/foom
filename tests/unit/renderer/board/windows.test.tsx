@@ -43,8 +43,19 @@ function fixture(initialSession?: string) {
       return offRemoved;
     },
   } satisfies WindowsApi;
-  const source = { ...createSampleSource(rows), windows };
+  let command: ((command: BoardCommand) => void) | undefined;
+  const source = {
+    ...createSampleSource(rows),
+    windows,
+    subscribeCommands: (listener: (command: BoardCommand) => void) => {
+      command = listener;
+      return () => {};
+    },
+  };
   return {
+    command: (value: BoardCommand) => {
+      act(() => command?.(value));
+    },
     rows,
     windows,
     source,
@@ -161,7 +172,7 @@ test("opens the popout's initial session once inventory arrives and reports oper
   expect(view.container.querySelectorAll(".terminal-tile[data-empty=false]")).toHaveLength(0);
   f.windows.sync.mockRejectedValueOnce(new Error("closed"));
   await act(async () => {
-    fireEvent.click(view.getByRole("button", { name: "One" }));
+    f.command("split-right");
     await Promise.resolve();
   });
   expect(view.getByRole("alert").textContent).toContain("Unable to reserve");
@@ -290,6 +301,6 @@ test("sidebar collapse saves per window with tile changes and survives remount",
     await Promise.resolve();
   });
   expect(restored.getByRole("button", { name: "Expand sidebar" })).toBeTruthy();
-  fireEvent.click(restored.getByRole("button", { name: "Two side by side" }));
+  f.command("split-right");
   expect(loadLayout(localStorage, `${TILE_STORAGE}.test-window`).sidebarCollapsed).toBe(true);
 });

@@ -6,7 +6,6 @@ import type {
   TileLayout,
   TileLeaf,
   TileNode,
-  TilePreset,
   TileRect,
   TileSplit,
 } from "./tiles.d";
@@ -292,35 +291,6 @@ export function placeContent(
     focused: target.id,
     maximized: layout.maximized ? target.id : null,
   };
-}
-export function preset(layout: TileLayout, kind: TilePreset): TileLayout {
-  const old = leaves(layout.tree);
-  const ordered = [
-    ...old.filter((tile) => tile.id === layout.focused && tile.content !== null),
-    ...old.filter((tile) => tile.id !== layout.focused && tile.content !== null),
-    ...old.filter((tile) => tile.id === layout.focused && tile.content === null),
-    ...old.filter((tile) => tile.id !== layout.focused && tile.content === null),
-  ];
-  const take = () => ordered.shift() ?? newTile();
-  const a = take();
-  const tree =
-    kind === "one"
-      ? a
-      : kind === "columns"
-        ? split(a, take(), "horizontal")
-        : kind === "rows"
-          ? split(a, take(), "vertical")
-          : kind === "grid"
-            ? split(split(a, take(), "vertical"), split(take(), take(), "vertical"), "horizontal")
-            : kind === "main2"
-              ? split(a, split(take(), take(), "vertical"), "horizontal", 0.6)
-              : split(
-                  a,
-                  split(take(), split(take(), take(), "vertical"), "vertical", 1 / 3),
-                  "horizontal",
-                  0.6,
-                );
-  return { tree, focused: a.id, maximized: null };
 }
 /** Flat rectangles let React keep each leaf under the same parent across tree edits. */
 export function rectangles(
