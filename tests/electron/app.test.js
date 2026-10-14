@@ -6219,6 +6219,19 @@ test("tile drag drops replace, split every edge, swap and move without reattachm
   };
   const saved = () =>
     page.evaluate(() => localStorage.getItem(`foom.tiles.v1.${window.desktop.windows.id}`));
+  const singleTile = async () => {
+    let occupied = await page.locator('.terminal-tile[data-empty="false"]').count();
+    while (occupied > 1) {
+      await page.evaluate(async () => {
+        await window.desktop.appMenu.execute("tile-2");
+        await window.desktop.appMenu.execute("hide-session");
+      });
+      occupied--;
+      await expect(page.locator('.terminal-tile[data-empty="false"]')).toHaveCount(occupied);
+    }
+    await page.evaluate(() => window.desktop.appMenu.execute("tidy-tiles"));
+    await expect(tiles).toHaveCount(1);
+  };
   const initial = await saved();
   await drag(rows.nth(1), tiles.first(), 0.5, 0.5, true);
   assert.equal(await saved(), initial);
@@ -6233,17 +6246,7 @@ test("tile drag drops replace, split every edge, swap and move without reattachm
   ]) {
     await page.emulateMedia({ colorScheme: theme, reducedMotion: "reduce" });
     await expect(page.locator("html")).toHaveCSS("color-scheme", theme);
-    let occupied = await page.locator('.terminal-tile[data-empty="false"]').count();
-    while (occupied > 1) {
-      await page.evaluate(async () => {
-        await window.desktop.appMenu.execute("tile-2");
-        await window.desktop.appMenu.execute("hide-session");
-      });
-      occupied--;
-      await expect(page.locator('.terminal-tile[data-empty="false"]')).toHaveCount(occupied);
-    }
-    await page.evaluate(() => window.desktop.appMenu.execute("tidy-tiles"));
-    await expect(tiles).toHaveCount(1);
+    await singleTile();
     await drag(rows.nth(1), tiles.first(), 0.5, 0.5);
     await drag(rows.nth(2), tiles.first(), x, y);
     await expect(tiles).toHaveCount(2);
@@ -6256,8 +6259,11 @@ test("tile drag drops replace, split every edge, swap and move without reattachm
     // Restore the other session for the next edge's source/target pair.
     await drag(rows.nth(1), tiles.first(), 0.5, 0.5);
   }
+  await singleTile();
   await page.evaluate(() => window.desktop.appMenu.execute("split-right"));
   await rows.nth(0).click();
+  await expect(tiles).toHaveCount(2);
+  await expect(page.locator('.terminal-tile[data-empty="false"]')).toHaveCount(2);
   await expect(
     page.locator(".terminal-tile[data-focused='true'] .xterm-helper-textarea"),
   ).toBeFocused();
