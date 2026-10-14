@@ -252,8 +252,9 @@ can be reviewed and reverted from Settings → Foom config.
 
 ## Agent plugins
 
-- Put declarative version 1 manifests in \`agents/<id>.json\`. Foom never fetches plugins or loads scripts from them.
-- A minimal manifest is \`{ "kind": "agent", "version": 1, "id": "example-agent", "name": "Example Agent", "badge": "EX", "executables": ["example-agent"], "launch": { "arguments": [], "prompt": ["--prompt", "{prompt}"], "resume": ["--resume", "{conversationId}"] }, "bypassArguments": ["--yolo"], "attention": { "minimumEngineVersion": 1, "rules": [] } }\`.
+- Put declarative version 1 or version 2 manifests in \`agents/<id>.json\`. Foom never fetches plugins or loads scripts from them.
+- Version 2 supports generic launch, discovery, resume, prompt/guidance, MCP and attention data; hooks, health and setup declarations stay unavailable until their engines ship.
+- A minimal version 1 manifest is \`{ "kind": "agent", "version": 1, "id": "example-agent", "name": "Example Agent", "badge": "EX", "executables": ["example-agent"], "launch": { "arguments": [], "prompt": ["--prompt", "{prompt}"], "resume": ["--resume", "{conversationId}"] }, "bypassArguments": ["--yolo"], "attention": { "minimumEngineVersion": 1, "rules": [] } }\`.
 - IDs match filenames and cannot be claude, codex, agy or shell. Executables are names on PATH, not paths or shell command strings. Every argv entry is literal. Unknown keys and unsafe detection regexes are rejected.
 - New and edited manifests wait for a trusted confirmation showing executables, all argv templates, bypass flags and hook mappings. A commit does not approve them. Changed or invalid plugins cannot launch; running sessions keep their original launch bindings.
 - \`foom config validate\` checks manifests offline but grants no consent. To remove a plugin, remove its manifest. Keep it on restores approved bytes or removes an unapproved addition.

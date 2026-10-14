@@ -185,6 +185,7 @@ export class Workspace {
   private receiver: ReturnType<WorkspaceDependencies["receiver"]> | undefined;
   private scanned: ReturnType<Agents["scan"]> | undefined;
   private closed = false;
+  private readonly launchAbort = new AbortController();
   private location: "root" | "adjacent" = "root";
   private acknowledged = false;
   private hooksEnabled = true;
@@ -408,7 +409,17 @@ export class Workspace {
     );
     this.agents = deps.agents
       ? deps.agents(prepare, prepareControl)
-      : new AgentService(deps.worktrees, deps.terminals, prepare, prepareControl, this.agyPlugin);
+      : new AgentService(
+          deps.worktrees,
+          deps.terminals,
+          prepare,
+          prepareControl,
+          this.agyPlugin,
+          async (content) => {
+            const approved = await deps.dialog?.(content, this.launchAbort.signal);
+            return approved === true && !this.closed;
+          },
+        );
   }
 
   /** Setup's choices apply to later launches; running agents keep theirs. */
@@ -910,7 +921,8 @@ export class Workspace {
         ...((replacement?.conversationId ?? extra.conversationId) === undefined
           ? {}
           : { conversationId: replacement?.conversationId ?? extra.conversationId }),
-        bypass: hasBypassArgument(request.agent, defaultArguments),
+        ...(result.conversationId ? { conversationId: result.conversationId } : {}),
+        bypass: result.bypass ?? hasBypassArgument(request.agent, defaultArguments),
         state: null,
       });
       const tracked = this.track(result.id);
@@ -1500,7 +1512,8 @@ export class Workspace {
         ...(replacement?.conversationId === undefined
           ? {}
           : { conversationId: replacement.conversationId }),
-        bypass: hasBypassArgument(run, defaultArguments),
+        ...(result.conversationId ? { conversationId: result.conversationId } : {}),
+        bypass: result.bypass ?? hasBypassArgument(run, defaultArguments),
         state: null,
       });
       const tracked = this.track(result.id);
@@ -2572,6 +2585,7 @@ export class Workspace {
   async dispose(): Promise<void> {
     if (this.closed) return;
     this.closed = true;
+    this.launchAbort.abort();
     for (const run of this.cleanupRuns.values()) run.stop();
     await Promise.all([...this.cleanupRuns.values()].map((run) => run.settled()));
     this.cleanupRuns.clear();

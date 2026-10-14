@@ -100,3 +100,30 @@ test("caps launches at three, serializes shared checkouts, and finishes parents 
     throw new Error("unexpected");
   });
 });
+
+test("v2 restore capability requires the persisted human grant and verified installation", () => {
+  const parent = {
+    ...row,
+    agent: "fixture-v2",
+    providerOrigin: "config" as const,
+    orchestrator: { identity: "identity", history: [] },
+  };
+  const installation = {
+    id: "fixture-v2",
+    path: "/fake/fixture-v2",
+    version: "fixture 1.2.3",
+    hooks: false,
+    mcp: true,
+    restoreControl: true,
+    reason: "Approved",
+  };
+  expect(restoreAuthority(parent, "identity", installation, true)).toBe(true);
+  expect(restoreAuthority(parent, "different", installation, true)).toBe(false);
+  expect(restoreAuthority({ ...row, agent: "fixture-v2" }, "identity", installation, true)).toBe(
+    false,
+  );
+  expect(
+    restoreAuthority(parent, "identity", { ...installation, restoreControl: false }, true),
+  ).toBe(false);
+  expect(restoreAuthority(parent, "identity", { ...installation, mcp: false }, true)).toBe(false);
+});

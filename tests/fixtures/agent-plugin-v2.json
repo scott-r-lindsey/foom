@@ -1,0 +1,107 @@
+{
+  "kind": "agent",
+  "version": 2,
+  "id": "fixture-v2",
+  "name": "Fixture v2",
+  "badge": "V2",
+  "executables": ["fixture-v2"],
+  "discovery": {
+    "version": { "prefix": "fixture ", "suffixes": ["", " (fixture)"], "minimum": [1, 2, 3] },
+    "facts": [
+      { "id": "inline", "helpTokens": ["--inline"] },
+      { "id": "promptSupport", "helpTokens": ["--prompt"] },
+      { "id": "mcpSupport", "helpTokens": ["--mcp"] },
+      {
+        "id": "verified",
+        "when": { "all": [{ "field": "mcpSupport", "op": "eq", "value": true }] }
+      }
+    ]
+  },
+  "launch": {
+    "order": [
+      "resume",
+      "defaults",
+      "arguments",
+      "display",
+      "guidance",
+      "mcp",
+      "hooks",
+      "tools",
+      "prompt"
+    ],
+    "arguments": { "arguments": ["--ordinary"] },
+    "display": {
+      "arguments": ["--inline"],
+      "when": { "all": [{ "field": "inline", "op": "eq", "value": true }] }
+    },
+    "resume": { "arguments": ["--resume", "{conversationId}"] },
+    "prompt": { "arguments": ["--prompt", "{prompt}"], "requires": "promptSupport" },
+    "guidance": {
+      "when": { "all": [{ "field": "control", "op": "eq", "value": true }] },
+      "merge": { "flags": ["--prompt", "-i"], "output": "--prompt", "separators": "whitespace" }
+    },
+    "mcp": {
+      "arguments": ["--mcp", "{file:config/mcp.json}"],
+      "when": {
+        "all": [
+          { "field": "control", "op": "eq", "value": true },
+          { "field": "verified", "op": "eq", "value": true }
+        ]
+      }
+    },
+    "toolPermissions": {
+      "names": ["open_preview", "list_previews", "close_preview"],
+      "format": "mcp-double-underscore",
+      "arguments": ["--allow", "{tool}"],
+      "merge": {
+        "flags": ["--allow", "--allowed"],
+        "output": "--allow",
+        "separators": "whitespace-comma-parentheses"
+      }
+    }
+  },
+  "files": [
+    {
+      "name": "config/mcp.json",
+      "scope": "launch",
+      "format": "json",
+      "content": "{\"mcpServers\":{{mcpName:json}:{\"type\":\"http\",\"url\":{mcpUrl:json},\"headers\":{\"Authorization\":\"Bearer ${FOOM_CONTROL_TOKEN}\"}}}}",
+      "when": {
+        "all": [
+          { "field": "control", "op": "eq", "value": true },
+          { "field": "verified", "op": "eq", "value": true }
+        ]
+      }
+    }
+  ],
+  "reservedArguments": [
+    { "flag": "--resume", "forms": ["exact", "equals"] },
+    { "prefix": "-r" },
+    { "override": { "flags": ["-c", "--config"], "keys": ["hooks", "notify"] } }
+  ],
+  "bypassArguments": [
+    { "flag": "--yolo", "forms": ["exact", "equals"] },
+    { "flag": "--policy", "forms": ["separate", "equals"], "value": "bypass" }
+  ],
+  "bypassEnvironment": [{ "name": "FIXTURE_BYPASS", "match": "present-nonempty" }],
+  "conversation": {
+    "resumePin": "requested-on-paste",
+    "restoreControl": true,
+    "newId": { "format": "uuid", "arguments": ["--session", "{newId}"] }
+  },
+  "resumePaste": [{ "command": "fixture-v2", "selector": "--resume" }],
+  "attention": {
+    "minimumEngineVersion": 1,
+    "rules": [
+      {
+        "id": "working",
+        "state": "working",
+        "priority": 100,
+        "region": "title",
+        "match": { "contains": ["Working"] },
+        "reason": "Agent is working"
+      }
+    ]
+  },
+  "execution": { "completion": "attached", "completionChannels": [] }
+}

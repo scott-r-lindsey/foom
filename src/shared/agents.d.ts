@@ -13,6 +13,8 @@ export interface AgentInstallation {
   readonly version: string | null;
   readonly hooks: boolean;
   readonly resume?: boolean;
+  readonly resumePaste?: readonly { command: string; selector: string }[];
+  readonly restoreControl?: boolean;
   readonly source?: string;
   readonly bypassArguments?: readonly string[];
   readonly agyPlugin?: AgyPluginStatus;
@@ -73,6 +75,8 @@ export interface AgentLaunch {
   readonly environment?: readonly (readonly EnvironmentVariable[])[];
 }
 export interface AgentLaunched {
+  readonly conversationId?: string;
+  readonly bypass?: boolean;
   readonly providerOrigin?: "config";
   readonly id: string;
   readonly attention: "hooks" | "evaluator";

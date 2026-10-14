@@ -1423,10 +1423,24 @@ export function Sidebar({
                   <div className="panel-side" data-field>
                     {facts}
                     <ResumeField
+                      identities={options?.agents ?? []}
+                      patterns={(options?.agents ?? [])
+                        .filter((agent) => agent.path && options?.enabled[agent.id] !== false)
+                        .flatMap((agent) =>
+                          (agent.resumePaste ?? []).map((pattern) => ({
+                            ...pattern,
+                            agent: agent.id,
+                          })),
+                        )}
                       confirmations={source.confirmations}
                       key={menu.id}
                       agents={(options?.agents ?? [])
-                        .filter((agent) => agent.path && options?.enabled[agent.id])
+                        .filter(
+                          (agent) =>
+                            agent.path &&
+                            options?.enabled[agent.id] !== false &&
+                            agent.resume !== false,
+                        )
                         .map((agent) => agent.id)}
                       back={() => {
                         intent.pin(menu.id, menu.anchor);

@@ -181,3 +181,43 @@ test("confirmation expiry preserves the paste and agent choice for retry", async
   expect(launch).toHaveBeenCalledTimes(2);
   expect(done).toHaveBeenCalledOnce();
 });
+
+test("approved plugin paste patterns are bounded and ambiguous commands require an explicit choice", async () => {
+  const patterns = [{ agent: "fixture-v2", command: "fixture-v2", selector: "--resume" }];
+  expect(parseResume("fixture-v2 --resume saved", patterns)).toEqual({
+    agent: "fixture-v2",
+    id: "saved",
+  });
+  expect(parseResume("fixture-v2 --resume saved --extra", patterns)).toBeUndefined();
+  expect(parseResume(" ".repeat(513) + "saved", patterns)).toBeUndefined();
+  expect(
+    parseResume("fixture-v2 --resume saved", [
+      ...patterns,
+      { ...patterns[0], agent: "other", command: "fixture-v2", selector: "--resume" },
+    ]),
+  ).toEqual({ id: "saved" });
+  const launch = vi.fn(async () => {});
+  const view = render(
+    <ResumeField agents={["fixture-v2"]} patterns={patterns} launch={launch} back={() => {}} />,
+  );
+  fireEvent.change(view.getByRole("textbox"), { target: { value: "fixture-v2 --resume saved" } });
+  await act(async () => {
+    fireEvent.keyDown(view.getByRole("textbox"), { key: "Enter" });
+    await Promise.resolve();
+  });
+  expect(launch).toHaveBeenCalledWith("fixture-v2", "saved");
+});
+
+test("plugin choices show approved names and badges and retain a fallback for absent metadata", () => {
+  const view = render(
+    <ResumeField
+      agents={["fixture-v2", "unknown"]}
+      identities={[{ id: "fixture-v2", name: "Fixture v2", mark: "V2" }]}
+      launch={() => Promise.resolve()}
+      back={() => {}}
+    />,
+  );
+  fireEvent.change(view.getByRole("textbox"), { target: { value: "saved" } });
+  expect(view.getByRole("button", { name: "Fixture v2" }).textContent).toBe("V2");
+  expect(view.getByRole("button", { name: "unknown" }).textContent).toBe("?");
+});

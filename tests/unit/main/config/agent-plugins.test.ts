@@ -2,6 +2,7 @@ import { mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, it, vi } from "vitest";
+import v2Fixture from "../../../fixtures/agent-plugin-v2.json";
 import manifest from "../../../fixtures/agent-plugin.json";
 import { ConfigService } from "../../../../src/main/config/service";
 import { ConfigGit, prepareIsolation } from "../../../../src/main/config/git";
@@ -13,6 +14,7 @@ import {
   knownAgentId,
   replaceConfigProviders,
 } from "../../../../src/main/agents/providers/registry";
+import type { ConfigSettings } from "../../../../src/shared/config";
 import type { DialogContent } from "../../../../src/shared/confirmation";
 import { digest } from "../../../../src/main/config/layout";
 
@@ -42,7 +44,7 @@ async function fixture() {
     root: folder,
     git,
     defaults: configPart(DEFAULT_SETTINGS),
-    apply: () => undefined,
+    apply: vi.fn((_values: ConfigSettings) => undefined),
     baseline: { get: () => null, set: () => Promise.resolve() },
     themeBaseline: baseline,
     pluginBaseline: baseline,
@@ -215,7 +217,7 @@ it("withdraws v1 authority and refuses v2 before approval even with an approved 
     expect.objectContaining({
       id: manifest.id,
       state: "rejected",
-      reason: "$.version: v2-engine-unavailable",
+      reason: "$.hooks: v2-hooks-unavailable",
     }),
   );
   expect(status.pending).toBeNull();
@@ -227,5 +229,67 @@ it("withdraws v1 authority and refuses v2 before approval even with an approved 
   services.push(restarted);
   await restarted.initialize();
   expect(knownAgentId(manifest.id)).toBe(false);
-  expect(restarted.status().agentPlugins?.[0]?.reason).toBe("$.version: v2-engine-unavailable");
+  expect(restarted.status().agentPlugins?.[0]?.reason).toBe("$.hooks: v2-hooks-unavailable");
+});
+
+it("approves exact v2 bytes with complete before/after disclosure and withdraws authority during a changed-byte race", async () => {
+  const f = await fixture();
+  const file = join(f.folder, "agents", `${v2Fixture.id}.json`);
+  const original = JSON.stringify(v2Fixture, null, 2) + "\n";
+  await writeFile(file, original);
+  const status = await f.service.refresh();
+  const id = status.agentPlugins?.find((plugin) => plugin.id === v2Fixture.id)?.decisionId;
+  expect(knownAgentId(v2Fixture.id)).toBe(false);
+  f.confirm.mockResolvedValue(true);
+  await f.service.decide("allow", id);
+  const old = agentProvider(v2Fixture.id);
+  expect(old.model?.version).toBe(2);
+  expect(f.digests.get(`agents/${v2Fixture.id}.json`)).toBe(digest(Buffer.from(original)));
+  expect(JSON.stringify(f.confirm.mock.calls.at(-1)?.[0])).toContain(digest(original));
+  await writeFile(file, original + " ");
+  await expect(old.validate?.()).rejects.toThrow("changed");
+  const edit = await f.service.refresh();
+  const next = edit.agentPlugins?.find((plugin) => plugin.id === v2Fixture.id)?.decisionId;
+  f.confirm.mockImplementation(async (content) => {
+    expect(
+      content.sections?.find(
+        (section) => section.label === "Previous approved bytes (JSON-escaped)",
+      )?.items,
+    ).toEqual([JSON.stringify(original)]);
+    await writeFile(file, original + "  ");
+    return true;
+  });
+  await expect(f.service.decide("allow", next)).rejects.toThrow("file changed");
+  expect(knownAgentId(v2Fixture.id)).toBe(false);
+  expect(f.digests.get(`agents/${v2Fixture.id}.json`)).toBe(digest(original));
+});
+
+it("drops only a newly protected provider default list on approval and rejects invalid saves", async () => {
+  const f = await fixture();
+  const argumentsBefore = {
+    claude: ["--model", "safe"],
+    codex: [],
+    agy: [],
+    [v2Fixture.id]: ["--resume=saved"],
+    other: ["ordinary"],
+  };
+  await f.service.write({ agentArguments: argumentsBefore });
+  const settingsFile = join(f.folder, "settings.json");
+  const settingsBytes = await readFile(settingsFile, "utf8");
+  await writeFile(join(f.folder, "agents", `${v2Fixture.id}.json`), JSON.stringify(v2Fixture));
+  const pending = await f.service.refresh();
+  f.confirm.mockResolvedValue(true);
+  await f.service.decide(
+    "allow",
+    pending.agentPlugins?.find((plugin) => plugin.id === v2Fixture.id)?.decisionId,
+  );
+  expect(f.dependencies.apply.mock.calls.at(-1)?.[0].agentArguments).toEqual({
+    ...argumentsBefore,
+    [v2Fixture.id]: [],
+  });
+  expect(await readFile(settingsFile, "utf8")).toBe(settingsBytes);
+  await expect(f.service.write({ agentArguments: argumentsBefore })).rejects.toThrow(
+    "cannot be stored",
+  );
+  expect(await readFile(settingsFile, "utf8")).toBe(settingsBytes);
 });

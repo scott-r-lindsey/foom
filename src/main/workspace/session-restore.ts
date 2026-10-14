@@ -24,7 +24,7 @@ export function restoreAuthority(
     entry.orchestrator.identity === identity &&
     agent?.path !== null &&
     agent?.mcp === true &&
-    builtinAgent(agent.id)?.restoreControl === true
+    (agent.restoreControl ?? builtinAgent(agent.id)?.restoreControl) === true
   );
 }
 
