@@ -1500,10 +1500,13 @@
   position: relative;
   flex-shrink: 0;
   margin-left: auto;
-  padding: 2px;
-  width: 24px;
-  height: 26px;
-  border: 0;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  width: 26px;
+  height: 24px;
+  border: 1px solid transparent;
+  border-radius: var(--shape-radius, 5px);
   background: transparent;
 }
 .config-gear .panel-mark,
@@ -1514,6 +1517,11 @@
   color: var(--muted);
   background: transparent;
   box-shadow: none;
+}
+.config-gear .panel-mark,
+.config-gear .panel-mark svg {
+  width: 14px;
+  height: 14px;
 }
 .config-gear[data-tone]::after {
   content: "";
