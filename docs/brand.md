@@ -105,7 +105,7 @@ and the native window background uses its exact `bg` token.
 | Display | Archivo Black | Wordmark, headlines. Never in dense UI. |
 | Voice | Courier Prime | Taglines, empty states, marketing |
 | Interface | Geist, Geist Mono | App UI text; Geist Mono for rows and data |
-| Terminal | Hack Nerd Font Mono | Terminal output and Settings terminal preview; Geist Mono fallback |
+| Terminal | User-selected monospace family; bundled Hack Nerd Font Mono by default | Terminal output and Settings terminal preview; Geist Mono fallback |
 
 The four UI fonts are under the SIL Open Font License. Bundle them with the app. Don't load them from a CDN: the renderer CSP blocks remote fonts, and the app must work offline.
 

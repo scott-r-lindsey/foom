@@ -1,3 +1,4 @@
+import { terminalFontStack, TERMINAL_FONT_FALLBACK } from "../../shared/terminal-fonts";
 import { isUserThemeId } from "../../shared/theme-validation";
 import type { SetupState } from "../../shared/setup";
 import { resolveTerminalTheme } from "../../shared/terminal-themes";
@@ -41,7 +42,7 @@ export function createShell(
   const terminal = new Terminal({
     cursorBlink: true,
     fontSize: 14,
-    fontFamily: '"Hack Nerd Font Mono", "Geist Mono", monospace',
+    fontFamily: TERMINAL_FONT_FALLBACK,
     scrollback: 10000,
     theme: theme(),
   });
@@ -195,9 +196,15 @@ export function createShell(
   };
   // Subscribe before loading so a late initial response cannot undo a live change.
   let settingsChanged = false;
-  const applyFont = (size: number) => {
-    if (isDisposed() || terminal.options.fontSize === size) return;
+  const applyFont = (size: number, family: unknown) => {
+    const stack = terminalFontStack(family);
+    if (
+      isDisposed() ||
+      (terminal.options.fontSize === size && terminal.options.fontFamily === stack)
+    )
+      return;
     terminal.options.fontSize = size;
+    terminal.options.fontFamily = stack;
     fontResizePending = true;
     resize();
   };
@@ -213,13 +220,13 @@ export function createShell(
       : state.settings.terminalTheme;
   const offSetup = window.desktop.onSetupChange((state) => {
     settingsChanged = true;
-    applyFont(state.settings.terminalFontSize);
+    applyFont(state.settings.terminalFontSize, state.settings.terminalFont);
     applyTheme(selectedTheme(state));
   });
   const initialSettings = window.desktop.setupState().then(
     (state) => {
       if (!settingsChanged) {
-        applyFont(state.settings.terminalFontSize);
+        applyFont(state.settings.terminalFontSize, state.settings.terminalFont);
         applyTheme(selectedTheme(state));
       }
     },

@@ -431,6 +431,7 @@ const desktop: DesktopApi = {
       ipcRenderer.removeListener("config:changed", listener);
     };
   },
+  listTerminalFonts: () => ipcRenderer.invoke("setup:terminal-fonts"),
   listThemes: () => ipcRenderer.invoke("theme:list"),
   openThemesFolder: (kind) => ipcRenderer.invoke("theme:open-folder", kind),
   setupState: () => ipcRenderer.invoke("setup:state"),

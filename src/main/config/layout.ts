@@ -57,6 +57,13 @@ const settingsSchema = schema("foom:settings", {
       ],
     },
     interfaceScale: { enum: SCALES },
+    terminalFont: {
+      type: "string",
+      minLength: 1,
+      maxLength: 128,
+      pattern: "^[\\p{L}\\p{N}][\\p{L}\\p{N} ._()+-]*$",
+      not: { pattern: " $" },
+    },
     terminalFontSize: { type: "integer", minimum: 10, maximum: 32 },
     sound: {
       type: "object",
@@ -213,7 +220,7 @@ can be reviewed and reverted from Settings → Foom config.
 
 - \`settings.json\`: \`{ "kind": "settings", ... }\` with any of the allowed keys:
   \`colorMode\`, \`panelColor\`, \`interfaceTheme\`, \`terminalTheme\`, \`interfaceScale\`,
-  \`terminalFontSize\`, \`sound\`, \`agents\`, \`agentArguments\`, \`hooks\`, \`restoreSessions\` and \`concurrentChildren\` (integer 1–16, default 4). Any other key rejects the file.
+  \`terminalFontSize\`, \`terminalFont\` (a family name, default Hack Nerd Font Mono), \`sound\`, \`agents\`, \`agentArguments\`, \`hooks\`, \`restoreSessions\` and \`concurrentChildren\` (integer 1–16, default 4). Any other key rejects the file.
   Consent records, paths and secrets are not configurable here.
   \`agentArguments\` names all three agents: \`{ "claude": [], "codex": [], "agy": [] }\`.
   Each list is literal argv, one string per argument, with no shell parsing.
@@ -284,6 +291,7 @@ export const OWNED_FILES: Readonly<Record<string, string>> = {
  */
 export const OWNED_HISTORY: Readonly<Record<string, readonly string[]>> = {
   "README.md": [
+    "88acb3815e8efc866973c2d329491c63bef04d67b19e61579fe5abcf9af1221e",
     "205d3cac8e70f43434c221c43f8611ba846c580084e3b6b2a53d9a966e410810",
     "35a362caf6cfdec503b113efd0b66a6b89be3dc835b597e39f1fb8679b20875f",
     "878a20cc974fb5cee577361660f8153f9adbcb3ca815ee5fc4eca26047b8d858",
@@ -291,6 +299,7 @@ export const OWNED_HISTORY: Readonly<Record<string, readonly string[]>> = {
     "d71127b1f24427c8f3a36b5b32fde2aac496941c5bc038960f0d81399519c3e5",
   ],
   "AGENTS.md": [
+    "88acb3815e8efc866973c2d329491c63bef04d67b19e61579fe5abcf9af1221e",
     "205d3cac8e70f43434c221c43f8611ba846c580084e3b6b2a53d9a966e410810",
     "35a362caf6cfdec503b113efd0b66a6b89be3dc835b597e39f1fb8679b20875f",
     "878a20cc974fb5cee577361660f8153f9adbcb3ca815ee5fc4eca26047b8d858",
@@ -298,6 +307,7 @@ export const OWNED_HISTORY: Readonly<Record<string, readonly string[]>> = {
     "d71127b1f24427c8f3a36b5b32fde2aac496941c5bc038960f0d81399519c3e5",
   ],
   "CLAUDE.md": [
+    "88acb3815e8efc866973c2d329491c63bef04d67b19e61579fe5abcf9af1221e",
     "205d3cac8e70f43434c221c43f8611ba846c580084e3b6b2a53d9a966e410810",
     "35a362caf6cfdec503b113efd0b66a6b89be3dc835b597e39f1fb8679b20875f",
     "878a20cc974fb5cee577361660f8153f9adbcb3ca815ee5fc4eca26047b8d858",
@@ -306,6 +316,7 @@ export const OWNED_HISTORY: Readonly<Record<string, readonly string[]>> = {
   ],
   "schemas/theme.schema.json": ["831094a9c9c8c13c87ab7ff227b70803dcd3a9f9f59b6f1cc352f67b43a8e1cc"],
   "schemas/settings.schema.json": [
+    "8a7b5812d9d8784e1a093861e3fecd0d8d9b74190d1fdcfb9701f2af37510624",
     "e975ab7aba189e009bbcd16becb6c096679dc5c46017d585a46cbda130af804e",
     "24d2c65f96e90c242c21990e919dee89287addcd1ddbb2d39892f9033beb49f6",
     "29d7ba557c6979de9e6a2b9bbb98524350046e847f36739ca13cbfeec4603e6a",

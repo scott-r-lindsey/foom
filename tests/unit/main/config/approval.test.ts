@@ -102,6 +102,7 @@ test("owned files refresh only when missing or matching an earlier Foom version"
       "terminalTheme",
       "interfaceScale",
       "terminalFontSize",
+      "terminalFont",
       "sound",
       "agents",
       "agentArguments",

@@ -1,3 +1,4 @@
+import { isTerminalFont } from "./terminal-fonts";
 import { parseAgentDefaults } from "./agent-arguments";
 import type { ConfigSettings, ConfigSetting } from "./config";
 import { parseInterfaceTheme } from "./interface-themes";
@@ -12,6 +13,7 @@ export const CONFIG_SETTINGS = [
   "interfaceTheme",
   "interfaceScale",
   "terminalFontSize",
+  "terminalFont",
   "terminalTheme",
   "sound",
   "agents",
@@ -31,6 +33,7 @@ export function parseConfigSettings(value: unknown): ConfigSettings {
     if (!isConfigSetting(key)) throw new ThemeValidationError("$", "unknown-key");
     if (key === "agentArguments") result.agentArguments = parseAgentDefaults(entry);
     else if (key === "interfaceTheme") result.interfaceTheme = parseInterfaceTheme(entry);
+    else if (key === "terminalFont" && isTerminalFont(entry)) result.terminalFont = entry;
     else if (key === "terminalTheme") result.terminalTheme = parseTerminalThemeChoice(entry);
     else if (key === "sound") result.sound = parseSoundSettings(entry);
     else if (key === "restoreSessions" && typeof entry === "boolean")
