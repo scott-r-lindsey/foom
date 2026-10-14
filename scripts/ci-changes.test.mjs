@@ -79,10 +79,11 @@ test("manual runs, unknown events, new branches, and empty diffs require desktop
   );
 });
 
-test("desktop jobs use three Windows and macOS shards and two on Linux", () => {
+test("desktop jobs use three shards on every platform", () => {
   assert.deepEqual(desktopMatrix(), [
-    { os: "ubuntu-24.04", shard: "1/2" },
-    { os: "ubuntu-24.04", shard: "2/2" },
+    { os: "ubuntu-24.04", shard: "1/3" },
+    { os: "ubuntu-24.04", shard: "2/3" },
+    { os: "ubuntu-24.04", shard: "3/3" },
     { os: "windows-2025", shard: "1/3" },
     { os: "windows-2025", shard: "2/3" },
     { os: "windows-2025", shard: "3/3" },
@@ -91,8 +92,9 @@ test("desktop jobs use three Windows and macOS shards and two on Linux", () => {
     { os: "macos-15", shard: "3/3" },
   ]);
   assert.deepEqual(desktopMatrix(["ubuntu-24.04"]), [
-    { os: "ubuntu-24.04", shard: "1/2" },
-    { os: "ubuntu-24.04", shard: "2/2" },
+    { os: "ubuntu-24.04", shard: "1/3" },
+    { os: "ubuntu-24.04", shard: "2/3" },
+    { os: "ubuntu-24.04", shard: "3/3" },
   ]);
 });
 
