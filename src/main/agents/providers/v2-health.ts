@@ -66,6 +66,10 @@ export class V2Health {
     return this.owner.writes;
   }
 }
+/** Include health writes from terminals removed before application shutdown. */
+export async function flushV2Health(): Promise<void> {
+  await Promise.all([...owners.values()].map((owner) => owner.writes));
+}
 const stores = new Map<string, { fingerprint: string; store: Promise<V2Health> }>();
 export function healthStore(
   directory: string,
@@ -124,6 +128,7 @@ export class V2ExecutionHooks {
           spec.requiredEvents.every((id) => this.seen.has(id))
         )
           this.health.set("trusted", this.launch);
+        else if (this.promptTurn !== turn) this.health.set("declined", this.launch);
       } else if (spec && this.promptTurn !== turn) this.health.set("declined", this.launch);
       if (turn > 0 && this.stoppedTurn === turn) return false;
       if (turn > 0) this.stoppedTurn = turn;

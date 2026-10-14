@@ -55,6 +55,7 @@ export async function prepareV2Hooks(
             ? await privateDirectory(await privateDirectory(stableRoot, model.id), channel.id)
             : await privateDirectory(directory, channel.id);
         const version = observerVersion(channel, windows);
+        v2.values[`observerVersion:${channel.id}`] = version;
         const basename = `${options.basename}-v${String(version)}`;
         let script = "";
         for (const [name, content] of Object.entries(assets)) {

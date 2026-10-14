@@ -12962,6 +12962,7 @@ process.stdin.resume();`,
                 when: { all: [{ field: "control", op: "eq", value: true }] },
               },
             },
+            execution: { ...v2.execution, completionChannels: ["lifecycle"] },
             hooks: {
               channels: [
                 {

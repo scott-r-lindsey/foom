@@ -9,7 +9,14 @@ import { AgentManifestError } from "../../../shared/agent-manifest";
 import { dataContainer } from "../../../shared/agent-manifest-container";
 import { privateDirectory, createPrivateFile, verifyPrivate } from "../../control/private-files";
 import { CHILD_PROMPT, CONFIG_PROMPT, CLI_GUIDANCE } from "./cli-launch";
-import { boundedArguments, collectMerge, discoveryFacts, expandV2, selected } from "./v2-values";
+import {
+  boundedArguments,
+  collectMerge,
+  discoveryFacts,
+  expandV2,
+  hookCapability,
+  selected,
+} from "./v2-values";
 
 export function availableV2(model: AgentManifestV2): void {
   if (model.setup || model.files.some((file) => file.scope === "plugin"))
@@ -58,18 +65,7 @@ export function v2Provider(input: AgentManifestV2, validate: () => Promise<void>
         id: model.id,
         path,
         version: version || null,
-        hooks: Boolean(
-          model.hooks?.channels.some((channel) =>
-            selected(
-              channel.when,
-              discoveryFacts(model, version, help, {
-                hooksEnabled: true,
-                healthTrusted: false,
-                setupState: "unavailable",
-              }),
-            ),
-          ),
-        ),
+        hooks: hookCapability(model, version, help),
         mcp: mcpAvailable(false) || resumeMcp,
         restoreControl: model.conversation.restoreControl && resumeMcp,
         reason: "Config-authored agent; approved launch manifest.",

@@ -39,6 +39,9 @@ it("generic detached observers allocate order before transport and return a neut
     const windows = process.platform === "win32";
     const system = process.env["SystemRoot"] ?? "C:\\Windows";
     const env = {
+      ...Object.fromEntries(
+        Object.entries(process.env).filter(([name]) => name.toUpperCase() !== "PATH"),
+      ),
       ...launch.env,
       [`FOOM_CHANNEL_${channel.id.replaceAll("-", "_")}`]: channel.id,
       [`FOOM_ORDER_${channel.id.replaceAll("-", "_")}`]: order,

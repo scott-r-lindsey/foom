@@ -1,3 +1,4 @@
+import { flushV2Health } from "../agents/providers/v2-health";
 import type { V2HookRuntime } from "../../shared/v2-hooks";
 import { providerRevision } from "../agents/providers/registry";
 import { builtinAgent } from "../../shared/providers/catalog";
@@ -2639,11 +2640,7 @@ export class Workspace {
       } finally {
         await this.deps.sessions?.flush();
         await this.codexHooks.flush();
-        await Promise.all(
-          [...this.terminals.values()].flatMap((terminal) =>
-            terminal.v2Hooks ? [terminal.v2Hooks.health.flush()] : [],
-          ),
-        );
+        await flushV2Health();
       }
     }
   }

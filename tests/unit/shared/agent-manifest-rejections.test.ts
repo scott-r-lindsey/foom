@@ -536,3 +536,18 @@ it("refuses forged generated slots and binds staged plugin identity to its owner
     "incompatible-combination",
   );
 });
+
+it("rejects shell punctuation in header event names and fixed observer command suffixes", () => {
+  expect(() => parse(changed(agy, "hooks.channels.0.mapping.cases.0.event", "Stop;exec"))).toThrow(
+    "incompatible-combination",
+  );
+  const draft = structuredClone(claude);
+  const c = draft.hooks.channels[0];
+  if (!c) throw Error("Missing channel");
+  c.mapping.cases.push({ id: "Unsafe", event: "Stop;exec", action: "classify" });
+  const file = draft.files[0];
+  if (!file) throw Error("Missing file");
+  file.content =
+    '{"hooks":{"Stop":[{"type":"command","command":{observerCommand:lifecycle.Stop;exec:json}}]}}';
+  expect(() => parse(JSON.stringify(draft))).toThrow("dangling-reference");
+});

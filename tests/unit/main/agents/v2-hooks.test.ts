@@ -608,3 +608,42 @@ it("allocates independent sequence state and observers for multiple ordered chan
       reduceV2(entry, state, "t", "fixture", { conversationId: "id" }, "PreInvocation", "1"),
     ).toBeDefined();
 });
+it("flushes health after terminal removal and declines completion without a prompt callback", async () => {
+  const { flushV2Health } = await import("../../../../src/main/agents/providers/v2-health");
+  const root = await privateDirectory(await directory());
+  const m = model();
+  const health = new V2Health(root, "fixture", "definition");
+  const runtime = new V2ExecutionHooks(m, new Map([["lifecycle", true]]), health);
+  runtime.accept(
+    {
+      terminalId: "t",
+      signal: "plugin:fixture:Stop",
+      channel: "lifecycle",
+      caseId: "Stop",
+      action: "classify",
+      endsTurn: true,
+    },
+    1,
+  );
+  expect(health.get()).toBe("declined");
+  await flushV2Health();
+  expect(await readFile(join(root, "fixture-health.json"), "utf8")).toContain('"declined"');
+});
+it("discovers hooks for resume/prompt/control contexts while preserving hard verification gates", async () => {
+  const { hookCapability } = await import("../../../../src/main/agents/providers/v2-values");
+  const m = model(stdin);
+  const c = channel(m);
+  c.when = {
+    all: [
+      { field: "resume", op: "eq", value: true },
+      { field: "hasPrompt", op: "eq", value: true },
+      { field: "control", op: "eq", value: false },
+    ],
+    any: undefined,
+  };
+  expect(hookCapability(m, "", "")).toBe(true);
+  c.when.all?.push({ field: "hookSupport", op: "eq", value: true });
+  expect(hookCapability(m, "", "")).toBe(false);
+  m.hooks = undefined;
+  expect(hookCapability(m, "", "")).toBe(false);
+});

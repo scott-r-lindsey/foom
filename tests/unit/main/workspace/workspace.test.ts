@@ -3635,3 +3635,74 @@ test("an unavailable config plugin still protects its recorded conversation from
     await workspace.dispose();
   }
 });
+
+test("v2 workspace treats startup as metadata, suppresses duplicate completion and recovers an overtaken turn", async () => {
+  const { mkdtemp, rm } = await import("node:fs/promises");
+  const { tmpdir } = await import("node:os");
+  const path = await import("node:path");
+  const { parseAgentManifest } = await import("../../../../src/shared/agent-plugin-parser");
+  const { v2Provider } = await import("../../../../src/main/agents/providers/v2");
+  const fixture = await import("../../../fixtures/agent-plugins-v2/codex.json");
+  const model = parseAgentManifest(
+    JSON.stringify({ ...fixture.default, id: "fixture-workspace", setup: undefined }),
+  ).model;
+  const provider = v2Provider(model, () => Promise.resolve());
+  replaceConfigProviders([provider]);
+  const profile = await mkdtemp(path.join(tmpdir(), "v2-workspace-"));
+  deps.agentPluginDirectory = profile;
+  const workspace = await launched(model.id);
+  const hooks = await prepare?.(model.id);
+  if (!hooks?.v2 || !provider.prepareLaunch) throw Error("Missing hooks");
+  const installation = provider.discover("/fixture", "codex-cli 0.161.0", "-c");
+  const prepared = await provider.prepareLaunch(
+    installation,
+    { agent: model.id, repository: repo.path, worktree: tree.path, cols: 80, rows: 24 },
+    [],
+    undefined,
+    false,
+    true,
+    hooks,
+  );
+  try {
+    hooks.bind?.("t1");
+    const key = receiver.register.mock.calls.at(-1)?.[0];
+    if (!key) throw Error("Missing key");
+    const signal = (
+      caseId: string,
+      action: HookSignal["action"],
+      channel = "lifecycle",
+      recoverTurn = false,
+    ) =>
+      workspace.hook({
+        terminalId: key,
+        signal: `plugin:${model.id}:${caseId}`,
+        caseId,
+        channel,
+        action,
+        endsTurn: action === "classify",
+        recoverTurn,
+        ...(recoverTurn ? { terminationReason: "model_stop", fullyIdle: true } : {}),
+      });
+    await signal("SessionStart", "ready");
+    expect(workspace.snapshot().terminals[0]?.execution?.phase).toBe("starting");
+    await signal("UserPromptSubmit", "working");
+    expect(workspace.snapshot().terminals[0]?.execution?.turn).toBe(1);
+    tails.set("t1", []);
+    await signal("Stop", "classify");
+    expect(hooks.v2.runtime?.health.get()).toBe("trusted");
+    const count = evaluated.length;
+    await signal("agent-turn-complete", "classify", "notify");
+    expect(evaluated).toHaveLength(count);
+    await signal("Stop", "classify", "lifecycle", true);
+    expect(workspace.snapshot().terminals[0]?.execution?.turn).toBe(2);
+    expect(hooks.v2.runtime?.health.get()).toBe("declined");
+    await signal("UserPromptSubmit", "working");
+    await workspace.evidence("t1", { title: "codex", progress: null });
+    await workspace.quiet("t1");
+    workspace.removed("t1");
+  } finally {
+    prepared.dispose();
+    await workspace.dispose();
+    await rm(profile, { recursive: true, force: true });
+  }
+});

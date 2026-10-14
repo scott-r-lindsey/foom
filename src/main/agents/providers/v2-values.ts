@@ -92,6 +92,22 @@ export function discoveryFacts(
   return facts;
 }
 
+/** Discovery reports capability across possible launch contexts; preparation selects one. */
+export function hookCapability(model: AgentManifestV2, version: string, help: string): boolean {
+  const names = ["control", "configGreeting", "hasPrompt", "resume", "healthTrusted"];
+  for (let variant = 0; variant < 32; variant++) {
+    const engine: Record<string, unknown> = { hooksEnabled: true, setupState: "unavailable" };
+    for (const [index, name] of names.entries()) engine[name] = Boolean(variant & (1 << index));
+    const facts = { ...discoveryFacts(model, version, help, engine) };
+    for (const channel of model.hooks?.channels ?? []) {
+      const attached = selected(channel.when, facts);
+      facts[`channelAttached:${channel.id}`] = attached;
+      if (attached) return true;
+    }
+  }
+  return false;
+}
+
 type Matcher = AgentManifestV2["reservedArguments"][number];
 export function matchesArguments(matchers: readonly Matcher[], args: readonly string[]): boolean {
   return matchers.some((matcher) =>
