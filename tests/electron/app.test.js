@@ -262,31 +262,95 @@ async function assertAccessible(page) {
   await page.emulateMedia({ colorScheme: null });
 }
 
-// Keep the Node debugger available until PTY cleanup finishes. Pausing the final
-// quit lets Playwright detach its own connection through app.close(); calling
-// inspector.close() inside Electron can block while that connection is active.
+// Playwright closes its Node inspector only after its synchronous app.quit()
+// evaluation returns. Cancel that invocation and resume on the event loop so
+// Electron cannot wait for debugger disconnect inside the evaluation itself.
+function installQuitAcknowledgement({ app }) {
+  globalThis.readyToQuit = false;
+  const ready = (event) => {
+    if (event.defaultPrevented) return;
+    event.preventDefault();
+    app.removeListener("will-quit", ready);
+    app.once("before-quit", (event) => {
+      event.preventDefault();
+      process.stderr.write("Electron teardown: final quit scheduled\n");
+      setImmediate(() => {
+        process.stderr.write("Electron teardown: final quit resumed\n");
+        app.quit();
+      });
+    });
+    globalThis.readyToQuit = true;
+  };
+  app.on("will-quit", ready);
+}
+
 async function quitAndWait(app, requestQuit, phase = () => {}) {
   phase("install quit acknowledgement");
-  await app.evaluate(({ app }) => {
-    globalThis.readyToQuit = false;
-    const ready = (event) => {
-      if (event.defaultPrevented) return;
-      event.preventDefault();
-      app.removeListener("will-quit", ready);
-      globalThis.readyToQuit = true;
-    };
-    app.on("will-quit", ready);
-  });
+  await app.evaluate(installQuitAcknowledgement);
   phase("request quit");
   await requestQuit();
   phase("wait for quit acknowledgement");
   await expect
     .poll(() => app.evaluate(() => globalThis.readyToQuit), { timeout: deadline(8000) })
     .toBe(true);
-  phase("close Playwright connection");
-  await app.close();
-  phase("closed");
+  // Observe stderr rather than debugger console events: the final quit may run
+  // after Playwright has already disconnected the inspector.
+  const child = app.process();
+  const lines = require("node:readline").createInterface({ input: child.stderr });
+  lines.on("line", (line) => {
+    if (line === "Electron teardown: final quit scheduled")
+      phase("return from Playwright quit evaluation");
+    if (line === "Electron teardown: final quit resumed") phase("wait for Electron process exit");
+    if (line.includes("Waiting for the debugger to disconnect..."))
+      phase("wait for Node debugger disconnect");
+  });
+  const exited = () => phase("finish Playwright connection cleanup");
+  child.once("exit", exited);
+  try {
+    phase("invoke Playwright quit evaluation");
+    await app.close();
+    phase("closed");
+  } finally {
+    lines.close();
+    child.removeListener("exit", exited);
+  }
 }
+
+// Exercise the synchronous inspector-call boundary without depending on a slow
+// CI runner: final quit must not run until the caller has regained control.
+test("final Electron quit unwinds the debugger evaluation before resuming", async () => {
+  const { EventEmitter } = require("node:events");
+  const app = new EventEmitter();
+  let exited = false;
+  app.quit = () => {
+    const event = {
+      defaultPrevented: false,
+      preventDefault() {
+        this.defaultPrevented = true;
+      },
+    };
+    app.emit("before-quit", event);
+    if (event.defaultPrevented) return;
+    app.emit("will-quit", event);
+    if (!event.defaultPrevented) exited = true;
+  };
+  installQuitAcknowledgement({ app });
+  const veto = (event) => event.preventDefault();
+  app.prependListener("will-quit", veto);
+  app.quit();
+  assert.equal(globalThis.readyToQuit, false, "A veto must not acknowledge cleanup");
+  app.removeListener("will-quit", veto);
+  app.quit();
+  assert.equal(globalThis.readyToQuit, true);
+  assert.equal(exited, false);
+  app.quit(); // Playwright's synchronous inspector evaluation.
+  assert.equal(exited, false, "Quit must return before entering native shutdown");
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(exited, true);
+  assert.equal(app.listenerCount("before-quit"), 0);
+  assert.equal(app.listenerCount("will-quit"), 0);
+  delete globalThis.readyToQuit;
+});
 
 // A test timeout does not cancel Playwright promises or dispose native processes.
 // One teardown owns ordering: all apps/PTY hosts quit before any fixture removal.
