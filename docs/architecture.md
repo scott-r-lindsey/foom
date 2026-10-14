@@ -404,6 +404,10 @@ content area less a 24-DIP margin and the display work area, and centers the car
 the content bounds. The card's content scrolls when constrained. Main shows the
 window only after its first valid measurement, re-establishes the parent link,
 reapplies positioning after show, and raises it with `moveTop()` before focusing.
+On macOS, presentation activates the app with `app.focus({ steal: true })` only
+while a measured trusted request is pending: native window focus alone cannot
+activate Foom when another app is frontmost. Activation grants no approval; a
+child that still cannot acquire focus follows the same cancellation checks.
 A main-owned one-second guard cancels if the page never measures. A shown child
 that cannot acquire native key focus gets one reorder attempt and a second
 one-second check; failure cancels without approving, clears the scrim and releases

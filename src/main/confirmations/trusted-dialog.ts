@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
-import { BrowserWindow, ipcMain, screen } from "electron";
+import { app, BrowserWindow, ipcMain, screen } from "electron";
 import type { Session, IpcMainEvent, Event, WebContents } from "electron";
 import type { DialogContent, DialogRequest } from "../../shared/confirmation";
 import type { InterfaceTheme } from "../../shared/interface-theme";
@@ -316,6 +316,9 @@ export class TrustedDialog {
     try {
       window.setParentWindow(this.parent);
       this.syncBounds();
+      // On macOS, window.focus() cannot activate an app behind another app.
+      // Only steal activation while a measured trusted request needs an answer.
+      if (this.platform === "darwin") app.focus({ steal: true });
       window.show();
       // Some window managers place a child when mapping it. Reapply after show.
       this.syncBounds();
