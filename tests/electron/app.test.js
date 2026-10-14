@@ -10480,6 +10480,8 @@ test("worktree panel previews pick contained Markdown and HTML, persist v2 tiles
       ({ dialog }, file) => {
         dialog.showOpenDialog = async (_window, options) => {
           globalThis.previewPickerOptions = options;
+          // Native pickers can blur the pending command before their IPC resolves.
+          await _window.webContents.executeJavaScript("document.activeElement?.blur()");
           return { canceled: false, filePaths: [file] };
         };
       },
@@ -10495,6 +10497,7 @@ test("worktree panel previews pick contained Markdown and HTML, persist v2 tiles
     assert.ok(preview);
     ids.push(preview.id);
     assert.equal(await app.evaluate(() => globalThis.previewPickerOptions.defaultPath), checkout);
+    await expect(page.locator(".row-menu")).toHaveCount(0);
     await expect.poll(async () => (await previewViewState(app, preview.id)).attached).toBe(true);
     await expect
       .poll(() => previewContents(app, preview.id, "document.body.innerText"))
@@ -10535,7 +10538,10 @@ test("worktree panel previews pick contained Markdown and HTML, persist v2 tiles
   await expect(page.locator('.terminal-tile[data-kind="preview"]')).toHaveCount(2);
   for (const id of ids)
     await expect.poll(async () => (await previewViewState(app, id)).attached).toBe(true);
-  git("worktree", "remove", "--force", checkout);
+  await page.getByRole("button", { name: "Actions for topic/preview", exact: true }).click();
+  await page.getByRole("menuitem", { name: "Delete worktree…", exact: true }).click();
+  const removal = await confirmationPage(app);
+  await removal.getByRole("button", { name: "Discard 2 changes and remove", exact: true }).click();
   await expect(page.locator(".preview-row")).toHaveCount(0);
   await expect(page.locator('.terminal-tile[data-kind="preview"]')).toHaveCount(0);
   await expect

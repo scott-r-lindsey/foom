@@ -151,10 +151,13 @@ const audio = new WindowAudio();
 const previewPlacements = new Map<number, PreviewPlacement>();
 let agentPreviews: PreviewBroker | undefined;
 export const previewHosts = new Map<number, PreviewHost>();
+const removingPreviewWorktrees = new Set<string>();
 async function validatePreviewWorktree(path: string): Promise<void> {
+  if (removingPreviewWorktrees.has(path)) throw new Error("Worktree is being removed");
   for (const repository of worktrees.listRepositories()) {
     if ((await worktrees.listWorktrees(repository.path)).some((tree) => tree.path === path)) {
       await worktrees.launchIdentity(repository.path, path);
+      if (removingPreviewWorktrees.has(path)) throw new Error("Worktree is being removed");
       return;
     }
   }
@@ -537,6 +540,19 @@ async function buildWindow(savedSize?: Size, saved?: WindowPlacement, initialSes
       },
       receiver: () => HookReceiver.listen((signal) => void workspace.hook(signal)),
       environment: (target) => environment.layers(target),
+      prepareWorktreeRemoval: async (worktree) => {
+        removingPreviewWorktrees.add(worktree);
+        const release = () => {
+          removingPreviewWorktrees.delete(worktree);
+        };
+        try {
+          await Promise.all([...previewHosts.values()].map((host) => host.closeWorktree(worktree)));
+          return release;
+        } catch (error) {
+          release();
+          throw error;
+        }
+      },
       onChange: () => {
         for (const entry of windows.values()) entry.workspaceIpc.sendChanged();
         for (const host of previewHosts.values())

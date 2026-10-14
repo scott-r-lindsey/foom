@@ -120,6 +120,8 @@ export interface WorkspaceDependencies {
   >;
   /** Started on the first launch that attaches hooks, then reused. */
   receiver: () => Promise<HookRegistrar & { close(): Promise<void> }>;
+  /** Release checkout resources before Git removal; restore availability afterward. */
+  prepareWorktreeRemoval?(worktree: string): Promise<() => void>;
   onExecution?(event: ExecutionTransition): void;
   onState(state: TerminalState): void;
   onChange?(): void;
@@ -1086,12 +1088,17 @@ export class Workspace {
           throw new Error("Worktree changes have changed. Review them and try again.");
       }
       await revalidate?.();
-      await this.deps.worktrees.removeWorktree(
-        entry.repository,
-        entry.worktree,
-        changes.length > 0,
-        identity,
-      );
+      const release = await this.deps.prepareWorktreeRemoval?.(entry.worktree);
+      try {
+        await this.deps.worktrees.removeWorktree(
+          entry.repository,
+          entry.worktree,
+          changes.length > 0,
+          identity,
+        );
+      } finally {
+        release?.();
+      }
       for (const item of entries) {
         if (!item.dormant) await this.deps.terminals.kill(item.id);
         this.removed(item.id);

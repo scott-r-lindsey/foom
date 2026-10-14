@@ -982,3 +982,29 @@ test("closing while isolated scroll capture is pending cannot resurrect a previe
   expect(view.webContents.reload).not.toHaveBeenCalled();
   await f.host.dispose(false);
 });
+
+test("worktree removal closes its previews and watches while retaining other checkouts", async () => {
+  const f = await fixture();
+  const { id, view } = await f.open();
+  const handler = partition.protocol.handle.mock.calls[0]?.[1];
+  handler?.({ url: `foom-preview://${id}/a.html` });
+  expect(f.host.watcherCount).toBe(1);
+  const other = f.registry.add("/another/checkout", "a.html");
+  await f.host.closeWorktree("/unknown");
+  expect(view.webContents.close).not.toHaveBeenCalled();
+  await f.host.closeWorktree(f.root);
+  expect(f.host.watcherCount).toBe(0);
+  expect(view.webContents.close).toHaveBeenCalledOnce();
+  expect(f.registry.records.has(id)).toBe(false);
+  expect(f.registry.records.has(other.id)).toBe(true);
+  await f.host.dispose(false);
+});
+
+test("open revalidates after saving so removal cannot race a new watch", async () => {
+  const f = await fixture();
+  f.validate.mockResolvedValueOnce(undefined).mockRejectedValue(new Error("being removed"));
+  await expect(f.open()).rejects.toThrow("being removed");
+  expect(f.host.watcherCount).toBe(0);
+  expect(f.registry.records.size).toBe(0);
+  expect(fake.views).toHaveLength(0);
+});

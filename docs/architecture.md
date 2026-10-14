@@ -1736,13 +1736,19 @@ read the contained document. `preview:pick`, `preview:close` and `preview:bounds
 use `WindowIpcRouter` to validate the owning board, exact app URL and top frame,
 and validate argument counts, worktree IDs and finite bounded rectangles.
 The picker command carries only the inventory worktree path that identifies the checkout.
-Main shows the native picker rooted there and derives the relative document path;
+Main dismisses the command panel before the native picker can change focus, so
+blur cancellation cannot leave a panel covering the loaded preview. It shows the
+picker rooted there and derives the relative document path;
 the renderer never chooses or sends a document path.
 IDs grant access only within their owning window. Sidebar inventory reports those
 IDs and display facts. The board places human previews with `placeContent`, preserving
 focus, and measures each preview body to report bounds through the source interface.
 Restored registry entries stay detached and allocate no view until bounds arrive.
-Worktree removal closes previews when workspace inventory refreshes.
+Confirmed Foom worktree removal closes that checkout’s previews in all windows before
+Git runs, releasing live-reload directory handles. New preview opens are refused
+until removal finishes, including opens awaiting registry persistence. External
+removal closes previews when workspace inventory refreshes; on Windows, close
+preview tiles first because directory watches can block external deletion.
 
 An unfocused preview never acquires keyboard focus on open, reload or navigation. Main loads
 it detached and attaches only after `did-finish-load`, when its board rectangle is
