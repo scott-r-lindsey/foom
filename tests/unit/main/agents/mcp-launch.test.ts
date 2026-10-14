@@ -15,6 +15,22 @@ it("uses unique additive server names, env credentials and cleans up private Cla
     expect(content).toContain("http://127.0.0.1:1234/mcp");
     expect(content).not.toBe(await readFile(other.args[1] ?? "", "utf8"));
     expect(claude.args).not.toContain("--strict-mcp-config");
+    const config: unknown = JSON.parse(content);
+    if (
+      typeof config !== "object" ||
+      config === null ||
+      !("mcpServers" in config) ||
+      typeof config.mcpServers !== "object" ||
+      config.mcpServers === null
+    )
+      throw new Error("Expected MCP servers");
+    const [name] = Object.keys(config.mcpServers);
+    if (name === undefined) throw new Error("Expected per-launch server name");
+    expect(name).toMatch(/^foom_[a-f0-9]+$/u);
+    expect(claude.args.slice(2)).toEqual([
+      "--allowedTools",
+      `mcp__${name}__open_preview,mcp__${name}__list_previews,mcp__${name}__close_preview`,
+    ]);
     if (process.platform !== "win32") expect((await stat(path)).mode & 0o777).toBe(0o600);
     expect(codex.args).toEqual(["-c", expect.stringMatching(/^mcp_servers\.foom_[a-f0-9]+=/u)]);
     expect(codex.args[1]).toContain('bearer_token_env_var="FOOM_CONTROL_TOKEN"');
