@@ -59,6 +59,10 @@ afterEach(async () => {
   await rm(root, { recursive: true, force: true });
 });
 it("adopts a remote-only PR head with the upstream used by plain push", async () => {
+  const fork = join(root, "fork.git");
+  await run("clone", "--bare", repo, fork);
+  await run("remote", "add", "fork", fork);
+  await run("config", "remote.pushDefault", "fork");
   const tree = await adopt();
   expect(tree.branch).toBe("child-one");
   expect(await service.launchIdentity(repo, tree.path)).toBe(tree.identity);
@@ -83,11 +87,21 @@ it("adopts a remote-only PR head with the upstream used by plain push", async ()
     (await git(["rev-parse", "HEAD"], { cwd: tree.path })).stdout,
   );
   await expect(adopt()).rejects.toThrow("branch_in_use");
+  expect((await git(["rev-parse", "refs/heads/main"], { cwd: fork })).stdout).toBe(
+    (await git(["rev-parse", "refs/heads/main"], { cwd: remote })).stdout,
+  );
+  await expect(
+    git(["rev-parse", "--verify", "refs/heads/child-one"], { cwd: fork }),
+  ).rejects.toThrow();
+  await run("config", "branch.child-one.pushRemote", "fork");
   await expect(adopt([tree])).resolves.toEqual(tree);
+  expect((await run("config", "--get", "branch.child-one.pushRemote")).trim()).toBe("origin");
 });
 it("preserves an existing local branch's commits while setting its PR upstream", async () => {
   await run("branch", "child-one");
+  await run("config", "branch.child-one.pushRemote", "elsewhere");
   const tree = await adopt();
+  expect((await run("config", "--get", "branch.child-one.pushRemote")).trim()).toBe("origin");
   expect(
     (await git(["rev-parse", "--abbrev-ref", "@{upstream}"], { cwd: tree.path })).stdout.trim(),
   ).toBe("origin/child-one");

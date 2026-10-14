@@ -540,6 +540,7 @@ export class WorktreeService {
         "--",
         branch,
       ]);
+      await git(repositoryPath, ["config", `branch.${branch}.pushRemote`, "origin"]);
       return { path: existing.path, branch, identity: owned.identity };
     }
     revalidate(undefined, branch);
@@ -556,6 +557,7 @@ export class WorktreeService {
         location,
         trackOrigin: true,
       });
+      await git(repositoryPath, ["config", `branch.${branch}.pushRemote`, "origin"]);
       return { path, branch, identity: await this.launchIdentity(repositoryPath, path) };
     } catch (error) {
       if (error instanceof ControlError) throw error;

@@ -359,7 +359,9 @@ codes are `forge_unavailable` (no provider or failed lookup/default discovery),
 `pr_not_open`, `pr_from_fork`, `default_branch`, `invalid_branch` and
 `branch_in_use`. Existing branch validation and remote default discovery precede
 fetching. Main fetches the validated head with argument arrays and creates a
-checkout tracking `origin/<branch>`, so plain `git push` targets that PR branch.
+checkout tracking `origin/<branch>` and sets its branch-specific `pushRemote` to
+origin, so plain `git push` targets that PR branch even with another default push
+remote.
 Existing local commits are preserved; adoption never resets a branch. A checkout
 already owned by this orchestrator and still unused may be reused after its
 identity and session eligibility are rechecked. Other checked-out branches are

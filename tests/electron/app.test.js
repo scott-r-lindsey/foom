@@ -7800,6 +7800,7 @@ test("an orchestrator adopts an open PR then launches its child", {
   git("branch", "-D", "child-one");
   git("remote", "add", "origin", "https://github.com/fixture/offline.git");
   git("config", `url.${remote}.insteadOf`, "https://github.com/fixture/offline.git");
+  git("config", "remote.pushDefault", "elsewhere");
   const forgeState = path.join(root, "forge.json");
   await writeFile(
     forgeState,
@@ -7870,6 +7871,7 @@ test("an orchestrator adopts an open PR then launches its child", {
   const rows = (await page.evaluate(() => window.desktop.workspace())).terminals;
   const childRow = rows.find((row) => row.id === child.resultId);
   assert.equal(childRow.branch, "child-one");
+  assert.equal(git("config", "--get", "branch.child-one.pushRemote").trim(), "origin");
   assert.equal(
     isolatedGit(["rev-parse", "--abbrev-ref", "@{upstream}"], {
       cwd: childRow.worktree,
