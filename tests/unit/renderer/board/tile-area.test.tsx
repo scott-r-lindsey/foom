@@ -1069,3 +1069,41 @@ test("preview bounds follow body measurement and transitions, hide under setting
   fireEvent(window, new Event("resize"));
   expect(bounds).not.toHaveBeenCalled();
 });
+
+test("human previews on a full narrow board replace the eligible tile as human sessions do", async () => {
+  const template = sampleRows(100)[1];
+  if (!template) throw new Error("Missing row");
+  const row = { ...template, state: "working" as const };
+  const data = createSampleSource([row]);
+  const preview = {
+    id: "picked",
+    repository: row.repository,
+    worktree: `${row.repository}/${row.branch}`,
+    relativePath: "page.html",
+    kind: "html" as const,
+  };
+  const layout = placeSession(initialLayout(), row.id);
+  if (!layout) throw new Error("Missing layout");
+  saveLayout(localStorage, layout);
+  const pick = vi.fn(() => Promise.resolve(preview.id));
+  const screen = render(
+    <Board
+      source={{
+        ...data,
+        previews: {
+          getSnapshot: () => [preview],
+          pick,
+          close: () => Promise.resolve(),
+          bounds: () => Promise.resolve(),
+        },
+      }}
+    />,
+  );
+  fireEvent.click(screen.getByRole("button", { name: `Actions for ${row.branch}` }));
+  fireEvent.click(screen.getByRole("menuitem", { name: "Preview file…" }));
+  await act(async () => {});
+  expect(screen.container.querySelectorAll(".terminal-tile")).toHaveLength(1);
+  expect(screen.getByRole("region", { name: "Tile 1: page.html" }).getAttribute("data-tile")).toBe(
+    layout.focused,
+  );
+});

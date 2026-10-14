@@ -441,7 +441,6 @@ export function Board({
             .map((row) => row.id),
         ),
         focusedAt: focusedAtRef.current,
-        preserveFocus: true,
       });
       if (!next) {
         await source.previews?.close(id);
