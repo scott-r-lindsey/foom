@@ -27,23 +27,32 @@ three-way balancing needs 448.6s before build/runner overhead, already at 75%
 of the ten-minute step limit. Four shards provide room for that overhead and
 variation without increasing timeouts.
 
+The first PR run,
+[38638986050](https://github.com/scott-r-lindsey/foom/actions/runs/38638986050),
+passed all checks but Windows shard 4 took 486s (301 / 359 / 345 / 486s across
+its four shards). Three Windows cases exceeded prior maxima substantially:
+window restoration 77s versus 15s, preview handoff 54s versus 18s, and agent
+discovery 37s versus 9s. The final plan includes all twelve reports from that
+run as a third source and redistributes those costs. Linux steps took
+200 / 191 / 204 / 186s; macOS steps took 359 / 361 / 346 / 328s.
+
 ## Assignment method
 
 The plan records seconds per test in the listed platform order, taking the
-maximum observed duration on each platform across the two source runs. Sort
+maximum observed duration on each platform across the three source runs. Sort
 cases by descending maximum fraction of a platform's total duration, breaking
 ties by test name. Place each case on the shard that minimizes the largest
 projected fraction across all platform/shard pairs; break ties by the selected
 shard's sum of platform fractions, then shard index. This balances all three
 platforms with one deterministic assignment.
 
-Conservative projected case sums (maxima across both runs), seconds:
+Conservative projected case sums (maxima across all three runs), seconds:
 
 | Platform | Shard 1 | Shard 2 | Shard 3 | Shard 4 |
 | --- | ---: | ---: | ---: | ---: |
-| Linux | 188.1 | 185.2 | 183.1 | 189.2 |
-| Windows | 340.6 | 344.1 | 336.6 | 337.4 |
-| macOS | 337.0 | 344.6 | 345.4 | 329.6 |
+| Linux | 196.2 | 188.2 | 196.3 | 194.0 |
+| Windows | 393.0 | 390.4 | 392.9 | 390.9 |
+| macOS | 357.9 | 357.5 | 342.8 | 354.9 |
 
 These are estimates, excluding build/runner overhead. Compare new CI JUnit
 and step wall times when refreshing the plan. Update the source runs, durations
