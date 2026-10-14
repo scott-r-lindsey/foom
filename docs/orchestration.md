@@ -356,9 +356,9 @@ selects `origin`; the API accepts no remote, branch override or path. Both
 `isCrossRepository` and `headRepositoryOwner` must establish the selected repository:
 a fork is refused even when its branch name also exists locally. Fixed refusal
 codes are `forge_unavailable` (no provider or failed lookup/default discovery),
-`pr_not_open`, `pr_from_fork`, `default_branch`, `invalid_branch` and
-`branch_in_use` and `branch_diverged` (local commits absent from the PR head). Existing branch validation and remote default discovery precede
-fetching. Main fetches the validated head with argument arrays and creates a
+`pr_not_open`, `pr_from_fork`, `default_branch`, `invalid_branch`, `branch_in_use`
+and `branch_diverged` (local commits absent from the PR head). Existing branch
+validation and remote default discovery precede fetching. Main fetches the validated head with argument arrays and creates a
 checkout tracking `origin/<branch>` and sets its branch-specific `pushRemote` to
 origin, so plain `git push` targets that PR branch even with another default push
 remote.

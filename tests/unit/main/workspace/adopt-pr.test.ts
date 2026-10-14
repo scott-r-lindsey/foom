@@ -1,10 +1,10 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { git } from "../../../helpers/git.js";
+import { git, gitSync } from "../../../helpers/git.js";
 import { FAKE_GH } from "../../../helpers/forge-cli.js";
 import { forgeProvider } from "../../../../src/main/control/forge";
 import { WorktreeService } from "../../../../src/main/workspace/worktrees";
@@ -211,12 +211,24 @@ it.each([false, true])("adopts only fast-forwardable local branches (reuse=%s)",
         message,
       )
     ).trim();
+  await writeFile(join(repo, "remote.txt"), "remote update\n");
+  await run("add", "remote.txt");
+  await run(
+    "-c",
+    "user.name=Test",
+    "-c",
+    "user.email=t@example.com",
+    "commit",
+    "-m",
+    "remote files",
+  );
   const target = await commit(initial, "remote advance");
   await run("push", "origin", `${target}:refs/heads/child-one`);
   const tree = await adopt(unused);
   if (owned) expect(tree).toEqual(owned);
   expect((await git(["rev-parse", "HEAD"], { cwd: tree.path })).stdout.trim()).toBe(target);
   expect((await run("rev-parse", "child-one")).trim()).toBe(target);
+  expect(await readFile(join(tree.path, "remote.txt"), "utf8")).toBe("remote update\n");
   expect((await git(["status", "--porcelain"], { cwd: tree.path })).stdout).toBe("");
 
   // Equality succeeds without changing the checkout or its identity.
@@ -300,3 +312,31 @@ it.each(["external", "switched", "replaced"])(
     expect(await run("rev-parse", "child-one")).toBe(before);
   },
 );
+
+it("never advances a branch checked out elsewhere immediately before the ref update", async () => {
+  await run("branch", "child-one");
+  const before = await run("rev-parse", "child-one");
+  await run(
+    "-c",
+    "user.name=Test",
+    "-c",
+    "user.email=t@example.com",
+    "commit",
+    "--allow-empty",
+    "-m",
+    "advance",
+  );
+  await run("push", "origin", "main:child-one");
+  const external = join(root, "external");
+  const revalidate = vi
+    .fn()
+    .mockImplementationOnce(() => undefined)
+    .mockImplementationOnce(() => undefined)
+    .mockImplementationOnce(() => {
+      gitSync(["worktree", "add", external, "child-one"], { cwd: repo, stdio: "pipe" });
+    });
+  await expect(adopt([], revalidate)).rejects.toThrow();
+  expect(await run("rev-parse", "child-one")).toBe(before);
+  expect((await git(["rev-parse", "HEAD"], { cwd: external })).stdout).toBe(before);
+  expect((await git(["status", "--porcelain"], { cwd: external })).stdout).toBe("");
+});
