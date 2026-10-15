@@ -321,6 +321,8 @@ async function buildWindow(savedSize?: Size, saved?: WindowPlacement, initialSes
     show: false,
     autoHideMenuBar: true,
     webPreferences: {
+      // Keep board and terminal paints alive across native occlusion/show transitions.
+      backgroundThrottling: false,
       // Saved interface scale, so the first paint is already the right size.
       zoomFactor: scale / 100,
       preload: path.join(__dirname, "../preload/preload.js"),
