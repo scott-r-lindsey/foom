@@ -130,7 +130,12 @@ export class V2ExecutionHooks {
           this.health.set("trusted", this.launch);
         else if (this.promptTurn !== turn) this.health.set("declined", this.launch);
       } else if (spec && this.promptTurn !== turn) this.health.set("declined", this.launch);
-      if (turn > 0 && this.stoppedTurn === turn) return false;
+      // Ordered streams already discard stale/duplicate reports in the reducer.
+      // A newer Stop can belong to a turn whose working report was lost.
+      const ordered = this.model.hooks?.channels.some(
+        (channel) => channel.id === signal.channel && channel.mapping.sequence !== undefined,
+      );
+      if (turn > 0 && this.stoppedTurn === turn && !ordered) return false;
       if (turn > 0) this.stoppedTurn = turn;
     }
     if (!spec && signal.channel && this.model.execution.completionChannels.includes(signal.channel))

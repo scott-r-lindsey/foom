@@ -751,3 +751,29 @@ it("prepares only launch environment and private counters for installed plugin o
     expect(await readdir(hookDir)).toEqual(["lifecycle.order"]);
   }
 });
+
+it("does not suppress a newer sequenced failure after completion when the next working report is lost", async () => {
+  const root = await directory();
+  const m = model(ordered);
+  const stream = channel(m);
+  const state: V2HookState = {};
+  const runtime = new V2ExecutionHooks(
+    m,
+    new Map([[stream.id, stream]]),
+    new V2Health(root, "fixture", "definition"),
+  );
+  const report = (sequence: string, reason: string) =>
+    reduceV2(
+      stream,
+      state,
+      "terminal",
+      m.id,
+      { conversationId: "conversation", terminationReason: reason, fullyIdle: true },
+      "Stop",
+      sequence,
+    );
+  expect(runtime.accept(required(report("1", "NO_TOOL_CALL")), 1)).toBe(true);
+  expect(runtime.accept(required(report("3", "error")), 1)).toBe(true);
+  expect(report("2", "NO_TOOL_CALL")).toBeUndefined();
+  expect(report("3", "error")).toBeUndefined();
+});

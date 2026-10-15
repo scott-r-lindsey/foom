@@ -52,6 +52,7 @@ export async function prepareV2Hooks(
           const order = join(directory, `${channel.id}.order`);
           await writeOwnedFile(order, "0");
           env[`FOOM_ORDER_${channel.id.replaceAll("-", "_")}`] = order;
+          if (options.protocol === "ordered-v2") env["FOOM_HOOK_ORDER"] = order;
         }
         if (options.placement === "plugin") continue;
         const assets = observerAssets(channel, windows);

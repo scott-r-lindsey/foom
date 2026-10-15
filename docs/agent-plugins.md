@@ -6,7 +6,7 @@ prompts, preview grants, argument/environment bypass disclosure, resume and loca
 attention rules. Hook channels, private hook files, payload mapping and observed health are implemented
 by #432. Setup status, fixed plugin actions and private staging are implemented by #433.
 Setup staging materializes Foom-generated hook observers referenced by plugin-scope files (#464).
-Claude Code now ships as a bundled v2 manifest (#434); Codex and Antigravity retain their existing providers pending conversion. Parsing alone grants no capability.
+Claude Code (#434) and Antigravity (#436) ship as bundled v2 manifests; Codex retains its existing provider pending conversion. Parsing alone grants no capability.
 [Issue #423](https://github.com/scott-r-lindsey/foom/issues/423) established the
 reviewed specification; [agent cards #409](https://github.com/scott-r-lindsey/foom/issues/409)
 is now closed.
@@ -372,7 +372,7 @@ Other CLI mutation surfaces require their own reviewed architecture decision.
 
 Command actions use the same resolved agent executable, fixed argv and only
 {pluginDir}; no user/payload interpolation, subprocess choice, cwd selection, shell,
-stdin program, retries or executable downloads. The content-addressed staging fingerprint covers expanded files and generated observer bytes. Observer plugins carry `foomStagingFingerprint` in CLI-owned plugin metadata; a changed definition is outdated and offers update even at the same ABI version. Staging verification rejects extra files, links and changed bytes before invoking the CLI. Stage files first for review;
+stdin program, retries or executable downloads. The content-addressed staging fingerprint covers expanded files and generated observer bytes. Ownership may declare optional `unfingerprintedVersion` (ABI integer), accepting recognized versions at or above that floor only when the fingerprint is absent. An explicit fingerprint mismatch remains outdated. Observer plugins carry `foomStagingFingerprint` in CLI-owned plugin metadata; a changed definition is outdated and offers update even at the same ABI version. Staging verification rejects extra files, links and changed bytes before invoking the CLI. Stage files first for review;
 serialize actions per executable/plugin ownership target, re-probe before/after,
 re-read approval bytes and recheck ownership after trusted confirmation. Conflicting
 copies share the ownership lock, including case aliases on Windows/macOS. Failed commands report fixed errors and require
@@ -525,9 +525,18 @@ Claude compatibility details:
   normal restore already requires this capability. It also rejects malformed
   unbalanced tool rules as the shared grammar requires. Complete help-token matching also accepts tab separators; the captured Claude help still uses the same verified flags.
 
+Antigravity compatibility details (#436):
+
+- The same `agy` settings, defaults, conversation IDs and bypass acknowledgement remain in place. The profile-only legacy offer answer is copied into generic offer tracking; this grants no setup or hook trust. Setup now uses the shared trusted action dialog for install, update, enable and remove. Its status/actions are supplied by the manifest. Unknown ownership still refuses mutation. An explicit plugin preference object with a missing enabled leaf remains unavailable, encoded as an ordered metadata condition. The legacy setup IPC name forwards to these same checks and confirmations.
+- `observer.protocol: "ordered-v2"` selects the existing fixed native ordered transport ABI: one plugin channel, stdin, version 2, empty JSON first, detached delivery, sequence counter and one-second network timeout. It retains root-level observer filenames, exact relative commands (`sh ./observer.sh EVENT`, or the existing PowerShell form), and all three native script files byte for byte. It uses `FOOM_HOOK_ORDER` and accepts a missing channel header only for that launch-bound single channel. #467 remains unresolved; no plugin-working-directory assumption was changed.
+- `ownership.unfingerprintedVersion: 2` explicitly accepts recognized legacy versions >=2 when the fingerprint is absent. Current version 2 therefore remains installed with no reinstall or update offer, as do newer versions under the previous policy. Older versions offer Update; disabled versions offer Enable. An explicit mismatched fingerprint still offers Update, with separately reviewed staging before `plugin install` runs. This generic compatibility field is available to approved config copies too.
+- Staging adds only `foomStagingFingerprint` to `plugin.json`; hooks and observer scripts keep their existing bytes. It does not rewrite an installed plugin. The extra metadata allows subsequent definition changes to offer Update at the same ABI version; users review it through the normal setup dialog. Generic config fixtures without the compatibility protocol retain channel-specific subdirectories and headers.
+- Sequenced completion reports rely on validated monotonic sequence deduplication rather than inferred execution-turn deduplication. A newer failure remains visible even if its working report was lost after an earlier completion. Unsequenced lifecycle/notify turn deduplication is unchanged.
+- Reduced hook diagnostics use `plugin:agy:<case-id>` plus generic channel/turn metadata. Unknown events are inert (204), without pinning identity or emitting evidence, as for config plugins; malformed known events still fail closed. Reserved defaults and missing prompt-value errors now use generic wording. Tests assert these explained differences while retaining the lifecycle, privacy, ordering, resume and failure checks.
+
 ## Complete manifests
 
-The four standalone JSON blocks below instantiate this schema without inheritance or external includes. Claude is the shipped bundled manifest. The remaining drafts are parser fixtures pending conversion or verification. Tests use bundled origin to validate reserved identities; config copies need a distinct ID.
+The four standalone JSON blocks below instantiate this schema without inheritance or external includes. Claude and Antigravity are shipped bundled manifests. The remaining drafts are parser fixtures pending conversion or verification. Tests use bundled origin to validate reserved identities; config copies need a distinct ID.
 Rules for existing agents are copied from current packaged JSON including priority,
 provenance and measured limitations. The Copilot draft contains disabled proposed hook and MCP templates, with no setup. They cannot attach until contracts are verified and revised bytes approved; it specifies verified
 launch surfaces and conservative environment disclosure. Open questions follow.
@@ -1269,7 +1278,8 @@ launch surfaces and conservative environment disclosure. Open questions follow.
           "response": "empty-json-first",
           "delivery": "detached",
           "timeoutMs": 1000,
-          "sequence": true
+          "sequence": true,
+          "protocol": "ordered-v2"
         },
         "arguments": [],
         "mapping": {
@@ -1379,10 +1389,19 @@ launch surfaces and conservative environment disclosure. Open questions follow.
         ],
         "versionField": {"source": "metadata", "path": ["manifest", "foomObserverVersion"]},
         "currentVersion": 2,
+        "unfingerprintedVersion": 2,
         "disabledField": {"source": "metadata", "path": ["manifest", "disabled"]},
         "enabledField": {"source": "metadata", "path": ["config", "plugins", "foom", "enabled"]}
       },
       "cases": [
+        {
+          "when": {"all": [
+            {"field": "owned", "op": "eq", "value": true},
+            {"field": {"source": "metadata", "path": ["config", "plugins", "foom"]}, "op": "exists"},
+            {"field": {"source": "metadata", "path": ["config", "plugins", "foom", "enabled"]}, "op": "absent"}
+          ]},
+          "state": "unavailable"
+        },
         {"when": {"all": [{"field": "absent", "op": "eq", "value": true}]}, "state": "not-installed"},
         {
           "when": {

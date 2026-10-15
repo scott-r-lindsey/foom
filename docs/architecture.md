@@ -1400,28 +1400,31 @@ record real Linux timing and the outstanding Windows real-CLI probe.
 
 ### Antigravity plugin ownership
 
-`agy-plugin.ts` owns status and serializes explicit install/update/enable/remove
-operations. It reads at most 64 KiB from fixed Antigravity metadata paths because
-`plugin list` omits version and enabled state. Unrecognized or unreadable metadata
-is unavailable, never permission to overwrite. The sandboxed bridge accepts exactly
-one enumerated operation on `agents:agy-plugin`; main validates the owning top frame
-and chooses the executable and bundled directory. Settings and preflight share
-inline agy row controls: Install, Update or Enable,
-with Remove inside Plugin details. Install and update require a main-owned trusted
-confirmation before the existing CLI path runs. The dialog discloses
-`~/.gemini/config/plugins/foom`, observation without approval, no stored credentials,
-inert behavior outside Foom launches, and removal through the row or
-`agy plugin uninstall foom`. Main persists the profile-only boolean
-`agyPluginOfferAnswered` after an answer (including Not now). Missing values default
-to false; invalid values are rejected. Settings marks the Antigravity card with neutral
-Plugin available text only for detected agy with no plugin and an unanswered offer.
-The row action remains available after dismissal; no launch modal or toast is used.
-No credentials, arbitrary commands, paths or plugin
-names come from the renderer. CLI errors become fixed Foom messages.
+The bundled Antigravity manifest uses generic `PluginSetup` status, ownership,
+staging and fixed CLI actions. Status reads at most 64 KiB from each fixed metadata
+path because `plugin list` omits version and enabled state. Unrecognized, linked or
+unreadable ownership remains unavailable and cannot authorize mutation. Settings
+and preflight use `agents:setup`, whose trusted dialog discloses the executable,
+fixed argv, installation location, observer-only behavior, exact staged bytes and
+removal route. Every action, including enable and remove, requires separate human
+confirmation. Foom never writes the agent's home files directly.
 
-The build ships the plugin outside ASAR under `build/observers/foom`. Versioned
-metadata enables an update offer without silently changing an installation. Launch
-adds credentials only when hooks are enabled and the installed plugin is active.
+The existing `agyPluginOfferAnswered` profile answer migrates to generic profile
+tracking without granting installation consent. An unanswered absent installation
+still offers Plugin available, and dismissal leaves the action available. The legacy
+setup IPC name forwards to the same model-owned action/confirmation path; it cannot
+bypass setup ownership or consent. New scans and actions use the model.
+The same `agy` enable/hooks/defaults/session keys are retained.
+
+The version-2 ordered observer ABI preserves existing root-level filenames, hook
+commands and native script bytes, including relative invocation while #467 is
+unresolved. Generic staging under Foom's profile adds only a definition fingerprint
+to plugin metadata; the CLI alone copies it into its installation. A recognized
+legacy version >=2 without a fingerprint remains installed with no reinstall.
+Older versions offer Update; disabled versions offer Enable; explicit fingerprint
+mismatches offer reviewed Update. Launch adds credentials only when hooks are
+enabled and installed or outdated. Channel-less reports are accepted only for the
+single declared compatibility channel, bound to the authenticated launch.
 A private temporary per-launch counter orders background reports; it contains no
 credentials and is removed with the launch binding. Observers allocate a sequence
 under an exclusive local lock before starting transport. Main ignores duplicate or
@@ -1873,7 +1876,7 @@ uses the same stack for its preview.
 ## Agent provider registry and manifest approval (#407)
 
 `main/agents/providers/provider.d.ts` declares the single `AgentProvider` contract.
-Claude registers through the build-locked bundled manifest loader; Codex and Antigravity retain `providers/{codex,agy}.ts` until conversion. The bundled loader uses the same strict parser and immutable v2 engine as config providers; JSON cannot claim its origin. See [bundled delivery and compatibility](agent-plugins.md#bundled-manifest-delivery-434) for digest/version rules, unchanged settings/consents and observer ABI differences. The shared engine owns discovery gates, launch argv, MCP attachment, observer selection and hook payload reduction. Workspace uses capability metadata rather than comparing
+Claude and Antigravity register through the build-locked bundled manifest loader; Codex retains `providers/codex.ts` until conversion. The bundled loader uses the same strict parser and immutable v2 engine as config providers; JSON cannot claim its origin. See [bundled delivery and compatibility](agent-plugins.md#bundled-manifest-delivery-434) for digest/version rules, unchanged settings/consents and observer ABI differences. The shared engine owns discovery gates, launch argv, MCP attachment, observer selection and hook payload reduction. Workspace uses capability metadata rather than comparing
 agent IDs. Shared built-in policy metadata is browser-safe. Existing built-in IPC
 capability fields remain compatible with their consumers; config manifests cannot
 set them. Agent identities can now be strings, but runtime IPC accepts only IDs in

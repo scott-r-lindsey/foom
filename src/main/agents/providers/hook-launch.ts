@@ -43,24 +43,21 @@ export async function prepareHookLaunch(
   const model = agentProvider(agent).model;
   if (model)
     return prepareV2Hooks(receiver, model, bind, windows, scratch, stableDirectory, execute);
-  const adapter =
-    agent === "agy"
-      ? undefined
-      : hookAdapter(
-          agentProvider(agent).manifest?.attention.hook?.transport ?? "argv",
-          windows ? "win32" : "posix",
-        );
+  const adapter = hookAdapter(
+    agentProvider(agent).manifest?.attention.hook?.transport ?? "argv",
+    windows ? "win32" : "posix",
+  );
   // mkdtemp creates the directory with mode 0700, so other users can't swap the script.
   const directory = await mkdtemp(join(scratch, "foom-hooks-"));
-  const script = join(directory, `${agent}${adapter?.extension ?? ".order"}`);
+  const script = join(directory, `${agent}${adapter.extension}`);
   let launch: HookLaunch | undefined;
   try {
-    await writeFile(script, adapter?.source ?? "0", { mode: 0o700, flag: "wx" });
+    await writeFile(script, adapter.source, { mode: 0o700, flag: "wx" });
     const command = windows ? "powershell.exe" : "sh";
     const args = windows
       ? ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", script]
       : [script];
-    if (windows && adapter) {
+    if (windows) {
       try {
         // Exercise this generated file before promising hooks. Group Policy can
         // override the process-only policy; never change persistent user settings.
@@ -76,13 +73,11 @@ export async function prepareHookLaunch(
     let disposed = false;
     return {
       // Claude runs hook commands through a shell; Codex receives an argument array.
-      observerCommand: !adapter
-        ? ""
-        : windows
-          ? `powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "${script}"`
-          : `sh ${quote(script)}`,
-      observerArgv: adapter ? [command, ...args] : [],
-      env: { ...launch.env, ...(!adapter ? { FOOM_HOOK_ORDER: script } : {}) },
+      observerCommand: windows
+        ? `powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "${script}"`
+        : `sh ${quote(script)}`,
+      observerArgv: [command, ...args],
+      env: launch.env,
       bind: (terminalId) => {
         if (!disposed) bind(key, terminalId);
       },

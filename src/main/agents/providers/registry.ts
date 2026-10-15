@@ -1,10 +1,9 @@
 import type { AgentId } from "../../../shared/agents";
 import { bundledProviders } from "./bundled";
 import { codexProvider } from "./codex";
-import { agyProvider } from "./agy";
 import type { AgentProvider } from "./provider";
 export type { AgentProvider } from "./provider";
-const builtins: readonly AgentProvider[] = [...bundledProviders, codexProvider, agyProvider];
+const builtins: readonly AgentProvider[] = bundledProviders.toSpliced(1, 0, codexProvider);
 let configured: readonly AgentProvider[] = [];
 let revision = 0;
 export function providerRevision(): number {

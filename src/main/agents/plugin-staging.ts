@@ -29,10 +29,10 @@ export function pluginContent(
     )
       continue;
     if (channel.observer.placement !== "plugin") throw Error("Invalid plugin observer placement");
-    const folder = `observers/${channel.id}`;
+    const folder = channel.observer.protocol === "ordered-v2" ? "" : `observers/${channel.id}`;
     for (const [name, content] of Object.entries(observerAssets(channel, windows)))
-      assets.push({ name: `${folder}/${name}`, content });
-    const script = `./${folder}/observer.${windows ? "ps1" : "sh"}`;
+      assets.push({ name: folder ? `${folder}/${name}` : name, content });
+    const script = `./${folder ? `${folder}/` : ""}observer.${windows ? "ps1" : "sh"}`;
     values[`observerVersion:${channel.id}`] = observerVersion(channel, windows);
     const add = (event?: string) => {
       const suffix = event ? `.${event}` : "";
@@ -42,7 +42,10 @@ export function pluginContent(
         windows,
         false,
       );
-      values[`observerCommand:${channel.id}${suffix}`] = invocation.command;
+      values[`observerCommand:${channel.id}${suffix}`] =
+        channel.observer.protocol === "ordered-v2"
+          ? `${windows ? "powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File" : "sh"} ${script}${event ? ` ${event}` : ""}`
+          : invocation.command;
       values[`observerArgv:${channel.id}${suffix}`] = invocation.argv;
     };
     add();

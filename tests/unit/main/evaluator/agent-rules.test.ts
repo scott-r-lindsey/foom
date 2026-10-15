@@ -88,6 +88,7 @@ test("validates bundled manifest engine, agent, states and regions", () => {
 });
 
 test("every shipped rule matches recorded adapter evidence", () => {
+  expect(new Set(manifests.map((manifest) => manifest.id)).size).toBe(manifests.length);
   const directory = join(import.meta.dirname, "../../../fixtures/agent-detection");
   const captures = readdirSync(directory)
     .filter((name) => name.endsWith(".json"))

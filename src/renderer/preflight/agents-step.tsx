@@ -101,7 +101,10 @@ export function AgentsStep({
           const blocked = Boolean(plugin);
           const missing = !installed && !blocked;
           const policy = builtinAgent(id);
-          const supportsHooks = agent?.hooks || Boolean(policy?.pluginSetup && agent?.agyPlugin);
+          const supportsHooks =
+            agent?.hooks ||
+            Boolean(agent?.setup) ||
+            Boolean(policy?.pluginSetup && agent?.agyPlugin);
           const hooks = state.settings.hooks && state.settings.agentHooks?.[id] !== false;
           const how = agent && signal(agent, hooks);
           return (

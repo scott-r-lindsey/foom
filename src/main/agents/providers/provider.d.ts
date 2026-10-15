@@ -2,7 +2,6 @@ import type { AgentManifestV2 } from "../../../shared/agent-manifest-v2";
 import type { ControlLaunch } from "../../control/types";
 import type { AgentPluginManifest } from "../../../shared/agent-plugin";
 import type { AgentHooks, AgentId, AgentInstallation, AgentLaunch } from "../../../shared/agents";
-import type { AgyPlugin } from "../agy-plugin";
 import type { prepareMcpLaunch } from "../mcp-launch";
 export interface PreparedLaunch {
   args: string[];
@@ -35,7 +34,7 @@ export interface AgentProvider {
   prepareMcp(endpoint: string): ReturnType<typeof prepareMcpLaunch>;
   readonly executableNames: readonly string[];
   discover(executable: string, version: string, help: string): AgentInstallation;
-  enrich(installation: AgentInstallation, plugin: AgyPlugin): Promise<AgentInstallation>;
+  enrich(installation: AgentInstallation, plugin?: unknown): Promise<AgentInstallation>;
   needsNotifier(installation: AgentInstallation, binding: AgentHooks | undefined): boolean;
   arguments(
     installation: AgentInstallation,

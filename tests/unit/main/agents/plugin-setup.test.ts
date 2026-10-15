@@ -540,3 +540,75 @@ it.each(["extra", "link", "changed"])(
     expect(e.run.mock.calls.every((entry) => entry[1][1] === "list")).toBe(true);
   },
 );
+
+it.each([0, 1, 2, 3, 100001])(
+  "recognizes legacy bundled observer version %s without a fingerprint or reinstall",
+  async (version) => {
+    const e = await environment();
+    const { default: bundled } = await import("../../../../src/shared/bundled-agents/agy.json");
+    Object.assign(e.m, parseAgentManifest(JSON.stringify(bundled), "bundled").model);
+    await e.owned(version);
+    expect(await e.status()).toMatchObject({ state: version < 2 ? "outdated" : "installed" });
+    if (version >= 2) {
+      expect((await e.status()).actions).toEqual([{ id: "remove", label: "Remove" }]);
+      await expect(e.service.change(e.input("update"))).rejects.toThrow("changed");
+    }
+    expect(e.run.mock.calls.every((entry) => entry[1][1] === "list")).toBe(true);
+    expect(await readFile(e.manifest, "utf8")).toBe(
+      JSON.stringify({ name: "foom", foomObserverVersion: version }),
+    );
+  },
+);
+
+it("preserves installed native observer and hook bytes on both platforms; only staging metadata is added", async () => {
+  const { default: bundled } = await import("../../../../src/shared/bundled-agents/agy.json");
+  const { pluginContent } = await import("../../../../src/main/agents/plugin-staging");
+  const { agyPluginFiles } = await import("../../../../src/main/agents/agy-observer");
+  const m = parseAgentManifest(JSON.stringify(bundled), "bundled").model;
+  for (const windows of [false, true]) {
+    const staged = pluginContent(m, {}, windows);
+    const old = agyPluginFiles(windows ? "win32" : "linux");
+    const files = Object.fromEntries(staged.content.map(({ name, content }) => [name, content]));
+    for (const [name, content] of Object.entries(old)) {
+      if (name === "plugin.json") {
+        expect(JSON.parse(files[name] ?? "")).toEqual({
+          name: "foom",
+          version: "1.0.0",
+          foomObserverVersion: 2,
+          foomStagingFingerprint: staged.fingerprint,
+        });
+      } else if (windows || name === "hooks.json" || name === "observer.sh")
+        expect(files[name]).toBe(content);
+    }
+  }
+});
+
+it("requires reviewed update for an explicit mismatched fingerprint and refuses unknown ownership", async () => {
+  const e = await environment();
+  const { default: bundled } = await import("../../../../src/shared/bundled-agents/agy.json");
+  Object.assign(e.m, parseAgentManifest(JSON.stringify(bundled), "bundled").model);
+  await e.owned();
+  await writeFile(
+    e.manifest,
+    JSON.stringify({ name: "foom", foomObserverVersion: 2, foomStagingFingerprint: "changed" }),
+  );
+  expect(await e.status()).toMatchObject({ state: "outdated" });
+  await e.service.change(e.input("update", () => Promise.resolve(false)));
+  expect(e.run.mock.calls.every((entry) => entry[1][1] === "list")).toBe(true);
+  await e.service.change(e.input("update"));
+  expect(await e.status()).toMatchObject({ state: "installed" });
+  await writeFile(e.manifest, JSON.stringify({ name: "someone-else", foomObserverVersion: 2 }));
+  expect(await e.status()).toEqual({ state: "unavailable", actions: [] });
+  await expect(e.service.change(e.input("remove"))).rejects.toThrow("ownership");
+});
+
+it("keeps an installed plugin with a missing enabled preference leaf unavailable", async () => {
+  const e = await environment();
+  const { default: bundled } = await import("../../../../src/shared/bundled-agents/agy.json");
+  Object.assign(e.m, parseAgentManifest(JSON.stringify(bundled), "bundled").model);
+  await e.owned(2);
+  await writeFile(e.config, JSON.stringify({ plugins: { foom: {} } }));
+  expect(await e.status()).toEqual({ state: "unavailable", actions: [] });
+  await expect(e.service.change(e.input("remove"))).rejects.toThrow("changed");
+  expect(e.run.mock.calls.every((entry) => entry[1][1] === "list")).toBe(true);
+});

@@ -126,7 +126,9 @@ test.each(["PreInvocation", "PostToolUse", "Stop"])(
       expect(await readFile(join(dir, "order"), "utf8")).toBe("10");
       await vi.waitFor(
         () => {
-          expect(signals.at(-1)?.signal).toBe(`agy:${event}`);
+          expect(signals.at(-1)?.signal).toBe(
+            `plugin:agy:${event === "Stop" ? "stop-idle" : event}`,
+          );
         },
         {
           timeout: nativeDeadline(3000),

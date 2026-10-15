@@ -314,7 +314,13 @@ export class AgentService {
         this.hooksEnabled && this.agentHooks[agent.id] !== false,
         binding,
       );
-      if (prepared && request.control && "role" in request.control && !prepared.mcp)
+      if (
+        prepared &&
+        request.control &&
+        "role" in request.control &&
+        !prepared.mcp &&
+        !(request.conversationId === undefined && provider.model?.launch.guidance)
+      )
         throw new Error("This launch cannot restore orchestration without MCP");
       const args =
         prepared?.args ??

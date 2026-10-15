@@ -81,6 +81,7 @@ export function readyAgents(
 /** How this agent will tell Foom it needs attention. */
 export function signal(agent: AgentInstallation, hooks: boolean): "hooks" | "notify" | "rules" {
   if (!hooks) return "rules";
+  if (agent.setup) return agent.hooks ? "hooks" : "rules";
   if (builtinAgent(agent.id)?.pluginSetup)
     return agent.agyPlugin?.state === "installed" ? "hooks" : "rules";
   if (!agent.hooks) return "rules";

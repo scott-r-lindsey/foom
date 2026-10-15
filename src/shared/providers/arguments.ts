@@ -13,7 +13,6 @@ export const EMPTY_AGENT_ARGUMENTS: AgentValues<readonly string[]> = Object.free
 /** A fixed disclosure table, not an attempt to infer effective policy from arbitrary flags. */
 const BYPASS: Readonly<Record<string, readonly string[]>> = {
   codex: ["--dangerously-bypass-approvals-and-sandbox"],
-  agy: ["--dangerously-skip-permissions"],
 };
 
 /** Read only Codex's invocation overrides; argv itself remains untouched. */
@@ -106,9 +105,8 @@ export function parseAgentArguments(agent: AgentId, value: unknown): readonly st
         "Hook trust must be granted in Codex, never bypassed by Foom.",
       );
     const conversationOption =
-      agent === "codex"
-        ? /^(?:--last|--fork)(?:=|$)/u.test(arg) || arg === "resume" || arg === "fork"
-        : agent === "agy" && /^(?:--conversation|--continue)(?:=|$)|^-c/u.test(arg);
+      agent === "codex" &&
+      (/^(?:--last|--fork)(?:=|$)/u.test(arg) || arg === "resume" || arg === "fork");
     if (conversationOption)
       throw argumentError(
         agent,

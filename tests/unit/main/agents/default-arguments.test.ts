@@ -172,7 +172,7 @@ test.each([
   ["agy", "-c"],
 ] as const)("reserves conversation selector %s %s", (agent, arg) => {
   expect(() => parseAgentArguments(agent, [arg])).toThrow(
-    agent === "claude" ? "reserved" : "Conversation selection",
+    agent === "codex" ? "Conversation selection" : "reserved",
   );
 });
 
