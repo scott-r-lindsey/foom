@@ -151,3 +151,104 @@ The next discriminating evidence is a failing first-launch trace showing whether
 GPU initialization/channel establishment ever completes. Keep the diagnostics
 until that observation exists; neither a production window change nor a CI
 warm-up follows from these passing samples.
+
+## Readiness gate (#470 follow-up)
+
+The harness now separates compositor readiness from the existing animation-frame
+assertion. It temporarily subscribes to the board's composited frames with
+`webContents.beginFrameSubscription`, waits for one callback, and unsubscribes
+before requesting the sentinel. Pixel data is neither inspected nor saved.
+Readiness is retained per native board ID and removed when that window closes.
+The gate awaits an event-driven promise under the existing launch watchdog;
+the sentinel keeps its unchanged assertion deadline and visibility/focus checks. A compositor-ready board with
+withheld animation callbacks must still fail the original frame assertion.
+
+The alternatives are insufficient in the pinned Electron 44.4.5 implementation:
+
+- [`getGPUInfo`](https://github.com/electron/electron/blob/v44.4.5/shell/browser/api/electron_api_app.cc)
+  uses `FetchBasicInfo` for both `basic` and `complete` on Linux. That method
+  [synchronously collects device metadata](https://github.com/electron/electron/blob/v44.4.5/shell/browser/api/gpuinfo_manager.cc),
+  without awaiting GPU channel establishment. `gpu-info-update` also lacks a
+  per-renderer channel or compositor-readiness guarantee.
+- Despite the API documentation's first-render wording, `ready-to-show` is
+  [emitted by `OnFirstNonEmptyLayout`](https://github.com/electron/electron/blob/v44.4.5/shell/browser/api/electron_api_web_contents.cc).
+  It is not evidence of GPU channel establishment or a delivered compositor frame.
+- A disposable renderer WebGL context would require a GPU channel, but a local
+  probe returned null with `webgl: disabled_off` while ordinary software board
+  rendering worked. Requiring WebGL would incorrectly reject that supported path.
+- The chosen [frame subscriber](https://github.com/electron/electron/blob/v44.4.5/shell/browser/api/frame_subscriber.cc)
+  consumes a frame from the view's Viz video capturer. This observes an actual
+  compositor output on both hardware and software paths, rather than device
+  metadata, layout, or the existence of a GPU process. It does add a temporary
+  capture consumer, so the separate subsequent sentinel remains essential.
+
+The downloaded #510 Linux 3/4 cold trace (PID 2484, run 38818934802) places the
+sentinel request at trace timestamp 242327.15 ms, GPU channel callbacks at
+246041.95/246041.96 ms, and delivery at 246045.16 ms. That is a 3.7-second
+initialization wait inside the old frame deadline. A focused local Xvfb discovery
+launch with the new gate (PID 149243) recorded channel callbacks at
+2530753705.36/2530753720.91 ms, `foom:board-compositor-ready` at 2530753941.59 ms,
+sentinel request at 2530753944.60 ms and delivery at 2530753950.72 ms. The readiness
+mark is written after observing the capture callback, before the **new sentinel**;
+it is deliberately after a captured compositor frame, not before every paint.
+Cold CI comparison below verifies this ordering. The traces and
+all earlier failure diagnostics stay in place. A readiness failure records its
+own stage and still fails on window/renderer termination. The existing launch
+watchdog bounds an initialization that never completes.
+
+This localizes and separates a demonstrated cold-start prerequisite; it does not
+identify why initialization is slow or retroactively prove the cause of every
+historical deadline failure. The shipped app can show its window after load and
+before compositor readiness, so a slow GPU could leave users seeing the board's
+background until rendering starts. These CI traces do not establish a visible
+regression on users' desktops. Waiting to show would also delay native-window
+feedback and revive the detached-board startup concern documented in main.
+There is no demonstrated user-facing benefit justifying a production change here.
+
+### Cold CI verification
+
+[Run 38821880360](https://github.com/scott-r-lindsey/foom/actions/runs/38821880360)
+at implementation commit `d9274db` retained the following first-launch traces.
+Times are milliseconds from each trace's first non-metadata event. The readiness
+request precedes GPU initialization; readiness observation follows channel
+establishment, and only then does the harness request the independent sentinel.
+
+| Linux shard / PID | Readiness requested | GPU channel callbacks | Readiness observed | Sentinel requested | Sentinel delivered |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| 1/4 / 2476 | 613.81 | 6273.48–6273.57 | 6486.17 | 6488.48 | 6488.94 |
+| 2/4 / 2483 | 906.79 | 4524.64–4524.97 | 4774.31 | 4777.70 | 4778.17 |
+| 3/4 / 2709 | 918.02 | 6845.43–6845.64 | 7796.75 | 7800.13 | 7800.70 |
+| 4/4 / 2708 | 910.77 | 3682.33–3682.58 | 3776.30 | 3779.48 | 3780.01 |
+
+All four Linux shards passed, including ordinary first launches; no warm-up process
+was used. Later workers in the same jobs initialized the GPU in roughly 57–83 ms.
+This directly verifies that the selected readiness signal does not resolve
+trivially before the cold GPU-channel wait. It does not explain that wait's
+underlying resource or replace the retained diagnostics for a future recurrence.
+
+
+### Captured initialization failure and readiness budget correction
+
+[Run 38822692649, Linux 2/4](https://github.com/scott-r-lindsey/foom/actions/runs/38822692649/job/116723288551)
+captured a cold failure in `fake Codex receives inline flag only when help advertises it`.
+The first version of the readiness gate reused the ten-second assertion timeout.
+At its expiration the native board was visible/focused and the renderer responsive,
+but there had been **no** `gpu-info-update`, GPU initialization-complete event, or
+GPU channel callback. The process-metrics snapshot contained no connected GPU
+process. The trace (PID 2481) contains GPU channel requests at 322/355 ms and the
+readiness request at 598 ms, but no completion through its 10.49-second end.
+The Chromium log contains no GPU initialization or exit diagnostic. Thus this is
+an initialization-stage failure, not a GPU-ready board failing the fresh sentinel;
+the exact underlying resource and eventual completion time remain unknown.
+
+Reusing the assertion budget for readiness merely moved the premature cutoff.
+The corrected gate awaits the actual subscription callback as a promise, under
+`launchApp`'s existing hard watchdog, without introducing or increasing a numeric
+deadline. Window close, renderer exit and subscription failure reject it and
+release listeners/subscriptions. Only after readiness does the unchanged sentinel
+receive its own existing ten-second assertion budget. Controlled callback tests
+verify that subscription alone cannot establish readiness and that success,
+window close, renderer crash and subscription errors release resources. The real
+Electron withheld-animation-callback regression remains separate and still fails
+at the original assertion. No GPU warm-up, startup retry, sleep, window flag or
+host setting is introduced. The failed run is retained as evidence, not rerun.
