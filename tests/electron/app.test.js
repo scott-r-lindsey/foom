@@ -2801,7 +2801,7 @@ test("launches an agent in a managed worktree and routes its attention signals",
   await page.keyboard.type("y");
   await expect
     .poll(async () => (await latest())?.signal, { timeout: deadline(10000) })
-    .toBe("claude:PermissionRequest");
+    .toBe("plugin:claude:PermissionRequest");
   assert.ok(
     !(await page.evaluate(() => window.foomStates.map((s) => s.signal))).includes("user:reply"),
   );

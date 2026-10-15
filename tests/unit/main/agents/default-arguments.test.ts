@@ -152,9 +152,7 @@ test("validation errors identify the agent and original argument line", () => {
   expect(() => parseAgentArguments("codex", ["--model", "x", "--config=notify=[]"])).toThrow(
     "Codex, line 3: Codex notify",
   );
-  expect(() => parseAgentArguments("claude", ["--bare"])).toThrow(
-    "Claude Code, line 1: --settings",
-  );
+  expect(() => parseAgentArguments("claude", ["--bare"])).toThrow("reserved");
   expect(() => parseAgentArguments("agy", Array(65).fill("x"))).toThrow("Antigravity: use a list");
 });
 
@@ -173,7 +171,9 @@ test.each([
   ["agy", "--continue"],
   ["agy", "-c"],
 ] as const)("reserves conversation selector %s %s", (agent, arg) => {
-  expect(() => parseAgentArguments(agent, [arg])).toThrow("Conversation selection");
+  expect(() => parseAgentArguments(agent, [arg])).toThrow(
+    agent === "claude" ? "reserved" : "Conversation selection",
+  );
 });
 
 test.each(["--dangerously-bypass-hook-trust", "--dangerously-bypass-hook-trust=true"])(

@@ -1,3 +1,6 @@
+import { bundledAgentData } from "../bundled-agent-data";
+import { parseAgentManifest } from "../agent-plugin-parser";
+import { matchesArguments } from "../agent-argument-matchers";
 import { validAgentId } from "./catalog";
 import type { AgentId, AgentValues } from "../agents";
 
@@ -9,7 +12,6 @@ export const EMPTY_AGENT_ARGUMENTS: AgentValues<readonly string[]> = Object.free
 
 /** A fixed disclosure table, not an attempt to infer effective policy from arbitrary flags. */
 const BYPASS: Readonly<Record<string, readonly string[]>> = {
-  claude: ["--dangerously-skip-permissions", "--permission-mode=bypassPermissions"],
   codex: ["--dangerously-bypass-approvals-and-sandbox"],
   agy: ["--dangerously-skip-permissions"],
 };
@@ -55,13 +57,17 @@ function codexFullAccess(arg: string, next: string | undefined): boolean {
   );
 }
 
+function bundledModel(agent: AgentId) {
+  const data = bundledAgentData.find((entry) => entry.id === agent);
+  return data ? parseAgentManifest(JSON.stringify(data), "bundled").model : undefined;
+}
+
 export function hasBypassArgument(agent: AgentId, args: readonly string[]): boolean {
+  const model = bundledModel(agent);
+  if (model) return matchesArguments(model.bypassArguments, args);
   return args.some(
     (arg, index) =>
       (BYPASS[agent] ?? []).includes(arg) ||
-      (agent === "claude" &&
-        arg === "--permission-mode" &&
-        args[index + 1] === "bypassPermissions") ||
       (agent === "codex" && codexFullAccess(arg, args[index + 1])),
   );
 }
@@ -99,12 +105,6 @@ export function parseAgentArguments(agent: AgentId, value: unknown): readonly st
       );
     if (arg === "--no-alt-screen" || arg.startsWith("--no-alt-screen="))
       throw argumentError(agent, index, "--no-alt-screen is reserved for Foom's terminal display.");
-    if (agent === "claude" && /^(?:--settings|--safe-mode|--bare)(?:=|$)/u.test(arg))
-      throw argumentError(
-        agent,
-        index,
-        "--settings, --safe-mode and --bare are reserved to preserve Foom's hooks.",
-      );
     if (agent === "codex" && /^--dangerously-bypass-hook-trust(?:=|$)/u.test(arg))
       throw argumentError(
         agent,
@@ -112,11 +112,9 @@ export function parseAgentArguments(agent: AgentId, value: unknown): readonly st
         "Hook trust must be granted in Codex, never bypassed by Foom.",
       );
     const conversationOption =
-      agent === "claude"
-        ? /^(?:--resume|--continue|--session-id|--fork-session)(?:=|$)|^-[rc]/u.test(arg)
-        : agent === "codex"
-          ? /^(?:--last|--fork)(?:=|$)/u.test(arg) || arg === "resume" || arg === "fork"
-          : agent === "agy" && /^(?:--conversation|--continue)(?:=|$)|^-c/u.test(arg);
+      agent === "codex"
+        ? /^(?:--last|--fork)(?:=|$)/u.test(arg) || arg === "resume" || arg === "fork"
+        : agent === "agy" && /^(?:--conversation|--continue)(?:=|$)|^-c/u.test(arg);
     if (conversationOption)
       throw argumentError(
         agent,
@@ -131,6 +129,13 @@ export function parseAgentArguments(agent: AgentId, value: unknown): readonly st
         index,
         "Codex notify and hooks configuration is reserved for Foom's attention detection.",
       );
+  }
+  const model = bundledModel(agent);
+  if (model && matchesArguments(model.reservedArguments, args)) {
+    const index = args.findIndex((_, position) =>
+      matchesArguments(model.reservedArguments, args.slice(position, position + 2)),
+    );
+    throw argumentError(agent, index, "These arguments are reserved for Foom session actions.");
   }
   return Object.freeze(args);
 }

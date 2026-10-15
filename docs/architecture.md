@@ -522,9 +522,7 @@ The [agent plugin format v2](agent-plugins.md) parser (#430) supports offline
 validation and a normalized v1 compatibility model. #431 adds the generic launch
 engine for approved v2 config plugins: fixed discovery, conditional ordered argv,
 private MCP data files, prompts and preview grants, argument and environment
-bypass, resume and attention rules. Hooks, health and setup declarations remain
-unavailable with fixed reasons until #432/#433. Built-in and v1 launch behavior
-remain unchanged; built-in conversion is future work.
+bypass, resume and attention rules. Hooks/health and setup are implemented by #432/#433. Claude now uses the same v2 engine through a bundled build-locked manifest (#434); Codex, Antigravity and v1 retain their existing implementation until conversion.
 
 **Today:** `src/main/agents/agents.ts` provides a main-only `AgentService`, following the worktree service's integration boundary. `scan()` resolves PATH with the account's login shell (`-ilc`, a fixed printf program with NUL delimiters), then probes each resolved executable with bounded `--version` and `--help` calls. It retains full version strings. Shell failures report a warning and use inherited PATH; Windows uses inherited PATH and native executables. Relative and empty PATH components are ignored. Windows batch/PowerShell wrappers are not executed through a command shell; installations exposing only those wrappers currently need a native executable on PATH.
 
@@ -1276,7 +1274,7 @@ still disposes controllers. Main continues to reject unknown and foreign IDs.
 The evaluator order is **process exit → permission hook → per-agent rules → shell
 facts/generic text rules**. Main chooses the agent from its launch record;
 output cannot choose a rule manifest. Shell sessions never use agent rules.
-`main/evaluator/agent-rules/*.json` ships one versioned manifest per agent, recording
+Bundled v2 manifests and the remaining `main/evaluator/agent-rules/*.json` files record
 minimum engine version, provenance, ordered priorities, region, matchers, exclusions
 and the source rationale. Herdr-derived rules are a capture-backed subset; the
 Apache-2.0 license and modification notice are included in generated third-party
@@ -1866,9 +1864,7 @@ uses the same stack for its preview.
 ## Agent provider registry and manifest approval (#407)
 
 `main/agents/providers/provider.d.ts` declares the single `AgentProvider` contract.
-Built-ins register through `providers/{claude,codex,agy}.ts`; their shared reviewed
-implementation owns discovery gates, launch argv, MCP attachment, observer selection
-and hook payload reduction. Workspace uses capability metadata rather than comparing
+Claude registers through the build-locked bundled manifest loader; Codex and Antigravity retain `providers/{codex,agy}.ts` until conversion. The bundled loader uses the same strict parser and immutable v2 engine as config providers; JSON cannot claim its origin. See [bundled delivery and compatibility](agent-plugins.md#bundled-manifest-delivery-434) for digest/version rules, unchanged settings/consents and observer ABI differences. The shared engine owns discovery gates, launch argv, MCP attachment, observer selection and hook payload reduction. Workspace uses capability metadata rather than comparing
 agent IDs. Shared built-in policy metadata is browser-safe. Existing built-in IPC
 capability fields remain compatible with their consumers; config manifests cannot
 set them. Agent identities can now be strings, but runtime IPC accepts only IDs in

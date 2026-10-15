@@ -1,3 +1,6 @@
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
+import type { HookLaunch } from "../../../shared/hooks";
 import { writeOwnedFile, readOwnedFile } from "./v2-files";
 import { healthStore, V2ExecutionHooks } from "./v2-health";
 import { randomUUID } from "node:crypto";
@@ -18,9 +21,10 @@ export async function prepareV2Hooks(
   windows: boolean,
   scratch: string,
   stableDirectory?: string,
+  execute = promisify(execFile),
 ): Promise<AgentHooks> {
   const temporary = await mkdtemp(join(scratch, "foom-v2-hooks-"));
-  const cleanupState = { started: false };
+  const cleanupState: { removal?: Promise<void> } = {};
   try {
     const directory = await privateDirectory(temporary);
     const stableRoot = await privateDirectory(
@@ -29,16 +33,15 @@ export async function prepareV2Hooks(
     );
     const key = randomUUID();
     const v2: V2Binding = { values: { hookDir: directory }, channels: new Map(), state: {} };
-    const launch = receiver.register(key, model.id, { channels: v2.channels, state: v2.state });
-    const env: Record<string, string> = { ...launch.env };
+    let launch: HookLaunch | undefined;
+    const env: Record<string, string> = {};
     let disposed = false;
     const dispose = () => {
       if (disposed) return;
       disposed = true;
-      cleanupState.started = true;
-      launch.revoke();
+      launch?.revoke();
       bind(key, undefined);
-      void rm(temporary, { recursive: true, force: true }).catch(() => undefined);
+      cleanupState.removal = rm(temporary, { recursive: true, force: true }).catch(() => undefined);
     };
     try {
       for (const channel of model.hooks?.channels ?? []) {
@@ -87,6 +90,27 @@ export async function prepareV2Hooks(
           v2.values[`observerCommand:${channel.id}${suffix}`] = invocation.command;
           v2.values[`observerArgv:${channel.id}${suffix}`] = invocation.argv;
         };
+        if (windows && options.placement === "launch") {
+          try {
+            await execute(
+              "powershell.exe",
+              [
+                "-NoProfile",
+                "-NonInteractive",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-File",
+                script,
+                "--foom-probe",
+              ],
+              { timeout: 8000, maxBuffer: 65536 },
+            );
+          } catch {
+            throw new Error(
+              "PowerShell hook script could not run. Check enforced script policy or disable hooks.",
+            );
+          }
+        }
         add();
         for (const event of new Set(channel.mapping.cases.map((entry) => entry.event))) {
           if (/^[A-Za-z][A-Za-z0-9_-]{0,63}$/u.test(event)) add(event);
@@ -98,6 +122,8 @@ export async function prepareV2Hooks(
           env[`FOOM_ORDER_${channel.id.replaceAll("-", "_")}`] = order;
         }
       }
+      launch = receiver.register(key, model.id, { channels: v2.channels, state: v2.state });
+      Object.assign(env, launch.env);
       // Definitions contain no launch path/port/token for stable channels.
       const stableValues = Object.fromEntries(
         Object.entries(v2.values).filter(([key]) =>
@@ -131,7 +157,7 @@ export async function prepareV2Hooks(
       throw error;
     }
   } catch (error) {
-    if (!cleanupState.started) await rm(temporary, { recursive: true, force: true });
+    await (cleanupState.removal ?? rm(temporary, { recursive: true, force: true }));
     throw error;
   }
 }

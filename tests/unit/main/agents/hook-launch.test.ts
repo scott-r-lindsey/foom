@@ -1,3 +1,5 @@
+import type * as Fs from "node:fs/promises";
+import { agentProvider } from "../../../../src/main/agents/providers/registry";
 import { execFile } from "node:child_process";
 import { mkdtemp, readdir, readFile, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -7,7 +9,12 @@ import { prepareHookLaunch } from "../../../../src/main/agents/hook-launch";
 import { HookReceiver } from "../../../../src/main/agents/hook-receiver";
 import type { HookSignal } from "../../../../src/shared/hooks";
 
+vi.mock("node:fs/promises", async (original) => ({ ...(await original<typeof Fs>()) }));
+
 let scratch: string;
+async function launchDirectories(): Promise<string[]> {
+  return (await readdir(scratch)).filter((name) => !name.startsWith("foom-observers-"));
+}
 const revoke = vi.fn();
 const receiver = {
   register: vi.fn((_key: string, _agent: string) => ({
@@ -27,7 +34,7 @@ afterEach(async () => {
     // dispose() removes its launch directory asynchronously. Wait for it before
     // deleting the parent: concurrent recursive removals can fail with EPERM on Windows.
     await vi.waitFor(async () => {
-      expect(await readdir(scratch)).toEqual([]);
+      expect(await launchDirectories()).toEqual([]);
     });
   } finally {
     await rm(scratch, { recursive: true, force: true });
@@ -37,16 +44,23 @@ afterEach(async () => {
 test("writes a private POSIX adapter and quotes its path for the hook shell", async () => {
   const bind = vi.fn();
   const hooks = await prepareHookLaunch(receiver, "claude", bind, "linux", scratch);
-  const [directory] = await readdir(scratch);
+  const [directory] = await launchDirectories();
   if (!directory) throw new Error("Missing launch directory");
-  const script = join(scratch, directory, "claude.sh");
-  expect(hooks.observerArgv).toEqual(["sh", script]);
-  expect(hooks.observerCommand).toBe(`sh '${script.replaceAll("'", `'\\''`)}'`);
-  expect(hooks.env).toEqual({ FOOM_SESSION: "s", FOOM_TOKEN: "t", FOOM_HOOK_URL: "u" });
+  const script = join(scratch, directory, "control", "lifecycle", "observer.sh");
+  expect(hooks.v2?.values["observerArgv:lifecycle"]).toEqual(["sh", script]);
+  expect(hooks.v2?.values["observerCommand:lifecycle"]).toBe(
+    `sh '${script.replaceAll("'", `'\\''`)}'`,
+  );
+  expect(hooks.env).toMatchObject({
+    FOOM_SESSION: "s",
+    FOOM_TOKEN: "t",
+    FOOM_HOOK_URL: "u",
+    FOOM_CHANNEL_lifecycle: "lifecycle",
+  });
   expect(await readFile(script, "utf8")).toContain("curl");
   if (process.platform !== "win32") {
     expect((await stat(join(scratch, directory))).mode & 0o777).toBe(0o700);
-    expect((await stat(script)).mode & 0o777).toBe(0o700);
+    expect((await stat(script)).mode & 0o777).toBe(0o600);
   }
   const key = receiver.register.mock.calls[0]?.[0];
   expect(key).toMatch(/^[0-9a-f-]{36}$/u);
@@ -60,14 +74,14 @@ test("writes a private POSIX adapter and quotes its path for the hook shell", as
   expect(bind).toHaveBeenLastCalledWith(key, undefined);
   expect(bind).toHaveBeenCalledTimes(2);
   await vi.waitFor(async () => {
-    expect(await readdir(scratch)).toEqual([]);
+    expect(await launchDirectories()).toEqual([]);
   });
 });
 
 test("uses PowerShell on Windows", async () => {
   const execute = vi.fn().mockResolvedValue({ stdout: "", stderr: "" });
   const hooks = await prepareHookLaunch(receiver, "codex", vi.fn(), "win32", scratch, execute);
-  const [directory] = await readdir(scratch);
+  const [directory] = await launchDirectories();
   if (!directory) throw new Error("Missing launch directory");
   const script = join(scratch, directory, "codex.ps1");
   expect(hooks.observerArgv).toEqual([
@@ -99,7 +113,7 @@ test.each(["interpreter missing", "enforced policy rejects script", "probe timed
       prepareHookLaunch(receiver, "claude", vi.fn(), "win32", scratch, execute),
     ).rejects.toThrow("PowerShell hook script could not run");
     expect(receiver.register).not.toHaveBeenCalled();
-    expect(await readdir(scratch)).toEqual([]);
+    expect(await launchDirectories()).toEqual([]);
   },
 );
 
@@ -110,7 +124,7 @@ test("removes the directory and revokes credentials if registration fails", asyn
   await expect(prepareHookLaunch(receiver, "claude", vi.fn(), "linux", scratch)).rejects.toThrow(
     "Receiver is closed",
   );
-  expect(await readdir(scratch)).toEqual([]);
+  expect(await launchDirectories()).toEqual([]);
   expect(revoke).not.toHaveBeenCalled();
 });
 
@@ -120,7 +134,7 @@ test("defaults to the system temporary directory", async () => {
   const execute = vi.fn().mockResolvedValue({ stdout: "", stderr: "" });
   const hooks = await prepareHookLaunch(receiver, "claude", vi.fn(), undefined, undefined, execute);
   try {
-    expect(hooks.observerArgv.at(-1)?.startsWith(tmpdir())).toBe(true);
+    expect(String(hooks.v2?.values["hookDir"]).startsWith(tmpdir())).toBe(true);
   } finally {
     hooks.dispose();
   }
@@ -135,8 +149,11 @@ test.skipIf(process.platform === "win32")(
     });
     try {
       const hooks = await prepareHookLaunch(real, "claude", vi.fn(), process.platform, scratch);
+      const model = agentProvider("claude").model;
+      for (const channel of model?.hooks?.channels ?? [])
+        hooks.v2?.channels.set(channel.id, channel);
       const payload = JSON.stringify({ session_id: "abc", hook_event_name: "PermissionRequest" });
-      const child = execFile("sh", ["-c", hooks.observerCommand], {
+      const child = execFile("sh", ["-c", String(hooks.v2?.values["observerCommand:lifecycle"])], {
         env: { ...process.env, ...hooks.env },
       });
       child.stdin?.end(payload);
@@ -144,7 +161,7 @@ test.skipIf(process.platform === "win32")(
       expect(signals).toHaveLength(1);
       expect(signals[0]).toMatchObject({
         action: "needs_input",
-        signal: "claude:PermissionRequest",
+        signal: "plugin:claude:PermissionRequest",
       });
       expect(signals[0]?.terminalId).toMatch(/^[0-9a-f-]{36}$/u);
       hooks.dispose();
@@ -179,8 +196,11 @@ test.skipIf(process.platform !== "win32").each(["claude", "codex"] as const)(
     try {
       const hooks = await prepareHookLaunch(real, agent, vi.fn(), "win32", scratch);
       try {
-        expect(signals).toEqual([]); // Startup probe must not send an event.
-        const [file, ...args] = hooks.observerArgv;
+        expect(signals).toMatchObject([]); // Startup probe must not send an event.
+        for (const channel of agentProvider(agent).model?.hooks?.channels ?? [])
+          hooks.v2?.channels.set(channel.id, channel);
+        const argv = hooks.v2?.values["observerArgv:lifecycle"];
+        const [file, ...args] = Array.isArray(argv) ? argv : hooks.observerArgv;
         if (!file) throw new Error("Missing hook executable");
         // Restricted can block Get-ExecutionPolicy's own module import. Prove
         // the inherited policy by executing this file without its override.
@@ -198,15 +218,26 @@ test.skipIf(process.platform !== "win32").each(["claude", "codex"] as const)(
         const env = { ...process.env, ...hooks.env };
         if (agent === "claude") {
           expect(
-            await runCommand("cmd.exe", ["/d", "/s", "/c", hooks.observerCommand], env, payload),
+            await runCommand(
+              "cmd.exe",
+              [
+                "/d",
+                "/s",
+                "/c",
+                String(hooks.v2?.values["observerCommand:lifecycle"] ?? hooks.observerCommand),
+              ],
+              env,
+              payload,
+            ),
           ).toBe("");
         } else {
           expect(await runCommand(file, [...args, payload], env)).toBe("");
         }
-        expect(signals).toEqual([
+        expect(signals).toMatchObject([
           expect.objectContaining({
             action: agent === "claude" ? "needs_input" : "classify",
-            signal: agent === "claude" ? "claude:PermissionRequest" : "codex:agent-turn-complete",
+            signal:
+              agent === "claude" ? "plugin:claude:PermissionRequest" : "codex:agent-turn-complete",
           }),
         ]);
       } finally {
@@ -236,4 +267,29 @@ test("Antigravity binds and revokes credentials with only a private ordering cou
   expect(revoke).toHaveBeenCalledOnce();
   expect(bind).toHaveBeenCalledTimes(2);
   expect(bind).toHaveBeenLastCalledWith(receiver.register.mock.calls[0]?.[0], undefined);
+});
+
+test("legacy hooks fail closed on policy and registration failures, and tolerate exit cleanup failure", async () => {
+  const execute = vi.fn().mockRejectedValue(new Error("policy"));
+  await expect(
+    prepareHookLaunch(receiver, "codex", vi.fn(), "win32", scratch, execute),
+  ).rejects.toThrow("PowerShell hook script could not run");
+  expect(receiver.register).not.toHaveBeenCalled();
+  receiver.register.mockImplementationOnce(() => {
+    throw new Error("closed");
+  });
+  await expect(prepareHookLaunch(receiver, "codex", vi.fn(), "linux", scratch)).rejects.toThrow(
+    "closed",
+  );
+  expect(await launchDirectories()).toEqual([]);
+  const hooks = await prepareHookLaunch(receiver, "codex", vi.fn(), "linux", scratch);
+  const files = await import("node:fs/promises");
+  const remove = vi.spyOn(files, "rm").mockRejectedValueOnce(new Error("busy"));
+  hooks.dispose();
+  await vi.waitFor(() => {
+    expect(remove).toHaveBeenCalledOnce();
+  });
+  remove.mockRestore();
+  for (const name of await launchDirectories())
+    await rm(join(scratch, name), { recursive: true, force: true });
 });

@@ -11,6 +11,7 @@ export interface PreparedLaunch {
   dispose(): void;
 }
 export interface AgentProvider {
+  readonly origin?: "bundled" | "config";
   readonly model?: AgentManifestV2;
   setupFacts?(
     path: string,

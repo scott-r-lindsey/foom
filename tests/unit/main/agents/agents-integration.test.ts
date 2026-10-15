@@ -49,7 +49,7 @@ it.skipIf(process.platform === "win32")(
     onTestFinished(() => receiver.close());
     const launch = receiver.register("real-probe-terminal", "claude");
     const adapter = join(directory, "observer.sh");
-    await writeFile(adapter, hookAdapter("claude", "posix").source, { mode: 0o600 });
+    await writeFile(adapter, hookAdapter("stdin", "posix").source, { mode: 0o600 });
     const observerCommand = `sh '${adapter}'`;
     const create = vi.fn((_spec: TerminalSpec) => "real-probe-terminal");
     const service = new AgentService(
@@ -71,6 +71,11 @@ it.skipIf(process.platform === "win32")(
       { create },
       () =>
         Promise.resolve({
+          v2: {
+            values: { "observerCommand:lifecycle": observerCommand },
+            channels: new Map(),
+            state: {},
+          },
           observerCommand,
           observerArgv: ["foom-notify"],
           env: launch.env,
@@ -142,7 +147,11 @@ it.skipIf(process.platform === "win32")(
           terminalId: "real-probe-terminal",
           conversationId: "synthetic-session",
           action: "needs_input",
-          signal: "claude:PermissionRequest",
+          signal: "plugin:claude:PermissionRequest",
+          channel: "lifecycle",
+          caseId: "PermissionRequest",
+          endsTurn: false,
+          recoverTurn: false,
         },
       ]);
     } finally {
