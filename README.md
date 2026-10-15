@@ -46,6 +46,8 @@ Each terminal has 10,000 lines of scrollback. Terminal sessions are not restored
 
 Electron runs JavaScript compiled from your TypeScript. `pnpm start`, `pnpm run test:electron`, `pnpm run package`, and `pnpm run make` compile automatically. Edit files in `src/`; `build/` is generated and ignored by Git.
 
+Packaging commands delegate to Forge, whose mandatory `prePackage` hook performs one fresh production build. Direct `pnpm exec electron-forge package` and `pnpm exec electron-forge make` use the same hook. A previous `pnpm run start:samples` build is replaced before packaging, so its development sample data cannot ship.
+
 - **Main process** (`src/main/main.ts`): composes window management, terminal capabilities, workspace/worktree services, agents, evaluator, and setup. Each feature has its own directory under `src/main/`.
 - **Terminal host** (`src/terminal-host/terminal-host.ts`): an Electron utility process owns PTYs, headless xterm screens, activity, and backpressure.
 - **Preload** (`src/preload/preload.ts`): exposes the explicitly allowed `window.desktop` bridge in Electron's sandbox.
