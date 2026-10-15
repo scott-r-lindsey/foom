@@ -13,7 +13,12 @@ import { selected, type Facts } from "./providers/v2-values";
 import { metadataIdentity, readSetupMetadata, record, select } from "./setup-metadata";
 
 const execute = promisify(execFile);
-const limits = { timeout: 5000, maxBuffer: 65536, encoding: "utf8" } as const;
+const limits = {
+  timeout: 5000,
+  maxBuffer: 65536,
+  encoding: "utf8",
+  killSignal: "SIGKILL",
+} as const;
 const locks = new Set<string>();
 type Setup = NonNullable<AgentManifestV2["setup"]>;
 type Action = Setup["actions"][number];

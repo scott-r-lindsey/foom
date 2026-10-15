@@ -110,7 +110,12 @@ it("installs, updates, enables and removes with fixed argv and bounded commands"
   expect(e.run).toHaveBeenCalledWith(
     e.executable,
     ["plugin", "enable", "foom"],
-    expect.objectContaining({ timeout: 5000, maxBuffer: 65536, encoding: "utf8" }),
+    expect.objectContaining({
+      timeout: 5000,
+      maxBuffer: 65536,
+      encoding: "utf8",
+      killSignal: "SIGKILL",
+    }),
   );
 });
 it("cancels without mutation and serializes conflicting copies across service instances", async () => {
