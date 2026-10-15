@@ -6141,6 +6141,9 @@ test("Settings persists literal agent defaults and discloses bypass once per age
   await input.focus();
   await input.blur();
   await disclosure.getByRole("button", { name: "Save bypass defaults", exact: true }).click();
+  // Errors clear and the disclosure closes before saving finishes. The field stays
+  // disabled until saveSetup settles, including both config and profile writes.
+  await expect(input).toBeEnabled();
   await expect(page.locator(".agent-card [role=alert]")).toHaveCount(0);
   await input.blur();
   await expect(page.locator(".agent-card [role=alert]")).toHaveCount(0);
