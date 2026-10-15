@@ -1264,3 +1264,47 @@ test("human previews on a full narrow board replace the eligible tile as human s
     layout.focused,
   );
 });
+
+test.each(["html", "markdown"] as const)(
+  "%s preview popout routes its ID and reports failures",
+  async (kind) => {
+    const preview = {
+      id: "preview",
+      repository: "repo",
+      worktree: "/tree",
+      relativePath: kind === "html" ? "page.html" : "guide.md",
+      kind,
+      network: false,
+      openedBy: { terminalId: "agent", agent: "claude" },
+    };
+    const layout = placeContent(initialLayout(), { kind: "preview", preview: preview.id });
+    if (!layout) throw new Error("Missing layout");
+    saveLayout(localStorage, layout);
+    const popout = vi.fn(() => Promise.resolve());
+    const source = {
+      ...createSampleSource([]),
+      previews: {
+        getSnapshot: () => [preview],
+        pick: () => Promise.resolve(null),
+        close: () => Promise.resolve(),
+        bounds: () => Promise.resolve(),
+        popout,
+      },
+    };
+    const screen = render(<Board source={source} />);
+    await act(async () => {});
+    fireEvent.click(screen.getByRole("button", { name: "Tile 1 menu" }));
+    await act(async () => {
+      fireEvent.click(screen.getByRole("menuitem", { name: "Move to new window" }));
+      await Promise.resolve();
+    });
+    expect(popout).toHaveBeenCalledWith("preview");
+    popout.mockRejectedValueOnce(new Error("window failed"));
+    fireEvent.click(screen.getByRole("button", { name: "Tile 1 menu" }));
+    await act(async () => {
+      fireEvent.click(screen.getByRole("menuitem", { name: "Move to new window" }));
+      await Promise.resolve();
+    });
+    expect(screen.getByRole("alert").textContent).toContain("Unable to move tile");
+  },
+);

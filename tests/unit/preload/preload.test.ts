@@ -743,6 +743,8 @@ test("preview placement strips the event, acknowledges only the requested ID and
 
 test("preview network permission forwards only ID and desired state to main", async () => {
   const api = await bridge();
+  await api.previews?.popout("preview");
+  expect(mock.invoke).toHaveBeenCalledWith("preview:popout", "preview");
   await api.previews?.network("preview", true);
   expect(mock.invoke).toHaveBeenCalledWith("preview:network", "preview", true);
 });

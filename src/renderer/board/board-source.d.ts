@@ -38,6 +38,7 @@ export interface BoardSource {
   previews?: {
     getSnapshot(): readonly PreviewSummary[];
     getHistory?(): readonly PreviewOpenAction[];
+    popout?(id: string): Promise<void>;
     network?(id: string, enabled: boolean): Promise<void>;
     pick(worktree: string): Promise<string | null>;
     bounds(id: string, bounds: PreviewBounds): Promise<void>;

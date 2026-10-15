@@ -134,6 +134,7 @@ const desktop: DesktopApi = {
         ipcRenderer.removeListener("preview:place", listener);
       };
     },
+    popout: (id) => ipcRenderer.invoke("preview:popout", id),
     network: (id, enabled) => ipcRenderer.invoke("preview:network", id, enabled),
     pick: (worktree) => ipcRenderer.invoke("preview:pick", worktree),
     close: (id) => ipcRenderer.invoke("preview:close", id),

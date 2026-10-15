@@ -24,6 +24,7 @@ vi.mock("../../../src/main/control/forge-tracking", () => ({
   ForgeTracking: { open: forgeMock.open },
 }));
 const previewMock = vi.hoisted(() => ({
+  popout: undefined as ((id: string) => Promise<void>) | undefined,
   humanClose: undefined as ((id: string) => void) | undefined,
   pick: undefined as ((worktree: string) => Promise<string | null>) | undefined,
   pickFile: vi.fn(() => Promise.resolve("a".repeat(32))),
@@ -34,6 +35,7 @@ const previewMock = vi.hoisted(() => ({
     reconcile: () => Promise<void>;
     closeWorktree: (worktree: string) => Promise<void>;
     dispose: () => Promise<void>;
+    moveTo: (id: string, target: unknown) => Promise<void>;
   }[],
 }));
 vi.mock("../../../src/main/previews/host", () => ({
@@ -42,6 +44,7 @@ vi.mock("../../../src/main/previews/host", () => ({
     open = vi.fn((_worktree: string, _path: string, _agent?: { id: string }) =>
       Promise.resolve("preview"),
     );
+    moveTo = vi.fn((_id: string, _target: unknown) => Promise.resolve());
     close = vi.fn(() => Promise.resolve());
     visible = vi.fn(() => false);
     placed = vi.fn();
@@ -64,6 +67,7 @@ vi.mock("../../../src/main/previews/host", () => ({
         reconcile: this.reconcile,
         closeWorktree: this.closeWorktree,
         dispose: this.dispose,
+        moveTo: this.moveTo,
       });
     }
   },
@@ -73,8 +77,10 @@ vi.mock("../../../src/main/previews/ipc", () => ({
     _ipc: unknown,
     _host: unknown,
     pick: (worktree: string) => Promise<string | null>,
+    popout: (id: string) => Promise<void>,
     humanClose: (id: string) => void,
   ) => {
+    previewMock.popout = popout;
     previewMock.pick = pick;
     previewMock.humanClose = humanClose;
     return () => {};
@@ -2083,3 +2089,31 @@ test.each([false, true])(
     }
   },
 );
+
+test("preview popout creates a window, transfers the host record and requests placement there", async () => {
+  previewMock.hosts.length = 0;
+  await start();
+  const source = previewMock.hosts[0];
+  if (!source || !previewMock.popout) throw new Error("Missing previews");
+  const moving = previewMock.popout("a".repeat(32));
+  await vi.waitFor(() => {
+    expect(previewMock.hosts).toHaveLength(2);
+  });
+  const target = mock.instances[1];
+  if (!target) throw new Error("Missing window");
+  await vi.waitFor(() => {
+    expect(target.webContents.send).toHaveBeenCalledWith(
+      "preview:place",
+      expect.any(String),
+      "a".repeat(32),
+      expect.any(Number),
+    );
+  });
+  const request: unknown = target.webContents.send.mock.calls.find(
+    (call) => call[0] === "preview:place",
+  )?.[1];
+  await invokeWindow(1, "preview:placed", request, "a".repeat(32), "empty");
+  await moving;
+  const { previewHosts } = await import("../../../src/main/main");
+  expect(source.moveTo).toHaveBeenCalledWith("a".repeat(32), previewHosts.get(target.id));
+});

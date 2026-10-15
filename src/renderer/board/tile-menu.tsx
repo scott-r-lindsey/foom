@@ -69,7 +69,7 @@ export function TileMenu({
           ...item("maximize", layout.maximized ? "Restore" : "Maximize"),
           hint: navigator.platform.includes("Mac") ? "⇧⌘↵" : "Ctrl+Shift+Enter",
         },
-        ...(popout && row ? [item("popout", "Move to new window")] : []),
+        ...(popout && (row || preview) ? [item("popout", "Move to new window")] : []),
         ...(preview && network
           ? [
               null,

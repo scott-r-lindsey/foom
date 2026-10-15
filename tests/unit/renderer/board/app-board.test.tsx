@@ -223,9 +223,12 @@ test("source connects independently of views, reconciles events, preserves order
   await expect(source.previews?.network?.("unknown", true)).rejects.toThrow(
     "Preview host unavailable",
   );
+  await expect(source.previews?.popout?.("unknown")).rejects.toThrow("Preview host unavailable");
+  const popout = vi.fn(() => Promise.resolve());
   const network = vi.fn(() => Promise.resolve());
   window.desktop.previews = {
     network,
+    popout,
     pick: vi.fn(),
     close: vi.fn(),
     bounds: vi.fn(),
@@ -234,6 +237,8 @@ test("source connects independently of views, reconciles events, preserves order
   };
   await source.previews?.network?.("id", true);
   expect(network).toHaveBeenCalledWith("id", true);
+  await source.previews?.popout?.("id");
+  expect(popout).toHaveBeenCalledWith("id");
   delete window.desktop.previews;
   expect(source.isReady?.()).toBe(false);
   const disconnect = source.connect?.();
@@ -1072,6 +1077,7 @@ test("the application owns and disposes preview composition independently of til
   const cover = vi.fn(() => Promise.resolve());
   const onSnapshots = vi.fn(() => off);
   window.desktop.previews = {
+    popout: vi.fn(),
     pick: vi.fn(),
     network: vi.fn(),
     close: vi.fn(),

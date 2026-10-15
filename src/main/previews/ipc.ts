@@ -34,8 +34,10 @@ export function attachPreviews(
   ipc: WindowIpc,
   host: PreviewHost,
   pick: (worktree: string) => Promise<string | null>,
+  popout: (id: string) => Promise<void>,
   humanClose: (id: string) => void = () => {},
 ): () => void {
+  const moving = new Set<string>();
   ipc.handle("preview:pick", (_event, ...args) => {
     const [worktree] = args;
     if (
@@ -54,6 +56,16 @@ export function attachPreviews(
     if (!host.registry.records.has(id)) throw new Error("Unknown preview ID");
     humanClose(id);
     return host.close(id);
+  });
+  ipc.handle("preview:popout", (_event, ...args) => {
+    const [id] = args;
+    if (args.length !== 1 || !previewId(id)) throw new Error("Invalid preview ID");
+    if (!host.registry.records.has(id)) throw new Error("Unknown preview ID");
+    if (moving.has(id)) throw new Error("Preview move in progress");
+    moving.add(id);
+    return Promise.resolve()
+      .then(() => popout(id))
+      .finally(() => moving.delete(id));
   });
   ipc.handle("preview:network", (_event, ...args) => {
     const [id, enabled] = args;
@@ -74,6 +86,7 @@ export function attachPreviews(
   return () => {
     for (const channel of [
       "preview:pick",
+      "preview:popout",
       "preview:close",
       "preview:bounds",
       "preview:cover",

@@ -47,11 +47,16 @@ test("board IPC accepts exact requests and routes only IDs to its window host", 
   };
   const humanClose = vi.fn();
   const pick = vi.fn(() => Promise.resolve("a".repeat(32)));
-  const dispose = attachPreviews(ipc, host as unknown as PreviewHost, pick, humanClose);
+  const popout = vi.fn(async () => {});
+  const dispose = attachPreviews(ipc, host as unknown as PreviewHost, pick, popout, humanClose);
   const invoke = (name: string, ...args: unknown[]) =>
     handlers.get(`preview:${name}`)?.({} as IpcMainInvokeEvent, ...args);
   const id = "a".repeat(32);
   await expect(invoke("pick", "/repo")).resolves.toBe(id);
+  const moving = invoke("popout", id);
+  expect(() => invoke("popout", id)).toThrow("in progress");
+  await moving;
+  expect(popout).toHaveBeenCalledWith(id);
   await invoke("close", id);
   invoke("bounds", id, bounds);
   await invoke("network", id, true);
@@ -63,11 +68,12 @@ test("board IPC accepts exact requests and routes only IDs to its window host", 
   expect(humanClose).toHaveBeenCalledExactlyOnceWith(id);
   expect(() => invoke("close", "b".repeat(32))).toThrow("Unknown preview ID");
   expect(humanClose).toHaveBeenCalledTimes(1);
+  expect(() => invoke("popout", "b".repeat(32))).toThrow("Unknown preview ID");
   expect(host.bounds).toHaveBeenCalledWith(id, bounds);
   for (const args of [[], [1], [""], ["\0"], ["a".repeat(4097)], ["/repo", "a.html"]])
     expect(() => invoke("pick", ...args)).toThrow();
   for (const args of [[], [null], ["wrong"], [id, "extra"]])
-    expect(() => invoke("close", ...args)).toThrow();
+    for (const name of ["close", "popout"]) expect(() => invoke(name, ...args)).toThrow();
   for (const args of [[], ["wrong", bounds], [id, bounds, "extra"], [id, {}]])
     expect(() => invoke("bounds", ...args)).toThrow();
   await invoke("cover", true);
@@ -76,7 +82,7 @@ test("board IPC accepts exact requests and routes only IDs to its window host", 
     expect(() => invoke("cover", ...args)).toThrow();
   dispose();
   expect(handlers.size).toBe(0);
-  const disposeWithoutObserver = attachPreviews(ipc, host as unknown as PreviewHost, pick);
+  const disposeWithoutObserver = attachPreviews(ipc, host as unknown as PreviewHost, pick, popout);
   await invoke("close", id);
   disposeWithoutObserver();
 });
