@@ -5,8 +5,7 @@ Status: parser implemented by #430 and the generic config launch engine by #431,
 prompts, preview grants, argument/environment bypass disclosure, resume and local
 attention rules. Hook channels, private hook files, payload mapping and observed health are implemented
 by #432. Setup status, fixed plugin actions and private staging are implemented by #433.
-Plugin-scope files that reference hook observers (`{observer...}`) remain unavailable with
-`v2-observer-staging-unavailable` until setup staging can materialize observers.
+Setup staging materializes Foom-generated hook observers referenced by plugin-scope files (#464).
 Built-in conversion and those remaining capabilities are future work; parsing alone
 grants no capability. Built-in providers retain their existing hook implementation pending conversion.
 [Issue #423](https://github.com/scott-r-lindsey/foom/issues/423) established the
@@ -200,7 +199,7 @@ Launch directories are private 0700/0600 or current-user DACLs, no links, exclus
 creation and containment/identity checks. Revoke credentials before deletion on
 exit, failure, kill and shutdown; register cleanup before preparing files. No writes
 in the checkout or global agent config. `scope:plugin` generates reviewed persistent
-staging data under Foom's profile; copied observer assets contain no credentials. Plugin staging can materialize declared observers even when launch hooks are disabled. placement plugin copies fixed observer.sh/observer.ps1 plus the fixed detached worker and builds relative invocation commands as today; their event suffix is fixed. No plugin-supplied script bytes are accepted.
+staging data under Foom's profile; copied observer assets contain no credentials. Plugin staging can materialize declared observers even when launch hooks are disabled. placement plugin copies fixed observer.sh/observer.ps1 plus the fixed detached worker under observers/CHANNEL and builds relative invocation commands; their event suffix is fixed. No plugin-supplied script bytes are accepted.
 For `placement:stable`, the versioned observer path is stable outside ASAR and
 contains no launch identity. Include its path/version and exact hook definitions
 in the health fingerprint. Stable names are generated from observer.basename and the per-platform ABI version; commandArguments preserves the legacy literal codex label without code branching. POSIX stable command serialization and Windows encoded invocation must remain byte-identical to the current definition for that ABI. A copied custom manifest can select the same generic
@@ -374,7 +373,7 @@ Other CLI mutation surfaces require their own reviewed architecture decision.
 
 Command actions use the same resolved agent executable, fixed argv and only
 {pluginDir}; no user/payload interpolation, subprocess choice, cwd selection, shell,
-stdin program, retries or executable downloads. Stage files first for review;
+stdin program, retries or executable downloads. The content-addressed staging fingerprint covers expanded files and generated observer bytes. Observer plugins carry `foomStagingFingerprint` in CLI-owned plugin metadata; a changed definition is outdated and offers update even at the same ABI version. Staging verification rejects extra files, links and changed bytes before invoking the CLI. Stage files first for review;
 serialize actions per executable/plugin ownership target, re-probe before/after,
 re-read approval bytes and recheck ownership after trusted confirmation. Conflicting
 copies share the ownership lock, including case aliases on Windows/macOS. Failed commands report fixed errors and require

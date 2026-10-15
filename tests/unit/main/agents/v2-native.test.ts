@@ -1,8 +1,9 @@
 import { execFile } from "node:child_process";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, rm, writeFile, readFile, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, it } from "vitest";
+import { stagePlugin } from "../../../../src/main/agents/plugin-staging";
 import { observerAssets } from "../../../../src/main/agents/providers/v2-observers";
 import { parseAgentManifest } from "../../../../src/shared/agent-plugin-parser";
 import { HookReceiver } from "../../../../src/main/agents/hook-receiver";
@@ -31,10 +32,12 @@ it("generic detached observers allocate order before transport and return a neut
   const supervisors: Promise<Error | null>[] = [];
   const failures: Error[] = [];
   try {
-    for (const [name, source] of Object.entries(
-      observerAssets(channel, process.platform === "win32"),
-    ))
-      await writeFile(join(directory, name), source);
+    const staged = await stagePlugin(model, directory, { hooksEnabled: false });
+    await staged.verify();
+    expect((await stagePlugin(model, directory, { hooksEnabled: true })).directory).toBe(
+      staged.directory,
+    );
+    const observerDirectory = join(staged.directory, "observers", channel.id);
     const order = join(directory, "order");
     await writeFile(order, "0");
     const windows = process.platform === "win32";
@@ -54,7 +57,7 @@ it("generic detached observers allocate order before transport and return a neut
     };
     const run = async (event: string, payload: unknown) => {
       if (windows) {
-        const observer = windowsObserver(directory, env, event, JSON.stringify(payload));
+        const observer = windowsObserver(observerDirectory, env, event, JSON.stringify(payload));
         supervisors.push(observer.closed);
         return observer.result;
       }
@@ -62,7 +65,7 @@ it("generic detached observers allocate order before transport and return a neut
         const child = execFile(
           "sh",
           ["./observer.sh", event],
-          { cwd: directory, env, timeout: nativeDeadline(5000) },
+          { cwd: observerDirectory, env, timeout: nativeDeadline(5000) },
           (error: Error | null, stdout: string, stderr: string) => {
             if (error) reject(error);
             else resolve({ stdout, stderr });
@@ -86,6 +89,21 @@ it("generic detached observers allocate order before transport and return a neut
     await expect.poll(() => signals.length).toBe(2);
     expect(signals.map((signal) => signal.action)).toEqual(["working", "classify"]);
     expect(state.channels?.get(channel.id)?.sequence).toBe(2);
+    const extra = join(staged.directory, "extra.json");
+    await writeFile(extra, "{}");
+    await expect(staged.verify()).rejects.toThrow("changed");
+    await rm(extra);
+    const script = join(observerDirectory, windows ? "observer.ps1" : "observer.sh");
+    const original = await readFile(script, "utf8");
+    await writeFile(script, "changed");
+    await expect(staged.verify()).rejects.toThrow("changed");
+    await writeFile(script, original);
+    await staged.verify();
+    const outside = join(directory, "outside");
+    await writeFile(outside, original);
+    await rm(script);
+    await symlink(outside, script);
+    await expect(staged.verify()).rejects.toThrow();
   } finally {
     launch.revoke();
     await receiver.close();

@@ -6,7 +6,6 @@ import { join } from "node:path";
 import type { AgentManifestV2 } from "../../../shared/agent-manifest-v2";
 import type { AgentProvider, PreparedLaunch } from "./provider";
 import { conversationId } from "../../../shared/conversation";
-import { AgentManifestError } from "../../../shared/agent-manifest";
 import { dataContainer } from "../../../shared/agent-manifest-container";
 import { privateDirectory, createPrivateFile, verifyPrivate } from "../../control/private-files";
 import { CHILD_PROMPT, CONFIG_PROMPT, CLI_GUIDANCE } from "./cli-launch";
@@ -19,12 +18,6 @@ import {
   selected,
 } from "./v2-values";
 
-export function availableV2(model: AgentManifestV2): void {
-  // Setup staging (#433) cannot yet materialize hook observers inside plugin files.
-  if (model.files.some((file) => file.scope === "plugin" && file.content.includes("{observer")))
-    throw new AgentManifestError("$.files", "v2-observer-staging-unavailable");
-}
-
 /** Immutable approved data; probes/facts and temporary files never reach board renderers. */
 export function v2Provider(input: AgentManifestV2, validate: () => Promise<void>): AgentProvider {
   const model = structuredClone(input);
@@ -33,7 +26,6 @@ export function v2Provider(input: AgentManifestV2, validate: () => Promise<void>
     for (const entry of Object.values(value)) freeze(entry);
     Object.freeze(value);
   };
-  availableV2(model);
   freeze(model);
   const setup = new PluginSetup();
   const probes = new Map<string, { version: string; help: string }>();

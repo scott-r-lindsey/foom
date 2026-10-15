@@ -201,7 +201,7 @@ it("exposes pending/rejected plugin cards and reviews the selected digest when a
   expect(rejected.agentPlugins?.[0]?.reason).toContain("missing-key");
 });
 
-it("withdraws v1 authority and refuses v2 observer staging before approval even with an approved byte digest", async () => {
+it("withdraws stale v1 authority and restores exact approved v2 observer plugins", async () => {
   const f = await fixture();
   await writeFile(f.file, JSON.stringify(manifest));
   f.confirm.mockResolvedValue(true);
@@ -213,25 +213,18 @@ it("withdraws v1 authority and refuses v2 observer staging before approval even 
   f.digests.set(`agents/${manifest.id}.json`, digest(text));
   f.confirm.mockClear();
   const status = await f.service.refresh();
-  expect(status.agentPlugins).toContainEqual(
-    expect.objectContaining({
-      id: manifest.id,
-      state: "rejected",
-      reason: "$.files: v2-observer-staging-unavailable",
-    }),
-  );
+  expect(status.agentPlugins).toEqual([]);
+  expect(agentProvider(manifest.id).model?.version).toBe(2);
   expect(status.pending).toBeNull();
-  expect(knownAgentId(manifest.id)).toBe(false);
+  expect(knownAgentId(manifest.id)).toBe(true);
   expect(f.confirm).not.toHaveBeenCalled();
   await expect(old.validate?.()).rejects.toThrow("changed");
   await f.service.dispose();
   const restarted = new ConfigService(f.dependencies);
   services.push(restarted);
   await restarted.initialize();
-  expect(knownAgentId(manifest.id)).toBe(false);
-  expect(restarted.status().agentPlugins?.[0]?.reason).toBe(
-    "$.files: v2-observer-staging-unavailable",
-  );
+  expect(knownAgentId(manifest.id)).toBe(true);
+  expect(restarted.status().agentPlugins).toEqual([]);
 });
 
 it("approves exact v2 bytes with complete before/after disclosure and withdraws authority during a changed-byte race", async () => {
