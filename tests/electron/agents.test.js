@@ -3443,7 +3443,7 @@ test("built-in duplication creates unique untrusted plugins, edits and approves 
   const builtin = page.getByRole("region", { name: "Claude Code", exact: true });
   await expect(builtin.getByRole("switch")).toBeEnabled();
   await builtin.getByRole("button", { name: "Duplicate as plugin" }).click();
-  const card = page.getByRole("region", { name: "Claude Code (custom)", exact: true });
+  let card = page.getByRole("region", { name: "Claude Code (custom)", exact: true });
   await expect(card).toContainText("Approval pending · launch blocked");
   await expect(card).toBeFocused();
   const file = path.join(home, ".foom/config/agents/claude-custom.json");
@@ -3476,6 +3476,7 @@ test("built-in duplication creates unique untrusted plugins, edits and approves 
     ),
     false,
   );
+  manifest.name = "Claude Code (edited copy)";
   manifest.launch.arguments = { arguments: [script, "from-edited-copy"] };
   await writeFile(file, JSON.stringify(manifest));
   await expect
@@ -3491,11 +3492,16 @@ test("built-in duplication creates unique untrusted plugins, edits and approves 
         .update("agents/claude-custom.json" + JSON.stringify(manifest))
         .digest("hex"),
     );
+  // Main's status can advance before the config subscription renders the card.
+  // The edited name and Review's decision ID come from the same plugin snapshot.
+  card = page.getByRole("region", { name: manifest.name, exact: true });
+  await expect(card).toBeVisible();
   await card.getByRole("button", { name: "Review…" }).click();
   let dialog = await confirmationPage(app);
   await expect(dialog.getByRole("alertdialog")).toContainText("from-edited-copy");
   await expect(dialog.getByRole("button", { name: "Cancel" })).toBeFocused();
   await dialog.getByRole("button", { name: "Cancel" }).click();
+  await expect(dialog.getByRole("alertdialog")).toBeHidden();
   await expect(card).toContainText("Approval pending");
   await card.getByRole("button", { name: "Review…" }).click();
   dialog = await confirmationPage(app);
@@ -3542,7 +3548,7 @@ test("built-in duplication creates unique untrusted plugins, edits and approves 
   await page.keyboard.press("Escape");
   await page.getByRole("button", { name: "Actions for Main checkout", exact: true }).click();
   await expect(page.getByRole("menuitem", { name: "Claude Code", exact: true })).toHaveCount(0);
-  await page.getByRole("menuitem", { name: "Claude Code (custom)", exact: true }).click();
+  await page.getByRole("menuitem", { name: manifest.name, exact: true }).click();
   await expect
     .poll(async () => {
       try {
