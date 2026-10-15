@@ -754,22 +754,43 @@ test("fresh focused terminal cursor blinks and preserves application style on re
   const marker = path.join(directory, "stage");
   const app = await launchApp(context, true, { emptyBoard: true });
   const page = await boardPage(app);
-  // Observe before launch: snapshots contain escape sequences even when the
-  // PTY has written nothing, so record host activity separately from view data.
+  // ACKs originate in xterm's write callback, after parsing (not after paint).
+  await app.evaluate(({ ipcMain }) => {
+    globalThis.cursorProbeAcks = {};
+    globalThis.cursorProbeAck = (_event, id, token, count) => {
+      const tokens = (globalThis.cursorProbeAcks[id] ??= {});
+      tokens[token] = (tokens[token] ?? 0) + count;
+    };
+    ipcMain.on("terminal:ack", globalThis.cursorProbeAck);
+  });
+  // Keep observing through output and every reattach, not just startup. A frame
+  // sentinel per data event detects starvation without a perpetual rAF loop.
   await page.evaluate(() => {
-    window.cursorProbe = { output: {}, active: [] };
+    window.cursorProbe = { output: {}, active: [], frames: 0, pending: 0 };
+    const frames = new Set();
     window.stopCursorProbeData = window.desktop.onData((id, token, data) => {
-      const output = (window.cursorProbe.output[id] ??= { units: 0, text: "", tokens: [] });
+      const output = (window.cursorProbe.output[id] ??= { units: 0, text: "", tokens: {} });
       output.units += data.length;
+      if (!(token in output.tokens)) output.text = "";
       output.text = (output.text + data).slice(-8192);
-      if (!output.tokens.includes(token)) output.tokens.push(token);
+      output.tokens[token] = (output.tokens[token] ?? 0) + data.length;
+      window.cursorProbe.pending++;
+      const frame = requestAnimationFrame(() => {
+        frames.delete(frame);
+        window.cursorProbe.frames++;
+        window.cursorProbe.pending--;
+      });
+      frames.add(frame);
     });
     window.stopCursorProbeActivity = window.desktop.onActivity((batch) => {
       for (const { id, rate } of batch)
         if (rate > 0 && !window.cursorProbe.active.includes(id)) window.cursorProbe.active.push(id);
     });
+    window.stopCursorProbeFrames = () => {
+      for (const frame of frames) cancelAnimationFrame(frame);
+      cancelAnimationFrame(window.cursorProbe.nativeFrameId);
+    };
   });
-  await launchCheckoutShell(app, page);
   const shell = page.locator(".terminal-tile[data-kind='shell'] .tile-terminal");
   const rows = shell.locator(".xterm-rows");
   const cursor = rows.locator(".xterm-cursor");
@@ -797,7 +818,10 @@ test("fresh focused terminal cursor blinks and preserves application style on re
   };
   const prompt = process.platform === "win32" ? /PS [\s\S]*>/ : /[$#%>]\s*$/;
   let id;
+  let expectedOutput = prompt;
+  let stage = "startup";
   try {
+    await launchCheckoutShell(app, page);
     await expect
       .poll(async () => {
         id = (await page.evaluate(() => window.desktop.workspace())).terminals[0]?.id;
@@ -810,6 +834,15 @@ test("fresh focused terminal cursor blinks and preserves application style on re
     await expect
       .poll(async () => (await page.evaluate((id) => window.desktop.tail(id, 40), id)).join("\n"))
       .toMatch(prompt);
+    // CDP activation can report a visible, focused document while the native
+    // window is hidden and delivers no frames. Exercise that state, then use a
+    // native visibility transition to start the compositor before typing.
+    await app.evaluate(({ BrowserWindow }) => {
+      BrowserWindow.getAllWindows()
+        .find((window) => window.webContents.getURL() === "app://bundle/index.html")
+        .hide();
+    });
+    await page.bringToFront();
     await app.evaluate(({ BrowserWindow }) => {
       const board = BrowserWindow.getAllWindows().find(
         (window) => window.webContents.getURL() === "app://bundle/index.html",
@@ -818,14 +851,64 @@ test("fresh focused terminal cursor blinks and preserves application style on re
       board.focus();
       board.webContents.focus();
     });
-    await page.bringToFront();
     await expect
       .poll(() =>
         page.evaluate(() => document.visibilityState === "visible" && document.hasFocus()),
       )
       .toBe(true);
+    await page.evaluate(() => {
+      window.cursorProbe.nativeFrame = false;
+      window.cursorProbe.nativeFrameId = requestAnimationFrame(() => {
+        window.cursorProbe.nativeFrame = true;
+      });
+    });
+    await expect
+      .poll(() => page.evaluate(() => window.cursorProbe.nativeFrame), {
+        message: "The shown native board must deliver animation frames before terminal input",
+      })
+      .toBe(true);
     await expect(page.locator(".xterm-helper-textarea")).toBeFocused();
     await expectCursor(/xterm-cursor-block/, true, /blink_block_/);
+
+    const command = `${process.platform === "win32" ? "& " : ""}"${process.execPath}" "${path.join(__dirname, "view-probe.js")}" "${marker}"`;
+    stage = "initial probe output";
+    expectedOutput = /NORMAL_VIEW_READY/;
+    await page.keyboard.type(command);
+    await page.keyboard.press("Enter");
+    await expect(rows).toContainText("NORMAL_VIEW_READY");
+    stage = "steady cursor output";
+    expectedOutput = /CURSOR_STEADY/;
+    await page.keyboard.press("c");
+    await expectCursor(/xterm-cursor-underline/, false);
+    await openSettingsScreen(page);
+    await expect(page.getByRole("region", { name: "Settings" })).toBeVisible();
+    await page.keyboard.press("Escape");
+    await page.locator(".board-row[data-kind='shell']").click();
+    await expect(page.locator(".xterm-helper-textarea")).toBeFocused();
+    await expectCursor(/xterm-cursor-underline/, false);
+    await openSettingsScreen(page);
+    await expect(page.getByRole("region", { name: "Settings" })).toBeVisible();
+    stage = "blinking cursor reattach";
+    expectedOutput = /CURSOR_BLINKING/;
+    await page.evaluate((id) => window.desktop.input(id, "b"), id);
+    await expect.poll(() => readFile(marker, "utf8")).toBe("blinking");
+    await page.keyboard.press("Escape");
+    await page.locator(".board-row[data-kind='shell']").click();
+    await expect(page.locator(".xterm-helper-textarea")).toBeFocused();
+    await expectCursor(/xterm-cursor-bar/, true, /blink_bar_/);
+    stage = "default cursor output and reattach";
+    expectedOutput = /CURSOR_DEFAULT_STEADY/;
+    await page.keyboard.press("r");
+    await expect(rows).toContainText("CURSOR_DEFAULT_STEADY");
+    await expectCursor(/xterm-cursor-block/, false);
+    await openSettingsScreen(page);
+    await expect(page.getByRole("region", { name: "Settings" })).toBeVisible();
+    await page.keyboard.press("Escape");
+    await page.locator(".board-row[data-kind='shell']").click();
+    await expect(page.locator(".xterm-helper-textarea")).toBeFocused();
+    await expectCursor(/xterm-cursor-block/, false);
+    await stopSession(page, id);
+    await expect(cursor).toHaveCount(0);
   } catch (error) {
     const host = id
       ? await page
@@ -842,26 +925,47 @@ test("fresh focused terminal cursor blinks and preserves application style on re
       focused: document.hasFocus(),
       active: document.activeElement?.outerHTML,
       status: document.querySelector(".tile-status")?.textContent,
+      bounds: document.querySelector(".xterm-screen")?.getBoundingClientRect().toJSON(),
     }));
+    const acknowledgements = await app.evaluate(() => globalThis.cursorProbeAcks);
+    const delivered = renderer.probe.output[id];
+    const token = Object.keys(delivered?.tokens ?? {}).at(-1);
+    const parsed = acknowledgements[id]?.[token] ?? 0;
+    const rendering = !expectedOutput.test(host.lines?.join("\n") ?? "")
+      ? "expected host output unavailable"
+      : !expectedOutput.test(delivered?.text ?? "")
+        ? "no expected data delivered to view"
+        : parsed < delivered.tokens[token]
+          ? "data delivered; view unsubscribed or xterm write incomplete"
+          : renderer.probe.pending > 0
+            ? "data written; no frames for pending view data"
+            : !expectedOutput.test(renderer.rows ?? "")
+              ? "data written but not painted despite frames"
+              : "output painted; cursor or focus assertion failed";
     context.diagnostic(
-      `Cursor startup diagnostics: ${JSON.stringify({
+      `Cursor lifecycle diagnostics: ${JSON.stringify({
         id,
-        phase: host.error
+        stage,
+        expectedOutput: String(expectedOutput),
+        hostState: host.error
           ? "host tail unavailable"
-          : prompt.test(host.lines.join("\n"))
-            ? prompt.test(renderer.rows ?? "")
-              ? "host prompt rendered; cursor or focus not ready"
-              : "host prompt produced; output not rendered"
+          : expectedOutput.test(host.lines.join("\n"))
+            ? "expected host output observed"
             : host.lines.length || renderer.probe.active.includes(id)
-              ? "PTY output observed; no host prompt"
+              ? "PTY output observed; expected output absent"
               : "no PTY output observed",
         host,
         renderer,
+        rendering,
+        token,
+        acknowledgements,
         workspace: await page.evaluate(() => window.desktop.workspace()),
         windows: await app.evaluate(({ BrowserWindow }) =>
           BrowserWindow.getAllWindows().map((window) => ({
             url: window.webContents.getURL(),
             visible: window.isVisible(),
+            minimized: window.isMinimized(),
+            bounds: window.getBounds(),
             focused: window.isFocused(),
             contentsFocused: window.webContents.isFocused(),
           })),
@@ -873,39 +977,12 @@ test("fresh focused terminal cursor blinks and preserves application style on re
     await page.evaluate(() => {
       window.stopCursorProbeData();
       window.stopCursorProbeActivity();
+      window.stopCursorProbeFrames();
+    });
+    await app.evaluate(({ ipcMain }) => {
+      ipcMain.removeListener("terminal:ack", globalThis.cursorProbeAck);
     });
   }
-  const command = `${process.platform === "win32" ? "& " : ""}"${process.execPath}" "${path.join(__dirname, "view-probe.js")}" "${marker}"`;
-  await page.keyboard.type(command);
-  await page.keyboard.press("Enter");
-  await expect(rows).toContainText("NORMAL_VIEW_READY");
-  await page.keyboard.press("c");
-  await expectCursor(/xterm-cursor-underline/, false);
-  await openSettingsScreen(page);
-  await expect(page.getByRole("region", { name: "Settings" })).toBeVisible();
-  await page.keyboard.press("Escape");
-  await page.locator(".board-row[data-kind='shell']").click();
-  await expect(page.locator(".xterm-helper-textarea")).toBeFocused();
-  await expectCursor(/xterm-cursor-underline/, false);
-  await openSettingsScreen(page);
-  await expect(page.getByRole("region", { name: "Settings" })).toBeVisible();
-  await page.evaluate((id) => window.desktop.input(id, "b"), id);
-  await expect.poll(() => readFile(marker, "utf8")).toBe("blinking");
-  await page.keyboard.press("Escape");
-  await page.locator(".board-row[data-kind='shell']").click();
-  await expect(page.locator(".xterm-helper-textarea")).toBeFocused();
-  await expectCursor(/xterm-cursor-bar/, true, /blink_bar_/);
-  await page.keyboard.press("r");
-  await expect(rows).toContainText("CURSOR_DEFAULT_STEADY");
-  await expectCursor(/xterm-cursor-block/, false);
-  await openSettingsScreen(page);
-  await expect(page.getByRole("region", { name: "Settings" })).toBeVisible();
-  await page.keyboard.press("Escape");
-  await page.locator(".board-row[data-kind='shell']").click();
-  await expect(page.locator(".xterm-helper-textarea")).toBeFocused();
-  await expectCursor(/xterm-cursor-block/, false);
-  await stopSession(page, id);
-  await expect(cursor).toHaveCount(0);
 });
 
 test("terminal runs an interactive shell behind an isolated bridge", {
