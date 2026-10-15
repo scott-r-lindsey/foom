@@ -42,6 +42,7 @@ test("board IPC accepts exact requests and routes only IDs to its window host", 
     open: vi.fn(() => Promise.resolve("a".repeat(32))),
     close: vi.fn(async () => {}),
     bounds: vi.fn(),
+    painted: vi.fn(),
     cover: vi.fn(async () => {}),
     network: vi.fn(async () => {}),
   };
@@ -76,6 +77,10 @@ test("board IPC accepts exact requests and routes only IDs to its window host", 
     for (const name of ["close", "popout"]) expect(() => invoke(name, ...args)).toThrow();
   for (const args of [[], ["wrong", bounds], [id, bounds, "extra"], [id, {}]])
     expect(() => invoke("bounds", ...args)).toThrow();
+  invoke("painted", id, 1);
+  expect(host.painted).toHaveBeenCalledWith(id, 1);
+  for (const args of [[], [id], [id, 0], [id, NaN], [id, 1.5], [id, "1"], ["wrong", 1], [id, 1, 2]])
+    expect(() => invoke("painted", ...args)).toThrow();
   await invoke("cover", true);
   expect(host.cover).toHaveBeenCalledWith(true);
   for (const args of [[], [null], [1], [true, false]])

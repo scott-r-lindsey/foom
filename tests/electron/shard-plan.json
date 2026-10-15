@@ -44,7 +44,7 @@
       "persistent sidebar keeps Escape in the PTY and routes keyboard navigation": [
         7.145, 14.543, 10.483
       ],
-      "preview composition freezes maximize and restore animations and excludes preview hit testing throughout tile drags": [
+      "preview composition keeps maximize and restore live and excludes preview hit testing throughout tile drags": [
         8.163, 20.664, 12.97
       ],
       "preview composition keeps tile and row panels visible and usable above captured pages": [

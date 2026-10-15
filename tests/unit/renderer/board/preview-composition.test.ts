@@ -30,6 +30,7 @@ function fixture(root = true) {
   } as unknown as CanvasRenderingContext2D);
   let listener: ((snapshots: readonly PreviewSnapshot[]) => void) | undefined;
   const off = vi.fn();
+  const painted = vi.fn(async () => {});
   const cover = vi.fn(async (_value: boolean) => {});
   const dispose = attachPreviewComposition({
     popout: vi.fn(),
@@ -37,6 +38,7 @@ function fixture(root = true) {
     network: vi.fn(),
     close: vi.fn(),
     bounds: vi.fn(),
+    painted,
     cover,
     onSnapshots: (callback) => {
       listener = callback;
@@ -44,11 +46,12 @@ function fixture(root = true) {
     },
   });
   const send = (snapshots: readonly PreviewSnapshot[]) => listener?.(snapshots);
-  return { cover, dispose, off, send, bitmap, drawImage, animations, getAnimations };
+  return { painted, cover, dispose, off, send, bitmap, drawImage, animations, getAnimations };
 }
 const snapshot = {
   id: "a".repeat(32),
   image: "data:image/png;base64,AA==",
+  version: 1,
   bounds: { x: 2, y: 3, width: 40, height: 50, visible: true },
 };
 const flush = async () => {
@@ -131,7 +134,7 @@ test("snapshots follow tile geometry and opacity during real animation lifetime"
   } as unknown as Animation);
   tile.setAttribute("data-maximized", "true");
   await flush();
-  expect(f.cover).toHaveBeenLastCalledWith(true);
+  expect(f.cover).toHaveBeenLastCalledWith(false);
   f.animations.splice(0);
   title.remove();
   tile.style.padding = "0px";
@@ -151,4 +154,75 @@ test("cover and bitmap failures leave board input available", async () => {
   await flush();
   f.dispose();
   await flush();
+});
+
+test("paint acknowledgement waits for decode and a painted frame, rejects stale decodes and disposal", async () => {
+  const frames: FrameRequestCallback[] = [];
+  vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => {
+    frames.push(callback);
+    return frames.length;
+  });
+  const frame = () => {
+    for (const callback of frames.splice(0)) callback(0);
+  };
+  const f = fixture();
+  let resolve: ((bitmap: ImageBitmap) => void) | undefined;
+  vi.mocked(createImageBitmap).mockImplementationOnce(
+    () =>
+      new Promise((done) => {
+        resolve = done;
+      }),
+  );
+  f.send([snapshot]);
+  f.send([snapshot]);
+  frame();
+  frame();
+  expect(f.painted).not.toHaveBeenCalled();
+  resolve?.(f.bitmap);
+  await flush();
+  frame();
+  expect(f.painted).not.toHaveBeenCalled();
+  frame();
+  expect(f.painted).toHaveBeenCalledExactlyOnceWith(snapshot.id, 1);
+  f.send([snapshot]);
+  frame();
+  frame();
+  expect(f.painted).toHaveBeenCalledTimes(2);
+  f.send([{ ...snapshot, version: 2 }]);
+  f.send([{ ...snapshot, version: 3 }]);
+  await flush();
+  frame();
+  frame();
+  expect(f.painted).toHaveBeenLastCalledWith(snapshot.id, 3);
+  expect(f.painted).not.toHaveBeenCalledWith(snapshot.id, 2);
+  f.send([snapshot]);
+  await flush();
+  f.dispose();
+  frame();
+  frame();
+  expect(f.painted).toHaveBeenCalledTimes(3);
+});
+test("a missing canvas context cannot acknowledge unpainted pixels", async () => {
+  const f = fixture();
+  vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue(null);
+  f.send([snapshot]);
+  await flush();
+  expect(f.painted).not.toHaveBeenCalled();
+  expect(f.bitmap.close).toHaveBeenCalled();
+  f.dispose();
+});
+
+test("a failed replacement canvas context preserves the previously drawn cache", async () => {
+  const f = fixture();
+  f.send([snapshot]);
+  await flush();
+  const canvas = document.querySelector("canvas");
+  expect(canvas?.width).toBe(10);
+  f.bitmap.width = 99;
+  vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue(null);
+  f.send([{ ...snapshot, version: 2 }]);
+  await flush();
+  expect(canvas?.width).toBe(10);
+  expect(f.drawImage).toHaveBeenCalledTimes(1);
+  f.dispose();
 });

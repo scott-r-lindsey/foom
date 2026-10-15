@@ -18,6 +18,7 @@ export interface PreviewSnapshot {
   id: string;
   bounds: PreviewBounds;
   image: string;
+  version: number;
 }
 export interface PreviewApi {
   onPlace?(callback: (id: string, expiresAt: number) => Promise<PreviewPlacement>): () => void;
@@ -26,6 +27,7 @@ export interface PreviewApi {
   network(id: string, enabled: boolean): Promise<void>;
   close(id: string): Promise<void>;
   bounds(id: string, bounds: PreviewBounds): Promise<void>;
+  painted(id: string, version: number): Promise<void>;
   cover(covered: boolean): Promise<void>;
   onSnapshots(callback: (snapshots: readonly PreviewSnapshot[]) => void): () => void;
 }

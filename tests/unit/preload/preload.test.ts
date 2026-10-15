@@ -788,9 +788,12 @@ test("preview cover and snapshots expose only validated image pixels and geometr
     id: "a".repeat(32),
     bounds: { x: 0, y: 1, width: 2, height: 3, visible: true },
     image: "data:image/png;base64,AA==",
+    version: 1,
   };
   listener({}, [entry]);
   expect(callback).toHaveBeenLastCalledWith([entry]);
+  await api.painted(entry.id, 1);
+  expect(mock.invoke).toHaveBeenLastCalledWith("preview:painted", entry.id, 1);
   callback.mockClear();
   for (const value of [
     null,
@@ -800,6 +803,7 @@ test("preview cover and snapshots expose only validated image pixels and geometr
     [{ ...entry, id: 1 }],
     [{ ...entry, id: "wrong" }],
     [{ ...entry, bounds: null }],
+    ...[undefined, "1", 0, -1, 1.5, NaN].map((version) => [{ ...entry, version }]),
     [{ ...entry, image: 1 }],
     [{ ...entry, image: "https://example.com" }],
     ...["x", "y", "width", "height"].flatMap((key) =>
