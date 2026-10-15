@@ -964,6 +964,8 @@ it.each(["shell", "home", "config", "missing", "missing-repository", "no-convers
       expect(create).toHaveBeenCalledWith(
         expect.objectContaining({ id: "restored", cwd: location }),
       );
+      // The reused ID resets the renderer row, so main's snapshot must advance with it.
+      expect(workspace.snapshot().terminals[0]?.launchVersion).toBe(1);
       await workspace.exited("restored", 0);
       expect(save.mock.calls.at(-1)?.[0][0]?.running).toBe(false);
       workspace.cancelQuit();
