@@ -2,7 +2,7 @@ const path = require("node:path");
 const assert = require("node:assert/strict");
 const { execFile } = require("node:child_process");
 const { promisify } = require("node:util");
-const { setTimeout: delay } = require("node:timers/promises");
+const timers = require("node:timers/promises");
 const { deadline } = require("./test-policy.js");
 const run = promisify(execFile);
 const { assertFixtureAgent } = require("./agent-isolation.js");
@@ -69,10 +69,10 @@ function descendants(rows, roots, baseline = []) {
 
 // Capture descendants while the app is alive, retaining their creation identity
 // after reparenting. Never kill a process solely because its PID was reused.
-async function auditProcesses(context, checkpoint = () => {}) {
+async function auditProcesses(context, checkpoint = () => {}, takeSnapshot = snapshot) {
   const roots = new Set();
   const tracked = new Map();
-  const baseline = await snapshot();
+  const baseline = await takeSnapshot();
   const counts = { electron: 0, host: 0, shell: 0 };
   for (const row of baseline) {
     if (/electron|foom/i.test(row.name)) counts.electron++;
@@ -82,11 +82,12 @@ async function auditProcesses(context, checkpoint = () => {}) {
   checkpoint("process audit baseline", { counts });
   context.diagnostic(`process counts before: ${JSON.stringify(counts)}`);
   let stopped = false;
+  const pollingStop = new AbortController();
   let failure;
   let fixtureDirectories;
   const forbidden = new Set();
   const capture = async () => {
-    const rows = await snapshot();
+    const rows = await takeSnapshot();
     const liveRoots = [...roots].filter((pid) => {
       const previous = tracked.get(pid);
       return !previous || rows.some((row) => row.pid === pid && row.start === previous.start);
@@ -113,7 +114,12 @@ async function auditProcesses(context, checkpoint = () => {}) {
   };
   const polling = (async () => {
     while (!stopped) {
-      await delay(1000);
+      // Cancel only the idle wait: an in-flight capture must finish and retain errors.
+      try {
+        await timers.setTimeout(1000, undefined, { signal: pollingStop.signal });
+      } catch (error) {
+        if (error.name !== "AbortError" || !pollingStop.signal.aborted) throw error;
+      }
       if (!stopped) await capture();
     }
   })().catch((error) => {
@@ -130,14 +136,17 @@ async function auditProcesses(context, checkpoint = () => {}) {
     capture,
     async finish() {
       stopped = true;
+      pollingStop.abort();
       await polling;
       if (failure) throw failure;
       const until = Date.now() + deadline(10_000);
       let survivors;
       do {
-        survivors = (await snapshot()).filter((row) => tracked.get(row.pid)?.start === row.start);
+        survivors = (await takeSnapshot()).filter(
+          (row) => tracked.get(row.pid)?.start === row.start,
+        );
         if (!survivors.length) break;
-        await delay(100);
+        await timers.setTimeout(100);
       } while (Date.now() < until);
       checkpoint("process audit survivors", {
         processes: survivors.map(({ command: _command, ...row }) => row),
