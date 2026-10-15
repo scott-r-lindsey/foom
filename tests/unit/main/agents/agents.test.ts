@@ -1391,3 +1391,34 @@ it("does not let a renderer acknowledgement approve revised, context-selected bu
   expect(dispose).toHaveBeenCalledOnce();
   expect(cleanup).toHaveBeenCalledOnce();
 });
+
+it("disabled agents retain card identity but run no discovery or setup probes, and enabling probes again", async () => {
+  const scan = await service.scan({ claude: false, codex: false, agy: false });
+  expect(scan.agents.map((agent) => [agent.id, agent.path, agent.reason])).toEqual([
+    ["claude", null, "Turned off"],
+    ["codex", null, "Turned off"],
+    ["agy", null, "Turned off"],
+  ]);
+  expect(scan.agents[0]?.name).toBe("Claude Code");
+  expect(execFile).not.toHaveBeenCalledWith(
+    expect.stringContaining("claude"),
+    expect.anything(),
+    expect.anything(),
+    expect.anything(),
+  );
+  expect(execFile).not.toHaveBeenCalledWith(
+    expect.stringContaining("codex"),
+    expect.anything(),
+    expect.anything(),
+    expect.anything(),
+  );
+  expect(execFile).not.toHaveBeenCalledWith(
+    expect.stringContaining("agy"),
+    expect.anything(),
+    expect.anything(),
+    expect.anything(),
+  );
+  expect(
+    (await service.scan({ claude: true, codex: false, agy: false })).agents[0]?.path,
+  ).not.toBeNull();
+});

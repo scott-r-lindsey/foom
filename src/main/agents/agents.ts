@@ -162,12 +162,21 @@ export class AgentService {
     this.agentHooks = preferences;
   }
 
-  async scan(): Promise<AgentScan> {
+  async scan(enabled: Readonly<Record<string, boolean>> = {}): Promise<AgentScan> {
     const resolved = await loginPath();
     const revision = providerRevision();
     const agents = await Promise.all(
       agentProviders().map(async (provider) =>
-        provider.enrich(await detect(provider.id, resolved.path), this.agyPlugin).then((agent) => ({
+        (enabled[provider.id] === false
+          ? Promise.resolve<AgentInstallation>({
+              id: provider.id,
+              path: null,
+              version: null,
+              hooks: false,
+              reason: "Turned off",
+            } satisfies AgentInstallation)
+          : provider.enrich(await detect(provider.id, resolved.path), this.agyPlugin)
+        ).then((agent) => ({
           ...agent,
           name: provider.name,
           mark: provider.mark,

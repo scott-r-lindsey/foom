@@ -11,7 +11,7 @@ import type {
 } from "../../shared/setup";
 import type { AgentReport } from "../../shared/workspace";
 import type { Repository } from "../../shared/worktrees";
-import type { ConfigStatus } from "../../shared/foom-config";
+import type { ConfigAgentDuplicate, ConfigStatus } from "../../shared/foom-config";
 
 /** What preflight needs from main. Components use this, never the bridge directly. */
 export interface SetupSource {
@@ -34,6 +34,7 @@ export interface SetupSource {
   /** Settings → Environment; absent where main offers none, such as sample boards. */
   environment?: EnvironmentApi;
   config?: {
+    duplicateAgent?(id: string): Promise<ConfigAgentDuplicate>;
     status(): Promise<ConfigStatus>;
     decide(decision: "allow" | "keep", id: string): Promise<ConfigStatus>;
     revert(commit: string): Promise<ConfigStatus>;

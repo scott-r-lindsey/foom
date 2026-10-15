@@ -446,6 +446,7 @@ export class Workspace {
     this.agentHooks = settings.agentHooks ?? {};
     this.hooksEnabled = settings.hooks;
     this.defaultArguments = settings.agentArguments ?? EMPTY_AGENT_ARGUMENTS;
+    if (JSON.stringify(this.enabled) !== JSON.stringify(settings.agents)) this.scanned = undefined;
     this.enabled = settings.agents;
     this.location = settings.worktreeLocation ?? "root";
     this.acknowledged = settings.codexNotifierAcknowledged ?? false;
@@ -794,7 +795,7 @@ export class Workspace {
   async scanAgents(refresh: boolean): Promise<AgentReport> {
     if (refresh || this.scannedProviders !== providerRevision()) this.scanned = undefined;
     this.scannedProviders = providerRevision();
-    this.scanned ??= this.agents.scan();
+    this.scanned ??= this.agents.scan(this.enabled);
     try {
       const { warning, agents } = await this.scanned;
       return {

@@ -82,6 +82,7 @@ input[type=checkbox] { accent-color: var(--accent); }
 .agent { margin-bottom: 16px; padding: 18px 20px; border-radius: 8px; background: var(--surface); }
 .agent-head { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; }
 h2 { font-size: 15px; font-weight: 600; margin: 0; }
+.duplicate { border-color: transparent; background: transparent; color: var(--muted); font-size: 11px; }
 .version { font: 11px var(--mono); color: var(--muted); }
 .toggle { display: flex; align-items: center; gap: 6px; margin-left: auto; font-size: 12px; }
 .toggle input { appearance: none; width: 28px; height: 16px; margin: 0; border-radius: 12px; background: var(--line); position: relative; cursor: pointer; }
@@ -214,7 +215,7 @@ function envRow(a,r,i) {
 }
 function renderCard(a) {
  const el=$(`[data-agent="${a.id}"]`);
- const header=`<div class="agent-head"><span class="badge">${a.badge}</span><h2>${a.name}</h2>${a.missing?`<code>${a.exe}</code><span class="version">Not found</span>`:`<span class="version">${a.version}</span><label class="toggle"><input type="checkbox" role="switch" aria-label="${a.name}" ${a.on?'checked':''} ${['pending','rejected'].includes(a.source)?'disabled':''}><span>${a.on?'On':'Off'}</span></label><code class="path">/Users/sam/.local/bin/${a.exe}</code>`}</div>`;
+ const header=`<div class="agent-head"><span class="badge">${a.badge}</span><h2>${a.name}</h2><span class="version">${a.missing?'Not found':a.version}</span><label class="toggle"><input type="checkbox" role="switch" aria-label="${a.name}" ${a.on?'checked':''} ${['pending','rejected'].includes(a.source)?'disabled':''}><span>${a.on?'On':'Off'}</span></label>${!a.source?'<button class="duplicate" data-action="duplicate">Duplicate as plugin</button>':''}<code class="path">${a.missing?a.exe:'/Users/sam/.local/bin/'+a.exe}</code></div>`;
  if(a.missing) { el.innerHTML=header; return; }
  const source = a.source?`<code>agents/${a.id}.json</code> <span class="${a.source==='pending'?'needs':a.source==='rejected'?'failure':''}">${a.source==='pending'?'Approval pending · launch blocked':a.source==='approved'?'Approved':'Rejected · launch blocked'}</span>${a.source==='pending'?'<button data-action="review">Review…</button>':''}`:'<span>Built-in</span>';
  el.innerHTML=header+`<div class="setting"><span class="label">Attention</span><div class="inline">${attention(a)}</div></div>
@@ -236,6 +237,11 @@ $('#agents').addEventListener('click',e=>{
  const a=agents.find(a=>a.id===card.dataset.agent), b=e.target.closest('button'); if(!b)return;
  if(b.dataset.signal) { a.signal=b.dataset.signal;renderCard(a);return; }
  const action=b.dataset.action;
+ if(action==='duplicate') {
+  let n=1,id; do {id=a.id+'-custom'+(n===1?'':'-'+n);n++;} while(agents.some(a=>a.id===id));
+  const copy={...a,id,name:a.name+' (custom'+(n===2?'':'-'+(n-1))+')',source:'pending',on:false,missing:false,env:[],args:''};
+  agents.push(copy);render();syncDock();$(`[data-agent="${id}"]`).scrollIntoView({block:'nearest'});return;
+ }
  if(action==='review') { review(`Allow ${a.name} plugin?`, `<p>Foom config · <code>agents/amp.json</code></p><dl><dt>Executable</dt><dd><code>/Users/sam/.local/bin/amp</code></dd><dt>Prompt argv</dt><dd><pre>["-x", "{prompt}"]</pre></dd><dt>Resume argv</dt><dd><pre>["threads", "continue", "{sessionId}"]</pre></dd><dt>Hooks argv</dt><dd>None</dd><dt>MCP argv</dt><dd>None</dd><dt>Allowed tools</dt><dd>None</dd><dt>Bypass flags</dt><dd><code>--dangerously-allow-all</code></dd><dt>Hook mapping</dt><dd>None · screen rules</dd></dl>`, 'Allow plugin',()=>{a.source='approved';renderCard(a);syncDock();}); $('#reject').hidden=false; $('#reject').onclick=()=>{ $('#review').close();a.source='rejected';a.reason='Approval declined';renderCard(a);syncDock(); }; }
  if(action==='agy') {
   const install=plugin!=='Disabled';
