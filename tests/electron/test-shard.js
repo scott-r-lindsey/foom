@@ -6,8 +6,8 @@ const assignments = new Map(
   shards.flatMap((tests, index) => Object.keys(tests).map((name) => [name, index])),
 );
 
-// Node's built-in sharding partitions files. This suite shares fixture helpers
-// in one file, so partition its named top-level tests before registering them.
+// Node's built-in sharding partitions files. Partition named top-level tests
+// across every feature suite so measured assignments survive file moves.
 const shard = process.env.FOOM_ELECTRON_SHARD;
 let index = 0;
 let count = 1;

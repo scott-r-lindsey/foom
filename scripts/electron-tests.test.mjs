@@ -14,7 +14,7 @@ function fixture(context) {
   for (const name of ["electron-tests.mjs", "electron-summary.mjs", "validation-fingerprint.mjs"]) {
     cpSync(new URL(name, import.meta.url), join(root, "scripts", name));
   }
-  for (const name of ["test-shard.js", "shard-plan.json"]) {
+  for (const name of ["test-shard.js", "test-suites.js", "shard-plan.json"]) {
     cpSync(
       new URL(`../tests/electron/${name}`, import.meta.url),
       join(root, "tests/electron", name),
@@ -34,7 +34,10 @@ function fixture(context) {
   `,
   );
   const suite = `const { test } = require('./test-shard.js');
-    test('selected case', () => { console.log('SELECTED_BODY'); });
+    test('selected case', () => {
+      require('node:assert/strict').ok(process.execArgv.includes('--test-concurrency=1'));
+      console.log('SELECTED_BODY');
+    });
     test('other case', () => { throw Error('UNSELECTED_BODY'); });`;
   for (const name of ["one.test.js", "packaged-smoke.js"]) {
     writeFileSync(join(root, "tests/electron", name), suite);
@@ -77,7 +80,10 @@ test("wrapper forwards both filter forms, reports executed tests and preserves s
   assert.match(shards.find((result) => result.status !== 0).output, /No selected tests passed/);
   writeFileSync(
     join(root, "tests/electron/two.test.js"),
-    `const { test } = require('./test-shard.js'); test('selected second', () => {});`,
+    `const { test } = require('./test-shard.js');
+      test('selected second', () => {
+        require('node:assert/strict').ok(process.execArgv.includes('--test-concurrency=1'));
+      });`,
   );
   const multiple = run(["--reuse-build", "--test-name-pattern=^selected"]);
   assert.equal(multiple.status, 0, multiple.output);
