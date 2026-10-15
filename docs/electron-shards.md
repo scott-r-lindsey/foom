@@ -1,10 +1,59 @@
-# Electron shard balance
+# Electron test layout and shard balance
 
 CI runs four named-test shards per platform. `tests/electron/shard-plan.json`
 assigns measured tests to shards; `test-shard.js` hashes new or renamed tests,
 and all tests at other shard counts. With no shard setting the full suite runs.
 Native hooks and packaging still run only on shard 1. The Quality gate requires
 all twelve Electron jobs. Test deadlines, step limits and retries are unchanged.
+
+## Feature suites and local runs
+
+`tests/electron/test-suites.js` discovers the sorted `*.test.js` files in
+`tests/electron/`. Both the runner and shard integration check use this inventory:
+
+| Suite | Scenarios |
+| --- | --- |
+| `terminal.test.js` | Shell I/O, cursor, PTY host, output, input and restart |
+| `confirmations.test.js` | Trusted dialogs, quit and config argument consent |
+| `workspace.test.js` | Repositories, worktrees, sessions, windows, sidebar and tiles |
+| `previews.test.js` | Markdown/HTML views, focus, composition, security and reload |
+| `settings.test.js` | Preflight, accessibility, appearance, sound and persisted settings |
+| `agents.test.js` | Fixture agents, hooks, conversations, orchestration and plugins |
+| `application.test.js` | Native board startup, fonts/themes and production bundle |
+| `harness.test.js` | Launch environment, quit acknowledgement and cleanup contracts |
+
+`harness.js` owns reusable launch, fixture, cleanup, diagnostics and interaction
+helpers. Feature-specific helpers stay beside their scenarios. It registers no
+tests. Launches retain isolated profiles and repositories, fixture login shells
+and controlled PATH, the agent guard, process auditing, sandboxing and shared
+`test-policy.js` deadlines. Cleanup quits every app before removing fixtures.
+
+The wrapper passes `--test-concurrency=1` explicitly: feature files run serially
+within each job, preserving native desktop/focus behavior. CI jobs remain
+independent. `FOOM_ELECTRON_SHARD` partitions named tests across all feature
+files, rather than partitioning files. With no setting, every suite runs fully.
+The split preserves all 130 existing names and leaves `shard-plan.json` unchanged.
+Generated loop cases are included in registration audits. Empty files on a shard
+may appear as Node runner placeholders; these are not named test registrations.
+
+```sh
+# Full suite, no sharding (Linux)
+xvfb-run -a pnpm run test:electron
+# One exact test across discovered suites
+xvfb-run -a pnpm run test:electron --test-name-pattern='^agent discovery uses the fixture login shell and controlled PATH$'
+# Reuse the verified build for another focused run
+xvfb-run -a pnpm run test:electron --reuse-build --test-name-pattern='^agent discovery uses the fixture login shell and controlled PATH$'
+# Match CI shard 2 of 4
+FOOM_ELECTRON_SHARD=2/4 xvfb-run -a pnpm run test:electron
+# Registration, sharding and filter checks without launching Electron
+node --require ./tests/helpers/setup.js --test scripts/electron-shard.test.mjs scripts/electron-tests.test.mjs
+```
+
+On Windows/macOS omit `xvfb-run -a`. Both `--test-name-pattern=REGEX` and
+`--test-name-pattern REGEX` are supported. Filters precede all suite paths;
+zero passing selected tests fail. `--reuse-build` verifies the wrapper's build
+receipt and rejects changed inputs/output. Focused checks do not replace the
+full validation required by `AGENTS.md`.
 
 ## Measurements
 

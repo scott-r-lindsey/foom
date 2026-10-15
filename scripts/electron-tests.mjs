@@ -1,6 +1,7 @@
 import { mkdirSync, writeFileSync, readFileSync, rmSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { buildFingerprint, fingerprint } from "./validation-fingerprint.mjs";
+import { suiteFiles } from "../tests/electron/test-suites.js";
 const args = process.argv.slice(2);
 const packaged = args.includes("--packaged");
 const reuse = args.includes("--reuse-build");
@@ -52,15 +53,17 @@ const result = spawnSync(
     "--require",
     "./tests/helpers/setup.js",
     "--test",
+    // Native windows share focus and the desktop; never run feature files in parallel.
+    "--test-concurrency=1",
     "--test-reporter=spec",
     "--test-reporter-destination=stdout",
     "--test-reporter=junit",
     `--test-reporter-destination=test-results/${packaged ? "packaged" : "electron"}.xml`,
     "--test-reporter=./scripts/electron-summary.mjs",
     `--test-reporter-destination=${summaryPath}`,
-    // Keep Node options before the suite glob when #486 splits the suite.
+    // Node filters must precede every discovered suite.
     ...forwarded,
-    packaged ? "tests/electron/packaged-smoke.js" : "tests/electron/*.test.js",
+    ...(packaged ? ["tests/electron/packaged-smoke.js"] : suiteFiles()),
   ],
   { stdio: "inherit" },
 );
