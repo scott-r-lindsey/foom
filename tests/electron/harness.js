@@ -131,6 +131,7 @@ async function boardPage(app) {
     board.webContents.focus();
   });
   const frame = await page.evaluateHandle(() => {
+    performance.mark("foom:board-frame-requested");
     const state = {
       delivered: false,
       id: 0,
@@ -140,6 +141,7 @@ async function boardPage(app) {
       timeOrigin: performance.timeOrigin,
     };
     state.id = requestAnimationFrame(() => {
+      performance.mark("foom:board-frame-delivered");
       state.delivered = true;
     });
     return state;
@@ -186,6 +188,7 @@ async function boardPage(app) {
         focused: document.hasFocus(),
         rows: document.querySelector(".xterm-rows")?.textContent,
         readyState: document.readyState,
+        fonts: document.fonts.status,
         viewport: { width: innerWidth, height: innerHeight },
       })),
     };

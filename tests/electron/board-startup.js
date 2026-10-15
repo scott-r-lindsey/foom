@@ -25,6 +25,7 @@ function recordBoardStartup({ app, contentTracing }, trace) {
             "blink",
             "navigation",
             "devtools.timeline",
+            "blink.user_timing",
             "renderer.scheduler",
             "disabled-by-default-cc.debug*",
             "disabled-by-default-viz.debug*",

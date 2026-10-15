@@ -56,6 +56,12 @@ avoided. Traces use app PIDs to avoid collisions between workers/launches. The
 Chromium log uses the worker PID to correlate its first app with the trace.
 Existing CI artifact collection retains `test-results/` on failure too.
 
+The `blink.user_timing` category includes `foom:board-frame-requested` and
+`foom:board-frame-delivered` marks around the sentinel. These locate the exact
+request in a trace containing multiple windows and other animation callbacks.
+Failure diagnostics also record `document.fonts.status`; they do not await fonts
+or otherwise change the startup/frame gate.
+
 ## Hypotheses still requiring a captured recurrence
 
 1. Cold GPU/frame-sink initialization or compositor scheduler stall. Check GPU
