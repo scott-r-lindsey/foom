@@ -236,6 +236,30 @@ jobs:
         timeout-minutes: 7
         if: runner.os == 'Linux'
         run: xvfb-run -a pnpm run test:electron
+      # Temporary #470 investigation: each trial gets a fresh display/profile.
+      # Stop on the first failure; never retry or turn a failed trial into a pass.
+      - name: Probe independent cold Linux board startups
+        timeout-minutes: 7
+        if: runner.os == 'Linux' && startsWith(matrix.shard, '1/')
+        shell: bash
+        run: |
+          loads=()
+          trap 'if [ "${#loads[@]}" -gt 0 ]; then kill "${loads[@]}"; wait "${loads[@]}" || true; fi' EXIT
+          for iteration in {1..20}; do
+            if [ "$iteration" -eq 11 ]; then
+              for load in {1..4}; do
+                yes > /dev/null &
+                loads+=("$!")
+              done
+            fi
+            echo "Cold board startup trial $iteration (trials 11–20 include CPU load)"
+            env -u FOOM_ELECTRON_SHARD CI=false xvfb-run -a node \
+              --require ./tests/helpers/setup.js --test \
+              --test-name-pattern='^agent discovery uses the fixture login shell and controlled PATH$' \
+              --test-reporter=spec --test-reporter-destination=stdout \
+              --test-reporter=junit --test-reporter-destination="test-results/cold-board-$iteration.xml" \
+              tests/electron/app.test.js
+          done
       - name: Test Electron on macOS and Windows
         timeout-minutes: 10
         if: runner.os != 'Linux'

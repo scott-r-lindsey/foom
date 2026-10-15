@@ -118,15 +118,31 @@ async function assertConfirmationFocus(app, page, locator) {
   }
 }
 
+async function writeBoardStartupDiagnostics(app, diagnostics) {
+  diagnostics.lifecycle = await app.evaluate(() => globalThis.boardStartup?.events);
+  await mkdir("test-results", { recursive: true });
+  await writeFile(
+    `test-results/board-startup-${process.pid}.json`,
+    JSON.stringify(diagnostics, null, 2),
+  );
+  console.error("Board startup diagnostics:", JSON.stringify(diagnostics));
+}
+
+async function flushBoardStartupTrace(app) {
+  await mkdir("test-results", { recursive: true });
+  await app.evaluate(
+    async ({ contentTracing }, file) => {
+      const state = globalThis.boardStartup;
+      await state?.traceReady;
+      if (!state?.tracing) return;
+      state.tracing = false;
+      await contentTracing.stopRecording(file);
+    },
+    path.resolve(`test-results/board-startup-${process.pid}-trace.json`),
+  );
+}
+
 async function boardPage(app) {
-  let page;
-  await expect
-    .poll(() => {
-      page = app.windows().find((page) => page.url() === "app://bundle/index.html");
-      return Boolean(page);
-    })
-    .toBe(true);
-  await page.waitForLoadState("domcontentloaded");
   const nativeState = () =>
     app.evaluate(({ BrowserWindow }) =>
       BrowserWindow.getAllWindows().map((window) => ({
@@ -141,6 +157,24 @@ async function boardPage(app) {
         contentBounds: window.getContentBounds(),
       })),
     );
+  let page;
+  try {
+    await expect
+      .poll(() => {
+        page = app.windows().find((page) => page.url() === "app://bundle/index.html");
+        return Boolean(page);
+      })
+      .toBe(true);
+    await page.waitForLoadState("domcontentloaded");
+  } catch (error) {
+    await writeBoardStartupDiagnostics(app, {
+      stage: "board target/document readiness",
+      windows: await nativeState(),
+      pages: app.windows().map((page) => ({ url: page.url(), closed: page.isClosed() })),
+    });
+    await flushBoardStartupTrace(app);
+    throw error;
+  }
   const before = await nativeState();
   // CDP activation alone can mark a native-hidden document visible/focused
   // without starting its compositor. Establish reachability in native code.
@@ -211,29 +245,13 @@ async function boardPage(app) {
         readyState: document.readyState,
         viewport: { width: innerWidth, height: innerHeight },
       })),
-      lifecycle: await app.evaluate(() => globalThis.boardStartup?.events),
     };
-    await mkdir("test-results", { recursive: true });
-    await writeFile(
-      `test-results/board-startup-${process.pid}.json`,
-      JSON.stringify(diagnostics, null, 2),
-    );
-    console.error("Board startup diagnostics:", JSON.stringify(diagnostics));
+    await writeBoardStartupDiagnostics(app, diagnostics);
     throw error;
   } finally {
     await frame.evaluate((state) => cancelAnimationFrame(state.id));
     await frame.dispose();
-    await mkdir("test-results", { recursive: true });
-    await app.evaluate(
-      async ({ contentTracing }, file) => {
-        const state = globalThis.boardStartup;
-        await state?.traceReady;
-        if (!state?.tracing) return;
-        state.tracing = false;
-        await contentTracing.stopRecording(file);
-      },
-      path.resolve(`test-results/board-startup-${process.pid}-trace.json`),
-    );
+    await flushBoardStartupTrace(app);
   }
   return page;
 }
