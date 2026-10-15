@@ -395,18 +395,19 @@ it("supports file-free server-parentheses grants, conditional blocks and alterna
   expect(noMcp.prepared.mcp).toBe(false);
   expect(noMcp.prepared.args).toContain("--allow=Bad(");
 });
-it("refuses hooks/health, supports setup, reviews the whole surface, and applies approved attention rules", () => {
+it("supports hooks, health and setup, reviews the whole surface, and applies approved attention rules", () => {
   const m = model();
-  expect(() => {
-    availableV2(model({ ...hookFixture, id: fixture.id }));
-  }).toThrow("v2-hooks-unavailable");
-  const health = model({ ...healthFixture, id: fixture.id });
-  health.hooks = undefined;
-  expect(() => {
-    availableV2(health);
-  }).toThrow("v2-health-unavailable");
+  for (const source of [hookFixture, healthFixture])
+    expect(() => {
+      availableV2(model({ ...source, id: fixture.id }));
+    }).not.toThrow();
   const setup = model({ ...setupFixture, id: fixture.id });
-  setup.hooks = undefined;
+  expect(() => {
+    availableV2(setup);
+  }).toThrow("v2-observer-staging-unavailable");
+  setup.files = setup.files.filter(
+    (file) => file.scope !== "plugin" || !file.content.includes("{observer"),
+  );
   expect(() => {
     availableV2(setup);
   }).not.toThrow();

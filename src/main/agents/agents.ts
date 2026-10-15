@@ -301,6 +301,7 @@ export class AgentService {
         control,
         config !== undefined,
         this.hooksEnabled && this.agentHooks[agent.id] !== false,
+        binding,
       );
       if (prepared && request.control && "role" in request.control && !prepared.mcp)
         throw new Error("This launch cannot restore orchestration without MCP");

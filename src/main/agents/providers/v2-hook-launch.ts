@@ -1,0 +1,137 @@
+import { writeOwnedFile, readOwnedFile } from "./v2-files";
+import { healthStore, V2ExecutionHooks } from "./v2-health";
+import { randomUUID } from "node:crypto";
+import { mkdtemp, rm } from "node:fs/promises";
+import { join } from "node:path";
+import { userInfo } from "node:os";
+import type { AgentManifestV2 } from "../../../shared/agent-manifest-v2";
+import type { AgentHooks } from "../../../shared/agents";
+import type { HookRegistrar } from "./hook-launch";
+import { privateDirectory } from "../../control/private-files";
+import { observerAssets, observerInvocation, observerVersion } from "./v2-observers";
+import type { V2Binding } from "../../../shared/v2-hooks";
+
+export async function prepareV2Hooks(
+  receiver: HookRegistrar,
+  model: AgentManifestV2,
+  bind: (key: string, terminal: string | undefined) => void,
+  windows: boolean,
+  scratch: string,
+  stableDirectory?: string,
+): Promise<AgentHooks> {
+  const temporary = await mkdtemp(join(scratch, "foom-v2-hooks-"));
+  const cleanupState = { started: false };
+  try {
+    const directory = await privateDirectory(temporary);
+    const stableRoot = await privateDirectory(
+      stableDirectory ?? scratch,
+      `foom-observers-${String(userInfo().uid)}`,
+    );
+    const key = randomUUID();
+    const v2: V2Binding = { values: { hookDir: directory }, channels: new Map(), state: {} };
+    const launch = receiver.register(key, model.id, { channels: v2.channels, state: v2.state });
+    const env: Record<string, string> = { ...launch.env };
+    let disposed = false;
+    const dispose = () => {
+      if (disposed) return;
+      disposed = true;
+      cleanupState.started = true;
+      launch.revoke();
+      bind(key, undefined);
+      void rm(temporary, { recursive: true, force: true }).catch(() => undefined);
+    };
+    try {
+      for (const channel of model.hooks?.channels ?? []) {
+        const options = channel.observer;
+
+        const assets = observerAssets(channel, windows);
+        if (options.placement === "stable" && assets["observer.ps1"])
+          assets["observer.ps1"] = assets["observer.ps1"].replace(
+            "\\send.ps1",
+            `\\${options.basename}-v${String(observerVersion(channel, windows))}-send.ps1`,
+          );
+        const root =
+          options.placement === "stable"
+            ? await privateDirectory(await privateDirectory(stableRoot, model.id), channel.id)
+            : await privateDirectory(directory, channel.id);
+        const version = observerVersion(channel, windows);
+        v2.values[`observerVersion:${channel.id}`] = version;
+        const basename = `${options.basename}-v${String(version)}`;
+        let script = "";
+        for (const [name, content] of Object.entries(assets)) {
+          const target = join(
+            root,
+            options.placement === "stable"
+              ? name.startsWith("observer.")
+                ? `${basename}.${windows ? "ps1" : "sh"}`
+                : `${basename}-${name}`
+              : name,
+          );
+          if (options.placement === "stable") {
+            try {
+              await writeOwnedFile(target, content);
+            } catch (error) {
+              if ((await readOwnedFile(target, 65536)) !== content) throw error;
+            }
+          } else await writeOwnedFile(target, content);
+          if (name.startsWith("observer.")) script = target;
+        }
+        const add = (event?: string) => {
+          const suffix = event ? `.${event}` : "";
+          const invocation = observerInvocation(
+            script,
+            [...options.commandArguments, ...(event ? [event] : [])],
+            windows,
+            options.placement === "stable",
+          );
+          v2.values[`observerCommand:${channel.id}${suffix}`] = invocation.command;
+          v2.values[`observerArgv:${channel.id}${suffix}`] = invocation.argv;
+        };
+        add();
+        for (const event of new Set(channel.mapping.cases.map((entry) => entry.event))) {
+          if (/^[A-Za-z][A-Za-z0-9_-]{0,63}$/u.test(event)) add(event);
+        }
+        env[`FOOM_CHANNEL_${channel.id.replaceAll("-", "_")}`] = channel.id;
+        if (options.sequence) {
+          const order = join(directory, `${channel.id}.order`);
+          await writeOwnedFile(order, "0");
+          env[`FOOM_ORDER_${channel.id.replaceAll("-", "_")}`] = order;
+        }
+      }
+      // Definitions contain no launch path/port/token for stable channels.
+      const stableValues = Object.fromEntries(
+        Object.entries(v2.values).filter(([key]) =>
+          model.hooks?.channels.some(
+            (channel) =>
+              channel.observer.placement === "stable" &&
+              (key === `observerCommand:${channel.id}` ||
+                key.startsWith(`observerCommand:${channel.id}.`)),
+          ),
+        ),
+      );
+      const health = await healthStore(stableRoot, model, [
+        model.hooks,
+        model.files,
+        model.health,
+        stableValues,
+      ]);
+      v2.runtime = new V2ExecutionHooks(model, v2.channels, health);
+      return {
+        observerCommand: "",
+        observerArgv: [],
+        env,
+        v2,
+        bind: (terminal) => {
+          if (!disposed) bind(key, terminal);
+        },
+        dispose,
+      };
+    } catch (error) {
+      dispose();
+      throw error;
+    }
+  } catch (error) {
+    if (!cleanupState.started) await rm(temporary, { recursive: true, force: true });
+    throw error;
+  }
+}

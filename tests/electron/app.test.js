@@ -12967,7 +12967,14 @@ for (const version of [1, 2])
     await chmod(executable, 0o755);
     await writeFile(
       script,
-      'require("node:fs").writeFileSync(process.env.TEST_ARGV, JSON.stringify(process.argv.slice(2))); process.stdin.resume();',
+      `require("node:fs").writeFileSync(process.env.TEST_ARGV, JSON.stringify(process.argv.slice(2)));
+process.stdin.on('data', async () => {
+  if (!process.env.FOOM_TOKEN) return;
+  const payload = { session_id: 'fixture-hook-conversation', hook_event_name: 'PermissionRequest' };
+  const request = require('node:http').request(process.env.FOOM_HOOK_URL, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: process.env.FOOM_TOKEN, 'X-Foom-Session': process.env.FOOM_SESSION, 'X-Foom-Channel': 'lifecycle' } }, response => response.resume());
+  request.end(JSON.stringify(payload));
+});
+process.stdin.resume();`,
     );
     isolatedGit(["init", "-q", "-b", "main"], { cwd: repo });
     isolatedGit(
@@ -13049,10 +13056,50 @@ for (const version of [1, 2])
                 when: { all: [{ field: "control", op: "eq", value: true }] },
               },
             },
-            files: v2.files.map((file) => ({
-              ...file,
-              when: { all: [{ field: "control", op: "eq", value: true }] },
-            })),
+            execution: { ...v2.execution, completionChannels: ["lifecycle"] },
+            hooks: {
+              channels: [
+                {
+                  id: "lifecycle",
+                  when: { all: [{ field: "hooksEnabled", op: "eq", value: true }] },
+                  observer: {
+                    transport: "stdin",
+                    placement: "launch",
+                    version: 1,
+                    response: "silent",
+                    delivery: "foreground",
+                    timeoutMs: 3000,
+                  },
+                  arguments: ["--settings", "{hookFile:hooks.json}"],
+                  mapping: {
+                    session: { source: "payload", path: ["session_id"] },
+                    event: { source: "payload", path: ["hook_event_name"] },
+                    cases: [
+                      {
+                        id: "PermissionRequest",
+                        event: "PermissionRequest",
+                        action: "needs_input",
+                      },
+                      { id: "Stop", event: "Stop", action: "classify" },
+                    ],
+                  },
+                },
+              ],
+            },
+            files: [
+              {
+                name: "hooks.json",
+                scope: "launch",
+                format: "json",
+                content:
+                  '{"hooks":{"PermissionRequest":[{"type":"command","command":{observerCommand:lifecycle:json}}]}}',
+                when: { all: [{ field: "hooksEnabled", op: "eq", value: true }] },
+              },
+              ...v2.files.map((file) => ({
+                ...file,
+                when: { all: [{ field: "control", op: "eq", value: true }] },
+              })),
+            ],
             conversation: { resumePin: "requested-on-paste", restoreControl: false },
             resumePaste: [{ command: legacy.id, selector: "--resume" }],
           };
@@ -13067,6 +13114,9 @@ for (const version of [1, 2])
           }),
         repository.path,
       );
+    require("../../build/shared/agent-plugin-parser.js").parseAgentManifest(
+      JSON.stringify(manifest),
+    );
     await writeFile(file, JSON.stringify(manifest));
     const card = page
       .locator(".agent-card")
@@ -13105,7 +13155,9 @@ for (const version of [1, 2])
       .toBe(true);
     await expect(card.getByLabel("Fixture agent default arguments")).toBeVisible();
     await expect(card.getByLabel("New Fixture agent variable name")).toBeVisible();
-    await expect(card.getByText("Screen rules", { exact: true })).toBeVisible();
+    await expect(
+      card.getByText(version === 2 ? "Hooks" : "Screen rules", { exact: true }),
+    ).toBeVisible();
     await assertAccessible(page);
     await page.screenshot({ path: path.join(__dirname, "../../test-results/agents-settings.png") });
     if (version === 2) {
@@ -13154,6 +13206,21 @@ for (const version of [1, 2])
     const launched = snapshot.terminals.find((entry) => entry.agent === "foom-test-agent");
     assert.equal(launched.bypass, true);
     assert.equal(launched.providerOrigin, "config");
+    if (version === 2) {
+      const args = JSON.parse(await readFile(output, "utf8"));
+      const hooks = JSON.parse(await readFile(args[args.indexOf("--settings") + 1], "utf8"));
+      assert.ok(hooks.hooks.PermissionRequest[0].command.includes("observer"));
+      await page.evaluate((id) => window.desktop.input(id, "hooks\r"), launched.id);
+      await expect
+        .poll(
+          async () =>
+            (await page.evaluate(() => window.desktop.workspace())).terminals.find(
+              (entry) => entry.id === launched.id,
+            )?.conversationId,
+        )
+        .toBe("fixture-hook-conversation");
+    }
+
     await writeFile(file, JSON.stringify({ ...manifest, name: "Edited fixture" }));
     await expect(
       page.getByText("Approval pending · launch blocked", { exact: true }),

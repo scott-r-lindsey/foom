@@ -118,7 +118,9 @@ export function validateTemplates(manifest: AgentManifestV2): void {
           const channel = channels.find((entry) => entry.id === channelId);
           if (
             !channel ||
-            (event !== undefined && !channel.mapping.cases.some((entry) => entry.event === event))
+            (event !== undefined &&
+              (!/^[A-Za-z][A-Za-z0-9_-]{0,63}$/u.test(event) ||
+                !channel.mapping.cases.some((entry) => entry.event === event)))
           )
             fail(path, "dangling-reference");
           if ((parts[0]?.split(".").length ?? 0) > 2) fail(path, "unknown-placeholder");

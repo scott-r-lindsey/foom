@@ -479,6 +479,7 @@ async function buildWindow(savedSize?: Size, saved?: WindowPlacement, initialSes
         },
       ),
       terminals,
+      agentPluginDirectory: app.getPath("userData"),
       sessions: new SessionStore(app.getPath("userData")),
       copyText: (text) => clipboard.writeText(text),
       acknowledgeAgyPluginOffer: async () => {

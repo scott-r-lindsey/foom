@@ -23,6 +23,7 @@ export interface AgentProvider {
     control: ControlLaunch | undefined,
     config: boolean,
     hooksEnabled: boolean,
+    binding?: AgentHooks,
   ): Promise<PreparedLaunch>;
   readonly id: AgentId;
   readonly name: string;

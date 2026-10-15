@@ -1,3 +1,5 @@
+import { flushV2Health } from "../agents/providers/v2-health";
+import type { V2HookRuntime } from "../../shared/v2-hooks";
 import { PluginSetup } from "../agents/plugin-setup";
 import { stagePlugin } from "../agents/plugin-staging";
 import { agentProvider, providerRevision } from "../agents/providers/registry";
@@ -56,6 +58,7 @@ import type { WorktreeService } from "./worktrees";
 
 type Agents = Pick<AgentService, "scan" | "launch" | "release" | "dispose" | "setHooksEnabled">;
 type Terminal = {
+  v2Hooks?: V2HookRuntime;
   execution?: AgentExecution;
   codexHealthLaunch?: number;
   codexPromptTurn?: number;
@@ -124,6 +127,7 @@ export interface WorkspaceDependencies {
       Partial<Pick<ControlRuntime, "audit" | "takeOver">>
   >;
   /** Started on the first launch that attaches hooks, then reused. */
+  agentPluginDirectory?: string;
   receiver: () => Promise<HookRegistrar & { close(): Promise<void> }>;
   /** Release checkout resources before Git removal; restore availability afterward. */
   prepareWorktreeRemoval?(worktree: string): Promise<() => void>;
@@ -271,13 +275,22 @@ export class Workspace {
         throw error;
       });
       const healthLaunch = builtinAgent(agent)?.hookHealth ? this.codexHooks.begin() : undefined;
-      const binding = await prepareHookLaunch(await this.receiver, agent, (key, terminalId) => {
-        if (terminalId) {
-          this.hookKeys.set(key, terminalId);
-          this.execution(terminalId);
-          if (healthLaunch !== undefined) this.track(terminalId).codexHealthLaunch = healthLaunch;
-        } else this.hookKeys.delete(key);
-      });
+      const binding = await prepareHookLaunch(
+        await this.receiver,
+        agent,
+        (key, terminalId) => {
+          if (terminalId) {
+            this.hookKeys.set(key, terminalId);
+            this.execution(terminalId);
+            if (healthLaunch !== undefined) this.track(terminalId).codexHealthLaunch = healthLaunch;
+            if (binding.v2?.runtime) this.track(terminalId).v2Hooks = binding.v2.runtime;
+          } else this.hookKeys.delete(key);
+        },
+        undefined,
+        undefined,
+        undefined,
+        this.deps.agentPluginDirectory,
+      );
       return builtinAgent(agent)?.hookHealth
         ? {
             ...binding,
@@ -926,7 +939,7 @@ export class Workspace {
     sharedCheckout = false,
     checkoutIdentity?: string,
     replacement?: { id: string; conversationId?: string },
-    extra: Pick<AgentLaunch, "control" | "prompt" | "conversationId"> = {},
+    extra: Pick<AgentLaunch, "control" | "prompt" | "conversationId" | "pinConversation"> = {},
   ): Promise<{ id: string; attention: "hooks" | "evaluator" }> {
     return this.withRepository(request.repository, async () => {
       if (this.enabled[request.agent] === false)
@@ -1867,7 +1880,9 @@ export class Workspace {
                 identity,
                 replacement,
                 {
-                  ...(pastedId === undefined ? {} : { conversationId: pastedId }),
+                  ...(pastedId === undefined
+                    ? {}
+                    : { conversationId: pastedId, pinConversation: true }),
                   ...(control === undefined
                     ? {}
                     : {
@@ -2133,11 +2148,14 @@ export class Workspace {
       this.codexHooks.get() === "trusted"
     )
       this.codexHooks.set("declined", terminal.codexHealthLaunch);
+    if (phase === "idle" && event.from === "working" && source !== "hook")
+      terminal.v2Hooks?.idle(event.turn);
     if (phase === "exited" && event.from === "working") terminal.interrupted = true;
   }
 
   private completionHook(id: string): boolean {
     const entry = this.launched.get(id);
+    if (this.track(id).v2Hooks) return this.track(id).v2Hooks?.required() === true;
     return (
       entry?.attention === "hooks" &&
       Boolean(
@@ -2245,6 +2263,7 @@ export class Workspace {
         terminal.codexHealthLaunch,
       );
     }
+    terminal.v2Hooks?.review(tail);
     let record = await this.deps.verdicts.classify({
       terminalId: id,
       tail,
@@ -2471,8 +2490,25 @@ export class Workspace {
     }
     if (this.track(id).exitCode !== undefined) return Promise.resolve();
     const health = this.track(id);
+    const runtime = health.v2Hooks;
+    if (
+      runtime &&
+      signal.recoverTurn === true &&
+      signal.action === "classify" &&
+      this.execution(id).snapshot().phase !== "working"
+    )
+      this.transition(id, "working", "hook");
+    if (
+      runtime &&
+      signal.action !== "working" &&
+      !runtime.accept(signal, this.execution(id).snapshot().turn)
+    )
+      return Promise.resolve();
     if (signal.action === "ready" && signal.signal.startsWith("plugin:")) {
+      if (runtime && health.hook?.action === "needs_input") return Promise.resolve();
+      const wasWorking = this.execution(id).snapshot().phase === "working";
       this.transition(id, "idle", "hook");
+      if (signal.endsTurn === false && wasWorking) delete health.completedTurn;
       return Promise.resolve();
     }
     if (signal.signal === "codex:SessionStart") {
@@ -2494,6 +2530,7 @@ export class Workspace {
     if (signal.action === "working") {
       this.track(id).generation++;
       this.transition(id, "working", "hook");
+      runtime?.accept(signal, this.execution(id).snapshot().turn);
       if (signal.signal === "codex:UserPromptSubmit")
         health.codexPromptTurn = this.execution(id).snapshot().turn;
       return Promise.resolve();
@@ -2501,7 +2538,7 @@ export class Workspace {
     // A fully idle Stop proves a turn ran even when its background start report
     // was overtaken. Recover the turn identity before classifying completion.
     if (
-      signal.signal === "agy:Stop" &&
+      (signal.signal === "agy:Stop" || signal.recoverTurn === true) &&
       signal.action === "classify" &&
       signal.terminationReason === "model_stop" &&
       signal.fullyIdle === true &&
@@ -2510,14 +2547,14 @@ export class Workspace {
       this.transition(id, "working", "hook");
     if (signal.action === "failed") {
       this.track(id).hook = { terminalId: id, action: signal.action, signal: signal.signal };
-      this.transition(id, "idle", "hook");
+      if (signal.endsTurn !== false) this.transition(id, "idle", "hook");
     } else if (signal.action === "needs_input") {
       delete this.track(id).permissionReply;
       delete this.track(id).permissionProgress;
       delete this.track(id).dismissedAttention;
       this.track(id).hook = { terminalId: id, action: signal.action, signal: signal.signal };
       this.transition(id, "blocked", "hook");
-    } else if (signal.signal !== "claude:idle_prompt") {
+    } else if (signal.signal !== "claude:idle_prompt" && signal.endsTurn !== false) {
       const terminal = this.track(id);
       const turn = terminal.execution?.snapshot().turn;
       if (
@@ -2663,6 +2700,7 @@ export class Workspace {
       } finally {
         await this.deps.sessions?.flush();
         await this.codexHooks.flush();
+        await flushV2Health();
       }
     }
   }
