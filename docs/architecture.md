@@ -1800,6 +1800,13 @@ the renderer never chooses or sends a document path.
 IDs grant access only within their owning window. Sidebar inventory reports those
 IDs and display facts. The board places human previews with `placeContent`, preserving
 focus, and measures each preview body to report bounds through the source interface.
+`preview:popout` validates the owning board and preview ID, opens a board window,
+then destroys the source contents and releases its watch, protocol and partition
+handlers before transferring the registry record with the same ID and attribution.
+The record remains discoverable throughout cleanup; concurrent close follows the
+transfer. Network resets to Off. The preload retains at most 256 unexpired placement requests until its board
+subscribes, so a slow mount cannot lose the move. The target creates a fresh view on placement,
+never reparenting a native view or hosting the preview in two windows at once.
 Restored registry entries stay detached and allocate no view until bounds arrive.
 Confirmed Foom worktree removal closes that checkout’s previews in all windows before
 Git runs, releasing live-reload directory handles. New preview opens are refused

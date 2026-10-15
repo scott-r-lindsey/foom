@@ -344,7 +344,7 @@ function Tile({
           name={name}
           number={number}
           view={view}
-          popout={Boolean(source.windows)}
+          popout={preview ? typeof source.previews?.popout === "function" : Boolean(source.windows)}
           network={
             preview && source.previews?.network
               ? () => {

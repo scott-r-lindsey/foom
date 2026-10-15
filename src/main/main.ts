@@ -604,6 +604,13 @@ async function buildWindow(savedSize?: Size, saved?: WindowPlacement, initialSes
     ipc,
     previewHost,
     (worktree) => pickPreviewFile(window, previewHost, validatePreviewWorktree, worktree),
+    async (id) => {
+      const targetWindow = await createWindow();
+      const target = previewHosts.get(targetWindow.id);
+      if (!target) throw new Error("Preview window unavailable");
+      await previewHost.moveTo(id, target);
+      await previewPlacements.get(targetWindow.id)?.place(id);
+    },
     (id) => agentPreviews?.humanClose(id),
   );
   const workspaceIpc = attachWorkspace(

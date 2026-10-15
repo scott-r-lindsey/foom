@@ -917,13 +917,18 @@ export function Board({
             inactive={paneInactive}
             action={(tile, action) => {
               if (action === "popout") {
-                const session = sessionId(
-                  leaves(layoutRef.current.tree).find((item) => item.id === tile),
-                );
-                if (session)
-                  void source.windows?.popout(session).catch(() => {
-                    setRemoveError("Unable to move session to a new window.");
-                  });
+                const content = leaves(layoutRef.current.tree).find(
+                  (item) => item.id === tile,
+                )?.content;
+                const moving =
+                  content?.kind === "preview"
+                    ? source.previews?.popout?.(content.preview)
+                    : content?.kind === "terminal"
+                      ? source.windows?.popout(content.session)
+                      : undefined;
+                void moving?.catch(() => {
+                  setRemoveError("Unable to move tile to a new window.");
+                });
               } else tileAction(tile, action);
             }}
           />

@@ -11300,14 +11300,13 @@ async function previewContents(app, id, code, { requireAttached = false } = {}) 
             .find((entry) => entry.getURL().startsWith(`foom-preview://${id}/`));
         const contents = current();
         const ready = () => {
-          const board = BrowserWindow.getAllWindows().find(
-            (window) => window.webContents.getURL() === "app://bundle/index.html",
-          );
           return (
             !contents.isDestroyed() &&
             current() === contents &&
             !contents.isLoading() &&
-            board.contentView.children.some((view) => view.webContents === contents)
+            BrowserWindow.getAllWindows().some((board) =>
+              board.contentView.children.some((view) => view.webContents === contents),
+            )
           );
         };
         if (!contents) {
@@ -12530,6 +12529,40 @@ test("an agent fixture opens full-board previews in columns, retains focus and r
     .getByRole("button", { name: "Close", exact: true })
     .click();
   await assertAccessible(page);
+  // Agent ownership follows the preview across windows, including list and close.
+  await movePreviewTile(app, page, reopened.previewId, async (target) => {
+    await expect(
+      target.getByRole("treeitem", { name: "HTML preview: grabby.html, opened by Claude Code" }),
+    ).toBeVisible();
+    const actor = JSON.parse(await readFile(`${credentials}.app`, "utf8"));
+    const call = async (method, params) => {
+      const response = await fetch(actor.controlUrl, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${actor.controlToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ version: 1, instanceId: actor.instanceId, method, params }),
+      });
+      assert.equal(response.status, 200);
+      return (await response.json()).result;
+    };
+    assert.ok(
+      (await call("list_previews", {})).previews.some(
+        (preview) => preview.previewId === reopened.previewId && preview.visible,
+      ),
+    );
+    await writeFile(path.join(repo, "grabby.html"), "<h1>Moved agent preview reloaded</h1>");
+    await expect
+      .poll(() =>
+        previewContents(app, reopened.previewId, "document.querySelector('h1')?.textContent", {
+          requireAttached: true,
+        }),
+      )
+      .toBe("Moved agent preview reloaded");
+    assert.equal((await call("close_preview", { previewId: reopened.previewId })).closed, true);
+    await expect(target.locator(`[data-preview-id="${reopened.previewId}"]`)).toHaveCount(0);
+  });
 });
 
 async function composedPreview(context, borderWidth = 1) {
@@ -13650,6 +13683,184 @@ else process.exit(2);
   await rescan("unavailable");
   assert.equal((await readFile(commands, "utf8")).trim().split("\n").length, 4);
 });
+
+async function movePreviewTile(app, source, id, inspect) {
+  let before;
+  await expect
+    .poll(async () => {
+      const state = await previewViewState(app, id);
+      before = state.contentsId;
+      return state.attached && !state.loading;
+    })
+    .toBe(true);
+  const boards = app.windows().filter((page) => page.url() === "app://bundle/index.html");
+  await source
+    .locator(`[data-preview-id="${id}"]`)
+    .getByRole("button", { name: /Tile \d+ menu/ })
+    .click();
+  await source.getByRole("menuitem", { name: "Move to new window", exact: true }).click();
+  let target;
+  await expect
+    .poll(() => {
+      target = app
+        .windows()
+        .find((page) => !boards.includes(page) && page.url() === "app://bundle/index.html");
+      return Boolean(target);
+    })
+    .toBe(true);
+  try {
+    await expect(target.locator(`[data-preview-id="${id}"]`)).toBeVisible();
+    await expect(source.locator(`[data-preview-id="${id}"]`)).toHaveCount(0);
+    await expect
+      .poll(() =>
+        app.evaluate(
+          ({ BrowserWindow, webContents }, { id, before }) => {
+            const contents = webContents
+              .getAllWebContents()
+              .filter((entry) => entry.getURL().startsWith(`foom-preview://${id}/`));
+            return (
+              contents.length === 1 &&
+              contents[0].id !== before &&
+              !contents[0].isLoading() &&
+              !contents[0].isFocused() &&
+              !webContents.fromId(before) &&
+              BrowserWindow.getAllWindows().filter((board) =>
+                board.contentView.children.some((view) => view.webContents === contents[0]),
+              ).length === 1
+            );
+          },
+          { id, before },
+        ),
+      )
+      .toBe(true);
+    // The old board cannot close or move a foreign preview after the transfer.
+    assert.equal(
+      await source.evaluate(async (id) => {
+        try {
+          await window.desktop.previews.close(id);
+          return "accepted";
+        } catch {
+          return "rejected";
+        }
+      }, id),
+      "rejected",
+    );
+    await inspect(target);
+  } finally {
+    if (!target.isClosed()) {
+      await target.evaluate(() => window.desktop.appMenu.execute("close-window"));
+      await expect.poll(() => target.isClosed()).toBe(true);
+    }
+  }
+}
+
+async function movedPreviewPixels(app, id) {
+  return app.evaluate(async ({ BrowserWindow, desktopCapturer, screen }, id) => {
+    const board = BrowserWindow.getAllWindows().find((board) =>
+      board.contentView.children.some((view) =>
+        view.webContents.getURL().startsWith(`foom-preview://${id}/`),
+      ),
+    );
+    if (!board) return [];
+    const view = board.contentView.children.find((view) =>
+      view.webContents.getURL().startsWith(`foom-preview://${id}/`),
+    );
+    const bounds = board.getContentBounds(),
+      rect = view.getBounds();
+    const display = screen.getDisplayMatching(bounds);
+    const sources = await desktopCapturer.getSources({
+      types: ["screen"],
+      thumbnailSize: {
+        width: Math.round(display.bounds.width * display.scaleFactor),
+        height: Math.round(display.bounds.height * display.scaleFactor),
+      },
+    });
+    const image = sources.find((source) => source.display_id === String(display.id))?.thumbnail;
+    if (!image || image.isEmpty()) return [];
+    const scale = image.getSize().width / display.bounds.width;
+    return Array.from(
+      image
+        .crop({
+          x: Math.round((bounds.x + rect.x + rect.width / 2 - display.bounds.x) * scale),
+          y: Math.round((bounds.y + rect.y + rect.height / 2 - display.bounds.y) * scale),
+          width: 1,
+          height: 1,
+        })
+        .toBitmap(),
+    ).slice(0, 3);
+  }, id);
+}
+
+for (const kind of ["html", "markdown"]) {
+  test(`user ${kind} preview moves to a fresh window, resets network and keeps live reload`, async (context) => {
+    const app = await launchApp(context);
+    const page = await boardPage(app);
+    await page.evaluate(() => window.desktop.saveSetup({ colorMode: "dark" }));
+    const root = (await page.evaluate(() => window.desktop.workspace())).terminals[0].worktree;
+    const file = kind === "html" ? "move.html" : "move.md";
+    const document = (text) =>
+      kind === "html"
+        ? `<style>html,body{margin:0;background:#123456;height:100%}</style><h1>${text}</h1><input autofocus>`
+        : `# ${text}\n`;
+    await writeFile(path.join(root, file), document("Before move"));
+    await app.evaluate(
+      ({ dialog }, file) => {
+        dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [file] });
+      },
+      path.join(root, file),
+    );
+    await page.getByRole("button", { name: "Actions for Main checkout", exact: true }).click();
+    await page.getByRole("menuitem", { name: "Preview file…", exact: true }).click();
+    await expect(page.locator('.terminal-tile[data-kind="preview"]')).toBeVisible();
+    const id = (await page.evaluate(() => window.desktop.sidebarInventory())).previews.find(
+      (preview) => preview.relativePath === file,
+    ).id;
+    await expect.poll(async () => (await previewViewState(app, id)).attached).toBe(true);
+    const allowing = page.evaluate((id) => window.desktop.previews.network(id, true), id);
+    const dialog = await confirmationPage(app);
+    await dialog.getByRole("button", { name: "Allow network", exact: true }).click();
+    await allowing;
+    await expect
+      .poll(
+        async () =>
+          (await page.evaluate(() => window.desktop.sidebarInventory())).previews.find(
+            (preview) => preview.id === id,
+          )?.network,
+      )
+      .toBe(true);
+    await movePreviewTile(app, page, id, async (target) => {
+      assert.equal(
+        (await target.evaluate(() => window.desktop.sidebarInventory())).previews.find(
+          (preview) => preview.id === id,
+        ).network,
+        false,
+      );
+      await expect
+        .poll(() =>
+          previewContents(app, id, "document.querySelector('h1')?.textContent", {
+            requireAttached: true,
+          }),
+        )
+        .toBe("Before move");
+      await expect
+        .poll(() => movedPreviewPixels(app, id))
+        .toEqual(kind === "html" ? [86, 52, 18] : [10, 4, 5]);
+      await writeFile(path.join(root, file), document("After move"));
+      await expect
+        .poll(() =>
+          previewContents(app, id, "document.querySelector('h1')?.textContent", {
+            requireAttached: true,
+          }),
+        )
+        .toBe("After move");
+      await expect
+        .poll(() => movedPreviewPixels(app, id))
+        .toEqual(kind === "html" ? [86, 52, 18] : [10, 4, 5]);
+      await target.evaluate((id) => window.desktop.previews.close(id), id);
+      await expect(target.locator(`[data-preview-id="${id}"]`)).toHaveCount(0);
+    });
+  });
+}
 
 test("built-in duplication creates unique untrusted plugins, edits and approves exact bytes, and launches with the built-in off", {
   timeout: deadline(60_000),

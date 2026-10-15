@@ -15,11 +15,11 @@ beforeEach(() => {
   vi.resetModules();
   vi.clearAllMocks();
 });
-async function bridge() {
+async function bridge(keepListeners = false) {
   await import("../../../src/preload/preload");
   const api = mock.expose.mock.calls[0]?.[1];
   if (!api) throw new Error("Missing bridge");
-  mock.on.mockClear();
+  if (!keepListeners) mock.on.mockClear();
   return api;
 }
 test("starts through the dedicated channel and validates the response", async () => {
@@ -718,13 +718,14 @@ test("forwards action log queries and clearing through dedicated capabilities", 
 });
 
 test("preview placement strips the event, acknowledges only the requested ID and disposes", async () => {
-  const api = await bridge();
+  const api = await bridge(true);
   mock.invoke.mockResolvedValue(undefined);
   const callback = vi.fn(() => Promise.resolve("landing" as const));
   const off = api.previews?.onPlace?.(callback);
   const listener = mock.on.mock.calls.find(([channel]) => channel === "preview:place")?.[1];
   if (!listener || !off) throw new Error("Missing placement bridge");
-  listener({}, "request", "a".repeat(32), 1234);
+  const expiresAt = Date.now() + 5000;
+  listener({}, "request", "a".repeat(32), expiresAt);
   await vi.waitFor(() => {
     expect(mock.invoke).toHaveBeenCalledWith(
       "preview:placed",
@@ -733,18 +734,27 @@ test("preview placement strips the event, acknowledges only the requested ID and
       "landing",
     );
   });
-  expect(callback).toHaveBeenCalledWith("a".repeat(32), 1234);
+  expect(callback).toHaveBeenCalledWith("a".repeat(32), expiresAt);
   callback.mockRejectedValueOnce(new Error("renderer"));
-  listener({}, "request2", "b".repeat(32), 1234);
+  listener({}, "request2", "b".repeat(32), expiresAt);
   await Promise.resolve();
   await Promise.resolve();
   expect(mock.invoke).toHaveBeenCalledTimes(1);
   off();
-  expect(mock.removeListener).toHaveBeenCalledWith("preview:place", listener);
+  listener({}, "request3", "c".repeat(32), expiresAt);
+  await Promise.resolve();
+  expect(callback).toHaveBeenCalledTimes(2);
+  const next = vi.fn(() => Promise.resolve("empty" as const));
+  api.previews?.onPlace?.(next);
+  await vi.waitFor(() => {
+    expect(next).toHaveBeenCalledWith("c".repeat(32), expiresAt);
+  });
 });
 
 test("preview network permission forwards only ID and desired state to main", async () => {
   const api = await bridge();
+  await api.previews?.popout("preview");
+  expect(mock.invoke).toHaveBeenCalledWith("preview:popout", "preview");
   await api.previews?.network("preview", true);
   expect(mock.invoke).toHaveBeenCalledWith("preview:network", "preview", true);
 });
@@ -803,4 +813,34 @@ test("preview cover and snapshots expose only validated image pixels and geometr
   expect(callback).toHaveBeenCalledWith([]);
   off();
   expect(mock.removeListener).toHaveBeenCalledWith("preview:snapshots", listener);
+});
+
+test("preview placement waits for board mount, expires stale requests and bounds the startup queue", async () => {
+  const api = await bridge(true);
+  mock.invoke.mockResolvedValue(undefined);
+  const listener = mock.on.mock.calls.find(([channel]) => channel === "preview:place")?.[1];
+  if (!listener) throw new Error("Missing placement listener");
+  const expiresAt = Date.now() + 5000;
+  listener({}, "expired", "old", Date.now() - 1);
+  listener({}, "expiring", "old", Date.now() + 1);
+  // Advance the clock without a real delay or a product/test deadline change.
+  const now = vi.spyOn(Date, "now").mockReturnValue(Date.now() + 2);
+  for (let i = 0; i < 257; i++)
+    listener({}, `request-${String(i)}`, `preview-${String(i)}`, expiresAt);
+  expect(mock.invoke).not.toHaveBeenCalled();
+  const callback = vi.fn(() => Promise.resolve("empty" as const));
+  const off = api.previews?.onPlace?.(callback);
+  await vi.waitFor(() => {
+    expect(callback).toHaveBeenCalledTimes(256);
+  });
+  expect(callback).toHaveBeenNthCalledWith(1, "preview-0", expiresAt);
+  expect(callback).toHaveBeenLastCalledWith("preview-255", expiresAt);
+  const next = vi.fn(() => Promise.resolve("landing" as const));
+  api.previews?.onPlace?.(next);
+  off?.();
+  listener({}, "latest", "new", expiresAt);
+  await vi.waitFor(() => {
+    expect(next).toHaveBeenCalledWith("new", expiresAt);
+  });
+  now.mockRestore();
 });

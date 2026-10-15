@@ -10,6 +10,7 @@ import { previewPath } from "./registry";
 import { PreviewWatcher, scrollPosition } from "./watcher";
 
 interface HostedPreview {
+  id: string;
   view: WebContentsView;
   partition: Session;
   bounds: PreviewBounds;
@@ -42,6 +43,7 @@ export function navigationAllowed(url: string, origin: string): boolean {
 
 /** One host per board window. No page or IPC capability can focus a preview. */
 export class PreviewHost {
+  private readonly moving = new Map<string, { target: PreviewHost; done: Promise<void> }>();
   private readonly tiled = new Set<string>();
   private readonly hosted = new Map<string, HostedPreview>();
   private readonly confirmations = new Map<string, AbortController>();
@@ -280,6 +282,7 @@ export class PreviewHost {
       },
     });
     const entry: HostedPreview = {
+      id: record.id,
       view,
       partition,
       bounds,
@@ -420,7 +423,14 @@ export class PreviewHost {
     entry.clicked = false;
   }
   private applyBounds(entry: HostedPreview) {
-    if (entry.view.webContents.isDestroyed()) return;
+    // Native destruction can lag close; released/replaced views must never reattach.
+    if (
+      this.disposed ||
+      this.hosted.get(entry.id) !== entry ||
+      this.window.webContents.isDestroyed() ||
+      entry.view.webContents.isDestroyed()
+    )
+      return;
     const zoom = this.window.webContents.getZoomFactor();
     const { width, height } = this.window.getContentBounds();
     const x = Math.min(width, Math.max(0, Math.round(entry.bounds.x * zoom)));
@@ -460,6 +470,11 @@ export class PreviewHost {
   bounds(id: string, bounds: PreviewBounds): void {
     const record = this.registry.records.get(id);
     if (!record || this.disposed) throw new Error("Unknown preview ID");
+    if (this.moving.has(id)) return;
+    this.updateBounds(record, bounds);
+  }
+  private updateBounds(record: PreviewRecord, bounds: PreviewBounds): void {
+    const { id } = record;
     if (bounds.visible) this.tiled.add(id);
     if (!bounds.visible && !this.hosted.has(id)) return;
     const entry = this.hosted.get(id) ?? this.create(record, canonicalRoot(record.worktree));
@@ -571,8 +586,68 @@ export class PreviewHost {
       if (!entry.view.webContents.isDestroyed()) entry.view.webContents.reload();
     }
   }
+  /** Keep the ID discoverable until native cleanup finishes, then transfer it atomically.
+   * The target creates a fresh view only when its board reports bounds. */
+  moveTo(id: string, target: PreviewHost): Promise<void> {
+    const record = this.registry.records.get(id);
+    const available = () =>
+      !this.disposed &&
+      !target.disposed &&
+      target !== this &&
+      !target.registry.records.has(id) &&
+      target.registry.records.size < 256;
+    if (!record || this.moving.has(id) || !available())
+      return Promise.reject(new Error("Unable to move preview"));
+    const bounds = this.hosted.get(id)?.bounds;
+    const done = (async () => {
+      await target.validateWorktree(record.worktree);
+      await this.release(id);
+      await target.validateWorktree(record.worktree);
+      if (this.registry.records.get(id) !== record || !available())
+        throw new Error("Unable to move preview");
+      // No await between owners: agent inventory never loses the preview ID.
+      this.registry.records.delete(id);
+      target.registry.records.set(id, { ...record, network: false });
+      this.changed();
+      target.changed();
+      // Persist removal first; a failed source write must not also write the target.
+      await this.registry.save();
+      await target.registry.save();
+    })()
+      .catch(async (error: unknown) => {
+        if (
+          !this.disposed &&
+          this.registry.records.get(id) === record &&
+          bounds &&
+          !this.hosted.has(id)
+        ) {
+          try {
+            await this.validateWorktree(record.worktree);
+            if (!this.closed() && this.registry.records.get(id) === record)
+              this.updateBounds(record, bounds);
+          } catch {
+            /* Removed worktrees cannot regain a native view. */
+          }
+        }
+        throw error;
+      })
+      .finally(() => this.moving.delete(id));
+    this.moving.set(id, { target, done });
+    return done;
+  }
   async close(id: string): Promise<void> {
+    const moving = this.moving.get(id);
+    if (moving) {
+      await moving.done.catch(() => {});
+      if (moving.target.registry.records.has(id)) return moving.target.close(id);
+    }
     if (!this.registry.records.delete(id)) throw new Error("Unknown preview ID");
+    await this.release(id);
+    await this.registry.save();
+    // Shutdown frees views without publishing a transient empty inventory to the board.
+    if (!this.disposed) this.changed();
+  }
+  private async release(id: string): Promise<void> {
     this.tiled.delete(id);
     this.confirmations.get(id)?.abort();
     this.watchers.get(id)?.close();
@@ -590,13 +665,11 @@ export class PreviewHost {
       this.publishSnapshots();
       partition.protocol.unhandle("foom-preview");
       partition.webRequest.onBeforeRequest(null);
+      await partition.closeAllConnections();
       await partition.clearStorageData();
       await partition.clearCache();
       partition.removeAllListeners("will-download");
     }
-    await this.registry.save();
-    // Shutdown frees views without publishing a transient empty inventory to the board.
-    if (!this.disposed) this.changed();
   }
   async closeWorktree(worktree: string): Promise<void> {
     for (const record of [...this.registry.records.values()]) {

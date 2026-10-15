@@ -411,7 +411,7 @@ shortcuts. The focused tile's number is highlighted. Tile presets are unavailabl
 Split right/down, Grow, gutters and Tidy arrange the layout.
 
 Preview title bars show a document glyph, MD or HTML badge, relative path, tile menu,
-Maximize/Restore and Close. The tile menu offers Allow network… when off, and Block network when on; its facts show Network Off or On, and the title bar marks enabled network. Allow network asks in the trusted confirmation window: "This page can send files from this worktree to the internet". Permission belongs to that preview, permits HTTPS and secure WebSockets, and resets on restart. Plain HTTP stays blocked. External link requests always ask in the trusted window, showing the full URL, even when page script requested them without a click. Only HTTPS, HTTP and mailto links are eligible. Each preview has at most one pending confirmation; requests received while one is pending are dropped. Declining opens nothing.
+Maximize/Restore and Close. The tile menu offers Allow network… when off, and Block network when on; its facts show Network Off or On, and the title bar marks enabled network. Allow network asks in the trusted confirmation window: "This page can send files from this worktree to the internet". Permission belongs to that preview, permits HTTPS and secure WebSockets, and resets on restart or when moved to another window. A move resets network to Off because permission was granted in the original window’s trusted dialog context. Plain HTTP stays blocked. External link requests always ask in the trusted window, showing the full URL, even when page script requested them without a click. Only HTTPS, HTTP and mailto links are eligible. Each preview has at most one pending confirmation; requests received while one is pending are dropped. Declining opens nothing.
 
 A preview has no running process to hide. Replacement closes previews that no longer fit. Split, Grow, drag, Tidy and focus
 shortcuts treat previews as occupied tiles. Opening or reloading a preview never
@@ -836,7 +836,7 @@ same file and appear in the list. See the [architecture](architecture.md#foom-co
 ## Windows and quitting
 
 New Window opens another full sidebar and an independent tile layout. A tile's
-**Move to new window** control moves that session into a new window. Each terminal
+**Move to new window** control moves that session or HTML/Markdown preview into a new window. Moving a preview removes it from the original board and preserves its live reload watch and opener attribution, with network reset to Off. Each terminal
 belongs to the app and can occupy only one tile across all windows. A neutral ▣
 marker labels sessions shown in another window; selecting one brings that window
 forward and focuses its tile. Sidebar tile numbers always refer to the current

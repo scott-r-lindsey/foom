@@ -22,6 +22,7 @@ export interface PreviewSnapshot {
 export interface PreviewApi {
   onPlace?(callback: (id: string, expiresAt: number) => Promise<PreviewPlacement>): () => void;
   pick(worktree: string): Promise<string | null>;
+  popout(id: string): Promise<void>;
   network(id: string, enabled: boolean): Promise<void>;
   close(id: string): Promise<void>;
   bounds(id: string, bounds: PreviewBounds): Promise<void>;
