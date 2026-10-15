@@ -822,7 +822,7 @@ it.each([true, false])(
           new Map(),
           (() => {
             const health = new V2Health(root, "test", "definition");
-            health.set(trusted ? "trusted" : "not-reviewed");
+            vi.spyOn(health, "get").mockReturnValue(trusted ? "trusted" : "not-reviewed");
             return health;
           })(),
         ),

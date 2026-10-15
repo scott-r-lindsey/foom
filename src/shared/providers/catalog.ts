@@ -25,7 +25,6 @@ export function isAgentId(id: unknown): id is BuiltinAgentId {
   return typeof id === "string" && builtinAgent(id) !== undefined;
 }
 
-
 /** Syntactic ID validation grants no installation or launch authority. */
 export function validAgentId(value: unknown): value is string {
   return (

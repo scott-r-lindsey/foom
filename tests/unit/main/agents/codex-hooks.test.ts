@@ -11,7 +11,7 @@ import {
   codexObserverCommand,
   codexObserverFile,
 } from "../../../helpers/legacy-codex";
-import { V2Health } from "../../../../src/main/agents/providers/v2-health";
+import { V2Health, flushV2Health } from "../../../../src/main/agents/providers/v2-health";
 import { observerAssets } from "../../../../src/main/agents/providers/v2-observers";
 import { agentProvider } from "../../../../src/main/agents/providers/registry";
 import { manifestHooks } from "../../../helpers/manifest-hooks";
@@ -32,6 +32,7 @@ import { UNREACHABLE_PROXY } from "../../../helpers/unreachable-proxy";
 vi.setConfig({ testTimeout: nativeDeadline(5000) });
 const scratch: string[] = [];
 afterEach(async () => {
+  await flushV2Health();
   await Promise.all(scratch.splice(0).map((path) => rm(path, { recursive: true, force: true })));
 });
 async function directory() {

@@ -8,8 +8,6 @@ export type HookSession = {
   agent: HookAgent;
   digest: Buffer;
   agentId?: string;
-  sequence?: number;
-  completedTurns?: Set<string>;
   mapping?: HookMapping;
   model?: AgentManifestV2;
   channels?: Map<string, ManifestChannel>;
@@ -81,50 +79,6 @@ export function reduceEvent(
       conversationId: agentId,
       action,
       signal: `plugin:${session.agent}:${event}`,
-    };
-  }
-  if (session.agent === "agy") {
-    if (typeof sequenceHeader !== "string" || !/^[1-9][0-9]{0,9}$/.test(sequenceHeader))
-      throw new Error("Invalid observer sequence");
-    const sequence = Number(sequenceHeader);
-    if (sequence > 2147483647) throw new Error("Invalid observer sequence");
-    const agentId = value["conversationId"];
-    if (!conversationId(agentId) || (session.agentId !== undefined && session.agentId !== agentId))
-      throw new Error("Invalid agent session");
-    if (event !== "PreInvocation" && event !== "PostToolUse" && event !== "Stop")
-      throw new Error("Invalid Antigravity event");
-    let terminationReason: HookSignal["terminationReason"];
-    let fullyIdle: boolean | undefined;
-    if (event === "Stop") {
-      const reason = value["terminationReason"];
-      if (
-        reason !== "model_stop" &&
-        reason !== "NO_TOOL_CALL" &&
-        reason !== "max_steps_exceeded" &&
-        reason !== "error"
-      )
-        throw new Error("Invalid termination reason");
-      if (typeof value["fullyIdle"] !== "boolean") throw new Error("Invalid idle state");
-      terminationReason = reason === "NO_TOOL_CALL" ? "model_stop" : reason;
-      fullyIdle = value["fullyIdle"];
-    }
-    if (session.sequence !== undefined && sequence <= session.sequence) return;
-    session.sequence = sequence;
-    session.agentId = agentId;
-    return {
-      terminalId: session.terminalId,
-      signal: `agy:${event}`,
-      conversationId: agentId,
-      action:
-        event !== "Stop"
-          ? "working"
-          : terminationReason !== "model_stop"
-            ? "failed"
-            : fullyIdle === false
-              ? "working"
-              : "classify",
-      ...(terminationReason === undefined ? {} : { terminationReason }),
-      ...(fullyIdle === undefined ? {} : { fullyIdle }),
     };
   }
   throw new Error("Unknown hook mapping");

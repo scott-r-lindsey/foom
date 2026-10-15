@@ -171,9 +171,7 @@ test.each([
   ["agy", "--continue"],
   ["agy", "-c"],
 ] as const)("reserves conversation selector %s %s", (agent, arg) => {
-  expect(() => parseAgentArguments(agent, [arg])).toThrow(
-    "reserved",
-  );
+  expect(() => parseAgentArguments(agent, [arg])).toThrow("reserved");
 });
 
 test.each(["--dangerously-bypass-hook-trust", "--dangerously-bypass-hook-trust=true"])(

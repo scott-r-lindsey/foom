@@ -54,7 +54,6 @@ export function parseAgentArguments(agent: AgentId, value: unknown): readonly st
       );
     if (arg === "--no-alt-screen" || arg.startsWith("--no-alt-screen="))
       throw argumentError(agent, index, "--no-alt-screen is reserved for Foom's terminal display.");
-
   }
   const model = bundledModel(agent);
   if (model && matchesArguments(model.reservedArguments, args)) {
