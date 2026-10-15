@@ -207,7 +207,7 @@ it("migrates exact legacy installed-observer health into protected storage on th
   timeout: nativeDeadline(15000),
 }, async () => {
   const { createHash } = await import("node:crypto");
-  const { mkdir } = await import("node:fs/promises");
+  const { mkdir, link } = await import("node:fs/promises");
   const { installedHealth } = await import(
     "../../../../src/main/agents/providers/installed-observers"
   );
@@ -234,6 +234,10 @@ it("migrates exact legacy installed-observer health into protected storage on th
     const migrated = join(profile, `foom-observers-${String(userInfo().uid)}`, "codex-health.json");
     await verifyPrivate(migrated, false);
     expect(JSON.parse(await readFile(migrated, "utf8"))).toEqual({ fingerprint, state: "trusted" });
+    const linked = join(profile, "linked");
+    await mkdir(linked);
+    await link(oldFile, join(linked, "codex-hook-health.json"));
+    expect((await installedHealth(model, linked)).get()).toBe("not-reviewed");
     if (process.platform === "win32") {
       const wide = join(profile, "wide");
       await mkdir(wide);
