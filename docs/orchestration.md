@@ -163,6 +163,9 @@ gate, grant a new capability, or enable unattended PTY writes. Implementation is
 separate and depends on the access design in open [#343](https://github.com/scott-r-lindsey/foom/issues/343),
 including its observability prerequisites #339 and #340. Reproducible scripts,
 versions, detailed results and limits are in the [child follow-up spike](../spikes/child-followup/README.md).
+The [follow-up mechanism and authorization research](research/child-follow-up.md)
+adds public-documentation findings, the 2026-10-14 orchestration evidence, v2
+manifest implications and proposed implementation steps. It adds no runtime or grant.
 
 Linux experiments on 2026-10-13 used Claude Code 2.1.296, Codex 0.162.1 and
 Antigravity 1.3.3. Claude/Codex used a scripted loopback model and disposable state,
