@@ -133,6 +133,38 @@ dominate the gate even when no job is slow. These observations favor three
 additional jobs over six, and require reporting actual elapsed gate time as well
 as job duration and compute in the PR comparison.
 
+### Observed companion-job run
+
+[38794446976](https://github.com/scott-r-lindsey/foom/actions/runs/38794446976)
+uses the same application/test inputs as starting main
+[38792710373](https://github.com/scott-r-lindsey/foom/actions/runs/38792710373),
+including #491 and #486. The workflow and policy/docs are the changed inputs.
+Both runs fail the same Windows shard-2 Settings visibility assertion; main also
+fails Linux shard 3's board animation assertion (#470). These are failed runs,
+not green validation evidence. All fifteen desktop jobs completed, so their
+runner/step timings remain usable observations.
+
+| Measurement (seconds) | Starting main | Companion PR run | Change |
+| --- | ---: | ---: | ---: |
+| Change detection complete → Quality gate complete | 727 | 481 | −246 (−33.8%) |
+| Longest desktop job | 719 | 474 | −245 (−34.1%) |
+| Total desktop runner time | 4542 | 4706 | +164 (+3.6%) |
+| Desktop job start spread | 6 | 88 | +82 |
+| Linux desktop runner time | 888 | 919 | +31 |
+| Windows desktop runner time | 2092 | 2174 | +82 |
+| macOS desktop runner time | 1562 | 1613 | +51 |
+
+The companion jobs passed in Linux 77s, Windows 402s and macOS 149s; all Linux
+and macOS Electron shards passed. Windows shard 2 failed in 474s; successful
+Windows shard 4 took 471s. The Quality gate failed as required. Splitting native
+and packaging into separate jobs would not shorten this observed critical path:
+Windows Electron, rather than its 402s companion, was the longest job.
+Aggregate compute excludes static checks, unit coverage and gate/queue time;
+platform runner seconds are unweighted, not billing estimates. Queueing, runner
+variation and assertion failures limit causal comparisons; multiple baseline
+runs above show why a single percentage is not a promised saving. Further PR
+run comparisons and validation outcomes are recorded in the PR body.
+
 Companion diagnostics use `platform-results-OS`; Electron diagnostics retain
 `electron-results-OS-INDEX`. Both upload `test-results/` on failure, with the
 same three-day retention and missing-file failure. Only companion jobs build
