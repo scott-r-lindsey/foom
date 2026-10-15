@@ -3881,3 +3881,23 @@ test("v2 setup revalidates provider authority, resolves the executable in main a
     await rm(root, { recursive: true, force: true });
   }
 });
+
+test("agent switches invalidate cached discovery while preserving launch preferences", async () => {
+  const workspace = new Workspace(deps);
+  await workspace.scanAgents(false);
+  const preferences = {
+    hooks: true,
+    agents: { claude: false, codex: true, agy: true },
+    agentArguments: { claude: ["--model", "saved"], codex: [], agy: [] },
+  };
+  workspace.configure(preferences);
+  await workspace.scanAgents(false);
+  expect(agents.scan).toHaveBeenCalledTimes(2);
+  expect(agents.scan).toHaveBeenLastCalledWith(preferences.agents);
+  workspace.configure(preferences);
+  await workspace.scanAgents(false);
+  expect(agents.scan).toHaveBeenCalledTimes(2);
+  workspace.configure({ ...preferences, agents: { ...preferences.agents, claude: true } });
+  await workspace.scanAgents(false);
+  expect(agents.scan).toHaveBeenCalledTimes(3);
+});

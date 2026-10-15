@@ -35,6 +35,7 @@ export function AgentsStep({
   }) {
   const [config, setConfig] = useState<ConfigStatus>();
   const [error, setError] = useState("");
+  const [duplicated, setDuplicated] = useState<string>();
   const [reviewing, setReviewing] = useState(false);
   const configSource = source?.config;
   const configChanged = useEffectEvent((next: ConfigStatus) => {
@@ -56,6 +57,9 @@ export function AgentsStep({
       dispose();
     };
   }, [configSource]);
+  useEffect(() => {
+    if (duplicated) document.getElementById(`agent-card-${duplicated}`)?.focus();
+  }, [duplicated]);
   const held = (config?.agentPlugins ?? []).filter((plugin) => !builtinAgent(plugin.id));
   const choices = [
     ...agentChoices(report),
@@ -99,7 +103,7 @@ export function AgentsStep({
           const plugin = held.find((entry) => entry.id === id);
           const installed = Boolean(agent?.path);
           const blocked = Boolean(plugin);
-          const missing = !installed && !blocked;
+          const missing = !installed && !blocked && state.settings.agents[id] !== false;
           const policy = builtinAgent(id);
           const supportsHooks =
             agent?.hooks ||
@@ -110,6 +114,8 @@ export function AgentsStep({
           return (
             <section
               key={id}
+              id={`agent-card-${id}`}
+              tabIndex={-1}
               className={`agent-card${missing ? " missing" : ""}`}
               aria-label={name}
             >
@@ -126,22 +132,54 @@ export function AgentsStep({
                         : "Not found"
                       : blocked
                         ? "Launch blocked"
-                        : "Version unknown")}
+                        : state.settings.agents[id] === false
+                          ? "Turned off"
+                          : "Version unknown")}
                 </span>
-                {!missing && (
-                  <label className="agent-toggle">
-                    <input
-                      type="checkbox"
-                      role="switch"
-                      aria-label={name}
-                      checked={!blocked && state.settings.agents[id] !== false}
-                      disabled={blocked}
-                      onChange={(event) => {
-                        save({ agents: { ...state.settings.agents, [id]: event.target.checked } });
-                      }}
-                    />
-                    {!blocked && state.settings.agents[id] !== false ? "On" : "Off"}
-                  </label>
+                <label className="agent-toggle">
+                  <input
+                    type="checkbox"
+                    role="switch"
+                    aria-label={name}
+                    checked={!blocked && state.settings.agents[id] !== false}
+                    disabled={blocked}
+                    onChange={(event) => {
+                      save({ agents: { ...state.settings.agents, [id]: event.target.checked } });
+                    }}
+                  />
+                  {!blocked && state.settings.agents[id] !== false ? "On" : "Off"}
+                </label>
+                {policy && configSource?.duplicateAgent && (
+                  <button
+                    type="button"
+                    className="agent-duplicate"
+                    disabled={reviewing}
+                    onClick={() => {
+                      setReviewing(true);
+                      setError("");
+                      void configSource
+                        .duplicateAgent?.(id)
+                        .then(
+                          async (next) => {
+                            setConfig(next.status);
+                            setDuplicated(next.id);
+                            await scan(false);
+                            await configSource.openFolder();
+                          },
+                          (caught: unknown) => {
+                            setError(message(caught));
+                          },
+                        )
+                        .catch((caught: unknown) => {
+                          setError(message(caught));
+                        })
+                        .finally(() => {
+                          setReviewing(false);
+                        });
+                    }}
+                  >
+                    Duplicate as plugin
+                  </button>
                 )}
                 <code className="agent-path">{agent?.path ?? command}</code>
               </div>

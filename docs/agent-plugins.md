@@ -424,6 +424,28 @@ in the trusted content surface; secrets/tokens never appear in templates, argv,
 files, renderer, logs or consent records. Agent hook command definitions use fixed
 observer paths only. Observer output cannot approve a tool.
 
+### Duplicate as plugin (#424)
+
+Settings → Agents offers one quiet action in each built-in card header. Main
+starts from the bundled JSON build input, changing only root `id` and `name`;
+it preserves every manifest field, including hooks, setup, resume and protections.
+The file is created exclusively as `agents/<id>-custom.json`, then `-custom-2`,
+etc. Existing files (including links and invalid JSON) reserve their names and
+are never overwritten. A redirected agents directory or full catalog refuses creation.
+The new pending card is revealed and the config folder opens for editing.
+
+Creation grants no trust: no profile digest, Codex legacy notifier acknowledgement,
+bundled observer provenance, hook observation, per-agent defaults or environment
+secrets are copied. Normal config validation and exact-byte **Allow plugin**
+approval precede discovery and launch; subsequent edits revoke that approval.
+Codex copies use private config observer paths and their own health observations.
+Antigravity copies retain the same declared setup target and ownership checks:
+status is freshly inspected after approval, never copied from the built-in card.
+An existing recognized lifecycle installation can be observed by the generic engine;
+install/update/enable/remove still require separate trusted setup confirmation and
+serialize on that same ownership target. Duplicate does not run those actions.
+The card switch retains settings while suppressing discovery probes and launchers.
+
 ## Code versus data
 
 | Remains in Foom code | Moves into manifest data |
