@@ -12,8 +12,12 @@ export async function writeOwnedFile(target: string, content: string): Promise<v
   await verifyPrivate(target, false);
 }
 /** Bounded no-link reads, with identity checks around the opened handle. */
-export async function readOwnedFile(target: string, limit: number): Promise<string> {
-  await verifyPrivate(target, false);
+export async function readOwnedFile(
+  target: string,
+  limit: number,
+  verify = verifyPrivate,
+): Promise<string> {
+  await verify(target, false);
   const expected = await lstat(target);
   const handle = await open(
     target,
@@ -31,7 +35,7 @@ export async function readOwnedFile(target: string, limit: number): Promise<stri
     const buffer = Buffer.alloc(limit + 1);
     const { bytesRead } = await handle.read(buffer, 0, buffer.length, 0);
     const current = await lstat(target);
-    await verifyPrivate(target, false);
+    await verify(target, false);
     if (bytesRead > limit || current.dev !== opened.dev || current.ino !== opened.ino)
       throw Error("Invalid owned file");
     return new TextDecoder("utf-8", { fatal: true }).decode(buffer.subarray(0, bytesRead));

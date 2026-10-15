@@ -1383,8 +1383,13 @@ pins the conversation ID across lifecycle and notify formats and retains no payl
 text, tool inputs or transcript paths. Observers print nothing and exit successfully;
 missing credentials make them immediately inert. Transport timeout is one second.
 
-Main stores observed health in `codex-hook-health.json` in Foom's profile, never in
-Codex state. A fingerprint of the six definitions invalidates cached health when the
+Main migrates matching observations from the old profile `codex-hook-health.json`
+into the shared private observer directory, leaving the old file unchanged and
+never reading Codex state. Migration accepts only bounded nonlinked owner-checked
+records and identical definition fingerprints. Windows legacy inherited profile
+ACLs may include only the current user, SYSTEM and local Administrators; new health
+files remain protected and current-user-only. A corrupt/stale private record cannot
+restore older trusted data. A fingerprint of the six definitions invalidates cached health when the
 installed observer path/version changes. Only observed startup + prompt + Stop
 permits later launches to omit `notify` and its disclosure. A review screen or missing
 prompt callbacks in the current execution turn restores the fallback for subsequent

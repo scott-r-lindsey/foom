@@ -1,6 +1,16 @@
 import { createHash } from "node:crypto";
-import { mkdtemp, readFile, readdir, rm, symlink, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import {
+  mkdtemp,
+  readFile,
+  readdir,
+  rm,
+  symlink,
+  writeFile,
+  mkdir,
+  chmod,
+  link,
+} from "node:fs/promises";
+import { tmpdir, userInfo } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, it, vi } from "vitest";
 import data from "../../../../src/shared/bundled-agents/codex.json";
@@ -337,4 +347,55 @@ it("does not infer health or observer definitions when channels are absent", asy
   const profile = await directory();
   expect((await installedHealth(empty, profile)).get()).toBe("not-reviewed");
   expect((await observerHealth(empty, profile, false)).get()).toBe("not-reviewed");
+});
+
+it.each(["directory", "oversize", "hardlink", "permissions"])(
+  "rejects an unsafe legacy profile health entry: %s",
+  async (kind) => {
+    const profile = await directory();
+    const file = join(profile, "codex-hook-health.json");
+    if (kind === "directory") await mkdir(file);
+    else {
+      await writeFile(file, "x".repeat(kind === "oversize" ? 4097 : 1), { mode: 0o600 });
+      if (kind === "hardlink") await link(file, join(profile, "other"));
+      if (kind === "permissions" && process.platform !== "win32") await chmod(file, 0o644);
+    }
+    expect((await installedHealth(model, profile)).get()).toBe("not-reviewed");
+  },
+);
+
+it("never falls back to old trusted health after a new private record is corrupt or stale", async () => {
+  const profile = await directory();
+  const definitions = codexHookArguments(codexObserverCommand());
+  await writeFile(
+    join(profile, "codex-hook-health.json"),
+    JSON.stringify({ fingerprint: digest(definitions), state: "trusted" }),
+    { mode: 0o600 },
+  );
+  const migrated = await installedHealth(model, profile);
+  expect(migrated.get()).toBe("trusted");
+  const root = join(profile, `foom-observers-${String(userInfo().uid)}`);
+  const file = join(root, "codex-health.json");
+  expect(JSON.parse(await readFile(file, "utf8"))).toEqual({
+    fingerprint: digest(definitions),
+    state: "trusted",
+  });
+  await writeFile(file, "{");
+  const corrupt = new V2Health(
+    root,
+    "codex",
+    digest(definitions),
+    join(profile, "codex-hook-health.json"),
+  );
+  await corrupt.load();
+  expect(corrupt.get()).toBe("not-reviewed");
+  await writeFile(file, JSON.stringify({ fingerprint: "stale", state: "trusted" }));
+  const stale = new V2Health(
+    root,
+    "codex",
+    digest(definitions),
+    join(profile, "codex-hook-health.json"),
+  );
+  await stale.load();
+  expect(stale.get()).toBe("outdated");
 });

@@ -362,8 +362,10 @@ Only a launch that reports SessionStart, UserPromptSubmit and Stop establishes
 working completion hooks. Later launches omit the notify override and its disclosure;
 the establishing launch keeps its already-attached fallback. Duplicate notify after
 Stop does not classify that same execution turn again. A later turn without prompt
-callbacks restores fallback health and can still complete through an attached notify. A private `codex-hook-health.json` in **Foom's profile**
-persists only a definition fingerprint and health state. A changed definition
+callbacks restores fallback health and can still complete through an attached notify. The old `codex-hook-health.json` in **Foom's profile**
+contains only a definition fingerprint and health state. The bundled conversion
+imports identical, owner-checked observations into Foom's private observer directory
+without modifying the old file or reading Codex's trust store. A changed definition
 invalidates that observation. Late events from older launches cannot overwrite a
 newer launch's health. If hooks subsequently fail, title rules remain available in
 the current launch; later launches restore notify and its existing disclosure.

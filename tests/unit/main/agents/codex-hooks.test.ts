@@ -1,3 +1,4 @@
+import { privateDirectory } from "../../../../src/main/control/private-files";
 import { execFile } from "node:child_process";
 import { mkdtemp, rm, writeFile, readFile, mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -33,7 +34,7 @@ afterEach(async () => {
 async function directory() {
   const path = await mkdtemp(join(tmpdir(), "foom observer's $test-"));
   scratch.push(path);
-  return path;
+  return privateDirectory(path, "profile");
 }
 function run(command: string, env: NodeJS.ProcessEnv, input?: string) {
   return new Promise<{ stdout: string; stderr: string }>((resolve, reject) => {

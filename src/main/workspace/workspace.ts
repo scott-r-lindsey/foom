@@ -803,24 +803,26 @@ export class Workspace {
           agents.map(async (agent) => {
             if (!knownAgentId(agent.id)) return agent;
             const provider = agentProvider(agent.id);
-            if (!provider.model?.health) return agent;
-            const health = await observerHealth(
-              provider.model,
-              this.deps.agentPluginDirectory,
-              provider.origin === "bundled",
-            );
+            if (!agent.path || !provider.model?.health) return agent;
+            const health = agent.healthSupported
+              ? await observerHealth(
+                  provider.model,
+                  this.deps.agentPluginDirectory,
+                  provider.origin === "bundled",
+                ).catch(() => undefined)
+              : undefined;
             return {
               ...agent,
               ...(agent.healthSupported
                 ? {
-                    hookState: health.get(),
+                    hookState: health?.get() ?? "not-reviewed",
                     healthInstructions: provider.model.health.instructions,
                   }
                 : {}),
               notifierReplacement: provider.needsNotifier(
                 agent,
                 undefined,
-                health.get() === "trusted",
+                health?.get() === "trusted",
               ),
             };
           }),

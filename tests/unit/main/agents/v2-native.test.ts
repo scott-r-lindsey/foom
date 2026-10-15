@@ -202,3 +202,62 @@ it.each(["stdin", "argv-last"] as const)(
     }
   },
 );
+
+it("migrates exact legacy installed-observer health into protected storage on the native OS", {
+  timeout: nativeDeadline(15000),
+}, async () => {
+  const { createHash } = await import("node:crypto");
+  const { mkdir } = await import("node:fs/promises");
+  const { installedHealth } = await import(
+    "../../../../src/main/agents/providers/installed-observers"
+  );
+  const { agentProvider } = await import("../../../../src/main/agents/providers/registry");
+  const { verifyPrivate } = await import("../../../../src/main/control/private-files");
+  const { userInfo } = await import("node:os");
+  const { codexHookArguments, codexObserverCommand } = await import(
+    "../../../helpers/legacy-codex"
+  );
+  const model = agentProvider("codex").model;
+  if (!model) throw new Error("Missing model");
+  const profile = await mkdtemp(join(tmpdir(), "foom-legacy-health-"));
+  const fingerprint = createHash("sha256")
+    .update(JSON.stringify(codexHookArguments(codexObserverCommand())))
+    .digest("hex");
+  const oldFile = join(profile, "codex-hook-health.json");
+  const original = JSON.stringify({ fingerprint, state: "trusted" });
+  try {
+    // This deliberately reproduces the old writer: no explicit Windows DACL.
+    await writeFile(oldFile, original, { mode: 0o600 });
+    if (process.platform === "win32") await expect(verifyPrivate(oldFile, false)).rejects.toThrow();
+    expect((await installedHealth(model, profile)).get()).toBe("trusted");
+    expect(await readFile(oldFile, "utf8")).toBe(original);
+    const migrated = join(profile, `foom-observers-${String(userInfo().uid)}`, "codex-health.json");
+    await verifyPrivate(migrated, false);
+    expect(JSON.parse(await readFile(migrated, "utf8"))).toEqual({ fingerprint, state: "trusted" });
+    if (process.platform === "win32") {
+      const wide = join(profile, "wide");
+      await mkdir(wide);
+      const unsafe = join(wide, "codex-hook-health.json");
+      await writeFile(unsafe, original);
+      await new Promise<void>((resolve, reject) => {
+        execFile(
+          "powershell.exe",
+          [
+            "-NoProfile",
+            "-NonInteractive",
+            "-Command",
+            "$p=$env:FOOM_LEGACY_TEST_FILE; $a=[System.IO.File]::GetAccessControl($p); $sid=[System.Security.Principal.SecurityIdentifier]::new('S-1-1-0'); $a.AddAccessRule([System.Security.AccessControl.FileSystemAccessRule]::new($sid,'FullControl','Allow')); [System.IO.File]::SetAccessControl($p,$a)",
+          ],
+          { env: { ...process.env, FOOM_LEGACY_TEST_FILE: unsafe }, timeout: 5000 },
+          (error) => {
+            if (error) reject(new Error("Fixture ACL setup failed", { cause: error }));
+            else resolve();
+          },
+        );
+      });
+      expect((await installedHealth(model, wide)).get()).toBe("not-reviewed");
+    }
+  } finally {
+    await rm(profile, { recursive: true, force: true });
+  }
+});

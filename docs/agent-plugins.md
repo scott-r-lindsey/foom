@@ -548,10 +548,15 @@ Codex compatibility details (#435):
   `codex`, six TOML definitions, member order and `timeout=3` are byte-identical
   to the previous provider on both platforms, including special-character paths.
   Independent pre-conversion serializer tests lock those bytes.
-- `codex-hook-health.json` remains in the profile and retains the SHA-256 of the
-  exact expanded six-definition argv. No rewrite or trust-store import occurs.
-  Matching valid health survives; changed definitions are outdated; missing,
-  malformed or linked data grants no trust. Newer launches alone own writes.
+- Matching observations in the legacy profile `codex-hook-health.json` migrate
+  to the shared private observer directory without rewriting the legacy file.
+  The SHA-256 still covers the exact expanded six-definition argv. Bounded,
+  identity-checked reads reject links, multiple links and unsafe ownership or
+  permissions. Windows permits the old inherited current-user/SYSTEM/local
+  Administrators ACL only at this read-only migration boundary; new records are
+  protected current-user-only files. A corrupt or stale private record never
+  falls back to old trusted data. Changed definitions are outdated; missing or
+  malformed data grants no trust. Newer launches alone own writes.
   The generic observed-health engine preserves startup metadata, review text,
   per-turn prompt/Stop observation, late-turn fallback and completion deduplication.
 - The existing `codexNotifierAcknowledged` setting is retained. A separate

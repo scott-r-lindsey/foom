@@ -22,7 +22,7 @@ export function installedObserverPath(
 }
 
 /** Retain profile observations only when the installed attachment definitions match exactly. */
-export function installedHealth(
+export async function installedHealth(
   model: AgentManifestV2,
   directory = tmpdir(),
   windows = process.platform === "win32",
@@ -38,7 +38,14 @@ export function installedHealth(
       true,
     ).command;
   const definitions = channel?.arguments.map((arg) => expandV2(arg, values)) ?? [];
-  return healthStore(directory, model, definitions, `${model.id}-hook`);
+  const root = await privateDirectory(directory, `foom-observers-${String(userInfo().uid)}`);
+  return healthStore(
+    root,
+    model,
+    definitions,
+    model.id,
+    join(directory, `${model.id}-hook-health.json`),
+  );
 }
 
 /** The same observed-health policy, with storage and stable paths owned by main. */

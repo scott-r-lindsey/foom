@@ -1,3 +1,4 @@
+import { agentProvider } from "../../../../src/main/agents/providers/registry";
 import { expect, it } from "vitest";
 import { prepareMcpLaunch, supportsMcp } from "../../../../src/main/agents/mcp-launch";
 it("requires the shared launch context for bundled MCP", async () => {
@@ -7,6 +8,9 @@ it("requires the shared launch context for bundled MCP", async () => {
 });
 
 it("refuses unsupported agents and non-loopback endpoints", async () => {
+  await expect(agentProvider("agy").prepareMcp("http://127.0.0.1:1234/control/v1")).rejects.toThrow(
+    "unsupported",
+  );
   await expect(prepareMcpLaunch("agy", "http://127.0.0.1:1234/control/v1")).rejects.toThrow(
     "unsupported",
   );
