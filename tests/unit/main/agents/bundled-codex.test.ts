@@ -258,6 +258,7 @@ it("preserves resume/default/MCP/observer/prompt order without widening tool gra
       "-c",
     ]);
     const attachment = args[6] ?? "";
+    expect(prepared?.mcpArguments).toEqual(["-c", attachment]);
     const name = attachment.match(/^mcp_servers\.(foom_[a-f0-9]+)=/u)?.[1];
     if (!name) throw new Error("Missing MCP name");
     expect(attachment).toBe(

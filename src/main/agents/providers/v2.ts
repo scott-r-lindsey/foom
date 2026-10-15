@@ -294,6 +294,7 @@ export function v2Provider(input: AgentManifestV2, validate: () => Promise<void>
           }
         }
         const args: string[] = [];
+        let mcpArguments: string[] = [];
         let grants: string[] = [];
         let toolIndex = 0;
         const tools = model.launch.toolPermissions;
@@ -322,7 +323,10 @@ export function v2Provider(input: AgentManifestV2, validate: () => Promise<void>
             if (model.launch.display && selected(model.launch.display.when, facts))
               args.push(...expand(model.launch.display.arguments));
           } else if (stage === "mcp") {
-            if (mcp && model.launch.mcp) args.push(...expand(model.launch.mcp.arguments));
+            if (mcp && model.launch.mcp) {
+              mcpArguments = expand(model.launch.mcp.arguments);
+              args.push(...mcpArguments);
+            }
           } else if (stage === "hooks") {
             for (const channel of binding?.v2?.channels.values() ?? [])
               args.push(...expand(channel.arguments));
@@ -351,6 +355,7 @@ export function v2Provider(input: AgentManifestV2, validate: () => Promise<void>
         return {
           args: boundedArguments(finalArgs),
           mcp,
+          mcpArguments,
           ...(newId ? { conversationId: newId } : {}),
           dispose,
         };

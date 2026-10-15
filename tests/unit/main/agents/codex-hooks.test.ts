@@ -1,9 +1,10 @@
+import { nativeDeadline } from "../../../helpers/native-test-policy";
 import { privateDirectory } from "../../../../src/main/control/private-files";
 import { execFile } from "node:child_process";
 import { mkdtemp, rm, writeFile, readFile, mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, dirname, basename } from "node:path";
-import { afterEach, expect, test } from "vitest";
+import { afterEach, expect, test, vi } from "vitest";
 import {
   CODEX_EVENTS,
   codexHookArguments,
@@ -27,6 +28,8 @@ import { HookReceiver } from "../../../../src/main/agents/hook-receiver";
 import type { HookSignal } from "../../../../src/shared/hooks";
 import { UNREACHABLE_PROXY } from "../../../helpers/unreachable-proxy";
 
+// The native job executes this suite serially on every OS, including Windows ACL operations.
+vi.setConfig({ testTimeout: nativeDeadline(5000) });
 const scratch: string[] = [];
 afterEach(async () => {
   await Promise.all(scratch.splice(0).map((path) => rm(path, { recursive: true, force: true })));

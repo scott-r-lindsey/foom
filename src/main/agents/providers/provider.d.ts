@@ -6,6 +6,8 @@ import type { prepareMcpLaunch } from "../mcp-launch";
 export interface PreparedLaunch {
   args: string[];
   mcp: boolean;
+  /** Selected attachment only, for isolated protocol probes using the real launch engine. */
+  mcpArguments?: readonly string[];
   conversationId?: string;
   dispose(): void;
 }

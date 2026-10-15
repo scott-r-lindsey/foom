@@ -1,3 +1,4 @@
+import { build } from "esbuild";
 import assert from "node:assert/strict";
 import { access, readFile, writeFile } from "node:fs/promises";
 import { test } from "node:test";
@@ -182,4 +183,18 @@ test("nightly probe runs independently with narrowly scoped permissions and no p
   assert.match(workflow, /needs: \[changes, quality\]/);
   assert.equal(requiresDesktop(["scripts/mcp-probe-ci.mjs"]), true);
   assert.equal(requiresDesktop([".github/workflows/ci.yml"]), true);
+});
+
+test("the real-CLI probe bundle resolves the current shared engine without executing clients", async () => {
+  const source = await readFile(new URL("./probe-mcp.mjs", import.meta.url), "utf8");
+  const contents = source.match(/contents:\s*'([^']+)'/u)?.[1];
+  assert.ok(contents, "Probe must declare its fixed bundle entry point");
+  const result = await build({
+    stdin: { contents, resolveDir: process.cwd() },
+    bundle: true,
+    platform: "node",
+    format: "esm",
+    write: false,
+  });
+  assert.equal(result.outputFiles.length, 1);
 });
