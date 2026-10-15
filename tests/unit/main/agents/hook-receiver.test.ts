@@ -482,13 +482,33 @@ describe("Antigravity lifecycle", () => {
     expect(signals[0]).toMatchObject({
       terminalId: "terminal-1",
       action,
-      signal: `agy:${event}`,
+      signal: `plugin:agy:${event === "Stop" ? (action === "failed" ? "stop-failed" : action === "working" ? "stop-background" : "stop-idle") : event}`,
       conversationId: "conversation",
     });
     expect(Object.keys(signals[0] ?? {}).sort()).toEqual(
       event === "Stop"
-        ? ["action", "conversationId", "fullyIdle", "signal", "terminalId", "terminationReason"]
-        : ["action", "conversationId", "signal", "terminalId"],
+        ? [
+            "action",
+            "caseId",
+            "channel",
+            "conversationId",
+            "endsTurn",
+            "fullyIdle",
+            "recoverTurn",
+            "signal",
+            "terminalId",
+            "terminationReason",
+          ]
+        : [
+            "action",
+            "caseId",
+            "channel",
+            "conversationId",
+            "endsTurn",
+            "recoverTurn",
+            "signal",
+            "terminalId",
+          ],
     );
   });
   it("pins the conversation and rejects invalid or foreign events without learning invalid IDs", async () => {
@@ -505,7 +525,7 @@ describe("Antigravity lifecycle", () => {
       await post(launch, JSON.stringify({ conversationId: "two" }), {
         "X-Foom-Event": "PreToolUse",
       }),
-    ).toBe(400);
+    ).toBe(204);
     expect(
       await post(launch, JSON.stringify({ conversationId: "two" }), {
         "X-Foom-Event": "PreInvocation",

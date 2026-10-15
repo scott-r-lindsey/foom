@@ -152,7 +152,13 @@ export class PluginSetup {
           : undefined;
         Object.assign(derived, {
           stagingOutdated:
-            staged?.observers === true && manifest["foomStagingFingerprint"] !== staged.fingerprint,
+            staged?.observers === true &&
+            manifest["foomStagingFingerprint"] !== staged.fingerprint &&
+            !(
+              manifest["foomStagingFingerprint"] === undefined &&
+              ownership.unfingerprintedVersion !== undefined &&
+              version >= ownership.unfingerprintedVersion
+            ),
           owned: true,
           absent: false,
           version,

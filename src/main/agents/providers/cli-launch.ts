@@ -8,7 +8,7 @@ export const CHILD_PROMPT = "Task from your Foom orchestrator (another agent, no
  * provenance line comes first, so the entry can never name a subcommand (`logout`).
  */
 export function initialPrompt(
-  agent: Pick<AgentInstallation, "id" | "cliGuidance">,
+  _agent: Pick<AgentInstallation, "id" | "cliGuidance">,
   prompt: string | undefined,
 ): { guidance: string[]; positional: string[] } {
   if (prompt === undefined) return { guidance: [], positional: [] };
@@ -20,31 +20,7 @@ export function initialPrompt(
   )
     throw new Error("Invalid initial prompt");
   const task = `${CHILD_PROMPT}\n\n${prompt}`;
-  if (agent.id !== "agy") return { guidance: [], positional: ["--", task] };
-  if (!agent.cliGuidance) throw new Error("This Antigravity release cannot take a prompt");
-  return { guidance: ["--prompt-interactive", task], positional: [] };
-}
-
-/** Compose initial prompt data using argv only; never install Antigravity MCP config. */
-export function cliGuidance(args: readonly string[], configPrompt = false): string[] {
-  const result: string[] = [];
-  const prompts: string[] = [];
-  for (let index = 0; index < args.length; index++) {
-    const arg = args[index];
-    if (arg === undefined) continue;
-    if (arg === "--prompt-interactive" || arg === "-i") {
-      const prompt = args[++index];
-      if (prompt === undefined) throw new Error("Interactive prompt is missing its value");
-      prompts.push(prompt);
-    } else if (arg.startsWith("--prompt-interactive=") || arg.startsWith("-i=")) {
-      prompts.push(arg.slice(arg.indexOf("=") + 1));
-    } else result.push(arg);
-  }
-  result.push(
-    "--prompt-interactive",
-    [...prompts, configPrompt ? CONFIG_PROMPT : CLI_GUIDANCE].join("\n\n"),
-  );
-  return result;
+  return { guidance: [], positional: ["--", task] };
 }
 
 /**

@@ -114,6 +114,7 @@ export function adaptV1(manifest: AgentPluginManifest): AgentManifestV2 {
             any: undefined,
           },
           observer: {
+            protocol: undefined,
             transport: hook.transport === "stdin" ? "stdin" : "argv-last",
             placement: "launch",
             version: 1,

@@ -111,12 +111,20 @@ export function v2Provider(input: AgentManifestV2, validate: () => Promise<void>
       return {
         ...installation,
         setup: status,
+        hooks: hookCapability(model, probe?.version ?? "", probe?.help ?? "", status.state),
         mcp: mcpAvailable(false) || mcpAvailable(true),
         restoreControl: model.conversation.restoreControl && mcpAvailable(true),
       };
     },
     needsNotifier: () => false,
-    prepareMcp: () => Promise.reject(new Error("MCP requires launch context")),
+    prepareMcp: () =>
+      Promise.reject(
+        new Error(
+          model.launch.mcp
+            ? "MCP requires launch context"
+            : "Per-launch MCP attachment is unsupported",
+        ),
+      ),
     arguments: () => {
       throw new Error("v2 requires launch preparation");
     },

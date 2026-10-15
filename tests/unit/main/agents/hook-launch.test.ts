@@ -262,7 +262,10 @@ test("Antigravity binds and revokes credentials with only a private ordering cou
   expect(await readFile(order, "utf8")).toBe("0");
   expect(hooks.observerCommand).toBe("");
   expect(hooks.observerArgv).toEqual([]);
-  expect(receiver.register).toHaveBeenCalledWith(expect.any(String), "agy");
+  expect(receiver.register).toHaveBeenCalledWith(expect.any(String), "agy", {
+    channels: hooks.v2?.channels,
+    state: hooks.v2?.state,
+  });
   hooks.bind?.("terminal-1");
   expect(bind).toHaveBeenLastCalledWith(receiver.register.mock.calls[0]?.[0], "terminal-1");
   hooks.dispose();

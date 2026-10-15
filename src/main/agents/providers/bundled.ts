@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import agy from "../../../shared/bundled-agents/agy.json";
 import claude from "../../../shared/bundled-agents/claude.json";
 import { parseAgentManifest } from "../../../shared/agent-plugin-parser";
 import type { AgentProvider } from "./provider";
@@ -22,4 +23,5 @@ export const bundledProviders: readonly AgentProvider[] = [
     "claude",
     "261d384290c97c03ee26f80a04b43a0dfd52ff12dc43ba6575635f32c604ac22",
   ),
+  bundledProvider(agy, "agy", "a3b0d0fd4b0799c4578567174e459439c8f27a16406635ea59d3041d1b369c9b"),
 ];

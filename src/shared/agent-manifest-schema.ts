@@ -239,9 +239,10 @@ export function observer(v: unknown, p: string) {
     v,
     p,
     ["transport", "placement", "version", "response", "delivery", "timeoutMs"],
-    ["sequence", "basename", "commandArguments"],
+    ["sequence", "basename", "commandArguments", "protocol"],
   );
   return {
+    protocol: optional(literal("ordered-v2"))(d["protocol"], `${p}.protocol`),
     transport: enumeration("stdin", "argv-last")(d["transport"], `${p}.transport`),
     placement: enumeration("launch", "stable", "plugin")(d["placement"], `${p}.placement`),
     version: abi(d["version"], `${p}.version`),
@@ -479,13 +480,17 @@ export function ownership(v: unknown, p: string) {
     v,
     p,
     ["directory", "manifest", "require", "versionField", "currentVersion"],
-    ["disabledField", "enabledField"],
+    ["disabledField", "enabledField", "unfingerprintedVersion"],
   );
   return {
     directory: homeRelative(d["directory"], `${p}.directory`),
     manifest: id(d["manifest"], `${p}.manifest`),
     require: array(requirement, 16)(d["require"], `${p}.require`),
     versionField: selector(d["versionField"], `${p}.versionField`),
+    unfingerprintedVersion: optional(abiInteger)(
+      d["unfingerprintedVersion"],
+      `${p}.unfingerprintedVersion`,
+    ),
     currentVersion: abiInteger(d["currentVersion"], `${p}.currentVersion`),
     disabledField: optional(selector)(d["disabledField"], `${p}.disabledField`),
     enabledField: optional(selector)(d["enabledField"], `${p}.enabledField`),

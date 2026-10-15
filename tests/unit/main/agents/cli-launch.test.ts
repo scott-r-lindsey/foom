@@ -6,7 +6,20 @@ function mergeAllowedTools(args: readonly string[]): string[] {
   return [...collected.args, merge.output, ...new Set(collected.values)];
 }
 import { expect, it } from "vitest";
-import { CLI_GUIDANCE, cliGuidance } from "../../../../src/main/agents/cli-launch";
+import { CLI_GUIDANCE } from "../../../../src/main/agents/cli-launch";
+import agy from "../../../../src/shared/bundled-agents/agy.json";
+function cliGuidance(args: readonly string[]) {
+  const collected = collectMerge(
+    args,
+    { ...agy.launch.guidance.merge, separators: "whitespace" },
+    false,
+  );
+  return [
+    ...collected.args,
+    "--prompt-interactive",
+    [...collected.values, CLI_GUIDANCE].join("\n\n"),
+  ];
+}
 import * as cliLaunch from "../../../../src/main/agents/cli-launch";
 it("composes Antigravity initial prompt data without invoking a shell or changing MCP", () => {
   expect(cliGuidance([])).toEqual([
@@ -44,11 +57,6 @@ it("passes an orchestrator child's prompt as one argv entry and refuses option-l
     "--",
     `${CHILD_PROMPT}\n\nlogout`,
   ]);
-  expect(initialPrompt({ id: "agy", cliGuidance: true }, "Plan")).toEqual({
-    guidance: ["--prompt-interactive", `${CHILD_PROMPT}\n\nPlan`],
-    positional: [],
-  });
-  expect(() => initialPrompt({ id: "agy" }, "Plan")).toThrow("cannot take a prompt");
   for (const prompt of ["", "  --yolo", "bell\u0007", "x".repeat(16385)])
     expect(() => initialPrompt({ id: "claude" }, prompt)).toThrow("Invalid initial prompt");
 });

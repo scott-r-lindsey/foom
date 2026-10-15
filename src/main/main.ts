@@ -445,6 +445,8 @@ async function buildWindow(savedSize?: Size, saved?: WindowPlacement, initialSes
   else terminals.addWindow(window);
   if (!initialized) {
     await setupOffers.load(app.getPath("userData"));
+    if (settings.get().agyPluginOfferAnswered && !setupOffers.answered("agy"))
+      await setupOffers.answer("agy");
     const codexHooks = new CodexHookStatus(join(app.getPath("userData"), "codex-hook-health.json"));
     await codexHooks.load();
     const forge = await ForgeTracking.open(

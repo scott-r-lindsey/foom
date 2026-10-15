@@ -1,3 +1,4 @@
+import { PluginSetup } from "../../../../src/main/agents/plugin-setup";
 import { hostRequest } from "../../../../src/shared/terminal-host-protocol";
 import type { AgentProvider } from "../../../../src/main/agents/providers/provider";
 import pluginFixture from "../../../fixtures/agent-plugin.json";
@@ -511,8 +512,8 @@ describe("conversation resume", () => {
     "resumes %s with fresh per-launch hooks and the same terminal ID",
     async (agent) => {
       const status = vi
-        .spyOn(AgyPlugin.prototype, "status")
-        .mockResolvedValue({ state: "installed" });
+        .spyOn(PluginSetup.prototype, "status")
+        .mockResolvedValue({ state: "installed", actions: [] });
       await service.launch({
         ...request,
         agent,
@@ -830,10 +831,15 @@ it("does not suppress the notifier when lifecycle hooks cannot be attached", asy
 it.each(["not-installed", "installed", "outdated", "disabled", "unavailable"] as const)(
   "Antigravity %s plugins gate launch credentials without adding agent arguments",
   async (state) => {
-    const status = vi.spyOn(AgyPlugin.prototype, "status").mockResolvedValue({ state });
+    const status = vi
+      .spyOn(PluginSetup.prototype, "status")
+      .mockResolvedValue({ state, actions: [] });
     try {
       const scan = await service.scan();
-      expect(scan.agents.find((agent) => agent.id === "agy")?.agyPlugin).toEqual({ state });
+      expect(scan.agents.find((agent) => agent.id === "agy")?.setup).toEqual({
+        state,
+        actions: [],
+      });
       const active = state === "installed" || state === "outdated";
       const result = await service.launch({ ...request, agent: "agy" });
       expect(result.attention).toBe(active ? "hooks" : "evaluator");
@@ -989,7 +995,7 @@ it("releases a failed config greeting launch so it can be retried", async () => 
       configCli: "/app/console",
       defaultArguments: ["-i"],
     }),
-  ).rejects.toThrow("Interactive prompt is missing its value");
+  ).rejects.toThrow("Merge option is missing its value");
   expect(create).not.toHaveBeenCalled();
   await service.launch({ ...request, agent: "agy", configCli: "/app/console" });
   expect(create.mock.calls.at(-1)?.[0].args).toEqual(["--prompt-interactive", CONFIG_PROMPT]);

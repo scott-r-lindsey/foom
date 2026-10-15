@@ -106,10 +106,15 @@ export function discoveryFacts(
 }
 
 /** Discovery reports capability across possible launch contexts; preparation selects one. */
-export function hookCapability(model: AgentManifestV2, version: string, help: string): boolean {
+export function hookCapability(
+  model: AgentManifestV2,
+  version: string,
+  help: string,
+  setupState = "unavailable",
+): boolean {
   const names = ["control", "configGreeting", "hasPrompt", "resume", "healthTrusted"];
   for (let variant = 0; variant < 32; variant++) {
-    const engine: Record<string, unknown> = { hooksEnabled: true, setupState: "unavailable" };
+    const engine: Record<string, unknown> = { hooksEnabled: true, setupState };
     for (const [index, name] of names.entries()) engine[name] = Boolean(variant & (1 << index));
     const facts = { ...discoveryFacts(model, version, help, engine) };
     for (const channel of model.hooks?.channels ?? []) {
@@ -207,7 +212,11 @@ export function collectMerge(
     const flag = merge.flags.find((entry) => arg === entry || arg.startsWith(`${entry}=`));
     if (!flag) result.push(arg);
     else if (arg !== flag) add(arg.slice(flag.length + 1));
-    else {
+    else if (!split) {
+      const value = args[++index];
+      if (value === undefined) throw new Error("Merge option is missing its value");
+      add(value);
+    } else {
       let found = false;
       while (args[index + 1] !== undefined && !args[index + 1]?.startsWith("-")) {
         add(args[++index] ?? "");

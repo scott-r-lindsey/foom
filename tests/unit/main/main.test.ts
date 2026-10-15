@@ -1,5 +1,9 @@
 vi.mock("../../../src/main/agents/setup-offers", () => ({
-  setupOffers: { load: vi.fn(() => Promise.resolve()) },
+  setupOffers: {
+    load: vi.fn(() => Promise.resolve()),
+    answered: vi.fn(() => false),
+    answer: vi.fn(() => Promise.resolve()),
+  },
 }));
 import pluginFixture from "../../fixtures/agent-plugin.json";
 import { parseAgentPlugin } from "../../../src/shared/agent-manifest";

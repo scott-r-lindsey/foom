@@ -467,7 +467,7 @@ the shipping v1 behavior below remains unchanged until implementation is reviewe
 
 Main uses one `AgentProvider` interface for discovery, executable names, resume,
 MCP attachment, hook selection and launch argv. Claude Code, Codex and Antigravity
-are registered built-in providers. Claude now runs the shared v2 engine from a build-locked bundled JSON manifest; [delivery and compatibility](agent-plugins.md#bundled-manifest-delivery-434) describes the generic infrastructure and migration. Their version floors, argument ordering,
+are registered built-in providers. Claude and Antigravity now run the shared v2 engine from a build-locked bundled JSON manifest; [delivery and compatibility](agent-plugins.md#bundled-manifest-delivery-434) describes the generic infrastructure and migration. Their version floors, argument ordering,
 notifier disclosure, observed hook health and opt-in lifecycle plugin are unchanged.
 Approved v2 config copies can express the same declarative capabilities, with their own approval and consents.
 

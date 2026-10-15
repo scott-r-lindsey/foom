@@ -7517,29 +7517,33 @@ process.stdin.on('data', (data) => {
       .filter({ has: page.getByText("Antigravity", { exact: true }) });
     await expect(agyRow.getByRole("button", { name: "Screen rules", exact: true })).toBeVisible();
     await expect(agyRow.getByText("Screen rules active", { exact: true })).toBeVisible();
-    await page.getByRole("button", { name: "Install plugin" }).click();
+    await page.getByRole("button", { name: "Install", exact: true }).click();
     let disclosure = await confirmationPage(app);
-    await expect(disclosure.getByText(/~\/.gemini\/config\/plugins\/foom/u)).toBeVisible();
+    await expect(
+      disclosure.getByText("~/.gemini/config/plugins/foom", { exact: true }),
+    ).toBeVisible();
     await expect(
       disclosure.getByText(
-        /never approves, stores no credentials, and is inert outside Foom launches/u,
+        /observes only Foom launches, approves no tools, stores no credentials/u,
       ),
     ).toBeVisible();
     await expect(disclosure.getByText(/agy plugin uninstall foom/u)).toBeVisible();
-    await disclosure.getByRole("button", { name: "Not now" }).click();
+    await disclosure.getByRole("button", { name: "Cancel" }).click();
     await expect(page.getByText("Plugin available", { exact: true })).toHaveCount(0);
-    await expect(page.getByRole("button", { name: "Install plugin" })).toBeEnabled();
+    await expect(page.getByRole("button", { name: "Install", exact: true })).toBeEnabled();
     await expect
       .poll(() =>
         page.evaluate(
-          async () => (await window.desktop.setupState()).settings.agyPluginOfferAnswered,
+          async () =>
+            (await window.desktop.scanAgents(true)).agents.find((agent) => agent.id === "agy")
+              ?.setup?.offer === undefined,
         ),
       )
       .toBe(true);
-    await page.getByRole("button", { name: "Install plugin" }).click();
+    await page.getByRole("button", { name: "Install", exact: true }).click();
     disclosure = await confirmationPage(app);
-    await disclosure.getByRole("button", { name: "Install plugin" }).click();
-    await expect(page.getByText("Lifecycle plugin · Installed", { exact: true })).toBeVisible();
+    await disclosure.getByRole("button", { name: "Install", exact: true }).click();
+    await expect(page.getByText("Plugin · installed", { exact: true })).toBeVisible();
     await expect(agyRow.getByRole("button", { name: "Hooks", exact: true })).toBeVisible();
     await assertAccessible(page);
     await app.evaluate(({ dialog }, directory) => {
@@ -7589,8 +7593,10 @@ process.stdin.on('data', (data) => {
         ),
       )
       .toBe("failed");
-    await page.getByRole("button", { name: "Remove plugin" }).click();
-    await expect(page.getByRole("button", { name: "Install plugin" })).toBeEnabled();
+    await page.getByRole("button", { name: "Remove", exact: true }).click();
+    disclosure = await confirmationPage(app);
+    await disclosure.getByRole("button", { name: "Remove", exact: true }).click();
+    await expect(page.getByRole("button", { name: "Install", exact: true })).toBeEnabled();
     await page.evaluate((id) => window.desktop.input(id, "q"), id);
     await expect
       .poll(() =>

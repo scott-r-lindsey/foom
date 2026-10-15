@@ -188,6 +188,19 @@ export function validateV2(manifest: AgentManifestV2): void {
       (!manifest.setup?.status.ownership || channel.arguments.length !== 0)
     )
       fail(path, "incompatible-combination");
+    if (
+      channel.observer.protocol === "ordered-v2" &&
+      (manifest.hooks?.channels.length !== 1 ||
+        channel.observer.placement !== "plugin" ||
+        channel.observer.transport !== "stdin" ||
+        channel.observer.version !== 2 ||
+        channel.observer.response !== "empty-json-first" ||
+        channel.observer.delivery !== "detached" ||
+        channel.observer.timeoutMs !== 1000 ||
+        !channel.observer.sequence ||
+        channel.observer.commandArguments.length !== 0)
+    )
+      fail(path, "incompatible-combination");
     unique(mapping.cases, `${path}.mapping.cases`, (entry) => entry.id);
     const shared = new Map<string, string>();
     const priorCases: typeof mapping.cases = [];
