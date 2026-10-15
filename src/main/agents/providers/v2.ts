@@ -136,6 +136,7 @@ export function v2Provider(input: AgentManifestV2, validate: () => Promise<void>
         if (attached) binding?.v2?.channels.set(channel.id, channel);
         Object.assign(facts, { [`channelAttached:${channel.id}`]: attached });
       }
+      if (binding?.v2) binding.v2.state.launchFacts = Object.freeze({ ...facts });
       if (
         binding?.v2 &&
         (newId ||

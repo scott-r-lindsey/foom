@@ -128,7 +128,9 @@ export function reduceV2(
         throw new Error("Invalid normalized fact");
       facts[extractor.name] = value;
     }
-    if (!eventCondition(entry.when, { ...sources, facts }, facts)) continue;
+    const conditionFacts = { ...state.launchFacts, ...facts };
+    if (!eventCondition(entry.when, { ...sources, facts: conditionFacts }, conditionFacts))
+      continue;
     const stream = state.channels?.get(channel.id);
     if (
       (sequence !== undefined && stream?.sequence !== undefined && sequence <= stream.sequence) ||

@@ -528,6 +528,8 @@ it("pins pasted and assigned IDs while manual resume permits a new first event",
       prepared.dispose();
     });
     expect(binding.v2?.state.conversation).toBe(pinConversation ? "requested" : undefined);
+    expect(binding.v2?.state.launchFacts?.["resume"]).toBe(true);
+    expect(Object.isFrozen(binding.v2?.state.launchFacts)).toBe(true);
     expect(binding.v2?.channels.has("notify")).toBe(true);
   }
 });
@@ -682,4 +684,29 @@ it("preserves PowerShell dollar/quote syntax when inserting the fixed event vali
   expect(script).toContain("if ($event -notmatch '^[A-Za-z][A-Za-z0-9_-]{0,63}$') { exit 0 }");
   expect(script).toContain("$event, $sequence, $payload)");
   expect(script.match(/public static class FoomObserverTransport/gu)).toHaveLength(1);
+});
+it("evaluates event predicates against immutable launch facts without promoting them to payload evidence", () => {
+  const c = channel(model(stdin));
+  const stop = required(c.mapping.cases.find((entry) => entry.id === "Stop"));
+  stop.when = {
+    all: [
+      { field: "resume", op: "eq", value: true },
+      { field: { source: "facts", path: ["hookSupport"] }, op: "eq", value: true },
+    ],
+    any: undefined,
+  };
+  const state: V2HookState = {};
+  const payload = { session_id: "conversation", hook_event_name: "Stop" };
+  expect(reduceV2(c, state, "t", "fixture", payload, undefined, undefined)).toBeUndefined();
+  expect(state).toEqual({});
+  state.launchFacts = Object.freeze({
+    resume: true,
+    hookSupport: true,
+    fullyIdle: true,
+    terminationReason: "error",
+  });
+  const signal = reduceV2(c, state, "t", "fixture", payload, undefined, undefined);
+  expect(signal?.action).toBe("classify");
+  expect(signal?.fullyIdle).toBeUndefined();
+  expect(signal?.terminationReason).toBeUndefined();
 });

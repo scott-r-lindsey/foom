@@ -2,6 +2,7 @@ import type { AgentManifestV2, ManifestChannel } from "./agent-manifest-v2";
 import type { HookSignal } from "./hooks";
 import type { CodexHookState } from "./agents";
 export interface V2HookState {
+  launchFacts?: Readonly<Record<string, unknown>>;
   conversation?: string;
   channels?: Map<string, { sequence?: number; completed?: Set<string> }>;
 }
