@@ -18,12 +18,16 @@ const { spawn, execFile, execFileSync } = require("node:child_process");
 const { chromium } = require("@playwright/test");
 const { deadline, expect } = require("./test-policy.js");
 const { auditProcesses } = require("./process-audit.js");
+const { smokeDiagnostics } = require("./smoke-diagnostics.js");
+const checkpoint = smokeDiagnostics("test-results/packaged-worker.jsonl");
 const { isolatedEnvironment, isolatedLoginProfiles } = require("./agent-isolation.js");
 const { getCurrentFuseWire, FuseV1Options } = require("@electron/fuses");
 
 test("packaged utility host runs native PTYs with RunAsNode disabled", {
   timeout: deadline(45000),
 }, async (context) => {
+  checkpoint("test started", { test: context.name });
+  context.after(() => checkpoint("test hooks reached", { test: context.name }));
   const root = path.join(__dirname, "../..", "out", `Foom-${process.platform}-${process.arch}`);
   const executable =
     process.platform === "darwin"
@@ -124,9 +128,18 @@ test("packaged utility host runs native PTYs with RunAsNode disabled", {
   env.ZDOTDIR = profile;
   env.HOME = profile;
   env.USERPROFILE = profile;
-  const audit = await auditProcesses(context);
+  const audit = await auditProcesses(context, checkpoint);
   audit.forbidAgentsOutside(new Set([profile]));
-  context.after(() => audit.finish());
+  context.after(async () => {
+    checkpoint("process audit finishing");
+    try {
+      await audit.finish();
+      checkpoint("process audit finished");
+    } catch (error) {
+      checkpoint("process audit failed", { error: String(error) });
+      throw error;
+    }
+  });
   // Match Playwright's development launcher on macOS: this disposable smoke
   // profile stores no credentials and must not open an interactive Keychain dialog.
   // Packaging fuses, sandboxing and the shipped app configuration remain intact.
@@ -144,11 +157,15 @@ test("packaged utility host runs native PTYs with RunAsNode disabled", {
     },
   );
   audit.add(child.pid);
+  checkpoint("app spawned", { appPid: child.pid });
+  child.once("exit", (code, signal) => checkpoint("app exit", { code, signal }));
+  child.once("close", (code, signal) => checkpoint("app close", { code, signal }));
   let browser;
   let page;
   let standalone;
   let failure;
   const watchdog = setTimeout(() => {
+    checkpoint("watchdog expired");
     console.error("Packaged probe exceeded its hard deadline");
     try {
       if (process.platform === "win32")
@@ -421,7 +438,9 @@ test("packaged utility host runs native PTYs with RunAsNode disabled", {
     }
   } finally {
     try {
+      checkpoint("capture processes before cleanup");
       await audit.capture();
+      checkpoint("revoke terminals");
       // Close through the app after revoking its terminal capabilities. Disconnecting
       // CDP does not quit Electron, and taskkill can stall on a busy Windows runner.
       await page
@@ -431,10 +450,13 @@ test("packaged utility host runs native PTYs with RunAsNode disabled", {
           await Promise.all(ids.map((id) => window.desktop.kill(id).catch(() => {})));
         }, standalone)
         .catch(() => {});
+      checkpoint("request app quit");
       await page?.keyboard
         .press(process.platform === "darwin" ? "Meta+q" : "Control+Shift+q")
         .catch(() => {});
+      checkpoint("disconnect CDP");
       await browser?.close();
+      checkpoint("wait for app exit");
       if (child.exitCode === null && child.signalCode === null) {
         let timer;
         const exited = new Promise((resolve) => child.once("exit", resolve));
@@ -446,6 +468,7 @@ test("packaged utility host runs native PTYs with RunAsNode disabled", {
         ]);
         clearTimeout(timer);
         if (child.exitCode === null && child.signalCode === null) {
+          checkpoint("force app termination");
           if (process.platform === "win32") {
             await new Promise((resolve, reject) => {
               execFile(
@@ -462,19 +485,24 @@ test("packaged utility host runs native PTYs with RunAsNode disabled", {
           await exited;
         }
       }
+      checkpoint("remove app profile");
       rmSync(profile, { recursive: true, force: true, maxRetries: 5 });
     } catch (error) {
       child.kill("SIGKILL");
       failure ??= error;
+      checkpoint("cleanup failed", { error: String(error) });
       console.error("Packaged cleanup failed:", error);
     } finally {
       clearTimeout(watchdog);
+      checkpoint("cleanup finished", { appExitCode: child.exitCode, appSignal: child.signalCode });
     }
   }
   if (failure) throw failure;
 });
 
 test("packaged console helper runs without Node from relocated Unicode paths", async (context) => {
+  checkpoint("test started", { test: context.name });
+  context.after(() => checkpoint("test hooks reached", { test: context.name }));
   const { copyFileSync, chmodSync } = require("node:fs");
   const { createHash } = require("node:crypto");
   const root = path.join(__dirname, "../..", "out", `Foom-${process.platform}-${process.arch}`);
@@ -518,6 +546,8 @@ test("packaged console helper runs without Node from relocated Unicode paths", a
 });
 
 test("packaged CLI PATH setup is explicit, non-clobbering and reversible", async (context) => {
+  checkpoint("test started", { test: context.name });
+  context.after(() => checkpoint("test hooks reached", { test: context.name }));
   const { copyFileSync, cpSync, chmodSync, readlinkSync, renameSync } = require("node:fs");
   const { spawnSync } = require("node:child_process");
   const root = path.join(__dirname, "../..", "out", `Foom-${process.platform}-${process.arch}`);

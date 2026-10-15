@@ -45,6 +45,40 @@ import { renameSession } from "./sidebar-preferences";
 import type { SidebarCommand } from "../../shared/workspace";
 import type { AgentId } from "../../shared/agents";
 
+function OrchestrationMark({ kind, related }: { kind: "tx" | "rx" | "orphan"; related: boolean }) {
+  return (
+    <svg
+      className="session-robot-mark"
+      data-kind={kind}
+      data-related={related && kind !== "orphan"}
+      viewBox="0 0 18 16"
+      aria-hidden="true"
+    >
+      <rect className="robot-body" x="4" y="7" width="10" height="7.5" rx="2" />
+      <path className="robot-body" d="M9 7V4.6" />
+      <circle className="robot-eye" cx="9" cy="4.2" r="1" />
+      <circle className="robot-eye" cx="7" cy="10.6" r="1" />
+      <circle className="robot-eye" cx="11" cy="10.6" r="1" />
+      <path
+        className="robot-wave robot-wave-inner"
+        d={
+          kind === "tx"
+            ? "M6.6 2.6a3 3 0 0 0 0 3.2M11.4 2.6a3 3 0 0 1 0 3.2"
+            : "M6.9 2.2a3 3 0 0 1 4.2 0"
+        }
+      />
+      <path
+        className="robot-wave robot-wave-outer"
+        d={
+          kind === "tx"
+            ? "M4.4 1.2a5.4 5.4 0 0 0 0 6M13.6 1.2a5.4 5.4 0 0 1 0 6"
+            : "M5.2 0.6a5.4 5.4 0 0 1 7.6 0"
+        }
+      />
+    </svg>
+  );
+}
+
 export function launcherActions(
   options: LaunchOptions | undefined,
   shell: string | undefined,
@@ -531,6 +565,15 @@ export function Sidebar({
       );
     });
   const session = (row: BoardRow, docked = false) => {
+    const mark =
+      row.orchestration?.role === "orchestrator"
+        ? "tx"
+        : row.orchestration?.role === "child" && !row.orchestration.takenOver
+          ? parentOf(row)
+            ? "rx"
+            : "orphan"
+          : undefined;
+    const robot = mark ? <OrchestrationMark kind={mark} related={related(row)} /> : null;
     const name = sessionName(row, preferences);
     const identity = sessionIdentity(row, source.shellName?.());
     const exited =
@@ -732,11 +775,6 @@ export function Sidebar({
                     {tileNumbers.get(row.id)?.number}
                   </span>
                 )}
-                {row.orchestration?.role === "child" && (
-                  <span className="session-child-mark" aria-hidden="true">
-                    ↳
-                  </span>
-                )}
                 <SessionName
                   name={name}
                   filter={filter}
@@ -762,6 +800,7 @@ export function Sidebar({
                     <path d="" />
                   </svg>
                 )}
+                {!compact && robot}
                 {row.state === "needs_input" && (
                   <span className="board-wait">{waitTime(row, now)}</span>
                 )}
@@ -778,6 +817,7 @@ export function Sidebar({
               )}
               <span className="visually-hidden board-state">{light(row).label}</span>
             </span>
+            {compact && robot}
             {!docked && actions(row.id, `${name} in ${row.branch}`, items)}
           </div>
           {docked && actions(row.id, `${name} in ${row.branch}`, items)}

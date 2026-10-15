@@ -1218,6 +1218,7 @@ test("terminal runs an interactive shell behind an isolated bridge", {
           "changeAgyPlugin",
           "scanAgents",
           "launchAgent",
+          "duplicateAgent",
           "configStatus",
           "decideConfig",
           "revertConfig",
@@ -9238,7 +9239,10 @@ async function runOrchestratorScenario(context, cliOnly, phase) {
       const childEntry = childRow.locator("..");
       const parentEntry = parentSession.locator("..");
       await expect(childRow).toHaveCount(1);
-      await expect(childRow.locator(".session-child-mark")).toHaveText("↳");
+      const childMark = childRow.locator('.session-robot-mark[data-kind="rx"]');
+      const parentMark = parentSession.locator('.session-robot-mark[data-kind="tx"]');
+      await expect(childMark).toHaveAttribute("aria-hidden", "true");
+      await expect(parentMark).toHaveCount(1);
       await expect(childRow).toHaveAttribute(
         "title",
         `Child of ${cliOnly ? "Antigravity" : "Claude Code"}`,
@@ -9249,19 +9253,87 @@ async function runOrchestratorScenario(context, cliOnly, phase) {
       await expect(childRow.locator(".board-light")).toHaveCount(1);
       await parentSession.focus();
       await expect(childEntry).toHaveAttribute("data-related", "true");
+      await expect(childMark).toHaveAttribute("data-related", "true");
       await childRow.focus();
       await expect(parentEntry).toHaveAttribute("data-related", "true");
+      await expect(parentMark).toHaveAttribute("data-related", "true");
       await page.getByRole("textbox", { name: "Filter repositories and sessions" }).focus();
       await childRow.hover();
       await expect(parentEntry).toHaveAttribute("data-related", "true");
+      await expect(parentMark).toHaveAttribute("data-related", "true");
       await parentSession.hover();
       await expect(childEntry).toHaveAttribute("data-related", "true");
+      await expect(childMark).toHaveAttribute("data-related", "true");
       await childRow.focus();
       // Finish the hover interaction before the later Settings checks: its panel
       // otherwise follows the stationary pointer and covers Settings navigation.
       await page.getByRole("textbox", { name: "Filter repositories and sessions" }).hover();
       await page.keyboard.press("Escape");
       await expect(page.locator(".row-menu")).toHaveCount(0);
+      if (phase === "children") {
+        await parentSession.click();
+        await expect(childMark).toHaveAttribute("data-related", "true");
+        await expect(childMark.locator(".robot-wave-inner")).toHaveCSS(
+          "animation-name",
+          "robot-receive",
+        );
+        await childRow.focus();
+        await expect(parentMark.locator(".robot-wave-inner")).toHaveCSS(
+          "animation-name",
+          "robot-transmit",
+        );
+        await expect(childRow).toHaveCSS("box-shadow", "none");
+        if (!cliOnly) {
+          for (const colorScheme of ["light", "dark"]) {
+            await parentSession.focus();
+            await page.emulateMedia({ colorScheme, reducedMotion: "reduce" });
+            await expect(page.locator("html")).toHaveCSS("color-scheme", colorScheme);
+            await expect(childMark.locator(".robot-wave-inner")).toHaveCSS(
+              "animation-name",
+              "none",
+            );
+            await expect(childMark).toHaveCSS(
+              "color",
+              colorScheme === "light" ? "rgb(91, 43, 217)" : "rgb(155, 107, 255)",
+            );
+            for (const scale of [80, 100, 150]) {
+              await page.evaluate(
+                (interfaceScale) => window.desktop.saveSetup({ interfaceScale }),
+                scale,
+              );
+              await expect(childMark).toBeVisible();
+              await expect(parentMark).toBeVisible();
+              if (process.env.FOOM_SCREENSHOTS)
+                await page.screenshot({
+                  path: `test-results/477-marks-${colorScheme}-${scale}.png`,
+                  animations: "disabled",
+                });
+            }
+            await page.evaluate(() => window.desktop.saveSetup({ interfaceScale: 100 }));
+            await page.getByRole("button", { name: "Collapse sidebar", exact: true }).click();
+            await expect(childMark).toBeVisible();
+            await expect(parentMark).toBeVisible();
+            const markBox = await childMark.boundingBox();
+            const rowBox = await childRow.boundingBox();
+            assert.ok(
+              markBox &&
+                rowBox &&
+                markBox.x >= rowBox.x &&
+                markBox.x + markBox.width <= rowBox.x + rowBox.width,
+            );
+            if (process.env.FOOM_SCREENSHOTS)
+              await page.screenshot({
+                path: `test-results/477-marks-${colorScheme}-compact.png`,
+                animations: "disabled",
+              });
+            await page.getByRole("button", { name: "Expand sidebar", exact: true }).click();
+          }
+          await page.emulateMedia({ colorScheme: "dark", reducedMotion: "no-preference" });
+        }
+        await page.getByRole("textbox", { name: "Filter repositories and sessions" }).hover();
+        await page.keyboard.press("Escape");
+        await expect(page.locator(".row-menu")).toHaveCount(0);
+      }
       await assertAccessible(page);
     }
     const stopped = await call(parent.controlToken, "stop", {
@@ -9547,7 +9619,7 @@ async function runOrchestratorScenario(context, cliOnly, phase) {
       });
       assert.equal(liveLaunch.body.result.status, "succeeded");
       const liveId = liveLaunch.body.result.resultId;
-      await expect(page.locator(".session-child-mark")).toHaveCount(1);
+      await expect(page.locator('.session-robot-mark[data-kind="rx"]')).toHaveCount(1);
 
       if (!cliOnly) {
         let previous = (await call(parent.controlToken, "session_state", { id: liveId })).body
@@ -9625,7 +9697,7 @@ async function runOrchestratorScenario(context, cliOnly, phase) {
       );
       assert.equal(liveChild.exited, false);
       await expect(page.getByText("Revoked orchestrator", { exact: true })).toBeVisible();
-      await expect(page.locator(".session-child-mark")).toHaveCount(1);
+      await expect(page.locator('.session-robot-mark[data-kind="rx"]')).toHaveCount(1);
       const logged = await page.evaluate(() =>
         window.desktop.actionLog({
           search: "",
@@ -9653,7 +9725,7 @@ async function runOrchestratorScenario(context, cliOnly, phase) {
       );
       assert.equal(after.orchestration.active, false);
       await expect(page.getByText("Exited orchestrator", { exact: true })).toBeVisible();
-      await expect(page.locator(".session-child-mark")).toHaveCount(1);
+      await expect(page.locator('.session-robot-mark[data-kind="rx"]')).toHaveCount(1);
       await assert.rejects(
         page.evaluate((id) => window.desktop.sidebarCommand({ kind: "close", id }), parentId),
         /Close the orchestrator/u,
@@ -13789,3 +13861,173 @@ for (const kind of ["html", "markdown"]) {
     });
   });
 }
+
+test("built-in duplication creates unique untrusted plugins, edits and approves exact bytes, and launches with the built-in off", {
+  timeout: deadline(60_000),
+}, async (context) => {
+  const { chmod, copyFile } = require("node:fs/promises");
+  const root = await mkdtemp(path.join(tmpdir(), "foom-duplicate-agent-"));
+  removeAfterApps(context, root);
+  const bin = path.join(root, "bin");
+  const home = path.join(root, "home");
+  const repo = path.join(root, "repo");
+  const output = path.join(root, "argv.json");
+  const script = path.join(root, "fixture.js");
+  await Promise.all([bin, home, repo].map((directory) => mkdir(directory)));
+  const cli = path.join(bin, process.platform === "win32" ? "claude.exe" : "claude");
+  await copyFile(process.execPath, cli);
+  await chmod(cli, 0o755);
+  await writeFile(
+    script,
+    'require("node:fs").writeFileSync(process.env.TEST_ARGV, JSON.stringify(process.argv.slice(2))); process.stdin.resume();',
+  );
+  isolatedGit(["init", "-q", "-b", "main"], { cwd: repo });
+  isolatedGit(
+    [
+      "-c",
+      "user.name=Foom",
+      "-c",
+      "user.email=foom@example.com",
+      "commit",
+      "-q",
+      "--allow-empty",
+      "-m",
+      "init",
+    ],
+    { cwd: repo },
+  );
+  const app = await launchApp(context, false, {
+    emptyBoard: true,
+    env: { HOME: home, PATH: bin, TEST_ARGV: output },
+  });
+  await app.evaluate(({ dialog, shell }, repo) => {
+    dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [repo] });
+    shell.openPath = async () => "";
+  }, repo);
+  const page = await boardPage(app);
+  const repository = await page.evaluate(() => window.desktop.addRepository());
+  assert.ok(repository);
+  await openSettingsScreen(page);
+  await page
+    .getByRole("navigation", { name: "Settings sections" })
+    .getByRole("button", { name: "Agents", exact: true })
+    .click();
+  const builtin = page.getByRole("region", { name: "Claude Code", exact: true });
+  await expect(builtin.getByRole("switch")).toBeEnabled();
+  await builtin.getByRole("button", { name: "Duplicate as plugin" }).click();
+  const card = page.getByRole("region", { name: "Claude Code (custom)", exact: true });
+  await expect(card).toContainText("Approval pending · launch blocked");
+  await expect(card).toBeFocused();
+  const file = path.join(home, ".foom/config/agents/claude-custom.json");
+  const original = await readFile(file, "utf8");
+  const manifest = JSON.parse(original);
+  const bundled = JSON.parse(
+    await readFile(path.join(__dirname, "../../src/shared/bundled-agents/claude.json"), "utf8"),
+  );
+  assert.deepEqual(manifest, { ...bundled, id: "claude-custom", name: "Claude Code (custom)" });
+  await builtin.getByRole("button", { name: "Duplicate as plugin" }).click();
+  await expect(
+    page.getByRole("region", { name: "Claude Code (custom-2)", exact: true }),
+  ).toContainText("Approval pending");
+  assert.equal(await readFile(file, "utf8"), original);
+  const launch = () =>
+    page.evaluate(
+      (repository) =>
+        window.desktop.sidebarCommand({
+          kind: "launch",
+          repository,
+          worktree: repository,
+          run: "claude-custom",
+        }),
+      repository.path,
+    );
+  await assert.rejects(launch(), /Invalid sidebar command/);
+  assert.equal(
+    (await page.evaluate(() => window.desktop.scanAgents(true))).agents.some(
+      (agent) => agent.id === "claude-custom",
+    ),
+    false,
+  );
+  manifest.launch.arguments = { arguments: [script, "from-edited-copy"] };
+  await writeFile(file, JSON.stringify(manifest));
+  await expect
+    .poll(
+      async () =>
+        (await page.evaluate(() => window.desktop.configStatus())).agentPlugins.find(
+          (entry) => entry.id === "claude-custom",
+        )?.decisionId,
+    )
+    .toBe(
+      require("node:crypto")
+        .createHash("sha256")
+        .update("agents/claude-custom.json" + JSON.stringify(manifest))
+        .digest("hex"),
+    );
+  await card.getByRole("button", { name: "Review…" }).click();
+  let dialog = await confirmationPage(app);
+  await expect(dialog.getByRole("alertdialog")).toContainText("from-edited-copy");
+  await expect(dialog.getByRole("button", { name: "Cancel" })).toBeFocused();
+  await dialog.getByRole("button", { name: "Cancel" }).click();
+  await expect(card).toContainText("Approval pending");
+  await card.getByRole("button", { name: "Review…" }).click();
+  dialog = await confirmationPage(app);
+  await dialog.getByRole("button", { name: "Allow plugin", exact: true }).click();
+  await expect(card.getByText("Approved", { exact: true })).toBeVisible();
+  const defaults = builtin.getByLabel("Claude Code default arguments");
+  await defaults.fill("--model\nkept-setting");
+  await defaults.blur();
+  await expect
+    .poll(
+      async () =>
+        (await page.evaluate(() => window.desktop.setupState())).settings.agentArguments.claude,
+    )
+    .toEqual(["--model", "kept-setting"]);
+  await builtin.getByRole("switch").uncheck();
+  await expect
+    .poll(
+      async () => (await page.evaluate(() => window.desktop.setupState())).settings.agents.claude,
+    )
+    .toBe(false);
+  const scan = await page.evaluate(() => window.desktop.scanAgents(true));
+  assert.equal(scan.agents.find((agent) => agent.id === "claude").path, null);
+  assert.ok(scan.agents.find((agent) => agent.id === "claude-custom").path);
+  const settings = (await page.evaluate(() => window.desktop.setupState())).settings;
+  assert.deepEqual(settings.agentArguments.claude, ["--model", "kept-setting"]);
+  await expect(builtin.getByRole("switch")).not.toBeChecked();
+  await assert.rejects(
+    page.evaluate(
+      (repository) =>
+        window.desktop.sidebarCommand({
+          kind: "launch",
+          repository,
+          worktree: repository,
+          run: "claude",
+        }),
+      repository.path,
+    ),
+    /turned off/,
+  );
+  await assertAccessible(page);
+  await page.screenshot({
+    path: path.join(__dirname, "../../test-results/duplicate-agent-settings.png"),
+  });
+  await page.keyboard.press("Escape");
+  await page.getByRole("button", { name: "Actions for Main checkout", exact: true }).click();
+  await expect(page.getByRole("menuitem", { name: "Claude Code", exact: true })).toHaveCount(0);
+  await page.getByRole("menuitem", { name: "Claude Code (custom)", exact: true }).click();
+  await expect
+    .poll(async () => {
+      try {
+        return JSON.parse(await readFile(output, "utf8"));
+      } catch {
+        return null;
+      }
+    })
+    .toEqual(["from-edited-copy"]);
+  const snapshot = await page.evaluate(() => window.desktop.workspace());
+  assert.equal(
+    snapshot.terminals.find((entry) => entry.agent === "claude-custom").providerOrigin,
+    "config",
+  );
+  await assertAccessible(page);
+});

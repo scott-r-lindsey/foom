@@ -36,7 +36,10 @@ test("PID reuse never adopts processes that existed before the test", () => {
 });
 
 test("process audit detects a live descendant and accepts it after exit", async (context) => {
-  const scope = await audit.auditProcesses(context);
+  const checkpoints = [];
+  const scope = await audit.auditProcesses(context, (stage, details) =>
+    checkpoints.push({ stage, ...details }),
+  );
   const child = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], { stdio: "ignore" });
   context.after(() => child.kill());
   await once(child, "spawn");
@@ -47,6 +50,15 @@ test("process audit detects a live descendant and accepts it after exit", async 
   child.kill();
   await exited;
   await scope.finish();
+  assert.ok(
+    checkpoints.some(
+      (row) =>
+        row.stage === "process audit capture" &&
+        row.processes.some((process) => process.pid === child.pid),
+    ),
+  );
+  assert.ok(checkpoints.every((row) => !JSON.stringify(row).includes("command")));
+  assert.deepEqual(checkpoints.at(-1), { stage: "process audit survivors", processes: [] });
 });
 
 test("agent guard permits fixtures and rejects outside paths and escaping symlinks", async (context) => {
@@ -142,4 +154,39 @@ test("process audit retains an outside agent violation after the process exits",
   child.kill();
   await exited;
   await assert.rejects(scope.finish(), /Test started an agent outside its fixtures/);
+});
+
+test("smoke checkpoints survive abrupt worker exit without recording environment", async (context) => {
+  const { mkdtemp, readFile, rm } = await import("node:fs/promises");
+  const { tmpdir } = await import("node:os");
+  const { join, resolve } = await import("node:path");
+  const { spawnSync } = await import("node:child_process");
+  const root = await mkdtemp(join(tmpdir(), "foom-smoke-diagnostics-"));
+  context.after(() => rm(root, { recursive: true, force: true }));
+  const file = join(root, "nested", "worker.jsonl");
+  const helper = resolve("tests/electron/smoke-diagnostics.js");
+  const result = spawnSync(
+    process.execPath,
+    [
+      "-e",
+      `
+    const checkpoint = require(${JSON.stringify(helper)}).smokeDiagnostics(${JSON.stringify(file)});
+    checkpoint("disconnect CDP", { appPid: 123 });
+    process.exit(7);
+  `,
+    ],
+    { env: { ...process.env, FOOM_DIAGNOSTIC_SECRET: "must-not-record-this" } },
+  );
+  assert.equal(result.status, 7);
+  const text = await readFile(file, "utf8");
+  assert.ok(!text.includes("must-not-record-this"));
+  const rows = text.trim().split("\n").map(JSON.parse);
+  assert.deepEqual(
+    rows.map((row) => row.stage),
+    ["worker started", "disconnect CDP", "worker exit"],
+  );
+  assert.equal(rows[1].appPid, 123);
+  assert.equal(rows[2].code, 7);
+  assert.equal(typeof rows[1].resources, "object");
+  assert.deepEqual(rows[1].nativeModules, []);
 });

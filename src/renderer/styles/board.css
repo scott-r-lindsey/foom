@@ -1596,13 +1596,65 @@
   stroke: currentColor;
 }
 
-.session-child-mark {
+.session-robot-mark {
+  flex-shrink: 0;
+  width: 18px;
+  height: 16px;
   color: var(--muted);
-  font-size: 11px;
+  overflow: visible;
 }
-.session-entry[data-related="true"] .board-row {
-  background: var(--surface);
-  box-shadow: inset 2px 0 var(--highlight);
+.session-robot-mark .robot-body {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.3;
+  stroke-linejoin: round;
+}
+.session-robot-mark .robot-eye {
+  fill: currentColor;
+  stroke: none;
+}
+.session-robot-mark .robot-wave {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.2;
+  stroke-linecap: round;
+}
+.session-robot-mark[data-kind="orphan"] .robot-wave {
+  stroke-dasharray: 1.4 1.6;
+  opacity: 0.7;
+}
+.session-robot-mark[data-related="true"] {
+  color: var(--accent);
+}
+@media (prefers-reduced-motion: no-preference) {
+  .session-robot-mark[data-related="true"][data-kind="tx"] .robot-wave {
+    animation: robot-transmit 1.2s ease-out infinite;
+  }
+  .session-robot-mark[data-related="true"][data-kind="rx"] .robot-wave {
+    animation: robot-receive 1.2s ease-in infinite;
+  }
+  .session-robot-mark[data-kind="tx"] .robot-wave-outer,
+  .session-robot-mark[data-kind="rx"] .robot-wave-inner {
+    animation-delay: 0.2s;
+  }
+}
+@keyframes robot-transmit {
+  0%,
+  100% {
+    opacity: 0.15;
+  }
+  40% {
+    opacity: 1;
+  }
+}
+@keyframes robot-receive {
+  0%,
+  100% {
+    opacity: 0.15;
+  }
+  60% {
+    opacity: 1;
+  }
 }
 .session-orchestration {
   display: block;
@@ -1678,6 +1730,10 @@
 }
 .sidebar-shell[data-compact="true"] .board-row {
   gap: 6px;
+}
+.sidebar-shell[data-compact="true"] .board-row:has(> .session-robot-mark) {
+  gap: 2px;
+  padding-inline: 2px;
 }
 
 .sidebar-shell[data-compact="true"] .row-actions {

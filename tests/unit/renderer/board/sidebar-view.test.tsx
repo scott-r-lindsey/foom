@@ -1484,7 +1484,7 @@ test("marks children in their own checkouts, highlights relationships and retain
     branch: "feature",
     exited: false,
     state: "needs_input",
-    orchestration: { role: "child", parentId: "parent", takenOver: true },
+    orchestration: { role: "child", parentId: "parent", takenOver: false },
   };
   const base = createSampleSource([parent, child]);
   const revealRef: { current: ((row: BoardRow) => void) | undefined } = { current: undefined };
@@ -1512,8 +1512,13 @@ test("marks children in their own checkouts, highlights relationships and retain
   const view = render(<Sidebar {...props} />);
   const item = view.getByRole("treeitem", { name: /feature · Codex/u });
   const parentItem = view.getByRole("treeitem", { name: /main · Claude Code/u });
-  expect(item.querySelector(".session-child-mark")?.textContent).toBe("↳");
-  expect(item.title).toBe("Child of Claude Code · Taken over");
+  expect(
+    item.querySelector('.session-robot-mark[data-kind="rx"]')?.getAttribute("aria-hidden"),
+  ).toBe("true");
+  expect(item.querySelector(".session-robot-mark")?.getAttribute("data-related")).toBe("true");
+  expect(parentItem.querySelector('.session-robot-mark[data-kind="tx"]')).toBeTruthy();
+  expect(view.container.querySelector(".session-child-mark")).toBeNull();
+  expect(item.title).toBe("Child of Claude Code");
   expect(item.closest(".session-entry")?.getAttribute("data-related")).toBe("true");
   expect(item.closest('[role="group"]')?.contains(parentItem)).toBe(false);
   fireEvent.pointerEnter(item.closest(".session-entry") ?? item);
@@ -1546,6 +1551,17 @@ test("marks children in their own checkouts, highlights relationships and retain
     }),
   );
   view.rerender(<Sidebar {...props} rows={[child]} />);
+  expect(view.container.querySelector('.session-robot-mark[data-kind="orphan"]')).toBeTruthy();
+  expect(view.container.querySelector(".session-robot-mark")?.getAttribute("data-related")).toBe(
+    "false",
+  );
+  view.rerender(
+    <Sidebar
+      {...props}
+      rows={[{ ...child, orchestration: { role: "child", parentId: "parent", takenOver: true } }]}
+    />,
+  );
+  expect(view.container.querySelector(".session-robot-mark")).toBeNull();
   expect(view.getByRole("treeitem", { name: /feature · Codex/u }).title).toBe(
     "Child of parent · Taken over",
   );
@@ -1558,6 +1574,10 @@ test("marks children in their own checkouts, highlights relationships and retain
   const compact = render(<Sidebar {...props} />);
   expect(compact.getAllByRole("treeitem", { name: /feature · Codex/u })).toHaveLength(1);
   expect(compact.queryByRole("group", { name: "Children of Claude Code" })).toBeNull();
+  expect(compact.container.querySelectorAll(".session-robot-mark")).toHaveLength(2);
+  expect(compact.container.querySelector(".session-lines .session-robot-mark")).toBeNull();
+  compact.rerender(<Sidebar {...props} rows={[{ ...child, orchestration: undefined }]} />);
+  expect(compact.container.querySelector(".session-robot-mark")).toBeNull();
   compact.unmount();
   vi.unstubAllGlobals();
 });

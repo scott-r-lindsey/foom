@@ -351,7 +351,7 @@ test("with no agents installed, go / no-go holds and links back to each fix", as
   fireEvent.click(button("Start preflight"));
   await screen.findByText("No agents ready yet · needed to launch");
   expect(screen.getAllByText("Not found")).toHaveLength(3);
-  expect(screen.queryByRole("switch")).toBeNull();
+  expect(screen.getAllByRole("switch")).toHaveLength(3);
   expect(screen.getAllByText("Not found")).toHaveLength(3);
   for (let step = 0; step < 3; step++) fireEvent.click(button("Continue"));
   expect(screen.getByText("Hold. Something needs fixing.")).toBeTruthy();

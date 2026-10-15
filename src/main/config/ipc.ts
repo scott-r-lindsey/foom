@@ -3,12 +3,18 @@ import type { BrowserWindow } from "electron";
 import type { WindowIpc } from "../window/window-ipc";
 import type { ConfigService } from "./service";
 
-const CHANNELS = ["config:status", "config:decide", "config:revert", "config:open-folder"];
+const CHANNELS = [
+  "config:status",
+  "config:decide",
+  "config:revert",
+  "config:open-folder",
+  "config:duplicate-agent",
+];
 
 /** Settings → Foom config. Commits are named by ID only; main checks them against its list. */
 export function attachConfig(
   window: BrowserWindow,
-  service: Pick<ConfigService, "status" | "decide" | "revert" | "folder">,
+  service: Pick<ConfigService, "status" | "decide" | "revert" | "folder" | "duplicateAgent">,
   ipc: WindowIpc = ipcMain,
   openPath: (path: string) => Promise<string> = (path) => shell.openPath(path),
 ): () => void {
@@ -21,9 +27,15 @@ export function attachConfig(
         event.senderFrame.url !== "app://bundle/index.html"
       )
         throw new Error("Untrusted IPC sender");
-      const expected = { "config:decide": 2, "config:revert": 1 }[channel] ?? 0;
+      const expected =
+        { "config:decide": 2, "config:revert": 1, "config:duplicate-agent": 1 }[channel] ?? 0;
       if (args.length !== expected) throw new Error("Invalid config arguments");
       const [value, id] = args;
+      if (channel === "config:duplicate-agent") {
+        if (typeof value !== "string" || !["claude", "codex", "agy"].includes(value))
+          throw new Error("Invalid config arguments");
+        return service.duplicateAgent(value);
+      }
       if (channel === "config:status") return service.status();
       if (channel === "config:decide") {
         if (

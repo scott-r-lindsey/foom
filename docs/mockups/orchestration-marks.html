@@ -1,0 +1,177 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Orchestration Marks</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo+Black&family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&display=swap">
+<style>
+/* Robot marks for orchestrators (transmitting) and children (receiving).
+   Tokens copied from docs/mockups/sidebar.html. */
+.t-light {
+  --bg: #f3f0fa; --surface: #e9e4f5; --line: #ddd6ee; --ink: #14101f; --muted: #625a7a;
+  --accent: #5b2bd9; --attention: #d98200; --attention-ink: #8c5000; --done: #13804a; --done-ink: #0e6b3c;
+  --failed: #d6166e; --idle: #b9b0d3; --select: #d6cfe9; --badge: #4a4263; --badge-ink: #f4efff;
+  --halo: rgba(217, 130, 0, .25);
+}
+.t-dark {
+  --bg: #05040a; --surface: #0d0a17; --line: #251d3f; --ink: #f4efff; --muted: #9d93bd;
+  --accent: #9b6bff; --attention: #ffb23e; --attention-ink: #ffb23e; --done: #6fe0a3; --done-ink: #6fe0a3;
+  --failed: #ff2e88; --idle: #4a4263; --select: #1c1632; --badge: #3a3060; --badge-ink: #f4efff;
+  --halo: rgba(255, 178, 62, .22);
+}
+:root { --page: #e4dff0; --page-ink: #14101f; --page-muted: #625a7a; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --page: #0a0812; --page-ink: #f4efff; --page-muted: #9d93bd; color-scheme: dark; } }
+:root[data-theme="dark"] { --page: #0a0812; --page-ink: #f4efff; --page-muted: #9d93bd; color-scheme: dark; }
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--page); color: var(--page-ink); font: 13px/1.45 "Geist", system-ui, sans-serif; padding: 24px 16px 48px; }
+main { max-width: 1040px; margin: 0 auto; display: grid; gap: 28px; }
+h1 { font: 22px "Archivo Black", sans-serif; margin: 0; }
+h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .08em; color: var(--page-muted); margin: 0 0 10px; font-weight: 600; }
+p.note { margin: 6px 0 0; color: var(--page-muted); max-width: 70ch; }
+.pair { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px; }
+
+/* Sidebar excerpt */
+.side { background: var(--surface); color: var(--ink); border: 1px solid var(--line); border-radius: 10px; padding: 8px 6px 10px; min-width: 0; }
+.row { display: flex; align-items: center; border-radius: 6px; }
+.row.repo { height: 30px; padding: 0 6px; font-weight: 600; }
+.row.wt { height: 28px; padding: 0 6px 0 22px; font: 12.5px "Geist Mono", monospace; color: var(--ink); }
+.row.term { align-items: flex-start; padding: 6px 8px 6px 40px; gap: 8px; cursor: default; }
+.row.term.sel { background: var(--select); }
+.light { flex-shrink: 0; width: 9px; height: 9px; margin-top: 4px; border-radius: 50%; background: var(--idle); }
+.light.needs { background: var(--attention); box-shadow: 0 0 0 4px var(--halo); }
+.light.working { background: var(--accent); box-shadow: 0 0 8px var(--accent); }
+.light.done { background: var(--done); }
+.lines { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.top { display: flex; align-items: center; gap: 6px; font: 12px "Geist Mono", monospace; }
+.top .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.badge { flex-shrink: 0; width: 20px; height: 15px; display: inline-flex; align-items: center; justify-content: center; border-radius: 4px; background: var(--badge); color: var(--badge-ink); font: 600 9px "Geist Mono", monospace; }
+.wait { margin-left: auto; font-size: 11px; color: var(--muted); }
+.reason { font-size: 12px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.reason.needs { color: var(--attention-ink); }
+.reason.done { color: var(--done-ink); }
+.orch { font-size: 11px; color: var(--ink); }
+
+/* The mark */
+.bot { flex-shrink: 0; width: 18px; height: 16px; color: var(--muted); overflow: visible; }
+.bot .body { fill: none; stroke: currentColor; stroke-width: 1.3; stroke-linejoin: round; }
+.bot .eye { fill: currentColor; stroke: none; }
+.bot .wave { fill: none; stroke: currentColor; stroke-width: 1.2; stroke-linecap: round; }
+.bot.orphan .wave { stroke-dasharray: 1.4 1.6; opacity: .7; }
+.row.related .bot, .row.term:hover .bot { color: var(--accent); }
+@media (prefers-reduced-motion: no-preference) {
+  .row.related .bot.tx .wave, .row.term:hover .bot.tx .wave { animation: out 1.2s ease-out infinite; }
+  .row.related .bot.rx .wave, .row.term:hover .bot.rx .wave { animation: in 1.2s ease-in infinite; }
+  .bot .w2 { animation-delay: .2s !important; }
+}
+@keyframes out { 0% { opacity: .15 } 40% { opacity: 1 } 100% { opacity: .15 } }
+@keyframes in { 0% { opacity: .15 } 60% { opacity: 1 } 100% { opacity: .15 } }
+.rx .w1 { animation-delay: .2s !important; } .rx .w2 { animation-delay: 0s !important; }
+
+.big { display: flex; flex-wrap: wrap; gap: 28px; align-items: end; padding: 16px; border-radius: 10px; }
+.big figure { margin: 0; display: grid; justify-items: center; gap: 6px; font-size: 12px; color: var(--muted); }
+.big .bot { width: 54px; height: 48px; }
+.big .bot .body { stroke-width: 1.1; } .big .bot .wave { stroke-width: 1; }
+code { font: 12px "Geist Mono", monospace; }
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <!-- Head, antenna and eyes shared by both marks; 18×16 box, antenna tip at (9,4.2). -->
+    <g id="head">
+      <rect class="body" x="4" y="7" width="10" height="7.5" rx="2"/>
+      <path class="body" d="M9 7V4.6"/>
+      <circle class="eye" cx="9" cy="4.2" r="1"/>
+      <circle class="eye" cx="7" cy="10.6" r="1"/>
+      <circle class="eye" cx="11" cy="10.6" r="1"/>
+    </g>
+  </defs>
+</svg>
+<template id="tx"><svg class="bot tx" viewBox="0 0 18 16" role="img" aria-label="Orchestrator">
+  <use href="#head"/>
+  <path class="wave w1" d="M6.6 2.6a3 3 0 0 0 0 3.2M11.4 2.6a3 3 0 0 1 0 3.2"/>
+  <path class="wave w2" d="M4.4 1.2a5.4 5.4 0 0 0 0 6M13.6 1.2a5.4 5.4 0 0 1 0 6"/>
+</svg></template>
+<template id="rx"><svg class="bot rx" viewBox="0 0 18 16" role="img" aria-label="Child">
+  <use href="#head"/>
+  <path class="wave w1" d="M6.9 2.2a3 3 0 0 1 4.2 0"/>
+  <path class="wave w2" d="M5.2 0.6a5.4 5.4 0 0 1 7.6 0"/>
+</svg></template>
+
+<main>
+  <header>
+    <h1>Orchestration marks</h1>
+    <p class="note">These replace the ↳ glyph and the related-row left bar. Each mark sits at the end of the name line, away from the status light. <b>Transmitting:</b> an orchestrator, with waves on both sides of the antenna, like a radio tower. <b>Receiving:</b> a child, with a Wi-Fi-style fan that opens upward from the antenna. At rest both are muted and still. Hovering or selecting a session turns its relatives' marks accent-colored and pulses their waves, outward for the orchestrator and inward for children. Hover the rows below.</p>
+  </header>
+
+  <section>
+    <h2>Mark at 3× and at real size</h2>
+    <div class="pair">
+      <div class="big t-light side" id="big-l"></div>
+      <div class="big t-dark side" id="big-d"></div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Sidebar: at rest, then with the orchestrator selected</h2>
+    <div class="pair" id="sides"></div>
+    <p class="note">A child whose orchestrator has closed keeps a dashed, muted fan with no relatives to light up. A taken-over child loses its mark and becomes an ordinary session. Accessible names still carry the relationship in words: "Orchestrator · 3 children" and "Child of foom".</p>
+  </section>
+</main>
+
+<script>
+const T = (id) => document.getElementById(id).innerHTML;
+const ROWS = [
+  { kind: "repo", text: "▾ foom" },
+  { kind: "wt", text: "▾ main" },
+  { id: "o", light: "working", badge: "C", name: "foom", wait: "", reason: "Working", mark: "tx" },
+  { id: "x", light: "idle", badge: "$", name: "bash", wait: "", reason: "" },
+  { kind: "wt", text: "▾ 475-restored-shell-foreground" },
+  { id: "c1", light: "working", badge: "C", name: "475 restored labels", wait: "", reason: "Working", mark: "rx", parent: "o" },
+  { kind: "wt", text: "▾ 424-duplicate-as-plugin" },
+  { id: "c2", light: "needs", badge: "C", name: "424 duplicate", wait: "2m", reason: "Needs you · approve edit", mark: "rx", parent: "o" },
+  { kind: "wt", text: "▾ 411-herdr-parity" },
+  { id: "c3", light: "done", badge: "X", name: "411 herdr", wait: "", reason: "Done", mark: "rx", parent: "o" },
+  { kind: "wt", text: "▾ old-experiment" },
+  { id: "c4", light: "idle", badge: "C", name: "orphaned child", wait: "", reason: "Orchestrator closed", mark: "rx", orphan: true },
+];
+function sidebar(theme, selected) {
+  const sel = ROWS.find((r) => r.id === selected);
+  const relatedTo = (r) => sel && r.id !== sel.id && (r.parent === sel.id || sel.parent === r.id || (sel.parent && r.id === sel.parent));
+  return `<div class="side ${theme}" data-sel="${selected || ""}">` + ROWS.map((r) => {
+    if (r.kind) return `<div class="row ${r.kind}">${r.text}</div>`;
+    let mark = r.mark ? T(r.mark) : "";
+    if (r.orphan) mark = mark.replace('class="bot rx"', 'class="bot rx orphan"');
+    return `<div class="row term${r.id === selected ? " sel" : ""}${relatedTo(r) ? " related" : ""}" data-id="${r.id}">
+      <span class="light ${r.light}"></span>
+      <span class="lines">${r.mark === "tx" ? `<span class="orch">Orchestrator</span>` : ""}<span class="top"><span class="badge">${r.badge}</span><span class="nm">${r.name}</span>${mark}<span class="wait">${r.wait}</span></span>
+      ${r.reason ? `<span class="reason ${r.light}">${r.reason}</span>` : ""}</span></div>`;
+  }).join("") + "</div>";
+}
+document.getElementById("sides").innerHTML =
+  sidebar("t-light", "") + sidebar("t-dark", "o") ;
+// Hover drives the related highlight just like the app's hover/focus/selection.
+document.querySelectorAll(".side[data-sel]").forEach((side) => {
+  const base = side.dataset.sel;
+  const paint = (id) => {
+    const sel = ROWS.find((r) => r.id === id);
+    side.querySelectorAll(".row.term").forEach((el) => {
+      const r = ROWS.find((x) => x.id === el.dataset.id);
+      const rel = sel && r.id !== sel.id && (r.parent === sel.id || sel.parent === r.id || (sel.parent && r.parent === sel.parent && r.id !== sel.id && false));
+      el.classList.toggle("related", Boolean(rel));
+    });
+  };
+  side.addEventListener("mouseover", (e) => { const el = e.target.closest(".row.term"); if (el) paint(el.dataset.id); });
+  side.addEventListener("mouseleave", () => paint(base));
+});
+for (const [id, theme] of [["big-l", "t-light"], ["big-d", "t-dark"]]) {
+  const el = document.getElementById(id);
+  el.innerHTML = `<figure>${T("tx")}<figcaption>Orchestrator</figcaption></figure>
+    <figure>${T("rx")}<figcaption>Child</figcaption></figure>
+    <figure>${T("rx").replace('class="bot rx"', 'class="bot rx orphan"')}<figcaption>Orphaned</figcaption></figure>
+    <figure style="flex-direction:row;display:flex;gap:10px;align-items:center">${T("tx").replace('class="bot tx"', 'class="bot tx" style="width:18px;height:16px"')}${T("rx").replace('class="bot rx"', 'class="bot rx" style="width:18px;height:16px"')}<figcaption>1×</figcaption></figure>`;
+}
+</script>
+</body>
+</html>
