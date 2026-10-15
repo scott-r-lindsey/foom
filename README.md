@@ -94,7 +94,7 @@ PR checks additionally require **90% changed executable line coverage**, and fai
 2. Electron launch tests and Forge ZIP packaging on Ubuntu, Windows, and macOS, alongside static checks when desktop validation is required.
 3. A stable **Quality gate** status that requires both Linux jobs to succeed and desktop validation to pass, or to be explicitly classified as unnecessary and skipped. Failed detection never permits a skip.
 
-CI runs for pull requests and pushes to `main`, avoiding duplicate branch-push runs for PRs. Windows partitions the Electron suite across two jobs; native hook checks and packaging run once per platform. Test deadlines come from the shared policy.
+CI runs for pull requests and pushes to `main`, avoiding duplicate branch-push runs for PRs. Each platform partitions the Electron suite across four jobs; a companion job runs serial native hook checks, packaging and packaged smoke once per platform. All fifteen desktop jobs are required by the Quality gate. Test deadlines come from the shared policy.
 
 Desktop validation is skipped only when every changed path is `README.md`, `AGENTS.md`, `LICENSE`, `NOTICE`, Markdown under `docs/`, or reference material under `inspiration/`. Reference files are classified by path only; CI never tests or packages their contents. Unknown paths, empty diffs, and manual runs require desktop validation. PR detection uses the merge-base diff against the base branch; pushes compare the previous commit with the new commit. Renames include both old and new paths. Missing comparison history fails the checks job.
 

@@ -179,7 +179,7 @@ test("nightly probe runs independently with narrowly scoped permissions and no p
   assert.equal(workflow.match(/contents: write/g).length, 1);
   assert.match(job, /group: mcp-probe-issue\n {6}cancel-in-progress: false/);
   assert.match(job, /persist-credentials: false/);
-  assert.match(workflow, /needs: \[changes, checks, unit, desktop\]/);
+  assert.match(workflow, /needs: \[changes, checks, unit, desktop, platform\]/);
   assert.match(workflow, /needs: \[changes, quality\]/);
   assert.equal(requiresDesktop(["scripts/mcp-probe-ci.mjs"]), true);
   assert.equal(requiresDesktop([".github/workflows/ci.yml"]), true);

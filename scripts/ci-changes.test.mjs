@@ -108,10 +108,10 @@ test("draft pull requests run CI and desktop jobs start without waiting for stat
   const workflow = readFileSync(new URL("../.github/workflows/ci.yml", import.meta.url), "utf8");
   assert.match(workflow, /pull_request:\n {4}types: \[opened, synchronize, reopened\]\n/);
   assert.doesNotMatch(workflow, /\.draft|ready_for_review|labeled|full-ci/);
-  const desktop = workflow.split("\n  desktop:\n")[1].split("\n  quality:\n")[0];
+  const desktop = workflow.split("\n  desktop:\n")[1].split("\n  platform:\n")[0];
   assert.match(desktop, /\n {4}needs: \[changes\]\n/);
   const quality = workflow.split("\n  quality:\n")[1];
-  assert.match(quality, /\n {4}needs: \[changes, checks, unit, desktop\]\n/);
+  assert.match(quality, /\n {4}needs: \[changes, checks, unit, desktop, platform\]\n/);
 });
 
 test("nightly runs validate desktop only when main changed recently", () => {
@@ -250,11 +250,12 @@ sudo() {
   assert.doesNotMatch(failure.stdout, /install -y|sysctl/);
 });
 
-test("desktop setup and diagnostics run on every shard; native tests and packaging run once", async () => {
+test("Electron shards and once-per-platform checks run independently with diagnostics", async () => {
   const { readFileSync } = await import("node:fs");
   const workflow = readFileSync(new URL("../.github/workflows/ci.yml", import.meta.url), "utf8");
-  const desktop = workflow.split("\n  desktop:\n")[1].split("\n  quality:\n")[0];
-  const step = (name) => desktop.split(`      - name: ${name}\n`)[1].split("      - name:")[0];
+  const desktop = workflow.split("\n  desktop:\n")[1].split("\n  platform:\n")[0];
+  const platform = workflow.split("\n  platform:\n")[1].split("\n  quality:\n")[0];
+  const step = (job, name) => job.split(`      - name: ${name}\n`)[1].split("      - name:")[0];
   for (const name of [
     "Prepare Windows PowerShell runtime",
     "Test hooks and control storage with native OS tools",
@@ -268,28 +269,81 @@ test("desktop setup and diagnostics run on every shard; native tests and packagi
     "Test packaged terminal host on macOS and Windows",
     "Upload unsigned development package",
   ]) {
-    assert.match(step(name), /if:[\s\S]*?startsWith\(matrix\.shard, '1\/'\)/, name);
+    assert.ok(platform.includes(`      - name: ${name}\n`), name);
+    assert.ok(!desktop.includes(`      - name: ${name}\n`), name);
   }
-  for (const name of [
-    "Prepare Electron binary",
-    "Prepare Linux display and sandbox",
-    "Test Electron on Linux",
-    "Test Electron on macOS and Windows",
-    "Upload Electron timing and process diagnostics",
-  ]) {
-    assert.doesNotMatch(step(name), /startsWith\(matrix\.shard/, name);
-  }
-  assert.match(step("Prepare Linux display and sandbox"), /if: runner\.os == 'Linux'/);
-  assert.match(step("Upload Electron timing and process diagnostics"), /if: always\(\)/);
+  assert.match(platform, /os: \[ubuntu-24.04, windows-2025, macos-15\]/);
+  assert.doesNotMatch(platform, /matrix\.shard|FOOM_ELECTRON_SHARD/);
+  assert.match(
+    step(platform, "Test hooks and control storage with native OS tools"),
+    /--no-file-parallelism/,
+  );
+  assert.match(
+    step(platform, "Test Git inventory paths on native filesystem"),
+    /--no-file-parallelism/,
+  );
+  assert.match(
+    step(platform, "Test packaged terminal host on Linux"),
+    /xvfb-run -a pnpm run test:packaged/,
+  );
+  assert.match(
+    step(platform, "Verify macOS ad-hoc signature after packaging and fuses"),
+    /codesign --verify --deep --strict/,
+  );
   assert.match(desktop, /FOOM_ELECTRON_SHARD: \$\{\{ matrix\.shard \}\}/);
-  assert.match(desktop, /fail-fast: false/);
   assert.match(
     desktop,
     /name: electron-results-\$\{\{ matrix\.os \}\}-\$\{\{ strategy\.job-index \}\}/,
   );
+  assert.match(platform, /name: platform-results-\$\{\{ matrix\.os \}\}/);
+  for (const [job, diagnostic] of [
+    [desktop, "Upload Electron timing and process diagnostics"],
+    [platform, "Upload native and packaged timing and process diagnostics"],
+  ]) {
+    assert.match(job, /\n {4}needs: \[changes\]\n/);
+    assert.match(job, /if: needs\.changes\.outputs\.desktop_required == 'true'/);
+    assert.match(job, /fail-fast: false/);
+    assert.match(step(job, "Prepare Linux display and sandbox"), /if: runner\.os == 'Linux'/);
+    assert.match(step(job, diagnostic), /if: always\(\)/);
+    assert.match(step(job, diagnostic), /if-no-files-found: error/);
+    assert.match(step(job, diagnostic), /retention-days: 3/);
+  }
 });
 
-test("Quality gate rejects failed, cancelled or skipped required desktop shards", {
+test("nightly publication waits for the full gate and reuses companion job packages", async () => {
+  const { readFileSync } = await import("node:fs");
+  const workflow = readFileSync(new URL("../.github/workflows/ci.yml", import.meta.url), "utf8");
+  const platform = workflow.split("\n  platform:\n")[1].split("\n  quality:\n")[0];
+  const nightly = workflow.split("\n  nightly:\n")[1];
+  assert.match(nightly, /needs: \[changes, quality\]/);
+  assert.match(nightly, /needs\.quality\.result == 'success'/);
+  assert.match(nightly, /needs\.changes\.outputs\.desktop_required == 'true'/);
+  assert.match(
+    nightly,
+    /gh run download "\$RUN_ID" --name Foom-ubuntu-24.04 --name Foom-windows-2025 --name Foom-macos-15/,
+  );
+  assert.doesNotMatch(nightly, /pnpm run make/);
+  assert.match(platform, /name: Foom-\$\{\{ matrix\.os \}\}/);
+  assert.match(platform, /path: out\/make\/\*\*\/\*\.zip/);
+  assert.match(platform, /retention-days: 3/);
+  assert.doesNotMatch(platform, /permissions:|continue-on-error:/);
+  const stamp = platform
+    .split("      - name: Stamp nightly package version\n")[1]
+    .split("      - name:")[0];
+  assert.match(stamp, /github\.ref == 'refs\/heads\/main'/);
+  assert.match(stamp, /github\.event_name == 'schedule'/);
+  assert.match(stamp, /github\.event_name == 'workflow_dispatch' && inputs\.publish_nightly/);
+  assert.ok(
+    platform.indexOf("node scripts/nightly.mjs stamp") < platform.indexOf("run: pnpm run make"),
+  );
+  assert.ok(platform.indexOf("run: pnpm run make") < platform.indexOf("run: codesign --verify"));
+  assert.ok(
+    platform.indexOf("run: pnpm run test:packaged") <
+      platform.indexOf("name: Upload unsigned development package"),
+  );
+});
+
+test("Quality gate rejects failed, cancelled or skipped required desktop and platform jobs", {
   skip: process.platform === "win32",
 }, async () => {
   const { readFileSync } = await import("node:fs");
@@ -297,9 +351,10 @@ test("Quality gate rejects failed, cancelled or skipped required desktop shards"
   const workflow = readFileSync(new URL("../.github/workflows/ci.yml", import.meta.url), "utf8");
   const quality = workflow.split("\n  quality:\n")[1].split("\n  mcp-probe:\n")[0];
   assert.match(quality, /if: always\(\)/);
+  assert.match(quality, /PLATFORM: \$\{\{ needs\.platform\.result \}\}/);
   assert.match(quality, /DESKTOP: \$\{\{ needs\.desktop\.result \}\}/);
   const script = quality.split("        run: |\n")[1].replace(/^ {10}/gm, "");
-  const run = (required, result) =>
+  const run = (required, result, platform = required === "true" ? "success" : "skipped") =>
     spawnSync("bash", ["-e", "-c", script], {
       env: {
         ...process.env,
@@ -308,6 +363,7 @@ test("Quality gate rejects failed, cancelled or skipped required desktop shards"
         UNIT: "success",
         DESKTOP_REQUIRED: required,
         DESKTOP: result,
+        PLATFORM: platform,
       },
     }).status;
   assert.equal(run("true", "success"), 0);
@@ -318,6 +374,16 @@ test("Quality gate rejects failed, cancelled or skipped required desktop shards"
       assert.notEqual(run("true", result), 0, `${os} ${shard}: ${result}`);
     }
   }
+  for (const os of ["ubuntu-24.04", "windows-2025", "macos-15"]) {
+    for (const result of ["failure", "cancelled", "skipped"]) {
+      assert.notEqual(run("true", "success", result), 0, `${os}: ${result}`);
+    }
+  }
+  for (const result of ["success", "failure", "cancelled"]) {
+    assert.notEqual(run("false", "skipped", result), 0);
+    assert.notEqual(run("false", result, "skipped"), 0);
+  }
+  assert.notEqual(run("", "success", "success"), 0);
 });
 
 test("dependency jobs enable pinned pnpm before caching and freeze every repository install", async () => {
@@ -327,7 +393,7 @@ test("dependency jobs enable pinned pnpm before caching and freeze every reposit
   assert.match(manifest.packageManager, /^pnpm@\d+\.\d+\.\d+$/);
   assert.equal(manifest.scripts.audit, "pnpm audit --audit-level=low");
   assert.doesNotMatch(workflow, /\bnpm (?:ci|install|run)|\bnpx\b|cache: npm/);
-  for (const name of ["checks", "unit", "desktop", "mcp-probe"]) {
+  for (const name of ["checks", "unit", "desktop", "platform", "mcp-probe"]) {
     const job = workflow.split(`\n  ${name}:\n`)[1].split(/\n {2}[a-z-]+:\n/)[0];
     const enable = job.indexOf("run: corepack enable");
     const cache = job.indexOf("cache: pnpm");
