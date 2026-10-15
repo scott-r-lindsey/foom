@@ -44,15 +44,48 @@ async function assertConfirmationFocus(app, page, locator) {
   }
 }
 
+async function writeBoardStartupDiagnostics(app, diagnostics) {
+  diagnostics.main = await app.evaluate((electron) => {
+    const { app } = electron;
+    return {
+      lifecycle: globalThis.boardStartup?.events,
+      ready: app.isReady(),
+      gpu: app.getGPUFeatureStatus(),
+      metrics: app.getAppMetrics(),
+      resources: process.getActiveResourcesInfo(),
+      // Electron's screen module itself needs native app readiness.
+      displays: app.isReady() ? electron.screen.getAllDisplays() : [],
+      versions: process.versions,
+      display: process.env.DISPLAY,
+    };
+  });
+  await mkdir("test-results", { recursive: true });
+  await writeFile(
+    `test-results/board-startup-${app.process().pid}.json`,
+    JSON.stringify(diagnostics, null, 2),
+  );
+  console.error("Board startup diagnostics:", JSON.stringify(diagnostics));
+}
+
+async function flushBoardStartupTrace(app) {
+  await mkdir("test-results", { recursive: true });
+  await app.evaluate(
+    async ({ app, contentTracing }, file) => {
+      const state = globalThis.boardStartup;
+      if (!state) return;
+      state.stopRequested = true;
+      // A readiness-gate failure must not hang while flushing diagnostics.
+      if (!app.isReady()) return;
+      await state.traceReady;
+      if (!state?.tracing) return;
+      state.tracing = false;
+      await contentTracing.stopRecording(file);
+    },
+    path.resolve(`test-results/board-startup-${app.process().pid}-trace.json`),
+  );
+}
+
 async function boardPage(app) {
-  let page;
-  await expect
-    .poll(() => {
-      page = app.windows().find((page) => page.url() === "app://bundle/index.html");
-      return Boolean(page);
-    })
-    .toBe(true);
-  await page.waitForLoadState("domcontentloaded");
   const nativeState = () =>
     app.evaluate(({ BrowserWindow }) =>
       BrowserWindow.getAllWindows().map((window) => ({
@@ -64,8 +97,27 @@ async function boardPage(app) {
         contentsFocused: window.webContents.isFocused(),
         backgroundThrottling: window.webContents.getBackgroundThrottling(),
         bounds: window.getBounds(),
+        contentBounds: window.getContentBounds(),
       })),
     );
+  let page;
+  try {
+    await expect
+      .poll(() => {
+        page = app.windows().find((page) => page.url() === "app://bundle/index.html");
+        return Boolean(page);
+      })
+      .toBe(true);
+    await page.waitForLoadState("domcontentloaded");
+  } catch (error) {
+    await writeBoardStartupDiagnostics(app, {
+      stage: "board target/document readiness",
+      windows: await nativeState(),
+      pages: app.windows().map((page) => ({ url: page.url(), closed: page.isClosed() })),
+    });
+    await flushBoardStartupTrace(app);
+    throw error;
+  }
   const before = await nativeState();
   // CDP activation alone can mark a native-hidden document visible/focused
   // without starting its compositor. Establish reachability in native code.
@@ -79,7 +131,14 @@ async function boardPage(app) {
     board.webContents.focus();
   });
   const frame = await page.evaluateHandle(() => {
-    const state = { delivered: false, id: 0 };
+    const state = {
+      delivered: false,
+      id: 0,
+      document: new WeakRef(document),
+      url: document.URL,
+      readyState: document.readyState,
+      timeOrigin: performance.timeOrigin,
+    };
     state.id = requestAnimationFrame(() => {
       state.delivered = true;
     });
@@ -107,22 +166,35 @@ async function boardPage(app) {
       })
       .toBe(true);
   } catch (error) {
-    console.error("Board startup diagnostics:", {
+    const diagnostics = {
       rendering: (await frame.evaluate((state) => state.delivered))
         ? "frames delivered; native visibility or focus unavailable"
         : "no frames",
+      sentinel: await frame.evaluate((state) => ({
+        id: state.id,
+        url: state.url,
+        readyState: state.readyState,
+        timeOrigin: state.timeOrigin,
+        sameDocument: state.document.deref() === document,
+        currentUrl: document.URL,
+        currentTimeOrigin: performance.timeOrigin,
+      })),
       before,
       windows: await nativeState(),
       renderer: await page.evaluate(() => ({
         visibility: document.visibilityState,
         focused: document.hasFocus(),
         rows: document.querySelector(".xterm-rows")?.textContent,
+        readyState: document.readyState,
+        viewport: { width: innerWidth, height: innerHeight },
       })),
-    });
+    };
+    await writeBoardStartupDiagnostics(app, diagnostics);
     throw error;
   } finally {
     await frame.evaluate((state) => cancelAnimationFrame(state.id));
     await frame.dispose();
+    await flushBoardStartupTrace(app);
   }
   return page;
 }
@@ -422,7 +494,14 @@ async function restartShellFromSidebar(page) {
   await page.getByRole("menuitem", { name: "Restart shell", exact: true }).click();
 }
 
+// Feature files run in separate workers. Trace each worker's first Linux CI app
+// through the existing frame assertion, then flush before interaction or quit.
+let firstBoardStartup = true;
+
 async function launchApp(context, openShell = true, options = {}) {
+  const traceStartup =
+    firstBoardStartup && process.platform === "linux" && process.env.CI === "true";
+  firstBoardStartup = false;
   // CI prepares the binary separately. Direct runs also resolve it before the
   // Playwright launch deadline/audit, without downloading during test discovery.
   // Do not supply executablePath: that skips Playwright's Electron loader.
@@ -476,6 +555,7 @@ async function launchApp(context, openShell = true, options = {}) {
       path.join(fixture, "bootstrap.cjs"),
       [
         'const { app } = require("electron");',
+        `require(${JSON.stringify(path.join(__dirname, "board-startup.js"))}).recordBoardStartup(require("electron"), ${traceStartup});`,
         `require(${JSON.stringify(path.join(__dirname, "agent-isolation.js"))}).guardAgentProbes(${JSON.stringify([...cleanup.directories])}, ${JSON.stringify(probeLog)});`,
         ...(process.platform === "win32"
           ? []
@@ -504,7 +584,16 @@ async function launchApp(context, openShell = true, options = {}) {
       chromiumSandbox: true,
       colorScheme: null,
       timeout: deadline(15_000),
-      args: [entry, ...profile.args],
+      args: [
+        entry,
+        ...profile.args,
+        ...(traceStartup
+          ? [
+              "--enable-logging=file",
+              `--log-file=${path.resolve(`test-results/board-startup-${process.pid}-chromium.log`)}`,
+            ]
+          : []),
+      ],
       env,
     })
     .catch((error) => {
