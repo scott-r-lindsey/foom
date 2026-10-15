@@ -113,3 +113,46 @@ test("a compositor-ready board still fails when animation callbacks are withheld
     await original.dispose();
   }
 });
+
+// A controlled callback reproduces the missing readiness boundary without a
+// slow GPU, a sleep, or changing any assertion deadline.
+test("compositor readiness awaits output and releases subscriptions on output or failure", async () => {
+  const { EventEmitter } = require("node:events");
+  const { waitForBoardCompositor } = require("./board-startup.js");
+  for (const outcome of ["frame", "closed", "crashed", "subscribe-error"]) {
+    const window = new EventEmitter();
+    window.id = 1;
+    const contents = new EventEmitter();
+    window.webContents = contents;
+    contents.isDestroyed = () => false;
+    let deliver;
+    let subscriptions = 0;
+    let ended = 0;
+    contents.beginFrameSubscription = (_dirty, callback) => {
+      subscriptions++;
+      if (outcome === "subscribe-error") throw new Error("capture unavailable");
+      deliver = callback;
+    };
+    contents.endFrameSubscription = () => ended++;
+    const ready = new Set();
+    const waiting = waitForBoardCompositor(window, ready);
+    assert.equal(ready.has(1), false, "Subscribing alone cannot establish readiness");
+    if (outcome === "frame") {
+      await Promise.resolve();
+      assert.equal(ready.has(1), false, "Readiness must await the compositor callback");
+      deliver();
+      await waiting;
+      assert.equal(ready.has(1), true);
+      await waitForBoardCompositor(window, ready);
+      assert.equal(subscriptions, 1, "The native window retains its observed readiness");
+    } else {
+      if (outcome === "closed") window.emit("closed");
+      if (outcome === "crashed") contents.emit("render-process-gone", {}, { reason: "crashed" });
+      await assert.rejects(waiting, /closed|crashed|capture unavailable/);
+      assert.equal(ready.has(1), false);
+    }
+    assert.equal(ended, 1);
+    assert.equal(window.listenerCount("closed"), 0);
+    assert.equal(contents.listenerCount("render-process-gone"), 0);
+  }
+});

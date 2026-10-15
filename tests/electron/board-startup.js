@@ -1,8 +1,35 @@
+// Wait for compositor output, not layout or device metadata. Initialization is
+// bounded by launchApp's existing hard watchdog, not the rAF assertion budget.
+async function waitForBoardCompositor(window, ready) {
+  if (ready.has(window.id)) return;
+  const contents = window.webContents;
+  let dispose = () => {};
+  try {
+    await new Promise((resolve, reject) => {
+      const closed = () => reject(new Error("Board closed before compositor readiness"));
+      const gone = (_event, details) =>
+        reject(new Error(`Board renderer exited before compositor readiness: ${details.reason}`));
+      dispose = () => {
+        window.removeListener("closed", closed);
+        contents.removeListener("render-process-gone", gone);
+      };
+      window.once("closed", closed);
+      contents.once("render-process-gone", gone);
+      contents.beginFrameSubscription(true, () => resolve());
+    });
+    ready.add(window.id);
+  } finally {
+    dispose();
+    if (!contents.isDestroyed()) contents.endFrameSubscription();
+  }
+}
+
 // Loaded by the fixture bootstrap before main constructs either native window.
 // Native events and compositor traces distinguish a visible CDP document from
 // a mapped window with a live frame sink. This never runs in the shipped app.
 function recordBoardStartup({ app, contentTracing }, trace) {
   const state = { events: [], compositorReady: new Set(), tracing: false, stopRequested: false };
+  state.waitForCompositor = (window) => waitForBoardCompositor(window, state.compositorReady);
   const recordApp = (event, details) => {
     if (state.events.length < 128) state.events.push({ event, at: performance.now(), details });
   };
@@ -60,4 +87,4 @@ function recordBoardStartup({ app, contentTracing }, trace) {
   });
 }
 
-module.exports = { recordBoardStartup };
+module.exports = { recordBoardStartup, waitForBoardCompositor };

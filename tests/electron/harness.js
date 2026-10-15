@@ -137,30 +137,15 @@ async function boardPage(app) {
   // frame; the independent rAF sentinel below must still run afterward.
   try {
     await page.evaluate(() => performance.mark("foom:board-compositor-requested"));
+    // Initialization is an event-driven prerequisite, bounded by launchApp's
+    // existing hard watchdog. An assertion timeout here would just move the
+    // cold GPU initialization cutoff ahead of the actual frame assertion.
     await app.evaluate(({ BrowserWindow }) => {
       const board = BrowserWindow.getAllWindows().find(
         (window) => window.webContents.getURL() === "app://bundle/index.html",
       );
-      const state = globalThis.boardStartup;
-      if (state.compositorReady.has(board.id)) return;
-      board.webContents.beginFrameSubscription(true, () => {
-        state.compositorReady.add(board.id);
-      });
+      return globalThis.boardStartup.waitForCompositor(board);
     });
-    await expect
-      .poll(
-        () =>
-          app.evaluate(({ BrowserWindow }) => {
-            const board = BrowserWindow.getAllWindows().find(
-              (window) => window.webContents.getURL() === "app://bundle/index.html",
-            );
-            return globalThis.boardStartup.compositorReady.has(board.id);
-          }),
-        {
-          message: "The board compositor must produce a frame before the animation check",
-        },
-      )
-      .toBe(true);
     await page.evaluate(() => performance.mark("foom:board-compositor-ready"));
   } catch (error) {
     await writeBoardStartupDiagnostics(app, {
@@ -170,13 +155,6 @@ async function boardPage(app) {
     });
     await flushBoardStartupTrace(app);
     throw error;
-  } finally {
-    await app.evaluate(({ BrowserWindow }) => {
-      const board = BrowserWindow.getAllWindows().find(
-        (window) => window.webContents.getURL() === "app://bundle/index.html",
-      );
-      board?.webContents.endFrameSubscription();
-    });
   }
   const frame = await page.evaluateHandle(() => {
     performance.mark("foom:board-frame-requested");
