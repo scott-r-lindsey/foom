@@ -682,14 +682,14 @@ it.each([false, true])(
       },
       receiver: () => Promise.reject(new Error("Hooks must not start")),
       onState: () => {},
-      acknowledgeCodex: () => Promise.resolve(),
+      acknowledgeNotifier: () => Promise.resolve(),
     });
     try {
       await workspace.startWorktree({
         repository: repo,
         branch: "shutdown-race",
         run: "shell",
-        acknowledgeCodexNotifierReplacement: false,
+        acknowledgeNotifierReplacement: false,
       });
       await workspace.exited("terminal", 0);
       await expect(
@@ -1073,7 +1073,7 @@ it.each(["untracked", "commit"])(
       },
       receiver: () => Promise.reject(new Error("No hooks expected")),
       onState: () => {},
-      acknowledgeCodex: () => Promise.resolve(),
+      acknowledgeNotifier: () => Promise.resolve(),
     });
     try {
       await expect(

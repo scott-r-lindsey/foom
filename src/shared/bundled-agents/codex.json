@@ -1,0 +1,530 @@
+{
+  "kind": "agent",
+  "version": 2,
+  "id": "codex",
+  "name": "Codex",
+  "badge": "CX",
+  "executables": ["codex"],
+  "discovery": {
+    "version": {
+      "prefix": "codex-cli ",
+      "suffixes": [""]
+    },
+    "facts": [
+      {
+        "id": "hookSupport",
+        "minimum": [0, 155, 1],
+        "helpTokens": ["-c"]
+      },
+      {
+        "id": "lifecycleSupport",
+        "minimum": [0, 161, 0]
+      },
+      {
+        "id": "mcpSupport",
+        "minimum": [0, 161, 0],
+        "helpTokens": ["-c"]
+      },
+      {
+        "id": "inline",
+        "helpTokens": ["--no-alt-screen"]
+      }
+    ]
+  },
+  "launch": {
+    "order": [
+      "resume",
+      "defaults",
+      "arguments",
+      "display",
+      "guidance",
+      "mcp",
+      "hooks",
+      "tools",
+      "prompt"
+    ],
+    "arguments": {
+      "arguments": []
+    },
+    "prompt": {
+      "arguments": ["--", "{prompt}"]
+    },
+    "display": {
+      "arguments": ["--no-alt-screen"],
+      "when": {
+        "all": [
+          {
+            "field": "inline",
+            "op": "eq",
+            "value": true
+          }
+        ]
+      }
+    },
+    "resume": {
+      "arguments": ["resume", "{conversationId}"]
+    },
+    "mcp": {
+      "arguments": [
+        "-c",
+        "mcp_servers.{mcpName}={url={mcpUrl:toml},bearer_token_env_var=\"FOOM_CONTROL_TOKEN\"}"
+      ],
+      "when": {
+        "all": [
+          {
+            "field": "control",
+            "op": "eq",
+            "value": true
+          },
+          {
+            "field": "mcpSupport",
+            "op": "eq",
+            "value": true
+          }
+        ]
+      }
+    }
+  },
+  "files": [],
+  "reservedArguments": [
+    {
+      "flag": "--dangerously-bypass-hook-trust",
+      "forms": ["exact", "equals"]
+    },
+    {
+      "flag": "--last",
+      "forms": ["exact", "equals"]
+    },
+    {
+      "flag": "--fork",
+      "forms": ["exact", "equals"]
+    },
+    {
+      "word": "resume"
+    },
+    {
+      "word": "fork"
+    },
+    {
+      "override": {
+        "flags": ["-c", "--config"],
+        "keys": ["notify", "hooks"]
+      }
+    }
+  ],
+  "bypassArguments": [
+    {
+      "flag": "--dangerously-bypass-approvals-and-sandbox",
+      "forms": ["exact"]
+    },
+    {
+      "flag": "--sandbox",
+      "forms": ["separate", "equals"],
+      "value": "danger-full-access"
+    },
+    {
+      "flag": "-s",
+      "forms": ["separate", "equals", "attached-short"],
+      "value": "danger-full-access"
+    },
+    {
+      "override": {
+        "flags": ["-c", "--config"],
+        "keys": ["sandbox_mode"],
+        "value": "danger-full-access"
+      }
+    }
+  ],
+  "bypassEnvironment": [],
+  "conversation": {
+    "resumePin": "requested-on-paste",
+    "restoreControl": true
+  },
+  "resumePaste": [
+    {
+      "command": "codex",
+      "selector": "resume"
+    }
+  ],
+  "attention": {
+    "minimumEngineVersion": 1,
+    "rules": [
+      {
+        "id": "provider_capacity",
+        "state": "blocked",
+        "priority": 1000,
+        "region": "bottom",
+        "lines": 6,
+        "match": {
+          "contains": ["Selected model is at capacity"]
+        },
+        "reason": "Provider unavailable",
+        "comment": "Working and Action Required titles win over stale provider screens. Provider attention is human-only. Recorded evidence and limitations: tests/fixtures/agent-detection/README.md."
+      },
+      {
+        "id": "provider_rate_limit",
+        "state": "blocked",
+        "priority": 1000,
+        "region": "bottom",
+        "lines": 1,
+        "match": {
+          "regex": ["^■ rate limit exceeded:"]
+        },
+        "reason": "Provider rate limit",
+        "comment": "Working and Action Required titles win over stale provider screens. Provider attention is human-only. Recorded evidence and limitations: tests/fixtures/agent-detection/README.md."
+      },
+      {
+        "id": "provider_model_switch",
+        "state": "blocked",
+        "priority": 1000,
+        "region": "bottom",
+        "lines": 12,
+        "match": {
+          "contains": [
+            "Approaching rate limits",
+            "Switch to ",
+            "Keep current model",
+            "enter select · esc back"
+          ]
+        },
+        "reason": "Model switch requested",
+        "comment": "Working and Action Required titles win over stale provider screens. Provider attention is human-only. Recorded evidence and limitations: tests/fixtures/agent-detection/README.md."
+      },
+      {
+        "id": "provider_usage_limit",
+        "state": "blocked",
+        "priority": 1000,
+        "region": "bottom",
+        "lines": 10,
+        "match": {
+          "contains": [
+            "Usage limit reached",
+            "Request a limit increase from your owner",
+            "enter select · esc back"
+          ]
+        },
+        "reason": "Provider usage limit",
+        "comment": "Working and Action Required titles win over stale provider screens. Provider attention is human-only. Recorded evidence and limitations: tests/fixtures/agent-detection/README.md."
+      },
+      {
+        "id": "osc_title_blocked",
+        "state": "blocked",
+        "priority": 1100,
+        "region": "title",
+        "match": {
+          "contains": ["Action Required"]
+        },
+        "reason": "Approval requested",
+        "comment": "Action Required title takes precedence over spinners. Captured in Codex 0.160.1 approval dialog."
+      },
+      {
+        "id": "osc_title_working",
+        "state": "working",
+        "priority": 1050,
+        "region": "title",
+        "match": {
+          "regex": ["^[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏] "]
+        },
+        "reason": "Agent is working",
+        "comment": "Captured spinner prefix; broader embedded spinner placement awaits evidence."
+      },
+      {
+        "id": "osc_title_idle",
+        "state": "idle",
+        "priority": 100,
+        "region": "title",
+        "match": {
+          "regex": ["\\S"]
+        },
+        "reason": "Agent turn ended; checking output",
+        "comment": "Idle is evidence for classification, never Done.",
+        "not": [
+          {
+            "regex": ["^[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏] "]
+          },
+          {
+            "contains": ["Action Required"]
+          }
+        ]
+      }
+    ],
+    "provenance": {
+      "source": "https://github.com/herdrdev/herdr/tree/ff83689f1512f11b762fe52fb3a0032e7373c35e/src/detect/manifests/codex.toml",
+      "license": "Apache-2.0; Herdr contributors (upstream provides no separate copyright notice)",
+      "modified": "Modified for Foom: bounded regions, restricted regexes, capture-backed subset and local reasons."
+    }
+  },
+  "execution": {
+    "completion": "observed",
+    "completionChannels": ["lifecycle", "notify"],
+    "providerRules": [
+      "provider_capacity",
+      "provider_rate_limit",
+      "provider_model_switch",
+      "provider_usage_limit"
+    ]
+  },
+  "hooks": {
+    "channels": [
+      {
+        "id": "lifecycle",
+        "when": {
+          "all": [
+            {
+              "field": "hooksEnabled",
+              "op": "eq",
+              "value": true
+            },
+            {
+              "field": "hookSupport",
+              "op": "eq",
+              "value": true
+            },
+            {
+              "field": "lifecycleSupport",
+              "op": "eq",
+              "value": true
+            }
+          ]
+        },
+        "observer": {
+          "transport": "stdin",
+          "placement": "stable",
+          "version": {
+            "posix": 1,
+            "win32": 2
+          },
+          "response": "silent",
+          "delivery": "foreground",
+          "timeoutMs": 1000,
+          "basename": "codex",
+          "commandArguments": ["codex"]
+        },
+        "arguments": [
+          "-c",
+          "hooks.SessionStart=[{hooks=[{type=\"command\",command={observerCommand:lifecycle:toml},timeout=3}]}]",
+          "-c",
+          "hooks.UserPromptSubmit=[{hooks=[{type=\"command\",command={observerCommand:lifecycle:toml},timeout=3}]}]",
+          "-c",
+          "hooks.PreToolUse=[{hooks=[{type=\"command\",command={observerCommand:lifecycle:toml},timeout=3}]}]",
+          "-c",
+          "hooks.PermissionRequest=[{hooks=[{type=\"command\",command={observerCommand:lifecycle:toml},timeout=3}]}]",
+          "-c",
+          "hooks.PostToolUse=[{hooks=[{type=\"command\",command={observerCommand:lifecycle:toml},timeout=3}]}]",
+          "-c",
+          "hooks.Stop=[{hooks=[{type=\"command\",command={observerCommand:lifecycle:toml},timeout=3}]}]"
+        ],
+        "mapping": {
+          "session": {
+            "source": "payload",
+            "path": ["session_id"]
+          },
+          "event": {
+            "source": "payload",
+            "path": ["hook_event_name"]
+          },
+          "cases": [
+            {
+              "id": "SessionStart",
+              "event": "SessionStart",
+              "require": [
+                {
+                  "field": {
+                    "source": "payload",
+                    "path": ["source"]
+                  },
+                  "type": "string",
+                  "values": ["startup", "resume", "clear", "compact"]
+                }
+              ],
+              "action": "ready"
+            },
+            {
+              "id": "UserPromptSubmit",
+              "event": "UserPromptSubmit",
+              "require": [
+                {
+                  "field": {
+                    "source": "payload",
+                    "path": ["turn_id"]
+                  },
+                  "type": "identifier"
+                }
+              ],
+              "action": "working"
+            },
+            {
+              "id": "PreToolUse",
+              "event": "PreToolUse",
+              "require": [
+                {
+                  "field": {
+                    "source": "payload",
+                    "path": ["turn_id"]
+                  },
+                  "type": "identifier"
+                },
+                {
+                  "field": {
+                    "source": "payload",
+                    "path": ["tool_name"]
+                  },
+                  "type": "string"
+                }
+              ],
+              "action": "working"
+            },
+            {
+              "id": "PermissionRequest",
+              "event": "PermissionRequest",
+              "require": [
+                {
+                  "field": {
+                    "source": "payload",
+                    "path": ["turn_id"]
+                  },
+                  "type": "identifier"
+                },
+                {
+                  "field": {
+                    "source": "payload",
+                    "path": ["tool_name"]
+                  },
+                  "type": "string"
+                }
+              ],
+              "action": "needs_input"
+            },
+            {
+              "id": "PostToolUse",
+              "event": "PostToolUse",
+              "require": [
+                {
+                  "field": {
+                    "source": "payload",
+                    "path": ["turn_id"]
+                  },
+                  "type": "identifier"
+                },
+                {
+                  "field": {
+                    "source": "payload",
+                    "path": ["tool_name"]
+                  },
+                  "type": "string"
+                }
+              ],
+              "action": "working"
+            },
+            {
+              "id": "Stop",
+              "event": "Stop",
+              "require": [
+                {
+                  "field": {
+                    "source": "payload",
+                    "path": ["turn_id"]
+                  },
+                  "type": "identifier"
+                },
+                {
+                  "field": {
+                    "source": "payload",
+                    "path": ["stop_hook_active"]
+                  },
+                  "type": "boolean"
+                }
+              ],
+              "action": "classify"
+            }
+          ]
+        }
+      },
+      {
+        "id": "notify",
+        "when": {
+          "all": [
+            {
+              "field": "hooksEnabled",
+              "op": "eq",
+              "value": true
+            },
+            {
+              "field": "hookSupport",
+              "op": "eq",
+              "value": true
+            }
+          ],
+          "any": [
+            {
+              "field": "healthTrusted",
+              "op": "eq",
+              "value": false
+            },
+            {
+              "field": "channelAttached:lifecycle",
+              "op": "eq",
+              "value": false
+            }
+          ]
+        },
+        "observer": {
+          "transport": "argv-last",
+          "placement": "launch",
+          "version": 1,
+          "response": "silent",
+          "delivery": "foreground",
+          "timeoutMs": 3000
+        },
+        "arguments": ["-c", "notify={observerArgv:notify:json}"],
+        "disclosure": {
+          "id": "notifier-replacement",
+          "text": "Foom replaces your Codex notifier for this launch. Disable hooks to preserve it while lifecycle hooks are unavailable.",
+          "acknowledgement": "profile"
+        },
+        "mapping": {
+          "session": {
+            "source": "payload",
+            "path": ["thread-id"]
+          },
+          "event": {
+            "source": "payload",
+            "path": ["type"]
+          },
+          "dedupe": {
+            "source": "payload",
+            "path": ["turn-id"]
+          },
+          "cases": [
+            {
+              "id": "agent-turn-complete",
+              "event": "agent-turn-complete",
+              "require": [
+                {
+                  "field": {
+                    "source": "payload",
+                    "path": ["turn-id"]
+                  },
+                  "type": "identifier"
+                }
+              ],
+              "action": "classify"
+            }
+          ]
+        }
+      }
+    ]
+  },
+  "health": {
+    "channel": "lifecycle",
+    "requiredEvents": ["SessionStart", "UserPromptSubmit", "Stop"],
+    "completionEvent": "Stop",
+    "promptEvent": "UserPromptSubmit",
+    "instructions": "/hooks in Codex",
+    "review": {
+      "contains": ["Hooks need review"],
+      "lines": 20,
+      "caseSensitive": true
+    }
+  }
+}

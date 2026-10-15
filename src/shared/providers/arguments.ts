@@ -1,6 +1,6 @@
 import { bundledAgentData } from "../bundled-agent-data";
 import { parseAgentManifest } from "../agent-plugin-parser";
-import { matchesArguments } from "../agent-argument-matchers";
+import { argumentMatchIndex, matchesArguments } from "../agent-argument-matchers";
 import { builtinAgent, validAgentId } from "./catalog";
 import type { AgentId, AgentValues } from "../agents";
 
@@ -10,46 +10,6 @@ export const EMPTY_AGENT_ARGUMENTS: AgentValues<readonly string[]> = Object.free
   agy: Object.freeze([]),
 });
 
-/** A fixed disclosure table, not an attempt to infer effective policy from arbitrary flags. */
-const BYPASS: Readonly<Record<string, readonly string[]>> = {
-  codex: ["--dangerously-bypass-approvals-and-sandbox"],
-};
-
-/** Read only Codex's invocation overrides; argv itself remains untouched. */
-function codexConfig(
-  arg: string,
-  next: string | undefined,
-): { key: string; value: string } | undefined {
-  const config =
-    arg === "-c" || arg === "--config"
-      ? next
-      : arg.startsWith("--config=")
-        ? arg.slice(9)
-        : arg.startsWith("-c")
-          ? arg.slice(2).replace(/^=/u, "")
-          : undefined;
-  if (config === undefined) return undefined;
-  const equals = config.indexOf("=");
-  return {
-    key: (equals < 0 ? config : config.slice(0, equals)).replace(/[\s"']/gu, ""),
-    value: equals < 0 ? "" : config.slice(equals + 1).trim(),
-  };
-}
-
-function codexFullAccess(arg: string, next: string | undefined): boolean {
-  if ((arg === "--sandbox" || arg === "-s") && next === "danger-full-access") return true;
-  if (
-    ["--sandbox=danger-full-access", "-s=danger-full-access", "-sdanger-full-access"].includes(arg)
-  )
-    return true;
-  const config = codexConfig(arg, next);
-  return (
-    config !== undefined &&
-    /(?:^|\.)sandbox_mode$/u.test(config.key) &&
-    /^(?:danger-full-access|"danger-full-access"|'danger-full-access')$/u.test(config.value)
-  );
-}
-
 function bundledModel(agent: AgentId) {
   const data = bundledAgentData.find((entry) => entry.id === agent);
   return data ? parseAgentManifest(JSON.stringify(data), "bundled").model : undefined;
@@ -58,11 +18,7 @@ function bundledModel(agent: AgentId) {
 export function hasBypassArgument(agent: AgentId, args: readonly string[]): boolean {
   const model = bundledModel(agent);
   if (model) return matchesArguments(model.bypassArguments, args);
-  return args.some(
-    (arg, index) =>
-      (BYPASS[agent] ?? []).includes(arg) ||
-      (agent === "codex" && codexFullAccess(arg, args[index + 1])),
-  );
+  return false;
 }
 
 export class AgentArgumentsError extends Error {}
@@ -98,35 +54,11 @@ export function parseAgentArguments(agent: AgentId, value: unknown): readonly st
       );
     if (arg === "--no-alt-screen" || arg.startsWith("--no-alt-screen="))
       throw argumentError(agent, index, "--no-alt-screen is reserved for Foom's terminal display.");
-    if (agent === "codex" && /^--dangerously-bypass-hook-trust(?:=|$)/u.test(arg))
-      throw argumentError(
-        agent,
-        index,
-        "Hook trust must be granted in Codex, never bypassed by Foom.",
-      );
-    const conversationOption =
-      agent === "codex" &&
-      (/^(?:--last|--fork)(?:=|$)/u.test(arg) || arg === "resume" || arg === "fork");
-    if (conversationOption)
-      throw argumentError(
-        agent,
-        index,
-        "Conversation selection is reserved for Foom's session actions.",
-      );
-    if (agent !== "codex") continue;
-    const config = codexConfig(arg, args[index + 1]);
-    if (config !== undefined && /(?:^|\.)(?:notify|hooks)(?:\.|$)/u.test(config.key))
-      throw argumentError(
-        agent,
-        index,
-        "Codex notify and hooks configuration is reserved for Foom's attention detection.",
-      );
+
   }
   const model = bundledModel(agent);
   if (model && matchesArguments(model.reservedArguments, args)) {
-    const index = args.findIndex((_, position) =>
-      matchesArguments(model.reservedArguments, args.slice(position, position + 2)),
-    );
+    const index = argumentMatchIndex(model.reservedArguments, args);
     throw argumentError(agent, index, "These arguments are reserved for Foom session actions.");
   }
   return Object.freeze(args);

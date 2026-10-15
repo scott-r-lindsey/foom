@@ -1,3 +1,4 @@
+import { flushV2Health } from "../../../../src/main/agents/providers/v2-health";
 import { PluginSetup } from "../../../../src/main/agents/plugin-setup";
 import { parseAgentManifest } from "../../../../src/shared/agent-plugin-parser";
 import { v2Provider } from "../../../../src/main/agents/providers/v2";
@@ -13,7 +14,7 @@ import {
   replaceConfigProviders,
 } from "../../../../src/main/agents/providers/registry";
 import { AgyPlugin } from "../../../../src/main/agents/agy-plugin";
-import { CodexHookStatus } from "../../../../src/main/agents/codex-hook-status";
+import { installedHealth } from "../../../../src/main/agents/providers/installed-observers";
 import type { ConfirmWorkspace } from "../../../../src/shared/confirmation";
 import type { ExecutionTransition } from "../../../../src/shared/execution";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
@@ -78,7 +79,8 @@ const forget = vi.fn<(id: string) => void>();
 const commit = vi.fn<(record: VerdictRecord) => Promise<void>>();
 const startReceiver = vi.fn(() => Promise.resolve(receiver));
 
-beforeEach(() => {
+beforeEach(async () => {
+  agentProvider("codex").discover("/bin/codex", "codex-cli 0.161.0", "-c --no-alt-screen");
   states = [];
   evaluated = [];
   verdictCount = 0;
@@ -106,7 +108,8 @@ beforeEach(() => {
     setHooksEnabled: vi.fn<(enabled: boolean) => void>(),
   };
   deps = {
-    acknowledgeCodex: vi.fn(async () => {}),
+    agentPluginDirectory: await mkdtemp(join(tmpdir(), "foom-health-")),
+    acknowledgeNotifier: vi.fn(async () => {}),
     worktrees: {
       canAutoRemove: vi.fn(() => Promise.resolve(false)),
       panelFacts: vi.fn(),
@@ -155,8 +158,11 @@ beforeEach(() => {
     now: () => 1000,
   };
 });
-afterEach(() => {
+afterEach(async () => {
   vi.restoreAllMocks();
+  await flushV2Health();
+  if (deps.agentPluginDirectory)
+    await rm(deps.agentPluginDirectory, { recursive: true, force: true });
 });
 
 async function launched(agent: AgentId = "claude"): Promise<Workspace> {
@@ -474,7 +480,7 @@ test("hook preparation starts the receiver once, retries a failed start, and giv
   const second = await prepare?.("codex");
   expect(startReceiver).toHaveBeenCalledTimes(2);
   expect(first?.v2?.values["observerCommand:lifecycle"]).toMatch(/^sh '.*observer\.sh'$/u);
-  expect(second?.observerArgv.at(-1)).toMatch(/codex\.sh$/u);
+  expect(String(second?.v2?.values["observerArgv:notify"])).toMatch(/observer\.sh$/u);
   const agy = await prepare?.("agy");
   expect(agy?.env["FOOM_TOKEN"]).toBeDefined();
   agy?.dispose();
@@ -720,7 +726,7 @@ const start = {
   repository: repo.path,
   branch: "feature",
   run: "shell" as const,
-  acknowledgeCodexNotifierReplacement: false,
+  acknowledgeNotifierReplacement: false,
 };
 
 test("shells get only the All sessions layer; agents get their layers and record names", async () => {
@@ -788,22 +794,22 @@ test("creates missing worktrees at the configured location and persists Codex ac
   await workspace.startWorktree({
     ...start,
     run: "codex",
-    acknowledgeCodexNotifierReplacement: true,
+    acknowledgeNotifierReplacement: true,
   });
   expect(vi.mocked(deps.worktrees.createWorktree)).toHaveBeenCalledWith(repo.path, "feature", {
     location: "adjacent",
   });
-  expect(vi.spyOn(deps, "acknowledgeCodex")).toHaveBeenCalledOnce();
+  expect(vi.spyOn(deps, "acknowledgeNotifier")).toHaveBeenCalledOnce();
   expect(agents.launch).toHaveBeenCalledWith(
-    expect.objectContaining({ agent: "codex", acknowledgeCodexNotifierReplacement: true }),
+    expect.objectContaining({ agent: "codex", acknowledgeNotifierReplacement: true }),
   );
   await workspace.exited("t1", 0);
   await workspace.startWorktree({
     ...start,
     run: "codex",
-    acknowledgeCodexNotifierReplacement: true,
+    acknowledgeNotifierReplacement: true,
   });
-  expect(vi.spyOn(deps, "acknowledgeCodex")).toHaveBeenCalledOnce();
+  expect(vi.spyOn(deps, "acknowledgeNotifier")).toHaveBeenCalledOnce();
   expect(listing).toHaveBeenCalled();
   await workspace.dispose();
 });
@@ -1179,7 +1185,9 @@ test("sidebar Codex launches disclose notifier replacement, persist consent and 
   const workspace = new Workspace(deps);
   agents.scan.mockResolvedValue({
     ...scan,
-    agents: [{ id: "codex", path: "/bin/codex", hooks: true, version: "1", reason: "" }],
+    agents: [
+      { id: "codex", path: "/bin/codex", hooks: true, version: "codex-cli 0.155.1", reason: "" },
+    ],
   });
   const command = {
     kind: "launch",
@@ -1205,9 +1213,9 @@ test("sidebar Codex launches disclose notifier replacement, persist consent and 
   );
   resolve?.(true);
   await starting;
-  expect(vi.spyOn(deps, "acknowledgeCodex")).toHaveBeenCalledOnce();
+  expect(vi.spyOn(deps, "acknowledgeNotifier")).toHaveBeenCalledOnce();
   expect(agents.launch).toHaveBeenCalledWith(
-    expect.objectContaining({ acknowledgeCodexNotifierReplacement: true }),
+    expect.objectContaining({ acknowledgeNotifierReplacement: true }),
   );
 });
 test("stop preserves a session and Close only removes exited sessions, never a worktree", async () => {
@@ -1314,7 +1322,7 @@ function startRepositoryOperation(
       repository: repo.path,
       branch: "feature",
       run: entry === "worktree-shell" ? "shell" : "claude",
-      acknowledgeCodexNotifierReplacement: false,
+      acknowledgeNotifierReplacement: false,
     });
   return workspace.sidebarCommand(
     {
@@ -2432,6 +2440,17 @@ test("identical dismissed prompt alerts again in a later turn", async () => {
   await workspace.dispose();
 });
 
+function codexSignal(signal: string, action: HookSignal["action"], terminalId: string): HookSignal {
+  const caseId = signal.slice("codex:".length);
+  return {
+    terminalId,
+    signal: `plugin:codex:${caseId}`,
+    action,
+    caseId,
+    channel: caseId === "agent-turn-complete" ? "notify" : "lifecycle",
+    endsTurn: action === "classify" || action === "failed",
+  };
+}
 async function codexWorkspace() {
   agents.scan.mockResolvedValue({
     ...scan,
@@ -2441,7 +2460,7 @@ async function codexWorkspace() {
         path: "/bin/codex",
         version: "codex-cli 0.161.0",
         hooks: true,
-        codexLifecycle: true,
+        healthSupported: true,
         reason: "ok",
       },
     ],
@@ -2453,10 +2472,19 @@ async function codexWorkspace() {
     worktree: tree.path,
     cols: 80,
     rows: 24,
-    acknowledgeCodexNotifierReplacement: true,
+    acknowledgeNotifierReplacement: true,
   });
   const hooks = await prepare?.("codex");
   if (!hooks) throw new Error("Missing hook binding");
+  await agentProvider("codex").prepareLaunch?.(
+    agentProvider("codex").discover("/bin/codex", "codex-cli 0.161.0", "-c --no-alt-screen"),
+    { agent: "codex", repository: repo.path, worktree: tree.path, cols: 80, rows: 24 },
+    [],
+    undefined,
+    false,
+    true,
+    hooks,
+  );
   hooks.bind?.("t1");
   const key = receiver.register.mock.calls.at(-1)?.[0];
   if (!key) throw new Error("Missing receiver registration");
@@ -2466,12 +2494,12 @@ async function codexWorkspace() {
 test("Codex observations drive execution and preserve the user's notifier only after a confirmed turn", async () => {
   const { workspace, hooks, key } = await codexWorkspace();
   try {
-    expect(hooks.notifyFallback).toBe(true);
+    expect(hooks.v2?.runtime?.health.get()).toBe("not-reviewed");
     const report = () => workspace.scanAgents(false);
-    expect((await report()).agents[0]?.codexHookState).toBe("not-reviewed");
+    expect((await report()).agents[0]?.hookState).toBe("not-reviewed");
     tails.set("t1", ["All done."]);
     const send = (signal: HookSignal["signal"], action: HookSignal["action"]) =>
-      workspace.hook({ terminalId: key, signal, action });
+      workspace.hook(codexSignal(signal, action, key));
     await send("codex:SessionStart", "ready");
     expect(workspace.snapshot().terminals[0]?.execution?.phase).toBe("starting");
     await send("codex:UserPromptSubmit", "working");
@@ -2487,13 +2515,15 @@ test("Codex observations drive execution and preserve the user's notifier only a
     expect(states.at(-1)?.state).toBe("quiet_ok"); // Esc-like idle without Stop.
     await send("codex:Stop", "classify");
     expect(states.at(-1)?.state).toBe("done");
-    expect((await report()).agents[0]?.codexHookState).toBe("trusted");
+    expect((await report()).agents[0]?.hookState).toBe("trusted");
     const count = classify.mock.calls.length;
     await send("codex:agent-turn-complete", "classify");
     expect(classify).toHaveBeenCalledTimes(count);
     const later = await prepare?.("codex");
-    expect(later?.notifyFallback).toBe(false);
-    expect(later?.lifecycleCommand).toBe(hooks.lifecycleCommand);
+    expect(later?.v2?.runtime?.health.get()).toBe("trusted");
+    expect(later?.v2?.values["observerCommand:lifecycle"]).toBe(
+      hooks.v2?.values["observerCommand:lifecycle"],
+    );
     later?.dispose();
   } finally {
     hooks.dispose();
@@ -2506,22 +2536,18 @@ test("Codex review and absent hooks retain the notifier and explain the fallback
   try {
     tails.set("t1", ["Hooks need review"]);
     await workspace.quiet("t1");
-    expect((await workspace.scanAgents(false)).agents[0]?.codexHookState).toBe("not-reviewed");
+    expect((await workspace.scanAgents(false)).agents[0]?.hookState).toBe("not-reviewed");
     tails.set("t1", ["All done."]);
     await workspace.evidence("t1", { title: "⠋ Working", progress: null });
-    await workspace.hook({
-      terminalId: key,
-      signal: "codex:agent-turn-complete",
-      action: "classify",
-    });
-    expect((await workspace.scanAgents(false)).agents[0]?.codexHookState).toBe("declined");
+    await workspace.hook(codexSignal("codex:agent-turn-complete", "classify", key));
+    expect((await workspace.scanAgents(false)).agents[0]?.hookState).toBe("declined");
     expect(states.at(-1)?.state).toBe("done");
     const next = await prepare?.("codex");
-    expect(next?.notifyFallback).toBe(true);
+    expect(next?.v2?.runtime?.health.get()).not.toBe("trusted");
     next?.dispose();
     // One isolated Stop cannot establish working lifecycle hooks.
-    await workspace.hook({ terminalId: key, signal: "codex:Stop", action: "classify" });
-    expect((await workspace.scanAgents(false)).agents[0]?.codexHookState).toBe("declined");
+    await workspace.hook(codexSignal("codex:Stop", "classify", key));
+    expect((await workspace.scanAgents(false)).agents[0]?.hookState).toBe("declined");
   } finally {
     hooks.dispose();
     await workspace.dispose();
@@ -2531,12 +2557,13 @@ test("Codex review and absent hooks retain the notifier and explain the fallback
 test.each([true, false])(
   "previously trusted Codex hooks fall back when review is %s",
   async (review) => {
-    const health = new CodexHookStatus();
+    const model = agentProvider("codex").model;
+    if (!model) throw new Error("Missing bundled model");
+    const health = await installedHealth(model, deps.agentPluginDirectory);
     health.set("trusted");
-    deps.codexHooks = health;
     const { workspace, hooks } = await codexWorkspace();
     try {
-      expect(hooks.notifyFallback).toBe(false);
+      expect(hooks.v2?.runtime?.health.get()).toBe("trusted");
       if (review) {
         tails.set("t1", ["Hooks need review"]);
         await workspace.quiet("t1");
@@ -2549,7 +2576,7 @@ test.each([true, false])(
         expect(health.get()).toBe("declined");
       }
       const next = await prepare?.("codex");
-      expect(next?.notifyFallback).toBe(true);
+      expect(next?.v2?.runtime?.health.get()).not.toBe("trusted");
       next?.dispose();
     } finally {
       hooks.dispose();
@@ -2563,13 +2590,13 @@ test.each(["notify", "idle-then-notify", "idle-only"])(
   async (completion) => {
     const { workspace, hooks, key } = await codexWorkspace();
     const send = (signal: HookSignal["signal"], action: HookSignal["action"]) =>
-      workspace.hook({ terminalId: key, signal, action });
+      workspace.hook(codexSignal(signal, action, key));
     try {
       tails.set("t1", ["Complete."]);
       await send("codex:SessionStart", "ready");
       await send("codex:UserPromptSubmit", "working");
       await send("codex:Stop", "classify");
-      expect((await workspace.scanAgents(false)).agents[0]?.codexHookState).toBe("trusted");
+      expect((await workspace.scanAgents(false)).agents[0]?.hookState).toBe("trusted");
       const count = classify.mock.calls.length;
       await send("codex:agent-turn-complete", "classify");
       expect(classify).toHaveBeenCalledTimes(count);
@@ -2584,9 +2611,9 @@ test.each(["notify", "idle-then-notify", "idle-only"])(
         await send("codex:agent-turn-complete", "classify");
         expect(states.at(-1)?.state).toBe("done");
       }
-      expect((await workspace.scanAgents(false)).agents[0]?.codexHookState).toBe("declined");
+      expect((await workspace.scanAgents(false)).agents[0]?.hookState).toBe("declined");
       const next = await prepare?.("codex");
-      expect(next?.notifyFallback).toBe(true);
+      expect(next?.v2?.runtime?.health.get()).not.toBe("trusted");
       next?.dispose();
     } finally {
       hooks.dispose();
@@ -3349,11 +3376,13 @@ test("config launches refuse when the folder is unavailable or turned-off agents
 
 test("config Codex launches ask for the notifier acknowledgement first", async () => {
   const acknowledge = vi.fn(async () => {});
-  deps.acknowledgeCodex = acknowledge;
+  deps.acknowledgeNotifier = acknowledge;
   deps.config = configDep();
   agents.scan.mockResolvedValue({
     ...scan,
-    agents: [{ id: "codex", path: "/bin/codex", version: "1", hooks: true, reason: "ok" }],
+    agents: [
+      { id: "codex", path: "/bin/codex", version: "codex-cli 0.155.1", hooks: true, reason: "ok" },
+    ],
   });
   const workspace = new Workspace(deps);
   await workspace.sidebarCommand({ kind: "config-launch", run: "codex" }, () =>
@@ -3365,7 +3394,7 @@ test("config Codex launches ask for the notifier acknowledgement first", async (
   );
   expect(acknowledge).toHaveBeenCalled();
   expect(agents.launch).toHaveBeenCalledWith(
-    expect.objectContaining({ agent: "codex", acknowledgeCodexNotifierReplacement: true }),
+    expect.objectContaining({ agent: "codex", acknowledgeNotifierReplacement: true }),
   );
 });
 

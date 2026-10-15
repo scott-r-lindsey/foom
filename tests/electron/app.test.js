@@ -3834,7 +3834,7 @@ test("the branch field creates a worktree by keyboard without launching; dirty r
         repository,
         branch: "feature/remaining",
         run: "shell",
-        acknowledgeCodexNotifierReplacement: false,
+        acknowledgeNotifierReplacement: false,
       }),
     terminal.repository,
   );
@@ -4636,7 +4636,7 @@ else {
     return (
       await window.desktop.launchAgent({
         agent: "codex",
-        acknowledgeCodexNotifierReplacement: true,
+        acknowledgeNotifierReplacement: true,
         repository: repo,
         worktree: tree.path,
         cols: 80,
@@ -6349,7 +6349,7 @@ if (resumed) {
         repository: repository.path,
         branch: "resume-test",
         run: agent,
-        acknowledgeCodexNotifierReplacement: true,
+        acknowledgeNotifierReplacement: true,
       });
     }, agent);
     await expect
@@ -7078,7 +7078,7 @@ process.stdin.on('data', data => {
             worktree: tree.path,
             cols: 80,
             rows: 24,
-            acknowledgeCodexNotifierReplacement: acknowledge,
+            acknowledgeNotifierReplacement: acknowledge,
           })
         ).id;
       },
@@ -7089,7 +7089,7 @@ process.stdin.on('data', data => {
     page.evaluate(
       async () =>
         (await window.desktop.scanAgents(false)).agents.find((agent) => agent.id === "codex")
-          .codexHookState,
+          .hookState,
     );
   const phase = () =>
     page.evaluate(

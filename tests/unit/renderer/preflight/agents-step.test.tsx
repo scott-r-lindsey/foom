@@ -75,7 +75,7 @@ function fixture() {
     source,
     report: report(
       { ...installation("claude"), mcp: true, inline: true },
-      { ...installation("codex"), codexHookState: "not-reviewed" },
+      { ...installation("codex"), hookState: "not-reviewed" },
     ),
   };
   return {

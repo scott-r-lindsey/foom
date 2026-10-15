@@ -6,7 +6,7 @@ prompts, preview grants, argument/environment bypass disclosure, resume and loca
 attention rules. Hook channels, private hook files, payload mapping and observed health are implemented
 by #432. Setup status, fixed plugin actions and private staging are implemented by #433.
 Setup staging materializes Foom-generated hook observers referenced by plugin-scope files (#464).
-Claude Code (#434) and Antigravity (#436) ship as bundled v2 manifests; Codex retains its existing provider pending conversion. Parsing alone grants no capability.
+Claude Code (#434), Codex (#435) and Antigravity (#436) ship as bundled v2 manifests. Parsing alone grants no capability.
 [Issue #423](https://github.com/scott-r-lindsey/foom/issues/423) established the
 reviewed specification; [agent cards #409](https://github.com/scott-r-lindsey/foom/issues/409)
 is now closed.
@@ -499,7 +499,7 @@ same IDs. No settings or profile consent is rewritten: enablement, hooks, defaul
 environment lists and argument-bypass acknowledgements keep the `claude` key.
 Bundled argument bypass retains the existing Settings/config-change acknowledgement
 flow; environment bypass still requires launch confirmation, and unattended child
-bypass always fails. Future conversions may reuse an acknowledgement only for an
+bypass always fails. Conversions may reuse an acknowledgement only for an
 identical disclosure/effect. They must explicitly preserve notifier/setup/health
 consent; bundled build trust never substitutes for those decisions.
 
@@ -534,9 +534,46 @@ Antigravity compatibility details (#436):
 - Sequenced completion reports rely on validated monotonic sequence deduplication rather than inferred execution-turn deduplication. A newer failure remains visible even if its working report was lost after an earlier completion. Unsequenced lifecycle/notify turn deduplication is unchanged.
 - Reduced hook diagnostics use `plugin:agy:<case-id>` plus generic channel/turn metadata. Unknown events are inert (204), without pinning identity or emitting evidence, as for config plugins; malformed known events still fail closed. Reserved defaults and missing prompt-value errors now use generic wording. Tests assert these explained differences while retaining the lifecycle, privacy, ordering, resume and failure checks.
 
+Codex compatibility details (#435):
+
+- The same data engine emits resume → defaults → inline display → MCP → six
+  lifecycle definitions → optional notify → prompt. MCP uses the same random
+  server name and environment bearer reference; this conversion adds no preview
+  tool pre-approval. The complete reservation and bypass matchers include quoted,
+  attached-short and nested sandbox overrides.
+- Bundled stable observers are build-generated installed assets, outside ASAR;
+  config stable observers use private profile paths. This is main-owned build
+  provenance, not a manifest privilege. Both use the same ABI generator and
+  serializer. The installed `codex-v1.sh` / `codex-v2.ps1` path, trailing literal
+  `codex`, six TOML definitions, member order and `timeout=3` are byte-identical
+  to the previous provider on both platforms, including special-character paths.
+  Independent pre-conversion serializer tests lock those bytes.
+- `codex-hook-health.json` remains in the profile and retains the SHA-256 of the
+  exact expanded six-definition argv. No rewrite or trust-store import occurs.
+  Matching valid health survives; changed definitions are outdated; missing,
+  malformed or linked data grants no trust. Newer launches alone own writes.
+  The generic observed-health engine preserves startup metadata, review text,
+  per-turn prompt/Stop observation, late-turn fallback and completion deduplication.
+- The existing `codexNotifierAcknowledged` setting is retained. A separate
+  build-owned consent digest permits its use only for this reviewed equivalent
+  disclosure/effect; changing a manifest lock does not silently migrate consent.
+  Config copies rely on their own exact-byte plugin approval, never that legacy
+  acknowledgement or bundled health. Enablement, defaults, environment scopes,
+  argument bypass acknowledgement and dormant conversation IDs keep the same keys.
+- Private notify paths now use the generic launch directory. Generated observers
+  add a launch-bound channel header and bound input; their timeout, silent
+  observe-only behavior and environment-only credentials are unchanged. Reduced
+  diagnostics use `plugin:codex:<case-id>` with channel/turn metadata. Tests that
+  post directly now identify their channel. Internal IPC acknowledgement and
+  observed-health fields use generic names; their confirmation flow is unchanged.
+  The shipped manifest keeps the existing inline `/hooks in Codex` hint; the
+  fixture retains the optional instruction action to exercise that generic surface.
+  Reserved-argument errors retain the original agent and argument line with
+  engine-owned wording.
+
 ## Complete manifests
 
-The four standalone JSON blocks below instantiate this schema without inheritance or external includes. Claude and Antigravity are shipped bundled manifests. The remaining drafts are parser fixtures pending conversion or verification. Tests use bundled origin to validate reserved identities; config copies need a distinct ID.
+The four standalone JSON blocks below instantiate this schema without inheritance or external includes. Claude, Codex and Antigravity are shipped bundled manifests. The remaining drafts are parser fixtures pending conversion or verification. Tests use bundled origin to validate reserved identities; config copies need a distinct ID.
 Rules for existing agents are copied from current packaged JSON including priority,
 provenance and measured limitations. The Copilot draft contains disabled proposed hook and MCP templates, with no setup. They cannot attach until contracts are verified and revised bytes approved; it specifies verified
 launch surfaces and conservative environment disclosure. Open questions follow.
@@ -1159,22 +1196,8 @@ launch surfaces and conservative environment disclosure. Open questions follow.
     "requiredEvents": ["SessionStart", "UserPromptSubmit", "Stop"],
     "completionEvent": "Stop",
     "promptEvent": "UserPromptSubmit",
-    "instructions": "Review Foom observers in Codex /hooks. Only Codex can grant trust; Foom observes health and retains notify until completion hooks work.",
+    "instructions": "/hooks in Codex",
     "review": {"contains": ["Hooks need review"], "lines": 20, "caseSensitive": true}
-  },
-  "setup": {
-    "status": {"cases": [], "default": "unavailable"},
-    "actions": [
-      {
-        "id": "review",
-        "label": "Review hooks in Codex",
-        "kind": "instructions",
-        "instructions": "Open /hooks yourself in Codex and review the Foom observer definitions.",
-        "when": {"all": [{"field": "lifecycleSupport", "op": "eq", "value": true}]},
-        "disclosure": "Foom does not grant trust, open review or type commands for you.",
-        "statusProbe": "observed-health"
-      }
-    ]
   }
 }
 ```

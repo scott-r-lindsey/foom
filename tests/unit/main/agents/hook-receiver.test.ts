@@ -1,3 +1,4 @@
+import { manifestHooks } from "../../../helpers/manifest-hooks";
 import { request, Server } from "node:http";
 import type { IncomingMessage } from "node:http";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -12,7 +13,14 @@ async function setup(agent: "claude" | "codex" | "agy" = "claude") {
   const signals: HookSignal[] = [];
   const receiver = await HookReceiver.listen((signal) => signals.push(signal));
   receivers.push(receiver);
-  return { receiver, launch: receiver.register("terminal-1", agent), signals };
+  return {
+    receiver,
+    launch:
+      agent === "codex"
+        ? manifestHooks(receiver, "terminal-1", agent)
+        : receiver.register("terminal-1", agent),
+    signals,
+  };
 }
 const stop = { session_id: "agent-session", hook_event_name: "Stop" };
 let nextSequence = 0;
@@ -31,6 +39,13 @@ function post(
           Authorization: launch.env.FOOM_TOKEN,
           "X-Foom-Session": launch.env.FOOM_SESSION,
           "X-Foom-Sequence": String(++nextSequence),
+          ...("FOOM_CHANNEL_notify" in launch.env
+            ? {
+                "X-Foom-Channel": body.toString().includes('"hook_event_name"')
+                  ? "lifecycle"
+                  : "notify",
+              }
+            : {}),
           ...overrides,
         },
       },
@@ -155,7 +170,11 @@ describe("loopback hook receiver", () => {
         terminalId: "terminal-1",
         conversationId: "thread-1",
         action: "classify",
-        signal: "codex:agent-turn-complete",
+        signal: "plugin:codex:agent-turn-complete",
+        channel: "notify",
+        caseId: "agent-turn-complete",
+        endsTurn: true,
+        recoverTurn: false,
       },
     ]);
     expect(await post(launch, JSON.stringify({ ...event, "thread-id": "thread-2" }))).toBe(400);
@@ -372,7 +391,7 @@ it("deduplicates Codex notifications within each launch with bounded turn histor
   for (let i = 0; i < 128; i++) await post(launch, payload(`turn-${String(i)}`));
   await post(launch, payload("turn-127"));
   expect(signals).toHaveLength(129);
-  const next = receiver.register("terminal-1", "codex");
+  const next = manifestHooks(receiver, "terminal-1", "codex");
   await post(next, payload("first"));
   expect(signals).toHaveLength(130);
 });
@@ -403,7 +422,11 @@ it.each([
       terminalId: "terminal-1",
       conversationId: "codex-session",
       action,
-      signal: `codex:${event}`,
+      signal: `plugin:codex:${event}`,
+      channel: "lifecycle",
+      caseId: event,
+      endsTurn: action === "classify",
+      recoverTurn: false,
     },
   ]);
   expect(await post(launch, JSON.stringify({ ...payload, session_id: "other" }))).toBe(400);

@@ -313,7 +313,7 @@ test("worktree launch and removal have dedicated channels", async () => {
     repository: "/r",
     branch: "feature",
     run: "shell" as const,
-    acknowledgeCodexNotifierReplacement: false,
+    acknowledgeNotifierReplacement: false,
   };
   await api.startWorktree(request);
   await api.removeWorktree("t1");

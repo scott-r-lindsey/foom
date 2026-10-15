@@ -1,5 +1,6 @@
-import agy from "./bundled-agents/agy.json";
 import claude from "./bundled-agents/claude.json";
+import codex from "./bundled-agents/codex.json";
+import agy from "./bundled-agents/agy.json";
 
 /** Build inputs only. This list conveys no runtime launch authority. */
-export const bundledAgentData = [claude, agy];
+export const bundledAgentData = [claude, codex, agy];

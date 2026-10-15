@@ -338,7 +338,7 @@ probe. No plugin fallback is needed: per-launch trust persisted in the Linux pro
 Stable releases from 0.161.0 attach these six observers per launch. Older supported
 Codex releases keep notify only. The generated scripts live at fixed installed
 `build/observers/codex-v1.sh` / `.ps1` paths, unpacked beside ASAR in packaged apps.
-Their definitions contain no launch paths, ports, tokens or session IDs. The scripts
+The bundled v2 manifest (#435) supplies these definitions through the shared config-plugin engine. Their definitions contain no launch paths, ports, tokens or session IDs. The scripts
 exit silently before reading stdin when any of FOOM_HOOK_URL, FOOM_SESSION or
 FOOM_TOKEN is absent. Reporting has a one-second transport timeout and never emits
 permission decisions. Foom never passes the hook-trust bypass flag, and rejects it

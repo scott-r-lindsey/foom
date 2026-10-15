@@ -61,11 +61,21 @@ export function v2Provider(input: AgentManifestV2, validate: () => Promise<void>
         return Boolean(model.launch.mcp && selected(model.launch.mcp.when, facts));
       };
       const resumeMcp = mcpAvailable(true);
+      const facts = discoveryFacts(model, version, help, {
+        hooksEnabled: true,
+        healthTrusted: false,
+      });
+      const healthChannel = model.hooks?.channels.find(
+        (channel) => channel.id === model.health?.channel,
+      );
       return {
         id: model.id,
         path,
         version: version || null,
         hooks: hookCapability(model, version, help),
+        inline: Boolean(model.launch.display && selected(model.launch.display.when, facts)),
+        healthSupported: Boolean(healthChannel && selected(healthChannel.when, facts)),
+        ...(model.health ? { healthInstructions: model.health.instructions } : {}),
         mcp: mcpAvailable(false) || resumeMcp,
         restoreControl: model.conversation.restoreControl && resumeMcp,
         reason: hookCapability(model, version, help)
@@ -116,7 +126,22 @@ export function v2Provider(input: AgentManifestV2, validate: () => Promise<void>
         restoreControl: model.conversation.restoreControl && mcpAvailable(true),
       };
     },
-    needsNotifier: () => false,
+    needsNotifier: (installation, binding, healthTrusted) => {
+      const probe = probes.get(installation.path ?? "");
+      const facts = {
+        ...discoveryFacts(model, installation.version ?? "", probe?.help ?? "", {
+          hooksEnabled: true,
+          healthTrusted: healthTrusted ?? binding?.v2?.runtime?.health.get() === "trusted",
+        }),
+      };
+      let replacement = false;
+      for (const channel of model.hooks?.channels ?? []) {
+        const attached = selected(channel.when, facts);
+        facts[`channelAttached:${channel.id}`] = attached;
+        if (attached && channel.disclosure) replacement = true;
+      }
+      return replacement;
+    },
     prepareMcp: () =>
       Promise.reject(
         new Error(
@@ -190,6 +215,7 @@ export function v2Provider(input: AgentManifestV2, validate: () => Promise<void>
         ...(newId === undefined ? {} : { newId }),
         ...(prompts.length ? { prompt: prompts.join("\n\n") } : {}),
       };
+      binding?.v2?.channels.clear();
       for (const channel of model.hooks?.channels ?? []) {
         const attached = Boolean(binding?.v2 && selected(channel.when, facts));
         if (attached) binding?.v2?.channels.set(channel.id, channel);

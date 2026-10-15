@@ -119,14 +119,14 @@ export interface LaunchRequest {
   worktree: string;
   cols: number;
   rows: number;
-  acknowledgeCodexNotifierReplacement?: boolean;
+  acknowledgeNotifierReplacement?: boolean;
 }
 
 export interface StartWorktreeRequest {
   repository: string;
   branch: string;
   run: AgentId;
-  acknowledgeCodexNotifierReplacement: boolean;
+  acknowledgeNotifierReplacement: boolean;
 }
 
 export interface WorkspaceApi {

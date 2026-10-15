@@ -10,24 +10,13 @@ const bundledPolicies = bundledAgentData.map((data) => ({
   command: data.executables[0] ?? data.id,
   resume: data.resumePaste.map((pattern) => pattern.selector),
   // Converted providers use the generic setup/health engine, never legacy adapters.
-  hookHealth: false,
+  hookHealth: "health" in data,
   pluginSetup: "setup" in data,
   completionHook: data.execution.completion === "attached",
   restoreControl: data.conversation.restoreControl,
 }));
-const codex = {
-  id: "codex",
-  name: "Codex",
-  mark: "CX",
-  command: "codex",
-  resume: ["resume"],
-  hookHealth: true,
-  pluginSetup: false,
-  completionHook: false,
-  restoreControl: true,
-} as const;
 /** Built-in policy metadata shared with the UI; no process capabilities cross IPC. */
-export const BUILTIN_AGENTS = [...bundledPolicies.slice(0, 1), codex, ...bundledPolicies.slice(1)];
+export const BUILTIN_AGENTS = bundledPolicies;
 
 export function builtinAgent(id: string | undefined) {
   return BUILTIN_AGENTS.find((entry) => entry.id === id);
@@ -36,9 +25,6 @@ export function isAgentId(id: unknown): id is BuiltinAgentId {
   return typeof id === "string" && builtinAgent(id) !== undefined;
 }
 
-export const BUILTIN_POLICIES = {
-  codex,
-};
 
 /** Syntactic ID validation grants no installation or launch authority. */
 export function validAgentId(value: unknown): value is string {

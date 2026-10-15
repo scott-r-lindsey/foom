@@ -1,11 +1,11 @@
 import { expect, it } from "vitest";
 import { prepareMcpLaunch, supportsMcp } from "../../../../src/main/agents/mcp-launch";
-it("attaches the legacy provider with environment-only bearer credentials", async () => {
-  const codex = await prepareMcpLaunch("codex", "http://127.0.0.1:1234/control/v1");
-  expect(codex.args).toEqual(["-c", expect.stringMatching(/^mcp_servers\.foom_[a-f0-9]+=/u)]);
-  expect(codex.args[1]).toContain('bearer_token_env_var="FOOM_CONTROL_TOKEN"');
-  codex.dispose();
+it("requires the shared launch context for bundled MCP", async () => {
+  await expect(prepareMcpLaunch("codex", "http://127.0.0.1:1234/control/v1")).rejects.toThrow(
+    "launch context",
+  );
 });
+
 it("refuses unsupported agents and non-loopback endpoints", async () => {
   await expect(prepareMcpLaunch("agy", "http://127.0.0.1:1234/control/v1")).rejects.toThrow(
     "unsupported",

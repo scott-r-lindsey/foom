@@ -121,11 +121,7 @@ vi.mock("../../../src/main/window/window-placement", () => ({
   savePlacements: mock.savePlacements,
   placeWindow: (value: unknown) => value,
 }));
-vi.mock("../../../src/main/agents/codex-hook-status", () => ({
-  CodexHookStatus: class {
-    load = async () => {};
-  },
-}));
+
 vi.mock("../../../src/main/sounds/ipc", () => ({ attachSounds: vi.fn(() => vi.fn()) }));
 vi.mock("../../../src/main/window/attention-badge", () => ({ updateAttention: vi.fn() }));
 import type { WorkspaceDependencies } from "../../../src/main/workspace/workspace";
@@ -1002,11 +998,11 @@ test("routes terminal events, hook signals and state through the workspace", asy
     onExecution(event: unknown): void;
     onState(state: unknown): void;
     onChange(): void;
-    acknowledgeCodex(): Promise<void>;
+    acknowledgeNotifier(): Promise<void>;
     acknowledgeAgyPluginOffer(): Promise<void>;
   };
   expect(deps.environment("claude")).toEqual([[], []]);
-  await deps.acknowledgeCodex();
+  await deps.acknowledgeNotifier();
   await deps.acknowledgeAgyPluginOffer();
   deps.onChange();
   expect(mock.ipc.sendChanged).toHaveBeenCalledOnce();

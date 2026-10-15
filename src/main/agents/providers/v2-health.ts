@@ -3,14 +3,14 @@ import { createHash } from "node:crypto";
 import { join } from "node:path";
 import type { AgentManifestV2 } from "../../../shared/agent-manifest-v2";
 import type { HookSignal } from "../../../shared/hooks";
-import type { CodexHookState } from "../../../shared/agents";
+import type { HookHealthState } from "../../../shared/agents";
 import { atomicPrivate } from "../../control/private-files";
 
 const owners = new Map<string, { latest: number; writes: Promise<void> }>();
 
 /** Profile-local observations, never an agent trust store. */
 export class V2Health {
-  private state: CodexHookState = "not-reviewed";
+  private state: HookHealthState = "not-reviewed";
   private readonly owner;
   constructor(
     private readonly directory: string,
@@ -48,13 +48,13 @@ export class V2Health {
       /* Absent/corrupt observations do not grant trust. */
     }
   }
-  get(): CodexHookState {
+  get(): HookHealthState {
     return this.state;
   }
   begin(): number {
     return ++this.owner.latest;
   }
-  set(state: CodexHookState, launch: number): void {
+  set(state: HookHealthState, launch = this.owner.latest): void {
     if (launch !== this.owner.latest || this.state === state) return;
     this.state = state;
     const data = { fingerprint: this.fingerprint, state };
@@ -75,13 +75,14 @@ export function healthStore(
   directory: string,
   model: AgentManifestV2,
   definitions: unknown,
+  storageId = model.id,
 ): Promise<V2Health> {
   const fingerprint = createHash("sha256").update(JSON.stringify(definitions)).digest("hex");
-  const key = JSON.stringify([directory, model.id]);
+  const key = JSON.stringify([directory, storageId]);
   const cached = stores.get(key);
   if (cached?.fingerprint === fingerprint) return cached.store;
   const store = (async () => {
-    const result = new V2Health(directory, model.id, fingerprint);
+    const result = new V2Health(directory, storageId, fingerprint);
     await result.flush();
     await result.load();
     return result;

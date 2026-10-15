@@ -35,7 +35,7 @@ function action(value: unknown): value is VerdictAction {
 function launchRequest(value: unknown): LaunchRequest {
   if (!record(value)) throw new Error("Invalid launch request");
   const { agent: id, repository, worktree, cols, rows } = value;
-  const acknowledge = value["acknowledgeCodexNotifierReplacement"];
+  const acknowledge = value["acknowledgeNotifierReplacement"];
   if (
     !agent(id) ||
     !text(repository) ||
@@ -52,7 +52,7 @@ function launchRequest(value: unknown): LaunchRequest {
     worktree,
     cols,
     rows,
-    ...(acknowledge === undefined ? {} : { acknowledgeCodexNotifierReplacement: acknowledge }),
+    ...(acknowledge === undefined ? {} : { acknowledgeNotifierReplacement: acknowledge }),
   };
 }
 
@@ -273,7 +273,7 @@ export function attachWorkspace(
           !text(request["repository"]) ||
           !text(request["branch"], 255) ||
           !(request["run"] === "shell" || agent(request["run"])) ||
-          typeof request["acknowledgeCodexNotifierReplacement"] !== "boolean"
+          typeof request["acknowledgeNotifierReplacement"] !== "boolean"
         )
           throw new Error("Invalid worktree launch");
         return workspace.startWorktree(
@@ -281,7 +281,7 @@ export function attachWorkspace(
             repository: request["repository"],
             branch: request["branch"],
             run: request["run"],
-            acknowledgeCodexNotifierReplacement: request["acknowledgeCodexNotifierReplacement"],
+            acknowledgeNotifierReplacement: request["acknowledgeNotifierReplacement"],
           },
           confirmation(JSON.stringify(request)),
         );

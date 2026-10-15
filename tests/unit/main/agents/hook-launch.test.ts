@@ -85,28 +85,30 @@ test("writes a private POSIX adapter and quotes its path for the hook shell", as
 test("uses PowerShell on Windows", async () => {
   const execute = vi.fn().mockResolvedValue({ stdout: "", stderr: "" });
   const hooks = await prepareHookLaunch(receiver, "codex", vi.fn(), "win32", scratch, execute);
-  const [directory] = await launchDirectories();
-  if (!directory) throw new Error("Missing launch directory");
-  const script = join(scratch, directory, "codex.ps1");
-  expect(hooks.observerArgv).toEqual([
-    "powershell.exe",
-    "-NoProfile",
-    "-NonInteractive",
-    "-ExecutionPolicy",
-    "Bypass",
-    "-File",
-    script,
-  ]);
-  expect(hooks.observerCommand).toBe(
-    `powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "${script}"`,
-  );
-  expect(execute).toHaveBeenCalledExactlyOnceWith(
-    "powershell.exe",
-    [...hooks.observerArgv.slice(1), "--foom-probe"],
-    { timeout: 8000, maxBuffer: 65536 },
-  );
-  expect(await readFile(script, "utf8")).toContain("--foom-probe");
-  hooks.dispose();
+  try {
+    const argv = hooks.v2?.values["observerArgv:notify"];
+    if (!Array.isArray(argv)) throw new Error("Missing notify observer");
+    const script = argv.at(-1) ?? "";
+    expect(argv.slice(0, -1)).toEqual([
+      "powershell.exe",
+      "-NoProfile",
+      "-NonInteractive",
+      "-ExecutionPolicy",
+      "Bypass",
+      "-File",
+    ]);
+    expect(hooks.v2?.values["observerCommand:notify"]).toBe(
+      `powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "${script}"`,
+    );
+    expect(execute).toHaveBeenCalledExactlyOnceWith(
+      "powershell.exe",
+      [...argv.slice(1), "--foom-probe"],
+      { timeout: 8000, maxBuffer: 65536 },
+    );
+    expect(await readFile(script, "utf8")).toContain("--foom-probe");
+  } finally {
+    hooks.dispose();
+  }
 });
 
 test.each(["interpreter missing", "enforced policy rejects script", "probe timed out"])(

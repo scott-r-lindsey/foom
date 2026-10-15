@@ -2,7 +2,7 @@ import type { V2Binding } from "./v2-hooks";
 import type { AgentSetupStatus } from "./agent-setup";
 import type { EnvironmentVariable } from "./environment";
 import type { AgyPluginStatus } from "./agy-plugin";
-export type CodexHookState = "not-reviewed" | "trusted" | "declined" | "outdated";
+export type HookHealthState = "not-reviewed" | "trusted" | "declined" | "outdated";
 export type BuiltinAgentId = "claude" | "codex" | "agy";
 export type AgentId = string;
 export type AgentValues<T> = Readonly<Record<BuiltinAgentId, T> & Record<string, T>>;
@@ -25,8 +25,10 @@ export interface AgentInstallation {
   readonly cliGuidance?: boolean;
   readonly mcp?: boolean;
   readonly mcpReason?: string;
-  readonly codexLifecycle?: boolean;
-  readonly codexHookState?: CodexHookState;
+  readonly healthSupported?: boolean;
+  readonly notifierReplacement?: boolean;
+  readonly healthInstructions?: string;
+  readonly hookState?: HookHealthState;
   readonly reason: string;
 }
 export interface AgentScan {
@@ -39,8 +41,6 @@ export interface AgentHooks {
   readonly v2?: V2Binding;
   readonly observerCommand: string;
   readonly observerArgv: readonly string[];
-  readonly lifecycleCommand?: string;
-  readonly notifyFallback?: boolean;
   readonly env: Readonly<Record<string, string>>;
   /** Called once the launch has a terminal ID, before any hook can matter. */
   bind?(terminalId: string): void;
@@ -69,7 +69,7 @@ export interface AgentLaunch {
   readonly cols: number;
   readonly rows: number;
   /** UI must disclose that Foom replaces the user's notifier for this invocation. */
-  readonly acknowledgeCodexNotifierReplacement?: boolean;
+  readonly acknowledgeNotifierReplacement?: boolean;
   /**
    * Main-only control role: the repository panel's orchestrator, or an orchestrator's
    * child (an ordinary agent naming its parent). Never copied from IPC or the control API.

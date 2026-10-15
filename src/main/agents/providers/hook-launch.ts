@@ -12,6 +12,12 @@ import { hookAdapter } from "../hook-adapters";
 import type { AgentHooks } from "../../../shared/agents";
 import type { HookAgent, HookLaunch } from "../../../shared/hooks";
 
+export type HookExecutor = (
+  command: string,
+  args: readonly string[],
+  options: { timeout: number; maxBuffer: number },
+) => Promise<unknown>;
+
 export interface HookRegistrar {
   register(
     key: string,
@@ -36,13 +42,23 @@ export async function prepareHookLaunch(
   bind: (key: string, terminalId: string | undefined) => void,
   platform: NodeJS.Platform = process.platform,
   scratch = tmpdir(),
-  execute = promisify(execFile),
+  execute: HookExecutor = promisify(execFile),
   stableDirectory?: string,
 ): Promise<AgentHooks> {
   const windows = platform === "win32";
-  const model = agentProvider(agent).model;
+  const provider = agentProvider(agent);
+  const model = provider.model;
   if (model)
-    return prepareV2Hooks(receiver, model, bind, windows, scratch, stableDirectory, execute);
+    return prepareV2Hooks(
+      receiver,
+      model,
+      bind,
+      windows,
+      scratch,
+      stableDirectory,
+      execute,
+      provider.origin === "bundled",
+    );
   const adapter = hookAdapter(
     agentProvider(agent).manifest?.attention.hook?.transport ?? "argv",
     windows ? "win32" : "posix",
