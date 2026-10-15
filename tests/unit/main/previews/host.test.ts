@@ -43,7 +43,12 @@ class FakeSession extends EventEmitter {
 class FakeContents extends EventEmitter {
   session = new FakeSession();
   send = vi.fn();
-  capturePage = vi.fn(() => Promise.resolve({ toDataURL: () => "data:image/png;base64,AA==" }));
+  capturePage = vi.fn(() =>
+    Promise.resolve({
+      isEmpty: (): boolean => false,
+      toDataURL: (): string => "data:image/png;base64,AA==",
+    }),
+  );
   focus = vi.fn();
   executeJavaScript = vi.fn(async (_script: string) => {});
   isFocused = vi.fn(() => false);
@@ -707,70 +712,150 @@ test("failed or overlapping reviews grant no network capability", async () => {
   await f.host.dispose(false);
 });
 
-test("cover snapshots loaded views, detaches before capture resolves, and restores without focus", async () => {
+test("cover waits for painted pixels, blocks native input, and hides without detaching", async () => {
   const f = await fixture();
   const { id, view } = await f.open();
   f.host.bounds(id, { x: 1, y: 2, width: 100, height: 80, visible: true });
-  view.webContents.emit("did-finish-load");
   let release: (() => void) | undefined;
   view.webContents.capturePage.mockImplementationOnce(
     () =>
       new Promise((resolve) => {
         release = () => {
-          resolve({ toDataURL: () => "data:image/png;base64,AA==" });
+          resolve({
+            isEmpty: (): boolean => false,
+            toDataURL: (): string => "data:image/png;base64,AA==",
+          });
         };
       }),
   );
-  const covering = f.host.cover(true);
-  expect(f.window.contentView.removeChildView).toHaveBeenCalledWith(view);
-  f.host.bounds(id, { x: 3, y: 4, width: 100, height: 80, visible: true });
+  view.webContents.emit("did-finish-load");
+  await f.host.cover(true);
+  expect(view.setVisible).toHaveBeenLastCalledWith(true);
+  const event = { preventDefault: vi.fn() };
+  view.webContents.emit("before-mouse-event", event, { type: "mouseDown" });
+  view.webContents.emit("before-input-event", event, { key: "x" });
+  expect(event.preventDefault).toHaveBeenCalledTimes(2);
   release?.();
-  await covering;
-  expect(f.window.webContents.send).toHaveBeenLastCalledWith("preview:snapshots", [
-    {
-      id,
-      bounds: { x: 3, y: 4, width: 100, height: 80, visible: true },
-      image: "data:image/png;base64,AA==",
-    },
-  ]);
+  await Promise.resolve();
+  expect(view.setVisible).toHaveBeenLastCalledWith(true);
+  f.host.painted(id, 999);
+  f.host.painted("missing", 1);
+  expect(view.setVisible).toHaveBeenLastCalledWith(true);
+  f.host.painted(id, 1);
+  expect(view.setVisible).toHaveBeenLastCalledWith(false);
+  expect(f.window.contentView.removeChildView).not.toHaveBeenCalled();
+  await f.host.cover(false);
+  f.host.painted(id, 1);
   await f.host.cover(true);
   expect(view.webContents.capturePage).toHaveBeenCalledTimes(1);
+  expect(view.setVisible).toHaveBeenLastCalledWith(false);
   await f.host.cover(false);
-  expect(f.window.contentView.addChildView).toHaveBeenLastCalledWith(view);
+  expect(view.setVisible).toHaveBeenLastCalledWith(true);
+  expect(f.window.contentView.addChildView).toHaveBeenCalledTimes(1);
   expect(view.webContents.focus).not.toHaveBeenCalled();
-  expect(f.window.webContents.send).toHaveBeenLastCalledWith("preview:snapshots", []);
   await f.host.dispose(false);
   await f.host.cover(true);
 });
-test("cover handles loading pages, failed capture, stale capture and close", async () => {
+test("cover bounds failed or missing captures, discards closed captures and cancels deadlines", async () => {
   const f = await fixture();
   const { id, view } = await f.open();
+  vi.useFakeTimers();
   f.host.bounds(id, { x: 0, y: 0, width: 100, height: 80, visible: true });
   await f.host.cover(true);
   expect(view.webContents.capturePage).not.toHaveBeenCalled();
   view.webContents.capturePage.mockRejectedValueOnce(new Error("capture failed"));
   view.webContents.emit("did-finish-load");
-  await Promise.resolve();
+  await vi.advanceTimersByTimeAsync(250);
+  expect(view.setVisible).toHaveBeenLastCalledWith(false);
   await f.host.cover(false);
   let release: (() => void) | undefined;
   view.webContents.capturePage.mockImplementationOnce(
     () =>
       new Promise((resolve) => {
         release = () => {
-          resolve({ toDataURL: () => "data:image/png;base64,AA==" });
+          resolve({
+            isEmpty: (): boolean => false,
+            toDataURL: (): string => "data:image/png;base64,AA==",
+          });
         };
       }),
   );
-  const covering = f.host.cover(true);
-  await f.host.cover(false);
-  release?.();
-  await covering;
-  expect(f.window.webContents.send).toHaveBeenLastCalledWith("preview:snapshots", []);
   await f.host.cover(true);
   await f.host.close(id);
+  release?.();
+  await Promise.resolve();
   expect(f.window.webContents.send).toHaveBeenLastCalledWith("preview:snapshots", []);
   f.window.webContents.isDestroyed.mockReturnValue(true);
   await f.host.cover(false);
+});
+test("snapshots refresh after load and resize or native input settles, never periodically", async () => {
+  const f = await fixture();
+  const { id, view } = await f.open();
+  vi.useFakeTimers();
+  f.host.bounds(id, { x: 0, y: 0, width: 100, height: 80, visible: true });
+  view.webContents.emit("did-finish-load");
+  await vi.advanceTimersByTimeAsync(120);
+  const count = view.webContents.capturePage.mock.calls.length;
+  await vi.advanceTimersByTimeAsync(10000);
+  expect(view.webContents.capturePage).toHaveBeenCalledTimes(count);
+  view.webContents.emit("input-event", {}, { type: "mouseWheel" });
+  await vi.advanceTimersByTimeAsync(119);
+  expect(view.webContents.capturePage).toHaveBeenCalledTimes(count);
+  await vi.advanceTimersByTimeAsync(1);
+  expect(view.webContents.capturePage).toHaveBeenCalledTimes(count + 1);
+  f.host.bounds(id, { x: 0, y: 0, width: 200, height: 80, visible: true });
+  await vi.advanceTimersByTimeAsync(120);
+  expect(view.webContents.capturePage).toHaveBeenCalledTimes(count + 2);
+  view.webContents.capturePage.mockResolvedValueOnce({ isEmpty: () => true, toDataURL: () => "" });
+  f.host.refresh();
+  await vi.advanceTimersByTimeAsync(120);
+  await f.host.dispose(false);
+});
+test("a replacement board must paint its own cache and a preview opened under a cover has a deadline", async () => {
+  const f = await fixture();
+  vi.useFakeTimers();
+  await f.host.cover(true);
+  const { id, view } = await f.open();
+  f.host.bounds(id, { x: 0, y: 0, width: 100, height: 80, visible: true });
+  view.webContents.emit("did-finish-load");
+  await Promise.resolve();
+  f.host.painted(id, 1);
+  expect(view.setVisible).toHaveBeenLastCalledWith(false);
+  await f.host.cover(false);
+  f.window.webContents.emit("did-start-loading");
+  f.host.painted(id, 1);
+  view.webContents.capturePage.mockRejectedValueOnce(new Error("unavailable"));
+  await f.host.cover(true);
+  expect(view.setVisible).toHaveBeenLastCalledWith(true);
+  await vi.advanceTimersByTimeAsync(250);
+  expect(view.setVisible).toHaveBeenLastCalledWith(false);
+  await f.host.cover(false);
+  f.host.bounds(id, { x: 0, y: 0, width: 100, height: 80, visible: false });
+  f.host.painted(id, 2);
+  await f.host.dispose(false);
+});
+test("resize settlement during a pending capture schedules one fresh capture afterwards", async () => {
+  const f = await fixture();
+  const { id, view } = await f.open();
+  vi.useFakeTimers();
+  let release: (() => void) | undefined;
+  view.webContents.capturePage.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        release = () => {
+          resolve({ isEmpty: () => false, toDataURL: () => "data:image/png;base64,AA==" });
+        };
+      }),
+  );
+  f.host.bounds(id, { x: 0, y: 0, width: 100, height: 80, visible: true });
+  view.webContents.emit("did-finish-load");
+  f.host.bounds(id, { x: 0, y: 0, width: 200, height: 80, visible: true });
+  await vi.advanceTimersByTimeAsync(120);
+  expect(view.webContents.capturePage).toHaveBeenCalledTimes(1);
+  release?.();
+  await vi.advanceTimersByTimeAsync(120);
+  expect(view.webContents.capturePage).toHaveBeenCalledTimes(2);
+  await f.host.dispose(false);
 });
 test("every preview forwards native input to the board dispatcher without taking focus", async () => {
   const f = await fixture();

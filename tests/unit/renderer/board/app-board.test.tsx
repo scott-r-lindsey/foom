@@ -232,6 +232,7 @@ test("source connects independently of views, reconciles events, preserves order
     pick: vi.fn(),
     close: vi.fn(),
     bounds: vi.fn(),
+    painted: vi.fn(async () => {}),
     cover: vi.fn(),
     onSnapshots: vi.fn(),
   };
@@ -1082,6 +1083,7 @@ test("the application owns and disposes preview composition independently of til
     network: vi.fn(),
     close: vi.fn(),
     bounds: vi.fn(),
+    painted: vi.fn(async () => {}),
     cover,
     onSnapshots,
   };

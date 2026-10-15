@@ -15,6 +15,13 @@ interface HostedPreview {
   partition: Session;
   bounds: PreviewBounds;
   snapshot?: string;
+  snapshotVersion?: number;
+  painted?: boolean;
+  capturePending?: boolean;
+  captureAgain?: boolean;
+  refreshTimer?: ReturnType<typeof setTimeout>;
+  coverTimer?: ReturnType<typeof setTimeout>;
+  coverExpired?: boolean;
   loaded: boolean;
   navigated: boolean;
   previouslyLoaded: boolean;
@@ -71,7 +78,7 @@ export class PreviewHost {
   private lastFocused: WebContents;
   private disposed = false;
   private covered = false;
-  private generation = 0;
+  private snapshotVersion = 0;
   private pendingFocus: WebContents | undefined;
   private handoffTimer: ReturnType<typeof setTimeout> | undefined;
   private handoffVersion = 0;
@@ -87,11 +94,20 @@ export class PreviewHost {
   ) {
     this.lastFocused = window.webContents;
     window.webContents.on("focus", this.boardFocused);
+    window.webContents.on("did-start-loading", this.resetSnapshots);
     window.webContents.prependListener("before-input-event", this.boardInput);
     window.webContents.on("before-mouse-event", this.boardMouse);
     window.on("resize", this.refresh);
     window.on("blur", this.releaseHandoff);
   }
+  private readonly resetSnapshots = () => {
+    for (const entry of this.hosted.values()) {
+      entry.painted = false;
+      // A replacement board must paint its own canvases. In-flight replies from
+      // the previous renderer cannot acknowledge these fresh versions.
+      if (entry.snapshot) entry.snapshotVersion = ++this.snapshotVersion;
+    }
+  };
   private readonly boardFocused = () => {
     // Native fallback after detaching/closing is not a deliberate board selection.
     if (!this.pendingFocus) this.lastFocused = this.window.webContents;
@@ -154,7 +170,10 @@ export class PreviewHost {
       });
   };
   readonly refresh = () => {
-    for (const entry of this.hosted.values()) this.applyBounds(entry);
+    for (const entry of this.hosted.values()) {
+      this.applyBounds(entry);
+      this.scheduleCapture(entry);
+    }
   };
   private closed(): boolean {
     return this.disposed;
@@ -304,9 +323,17 @@ export class PreviewHost {
     // The board's own guard (prepended in the constructor) runs first, so a pending
     // focus handoff blocks and Escape cancels it here too.
     contents.on("before-input-event", (event, input) => {
+      if (this.covered) {
+        event.preventDefault();
+        return;
+      }
+      this.scheduleCapture(entry);
       // Use the owning board's dispatcher and synchronous input guards, including
       // the trusted confirmation guard. Forwarding never changes native focus.
       this.window.webContents.emit("before-input-event", event, input);
+    });
+    contents.on("input-event", () => {
+      this.scheduleCapture(entry);
     });
     contents.setWindowOpenHandler(({ url }) => {
       void this.openExternal(record, url);
@@ -343,6 +370,8 @@ export class PreviewHost {
       const heldFocus = this.lastFocused === contents;
       this.beginHandoff(contents);
       this.detach(entry);
+      clearTimeout(entry.refreshTimer);
+      clearTimeout(entry.coverTimer);
       contents.close();
       // Preserve the intent across native fallback; a deliberate click cancels it.
       if (heldFocus) this.lastFocused = contents;
@@ -375,7 +404,7 @@ export class PreviewHost {
         if (contents.isDestroyed()) return;
         entry.loaded = true;
         this.applyBounds(entry);
-        if (this.covered) void this.capture(entry, this.generation);
+        void this.capture(entry);
       };
       if (entry.scroll) {
         const [x, y] = entry.scroll;
@@ -387,7 +416,12 @@ export class PreviewHost {
           .then(attach, attach);
       } else attach();
     });
-    contents.on("before-mouse-event", (_event, mouse) => {
+    contents.on("before-mouse-event", (event, mouse) => {
+      if (this.covered) {
+        event.preventDefault();
+        return;
+      }
+      this.scheduleCapture(entry);
       if (mouse.type !== "mouseDown" || !entry.attached) return;
       // Native input only: page script cannot raise this event.
       this.clearHandoff();
@@ -443,13 +477,23 @@ export class PreviewHost {
     };
     entry.view.setBounds(bounds);
     entry.view.webContents.setZoomFactor(zoom);
-    const visible = !this.covered && entry.bounds.visible && bounds.width > 0 && bounds.height > 0;
+    if (this.covered && !entry.painted && !entry.coverExpired && !entry.coverTimer) {
+      // Also covers views first loaded or recreated underneath an open overlay.
+      entry.coverTimer = setTimeout(() => {
+        entry.coverExpired = true;
+        this.applyBounds(entry);
+      }, 250);
+    }
+    const obscured = this.covered && (entry.painted || entry.coverExpired);
+    const visible = !obscured && entry.bounds.visible && bounds.width > 0 && bounds.height > 0;
     entry.view.setVisible(visible);
     if (!visible) {
+      entry.clicked = false;
       if (this.lastFocused === entry.view.webContents) this.lastFocused = this.window.webContents;
       this.cancelHandoff(entry.view.webContents);
       entry.restoreFocus = false;
-      this.detach(entry);
+      // Overlay covers only hide: keep the native child attached on X11.
+      if (!entry.bounds.visible) this.detach(entry);
     } else if (entry.loaded && !entry.attached) {
       this.window.contentView.addChildView(entry.view);
       entry.attached = true;
@@ -478,7 +522,10 @@ export class PreviewHost {
     if (bounds.visible) this.tiled.add(id);
     if (!bounds.visible && !this.hosted.has(id)) return;
     const entry = this.hosted.get(id) ?? this.create(record, canonicalRoot(record.worktree));
+    const resized = entry.bounds.width !== bounds.width || entry.bounds.height !== bounds.height;
     entry.bounds = bounds;
+    if (!bounds.visible) entry.painted = false;
+    if (resized) this.scheduleCapture(entry);
     if (!bounds.visible && this.lastFocused === entry.view.webContents)
       this.lastFocused = this.window.webContents;
     this.applyBounds(entry);
@@ -487,45 +534,78 @@ export class PreviewHost {
   private publishSnapshots() {
     if (this.window.webContents.isDestroyed()) return;
     const snapshots: PreviewSnapshot[] = [];
-    if (this.covered) {
-      for (const [id, entry] of this.hosted) {
-        if (entry.snapshot && entry.bounds.visible)
-          snapshots.push({ id, bounds: entry.bounds, image: entry.snapshot });
-      }
+    for (const [id, entry] of this.hosted) {
+      if (entry.snapshot && entry.snapshotVersion && entry.bounds.visible)
+        snapshots.push({
+          id,
+          bounds: entry.bounds,
+          image: entry.snapshot,
+          version: entry.snapshotVersion,
+        });
     }
     this.window.webContents.send("preview:snapshots", snapshots);
   }
-  async cover(covered: boolean): Promise<void> {
-    if (this.disposed || this.covered === covered) return;
+  painted(id: string, version: number): void {
+    const entry = this.hosted.get(id);
+    if (!entry || !entry.bounds.visible || entry.snapshotVersion !== version) return;
+    entry.painted = true;
+    clearTimeout(entry.coverTimer);
+    this.applyBounds(entry);
+  }
+  cover(covered: boolean): Promise<void> {
+    if (this.disposed) return Promise.resolve();
     this.covered = covered;
-    const generation = ++this.generation;
-    if (!covered) {
-      for (const entry of this.hosted.values()) {
-        delete entry.snapshot;
-        this.applyBounds(entry);
-      }
-      this.publishSnapshots();
+    for (const entry of this.hosted.values()) {
+      clearTimeout(entry.coverTimer);
+      entry.coverExpired = false;
+      delete entry.coverTimer;
+      if (covered && !entry.painted) void this.capture(entry);
+      this.applyBounds(entry);
+    }
+    this.publishSnapshots();
+    return Promise.resolve();
+  }
+  private scheduleCapture(entry: HostedPreview) {
+    clearTimeout(entry.refreshTimer);
+    if (
+      this.disposed ||
+      this.hosted.get(entry.id) !== entry ||
+      !entry.bounds.visible ||
+      this.covered
+    )
+      return;
+    // Trailing debounce of actual resize/input activity, never periodic polling.
+    entry.refreshTimer = setTimeout(() => void this.capture(entry), 120);
+  }
+  private async capture(entry: HostedPreview) {
+    const contents = entry.view.webContents;
+    if (!entry.loaded || !entry.bounds.visible || contents.isDestroyed()) return;
+    if (entry.capturePending) {
+      entry.captureAgain = true;
       return;
     }
-    await Promise.all([...this.hosted.values()].map((entry) => this.capture(entry, generation)));
-  }
-  private async capture(entry: HostedPreview, generation: number) {
-    const contents = entry.view.webContents;
-    // Start capture before detaching. A slow/failed capture cannot retain native
-    // hit-testing over board UI. stayHidden also covers loads completed underneath.
-    const capture =
-      entry.loaded && !contents.isDestroyed()
-        ? contents.capturePage(undefined, { stayHidden: true })
-        : undefined;
-    this.applyBounds(entry);
-    if (!capture) return;
+    clearTimeout(entry.refreshTimer);
+    entry.capturePending = true;
     try {
-      const image = await capture;
-      if (this.disposed || generation !== this.generation || contents.isDestroyed()) return;
+      const image = await contents.capturePage(undefined, { stayHidden: true });
+      if (
+        this.disposed ||
+        this.hosted.get(entry.id) !== entry ||
+        contents.isDestroyed() ||
+        image.isEmpty()
+      )
+        return;
       entry.snapshot = image.toDataURL();
+      entry.snapshotVersion = ++this.snapshotVersion;
       this.publishSnapshots();
     } catch {
-      // Keep the overlay usable if the page closes or capture fails.
+      // Retain the last painted image if capture fails.
+    } finally {
+      entry.capturePending = false;
+      if (entry.captureAgain) {
+        entry.captureAgain = false;
+        this.scheduleCapture(entry);
+      }
     }
   }
   private async review(record: PreviewRecord, content: DialogContent): Promise<boolean> {
@@ -655,6 +735,8 @@ export class PreviewHost {
     const entry = this.hosted.get(id);
     if (entry) {
       clearTimeout(entry.replacementTimer);
+      clearTimeout(entry.refreshTimer);
+      clearTimeout(entry.coverTimer);
       this.detach(entry);
       const contents = entry.view.webContents;
       const partition = entry.partition;
@@ -693,6 +775,7 @@ export class PreviewHost {
     this.window.removeListener("blur", this.releaseHandoff);
     this.window.removeListener("resize", this.refresh);
     this.window.webContents.removeListener("focus", this.boardFocused);
+    this.window.webContents.removeListener("did-start-loading", this.resetSnapshots);
     this.window.webContents.removeListener("before-input-event", this.boardInput);
     this.window.webContents.removeListener("before-mouse-event", this.boardMouse);
     const saved = [...this.registry.records.values()]

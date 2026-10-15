@@ -78,6 +78,18 @@ export function attachPreviews(
     if (args.length !== 2 || !previewId(id)) throw new Error("Invalid preview ID");
     host.bounds(id, parseBounds(bounds));
   });
+  ipc.handle("preview:painted", (_event, ...args) => {
+    const [id, version] = args;
+    if (
+      args.length !== 2 ||
+      !previewId(id) ||
+      typeof version !== "number" ||
+      !Number.isSafeInteger(version) ||
+      version < 1
+    )
+      throw new Error("Invalid preview paint acknowledgement");
+    host.painted(id, version);
+  });
   ipc.handle("preview:cover", (_event, ...args) => {
     if (args.length !== 1 || typeof args[0] !== "boolean")
       throw new Error("Invalid preview cover request");
@@ -90,6 +102,7 @@ export function attachPreviews(
       "preview:close",
       "preview:bounds",
       "preview:cover",
+      "preview:painted",
       "preview:network",
     ])
       ipc.removeHandler(channel);

@@ -45,7 +45,7 @@ Today a leaf is `{ kind: "tile", id, session: string | null }` (`src/renderer/bo
 | Embedder reach | `top === window`; nothing to reach | `parent.document` and `top.location` throw `SecurityError`, but `parent.postMessage` reaches the board, so the board must never listen for messages |
 | Sandbox | `sandbox: true`, `contextIsolation`, no `nodeIntegration`, `disableDialogs`, `webviewTag: false` | `sandbox="allow-scripts allow-same-origin"` (safe only because the origin differs), `allow=""` |
 | Composition | Views draw **above** the board's DOM: panels, the confirmation scrim and drag previews are hidden under them (`results/view-panel-covered.png`). The prototype hides views and shows a `capturePage` snapshot while board UI is on top (`results/view-panel.png`): 5–19 ms per view, 102 ms for six | Natural z-order (`results/iframe-panel.png`); needs `pointer-events: none` during drags |
-| Maximize, drag | Board sends rectangles over validated IPC; main calls `setBounds`. Maximize/fade needs a snapshot during the animation | CSS, like terminals |
+| Maximize, drag | Board sends rectangles over validated IPC; main calls `setBounds`. Maximize, restore and hide keep the live view attached; overlays use a ready snapshot | CSS, like terminals |
 | Focus and shortcuts | A focused view swallows keys: the board's `before-input-event` saw nothing, so the shortcut handler must also be attached to each view (the prototype forwards Ctrl+Shift+B) | Board's `before-input-event` saw Ctrl+Shift+B natively |
 | Zoom | Main must scale bounds by the board zoom and set the view's zoom; verified at 1.5× (CSS 301.8×152.4 → 453×229 DIP) | Inherited (`devicePixelRatio` 1.5) |
 | Resize (30 window-width steps, six previews) | median 20 ms, p90 31 ms, max 36 ms until every preview reported its new width | median 21 ms, p90 36 ms, max 40 ms |
@@ -170,16 +170,35 @@ Two production dependencies: `markdown-it` (6 transitive packages) and `highligh
 2. A per-session `foom-preview` handler confined to one canonical worktree root (§3). It sets CSP, `nosniff`, `no-store` and `no-referrer` headers.
 3. Per-session policy: deny all permissions, devices and display media. Prevent downloads. Filter requests to the preview's own origin, plus `https:` only when the user allows network.
 4. Navigation guard: same-origin `.md` in place. Everything else is blocked; `http(s)`/`mailto` get a confirmed external open.
-5. The board reports tile rectangles through a validated IPC message carrying preview IDs. Main applies board zoom and visibility. Board overlays (panels, confirmation scrim, drag, maximize animation) swap views for snapshots.
+5. The board reports tile rectangles through a validated IPC message carrying preview IDs. Main applies board zoom and visibility. Board overlays (panels, confirmation scrim and tile drags) hide native views over ready snapshots; maximize, restore and hide geometry changes keep views live.
 6. Attach the board's shortcut handler to every preview's `before-input-event`.
 7. Markdown renders in the preview origin with markdown-it and highlight.js. A watcher on the loaded files triggers a debounced reload with scroll restore.
+
+### Production cover handoff (#496)
+
+Visible previews keep an already-decoded snapshot beneath their native child.
+Snapshots refresh after load/live reload and after resize or native scroll/input
+settles (120 ms activity debounce), never periodically. A versioned renderer paint
+acknowledgement makes that snapshot ready for immediate covers. Covers hide the
+child with `setVisible(false)` without detaching/re-attaching it, preserving native
+attachment on X11/Compiz. Geometry animations do not cover at all.
+
+If a snapshot is not ready, the live view remains visible until acknowledgement,
+for at most 250 ms after the cover request. Main blocks preview mouse and keyboard
+events during that window: a click in the child's area is consumed, not delivered
+to the underlying board menu. At the deadline the child hides even on capture or
+decode failure so board controls become reachable; that exceptional failure may
+leave an empty preview. Ready-cache covers have no such window. Capture uses
+`stayHidden: true`, including for loads finishing under a cover. Uncover retains
+the cache and shows the existing child without granting focus. See the architecture
+Previews section for the IPC and lifecycle contract.
 
 ## Follow-up implementation tickets
 
 1. **Tile content kinds and layout v2:** `content` union, v1 → v2 migration, `pruneContent`, numbering for every occupied tile, and the sidebar preview rows. Updates `product.md` and `architecture.md`.
 2. **Preview host in main:** registry, `WebContentsView` lifecycle, per-preview partition and session policy, the IPC contract for open/close/bounds/overlay with validation, and Electron tests with the hostile fixtures ported from `spikes/previews/fixtures/`.
 3. **Contained file protocol:** port `containment.cjs` to TypeScript under `src/main/previews/` with unit tests (including Windows junctions on the Windows CI job) and the CSP/header policy.
-4. **Composition with board overlays:** snapshot swap for row/tile panels, the confirmation scrim, drag previews and maximize; shortcut forwarding.
+4. **Composition with board overlays:** snapshot swap for row/tile panels, the confirmation scrim and drag previews; live maximize/restore geometry and shortcut forwarding.
 5. **Markdown renderer:** markdown-it + highlight.js bundle served at a reserved path, task lists, token-based light/dark stylesheet, and in-tile `.md` navigation. Dependency review and `pnpm run audit`.
 6. **Live reload:** served-file watcher, debounce, scroll restore, and missing-file recovery; Electron tests on all three platforms.
 7. **External links and Allow network:** the confirm flow with one prompt at a time, plus the per-preview network switch and its disclosure. Decide whether a fonts-only allowlist replaces it.

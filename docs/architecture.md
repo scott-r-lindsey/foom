@@ -1855,21 +1855,38 @@ an isolated world and restores it after `did-finish-load`, before attachment.
 Missing files show "File not found. Waiting for it to appear." and recover on
 recreation. Closing or disposing the host cancels timers and closes watchers.
 
-Every preview forwards native `before-input-event` to its owning board's existing
-shortcut dispatcher and input guards, without moving focus. The renderer observes
-board panels (including portals), trusted scrims, modal sheets, settings, tile
-drags and tile transitions. While any is active, validated `preview:cover` hides
-and detaches the window's views immediately. Main starts `capturePage` before
-detaching and sends PNG snapshots and CSS bounds through `preview:snapshots`.
-The renderer decodes those pixels into inert canvases under board overlays; the
-board CSP and asset allowlist remain unchanged. Snapshots follow preview tile
-geometry and opacity through maximize/restore. Drag coverage starts with the drag,
-before a drop target exists, so previews cannot intercept its pointer events.
-Overlapping reasons keep views covered until all finish; real animation completion
-also handles reduced motion and cancellation. Restore reattaches only loaded,
-visible views and never grants focus. Capture failure leaves views detached, and
-late captures after restore or close are discarded. Subscriptions, observers and
-animation frames are disposed on unmount.
+Every uncovered preview forwards native `before-input-event` to its owning board's
+shortcut dispatcher and input guards, without moving focus. Geometry changes
+(maximize, restore, hide and gutter resizing) do not cover previews: the live view
+stays attached and follows reported tile bounds. Board panels (including portals),
+trusted scrims, modal sheets, settings and tile drags still require a cover because
+native views draw above the board DOM.
+
+Main keeps a snapshot for each visible preview, refreshed after load (including
+live reload), resize settle and native scroll/input idle. Refresh uses a 120 ms
+trailing activity debounce, never a periodic timer. `capturePage` uses `stayHidden`
+so a load completed under a cover can also be captured. Main sends PNG pixels, CSS
+bounds and a monotonically increasing version through `preview:snapshots`, even
+when uncovered. The renderer keeps decoded inert canvases beneath the live views
+and acknowledges their version through validated, ID-scoped `preview:painted` after
+two animation frames cross a paint. The board CSP and asset allowlist are unchanged.
+Canvases follow their tile's bounds and opacity; stale decodes and acknowledgements
+cannot hide a replacement view.
+
+A cover with ready pixels hides the native child immediately with `setVisible(false)`;
+it does not remove/re-add that child, avoiding the X11/Compiz reattachment problem.
+Without ready pixels, the live child remains visible until paint acknowledgement,
+with a 250 ms deadline from the cover request. During this exact fallback window,
+main prevents native mouse and keyboard delivery to the preview. A click over the
+still-visible child is consumed rather than reaching the board underneath; no page
+control can activate. At the deadline main hides the child even if capture/decode
+failed, prioritizing usable board controls. This exceptional failure can leave the
+preview without pixels. Normal covers use the already-painted cache and have no
+fallback input window. Uncover shows loaded visible children without granting focus
+and retains the cache. Overlapping overlay reasons keep the cover active until all
+finish; tile drag coverage begins before a drop target exists. Closing cancels
+capture/deadline timers; late results cannot resurrect released views. Renderer
+subscriptions, observers and animation work are disposed on unmount.
 
 ### Terminal font selection (#363)
 

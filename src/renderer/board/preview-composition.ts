@@ -4,11 +4,24 @@ import type { PreviewApi, PreviewSnapshot } from "../../shared/previews";
  * covers the tiles, including the entire drag (before a drop target exists). */
 export function attachPreviewComposition(api: PreviewApi): () => void {
   const images = new Map<string, HTMLCanvasElement>();
-  const decoded = new WeakMap<HTMLCanvasElement, string>();
+  const decoded = new WeakMap<HTMLCanvasElement, number>();
+  const painted = new WeakMap<HTMLCanvasElement, number>();
   let disposed = false;
   // A replacement renderer must reset any cover state left by its predecessor.
   let covered: boolean | undefined;
   let frame = 0;
+  const acknowledge = (canvas: HTMLCanvasElement, snapshot: PreviewSnapshot) => {
+    requestAnimationFrame(() =>
+      requestAnimationFrame(() => {
+        if (
+          !disposed &&
+          images.get(snapshot.id) === canvas &&
+          painted.get(canvas) === snapshot.version
+        )
+          void api.painted(snapshot.id, snapshot.version).catch(() => {});
+      }),
+    );
+  };
   const draw = (snapshots: readonly PreviewSnapshot[]) => {
     const retained = new Set(snapshots.map(({ id }) => id));
     for (const [id, image] of images) {
@@ -28,8 +41,8 @@ export function attachPreviewComposition(api: PreviewApi): () => void {
         images.set(snapshot.id, image);
       }
       const canvas = image;
-      if (decoded.get(canvas) !== snapshot.image) {
-        decoded.set(canvas, snapshot.image);
+      if (decoded.get(canvas) !== snapshot.version) {
+        decoded.set(canvas, snapshot.version);
         const bytes = Uint8Array.from(
           atob(snapshot.image.slice("data:image/png;base64,".length)),
           (character) => character.charCodeAt(0),
@@ -39,16 +52,25 @@ export function attachPreviewComposition(api: PreviewApi): () => void {
             if (
               !disposed &&
               images.get(snapshot.id) === canvas &&
-              decoded.get(canvas) === snapshot.image
+              decoded.get(canvas) === snapshot.version
             ) {
               canvas.width = bitmap.width;
               canvas.height = bitmap.height;
-              canvas.getContext("2d")?.drawImage(bitmap, 0, 0);
+              const context = canvas.getContext("2d");
+              if (!context) {
+                bitmap.close();
+                return;
+              }
+              context.drawImage(bitmap, 0, 0);
+              // Two animation frames cross a compositor paint before main hides
+              // the live view. Keep the decoded canvas ready between covers.
+              painted.set(canvas, snapshot.version);
+              acknowledge(canvas, snapshot);
             }
             bitmap.close();
           })
           .catch(() => {});
-      }
+      } else if (painted.get(canvas) === snapshot.version) acknowledge(canvas, snapshot);
       const { x, y, width, height } = snapshot.bounds;
       Object.assign(image.style, {
         left: `${String(x)}px`,
@@ -102,13 +124,11 @@ export function attachPreviewComposition(api: PreviewApi): () => void {
             animation.playState !== "finished" &&
             animation.playState !== "idle",
         );
-    const next =
-      moving ||
-      Boolean(
-        document.querySelector(
-          '.row-menu, .wordmark-menu[aria-expanded="true"], .board-confirmation-scrim, dialog[open], .board-home[data-dragging="true"], .board-home[data-preview-covered="true"]',
-        ),
-      );
+    const next = Boolean(
+      document.querySelector(
+        '.row-menu, .wordmark-menu[aria-expanded="true"], .board-confirmation-scrim, dialog[open], .board-home[data-dragging="true"], .board-home[data-preview-covered="true"]',
+      ),
+    );
     if (next !== covered) {
       covered = next;
       void api.cover(next).catch(() => {});
