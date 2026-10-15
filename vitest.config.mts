@@ -1,7 +1,10 @@
+import { availableParallelism } from "node:os";
 import { defineConfig } from "vitest/config";
 
 export default defineConfig({
   test: {
+    // Bound local IO/process contention; CLI --maxWorkers=1 still serializes native tests.
+    maxWorkers: Math.max(1, Math.min(4, availableParallelism() - 1)),
     include: ["tests/unit/**/*.test.{ts,tsx}"],
     restoreMocks: true,
     setupFiles: ["tests/helpers/setup.js"],
