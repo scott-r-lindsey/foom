@@ -1434,6 +1434,16 @@ export class Workspace {
       : { env: {}, names: [] };
   }
 
+  /**
+   * Reusing a terminal ID resets the renderer's row and advances its launch version.
+   * Advance main's too, or the renderer treats every later snapshot of the row as stale.
+   */
+  private replacementVersion(id: string | undefined): Pick<WorkspaceTerminal, "launchVersion"> {
+    return id === undefined
+      ? {}
+      : { launchVersion: (this.launched.get(id)?.launchVersion ?? 0) + 1 };
+  }
+
   private async startHomeShell(restoreId?: string): Promise<void> {
     const windows = process.platform === "win32";
     const environment = this.shellEnvironment();
@@ -1449,6 +1459,7 @@ export class Workspace {
       rows: 24,
     });
     this.launched.set(id, {
+      ...this.replacementVersion(restoreId),
       id,
       kind: "shell",
       agent: "shell",
@@ -1501,6 +1512,7 @@ export class Workspace {
           env: environment.env,
         });
         this.launched.set(id, {
+          ...this.replacementVersion(replacement?.id),
           id,
           kind: "shell",
           agent: "shell",
@@ -1919,6 +1931,7 @@ export class Workspace {
             rows: 24,
           });
           this.launched.set(id, {
+            ...this.replacementVersion(replacement?.id),
             id,
             startedAt: this.now(),
             kind: "shell",

@@ -1034,7 +1034,9 @@ PTY under that ID after the usual worktree/confirmation checks. An existing live
 host ID cannot be reused. The renderer hides/releases the old view before the
 command; the ID-scoped availability event carries an optional reset marker on
 creation so controllers discard old exit state. A launch version in the board
-snapshot reattaches surviving tile controllers without remounting xterm. Failed launches leave the saved
+snapshot reattaches surviving tile controllers without remounting xterm. Every
+launch that reuses an ID advances it, shells included, because the renderer
+advances its row on reset and ignores snapshots older than that row. Failed launches leave the saved
 record dormant and retryable. Close deletes the record, without touching Git.
 All terminal-ID sidebar commands validate the sender and ownership in either the
 host or main's restored inventory. Copy uses main's clipboard capability and the

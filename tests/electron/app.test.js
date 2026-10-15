@@ -8459,6 +8459,48 @@ test("restored exited sessions hide the unattached terminal until restarted", as
     .toContain("RESTORED_SHELL_READY");
 });
 
+test("new and restored shells show a silent foreground program until the next prompt", {
+  timeout: deadline(60_000),
+  // Silent commands need Bash 4.4 PS0 markers; Windows has no foreground name.
+  skip: process.platform !== "linux" && "Requires Bash 4.4 or newer",
+}, async (context) => {
+  const profile = await mkdtemp(path.join(tmpdir(), "foom-restored-program-"));
+  removeAfterApps(context, profile);
+  const options = { args: [`--user-data-dir=${profile}`] };
+  const showsSleep = async (page) => {
+    const row = page.locator(".board-row[data-kind='shell']");
+    const input = page.locator(".xterm-helper-textarea");
+    await expect(input).toBeFocused();
+    await expect(row.locator(".session-program")).toHaveCount(0);
+    await input.pressSequentially("sleep 30");
+    await input.press("Enter");
+    await expect(row.locator(".session-program")).toHaveText("sleep");
+    await input.press("Control+c");
+    await expect(row.locator(".session-program")).toHaveCount(0);
+  };
+  const app = await launchApp(context, true, options);
+  await showsSleep(await boardPage(app));
+  await quitAndWait(app, async () => {
+    await app.evaluate(({ app }) => app.quit());
+    await (await confirmationPage(app)).getByRole("button", { name: "Stop all and quit" }).click();
+  });
+
+  const restoredApp = await launchApp(context, false, { ...options, emptyBoard: true });
+  const restored = await boardPage(restoredApp);
+  const row = restored.locator(".board-row[data-kind='shell']");
+  await expect(row).toHaveCount(1);
+  await expect
+    .poll(() =>
+      restored.evaluate(async () => {
+        const terminal = (await window.desktop.workspace()).terminals[0];
+        return Boolean(terminal && !terminal.exited && !terminal.dormant);
+      }),
+    )
+    .toBe(true);
+  await row.press("Enter");
+  await showsSleep(restored);
+});
+
 // A verified-MCP Claude Code stand-in: records its control environment and argv per checkout.
 const FAKE_ORCHESTRATED_CLAUDE = `#!/usr/bin/env node
 const { readFileSync, writeFileSync } = require("node:fs");
