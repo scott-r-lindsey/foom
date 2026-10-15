@@ -95,3 +95,21 @@ test("fixture cleanup closes every app before removing directories and retains q
   assert.equal(secondClosed, true);
   await assert.rejects(realpath(root), { code: "ENOENT" });
 });
+
+// First-paint readiness must not replace the independent ongoing-frame check.
+test("a compositor-ready board still fails when animation callbacks are withheld", async (context) => {
+  const app = await launchApp(context, false, { emptyBoard: true });
+  const page = await boardPage(app);
+  const original = await page.evaluateHandle(() => window.requestAnimationFrame);
+  await page.evaluate(() => {
+    window.requestAnimationFrame = () => 0;
+  });
+  try {
+    await assert.rejects(boardPage(app), /The shown native board must deliver animation frames/);
+  } finally {
+    await original.evaluate((callback) => {
+      window.requestAnimationFrame = callback;
+    });
+    await original.dispose();
+  }
+});

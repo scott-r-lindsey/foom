@@ -49,6 +49,7 @@ async function writeBoardStartupDiagnostics(app, diagnostics) {
     const { app } = electron;
     return {
       lifecycle: globalThis.boardStartup?.events,
+      compositorReady: [...(globalThis.boardStartup?.compositorReady ?? [])],
       ready: app.isReady(),
       gpu: app.getGPUFeatureStatus(),
       metrics: app.getAppMetrics(),
@@ -130,6 +131,53 @@ async function boardPage(app) {
     board.focus();
     board.webContents.focus();
   });
+  // A delivered compositor frame establishes readiness on both hardware and
+  // software rendering paths. Layout/ready-to-show and GPU device metadata can
+  // arrive before GPU channel initialization. Subscribe only until the first
+  // frame; the independent rAF sentinel below must still run afterward.
+  try {
+    await page.evaluate(() => performance.mark("foom:board-compositor-requested"));
+    await app.evaluate(({ BrowserWindow }) => {
+      const board = BrowserWindow.getAllWindows().find(
+        (window) => window.webContents.getURL() === "app://bundle/index.html",
+      );
+      const state = globalThis.boardStartup;
+      if (state.compositorReady.has(board.id)) return;
+      board.webContents.beginFrameSubscription(true, () => {
+        state.compositorReady.add(board.id);
+      });
+    });
+    await expect
+      .poll(
+        () =>
+          app.evaluate(({ BrowserWindow }) => {
+            const board = BrowserWindow.getAllWindows().find(
+              (window) => window.webContents.getURL() === "app://bundle/index.html",
+            );
+            return globalThis.boardStartup.compositorReady.has(board.id);
+          }),
+        {
+          message: "The board compositor must produce a frame before the animation check",
+        },
+      )
+      .toBe(true);
+    await page.evaluate(() => performance.mark("foom:board-compositor-ready"));
+  } catch (error) {
+    await writeBoardStartupDiagnostics(app, {
+      stage: "board compositor readiness",
+      before,
+      windows: await nativeState(),
+    });
+    await flushBoardStartupTrace(app);
+    throw error;
+  } finally {
+    await app.evaluate(({ BrowserWindow }) => {
+      const board = BrowserWindow.getAllWindows().find(
+        (window) => window.webContents.getURL() === "app://bundle/index.html",
+      );
+      board?.webContents.endFrameSubscription();
+    });
+  }
   const frame = await page.evaluateHandle(() => {
     performance.mark("foom:board-frame-requested");
     const state = {

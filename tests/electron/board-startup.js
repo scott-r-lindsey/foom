@@ -2,7 +2,7 @@
 // Native events and compositor traces distinguish a visible CDP document from
 // a mapped window with a live frame sink. This never runs in the shipped app.
 function recordBoardStartup({ app, contentTracing }, trace) {
-  const state = { events: [], tracing: false, stopRequested: false };
+  const state = { events: [], compositorReady: new Set(), tracing: false, stopRequested: false };
   const recordApp = (event, details) => {
     if (state.events.length < 128) state.events.push({ event, at: performance.now(), details });
   };
@@ -51,6 +51,7 @@ function recordBoardStartup({ app, contentTracing }, trace) {
         contentBounds: window.getContentBounds(),
       });
     };
+    window.once("closed", () => state.compositorReady.delete(window.id));
     record("created");
     for (const event of ["show", "hide", "focus", "blur", "resize", "ready-to-show"])
       window.on(event, () => record(event));
