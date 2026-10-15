@@ -511,7 +511,7 @@ Claude compatibility details:
   valid schema but was corrected to inline JSON to preserve existing argv. The
   standalone file-based fixture remains coverage for the generic file interface.
 - The generic observer uses its private `control/lifecycle/observer.sh` or `.ps1`
-  path instead of `claude.sh`/`.ps1`, and adds a launch-bound channel header and
+  canonical path instead of `claude.sh`/`.ps1` (including macOS `/private/var` and expanded Windows short paths), and adds a launch-bound channel header and
   bounded stdin read. Commands use the fixed platform serializer (the same normal-path spelling, with encoded Windows invocation for shell metacharacters);
   MCP JSON retains identical content in the common private launch directory; its temporary parent also changes. No credentials enter settings/argv. Windows still probes interpreter/policy
   before registration. These temporary observer bytes/paths change, with no

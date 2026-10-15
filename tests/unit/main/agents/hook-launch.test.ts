@@ -1,7 +1,7 @@
 import type * as Fs from "node:fs/promises";
 import { agentProvider } from "../../../../src/main/agents/providers/registry";
 import { execFile } from "node:child_process";
-import { mkdtemp, readdir, readFile, rm, stat } from "node:fs/promises";
+import { mkdtemp, readdir, readFile, realpath, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
@@ -44,38 +44,42 @@ afterEach(async () => {
 test("writes a private POSIX adapter and quotes its path for the hook shell", async () => {
   const bind = vi.fn();
   const hooks = await prepareHookLaunch(receiver, "claude", bind, "linux", scratch);
-  const [directory] = await launchDirectories();
-  if (!directory) throw new Error("Missing launch directory");
-  const script = join(scratch, directory, "control", "lifecycle", "observer.sh");
-  expect(hooks.v2?.values["observerArgv:lifecycle"]).toEqual(["sh", script]);
-  expect(hooks.v2?.values["observerCommand:lifecycle"]).toBe(
-    `sh '${script.replaceAll("'", `'\\''`)}'`,
-  );
-  expect(hooks.env).toMatchObject({
-    FOOM_SESSION: "s",
-    FOOM_TOKEN: "t",
-    FOOM_HOOK_URL: "u",
-    FOOM_CHANNEL_lifecycle: "lifecycle",
-  });
-  expect(await readFile(script, "utf8")).toContain("curl");
-  if (process.platform !== "win32") {
-    expect((await stat(join(scratch, directory))).mode & 0o777).toBe(0o700);
-    expect((await stat(script)).mode & 0o777).toBe(0o600);
-  }
-  const key = receiver.register.mock.calls[0]?.[0];
-  expect(key).toMatch(/^[0-9a-f-]{36}$/u);
+  try {
+    const [directory] = await launchDirectories();
+    if (!directory) throw new Error("Missing launch directory");
+    const script = join(await realpath(scratch), directory, "control", "lifecycle", "observer.sh");
+    expect(hooks.v2?.values["observerArgv:lifecycle"]).toEqual(["sh", script]);
+    expect(hooks.v2?.values["observerCommand:lifecycle"]).toBe(
+      `sh '${script.replaceAll("'", `'\\''`)}'`,
+    );
+    expect(hooks.env).toMatchObject({
+      FOOM_SESSION: "s",
+      FOOM_TOKEN: "t",
+      FOOM_HOOK_URL: "u",
+      FOOM_CHANNEL_lifecycle: "lifecycle",
+    });
+    expect(await readFile(script, "utf8")).toContain("curl");
+    if (process.platform !== "win32") {
+      expect((await stat(join(scratch, directory))).mode & 0o777).toBe(0o700);
+      expect((await stat(script)).mode & 0o777).toBe(0o600);
+    }
+    const key = receiver.register.mock.calls[0]?.[0];
+    expect(key).toMatch(/^[0-9a-f-]{36}$/u);
 
-  hooks.bind?.("terminal-1");
-  expect(bind).toHaveBeenCalledWith(key, "terminal-1");
-  hooks.dispose();
-  hooks.dispose();
-  hooks.bind?.("terminal-2");
-  expect(revoke).toHaveBeenCalledOnce();
-  expect(bind).toHaveBeenLastCalledWith(key, undefined);
-  expect(bind).toHaveBeenCalledTimes(2);
-  await vi.waitFor(async () => {
-    expect(await launchDirectories()).toEqual([]);
-  });
+    hooks.bind?.("terminal-1");
+    expect(bind).toHaveBeenCalledWith(key, "terminal-1");
+    hooks.dispose();
+    hooks.dispose();
+    hooks.bind?.("terminal-2");
+    expect(revoke).toHaveBeenCalledOnce();
+    expect(bind).toHaveBeenLastCalledWith(key, undefined);
+    expect(bind).toHaveBeenCalledTimes(2);
+    await vi.waitFor(async () => {
+      expect(await launchDirectories()).toEqual([]);
+    });
+  } finally {
+    hooks.dispose();
+  }
 });
 
 test("uses PowerShell on Windows", async () => {
@@ -134,7 +138,7 @@ test("defaults to the system temporary directory", async () => {
   const execute = vi.fn().mockResolvedValue({ stdout: "", stderr: "" });
   const hooks = await prepareHookLaunch(receiver, "claude", vi.fn(), undefined, undefined, execute);
   try {
-    expect(String(hooks.v2?.values["hookDir"]).startsWith(tmpdir())).toBe(true);
+    expect(String(hooks.v2?.values["hookDir"]).startsWith(await realpath(tmpdir()))).toBe(true);
   } finally {
     hooks.dispose();
   }
