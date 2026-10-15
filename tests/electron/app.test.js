@@ -138,6 +138,7 @@ async function boardPage(app) {
         contentsFocused: window.webContents.isFocused(),
         backgroundThrottling: window.webContents.getBackgroundThrottling(),
         bounds: window.getBounds(),
+        contentBounds: window.getContentBounds(),
       })),
     );
   const before = await nativeState();
@@ -181,7 +182,7 @@ async function boardPage(app) {
       })
       .toBe(true);
   } catch (error) {
-    console.error("Board startup diagnostics:", {
+    const diagnostics = {
       rendering: (await frame.evaluate((state) => state.delivered))
         ? "frames delivered; native visibility or focus unavailable"
         : "no frames",
@@ -191,8 +192,17 @@ async function boardPage(app) {
         visibility: document.visibilityState,
         focused: document.hasFocus(),
         rows: document.querySelector(".xterm-rows")?.textContent,
+        readyState: document.readyState,
+        viewport: { width: innerWidth, height: innerHeight },
       })),
-    });
+      lifecycle: await app.evaluate(() => globalThis.boardStartup?.events),
+    };
+    await mkdir("test-results", { recursive: true });
+    await writeFile(
+      `test-results/board-startup-${process.pid}.json`,
+      JSON.stringify(diagnostics, null, 2),
+    );
+    console.error("Board startup diagnostics:", JSON.stringify(diagnostics));
     throw error;
   } finally {
     await frame.evaluate((state) => cancelAnimationFrame(state.id));
@@ -591,6 +601,9 @@ async function restartShellFromSidebar(page) {
   await page.getByRole("menuitem", { name: "Restart shell", exact: true }).click();
 }
 
+// Each Linux shard starts a fresh Xvfb server. Capture its first app's cold
+// compositor startup; later launches retain the bounded native lifecycle log.
+let traceFirstBoardStartup = process.platform === "linux" && process.env.CI === "true";
 async function launchApp(context, openShell = true, options = {}) {
   // CI prepares the binary separately. Direct runs also resolve it before the
   // Playwright launch deadline/audit, without downloading during test discovery.
@@ -645,6 +658,7 @@ async function launchApp(context, openShell = true, options = {}) {
       path.join(fixture, "bootstrap.cjs"),
       [
         'const { app } = require("electron");',
+        `require(${JSON.stringify(path.join(__dirname, "board-startup.js"))}).recordBoardStartup(require("electron"));`,
         `require(${JSON.stringify(path.join(__dirname, "agent-isolation.js"))}).guardAgentProbes(${JSON.stringify([...cleanup.directories])}, ${JSON.stringify(probeLog)});`,
         ...(process.platform === "win32"
           ? []
@@ -668,12 +682,23 @@ async function launchApp(context, openShell = true, options = {}) {
     ...isolated,
   };
   delete env.ELECTRON_RUN_AS_NODE;
+  const startupTrace = [];
+  if (traceFirstBoardStartup) {
+    traceFirstBoardStartup = false;
+    await mkdir("test-results", { recursive: true });
+    startupTrace.push(
+      "--trace-startup=cc,viz,blink,renderer.scheduler,disabled-by-default-cc.debug*,disabled-by-default-viz.debug*",
+      "--trace-startup-duration=0",
+      "--trace-startup-format=json",
+      `--trace-startup-file=${path.resolve(`test-results/board-startup-${process.pid}-trace.json`)}`,
+    );
+  }
   const app = await electron
     .launch({
       chromiumSandbox: true,
       colorScheme: null,
       timeout: deadline(15_000),
-      args: [entry, ...profile.args],
+      args: [...startupTrace, entry, ...profile.args],
       env,
     })
     .catch((error) => {
