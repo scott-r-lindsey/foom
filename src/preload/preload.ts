@@ -155,6 +155,7 @@ const desktop: DesktopApi = {
     pick: (worktree) => ipcRenderer.invoke("preview:pick", worktree),
     close: (id) => ipcRenderer.invoke("preview:close", id),
     bounds: (id, bounds) => ipcRenderer.invoke("preview:bounds", id, bounds),
+    painted: (id, version) => ipcRenderer.invoke("preview:painted", id, version),
     cover: (covered) => ipcRenderer.invoke("preview:cover", covered),
     onSnapshots(callback) {
       const listener = (_event: IpcRendererEvent, value: unknown) => {
@@ -166,6 +167,9 @@ const desktop: DesktopApi = {
             typeof entry["id"] !== "string" ||
             !/^[a-f0-9]{32}$/.test(entry["id"]) ||
             !object(entry["bounds"]) ||
+            typeof entry["version"] !== "number" ||
+            !Number.isSafeInteger(entry["version"]) ||
+            entry["version"] < 1 ||
             typeof entry["image"] !== "string" ||
             !/^data:image\/png;base64,[A-Za-z0-9+/=]+$/.test(entry["image"])
           )
@@ -185,6 +189,7 @@ const desktop: DesktopApi = {
             id: entry["id"],
             bounds: { x, y, width, height, visible },
             image: entry["image"],
+            version: entry["version"],
           });
         }
         callback(snapshots);
