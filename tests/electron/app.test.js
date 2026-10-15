@@ -9227,61 +9227,69 @@ async function runOrchestratorScenario(context, cliOnly, phase) {
       await page.getByRole("textbox", { name: "Filter repositories and sessions" }).hover();
       await page.keyboard.press("Escape");
       await expect(page.locator(".row-menu")).toHaveCount(0);
-      await parentSession.click();
-      await expect(childMark).toHaveAttribute("data-related", "true");
-      await expect(childMark.locator(".robot-wave-inner")).toHaveCSS(
-        "animation-name",
-        "robot-receive",
-      );
-      await childRow.focus();
-      await expect(parentMark.locator(".robot-wave-inner")).toHaveCSS(
-        "animation-name",
-        "robot-transmit",
-      );
-      await expect(childRow).toHaveCSS("box-shadow", "none");
-      if (!cliOnly) {
-        for (const colorScheme of ["light", "dark"]) {
-          await parentSession.focus();
-          await page.emulateMedia({ colorScheme, reducedMotion: "reduce" });
-          await expect(page.locator("html")).toHaveCSS("color-scheme", colorScheme);
-          await expect(childMark.locator(".robot-wave-inner")).toHaveCSS("animation-name", "none");
-          await expect(childMark).toHaveCSS(
-            "color",
-            colorScheme === "light" ? "rgb(91, 43, 217)" : "rgb(155, 107, 255)",
-          );
-          for (const scale of [80, 100, 150]) {
-            await page.evaluate(
-              (interfaceScale) => window.desktop.saveSetup({ interfaceScale }),
-              scale,
+      if (phase === "children") {
+        await parentSession.click();
+        await expect(childMark).toHaveAttribute("data-related", "true");
+        await expect(childMark.locator(".robot-wave-inner")).toHaveCSS(
+          "animation-name",
+          "robot-receive",
+        );
+        await childRow.focus();
+        await expect(parentMark.locator(".robot-wave-inner")).toHaveCSS(
+          "animation-name",
+          "robot-transmit",
+        );
+        await expect(childRow).toHaveCSS("box-shadow", "none");
+        if (!cliOnly) {
+          for (const colorScheme of ["light", "dark"]) {
+            await parentSession.focus();
+            await page.emulateMedia({ colorScheme, reducedMotion: "reduce" });
+            await expect(page.locator("html")).toHaveCSS("color-scheme", colorScheme);
+            await expect(childMark.locator(".robot-wave-inner")).toHaveCSS(
+              "animation-name",
+              "none",
             );
+            await expect(childMark).toHaveCSS(
+              "color",
+              colorScheme === "light" ? "rgb(91, 43, 217)" : "rgb(155, 107, 255)",
+            );
+            for (const scale of [80, 100, 150]) {
+              await page.evaluate(
+                (interfaceScale) => window.desktop.saveSetup({ interfaceScale }),
+                scale,
+              );
+              await expect(childMark).toBeVisible();
+              await expect(parentMark).toBeVisible();
+              if (process.env.FOOM_SCREENSHOTS)
+                await page.screenshot({
+                  path: `test-results/477-marks-${colorScheme}-${scale}.png`,
+                  animations: "disabled",
+                });
+            }
+            await page.evaluate(() => window.desktop.saveSetup({ interfaceScale: 100 }));
+            await page.getByRole("button", { name: "Collapse sidebar", exact: true }).click();
             await expect(childMark).toBeVisible();
             await expect(parentMark).toBeVisible();
+            const markBox = await childMark.boundingBox();
+            const rowBox = await childRow.boundingBox();
+            assert.ok(
+              markBox &&
+                rowBox &&
+                markBox.x >= rowBox.x &&
+                markBox.x + markBox.width <= rowBox.x + rowBox.width,
+            );
             if (process.env.FOOM_SCREENSHOTS)
               await page.screenshot({
-                path: `test-results/477-marks-${colorScheme}-${scale}.png`,
+                path: `test-results/477-marks-${colorScheme}-compact.png`,
                 animations: "disabled",
               });
+            await page.getByRole("button", { name: "Expand sidebar", exact: true }).click();
           }
-          await page.evaluate(() => window.desktop.saveSetup({ interfaceScale: 100 }));
-          await page.getByRole("button", { name: "Collapse sidebar", exact: true }).click();
-          await expect(childMark).toBeVisible();
-          await expect(parentMark).toBeVisible();
-          const markBox = await childMark.boundingBox();
-          const rowBox = await childRow.boundingBox();
-          assert.ok(
-            markBox &&
-              rowBox &&
-              markBox.x >= rowBox.x &&
-              markBox.x + markBox.width <= rowBox.x + rowBox.width,
-          );
-          if (process.env.FOOM_SCREENSHOTS)
-            await page.screenshot({
-              path: `test-results/477-marks-${colorScheme}-compact.png`,
-              animations: "disabled",
-            });
-          await page.getByRole("button", { name: "Expand sidebar", exact: true }).click();
+          await page.emulateMedia({ colorScheme: "dark", reducedMotion: "no-preference" });
         }
-        await page.emulateMedia({ colorScheme: "dark", reducedMotion: "no-preference" });
+        await page.getByRole("textbox", { name: "Filter repositories and sessions" }).hover();
+        await page.keyboard.press("Escape");
+        await expect(page.locator(".row-menu")).toHaveCount(0);
       }
       await assertAccessible(page);
     }
