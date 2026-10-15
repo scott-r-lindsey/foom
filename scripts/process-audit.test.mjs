@@ -4,6 +4,76 @@ import { spawn } from "node:child_process";
 import { once } from "node:events";
 import audit from "../tests/electron/process-audit.js";
 
+// Mock only the polling clock; snapshot promises remain explicitly controlled.
+test("idle audit finish cancels its timer and still checks survivors", async (context) => {
+  context.mock.timers.enable({ apis: ["setTimeout"] });
+  let snapshots = 0;
+  const scope = await audit.auditProcesses(context, undefined, async () => {
+    snapshots++;
+    return [];
+  });
+  await scope.finish();
+  assert.equal(snapshots, 2);
+  context.mock.timers.tick(1000);
+  await Promise.resolve();
+  assert.equal(snapshots, 2, "cancelled poll must not take another snapshot");
+});
+
+for (const outcome of ["success", "failure", "violation"]) {
+  test(`audit finish awaits an in-flight capture: ${outcome}`, async (context) => {
+    context.mock.timers.enable({ apis: ["setTimeout"] });
+    const captured = Promise.withResolvers();
+    const started = Promise.withResolvers();
+    let snapshots = 0;
+    const scope = await audit.auditProcesses(context, undefined, async () => {
+      snapshots++;
+      if (snapshots === 2) {
+        started.resolve();
+        return captured.promise;
+      }
+      return [];
+    });
+    scope.add(123);
+    scope.forbidAgentsOutside(new Set());
+    context.mock.timers.tick(1000);
+    await started.promise;
+    let finished = false;
+    const finishing = scope.finish().finally(() => {
+      finished = true;
+    });
+    await Promise.resolve();
+    assert.equal(finished, false);
+    assert.equal(snapshots, 2, "survivor check must wait for capture");
+    if (outcome === "failure") {
+      const error = new Error("snapshot failed");
+      const rejected = assert.rejects(finishing, (actual) => actual === error);
+      captured.reject(error);
+      await rejected;
+      assert.equal(snapshots, 2);
+    } else {
+      const rejected =
+        outcome === "violation"
+          ? assert.rejects(finishing, /Test started an agent outside its fixtures/)
+          : finishing;
+      captured.resolve(
+        outcome === "violation"
+          ? [
+              {
+                pid: 123,
+                parent: 1,
+                start: "new",
+                name: "node",
+                command: `${process.cwd()}/agy`,
+              },
+            ]
+          : [],
+      );
+      await rejected;
+      assert.equal(snapshots, 3);
+    }
+  });
+}
+
 test("process ancestry includes grandchildren in any order, excluding unrelated trees", () => {
   const rows = [
     { pid: 3, parent: 2 },
