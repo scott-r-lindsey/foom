@@ -3,8 +3,12 @@
 CI runs four named-test shards per platform. `tests/electron/shard-plan.json`
 assigns measured tests to shards; `test-shard.js` hashes new or renamed tests,
 and all tests at other shard counts. With no shard setting the full suite runs.
-Native hooks and packaging still run only on shard 1. The Quality gate requires
-all twelve Electron jobs. Test deadlines, step limits and retries are unchanged.
+Native checks, packaging and packaged smoke run sequentially in one independent
+companion job per platform, alongside the four Electron shards and static checks.
+The Quality gate requires all twelve Electron jobs and all three companion jobs.
+Failed, cancelled or skipped required jobs fail the gate; documentation-only runs
+permit skipping both desktop matrices together. Native hook probes stay serial.
+Test deadlines and step limits are unchanged.
 
 ## Feature suites and local runs
 
@@ -84,6 +88,59 @@ window restoration 77s versus 15s, preview handoff 54s versus 18s, and agent
 discovery 37s versus 9s. The final plan includes all twelve reports from that
 run as a third source and redistributes those costs. Linux steps took
 200 / 191 / 204 / 186s; macOS steps took 359 / 361 / 346 / 328s.
+
+## Scheduling shard-1 extras (#490)
+
+The companion job keeps native checks and packaging/smoke together. Separating
+those into two additional jobs per platform would increase desktop concurrency
+from 12 to 18; the chosen graph uses 15. Each job needs its own checkout, Node,
+pnpm install and Electron preparation. The existing four-shard plan remains
+unchanged so Electron coverage and balancing are independent of native/packaging
+costs. Moving cases away from shard 1 would couple test assignment to variable
+native and packaging overhead, while retaining their serial critical path.
+
+Measured green main runs via the Actions jobs/steps API (seconds, all three
+platforms; compute is unweighted runner wall time, not billed cost):
+
+| Run | Longest desktop job | Total desktop runner seconds | Modeled longest after split | Modeled compute after split |
+| --- | ---: | ---: | ---: | ---: |
+| [38776482441](https://github.com/scott-r-lindsey/foom/actions/runs/38776482441) | 615 | 4352 | 522 | 4429 |
+| [38783252713](https://github.com/scott-r-lindsey/foom/actions/runs/38783252713) | 838 | 4958 | 521 | 5061 |
+
+The model moves native, packaging, signature and smoke step seconds out of each
+shard 1, duplicating its measured setup/cleanup/upload seconds in one new job.
+It estimates 15–38% shorter longest jobs for 1.8–2.1% more runner time, before
+queueing. These green runs predate #491's single packaging build; they establish
+historical variability, not the final comparable baseline. Two green #491 PR runs provide a single-build comparison:
+
+| Run | Longest job / compute | Combined model / compute | Separate native + packaging model / compute |
+| --- | ---: | ---: | ---: |
+| [38782389108](https://github.com/scott-r-lindsey/foom/actions/runs/38782389108) | 643 / 4447 | 467 / 4547 | 467 / 4647 |
+| [38786409426](https://github.com/scott-r-lindsey/foom/actions/runs/38786409426) | 979 / 4923 | 562 / 5012 | 524 / 5101 |
+
+The second run's Windows packaging step took 328s versus 140s in the first.
+Separating native from packaging saves a further 38s in that outlier, and no time
+in the other run, at the cost of another three setups (89–100 runner seconds,
+plus runner availability). Combined jobs are the chosen compromise: 27–43%
+modeled longest-job reduction for 1.8–2.2% more runner time. Four shards remain
+necessary for the Electron steps; rebalancing alone cannot remove all of the
+serial extras. Runner queues and observed PR runs must be compared before
+treating modeled savings as achieved.
+
+Runner availability matters: desktop start times spanned 68s / 437s in the two
+green main runs and 755s / 1015s in the green single-build PR runs. Queueing can
+dominate the gate even when no job is slow. These observations favor three
+additional jobs over six, and require reporting actual elapsed gate time as well
+as job duration and compute in the PR comparison.
+
+Companion diagnostics use `platform-results-OS`; Electron diagnostics retain
+`electron-results-OS-INDEX`. Both upload `test-results/` on failure, with the
+same three-day retention and missing-file failure. Only companion jobs build
+and smoke-test ZIPs, verify strict macOS signatures, stamp eligible nightly
+versions and upload `Foom-OS` artifacts. Nightly publication still waits for the
+complete Quality gate and downloads those same tested artifacts without rebuilding.
+Workflow permissions are unchanged. #488 has not landed, so these instructions
+and measurements remain in their existing documentation locations.
 
 ## Assignment method
 
