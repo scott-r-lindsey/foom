@@ -127,3 +127,48 @@ Sources: [Forge 8.0.1 release notes](https://github.com/electron/forge/releases/
 ## License
 
 Foom is licensed under the [Apache License 2.0](LICENSE). See [NOTICE](NOTICE) for project attribution. Third-party dependencies and bundled fonts retain their respective licenses and notices.
+
+### Focused local validation
+
+The required pre-commit/pre-push gate remains `pnpm run check`: complete, uncached,
+sequential validation. Runtime/build/tooling changes also require the coverage,
+Electron, make, packaged-smoke and cleanup checks in `AGENTS.md`. Focused feedback
+and local cache hits do not replace those gates.
+
+On Linux, run a named Electron test through the supported wrapper:
+
+```sh
+xvfb-run -a pnpm run test:electron --test-name-pattern='^agent discovery uses the fixture login shell and controlled PATH$'
+xvfb-run -a pnpm run test:electron --reuse-build --test-name-pattern='^agent discovery uses the fixture login shell and controlled PATH$'
+```
+
+The first command builds by default. `--reuse-build` requires a successful build
+receipt from this wrapper and verifies the current source, build scripts, compiler
+configuration, installed dependency bytes and build output. Missing/changed inputs
+or output fail; rerun without `--reuse-build`. A standalone build (including a
+sample build) does not create a receipt. Do not edit inputs during validation.
+
+Both `--test-name-pattern=REGEX` and `--test-name-pattern REGEX` work. The wrapper
+forwards these Node options **before** the `tests/electron/*.test.js` glob, which
+must remain true when the suite is split into multiple files (#486). Unknown
+options, malformed/empty patterns, and filters with no passing selected tests fail.
+The summary reports the executed count; merely loading an empty suite is not a
+passing focused check. `FOOM_ELECTRON_SHARD` still selects the shard first: use the
+shard containing the named test, or unset it for local focused work. Packaged smoke
+also accepts a filter, but never `--reuse-build`.
+
+`pnpm run lint:local` memoizes a successful **whole-project** lint only while all
+inputs remain byte-identical. Any source, declaration, configuration, script or
+installed dependency change invalidates the whole result; this avoids ESLint's
+per-file cache missing type changes in other files. The ignored `.eslintcache`
+file can be deleted to force a miss. Reference and generated output directories
+are excluded. `pnpm run lint` and `pnpm run lint:fix` remain uncached.
+
+`pnpm run check:local` overlaps that local lint with one sequential lane of format,
+typecheck, unit tests and CI-policy tests. At most two stages run simultaneously;
+unit/native tests never overlap CI-policy tests. Vitest uses at most four workers
+(and fewer on small machines); explicit native-test serialization still wins.
+Every stage finishes and failures
+are aggregated into a nonzero exit. Use the sequential authoritative gate on
+memory-constrained machines. Local measurements and tradeoffs are recorded in the
+#494 pull request; elapsed savings depend on machine load and cache state.
