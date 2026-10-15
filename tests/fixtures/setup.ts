@@ -50,6 +50,7 @@ export function installation(
 ): AgentInstallation {
   return {
     id,
+    notifierReplacement: id === "codex",
     path: found ? `/bin/${id}` : null,
     version: found ? VERSIONS[id] : null,
     hooks: found && hooks,

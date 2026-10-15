@@ -42,7 +42,7 @@ const bundle = join(scratch, "control.mjs");
 await build({
   stdin: {
     contents:
-      'export { PreviewBroker } from "./src/main/control/previews"; export { ControlMcp } from "./src/main/control/mcp"; export { ControlService } from "./src/main/control/service"; export { ControlHttp } from "./src/main/control/http"; export { Operations } from "./src/main/control/operations"; export { prepareMcpLaunch } from "./src/main/agents/mcp-launch"; export { mergeAllowedTools } from "./src/main/agents/cli-launch";',
+      'export { PreviewBroker } from "./src/main/control/previews"; export { ControlMcp } from "./src/main/control/mcp"; export { ControlService } from "./src/main/control/service"; export { ControlHttp } from "./src/main/control/http"; export { Operations } from "./src/main/control/operations"; export { agentProvider } from "./src/main/agents/providers/registry";',
     resolveDir: process.cwd(),
   },
   bundle: true,
@@ -50,15 +50,8 @@ await build({
   format: "esm",
   outfile: bundle,
 });
-const {
-  PreviewBroker,
-  ControlMcp,
-  ControlService,
-  ControlHttp,
-  Operations,
-  prepareMcpLaunch,
-  mergeAllowedTools,
-} = await import(bundle);
+const { PreviewBroker, ControlMcp, ControlService, ControlHttp, Operations, agentProvider } =
+  await import(bundle);
 const protocol = [];
 const mcpDispatch = ControlMcp.prototype.dispatch;
 ControlMcp.prototype.dispatch = function (actor, headers, input) {
@@ -229,11 +222,25 @@ const modelUrl = `http://127.0.0.1:${model.address().port}`;
 try {
   for (const agent of process.argv.slice(2).length ? process.argv.slice(2) : ["claude", "codex"]) {
     const executable = process.env[`FOOM_${agent.toUpperCase()}_EXECUTABLE`] ?? agent;
-    const version = (await execute(executable, ["--version"])).stdout.trim();
+    const limits = { timeout: 5000, maxBuffer: 256 * 1024 };
+    const version = (await execute(executable, ["--version"], limits)).stdout.trim();
+    const help = (await execute(executable, ["--help"], limits)).stdout;
     console.log(`Probing ${version}`);
     const home = join(scratch, agent);
     await mkdir(home);
-    const attachment = await prepareMcpLaunch(agent, http.endpoint);
+    const provider = agentProvider(agent);
+    const installation = provider.discover(executable, version, help);
+    assert(provider.prepareLaunch, "Bundled provider must use the shared launch engine");
+    const prepared = await provider.prepareLaunch(
+      installation,
+      { agent, repository: scratch, worktree: scratch, cols: 80, rows: 24 },
+      [],
+      { env: { FOOM_CONTROL_URL: http.endpoint }, bind: () => undefined, dispose: () => undefined },
+      false,
+      false,
+    );
+    assert(prepared.mcp && prepared.mcpArguments?.length, "Per-launch MCP unavailable");
+    const attachment = { args: prepared.mcpArguments, dispose: prepared.dispose };
     const existingGrant = service.prepare(scratch, scratch);
     existingGrant.bind("existing");
     const existingUrl = http.endpoint.replace("/control/v1", "/mcp");
@@ -293,9 +300,13 @@ try {
           ];
     if (agent === "claude") {
       const config = JSON.parse(await readFile(attachment.args[1], "utf8"));
-      args[args.indexOf("--allowedTools") + 1] =
-        `mcp__${Object.keys(config.mcpServers)[0]}__whoami,mcp__${Object.keys(config.mcpServers)[0]}__open_preview`;
-      args = mergeAllowedTools(args);
+      const server = Object.keys(config.mcpServers)[0];
+      args.splice(
+        args.indexOf("--allowedTools") + 1,
+        1,
+        `mcp__${server}__whoami`,
+        `mcp__${server}__open_preview`,
+      );
     }
     args.push(
       "--",

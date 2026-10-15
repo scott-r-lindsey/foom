@@ -178,25 +178,24 @@ export function AgentsStep({
                           {!state.settings.hooks ? " · hooks off" : ""}
                         </span>
                       )}
-                      {agent?.codexHookState && (
+                      {agent?.hookState && (
                         <>
                           <span
                             className={
-                              agent.codexHookState === "not-reviewed" ||
-                              agent.codexHookState === "outdated"
+                              agent.hookState === "not-reviewed" || agent.hookState === "outdated"
                                 ? "agent-needs"
                                 : undefined
                             }
                           >
-                            {agent.codexHookState === "trusted"
+                            {agent.hookState === "trusted"
                               ? "Trusted · observed working"
-                              : agent.codexHookState === "not-reviewed"
+                              : agent.hookState === "not-reviewed"
                                 ? "Trust review pending"
-                                : agent.codexHookState === "outdated"
+                                : agent.hookState === "outdated"
                                   ? "Outdated · review needed"
                                   : "Declined · Notify fallback"}
                           </span>
-                          <code>/hooks in Codex</code>
+                          <code>{agent.healthInstructions}</code>
                         </>
                       )}
                       {installed &&

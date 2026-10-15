@@ -2,8 +2,12 @@ import type { AgentManifestV2 } from "./agent-manifest-v2";
 
 type Matcher = AgentManifestV2["reservedArguments"][number];
 export function matchesArguments(matchers: readonly Matcher[], args: readonly string[]): boolean {
-  return matchers.some((matcher) =>
-    args.some((arg, index) => {
+  return argumentMatchIndex(matchers, args) >= 0;
+}
+
+export function argumentMatchIndex(matchers: readonly Matcher[], args: readonly string[]): number {
+  return args.findIndex((arg, index) =>
+    matchers.some((matcher) => {
       if ("word" in matcher) return arg === matcher.word;
       if ("prefix" in matcher) return arg.startsWith(matcher.prefix);
       if ("override" in matcher) {

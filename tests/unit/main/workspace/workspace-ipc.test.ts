@@ -158,7 +158,7 @@ test("launch requests are validated and copied field by field", async () => {
     worktree: "/trees/app/x",
     cols: 80,
     rows: 24,
-    acknowledgeCodexNotifierReplacement: true,
+    acknowledgeNotifierReplacement: true,
     command: "/bin/evil",
     args: ["--danger"],
   };
@@ -170,16 +170,14 @@ test("launch requests are validated and copied field by field", async () => {
       worktree: "/trees/app/x",
       cols: 80,
       rows: 24,
-      acknowledgeCodexNotifierReplacement: true,
+      acknowledgeNotifierReplacement: true,
     },
     expect.any(Function),
   );
   const plain: Record<string, unknown> = { ...request };
-  delete plain["acknowledgeCodexNotifierReplacement"];
+  delete plain["acknowledgeNotifierReplacement"];
   await invoke("agents:launch", [plain]);
-  expect(workspace.launch.mock.lastCall?.[0]).not.toHaveProperty(
-    "acknowledgeCodexNotifierReplacement",
-  );
+  expect(workspace.launch.mock.lastCall?.[0]).not.toHaveProperty("acknowledgeNotifierReplacement");
   for (const bad of [
     null,
     [],
@@ -190,7 +188,7 @@ test("launch requests are validated and copied field by field", async () => {
     { ...plain, cols: 1 },
     { ...plain, rows: 301 },
     { ...plain, cols: 80.5 },
-    { ...plain, acknowledgeCodexNotifierReplacement: "yes" },
+    { ...plain, acknowledgeNotifierReplacement: "yes" },
   ])
     expect(() => invoke("agents:launch", [bad])).toThrow("Invalid launch request");
 });
@@ -256,7 +254,7 @@ test("launch accepts names only and rejects malformed or injected payloads", asy
     repository: "/repos/app",
     branch: "feature",
     run: "shell",
-    acknowledgeCodexNotifierReplacement: false,
+    acknowledgeNotifierReplacement: false,
   };
   await invoke("workspace:start", [{ ...request, command: "/bad", cwd: "/bad" }]);
   expect(workspace.startWorktree).toHaveBeenCalledWith(request, expect.any(Function));
@@ -267,7 +265,7 @@ test("launch accepts names only and rejects malformed or injected payloads", asy
     { ...request, repository: "" },
     { ...request, branch: "" },
     { ...request, run: "sh" },
-    { ...request, acknowledgeCodexNotifierReplacement: 1 },
+    { ...request, acknowledgeNotifierReplacement: 1 },
   ])
     expect(() => invoke("workspace:start", [bad])).toThrow("Invalid worktree launch");
 });

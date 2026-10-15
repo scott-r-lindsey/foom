@@ -85,9 +85,7 @@ export function signal(agent: AgentInstallation, hooks: boolean): "hooks" | "not
   if (builtinAgent(agent.id)?.pluginSetup)
     return agent.agyPlugin?.state === "installed" ? "hooks" : "rules";
   if (!agent.hooks) return "rules";
-  return builtinAgent(agent.id)?.hookHealth && agent.codexHookState !== "trusted"
-    ? "notify"
-    : "hooks";
+  return agent.notifierReplacement === true ? "notify" : "hooks";
 }
 
 /** Where `feat/search` would land. Branch slashes become folders. */

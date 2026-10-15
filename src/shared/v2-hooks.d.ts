@@ -1,6 +1,6 @@
 import type { AgentManifestV2, ManifestChannel } from "./agent-manifest-v2";
 import type { HookSignal } from "./hooks";
-import type { CodexHookState } from "./agents";
+import type { HookHealthState } from "./agents";
 export interface V2HookState {
   launchFacts?: Readonly<Record<string, unknown>>;
   conversation?: string;
@@ -8,7 +8,7 @@ export interface V2HookState {
 }
 export interface V2HookRuntime {
   readonly model: AgentManifestV2;
-  readonly health: { get(): CodexHookState; flush(): Promise<void> };
+  readonly health: { get(): HookHealthState; flush(): Promise<void> };
   required(): boolean;
   accept(signal: HookSignal, turn: number): boolean;
   idle(turn: number): void;

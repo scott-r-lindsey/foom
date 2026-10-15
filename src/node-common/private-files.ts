@@ -27,18 +27,27 @@ if ($env:FOOM_PRIVATE_CREATE -eq '1') {
   if ($directory) { [System.IO.Directory]::SetAccessControl($p,$a) } else { [System.IO.File]::SetAccessControl($p,$a) }
   $a=if ($directory) { [System.IO.Directory]::GetAccessControl($p) } else { [System.IO.File]::GetAccessControl($p) }
 }
-if (!$a.AreAccessRulesProtected) { throw 'inherited access' }
-if ($a.GetOwner([System.Security.Principal.SecurityIdentifier]).Value -ne $sid.Value) { throw 'owner' }
+if (!$a.AreAccessRulesProtected -and $env:FOOM_PRIVATE_PROFILE -ne '1') { throw 'inherited access' }
+$allowed=@($sid.Value)
+# Legacy profile files may inherit the OS's SYSTEM and local Administrators rules.
+# Other users/groups are never accepted, even for read access.
+if ($env:FOOM_PRIVATE_PROFILE -eq '1') { $allowed += 'S-1-5-18'; $allowed += 'S-1-5-32-544' }
+if ($a.GetOwner([System.Security.Principal.SecurityIdentifier]).Value -notin $allowed) { throw 'owner' }
 $rules=$a.GetAccessRules($true,$true,[System.Security.Principal.SecurityIdentifier])
 foreach($r in $rules) {
-  if ($r.IdentityReference.Value -ne $sid.Value) { throw 'access' }
+  if ($r.IdentityReference.Value -notin $allowed) { throw 'access' }
 }
 if ($rules.Count -eq 0) { throw 'access' }
 `;
 
-async function windowsAcl(path: string, create: boolean): Promise<void> {
+async function windowsAcl(path: string, create: boolean, profile = false): Promise<void> {
   await execute("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", aclScript], {
-    env: { ...process.env, FOOM_PRIVATE_PATH: path, FOOM_PRIVATE_CREATE: create ? "1" : "0" },
+    env: {
+      ...process.env,
+      FOOM_PRIVATE_PATH: path,
+      FOOM_PRIVATE_CREATE: create ? "1" : "0",
+      FOOM_PRIVATE_PROFILE: profile ? "1" : "0",
+    },
     timeout: 5000,
   });
 }
@@ -68,6 +77,15 @@ export async function verifyPrivate(path: string, directory: boolean): Promise<v
     (!directory && info.nlink !== 1)
   )
     throw new ControlError("unavailable");
+}
+
+/** Read-only migration boundary for old app-profile files, never agent configuration. */
+export async function verifyLegacyProfileFile(path: string): Promise<void> {
+  const info = await lstat(path);
+  if (info.isSymbolicLink() || !info.isFile() || info.nlink !== 1)
+    throw new ControlError("unavailable");
+  if (process.platform === "win32") await windowsAcl(path, false, true);
+  else await verifyPrivate(path, false);
 }
 
 export async function privateDirectory(parent: string, name = "control"): Promise<string> {

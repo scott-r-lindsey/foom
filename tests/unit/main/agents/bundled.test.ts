@@ -128,6 +128,7 @@ it.each([false, true])(
     if (!prepared) throw new Error("Missing engine");
     const file = prepared.args[prepared.args.indexOf("--mcp-config") + 1] ?? "";
     try {
+      expect(prepared.mcpArguments).toEqual(["--mcp-config", file]);
       const content = await readFile(file, "utf8");
       const name = content.match(/foom_[a-f0-9]+/u)?.[0];
       if (!name) throw new Error("Missing random server");

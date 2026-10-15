@@ -134,16 +134,26 @@ for (const [name, source] of Object.entries(agyPluginFiles(process.platform))) {
 }
 
 // Native interpreters need real files outside ASAR, at a stable installation path.
-const { codexObserverFile, codexObserverSource } = await import(
-  "../build/main/agents/codex-hooks.js"
+const { bundledProviders } = await import("../build/main/agents/providers/bundled.js");
+const { observerAssets } = await import("../build/main/agents/providers/v2-observers.js");
+const { installedObserverPath } = await import(
+  "../build/main/agents/providers/installed-observers.js"
 );
 await mkdir(join(root, "build/observers"), { recursive: true });
-for (const platform of ["posix", "win32"]) {
-  await writeFile(
-    join(root, "build/observers", codexObserverFile(platform)),
-    codexObserverSource(platform),
-    { mode: 0o755 },
-  );
+for (const provider of bundledProviders) {
+  for (const channel of provider.model?.hooks?.channels ?? []) {
+    if (channel.observer.placement !== "stable") continue;
+    for (const windows of [false, true]) {
+      for (const [name, source] of Object.entries(observerAssets(channel, windows))) {
+        if (!name.startsWith("observer.")) throw new Error("Unsupported installed observer asset");
+        await writeFile(
+          installedObserverPath(channel, windows, join(root, "build/observers")),
+          source,
+          { mode: 0o755 },
+        );
+      }
+    }
+  }
 }
 
 await import("./build-cli.mjs");

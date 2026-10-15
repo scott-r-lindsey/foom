@@ -745,19 +745,23 @@ test.each([
   ["trusted", "Trusted · observed working"],
   ["declined", "Declined · Notify fallback"],
   ["outdated", "Outdated · review needed"],
-] as const)("Codex setup explains %s without granting trust", async (codexHookState, label) => {
+] as const)("Codex setup explains %s without granting trust", async (hookState, label) => {
   const source = fake(
     setupState(),
-    report({ ...installation("codex"), codexLifecycle: true, codexHookState }),
+    report({
+      ...installation("codex"),
+      healthSupported: true,
+      healthInstructions: "/hooks in Codex",
+      hookState,
+      notifierReplacement: hookState !== "trusted",
+    }),
   );
   render(<Preflight source={source} initial={setupState()} onLaunched={vi.fn()} />);
   fireEvent.click(button("Start preflight"));
   await screen.findByText(label);
   expect(screen.getByText("/hooks in Codex")).toBeTruthy();
   expect(screen.queryByRole("button", { name: /trust|approve/i })).toBeNull();
-  expect(screen.queryByText("Notify + screen rules active") !== null).toBe(
-    codexHookState !== "trusted",
-  );
+  expect(screen.queryByText("Notify + screen rules active") !== null).toBe(hookState !== "trusted");
 });
 
 test("agent setup waits for explicit plugin installation, refreshes status and reports failed changes", async () => {

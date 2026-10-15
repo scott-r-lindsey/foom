@@ -1,3 +1,6 @@
+import { manifestHooks } from "../../../helpers/manifest-hooks";
+import { observerAssets } from "../../../../src/main/agents/providers/v2-observers";
+import { agentProvider } from "../../../../src/main/agents/providers/registry";
 import { spawn } from "node:child_process";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -37,7 +40,10 @@ describe("OS hook adapters", () => {
     async (agent) => {
       const signals: HookSignal[] = [];
       const receiver = await HookReceiver.listen((signal) => signals.push(signal));
-      const launch = receiver.register("terminal", agent);
+      const launch =
+        agent === "codex"
+          ? manifestHooks(receiver, "terminal", agent)
+          : receiver.register("terminal", agent);
       const directory = await mkdtemp(join(tmpdir(), "foom-hooks-"));
       const platform = process.platform === "win32" ? "win32" : "posix";
       const adapter = hookAdapter(agent === "claude" ? "stdin" : "argv", platform);
@@ -80,7 +86,13 @@ describe("OS hook adapters", () => {
           : [path];
       if (agent === "codex") args.push("configured-argument", payload);
       try {
-        await writeFile(path, adapter.source, { mode: 0o600 });
+        const channel = agentProvider(agent).model?.hooks?.channels.find(
+          (entry) => entry.id === "notify",
+        );
+        const source = channel
+          ? Object.values(observerAssets(channel, platform === "win32"))[0]
+          : adapter.source;
+        await writeFile(path, source ?? "", { mode: 0o600 });
         expect(
           await run(
             command,
@@ -98,7 +110,9 @@ describe("OS hook adapters", () => {
             conversationId: agent === "claude" ? "session" : "thread",
             action: agent === "claude" ? "needs_input" : "classify",
             signal:
-              agent === "claude" ? "plugin:claude:PermissionRequest" : "codex:agent-turn-complete",
+              agent === "claude"
+                ? "plugin:claude:PermissionRequest"
+                : "plugin:codex:agent-turn-complete",
             ...(agent === "claude"
               ? {
                   channel: "lifecycle",
@@ -106,7 +120,12 @@ describe("OS hook adapters", () => {
                   endsTurn: false,
                   recoverTurn: false,
                 }
-              : {}),
+              : {
+                  channel: "notify",
+                  caseId: "agent-turn-complete",
+                  endsTurn: true,
+                  recoverTurn: false,
+                }),
           },
         ]);
         launch.revoke();

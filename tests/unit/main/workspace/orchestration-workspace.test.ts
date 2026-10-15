@@ -1,3 +1,4 @@
+import { agentProvider } from "../../../../src/main/agents/providers/registry";
 import { beforeEach, expect, it, vi } from "vitest";
 import { Workspace } from "../../../../src/main/workspace/workspace";
 import type { WorkspaceDependencies } from "../../../../src/main/workspace/workspace";
@@ -39,6 +40,7 @@ let confirm: ReturnType<typeof vi.fn<(request: WorkspaceConfirmation) => Promise
 let setRole: ReturnType<typeof vi.fn<ControlRuntime["setRole"]>>;
 
 beforeEach(() => {
+  agentProvider("codex").discover("/bin/codex", "codex-cli 0.161.0", "-c");
   scanned = scan(true);
   launch = vi.fn((_request: AgentLaunch) =>
     Promise.resolve({ id: "parent", attention: "evaluator" as const }),
@@ -54,7 +56,7 @@ beforeEach(() => {
         close: vi.fn(async () => {}),
         setRole,
       }),
-    acknowledgeCodex: vi.fn(async () => {}),
+    acknowledgeNotifier: vi.fn(async () => {}),
     worktrees: {
       branches: vi.fn(),
       canAutoRemove: vi.fn(() => Promise.resolve(false)),
@@ -990,7 +992,7 @@ it.each([false, true])(
     };
     deps.config = { root: "/config", cliDirectory: "/cli", check: () => Promise.resolve() };
     const acknowledge = vi.fn(() => Promise.resolve());
-    deps.acknowledgeCodex = acknowledge;
+    deps.acknowledgeNotifier = acknowledge;
     const location = config ? "/config" : repo.path;
     const saved = readSessions([
       {

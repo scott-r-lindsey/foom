@@ -26,8 +26,6 @@ import { WindowIpcRouter } from "./window/window-ipc";
 import { TerminalViews } from "./window/terminal-views";
 import { loadPlacements, savePlacements, placeWindow } from "./window/window-placement";
 import type { WindowPlacement } from "./window/window-placement";
-import { join } from "node:path";
-import { CodexHookStatus } from "./agents/codex-hook-status";
 import { SoundLibrary } from "./sounds/library";
 import { attachSounds } from "./sounds/ipc";
 import { attachAppMenu, showWindowlessMenu } from "./window/app-menu";
@@ -449,8 +447,6 @@ async function buildWindow(savedSize?: Size, saved?: WindowPlacement, initialSes
     await setupOffers.load(app.getPath("userData"));
     if (settings.get().agyPluginOfferAnswered && !setupOffers.answered("agy"))
       await setupOffers.answer("agy");
-    const codexHooks = new CodexHookStatus(join(app.getPath("userData"), "codex-hook-health.json"));
-    await codexHooks.load();
     const forge = await ForgeTracking.open(
       app.getPath("userData"),
       async (tree) => {
@@ -474,7 +470,6 @@ async function buildWindow(savedSize?: Size, saved?: WindowPlacement, initialSes
     workspace = new Workspace({
       pluginStagingRoot: app.getPath("userData"),
       ...(forge === undefined ? {} : { forge }),
-      codexHooks,
       worktrees,
       watcher: new InventoryWatch(
         (repository) => worktrees.watchPaths(repository),
@@ -489,7 +484,7 @@ async function buildWindow(savedSize?: Size, saved?: WindowPlacement, initialSes
       acknowledgeAgyPluginOffer: async () => {
         await settings.update({ agyPluginOfferAnswered: true });
       },
-      acknowledgeCodex: async () => {
+      acknowledgeNotifier: async () => {
         await settings.update({ codexNotifierAcknowledged: true });
       },
       // Local rules classify each terminal; the log stores verdict metadata only.

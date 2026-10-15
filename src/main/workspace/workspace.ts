@@ -1,8 +1,9 @@
+import { observerHealth } from "../agents/providers/installed-observers";
 import { flushV2Health } from "../agents/providers/v2-health";
 import type { V2HookRuntime } from "../../shared/v2-hooks";
 import { PluginSetup } from "../agents/plugin-setup";
 import { stagePlugin } from "../agents/plugin-staging";
-import { agentProvider, providerRevision } from "../agents/providers/registry";
+import { agentProvider, knownAgentId, providerRevision } from "../agents/providers/registry";
 import { builtinAgent } from "../../shared/providers/catalog";
 import { ControlError } from "../control/validation";
 import type { ForgeTracking } from "../control/forge-tracking";
@@ -13,8 +14,6 @@ import type { McpConnection } from "../../shared/workspace";
 import { homeDirectory, homeShellFacts, shellPath } from "./home-shell";
 import type { AgyPluginAction } from "../../shared/agy-plugin";
 import { AgyPlugin } from "../agents/agy-plugin";
-import { CodexHookStatus } from "../agents/codex-hook-status";
-import { codexObserverCommand } from "../agents/codex-hooks";
 import { createHash } from "node:crypto";
 import { AgentExecution } from "../agents/execution";
 import type { ExecutionPhase, ExecutionSource, ExecutionTransition } from "../../shared/execution";
@@ -60,10 +59,6 @@ type Agents = Pick<AgentService, "scan" | "launch" | "release" | "dispose" | "se
 type Terminal = {
   v2Hooks?: V2HookRuntime;
   execution?: AgentExecution;
-  codexHealthLaunch?: number;
-  codexPromptTurn?: number;
-  codexStarted?: boolean;
-  codexStoppedTurn?: number;
   completedTurn?: number;
   interrupted?: boolean;
   actionVerdict?: string;
@@ -85,7 +80,6 @@ type Terminal = {
 
 export interface WorkspaceDependencies {
   pluginStagingRoot?: string;
-  codexHooks?: CodexHookStatus;
   worktrees: Pick<
     WorktreeService,
     | "listRepositories"
@@ -135,7 +129,7 @@ export interface WorkspaceDependencies {
   onState(state: TerminalState): void;
   onChange?(): void;
   watcher?: Pick<InventoryWatch, "sync" | "dispose">;
-  acknowledgeCodex(): Promise<void>;
+  acknowledgeNotifier(): Promise<void>;
   acknowledgeAgyPluginOffer?(): Promise<void>;
   forge?: ForgeTracking;
   sessions?: Pick<SessionStore, "load" | "save" | "flush">;
@@ -175,7 +169,6 @@ export class Workspace {
   /** Repository orchestrators and their children; the control service delegates here. */
   readonly orchestration: Orchestration;
   private readonly agents: Agents;
-  private readonly codexHooks: CodexHookStatus;
   private launchSequence = 0;
   private readonly executionListeners = new Set<(event: ExecutionTransition) => void>();
   private readonly launched = new Map<string, WorkspaceTerminal>();
@@ -266,7 +259,6 @@ export class Workspace {
 
   constructor(private readonly deps: WorkspaceDependencies) {
     this.now = deps.now ?? Date.now;
-    this.codexHooks = deps.codexHooks ?? new CodexHookStatus();
     deps.watcher?.sync(deps.worktrees.listRepositories());
     const prepare = async (agent: AgentId): Promise<AgentHooks> => {
       // A receiver that failed to start is retried on the next launch.
@@ -274,7 +266,6 @@ export class Workspace {
         this.receiver = undefined;
         throw error;
       });
-      const healthLaunch = builtinAgent(agent)?.hookHealth ? this.codexHooks.begin() : undefined;
       const binding = await prepareHookLaunch(
         await this.receiver,
         agent,
@@ -282,7 +273,6 @@ export class Workspace {
           if (terminalId) {
             this.hookKeys.set(key, terminalId);
             this.execution(terminalId);
-            if (healthLaunch !== undefined) this.track(terminalId).codexHealthLaunch = healthLaunch;
             if (binding.v2?.runtime) this.track(terminalId).v2Hooks = binding.v2.runtime;
           } else this.hookKeys.delete(key);
         },
@@ -291,13 +281,7 @@ export class Workspace {
         undefined,
         this.deps.agentPluginDirectory,
       );
-      return builtinAgent(agent)?.hookHealth
-        ? {
-            ...binding,
-            lifecycleCommand: codexObserverCommand(),
-            notifyFallback: this.codexHooks.get() !== "trusted",
-          }
-        : binding;
+      return binding;
     };
     const startControl = deps.control;
     const prepareControl = startControl
@@ -815,8 +799,33 @@ export class Workspace {
       const { warning, agents } = await this.scanned;
       return {
         warning,
-        agents: agents.map((agent) =>
-          agent.codexLifecycle ? { ...agent, codexHookState: this.codexHooks.get() } : agent,
+        agents: await Promise.all(
+          agents.map(async (agent) => {
+            if (!knownAgentId(agent.id)) return agent;
+            const provider = agentProvider(agent.id);
+            if (!agent.path || !provider.model?.health) return agent;
+            const health = agent.healthSupported
+              ? await observerHealth(
+                  provider.model,
+                  this.deps.agentPluginDirectory,
+                  provider.origin === "bundled",
+                ).catch(() => undefined)
+              : undefined;
+            return {
+              ...agent,
+              ...(agent.healthSupported
+                ? {
+                    hookState: health?.get() ?? "not-reviewed",
+                    healthInstructions: provider.model.health.instructions,
+                  }
+                : {}),
+              notifierReplacement: provider.needsNotifier(
+                agent,
+                undefined,
+                health?.get() === "trusted",
+              ),
+            };
+          }),
         ),
       };
     } catch (error) {
@@ -1026,10 +1035,10 @@ export class Workspace {
           if (!(await this.confirmAgentLaunch(tree.path, confirm))) return null;
           if (
             builtinAgent(request.run)?.hookHealth &&
-            request.acknowledgeCodexNotifierReplacement &&
+            request.acknowledgeNotifierReplacement &&
             !this.acknowledged
           ) {
-            await this.deps.acknowledgeCodex();
+            await this.deps.acknowledgeNotifier();
             this.acknowledged = true;
           }
           return (
@@ -1040,7 +1049,7 @@ export class Workspace {
                 worktree: tree.path,
                 cols: 80,
                 rows: 24,
-                acknowledgeCodexNotifierReplacement: this.acknowledged,
+                acknowledgeNotifierReplacement: this.acknowledged,
               },
               false,
               true,
@@ -1517,12 +1526,11 @@ export class Workspace {
         this.agentHooks[run] !== false &&
         !this.acknowledged &&
         scan.agents.some(
-          (agent) =>
-            builtinAgent(agent.id)?.hookHealth && agent.hooks && agent.codexHookState !== "trusted",
+          (agent) => agent.id === run && agent.hooks && agent.notifierReplacement === true,
         )
       ) {
         if (!(await confirm({ kind: "notifier" }))) return;
-        await this.deps.acknowledgeCodex();
+        await this.deps.acknowledgeNotifier();
         this.acknowledged = true;
       }
       if (replacement) {
@@ -1546,7 +1554,7 @@ export class Workspace {
           rows: 24,
           defaultArguments,
           configCli: config.cliDirectory,
-          acknowledgeCodexNotifierReplacement: this.acknowledged,
+          acknowledgeNotifierReplacement: this.acknowledged,
           ...(this.deps.environment ? { environment: this.deps.environment(run) } : {}),
           ...(replacement
             ? {
@@ -1843,14 +1851,11 @@ export class Workspace {
             this.agentHooks[run] !== false &&
             !this.acknowledged &&
             scan.agents.some(
-              (agent) =>
-                builtinAgent(agent.id)?.hookHealth &&
-                agent.hooks &&
-                agent.codexHookState !== "trusted",
+              (agent) => agent.id === run && agent.hooks && agent.notifierReplacement === true,
             )
           ) {
             if (!(await confirm({ kind: "notifier" }))) return;
-            await this.deps.acknowledgeCodex();
+            await this.deps.acknowledgeNotifier();
             this.acknowledged = true;
           }
           if (replacement) {
@@ -1873,7 +1878,7 @@ export class Workspace {
                   worktree,
                   cols: 80,
                   rows: 24,
-                  acknowledgeCodexNotifierReplacement: this.acknowledged,
+                  acknowledgeNotifierReplacement: this.acknowledged,
                 },
                 worktree === repository,
                 true,
@@ -2082,7 +2087,7 @@ export class Workspace {
             worktree,
             cols: 80,
             rows: 24,
-            acknowledgeCodexNotifierReplacement: this.acknowledged,
+            acknowledgeNotifierReplacement: this.acknowledged,
           },
           false,
           false,
@@ -2139,15 +2144,6 @@ export class Workspace {
       (source === "hook" || !this.completionHook(id))
     )
       terminal.completedTurn = event.turn;
-    if (
-      phase === "idle" &&
-      event.from === "working" &&
-      source !== "hook" &&
-      builtinAgent(this.launched.get(id)?.agent)?.hookHealth &&
-      terminal.codexPromptTurn !== event.turn &&
-      this.codexHooks.get() === "trusted"
-    )
-      this.codexHooks.set("declined", terminal.codexHealthLaunch);
     if (phase === "idle" && event.from === "working" && source !== "hook")
       terminal.v2Hooks?.idle(event.turn);
     if (phase === "exited" && event.from === "working") terminal.interrupted = true;
@@ -2158,11 +2154,7 @@ export class Workspace {
     if (this.track(id).v2Hooks) return this.track(id).v2Hooks?.required() === true;
     return (
       entry?.attention === "hooks" &&
-      Boolean(
-        !builtinAgent(entry.agent) ||
-          builtinAgent(entry.agent)?.completionHook ||
-          (builtinAgent(entry.agent)?.hookHealth && this.track(id).codexPromptTurn !== undefined),
-      )
+      Boolean(!builtinAgent(entry.agent) || builtinAgent(entry.agent)?.completionHook)
     );
   }
 
@@ -2251,17 +2243,6 @@ export class Workspace {
       tail = await this.deps.terminals.tail(id, 40);
     } catch {
       // A failed host has no screen. Exit codes and hooks still decide.
-    }
-    if (
-      builtinAgent(this.launched.get(id)?.agent)?.hookHealth &&
-      terminal.exitCode === undefined &&
-      terminal.codexHealthLaunch !== undefined &&
-      tail.slice(-20).some((line) => line.includes("Hooks need review"))
-    ) {
-      this.codexHooks.set(
-        ["trusted", "outdated"].includes(this.codexHooks.get()) ? "outdated" : "not-reviewed",
-        terminal.codexHealthLaunch,
-      );
     }
     terminal.v2Hooks?.review(tail);
     let record = await this.deps.verdicts.classify({
@@ -2511,28 +2492,10 @@ export class Workspace {
       if (signal.endsTurn === false && wasWorking) delete health.completedTurn;
       return Promise.resolve();
     }
-    if (signal.signal === "codex:SessionStart") {
-      health.codexStarted = true;
-      return Promise.resolve();
-    }
-    const turn = this.execution(id).snapshot().turn;
-    if (signal.signal === "codex:Stop") {
-      health.codexStoppedTurn = turn;
-      if (health.codexStarted && health.codexPromptTurn === turn)
-        this.codexHooks.set("trusted", health.codexHealthLaunch);
-    }
-    if (signal.signal === "codex:agent-turn-complete") {
-      if (health.codexPromptTurn !== turn)
-        this.codexHooks.set("declined", health.codexHealthLaunch);
-      // Stop is authoritative; do not classify the same turn twice through notify.
-      if (health.codexStoppedTurn === turn) return Promise.resolve();
-    }
     if (signal.action === "working") {
       this.track(id).generation++;
       this.transition(id, "working", "hook");
       runtime?.accept(signal, this.execution(id).snapshot().turn);
-      if (signal.signal === "codex:UserPromptSubmit")
-        health.codexPromptTurn = this.execution(id).snapshot().turn;
       return Promise.resolve();
     }
     // A fully idle Stop proves a turn ran even when its background start report
@@ -2557,13 +2520,7 @@ export class Workspace {
     } else if (signal.endsTurn !== false) {
       const terminal = this.track(id);
       const turn = terminal.execution?.snapshot().turn;
-      if (
-        turn &&
-        (signal.signal.startsWith("plugin:") ||
-          signal.signal === "agy:Stop" ||
-          signal.signal === "codex:Stop" ||
-          signal.signal === "codex:agent-turn-complete")
-      )
+      if (turn && (signal.signal.startsWith("plugin:") || signal.signal === "agy:Stop"))
         terminal.completedTurn = turn;
       this.transition(id, "idle", "hook");
     }
@@ -2698,7 +2655,6 @@ export class Workspace {
         if (receiver) await (await receiver.catch(() => undefined))?.close();
       } finally {
         await this.deps.sessions?.flush();
-        await this.codexHooks.flush();
         await flushV2Health();
       }
     }

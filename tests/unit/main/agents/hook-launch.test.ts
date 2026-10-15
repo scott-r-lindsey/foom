@@ -1,3 +1,7 @@
+import fixture from "../../../fixtures/agent-plugin.json";
+import { parseAgentPlugin } from "../../../../src/shared/agent-manifest";
+import { configProvider } from "../../../../src/main/agents/providers/config";
+import { replaceConfigProviders } from "../../../../src/main/agents/providers/registry";
 import type * as Fs from "node:fs/promises";
 import { agentProvider } from "../../../../src/main/agents/providers/registry";
 import { execFile } from "node:child_process";
@@ -30,6 +34,7 @@ beforeEach(async () => {
 });
 afterEach(async () => {
   vi.unstubAllEnvs();
+  replaceConfigProviders([]);
   try {
     // dispose() removes its launch directory asynchronously. Wait for it before
     // deleting the parent: concurrent recursive removals can fail with EPERM on Windows.
@@ -85,28 +90,30 @@ test("writes a private POSIX adapter and quotes its path for the hook shell", as
 test("uses PowerShell on Windows", async () => {
   const execute = vi.fn().mockResolvedValue({ stdout: "", stderr: "" });
   const hooks = await prepareHookLaunch(receiver, "codex", vi.fn(), "win32", scratch, execute);
-  const [directory] = await launchDirectories();
-  if (!directory) throw new Error("Missing launch directory");
-  const script = join(scratch, directory, "codex.ps1");
-  expect(hooks.observerArgv).toEqual([
-    "powershell.exe",
-    "-NoProfile",
-    "-NonInteractive",
-    "-ExecutionPolicy",
-    "Bypass",
-    "-File",
-    script,
-  ]);
-  expect(hooks.observerCommand).toBe(
-    `powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "${script}"`,
-  );
-  expect(execute).toHaveBeenCalledExactlyOnceWith(
-    "powershell.exe",
-    [...hooks.observerArgv.slice(1), "--foom-probe"],
-    { timeout: 8000, maxBuffer: 65536 },
-  );
-  expect(await readFile(script, "utf8")).toContain("--foom-probe");
-  hooks.dispose();
+  try {
+    const argv = hooks.v2?.values["observerArgv:notify"];
+    if (!Array.isArray(argv)) throw new Error("Missing notify observer");
+    const script = argv.at(-1) ?? "";
+    expect(argv.slice(0, -1)).toEqual([
+      "powershell.exe",
+      "-NoProfile",
+      "-NonInteractive",
+      "-ExecutionPolicy",
+      "Bypass",
+      "-File",
+    ]);
+    expect(hooks.v2?.values["observerCommand:notify"]).toBe(
+      `powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "${script}"`,
+    );
+    expect(execute).toHaveBeenCalledExactlyOnceWith(
+      "powershell.exe",
+      [...argv.slice(1), "--foom-probe"],
+      { timeout: 8000, maxBuffer: 65536 },
+    );
+    expect(await readFile(script, "utf8")).toContain("--foom-probe");
+  } finally {
+    hooks.dispose();
+  }
 });
 
 test.each(["interpreter missing", "enforced policy rejects script", "probe timed out"])(
@@ -203,7 +210,8 @@ test.skipIf(process.platform !== "win32").each(["claude", "codex"] as const)(
         expect(signals).toMatchObject([]); // Startup probe must not send an event.
         for (const channel of agentProvider(agent).model?.hooks?.channels ?? [])
           hooks.v2?.channels.set(channel.id, channel);
-        const argv = hooks.v2?.values["observerArgv:lifecycle"];
+        const argv =
+          hooks.v2?.values[agent === "claude" ? "observerArgv:lifecycle" : "observerArgv:notify"];
         const [file, ...args] = Array.isArray(argv) ? argv : hooks.observerArgv;
         if (!file) throw new Error("Missing hook executable");
         // Restricted can block Get-ExecutionPolicy's own module import. Prove
@@ -241,7 +249,9 @@ test.skipIf(process.platform !== "win32").each(["claude", "codex"] as const)(
           expect.objectContaining({
             action: agent === "claude" ? "needs_input" : "classify",
             signal:
-              agent === "claude" ? "plugin:claude:PermissionRequest" : "codex:agent-turn-complete",
+              agent === "claude"
+                ? "plugin:claude:PermissionRequest"
+                : "plugin:codex:agent-turn-complete",
           }),
         ]);
       } finally {
@@ -277,19 +287,21 @@ test("Antigravity binds and revokes credentials with only a private ordering cou
 });
 
 test("legacy hooks fail closed on policy and registration failures, and tolerate exit cleanup failure", async () => {
+  const manifest = parseAgentPlugin(JSON.stringify(fixture));
+  replaceConfigProviders([configProvider(manifest, () => Promise.resolve())]);
   const execute = vi.fn().mockRejectedValue(new Error("policy"));
   await expect(
-    prepareHookLaunch(receiver, "codex", vi.fn(), "win32", scratch, execute),
+    prepareHookLaunch(receiver, fixture.id, vi.fn(), "win32", scratch, execute),
   ).rejects.toThrow("PowerShell hook script could not run");
   expect(receiver.register).not.toHaveBeenCalled();
   receiver.register.mockImplementationOnce(() => {
     throw new Error("closed");
   });
-  await expect(prepareHookLaunch(receiver, "codex", vi.fn(), "linux", scratch)).rejects.toThrow(
+  await expect(prepareHookLaunch(receiver, fixture.id, vi.fn(), "linux", scratch)).rejects.toThrow(
     "closed",
   );
   expect(await launchDirectories()).toEqual([]);
-  const hooks = await prepareHookLaunch(receiver, "codex", vi.fn(), "linux", scratch);
+  const hooks = await prepareHookLaunch(receiver, fixture.id, vi.fn(), "linux", scratch);
   const files = await import("node:fs/promises");
   const remove = vi.spyOn(files, "rm").mockRejectedValueOnce(new Error("busy"));
   hooks.dispose();
@@ -299,4 +311,25 @@ test("legacy hooks fail closed on policy and registration failures, and tolerate
   remove.mockRestore();
   for (const name of await launchDirectories())
     await rm(join(scratch, name), { recursive: true, force: true });
+});
+
+test("legacy Windows argv hooks probe policy before registration and quote their private path", async () => {
+  const manifest = parseAgentPlugin(JSON.stringify(fixture));
+  replaceConfigProviders([configProvider(manifest, () => Promise.resolve())]);
+  const execute = vi.fn().mockResolvedValue({ stdout: "", stderr: "" });
+  const hooks = await prepareHookLaunch(receiver, fixture.id, vi.fn(), "win32", scratch, execute);
+  try {
+    const script = hooks.observerArgv.at(-1) ?? "";
+    expect(hooks.observerCommand).toBe(
+      `powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "${script}"`,
+    );
+    expect(execute).toHaveBeenCalledExactlyOnceWith(
+      "powershell.exe",
+      [...hooks.observerArgv.slice(1), "--foom-probe"],
+      { timeout: 8000, maxBuffer: 65536 },
+    );
+    expect(await readFile(script, "utf8")).toContain("$args[-1]");
+  } finally {
+    hooks.dispose();
+  }
 });

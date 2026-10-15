@@ -1,4 +1,4 @@
-import { mkdtemp, rm, stat } from "node:fs/promises";
+import { mkdtemp, rm, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, expect, it, vi } from "vitest";
@@ -7,6 +7,7 @@ import {
   createPrivateFile,
   atomicPrivate,
   readDiscovery,
+  verifyLegacyProfileFile,
 } from "../../../../src/main/control/private-files";
 
 const run = vi.hoisted(() => vi.fn(() => Promise.resolve({ stdout: "", stderr: "" })));
@@ -50,4 +51,20 @@ it("uses a fixed DACL program with data-only paths and refuses ACL verification 
   await expect(stat(refused)).rejects.toMatchObject({ code: "ENOENT" });
   run.mockRejectedValueOnce(new Error("DACL refused"));
   await expect(privateDirectory(root)).rejects.toThrow("DACL refused");
+});
+
+it("checks legacy profile ownership without changing inherited ACLs and fails closed on denial", async () => {
+  root = await mkdtemp(join(tmpdir(), "foom-profile-acl-"));
+  const file = join(root, "health.json");
+  await writeFile(file, "{}");
+  vi.spyOn(process, "platform", "get").mockReturnValue("win32");
+  await verifyLegacyProfileFile(file);
+  const args: unknown[] = run.mock.calls.at(-1) ?? [];
+  expect(args[0]).toBe("powershell.exe");
+  expect(args[1]).toContainEqual(expect.stringContaining("S-1-5-32-544"));
+  expect(args[2]).toHaveProperty("env.FOOM_PRIVATE_PATH", file);
+  expect(args[2]).toHaveProperty("env.FOOM_PRIVATE_CREATE", "0");
+  expect(args[2]).toHaveProperty("env.FOOM_PRIVATE_PROFILE", "1");
+  run.mockRejectedValueOnce(new Error("other account"));
+  await expect(verifyLegacyProfileFile(file)).rejects.toThrow("other account");
 });

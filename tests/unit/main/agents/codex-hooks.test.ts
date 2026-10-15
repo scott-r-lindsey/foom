@@ -1,28 +1,44 @@
+import { nativeDeadline } from "../../../helpers/native-test-policy";
+import { privateDirectory } from "../../../../src/main/control/private-files";
 import { execFile } from "node:child_process";
 import { mkdtemp, rm, writeFile, readFile, mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { afterEach, expect, test } from "vitest";
+import { join, dirname, basename } from "node:path";
+import { afterEach, expect, test, vi } from "vitest";
 import {
   CODEX_EVENTS,
   codexHookArguments,
   codexObserverCommand,
   codexObserverFile,
-  codexObserverSource,
-} from "../../../../src/main/agents/codex-hooks";
-import { CodexHookStatus } from "../../../../src/main/agents/codex-hook-status";
+} from "../../../helpers/legacy-codex";
+import { V2Health, flushV2Health } from "../../../../src/main/agents/providers/v2-health";
+import { observerAssets } from "../../../../src/main/agents/providers/v2-observers";
+import { agentProvider } from "../../../../src/main/agents/providers/registry";
+import { manifestHooks } from "../../../helpers/manifest-hooks";
+const channel = agentProvider("codex").model?.hooks?.channels[0];
+if (!channel) throw new Error("Missing lifecycle channel");
+function codexObserverSource(platform: "posix" | "win32") {
+  if (!channel) throw new Error("Missing channel");
+  return Object.values(observerAssets(channel, platform === "win32"))[0] ?? "";
+}
+function createStatus(file: string, fingerprint = "definition") {
+  return new V2Health(dirname(file), basename(file).replace(/-health.json$/u, ""), fingerprint);
+}
 import { HookReceiver } from "../../../../src/main/agents/hook-receiver";
 import type { HookSignal } from "../../../../src/shared/hooks";
 import { UNREACHABLE_PROXY } from "../../../helpers/unreachable-proxy";
 
+// The native job executes this suite serially on every OS, including Windows ACL operations.
+vi.setConfig({ testTimeout: nativeDeadline(5000) });
 const scratch: string[] = [];
 afterEach(async () => {
+  await flushV2Health();
   await Promise.all(scratch.splice(0).map((path) => rm(path, { recursive: true, force: true })));
 });
 async function directory() {
   const path = await mkdtemp(join(tmpdir(), "foom observer's $test-"));
   scratch.push(path);
-  return path;
+  return privateDirectory(path, "profile");
 }
 function run(command: string, env: NodeJS.ProcessEnv, input?: string) {
   return new Promise<{ stdout: string; stderr: string }>((resolve, reject) => {
@@ -83,7 +99,7 @@ test("native observer delivers stdin without output or decisions, and tolerates 
   const signals: HookSignal[] = [];
   const receiver = await HookReceiver.listen((event) => signals.push(event));
   try {
-    const launch = receiver.register("terminal", "codex");
+    const launch = manifestHooks(receiver, "terminal", "codex");
     const env = { ...process.env, ...UNREACHABLE_PROXY, ...launch.env };
     const command = codexObserverCommand(process.platform, path);
     const payload = JSON.stringify({
@@ -100,7 +116,11 @@ test("native observer delivers stdin without output or decisions, and tolerates 
         terminalId: "terminal",
         conversationId: "conversation",
         action: "needs_input",
-        signal: "codex:PermissionRequest",
+        signal: "plugin:codex:PermissionRequest",
+        channel: "lifecycle",
+        caseId: "PermissionRequest",
+        endsTurn: false,
+        recoverTurn: false,
       },
     ]);
     await receiver.close();
@@ -111,19 +131,19 @@ test("native observer delivers stdin without output or decisions, and tolerates 
 });
 
 test("Foom health persists independently, invalidates changed commands, and serializes updates", async () => {
-  const file = join(await directory(), "health.json");
-  const status = new CodexHookStatus(file, "observer-v1");
+  const file = join(await directory(), "test-health.json");
+  const status = createStatus(file, "observer-v1");
   await status.load();
   expect(status.get()).toBe("not-reviewed");
   status.set("trusted");
   status.set("declined");
   status.set("trusted");
   await status.flush();
-  const reopened = new CodexHookStatus(file, "observer-v1");
+  const reopened = createStatus(file, "observer-v1");
   await reopened.load();
   expect(reopened.get()).toBe("trusted");
   expect(await readFile(file, "utf8")).not.toMatch(/trusted_hash|token|command/u);
-  const update = new CodexHookStatus(file, "observer-v2");
+  const update = createStatus(file, "observer-v2");
   await update.load();
   expect(update.get()).toBe("outdated");
   update.set("outdated");
@@ -133,24 +153,24 @@ test("Foom health persists independently, invalidates changed commands, and seri
 test.each(["{", "null", "{}", '{"fingerprint":0}', '{"fingerprint":0,"state":"invented"}'])(
   "health loading fails safely for %s",
   async (data) => {
-    const file = join(await directory(), "health.json");
+    const file = join(await directory(), "test-health.json");
     await writeFile(file, data);
-    const status = new CodexHookStatus(file);
+    const status = createStatus(file);
     await status.load();
     expect(status.get()).not.toBe("trusted");
   },
 );
 
 test("health remains usable without persistence or when writes fail", async () => {
-  const memory = new CodexHookStatus();
+  const memory = createStatus(join(await directory(), "memory-health.json"));
   await memory.load();
   memory.set("trusted");
   memory.set("trusted");
   await memory.flush();
   expect(memory.get()).toBe("trusted");
-  const file = join(await directory(), "directory");
+  const file = join(await directory(), "directory-health.json");
   await mkdir(file);
-  const status = new CodexHookStatus(file);
+  const status = createStatus(file);
   status.set("declined");
   await status.flush();
   expect(status.get()).toBe("declined");
@@ -159,28 +179,28 @@ test("health remains usable without persistence or when writes fail", async () =
 test.each(["declined", "outdated", "not-reviewed"] as const)(
   "restores %s health and rejects unknown states for the same definition",
   async (state) => {
-    const file = join(await directory(), "health.json");
-    const status = new CodexHookStatus(file);
+    const file = join(await directory(), "test-health.json");
+    const status = createStatus(file);
     status.set("trusted");
     status.set(state);
     await status.flush();
-    const reopened = new CodexHookStatus(file);
+    const reopened = createStatus(file);
     await reopened.load();
     expect(reopened.get()).toBe(state);
     const raw = await readFile(file, "utf8");
     await writeFile(file, raw.replace(state, "invented"));
-    const corrupt = new CodexHookStatus(file);
+    const corrupt = createStatus(file);
     await corrupt.load();
     expect(corrupt.get()).toBe("not-reviewed");
   },
 );
 
-test("an older terminal cannot overwrite health established by a later launch", () => {
-  const status = new CodexHookStatus();
-  const first = status.begin();
-  status.set("trusted", first);
-  const latest = status.begin();
-  status.set("declined", latest);
-  status.set("trusted", first);
-  expect(status.get()).toBe("declined");
+test("an older terminal cannot overwrite health established by a later launch", async () => {
+  const health = createStatus(join(await directory(), "latest-health.json"));
+  const first = health.begin();
+  health.set("trusted", first);
+  const latest = health.begin();
+  health.set("declined", latest);
+  health.set("trusted", first);
+  expect(health.get()).toBe("declined");
 });

@@ -1,12 +1,22 @@
+import {
+  agentProvider,
+  replaceConfigProviders,
+} from "../../../../src/main/agents/providers/registry";
+import fixture from "../../../fixtures/agent-plugin.json";
+import { parseAgentPlugin } from "../../../../src/shared/agent-manifest";
+import { configProvider } from "../../../../src/main/agents/providers/config";
 import { expect, it } from "vitest";
 import { prepareMcpLaunch, supportsMcp } from "../../../../src/main/agents/mcp-launch";
-it("attaches the legacy provider with environment-only bearer credentials", async () => {
-  const codex = await prepareMcpLaunch("codex", "http://127.0.0.1:1234/control/v1");
-  expect(codex.args).toEqual(["-c", expect.stringMatching(/^mcp_servers\.foom_[a-f0-9]+=/u)]);
-  expect(codex.args[1]).toContain('bearer_token_env_var="FOOM_CONTROL_TOKEN"');
-  codex.dispose();
+it("requires the shared launch context for bundled MCP", async () => {
+  await expect(prepareMcpLaunch("codex", "http://127.0.0.1:1234/control/v1")).rejects.toThrow(
+    "launch context",
+  );
 });
+
 it("refuses unsupported agents and non-loopback endpoints", async () => {
+  await expect(agentProvider("agy").prepareMcp("http://127.0.0.1:1234/control/v1")).rejects.toThrow(
+    "unsupported",
+  );
   await expect(prepareMcpLaunch("agy", "http://127.0.0.1:1234/control/v1")).rejects.toThrow(
     "unsupported",
   );
@@ -73,3 +83,16 @@ it.each(["", "--mcp-config-extra -config", "x--mcp-config x-c", "--config"])(
     expect(supportsMcp("codex", "codex-cli 0.162.1", help)).toBe(false);
   },
 );
+
+it("does not grant v1 plugins the v2 MCP discovery or attachment capability", async () => {
+  const manifest = parseAgentPlugin(JSON.stringify(fixture));
+  replaceConfigProviders([configProvider(manifest, () => Promise.resolve())]);
+  try {
+    expect(supportsMcp(manifest.id, "1.0.0", "--mcp -c --mcp-config")).toBe(false);
+    await expect(prepareMcpLaunch(manifest.id, "http://127.0.0.1:1234/control/v1")).rejects.toThrow(
+      "unsupported",
+    );
+  } finally {
+    replaceConfigProviders([]);
+  }
+});

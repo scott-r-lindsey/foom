@@ -1,4 +1,9 @@
 import { PluginSetup } from "../../../../src/main/agents/plugin-setup";
+import { createHash } from "node:crypto";
+import codexManifest from "../../../../src/shared/bundled-agents/codex.json";
+import { bundledProvider } from "../../../../src/main/agents/providers/bundled";
+import { V2ExecutionHooks, V2Health } from "../../../../src/main/agents/providers/v2-health";
+import { agentProvider } from "../../../../src/main/agents/providers/registry";
 import { hostRequest } from "../../../../src/shared/terminal-host-protocol";
 import type { AgentProvider } from "../../../../src/main/agents/providers/provider";
 import pluginFixture from "../../../fixtures/agent-plugin.json";
@@ -68,6 +73,7 @@ const binding: AgentHooks = {
     values: {
       "observerCommand:lifecycle": "/foom adapter --stdin",
       "observerArgv:lifecycle": ["/foom adapter", "--argv"],
+      "observerArgv:notify": ["/foom adapter", "--argv"],
     },
     channels: new Map(),
     state: {},
@@ -89,6 +95,7 @@ const request: AgentLaunch = {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  binding.v2?.channels.clear();
   vi.mocked(prepareMcpLaunch).mockReset();
   create.mockReset().mockImplementation(() => "terminal-id");
   launchIdentity.mockReset().mockResolvedValue("identity");
@@ -307,7 +314,7 @@ describe("launch", () => {
     );
     expect(cleanup).toHaveBeenCalledOnce();
     expect(create).not.toHaveBeenCalled();
-    await service.launch({ ...request, agent: "codex", acknowledgeCodexNotifierReplacement: true });
+    await service.launch({ ...request, agent: "codex", acknowledgeNotifierReplacement: true });
     expect(create).toHaveBeenCalledWith(
       expect.objectContaining({ args: ["-c", `notify=${JSON.stringify(binding.observerArgv)}`] }),
     );
@@ -477,7 +484,7 @@ it("prepends literal defaults to Foom's inline and hook flags", async () => {
     ...request,
     agent: "codex",
     defaultArguments: defaults,
-    acknowledgeCodexNotifierReplacement: true,
+    acknowledgeNotifierReplacement: true,
   });
   expect(create.mock.calls[0]?.[0].args).toEqual([
     ...defaults,
@@ -519,7 +526,7 @@ describe("conversation resume", () => {
         agent,
         terminalId: "original",
         conversationId: "conversation-123",
-        acknowledgeCodexNotifierReplacement: true,
+        acknowledgeNotifierReplacement: true,
       });
       const spec = create.mock.calls[0]?.[0];
       expect(spec?.id).toBe("original");
@@ -731,10 +738,16 @@ it.each([
         agent,
         control: { parentId: "parent" },
         ...(prompt === undefined ? {} : { prompt }),
-        acknowledgeCodexNotifierReplacement: true,
+        acknowledgeNotifierReplacement: true,
       });
       const args = create.mock.calls.at(-1)?.[0].args;
-      expect(args).toEqual(expect.arrayContaining(agent === "claude" ? ["--mcp-config"] : mcpArgs));
+      expect(args).toEqual(
+        expect.arrayContaining(
+          agent === "claude"
+            ? ["--mcp-config"]
+            : ["-c", expect.stringMatching(/^mcp_servers\.foom_[a-f0-9]+=/u)],
+        ),
+      );
       if (prompt === undefined) expect(args).not.toContain("--");
       else
         expect(args?.slice(-2)).toEqual([
@@ -797,20 +810,39 @@ it.each([true, false])(
     );
     prepare.mockResolvedValueOnce({
       ...binding,
-      lifecycleCommand: "sh '/stable/observer.sh' codex",
-      notifyFallback: !trusted,
+      v2: {
+        values: binding.v2?.values ?? {},
+        channels: new Map(),
+        state: {},
+        runtime: new V2ExecutionHooks(
+          agentProvider("codex").model ??
+            (() => {
+              throw new Error("Missing model");
+            })(),
+          new Map(),
+          (() => {
+            const health = new V2Health(root, "test", "definition");
+            vi.spyOn(health, "get").mockReturnValue(trusted ? "trusted" : "not-reviewed");
+            return health;
+          })(),
+        ),
+      },
     });
     try {
       await service.launch({
         ...request,
         agent: "codex",
-        acknowledgeCodexNotifierReplacement: !trusted,
+        acknowledgeNotifierReplacement: !trusted,
       });
       const args = create.mock.calls[0]?.[0].args ?? [];
       expect(args.filter((arg) => arg.startsWith("hooks."))).toHaveLength(6);
-      expect(args).toContain('mcp_servers.foom.url="http://127.0.0.1:1234/control/v1/mcp"');
+      expect(args).toContainEqual(
+        expect.stringMatching(
+          /^mcp_servers\.foom_[a-f0-9]+=\{url="http:\/\/127\.0\.0\.1:1234\/mcp",bearer_token_env_var="FOOM_CONTROL_TOKEN"\}$/u,
+        ),
+      );
       service.release("terminal-id");
-      expect(disposeMcp).toHaveBeenCalledOnce();
+      expect(disposeMcp).not.toHaveBeenCalled();
       expect(args.some((arg) => arg.startsWith("notify="))).toBe(!trusted);
       expect(args.join(" ")).not.toContain("--dangerously-bypass-hook-trust");
       expect(args.join(" ")).not.toContain("secret");
@@ -822,7 +854,7 @@ it.each([true, false])(
 );
 
 it("does not suppress the notifier when lifecycle hooks cannot be attached", async () => {
-  prepare.mockResolvedValueOnce({ ...binding, notifyFallback: false });
+  prepare.mockResolvedValueOnce(binding);
   await expect(service.launch({ ...request, agent: "codex" })).rejects.toThrow(
     "replaces your Codex notifier",
   );
@@ -953,7 +985,7 @@ it.each(["claude", "codex", "agy"] as const)(
                 "-i=third",
               ]
             : ["--model", "test"],
-        acknowledgeCodexNotifierReplacement: true,
+        acknowledgeNotifierReplacement: true,
       });
       const args = create.mock.calls.at(-1)?.[0].args ?? [];
       expect(args).toContain("--model");
@@ -1107,7 +1139,7 @@ it("per-agent screen rules suppress only that agent's hooks and retain the globa
       await service.launch({
         ...request,
         agent: "codex",
-        acknowledgeCodexNotifierReplacement: true,
+        acknowledgeNotifierReplacement: true,
       })
     ).attention,
   ).toBe("hooks");
@@ -1334,4 +1366,28 @@ it("v2 preserves successful discovery data when only the independent version pro
   });
   expect(create.mock.calls.at(-1)?.[0].args.at(-1)).toContain("a supported task");
   service.release(result.id);
+});
+
+it("does not let a renderer acknowledgement approve revised, context-selected bundled disclosures", async () => {
+  const data = structuredClone(codexManifest);
+  data.id = "codex-revised";
+  const notify = data.hooks.channels.find((channel) => channel.id === "notify");
+  if (!notify) throw new Error("Missing notify channel");
+  notify.when.all.push({ field: "control", op: "eq", value: true });
+  const digest = createHash("sha256").update(JSON.stringify(data)).digest("hex");
+  replaceConfigProviders([bundledProvider(data, data.id, digest, "old-consent")]);
+  const dispose = vi.fn();
+  service = new AgentService({ listWorktrees, launchIdentity }, { create }, prepare, () =>
+    Promise.resolve({
+      env: { FOOM_CONTROL_URL: "http://127.0.0.1:1234/control/v1" },
+      bind: vi.fn(),
+      dispose,
+    }),
+  );
+  await expect(
+    service.launch({ ...request, agent: data.id, acknowledgeNotifierReplacement: true }),
+  ).rejects.toThrow("replaces your Codex notifier");
+  expect(create).not.toHaveBeenCalled();
+  expect(dispose).toHaveBeenCalledOnce();
+  expect(cleanup).toHaveBeenCalledOnce();
 });

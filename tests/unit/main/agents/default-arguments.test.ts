@@ -79,7 +79,7 @@ test.each([
   ["--config", '"notify"=[]'],
   ["-c", "profiles.test.hooks={}"],
 ])("rejects notifier and hook overrides %j", (...args) => {
-  expect(() => parseAgentArguments("codex", args)).toThrow("attention detection");
+  expect(() => parseAgentArguments("codex", args)).toThrow("reserved");
 });
 
 test.each([
@@ -150,7 +150,7 @@ test("validation errors identify the agent and original argument line", () => {
   );
   expect(() => parseAgentArguments("agy", ["--model", "x\ty"])).toThrow("Antigravity, line 2:");
   expect(() => parseAgentArguments("codex", ["--model", "x", "--config=notify=[]"])).toThrow(
-    "Codex, line 3: Codex notify",
+    "Codex, line 3: These arguments are reserved",
   );
   expect(() => parseAgentArguments("claude", ["--bare"])).toThrow("reserved");
   expect(() => parseAgentArguments("agy", Array(65).fill("x"))).toThrow("Antigravity: use a list");
@@ -171,16 +171,12 @@ test.each([
   ["agy", "--continue"],
   ["agy", "-c"],
 ] as const)("reserves conversation selector %s %s", (agent, arg) => {
-  expect(() => parseAgentArguments(agent, [arg])).toThrow(
-    agent === "codex" ? "Conversation selection" : "reserved",
-  );
+  expect(() => parseAgentArguments(agent, [arg])).toThrow("reserved");
 });
 
 test.each(["--dangerously-bypass-hook-trust", "--dangerously-bypass-hook-trust=true"])(
   "rejects %s rather than bypassing Codex hook review",
   (arg) => {
-    expect(() => parseAgentArguments("codex", [arg])).toThrow(
-      "Hook trust must be granted in Codex",
-    );
+    expect(() => parseAgentArguments("codex", [arg])).toThrow("reserved");
   },
 );

@@ -1,15 +1,16 @@
+import { observerHealth, installedObserverPath } from "./installed-observers";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import type { HookLaunch } from "../../../shared/hooks";
 import { writeOwnedFile, readOwnedFile } from "./v2-files";
-import { healthStore, V2ExecutionHooks } from "./v2-health";
+import { V2ExecutionHooks } from "./v2-health";
 import { randomUUID } from "node:crypto";
 import { mkdtemp, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { userInfo } from "node:os";
 import type { AgentManifestV2 } from "../../../shared/agent-manifest-v2";
 import type { AgentHooks } from "../../../shared/agents";
-import type { HookRegistrar } from "./hook-launch";
+import type { HookExecutor, HookRegistrar } from "./hook-launch";
 import { privateDirectory } from "../../control/private-files";
 import { observerAssets, observerInvocation, observerVersion } from "./v2-observers";
 import type { V2Binding } from "../../../shared/v2-hooks";
@@ -21,7 +22,8 @@ export async function prepareV2Hooks(
   windows: boolean,
   scratch: string,
   stableDirectory?: string,
-  execute = promisify(execFile),
+  execute: HookExecutor = promisify(execFile),
+  installed = false,
 ): Promise<AgentHooks> {
   const temporary = await mkdtemp(join(scratch, "foom-v2-hooks-"));
   const cleanupState: { removal?: Promise<void> } = {};
@@ -55,7 +57,8 @@ export async function prepareV2Hooks(
           if (options.protocol === "ordered-v2") env["FOOM_HOOK_ORDER"] = order;
         }
         if (options.placement === "plugin") continue;
-        const assets = observerAssets(channel, windows);
+        const packaged = installed && options.placement === "stable";
+        const assets = packaged ? {} : observerAssets(channel, windows);
         if (options.placement === "stable" && assets["observer.ps1"])
           assets["observer.ps1"] = assets["observer.ps1"].replace(
             "\\send.ps1",
@@ -68,7 +71,7 @@ export async function prepareV2Hooks(
         const version = observerVersion(channel, windows);
         v2.values[`observerVersion:${channel.id}`] = version;
         const basename = `${options.basename}-v${String(version)}`;
-        let script = "";
+        let script = packaged ? installedObserverPath(channel, windows) : "";
         for (const [name, content] of Object.entries(assets)) {
           const target = join(
             root,
@@ -126,23 +129,7 @@ export async function prepareV2Hooks(
       }
       launch = receiver.register(key, model.id, { channels: v2.channels, state: v2.state });
       Object.assign(env, launch.env);
-      // Definitions contain no launch path/port/token for stable channels.
-      const stableValues = Object.fromEntries(
-        Object.entries(v2.values).filter(([key]) =>
-          model.hooks?.channels.some(
-            (channel) =>
-              channel.observer.placement === "stable" &&
-              (key === `observerCommand:${channel.id}` ||
-                key.startsWith(`observerCommand:${channel.id}.`)),
-          ),
-        ),
-      );
-      const health = await healthStore(stableRoot, model, [
-        model.hooks,
-        model.files,
-        model.health,
-        stableValues,
-      ]);
+      const health = await observerHealth(model, stableDirectory ?? scratch, installed, windows);
       v2.runtime = new V2ExecutionHooks(model, v2.channels, health);
       return {
         observerCommand: "",

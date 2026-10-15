@@ -6,10 +6,13 @@ import type { prepareMcpLaunch } from "../mcp-launch";
 export interface PreparedLaunch {
   args: string[];
   mcp: boolean;
+  /** Selected attachment only, for isolated protocol probes using the real launch engine. */
+  mcpArguments?: readonly string[];
   conversationId?: string;
   dispose(): void;
 }
 export interface AgentProvider {
+  readonly legacyChannelConsent?: boolean;
   readonly origin?: "bundled" | "config";
   readonly model?: AgentManifestV2;
   setupFacts?(
@@ -35,7 +38,11 @@ export interface AgentProvider {
   readonly executableNames: readonly string[];
   discover(executable: string, version: string, help: string): AgentInstallation;
   enrich(installation: AgentInstallation, plugin?: unknown): Promise<AgentInstallation>;
-  needsNotifier(installation: AgentInstallation, binding: AgentHooks | undefined): boolean;
+  needsNotifier(
+    installation: AgentInstallation,
+    binding: AgentHooks | undefined,
+    healthTrusted?: boolean,
+  ): boolean;
   arguments(
     installation: AgentInstallation,
     request: AgentLaunch,

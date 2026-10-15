@@ -274,10 +274,16 @@ export class AgentService {
         }
       : undefined;
     const notify = agentProvider(agent.id).needsNotifier(agent, binding);
-    if (attach && notify && !request.acknowledgeCodexNotifierReplacement) {
+    if (
+      provider.origin === "bundled" &&
+      attach &&
+      notify &&
+      !(provider.legacyChannelConsent && request.acknowledgeNotifierReplacement)
+    ) {
       binding?.dispose();
       throw new Error(
-        "Foom replaces your Codex notifier for this launch. Acknowledge this or disable hooks.",
+        provider.model?.hooks?.channels.find((channel) => channel.disclosure)?.disclosure?.text ??
+          "Channel replacement requires acknowledgement.",
       );
     }
     let control: ControlLaunch | undefined;
@@ -314,6 +320,15 @@ export class AgentService {
         this.hooksEnabled && this.agentHooks[agent.id] !== false,
         binding,
       );
+      const replacement = [...(binding?.v2?.channels.values() ?? [])].find(
+        (channel) => channel.disclosure,
+      );
+      if (
+        provider.origin === "bundled" &&
+        replacement?.disclosure &&
+        !(provider.legacyChannelConsent && request.acknowledgeNotifierReplacement)
+      )
+        throw new Error(replacement.disclosure.text);
       if (
         prepared &&
         request.control &&

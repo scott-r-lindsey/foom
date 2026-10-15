@@ -288,8 +288,7 @@ test("offline validation accepts literal defaults and reports fixed per-line res
         file: "settings.json",
         path: "$.agentArguments",
         reason: "invalid-value",
-        detail:
-          "Codex, line 3: Codex notify and hooks configuration is reserved for Foom's attention detection.",
+        detail: "Codex, line 3: These arguments are reserved for Foom session actions.",
       },
     ],
   });
