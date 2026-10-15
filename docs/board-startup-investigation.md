@@ -191,7 +191,7 @@ launch with the new gate (PID 149243) recorded channel callbacks at
 sentinel request at 2530753944.60 ms and delivery at 2530753950.72 ms. The readiness
 mark is written after observing the capture callback, before the **new sentinel**;
 it is deliberately after a captured compositor frame, not before every paint.
-Cold CI comparison of this ordering remains part of validation. The traces and
+Cold CI comparison below verifies this ordering. The traces and
 all earlier failure diagnostics stay in place. A readiness failure records its
 own stage and still fails; it cannot wait indefinitely for GPU initialization.
 
@@ -203,3 +203,24 @@ background until rendering starts. These CI traces do not establish a visible
 regression on users' desktops. Waiting to show would also delay native-window
 feedback and revive the detached-board startup concern documented in main.
 There is no demonstrated user-facing benefit justifying a production change here.
+
+### Cold CI verification
+
+[Run 38821880360](https://github.com/scott-r-lindsey/foom/actions/runs/38821880360)
+at implementation commit `d9274db` retained the following first-launch traces.
+Times are milliseconds from each trace's first non-metadata event. The readiness
+request precedes GPU initialization; readiness observation follows channel
+establishment, and only then does the harness request the independent sentinel.
+
+| Linux shard / PID | Readiness requested | GPU channel callbacks | Readiness observed | Sentinel requested | Sentinel delivered |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| 1/4 / 2476 | 613.81 | 6273.48–6273.57 | 6486.17 | 6488.48 | 6488.94 |
+| 2/4 / 2483 | 906.79 | 4524.64–4524.97 | 4774.31 | 4777.70 | 4778.17 |
+| 3/4 / 2709 | 918.02 | 6845.43–6845.64 | 7796.75 | 7800.13 | 7800.70 |
+| 4/4 / 2708 | 910.77 | 3682.33–3682.58 | 3776.30 | 3779.48 | 3780.01 |
+
+All four Linux shards passed, including ordinary first launches; no warm-up process
+was used. Later workers in the same jobs initialized the GPU in roughly 57–83 ms.
+This directly verifies that the selected readiness signal does not resolve
+trivially before the cold GPU-channel wait. It does not explain that wait's
+underlying resource or replace the retained diagnostics for a future recurrence.
