@@ -1,4 +1,4 @@
-import type { PreviewSnapshot } from "../shared/previews";
+import type { PreviewPlacement, PreviewSnapshot } from "../shared/previews";
 import type { WindowView, WindowAudioState } from "../shared/windows";
 import type { ExecutionTransition } from "../shared/execution";
 import { contextBridge, ipcRenderer } from "electron";
@@ -116,22 +116,38 @@ function audioState(value: unknown): value is WindowAudioState {
 }
 const windowArgument = (name: string) =>
   process.argv.find((arg) => arg.startsWith(`--foom-${name}=`))?.split("=")[1];
+// Listen before the new board mounts: main may finish moving a preview first.
+// This listener belongs to the preload context; unmount releases its callback.
+let placePreview: ((id: string, expiresAt: number) => Promise<PreviewPlacement>) | undefined;
+const pendingPlacements = new Map<string, { id: string; expiresAt: number }>();
+function deliverPlacement(request: string, id: string, expiresAt: number): void {
+  const now = Date.now();
+  for (const [key, pending] of pendingPlacements)
+    if (pending.expiresAt <= now) pendingPlacements.delete(key);
+  if (expiresAt <= now) return;
+  const callback = placePreview;
+  if (!callback) {
+    if (pendingPlacements.size < 256) pendingPlacements.set(request, { id, expiresAt });
+    return;
+  }
+  void Promise.resolve()
+    .then(() => callback(id, expiresAt))
+    .then((placement) => ipcRenderer.invoke("preview:placed", request, id, placement))
+    .catch(() => {});
+}
+ipcRenderer.on("preview:place", (_event, request: string, id: string, expiresAt: number) => {
+  deliverPlacement(request, id, expiresAt);
+});
 const desktop: DesktopApi = {
   previews: {
     onPlace(callback) {
-      const listener = (
-        _event: Electron.IpcRendererEvent,
-        request: string,
-        id: string,
-        expiresAt: number,
-      ) => {
-        void callback(id, expiresAt)
-          .then((placement) => ipcRenderer.invoke("preview:placed", request, id, placement))
-          .catch(() => {});
-      };
-      ipcRenderer.on("preview:place", listener);
+      placePreview = callback;
+      for (const [request, pending] of pendingPlacements) {
+        pendingPlacements.delete(request);
+        deliverPlacement(request, pending.id, pending.expiresAt);
+      }
       return () => {
-        ipcRenderer.removeListener("preview:place", listener);
+        if (placePreview === callback) placePreview = undefined;
       };
     },
     popout: (id) => ipcRenderer.invoke("preview:popout", id),

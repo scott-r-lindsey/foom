@@ -1804,7 +1804,8 @@ focus, and measures each preview body to report bounds through the source interf
 then destroys the source contents and releases its watch, protocol and partition
 handlers before transferring the registry record with the same ID and attribution.
 The record remains discoverable throughout cleanup; concurrent close follows the
-transfer. Network resets to Off. The target creates a fresh view on placement,
+transfer. Network resets to Off. The preload retains at most 256 unexpired placement requests until its board
+subscribes, so a slow mount cannot lose the move. The target creates a fresh view on placement,
 never reparenting a native view or hosting the preview in two windows at once.
 Restored registry entries stay detached and allocate no view until bounds arrive.
 Confirmed Foom worktree removal closes that checkout’s previews in all windows before
