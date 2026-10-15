@@ -136,6 +136,7 @@ async function boardPage(app) {
         minimized: window.isMinimized(),
         focused: window.isFocused(),
         contentsFocused: window.webContents.isFocused(),
+        backgroundThrottling: window.webContents.getBackgroundThrottling(),
         bounds: window.getBounds(),
       })),
     );
@@ -1402,10 +1403,43 @@ test("shared board startup restores a native-hidden CDP-visible board and delive
     ),
     false,
   );
+  assert.equal(
+    await app.evaluate(({ BrowserWindow }) =>
+      BrowserWindow.getAllWindows()
+        .find((window) => window.webContents.getURL() === "app://bundle/index.html")
+        .webContents.getBackgroundThrottling(),
+    ),
+    false,
+    "Board painting must remain enabled across native occlusion transitions",
+  );
   await page.bringToFront();
   await expect
     .poll(() => page.evaluate(() => document.visibilityState === "visible" && document.hasFocus()))
     .toBe(true);
+  // Require frames while still native-hidden as well as after the shared show.
+  // A visible document alone cannot establish that the compositor is running.
+  const frame = await page.evaluateHandle(() => {
+    const state = { delivered: false, id: 0 };
+    state.id = requestAnimationFrame(() => {
+      state.delivered = true;
+    });
+    return state;
+  });
+  try {
+    await expect.poll(() => frame.evaluate((state) => state.delivered)).toBe(true);
+    assert.equal(
+      await app.evaluate(({ BrowserWindow }) =>
+        BrowserWindow.getAllWindows()
+          .find((window) => window.webContents.getURL() === "app://bundle/index.html")
+          .isVisible(),
+      ),
+      false,
+      "A hidden board must deliver frames without a native show",
+    );
+  } finally {
+    await frame.evaluate((state) => cancelAnimationFrame(state.id));
+    await frame.dispose();
+  }
   assert.equal(await boardPage(app), page);
   await launchCheckoutShell(app, page);
   await expect(page.locator(".xterm-rows")).toContainText(

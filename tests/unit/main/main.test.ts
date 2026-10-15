@@ -661,6 +661,7 @@ test("creates a sandboxed window, loads our document, and only shows it when rea
   const options = mock.construct.mock.calls[0]?.[0];
   expect(options?.show).toBe(false);
   expect(options?.webPreferences).toMatchObject({
+    backgroundThrottling: false,
     sandbox: true,
     contextIsolation: true,
     nodeIntegration: false,

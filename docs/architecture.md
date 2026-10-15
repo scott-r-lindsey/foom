@@ -158,6 +158,15 @@ changing their terminal state, capabilities or attachment.
 
 ## Renderer
 
+Board windows disable Electron's `backgroundThrottling`. Native occlusion must not
+suspend the board's animation frames or an attached terminal's paints, including
+across the initially hidden window's show transition. Board activity and mounted
+terminal views therefore keep rendering while a window is covered, minimized or
+hidden; this trades background rendering work for continuous display updates.
+PTY consumption remains owned by the utility host and independent of painting.
+Electron reports document visibility as visible with throttling disabled, so
+native visibility/focus checks remain necessary for window reachability.
+
 Agent preview attribution (#298) comes from main: the host keeps the opener’s
 terminal ID and agent identity as transient display facts, stripped from registry
 persistence and restart restoration. Sidebar-only entries nest below the opener;
