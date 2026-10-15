@@ -72,7 +72,7 @@ it("generic detached observers allocate order before transport and return a neut
       });
     };
     expect(await run("PreInvocation", { conversationId: "id" })).toMatchObject({
-      stdout: "{}\n",
+      stdout: windows ? "{}\r\n" : "{}\n",
       stderr: "",
     });
     await expect.poll(() => signals.length).toBe(1);
@@ -82,7 +82,7 @@ it("generic detached observers allocate order before transport and return a neut
         terminationReason: "NO_TOOL_CALL",
         fullyIdle: true,
       }),
-    ).toMatchObject({ stdout: "{}\n", stderr: "" });
+    ).toMatchObject({ stdout: windows ? "{}\r\n" : "{}\n", stderr: "" });
     await expect.poll(() => signals.length).toBe(2);
     expect(signals.map((signal) => signal.action)).toEqual(["working", "classify"]);
     expect(state.channels?.get(channel.id)?.sequence).toBe(2);

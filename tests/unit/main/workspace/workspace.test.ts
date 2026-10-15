@@ -3706,6 +3706,27 @@ test("v2 workspace treats startup as metadata, suppresses duplicate completion a
     expect(workspace.snapshot().terminals[0]?.execution?.phase).toBe("working");
     await workspace.evidence("t1", { title: "codex", progress: null });
     await workspace.quiet("t1");
+    const { V2ExecutionHooks } = await import("../../../../src/main/agents/providers/v2-health");
+    if (!(hooks.v2.runtime instanceof V2ExecutionHooks)) throw Error("Missing runtime");
+    hooks.v2.runtime = new V2ExecutionHooks(
+      {
+        ...structuredClone(model),
+        health: undefined,
+        execution: { ...model.execution, completion: "attached" },
+      },
+      hooks.v2.channels,
+      hooks.v2.runtime.health,
+    );
+    hooks.bind?.("t1");
+    await signal("UserPromptSubmit", "working");
+    await signal("SessionStart", "ready");
+    await signal("SessionStart", "ready");
+    await workspace.quiet("t1");
+    expect(workspace.snapshot().terminals[0]?.state?.state).not.toBe("done");
+    await signal("UserPromptSubmit", "working");
+    await signal("PermissionRequest", "needs_input");
+    await signal("SessionStart", "ready");
+    expect(workspace.snapshot().terminals[0]?.execution?.phase).toBe("blocked");
     workspace.removed("t1");
   } finally {
     prepared.dispose();

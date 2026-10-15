@@ -2448,7 +2448,10 @@ export class Workspace {
     )
       return Promise.resolve();
     if (signal.action === "ready" && signal.signal.startsWith("plugin:")) {
+      if (runtime && health.hook?.action === "needs_input") return Promise.resolve();
+      const wasWorking = this.execution(id).snapshot().phase === "working";
       this.transition(id, "idle", "hook");
+      if (signal.endsTurn === false && wasWorking) delete health.completedTurn;
       return Promise.resolve();
     }
     if (signal.signal === "codex:SessionStart") {
