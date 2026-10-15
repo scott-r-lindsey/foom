@@ -1,4 +1,10 @@
-import { agentProvider } from "../../../../src/main/agents/providers/registry";
+import {
+  agentProvider,
+  replaceConfigProviders,
+} from "../../../../src/main/agents/providers/registry";
+import fixture from "../../../fixtures/agent-plugin.json";
+import { parseAgentPlugin } from "../../../../src/shared/agent-manifest";
+import { configProvider } from "../../../../src/main/agents/providers/config";
 import { expect, it } from "vitest";
 import { prepareMcpLaunch, supportsMcp } from "../../../../src/main/agents/mcp-launch";
 it("requires the shared launch context for bundled MCP", async () => {
@@ -77,3 +83,16 @@ it.each(["", "--mcp-config-extra -config", "x--mcp-config x-c", "--config"])(
     expect(supportsMcp("codex", "codex-cli 0.162.1", help)).toBe(false);
   },
 );
+
+it("does not grant v1 plugins the v2 MCP discovery or attachment capability", async () => {
+  const manifest = parseAgentPlugin(JSON.stringify(fixture));
+  replaceConfigProviders([configProvider(manifest, () => Promise.resolve())]);
+  try {
+    expect(supportsMcp(manifest.id, "1.0.0", "--mcp -c --mcp-config")).toBe(false);
+    await expect(prepareMcpLaunch(manifest.id, "http://127.0.0.1:1234/control/v1")).rejects.toThrow(
+      "unsupported",
+    );
+  } finally {
+    replaceConfigProviders([]);
+  }
+});
