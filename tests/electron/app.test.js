@@ -11105,82 +11105,113 @@ async function pickPreviewFile(app, page, root, file) {
   );
   return page.evaluate((root) => window.desktop.previews.pick(root), root);
 }
+// app.evaluate has no operation timeout. Bound native probes as well as renderer
+// commands so a stranded Electron promise reports its phase before the watchdog.
+async function previewStep(name, run) {
+  let timer;
+  try {
+    return await Promise.race([
+      Promise.resolve().then(run),
+      new Promise((_, reject) => {
+        timer = setTimeout(
+          () => reject(new Error(`Preview step timed out: ${name}`)),
+          deadline(10_000),
+        );
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
 async function previewContents(app, id, code, { requireAttached = false } = {}) {
-  return app.evaluate(
-    async ({ BrowserWindow, webContents }, { id, code, requireAttached }) => {
-      const current = () =>
-        webContents
-          .getAllWebContents()
-          .find((entry) => entry.getURL().startsWith(`foom-preview://${id}/`));
-      const contents = current();
-      const ready = () => {
-        const board = BrowserWindow.getAllWindows().find(
-          (window) => window.webContents.getURL() === "app://bundle/index.html",
-        );
-        return (
-          !contents.isDestroyed() &&
-          current() === contents &&
-          !contents.isLoading() &&
-          board.contentView.children.some((view) => view.webContents === contents)
-        );
-      };
-      if (!contents) {
-        if (requireAttached) return undefined;
-        throw new Error("Missing preview contents");
-      }
-      if (!requireAttached) {
-        if (contents.isLoading()) {
-          contents.debugger.attach("1.3");
-          return contents.debugger
-            .sendCommand("Runtime.evaluate", { expression: code, returnByValue: true })
-            .then((result) => result.result.value)
-            .finally(() => contents.debugger.detach());
+  return previewStep(`evaluate ${id}: ${code}`, () =>
+    app.evaluate(
+      async ({ BrowserWindow, webContents }, { id, code, requireAttached }) => {
+        const current = () =>
+          webContents
+            .getAllWebContents()
+            .find((entry) => entry.getURL().startsWith(`foom-preview://${id}/`));
+        const contents = current();
+        const ready = () => {
+          const board = BrowserWindow.getAllWindows().find(
+            (window) => window.webContents.getURL() === "app://bundle/index.html",
+          );
+          return (
+            !contents.isDestroyed() &&
+            current() === contents &&
+            !contents.isLoading() &&
+            board.contentView.children.some((view) => view.webContents === contents)
+          );
+        };
+        if (!contents) {
+          if (requireAttached) return undefined;
+          throw new Error("Missing preview contents");
         }
-        return contents.executeJavaScript(code);
-      }
-      if (!ready()) return undefined;
-      let onDestroyed;
-      const destroyed = new Promise((resolve) => {
-        onDestroyed = () => resolve(undefined);
-        contents.once("destroyed", onDestroyed);
-      });
-      try {
-        // Electron can leave executeJavaScript pending after destruction.
-        const value = await Promise.race([contents.executeJavaScript(code), destroyed]);
-        // Replacement can happen while the renderer command is in flight. The
-        // next poll resolves the new contents and its main-process load signal.
-        if (!ready()) return undefined;
-        return value;
-      } catch (error) {
-        // A command can reject as navigation starts, before destruction fires.
-        if (!ready()) return undefined;
-        throw error;
-      } finally {
-        contents.removeListener("destroyed", onDestroyed);
-      }
-    },
-    { id, code, requireAttached },
+        if (requireAttached && !ready()) return undefined;
+        let onDestroyed;
+        const onNavigation = (event) => {
+          if (event.isMainFrame && !event.isSameDocument) onDestroyed();
+        };
+        const destroyed = new Promise((resolve) => {
+          onDestroyed = () => resolve(undefined);
+          contents.once("destroyed", onDestroyed);
+          contents.on("did-start-navigation", onNavigation);
+        });
+        try {
+          // The host replaces contents on navigation; executeJavaScript can stay
+          // pending forever when its IPC reply target is destroyed.
+          const evaluate = () => {
+            if (!contents.isLoading()) return contents.executeJavaScript(code);
+            contents.debugger.attach("1.3");
+            return contents.debugger
+              .sendCommand("Runtime.evaluate", { expression: code, returnByValue: true })
+              .then((result) => result.result.value)
+              .finally(() => {
+                if (!contents.isDestroyed() && contents.debugger.isAttached())
+                  contents.debugger.detach();
+              });
+          };
+          const value = await Promise.race([evaluate(), destroyed]);
+          // Replacement can happen while the renderer command is in flight. The
+          // next poll resolves the new contents and its main-process load signal.
+          if (contents.isDestroyed() || current() !== contents || (requireAttached && !ready()))
+            return undefined;
+          return value;
+        } catch (error) {
+          // A command can reject as navigation starts, before destruction fires.
+          if (contents.isDestroyed() || current() !== contents || (requireAttached && !ready()))
+            return undefined;
+          throw error;
+        } finally {
+          contents.removeListener("destroyed", onDestroyed);
+          contents.removeListener("did-start-navigation", onNavigation);
+        }
+      },
+      { id, code, requireAttached },
+    ),
   );
 }
 async function previewViewState(app, id) {
-  return app.evaluate(({ BrowserWindow, webContents }, id) => {
-    const board = BrowserWindow.getAllWindows().find(
-      (window) => window.webContents.getURL() === "app://bundle/index.html",
-    );
-    const contents = webContents
-      .getAllWebContents()
-      .find((entry) => entry.getURL().startsWith(`foom-preview://${id}/`));
-    const view = board.contentView.children.find((view) => view.webContents === contents);
-    return {
-      contentsId: contents?.id,
-      attached: Boolean(view),
-      visible: view?.getVisible(),
-      focused: contents?.isFocused(),
-      loading: contents?.isLoading(),
-      bounds: view?.getBounds(),
-      zoom: contents?.getZoomFactor(),
-    };
-  }, id);
+  return previewStep(`native view state ${id}`, () =>
+    app.evaluate(({ BrowserWindow, webContents }, id) => {
+      const board = BrowserWindow.getAllWindows().find(
+        (window) => window.webContents.getURL() === "app://bundle/index.html",
+      );
+      const contents = webContents
+        .getAllWebContents()
+        .find((entry) => entry.getURL().startsWith(`foom-preview://${id}/`));
+      const view = board.contentView.children.find((view) => view.webContents === contents);
+      return {
+        contentsId: contents?.id,
+        attached: Boolean(view),
+        visible: view?.getVisible(),
+        focused: contents?.isFocused(),
+        loading: contents?.isLoading(),
+        bounds: view?.getBounds(),
+        zoom: contents?.getZoomFactor(),
+      };
+    }, id),
+  );
 }
 
 // Resolve the native first responder for every key. Targeting the board via CDP
@@ -11207,6 +11238,9 @@ test("Markdown previews render hostile documents safely, follow native theme and
   const page = await boardPage(app);
   const terminal = (await page.evaluate(() => window.desktop.workspace())).terminals[0];
   const root = terminal.worktree;
+  // The malformed remote image port also exercises Chromium's rejected-resource
+  // path. Electron 44's development security warnings may throw Invalid URL for
+  // that performance entry; it does not invalidate the preview's document URL.
   const hostile = await readFile(path.join(__dirname, "../fixtures/previews/hostile.md"), "utf8");
   await writeFile(
     path.join(root, "document.md"),
@@ -11216,7 +11250,10 @@ test("Markdown previews render hostile documents safely, follow native theme and
     path.join(root, "sibling.md"),
     "# Sibling document\n\n```js\nconst answer = 42;\n```\n",
   );
-  const id = await pickPreviewFile(app, page, root, "document.md");
+  const id = await previewStep("open Markdown document", () =>
+    pickPreviewFile(app, page, root, "document.md"),
+  );
+  const read = (code) => previewContents(app, id, code, { requireAttached: true });
   await page.evaluate(
     (id) =>
       window.desktop.previews.bounds(id, {
@@ -11228,15 +11265,18 @@ test("Markdown previews render hostile documents safely, follow native theme and
       }),
     id,
   );
-  await expect.poll(async () => (await previewViewState(app, id)).attached).toBe(true);
-  assert.equal(
-    await previewContents(app, id, 'document.querySelector("h1")?.textContent'),
-    "Hostile Markdown",
-  );
+  await expect
+    .poll(
+      async () => {
+        const state = await previewViewState(app, id);
+        return state.attached && !state.loading;
+      },
+      { message: "Markdown document attached and loaded" },
+    )
+    .toBe(true);
+  assert.equal(await read('document.querySelector("h1")?.textContent'), "Hostile Markdown");
   assert.deepEqual(
-    await previewContents(
-      app,
-      id,
+    await read(
       `({
     pwned: window.__pwned ?? null,
     frames: document.querySelectorAll("iframe").length,
@@ -11263,28 +11303,23 @@ test("Markdown previews render hostile documents safely, follow native theme and
   ]) {
     await page.evaluate((colorMode) => window.desktop.saveSetup({ colorMode }), mode);
     await expect
-      .poll(() =>
-        previewContents(app, id, "getComputedStyle(document.documentElement).backgroundColor"),
-      )
+      .poll(() => read("getComputedStyle(document.documentElement).backgroundColor"))
       .toBe(background);
   }
   const oldContents = (await previewViewState(app, id)).contentsId;
-  await previewContents(app, id, `document.querySelector('a[href="sibling.md"]').click()`);
+  await read(`document.querySelector('a[href="sibling.md"]').click()`);
   await expect
-    .poll(async () => {
-      const state = await previewViewState(app, id);
-      return state.attached && state.contentsId !== oldContents;
-    })
+    .poll(
+      async () => {
+        const state = await previewViewState(app, id);
+        return state.attached && !state.loading && state.contentsId !== oldContents;
+      },
+      { message: "Sibling Markdown replacement attached and loaded" },
+    )
     .toBe(true);
-  assert.equal(
-    await previewContents(app, id, 'document.querySelector("h1")?.textContent'),
-    "Sibling document",
-  );
-  assert.equal(await previewContents(app, id, "location.pathname"), "/sibling.md");
-  assert.equal(
-    await previewContents(app, id, 'document.querySelector(".hljs-keyword")?.textContent'),
-    "const",
-  );
+  assert.equal(await read('document.querySelector("h1")?.textContent'), "Sibling document");
+  assert.equal(await read("location.pathname"), "/sibling.md");
+  assert.equal(await read('document.querySelector(".hljs-keyword")?.textContent'), "const");
   assert.equal((await previewViewState(app, id)).focused, false);
   await page.evaluate((id) => window.desktop.previews.close(id), id);
 });
@@ -12612,7 +12647,12 @@ test("preview live reload handles saves, assets, missing files, scroll and close
   await loaded("first");
   // Force replacement while a read is pending, through both Electron's
   // executeJavaScript and CDP paths. Neither may strand or reject the poll.
-  for (const useDebugger of [false, true]) {
+  for (const [useDebugger, requireAttached] of [
+    [false, false],
+    [false, true],
+    [true, false],
+    [true, true],
+  ]) {
     await app.evaluate(
       ({ webContents }, { id, useDebugger }) => {
         const contents = webContents
@@ -12639,7 +12679,7 @@ test("preview live reload handles saves, assets, missing files, scroll and close
       { id, useDebugger },
     );
     assert.equal(
-      await previewContents(app, id, "new Promise(() => {})", { requireAttached: true }),
+      await previewContents(app, id, "new Promise(() => {})", { requireAttached }),
       undefined,
     );
     await loaded("first");
