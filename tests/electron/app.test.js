@@ -154,7 +154,14 @@ async function boardPage(app) {
     board.webContents.focus();
   });
   const frame = await page.evaluateHandle(() => {
-    const state = { delivered: false, id: 0 };
+    const state = {
+      delivered: false,
+      id: 0,
+      document: new WeakRef(document),
+      url: document.URL,
+      readyState: document.readyState,
+      timeOrigin: performance.timeOrigin,
+    };
     state.id = requestAnimationFrame(() => {
       state.delivered = true;
     });
@@ -186,6 +193,15 @@ async function boardPage(app) {
       rendering: (await frame.evaluate((state) => state.delivered))
         ? "frames delivered; native visibility or focus unavailable"
         : "no frames",
+      sentinel: await frame.evaluate((state) => ({
+        id: state.id,
+        url: state.url,
+        readyState: state.readyState,
+        timeOrigin: state.timeOrigin,
+        sameDocument: state.document.deref() === document,
+        currentUrl: document.URL,
+        currentTimeOrigin: performance.timeOrigin,
+      })),
       before,
       windows: await nativeState(),
       renderer: await page.evaluate(() => ({
@@ -207,6 +223,17 @@ async function boardPage(app) {
   } finally {
     await frame.evaluate((state) => cancelAnimationFrame(state.id));
     await frame.dispose();
+    await mkdir("test-results", { recursive: true });
+    await app.evaluate(
+      async ({ contentTracing }, file) => {
+        const state = globalThis.boardStartup;
+        await state?.traceReady;
+        if (!state?.tracing) return;
+        state.tracing = false;
+        await contentTracing.stopRecording(file);
+      },
+      path.resolve(`test-results/board-startup-${process.pid}-trace.json`),
+    );
   }
   return page;
 }
@@ -658,7 +685,7 @@ async function launchApp(context, openShell = true, options = {}) {
       path.join(fixture, "bootstrap.cjs"),
       [
         'const { app } = require("electron");',
-        `require(${JSON.stringify(path.join(__dirname, "board-startup.js"))}).recordBoardStartup(require("electron"));`,
+        `require(${JSON.stringify(path.join(__dirname, "board-startup.js"))}).recordBoardStartup(require("electron"), ${traceFirstBoardStartup});`,
         `require(${JSON.stringify(path.join(__dirname, "agent-isolation.js"))}).guardAgentProbes(${JSON.stringify([...cleanup.directories])}, ${JSON.stringify(probeLog)});`,
         ...(process.platform === "win32"
           ? []
@@ -673,6 +700,7 @@ async function launchApp(context, openShell = true, options = {}) {
       ].join("\n"),
     );
     entry = fixture;
+    traceFirstBoardStartup = false;
   }
   const env = {
     ...process.env,
@@ -682,23 +710,12 @@ async function launchApp(context, openShell = true, options = {}) {
     ...isolated,
   };
   delete env.ELECTRON_RUN_AS_NODE;
-  const startupTrace = [];
-  if (traceFirstBoardStartup) {
-    traceFirstBoardStartup = false;
-    await mkdir("test-results", { recursive: true });
-    startupTrace.push(
-      "--trace-startup=cc,viz,blink,renderer.scheduler,disabled-by-default-cc.debug*,disabled-by-default-viz.debug*",
-      "--trace-startup-duration=0",
-      "--trace-startup-format=json",
-      `--trace-startup-file=${path.resolve(`test-results/board-startup-${process.pid}-trace.json`)}`,
-    );
-  }
   const app = await electron
     .launch({
       chromiumSandbox: true,
       colorScheme: null,
       timeout: deadline(15_000),
-      args: [...startupTrace, entry, ...profile.args],
+      args: [entry, ...profile.args],
       env,
     })
     .catch((error) => {
