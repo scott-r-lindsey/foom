@@ -69,7 +69,7 @@ function descendants(rows, roots, baseline = []) {
 
 // Capture descendants while the app is alive, retaining their creation identity
 // after reparenting. Never kill a process solely because its PID was reused.
-async function auditProcesses(context) {
+async function auditProcesses(context, checkpoint = () => {}) {
   const roots = new Set();
   const tracked = new Map();
   const baseline = await snapshot();
@@ -79,6 +79,7 @@ async function auditProcesses(context) {
     if (row.host || /pty|OpenConsole/i.test(row.name)) counts.host++;
     if (/powershell|cmd.exe|bash|zsh/i.test(row.name)) counts.shell++;
   }
+  checkpoint("process audit baseline", { counts });
   context.diagnostic(`process counts before: ${JSON.stringify(counts)}`);
   let stopped = false;
   let failure;
@@ -90,7 +91,11 @@ async function auditProcesses(context) {
       const previous = tracked.get(pid);
       return !previous || rows.some((row) => row.pid === pid && row.start === previous.start);
     });
-    for (const row of descendants(rows, liveRoots, baseline)) {
+    const current = descendants(rows, liveRoots, baseline);
+    checkpoint("process audit capture", {
+      processes: current.map(({ command: _command, ...row }) => row),
+    });
+    for (const row of current) {
       tracked.set(row.pid, row);
       if (!fixtureDirectories) continue;
       // Include script argv as well as comm: fake and npm CLIs may run as Node.
@@ -134,6 +139,9 @@ async function auditProcesses(context) {
         if (!survivors.length) break;
         await delay(100);
       } while (Date.now() < until);
+      checkpoint("process audit survivors", {
+        processes: survivors.map(({ command: _command, ...row }) => row),
+      });
       context.diagnostic(`processes after: ${JSON.stringify(survivors)}`);
       assert.deepEqual(survivors, [], "Test left app, utility-host or shell processes alive");
       assert.deepEqual([...forbidden], [], "Test started an agent outside its fixtures");
