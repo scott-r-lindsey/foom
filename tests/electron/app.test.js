@@ -11228,14 +11228,13 @@ async function previewContents(app, id, code, { requireAttached = false } = {}) 
             .find((entry) => entry.getURL().startsWith(`foom-preview://${id}/`));
         const contents = current();
         const ready = () => {
-          const board = BrowserWindow.getAllWindows().find(
-            (window) => window.webContents.getURL() === "app://bundle/index.html",
-          );
           return (
             !contents.isDestroyed() &&
             current() === contents &&
             !contents.isLoading() &&
-            board.contentView.children.some((view) => view.webContents === contents)
+            BrowserWindow.getAllWindows().some((board) =>
+              board.contentView.children.some((view) => view.webContents === contents),
+            )
           );
         };
         if (!contents) {
@@ -12484,7 +12483,9 @@ test("an agent fixture opens full-board previews in columns, retains focus and r
     await writeFile(path.join(repo, "grabby.html"), "<h1>Moved agent preview reloaded</h1>");
     await expect
       .poll(() =>
-        previewContents(app, reopened.previewId, "document.querySelector('h1')?.textContent"),
+        previewContents(app, reopened.previewId, "document.querySelector('h1')?.textContent", {
+          requireAttached: true,
+        }),
       )
       .toBe("Moved agent preview reloaded");
     assert.equal((await call("close_preview", { previewId: reopened.previewId })).closed, true);
@@ -13763,14 +13764,22 @@ for (const kind of ["html", "markdown"]) {
         false,
       );
       await expect
-        .poll(() => previewContents(app, id, "document.querySelector('h1')?.textContent"))
+        .poll(() =>
+          previewContents(app, id, "document.querySelector('h1')?.textContent", {
+            requireAttached: true,
+          }),
+        )
         .toBe("Before move");
       await expect
         .poll(() => movedPreviewPixels(app, id))
         .toEqual(kind === "html" ? [86, 52, 18] : [10, 4, 5]);
       await writeFile(path.join(root, file), document("After move"));
       await expect
-        .poll(() => previewContents(app, id, "document.querySelector('h1')?.textContent"))
+        .poll(() =>
+          previewContents(app, id, "document.querySelector('h1')?.textContent", {
+            requireAttached: true,
+          }),
+        )
         .toBe("After move");
       await expect
         .poll(() => movedPreviewPixels(app, id))

@@ -10,6 +10,7 @@ import { previewPath } from "./registry";
 import { PreviewWatcher, scrollPosition } from "./watcher";
 
 interface HostedPreview {
+  id: string;
   view: WebContentsView;
   partition: Session;
   bounds: PreviewBounds;
@@ -281,6 +282,7 @@ export class PreviewHost {
       },
     });
     const entry: HostedPreview = {
+      id: record.id,
       view,
       partition,
       bounds,
@@ -421,7 +423,14 @@ export class PreviewHost {
     entry.clicked = false;
   }
   private applyBounds(entry: HostedPreview) {
-    if (entry.view.webContents.isDestroyed()) return;
+    // Native destruction can lag close; released/replaced views must never reattach.
+    if (
+      this.disposed ||
+      this.hosted.get(entry.id) !== entry ||
+      this.window.webContents.isDestroyed() ||
+      entry.view.webContents.isDestroyed()
+    )
+      return;
     const zoom = this.window.webContents.getZoomFactor();
     const { width, height } = this.window.getContentBounds();
     const x = Math.min(width, Math.max(0, Math.round(entry.bounds.x * zoom)));

@@ -1136,3 +1136,35 @@ test("moves revalidate checkout identity and never restore a view for a removed 
   await source.host.dispose(false);
   await target.host.dispose(false);
 });
+
+test("a late preview load cannot touch a destroyed owning board while its native contents still exists", async () => {
+  const f = await fixture();
+  const { id, view } = await f.open();
+  f.host.bounds(id, { x: 0, y: 0, width: 100, height: 100, visible: true });
+  f.window.getContentBounds.mockClear();
+  f.window.webContents.isDestroyed.mockReturnValue(true);
+  view.webContents.emit("did-finish-load");
+  expect(view.webContents.isDestroyed()).toBe(false);
+  expect(f.window.getContentBounds).not.toHaveBeenCalled();
+  expect(f.window.contentView.addChildView).not.toHaveBeenCalled();
+  await f.host.dispose(false);
+});
+
+test("late source load events cannot reattach a preview after it moves even before native destruction finishes", async () => {
+  const source = await fixture();
+  const target = await fixture();
+  const { id, view } = await source.open();
+  source.host.bounds(id, { x: 0, y: 0, width: 100, height: 100, visible: true });
+  view.webContents.close.mockImplementation(() => {});
+  await source.host.moveTo(id, target.host);
+  source.window.getContentBounds.mockClear();
+  view.webContents.emit("did-finish-load");
+  expect(view.webContents.isDestroyed()).toBe(false);
+  expect(source.window.getContentBounds).not.toHaveBeenCalled();
+  expect(source.window.contentView.addChildView).not.toHaveBeenCalled();
+  expect(source.registry.records.has(id)).toBe(false);
+  expect(target.registry.records.has(id)).toBe(true);
+  view.webContents.isDestroyed.mockReturnValue(true);
+  await source.host.dispose(false);
+  await target.host.dispose(false);
+});
