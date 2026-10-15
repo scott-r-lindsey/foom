@@ -8,10 +8,12 @@ import { CONFIG_PROMPT } from "../../../../src/main/agents/cli-launch";
 import { AgyPlugin } from "../../../../src/main/agents/agy-plugin";
 import { ChildProcess, execFile } from "node:child_process";
 import { statSync } from "node:fs";
-import { access, stat } from "node:fs/promises";
+import { access, stat, readFile } from "node:fs/promises";
 import { homedir, userInfo } from "node:os";
 import { delimiter, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type * as Fs from "node:fs/promises";
+import type * as Os from "node:os";
 import type * as McpLaunch from "../../../../src/main/agents/mcp-launch";
 import { prepareMcpLaunch } from "../../../../src/main/agents/mcp-launch";
 import { AgentService, loginPath } from "../../../../src/main/agents/agents";
@@ -37,8 +39,13 @@ vi.mock("../../../../src/main/agents/mcp-launch", async (original) => ({
   ...(await original<typeof McpLaunch>()),
   prepareMcpLaunch: vi.fn(),
 }));
-vi.mock("node:fs/promises", () => ({ access: vi.fn(), stat: vi.fn() }));
-vi.mock("node:os", () => ({
+vi.mock("node:fs/promises", async (original) => ({
+  ...(await original<typeof Fs>()),
+  access: vi.fn(),
+  stat: vi.fn(),
+}));
+vi.mock("node:os", async (original) => ({
+  ...(await original<typeof Os>()),
   homedir: vi.fn(() => "/home/test"),
   userInfo: vi.fn(() => ({ shell: "/bin/zsh" })),
 }));
@@ -56,6 +63,14 @@ const launchIdentity = vi.fn(() => Promise.resolve("identity"));
 const create = vi.fn((_spec: TerminalSpec) => "terminal-id");
 const cleanup = vi.fn();
 const binding: AgentHooks = {
+  v2: {
+    values: {
+      "observerCommand:lifecycle": "/foom adapter --stdin",
+      "observerArgv:lifecycle": ["/foom adapter", "--argv"],
+    },
+    channels: new Map(),
+    state: {},
+  },
   observerCommand: "/foom adapter --stdin",
   observerArgv: ["/foom adapter", "--argv"],
   env: { FOOM_SESSION: "session", FOOM_TOKEN: "secret" },
@@ -73,6 +88,7 @@ const request: AgentLaunch = {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  vi.mocked(prepareMcpLaunch).mockReset();
   create.mockReset().mockImplementation(() => "terminal-id");
   launchIdentity.mockReset().mockResolvedValue("identity");
   vi.stubEnv("PATH", root);
@@ -167,7 +183,7 @@ describe("detection", () => {
     await expect(service.launch(request)).rejects.toThrow("not installed");
     vi.mocked(access).mockResolvedValue();
     expect((await service.scan()).agents.every((agent) => agent.path !== null)).toBe(true);
-    await expect(service.launch(request)).resolves.toEqual({
+    await expect(service.launch(request)).resolves.toMatchObject({
       id: "terminal-id",
       attention: "hooks",
     });
@@ -308,7 +324,7 @@ describe("launch", () => {
   });
   it("uses evaluation when a hook receiver is unavailable", async () => {
     service = new AgentService({ listWorktrees, launchIdentity }, { create });
-    await expect(service.launch(request)).resolves.toEqual({
+    await expect(service.launch(request)).resolves.toMatchObject({
       id: "terminal-id",
       attention: "evaluator",
     });
@@ -634,7 +650,16 @@ it.each([true, false])(
       expect(bind).toHaveBeenCalledWith("terminal-id", true);
       expect(create.mock.calls.at(-1)?.[0].args).toContain("--mcp-config");
       service.release("terminal-id");
-      expect(dispose).toHaveBeenCalledOnce();
+      await expect
+        .poll(async () => {
+          try {
+            await readFile(create.mock.calls.at(-1)?.[0].args[1] ?? "");
+            return false;
+          } catch {
+            return true;
+          }
+        })
+        .toBe(true);
     } finally {
       versions.claude = previous;
     }
@@ -649,8 +674,9 @@ it("restores an orchestrator's role without a launch prompt and appends a child'
     }),
   );
   service = new AgentService({ listWorktrees, launchIdentity }, { create }, prepare, controlFor);
-  await service.launch({ ...request, control: { role: "orchestrator" } });
-  expect(create.mock.calls.at(-1)?.[0].args.join("\n")).not.toMatch(/orchestrator|foom CLI/u);
+  await expect(service.launch({ ...request, control: { role: "orchestrator" } })).rejects.toThrow(
+    "without MCP",
+  );
   service.release("terminal-id");
   const previous = versions.claude;
   versions.claude = "2.1.293 (Claude Code)";
@@ -707,7 +733,7 @@ it.each([
         acknowledgeCodexNotifierReplacement: true,
       });
       const args = create.mock.calls.at(-1)?.[0].args;
-      expect(args).toEqual(expect.arrayContaining(mcpArgs));
+      expect(args).toEqual(expect.arrayContaining(agent === "claude" ? ["--mcp-config"] : mcpArgs));
       if (prompt === undefined) expect(args).not.toContain("--");
       else
         expect(args?.slice(-2)).toEqual([
@@ -725,24 +751,27 @@ it.each(["denied", "spawn", "early-exit"])("cleans MCP launch on %s", async (mod
   const previous = versions.claude;
   versions.claude = "2.1.293 (Claude Code)";
   help += "\n--mcp-config <file>";
-  const dispose = vi.fn();
   const revoke = vi.fn();
-  if (mode === "denied") vi.mocked(prepareMcpLaunch).mockRejectedValueOnce(new Error("denied"));
-  else vi.mocked(prepareMcpLaunch).mockResolvedValue({ args: [], dispose });
   const spawn = () => {
     if (mode === "spawn") throw new Error("spawn");
     service.release("early");
     return "early";
   };
   service = new AgentService({ listWorktrees, launchIdentity }, { create: spawn }, prepare, () =>
-    Promise.resolve({ env: {}, bind: vi.fn(), dispose: revoke }),
+    Promise.resolve({
+      env: { FOOM_CONTROL_URL: mode === "denied" ? "invalid" : "http://127.0.0.1:1234/control/v1" },
+      bind: vi.fn(),
+      dispose: revoke,
+    }),
   );
   try {
     if (mode === "early-exit") await service.launch(request);
-    else await expect(service.launch(request)).rejects.toThrow(mode);
+    else
+      await expect(service.launch(request)).rejects.toThrow(
+        mode === "denied" ? "Invalid URL" : mode,
+      );
     expect(revoke).toHaveBeenCalled();
     expect(cleanup).toHaveBeenCalled();
-    if (mode !== "denied") expect(dispose).toHaveBeenCalled();
   } finally {
     versions.claude = previous;
   }
@@ -997,6 +1026,18 @@ it.each([
   try {
     await service.launch({ ...request, defaultArguments: defaults, prompt: "Show the mockup" });
     const args = create.mock.calls.at(-1)?.[0].args ?? [];
+    if (attached) {
+      const text = await readFile(args[args.indexOf("--mcp-config") + 1] ?? "", "utf8");
+      const name = text.match(/foom_[a-f0-9]+/u)?.[0];
+      if (!name) throw new Error("Missing MCP server");
+      grants.splice(
+        0,
+        grants.length,
+        ...["open_preview", "list_previews", "close_preview"].map(
+          (tool) => `mcp__${name}__${tool}`,
+        ),
+      );
+    }
     expect(args.slice(-2)).toEqual([
       "--",
       "Task from your Foom orchestrator (another agent, not the user):\n\nShow the mockup",

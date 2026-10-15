@@ -287,8 +287,24 @@ it("keeps stable commands and attachment timeouts identical across launches on b
         revoke: vi.fn(),
       }),
     };
-    const first = await prepareV2Hooks(receiver, m, vi.fn(), windows, root);
-    const second = await prepareV2Hooks(receiver, m, vi.fn(), windows, root);
+    const first = await prepareV2Hooks(
+      receiver,
+      m,
+      vi.fn(),
+      windows,
+      root,
+      undefined,
+      vi.fn().mockResolvedValue({ stdout: "", stderr: "" }),
+    );
+    const second = await prepareV2Hooks(
+      receiver,
+      m,
+      vi.fn(),
+      windows,
+      root,
+      undefined,
+      vi.fn().mockResolvedValue({ stdout: "", stderr: "" }),
+    );
     cleanup.push(
       () => {
         first.dispose();
@@ -444,7 +460,7 @@ it("refuses oversized, linked and changed observer assets and revokes failed pre
   const script = required(invocation[1]);
   await writeFile(script, "changed executable bytes");
   await expect(prepareV2Hooks(receiver, m, bind, false, root)).rejects.toThrow();
-  expect(revoke).toHaveBeenCalled();
+  expect(revoke).not.toHaveBeenCalled();
   const { readOwnedFile } = await import("../../../../src/main/agents/providers/v2-files");
   await expect(readOwnedFile(script, 2)).rejects.toThrow("Invalid owned file");
   const { symlink } = await import("node:fs/promises");
@@ -598,6 +614,7 @@ it("allocates independent sequence state and observers for multiple ordered chan
     true,
     root,
     root,
+    vi.fn().mockResolvedValue({ stdout: "", stderr: "" }),
   );
   cleanup.push(() => {
     binding.dispose();

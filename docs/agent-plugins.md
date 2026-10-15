@@ -6,8 +6,7 @@ prompts, preview grants, argument/environment bypass disclosure, resume and loca
 attention rules. Hook channels, private hook files, payload mapping and observed health are implemented
 by #432. Setup status, fixed plugin actions and private staging are implemented by #433.
 Setup staging materializes Foom-generated hook observers referenced by plugin-scope files (#464).
-Built-in conversion and those remaining capabilities are future work; parsing alone
-grants no capability. Built-in providers retain their existing hook implementation pending conversion.
+Claude Code now ships as a bundled v2 manifest (#434); Codex and Antigravity retain their existing providers pending conversion. Parsing alone grants no capability.
 [Issue #423](https://github.com/scott-r-lindsey/foom/issues/423) established the
 reviewed specification; [agent cards #409](https://github.com/scott-r-lindsey/foom/issues/409)
 is now closed.
@@ -467,11 +466,68 @@ Do not lower coverage or relax security to accommodate a template. Copilot shipp
 requires human recorded screen captures and isolated hook/MCP measurements; help
 alone is not that gate. Parser validation runs `pnpm run check`; tests never run real-agent sessions.
 
-## Complete draft manifests
+## Bundled manifest delivery (#434)
 
-The four standalone JSON blocks below instantiate this schema with no inheritance
-or external includes. They remain parser fixtures because their hook/setup surfaces are not yet launchable. Tests use bundled origin
-to validate reserved identities; config copies need a distinct ID.
+`src/shared/bundled-agents/` contains data-only JSON imported into the application
+bundle by the normal build. `shared/bundled-agent-data.ts` lists these build inputs;
+`main/agents/providers/bundled.ts` owns their expected IDs and SHA-256 locks over
+`JSON.stringify(importedData)` UTF-8 bytes. Whitespace in the source JSON is not
+part of this build lock; object/array order and all parsed values are. The loader
+checks the digest, parses with the same strict v2 validator, verifies the expected
+identity, and constructs the same immutable `v2Provider` used for config files.
+A mismatch or invalid manifest fails startup before any discovery or launch;
+there is no fallback to an old provider or a user approval prompt. This detects
+an accidentally modified build input, not an attacker who can replace application
+code and its lock together. No manifest path, origin, digest, code, include or
+module can be nominated by JSON, agent output or renderer IPC.
+
+Bundled manifest revisions travel only in reviewed application builds. A semantic
+edit updates the JSON and its code-owned digest together; the digest identifies
+that revision and the app version distributes it. Observer behavior changes must
+also revise the declared observer ABI; stable definitions/health retain their
+separate exact-definition rules. To convert another provider, add its complete
+manifest to the build list, pin its ID/digest in the loader, replace its legacy
+registration, remove its old policy branches, and add compatibility/failure tests.
+The shared catalog reserves all existing built-in IDs throughout conversion;
+config registration independently rejects collisions. Duplicates change identity
+and require normal exact-byte config approval; bundled origin/consent is never
+copied. Config files cannot claim `bundled` provenance.
+
+Main assigns `origin: bundled` to loaded providers and `providerOrigin: bundled`
+to new session records. Existing origin-less Claude rows remain valid with the
+same IDs. No settings or profile consent is rewritten: enablement, hooks, defaults,
+environment lists and argument-bypass acknowledgements keep the `claude` key.
+Bundled argument bypass retains the existing Settings/config-change acknowledgement
+flow; environment bypass still requires launch confirmation, and unattended child
+bypass always fails. Future conversions may reuse an acknowledgement only for an
+identical disclosure/effect. They must explicitly preserve notifier/setup/health
+consent; bundled build trust never substitutes for those decisions.
+
+Claude compatibility details:
+
+- Resume/default/MCP/merged preview grants/hooks/prompt order and inline `--settings`
+  JSON are preserved, including JSON member order. The draft's file attachment is
+  valid schema but was corrected to inline JSON to preserve existing argv. The
+  standalone file-based fixture remains coverage for the generic file interface.
+- The generic observer uses its private `control/lifecycle/observer.sh` or `.ps1`
+  canonical path instead of `claude.sh`/`.ps1` (including macOS `/private/var` and expanded Windows short paths), and adds a launch-bound channel header and
+  bounded stdin read. Commands use the fixed platform serializer (the same normal-path spelling, with encoded Windows invocation for shell metacharacters);
+  MCP JSON retains identical content in the common private launch directory; its temporary parent also changes. No credentials enter settings/argv. Windows still probes interpreter/policy
+  before registration. These temporary observer bytes/paths change, with no
+  permission decision, global configuration write or change to the 3-second timeout.
+- Reduced hook diagnostics now use `plugin:claude:<case-id>` and carry generic
+  channel/turn metadata. The restore fixture that directly posts hooks now supplies the launch-bound channel header, as the generated observer does. `idle_prompt` explicitly has `endsTurn:false`; Stop remains
+  completion evidence and title-only interruptions remain neutral. Notification
+  requirements use the v2 bounded nonempty string contract. Unknown notifications
+  remain inert and malformed values fail closed.
+- Reserved-argument errors retain agent/line context with generic wording. The
+  v2 engine refuses a requested orchestrator restore without actual MCP attachment;
+  normal restore already requires this capability. It also rejects malformed
+  unbalanced tool rules as the shared grammar requires. Complete help-token matching also accepts tab separators; the captured Claude help still uses the same verified flags.
+
+## Complete manifests
+
+The four standalone JSON blocks below instantiate this schema without inheritance or external includes. Claude is the shipped bundled manifest. The remaining drafts are parser fixtures pending conversion or verification. Tests use bundled origin to validate reserved identities; config copies need a distinct ID.
 Rules for existing agents are copied from current packaged JSON including priority,
 provenance and measured limitations. The Copilot draft contains disabled proposed hook and MCP templates, with no setup. They cannot attach until contracts are verified and revised bytes approved; it specifies verified
 launch surfaces and conservative environment disclosure. Open questions follow.
@@ -487,21 +543,59 @@ launch surfaces and conservative environment disclosure. Open questions follow.
   "badge": "CC",
   "executables": ["claude"],
   "discovery": {
-    "version": {"prefix": "", "suffixes": ["", " (Claude Code)"]},
+    "version": {
+      "prefix": "",
+      "suffixes": ["", " (Claude Code)"]
+    },
     "facts": [
-      {"id": "hookSupport", "minimum": [2, 1, 284], "helpTokens": ["--settings"]},
-      {"id": "mcpSupport", "minimum": [2, 1, 293], "helpTokens": ["--mcp-config"]}
+      {
+        "id": "hookSupport",
+        "minimum": [2, 1, 284],
+        "helpTokens": ["--settings"]
+      },
+      {
+        "id": "mcpSupport",
+        "minimum": [2, 1, 293],
+        "helpTokens": ["--mcp-config"]
+      }
     ]
   },
   "launch": {
-    "order": ["resume", "defaults", "arguments", "display", "guidance", "mcp", "hooks", "tools", "prompt"],
-    "arguments": {"arguments": []},
-    "prompt": {"arguments": ["--", "{prompt}"]},
-    "resume": {"arguments": ["--resume", "{conversationId}"]},
+    "order": [
+      "resume",
+      "defaults",
+      "arguments",
+      "display",
+      "guidance",
+      "mcp",
+      "tools",
+      "hooks",
+      "prompt"
+    ],
+    "arguments": {
+      "arguments": []
+    },
+    "prompt": {
+      "arguments": ["--", "{prompt}"]
+    },
+    "resume": {
+      "arguments": ["--resume", "{conversationId}"]
+    },
     "mcp": {
       "arguments": ["--mcp-config", "{file:mcp.json}"],
       "when": {
-        "all": [{"field": "control", "op": "eq", "value": true}, {"field": "mcpSupport", "op": "eq", "value": true}]
+        "all": [
+          {
+            "field": "control",
+            "op": "eq",
+            "value": true
+          },
+          {
+            "field": "mcpSupport",
+            "op": "eq",
+            "value": true
+          }
+        ]
       }
     },
     "toolPermissions": {
@@ -517,45 +611,88 @@ launch surfaces and conservative environment disclosure. Open questions follow.
   },
   "files": [
     {
-      "name": "hooks.json",
-      "scope": "launch",
-      "format": "json",
-      "content": "{\"hooks\":{\"UserPromptSubmit\":[{\"hooks\":[{\"type\":\"command\",\"command\":{observerCommand:lifecycle:json}}]}],\"PreToolUse\":[{\"hooks\":[{\"type\":\"command\",\"command\":{observerCommand:lifecycle:json}}]}],\"Stop\":[{\"hooks\":[{\"type\":\"command\",\"command\":{observerCommand:lifecycle:json}}]}],\"PermissionRequest\":[{\"hooks\":[{\"type\":\"command\",\"command\":{observerCommand:lifecycle:json}}]}],\"Notification\":[{\"hooks\":[{\"type\":\"command\",\"command\":{observerCommand:lifecycle:json}}]}]}}",
-      "when": {
-        "all": [
-          {"field": "hookSupport", "op": "eq", "value": true},
-          {"field": "hooksEnabled", "op": "eq", "value": true}
-        ]
-      }
-    },
-    {
       "name": "mcp.json",
       "scope": "launch",
       "format": "json",
       "content": "{\"mcpServers\":{{mcpName:json}:{\"type\":\"http\",\"url\":{mcpUrl:json},\"headers\":{\"Authorization\":\"Bearer ${FOOM_CONTROL_TOKEN}\"}}}}",
       "when": {
-        "all": [{"field": "control", "op": "eq", "value": true}, {"field": "mcpSupport", "op": "eq", "value": true}]
+        "all": [
+          {
+            "field": "control",
+            "op": "eq",
+            "value": true
+          },
+          {
+            "field": "mcpSupport",
+            "op": "eq",
+            "value": true
+          }
+        ]
       }
     }
   ],
   "reservedArguments": [
-    {"flag": "--settings", "forms": ["exact", "equals"]},
-    {"flag": "--safe-mode", "forms": ["exact", "equals"]},
-    {"flag": "--bare", "forms": ["exact", "equals"]},
-    {"flag": "--resume", "forms": ["exact", "equals"]},
-    {"flag": "--continue", "forms": ["exact", "equals"]},
-    {"flag": "--session-id", "forms": ["exact", "equals"]},
-    {"flag": "--fork-session", "forms": ["exact", "equals"]},
-    {"prefix": "-r"},
-    {"prefix": "-c"}
+    {
+      "flag": "--settings",
+      "forms": ["exact", "equals"]
+    },
+    {
+      "flag": "--safe-mode",
+      "forms": ["exact", "equals"]
+    },
+    {
+      "flag": "--bare",
+      "forms": ["exact", "equals"]
+    },
+    {
+      "flag": "--resume",
+      "forms": ["exact", "equals"]
+    },
+    {
+      "flag": "--continue",
+      "forms": ["exact", "equals"]
+    },
+    {
+      "flag": "--session-id",
+      "forms": ["exact", "equals"]
+    },
+    {
+      "flag": "--fork-session",
+      "forms": ["exact", "equals"]
+    },
+    {
+      "prefix": "-r"
+    },
+    {
+      "prefix": "-c"
+    }
   ],
   "bypassArguments": [
-    {"flag": "--dangerously-skip-permissions", "forms": ["exact"]},
-    {"flag": "--permission-mode", "forms": ["separate", "equals"], "value": "bypassPermissions"}
+    {
+      "flag": "--dangerously-skip-permissions",
+      "forms": ["exact"]
+    },
+    {
+      "flag": "--permission-mode",
+      "forms": ["separate", "equals"],
+      "value": "bypassPermissions"
+    }
   ],
   "bypassEnvironment": [],
-  "conversation": {"resumePin": "requested-on-paste", "restoreControl": true},
-  "resumePaste": [{"command": "claude", "selector": "--resume"}, {"command": "claude", "selector": "-r"}],
+  "conversation": {
+    "resumePin": "requested-on-paste",
+    "restoreControl": true
+  },
+  "resumePaste": [
+    {
+      "command": "claude",
+      "selector": "--resume"
+    },
+    {
+      "command": "claude",
+      "selector": "-r"
+    }
+  ],
   "attention": {
     "minimumEngineVersion": 1,
     "rules": [
@@ -564,7 +701,9 @@ launch surfaces and conservative environment disclosure. Open questions follow.
         "state": "blocked",
         "priority": 1200,
         "region": "after_horizontal_rule",
-        "match": {"contains": ["esc to cancel", "enter to confirm"]},
+        "match": {
+          "contains": ["esc to cancel", "enter to confirm"]
+        },
         "reason": "Confirmation requested",
         "comment": "Ported Enter-to-confirm branch; other navigation variants await captures."
       },
@@ -573,7 +712,9 @@ launch surfaces and conservative environment disclosure. Open questions follow.
         "state": "blocked",
         "priority": 1200,
         "region": "after_horizontal_rule",
-        "match": {"contains": ["esc to cancel", "enter to select", "↑/↓ to navigate"]},
+        "match": {
+          "contains": ["esc to cancel", "enter to select", "↑/↓ to navigate"]
+        },
         "reason": "Question form",
         "comment": "Ported live_blocked_form navigation branch; the last divider leaves the form footer visible."
       },
@@ -582,7 +723,9 @@ launch surfaces and conservative environment disclosure. Open questions follow.
         "state": "working",
         "priority": 1100,
         "region": "title",
-        "match": {"regex": ["^[◐◓◑◒] "]},
+        "match": {
+          "regex": ["^[◐◓◑◒] "]
+        },
         "reason": "Agent is working",
         "comment": "Half-circle spinner introduced in Claude 2.1.228; captured in 2.1.291. Earlier braille variant omitted without a capture."
       },
@@ -591,7 +734,9 @@ launch surfaces and conservative environment disclosure. Open questions follow.
         "state": "idle",
         "priority": 250,
         "region": "title",
-        "match": {"regex": ["^✳ "]},
+        "match": {
+          "regex": ["^✳ "]
+        },
         "reason": "Agent turn ended; checking output",
         "comment": "Idle title can coexist with a question form. Screen blockers have higher priority."
       }
@@ -602,15 +747,26 @@ launch surfaces and conservative environment disclosure. Open questions follow.
       "modified": "Modified for Foom: bounded regions, restricted regexes, capture-backed subset and local reasons."
     }
   },
-  "execution": {"completion": "attached", "completionChannels": ["lifecycle"]},
+  "execution": {
+    "completion": "attached",
+    "completionChannels": ["lifecycle"]
+  },
   "hooks": {
     "channels": [
       {
         "id": "lifecycle",
         "when": {
           "all": [
-            {"field": "hooksEnabled", "op": "eq", "value": true},
-            {"field": "hookSupport", "op": "eq", "value": true}
+            {
+              "field": "hooksEnabled",
+              "op": "eq",
+              "value": true
+            },
+            {
+              "field": "hookSupport",
+              "op": "eq",
+              "value": true
+            }
           ]
         },
         "observer": {
@@ -621,43 +777,90 @@ launch surfaces and conservative environment disclosure. Open questions follow.
           "delivery": "foreground",
           "timeoutMs": 3000
         },
-        "arguments": ["--settings", "{hookFile:hooks.json}"],
+        "arguments": [
+          "--settings",
+          "{\"hooks\":{\"UserPromptSubmit\":[{\"hooks\":[{\"type\":\"command\",\"command\":{observerCommand:lifecycle:json}}]}],\"PreToolUse\":[{\"hooks\":[{\"type\":\"command\",\"command\":{observerCommand:lifecycle:json}}]}],\"Stop\":[{\"hooks\":[{\"type\":\"command\",\"command\":{observerCommand:lifecycle:json}}]}],\"PermissionRequest\":[{\"hooks\":[{\"type\":\"command\",\"command\":{observerCommand:lifecycle:json}}]}],\"Notification\":[{\"hooks\":[{\"type\":\"command\",\"command\":{observerCommand:lifecycle:json}}]}]}}"
+        ],
         "mapping": {
-          "session": {"source": "payload", "path": ["session_id"]},
-          "event": {"source": "payload", "path": ["hook_event_name"]},
+          "session": {
+            "source": "payload",
+            "path": ["session_id"]
+          },
+          "event": {
+            "source": "payload",
+            "path": ["hook_event_name"]
+          },
           "cases": [
-            {"id": "UserPromptSubmit", "event": "UserPromptSubmit", "action": "working"},
-            {"id": "PreToolUse", "event": "PreToolUse", "action": "working"},
-            {"id": "Stop", "event": "Stop", "action": "classify"},
-            {"id": "PermissionRequest", "event": "PermissionRequest", "action": "needs_input"},
             {
-              "id": "permission-notification",
+              "id": "UserPromptSubmit",
+              "event": "UserPromptSubmit",
+              "action": "working"
+            },
+            {
+              "id": "PreToolUse",
+              "event": "PreToolUse",
+              "action": "working"
+            },
+            {
+              "id": "Stop",
+              "event": "Stop",
+              "action": "classify"
+            },
+            {
+              "id": "PermissionRequest",
+              "event": "PermissionRequest",
+              "action": "needs_input"
+            },
+            {
+              "id": "permission_prompt",
               "event": "Notification",
               "when": {
                 "all": [
                   {
-                    "field": {"source": "payload", "path": ["notification_type"]},
+                    "field": {
+                      "source": "payload",
+                      "path": ["notification_type"]
+                    },
                     "op": "eq",
                     "value": "permission_prompt"
                   }
                 ]
               },
-              "require": [{"field": {"source": "payload", "path": ["notification_type"]}, "type": "string"}],
+              "require": [
+                {
+                  "field": {
+                    "source": "payload",
+                    "path": ["notification_type"]
+                  },
+                  "type": "string"
+                }
+              ],
               "action": "needs_input"
             },
             {
-              "id": "idle-notification",
+              "id": "idle_prompt",
               "event": "Notification",
               "when": {
                 "all": [
                   {
-                    "field": {"source": "payload", "path": ["notification_type"]},
+                    "field": {
+                      "source": "payload",
+                      "path": ["notification_type"]
+                    },
                     "op": "eq",
                     "value": "idle_prompt"
                   }
                 ]
               },
-              "require": [{"field": {"source": "payload", "path": ["notification_type"]}, "type": "string"}],
+              "require": [
+                {
+                  "field": {
+                    "source": "payload",
+                    "path": ["notification_type"]
+                  },
+                  "type": "string"
+                }
+              ],
               "action": "classify",
               "endsTurn": false
             }

@@ -1,3 +1,10 @@
+import { collectMerge } from "../../../../src/main/agents/providers/v2-values";
+import manifest from "../../../../src/shared/bundled-agents/claude.json";
+function mergeAllowedTools(args: readonly string[]): string[] {
+  const merge = manifest.launch.toolPermissions.merge;
+  const collected = collectMerge(args, { ...merge, separators: "whitespace-comma-parentheses" });
+  return [...collected.args, merge.output, ...new Set(collected.values)];
+}
 import { expect, it } from "vitest";
 import { CLI_GUIDANCE, cliGuidance } from "../../../../src/main/agents/cli-launch";
 import * as cliLaunch from "../../../../src/main/agents/cli-launch";
@@ -56,11 +63,14 @@ it("gives Antigravity one CLI guidance for either role, after the user's own pro
 it("merges Claude allow aliases, equals forms and variadic rules without widening patterns", () => {
   const grants =
     "mcp__foom_launch__open_preview,mcp__foom_launch__list_previews,mcp__foom_launch__close_preview";
+  expect(mergeAllowedTools(["--mcp-config", "private.json", "--allowedTools", grants])).toEqual([
+    "--mcp-config",
+    "private.json",
+    "--allowedTools",
+    ...grants.split(","),
+  ]);
   expect(
-    cliLaunch.mergeAllowedTools(["--mcp-config", "private.json", "--allowedTools", grants]),
-  ).toEqual(["--mcp-config", "private.json", "--allowedTools", ...grants.split(",")]);
-  expect(
-    cliLaunch.mergeAllowedTools([
+    mergeAllowedTools([
       "--model",
       "example",
       "--allowedTools",

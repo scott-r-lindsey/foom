@@ -1,11 +1,9 @@
-import type { HookAgent } from "../../../shared/hooks";
-
 /** Write to a private launch directory; invoke with sh or PowerShell -File.
  * Agent output is stdin (Claude) or the final argument (Codex), never script code.
  * The launch service owns these files and supplies HookLaunch.env to the agent.
  */
 export function hookAdapter(
-  agent: HookAgent,
+  transport: "stdin" | "argv",
   platform: "posix" | "win32",
 ): {
   extension: ".sh" | ".ps1";
@@ -21,7 +19,7 @@ $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 try {
   [Console]::InputEncoding = New-Object System.Text.UTF8Encoding($false)
-  $payload = ${agent === "claude" ? "[Console]::In.ReadToEnd()" : "$args[-1]"}
+  $payload = ${transport === "stdin" ? "[Console]::In.ReadToEnd()" : "$args[-1]"}
   $headers = @{ 'Authorization' = $env:FOOM_TOKEN; 'X-Foom-Session' = $env:FOOM_SESSION }
   # Loopback only: never use a system or environment proxy (5.1 lacks -NoProxy).
   $direct = @{}
@@ -37,7 +35,7 @@ exit 0
     source: `#!/bin/sh
 # Disable curl config and proxies; never print payloads or response bodies.
 {
-${agent === "codex" ? "for payload do :; done\nprintf '%s' \"$payload\" | " : ""}curl -q --noproxy '*' --connect-timeout 1 --max-time 3 --silent --output /dev/null \\
+${transport === "argv" ? "for payload do :; done\nprintf '%s' \"$payload\" | " : ""}curl -q --noproxy '*' --connect-timeout 1 --max-time 3 --silent --output /dev/null \\
   --request POST --header 'Content-Type: application/json' \\
   --header "Authorization: $FOOM_TOKEN" --header "X-Foom-Session: $FOOM_SESSION" \\
   --data-binary @- "$FOOM_HOOK_URL"

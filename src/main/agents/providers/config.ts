@@ -14,6 +14,7 @@ export function configProvider(
   const expand = (args: readonly string[], values: Readonly<Record<string, string>>) =>
     expandArguments(args, values);
   return {
+    origin: "config",
     id: manifest.id,
     name: manifest.name,
     mark: manifest.badge,

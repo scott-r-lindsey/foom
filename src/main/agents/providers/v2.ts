@@ -30,6 +30,7 @@ export function v2Provider(input: AgentManifestV2, validate: () => Promise<void>
   const setup = new PluginSetup();
   const probes = new Map<string, { version: string; help: string }>();
   const provider: AgentProvider = {
+    origin: "config",
     id: model.id,
     name: model.name,
     mark: model.badge,
@@ -67,7 +68,13 @@ export function v2Provider(input: AgentManifestV2, validate: () => Promise<void>
         hooks: hookCapability(model, version, help),
         mcp: mcpAvailable(false) || resumeMcp,
         restoreControl: model.conversation.restoreControl && resumeMcp,
-        reason: "Config-authored agent; approved launch manifest.",
+        reason: hookCapability(model, version, help)
+          ? "Per-launch hooks supported."
+          : "Unverified hook support; using output evaluation.",
+        mcpReason:
+          mcpAvailable(false) || resumeMcp
+            ? "Per-launch MCP supported; managed policy may deny attachment."
+            : "Per-launch MCP unavailable: requires a supported version and attachment flag.",
       };
     },
     async enrich(installation) {

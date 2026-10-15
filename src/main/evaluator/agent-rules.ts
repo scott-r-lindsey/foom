@@ -2,7 +2,7 @@ import { agentProviders } from "../agents/providers/registry";
 import { boundedRegex } from "../../shared/providers/detection";
 export { boundedRegex } from "../../shared/providers/detection";
 import { isAgentId } from "../../shared/providers/catalog";
-import claude from "./agent-rules/claude.json";
+import { bundledAgentData } from "../../shared/bundled-agent-data";
 import codex from "./agent-rules/codex.json";
 import agy from "./agent-rules/agy.json";
 import type { AgentManifest, AgentRule, Matcher } from "./agent-rule-types";
@@ -12,7 +12,7 @@ import type { AgentId } from "../../shared/agents";
 /** Deliberately small regex language: no repetition, groups, alternation or backreferences.
  * Every accepted pattern has bounded, linear work even on adversarial screen text. */
 
-export function parseManifest(data: typeof claude | typeof codex | typeof agy): AgentManifest {
+export function parseManifest(data: typeof codex | typeof agy): AgentManifest {
   // JSON imports are compiled and shipped, never loaded from agent output or a URL.
   if (data.minimumEngineVersion !== 1) throw new Error("Unsupported detection engine");
   const id = data.id;
@@ -28,7 +28,17 @@ export function parseManifest(data: typeof claude | typeof codex | typeof agy): 
   });
   return { ...data, id, rules };
 }
-const manifests = [claude, codex, agy].map(parseManifest);
+const manifests = [
+  ...bundledAgentData.map((data) => ({
+    id: data.id,
+    version: 1,
+    minimumEngineVersion: data.attention.minimumEngineVersion,
+    ...data.attention.provenance,
+    rules: data.attention.rules,
+  })),
+  codex,
+  agy,
+].map(parseManifest);
 const compiled = new Map<string, RegExp>();
 for (const manifest of manifests) {
   for (const rule of manifest.rules) {

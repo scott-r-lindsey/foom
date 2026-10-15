@@ -60,12 +60,15 @@ export class HookReceiver {
     if (!identifier(terminalId)) throw new Error("Invalid terminal ID");
     const sessionId = randomUUID();
     const token = randomBytes(32).toString("hex");
-    const mapping = v2 ? undefined : agentProvider(agent).manifest?.attention.hook;
+    const provider = v2 ? undefined : agentProvider(agent);
+    const mapping = provider?.manifest?.attention.hook;
+    const model = provider?.model;
     this.sessions.set(sessionId, {
       terminalId,
       agent,
       digest: digest(token),
       ...(mapping ? { mapping } : {}),
+      ...(model ? { model } : {}),
       ...(v2 ? { channels: v2.channels, v2State: v2.state } : {}),
     });
     return {

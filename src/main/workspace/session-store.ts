@@ -40,7 +40,9 @@ export function readSessions(value: unknown): StoredSession[] {
     } = data;
     if (
       (providerOrigin !== undefined &&
-        (providerOrigin !== "config" || !validAgentId(agent) || builtinAgent(agent))) ||
+        (providerOrigin === "bundled"
+          ? typeof agent !== "string" || !builtinAgent(agent)
+          : providerOrigin !== "config" || !validAgentId(agent) || builtinAgent(agent))) ||
       (home !== undefined &&
         (home !== true || agent !== "shell" || repository !== worktree || branch !== null)) ||
       (config !== undefined &&
@@ -67,7 +69,7 @@ export function readSessions(value: unknown): StoredSession[] {
     ids.add(id);
     return {
       id,
-      ...(providerOrigin === "config" ? { providerOrigin } : {}),
+      ...(providerOrigin === "config" || providerOrigin === "bundled" ? { providerOrigin } : {}),
       ...(running === undefined ? {} : { running }),
       ...(role === undefined ? {} : { orchestrator: role }),
       ...(parentId === undefined ? {} : { parentId }),

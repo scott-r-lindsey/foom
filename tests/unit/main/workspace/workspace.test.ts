@@ -8,7 +8,10 @@ import { join } from "node:path";
 import pluginFixture from "../../../fixtures/agent-plugin.json";
 import { parseAgentPlugin } from "../../../../src/shared/agent-manifest";
 import { configProvider } from "../../../../src/main/agents/providers/config";
-import { replaceConfigProviders } from "../../../../src/main/agents/providers/registry";
+import {
+  agentProvider,
+  replaceConfigProviders,
+} from "../../../../src/main/agents/providers/registry";
 import { AgyPlugin } from "../../../../src/main/agents/agy-plugin";
 import { CodexHookStatus } from "../../../../src/main/agents/codex-hook-status";
 import type { ConfirmWorkspace } from "../../../../src/shared/confirmation";
@@ -323,18 +326,21 @@ test("a permission hook stays in force across later quiet evaluations until posi
   const signal: HookSignal = {
     terminalId: key,
     action: "needs_input",
-    signal: "claude:PermissionRequest",
+    signal: "plugin:claude:PermissionRequest",
   };
   await workspace.hook(signal);
   expect(evaluated[0]?.hook).toEqual({ ...signal, terminalId: "t1" });
-  expect(states.at(-1)).toMatchObject({ state: "needs_input", signal: "claude:PermissionRequest" });
+  expect(states.at(-1)).toMatchObject({
+    state: "needs_input",
+    signal: "plugin:claude:PermissionRequest",
+  });
   // The TUI's dialog doesn't match any text rule; the hook keeps the verdict.
   await workspace.quiet("t1");
   expect(states.at(-1)).toMatchObject({ state: "needs_input", verdictId: "v1" });
 
   workspace.input("t1");
   expect(states.at(-1)?.state).toBe("needs_input");
-  await workspace.hook({ terminalId: key, action: "working", signal: "claude:PreToolUse" });
+  await workspace.hook({ terminalId: key, action: "working", signal: "plugin:claude:PreToolUse" });
   expect(recordAction).toHaveBeenCalledWith("t1", "v1", "replied");
   await workspace.quiet("t1");
   expect(evaluated.at(-1)?.hook).toBeUndefined();
@@ -350,18 +356,18 @@ test("completion hooks classify without forcing attention; unknown keys are igno
   hooks?.bind?.("t1");
   const key = receiver.register.mock.calls[0]?.[0] ?? "";
   tails.set("t1", ["All done."]);
-  await workspace.hook({ terminalId: key, action: "classify", signal: "claude:Stop" });
+  await workspace.hook({ terminalId: key, action: "classify", signal: "plugin:claude:Stop" });
   expect(evaluated[0]?.hook).toBeUndefined();
   expect(states.at(-1)?.state).toBe("quiet_ok");
   await workspace.hook({
     terminalId: "nobody",
     action: "needs_input",
-    signal: "claude:PermissionRequest",
+    signal: "plugin:claude:PermissionRequest",
   });
   expect(evaluated).toHaveLength(1);
   // A disposed binding no longer maps its key.
   hooks?.dispose();
-  await workspace.hook({ terminalId: key, action: "classify", signal: "claude:Stop" });
+  await workspace.hook({ terminalId: key, action: "classify", signal: "plugin:claude:Stop" });
   expect(evaluated).toHaveLength(1);
 });
 
@@ -377,7 +383,7 @@ test("exit is final: releases the launch and ignores later quiet and hook events
   await workspace.hook({
     terminalId: key,
     action: "needs_input",
-    signal: "claude:PermissionRequest",
+    signal: "plugin:claude:PermissionRequest",
   });
   await workspace.exited("t1", 0);
   expect(evaluated).toHaveLength(1);
@@ -467,7 +473,7 @@ test("hook preparation starts the receiver once, retries a failed start, and giv
   const first = await prepare?.("claude");
   const second = await prepare?.("codex");
   expect(startReceiver).toHaveBeenCalledTimes(2);
-  expect(first?.observerCommand).toMatch(/^sh '.*claude\.sh'$/u);
+  expect(first?.v2?.values["observerCommand:lifecycle"]).toMatch(/^sh '.*observer\.sh'$/u);
   expect(second?.observerArgv.at(-1)).toMatch(/codex\.sh$/u);
   const agy = await prepare?.("agy");
   expect(agy?.env["FOOM_TOKEN"]).toBeDefined();
@@ -524,6 +530,8 @@ function held<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
 /** Prepares and binds a Claude launch to t1, returning its hook key. */
 async function bound(agent: AgentId = "claude"): Promise<string> {
   const hooks = await prepare?.(agent);
+  for (const channel of agentProvider(agent).model?.hooks?.channels ?? [])
+    hooks?.v2?.channels.set(channel.id, channel);
   hooks?.bind?.("t1");
   return receiver.register.mock.calls.at(-1)?.[0] ?? "";
 }
@@ -570,7 +578,7 @@ test("a reply before the first permission verdict does not answer the hook", asy
   const signal: HookSignal = {
     terminalId: key,
     action: "needs_input",
-    signal: "claude:PermissionRequest",
+    signal: "plugin:claude:PermissionRequest",
   };
   const first = workspace.hook(signal);
   await vi.waitFor(() => {
@@ -663,7 +671,7 @@ test("a hook that arrives before launch returns is kept", async () => {
     early = workspace.hook({
       terminalId: key,
       action: "needs_input",
-      signal: "claude:PermissionRequest",
+      signal: "plugin:claude:PermissionRequest",
     });
     await early;
     return { id: "t1", attention: "hooks" };
@@ -675,7 +683,10 @@ test("a hook that arrives before launch returns is kept", async () => {
     cols: 80,
     rows: 24,
   });
-  expect(states.at(-1)).toMatchObject({ state: "needs_input", signal: "claude:PermissionRequest" });
+  expect(states.at(-1)).toMatchObject({
+    state: "needs_input",
+    signal: "plugin:claude:PermissionRequest",
+  });
   await workspace.quiet("t1");
   expect(workspace.snapshot().terminals[0]?.state).toMatchObject({ state: "needs_input" });
 });
@@ -1076,7 +1087,7 @@ test("output preserves a permission hook even while its evaluation is pending", 
   const pending = workspace.hook({
     terminalId: key,
     action: "needs_input",
-    signal: "claude:PermissionRequest",
+    signal: "plugin:claude:PermissionRequest",
   });
   await vi.waitFor(() => {
     expect(terminalTail).toHaveBeenCalled();
@@ -1714,7 +1725,7 @@ test("shell markers do not override a permission hook", async () => {
   await workspace.hook({
     terminalId: key,
     action: "needs_input",
-    signal: "claude:PermissionRequest",
+    signal: "plugin:claude:PermissionRequest",
   });
   workspace.shellState("t1", { phase: "running" });
   workspace.shellState("t1", { phase: "prompt", exitCode: 0 });
@@ -2073,7 +2084,7 @@ test("captures only valid IDs, persists changes once, and keeps IDs out of evalu
   const signal = {
     terminalId: key,
     action: "needs_input" as const,
-    signal: "claude:PermissionRequest" as const,
+    signal: "plugin:claude:PermissionRequest" as const,
     conversationId: "saved-123",
   };
   await workspace.hook({ ...signal, conversationId: "--unsafe" });
@@ -2084,7 +2095,7 @@ test("captures only valid IDs, persists changes once, and keeps IDs out of evalu
   expect(evaluated.at(-1)?.hook).toEqual({
     terminalId: "t1",
     action: "needs_input",
-    signal: "claude:PermissionRequest",
+    signal: "plugin:claude:PermissionRequest",
   });
   await workspace.dispose();
 });
@@ -2135,14 +2146,22 @@ test("execution is immediate, independent across agents, and conclusions wait fo
   await workspace.evidence("t1", { title: "✳ Ready", progress: null });
   expect(workspace.snapshot().terminals[0]?.state?.state).toBe("quiet_ok");
   expect(events.at(-1)).toMatchObject({ from: "starting", to: "idle", turn: 0 });
-  await workspace.hook({ terminalId: key, action: "working", signal: "claude:UserPromptSubmit" });
+  await workspace.hook({
+    terminalId: key,
+    action: "working",
+    signal: "plugin:claude:UserPromptSubmit",
+  });
   expect(events.at(-1)).toMatchObject({ to: "working", turn: 1 });
   workspace.output("t1");
   workspace.input("t1");
   expect(workspace.snapshot().terminals[0]?.execution?.phase).toBe("working");
   const response = held<VerdictRecord>();
   classify.mockReturnValueOnce(response.promise);
-  const ending = workspace.hook({ terminalId: key, action: "classify", signal: "claude:Stop" });
+  const ending = workspace.hook({
+    terminalId: key,
+    action: "classify",
+    signal: "plugin:claude:Stop",
+  });
   expect(events.at(-1)).toMatchObject({ from: "working", to: "idle", turn: 1 });
   await vi.waitFor(() => {
     expect(classify).toHaveBeenCalledTimes(2);
@@ -2158,7 +2177,11 @@ test("execution is immediate, independent across agents, and conclusions wait fo
   const count = events.length;
   await workspace.evidence("t1", { title: "✳ Finished", progress: null });
   expect(events).toHaveLength(count);
-  await workspace.hook({ terminalId: key, action: "working", signal: "claude:UserPromptSubmit" });
+  await workspace.hook({
+    terminalId: key,
+    action: "working",
+    signal: "plugin:claude:UserPromptSubmit",
+  });
   await workspace.exited("t1", 0);
   expect(states.at(-1)?.state).toBe("failed");
   expect(events.at(-1)?.to).toBe("exited");
@@ -2175,7 +2198,11 @@ test("an old classification cannot stop a newer turn; blocking screens outrank w
   await vi.waitFor(() => {
     expect(classify).toHaveBeenCalledOnce();
   });
-  await workspace.hook({ terminalId: key, action: "working", signal: "claude:UserPromptSubmit" });
+  await workspace.hook({
+    terminalId: key,
+    action: "working",
+    signal: "plugin:claude:UserPromptSubmit",
+  });
   response.resolve({
     id: "old",
     terminalId: "t1",
@@ -2199,8 +2226,12 @@ test("consecutive hook-only turns publish fresh completion verdicts and spinner 
   const key = await bound();
   tails.set("t1", ["Finished"]);
   for (const turn of [1, 2]) {
-    await workspace.hook({ terminalId: key, action: "working", signal: "claude:UserPromptSubmit" });
-    await workspace.hook({ terminalId: key, action: "classify", signal: "claude:Stop" });
+    await workspace.hook({
+      terminalId: key,
+      action: "working",
+      signal: "plugin:claude:UserPromptSubmit",
+    });
+    await workspace.hook({ terminalId: key, action: "classify", signal: "plugin:claude:Stop" });
     expect(states.at(-1)).toMatchObject({ state: "done", execution: { turn, phase: "idle" } });
   }
   expect(states.filter((state) => state.state === "done")).toHaveLength(2);
@@ -2260,7 +2291,7 @@ test("ambiguous output and spinners cannot clear an explicit permission hook", a
   await workspace.hook({
     terminalId: key,
     action: "needs_input",
-    signal: "claude:PermissionRequest",
+    signal: "plugin:claude:PermissionRequest",
   });
   tails.set("t1", ["Making progress"]);
   await workspace.evidence("t1", { title: "◐ Working", progress: null });
@@ -2298,7 +2329,7 @@ test("dismissed hook attention stays quiet until a new permission event", async 
   const signal: HookSignal = {
     terminalId: key,
     action: "needs_input",
-    signal: "claude:PermissionRequest",
+    signal: "plugin:claude:PermissionRequest",
   };
   await workspace.hook(signal);
   await workspace.feedback("t1", states.at(-1)?.verdictId ?? null, "dismissed");
@@ -2313,11 +2344,15 @@ test("dismissed hook attention stays quiet until a new permission event", async 
 test("permission approval needs fresh working evidence and a cleared agent form", async () => {
   const workspace = await launched();
   const key = await bound();
-  await workspace.hook({ terminalId: key, action: "working", signal: "claude:UserPromptSubmit" });
+  await workspace.hook({
+    terminalId: key,
+    action: "working",
+    signal: "plugin:claude:UserPromptSubmit",
+  });
   await workspace.hook({
     terminalId: key,
     action: "needs_input",
-    signal: "claude:PermissionRequest",
+    signal: "plugin:claude:PermissionRequest",
   });
   tails.set("t1", ["───", "enter to confirm · esc to cancel"]);
   workspace.input("t1");
@@ -2334,7 +2369,7 @@ test("permission approval needs fresh working evidence and a cleared agent form"
   await workspace.hook({
     terminalId: key,
     action: "needs_input",
-    signal: "claude:PermissionRequest",
+    signal: "plugin:claude:PermissionRequest",
   });
   await workspace.evidence("t1", { title: "◑ Claude Code", progress: null });
   expect(states.at(-1)?.state).toBe("needs_input");
@@ -2362,12 +2397,16 @@ test("Claude title-only turn ends stay neutral, then a late Stop completes once"
   const workspace = await launched();
   const key = await bound();
   tails.set("t1", ["Ready"]);
-  await workspace.hook({ terminalId: key, action: "working", signal: "claude:UserPromptSubmit" });
+  await workspace.hook({
+    terminalId: key,
+    action: "working",
+    signal: "plugin:claude:UserPromptSubmit",
+  });
   await workspace.evidence("t1", { title: "✳ Claude Code", progress: null });
   expect(states.at(-1)).toMatchObject({ state: "quiet_ok", execution: { phase: "idle" } });
-  await workspace.hook({ terminalId: key, action: "classify", signal: "claude:Stop" });
+  await workspace.hook({ terminalId: key, action: "classify", signal: "plugin:claude:Stop" });
   expect(states.at(-1)?.state).toBe("done");
-  await workspace.hook({ terminalId: key, action: "classify", signal: "claude:Stop" });
+  await workspace.hook({ terminalId: key, action: "classify", signal: "plugin:claude:Stop" });
   expect(states.filter(({ state }) => state === "done")).toHaveLength(1);
   await workspace.dispose();
 });
@@ -2376,7 +2415,11 @@ test("identical dismissed prompt alerts again in a later turn", async () => {
   const workspace = await launched();
   const key = await bound();
   for (const turn of [1, 2]) {
-    await workspace.hook({ terminalId: key, action: "working", signal: "claude:UserPromptSubmit" });
+    await workspace.hook({
+      terminalId: key,
+      action: "working",
+      signal: "plugin:claude:UserPromptSubmit",
+    });
     tails.set("t1", ["───", "Same question", "enter to confirm · esc to cancel"]);
     await workspace.quiet("t1");
     expect(states.at(-1)).toMatchObject({ state: "needs_input", execution: { turn } });
@@ -2384,7 +2427,7 @@ test("identical dismissed prompt alerts again in a later turn", async () => {
     await workspace.quiet("t1");
     expect(states.at(-1)?.state).toBe("quiet_ok");
     tails.set("t1", ["Finished"]);
-    await workspace.hook({ terminalId: key, action: "classify", signal: "claude:Stop" });
+    await workspace.hook({ terminalId: key, action: "classify", signal: "plugin:claude:Stop" });
   }
   await workspace.dispose();
 });

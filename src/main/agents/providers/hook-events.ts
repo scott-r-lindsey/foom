@@ -1,4 +1,4 @@
-import type { ManifestChannel } from "../../../shared/agent-manifest-v2";
+import type { AgentManifestV2, ManifestChannel } from "../../../shared/agent-manifest-v2";
 import { reduceV2, type V2HookState } from "./v2-events";
 import type { HookMapping } from "../../../shared/agent-plugin";
 import { conversationId } from "../conversation";
@@ -11,6 +11,7 @@ export type HookSession = {
   sequence?: number;
   completedTurns?: Set<string>;
   mapping?: HookMapping;
+  model?: AgentManifestV2;
   channels?: Map<string, ManifestChannel>;
   v2State?: V2HookState;
 };
@@ -42,6 +43,22 @@ export function reduceEvent(
       event,
       sequenceHeader,
     );
+  }
+  // Compatibility for main-owned callers using the old single-channel registration API.
+  const channel =
+    session.model?.hooks?.channels.length === 1 ? session.model.hooks.channels[0] : undefined;
+  if (channel) {
+    session.v2State ??= {};
+    const reduced = reduceV2(
+      channel,
+      session.v2State,
+      session.terminalId,
+      session.agent,
+      value,
+      event,
+      sequenceHeader,
+    );
+    return reduced;
   }
   if (!record(value)) throw new Error("Invalid event");
   if (session.mapping) {
@@ -107,8 +124,7 @@ export function reduceEvent(
     };
   }
   const lifecycle = session.agent === "codex" && value["hook_event_name"] !== undefined;
-  const agentId =
-    session.agent === "claude" || lifecycle ? value["session_id"] : value["thread-id"];
+  const agentId = lifecycle ? value["session_id"] : value["thread-id"];
   if (!conversationId(agentId) || (session.agentId !== undefined && session.agentId !== agentId))
     throw new Error("Invalid agent session");
   let signal: HookSignal["signal"];
@@ -163,36 +179,7 @@ export function reduceEvent(
       if (oldest !== undefined) session.completedTurns.delete(oldest);
     }
     signal = "codex:agent-turn-complete";
-  } else {
-    switch (value["hook_event_name"]) {
-      case "UserPromptSubmit":
-        signal = "claude:UserPromptSubmit";
-        action = "working";
-        break;
-      case "PreToolUse":
-        signal = "claude:PreToolUse";
-        action = "working";
-        break;
-      case "Stop":
-        signal = "claude:Stop";
-        break;
-      case "PermissionRequest":
-        signal = "claude:PermissionRequest";
-        action = "needs_input";
-        break;
-      case "Notification":
-        if (typeof value["notification_type"] !== "string") throw new Error("Invalid notification");
-        if (value["notification_type"] === "permission_prompt") {
-          signal = "claude:permission_prompt";
-          action = "needs_input";
-        } else if (value["notification_type"] === "idle_prompt") signal = "claude:idle_prompt";
-        else return;
-        break;
-      default:
-        if (typeof value["hook_event_name"] !== "string") throw new Error("Invalid hook");
-        return;
-    }
-  }
+  } else throw new Error("Unknown hook mapping");
   session.agentId = agentId;
   return { terminalId: session.terminalId, action, signal, conversationId: agentId };
 }

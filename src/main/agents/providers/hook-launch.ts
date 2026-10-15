@@ -41,16 +41,13 @@ export async function prepareHookLaunch(
 ): Promise<AgentHooks> {
   const windows = platform === "win32";
   const model = agentProvider(agent).model;
-  if (model) return prepareV2Hooks(receiver, model, bind, windows, scratch, stableDirectory);
+  if (model)
+    return prepareV2Hooks(receiver, model, bind, windows, scratch, stableDirectory, execute);
   const adapter =
     agent === "agy"
       ? undefined
       : hookAdapter(
-          agentProvider(agent).manifest?.attention.hook?.transport === "argv"
-            ? "codex"
-            : agentProvider(agent).manifest
-              ? "claude"
-              : agent,
+          agentProvider(agent).manifest?.attention.hook?.transport ?? "argv",
           windows ? "win32" : "posix",
         );
   // mkdtemp creates the directory with mode 0700, so other users can't swap the script.

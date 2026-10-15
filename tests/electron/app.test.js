@@ -2801,7 +2801,7 @@ test("launches an agent in a managed worktree and routes its attention signals",
   await page.keyboard.type("y");
   await expect
     .poll(async () => (await latest())?.signal, { timeout: deadline(10000) })
-    .toBe("claude:PermissionRequest");
+    .toBe("plugin:claude:PermissionRequest");
   assert.ok(
     !(await page.evaluate(() => window.foomStates.map((s) => s.signal))).includes("user:reply"),
   );
@@ -9722,7 +9722,7 @@ const conversation = "saved-" + path.basename(process.cwd());
 const payload = ${JSON.stringify(agent)} === "claude"
   ? { session_id: conversation, hook_event_name: "Stop" }
   : { "thread-id": conversation, "turn-id": "turn", type: "agent-turn-complete" };
-const req = require("node:http").request(process.env.FOOM_HOOK_URL, { method: "POST", headers: { Authorization: process.env.FOOM_TOKEN, "X-Foom-Session": process.env.FOOM_SESSION, "Content-Type": "application/json" } }, res => res.resume());
+const req = require("node:http").request(process.env.FOOM_HOOK_URL, { method: "POST", headers: { Authorization: process.env.FOOM_TOKEN, "X-Foom-Session": process.env.FOOM_SESSION, "Content-Type": "application/json", ...(process.env.FOOM_CHANNEL_lifecycle ? { "X-Foom-Channel": process.env.FOOM_CHANNEL_lifecycle } : {}) } }, res => res.resume());
 req.on("error", () => process.exit(1));
 req.end(JSON.stringify(payload));
 `;

@@ -2554,14 +2554,13 @@ export class Workspace {
       delete this.track(id).dismissedAttention;
       this.track(id).hook = { terminalId: id, action: signal.action, signal: signal.signal };
       this.transition(id, "blocked", "hook");
-    } else if (signal.signal !== "claude:idle_prompt" && signal.endsTurn !== false) {
+    } else if (signal.endsTurn !== false) {
       const terminal = this.track(id);
       const turn = terminal.execution?.snapshot().turn;
       if (
         turn &&
         (signal.signal.startsWith("plugin:") ||
           signal.signal === "agy:Stop" ||
-          signal.signal === "claude:Stop" ||
           signal.signal === "codex:Stop" ||
           signal.signal === "codex:agent-turn-complete")
       )

@@ -177,14 +177,14 @@ export class AgentService {
             : !provider.manifest || provider.manifest.launch.resume.length > 0,
           ...(provider.model
             ? {
-                source: `agents/${provider.id}.json`,
+                ...(provider.origin === "bundled" ? {} : { source: `agents/${provider.id}.json` }),
                 resumePaste: provider.model.resumePaste,
                 restoreControl: agent.restoreControl ?? provider.model.conversation.restoreControl,
               }
             : {}),
           ...(provider.manifest
             ? {
-                source: `agents/${provider.id}.json`,
+                ...(provider.origin === "bundled" ? {} : { source: `agents/${provider.id}.json` }),
                 bypassArguments: provider.manifest.bypassArguments,
               }
             : {}),
@@ -261,7 +261,18 @@ export class AgentService {
       throw new Error(`${request.agent} is not installed. Rescan after installing it.`);
     const attach =
       this.hooksEnabled && this.agentHooks[agent.id] !== false && agent.hooks && this.prepareHooks;
-    const binding = attach ? await attach(agent.id) : undefined;
+    const suppliedBinding = attach ? await attach(agent.id) : undefined;
+    let bindingDisposed = false;
+    const binding = suppliedBinding
+      ? {
+          ...suppliedBinding,
+          dispose: () => {
+            if (bindingDisposed) return;
+            bindingDisposed = true;
+            suppliedBinding.dispose();
+          },
+        }
+      : undefined;
     const notify = agentProvider(agent.id).needsNotifier(agent, binding);
     if (attach && notify && !request.acknowledgeCodexNotifierReplacement) {
       binding?.dispose();
@@ -330,13 +341,14 @@ export class AgentService {
         : environment.env;
       // The host inherits OS names such as ProgramFiles(x86) itself. IPC accepts
       // portable names only; freeze inspected inherited bypass names in that surface.
-      const launchEnvironment = provider.model
-        ? Object.fromEntries(
-            Object.entries(finalEnvironment).filter(([name]) =>
-              /^[A-Za-z_][A-Za-z0-9_]*$/u.test(name),
-            ),
-          )
-        : environment.env;
+      const launchEnvironment =
+        provider.model && provider.origin !== "bundled"
+          ? Object.fromEntries(
+              Object.entries(finalEnvironment).filter(([name]) =>
+                /^[A-Za-z_][A-Za-z0-9_]*$/u.test(name),
+              ),
+            )
+          : environment.env;
       const environmentMatches = provider.model
         ? bypassEnvironment(provider.model, finalEnvironment)
         : [];
@@ -350,6 +362,7 @@ export class AgentService {
         if (request.control && "parentId" in request.control)
           throw new Error("Unattended child bypass is unavailable");
         if (
+          (provider.origin !== "bundled" || environmentMatches.length > 0) &&
           !(await this.confirmLaunchBypass?.({
             title: `Launch ${provider.name} with bypass?`,
             glyph: "shield",
@@ -402,7 +415,7 @@ export class AgentService {
         prepared?.dispose();
         return {
           id,
-          ...(provider.manifest || provider.model ? { providerOrigin: "config" as const } : {}),
+          ...(provider.origin ? { providerOrigin: provider.origin } : {}),
           attention: binding ? "hooks" : "evaluator",
           ...(prepared?.conversationId ? { conversationId: prepared.conversationId } : {}),
           ...(provider.model ? { bypass } : {}),
@@ -422,7 +435,7 @@ export class AgentService {
       }
       return {
         id,
-        ...(provider.manifest || provider.model ? { providerOrigin: "config" as const } : {}),
+        ...(provider.origin ? { providerOrigin: provider.origin } : {}),
         attention: binding ? "hooks" : "evaluator",
         ...(prepared?.conversationId ? { conversationId: prepared.conversationId } : {}),
         ...(provider.model ? { bypass } : {}),

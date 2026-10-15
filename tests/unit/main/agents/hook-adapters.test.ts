@@ -40,13 +40,15 @@ describe("OS hook adapters", () => {
       const launch = receiver.register("terminal", agent);
       const directory = await mkdtemp(join(tmpdir(), "foom-hooks-"));
       const platform = process.platform === "win32" ? "win32" : "posix";
-      const adapter = hookAdapter(agent, platform);
+      const adapter = hookAdapter(agent === "claude" ? "stdin" : "argv", platform);
       const path = join(directory, `observer${adapter.extension}`);
       // Ensure both generated variants retain distinct input transports on every OS.
-      expect(hookAdapter(agent, "win32").source).toContain(
+      expect(hookAdapter(agent === "claude" ? "stdin" : "argv", "win32").source).toContain(
         agent === "claude" ? "[Console]::In.ReadToEnd()" : "$args[-1]",
       );
-      expect(hookAdapter(agent, "posix").source).toContain("--data-binary @-");
+      expect(hookAdapter(agent === "claude" ? "stdin" : "argv", "posix").source).toContain(
+        "--data-binary @-",
+      );
       const text = "'\"; $(exit 99) `exit 99`\n雪 🦊 @/private/file";
       const payload = JSON.stringify(
         agent === "claude"
@@ -95,7 +97,16 @@ describe("OS hook adapters", () => {
             terminalId: "terminal",
             conversationId: agent === "claude" ? "session" : "thread",
             action: agent === "claude" ? "needs_input" : "classify",
-            signal: agent === "claude" ? "claude:PermissionRequest" : "codex:agent-turn-complete",
+            signal:
+              agent === "claude" ? "plugin:claude:PermissionRequest" : "codex:agent-turn-complete",
+            ...(agent === "claude"
+              ? {
+                  channel: "lifecycle",
+                  caseId: "PermissionRequest",
+                  endsTurn: false,
+                  recoverTurn: false,
+                }
+              : {}),
           },
         ]);
         launch.revoke();

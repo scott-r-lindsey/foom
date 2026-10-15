@@ -146,6 +146,8 @@ exit 0
     );
   }
   source = source.replaceAll("FOOM_HOOK_ORDER", `FOOM_ORDER_${channel.id.replaceAll("-", "_")}`);
+  if (windows && options.placement === "launch")
+    source = "if ($args.Count -eq 1 -and $args[0] -eq '--foom-probe') { exit 0 }\n" + source;
   return {
     [windows ? "observer.ps1" : "observer.sh"]: source,
     ...(windows && worker ? { "send.ps1": worker } : {}),

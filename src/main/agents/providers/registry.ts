@@ -1,10 +1,10 @@
 import type { AgentId } from "../../../shared/agents";
-import { claudeProvider } from "./claude";
+import { bundledProviders } from "./bundled";
 import { codexProvider } from "./codex";
 import { agyProvider } from "./agy";
 import type { AgentProvider } from "./provider";
 export type { AgentProvider } from "./provider";
-const builtins: readonly AgentProvider[] = [claudeProvider, codexProvider, agyProvider];
+const builtins: readonly AgentProvider[] = [...bundledProviders, codexProvider, agyProvider];
 let configured: readonly AgentProvider[] = [];
 let revision = 0;
 export function providerRevision(): number {

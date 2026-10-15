@@ -83,7 +83,7 @@ export interface AgentLaunch {
 export interface AgentLaunched {
   readonly conversationId?: string;
   readonly bypass?: boolean;
-  readonly providerOrigin?: "config";
+  readonly providerOrigin?: "config" | "bundled";
   readonly id: string;
   readonly attention: "hooks" | "evaluator";
   /** Names of the variables Foom set from Environment settings; never values. */
