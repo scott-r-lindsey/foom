@@ -1,7 +1,7 @@
 import { bundledAgentData } from "../bundled-agent-data";
 import { parseAgentManifest } from "../agent-plugin-parser";
 import { matchesArguments } from "../agent-argument-matchers";
-import { validAgentId } from "./catalog";
+import { builtinAgent, validAgentId } from "./catalog";
 import type { AgentId, AgentValues } from "../agents";
 
 export const EMPTY_AGENT_ARGUMENTS: AgentValues<readonly string[]> = Object.freeze({
@@ -14,12 +14,6 @@ export const EMPTY_AGENT_ARGUMENTS: AgentValues<readonly string[]> = Object.free
 const BYPASS: Readonly<Record<string, readonly string[]>> = {
   codex: ["--dangerously-bypass-approvals-and-sandbox"],
   agy: ["--dangerously-skip-permissions"],
-};
-
-const AGENT_NAMES: Readonly<Record<string, string>> = {
-  claude: "Claude Code",
-  codex: "Codex",
-  agy: "Antigravity",
 };
 
 /** Read only Codex's invocation overrides; argv itself remains untouched. */
@@ -76,7 +70,7 @@ export class AgentArgumentsError extends Error {}
 
 function argumentError(agent: AgentId, index: number, message: string): Error {
   return new AgentArgumentsError(
-    `${AGENT_NAMES[agent] ?? agent}, line ${String(index + 1)}: ${message}`,
+    `${builtinAgent(agent)?.name ?? agent}, line ${String(index + 1)}: ${message}`,
   );
 }
 
@@ -84,7 +78,7 @@ function argumentError(agent: AgentId, index: number, message: string): Error {
 export function parseAgentArguments(agent: AgentId, value: unknown): readonly string[] {
   if (!Array.isArray(value) || value.length > 64)
     throw new AgentArgumentsError(
-      `${AGENT_NAMES[agent] ?? agent}: use a list of at most 64 default arguments.`,
+      `${builtinAgent(agent)?.name ?? agent}: use a list of at most 64 default arguments.`,
     );
   const args: string[] = [];
   for (const [index, arg] of value.entries()) {
