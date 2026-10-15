@@ -4,7 +4,9 @@ Status: parser implemented by #430 and the generic config launch engine by #431,
 2026-10-14. Approved v2 config plugins support discovery, launch, private MCP files,
 prompts, preview grants, argument/environment bypass disclosure, resume and local
 attention rules. Hook channels, private hook files, payload mapping and observed health are implemented
-by #432. Manifests declaring setup remain unavailable with `v2-setup-unavailable`.
+by #432. Setup status, fixed plugin actions and private staging are implemented by #433.
+Plugin-scope files that reference hook observers (`{observer...}`) remain unavailable with
+`v2-observer-staging-unavailable` until setup staging can materialize observers.
 Built-in conversion and those remaining capabilities are future work; parsing alone
 grants no capability. Built-in providers retain their existing hook implementation pending conversion.
 [Issue #423](https://github.com/scott-r-lindsey/foom/issues/423) established the
@@ -83,7 +85,7 @@ A future executable JSON Schema must agree with these tables and the runtime par
 | Text | 1–4096 Unicode code units unless narrower below; no Cc/Cf/Co/Cs or U+2028/U+2029; literal rendered text |
 | Multiline template | <=16384 bytes each, LF and tab allowed; other hidden/control characters forbidden; aggregate template bytes <=32768 |
 | Argv | <=64 nonempty Text entries; <=256 expanded entries/65536 bytes per process invocation, each expanded entry <=20480 bytes (prompt may contain LF/tab); no shell evaluation |
-| Relative file | <=100 ASCII characters, <=4 components (fixed home metadata paths <=5); [A-Za-z0-9_.-]+ per component, no empty/dot/dotdot components, drive letters or absolute path; generated files forbid hidden components, metadata paths permit fixed hidden agent roots |
+| Relative file | <=100 ASCII characters, <=4 components (fixed home metadata paths <=5); [A-Za-z0-9_.-]+ per component, no empty/dot/dotdot components, drive letters, absolute path, trailing dots or Windows device names; generated files forbid hidden components, metadata paths permit fixed hidden agent roots |
 | Selector | `{source,path}`; source payload, header, probe, metadata, facts; path 1–8 literal keys (each <=64) or nonnegative integer indexes <=63; no wildcard, recursion or expressions |
 | Condition | `{all?:[Test,...],any?:[Test,...]}` with 1–16 Tests total, no nesting; omitted all is true, omitted any is true; both present means AND of all-tests and any-test; `{all:[]}` alone means unconditional |
 | Test | `{field,op,value?}`; field is a named fact or Selector; op eq, in, exists, absent, lt, gte; eq primitive, in <=16 primitives, numeric comparison safe integers only; exists/absent omit value |
@@ -337,7 +339,7 @@ patterns but raw paste stays local; main checks plugin approval and ID again.
 | Object | Closed fields / limits |
 | --- | --- |
 | status | `{probe?,metadata?,ownership?,cases,default}`; default unavailable; <=16 ordered `{when,state}` cases; state not-installed/installed/outdated/disabled/unavailable |
-| probe | `{arguments,format,empty?}`; fixed Argv, format json; empty optional `{text,value}` exact text <=128 and bounded JSON value; timeout 5 s/output 64 KiB engine constants |
+| probe | `{arguments,format,empty?}`; fixed `plugin list` Argv, format json; empty optional `{text,value}` exact text <=128 and bounded JSON value; timeout 5 s/output 64 KiB engine constants |
 | metadata | <=4 `{id,path,optional}`; ID, home-relative Relative file, boolean; read JSON only <=64 KiB each |
 | ownership | `{directory,manifest,require,versionField,currentVersion,disabledField,enabledField}`; home-relative directory, metadata ID, <=16 Requirements, Selectors; currentVersion 1–100000; disabledField optional Selector; enabledField optional Selector |
 | action | `{id,label,kind,arguments?,instructions?,when,disclosure,statusProbe}`; ID, label <=40; kind command/instructions; exactly argv or instructions Text; disclosure Text <=4096; statusProbe fixed Argv for command or observed-health for instructions |
@@ -375,7 +377,7 @@ Command actions use the same resolved agent executable, fixed argv and only
 stdin program, retries or executable downloads. Stage files first for review;
 serialize actions per executable/plugin ownership target, re-probe before/after,
 re-read approval bytes and recheck ownership after trusted confirmation. Conflicting
-copies share the ownership lock. Failed commands report fixed errors and require
+copies share the ownership lock, including case aliases on Windows/macOS. Failed commands report fixed errors and require
 rescan, never assume success. Install only absent, update only recognized outdated,
 enable only recognized disabled, remove only recognized installed/outdated/disabled.
 No other plugin name can be mutated. Instructions are inert UI text: review /hooks

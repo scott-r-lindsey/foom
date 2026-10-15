@@ -1,3 +1,4 @@
+import { PluginSetup } from "../../../../src/main/agents/plugin-setup";
 import { afterEach, expect, it, vi } from "vitest";
 import { readFile, stat } from "node:fs/promises";
 import * as fs from "node:fs/promises";
@@ -394,21 +395,22 @@ it("supports file-free server-parentheses grants, conditional blocks and alterna
   expect(noMcp.prepared.mcp).toBe(false);
   expect(noMcp.prepared.args).toContain("--allow=Bad(");
 });
-it("supports hooks/health, refuses setup, reviews the whole surface, and applies approved attention rules", () => {
+it("supports hooks, health and setup, reviews the whole surface, and applies approved attention rules", () => {
   const m = model();
-  expect(() => {
-    availableV2(model({ ...hookFixture, id: fixture.id }));
-  }).not.toThrow();
-  const health = model({ ...healthFixture, id: fixture.id });
-  health.hooks = undefined;
-  expect(() => {
-    availableV2(health);
-  }).toThrow("v2-setup-unavailable");
+  for (const source of [hookFixture, healthFixture])
+    expect(() => {
+      availableV2(model({ ...source, id: fixture.id }));
+    }).not.toThrow();
   const setup = model({ ...setupFixture, id: fixture.id });
-  setup.hooks = undefined;
   expect(() => {
     availableV2(setup);
-  }).toThrow("v2-setup-unavailable");
+  }).toThrow("v2-observer-staging-unavailable");
+  setup.files = setup.files.filter(
+    (file) => file.scope !== "plugin" || !file.content.includes("{observer"),
+  );
+  expect(() => {
+    availableV2(setup);
+  }).not.toThrow();
   replaceConfigProviders([v2Provider(m, () => Promise.resolve())]);
   expect(detectAgent(m.id, { title: "Working", progress: null }, [])?.id).toBe("working");
   const disclosure = pluginDisclosure(m, {
@@ -565,4 +567,38 @@ it("revokes credentials before deleting files when preparation fails", async () 
     }),
   ).rejects.toThrow("Unbalanced");
   expect(cleanup).toHaveBeenCalledOnce();
+});
+
+it("derives setup facts after status enrichment and re-probes before launch", async () => {
+  const m = model();
+  m.setup = model({ ...setupFixture, id: fixture.id }).setup;
+  m.discovery.facts.push({
+    id: "pluginReady",
+    enabled: true,
+    minimum: undefined,
+    helpTokens: [],
+    when: { all: [{ field: "setupState", op: "eq", value: "installed" }], any: undefined },
+  });
+  required(m.launch.mcp).when = {
+    all: [{ field: "pluginReady", op: "eq", value: true }],
+    any: undefined,
+  };
+  const status = vi
+    .spyOn(PluginSetup.prototype, "status")
+    .mockResolvedValue({ state: "installed", actions: [] });
+  try {
+    const provider = v2Provider(m, () => Promise.resolve());
+    const initial = provider.discover("/fixture/cli", "fixture 1.2.3", "--inline --prompt --mcp");
+    expect(initial.mcp).toBe(false);
+    const enriched = await provider.enrich(initial, new AgyPlugin());
+    expect(enriched.mcp).toBe(true);
+    expect(provider.setupFacts?.("/missing", {})).toHaveProperty("pluginReady", false);
+    const prepared = await provider.prepareLaunch?.(enriched, request, [], control, false, true);
+    expect(prepared?.mcp).toBe(true);
+    prepared?.dispose();
+    expect(status).toHaveBeenCalledTimes(2);
+    await provider.enrich({ ...initial, path: null }, new AgyPlugin());
+  } finally {
+    status.mockRestore();
+  }
 });

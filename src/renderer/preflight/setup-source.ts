@@ -7,6 +7,7 @@ export function createSetupSource(): SetupSource {
     openThemesFolder: (kind) => desktop.openThemesFolder(kind),
     state: () => desktop.setupState(),
     save: (patch) => desktop.saveSetup(patch),
+    changeAgentSetup: (id, action) => desktop.changeAgentSetup(id, action),
     changeAgyPlugin: (action) => desktop.changeAgyPlugin(action),
     scanAgents: (refresh) => desktop.scanAgents(refresh),
     repositories: async () => (await desktop.workspace()).repositories,

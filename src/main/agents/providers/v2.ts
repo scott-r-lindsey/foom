@@ -1,3 +1,4 @@
+import { PluginSetup } from "../plugin-setup";
 import { randomUUID } from "node:crypto";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -19,8 +20,9 @@ import {
 } from "./v2-values";
 
 export function availableV2(model: AgentManifestV2): void {
-  if (model.setup || model.files.some((file) => file.scope === "plugin"))
-    throw new AgentManifestError("$.setup", "v2-setup-unavailable");
+  // Setup staging (#433) cannot yet materialize hook observers inside plugin files.
+  if (model.files.some((file) => file.scope === "plugin" && file.content.includes("{observer")))
+    throw new AgentManifestError("$.files", "v2-observer-staging-unavailable");
 }
 
 /** Immutable approved data; probes/facts and temporary files never reach board renderers. */
@@ -33,6 +35,7 @@ export function v2Provider(input: AgentManifestV2, validate: () => Promise<void>
   };
   availableV2(model);
   freeze(model);
+  const setup = new PluginSetup();
   const probes = new Map<string, { version: string; help: string }>();
   const provider: AgentProvider = {
     id: model.id,
@@ -41,6 +44,10 @@ export function v2Provider(input: AgentManifestV2, validate: () => Promise<void>
     executableNames: model.executables,
     model,
     validate,
+    setupFacts(path, engine) {
+      const probe = probes.get(path);
+      return discoveryFacts(model, probe?.version ?? "", probe?.help ?? "", engine);
+    },
     resume(id) {
       if (!conversationId(id)) throw new Error("Invalid conversation ID");
       if (!model.launch.resume) throw new Error("This agent cannot resume conversations");
@@ -71,7 +78,44 @@ export function v2Provider(input: AgentManifestV2, validate: () => Promise<void>
         reason: "Config-authored agent; approved launch manifest.",
       };
     },
-    enrich: (installation) => Promise.resolve(installation),
+    async enrich(installation) {
+      if (!model.setup || !installation.path) return installation;
+      await validate();
+      const probe = probes.get(installation.path);
+      const facts = discoveryFacts(model, probe?.version ?? "", probe?.help ?? "", {
+        setupState: "unavailable",
+        healthTrusted: false,
+      });
+      const status = await setup.status(
+        model,
+        installation.path,
+        facts,
+        (state) =>
+          provider.setupFacts?.(installation.path ?? "", {
+            setupState: state,
+            healthTrusted: false,
+          }) ?? {},
+      );
+      await validate();
+      const mcpAvailable = (resume: boolean) => {
+        const enrichedFacts = discoveryFacts(model, probe?.version ?? "", probe?.help ?? "", {
+          control: true,
+          hooksEnabled: true,
+          configGreeting: false,
+          hasPrompt: false,
+          resume,
+          healthTrusted: false,
+          setupState: status.state,
+        });
+        return Boolean(model.launch.mcp && selected(model.launch.mcp.when, enrichedFacts));
+      };
+      return {
+        ...installation,
+        setup: status,
+        mcp: mcpAvailable(false) || mcpAvailable(true),
+        restoreControl: model.conversation.restoreControl && mcpAvailable(true),
+      };
+    },
     needsNotifier: () => false,
     prepareMcp: () => Promise.reject(new Error("MCP requires launch context")),
     arguments: () => {
@@ -89,6 +133,14 @@ export function v2Provider(input: AgentManifestV2, validate: () => Promise<void>
       await validate();
       const probe = probes.get(installation.path ?? "");
       const configGreeting = configSession && request.conversationId === undefined;
+      const setupStatus =
+        model.setup && installation.path
+          ? await setup.status(
+              model,
+              installation.path,
+              provider.setupFacts?.(installation.path, { healthTrusted: false }) ?? {},
+            )
+          : undefined;
       const facts = discoveryFacts(model, probe?.version ?? "", probe?.help ?? "", {
         control: Boolean(control),
         hooksEnabled,
@@ -96,7 +148,7 @@ export function v2Provider(input: AgentManifestV2, validate: () => Promise<void>
         hasPrompt: request.prompt !== undefined,
         resume: request.conversationId !== undefined,
         healthTrusted: binding?.v2?.runtime?.health.get() === "trusted",
-        setupState: "unavailable",
+        setupState: setupStatus?.state ?? "unavailable",
       });
       if (
         request.prompt !== undefined &&
@@ -169,8 +221,10 @@ export function v2Provider(input: AgentManifestV2, validate: () => Promise<void>
           values["mcpUrl"] = url.href;
           values["mcpName"] = `foom_${randomUUID().replaceAll("-", "")}`;
         }
+        // Plugin-scope files are staged by setup actions (#433), never written per launch.
         const files = model.files.filter(
           (file) =>
+            file.scope === "launch" &&
             selected(file.when, facts) &&
             (mcp ||
               !model.launch.mcp?.arguments.some((arg) => arg.includes(`{file:${file.name}}`))),

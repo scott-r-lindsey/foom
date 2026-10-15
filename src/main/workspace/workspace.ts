@@ -1,6 +1,8 @@
 import { flushV2Health } from "../agents/providers/v2-health";
 import type { V2HookRuntime } from "../../shared/v2-hooks";
-import { providerRevision } from "../agents/providers/registry";
+import { PluginSetup } from "../agents/plugin-setup";
+import { stagePlugin } from "../agents/plugin-staging";
+import { agentProvider, providerRevision } from "../agents/providers/registry";
 import { builtinAgent } from "../../shared/providers/catalog";
 import { ControlError } from "../control/validation";
 import type { ForgeTracking } from "../control/forge-tracking";
@@ -82,6 +84,7 @@ type Terminal = {
 };
 
 export interface WorkspaceDependencies {
+  pluginStagingRoot?: string;
   codexHooks?: CodexHookStatus;
   worktrees: Pick<
     WorktreeService,
@@ -821,6 +824,60 @@ export class Workspace {
       throw error;
     }
   }
+  async changeAgentSetup(
+    id: string,
+    action: string,
+    confirm: (content: DialogContent) => Promise<boolean>,
+  ): Promise<AgentReport> {
+    const provider = agentProvider(id);
+    const model = provider.model;
+    if (!model?.setup) throw new Error("Agent setup is unavailable");
+    const revision = providerRevision();
+    const report = await this.scanAgents(true);
+    const executable = report.agents.find((entry) => entry.id === id)?.path;
+    if (!executable) throw new Error("Agent is not installed");
+    const service = new PluginSetup();
+    try {
+      await service.change({
+        model,
+        executable,
+        action,
+        signal: this.launchAbort.signal,
+        facts: (state) =>
+          provider.setupFacts?.(executable, {
+            hooksEnabled: this.hooksEnabled && this.agentHooks[id] !== false,
+            healthTrusted: false,
+            setupState: state ?? "unavailable",
+          }) ?? {},
+        validate: async () => {
+          if (this.closed || revision !== providerRevision() || agentProvider(id) !== provider)
+            throw new Error("Agent plugin changed. Scan again.");
+          await provider.validate?.();
+          const current = await this.scanAgents(true);
+          if (current.agents.find((entry) => entry.id === id)?.path !== executable)
+            throw new Error("Agent executable changed. Scan again.");
+        },
+        confirm,
+        stage: () => {
+          if (!this.deps.pluginStagingRoot) throw new Error("Plugin staging is unavailable");
+          return stagePlugin(
+            model,
+            this.deps.pluginStagingRoot,
+            provider.setupFacts?.(executable, {
+              setupState: report.agents.find((entry) => entry.id === id)?.setup?.state,
+              hooksEnabled: this.hooksEnabled && this.agentHooks[id] !== false,
+              healthTrusted: false,
+            }) ?? {},
+          );
+        },
+      });
+    } finally {
+      this.scanned = undefined;
+    }
+    this.deps.onChange?.();
+    return this.scanAgents(true);
+  }
+
   async changeAgyPlugin(
     action: AgyPluginAction,
     confirm: () => Promise<boolean> = () => Promise.resolve(false),

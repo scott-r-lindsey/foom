@@ -437,6 +437,25 @@ export function attachWorkspace(
       },
     ],
     [
+      "agents:setup",
+      (...args) => {
+        const [id, action] = args;
+        if (
+          args.length !== 2 ||
+          !agent(id) ||
+          !text(action, 40) ||
+          !/^[a-z][a-z0-9-]*$/u.test(action)
+        )
+          throw new Error("Invalid setup request");
+        return workspace.changeAgentSetup(id, action, (content) => {
+          if (contents.isDestroyed() || contents.mainFrame.url !== APP_URL)
+            return Promise.resolve(false);
+          contents.send("confirmation:dialog");
+          return requestDialog(content);
+        });
+      },
+    ],
+    [
       "agents:agy-plugin",
       (...args) => {
         const [action] = args;

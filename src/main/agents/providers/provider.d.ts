@@ -12,6 +12,10 @@ export interface PreparedLaunch {
 }
 export interface AgentProvider {
   readonly model?: AgentManifestV2;
+  setupFacts?(
+    path: string,
+    engine: Readonly<Record<string, unknown>>,
+  ): Readonly<Record<string, unknown>>;
   prepareLaunch?(
     installation: AgentInstallation,
     request: AgentLaunch,
