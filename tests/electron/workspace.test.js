@@ -1446,6 +1446,9 @@ test("application menu uses the command registry and supports native keyboard ac
   await page.evaluate(() => window.desktop.appMenu.execute("action-log"));
   await expect(page.getByRole("heading", { name: "Action log" })).toBeVisible();
   await page.getByRole("button", { name: "Close action log" }).click();
+  // Closing Action log restores terminal focus through the view operation queue.
+  // Let that restoration finish before focusing the clipboard edit target.
+  await expect(page.locator(".xterm-helper-textarea")).toBeFocused();
   if (process.platform === "darwin") {
     const labels = await app.evaluate(({ Menu }) =>
       Menu.getApplicationMenu().items.map((item) => item.label),
