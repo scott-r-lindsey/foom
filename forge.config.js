@@ -3,7 +3,8 @@ const { FuseV1Options, FuseVersion } = require("@electron/fuses");
 
 module.exports = {
   hooks: {
-    // Rebuild without the development flag before copying assets into a package.
+    // Sole packaging build owner, including direct Forge package/make invocations.
+    // Always rebuild without --samples before copying assets into a package.
     prePackage: () => {
       require("node:child_process").execFileSync(
         process.execPath,
