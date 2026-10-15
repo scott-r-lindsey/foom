@@ -356,7 +356,7 @@ it("stages immutable private files, reuses identical content and refuses tamperi
       when: undefined,
     },
   ];
-  await expect(stagePlugin(e.m, e.home, {})).rejects.toThrow("unavailable");
+  await expect(stagePlugin(e.m, e.home, {})).rejects.toThrow("Unselected");
 });
 
 it("does not let authored status cases relabel current or enabled installations into mutation authority", async () => {
@@ -484,3 +484,59 @@ it("refuses trailing-dot and Windows device aliases in plugin metadata paths on 
     );
   }
 });
+
+it("offers an update when generated observer definitions change at the same ABI and verifies the installed fingerprint", async () => {
+  const e = await environment();
+  const observerModel = parseAgentManifest(
+    JSON.stringify({ ...fixture, id: "setup-fixture" }),
+  ).model;
+  Object.assign(e.m, observerModel);
+  await e.service.change(e.input());
+  expect(await e.status()).toMatchObject({ state: "installed" });
+  const channel = e.m.hooks?.channels[0];
+  if (!channel) throw Error("Missing fixture channel");
+  channel.observer.timeoutMs = 2000;
+  const outdated = await e.status();
+  expect(outdated.state).toBe("outdated");
+  expect(outdated.actions).toContainEqual({ id: "update", label: "Update" });
+  await e.service.change(e.input("update"));
+  expect(await e.status()).toMatchObject({ state: "installed" });
+  await writeFile(e.manifest, JSON.stringify({ name: "foom", foomObserverVersion: 2 }));
+  expect(await e.status()).toMatchObject({ state: "outdated" });
+  e.run.mockImplementation(async (_exe, args) => {
+    if (args[1] === "install")
+      await writeFile(e.manifest, JSON.stringify({ name: "foom", foomObserverVersion: 2 }));
+    return { stdout: '{"imports":[]}' };
+  });
+  await expect(e.service.change(e.input("update"))).rejects.toThrow("command failed");
+});
+
+it.each(["extra", "link", "changed"])(
+  "refuses %s observer assets changed during trusted setup confirmation before running the CLI",
+  async (failure) => {
+    const e = await environment();
+    Object.assign(
+      e.m,
+      parseAgentManifest(JSON.stringify({ ...fixture, id: "setup-fixture" })).model,
+    );
+    const staged = await stagePlugin(e.m, e.home, {});
+    const target = join(
+      staged.directory,
+      "observers/lifecycle",
+      process.platform === "win32" ? "observer.ps1" : "observer.sh",
+    );
+    const input = e.input("install", async () => {
+      if (failure === "extra") await writeFile(join(staged.directory, "unexpected.json"), "{}");
+      if (failure === "changed") await writeFile(target, "changed");
+      if (failure === "link") {
+        const outside = join(e.home, "outside");
+        await writeFile(outside, "outside");
+        await rm(target);
+        await symlink(outside, target);
+      }
+      return true;
+    });
+    await expect(e.service.change(input)).rejects.toThrow();
+    expect(e.run.mock.calls.every((entry) => entry[1][1] === "list")).toBe(true);
+  },
+);

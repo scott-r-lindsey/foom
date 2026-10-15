@@ -727,3 +727,27 @@ it("evaluates event predicates against immutable launch facts without promoting 
   expect(signal?.fullyIdle).toBeUndefined();
   expect(signal?.terminationReason).toBeUndefined();
 });
+
+it("prepares only launch environment and private counters for installed plugin observers", async () => {
+  const root = await directory();
+  const m = model(ordered);
+  const receiver = {
+    register: () => ({
+      env: { FOOM_SESSION: "s", FOOM_TOKEN: "token", FOOM_HOOK_URL: "u" },
+      revoke: vi.fn(),
+    }),
+  };
+  for (const windows of [false, true]) {
+    const binding = await prepareV2Hooks(receiver, m, vi.fn(), windows, root);
+    cleanup.push(() => {
+      binding.dispose();
+    });
+    expect(binding.env["FOOM_CHANNEL_lifecycle"]).toBe("lifecycle");
+    const order = required(binding.env["FOOM_ORDER_lifecycle"]);
+    expect(await readFile(order, "utf8")).toBe("0");
+    expect(binding.v2?.values["observerCommand:lifecycle"]).toBeUndefined();
+    const hookDir = binding.v2?.values["hookDir"];
+    if (typeof hookDir !== "string") throw Error("Missing hook directory");
+    expect(await readdir(hookDir)).toEqual(["lifecycle.order"]);
+  }
+});

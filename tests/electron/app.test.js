@@ -13255,6 +13255,28 @@ test("v2 plugin setup confirms fixed actions and refuses unknown, malformed and 
   const config = path.join(home, ".gemini/config/config.json");
   const commands = path.join(root, "commands.jsonl");
   await writeFile(commands, "");
+  for (const tool of ["sh", "head", "curl", "mkdir", "rmdir", "cat"])
+    await require("node:fs/promises").symlink(
+      `${tool === "curl" || tool === "head" ? "/usr/bin" : "/bin"}/${tool}`,
+      path.join(bin, tool),
+    );
+  const repo = path.join(root, "repo");
+  await mkdir(repo);
+  isolatedGit(["init", "-q", "-b", "main"], { cwd: repo });
+  isolatedGit(
+    [
+      "-c",
+      "user.name=Foom",
+      "-c",
+      "user.email=foom@example.com",
+      "commit",
+      "-q",
+      "--allow-empty",
+      "-m",
+      "init",
+    ],
+    { cwd: repo },
+  );
   await writeFile(
     path.join(bin, "foom-test-agent"),
     `#!${process.execPath}
@@ -13264,7 +13286,15 @@ const args = process.argv.slice(2);
 const directory = ${JSON.stringify(directory)};
 if (args[0] === '--version') { console.log('fixture 1.2.3'); process.exit(0); }
 if (args[0] === '--help') { console.log('Fixture CLI'); process.exit(0); }
-if (args[0] !== 'plugin') process.exit(2);
+if (args[0] !== 'plugin') {
+  const hooks = JSON.parse(fs.readFileSync(path.join(directory, 'hooks.json'), 'utf8'))['foom-observer-v1'];
+  const run = (event, payload) => {
+    require('node:child_process').execFileSync('/bin/sh', ['-c', hooks[event][0].command], {cwd:directory, env:process.env, input:JSON.stringify(payload)});
+  };
+  run('PreInvocation', {conversationId:'staged-conversation'});
+  process.stdin.on('data', () => run('Stop', {conversationId:'staged-conversation', terminationReason:'NO_TOOL_CALL', fullyIdle:true}));
+  return;
+}
 if (args[1] === 'list') { console.log(JSON.stringify({imports:fs.existsSync(directory) ? [{name:'foom'}] : []})); process.exit(0); }
 fs.appendFileSync(${JSON.stringify(commands)}, JSON.stringify(args)+'\\n');
 if (args[1] === 'install') { fs.mkdirSync(path.dirname(directory), {recursive:true}); fs.cpSync(args[2], directory, {recursive:true}); }
@@ -13276,6 +13306,11 @@ else process.exit(2);
   );
   const app = await launchApp(context, false, { emptyBoard: true, env: { HOME: home, PATH: bin } });
   const page = await boardPage(app);
+  await app.evaluate(({ dialog }, repo) => {
+    dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [repo] });
+  }, repo);
+  const repository = await page.evaluate(() => window.desktop.addRepository());
+  assert.ok(repository);
   await openSettingsScreen(page);
   await page
     .getByRole("navigation", { name: "Settings sections" })
@@ -13284,9 +13319,10 @@ else process.exit(2);
   const base = JSON.parse(
     await readFile(path.join(__dirname, "../fixtures/agent-plugin-v2.json"), "utf8"),
   );
-  const setup = JSON.parse(
+  const observerFixture = JSON.parse(
     await readFile(path.join(__dirname, "../fixtures/agent-plugins-v2/agy.json"), "utf8"),
-  ).setup;
+  );
+  const setup = observerFixture.setup;
   const manifest = {
     ...base,
     id: "foom-test-agent",
@@ -13294,14 +13330,15 @@ else process.exit(2);
     executables: ["foom-test-agent"],
     discovery: { facts: [] },
     launch: { order: base.launch.order },
-    files: [
-      {
-        name: "plugin.json",
-        scope: "plugin",
-        format: "json",
-        content: JSON.stringify({ name: "foom", foomObserverVersion: 2 }),
-      },
-    ],
+    files: observerFixture.files,
+    hooks: {
+      channels: observerFixture.hooks.channels.map((channel) => ({
+        ...channel,
+        when: { all: [{ field: "hooksEnabled", op: "eq", value: true }] },
+      })),
+    },
+    execution: observerFixture.execution,
+    conversation: observerFixture.conversation,
     setup,
   };
   await writeFile(
@@ -13340,6 +13377,36 @@ else process.exit(2);
     await expect(card.getByText(`Plugin · ${state}`, { exact: true })).toBeVisible();
   };
   await action("Install", "installed");
+  await page.evaluate(
+    (repository) =>
+      window.desktop.sidebarCommand({
+        kind: "launch",
+        repository,
+        worktree: repository,
+        run: "foom-test-agent",
+      }),
+    repository.path,
+  );
+  await expect
+    .poll(
+      async () =>
+        (await page.evaluate(() => window.desktop.workspace())).terminals.find(
+          (entry) => entry.agent === "foom-test-agent",
+        )?.conversationId,
+    )
+    .toBe("staged-conversation");
+  const launched = (await page.evaluate(() => window.desktop.workspace())).terminals.find(
+    (entry) => entry.agent === "foom-test-agent",
+  );
+  await page.evaluate((id) => window.desktop.input(id, "stop\r"), launched.id);
+  await expect
+    .poll(
+      async () =>
+        (await page.evaluate(() => window.desktop.workspace())).terminals.find(
+          (entry) => entry.id === launched.id,
+        )?.execution?.phase,
+    )
+    .toBe("idle");
   await writeFile(metadata, JSON.stringify({ name: "foom", foomObserverVersion: 1 }));
   await rescan("outdated");
   await action("Update", "installed");
