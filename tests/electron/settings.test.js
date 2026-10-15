@@ -940,9 +940,10 @@ test("Settings shares live preflight values, sizes the terminal and restores key
   const page = await boardPage(app);
   const shortcut = async () => {
     await boardCommand(app, ",", process.platform !== "darwin");
-    // Native input dispatch returns before React makes Settings interactive.
-    // Wait before sending Tab, which otherwise still goes to the terminal.
+    // Native input dispatch returns before React's mount effects finish. Visibility
+    // alone does not mean the Escape listener is installed or focus has moved.
     await expect(page.getByRole("region", { name: "Settings" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Agents", exact: true })).toBeFocused();
   };
   const row = page.locator('.board-row[data-kind="shell"]');
   await boardCommand(app, "B");
