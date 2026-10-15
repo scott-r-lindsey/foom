@@ -2064,3 +2064,25 @@ test("approved plugins load before the first workspace exists without starting d
   expect(mock.settingsStore.attachConfig).toHaveBeenCalled();
   warn.mockRestore();
 });
+
+test.each([false, true])(
+  "migrates an answered Antigravity offer without changing setup consent (already tracked=%s)",
+  async (tracked) => {
+    const previous = mock.settingsStore.get();
+    const settings = { ...previous, agyPluginOfferAnswered: true };
+    const get = vi.spyOn(mock.settingsStore, "get").mockReturnValue(settings);
+    const { setupOffers } = await import("../../../src/main/agents/setup-offers");
+    const answered = vi.spyOn(setupOffers, "answered").mockReturnValue(tracked);
+    const answer = vi.spyOn(setupOffers, "answer");
+    try {
+      await start();
+      if (tracked) expect(answer).not.toHaveBeenCalled();
+      else expect(answer).toHaveBeenCalledExactlyOnceWith("agy");
+      expect(mock.settingsStore.update).not.toHaveBeenCalled();
+    } finally {
+      get.mockRestore();
+      answered.mockRestore();
+      answer.mockRestore();
+    }
+  },
+);

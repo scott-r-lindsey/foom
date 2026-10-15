@@ -2,6 +2,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, it, vi } from "vitest";
+import { readSessions } from "../../../../src/main/workspace/session-store";
 import data from "../../../../src/shared/bundled-agents/agy.json";
 import { agentProvider } from "../../../../src/main/agents/providers/registry";
 import { parseAgentManifest } from "../../../../src/shared/agent-plugin-parser";
@@ -160,4 +161,18 @@ it.each([
   const draft = structuredClone(data);
   Reflect.set(draft.hooks.channels[0]?.observer ?? {}, key, value);
   expect(() => parseAgentManifest(JSON.stringify(draft), "bundled")).toThrow();
+});
+
+it("retains origin-less Antigravity session IDs and accepts only the bundled persisted origin", () => {
+  const row = {
+    id: "terminal",
+    agent: "agy",
+    repository: "/repo",
+    worktree: "/repo",
+    branch: "work",
+    conversationId: "saved",
+  };
+  expect(readSessions([row])[0]?.conversationId).toBe("saved");
+  expect(readSessions([{ ...row, providerOrigin: "bundled" }])[0]?.providerOrigin).toBe("bundled");
+  expect(() => readSessions([{ ...row, providerOrigin: "config" }])).toThrow("Invalid");
 });

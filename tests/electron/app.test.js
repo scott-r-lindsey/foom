@@ -7580,6 +7580,19 @@ process.stdin.on('data', (data) => {
         ),
       )
       .toBe("done");
+    // A later turn can lose its detached Working report. Its newer failed Stop
+    // must still replace Done; sequence ordering already rejects old reports.
+    await page.evaluate((id) => window.desktop.input(id, "f"), id);
+    await expect
+      .poll(() =>
+        page.evaluate(
+          async (id) =>
+            (await window.desktop.workspace()).terminals.find((terminal) => terminal.id === id)
+              ?.state?.state,
+          id,
+        ),
+      )
+      .toBe("failed");
     await page.evaluate((id) => window.desktop.input(id, "w"), id);
     await expect.poll(() => page.evaluate(() => window.agyTransitions.at(-1)?.to)).toBe("working");
     await page.evaluate((id) => window.desktop.input(id, "f"), id);
