@@ -15,7 +15,7 @@ export function pluginDisclosure(
       subject: "Future launches from Foom",
       accept: "Allow plugin",
       detail:
-        "This config plugin chooses what Foom executes as you. A worktree is not a sandbox. Approval grants no orchestration role or tool approval. Bypass consent is separate. No global agent configuration is written. Edits revoke future launch authority; running sessions retain their launch settings.",
+        "This config plugin chooses what Foom executes as you. A worktree is not a sandbox. Approval grants no orchestration role or tool approval. Bypass consent is separate. Global plugin changes require a separate trusted action confirmation. Foom never writes agent configuration or trust stores directly. Edits revoke future launch authority; running sessions retain their launch settings.",
       sections: [
         {
           label: "Identity and config provenance",
@@ -69,7 +69,7 @@ export function pluginDisclosure(
         {
           label: "Unavailable capabilities",
           items: [
-            "Hook channels, health and setup require later engine versions.",
+            "Hook channels and health require later engine versions.",
             "Environment bypass confirmation shows names and predicates only, never values.",
           ],
         },

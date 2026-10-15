@@ -46,6 +46,10 @@ const workspace = {
   branches: vi.fn(() =>
     Promise.resolve({ head: "main", local: [], remote: null, remoteBranches: [] }),
   ),
+  changeAgentSetup: vi.fn(
+    (_id: string, _action: string, _confirm: (content: DialogContent) => Promise<boolean>) =>
+      Promise.resolve({ warning: null, agents: [] }),
+  ),
   changeAgyPlugin: vi.fn((_action: string, _confirm: () => Promise<boolean>) =>
     Promise.resolve({ warning: null, agents: [] }),
   ),
@@ -88,6 +92,7 @@ test("rejects untrusted senders on every channel", () => {
     "workspace:branches",
     "workspace:create-worktree",
     "agents:scan",
+    "agents:setup",
     "agents:agy-plugin",
     "agents:launch",
     "terminal:feedback",
@@ -661,3 +666,26 @@ test.each(["install", "update"])(
     expect(requestDialog).toHaveBeenCalledTimes(1);
   },
 );
+
+test("validates fixed setup action requests and uses the trusted dialog", async () => {
+  for (const args of [
+    [],
+    ["claude"],
+    ["unknown", "install"],
+    ["claude", "bad/action"],
+    ["claude", "install", true],
+  ])
+    expect(() => invoke("agents:setup", args)).toThrow("Invalid setup request");
+  await invoke("agents:setup", ["claude", "install"]);
+  const confirm = workspace.changeAgentSetup.mock.calls.at(-1)?.[2];
+  if (!confirm) throw Error("Missing confirmation");
+  const content = { title: "Install?", accept: "Install" };
+  requestDialog.mockResolvedValueOnce(true);
+  await expect(confirm(content)).resolves.toBe(true);
+  expect(requestDialog).toHaveBeenLastCalledWith(content);
+  contents.isDestroyed.mockReturnValue(true);
+  await expect(confirm(content)).resolves.toBe(false);
+  contents.isDestroyed.mockReturnValue(false);
+  frame.url = "https://untrusted.invalid";
+  await expect(confirm(content)).resolves.toBe(false);
+});

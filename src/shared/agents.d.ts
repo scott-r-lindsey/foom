@@ -1,3 +1,4 @@
+import type { AgentSetupStatus } from "./agent-setup";
 import type { EnvironmentVariable } from "./environment";
 import type { AgyPluginStatus } from "./agy-plugin";
 export type CodexHookState = "not-reviewed" | "trusted" | "declined" | "outdated";
@@ -17,6 +18,7 @@ export interface AgentInstallation {
   readonly restoreControl?: boolean;
   readonly source?: string;
   readonly bypassArguments?: readonly string[];
+  readonly setup?: AgentSetupStatus;
   readonly agyPlugin?: AgyPluginStatus;
   readonly inline?: boolean;
   readonly cliGuidance?: boolean;

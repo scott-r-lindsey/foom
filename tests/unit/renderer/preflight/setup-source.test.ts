@@ -13,6 +13,7 @@ test("preflight reaches main only through the setup bridge", async () => {
     codeSuggestions: vi.fn(() => Promise.resolve(["/code"])),
     scanCode: vi.fn(() => Promise.resolve("scan")),
     applyRepositories: vi.fn(() => Promise.resolve("applied")),
+    changeAgentSetup: vi.fn(() => Promise.resolve("plugin")),
     changeAgyPlugin: vi.fn(() => Promise.resolve("plugin")),
     scanAgents: vi.fn(() => Promise.resolve("scan")),
     workspace: vi.fn(() => Promise.resolve({ repositories: [repository], terminals: [] })),
@@ -40,6 +41,8 @@ test("preflight reaches main only through the setup bridge", async () => {
   expect(desktop.scanCode).toHaveBeenCalledWith("s1", null, onProgress);
   await expect(source.apply(["/code/a"])).resolves.toBe("applied");
   expect(desktop.applyRepositories).toHaveBeenCalledWith(["/code/a"]);
+  await expect(source.changeAgentSetup?.("fixture", "install")).resolves.toBe("plugin");
+  expect(desktop.changeAgentSetup).toHaveBeenCalledWith("fixture", "install");
   await expect(source.changeAgyPlugin("install")).resolves.toBe("plugin");
   expect(desktop.changeAgyPlugin).toHaveBeenCalledWith("install");
   await expect(source.scanAgents(true)).resolves.toBe("scan");

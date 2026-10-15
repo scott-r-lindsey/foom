@@ -1135,6 +1135,7 @@ test("terminal runs an interactive shell behind an isolated bridge", {
           "worktrees",
           "branches",
           "createWorktree",
+          "changeAgentSetup",
           "changeAgyPlugin",
           "scanAgents",
           "launchAgent",
@@ -13077,3 +13078,141 @@ for (const version of [1, 2])
       JSON.parse(JSON.stringify(manifest)),
     );
   });
+
+test("v2 plugin setup confirms fixed actions and refuses unknown, malformed and linked metadata", {
+  timeout: deadline(60_000),
+  skip:
+    process.platform === "win32" &&
+    "Fixture executable uses a POSIX shebang; ownership and fixed actions also run in cross-platform unit tests",
+}, async (context) => {
+  const root = await mkdtemp(path.join(tmpdir(), "foom-v2-setup-"));
+  removeAfterApps(context, root);
+  const home = path.join(root, "home");
+  const bin = path.join(root, "bin");
+  await Promise.all([home, bin].map((directory) => mkdir(directory)));
+  const directory = path.join(home, ".gemini/config/plugins/foom");
+  const metadata = path.join(directory, "plugin.json");
+  const config = path.join(home, ".gemini/config/config.json");
+  const commands = path.join(root, "commands.jsonl");
+  await writeFile(commands, "");
+  await writeFile(
+    path.join(bin, "foom-test-agent"),
+    `#!${process.execPath}
+const fs = require('node:fs');
+const path = require('node:path');
+const args = process.argv.slice(2);
+const directory = ${JSON.stringify(directory)};
+if (args[0] === '--version') { console.log('fixture 1.2.3'); process.exit(0); }
+if (args[0] === '--help') { console.log('Fixture CLI'); process.exit(0); }
+if (args[0] !== 'plugin') process.exit(2);
+if (args[1] === 'list') { console.log(JSON.stringify({imports:fs.existsSync(directory) ? [{name:'foom'}] : []})); process.exit(0); }
+fs.appendFileSync(${JSON.stringify(commands)}, JSON.stringify(args)+'\\n');
+if (args[1] === 'install') { fs.mkdirSync(path.dirname(directory), {recursive:true}); fs.cpSync(args[2], directory, {recursive:true}); }
+else if (args[1] === 'enable' && args[2] === 'foom') fs.writeFileSync(${JSON.stringify(config)}, JSON.stringify({plugins:{foom:{enabled:true}}}));
+else if (args[1] === 'uninstall' && args[2] === 'foom') fs.rmSync(directory, {recursive:true});
+else process.exit(2);
+`,
+    { mode: 0o755 },
+  );
+  const app = await launchApp(context, false, { emptyBoard: true, env: { HOME: home, PATH: bin } });
+  const page = await boardPage(app);
+  await openSettingsScreen(page);
+  await page
+    .getByRole("navigation", { name: "Settings sections" })
+    .getByRole("button", { name: "Agents", exact: true })
+    .click();
+  const base = JSON.parse(
+    await readFile(path.join(__dirname, "../fixtures/agent-plugin-v2.json"), "utf8"),
+  );
+  const setup = JSON.parse(
+    await readFile(path.join(__dirname, "../fixtures/agent-plugins-v2/agy.json"), "utf8"),
+  ).setup;
+  const manifest = {
+    ...base,
+    id: "foom-test-agent",
+    name: "Setup fixture",
+    executables: ["foom-test-agent"],
+    discovery: { facts: [] },
+    launch: { order: base.launch.order },
+    files: [
+      {
+        name: "plugin.json",
+        scope: "plugin",
+        format: "json",
+        content: JSON.stringify({ name: "foom", foomObserverVersion: 2 }),
+      },
+    ],
+    setup,
+  };
+  await writeFile(
+    path.join(home, ".foom/config/agents/foom-test-agent.json"),
+    JSON.stringify(manifest),
+  );
+  const card = page
+    .locator(".agent-card")
+    .filter({ has: page.getByRole("heading", { name: "Setup fixture", exact: true }) });
+  await card.getByRole("button", { name: "Review…", exact: true }).click();
+  let dialog = await confirmationPage(app);
+  await dialog.getByRole("button", { name: "Allow plugin", exact: true }).click();
+  await expect(card.getByText("Approved", { exact: true })).toBeVisible();
+  const rescan = async (state) => {
+    const report = await page.evaluate(() => window.desktop.scanAgents(true));
+    assert.equal(
+      report.agents.find((agent) => agent.id === "foom-test-agent")?.setup?.state,
+      state,
+    );
+    await page.getByRole("button", { name: "Scan again", exact: true }).click();
+    await expect(card.getByText(`Plugin · ${state}`, { exact: true })).toBeVisible();
+  };
+  await rescan("not-installed");
+  await card.getByRole("button", { name: "Install", exact: true }).click();
+  dialog = await confirmationPage(app);
+  await expect(dialog.getByRole("button", { name: "Cancel", exact: true })).toBeFocused();
+  await expect(dialog.getByRole("alertdialog")).toContainText("Staged files");
+  await expect(dialog.getByRole("alertdialog")).toContainText(".gemini/config/plugins/foom");
+  await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
+  await expect(card.getByRole("button", { name: "Install", exact: true })).toBeEnabled();
+  assert.equal(await readFile(commands, "utf8"), "");
+  const action = async (label, state) => {
+    await card.getByRole("button", { name: label, exact: true }).click();
+    dialog = await confirmationPage(app);
+    await dialog.getByRole("button", { name: label, exact: true }).click();
+    await expect(card.getByText(`Plugin · ${state}`, { exact: true })).toBeVisible();
+  };
+  await action("Install", "installed");
+  await writeFile(metadata, JSON.stringify({ name: "foom", foomObserverVersion: 1 }));
+  await rescan("outdated");
+  await action("Update", "installed");
+  await writeFile(config, JSON.stringify({ plugins: { foom: { enabled: false } } }));
+  await rescan("disabled");
+  await action("Enable", "installed");
+  await action("Remove", "not-installed");
+  const mutations = (await readFile(commands, "utf8")).trim().split("\n").map(JSON.parse);
+  assert.deepEqual(
+    mutations.map((args) => args.slice(0, 2)),
+    [
+      ["plugin", "install"],
+      ["plugin", "install"],
+      ["plugin", "enable"],
+      ["plugin", "uninstall"],
+    ],
+  );
+  await mkdir(directory);
+  for (const content of [
+    undefined,
+    "{",
+    JSON.stringify({ name: "other", foomObserverVersion: 2 }),
+  ]) {
+    if (content !== undefined) await writeFile(metadata, content);
+    await rescan("unavailable");
+    await assert.rejects(
+      page.evaluate(() => window.desktop.changeAgentSetup("foom-test-agent", "remove")),
+    );
+  }
+  await rm(metadata);
+  const outside = path.join(root, "outside.json");
+  await writeFile(outside, JSON.stringify({ name: "foom", foomObserverVersion: 2 }));
+  await require("node:fs/promises").symlink(outside, metadata);
+  await rescan("unavailable");
+  assert.equal((await readFile(commands, "utf8")).trim().split("\n").length, 4);
+});

@@ -52,6 +52,8 @@ export function relative(value: unknown, path: string, hidden = false): string {
         !/^[A-Za-z0-9_.-]+$/u.test(part) ||
         part === "." ||
         part === ".." ||
+        part.endsWith(".") ||
+        /^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/iu.test(part) ||
         (!hidden && part.startsWith(".")),
     )
   )

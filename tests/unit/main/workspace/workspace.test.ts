@@ -1,3 +1,10 @@
+import { PluginSetup } from "../../../../src/main/agents/plugin-setup";
+import { parseAgentManifest } from "../../../../src/shared/agent-plugin-parser";
+import { v2Provider } from "../../../../src/main/agents/providers/v2";
+import setupFixture from "../../../fixtures/agent-plugins-v2/agy.json";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import pluginFixture from "../../../fixtures/agent-plugin.json";
 import { parseAgentPlugin } from "../../../../src/shared/agent-manifest";
 import { configProvider } from "../../../../src/main/agents/providers/config";
@@ -3633,5 +3640,73 @@ test("an unavailable config plugin still protects its recorded conversation from
   } finally {
     replaceConfigProviders([]);
     await workspace.dispose();
+  }
+});
+
+test("v2 setup revalidates provider authority, resolves the executable in main and stages only in the profile", async () => {
+  const root = await mkdtemp(join(tmpdir(), "foom-workspace-setup-"));
+  const parsed = parseAgentManifest(JSON.stringify({ ...setupFixture, id: "setup-fixture" }));
+  const model = parsed.model;
+  model.hooks = undefined;
+  model.files = [
+    {
+      name: "plugin.json",
+      scope: "plugin",
+      format: "json",
+      content: '{"name":"foom"}',
+      when: undefined,
+    },
+  ];
+  const validate = vi.fn(() => Promise.resolve());
+  const provider = v2Provider(model, validate);
+  replaceConfigProviders([provider]);
+  const workspace = new Workspace(deps);
+  const confirm = vi.fn(() => Promise.resolve(true));
+  const change = vi.spyOn(PluginSetup.prototype, "change");
+  try {
+    await expect(workspace.changeAgentSetup("claude", "install", confirm)).rejects.toThrow(
+      "unavailable",
+    );
+    await expect(workspace.changeAgentSetup(model.id, "install", confirm)).rejects.toThrow(
+      "not installed",
+    );
+    agents.scan.mockResolvedValue({
+      ...scan,
+      agents: [
+        {
+          id: model.id,
+          path: "/fixture/cli",
+          version: "fixture",
+          hooks: false,
+          reason: "fixture",
+          setup: { state: "not-installed", actions: [] },
+        },
+      ],
+    });
+    change.mockImplementationOnce(async (input) => {
+      expect(input.executable).toBe("/fixture/cli");
+      await input.validate();
+      expect(input.facts()).toHaveProperty("healthTrusted", false);
+      expect(() => input.stage()).toThrow("staging is unavailable");
+      expect(await input.confirm({ title: "Install", accept: "Install" })).toBe(true);
+    });
+    await workspace.changeAgentSetup(model.id, "install", confirm);
+    expect(validate).toHaveBeenCalled();
+    deps.pluginStagingRoot = root;
+    change.mockImplementationOnce(async (input) => {
+      const stage = await input.stage();
+      expect(stage.directory.startsWith(root)).toBe(true);
+      await stage.verify();
+      agents.scan.mockResolvedValueOnce(scan);
+      await expect(input.validate()).rejects.toThrow("executable changed");
+      replaceConfigProviders([]);
+      await expect(input.validate()).rejects.toThrow("plugin changed");
+    });
+    await workspace.changeAgentSetup(model.id, "install", confirm);
+  } finally {
+    change.mockRestore();
+    replaceConfigProviders([]);
+    await workspace.dispose();
+    await rm(root, { recursive: true, force: true });
   }
 });

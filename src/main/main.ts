@@ -1,3 +1,4 @@
+import { setupOffers } from "./agents/setup-offers";
 import { replaceConfigProviders, providerRevision } from "./agents/providers/registry";
 import { builtinAgent } from "../shared/providers/catalog";
 import { pickPreviewFile } from "./previews/pick";
@@ -443,6 +444,7 @@ async function buildWindow(savedSize?: Size, saved?: WindowPlacement, initialSes
     );
   else terminals.addWindow(window);
   if (!initialized) {
+    await setupOffers.load(app.getPath("userData"));
     const codexHooks = new CodexHookStatus(join(app.getPath("userData"), "codex-hook-health.json"));
     await codexHooks.load();
     const forge = await ForgeTracking.open(
@@ -466,6 +468,7 @@ async function buildWindow(savedSize?: Size, saved?: WindowPlacement, initialSes
       },
     ).catch(() => undefined);
     workspace = new Workspace({
+      pluginStagingRoot: app.getPath("userData"),
       ...(forge === undefined ? {} : { forge }),
       codexHooks,
       worktrees,
