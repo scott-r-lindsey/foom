@@ -436,6 +436,32 @@
           "when": {
             "all": [
               {
+                "field": "owned",
+                "op": "eq",
+                "value": true
+              },
+              {
+                "field": {
+                  "source": "metadata",
+                  "path": ["config", "plugins", "foom"]
+                },
+                "op": "exists"
+              },
+              {
+                "field": {
+                  "source": "metadata",
+                  "path": ["config", "plugins", "foom", "enabled"]
+                },
+                "op": "absent"
+              }
+            ]
+          },
+          "state": "unavailable"
+        },
+        {
+          "when": {
+            "all": [
+              {
                 "field": "absent",
                 "op": "eq",
                 "value": true

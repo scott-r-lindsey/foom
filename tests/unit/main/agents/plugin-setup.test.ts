@@ -601,3 +601,14 @@ it("requires reviewed update for an explicit mismatched fingerprint and refuses 
   expect(await e.status()).toEqual({ state: "unavailable", actions: [] });
   await expect(e.service.change(e.input("remove"))).rejects.toThrow("ownership");
 });
+
+it("keeps an installed plugin with a missing enabled preference leaf unavailable", async () => {
+  const e = await environment();
+  const { default: bundled } = await import("../../../../src/shared/bundled-agents/agy.json");
+  Object.assign(e.m, parseAgentManifest(JSON.stringify(bundled), "bundled").model);
+  await e.owned(2);
+  await writeFile(e.config, JSON.stringify({ plugins: { foom: {} } }));
+  expect(await e.status()).toEqual({ state: "unavailable", actions: [] });
+  await expect(e.service.change(e.input("remove"))).rejects.toThrow("changed");
+  expect(e.run.mock.calls.every((entry) => entry[1][1] === "list")).toBe(true);
+});

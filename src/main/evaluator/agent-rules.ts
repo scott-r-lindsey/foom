@@ -4,7 +4,7 @@ export { boundedRegex } from "../../shared/providers/detection";
 import { isAgentId } from "../../shared/providers/catalog";
 import { bundledAgentData } from "../../shared/bundled-agent-data";
 import codex from "./agent-rules/codex.json";
-import agy from "./agent-rules/agy.json";
+import type agy from "./agent-rules/agy.json";
 import type { AgentManifest, AgentRule, Matcher } from "./agent-rule-types";
 import type { AgentEvidence } from "../../shared/agent-detection";
 import type { AgentId } from "../../shared/agents";
@@ -37,7 +37,6 @@ const manifests = [
     rules: data.attention.rules,
   })),
   codex,
-  agy,
 ].map(parseManifest);
 const compiled = new Map<string, RegExp>();
 for (const manifest of manifests) {

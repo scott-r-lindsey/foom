@@ -527,7 +527,7 @@ Claude compatibility details:
 
 Antigravity compatibility details (#436):
 
-- The same `agy` settings, defaults, conversation IDs and bypass acknowledgement remain in place. The profile-only legacy offer answer is copied into generic offer tracking; this grants no setup or hook trust. Setup now uses the shared trusted action dialog for install, update, enable and remove. Its status/actions are supplied by the manifest. Unknown ownership still refuses mutation.
+- The same `agy` settings, defaults, conversation IDs and bypass acknowledgement remain in place. The profile-only legacy offer answer is copied into generic offer tracking; this grants no setup or hook trust. Setup now uses the shared trusted action dialog for install, update, enable and remove. Its status/actions are supplied by the manifest. Unknown ownership still refuses mutation. An explicit plugin preference object with a missing enabled leaf remains unavailable, encoded as an ordered metadata condition. The legacy setup IPC name forwards to these same checks and confirmations.
 - `observer.protocol: "ordered-v2"` selects the existing fixed native ordered transport ABI: one plugin channel, stdin, version 2, empty JSON first, detached delivery, sequence counter and one-second network timeout. It retains root-level observer filenames, exact relative commands (`sh ./observer.sh EVENT`, or the existing PowerShell form), and all three native script files byte for byte. It uses `FOOM_HOOK_ORDER` and accepts a missing channel header only for that launch-bound single channel. #467 remains unresolved; no plugin-working-directory assumption was changed.
 - `ownership.unfingerprintedVersion: 2` explicitly accepts recognized legacy versions >=2 when the fingerprint is absent. Current version 2 therefore remains installed with no reinstall or update offer, as do newer versions under the previous policy. Older versions offer Update; disabled versions offer Enable. An explicit mismatched fingerprint still offers Update, with separately reviewed staging before `plugin install` runs. This generic compatibility field is available to approved config copies too.
 - Staging adds only `foomStagingFingerprint` to `plugin.json`; hooks and observer scripts keep their existing bytes. It does not rewrite an installed plugin. The extra metadata allows subsequent definition changes to offer Update at the same ABI version; users review it through the normal setup dialog. Generic config fixtures without the compatibility protocol retain channel-specific subdirectories and headers.
@@ -1394,6 +1394,14 @@ launch surfaces and conservative environment disclosure. Open questions follow.
         "enabledField": {"source": "metadata", "path": ["config", "plugins", "foom", "enabled"]}
       },
       "cases": [
+        {
+          "when": {"all": [
+            {"field": "owned", "op": "eq", "value": true},
+            {"field": {"source": "metadata", "path": ["config", "plugins", "foom"]}, "op": "exists"},
+            {"field": {"source": "metadata", "path": ["config", "plugins", "foom", "enabled"]}, "op": "absent"}
+          ]},
+          "state": "unavailable"
+        },
         {"when": {"all": [{"field": "absent", "op": "eq", "value": true}]}, "state": "not-installed"},
         {
           "when": {

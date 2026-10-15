@@ -1402,8 +1402,9 @@ confirmation. Foom never writes the agent's home files directly.
 
 The existing `agyPluginOfferAnswered` profile answer migrates to generic profile
 tracking without granting installation consent. An unanswered absent installation
-still offers Plugin available, and dismissal leaves the action available. Legacy
-IPC/control adapters remain for compatibility; new scans and actions use the model.
+still offers Plugin available, and dismissal leaves the action available. The legacy
+setup IPC name forwards to the same model-owned action/confirmation path; it cannot
+bypass setup ownership or consent. New scans and actions use the model.
 The same `agy` enable/hooks/defaults/session keys are retained.
 
 The version-2 ordered observer ABI preserves existing root-level filenames, hook

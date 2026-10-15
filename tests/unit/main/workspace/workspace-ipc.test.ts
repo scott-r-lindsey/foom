@@ -460,7 +460,12 @@ test("orchestrator commands name only an owned terminal; the disclosure names a 
 test("Antigravity plugin IPC accepts only one fixed operation, never paths or CLI arguments", async () => {
   for (const action of ["install", "update", "enable", "remove"]) {
     await invoke("agents:agy-plugin", [action]);
-    expect(workspace.changeAgyPlugin).toHaveBeenLastCalledWith(action, expect.any(Function));
+    expect(workspace.changeAgentSetup).toHaveBeenLastCalledWith(
+      "agy",
+      action,
+      expect.any(Function),
+    );
+    expect(workspace.changeAgyPlugin).not.toHaveBeenCalled();
   }
   for (const args of [
     [],
@@ -645,24 +650,26 @@ test("sidebar inventory reports previews only for worktrees it lists", async () 
   });
 });
 
-test.each(["install", "update"])(
-  "plugin %s uses a fixed trusted disclosure and closes on navigation",
+test.each(["install", "update", "enable", "remove"])(
+  "legacy plugin %s forwards model-owned disclosure and closes on navigation",
   async (action) => {
     requestDialog.mockResolvedValueOnce(false);
     await invoke("agents:agy-plugin", [action]);
-    const confirm = workspace.changeAgyPlugin.mock.calls.at(-1)?.[1];
+    const confirm = workspace.changeAgentSetup.mock.calls.at(-1)?.[2];
     if (!confirm) throw new Error("Missing plugin confirmation");
-    expect(await confirm()).toBe(false);
-    const disclosure = requestDialog.mock.calls.at(-1)?.[0];
-    expect(disclosure?.cancel).toBe("Not now");
-    expect(disclosure?.accept).toBe(action === "install" ? "Install plugin" : "Update plugin");
-    expect(disclosure?.detail).toContain("~/.gemini/config/plugins/foom");
-    expect(disclosure?.quiet).toContain("agy plugin uninstall foom");
+    const content: DialogContent = {
+      title: "Reviewed setup",
+      accept: "Install",
+      glyph: "shield",
+      detail: "Model-owned exact staging and fixed argv",
+    };
+    expect(await confirm(content)).toBe(false);
+    expect(requestDialog).toHaveBeenCalledWith(content);
     contents.isDestroyed.mockReturnValue(true);
-    expect(await confirm()).toBe(false);
+    expect(await confirm(content)).toBe(false);
     contents.isDestroyed.mockReturnValue(false);
     frame.url = "https://untrusted.test";
-    expect(await confirm()).toBe(false);
+    expect(await confirm(content)).toBe(false);
     expect(requestDialog).toHaveBeenCalledTimes(1);
   },
 );
