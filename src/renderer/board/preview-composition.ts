@@ -54,13 +54,13 @@ export function attachPreviewComposition(api: PreviewApi): () => void {
               images.get(snapshot.id) === canvas &&
               decoded.get(canvas) === snapshot.version
             ) {
-              canvas.width = bitmap.width;
-              canvas.height = bitmap.height;
               const context = canvas.getContext("2d");
               if (!context) {
                 bitmap.close();
                 return;
               }
+              canvas.width = bitmap.width;
+              canvas.height = bitmap.height;
               context.drawImage(bitmap, 0, 0);
               // Two animation frames cross a compositor paint before main hides
               // the live view. Keep the decoded canvas ready between covers.

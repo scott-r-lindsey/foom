@@ -211,3 +211,18 @@ test("a missing canvas context cannot acknowledge unpainted pixels", async () =>
   expect(f.bitmap.close).toHaveBeenCalled();
   f.dispose();
 });
+
+test("a failed replacement canvas context preserves the previously drawn cache", async () => {
+  const f = fixture();
+  f.send([snapshot]);
+  await flush();
+  const canvas = document.querySelector("canvas");
+  expect(canvas?.width).toBe(10);
+  f.bitmap.width = 99;
+  vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue(null);
+  f.send([{ ...snapshot, version: 2 }]);
+  await flush();
+  expect(canvas?.width).toBe(10);
+  expect(f.drawImage).toHaveBeenCalledTimes(1);
+  f.dispose();
+});

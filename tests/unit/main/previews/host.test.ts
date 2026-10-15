@@ -1232,6 +1232,7 @@ test("a late preview load cannot touch a destroyed owning board while its native
   expect(view.webContents.isDestroyed()).toBe(false);
   expect(f.window.getContentBounds).not.toHaveBeenCalled();
   expect(f.window.contentView.addChildView).not.toHaveBeenCalled();
+  expect(view.webContents.capturePage).not.toHaveBeenCalled();
   await f.host.dispose(false);
 });
 
@@ -1247,6 +1248,7 @@ test("late source load events cannot reattach a preview after it moves even befo
   expect(view.webContents.isDestroyed()).toBe(false);
   expect(source.window.getContentBounds).not.toHaveBeenCalled();
   expect(source.window.contentView.addChildView).not.toHaveBeenCalled();
+  expect(view.webContents.capturePage).not.toHaveBeenCalled();
   expect(source.registry.records.has(id)).toBe(false);
   expect(target.registry.records.has(id)).toBe(true);
   view.webContents.isDestroyed.mockReturnValue(true);

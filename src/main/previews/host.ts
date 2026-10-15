@@ -579,7 +579,15 @@ export class PreviewHost {
   }
   private async capture(entry: HostedPreview) {
     const contents = entry.view.webContents;
-    if (!entry.loaded || !entry.bounds.visible || contents.isDestroyed()) return;
+    if (
+      this.closed() ||
+      this.hosted.get(entry.id) !== entry ||
+      this.window.webContents.isDestroyed() ||
+      !entry.loaded ||
+      !entry.bounds.visible ||
+      contents.isDestroyed()
+    )
+      return;
     if (entry.capturePending) {
       entry.captureAgain = true;
       return;
