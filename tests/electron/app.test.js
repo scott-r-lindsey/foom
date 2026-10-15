@@ -126,6 +126,77 @@ async function boardPage(app) {
       return Boolean(page);
     })
     .toBe(true);
+  await page.waitForLoadState("domcontentloaded");
+  const nativeState = () =>
+    app.evaluate(({ BrowserWindow }) =>
+      BrowserWindow.getAllWindows().map((window) => ({
+        id: window.id,
+        url: window.webContents.getURL(),
+        visible: window.isVisible(),
+        minimized: window.isMinimized(),
+        focused: window.isFocused(),
+        contentsFocused: window.webContents.isFocused(),
+        bounds: window.getBounds(),
+      })),
+    );
+  const before = await nativeState();
+  // CDP activation alone can mark a native-hidden document visible/focused
+  // without starting its compositor. Establish reachability in native code.
+  await app.evaluate(({ BrowserWindow }) => {
+    const board = BrowserWindow.getAllWindows().find(
+      (window) => window.webContents.getURL() === "app://bundle/index.html",
+    );
+    if (board.isMinimized()) board.restore();
+    board.show();
+    board.focus();
+    board.webContents.focus();
+  });
+  const frame = await page.evaluateHandle(() => {
+    const state = { delivered: false, id: 0 };
+    state.id = requestAnimationFrame(() => {
+      state.delivered = true;
+    });
+    return state;
+  });
+  try {
+    await expect.poll(nativeState).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          url: "app://bundle/index.html",
+          visible: true,
+          minimized: false,
+          focused: true,
+        }),
+      ]),
+    );
+    await expect
+      .poll(() =>
+        page.evaluate(() => document.visibilityState === "visible" && document.hasFocus()),
+      )
+      .toBe(true);
+    await expect
+      .poll(() => frame.evaluate((state) => state.delivered), {
+        message: "The shown native board must deliver animation frames before interaction",
+      })
+      .toBe(true);
+  } catch (error) {
+    console.error("Board startup diagnostics:", {
+      rendering: (await frame.evaluate((state) => state.delivered))
+        ? "frames delivered; native visibility or focus unavailable"
+        : "no frames",
+      before,
+      windows: await nativeState(),
+      renderer: await page.evaluate(() => ({
+        visibility: document.visibilityState,
+        focused: document.hasFocus(),
+        rows: document.querySelector(".xterm-rows")?.textContent,
+      })),
+    });
+    throw error;
+  } finally {
+    await frame.evaluate((state) => cancelAnimationFrame(state.id));
+    await frame.dispose();
+  }
   return page;
 }
 
@@ -712,19 +783,6 @@ async function launchApp(context, openShell = true, options = {}) {
   });
   // The shell markup now arrives with React’s first commit.
   const page = await boardPage(app);
-  await expect
-    .poll(
-      () =>
-        app.evaluate(({ BrowserWindow }) =>
-          BrowserWindow.getAllWindows()
-            .find((window) => window.webContents.getURL() === "app://bundle/index.html")
-            .isVisible(),
-        ),
-      {
-        timeout: deadline(10000),
-      },
-    )
-    .toBe(true);
   if (options.firstRun || options.emptyBoard) return app;
   await launchCheckoutShell(app, page);
   await page.locator(".board-row[data-kind='shell']").waitFor();
@@ -788,7 +846,6 @@ test("fresh focused terminal cursor blinks and preserves application style on re
     });
     window.stopCursorProbeFrames = () => {
       for (const frame of frames) cancelAnimationFrame(frame);
-      cancelAnimationFrame(window.cursorProbe.nativeFrameId);
     };
   });
   const shell = page.locator(".terminal-tile[data-kind='shell'] .tile-terminal");
@@ -834,39 +891,6 @@ test("fresh focused terminal cursor blinks and preserves application style on re
     await expect
       .poll(async () => (await page.evaluate((id) => window.desktop.tail(id, 40), id)).join("\n"))
       .toMatch(prompt);
-    // CDP activation can report a visible, focused document while the native
-    // window is hidden and delivers no frames. Exercise that state, then use a
-    // native visibility transition to start the compositor before typing.
-    await app.evaluate(({ BrowserWindow }) => {
-      BrowserWindow.getAllWindows()
-        .find((window) => window.webContents.getURL() === "app://bundle/index.html")
-        .hide();
-    });
-    await page.bringToFront();
-    await app.evaluate(({ BrowserWindow }) => {
-      const board = BrowserWindow.getAllWindows().find(
-        (window) => window.webContents.getURL() === "app://bundle/index.html",
-      );
-      board.show();
-      board.focus();
-      board.webContents.focus();
-    });
-    await expect
-      .poll(() =>
-        page.evaluate(() => document.visibilityState === "visible" && document.hasFocus()),
-      )
-      .toBe(true);
-    await page.evaluate(() => {
-      window.cursorProbe.nativeFrame = false;
-      window.cursorProbe.nativeFrameId = requestAnimationFrame(() => {
-        window.cursorProbe.nativeFrame = true;
-      });
-    });
-    await expect
-      .poll(() => page.evaluate(() => window.cursorProbe.nativeFrame), {
-        message: "The shown native board must deliver animation frames before terminal input",
-      })
-      .toBe(true);
     await expect(page.locator(".xterm-helper-textarea")).toBeFocused();
     await expectCursor(/xterm-cursor-block/, true, /blink_block_/);
 
@@ -993,29 +1017,6 @@ test("terminal runs an interactive shell behind an isolated bridge", {
   try {
     const page = await boardPage(app);
     console.info("Window opened");
-    // The hidden confirmation window can be the first CDP target on a cold
-    // display. CDP activation alone does not show/focus the native board window.
-    // Exercise that state explicitly before testing xterm painting and selection.
-    await app.evaluate(({ BrowserWindow }) => {
-      const window = BrowserWindow.getAllWindows().find(
-        (window) => window.webContents.getURL() === "app://bundle/index.html",
-      );
-      window.hide();
-    });
-    await app.evaluate(({ BrowserWindow }) => {
-      const window = BrowserWindow.getAllWindows().find(
-        (window) => window.webContents.getURL() === "app://bundle/index.html",
-      );
-      window.show();
-      window.focus();
-      window.webContents.focus();
-    });
-    await page.bringToFront();
-    await expect
-      .poll(() =>
-        page.evaluate(() => document.visibilityState === "visible" && document.hasFocus()),
-      )
-      .toBe(true);
     await page.waitForLoadState("domcontentloaded");
     assert.equal(await page.title(), "Foom");
     await page.waitForFunction(
@@ -1383,25 +1384,40 @@ test("terminal runs an interactive shell behind an isolated bridge", {
   }
 });
 
+test("shared board startup restores a native-hidden CDP-visible board and delivers frames", {
+  timeout: deadline(45_000),
+}, async (context) => {
+  const app = await launchApp(context, false, { emptyBoard: true });
+  const page = await boardPage(app);
+  await app.evaluate(({ BrowserWindow }) => {
+    BrowserWindow.getAllWindows()
+      .find((window) => window.webContents.getURL() === "app://bundle/index.html")
+      .hide();
+  });
+  assert.equal(
+    await app.evaluate(({ BrowserWindow }) =>
+      BrowserWindow.getAllWindows()
+        .find((window) => window.webContents.getURL() === "app://bundle/index.html")
+        .isVisible(),
+    ),
+    false,
+  );
+  await page.bringToFront();
+  await expect
+    .poll(() => page.evaluate(() => document.visibilityState === "visible" && document.hasFocus()))
+    .toBe(true);
+  assert.equal(await boardPage(app), page);
+  await launchCheckoutShell(app, page);
+  await expect(page.locator(".xterm-rows")).toContainText(
+    process.platform === "win32" ? /PS [\s\S]*>/ : /[$#%>]\s*$/,
+  );
+});
+
 test("bundled brand fonts and both system themes render in Electron", {
   timeout: deadline(45_000),
 }, async (context) => {
   const app = await launchApp(context);
   const page = await boardPage(app);
-  // This can be a shard's first native window on a cold display. Activate the
-  // board before checking rendered terminal backgrounds and bundled fonts.
-  await app.evaluate(({ BrowserWindow }) => {
-    const window = BrowserWindow.getAllWindows().find(
-      (window) => window.webContents.getURL() === "app://bundle/index.html",
-    );
-    window.show();
-    window.focus();
-    window.webContents.focus();
-  });
-  await page.bringToFront();
-  await expect
-    .poll(() => page.evaluate(() => document.visibilityState === "visible" && document.hasFocus()))
-    .toBe(true);
   await page.waitForLoadState("domcontentloaded");
   const palettes = {
     dark: [
