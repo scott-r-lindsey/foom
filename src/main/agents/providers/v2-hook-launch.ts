@@ -44,6 +44,13 @@ export async function prepareV2Hooks(
       for (const channel of model.hooks?.channels ?? []) {
         const options = channel.observer;
 
+        env[`FOOM_CHANNEL_${channel.id.replaceAll("-", "_")}`] = channel.id;
+        if (options.sequence) {
+          const order = join(directory, `${channel.id}.order`);
+          await writeOwnedFile(order, "0");
+          env[`FOOM_ORDER_${channel.id.replaceAll("-", "_")}`] = order;
+        }
+        if (options.placement === "plugin") continue;
         const assets = observerAssets(channel, windows);
         if (options.placement === "stable" && assets["observer.ps1"])
           assets["observer.ps1"] = assets["observer.ps1"].replace(
@@ -90,12 +97,6 @@ export async function prepareV2Hooks(
         add();
         for (const event of new Set(channel.mapping.cases.map((entry) => entry.event))) {
           if (/^[A-Za-z][A-Za-z0-9_-]{0,63}$/u.test(event)) add(event);
-        }
-        env[`FOOM_CHANNEL_${channel.id.replaceAll("-", "_")}`] = channel.id;
-        if (options.sequence) {
-          const order = join(directory, `${channel.id}.order`);
-          await writeOwnedFile(order, "0");
-          env[`FOOM_ORDER_${channel.id.replaceAll("-", "_")}`] = order;
         }
       }
       // Definitions contain no launch path/port/token for stable channels.

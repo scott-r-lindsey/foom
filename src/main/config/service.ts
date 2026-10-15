@@ -2,7 +2,7 @@ import { parseAgentManifest } from "../../shared/agent-plugin-parser";
 import { AgentManifestError } from "../../shared/agent-manifest";
 import type { AgentPluginManifest } from "../../shared/agent-plugin";
 import type { AgentManifestV2 } from "../../shared/agent-manifest-v2";
-import { v2Provider, availableV2 } from "../agents/providers/v2";
+import { v2Provider } from "../agents/providers/v2";
 import type { AgentProvider } from "../agents/providers/registry";
 import { configProvider } from "../agents/providers/config";
 import { pluginDisclosure } from "../agents/providers/disclosure";
@@ -610,7 +610,6 @@ export class ConfigService {
       try {
         text = decode(bytes);
         const parsed = parseAgentManifest(text);
-        if (parsed.version === 2) availableV2(parsed.model);
         manifest = parsed.version === 2 ? parsed.model : parsed.manifest;
         if (file !== `agents/${manifest.id}.json`)
           throw new AgentManifestError("$.id", "filename-mismatch");

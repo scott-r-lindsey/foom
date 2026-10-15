@@ -1,3 +1,4 @@
+import { pluginContent } from "./plugin-staging";
 import { setupOffers } from "./setup-offers";
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
@@ -40,11 +41,13 @@ export class PluginSetup {
   ) {}
 
   private async inspect(
-    setup: Setup,
+    model: AgentManifestV2,
     executable: string,
     facts: Facts,
     signal?: AbortSignal,
   ): Promise<Snapshot> {
+    const setup = model.setup;
+    if (!setup) throw Error("Missing setup");
     const status = setup.status;
     let probe: unknown;
     if (status.probe) {
@@ -142,7 +145,14 @@ export class PluginSetup {
             if (parent !== undefined && !record(parent)) throw new Error("Invalid plugin switch");
           }
         }
+        const staged = model.hooks?.channels.some(
+          (channel) => channel.observer.placement === "plugin",
+        )
+          ? pluginContent(model, facts)
+          : undefined;
         Object.assign(derived, {
+          stagingOutdated:
+            staged?.observers === true && manifest["foomStagingFingerprint"] !== staged.fingerprint,
           owned: true,
           absent: false,
           version,
@@ -150,9 +160,10 @@ export class PluginSetup {
         });
       } else Object.assign(derived, { owned: false, absent: true });
     }
-    const state =
+    let state =
       status.cases.find((entry) => selected(entry.when, derived, (field) => select(field, sources)))
         ?.state ?? status.default;
+    if (state === "installed" && derived["stagingOutdated"] === true) state = "outdated";
     // Cases cannot turn unknown ownership into authority or disguise an absent installation.
     if (
       ownership &&
@@ -176,7 +187,7 @@ export class PluginSetup {
   ): Promise<AgentSetupStatus> {
     if (!model.setup) return { state: "unavailable", actions: [] };
     try {
-      const snapshot = await this.inspect(model.setup, executable, facts);
+      const snapshot = await this.inspect(model, executable, facts);
       snapshot.facts = { ...snapshot.facts, ...derive(snapshot.state), setupState: snapshot.state };
       return {
         state: snapshot.state,
@@ -227,7 +238,7 @@ export class PluginSetup {
         signal.throwIfAborted();
       };
       await validate();
-      const before = await this.inspect(setup, executable, input.facts(), signal);
+      const before = await this.inspect(model, executable, input.facts(), signal);
       before.facts = { ...before.facts, ...input.facts(before.state), setupState: before.state };
       if (!selected(action.when, before.facts))
         throw new Error("Plugin setup changed. Scan again.");
@@ -254,7 +265,7 @@ export class PluginSetup {
       await setupOffers.answer(model.id);
       if (!accepted) return;
       await validate();
-      const after = await this.inspect(setup, executable, input.facts(), signal);
+      const after = await this.inspect(model, executable, input.facts(), signal);
       after.facts = { ...after.facts, ...input.facts(after.state), setupState: after.state };
       if (
         identity !== (await executableIdentity()) ||
@@ -280,7 +291,8 @@ export class PluginSetup {
           ? after.facts["absent"] === true ||
             (owned &&
               typeof version === "number" &&
-              version < (setup.status.ownership?.currentVersion ?? 0) &&
+              (version < (setup.status.ownership?.currentVersion ?? 0) ||
+                after.facts["stagingOutdated"] === true) &&
               after.facts["disabled"] === false)
           : operation === "enable"
             ? owned && after.facts["disabled"] === true
@@ -290,7 +302,7 @@ export class PluginSetup {
       try {
         await this.run(executable, args, { ...limits, signal });
         await validate();
-        const result = await this.inspect(setup, executable, input.facts(), signal);
+        const result = await this.inspect(model, executable, input.facts(), signal);
         const installedVersion = result.facts["version"];
         const verified =
           operation === "uninstall"
@@ -299,7 +311,8 @@ export class PluginSetup {
               (operation === "enable"
                 ? result.facts["disabled"] === false
                 : typeof installedVersion === "number" &&
-                  installedVersion >= (setup.status.ownership?.currentVersion ?? 0));
+                  installedVersion >= (setup.status.ownership?.currentVersion ?? 0) &&
+                  result.facts["stagingOutdated"] !== true);
         if (!verified) throw new Error("Setup state did not change");
       } catch {
         throw new Error("Plugin setup command failed. Scan again to check its status.");

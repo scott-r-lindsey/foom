@@ -9,7 +9,7 @@ import healthFixture from "../../../fixtures/agent-plugins-v2/codex.json";
 import { AgyPlugin } from "../../../../src/main/agents/agy-plugin";
 import fixture from "../../../fixtures/agent-plugin-v2.json";
 import { parseAgentManifest } from "../../../../src/shared/agent-plugin-parser";
-import { availableV2, v2Provider } from "../../../../src/main/agents/providers/v2";
+import { v2Provider } from "../../../../src/main/agents/providers/v2";
 import {
   boundedArguments,
   bypassEnvironment,
@@ -397,20 +397,10 @@ it("supports file-free server-parentheses grants, conditional blocks and alterna
 });
 it("supports hooks, health and setup, reviews the whole surface, and applies approved attention rules", () => {
   const m = model();
-  for (const source of [hookFixture, healthFixture])
-    expect(() => {
-      availableV2(model({ ...source, id: fixture.id }));
-    }).not.toThrow();
-  const setup = model({ ...setupFixture, id: fixture.id });
-  expect(() => {
-    availableV2(setup);
-  }).toThrow("v2-observer-staging-unavailable");
-  setup.files = setup.files.filter(
-    (file) => file.scope !== "plugin" || !file.content.includes("{observer"),
-  );
-  expect(() => {
-    availableV2(setup);
-  }).not.toThrow();
+  for (const source of [hookFixture, healthFixture, setupFixture])
+    expect(() =>
+      v2Provider(model({ ...source, id: fixture.id }), () => Promise.resolve()),
+    ).not.toThrow();
   replaceConfigProviders([v2Provider(m, () => Promise.resolve())]);
   expect(detectAgent(m.id, { title: "Working", progress: null }, [])?.id).toBe("working");
   const disclosure = pluginDisclosure(m, {
