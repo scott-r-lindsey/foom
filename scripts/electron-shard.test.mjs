@@ -11,7 +11,7 @@ import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
 test("Electron shards register every test exactly once, preserve filtering and reject invalid shards", () => {
-  const directory = mkdtempSync(path.join(tmpdir(), "foom-shard-"));
+  const directory = mkdtempSync(path.join(tmpdir(), "foom-shard-#-"));
   try {
     const helper = fileURLToPath(new URL("../tests/electron/test-shard.js", import.meta.url));
     // Collect actual registrations in every discovered suite, including generated
@@ -57,6 +57,10 @@ test("Electron shards register every test exactly once, preserve filtering and r
       );
       return file;
     });
+    // TAP escapes Windows separators and # in empty-file placeholder names.
+    const filePlaceholders = new Set(
+      fixtures.map((file) => file.replaceAll("\\", "\\\\").replaceAll("#", "\\#")),
+    );
     const env = { ...process.env };
     delete env.NODE_TEST_CONTEXT; // The fixture needs its own runner and text reporter.
     const run = (shard, args = []) =>
@@ -78,7 +82,7 @@ test("Electron shards register every test exactly once, preserve filtering and r
         const selected = Array.from(
           result.stdout.matchAll(/^ok \d+ - (.+)$/gm),
           (match) => match[1],
-        ).filter((name) => !fixtures.includes(name)); // Node reports empty files as passing placeholders.
+        ).filter((name) => !filePlaceholders.has(name)); // Node reports empty files as passing placeholders.
         const expected = names.filter((name) => {
           const planned =
             count === plan.shards.length
