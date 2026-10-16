@@ -248,6 +248,7 @@ it("changes metadata revision on PR conclusion while narrowing untrusted fields"
     state: null,
   };
   const actor: Principal = {
+    grantedAt: "2026-10-15T00:00:00.000Z",
     generation: "new-generation",
     sessionId: "parent",
     terminalId: "parent",

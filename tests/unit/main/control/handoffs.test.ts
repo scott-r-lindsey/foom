@@ -8,6 +8,7 @@ import {
 import type { Principal } from "../../../../src/main/control/types";
 
 const actor: Principal = {
+  grantedAt: "2026-10-15T00:00:00.000Z",
   generation: "generation",
   sessionId: "session",
   terminalId: "child",

@@ -100,6 +100,7 @@ export class ControlService {
           throw new ControlError("unauthorized");
         grant.principal = Object.freeze({
           generation,
+          grantedAt: new Date().toISOString(),
           sessionId: sessionId ?? generation,
           repository,
           worktree,
@@ -228,6 +229,10 @@ export class ControlService {
           worktree: locationId(actor.worktree),
           name: metadataName(basename(actor.worktree)),
           capabilities: this.capabilities(actor),
+          tools: this.capabilities(actor).map((name) => ({
+            name,
+            cli: `foom ${name === "list_previews" ? "previews" : name.replaceAll("_", "-")}`,
+          })),
         };
       case "sessions":
       case "session_state": {
@@ -261,7 +266,12 @@ export class ControlService {
       throw new ControlError("not_found");
     }
     if (current.role === role) return;
-    grant.principal = Object.freeze({ ...current, role, parentId: null });
+    grant.principal = Object.freeze({
+      ...current,
+      role,
+      parentId: null,
+      grantedAt: new Date().toISOString(),
+    });
     if (current.role === "orchestrator") {
       this.operations.revoke(current);
       this.previews?.revoke(current);

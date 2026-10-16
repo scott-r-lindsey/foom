@@ -78,6 +78,7 @@ beforeEach(() => {
   writeFileSync(join(tree, ".env.md"), "SECRET=1");
   writeFileSync(join(root, "other", "secret.md"), "outside");
   actor = {
+    grantedAt: "2026-10-15T00:00:00.000Z",
     generation: "g1",
     sessionId: "s1",
     role: "agent",

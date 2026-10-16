@@ -4,6 +4,7 @@ import type { AgentPreview } from "../../../../src/main/control/previews";
 import { previewBackend } from "../../../../src/main/previews/control-backend";
 import { PreviewRegistry } from "../../../../src/main/previews/registry";
 const actor: Principal = {
+  grantedAt: "2026-10-15T00:00:00.000Z",
   generation: "g",
   terminalId: "terminal",
   sessionId: "session",
