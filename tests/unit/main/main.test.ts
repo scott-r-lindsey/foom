@@ -1975,6 +1975,7 @@ test("main preview composition targets the opener's board and releases human-clo
     if (!backend) throw new Error("Missing preview backend");
     const { previewHosts } = await import("../../../src/main/main");
     const actor = {
+      grantedAt: "2026-10-15T00:00:00.000Z",
       generation: "g",
       sessionId: "s",
       terminalId: "t1",

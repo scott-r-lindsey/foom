@@ -41,6 +41,15 @@ describe("control identity and capability checks", () => {
       repository: locationId(actor.repository),
       worktree: locationId(actor.worktree),
       name: metadataName(basename(actor.worktree)),
+      tools: [
+        { name: "whoami", cli: "foom whoami" },
+        { name: "sessions", cli: "foom sessions" },
+        { name: "session_state", cli: "foom session-state" },
+        { name: "open_preview", cli: "foom open-preview" },
+        { name: "list_previews", cli: "foom previews" },
+        { name: "close_preview", cli: "foom close-preview" },
+        { name: "operation_status", cli: "foom operation-status" },
+      ],
       capabilities: [
         "whoami",
         "sessions",
@@ -383,4 +392,46 @@ it("returns only live owned removals to review, with durable intent and no resur
   expect(operations.lookup(actor, { operationId: failing.operationId }).status).toBe(
     "indeterminate",
   );
+});
+
+it("dates the current role at binding and each change, preserving it on no-ops", () => {
+  vi.useFakeTimers();
+  try {
+    vi.setSystemTime(new Date("2026-10-15T01:00:00.000Z"));
+    const { service, actor, token, request } = fixture();
+    expect(service.dispatch(actor, request("whoami"))).toMatchObject({
+      grantedAt: "2026-10-15T01:00:00.000Z",
+    });
+    const launch = service.prepare(repo, repo);
+    vi.setSystemTime(new Date("2026-10-15T02:00:00.000Z"));
+    launch.bind("later");
+    const later = service.authenticate(launch.env["FOOM_CONTROL_TOKEN"] ?? "");
+    expect(service.dispatch(later, request("whoami"))).toMatchObject({
+      role: "agent",
+      grantedAt: "2026-10-15T02:00:00.000Z",
+    });
+    service.setRole("terminal", "orchestrator");
+    expect(service.authenticate(token).grantedAt).toBe(actor.grantedAt);
+    service.setRole("terminal", "agent");
+    expect(service.authenticate(token).grantedAt).toBe("2026-10-15T02:00:00.000Z");
+    vi.setSystemTime(new Date("2026-10-15T03:00:00.000Z"));
+    service.setRole("terminal", "orchestrator");
+    expect(service.dispatch(service.authenticate(token), request("whoami"))).toMatchObject({
+      role: "orchestrator",
+      grantedAt: "2026-10-15T03:00:00.000Z",
+    });
+    const cli = service.grantCli(repo);
+    expect(service.dispatch(service.authenticate(cli.token), request("whoami"))).toMatchObject({
+      role: "cli",
+      grantedAt: "2026-10-15T03:00:00.000Z",
+      tools: [
+        { name: "whoami", cli: "foom whoami" },
+        { name: "sessions", cli: "foom sessions" },
+        { name: "session_state", cli: "foom session-state" },
+      ],
+    });
+    service.close();
+  } finally {
+    vi.useRealTimers();
+  }
 });

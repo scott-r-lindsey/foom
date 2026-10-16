@@ -1,3 +1,6 @@
+import { readFileSync } from "node:fs";
+import { command } from "../../../../src/cli/commands";
+import { object } from "../../../../src/main/control/validation";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
@@ -113,7 +116,7 @@ function client(token: string) {
   };
 }
 
-it("lists orchestration tools only to the orchestrator and runs them through the service", async () => {
+it("lists orchestration tools to agents but runs them only for the orchestrator", async () => {
   const orchestrator = client(tokens.orchestrator);
   const init = await orchestrator.init();
   expect(JSON.stringify(init)).toMatch(/Foom orchestrator/u);
@@ -205,7 +208,15 @@ it("a human transfer takes effect on the next call over each client's existing M
   service.setRole("agent", "orchestrator");
   slot.bind("agent");
   expect(await agent.tool("whoami", {})).toMatchObject({
-    structuredContent: { role: "orchestrator", parentId: null },
+    structuredContent: {
+      role: "orchestrator",
+      parentId: null,
+      grantedAt: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T/u) as unknown,
+      tools: expect.arrayContaining([
+        { name: "read_handoff", cli: "foom read-handoff" },
+        { name: "reply", cli: "foom reply" },
+      ]) as unknown,
+    },
   });
   expect(
     (await agent.tool("create_worktree", { idempotencyKey: "a", branch: "next" }))
@@ -273,6 +284,10 @@ it("lists handoff only for owned children and refuses hidden direct calls", asyn
   const child = client(grant.env["FOOM_CONTROL_TOKEN"] ?? "");
   await child.init();
   expect(JSON.stringify(await child.send("tools/list"))).toContain('"name":"handoff"');
+  expect((await child.tool("whoami", {})).structuredContent?.["tools"]).toContainEqual({
+    name: "handoff",
+    cli: "foom handoff",
+  });
   expect(JSON.stringify(await child.send("tools/list"))).not.toContain('"name":"read_handoff"');
   expect(
     await child.tool("handoff", { status: "done", summary: "Completed", idempotencyKey: "report" }),
@@ -286,10 +301,103 @@ it("lists handoff only for owned children and refuses hidden direct calls", asyn
     content: [{ text: "no_parent" }],
   });
   orchestration.takeOver("child");
+  expect((await child.tool("whoami", {})).structuredContent?.["tools"]).not.toContainEqual({
+    name: "handoff",
+    cli: "foom handoff",
+  });
   expect(JSON.stringify(await child.send("tools/list"))).not.toContain('"name":"handoff"');
   expect(await child.tool("handoff", {})).toMatchObject({
     isError: true,
     content: [{ text: "no_parent" }],
   });
   expect(await child.tool("read_handoff", { id: "child" })).toMatchObject({ isError: true });
+});
+
+it("pins bounded server and discovery wording to the orchestration contract", async () => {
+  const doc = readFileSync("docs/orchestration.md", "utf8");
+  const parent = client(tokens.orchestrator);
+  const initialized = object((await parent.init())?.result);
+  const instructions = initialized["instructions"];
+  expect(typeof instructions).toBe("string");
+  expect(instructions).toBe(doc.match(/\*\*Server instructions\*\*\n\n> ([^\n]+)/u)?.[1]);
+  expect(String(instructions).length).toBeLessThanOrEqual(1600);
+  expect(instructions).toContain("reply only proposes an answer");
+  expect(instructions).toContain("the human approves it in Foom");
+  expect(instructions).not.toContain("Replies to children are unavailable");
+  const descriptions = new Map(
+    [...doc.matchAll(/^\| `([^`]+)` \| (.+) \|$/gmu)].map((match) => [match[1], match[2]]),
+  );
+  const listed = object((await parent.send("tools/list"))?.result)["tools"];
+  if (!Array.isArray(listed)) throw new Error("missing tools");
+  for (const name of [
+    "whoami",
+    "launch",
+    "reply",
+    "wait_for",
+    "operation_status",
+    "read_handoff",
+  ]) {
+    const tool = listed
+      .map((entry: unknown) => object(entry))
+      .find((entry) => entry["name"] === name);
+    expect(tool?.["description"]).toBe(descriptions.get(name));
+    expect(descriptions.get(name)).toBeDefined();
+    expect(String(tool?.["description"]).length).toBeLessThanOrEqual(650);
+  }
+  expect(descriptions.get("whoami")).toMatch(/^Call first:/u);
+  expect(descriptions.get("launch")).toContain("one task, acceptance criteria and limits");
+  expect(descriptions.get("wait_for")).toContain("quiet is not proof of completion");
+  expect(descriptions.get("read_handoff")).toContain(
+    "you own integration and reporting to the human",
+  );
+  expect(descriptions.get("reply")).toContain(
+    "permission, credential, provider and unknown attention reject proposals",
+  );
+  expect(descriptions.get("operation_status")).toContain("never retry with a new key");
+});
+
+it("advertises only current capabilities with CLI fallbacks accepted by the real parser", async () => {
+  const parent = client(tokens.orchestrator);
+  await parent.init();
+  const identity = object((await parent.tool("whoami", {})).structuredContent);
+  // These are parser inputs, never process launches. Each command gets its required arguments.
+  const examples = [
+    ["whoami"],
+    ["sessions"],
+    ["session-state", "child"],
+    ["open-preview", "report.md"],
+    ["previews"],
+    ["close-preview", "preview"],
+    ["create-worktree", "branch", "--idempotency-key", "key"],
+    ["launch", "tree", "--agent", "claude", "--idempotency-key", "key"],
+    ["stop", "child", "--idempotency-key", "key"],
+    ["close", "child", "--idempotency-key", "key"],
+    ["remove-worktree", "tree", "--idempotency-key", "key"],
+    ["tail", "child"],
+    ["wait-for", "child"],
+    [
+      "reply",
+      "child",
+      "--revision",
+      "rev",
+      "--verdict-id",
+      "verdict",
+      "--text",
+      "Answer",
+      "--idempotency-key",
+      "key",
+    ],
+    ["read-handoff", "child"],
+    ["operation-status", "--idempotency-key", "key"],
+  ];
+  const expected = examples.map((args) => ({
+    name: command(args).method,
+    cli: `foom ${String(args[0])}`,
+  }));
+  expect(identity["tools"]).toEqual(expected);
+  expect(identity["capabilities"]).toEqual(expected.map((tool) => tool.name));
+  service.setRole("parent", "agent");
+  const revoked = object((await parent.tool("whoami", {})).structuredContent);
+  expect(revoked["tools"]).toEqual(expected.slice(0, 6));
+  expect(revoked["capabilities"]).toEqual(expected.slice(0, 6).map((tool) => tool.name));
 });

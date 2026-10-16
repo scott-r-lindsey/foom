@@ -1,5 +1,7 @@
 export type Role = "agent" | "orchestrator" | "cli";
 export interface Principal {
+  /** ISO timestamp when the current role was granted; refreshed on role changes. */
+  readonly grantedAt: string;
   readonly generation: string;
   readonly sessionId: string;
   readonly repository: string;

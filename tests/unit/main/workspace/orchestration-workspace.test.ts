@@ -120,6 +120,7 @@ const orchestrate = async (workspace: Workspace) => {
 
 function principal(): Principal {
   return Object.freeze({
+    grantedAt: "2026-10-15T00:00:00.000Z",
     generation: "generation",
     sessionId: "session",
     repository: repo.path,

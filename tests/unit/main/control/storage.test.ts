@@ -50,6 +50,7 @@ const metadata = {
 };
 const record: StoredOperation = {
   actor: {
+    grantedAt: "2026-10-15T00:00:00.000Z",
     generation: "generation",
     sessionId: "session",
     repository: "repository",
