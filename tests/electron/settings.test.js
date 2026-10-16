@@ -1843,6 +1843,7 @@ test("legacy inference profiles upgrade without evaluator controls or stored key
       settings: {
         setupComplete: true,
         hooks: false,
+        worktreeLocation: "adjacent",
         interfaceScale: 110,
         inference: { kind: "openai", model: "saved-model" },
         inferenceTimeoutMs: 15000,
@@ -1863,6 +1864,7 @@ test("legacy inference profiles upgrade without evaluator controls or stored key
   const page = await boardPage(app);
   const state = await page.evaluate(() => window.desktop.setupState());
   assert.equal(state.settings.hooks, false);
+  assert.equal(state.settings.worktreeLocation, "adjacent");
   assert.equal(state.settings.interfaceScale, 110);
   assert.equal("inference" in state.settings, false);
   assert.equal("inferenceTimeoutMs" in state.settings, false);
@@ -1885,9 +1887,17 @@ test("legacy inference profiles upgrade without evaluator controls or stored key
   await page.evaluate(() => window.desktop.saveSetup({ setupComplete: false }));
   await page.reload();
   await page.getByRole("button", { name: "Start preflight" }).waitFor();
-  await expect(
-    page.getByRole("navigation", { name: "Preflight steps" }).locator("ol").getByRole("button"),
-  ).toHaveCount(5);
+  const steps = page.getByRole("navigation", { name: "Preflight steps" }).locator("ol");
+  await expect(steps.getByRole("button")).toHaveText([
+    "Welcome",
+    "T-2Agents",
+    "T-1Repositories",
+    "T-0Go / no-go",
+  ]);
+  assert.equal(
+    (await page.evaluate(() => window.desktop.setupState())).settings.worktreeLocation,
+    "adjacent",
+  );
   await expect(page.getByText(/Evaluator|Run check|API key/)).toHaveCount(0);
 });
 
